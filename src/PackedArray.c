@@ -1,3 +1,6 @@
+// From https://github.com/gpakosz/PackedArray
+// Lightly edited to match the routing filter API
+//
 // see README.md for usage instructions.
 // (‑●‑●)> released under the WTFPL v2 license, by Gregory Pakosz (@gpakosz)
 

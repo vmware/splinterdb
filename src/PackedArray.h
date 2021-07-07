@@ -1,3 +1,6 @@
+// From https://github.com/gpakosz/PackedArray
+// Lightly edited to match the routing filter API
+
 #ifndef PACKEDARRAY_H
 #define PACKEDARRAY_H
 
