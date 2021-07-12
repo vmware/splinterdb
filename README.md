@@ -1,29 +1,28 @@
+SplinterDB
+==========
 
-# splinterdb
+SplinterDB is a key-value store designed for high performance on fast storage devices.
 
-## Overview
+Installation
+============
+To compile this repository, you need `gawk`, `libaio`, and 'libconfig' dev headers installed.
+You can do this with
+```
+  sudo apt update
+  sudo apt install gawk libaio-dev libconfig-dev
+```
 
-## Try it out
+Access the submodules (xxhash)
+```
+  git submodule init
+  git submodule update
+```
 
-### Prerequisites
+Then, to compile:
+```
+  make
+```
 
-* Prereq 1
-* Prereq 2
-* Prereq 3
-
-### Build & Run
-
-1. Step 1
-2. Step 2
-3. Step 3
-
-## Documentation
-
-## Contributing
-
-The splinterdb project team welcomes contributions from the community. Before you start working with splinterdb, please
-read our [Developer Certificate of Origin](https://cla.vmware.com/dco). All contributions to this repository must be
-signed as described on that page. Your signature certifies that you wrote the patch or have the right to pass it on
-as an open-source patch. For more detailed information, refer to [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## License
+Configuration
+=============
+By default the configuration file default.cfg is used. This creates a db file in the working directory to use as back end. To modify this configuration, copy to "splinter_test.cfg" and make changes.

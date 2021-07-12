@@ -1,0 +1,43 @@
+# Copyright 2018-2021 VMware, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Common splinter test functions
+
+check_exe_exists() {
+   if [ ! -x "$1" ]
+   then
+      echo "Error: executable $1 not found"
+      echo "aborting"
+      exit 1
+   fi
+}
+
+check_file_exists() {
+   if [ ! -f "$1" ]
+   then
+      echo "Error: file $1 not found"
+      echo "aborting"
+      exit 1
+   fi
+}
+
+run_splinter_test() {
+   local splinter_dir=$(dirname $0)/..
+   local bin_dir=$splinter_dir/bin
+   local splinter_test=$bin_dir/driver_test
+
+   check_exe_exists $splinter_test
+   local cmd="$splinter_test $@"
+   echo
+   echo "-----------------------------------------------"
+   echo "Running $cmd"
+   echo "-----------------------------------------------"
+
+   if ! $cmd; then
+      echo
+      echo "-----------------------------------------------"
+      echo "Failure of test: $cmd"
+      echo "-----------------------------------------------"
+      exit 1
+   fi
+}
