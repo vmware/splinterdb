@@ -928,9 +928,6 @@ cache_test(int argc, char *argv[])
    }
 
     platform_log("\nStarted cache_test!!\n");
-    if (1) {
-        return 0;
-    }
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
