@@ -49,6 +49,9 @@ int
 cache_test(int argc, char *argv[]);
 
 int
+kvstore_test(int argc, char *argv[]);
+
+int
 ycsb_test(int argc, char *argv[]);
 
 // FIXME: [tjiaheng 2020-03-23] Consider move to mainTestDispatcher.

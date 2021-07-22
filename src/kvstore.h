@@ -42,6 +42,6 @@ void KVStore_RegisterThread(const KVStoreHandle kvsHandle);
 int KVStore_Insert(const KVStoreHandle kvsHandle, char *key, char *message);
 
 int KVStore_Lookup(const KVStoreHandle kvsHandle, char *key, char *message,
-                   int *found);
+                   bool *found);
 
 #endif // _KVSTORE_H_

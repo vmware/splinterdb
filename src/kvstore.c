@@ -74,6 +74,7 @@ KVStoreInitConfig(const KVStoreConfig *kvsCfg,  // IN
        kvsCfg->keySize == 0         || kvsCfg->dataSize == 0            ||
        kvsCfg->keyCompare == NULL   || kvsCfg->keyHash == NULL          ||
        kvsCfg->mergeTuples == NULL  || kvsCfg->mergeTuplesFinal == NULL ||
+       kvsCfg->diskSize == 0        || kvsCfg->messageClass == NULL     ||
        kvsCfg->keyToStr == NULL     || kvsCfg->messageToStr == NULL) {
       return STATUS_BAD_PARAM;
    }
@@ -95,7 +96,6 @@ KVStoreInitConfig(const KVStoreConfig *kvsCfg,  // IN
    kvs->dataCfg.message_class      = kvsCfg->messageClass;
    kvs->dataCfg.merge_tuples       = kvsCfg->mergeTuples;
    kvs->dataCfg.merge_tuples_final = kvsCfg->mergeTuplesFinal;
-   kvs->dataCfg.key_to_string      = kvsCfg->keyToStr;
    kvs->dataCfg.key_to_string      = kvsCfg->keyToStr;
    kvs->dataCfg.message_to_string  = kvsCfg->messageToStr;
    memset(kvs->dataCfg.min_key, 0, kvs->dataCfg.key_size);
@@ -286,7 +286,10 @@ KVStore_Deinit(KVStoreHandle kvsHandle)  // IN
  * KVStore_RegisterThread --
  *
  *      Register a thread for KVStore operations. Needs to be called from the
- *      threads execution context
+ *      threads execution context.
+ *
+ *      This function must be called by a thread before it performs any
+ *      KV operations.
  *
  * Results:
  *      None.
@@ -361,7 +364,7 @@ int
 KVStore_Lookup(const KVStoreHandle kvsHandle,   // IN
                char *key,                       // IN
                char *value,                     // OUT
-               int *found)                      // OUT
+               bool *found)                      // OUT
 {
    KVStore *kvs = kvsHandle;
    platform_status status;
