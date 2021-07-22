@@ -16,7 +16,9 @@ jobs:
         uses: actions/checkout@v1
 
       - name: Build
-        run: make bin/splinterdb.so bin/driver_test
+        run: |
+          make bin/splinterdb.so bin/driver_test
+          sudo setcap CAP_IPC_LOCK+ep bin/driver_test
 
       - name: Test
         run: |
