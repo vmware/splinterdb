@@ -12,6 +12,8 @@ sudo apt install -y libaio-dev libconfig-dev libxxhash-dev
 
 Build
 ```
+export CC=clang-8
+export LD=clang-8
 make
 ```
 
