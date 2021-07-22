@@ -1,0 +1,25 @@
+name: Check build
+
+on: [push]
+
+jobs:
+  checkbuild:
+    name: Check Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          DEBIAN_FRONTEND=noninteractive sudo apt update -y
+          DEBIAN_FRONTEND=noninteractive sudo apt install -y make autoconf gawk libaio-dev libconfig-dev ctags clang-8 python3 libxxhash-dev
+
+      - name: Check out code
+        uses: actions/checkout@v1
+
+      - name: Build
+        run: make bin/splinterdb.so bin/driver_test
+
+      - name: Test
+        run: |
+          bin/driver_test splinter_test --functionality 1000000 100 --seed 135
+          bin/driver_test cache_test
+          bin/driver_test btree_test
