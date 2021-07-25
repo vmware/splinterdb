@@ -448,15 +448,18 @@ debug_assert_message_type_valid(debug_only merge_iterator *merge_itor)
    } else {
       debug_assert(merge_itor->type == data_type_invalid);
    }
+   debug_code(char *data = merge_itor->data);
    debug_code(data_config *cfg = merge_itor->cfg);
+   message_type type =
+      data == NULL ? MESSAGE_TYPE_INVALID : data_message_class(cfg, data);
    debug_assert(!merge_itor->has_data ||
                 !merge_itor->discard_deletes ||
-                merge_itor->data == NULL ||
-                cfg->data_class(merge_itor->data) != MESSAGE_TYPE_DELETE);
+                data == NULL ||
+                type != MESSAGE_TYPE_DELETE);
    debug_assert(!merge_itor->has_data ||
                 !merge_itor->resolve_updates ||
-                merge_itor->data == NULL ||
-                cfg->data_class(merge_itor->data) != MESSAGE_TYPE_UPDATE);
+                data == NULL ||
+                type != MESSAGE_TYPE_UPDATE);
 #endif
 }
 

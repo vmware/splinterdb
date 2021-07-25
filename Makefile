@@ -5,9 +5,6 @@
 
 PLATFORM = linux
 
-CC = clang-8
-LD = clang-8
-
 #*************************************************************#
 # DIRECTORIES, SRC, OBJ, ETC
 #
@@ -55,15 +52,14 @@ include .libconfig.mk
 #######END libconfig
 
 DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror
-DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY
+DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY -fPIC
 #DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 #DEFAULT_CFLAGS += -fsanitize=address
 #DEFAULT_CFLAGS += -fsanitize=integer
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
 
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native -fPIC
-#CFLAGS += -DDEBUG
+CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
 DEFAULT_LDFLAGS = -ggdb3 -pthread
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
@@ -79,7 +75,7 @@ release: .release all
 	rm -f .debug
 	rm -f .debug-log
 
-debug: CFLAGS = -g -DDEBUG $(DEFAULT_CFLAGS)
+debug: CFLAGS = -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
 debug: LDFLAGS = -g $(DEFAULT_LDFLAGS)
 debug: .debug all
 	rm -f .release
