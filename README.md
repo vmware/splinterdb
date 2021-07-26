@@ -9,13 +9,7 @@ To compile this repository, you need `gawk`, `libaio`, and 'libconfig' dev heade
 You can do this with
 ```
   sudo apt update
-  sudo apt install gawk libaio-dev libconfig-dev
-```
-
-Access the submodules (xxhash)
-```
-  git submodule init
-  git submodule update
+  sudo apt install -y gawk libaio-dev libconfig-dev libxxhash-dev
 ```
 
 Then, to compile:
