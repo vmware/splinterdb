@@ -19,4 +19,7 @@ export DEBIAN_FRONTEND=noninteractive; \
 apt update -y; \
 apt install -y make autoconf gawk libaio-dev libconfig-dev clang-8 libxxhash-dev libcap2-bin;'
 
+ENV CC clang-8
+ENV LD clang-8
+
 CMD ["make"]

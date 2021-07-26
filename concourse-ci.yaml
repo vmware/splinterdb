@@ -52,7 +52,7 @@ resources:
   source:
     # see: Dockerfile.build-env
     repository: projects.registry.vmware.com/splinterdb/build-env
-    tag: "0.1"
+    tag: "0.2"
 
 jobs:
 - name: check-commits-on-main
