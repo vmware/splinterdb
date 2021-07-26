@@ -1,3 +1,10 @@
 .idea/
 cmake-build-debug/
 CMakeLists.txt
+.libconfig.mk
+.release
+.debug
+bin/
+obj/
+db
+cache-log
