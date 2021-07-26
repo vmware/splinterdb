@@ -1,0 +1,22 @@
+# Copyright 2018-2021 VMware, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Dependencies for building splinterdb from source
+#
+# Example usage:
+#
+# First build the image holding the dependencies
+#    docker build -t splinterdb-build-env - < Dockerfile.build-env
+# With that image built, you can quickly re-compile splinter from source
+#   docker run --rm -v $PWD:/src -w /src splinterdb-build-env make
+# And to test the resulting binary
+#   docker run --rm -v $PWD:/src -w /src --cap-add=IPC_LOCK splinterdb-build-env bin/driver_test splinter_test
+
+FROM library/ubuntu:20.04
+RUN /bin/bash -c ' \
+set -euo pipefail; \
+export DEBIAN_FRONTEND=noninteractive; \
+apt update -y; \
+apt install -y make autoconf gawk libaio-dev libconfig-dev clang-8 libxxhash-dev libcap2-bin;'
+
+CMD ["make"]

@@ -1,0 +1,172 @@
+# Copyright 2018-2021 VMware, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# Concourse CI pipeline
+# https://concourse-ci.org/
+#
+# To install/update the pipeline, follow the Concourse docs to target a Concourse installation,
+# then run
+#    fly -t $TARGET set-pipeline --config concourse-ci.yaml --pipeline splinterdb
+---
+
+resource_types:
+- name: cogito
+  type: registry-image
+  check_every: 12h
+  source:
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/pix4d/cogito
+    tag: "0.5.1"
+- name: pull-request
+  type: docker-image
+  source:
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/teliaoss/github-pr-resource
+
+resources:
+- name: source-code
+  type: git
+  source:
+    uri: git@github.com:vmware/splinterdb.git
+    branch: main
+    private_key: ((github-deploy-key-private))
+
+- name: github-commit-status
+  type: cogito
+  check_every: 1h
+  source:
+    owner: vmware
+    repo: splinterdb
+    # this token is tied to Gabe's GitHub account
+    # TODO: set up a dedicated bot account instead
+    access_token: ((github-access-token-gabe))
+
+- name: github-pull-request
+  type: pull-request
+  check_every: 2m
+  source:
+    repository: vmware/splinterdb
+    access_token: ((github-access-token-gabe))
+    base_branch: main
+
+- name: build-image
+  type: registry-image
+  source:
+    # see: Dockerfile.build-env
+    repository: projects.registry.vmware.com/splinterdb/build-env
+    tag: "0.1"
+
+jobs:
+- name: check-commits-on-main
+  public: true
+  on_success:
+    put: github-commit-status
+    inputs: [source-code]
+    params: {state: success}
+  on_failure:
+    put: github-commit-status
+    inputs: [source-code]
+    params: {state: failure}
+  on_error:
+    put: github-commit-status
+    inputs: [source-code]
+    params: {state: error}
+  plan:
+  - get: build-image
+  - get: source-code
+    trigger: true
+  - put: github-commit-status
+    inputs: [source-code]
+    params: {state: pending}
+  - task: build
+    image: build-image
+    config:
+      platform: linux
+      inputs:
+      - name: source-code
+      outputs:
+      - name: bin
+        path: source-code/bin
+      run:
+        path: /usr/bin/make
+        args: ["-C", "source-code"]
+  - in_parallel:
+    - task: splinter_test
+      image: build-image
+      privileged: true
+      config:
+        platform: linux
+        inputs:
+        - name: bin
+        run:
+          path: /bin/bash
+          args: ["-c", "bin/driver_test splinter_test --functionality 1000000 100 --seed 135"]
+    - task: cache_test
+      image: build-image
+      privileged: true
+      config:
+        platform: linux
+        inputs:
+        - name: bin
+        run:
+          path: /bin/bash
+          args: ["-c", "bin/driver_test cache_test"]
+    - task: btree_test
+      image: build-image
+      privileged: true
+      config:
+        platform: linux
+        inputs:
+        - name: bin
+        run:
+          path: /bin/bash
+          args: ["-c", "bin/driver_test btree_test"]
+
+- name: check-pull-requests
+  public: true
+  on_failure:
+    put: github-pull-request
+    params:
+      path: github-pull-request
+      status: failure
+  on_success:
+    put: github-pull-request
+    params:
+      path: github-pull-request
+      status: success
+  on_error:
+    put: github-pull-request
+    params:
+      path: github-pull-request
+      status: error
+  plan:
+  - get: github-pull-request
+    trigger: true
+    version: every
+  - get: build-image
+  - put: github-pull-request
+    params:
+      path: github-pull-request
+      status: pending
+  - task: build
+    image: build-image
+    input_mapping:
+      source-code: github-pull-request  # this will be the *merge* of the PR against main
+    config:
+      platform: linux
+      inputs:
+      - name: source-code
+      outputs:
+      - name: bin
+        path: source-code/bin
+      run:
+        path: /usr/bin/make
+        args: ["-C", "source-code"]
+  - task: splinter_test
+    image: build-image
+    privileged: true
+    config:
+      platform: linux
+      inputs:
+      - name: bin
+      run:
+        path: /bin/bash
+        args: ["-c", "bin/driver_test splinter_test --functionality 1000000 100 --seed 135"]
