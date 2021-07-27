@@ -76,49 +76,16 @@ jobs:
   - put: github-commit-status
     inputs: [source-code]
     params: {state: pending}
-  - task: build
+  - task: build-and-test
+    privileged: true
     image: build-image
     config:
       platform: linux
       inputs:
       - name: source-code
-      outputs:
-      - name: bin
-        path: source-code/bin
       run:
         path: /usr/bin/make
-        args: ["-C", "source-code"]
-  - in_parallel:
-    - task: splinter_test
-      image: build-image
-      privileged: true
-      config:
-        platform: linux
-        inputs:
-        - name: bin
-        run:
-          path: /bin/bash
-          args: ["-c", "bin/driver_test splinter_test --functionality 1000000 100 --seed 135"]
-    - task: cache_test
-      image: build-image
-      privileged: true
-      config:
-        platform: linux
-        inputs:
-        - name: bin
-        run:
-          path: /bin/bash
-          args: ["-c", "bin/driver_test cache_test"]
-    - task: btree_test
-      image: build-image
-      privileged: true
-      config:
-        platform: linux
-        inputs:
-        - name: bin
-        run:
-          path: /bin/bash
-          args: ["-c", "bin/driver_test btree_test"]
+        args: ["-C", "source-code", "test"]
 
 - name: check-pull-requests
   public: true
@@ -146,7 +113,8 @@ jobs:
     params:
       path: github-pull-request
       status: pending
-  - task: build
+  - task: build-and-test
+    privileged: true
     image: build-image
     input_mapping:
       source-code: github-pull-request  # this will be the *merge* of the PR against main
@@ -154,19 +122,6 @@ jobs:
       platform: linux
       inputs:
       - name: source-code
-      outputs:
-      - name: bin
-        path: source-code/bin
       run:
         path: /usr/bin/make
-        args: ["-C", "source-code"]
-  - task: splinter_test
-    image: build-image
-    privileged: true
-    config:
-      platform: linux
-      inputs:
-      - name: bin
-      run:
-        path: /bin/bash
-        args: ["-c", "bin/driver_test splinter_test --functionality 1000000 100 --seed 135"]
+        args: ["-C", "source-code", "test"]
