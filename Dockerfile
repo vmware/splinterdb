@@ -1,24 +1,33 @@
 # Copyright 2018-2021 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM ubuntu:18.04
+# Example usage:
+# docker build -t splinterdb . && docker --rm run --cap-add=IPC_LOCK splinterdb
 
-RUN apt-get update && apt-get upgrade -y
-RUN apt-get install gawk -y
-RUN apt-get install libaio-dev -y
-RUN apt-get install libconfig-dev -y
-RUN apt-get install ctags -y
-RUN apt-get install clang-8 -y
-RUN apt-get install python3 -y
-RUN apt-get install vim -y
-RUN apt-get install -y lldb-3.9
-RUN apt install -y libxxhash-dev
+FROM library/ubuntu:20.04 AS build-env
+RUN /bin/bash -c ' \
+set -euo pipefail; \
+export DEBIAN_FRONTEND=noninteractive; \
+apt update -y; \
+apt install -y make libaio-dev libconfig-dev clang-8 libxxhash-dev libcap2-bin; \
+apt clean;'
 
-RUN mkdir -p /splinterdb
-COPY ./ /splinterdb
-WORKDIR /splinterdb
-RUN chmod +x ./script.sh
+ENV CC clang-8
+ENV LD clang-8
 
-RUN make
+FROM build-env AS build-artifact
+COPY . /src
+RUN make -C /src
 
-CMD ["/splinterdb/script.sh"]
+FROM library/ubuntu:20.04 AS runner
+RUN /bin/bash -c ' \
+set -euo pipefail; \
+export DEBIAN_FRONTEND=noninteractive; \
+apt update -y; \
+apt install -y libaio1 libxxhash0; \
+apt clean;'
+COPY --from=build-artifact /src/bin/driver_test /splinterdb/bin/driver_test
+COPY --from=build-artifact /src/bin/splinterdb.so /splinterdb/bin/splinterdb.so
+COPY --from=build-artifact /src/test.sh /splinterdb/test.sh
+WORKDIR "/splinterdb"
+CMD ["/splinterdb/test.sh"]

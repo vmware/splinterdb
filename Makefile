@@ -128,3 +128,16 @@ clean :
 
 tags:
 	ctags -R src
+
+
+#*************************************************************#
+# Testing
+#
+.PHONY: setcap test
+
+# Run this once with sudo, and then you don't need sudo for executing tests
+setcap: $(BINDIR)/driver_test
+	setcap CAP_IPC_LOCK+ep $(BINDIR)/driver_test
+
+test: $(BINDIR)/driver_test
+	./test.sh
