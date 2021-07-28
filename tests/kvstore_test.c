@@ -55,7 +55,7 @@ int kvstore_test(int argc, char *argv[])
    KVStore_RegisterThread(kvsHandle);
 
    fprintf(stderr, "kvstore_test: initializing test data\n");
-   char key[24] = {0};
+   char *key = calloc(1, kvsCfg.keySize);
    char *value = calloc(1, kvsCfg.dataSize);
    if (value == NULL) {
       fprintf(stderr, "calloc value buffer\n");
