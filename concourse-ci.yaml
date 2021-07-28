@@ -10,19 +10,71 @@
 ---
 
 resource_types:
+# Enables GitHub status on commits
 - name: cogito
   type: registry-image
   check_every: 12h
   source:
     repository: harbor-repo.vmware.com/dockerhub-proxy-cache/pix4d/cogito
     tag: "0.5.1"
+
+# Enables GitHub status on pull requests
 - name: pull-request
-  type: docker-image
+  type: registry-image
   source:
     repository: harbor-repo.vmware.com/dockerhub-proxy-cache/teliaoss/github-pr-resource
 
+
 resources:
-- name: source-code
+# Source code for the container image holding the build environment
+- name: build-env-source
+  type: git
+  source:
+    uri: git@github.com:vmware/splinterdb.git
+    branch: main
+    private_key: ((github-deploy-key-private))
+    paths: [ "Dockerfile.build-env" ]
+
+# Source code for the container image holding the run environment
+- name: run-env-source
+  type: git
+  source:
+    uri: git@github.com:vmware/splinterdb.git
+    branch: main
+    private_key: ((github-deploy-key-private))
+    paths: [ "Dockerfile.run-env" ]
+
+# Container image for the build environment
+- name: build-env-image
+  type: registry-image
+  source:
+    # see: Dockerfile.build-env
+    tag: "latest"
+    repository: projects.registry.vmware.com/splinterdb/build-env
+    username: ((distribution-harbor-robot-username))
+    password: ((distribution-harbor-robot-password))
+
+# Container image for the runtime dependencies
+- name: run-env-image
+  type: registry-image
+  source:
+    # see: Dockerfile.run-env
+    tag: "latest"
+    repository: projects.registry.vmware.com/splinterdb/run-env
+    username: ((distribution-harbor-robot-username))
+    password: ((distribution-harbor-robot-password))
+
+# Container image with the final built splinterdb SO file and test binary
+- name: splinterdb-image
+  type: registry-image
+  source:
+    tag: "latest"
+    repository: projects.registry.vmware.com/splinterdb/splinterdb
+    username: ((distribution-harbor-robot-username))
+    password: ((distribution-harbor-robot-password))
+
+# Source code repo, main branch
+- name: branch-main
   type: git
   source:
     uri: git@github.com:vmware/splinterdb.git
@@ -47,45 +99,134 @@ resources:
     access_token: ((github-access-token-gabe))
     base_branch: main
 
-- name: build-image
-  type: registry-image
-  source:
-    # see: Dockerfile.build-env
-    repository: projects.registry.vmware.com/splinterdb/build-env
-    tag: "0.2"
 
 jobs:
-- name: check-commits-on-main
+
+# Create the container image that holds the build environment
+- name: recreate-build-env
+  public: true
+  plan:
+  - get: build-env-source
+    trigger: true
+  - task: build-oci-image
+    privileged: true
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/oci-build-task
+      inputs:
+      - name: build-env-source
+        path: .
+      outputs:
+      - name: image
+      params:
+        BUILD_ARG_base_image: harbor-repo.vmware.com/dockerhub-proxy-cache/library/ubuntu:20.04
+        DOCKERFILE: Dockerfile.build-env
+      run:
+        path: build
+  - put: build-env-image
+    params:
+      image: image/image.tar
+      additional_tags: build-env-source/.git/ref
+
+# Create the container image that holds the runtime environment
+- name: recreate-run-env
+  public: true
+  plan:
+  - get: run-env-source
+    trigger: true
+  - task: build-oci-image
+    privileged: true
+    config:
+      platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/oci-build-task
+      inputs:
+      - name: run-env-source
+        path: .
+      outputs:
+      - name: image
+      params:
+        BUILD_ARG_base_image: harbor-repo.vmware.com/dockerhub-proxy-cache/library/ubuntu:20.04
+        DOCKERFILE: Dockerfile.run-env
+      run:
+        path: build
+  - put: run-env-image
+    params:
+      image: image/image.tar
+      additional_tags: run-env-source/.git/ref
+
+
+- name: test-and-publish-main
   public: true
   on_success:
     put: github-commit-status
-    inputs: [source-code]
+    inputs: [branch-main]
     params: {state: success}
   on_failure:
     put: github-commit-status
-    inputs: [source-code]
+    inputs: [branch-main]
     params: {state: failure}
   on_error:
     put: github-commit-status
-    inputs: [source-code]
+    inputs: [branch-main]
     params: {state: error}
   plan:
-  - get: build-image
-  - get: source-code
+  - get: branch-main
     trigger: true
+  - load_var: git-commit-sha
+    file: branch-main/.git/ref
+    reveal: true
   - put: github-commit-status
-    inputs: [source-code]
+    inputs: [branch-main]
     params: {state: pending}
-  - task: build-and-test
+  - get: build-env-image
+    passed: [ recreate-build-env ]
+    params: { format: oci }
+    trigger: true
+  - get: run-env-image
+    passed: [ recreate-run-env ]
+    params: { format: oci }
+    trigger: true
+  - task: build-splinterdb-image
     privileged: true
-    image: build-image
+    output_mapping: { image: splinterdb-image }
     config:
       platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/oci-build-task
       inputs:
-      - name: source-code
+      - name: build-env-image
+      - name: run-env-image
+      - name: branch-main
+      outputs:
+      - name: image
+      params:
+        IMAGE_ARG_build_env_image: build-env-image/image.tar
+        IMAGE_ARG_run_env_image: run-env-image/image.tar
+        CONTEXT: branch-main
+        UNPACK_ROOTFS: true
+        LABEL_git_sha: ((.:git-commit-sha))
       run:
-        path: /usr/bin/make
-        args: ["-C", "source-code", "test"]
+        path: build
+  - task: test-splinterdb-image
+    privileged: true
+    image: splinterdb-image
+    config:
+      platform: linux
+      run:
+        path: sh
+        args: ["-c", "cd /splinterdb && ./test.sh"]
+  - put: splinterdb-image
+    params:
+      image: splinterdb-image/image.tar
+      additional_tags: branch-main/.git/ref
 
 - name: check-pull-requests
   public: true
@@ -108,20 +249,43 @@ jobs:
   - get: github-pull-request
     trigger: true
     version: every
-  - get: build-image
   - put: github-pull-request
     params:
       path: github-pull-request
       status: pending
-  - task: build-and-test
+  - get: build-env-image
+    passed: [ recreate-build-env ]
+    params: { format: oci }
+  - get: run-env-image
+    passed: [ recreate-run-env ]
+    params: { format: oci }
+  - task: build-splinterdb-image
     privileged: true
-    image: build-image
-    input_mapping:
-      source-code: github-pull-request  # this will be the *merge* of the PR against main
+    output_mapping: { image: splinterdb-image }
     config:
       platform: linux
+      image_resource:
+        type: registry-image
+        source:
+          repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/oci-build-task
       inputs:
-      - name: source-code
+      - name: build-env-image
+      - name: run-env-image
+      - name: github-pull-request
+      outputs:
+      - name: image
+      params:
+        IMAGE_ARG_build_env_image: build-env-image/image.tar
+        IMAGE_ARG_run_env_image: run-env-image/image.tar
+        CONTEXT: github-pull-request
+        UNPACK_ROOTFS: true
       run:
-        path: /usr/bin/make
-        args: ["-C", "source-code", "test"]
+        path: build
+  - task: test-splinterdb-image
+    privileged: true
+    image: splinterdb-image
+    config:
+      platform: linux
+      run:
+        path: sh
+        args: ["-c", "cd /splinterdb && ./test.sh"]
