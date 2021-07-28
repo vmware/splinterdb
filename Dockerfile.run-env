@@ -2,22 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Source for the image
-#    projects.registry.vmware.com/splinterdb/build-env
+#    projects.registry.vmware.com/splinterdb/run-env
 #
-# This contains the build-time dependencies for splinterdb
+# This contains the run-time dependencies for splinterdb
 #
 # It is maintained separately from the main Dockerfile
 # to reduce build-times when the splinterdb source changes
 
 ARG base_image=library/ubuntu:20.04
-FROM $base_image
+FROM $base_image AS runner
 RUN /bin/bash -c ' \
 set -euo pipefail; \
 export DEBIAN_FRONTEND=noninteractive; \
 apt update -y; \
-apt install -y make libaio-dev libconfig-dev clang-8 libxxhash-dev libcap2-bin;'
-
-ENV CC clang-8
-ENV LD clang-8
-
-CMD ["make"]
+apt install -y libaio1 libxxhash0; \
+apt clean;'
