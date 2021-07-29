@@ -354,7 +354,6 @@ mini_allocator_print(cache                      *cc,
    uint64                   i;
    mini_allocator_meta_hdr *hdr;
    uint64                   next_meta_addr = meta_head;
-   uint64                   last_meta_addr;
 
    do {
       meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
@@ -374,7 +373,6 @@ mini_allocator_print(cache                      *cc,
                entry->zapped, ref_count);
       }
 
-      last_meta_addr = next_meta_addr;
       next_meta_addr = hdr->next_meta_addr;
 
       cache_unget(cc, meta_page);

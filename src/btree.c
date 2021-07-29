@@ -2676,9 +2676,6 @@ btree_count_in_range(cache        *cc,
                      const char   *min_key,
                      const char   *max_key)
 {
-   btree_node root;
-   root.addr = root_addr;
-
    uint64 min_rank = btree_get_rank(cc, cfg, root_addr, min_key);
    uint64 max_rank = btree_get_rank(cc, cfg, root_addr, max_key);
 

@@ -91,7 +91,7 @@ int kvstore_test(int argc, char *argv[])
 
    // muck with the value, just to see that it gets reset
    valueStruct->message_type = MESSAGE_TYPE_UPDATE;
-   strncpy((void *)(valueStruct->data), "zzz", 3);
+   snprintf((void *)(valueStruct->data), kvsCfg.dataSize - offsetof(data_handle, data), "zzz");
    fprintf(stderr, "after insert, we set local variable data = %.*s just to mess it up\n", 3, (char*)(valueStruct->data));
 
    fprintf(stderr, "kvstore_test: lookup #2...");
