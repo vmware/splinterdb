@@ -32,7 +32,7 @@ resources:
   source:
     uri: git@github.com:vmware/splinterdb.git
     branch: main
-    private_key: ((github-deploy-key-private))
+    private_key: ((github-bot-ssh-private-key))
     paths: [ "Dockerfile.build-env" ]
 
 # Source code for the container image holding the run environment
@@ -41,7 +41,7 @@ resources:
   source:
     uri: git@github.com:vmware/splinterdb.git
     branch: main
-    private_key: ((github-deploy-key-private))
+    private_key: ((github-bot-ssh-private-key))
     paths: [ "Dockerfile.run-env" ]
 
 # Container image for the build environment
@@ -79,7 +79,7 @@ resources:
   source:
     uri: git@github.com:vmware/splinterdb.git
     branch: main
-    private_key: ((github-deploy-key-private))
+    private_key: ((github-bot-ssh-private-key))
 
 - name: github-commit-status
   type: cogito
@@ -87,16 +87,14 @@ resources:
   source:
     owner: vmware
     repo: splinterdb
-    # this token is tied to Gabe's GitHub account
-    # TODO: set up a dedicated bot account instead
-    access_token: ((github-access-token-gabe))
+    access_token: ((github-bot-access-token))
 
 - name: github-pull-request
   type: pull-request
   check_every: 2m
   source:
     repository: vmware/splinterdb
-    access_token: ((github-access-token-gabe))
+    access_token: ((github-bot-access-token))
     base_branch: main
 
 
