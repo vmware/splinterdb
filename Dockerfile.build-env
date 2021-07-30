@@ -14,8 +14,8 @@ FROM $base_image
 RUN /bin/bash -c ' \
 set -euo pipefail; \
 export DEBIAN_FRONTEND=noninteractive; \
-apt update -y; \
-apt install -y make libaio-dev libconfig-dev clang-8 libxxhash-dev libcap2-bin;'
+apt-get update -y; \
+apt-get install -y make libaio-dev libconfig-dev clang-8 libxxhash-dev libcap2-bin;'
 
 ENV CC clang-8
 ENV LD clang-8
