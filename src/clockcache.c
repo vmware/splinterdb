@@ -18,6 +18,7 @@
 
 #include "poison.h"
 
+
 /* invalid "pointers" used to indicate that the given page or lookup is
  * unmapped */
 #define CC_UNMAPPED_ENTRY UINT32_MAX
@@ -136,6 +137,7 @@ bool         clockcache_page_valid           (clockcache *cc, uint64 addr);
 void         clockcache_validate_page        (clockcache *cc, page_handle *page, uint64 addr);
 
 void         clockcache_print_stats          (clockcache *cc);
+void         clockcache_io_stats             (clockcache *cc, uint64 *read_bytes, uint64 *write_bytes);
 void         clockcache_reset_stats          (clockcache *cc);
 
 uint32       clockcache_count_dirty          (clockcache *cc);
@@ -175,6 +177,7 @@ static cache_ops clockcache_ops = {
    .assert_noleaks    = (assert_noleaks)       clockcache_assert_noleaks,
    .print             = (print_fn)             clockcache_print,
    .print_stats       = (print_fn)             clockcache_print_stats,
+   .io_stats          = (io_stats_fn)          clockcache_io_stats,
    .reset_stats       = (reset_stats_fn)       clockcache_reset_stats,
    .page_valid        = (page_valid_fn)        clockcache_page_valid,
    .validate_page     = (validate_page_fn)     clockcache_validate_page,
@@ -1931,8 +1934,9 @@ clockcache_get_internal(clockcache *cc,              // IN
 
    /* Set up the page */
    entry->page.disk_addr = addr;
-   if (cc->cfg->use_stats)
+   if (cc->cfg->use_stats) {
       start = platform_get_timestamp();
+   }
 
    status = io_read(cc->io, entry->page.data, cc->cfg->page_size, addr);
    platform_assert_status_ok(status);
@@ -1940,6 +1944,7 @@ clockcache_get_internal(clockcache *cc,              // IN
    if (cc->cfg->use_stats) {
       elapsed = platform_timestamp_elapsed(start);
       cc->stats[tid].cache_misses[type]++;
+      cc->stats[tid].page_reads[type]++;
       cc->stats[tid].cache_miss_time_ns[type] += elapsed;
    }
 
@@ -2005,26 +2010,27 @@ clockcache_read_async_callback(void            *metadata,
 {
    cache_async_ctxt *ctxt = *(cache_async_ctxt **)metadata;
    clockcache *cc = (clockcache *)ctxt->cc;
-   uint32 entry_number;
-   uint32 lookup_entry_number;
-   clockcache_entry *entry;
-   uint64 addr;
 
    platform_assert_status_ok(status);
    debug_assert(count == 1);
+
+   uint32 entry_number
+      = clockcache_data_to_entry_number(cc, (char *)iovec[0].iov_base);
+   clockcache_entry *entry = &cc->entry[entry_number];
+   uint64 addr = entry->page.disk_addr;
+   debug_assert(addr != CC_UNMAPPED_ADDR);
+
    if (cc->cfg->use_stats) {
+      threadid tid = platform_get_tid();
+      cc->stats[tid].page_reads[entry->type]++;
       ctxt->stats.compl_ts = platform_get_timestamp();
    }
-   entry_number
-      = clockcache_data_to_entry_number(cc, (char *)iovec[0].iov_base);
-   entry = &cc->entry[entry_number];
-   addr = entry->page.disk_addr;
-   debug_assert(addr != CC_UNMAPPED_ADDR);
-   lookup_entry_number = clockcache_lookup(cc, addr);
 
+   debug_only uint32 lookup_entry_number;
+   debug_code(lookup_entry_number = clockcache_lookup(cc, addr));
    debug_assert(lookup_entry_number == entry_number);
-   __attribute__ ((unused)) uint32 was_loading
-      = clockcache_clear_flag(cc, lookup_entry_number, CC_LOADING);
+   debug_only uint32 was_loading
+     = clockcache_clear_flag(cc, entry_number, CC_LOADING);
    debug_assert(was_loading);
    clockcache_log(addr, entry_number,
                   "async_get (load): entry %u addr %lu\n",
@@ -2576,6 +2582,7 @@ clockcache_read_callback(void            *metadata,
 
    platform_assert_status_ok(status);
 
+   page_type type = PAGE_TYPE_INVALID;
    for (i = 0; i < count; i++) {
       entry_number
          = clockcache_data_to_entry_number(cc, (char *)iovec[i].iov_base);
@@ -2583,6 +2590,11 @@ clockcache_read_callback(void            *metadata,
       addr = entry->page.disk_addr;
       debug_assert(addr != CC_UNMAPPED_ADDR);
       lookup_entry_number = clockcache_lookup(cc, addr);
+      if (i != 0) {
+         debug_assert(type == entry->type);
+      } else {
+         type = entry->type;
+      }
 
       if (lookup_entry_number == entry_number) {
          // real load
@@ -2593,6 +2605,11 @@ clockcache_read_callback(void            *metadata,
          cc->entry[entry_number].page.disk_addr = CC_UNMAPPED_ADDR;
          cc->entry[entry_number].status = CC_FREE_STATUS;
       }
+   }
+
+   if (cc->cfg->use_stats) {
+      threadid tid = platform_get_tid();
+      cc->stats[tid].page_reads[type] += count;
    }
 }
 
@@ -2844,6 +2861,31 @@ clockcache_assert_noleaks(clockcache *cc)
 }
 
 void
+clockcache_io_stats(clockcache *cc,
+                    uint64     *read_bytes,
+                    uint64     *write_bytes)
+{
+  *read_bytes = 0;
+  *write_bytes = 0;
+
+   if (!cc->cfg->use_stats) {
+      return;
+   }
+
+   uint64 read_pages = 0;
+   uint64 write_pages = 0;
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      for (page_type type = 0; type < NUM_PAGE_TYPES; type++) {
+         write_pages += cc->stats[i].page_writes[type];
+         read_pages += cc->stats[i].page_reads[type];
+      }
+   }
+
+   *write_bytes = write_pages * 4 * KiB;
+   *read_bytes = read_pages * 4 * KiB;
+}
+
+void
 clockcache_print_stats(clockcache *cc)
 {
    uint64 i;
@@ -2854,7 +2896,7 @@ clockcache_print_stats(clockcache *cc)
       return;
    }
 
-   memset(&global_stats, 0, sizeof(cache_stats));
+   ZERO_CONTENTS(&global_stats);
    for (i = 0; i < MAX_THREADS; i++) {
       for (type = 0; type < NUM_PAGE_TYPES; type++) {
          global_stats.cache_hits[type] += cc->stats[i].cache_hits[type];
@@ -2862,8 +2904,9 @@ clockcache_print_stats(clockcache *cc)
          global_stats.cache_miss_time_ns[type]
             += cc->stats[i].cache_miss_time_ns[type];
          global_stats.page_allocs[type] += cc->stats[i].page_allocs[type];
-         global_stats.page_writes[type] += cc->stats[i].page_writes[type];
          global_stats.page_deallocs[type] += cc->stats[i].page_deallocs[type];
+         global_stats.page_writes[type] += cc->stats[i].page_writes[type];
+         global_stats.page_reads[type] += cc->stats[i].page_reads[type];
       }
    }
 
@@ -2916,6 +2959,13 @@ clockcache_print_stats(clockcache *cc)
          global_stats.page_writes[PAGE_TYPE_FILTER],
          global_stats.page_writes[PAGE_TYPE_LOG],
          global_stats.page_writes[PAGE_TYPE_MISC]);
+   platform_log("pages read      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+         global_stats.page_reads[PAGE_TYPE_TRUNK],
+         global_stats.page_reads[PAGE_TYPE_BRANCH],
+         global_stats.page_reads[PAGE_TYPE_MEMTABLE],
+         global_stats.page_reads[PAGE_TYPE_FILTER],
+         global_stats.page_reads[PAGE_TYPE_LOG],
+         global_stats.page_reads[PAGE_TYPE_MISC]);
    platform_log("footprint       | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
           global_stats.page_allocs[PAGE_TYPE_TRUNK]
              - global_stats.page_deallocs[PAGE_TYPE_TRUNK],
