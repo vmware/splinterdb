@@ -30,6 +30,7 @@ typedef enum page_type {
    PAGE_TYPE_MISC,
    PAGE_TYPE_LOCK_NO_DATA,
    NUM_PAGE_TYPES,
+   PAGE_TYPE_INVALID,
 } page_type;
 
 typedef struct cache_stats {
@@ -39,6 +40,7 @@ typedef struct cache_stats {
    uint64 page_allocs[NUM_PAGE_TYPES];
    uint64 page_deallocs[NUM_PAGE_TYPES];
    uint64 page_writes[NUM_PAGE_TYPES];
+   uint64 page_reads[NUM_PAGE_TYPES];
 } PLATFORM_CACHELINE_ALIGNED cache_stats;
 
 /*
@@ -136,6 +138,7 @@ typedef void          (*validate_page_fn)      (cache *cc, page_handle *page, ui
 
 typedef void          (*print_fn)              (cache *cc);
 typedef void          (*reset_stats_fn)        (cache *cc);
+typedef void          (*io_stats_fn)           (cache *cc, uint64 *read_bytes, uint64 *write_bytes);
 
 typedef uint32        (*count_dirty_fn)        (cache *cc);
 typedef uint32        (*page_get_read_ref_fn)  (cache *cc, page_handle *page);
@@ -175,6 +178,7 @@ typedef struct cache_ops {
    assert_noleaks        assert_noleaks;
    print_fn              print;
    print_fn              print_stats;
+   io_stats_fn           io_stats;
    reset_stats_fn        reset_stats;
    page_valid_fn         page_valid;
    validate_page_fn      validate_page;
@@ -382,6 +386,12 @@ static inline void
 cache_reset_stats(cache *cc)
 {
    return cc->ops->reset_stats(cc);
+}
+
+static inline void
+cache_io_stats(cache *cc, uint64 *read_bytes, uint64 *write_bytes)
+{
+   return cc->ops->io_stats(cc, read_bytes, write_bytes);
 }
 
 static inline bool
