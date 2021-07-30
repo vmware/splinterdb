@@ -920,7 +920,11 @@ clockcache_try_set_writeback(clockcache *cc,
  *----------------------------------------------------------------------
  */
 
+#if defined(__has_feature)
+#  if __has_feature(memory_sanitizer)
 __attribute__((no_sanitize("memory")))
+#  endif
+#endif
 void
 clockcache_write_callback(void            *metadata,
                           struct iovec    *iovec,
@@ -2456,7 +2460,11 @@ typedef struct clockcache_sync_callback_req {
    uint64     *pages_outstanding;
 } clockcache_sync_callback_req;
 
+#if defined(__has_feature)
+#  if __has_feature(memory_sanitizer)
 __attribute__((no_sanitize("memory")))
+#  endif
+#endif
 void
 clockcache_sync_callback(void            *arg,
                          struct iovec    *iovec,
@@ -2548,7 +2556,11 @@ clockcache_extent_sync(clockcache *cc,
  *----------------------------------------------------------------------
  */
 
+#if defined(__has_feature)
+#  if __has_feature(memory_sanitizer)
 __attribute__((no_sanitize("memory")))
+#  endif
+#endif
 void
 clockcache_read_callback(void            *metadata,
                          struct iovec    *iovec,
