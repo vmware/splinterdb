@@ -24,13 +24,16 @@ docker run -it --rm --cap-add=IPC_LOCK splinterdb /bin/bash
 ```
 
 ### Build from source on Linux
-Builds are known to work on Ubuntu using `clang-8`:
-```shell
-sudo apt update -y
-sudo apt install -y libaio-dev libconfig-dev libxxhash-dev clang-8
+Builds are known to work on Ubuntu using recent versions of GCC and Clang.
+We test against `gcc-9` and `clang-12` in CI.
 
-export CC=clang-8
-export LD=clang-8
+```shell
+export COMPILER=gcc-9
+sudo apt update -y
+sudo apt install -y libaio-dev libconfig-dev libxxhash-dev $COMPILER
+
+export CC=$COMPILER
+export LD=$COMPILER
 make
 ```
 
