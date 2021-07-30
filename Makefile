@@ -105,10 +105,10 @@ debug-log: .debug-log all
 #
 
 $(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
-	$(LD) $(LDFLAGS) $(LIBS) -o $@ $^
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 $(BINDIR)/splinterdb.so : $(OBJ) | $$(@D)/.
-	$(LD) $(LDFLAGS) -shared $(LIBS) -o $@ $^
+	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
 DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
 
