@@ -14,6 +14,6 @@ FROM $base_image AS runner
 RUN /bin/bash -c ' \
 set -euo pipefail; \
 export DEBIAN_FRONTEND=noninteractive; \
-apt update -y; \
-apt install -y libaio1 libxxhash0; \
-apt clean;'
+apt-get update -y; \
+apt-get install -y libaio1 libxxhash0; \
+apt-get clean;'
