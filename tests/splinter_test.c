@@ -850,11 +850,6 @@ test_splinter_perf(splinter_config  *cfg,
       params[i].insert_rate    = insert_rate / num_insert_threads;
    }
 
-   FILE *fp = popen("/home/aconway/bytes_read.sh", "r");// | awk '{print $7}'",  "r");
-   platform_assert(fp != NULL);
-   char buffer[128];
-   platform_assert(fgets(buffer, 128, fp) == buffer);
-   uint64 kb_written_start = atoll(buffer);
    uint64 start_time = platform_get_timestamp();
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
@@ -877,11 +872,10 @@ test_splinter_perf(splinter_config  *cfg,
 
    uint64 total_time = platform_timestamp_elapsed(start_time);
    timestamp insert_latency_max = 0;
-   fp = popen("/home/aconway/bytes_read.sh", "r");// | awk '{print $7}'",  "r");
-   platform_assert(fp != NULL);
-   platform_assert(fgets(buffer, 128, fp) == buffer);
-   uint64 kb_written_end = atoll(buffer);
-   uint64 io_mib = (kb_written_end - kb_written_start) / 1024;
+   // FIXME: [aconway 2021-07-30] Only reporting io stats for first cache.
+   uint64 read_io_bytes, write_io_bytes;
+   cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
+   uint64 io_mib = (read_io_bytes + write_io_bytes) / MiB;
    uint64 bandwidth = io_mib / NSEC_TO_SEC(total_time);
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
@@ -1223,12 +1217,6 @@ test_splinter_periodic(splinter_config  *cfg,
       params[i].ts             = ts;
       params[i].insert_rate    = insert_rate / num_insert_threads;
    }
-
-   FILE *fp = popen("/home/aconway/bytes_read.sh", "r");// | awk '{print $7}'",  "r");
-   platform_assert(fp != NULL);
-   char buffer[128];
-   platform_assert(fgets(buffer, 128, fp) == buffer);
-   uint64 kb_written_start = atoll(buffer);
    uint64 start_time = platform_get_timestamp();
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
@@ -1251,11 +1239,10 @@ test_splinter_periodic(splinter_config  *cfg,
 
    uint64 total_time = platform_timestamp_elapsed(start_time);
    timestamp insert_latency_max = 0;
-   fp = popen("/home/aconway/bytes_read.sh", "r");// | awk '{print $7}'",  "r");
-   platform_assert(fp != NULL);
-   platform_assert(fgets(buffer, 128, fp) == buffer);
-   uint64 kb_written_end = atoll(buffer);
-   uint64 io_mib = (kb_written_end - kb_written_start) / 1024;
+   // FIXME: [aconway 2021-07-30] Only reporting io stats for first cache.
+   uint64 read_io_bytes, write_io_bytes;
+   cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
+   uint64 io_mib = (read_io_bytes + write_io_bytes) / MiB;
    uint64 bandwidth = io_mib / NSEC_TO_SEC(total_time);
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
@@ -1318,11 +1305,9 @@ test_splinter_periodic(splinter_config  *cfg,
 
       total_time = platform_timestamp_elapsed(start_time);
       insert_latency_max = 0;
-      fp = popen("/home/aconway/bytes_read.sh", "r");// | awk '{print $7}'",  "r");
-      platform_assert(fp != NULL);
-      platform_assert(fgets(buffer, 128, fp) == buffer);
-      kb_written_end = atoll(buffer);
-      io_mib = (kb_written_end - kb_written_start) / 1024;
+      // FIXME: [aconway 2021-07-30] Only reporting io stats for first cache.
+      cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
+      io_mib = (read_io_bytes + write_io_bytes) / MiB;
       bandwidth = io_mib / NSEC_TO_SEC(total_time);
 
       for (uint64 i = 0; i < num_insert_threads; i++) {
