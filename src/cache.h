@@ -41,6 +41,9 @@ typedef struct cache_stats {
    uint64 page_deallocs[NUM_PAGE_TYPES];
    uint64 page_writes[NUM_PAGE_TYPES];
    uint64 page_reads[NUM_PAGE_TYPES];
+   uint64 prefetches_issued[NUM_PAGE_TYPES];
+   uint64 writes_issued;
+   uint64 syncs_issued;
 } PLATFORM_CACHELINE_ALIGNED cache_stats;
 
 /*
@@ -119,7 +122,7 @@ typedef uint64        (*extent_sync_fn)        (cache *cc, uint64 addr, uint64 *
 typedef void          (*share_fn)              (cache *cc, page_handle *page_to_share, page_handle *anon_page);
 typedef void          (*unshare_fn)            (cache *cc, page_handle *anon_page);
 
-typedef bool          (*page_prefetch_fn)      (cache *cc, uint64 addr, bool full_extent);
+typedef void          (*page_prefetch_fn)      (cache *cc, uint64 addr, page_type type);
 
 typedef void          (*page_mark_dirty_fn)    (cache *cc, page_handle *page);
 
@@ -274,10 +277,10 @@ cache_unlock(cache *cc, page_handle *page)
    return cc->ops->page_unlock(cc, page);
 }
 
-static inline bool
-cache_prefetch(cache *cc, uint64 addr, bool full_extent)
+static inline void
+cache_prefetch(cache *cc, uint64 addr, page_type type)
 {
-   return cc->ops->page_prefetch(cc, addr, full_extent);
+   return cc->ops->page_prefetch(cc, addr, type);
 }
 
 static inline void
