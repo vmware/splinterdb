@@ -11,7 +11,8 @@
 #ifndef __DATA_H
 #define __DATA_H
 
-#include "platform.h"
+#include "platform_public.h"
+#include <string.h> // for memmove
 
 #define MAX_KEY_SIZE 24
 #define MAX_MESSAGE_SIZE 128
