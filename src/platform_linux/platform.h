@@ -216,7 +216,8 @@ typedef struct {
     int last_token_len;
 } platform_strtok_ctx;
 
-
+extern bool platform_use_hugetlb;
+extern bool platform_use_mlock;
 
 /*
  * Section 3:
