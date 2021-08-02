@@ -10,7 +10,6 @@
 #ifndef _KVSTORE_H_
 #define _KVSTORE_H_
 
-#include "platform.h"
 #include "data.h"
 
 typedef struct KVStoreConfig {
