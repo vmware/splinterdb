@@ -7,6 +7,9 @@
 
 __thread threadid xxxtid;
 
+bool platform_use_hugetlb = FALSE;
+bool platform_use_mlock = FALSE;
+
 platform_status
 platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
                      uint32 max,
@@ -31,6 +34,9 @@ platform_buffer_create(size_t length,
    if (bh != NULL) {
       int prot= PROT_READ | PROT_WRITE;
       int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+      if (platform_use_hugetlb) {
+        flags |= MAP_HUGETLB;
+      }
 
       bh->addr = mmap(NULL, length, prot, flags, -1, 0);
       if (bh->addr == MAP_FAILED) {
@@ -39,12 +45,14 @@ platform_buffer_create(size_t length,
          goto error;
       }
 
-      int rc = mlock(bh->addr, length);
-      if (rc != 0) {
-         platform_error_log("mlock (%lu) failed with error: %s\n", length,
-                            strerror(errno));
-         munmap(bh->addr, length);
-         goto error;
+      if (platform_use_mlock) {
+         int rc = mlock(bh->addr, length);
+         if (rc != 0) {
+            platform_error_log("mlock (%lu) failed with error: %s\n", length,
+                               strerror(errno));
+            munmap(bh->addr, length);
+            goto error;
+         }
       }
    }
 

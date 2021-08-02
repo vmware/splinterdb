@@ -46,6 +46,10 @@ void config_usage()
    platform_error_log("Configuration:\n");
    platform_error_log("\t--page_size\n");
    platform_error_log("\t--extent_size\n");
+   platform_error_log("\t--set-hugetlb\n");
+   platform_error_log("\t--unset-hugetlb\n");
+   platform_error_log("\t--set-mlock\n");
+   platform_error_log("\t--unset-mlock\n");
    platform_error_log("\t--db-location\n");
    platform_error_log("\t--set-O_DIRECT\n");
    platform_error_log("\t--unset-O_DIRECT\n");
@@ -97,6 +101,14 @@ config_parse(master_config *cfg,
             }
          }
       } config_set_uint64("extent-size", cfg, extent_size) {
+      } config_has_option("set-hugetlb") {
+         platform_use_hugetlb = TRUE;
+      } config_has_option("unset-hugetlb") {
+         platform_use_hugetlb = FALSE;
+      } config_has_option("set-mlock") {
+         platform_use_mlock = TRUE;
+      } config_has_option("unset-mlock") {
+         platform_use_mlock = FALSE;
       } config_set_string("db-location", cfg, io_filename) {
       } config_has_option("set-O_DIRECT") {
          for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
