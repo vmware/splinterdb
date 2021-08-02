@@ -1,0 +1,24 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/oci-build-task
+
+inputs:
+- name: build-env-image
+- name: run-env-image
+- name: splinterdb-src
+
+outputs:
+- name: image
+
+params:
+  IMAGE_ARG_build_env_image: build-env-image/image.tar
+  IMAGE_ARG_run_env_image: run-env-image/image.tar
+  CONTEXT: splinterdb-src
+  UNPACK_ROOTFS: true
+
+run:
+  path: build
