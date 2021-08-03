@@ -14,23 +14,23 @@
 #include "data.h"
 
 typedef struct KVStoreConfig {
-   const char               *filename;
-   uint64                    cacheSize;
-   uint64                    diskSize;
-   uint64                    keySize;
-   uint64                    dataSize;
-   key_compare_fn            keyCompare;
-   key_hash_fn               keyHash;
-   message_class_fn          messageClass;
-   merge_tuple_fn            mergeTuples;
-   merge_tuple_final_fn      mergeTuplesFinal;
-   key_or_message_to_str_fn  keyToStr;
-   key_or_message_to_str_fn  messageToStr;
-   void                     *heapHandle;
-   void                     *heapID;
+  const char *filename;
+  uint64 cacheSize;
+  uint64 diskSize;
+  uint64 keySize;
+  uint64 dataSize;
+  key_compare_fn keyCompare;
+  key_hash_fn keyHash;
+  message_class_fn messageClass;
+  merge_tuple_fn mergeTuples;
+  merge_tuple_final_fn mergeTuplesFinal;
+  key_or_message_to_str_fn keyToStr;
+  key_or_message_to_str_fn messageToStr;
+  void *heapHandle;
+  void *heapID;
 } KVStoreConfig;
 
-typedef struct KVStore* KVStoreHandle;
+typedef struct KVStore *KVStoreHandle;
 
 int KVStore_Init(const KVStoreConfig *kvsCfg, KVStoreHandle *kvsHandle);
 

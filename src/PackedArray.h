@@ -33,11 +33,15 @@ PackedArray general in memory representation:
 
 // packing / unpacking
 // offset is expressed in number of elements
-void PackedArray_pack(uint32* a, const uint32 offset, const uint32* in, uint32 count, size_t bitsPerItem);
-void PackedArray_unpack(const uint32* a, const uint32 offset, uint32* out, uint32 count, size_t bitsPerItem);
+void PackedArray_pack(uint32 *a, const uint32 offset, const uint32 *in,
+                      uint32 count, size_t bitsPerItem);
+void PackedArray_unpack(const uint32 *a, const uint32 offset, uint32 *out,
+                        uint32 count, size_t bitsPerItem);
 
 // single item access
-void PackedArray_set(uint32* a, const uint32 offset, const uint32 in, size_t bitsPerItem);
-uint32 PackedArray_get(const uint32* a, const uint32 offset, size_t bitsPerItem);
+void PackedArray_set(uint32 *a, const uint32 offset, const uint32 in,
+                     size_t bitsPerItem);
+uint32 PackedArray_get(const uint32 *a, const uint32 offset,
+                       size_t bitsPerItem);
 
 #endif // #ifndef PACKEDARRAY_H

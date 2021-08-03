@@ -33,16 +33,16 @@
  * Shared types/typedefs that don't rely on anything platform-specific
  */
 #if !defined(SPLINTER_DEBUG)
-#  define SPLINTER_DEBUG 0
+#define SPLINTER_DEBUG 0
 #else
-#  if SPLINTER_DEBUG != 0 && SPLINTER_DEBUG != 1
-#     error SPLINTER_DEBUG not 0 or 1
-#  endif
+#if SPLINTER_DEBUG != 0 && SPLINTER_DEBUG != 1
+#error SPLINTER_DEBUG not 0 or 1
+#endif
 #endif
 
 // Helper function so that ARRAYSIZE can be used inside of _Static_assert
-#define ASSERT_EXPR(condition, return_value) \
-   (sizeof(char[(condition) ? 1 : -1]) ? (return_value) : (return_value))
+#define ASSERT_EXPR(condition, return_value)                                   \
+  (sizeof(char[(condition) ? 1 : -1]) ? (return_value) : (return_value))
 
 /*
  * Utility macro to test if an indexable expression is an array.
@@ -50,23 +50,20 @@
  * Only pointers and arrays are indexable.
  * Expression value is 0 for pointer and 1 for array
  */
-#define IS_ARRAY(x)                                   \
-   __builtin_choose_expr(                             \
-      __builtin_types_compatible_p(typeof((x)[0]) [], \
-                                   typeof(x)),        \
-      1,                                              \
-      0)
+#define IS_ARRAY(x)                                                            \
+  __builtin_choose_expr(                                                       \
+      __builtin_types_compatible_p(typeof((x)[0])[], typeof(x)), 1, 0)
 
 /*
  * Errors at compile time if you use ARRAY_SIZE() on a pointer.
  * ARRAY_SIZE can be used inside of _Static_assert.
  */
-#define ARRAY_SIZE(x) ASSERT_EXPR(IS_ARRAY(x), (sizeof(x)/sizeof((x)[0])))
+#define ARRAY_SIZE(x) ASSERT_EXPR(IS_ARRAY(x), (sizeof(x) / sizeof((x)[0])))
 
 #define MAX_THREADS (64)
 
-#define HASH_SEED   (42)
-#define UNUSED_FUNCTION()  __attribute__((__unused__))
+#define HASH_SEED (42)
+#define UNUSED_FUNCTION() __attribute__((__unused__))
 
 /*
  * C11 and higher already supports native _Static_assert which has good
@@ -74,11 +71,11 @@
  * Since we are lower than C11, we need something that works.
  */
 #if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 201112l
-#  define _Static_assert(expr, str) \
-    do {                                                \
-        typedef char oc_assert_fail[((expr) ? 1 : -1)]  \
-            __attribute__((__unused__));                \
-    } while (0)
+#define _Static_assert(expr, str)                                              \
+  do {                                                                         \
+    typedef char oc_assert_fail[((expr) ? 1 : -1)]                             \
+        __attribute__((__unused__));                                           \
+  } while (0)
 #endif
 
 /*
@@ -100,48 +97,48 @@
 
 // Types
 typedef unsigned char uchar;
-typedef int8_t        int8;
-typedef uint8_t       uint8;
-typedef int16_t       int16;
-typedef uint16_t      uint16;
-typedef int32_t       int32;
-typedef uint32_t      uint32;
-typedef int64_t       int64;
-typedef uint64_t      uint64;
-typedef uint64        timestamp;
-typedef uint64        threadid;
+typedef int8_t int8;
+typedef uint8_t uint8;
+typedef int16_t int16;
+typedef uint16_t uint16;
+typedef int32_t int32;
+typedef uint32_t uint32;
+typedef int64_t int64;
+typedef uint64_t uint64;
+typedef uint64 timestamp;
+typedef uint64 threadid;
 
-_Static_assert(sizeof(int8)   == 1, "incorrect type");
-_Static_assert(sizeof(uint8)  == 1, "incorrect type");
-_Static_assert(sizeof(int16)  == 2, "incorrect type");
+_Static_assert(sizeof(int8) == 1, "incorrect type");
+_Static_assert(sizeof(uint8) == 1, "incorrect type");
+_Static_assert(sizeof(int16) == 2, "incorrect type");
 _Static_assert(sizeof(uint16) == 2, "incorrect type");
-_Static_assert(sizeof(int32)  == 4, "incorrect type");
+_Static_assert(sizeof(int32) == 4, "incorrect type");
 _Static_assert(sizeof(uint32) == 4, "incorrect type");
-_Static_assert(sizeof(int64)  == 8, "incorrect type");
+_Static_assert(sizeof(int64) == 8, "incorrect type");
 _Static_assert(sizeof(uint64) == 8, "incorrect type");
 
 // Bools
 #ifndef TRUE
-#  define TRUE (1)
+#define TRUE (1)
 #endif
 
 #ifndef FALSE
-#  define FALSE (0)
+#define FALSE (0)
 #endif
 
 #if !defined(__cplusplus)
-  typedef int32         bool;
+typedef int32 bool;
 #endif
-typedef uint8         bool8;
+typedef uint8 bool8;
 
 // Data unit constants
 #define KiB (1024UL)
 #define MiB (KiB * KiB)
 #define GiB (MiB * KiB)
 
-#define KiB_TO_B(x) ((x) * KiB)
-#define MiB_TO_B(x) ((x) * MiB)
-#define GiB_TO_B(x) ((x) * GiB)
+#define KiB_TO_B(x) ((x)*KiB)
+#define MiB_TO_B(x) ((x)*MiB)
+#define GiB_TO_B(x) ((x)*GiB)
 #define B_TO_MiB(x) ((x) / MiB)
 
 // Time unit constants
@@ -150,13 +147,13 @@ typedef uint8         bool8;
 #define BILLION (THOUSAND * MILLION)
 
 #define USEC_TO_SEC(x) ((x) / MILLION)
-#define USEC_TO_NSEC(x) ((x) * THOUSAND)
+#define USEC_TO_NSEC(x) ((x)*THOUSAND)
 #define NSEC_TO_SEC(x) ((x) / BILLION)
 #define NSEC_TO_MSEC(x) ((x) / MILLION)
 #define NSEC_TO_USEC(x) ((x) / THOUSAND)
-#define SEC_TO_MSEC(x) ((x) * THOUSAND)
-#define SEC_TO_USEC(x) ((x) * MILLION)
-#define SEC_TO_NSEC(x) ((x) * BILLION)
+#define SEC_TO_MSEC(x) ((x)*THOUSAND)
+#define SEC_TO_USEC(x) ((x)*MILLION)
+#define SEC_TO_NSEC(x) ((x)*BILLION)
 
 #define MAX_STRING_LENGTH 256
 
@@ -170,9 +167,7 @@ typedef void (*platform_thread_worker)(void *);
  * the array is sorted in increasing order.
  */
 
-typedef int (*platform_sort_cmpfn)(const void *a, const void *b,
-                                   void *arg);
-
+typedef int (*platform_sort_cmpfn)(const void *a, const void *b, void *arg);
 
 /*
  * Helper macro that takes a pointer, type of the container, and the
@@ -181,8 +176,8 @@ typedef int (*platform_sort_cmpfn)(const void *a, const void *b,
  * specified  member.
  */
 #ifndef container_of
-#  define container_of(ptr, type, memb) \
-   ((type *)((char *)(ptr) - offsetof(type, memb)))
+#define container_of(ptr, type, memb)                                          \
+  ((type *)((char *)(ptr)-offsetof(type, memb)))
 #endif
 
 /*
@@ -193,27 +188,26 @@ typedef int (*platform_sort_cmpfn)(const void *a, const void *b,
 
 // Platform status
 typedef struct {
-    internal_platform_status r;
+  internal_platform_status r;
 } platform_status;
 
-#define CONST_STATUS(status) \
-   ((const platform_status){.r = status})
+#define CONST_STATUS(status) ((const platform_status){.r = status})
 
 typedef struct {
-    uint64 v;
+  uint64 v;
 } PLATFORM_CACHELINE_ALIGNED cache_aligned_uint64;
 _Static_assert(sizeof(cache_aligned_uint64) == PLATFORM_CACHELINE_SIZE,
                "Attribute set wrong");
 typedef struct {
-    uint32 v;
+  uint32 v;
 } PLATFORM_CACHELINE_ALIGNED cache_aligned_uint32;
 _Static_assert(sizeof(cache_aligned_uint32) == PLATFORM_CACHELINE_SIZE,
                "Attribute set wrong");
 
 typedef struct {
-    char *token_str;
-    char *last_token;
-    int last_token_len;
+  char *token_str;
+  char *last_token;
+  int last_token_len;
 } platform_strtok_ctx;
 
 extern bool platform_use_hugetlb;
@@ -226,8 +220,6 @@ extern bool platform_use_mlock;
  * of headers defined in splinterdb cannot be included until now.
  */
 
-
-
 /*
  * Section 4:
  * Shared function declarations.
@@ -237,13 +229,13 @@ extern bool platform_use_mlock;
  *   (These may be candidates to move outside of platform.h entirely)
  */
 #if SPLINTER_DEBUG
-#  define debug_assert( expr ) platform_assert(expr)
-#  define debug_only
-#  define debug_code(...) __VA_ARGS__
+#define debug_assert(expr) platform_assert(expr)
+#define debug_only
+#define debug_code(...) __VA_ARGS__
 #else
-#  define debug_assert( expr )
-#  define debug_only __attribute__((__unused__))
-#  define debug_code(...)
+#define debug_assert(expr)
+#define debug_only __attribute__((__unused__))
+#define debug_code(...)
 #endif
 
 #define platform_assert_status_ok(_s) platform_assert(SUCCESS(_s));
@@ -325,20 +317,16 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * a compile error when debug is on.  Assigning to a void* should be done by
  * calling aligned_alloc manually (or create a separate macro)
  */
-#define TYPED_MALLOC_MANUAL(id, v, n) ({                \
-      debug_assert((n) >= sizeof(*(v)));                \
-      (typeof(v))                                       \
-      platform_aligned_malloc(id,                       \
-                              PLATFORM_CACHELINE_SIZE,  \
-                              (n));                     \
-   })
-#define TYPED_ZALLOC_MANUAL(id, v, n) ({                \
-      debug_assert((n) >= sizeof(*(v)));                \
-      (typeof(v))                                       \
-      platform_aligned_zalloc(id,                       \
-                              PLATFORM_CACHELINE_SIZE,  \
-                              (n));                     \
-   })
+#define TYPED_MALLOC_MANUAL(id, v, n)                                          \
+  ({                                                                           \
+    debug_assert((n) >= sizeof(*(v)));                                         \
+    (typeof(v))platform_aligned_malloc(id, PLATFORM_CACHELINE_SIZE, (n));      \
+  })
+#define TYPED_ZALLOC_MANUAL(id, v, n)                                          \
+  ({                                                                           \
+    debug_assert((n) >= sizeof(*(v)));                                         \
+    (typeof(v))platform_aligned_zalloc(id, PLATFORM_CACHELINE_SIZE, (n));      \
+  })
 
 /*
  * Flexible array members don't necessarily start after sizeof(v)
@@ -351,29 +339,27 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * since it doesn't necessarily start at the end we also cannot check
  * offset==sizeof.
  */
-#define FLEXIBLE_STRUCT_SIZE(v, array_field_name, n) ({         \
-      _Static_assert(IS_ARRAY((v)->array_field_name),           \
-                     "flexible array members must be arrays");  \
-      max_size_t(sizeof(*(v)),                                  \
-                 (n) * sizeof((v)->array_field_name[0]) +       \
-                 offsetof(typeof(*(v)), array_field_name));     \
-   })
+#define FLEXIBLE_STRUCT_SIZE(v, array_field_name, n)                           \
+  ({                                                                           \
+    _Static_assert(IS_ARRAY((v)->array_field_name),                            \
+                   "flexible array members must be arrays");                   \
+    max_size_t(sizeof(*(v)), (n) * sizeof((v)->array_field_name[0]) +          \
+                                 offsetof(typeof(*(v)), array_field_name));    \
+  })
 
-#define TYPED_FLEXIBLE_STRUCT_MALLOC(id, v, array_field_name, n)          \
-   TYPED_MALLOC_MANUAL(id, (v),                                           \
-                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))  \
+#define TYPED_FLEXIBLE_STRUCT_MALLOC(id, v, array_field_name, n)               \
+  TYPED_MALLOC_MANUAL(id, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
-#define TYPED_FLEXIBLE_STRUCT_ZALLOC(id, v, array_field_name, n)          \
-   TYPED_ZALLOC_MANUAL(id, (v),                                           \
-                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))  \
+#define TYPED_FLEXIBLE_STRUCT_ZALLOC(id, v, array_field_name, n)               \
+  TYPED_ZALLOC_MANUAL(id, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
-#define TYPED_ARRAY_MALLOC(id, v, n) \
-    TYPED_MALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
-#define TYPED_ARRAY_ZALLOC(id, v, n) \
-    TYPED_ZALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
+#define TYPED_ARRAY_MALLOC(id, v, n)                                           \
+  TYPED_MALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
+#define TYPED_ARRAY_ZALLOC(id, v, n)                                           \
+  TYPED_ZALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
 
-#define TYPED_MALLOC(id, v)          TYPED_ARRAY_MALLOC(id, (v), 1)
-#define TYPED_ZALLOC(id, v)          TYPED_ARRAY_ZALLOC(id, (v), 1)
+#define TYPED_MALLOC(id, v) TYPED_ARRAY_MALLOC(id, (v), 1)
+#define TYPED_ZALLOC(id, v) TYPED_ARRAY_ZALLOC(id, (v), 1)
 
 /*
  * Utility macros to clear memory
@@ -393,22 +379,22 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * Zero an array.
  * Cause compile-time error if used on pointer or non-indexible variable
  */
-#define ZERO_ARRAY(v)                                          \
-   do {                                                        \
-      _Static_assert(IS_ARRAY(v), "ZERO_ARRAY on non-array");  \
-      memset((v), 0, sizeof(v));                               \
-   } while (0)
+#define ZERO_ARRAY(v)                                                          \
+  do {                                                                         \
+    _Static_assert(IS_ARRAY(v), "ZERO_ARRAY on non-array");                    \
+    memset((v), 0, sizeof(v));                                                 \
+  } while (0)
 
 /*
  * Zero a manual array (e.g. we malloced an array).
  * Cause compile-time error if used on an array or non-indexible variable
  */
-#define ZERO_CONTENTS_N(v, n)                                  \
-   do {                                                        \
-      _Static_assert(!IS_ARRAY(v), "ZERO_CONTENTS on array"); \
-      debug_assert((v) != NULL);                               \
-      memset((v), 0, (n) * sizeof(*(v)));                         \
-   } while (0)
+#define ZERO_CONTENTS_N(v, n)                                                  \
+  do {                                                                         \
+    _Static_assert(!IS_ARRAY(v), "ZERO_CONTENTS on array");                    \
+    debug_assert((v) != NULL);                                                 \
+    memset((v), 0, (n) * sizeof(*(v)));                                        \
+  } while (0)
 
 /*
  * Zero a non-array pointer (clears what the pointer points to).
@@ -459,10 +445,10 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * This macro intentionall CANNOT be used during declaration
  * (see ZERO_STRUCT_AT_DECL).
  */
-#define ZERO_STRUCT(v)       \
-   do {                      \
-      (v) = (typeof(v)) {};  \
-   } while (0)
+#define ZERO_STRUCT(v)                                                         \
+  do {                                                                         \
+    (v) = (typeof(v)){};                                                       \
+  } while (0)
 
 /*
  * Zero a struct at declaration time.
@@ -477,125 +463,86 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  *    but it is slightly less safe because the first v cannot be wrapped
  *    in parenthesis.
  */
-#define ZERO_STRUCT_AT_DECL(v) \
-   v = (typeof(v)) {}
+#define ZERO_STRUCT_AT_DECL(v)                                                 \
+  v = (typeof(v)) {}
 
-void
-platform_sort_slow(void *base, size_t nmemb, size_t size,
-                   platform_sort_cmpfn cmpfn, void *cmparg,
-                   void *temp);
+void platform_sort_slow(void *base, size_t nmemb, size_t size,
+                        platform_sort_cmpfn cmpfn, void *cmparg, void *temp);
 
-#define IS_POWER_OF_2(n) (  \
-      (n) > 0 &&            \
-      (                     \
-         (n) &              \
-         ((n) - 1)          \
-      ) == 0                \
-   )
+#define IS_POWER_OF_2(n) ((n) > 0 && ((n) & ((n)-1)) == 0)
 
 #ifndef MAX
-#  define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
 #ifndef MIN
-#  define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
-static inline timestamp
-platform_get_timestamp(void);
+static inline timestamp platform_get_timestamp(void);
 
-static inline timestamp
-platform_timestamp_elapsed(timestamp tv);
+static inline timestamp platform_timestamp_elapsed(timestamp tv);
 
-static inline timestamp
-platform_get_real_time(void);
+static inline timestamp platform_get_real_time(void);
 
-static inline void
-platform_sleep(uint64 ns);
+static inline void platform_sleep(uint64 ns);
 
-static inline void
-platform_semaphore_destroy(platform_semaphore *sema);
+static inline void platform_semaphore_destroy(platform_semaphore *sema);
 
-static inline void
-platform_semaphore_init(platform_semaphore *sema,
-                        int value,
-                        platform_heap_id heap_id);
+static inline void platform_semaphore_init(platform_semaphore *sema, int value,
+                                           platform_heap_id heap_id);
 
-static inline void
-platform_semaphore_post(platform_semaphore *sema);
+static inline void platform_semaphore_post(platform_semaphore *sema);
 
-static inline void
-platform_semaphore_wait(platform_semaphore *sema);
+static inline void platform_semaphore_wait(platform_semaphore *sema);
 
-static inline platform_status
-platform_mutex_lock(platform_mutex *mu);
+static inline platform_status platform_mutex_lock(platform_mutex *mu);
 
-static inline platform_status
-platform_mutex_unlock(platform_mutex *mu);
+static inline platform_status platform_mutex_unlock(platform_mutex *mu);
 
-platform_status
-platform_histo_create(platform_heap_id heap_id,
-                      uint32 num_buckets,
-                      const int64* const bucket_limits,
-                      platform_histo_handle *histo);
+platform_status platform_histo_create(platform_heap_id heap_id,
+                                      uint32 num_buckets,
+                                      const int64 *const bucket_limits,
+                                      platform_histo_handle *histo);
 
-void
-platform_histo_destroy(platform_heap_id heap_id,
-                       platform_histo_handle histo);
+void platform_histo_destroy(platform_heap_id heap_id,
+                            platform_histo_handle histo);
 
-void
-platform_histo_print(platform_histo_handle histo, const char *name);
+void platform_histo_print(platform_histo_handle histo, const char *name);
 
-static inline threadid
-platform_get_tid();
+static inline threadid platform_get_tid();
 
-static inline void
-platform_set_tid(threadid t);
+static inline void platform_set_tid(threadid t);
 
-static inline size_t
-platform_strnlen(const char *s, size_t maxlen);
+static inline size_t platform_strnlen(const char *s, size_t maxlen);
 
-platform_status
-platform_heap_create(platform_module_id module_id,
-                     uint32 max,
-                     platform_heap_handle *heap_handle,
-                     platform_heap_id *heap_id);
+platform_status platform_heap_create(platform_module_id module_id, uint32 max,
+                                     platform_heap_handle *heap_handle,
+                                     platform_heap_id *heap_id);
 
-void
-platform_heap_destroy(platform_heap_handle *heap_handle);
+void platform_heap_destroy(platform_heap_handle *heap_handle);
 
-buffer_handle *
-platform_buffer_create(size_t length,
-                       platform_heap_handle heap_handle,
-                       platform_module_id module_id);
+buffer_handle *platform_buffer_create(size_t length,
+                                      platform_heap_handle heap_handle,
+                                      platform_module_id module_id);
 
-void *
-platform_buffer_getaddr(const buffer_handle *bh);
+void *platform_buffer_getaddr(const buffer_handle *bh);
 
-platform_status
-platform_buffer_destroy(buffer_handle *bh);
+platform_status platform_buffer_destroy(buffer_handle *bh);
 
-platform_status
-platform_mutex_init(platform_mutex *mu,
-                    platform_module_id module_id,
-                    platform_heap_id heap_id);
+platform_status platform_mutex_init(platform_mutex *mu,
+                                    platform_module_id module_id,
+                                    platform_heap_id heap_id);
 
-platform_status
-platform_mutex_destroy(platform_mutex *mu);
+platform_status platform_mutex_destroy(platform_mutex *mu);
 
-platform_status platform_thread_create(platform_thread *thread,
-                                       bool detached,
-                                       platform_thread_worker worker,
-                                       void *arg,
+platform_status platform_thread_create(platform_thread *thread, bool detached,
+                                       platform_thread_worker worker, void *arg,
                                        platform_heap_id heap_id);
 
 platform_status platform_thread_join(platform_thread thread);
 
-
-char *
-platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
-
-
+char *platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
 
 /*
  * Section 5:
@@ -606,14 +553,10 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  */
 #include <platform_inline.h>
 
-
-
 /*
  * Section 6:
  * Non-platform-specific inline implementations
  */
-
-
 
 /*
  * Similar to the TYPED_MALLOC functions, for all the free functions we need to
@@ -621,45 +564,38 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  * (which may or may not end up inlined)
  * Wrap free and free_volatile:
  */
-#define platform_free(id, p) do {        \
-      platform_free_from_heap(id, (p));  \
-      (p) = NULL;                        \
-   } while (0);
+#define platform_free(id, p)                                                   \
+  do {                                                                         \
+    platform_free_from_heap(id, (p));                                          \
+    (p) = NULL;                                                                \
+  } while (0);
 
-#define platform_free_volatile(id, p) do {        \
-      platform_free_volatile_from_heap(id, (p));  \
-      (p) = NULL;                                 \
-   } while (0);
+#define platform_free_volatile(id, p)                                          \
+  do {                                                                         \
+    platform_free_volatile_from_heap(id, (p));                                 \
+    (p) = NULL;                                                                \
+  } while (0);
 
 // Convenience function to free something volatile
-static inline void
-platform_free_volatile_from_heap(platform_heap_id heap_id, volatile void *ptr)
-{
-    // Ok to discard volatile qualifier for free
-    platform_free_from_heap(heap_id, (void*)ptr);
+static inline void platform_free_volatile_from_heap(platform_heap_id heap_id,
+                                                    volatile void *ptr) {
+  // Ok to discard volatile qualifier for free
+  platform_free_from_heap(heap_id, (void *)ptr);
 }
 
-static inline void *
-platform_aligned_zalloc(platform_heap_id heap_id,
-                        size_t alignment,
-                        size_t size)
-{
-    void *x = platform_aligned_malloc(heap_id, alignment, size);
-    if (LIKELY(x)) {
-        memset(x, 0, size);
-    }
-    return x;
+static inline void *platform_aligned_zalloc(platform_heap_id heap_id,
+                                            size_t alignment, size_t size) {
+  void *x = platform_aligned_malloc(heap_id, alignment, size);
+  if (LIKELY(x)) {
+    memset(x, 0, size);
+  }
+  return x;
 }
 
-static inline size_t
-max_size_t(size_t a, size_t b) {
-    return a > b ? a : b;
-}
+static inline size_t max_size_t(size_t a, size_t b) { return a > b ? a : b; }
 
-static inline bool
-SUCCESS(const platform_status s)
-{
-    return STATUS_IS_EQ(s, STATUS_OK);
+static inline bool SUCCESS(const platform_status s) {
+  return STATUS_IS_EQ(s, STATUS_OK);
 }
 
 platform_status platform_condvar_init(platform_condvar *cv,
@@ -672,12 +608,9 @@ platform_status platform_condvar_signal(platform_condvar *cv);
 platform_status platform_condvar_broadcast(platform_condvar *cv);
 
 /* calculate difference between two pointers */
-static inline ptrdiff_t
-diff_ptr(const void* base, const void* limit)
-{
-    _Static_assert(sizeof(char) == 1,
-                   "Assumption violated");
-    return (char*)limit - (char*)base;
+static inline ptrdiff_t diff_ptr(const void *base, const void *limit) {
+  _Static_assert(sizeof(char) == 1, "Assumption violated");
+  return (char *)limit - (char *)base;
 }
 
 #define DEFAULT_THROTTLE_INTERVAL_SEC (60)

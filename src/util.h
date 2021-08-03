@@ -6,16 +6,14 @@
 
 #include "platform.h"
 
-
 // Macros
 #ifdef IMPLIES
-   // Replace any existing implementation if it exists (for consistency)
-#  undef IMPLIES
+// Replace any existing implementation if it exists (for consistency)
+#undef IMPLIES
 #endif
-#define IMPLIES(p, q)  (!(p) || !!(q))
+#define IMPLIES(p, q) (!(p) || !!(q))
 
-#define SET_ARRAY_INDEX_TO_STRINGIFY(x) \
-   [x] = STRINGIFY(x)
+#define SET_ARRAY_INDEX_TO_STRINGIFY(x) [x] = STRINGIFY(x)
 
 /*
  *-----------------------------------------------------------------------------
@@ -35,12 +33,8 @@
  *-----------------------------------------------------------------------------
  */
 
-static inline uint64
-int64abs(int64 j)
-{
-   return (j >= 0)
-          ? (uint64) j
-          : ((uint64) -(j+1)) + 1;
+static inline uint64 int64abs(int64 j) {
+  return (j >= 0) ? (uint64)j : ((uint64) - (j + 1)) + 1;
 }
 
 typedef struct fraction {
@@ -48,19 +42,18 @@ typedef struct fraction {
   uint64 denominator;
 } fraction;
 
-static inline fraction
-init_fraction(uint64 numerator, uint64 denominator)
-{
-   return (fraction) {
+static inline fraction init_fraction(uint64 numerator, uint64 denominator) {
+  return (fraction){
       .numerator = numerator,
       .denominator = denominator,
-   };
+  };
 }
 
-#define zero_fraction ((fraction) { \
-      .numerator = 0,               \
-      .denominator = 1,             \
-   })
+#define zero_fraction                                                          \
+  ((fraction){                                                                 \
+      .numerator = 0,                                                          \
+      .denominator = 1,                                                        \
+  })
 
 /*
  * try_string_to_(u)int64
@@ -83,51 +76,42 @@ init_fraction(uint64 numerator, uint64 denominator)
  *
  * Base is automatically detected based on the regular expressions above
  */
-bool
-try_string_to_uint64(const char *nptr, // IN
-                     uint64 *n);       // OUT
+bool try_string_to_uint64(const char *nptr, // IN
+                          uint64 *n);       // OUT
 
-bool
-try_string_to_int64(const char *nptr, // IN
-                    int64 *n);        // OUT
+bool try_string_to_int64(const char *nptr, // IN
+                         int64 *n);        // OUT
 
-bool
-try_string_to_uint32(const char *nptr, // IN
-                     uint32 *n);       // OUT
+bool try_string_to_uint32(const char *nptr, // IN
+                          uint32 *n);       // OUT
 
-bool
-try_string_to_int32(const char *nptr, // IN
-                    int32 *n);        // OUT
+bool try_string_to_int32(const char *nptr, // IN
+                         int32 *n);        // OUT
 
-bool
-try_string_to_uint16(const char *nptr, // IN
-                     uint16 *n);       // OUT
+bool try_string_to_uint16(const char *nptr, // IN
+                          uint16 *n);       // OUT
 
-bool
-try_string_to_int16(const char *nptr, // IN
-                    int16 *n);        // OUT
+bool try_string_to_int16(const char *nptr, // IN
+                         int16 *n);        // OUT
 
-bool
-try_string_to_uint8(const char *nptr, // IN
-                    uint8 *n);        // OUT
+bool try_string_to_uint8(const char *nptr, // IN
+                         uint8 *n);        // OUT
 
-bool
-try_string_to_int8(const char *nptr, // IN
-                   int8 *n);         // OUT
-
+bool try_string_to_int8(const char *nptr, // IN
+                        int8 *n);         // OUT
 
 /*
  * The following macros are used to automate type-safe string comparison
  * between a const char * and a string literal.
  */
 
-#define REQUIRE_STRING_LITERAL(x) (x"")
+#define REQUIRE_STRING_LITERAL(x) (x "")
 
 #define SIZEOF_STRING_LITERAL(s) (sizeof(REQUIRE_STRING_LITERAL(s)))
 
-#define STRING_EQUALS_LITERAL(arg, str) \
-   (strncmp(arg, str, SIZEOF_STRING_LITERAL(str)) == 0)
+#define STRING_EQUALS_LITERAL(arg, str)                                        \
+  (strncmp(arg, str, SIZEOF_STRING_LITERAL(str)) == 0)
 
-#define PACKED  __attribute__((__packed__))
+#define PACKED __attribute__((__packed__))
 
 #endif

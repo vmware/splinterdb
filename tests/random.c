@@ -8,8 +8,7 @@ const void *platform_hash_prf_create(unsigned long seed) {
   return (const void *)seed;
 }
 
-void platform_hash_prf_destroy(const void *key) {
-}
+void platform_hash_prf_destroy(const void *key) {}
 
 uint64 platform_hash_prf(const void *key, uint64 idx) {
   return platform_hash64(&idx, sizeof(idx), (unsigned long)key);
@@ -22,9 +21,7 @@ uint64 PRG_peek(const PRG *prg, uint64 idx) {
   return result;
 }
 
-uint64 PRG_current(const PRG *prg) {
-  return PRG_peek(prg, prg->idx);
-}
+uint64 PRG_current(const PRG *prg) { return PRG_peek(prg, prg->idx); }
 
 uint64 PRG_step(PRG *prg) {
   prg->idx++;
@@ -37,6 +34,4 @@ void init_platform_hash_prg(PRG *prg, unsigned long seed, uint64 seq) {
   prg->idx = seq;
 }
 
-void deinit_platform_hash_prg(PRG *prg) {
-  platform_hash_prf_destroy(prg->key);
-}
+void deinit_platform_hash_prg(PRG *prg) { platform_hash_prf_destroy(prg->key); }

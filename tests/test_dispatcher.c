@@ -8,55 +8,52 @@
 #include "poison.h"
 
 static void usage(void) {
-   platform_error_log("List of tests:\n");
-   platform_error_log("\tbtree_test\n");
-   platform_error_log("\tfilter_test\n");
-   platform_error_log("\tsplinter_test\n");
-   platform_error_log("\tlog_test\n");
-   platform_error_log("\tcache_test\n");
-   platform_error_log("\tkvstore_test\n");
+  platform_error_log("List of tests:\n");
+  platform_error_log("\tbtree_test\n");
+  platform_error_log("\tfilter_test\n");
+  platform_error_log("\tsplinter_test\n");
+  platform_error_log("\tlog_test\n");
+  platform_error_log("\tcache_test\n");
+  platform_error_log("\tkvstore_test\n");
 #ifdef PLATFORM_LINUX
-   platform_error_log("\tycsb_test\n");
+  platform_error_log("\tycsb_test\n");
 #endif
 }
 
+int test_dispatcher(int argc, char *argv[]) {
+  // check first arg and call the appropriate test
+  if (argc > 1) {
+    // check test name and dispatch
+    char *test_name = argv[1];
+    platform_log("Dispatch test %s\n", test_name);
 
-int
-test_dispatcher(int argc, char *argv[])
-{
-   // check first arg and call the appropriate test
-   if (argc > 1) {
-      // check test name and dispatch
-      char *test_name = argv[1];
-      platform_log("Dispatch test %s\n", test_name);
-
-      if (STRING_EQUALS_LITERAL(test_name, "btree_test")) {
-         return btree_test(argc - 1, &argv[1]);
-      } else if (STRING_EQUALS_LITERAL(test_name, "filter_test")) {
-         //TODO: fix
-         return 0;
-         //return filter_test(argc - 1, &argv[1]);
-      } else if (STRING_EQUALS_LITERAL(test_name, "splinter_test")) {
-         return splinter_test(argc - 1, &argv[1]);
-      } else if (STRING_EQUALS_LITERAL(test_name, "log_test")) {
-         return log_test(argc - 1, &argv[1]);
-      } else if (STRING_EQUALS_LITERAL(test_name, "cache_test")) {
-         return cache_test(argc - 1, &argv[1]);
-      } else if (STRING_EQUALS_LITERAL(test_name, "kvstore_test")) {
-         return kvstore_test(argc - 1, &argv[1]);
+    if (STRING_EQUALS_LITERAL(test_name, "btree_test")) {
+      return btree_test(argc - 1, &argv[1]);
+    } else if (STRING_EQUALS_LITERAL(test_name, "filter_test")) {
+      // TODO: fix
+      return 0;
+      // return filter_test(argc - 1, &argv[1]);
+    } else if (STRING_EQUALS_LITERAL(test_name, "splinter_test")) {
+      return splinter_test(argc - 1, &argv[1]);
+    } else if (STRING_EQUALS_LITERAL(test_name, "log_test")) {
+      return log_test(argc - 1, &argv[1]);
+    } else if (STRING_EQUALS_LITERAL(test_name, "cache_test")) {
+      return cache_test(argc - 1, &argv[1]);
+    } else if (STRING_EQUALS_LITERAL(test_name, "kvstore_test")) {
+      return kvstore_test(argc - 1, &argv[1]);
 #ifdef PLATFORM_LINUX
-      } else if (STRING_EQUALS_LITERAL(test_name, "ycsb_test")) {
-         return ycsb_test(argc - 1, &argv[1]);
+    } else if (STRING_EQUALS_LITERAL(test_name, "ycsb_test")) {
+      return ycsb_test(argc - 1, &argv[1]);
 #endif
-      } else {
-         // error test not found
-         platform_error_log("invalid test\n");
-         usage();
-         return -1;
-      }
-   } else {
-      platform_error_log("invalid arg\n");
+    } else {
+      // error test not found
+      platform_error_log("invalid test\n");
       usage();
       return -1;
-   }
+    }
+  } else {
+    platform_error_log("invalid arg\n");
+    usage();
+    return -1;
+  }
 }

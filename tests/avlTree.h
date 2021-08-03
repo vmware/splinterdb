@@ -20,9 +20,9 @@
  * appropriate per-node data that the comparator callback implementations need.
  */
 typedef struct AvlTreeLinks {
-    struct AvlTreeLinks *left;
-    struct AvlTreeLinks *right;
-    uint32               height;
+  struct AvlTreeLinks *left;
+  struct AvlTreeLinks *right;
+  uint32 height;
 } AvlTreeLinks;
 
 /*
@@ -53,8 +53,7 @@ typedef int (*AvlTreeNodeComparator)(const AvlTreeLinks *a,
  *
  * No two nodes in the tree should be equal to the same key.
  */
-typedef int (*AvlTreeKeyComparator)(const AvlTreeLinks *node,
-                                    AvlTreeKey key);
+typedef int (*AvlTreeKeyComparator)(const AvlTreeLinks *node, AvlTreeKey key);
 
 /*
  * AvlTree structure.
@@ -64,78 +63,56 @@ typedef int (*AvlTreeKeyComparator)(const AvlTreeLinks *node,
  * example is storing an offset that can be used to map an
  * AvlTreeLinks pointer to the enclosing node structure.
  */
-typedef struct AvlTree
-{
-    AvlTreeLinks *root;
-    AvlTreeNodeComparator nodeCmp;
-    AvlTreeKeyComparator keyCmp;
+typedef struct AvlTree {
+  AvlTreeLinks *root;
+  AvlTreeNodeComparator nodeCmp;
+  AvlTreeKeyComparator keyCmp;
 } AvlTree;
 
-void
-AvlTree_Init(AvlTree *tree,
-             AvlTreeLinks *root,
-             AvlTreeNodeComparator nodeCmp,
-             AvlTreeKeyComparator keyCmp);
+void AvlTree_Init(AvlTree *tree, AvlTreeLinks *root,
+                  AvlTreeNodeComparator nodeCmp, AvlTreeKeyComparator keyCmp);
 
-void
-AvlTree_InitNode(AvlTreeLinks *node);
+void AvlTree_InitNode(AvlTreeLinks *node);
 
-bool
-AvlTree_IsUnlinked(AvlTreeLinks *node);
+bool AvlTree_IsUnlinked(AvlTreeLinks *node);
 
 /* Insertion / deletion */
 
-void
-AvlTree_Insert(AvlTree *tree,
-               AvlTreeLinks *node);
+void AvlTree_Insert(AvlTree *tree, AvlTreeLinks *node);
 
-void
-AvlTree_Delete(AvlTree *tree,
-               AvlTreeLinks *node);
+void AvlTree_Delete(AvlTree *tree, AvlTreeLinks *node);
 
 /* Lookups by key */
 
-AvlTreeLinks *
-AvlTree_FindNode(const AvlTree *tree,
-                 AvlTreeKey key);
+AvlTreeLinks *AvlTree_FindNode(const AvlTree *tree, AvlTreeKey key);
 
-AvlTreeLinks *
-AvlTree_FindNodeGeq(const AvlTree *tree,
-                    AvlTreeKey key);
+AvlTreeLinks *AvlTree_FindNodeGeq(const AvlTree *tree, AvlTreeKey key);
 
-AvlTreeLinks *
-AvlTree_FindNodeLeq(const AvlTree *tree,
-                    AvlTreeKey key);
+AvlTreeLinks *AvlTree_FindNodeLeq(const AvlTree *tree, AvlTreeKey key);
 
 /* Iterating */
 
-AvlTreeLinks *
-AvlTree_Min(const AvlTree *tree);
+AvlTreeLinks *AvlTree_Min(const AvlTree *tree);
 
-AvlTreeLinks *
-AvlTree_Max(const AvlTree *tree);
+AvlTreeLinks *AvlTree_Max(const AvlTree *tree);
 
-AvlTreeLinks *
-AvlTree_Successor(const AvlTree *tree,
-                  const AvlTreeLinks *node);
+AvlTreeLinks *AvlTree_Successor(const AvlTree *tree, const AvlTreeLinks *node);
 
-AvlTreeLinks *
-AvlTree_Predecessor(const AvlTree *tree,
-                    const AvlTreeLinks *node);
+AvlTreeLinks *AvlTree_Predecessor(const AvlTree *tree,
+                                  const AvlTreeLinks *node);
 
 /*
  * Faster iterator that uses a stack and doesn't require traversing
  * root-to-leaf path on every advance.
-*/
+ */
 
 typedef struct {
-    AvlTree      *tree;
-    unsigned      num;
-    unsigned      max;
-    AvlTreeLinks *cur;
-    AvlTreeLinks *stack[0];
+  AvlTree *tree;
+  unsigned num;
+  unsigned max;
+  AvlTreeLinks *cur;
+  AvlTreeLinks *stack[0];
 } AvlTreeIter;
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -155,24 +132,18 @@ typedef struct {
  */
 
 static inline unsigned
-AvlTreeIter_AllocSize(unsigned max)   // IN height of the avl tree
+AvlTreeIter_AllocSize(unsigned max) // IN height of the avl tree
 {
-    platform_assert(max > 0);
-    return sizeof(AvlTreeIter) + max * sizeof(AvlTreeLinks *);
+  platform_assert(max > 0);
+  return sizeof(AvlTreeIter) + max * sizeof(AvlTreeLinks *);
 }
 
-void
-AvlTreeIter_Init(AvlTreeIter *iter,
-                 unsigned max,
-                 AvlTree *tree);
+void AvlTreeIter_Init(AvlTreeIter *iter, unsigned max, AvlTree *tree);
 
-bool
-AvlTreeIter_IsAtEnd(AvlTreeIter *iter);
+bool AvlTreeIter_IsAtEnd(AvlTreeIter *iter);
 
-void
-AvlTreeIter_Advance(AvlTreeIter *iter);
+void AvlTreeIter_Advance(AvlTreeIter *iter);
 
-AvlTreeLinks*
-AvlTreeIter_GetCurrent(AvlTreeIter *iter);
+AvlTreeLinks *AvlTreeIter_GetCurrent(AvlTreeIter *iter);
 
 #endif // AVLTREE_H

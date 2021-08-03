@@ -109,9 +109,8 @@ test_filter_basic(cache            *cc,
       ZERO_ARRAY(key);
       *(uint64 *)key = i;
       uint64 found_values;
-      rc = routing_filter_lookup(cc, cfg, &filter[num_values], key, &found_values);
-      if (found_values) {
-         false_positives++;
+      rc = routing_filter_lookup(cc, cfg, &filter[num_values], key,
+&found_values); if (found_values) { false_positives++;
       }
    }
 
@@ -152,9 +151,8 @@ test_filter_perf(cache            *cc,
    }
 
    uint32 *fp_arr
-      = TYPED_ARRAY_MALLOC(hid, fp_arr, num_trees * num_values * num_fingerprints);
-   if (fp_arr == NULL) {
-      return STATUS_NO_MEMORY;
+      = TYPED_ARRAY_MALLOC(hid, fp_arr, num_trees * num_values *
+num_fingerprints); if (fp_arr == NULL) { return STATUS_NO_MEMORY;
    }
    char key[MAX_KEY_SIZE];
    for (uint64 k = 0; k < num_trees; k++) {
@@ -194,10 +192,9 @@ test_filter_perf(cache            *cc,
          uint64 found_values;
          rc = routing_filter_lookup(cc, cfg, &filter[k], key, &found_values);
          platform_assert_status_ok(rc);
-         if (!routing_filter_is_value_found(found_values, i / num_fingerprints)) {
-            platform_log("key-value pair (%lu, %lu) not found in filter %lu (%lu)\n",
-                  k * num_values * num_fingerprints + i, i / num_fingerprints,
-                  k, found_values);
+         if (!routing_filter_is_value_found(found_values, i / num_fingerprints))
+{ platform_log("key-value pair (%lu, %lu) not found in filter %lu (%lu)\n", k *
+num_values * num_fingerprints + i, i / num_fingerprints, k, found_values);
 
             routing_filter_lookup(cc, cfg, &filter[k], key, &found_values);
             platform_assert(0);
