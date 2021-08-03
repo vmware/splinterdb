@@ -18,5 +18,9 @@ FROM $run_env_image
 COPY --from=build /src/bin/driver_test /splinterdb/bin/driver_test
 COPY --from=build /src/bin/splinterdb.so /splinterdb/bin/splinterdb.so
 COPY --from=build /src/test.sh /splinterdb/test.sh
+
+# TODO(gabe): fold this into a make target, once we've sorted out include directories
+COPY --from=build /src/src/kvstore.h /src/src/data.h /src/src/platform_public.h /splinterdb/include/
+
 WORKDIR "/splinterdb"
 CMD ["/splinterdb/test.sh"]
