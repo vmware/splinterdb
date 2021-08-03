@@ -133,7 +133,7 @@ tags:
 #*************************************************************#
 # Testing
 #
-.PHONY: setcap test
+.PHONY: setcap test format
 
 # Run this once with sudo, and then you don't need sudo for executing tests
 setcap: $(BINDIR)/driver_test
@@ -141,3 +141,9 @@ setcap: $(BINDIR)/driver_test
 
 test: $(BINDIR)/driver_test
 	./test.sh
+
+
+ALL_SOURCES := $(shell find . -name "*.c")
+ALL_HEADERS := $(shell find . -name "*.h")
+format:
+	clang-format-12 -i $(ALL_SOURCES) $(ALL_HEADERS)
