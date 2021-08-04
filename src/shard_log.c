@@ -283,7 +283,7 @@ shard_log_iterator_init(cache              *cc,
    // traverse the log extents and calculate the required space
    extent_addr = addr;
    while (extent_addr != 0 && cache_get_ref(cc, extent_addr) > 0) {
-      cache_prefetch(cc, extent_addr, TRUE);
+      cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
          page_addr = extent_addr + i * cfg->page_size;
@@ -308,7 +308,7 @@ shard_log_iterator_init(cache              *cc,
    extent_addr = addr;
    while (extent_addr != 0
          && cache_get_ref(cc, extent_addr) > 0) {
-      cache_prefetch(cc, extent_addr, TRUE);
+      cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
          page_addr = extent_addr + i * cfg->page_size;
@@ -439,7 +439,7 @@ shard_log_print(shard_log *log) {
    char data_str[128];
 
    while (extent_addr != 0 && cache_get_ref(cc, extent_addr) > 0) {
-      cache_prefetch(cc, extent_addr, TRUE);
+      cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
          page_addr = extent_addr + i * cfg->page_size;
