@@ -42,7 +42,7 @@ typedef struct routing_hdr {
  *
  * RadixSort --
  *
- *      A fast integer sort obtained from Stack Overflow (ALEX: find this)
+ *      A fast integer sort based on https://stackoverflow.com/a/44792724
  *
  *----------------------------------------------------------------------
  */
