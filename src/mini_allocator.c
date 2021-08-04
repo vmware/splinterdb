@@ -654,7 +654,7 @@ mini_allocator_prefetch_extent(cache     *cc,
                                uint64     base_addr,
                                uint64    *pages_outstanding)
 {
-   cache_prefetch(cc, base_addr, TRUE);
+   cache_prefetch(cc, base_addr, type);
    return FALSE;
 }
 
