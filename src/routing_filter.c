@@ -683,7 +683,7 @@ routing_filter_prefetch(cache          *cc,
             ((uint64 *)index_page->data)[index_no % addrs_per_page];
          uint64 extent_addr = hdr_raw_addr - (hdr_raw_addr % cfg->extent_size);
          if (extent_addr != last_extent_addr) {
-            cache_prefetch(cc, extent_addr, TRUE);
+            cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
             last_extent_addr = extent_addr;
          }
       }
