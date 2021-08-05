@@ -17,3 +17,8 @@ Feature requests should fall within the scope of the project.
 ## Pull Requests
 
 Before submitting a pull request, please make sure that you can build SplinterDB. See Building SplinterDB from the Source Code.
+
+Before submitting a pull request, please run clang-format on the diff using the provided .clang-format style file. This can be checked automatically on git commit by running
+
+`ln -s .git/hooks/pre-commit format_check.py`
+`chmod +x .git/hooks/pre-commit`
