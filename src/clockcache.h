@@ -17,9 +17,9 @@
 
 #define CC_ENTRIES_PER_BATCH 64
 #define CC_CLEANER_GAP_FRAC 8
-//#define ADDR_TRACING
-#define TRACE_ADDR 7213056
-#define TRACE_ENTRY (UINT32_MAX-1)
+#define ADDR_TRACING
+#define TRACE_ADDR 393216
+#define TRACE_ENTRY 124670
 
 typedef struct clockcache_config {
    uint64 page_size;
@@ -66,6 +66,7 @@ typedef struct history_record {
 struct clockcache_entry {
    page_handle page;
    volatile uint32 status;
+   uint32 old_entry_no;
    page_type type;
 #ifdef RECORD_ACQUISITION_STACKS
    int next_history_record;

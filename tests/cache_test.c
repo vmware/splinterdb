@@ -32,7 +32,7 @@ test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
       page_handle *page = cache_get(cc, page_arr[curr_page]->disk_addr, TRUE,
                                     PAGE_TYPE_MISC);
       cache_claim(cc, page);
-      cache_lock(cc, page);
+      cache_lock(cc, &page);
       cache_pin(cc, page);
       cache_unlock(cc, page);
       cache_unclaim(cc, page);
@@ -176,14 +176,15 @@ test_cache_basic(cache             *cc,
     */
    for (uint32 j = 0; j < pages_allocated && SUCCESS(rc); ) {
       uint32 i;
-      for (i = 0; i < cfg->page_capacity; i++) {
+      // note with cow, can only do cfg->page_capacity / 2
+      for (i = 0; i < cfg->page_capacity / 2; i++) {
          page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
          bool claim_obtained = cache_claim(cc, page_arr[i]);
          if (!claim_obtained) {
             platform_error_log("Expected uncontested claim, but failed\n");
             rc = STATUS_TEST_FAILED;
          }
-         cache_lock(cc, page_arr[i]);
+         cache_lock(cc, &page_arr[i]);
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
@@ -191,7 +192,7 @@ test_cache_basic(cache             *cc,
             rc = STATUS_TEST_FAILED;
          }
       }
-      for (i = 0; i < cfg->page_capacity; i++) {
+      for (i = 0; i < cfg->page_capacity / 2; i++) {
          cache_unlock(cc, page_arr[i]);
          cache_unclaim(cc, page_arr[i]);
          cache_unget(cc, page_arr[i]);
@@ -221,14 +222,15 @@ test_cache_basic(cache             *cc,
 
    for (uint32 j = 0; j < pages_allocated && SUCCESS(rc); ) {
       uint32 i;
-      for (i = 0; i < cfg->page_capacity; i++) {
+      // note with cow, can only do cfg->page_capacity / 2
+      for (i = 0; i < cfg->page_capacity / 2; i++) {
          page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
          bool claim_obtained = cache_claim(cc, page_arr[i]);
          if (!claim_obtained) {
             platform_error_log("Expected uncontested claim, but failed\n");
             rc = STATUS_TEST_FAILED;
          }
-         cache_lock(cc, page_arr[i]);
+         cache_lock(cc, &page_arr[i]);
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
@@ -236,7 +238,7 @@ test_cache_basic(cache             *cc,
             rc = STATUS_TEST_FAILED;
          }
       }
-      for (i = 0; i < cfg->page_capacity; i++) {
+      for (i = 0; i < cfg->page_capacity / 2; i++) {
          cache_mark_dirty(cc, page_arr[i]);
          cache_unlock(cc, page_arr[i]);
          cache_unclaim(cc, page_arr[i]);
@@ -262,7 +264,8 @@ test_cache_basic(cache             *cc,
       goto exit;
    }
 
-   rc = test_cache_page_pin(cc, page_arr, cfg->page_capacity);
+   // note with cow, can only do cfg->page_capacity / 2
+   rc = test_cache_page_pin(cc, page_arr, cfg->page_capacity / 2);
 
    /*
     * Deallocate all the entries.
@@ -399,7 +402,7 @@ cache_test_dirty_flush(cache *cc,
          platform_error_log("Expected uncontested claim, but failed\n");
          rc = STATUS_TEST_FAILED;
       }
-      cache_lock(cc, ph);
+      cache_lock(cc, &ph);
       uint32 refcount = cache_get_read_ref(cc, ph);
       if (refcount != 1) {
          platform_error_log("Expected one reference, but found %u\n",
@@ -768,7 +771,7 @@ test_writer_thread(void *arg)
          cache_unget(cc, handle_arr[i]);
          handle_arr[i] = NULL;
       } while (1);
-      cache_lock(cc, handle_arr[i]);
+      cache_lock(cc, &handle_arr[i]);
    }
    for (; k < num_pages; k++) {
       platform_assert(handle_arr[k] != NULL);

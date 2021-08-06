@@ -136,8 +136,9 @@ btree_node_lock(cache *cc,           // IN
                 btree_config *cfg,   // IN
                 btree_node *node)    // IN
 {
-   cache_lock(cc, node->page);
+   cache_lock(cc, &node->page);
    cache_mark_dirty(cc, node->page);
+   node->hdr = (btree_hdr *)(node->page->data);
 }
 
 void
@@ -1068,7 +1069,7 @@ btree_should_zap_dec_ref(cache        *cc,
       platform_sleep(wait);
       wait *= 2;
    }
-   cache_lock(cc, meta_page);
+   cache_lock(cc, &meta_page);
 
    // ALEX: We don't hold the root lock, but we only dealloc from here
    // so there shouldn't be a race between this refcount check and the

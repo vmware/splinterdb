@@ -576,7 +576,7 @@ static inline page_handle *        splinter_node_get                  (splinter_
 static inline void                 splinter_node_unget                (splinter_handle *spl, page_handle **node);
 static inline void                 splinter_node_claim                (splinter_handle *spl, page_handle **node);
 static inline void                 splinter_node_unclaim              (splinter_handle *spl, page_handle *node);
-static inline void                 splinter_node_lock                 (splinter_handle *spl, page_handle *node);
+static inline void                 splinter_node_lock                 (splinter_handle *spl, page_handle **node);
 static inline void                 splinter_node_unlock               (splinter_handle *spl, page_handle *node);
 uint64                             splinter_alloc                     (splinter_handle *spl, uint64 height);
 static inline char *               splinter_get_pivot                 (splinter_handle *spl, page_handle *node, uint16 pivot_no);
@@ -630,11 +630,11 @@ void                               splinter_bundle_build_filters  (void *arg, vo
 static inline void                 splinter_inc_filter                (splinter_handle *spl, routing_filter *filter);
 static inline void                 splinter_dec_filter                (splinter_handle *spl, routing_filter *filter);
 void                               splinter_compact_bundle            (void *arg, void *scratch);
-int                                splinter_flush                     (splinter_handle *spl, page_handle *parent, splinter_pivot_data *pdata, bool is_space_rec);
-int                                splinter_flush_fullest             (splinter_handle *spl, page_handle *node);
+int                                splinter_flush                     (splinter_handle *spl, page_handle **parent, splinter_pivot_data *pdata, bool is_space_rec);
+int                                splinter_flush_fullest             (splinter_handle *spl, page_handle **node);
 static inline bool                 splinter_needs_split               (splinter_handle *spl, page_handle *node);
 int                                splinter_split_index               (splinter_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
-void                               splinter_split_leaf                (splinter_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
+void                               splinter_split_leaf                (splinter_handle *spl, page_handle **parent, page_handle *leaf, uint16 child_idx);
 int                                splinter_split_root                (splinter_handle *spl, page_handle     *root);
 void                               splinter_print                     (splinter_handle *spl);
 void                               splinter_print_node                (splinter_handle *spl, uint64 addr, platform_stream_handle stream);
@@ -685,7 +685,7 @@ splinter_set_super_block(splinter_handle *spl,
       wait *= 2;
    }
    wait = 1;
-   cache_lock(spl->cc, super_page);
+   cache_lock(spl->cc, &super_page);
 
    super = (splinter_super_block *)super_page->data;
    super->root_addr     = spl->root_addr;
@@ -933,11 +933,11 @@ splinter_node_unclaim(splinter_handle *spl,
 }
 
 static inline void
-splinter_node_lock(splinter_handle *spl,
-                   page_handle     *node)
+splinter_node_lock(splinter_handle  *spl,
+                   page_handle     **node)
 {
    cache_lock(spl->cc, node);
-   cache_mark_dirty(spl->cc, node);
+   cache_mark_dirty(spl->cc, *node);
 }
 
 static inline void
@@ -3213,7 +3213,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
    // FIXME: [aconway 2020-08-31] Change this to account for possibly
    //        incorporating more than 1 memtable
    platform_assert(splinter_has_vacancy(spl, root, 1));
-   splinter_node_lock(spl, root);
+   splinter_node_lock(spl, &root);
 
    splinter_open_log_stream();
    splinter_log_stream("incorporate memtable gen %lu into root %lu\n", generation, spl->root_addr);
@@ -3295,12 +3295,12 @@ splinter_memtable_incorporate(splinter_handle *spl,
    bool did_flush = FALSE;
    uint64 wait = 1;
    while (!did_flush && splinter_node_is_full(spl, root)) {
-      did_flush = splinter_flush_fullest(spl, root);
+      did_flush = splinter_flush_fullest(spl, &root);
       if (!did_flush) {
          splinter_node_unlock(spl, root);
          platform_sleep(wait);
          wait = wait > 2048 ? 2048 : 2 * wait;
-         splinter_node_lock(spl, root);
+         splinter_node_lock(spl, &root);
       }
    }
 
@@ -3515,7 +3515,7 @@ splinter_dec_filter(splinter_handle *spl,
       platform_sleep(wait);
       wait *= 2;
    }
-   cache_lock(cc, meta_page);
+   cache_lock(cc, &meta_page);
 
    /*
     * This is the only entry point to dec this ref count, so we are guaranteed
@@ -3840,7 +3840,7 @@ splinter_bundle_build_filters(void *arg,
             splinter_node_unget(spl, &node);
             goto out;
          }
-         splinter_node_lock(spl, node);
+         splinter_node_lock(spl, &node);
          splinter_replace_routing_filter(spl, req, node);
          if (splinter_bundle_live(spl, node, req->bundle_no)) {
             splinter_clear_bundle(spl, node, req->bundle_no);
@@ -4062,10 +4062,10 @@ splinter_room_to_flush(splinter_handle     *spl,
  * NOTE: parent must be write locked
  */
 bool
-splinter_flush(splinter_handle     *spl,
-               page_handle         *parent,
-               splinter_pivot_data *pdata,
-               bool                 is_space_rec)
+splinter_flush(splinter_handle      *spl,
+               page_handle         **parent,
+               splinter_pivot_data  *pdata,
+               bool                  is_space_rec)
 {
    uint64 wait_start, flush_start;
    if (spl->cfg.use_stats)
@@ -4079,14 +4079,15 @@ splinter_flush(splinter_handle     *spl,
    }
    splinter_node_claim(spl, &child);
 
-   if (!splinter_room_to_flush(spl, parent, child, pdata)) {
+   if (!splinter_room_to_flush(spl, *parent, child, pdata)) {
       platform_error_log("Flush failed: %lu %lu\n",
-                         parent->disk_addr, child->disk_addr);
+                         (*parent)->disk_addr, child->disk_addr);
       if (spl->cfg.use_stats) {
-         if (parent->disk_addr == spl->root_addr)
+         if ((*parent)->disk_addr == spl->root_addr) {
             spl->stats[tid].root_failed_flushes++;
-         else
-            spl->stats[tid].failed_flushes[splinter_height(spl, parent)]++;
+         } else {
+            spl->stats[tid].failed_flushes[splinter_height(spl, *parent)]++;
+         }
       }
       splinter_node_unclaim(spl, child);
       splinter_node_unget(spl, &child);
@@ -4095,19 +4096,19 @@ splinter_flush(splinter_handle     *spl,
 
    if (!is_space_rec && pdata->srq_idx != -1 && spl->cfg.reclaim_threshold != UINT64_MAX) {
       //platform_log("Deleting %12lu-%lu (index %lu) from SRQ\n",
-      //      parent->disk_addr, pdata->generation, pdata->srq_idx);
+      //      (*parent)->disk_addr, pdata->generation, pdata->srq_idx);
       srq_delete(&spl->srq, pdata->srq_idx);
       srq_print(&spl->srq);
       pdata->srq_idx = -1;
    }
-   splinter_node_lock(spl, child);
+   splinter_node_lock(spl, &child);
 
    if (spl->cfg.use_stats) {
-      if (parent->disk_addr == spl->root_addr) {
+      if ((*parent)->disk_addr == spl->root_addr) {
          spl->stats[tid].root_flush_wait_time_ns
             += platform_timestamp_elapsed(wait_start);
       } else {
-         spl->stats[tid].flush_wait_time_ns[splinter_height(spl, parent)]
+         spl->stats[tid].flush_wait_time_ns[splinter_height(spl, *parent)]
             += platform_timestamp_elapsed(wait_start);
       }
       flush_start = platform_get_timestamp();
@@ -4115,7 +4116,7 @@ splinter_flush(splinter_handle     *spl,
 
    // flush the branch references into a new bundle in the child
    splinter_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   splinter_bundle *bundle = splinter_flush_into_bundle(spl, parent, child,
+   splinter_bundle *bundle = splinter_flush_into_bundle(spl, *parent, child,
                                                         pdata, req);
    splinter_tuples_in_bundle(spl, child, bundle, req->input_pivot_count);
    splinter_pivot_add_bundle_num_tuples(spl, child, bundle,
@@ -4128,13 +4129,13 @@ splinter_flush(splinter_handle     *spl,
    if (splinter_needs_split(spl, child)) {
       if (splinter_is_leaf(spl, child)) {
          platform_free(spl->heap_id, req);
-         uint16 child_idx = splinter_pdata_to_pivot_index(spl, parent, pdata);
+         uint16 child_idx = splinter_pdata_to_pivot_index(spl, *parent, pdata);
          splinter_split_leaf(spl, parent, child, child_idx);
          debug_assert(splinter_verify_node(spl, child));
          return TRUE;
       } else {
-         uint64 child_idx = splinter_pdata_to_pivot_index(spl, parent, pdata);
-         splinter_split_index(spl, parent, child, child_idx);
+         uint64 child_idx = splinter_pdata_to_pivot_index(spl, *parent, pdata);
+         splinter_split_index(spl, *parent, child, child_idx);
       }
    }
 
@@ -4150,13 +4151,13 @@ splinter_flush(splinter_handle     *spl,
    platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       flush_start = platform_timestamp_elapsed(flush_start);
-      if (parent->disk_addr == spl->root_addr) {
+      if ((*parent)->disk_addr == spl->root_addr) {
          spl->stats[tid].root_flush_time_ns += flush_start;
          if (flush_start > spl->stats[tid].root_flush_time_max_ns) {
             spl->stats[tid].root_flush_time_max_ns = flush_start;
          }
       } else {
-         const uint32 h = splinter_height(spl, parent);
+         const uint32 h = splinter_height(spl, *parent);
          spl->stats[tid].flush_time_ns[h] += flush_start;
          if (flush_start > spl->stats[tid].flush_time_max_ns[h]) {
             spl->stats[tid].flush_time_max_ns[h] = flush_start;
@@ -4174,47 +4175,49 @@ splinter_flush(splinter_handle     *spl,
  * does.
  */
 bool
-splinter_flush_fullest(splinter_handle *spl,
-                       page_handle     *node)
+splinter_flush_fullest(splinter_handle  *spl,
+                       page_handle     **node)
 {
-   splinter_pivot_data *fullest_pivot_data = splinter_get_pivot_data(spl, node, 0);
+   splinter_pivot_data *fullest_pivot_data = splinter_get_pivot_data(spl, *node, 0);
    uint16 pivot_no;
    threadid tid;
 
    if (spl->cfg.use_stats) {
       tid = platform_get_tid();
    }
-   if (splinter_pivot_needs_flush(spl, node, fullest_pivot_data)) {
+   if (splinter_pivot_needs_flush(spl, *node, fullest_pivot_data)) {
       splinter_flush(spl, node, fullest_pivot_data, FALSE);
       if (spl->cfg.use_stats) {
-         if (node->disk_addr == spl->root_addr)
+         if ((*node)->disk_addr == spl->root_addr) {
             spl->stats[tid].root_count_flushes++;
-         else
-            spl->stats[tid].count_flushes[splinter_height(spl, node)]++;
+         } else {
+            spl->stats[tid].count_flushes[splinter_height(spl, *node)]++;
+         }
       }
    }
-   for (pivot_no = 1; pivot_no < splinter_num_children(spl, node); pivot_no++) {
-      splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pivot_no);
+   for (pivot_no = 1; pivot_no < splinter_num_children(spl, *node); pivot_no++) {
+      splinter_pivot_data *pdata = splinter_get_pivot_data(spl, *node, pivot_no);
       // if a pivot has too many branches, just flush it here
-      if (splinter_pivot_needs_flush(spl, node, pdata)) {
+      if (splinter_pivot_needs_flush(spl, *node, pdata)) {
          splinter_flush(spl, node, pdata, FALSE);
          if (spl->cfg.use_stats) {
-            if (node->disk_addr == spl->root_addr)
+            if ((*node)->disk_addr == spl->root_addr) {
                spl->stats[tid].root_count_flushes++;
-            else
-               spl->stats[tid].count_flushes[splinter_height(spl, node)]++;
+            } else {
+               spl->stats[tid].count_flushes[splinter_height(spl, *node)]++;
+            }
          }
       }
       if (pdata->num_tuples > fullest_pivot_data->num_tuples) {
          fullest_pivot_data = pdata;
       }
    }
-   if (splinter_node_is_full(spl, node)) {
+   if (splinter_node_is_full(spl, *node)) {
       if (spl->cfg.use_stats) {
-         if (node->disk_addr == spl->root_addr)
+         if ((*node)->disk_addr == spl->root_addr)
             spl->stats[tid].root_full_flushes++;
          else
-            spl->stats[tid].full_flushes[splinter_height(spl, node)]++;
+            spl->stats[tid].full_flushes[splinter_height(spl, *node)]++;
       }
       return splinter_flush(spl, node, fullest_pivot_data, FALSE);
    }
@@ -4554,10 +4557,10 @@ splinter_compact_bundle(void *arg,
    uint16 height = splinter_height(spl, node);
    if (height != 0 && splinter_node_is_full(spl, node)) {
       splinter_node_claim(spl, &node);
-      splinter_node_lock(spl, node);
+      splinter_node_lock(spl, &node);
       bool flush_successful = TRUE;
       while (flush_successful && splinter_node_is_full(spl, node))
-         flush_successful = splinter_flush_fullest(spl, node);
+         flush_successful = splinter_flush_fullest(spl, &node);
       splinter_node_unlock(spl, node);
       splinter_node_unclaim(spl, node);
    }
@@ -4787,7 +4790,7 @@ splinter_compact_bundle(void *arg,
    do {
       platform_assert(node != NULL);
       splinter_node_claim(spl, &node);
-      splinter_node_lock(spl, node);
+      splinter_node_lock(spl, &node);
 
       splinter_log_node(spl, node);
 
@@ -4899,7 +4902,7 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
 {
    page_handle *node = splinter_node_get(spl, addr);
    splinter_node_claim(spl, &node);
-   splinter_node_lock(spl, node);
+   splinter_node_lock(spl, &node);
 
    if (splinter_height(spl, node) != 0) {
       for (uint16 pivot_no = 0;
@@ -4908,7 +4911,7 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
          splinter_pivot_data *pdata =
             splinter_get_pivot_data(spl, node, pivot_no);
          if (splinter_pivot_branch_count(spl, node, pdata) != 0)
-            splinter_flush(spl, node, pdata, FALSE);
+            splinter_flush(spl, &node, pdata, FALSE);
       }
    }
 
@@ -4920,7 +4923,7 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
 
    node = splinter_node_get(spl, addr);
    splinter_node_claim(spl, &node);
-   splinter_node_lock(spl, node);
+   splinter_node_lock(spl, &node);
 
    if (splinter_height(spl, node) == 1) {
       for (uint16 pivot_no = 0;
@@ -4930,8 +4933,8 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
             splinter_get_pivot_data(spl, node, pivot_no);
          page_handle *leaf = splinter_node_get(spl, pdata->addr);
          splinter_node_claim(spl, &leaf);
-         splinter_node_lock(spl, leaf);
-         splinter_split_leaf(spl, node, leaf, pivot_no);
+         splinter_node_lock(spl, &leaf);
+         splinter_split_leaf(spl, &node, leaf, pivot_no);
       }
    }
 
@@ -5008,7 +5011,7 @@ splinter_split_index(splinter_handle *spl,
    uint64 right_addr = splinter_alloc(spl, height);
    page_handle *right_node = splinter_node_get(spl, right_addr);
    splinter_node_claim(spl, &right_node);
-   splinter_node_lock(spl, right_node);
+   splinter_node_lock(spl, &right_node);
 
    // ALEX: Maybe worth figuring out the real page size
    memmove(right_node->data, left_node->data, spl->cfg.page_size);
@@ -5164,10 +5167,10 @@ splinter_pivot_estimate_unique_keys(splinter_handle     *spl,
  */
 
 void
-splinter_split_leaf(splinter_handle *spl,
-                    page_handle     *parent,
-                    page_handle     *leaf,
-                    uint16           child_idx)
+splinter_split_leaf(splinter_handle  *spl,
+                    page_handle     **parent,
+                    page_handle      *leaf,
+                    uint16            child_idx)
 {
    const threadid tid = platform_get_tid();
    // FIXME: [aconway 2020-06-19] This scratch lookup feels a bit dirty
@@ -5177,7 +5180,7 @@ splinter_split_leaf(splinter_handle *spl,
    uint64 num_branches = splinter_branch_count(spl, leaf);
    uint64 start_branch = splinter_start_branch(spl, leaf);
 
-   splinter_node_unlock(spl, parent);
+   splinter_node_unlock(spl, *parent);
    splinter_node_unlock(spl, leaf);
 
    splinter_open_log_stream();
@@ -5319,7 +5322,7 @@ splinter_split_leaf(splinter_handle *spl,
     * with a height 8+ tree and worst case flush. We do not currently handle
     * this case.
     */
-   platform_assert(num_leaves + splinter_num_pivot_keys(spl, parent)
+   platform_assert(num_leaves + splinter_num_pivot_keys(spl, *parent)
          <= spl->cfg.max_pivot_keys);
 
    /*
@@ -5327,7 +5330,7 @@ splinter_split_leaf(splinter_handle *spl,
     */
    splinter_node_lock(spl, parent);
    splinter_log_node(spl, parent);
-   splinter_node_lock(spl, leaf);
+   splinter_node_lock(spl, &leaf);
    splinter_log_node(spl, leaf);
 
    uint16 bundle_no =
@@ -5356,7 +5359,7 @@ splinter_split_leaf(splinter_handle *spl,
          uint64 addr = splinter_alloc(spl, 0);
          new_leaf = splinter_node_get(spl, addr);
          splinter_node_claim(spl, &new_leaf);
-         splinter_node_lock(spl, new_leaf);
+         splinter_node_lock(spl, &new_leaf);
 
          // copy leaf to new leaf
          memmove(new_leaf->data, leaf->data, spl->cfg.page_size);
@@ -5416,7 +5419,7 @@ splinter_split_leaf(splinter_handle *spl,
           * 5. Add new leaf to parent
           */
          platform_status rc =
-            splinter_add_pivot(spl, parent, new_leaf, child_idx + leaf_no);
+            splinter_add_pivot(spl, *parent, new_leaf, child_idx + leaf_no);
          platform_assert(SUCCESS(rc));
 
          /*
@@ -5507,7 +5510,7 @@ splinter_split_root(splinter_handle *spl,
    child_addr = splinter_alloc(spl, root_hdr->height);
    child = splinter_node_get(spl, child_addr);
    splinter_node_claim(spl, &child);
-   splinter_node_lock(spl, child);
+   splinter_node_lock(spl, &child);
    child_hdr = (splinter_trunk_hdr *)child->data;
 
    // copy root to child, fix up root, then split
@@ -5958,7 +5961,10 @@ splinter_reclaim_space(splinter_handle *spl)
       //platform_log("Space rec: %lu-%u\n",
       //      node->disk_addr, splinter_pdata_to_pivot_index(spl, node, pdata));
 
-      splinter_node_lock(spl, node);
+      splinter_node_lock(spl, &node);
+      // must refetch pdata after node_lock
+      pdata = splinter_find_pivot_from_generation(spl,
+            node, space_rec.pivot_generation);
       if (splinter_is_leaf(spl, node)) {
          splinter_compact_leaf(spl, node);
       } else {
@@ -5966,7 +5972,7 @@ splinter_reclaim_space(splinter_handle *spl)
          if (spl->cfg.use_stats) {
             sr_start = platform_get_timestamp();
          }
-         bool flush_succeeded = splinter_flush(spl, node, pdata, TRUE);
+         bool flush_succeeded = splinter_flush(spl, &node, pdata, TRUE);
          if (spl->cfg.use_stats) {
             const threadid tid = platform_get_tid();
             uint16 height = splinter_height(spl, node);
@@ -6956,7 +6962,7 @@ splinter_create(splinter_config  *cfg,
    uint64 leaf_addr = splinter_alloc(spl, 0);
    page_handle *leaf = splinter_node_get(spl, leaf_addr);
    splinter_node_claim(spl, &leaf);
-   splinter_node_lock(spl, leaf);
+   splinter_node_lock(spl, &leaf);
    splinter_trunk_hdr *leaf_hdr = (splinter_trunk_hdr *)leaf->data;
    memset(leaf_hdr, 0, spl->cfg.page_size);
    const char *min_key = spl->cfg.data_cfg->min_key;
@@ -7129,7 +7135,7 @@ splinter_node_destroy(splinter_handle *spl,
 {
    page_handle *node = splinter_node_get(spl, addr);
    splinter_node_claim(spl, &node);
-   splinter_node_lock(spl, node);
+   splinter_node_lock(spl, &node);
    uint16 num_children = splinter_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pivot_no);
@@ -7472,10 +7478,11 @@ splinter_verify_node_with_neighbors(splinter_handle *spl,
 
    // check node and each child have coherent pivots
    uint16 num_children = splinter_num_children(spl, node);
+   page_handle *child = NULL;
    for (uint16 pivot_no = 0; pivot_no != num_children; pivot_no++) {
       splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pivot_no);
       uint64 child_addr = pdata->addr;
-      page_handle *child = splinter_node_get(spl, child_addr);
+      child = splinter_node_get(spl, child_addr);
 
       // check pivot == child min key
       const char *pivot = splinter_get_pivot(spl, node, pivot_no);
@@ -7488,7 +7495,6 @@ splinter_verify_node_with_neighbors(splinter_handle *spl,
 
          platform_log("addr: %lu\n", addr);
          platform_log("child addr: %lu\n", child_addr);
-         splinter_node_unget(spl, &child);
          goto out;
       }
       const char *next_pivot = splinter_get_pivot(spl, node, pivot_no + 1);
@@ -7498,7 +7504,6 @@ splinter_verify_node_with_neighbors(splinter_handle *spl,
                "mismatched pivot with child max key\n");
          platform_log("addr: %lu\n", addr);
          platform_log("child addr: %lu\n", child_addr);
-         splinter_node_unget(spl, &child);
          goto out;
       }
 
@@ -7509,6 +7514,10 @@ splinter_verify_node_with_neighbors(splinter_handle *spl,
 out:
    if (!is_valid) {
       splinter_print_locked_node(spl, node, PLATFORM_DEFAULT_LOG_HANDLE);
+      if (child != NULL) {
+         splinter_print_locked_node(spl, child, PLATFORM_DEFAULT_LOG_HANDLE);
+         splinter_node_unget(spl, &child);
+      }
    }
    return is_valid;
 }

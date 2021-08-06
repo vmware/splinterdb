@@ -77,7 +77,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
          // If the current memtable is full, try to retire it.
          if (cache_claim(cc, *lock_page)) {
             // We successfully got the claim, so we do the finalization
-            cache_lock(cc, *lock_page);
+            cache_lock(cc, lock_page);
             memtable_transition(mt,
                                 MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
 
@@ -184,7 +184,7 @@ memtable_uncontended_get_claim_lock_lookup_lock(memtable_context *ctxt)
    cache *cc = ctxt->cc;
    bool claimed = cache_claim(cc, lock_page);
    platform_assert(claimed);
-   cache_lock(cc, lock_page);
+   cache_lock(cc, &lock_page);
    return lock_page;
 }
 
@@ -238,7 +238,7 @@ memtable_force_finalize(memtable_context *ctxt)
       wait *= 2;
       lock_page = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
    }
-   cache_lock(cc, lock_page);
+   cache_lock(cc, &lock_page);
 
    uint64 generation = ctxt->generation;
    uint64 mt_no = generation % ctxt->cfg.max_memtables;

@@ -212,7 +212,7 @@ routing_get_and_lock_page(cache  *cc,
       wait *= 2;
       page = cache_get(cc, addr, TRUE, PAGE_TYPE_FILTER);
    }
-   cache_lock(cc, page);
+   cache_lock(cc, &page);
    cache_mark_dirty(cc, page);
    return page;
 }

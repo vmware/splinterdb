@@ -143,7 +143,7 @@ shard_log_write(log_handle *logh,
          wait = wait > 1024 ? wait : 2 * wait;
       }
       wait = 1;
-      cache_lock(cc, page);
+      cache_lock(cc, &page);
       shard_log_hdr *hdr = (shard_log_hdr *)page->data;
       hdr->magic = log->magic;
       hdr->next_extent_addr = next_extent;
@@ -156,7 +156,7 @@ shard_log_write(log_handle *logh,
          wait = wait > 1024 ? wait : 2 * wait;
       }
       wait = 1;
-      cache_lock(cc, page);
+      cache_lock(cc, &page);
    }
    cursor = page->data + thread_data->offset;
 

@@ -69,7 +69,7 @@ mini_allocator_init(mini_allocator *mini,
       wait = wait > 1024 ? wait : 2 * wait;
    }
    wait = 1;
-   cache_lock(cc, meta_page);
+   cache_lock(cc, &meta_page);
    mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
    if (meta_tail == 0) {
       hdr->next_meta_addr = 0;
@@ -104,7 +104,7 @@ mini_allocator_init(mini_allocator *mini,
             wait = wait > 1024 ? wait : 2 * wait;
          }
          wait = 1;
-         cache_lock(mini->cc, meta_page);
+         cache_lock(mini->cc, &meta_page);
          cache_mark_dirty(mini->cc, last_meta_page);
          cache_unlock(mini->cc, last_meta_page);
          cache_unclaim(mini->cc, last_meta_page);
@@ -192,7 +192,7 @@ mini_allocator_alloc(mini_allocator *mini,
          wait = wait > 1024 ? wait : 2 * wait;
       }
       wait = 1;
-      cache_lock(mini->cc, meta_page);
+      cache_lock(mini->cc, &meta_page);
       debug_assert(meta_page->disk_addr == mini->meta_tail);
 
       hdr = (mini_allocator_meta_hdr *)meta_page->data;
@@ -223,7 +223,7 @@ mini_allocator_alloc(mini_allocator *mini,
             wait = wait > 1024 ? wait : 2 * wait;
          }
          wait = 1;
-         cache_lock(mini->cc, meta_page);
+         cache_lock(mini->cc, &meta_page);
          mini->meta_tail = new_meta_tail;
          cache_mark_dirty(mini->cc, last_meta_page);
          cache_unlock(mini->cc, last_meta_page);
@@ -258,7 +258,7 @@ mini_allocator_alloc(mini_allocator *mini,
                   wait = wait > 1024 ? wait : 2 * wait;
                }
                wait = 1;
-               cache_lock(mini->cc, last_meta_page);
+               cache_lock(mini->cc, &last_meta_page);
             }
             mini_allocator_meta_hdr *last_hdr =
                (mini_allocator_meta_hdr *)last_meta_page->data;
@@ -324,7 +324,7 @@ mini_allocator_release(mini_allocator *mini,
             wait = wait > 1024 ? wait : 2 * wait;
          }
          wait = 1;
-         cache_lock(mini->cc, last_meta_page);
+         cache_lock(mini->cc, &last_meta_page);
          mini_allocator_meta_hdr *last_hdr =
             (mini_allocator_meta_hdr *)last_meta_page->data;
          mini_allocator_meta_entry *last_entry =
@@ -418,7 +418,7 @@ mini_allocator_for_each(cache                      *cc,
          meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
       }
       wait = 1;
-      cache_lock(cc, meta_page);
+      cache_lock(cc, &meta_page);
 
       hdr = (mini_allocator_meta_hdr *)meta_page->data;
 
