@@ -1,0 +1,237 @@
+#! Copyright 2018-2021 VMware, Inc.
+#! SPDX-License-Identifier: Apache-2.0
+
+#@ load("@ytt:template", "template")
+
+---
+
+#@ def resource_container_image(name, tag):
+name: #@ name + "-image-" + tag
+type: registry-image
+source:
+  tag: #@ tag
+  repository: #@ "projects.registry.vmware.com/splinterdb/" + name
+  username: ((distribution-harbor-robot-username))
+  password: ((distribution-harbor-robot-password))
+#@ end
+
+---
+
+#! Create the container image that holds the build environment
+#@ def job_recreate_build_env(compiler, also_latest=False):
+name: #@ "recreate-build-env-" + compiler
+public: true
+plan:
+- in_parallel:
+  - get: ci-config
+  - get: build-env-source
+    trigger: true
+- task: #@ "create-build-env-image-" + compiler
+  privileged: true
+  file: ci-config/ci/tasks/create-build-env-image.yml
+  vars:
+    compiler: #@ compiler
+  output_mapping:
+    image: #@ "image-" + compiler
+- task: #@ "collect-tags-" + compiler
+  file: ci-config/ci/tasks/collect-tags.yml
+  vars:
+    compiler: #@ compiler
+  input_mapping: { repo: build-env-source }
+- put: #@ "build-env-image-" + compiler
+  params:
+    image: #@ "image-" + compiler + "/image.tar"
+    additional_tags: tags/tags
+#@ if also_latest:
+- put: build-env-image-latest
+  params:
+    image: #@ "image-" + compiler + "/image.tar"
+    additional_tags: build-env-source/.git/ref
+#@ end
+
+#@ end
+
+---
+
+#! Source code
+#@ def resource_splinterdb_git_repo(name, branch, extra_config={}):
+name: #@ name
+type: git
+source:
+  uri: git@github.com:vmware/splinterdb.git
+  branch: #@ branch
+  private_key: ((github-bot-ssh-private-key))
+  #@ if extra_config:
+  _: #@ template.replace(extra_config)
+  #@ end
+#@ end
+
+---
+
+#! Build, test and publish container images
+#@ def job_main_build_test(compiler, also_latest=False):
+name: #@ "main-build-test-" + compiler
+public: true
+on_success:
+  put: github-commit-status
+  inputs: [branch-main]
+  params: {state: success}
+on_failure:
+  put: github-commit-status
+  inputs: [branch-main]
+  params: {state: failure}
+on_error:
+  put: github-commit-status
+  inputs: [branch-main]
+  params: {state: error}
+plan:
+- in_parallel:
+  - get: ci-config
+  - get: branch-main
+    trigger: true
+  - get: run-env-image-latest
+    passed: [ recreate-run-env ]
+    params: { format: oci }
+    trigger: true
+  - get: #@ "build-env-image-" + compiler
+    passed:
+    - #@ "recreate-build-env-" + compiler
+    params: { format: oci }
+    trigger: true
+- load_var: git-commit-sha
+  file: branch-main/.git/ref
+  reveal: true
+- put: github-commit-status
+  inputs: [branch-main]
+  params: {state: pending}
+- task: #@ "build-splinterdb-image-" + compiler
+  privileged: true
+  input_mapping:
+    build-env-image: #@ "build-env-image-" + compiler
+    run-env-image: run-env-image-latest
+    splinterdb-src: branch-main
+  output_mapping:
+    image: #@ "image-" + compiler
+  file: ci-config/ci/tasks/create-splinterdb-image.yml
+  params:
+    LABEL_git_sha: ((.:git-commit-sha))
+    LABEL_compiler: #@ compiler
+- task: #@ "test-splinterdb-image-" + compiler
+  image: #@ "image-" + compiler
+  file: ci-config/ci/tasks/run-tests.yml
+- task: #@ "collect-tags-" + compiler
+  file: ci-config/ci/tasks/collect-tags.yml
+  vars:
+    compiler: #@ compiler
+  input_mapping: { repo: branch-main }
+- put: #@ "splinterdb-image-" + compiler
+  attempts: 2  #! allow 1 retry, since Distribution Harbor can be flaky
+  params:
+    image: #@ "image-" + compiler + "/image.tar"
+    additional_tags: tags/tags
+#@ if also_latest:
+- put: splinterdb-image-latest
+  attempts: 2  #! allow 1 retry, since Distribution Harbor can be flaky
+  params:
+    image: #@ "image-" + compiler + "/image.tar"
+    additional_tags: branch-main/.git/ref
+#@ end
+
+#@ end
+
+
+---
+
+#@ def set_pr_status(context, status, description=""):
+put: update-status
+resource: github-pull-request
+params:
+  path: github-pull-request
+  status: #@ status
+  base_context: ci
+  context: #@ context
+  #@ if description:
+  description: #@ status + ": " + description
+  #@ end
+get_params: {skip_download: true}
+#@ end
+
+---
+
+#! Job to run against every PR
+#@ def job_pr_check(job_name, steps, description=""):
+name: #@ "pr-" + job_name
+public: true
+on_success: #@ set_pr_status(job_name, "success", description)
+on_failure: #@ set_pr_status(job_name, "failure", description)
+on_error: #@ set_pr_status(job_name, "error", description)
+plan:
+- get: github-pull-request
+  trigger: true
+  version: every
+  params:
+    list_changed_files: true
+- #@ set_pr_status(job_name, "pending", description)
+- #@ template.replace(steps)
+#@ end
+
+---
+
+#! Build plan steps for various PR checks
+
+#@ def steps_pr_build_test(compiler):
+- in_parallel:
+    fail_fast: true
+    steps:
+    - get: ci-config
+    - get: run-env-image-latest
+      passed: [ recreate-run-env ]
+      params: { format: oci }
+    - get: #@ "build-env-image-" + compiler
+      passed:
+      - #@ "recreate-build-env-" + compiler
+      params: { format: oci }
+- task: build-splinterdb-image
+  privileged: true
+  input_mapping:
+    build-env-image: #@ "build-env-image-" + compiler
+    run-env-image: run-env-image-latest
+    splinterdb-src: github-pull-request
+  output_mapping:
+    image: #@ "image-" + compiler
+  file: ci-config/ci/tasks/create-splinterdb-image.yml
+- task: test-splinterdb-image
+  image: #@ "image-" + compiler
+  file: ci-config/ci/tasks/run-tests.yml
+#@ end
+
+#@ def steps_pr_clang_format():
+- in_parallel:
+    fail_fast: true
+    steps:
+    - get: ci-config
+    - get: build-env-image-clang-12
+      passed: [ recreate-build-env-clang-12 ]
+- load_var: base_ref
+  file: github-pull-request/.git/resource/base_sha
+  reveal: true
+- task: format-check
+  image: build-env-image-clang-12
+  vars:
+    base_ref: ((.:base_ref))
+  input_mapping:
+    repo: github-pull-request
+  file: ci-config/ci/tasks/format-check.yml
+#@ end
+
+#@ def steps_pr_shell_scripts():
+- in_parallel:
+    fail_fast: true
+    steps:
+    - get: ci-config
+    - get: build-env-image-clang-12
+      passed: [ recreate-build-env-clang-12 ]
+- task: check-shell-scripts
+  image: build-env-image-clang-12
+  file: ci-config/ci/tasks/pr-check-shell-scripts.yml
+#@ end

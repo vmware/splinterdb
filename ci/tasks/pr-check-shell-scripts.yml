@@ -1,0 +1,12 @@
+# Copyright 2018-2021 VMware, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+platform: linux
+
+inputs:
+- name: github-pull-request
+- name: ci-config
+
+run:
+  path: "ci-config/ci/tasks/pr-check-shell-scripts.sh"
