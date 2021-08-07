@@ -1,0 +1,13 @@
+# Copyright 2018-2021 VMware, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+---
+platform: linux
+
+inputs:
+- name: repo
+
+run:
+  dir: repo
+  path: ./format-check.sh
+  args: [ ((base_ref)) ]

@@ -1,0 +1,130 @@
+#! Copyright 2018-2021 VMware, Inc.
+#! SPDX-License-Identifier: Apache-2.0
+
+#! A ytt template for our Concourse CI pipeline
+#! - https://carvel.dev/ytt
+#! - https://concourse-ci.org
+#!
+#! Use the apply-pipeline.sh script to deploy
+
+
+#@ load("pipeline-funcs.lib.yml",
+#@         "resource_container_image",
+#@         "resource_splinterdb_git_repo",
+#@         "job_recreate_build_env",
+#@         "job_main_build_test",
+#@         "job_pr_check",
+#@         "steps_pr_build_test",
+#@         "steps_pr_clang_format",
+#@         "steps_pr_shell_scripts",
+#@ )
+---
+
+resource_types:
+#! Enables GitHub status on commits
+- name: cogito
+  type: registry-image
+  check_every: 12h
+  source:
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/pix4d/cogito
+    tag: "0.5.1"
+
+#! Enables GitHub status on pull requests
+- name: pull-request
+  type: registry-image
+  source:
+    repository: harbor-repo.vmware.com/dockerhub-proxy-cache/teliaoss/github-pr-resource
+
+resources:
+
+#! Container images for the build environment
+- #@ resource_container_image("build-env", "latest")
+- #@ resource_container_image("build-env", "clang-12")
+- #@ resource_container_image("build-env", "gcc-9")
+
+#! Container images for the run environment
+- #@ resource_container_image("run-env", "latest")
+
+#! Container image with the final built splinterdb SO file and test binary
+- #@ resource_container_image("splinterdb", "clang-12")
+- #@ resource_container_image("splinterdb", "gcc-9")
+- #@ resource_container_image("splinterdb", "latest")
+
+#! Source code for the container image holding the build environment
+- #@ resource_splinterdb_git_repo("build-env-source", "main", { "paths": [ "Dockerfile.build-env" ] })
+
+#! Source code for the container image holding the run environment
+- #@ resource_splinterdb_git_repo("run-env-source", "main", { "paths": [ "Dockerfile.run-env" ] })
+
+#! CI config, may be versioned separately from main branch
+- #@ resource_splinterdb_git_repo("ci-config", "ci-config")
+
+#! Source code repo, main branch
+- #@ resource_splinterdb_git_repo("branch-main", "main", { "ignore_paths": [ "ci" ] })
+
+#! Set status on individual commits in the github repo
+- name: github-commit-status
+  type: cogito
+  check_every: 1h
+  source:
+    owner: vmware
+    repo: splinterdb
+    access_token: ((github-bot-access-token))
+
+#! Discover pull requests and set status on them
+- name: github-pull-request
+  type: pull-request
+  check_every: 2m
+  source:
+    repository: vmware/splinterdb
+    access_token: ((github-bot-access-token))
+    base_branch: main
+
+jobs:
+- #@ job_recreate_build_env("clang-12")
+- #@ job_recreate_build_env("gcc-9", also_latest=True)
+
+#! Create the container image that holds the runtime environment
+- name: recreate-run-env
+  public: true
+  plan:
+  - in_parallel:
+    - get: ci-config
+    - get: run-env-source
+      trigger: true
+  - task: create-run-env-image
+    privileged: true
+    file: ci-config/ci/tasks/create-run-env-image.yml
+  - put: run-env-image-latest
+    params:
+      image: image/image.tar
+      additional_tags: run-env-source/.git/ref
+
+#! Build, test and publish container images
+- #@ job_main_build_test("clang-12")
+- #@ job_main_build_test("gcc-9", also_latest=True)
+
+- #@ job_pr_check("clang-12", steps_pr_build_test("clang-12"), description="build and test")
+- #@ job_pr_check("gcc-9", steps_pr_build_test("gcc-9"), description="build and test")
+
+- #@ job_pr_check("clang-format", steps_pr_clang_format(), description="check C source formatting")
+- #@ job_pr_check("shell-scripts", steps_pr_shell_scripts(), description="lint and format any shell scripts")
+
+groups:
+- name: main_branch
+  jobs:
+  - main-build-test-clang-12
+  - main-build-test-gcc-9
+
+- name: pull_requests
+  jobs:
+  - pr-clang-12
+  - pr-gcc-9
+  - pr-clang-format
+  - pr-shell-scripts
+
+- name: env_images
+  jobs:
+  - recreate-build-env-clang-12
+  - recreate-build-env-gcc-9
+  - recreate-run-env
