@@ -17,8 +17,18 @@ export DEBIAN_FRONTEND=noninteractive; \
 apt-get update -y; \
 apt-get install -y make libaio-dev libconfig-dev libxxhash-dev libcap2-bin;'
 
-ARG compiler=clang-8
+ARG compiler=clang-12
 RUN /bin/bash -c "DEBIAN_FRONTEND=noninteractive; apt-get install -y $compiler"
+
+# linters and formatters
+ENV SHFMT_VERSION 3.3.1
+ADD https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64 /usr/local/bin/shfmt
+RUN /bin/bash -c ' \
+set -euo pipefail; \
+chmod +x /usr/local/bin/shfmt; \
+export DEBIAN_FRONTEND=noninteractive; \
+apt-get install -y clang-format-12 shellcheck yamllint; \
+(cd /usr/bin; ln -s clang-format-12 clang-format);'
 
 ENV CC $compiler
 ENV LD $compiler
