@@ -15,7 +15,7 @@ RUN /bin/bash -c ' \
 set -euo pipefail; \
 export DEBIAN_FRONTEND=noninteractive; \
 apt-get update -y; \
-apt-get install -y make libaio-dev libconfig-dev libxxhash-dev libcap2-bin;'
+apt-get install -y make libaio-dev libconfig-dev libxxhash-dev;'
 
 ARG compiler=clang-12
 RUN /bin/bash -c "DEBIAN_FRONTEND=noninteractive; apt-get install -y $compiler"
