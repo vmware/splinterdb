@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Example usage:
-#   docker build -t splinterdb . && docker --rm run --cap-add=IPC_LOCK splinterdb
+#   docker build -t splinterdb . && docker --rm run splinterdb
 
 # see Dockerfile.build-env
 ARG build_env_image=projects.registry.vmware.com/splinterdb/build-env:latest
