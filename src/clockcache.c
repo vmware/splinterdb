@@ -2555,7 +2555,7 @@ clockcache_prefetch_callback(void *          metadata,
                              uint64          count,
                              platform_status status)
 {
-   clockcache *cc = *(clockcache **)metadata;
+   clockcache *      cc        = *(clockcache **)metadata;
    page_type         type      = PAGE_TYPE_INVALID;
    debug_only uint64 last_addr = CC_UNMAPPED_ADDR;
 
@@ -2578,6 +2578,7 @@ clockcache_prefetch_callback(void *          metadata,
       debug_assert(addr != CC_UNMAPPED_ADDR);
       debug_assert(addr == last_addr + cc->cfg->page_size ||
                    last_addr == CC_UNMAPPED_ADDR);
+      debug_assert(addr == iovec[page_off].iov_base);
       debug_code(last_addr = addr);
       debug_assert(entry_no == clockcache_lookup(cc, addr));
    }
@@ -2677,7 +2678,6 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                 */
                entry->page.disk_addr = CC_UNMAPPED_ADDR;
                entry->status         = CC_FREE_STATUS;
-               page_off--;
             }
             break;
          }
