@@ -27,8 +27,11 @@ RUN /bin/bash -c ' \
 set -euo pipefail; \
 chmod +x /usr/local/bin/shfmt; \
 export DEBIAN_FRONTEND=noninteractive; \
-apt-get install -y clang-format-12 shellcheck yamllint; \
-(cd /usr/bin; ln -s clang-format-12 clang-format);'
+apt-get install -y git clang-format-12 shellcheck yamllint; \
+cd /usr/bin; \
+   ln -s clang-format-12 clang-format; \
+   ln -s git-clang-format-12 git-clang-format; \
+'
 
 ENV CC $compiler
 ENV LD $compiler
