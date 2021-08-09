@@ -2007,7 +2007,8 @@ btree_iterator_advance(iterator *base_itor)
                && (itor->end.addr == 0
                   || !btree_addrs_share_extent(cfg, itor->curr.addr, itor->end.addr))) {
             // IO prefetch the next extent
-            cache_prefetch(cc, itor->curr.hdr->next_extent_addr, PAGE_TYPE_BRANCH);
+            cache_prefetch(
+               cc, itor->curr.hdr->next_extent_addr, PAGE_TYPE_BRANCH);
          }
       } else {
          // We already know we are at the end

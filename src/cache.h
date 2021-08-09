@@ -122,7 +122,7 @@ typedef uint64        (*extent_sync_fn)        (cache *cc, uint64 addr, uint64 *
 typedef void          (*share_fn)              (cache *cc, page_handle *page_to_share, page_handle *anon_page);
 typedef void          (*unshare_fn)            (cache *cc, page_handle *anon_page);
 
-typedef void          (*page_prefetch_fn)      (cache *cc, uint64 addr, page_type type);
+typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
 
 typedef void          (*page_mark_dirty_fn)    (cache *cc, page_handle *page);
 
