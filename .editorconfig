@@ -1,0 +1,17 @@
+# Copyright 2018-2021 VMware, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# https://editorconfig.org/
+
+# Formatting rules for shell scripts
+# used by shfmt formatter tool
+[*.sh]
+indent_style = space
+indent_size = 3
+
+shell_variant      = bash
+binary_next_line   = true
+switch_case_indent = true
+space_redirects    = true
+keep_padding       = true
+function_next_line = false
