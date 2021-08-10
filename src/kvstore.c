@@ -35,14 +35,14 @@ typedef struct kvstore {
 
 /*
  * Extract errno.h -style status int from a platform_status
+ *
+ * Note this currently relies on the implementation of the splinterdb
+ * platform_linux. But at least it doesn't leak the dependency to callers.
  */
 static inline int
 platform_status_to_int(platform_status status) // IN
 {
-   if (!SUCCESS(status)) {
-      return status.r;
-   }
-   return 0;
+   return status.r;
 }
 
 
