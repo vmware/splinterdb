@@ -15,26 +15,26 @@
 #define Giga (Kilo * Mega)
 
 void
-kvstore_set_config(KVStoreConfig *kvsCfg)
+kvstore_set_config(kvstore_config *kvsCfg)
 {
-   *kvsCfg           = (KVStoreConfig){0}; // zero it out
+   *kvsCfg            = (kvstore_config){0}; // zero it out
    kvsCfg->filename  = "db";
-   kvsCfg->cacheSize = Giga; // see config.c: cache_capacity
+   kvsCfg->cache_size = Giga; // see config.c: cache_capacity
 
-   kvsCfg->keySize  = test_data_config->key_size;
-   kvsCfg->dataSize = test_data_config->message_size;
+   kvsCfg->key_size  = test_data_config->key_size;
+   kvsCfg->data_size = test_data_config->message_size;
 
-   kvsCfg->keyCompare = test_data_config->key_compare;
-   kvsCfg->keyHash    = test_data_config->key_hash;
+   kvsCfg->key_compare = test_data_config->key_compare;
+   kvsCfg->key_hash    = test_data_config->key_hash;
 
-   kvsCfg->mergeTuples      = test_data_config->merge_tuples;
-   kvsCfg->mergeTuplesFinal = test_data_config->merge_tuples_final;
+   kvsCfg->merge_tuples       = test_data_config->merge_tuples;
+   kvsCfg->merge_tuples_final = test_data_config->merge_tuples_final;
 
-   kvsCfg->keyToStr     = test_data_config->key_to_string;
-   kvsCfg->messageToStr = test_data_config->message_to_string;
-   kvsCfg->messageClass = test_data_config->message_class;
+   kvsCfg->key_to_str     = test_data_config->key_to_string;
+   kvsCfg->message_to_str = test_data_config->message_to_string;
+   kvsCfg->message_class  = test_data_config->message_class;
 
-   kvsCfg->diskSize = 30 * Giga; // see config.c: allocator_capacity
+   kvsCfg->disk_size = 30 * Giga; // see config.c: allocator_capacity
 }
 
 int
@@ -43,23 +43,23 @@ kvstore_test(int argc, char *argv[])
    fprintf(stderr, "kvstore_test: starting\n");
 
    int           kvResult;
-   KVStoreHandle kvsHandle = {0};
-   KVStoreConfig kvsCfg    = {0};
+   kvstore_handle kvsHandle = {0};
+   kvstore_config kvsCfg    = {0};
 
 
    kvstore_set_config(&kvsCfg);
 
-   kvResult = KVStore_Init(&kvsCfg, &kvsHandle);
+   kvResult = kvstore_init(&kvsCfg, &kvsHandle);
    if (kvResult != 0) {
       fprintf(stderr, "kvstore_init error: %d\n", kvResult);
       return -1;
    }
 
-   KVStore_RegisterThread(kvsHandle);
+   kvstore_register_thread(kvsHandle);
 
    fprintf(stderr, "kvstore_test: initializing test data\n");
-   char *key   = calloc(1, kvsCfg.keySize);
-   char *value = calloc(1, kvsCfg.dataSize);
+   char *key   = calloc(1, kvsCfg.key_size);
+   char *value = calloc(1, kvsCfg.data_size);
    if (value == NULL) {
       fprintf(stderr, "calloc value buffer\n");
    }
@@ -67,7 +67,7 @@ kvstore_test(int argc, char *argv[])
    memcpy(key, "foo", 3);
 
    fprintf(stderr, "kvstore_test: lookup non-existent key...");
-   kvResult = KVStore_Lookup(kvsHandle, key, value, &found);
+   kvResult = kvstore_lookup(kvsHandle, key, value, &found);
    if (kvResult != 0) {
       fprintf(stderr, "kvstore_lookup: %d\n", kvResult);
       goto cleanup;
@@ -88,7 +88,7 @@ kvstore_test(int argc, char *argv[])
            "inserting key with data = %.*s\n",
            3,
            (char *)(valueStruct->data));
-   kvResult = KVStore_Insert(kvsHandle, key, value);
+   kvResult = kvstore_insert(kvsHandle, key, value);
    if (kvResult != 0) {
       fprintf(stderr, "kvstore_insert: %d\n", kvResult);
       goto cleanup;
@@ -97,7 +97,7 @@ kvstore_test(int argc, char *argv[])
    // muck with the value, just to see that it gets reset
    valueStruct->message_type = MESSAGE_TYPE_UPDATE;
    snprintf((void *)(valueStruct->data),
-            kvsCfg.dataSize - offsetof(data_handle, data),
+            kvsCfg.data_size - offsetof(data_handle, data),
             "zzz");
    fprintf(
       stderr,
@@ -106,7 +106,7 @@ kvstore_test(int argc, char *argv[])
       (char *)(valueStruct->data));
 
    fprintf(stderr, "kvstore_test: lookup #2...");
-   kvResult = KVStore_Lookup(kvsHandle, key, value, &found);
+   kvResult = kvstore_lookup(kvsHandle, key, value, &found);
    if (kvResult != 0) {
       fprintf(stderr, "kvstore_lookup: %d\n", kvResult);
       goto cleanup;
@@ -127,14 +127,14 @@ kvstore_test(int argc, char *argv[])
 
    fprintf(stderr, "kvstore_test: delete key\n");
    valueStruct->message_type = MESSAGE_TYPE_DELETE;
-   kvResult                  = KVStore_Insert(kvsHandle, key, value);
+   kvResult                  = kvstore_insert(kvsHandle, key, value);
    if (kvResult != 0) {
       fprintf(stderr, "kvstore_insert (for delete): %d\n", kvResult);
       goto cleanup;
    }
 
    fprintf(stderr, "kvstore_test: lookup #3, for now-deleted key...");
-   kvResult = KVStore_Lookup(kvsHandle, key, value, &found);
+   kvResult = kvstore_lookup(kvsHandle, key, value, &found);
    if (kvResult != 0) {
       fprintf(stderr, "kvstore_lookup: %d\n", kvResult);
       goto cleanup;
@@ -147,7 +147,7 @@ kvstore_test(int argc, char *argv[])
    }
 
 cleanup:
-   KVStore_Deinit(kvsHandle);
+   kvstore_deinit(kvsHandle);
    if (kvResult == 0) {
       fprintf(stderr, "kvstore_test: succeeded\n");
       return 0;

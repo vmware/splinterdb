@@ -16,7 +16,7 @@
 #include "rc_allocator.h"
 #include "splinter.h"
 
-typedef struct KVStore {
+typedef struct kvstore {
    task_system *        taskSystem;
    data_config          dataCfg;
    io_config            ioCfg;
@@ -28,9 +28,9 @@ typedef struct KVStore {
    allocator_root_id    splinterId;
    splinter_config      splinterCfg;
    splinter_handle *    splinterHandle;
-   platform_heap_handle heapHandle; // for platform_buffer_create
-   platform_heap_id     heapID;
-} KVStore;
+   platform_heap_handle heap_handle; // for platform_buffer_create
+   platform_heap_id     heap_id;
+} kvstore;
 
 
 /*
@@ -51,9 +51,9 @@ platform_status_to_int(platform_status status) // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * KVStoreInitConfig --
+ * kvstore_init_config --
  *
- *      Translate KVStoreConfig to configs for individual subsystems.
+ *      Translate kvstore_config to configs for individual subsystems.
  *
  * Results:
  *      STATUS_OK on success, appopriate error on failure.
@@ -65,17 +65,17 @@ platform_status_to_int(platform_status status) // IN
  */
 
 static platform_status
-KVStoreInitConfig(const KVStoreConfig *kvsCfg, // IN
-                  KVStore *            kvs)                // OUT
+kvstore_init_config(const kvstore_config *kvsCfg, // IN
+                    kvstore *             kvs)                 // OUT
 {
    master_config masterCfg;
 
-   if (kvsCfg->filename == NULL || kvsCfg->cacheSize == 0 ||
-       kvsCfg->keySize == 0 || kvsCfg->dataSize == 0 ||
-       kvsCfg->keyCompare == NULL || kvsCfg->keyHash == NULL ||
-       kvsCfg->mergeTuples == NULL || kvsCfg->mergeTuplesFinal == NULL ||
-       kvsCfg->diskSize == 0 || kvsCfg->messageClass == NULL ||
-       kvsCfg->keyToStr == NULL || kvsCfg->messageToStr == NULL) {
+   if (kvsCfg->filename == NULL || kvsCfg->cache_size == 0 ||
+       kvsCfg->key_size == 0 || kvsCfg->data_size == 0 ||
+       kvsCfg->key_compare == NULL || kvsCfg->key_hash == NULL ||
+       kvsCfg->merge_tuples == NULL || kvsCfg->merge_tuples_final == NULL ||
+       kvsCfg->disk_size == 0 || kvsCfg->message_class == NULL ||
+       kvsCfg->key_to_str == NULL || kvsCfg->message_to_str == NULL) {
       return STATUS_BAD_PARAM;
    }
 
@@ -84,27 +84,27 @@ KVStoreInitConfig(const KVStoreConfig *kvsCfg, // IN
             sizeof(masterCfg.io_filename),
             "%s",
             kvsCfg->filename);
-   masterCfg.allocator_capacity = kvsCfg->diskSize;
-   masterCfg.cache_capacity     = kvsCfg->cacheSize;
+   masterCfg.allocator_capacity = kvsCfg->disk_size;
+   masterCfg.cache_capacity     = kvsCfg->cache_size;
    masterCfg.use_log            = FALSE;
    masterCfg.use_stats          = TRUE;
-   masterCfg.key_size           = kvsCfg->keySize;
-   masterCfg.message_size       = kvsCfg->dataSize;
+   masterCfg.key_size           = kvsCfg->key_size;
+   masterCfg.message_size       = kvsCfg->data_size;
 
-   kvs->dataCfg.key_size           = kvsCfg->keySize;
-   kvs->dataCfg.message_size       = kvsCfg->dataSize;
-   kvs->dataCfg.key_compare        = kvsCfg->keyCompare;
-   kvs->dataCfg.key_hash           = kvsCfg->keyHash;
-   kvs->dataCfg.message_class      = kvsCfg->messageClass;
-   kvs->dataCfg.merge_tuples       = kvsCfg->mergeTuples;
-   kvs->dataCfg.merge_tuples_final = kvsCfg->mergeTuplesFinal;
-   kvs->dataCfg.key_to_string      = kvsCfg->keyToStr;
-   kvs->dataCfg.message_to_string  = kvsCfg->messageToStr;
+   kvs->dataCfg.key_size           = kvsCfg->key_size;
+   kvs->dataCfg.message_size       = kvsCfg->data_size;
+   kvs->dataCfg.key_compare        = kvsCfg->key_compare;
+   kvs->dataCfg.key_hash           = kvsCfg->key_hash;
+   kvs->dataCfg.message_class      = kvsCfg->message_class;
+   kvs->dataCfg.merge_tuples       = kvsCfg->merge_tuples;
+   kvs->dataCfg.merge_tuples_final = kvsCfg->merge_tuples_final;
+   kvs->dataCfg.key_to_string      = kvsCfg->key_to_str;
+   kvs->dataCfg.message_to_string  = kvsCfg->message_to_str;
    memset(kvs->dataCfg.min_key, 0, kvs->dataCfg.key_size);
    memset(kvs->dataCfg.max_key, 0xff, kvs->dataCfg.key_size);
 
-   kvs->heapHandle = kvsCfg->heapHandle;
-   kvs->heapID     = kvsCfg->heapID;
+   kvs->heap_handle = kvsCfg->heap_handle;
+   kvs->heap_id     = kvsCfg->heap_id;
 
    io_config_init(&kvs->ioCfg,
                   masterCfg.page_size,
@@ -147,12 +147,12 @@ KVStoreInitConfig(const KVStoreConfig *kvsCfg, // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * KVStore_Init --
+ * kvstore_init --
  *
- *      Init a KVStore.
+ *      Init a kvstore.
  *
- *      Init splinter to use as a KVStore.  Relevant config parameters are
- *      provided via KVStoreConifg, which are translated to appropriate configs
+ *      Init splinter to use as a kvstore.  Relevant config parameters are
+ *      provided via kvstore_config, which are translated to appropriate configs
  *      of each subsystem. For unspecified/internal parameters, defaults are
  *      used.
  *
@@ -171,29 +171,29 @@ KVStoreInitConfig(const KVStoreConfig *kvsCfg, // IN
  */
 
 int
-KVStore_Init(const KVStoreConfig *kvsCfg, // IN
-             KVStoreHandle *      kvsHandle)    // OUT
+kvstore_init(const kvstore_config *kvsCfg, // IN
+             kvstore_handle *      kvsHandle)    // OUT
 {
-   KVStore *       kvs;
+   kvstore *       kvs;
    platform_status status;
 
    platform_assert(kvsHandle != NULL);
 
-   kvs = TYPED_ZALLOC(kvsCfg->heapID, kvs);
+   kvs = TYPED_ZALLOC(kvsCfg->heap_id, kvs);
    if (kvs == NULL) {
       status = STATUS_NO_MEMORY;
       return platform_status_to_int(status);
    }
 
-   status = KVStoreInitConfig(kvsCfg, kvs);
+   status = kvstore_init_config(kvsCfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init io handle: %s\n",
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
 
-   status =
-      io_handle_init(&kvs->ioHandle, &kvs->ioCfg, kvs->heapHandle, kvs->heapID);
+   status = io_handle_init(
+      &kvs->ioHandle, &kvs->ioCfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init io handle: %s\n",
                          platform_status_to_string(status));
@@ -202,7 +202,7 @@ KVStore_Init(const KVStoreConfig *kvsCfg, // IN
 
    uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    // FIXME: [aconway 2020-09-09] Not sure how to get use_stats from here
-   status = task_system_create(kvs->heapID,
+   status = task_system_create(kvs->heap_id,
                                &kvs->ioHandle,
                                &kvs->taskSystem,
                                TRUE,
@@ -218,8 +218,8 @@ KVStore_Init(const KVStoreConfig *kvsCfg, // IN
    status = rc_allocator_init(&kvs->allocatorHandle,
                               &kvs->allocatorCfg,
                               (io_handle *)&kvs->ioHandle,
-                              kvs->heapHandle,
-                              kvs->heapID,
+                              kvs->heap_handle,
+                              kvs->heap_id,
                               platform_get_module_id());
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init allocator: %s\n",
@@ -233,8 +233,8 @@ KVStore_Init(const KVStoreConfig *kvsCfg, // IN
                             (allocator *)&kvs->allocatorHandle,
                             "kvStore",
                             kvs->taskSystem,
-                            kvs->heapHandle,
-                            kvs->heapID,
+                            kvs->heap_handle,
+                            kvs->heap_id,
                             platform_get_module_id());
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init cache: %s\n",
@@ -248,7 +248,7 @@ KVStore_Init(const KVStoreConfig *kvsCfg, // IN
                                          (cache *)&kvs->cacheHandle,
                                          kvs->taskSystem,
                                          kvs->splinterId,
-                                         kvs->heapID);
+                                         kvs->heap_id);
    if (kvs->splinterHandle == NULL) {
       platform_error_log("Failed to init splinter\n");
       platform_assert(kvs->splinterHandle != NULL);
@@ -263,11 +263,11 @@ deinit_cache:
 deinit_allocator:
    rc_allocator_deinit(&kvs->allocatorHandle);
 deinit_system:
-   task_system_destroy(kvs->heapID, kvs->taskSystem);
+   task_system_destroy(kvs->heap_id, kvs->taskSystem);
 deinit_iohandle:
    io_handle_deinit(&kvs->ioHandle);
 deinit_kvhandle:
-   platform_free(kvsCfg->heapID, kvs);
+   platform_free(kvsCfg->heap_id, kvs);
 
    return platform_status_to_int(status);
 }
@@ -276,9 +276,9 @@ deinit_kvhandle:
 /*
  *-----------------------------------------------------------------------------
  *
- * KVStore_Deinit --
+ * kvstore_deinit --
  *
- *      Deinit a KVStore.
+ *      Deinit a kvstore.
  *
  *      TODO
  *      Unmount support to be added in the future
@@ -293,9 +293,9 @@ deinit_kvhandle:
  */
 
 void
-KVStore_Deinit(KVStoreHandle kvsHandle) // IN
+kvstore_deinit(kvstore_handle kvsHandle) // IN
 {
-   KVStore *kvs = kvsHandle;
+   kvstore *kvs = kvsHandle;
 
    platform_assert(kvs != NULL);
 
@@ -303,17 +303,17 @@ KVStore_Deinit(KVStoreHandle kvsHandle) // IN
    clockcache_deinit(&kvs->cacheHandle);
    rc_allocator_deinit(&kvs->allocatorHandle);
    io_handle_deinit(&kvs->ioHandle);
-   task_system_destroy(kvs->heapID, kvs->taskSystem);
-   platform_free(kvs->heapID, kvs);
+   task_system_destroy(kvs->heap_id, kvs->taskSystem);
+   platform_free(kvs->heap_id, kvs);
 }
 
 
 /*
  *-----------------------------------------------------------------------------
  *
- * KVStore_RegisterThread --
+ * kvstore_register_thread --
  *
- *      Register a thread for KVStore operations. Needs to be called from the
+ *      Register a thread for kvstore operations. Needs to be called from the
  *      threads execution context.
  *
  *      This function must be called by a thread before it performs any
@@ -329,9 +329,9 @@ KVStore_Deinit(KVStoreHandle kvsHandle) // IN
  */
 
 void
-KVStore_RegisterThread(const KVStoreHandle kvsHandle) // IN
+kvstore_register_thread(const kvstore_handle kvsHandle) // IN
 {
-   KVStore *kvs = kvsHandle;
+   kvstore *kvs = kvsHandle;
 
    platform_assert(kvs != NULL);
    task_system_register_thread(kvs->taskSystem);
@@ -341,7 +341,7 @@ KVStore_RegisterThread(const KVStoreHandle kvsHandle) // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * KVStore_Insert --
+ * kvstore_insert --
  *
  *      Insert a tuple into splinter
  *
@@ -357,11 +357,11 @@ KVStore_RegisterThread(const KVStoreHandle kvsHandle) // IN
  */
 
 int
-KVStore_Insert(const KVStoreHandle kvsHandle, // IN
-               char *              key,       // IN
-               char *              value)                   // IN
+kvstore_insert(const kvstore_handle kvsHandle, // IN
+               char *               key,       // IN
+               char *               value)                    // IN
 {
-   KVStore *       kvs = kvsHandle;
+   kvstore *       kvs = kvsHandle;
    platform_status status;
 
    platform_assert(kvs != NULL);
@@ -373,7 +373,7 @@ KVStore_Insert(const KVStoreHandle kvsHandle, // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * KVStore_Lookup --
+ * kvstore_lookup --
  *
  *      Look up a key from splinter
  *
@@ -389,12 +389,12 @@ KVStore_Insert(const KVStoreHandle kvsHandle, // IN
  */
 
 int
-KVStore_Lookup(const KVStoreHandle kvsHandle, // IN
-               char *              key,       // IN
-               char *              value,     // OUT
-               bool *              found)                   // OUT
+kvstore_lookup(const kvstore_handle kvsHandle, // IN
+               char *               key,       // IN
+               char *               value,     // OUT
+               bool *               found)                    // OUT
 {
-   KVStore *       kvs = kvsHandle;
+   kvstore *       kvs = kvsHandle;
    platform_status status;
 
    platform_assert(kvs != NULL);
