@@ -43,14 +43,15 @@ typedef uint64_t      uint64;
 typedef uint64        timestamp;
 typedef uint64        threadid;
 
-_Static_assert(sizeof(int8) == 1, "incorrect type");
-_Static_assert(sizeof(uint8) == 1, "incorrect type");
-_Static_assert(sizeof(int16) == 2, "incorrect type");
-_Static_assert(sizeof(uint16) == 2, "incorrect type");
-_Static_assert(sizeof(int32) == 4, "incorrect type");
-_Static_assert(sizeof(uint32) == 4, "incorrect type");
-_Static_assert(sizeof(int64) == 8, "incorrect type");
-_Static_assert(sizeof(uint64) == 8, "incorrect type");
+#include <assert.h>
+static_assert(sizeof(int8) == 1, "incorrect type");
+static_assert(sizeof(uint8) == 1, "incorrect type");
+static_assert(sizeof(int16) == 2, "incorrect type");
+static_assert(sizeof(uint16) == 2, "incorrect type");
+static_assert(sizeof(int32) == 4, "incorrect type");
+static_assert(sizeof(uint32) == 4, "incorrect type");
+static_assert(sizeof(int64) == 8, "incorrect type");
+static_assert(sizeof(uint64) == 8, "incorrect type");
 
 // Bools
 #ifndef TRUE
