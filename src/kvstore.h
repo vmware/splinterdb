@@ -13,20 +13,14 @@
 #include "data.h"
 
 typedef struct kvstore_config {
-   const char *             filename;
-   uint64                   cache_size;
-   uint64                   disk_size;
-   uint64                   key_size;
-   uint64                   data_size;
-   key_compare_fn           key_compare;
-   key_hash_fn              key_hash;
-   message_class_fn         message_class;
-   merge_tuple_fn           merge_tuples;
-   merge_tuple_final_fn     merge_tuples_final;
-   key_or_message_to_str_fn key_to_str;
-   key_or_message_to_str_fn message_to_str;
-   void *                   heap_handle;
-   void *                   heap_id;
+   const char *filename;
+   uint64      cache_size;
+   uint64      disk_size;
+
+   data_config data_cfg;
+
+   void *heap_handle;
+   void *heap_id;
 } kvstore_config;
 
 typedef struct kvstore *kvstore_handle;

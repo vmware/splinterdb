@@ -68,17 +68,16 @@ static platform_status
 kvstore_init_config(const kvstore_config *kvsCfg, // IN
                     kvstore *             kvs)                 // OUT
 {
-   master_config masterCfg;
-
-   if (kvsCfg->filename == NULL || kvsCfg->cache_size == 0 ||
-       kvsCfg->key_size == 0 || kvsCfg->data_size == 0 ||
-       kvsCfg->key_compare == NULL || kvsCfg->key_hash == NULL ||
-       kvsCfg->merge_tuples == NULL || kvsCfg->merge_tuples_final == NULL ||
-       kvsCfg->disk_size == 0 || kvsCfg->message_class == NULL ||
-       kvsCfg->key_to_str == NULL || kvsCfg->message_to_str == NULL) {
+   if (!data_validate_config(&kvsCfg->data_cfg)) {
       return STATUS_BAD_PARAM;
    }
 
+   if (kvsCfg->filename == NULL || kvsCfg->cache_size == 0 ||
+       kvsCfg->disk_size == 0) {
+      return STATUS_BAD_PARAM;
+   }
+
+   master_config masterCfg;
    config_set_defaults(&masterCfg);
    snprintf(masterCfg.io_filename,
             sizeof(masterCfg.io_filename),
@@ -88,18 +87,9 @@ kvstore_init_config(const kvstore_config *kvsCfg, // IN
    masterCfg.cache_capacity     = kvsCfg->cache_size;
    masterCfg.use_log            = FALSE;
    masterCfg.use_stats          = TRUE;
-   masterCfg.key_size           = kvsCfg->key_size;
-   masterCfg.message_size       = kvsCfg->data_size;
-
-   kvs->dataCfg.key_size           = kvsCfg->key_size;
-   kvs->dataCfg.message_size       = kvsCfg->data_size;
-   kvs->dataCfg.key_compare        = kvsCfg->key_compare;
-   kvs->dataCfg.key_hash           = kvsCfg->key_hash;
-   kvs->dataCfg.message_class      = kvsCfg->message_class;
-   kvs->dataCfg.merge_tuples       = kvsCfg->merge_tuples;
-   kvs->dataCfg.merge_tuples_final = kvsCfg->merge_tuples_final;
-   kvs->dataCfg.key_to_string      = kvsCfg->key_to_str;
-   kvs->dataCfg.message_to_string  = kvsCfg->message_to_str;
+   masterCfg.key_size           = kvsCfg->data_cfg.key_size;
+   masterCfg.message_size       = kvsCfg->data_cfg.message_size;
+   kvs->dataCfg                 = kvsCfg->data_cfg;
    memset(kvs->dataCfg.min_key, 0, kvs->dataCfg.key_size);
    memset(kvs->dataCfg.max_key, 0xff, kvs->dataCfg.key_size);
 

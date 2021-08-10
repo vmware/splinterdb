@@ -14,40 +14,20 @@
 #define Mega (Kilo * Kilo)
 #define Giga (Kilo * Mega)
 
-void
-kvstore_set_config(kvstore_config *kvsCfg)
-{
-   *kvsCfg            = (kvstore_config){0}; // zero it out
-   kvsCfg->filename  = "db";
-   kvsCfg->cache_size = Giga; // see config.c: cache_capacity
-
-   kvsCfg->key_size  = test_data_config->key_size;
-   kvsCfg->data_size = test_data_config->message_size;
-
-   kvsCfg->key_compare = test_data_config->key_compare;
-   kvsCfg->key_hash    = test_data_config->key_hash;
-
-   kvsCfg->merge_tuples       = test_data_config->merge_tuples;
-   kvsCfg->merge_tuples_final = test_data_config->merge_tuples_final;
-
-   kvsCfg->key_to_str     = test_data_config->key_to_string;
-   kvsCfg->message_to_str = test_data_config->message_to_string;
-   kvsCfg->message_class  = test_data_config->message_class;
-
-   kvsCfg->disk_size = 30 * Giga; // see config.c: allocator_capacity
-}
-
 int
 kvstore_test(int argc, char *argv[])
 {
    fprintf(stderr, "kvstore_test: starting\n");
 
-   int           kvResult;
+   int            kvResult;
    kvstore_handle kvsHandle = {0};
    kvstore_config kvsCfg    = {0};
 
+   kvsCfg.filename   = "db";
+   kvsCfg.cache_size = Giga;      // see config.c: cache_capacity
+   kvsCfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
 
-   kvstore_set_config(&kvsCfg);
+   kvsCfg.data_cfg = *test_data_config;
 
    kvResult = kvstore_init(&kvsCfg, &kvsHandle);
    if (kvResult != 0) {
@@ -58,8 +38,8 @@ kvstore_test(int argc, char *argv[])
    kvstore_register_thread(kvsHandle);
 
    fprintf(stderr, "kvstore_test: initializing test data\n");
-   char *key   = calloc(1, kvsCfg.key_size);
-   char *value = calloc(1, kvsCfg.data_size);
+   char *key   = calloc(1, kvsCfg.data_cfg.key_size);
+   char *value = calloc(1, kvsCfg.data_cfg.message_size);
    if (value == NULL) {
       fprintf(stderr, "calloc value buffer\n");
    }
@@ -97,7 +77,7 @@ kvstore_test(int argc, char *argv[])
    // muck with the value, just to see that it gets reset
    valueStruct->message_type = MESSAGE_TYPE_UPDATE;
    snprintf((void *)(valueStruct->data),
-            kvsCfg.data_size - offsetof(data_handle, data),
+            kvsCfg.data_cfg.message_size - offsetof(data_handle, data),
             "zzz");
    fprintf(
       stderr,

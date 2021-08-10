@@ -156,4 +156,15 @@ data_key_copy(const data_config *cfg,
    memmove(dst, src, cfg->key_size);
 }
 
+static inline bool
+data_validate_config(const data_config *cfg)
+{
+   bool bad = (cfg->key_size == 0 || cfg->message_size == 0 ||
+               cfg->key_compare == NULL || cfg->key_hash == NULL ||
+               cfg->merge_tuples == NULL || cfg->merge_tuples_final == NULL ||
+               cfg->message_class == NULL || cfg->key_to_string == NULL ||
+               cfg->message_to_string == NULL);
+   return !bad;
+}
+
 #endif // __DATA_H
