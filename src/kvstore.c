@@ -34,15 +34,13 @@ typedef struct kvstore {
 
 
 /*
- * FIXME
- * platform.h cannot yet be consumed outside of splinter. Temporary translation
- * of errors to int.
+ * Extract errno.h -style status int from a platform_status
  */
 static inline int
 platform_status_to_int(platform_status status) // IN
 {
    if (!SUCCESS(status)) {
-      return -1;
+      return status.r;
    }
    return 0;
 }
