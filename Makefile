@@ -133,7 +133,15 @@ tags:
 #*************************************************************#
 # Testing
 #
-.PHONY: test
+
+.PHONY: test install
 
 test: $(BINDIR)/driver_test
 	./test.sh
+
+INSTALL_PATH ?= /usr/local
+
+install: $(BINDIR)/splinterdb.so
+	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
+	cp $(BINDIR)/splinterdb.so $(INSTALL_PATH)/lib/
+	cp $(SRCDIR)/data.h $(SRCDIR)/platform_public.h $(SRCDIR)/kvstore.h $(INSTALL_PATH)/include/splinterdb/
