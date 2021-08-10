@@ -12,37 +12,37 @@
 
 #include "data.h"
 
-typedef struct KVStoreConfig {
+typedef struct kvstore_config {
    const char *             filename;
-   uint64                   cacheSize;
-   uint64                   diskSize;
-   uint64                   keySize;
-   uint64                   dataSize;
-   key_compare_fn           keyCompare;
-   key_hash_fn              keyHash;
-   message_class_fn         messageClass;
-   merge_tuple_fn           mergeTuples;
-   merge_tuple_final_fn     mergeTuplesFinal;
-   key_or_message_to_str_fn keyToStr;
-   key_or_message_to_str_fn messageToStr;
-   void *                   heapHandle;
-   void *                   heapID;
-} KVStoreConfig;
+   uint64                   cache_size;
+   uint64                   disk_size;
+   uint64                   key_size;
+   uint64                   data_size;
+   key_compare_fn           key_compare;
+   key_hash_fn              key_hash;
+   message_class_fn         message_class;
+   merge_tuple_fn           merge_tuples;
+   merge_tuple_final_fn     merge_tuples_final;
+   key_or_message_to_str_fn key_to_str;
+   key_or_message_to_str_fn message_to_str;
+   void *                   heap_handle;
+   void *                   heap_id;
+} kvstore_config;
 
-typedef struct KVStore *KVStoreHandle;
+typedef struct kvstore *kvstore_handle;
 
-int KVStore_Init(const KVStoreConfig *kvsCfg, KVStoreHandle *kvsHandle);
+int kvstore_init(const kvstore_config *cfg, kvstore_handle *h);
 
-void KVStore_Deinit(KVStoreHandle kvsHandle);
+void kvstore_deinit(kvstore_handle h);
 
-void KVStore_RegisterThread(const KVStoreHandle kvsHandle);
+void kvstore_register_thread(const kvstore_handle h);
 
 // FIXME: key/value can't be marked const until splinter API's are fixed
-int KVStore_Insert(const KVStoreHandle kvsHandle, char *key, char *message);
+int kvstore_insert(const kvstore_handle h, char *key, char *message);
 
-int KVStore_Lookup(const KVStoreHandle kvsHandle,
-                   char *              key,
-                   char *              message,
-                   bool *              found);
+int kvstore_lookup(const kvstore_handle h,
+                   char *               key,
+                   char *               message,
+                   bool *               found);
 
 #endif // _KVSTORE_H_
