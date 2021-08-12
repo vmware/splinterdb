@@ -14,6 +14,7 @@
 #include "allocator.h"
 #include "io.h"
 #include "task.h"
+#include "platform_linux/context.h"
 
 #define CC_ENTRIES_PER_BATCH 64
 #define CC_CLEANER_GAP_FRAC 8
@@ -29,6 +30,8 @@ typedef struct clockcache_config {
    uint32 page_capacity;
    bool   use_stats;
    char   logfile[MAX_STRING_LENGTH];
+
+   char   *cachefile;
 
    // computed
    uint64 batch_capacity;
@@ -143,6 +146,8 @@ struct clockcache {
    cache_stats           stats[MAX_THREADS];
 
    task_system          *ts;
+
+   ThreadContext         contextMap[MAX_THREADS];
 };
 
 

@@ -11,6 +11,7 @@
 #define __CACHE_H
 
 #include "platform.h"
+#include "context.h"
 #include "allocator.h"
 #include "io.h"
 
@@ -151,6 +152,8 @@ typedef void          (*enable_sync_get_fn)    (cache *cc, bool enabled);
 
 typedef allocator *   (*cache_allocator_fn)    (cache *cc);
 
+typedef ThreadContext* (*cache_get_context_fn) (cache *cc);
+
 typedef struct cache_ops {
    extent_alloc_fn       extent_alloc;
    page_dealloc_fn       page_dealloc;
@@ -192,6 +195,8 @@ typedef struct cache_ops {
    cache_present_fn      cache_present;
    enable_sync_get_fn    enable_sync_get;
    cache_allocator_fn    cache_allocator;
+
+   cache_get_context_fn	 cache_get_context;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -437,6 +442,13 @@ static inline allocator *
 cache_allocator(cache *cc)
 {
    return cc->ops->cache_allocator(cc);
+}
+
+
+static inline ThreadContext *
+cache_get_context(cache *cc)
+{
+   return cc->ops->cache_get_context(cc);
 }
 
 #endif // __CACHE_H

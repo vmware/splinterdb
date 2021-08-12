@@ -8,6 +8,10 @@
 #include <string.h> // for memcpy, strerror
 #include <time.h> // for nanosecond sleep api.
 
+#include <sys/mman.h>
+#include <sys/syscall.h>
+
+
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen)
 {
@@ -362,6 +366,31 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
    const size_t padding = (alignment - (size % alignment)) % alignment;
    return aligned_alloc(alignment, size + padding);
 }
+
+
+static inline void*
+pmem_aligned_mmap(const platform_heap_id UNUSED_PARAM(heap_id),
+                  size_t alignment, size_t length, char* pathname)
+{
+   /*
+    * Have the same padding calculation of the platform_aligned_malloc function
+    *
+    * aligned_alloc requires size to be a multiple of alignment
+    * round up to nearest multiple of alignment
+    *
+    */
+   //const size_t padding = (alignment - (length % alignment)) % alignment;
+   int prot= PROT_READ | PROT_WRITE;
+   int flags = MAP_SHARED_VALIDATE| MAP_SYNC;
+
+   int fd = platform_get_fd(pathname, length);
+
+   void* addr = mmap(NULL, length, prot, flags, fd, 0);
+   assert(addr!=NULL);
+
+   return addr;
+}
+
 
 static inline platform_status
 platform_condvar_lock(platform_condvar *cv)

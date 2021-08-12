@@ -98,6 +98,7 @@
  */
 #include <stdint.h>
 
+
 // Types
 typedef unsigned char uchar;
 typedef int8_t        int8;
@@ -339,6 +340,15 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
                               PLATFORM_CACHELINE_SIZE,  \
                               (n));                     \
    })
+#define TYPED_PALLOC_MANUAL(id, v, n, path) ({          \
+      debug_assert((n) >= sizeof(*(v)));                \
+      (typeof(v))                                       \
+      pmem_aligned_mmap(id,                             \
+                        PLATFORM_CACHELINE_SIZE,        \
+                        (n),                            \
+                        path);                          \
+   })
+
 
 /*
  * Flexible array members don't necessarily start after sizeof(v)
@@ -371,6 +381,9 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
     TYPED_MALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
 #define TYPED_ARRAY_ZALLOC(id, v, n) \
     TYPED_ZALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
+#define TYPED_ARRAY_PALLOC(id, v, n, path) \
+    TYPED_PALLOC_MANUAL(id, (v), (n) * sizeof(*(v)), path)
+
 
 #define TYPED_MALLOC(id, v)          TYPED_ARRAY_MALLOC(id, (v), 1)
 #define TYPED_ZALLOC(id, v)          TYPED_ARRAY_ZALLOC(id, (v), 1)
@@ -564,10 +577,14 @@ platform_heap_create(platform_module_id module_id,
 void
 platform_heap_destroy(platform_heap_handle *heap_handle);
 
+int
+platform_get_fd(char* filepath, size_t length);
+
 buffer_handle *
 platform_buffer_create(size_t length,
-                       platform_heap_handle heap_handle,
-                       platform_module_id module_id);
+                       platform_heap_handle UNUSED_PARAM(heap_handle),
+                       platform_module_id UNUSED_PARAM(module_id),
+                       char* pathname);
 
 void *
 platform_buffer_getaddr(const buffer_handle *bh);

@@ -503,6 +503,7 @@ mini_allocator_zap(cache       *cc,
                    const char  *end_key,
                    page_type    type)
 {
+
    //if (start_key != NULL) {
    //   char start_key_str[256];
    //   if (start_key != NULL) {
@@ -521,6 +522,9 @@ mini_allocator_zap(cache       *cc,
    //   platform_log("mini_allocator_zap %12lu full\n", meta_head);
    //}
    //mini_allocator_print(cc, data_cfg, type, meta_head);
+   ThreadContext * ctx = cache_get_context(cc);
+   start_nontx(ctx);
+
    bool fully_zapped = mini_allocator_for_each(cc, data_cfg, type, meta_head,
          mini_allocator_zap_extent, start_key, end_key, NULL);
    //if (fully_zapped) {
@@ -530,6 +534,11 @@ mini_allocator_zap(cache       *cc,
    //   platform_log("mini allocator after zap\n");
    //   mini_allocator_print(cc, data_cfg, type, meta_head);
    //}
+
+
+   end_nontx(ctx);
+
+
    return fully_zapped;
 }
 

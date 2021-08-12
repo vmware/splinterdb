@@ -38,6 +38,7 @@ config_set_defaults(master_config *cfg)
       .message_size             = 100,
 
       .seed                     = 0,
+
    };
 }
 
@@ -75,6 +76,7 @@ void config_usage()
    platform_error_log("\t--key-size\n");
    platform_error_log("\t--data-size\n");
    platform_error_log("\t--seed\n");
+   platform_error_log("\t--cache-file\n");
 }
 
 platform_status

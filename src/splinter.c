@@ -3295,7 +3295,10 @@ splinter_memtable_incorporate(splinter_handle *spl,
    bool did_flush = FALSE;
    uint64 wait = 1;
    while (!did_flush && splinter_node_is_full(spl, root)) {
+      ThreadContext * ctx = cache_get_context(spl->cc);
+      start_nontx(ctx);
       did_flush = splinter_flush_fullest(spl, &root);
+      end_nontx(ctx);
       if (!did_flush) {
          splinter_node_unlock(spl, root);
          platform_sleep(wait);
@@ -3504,6 +3507,10 @@ splinter_dec_filter(splinter_handle *spl,
       return;
    }
    cache *cc = spl->cc;
+
+   ThreadContext * ctx = cache_get_context(cc);
+   start_nontx(ctx);
+
    page_handle *meta_page;
    uint64 wait = 100;
    while (1) {
@@ -3536,6 +3543,8 @@ splinter_dec_filter(splinter_handle *spl,
    cache_unget(cc, meta_page);
 
    routing_filter_zap(cc, filter);
+
+   end_nontx(ctx);
 }
 
 static inline page_handle *
@@ -4067,6 +4076,9 @@ splinter_flush(splinter_handle      *spl,
                splinter_pivot_data  *pdata,
                bool                  is_space_rec)
 {
+   ThreadContext * ctx = cache_get_context(spl->cc);
+   start_nontx(ctx);
+
    uint64 wait_start, flush_start;
    if (spl->cfg.use_stats)
       wait_start = platform_get_timestamp();
@@ -4130,12 +4142,17 @@ splinter_flush(splinter_handle      *spl,
       if (splinter_is_leaf(spl, child)) {
          platform_free(spl->heap_id, req);
          uint16 child_idx = splinter_pdata_to_pivot_index(spl, *parent, pdata);
+	 start_nontx_print(ctx, platform_get_tid());
          splinter_split_leaf(spl, parent, child, child_idx);
+	 end_nontx(ctx);
          debug_assert(splinter_verify_node(spl, child));
          return TRUE;
       } else {
          uint64 child_idx = splinter_pdata_to_pivot_index(spl, *parent, pdata);
+	 start_nontx_print(ctx, platform_get_tid());
+	 
          splinter_split_index(spl, *parent, child, child_idx);
+	 end_nontx(ctx);
       }
    }
 
@@ -4164,6 +4181,7 @@ splinter_flush(splinter_handle      *spl,
          }
       }
    }
+   end_nontx(ctx);
    return TRUE;
 }
 
@@ -4894,6 +4912,7 @@ splinter_compact_bundle(void *arg,
 out:
    splinter_log_stream("\n");
    splinter_close_log_stream();
+
 }
 
 
@@ -5316,7 +5335,6 @@ splinter_split_leaf(splinter_handle  *spl,
    memmove(scratch->pivot[num_leaves],
            splinter_max_key(spl, leaf),
            splinter_key_size(spl));
-
    /*
     * FIXME: [aconway 2020-07-16] This case can only happen with default params
     * with a height 8+ tree and worst case flush. We do not currently handle
@@ -5333,9 +5351,21 @@ splinter_split_leaf(splinter_handle  *spl,
    splinter_node_lock(spl, &leaf);
    splinter_log_node(spl, leaf);
 
+            ThreadContext * ctx = cache_get_context(spl->cc);
+         if(istracking(ctx))
+                 platform_log("\n\n\n is tracking unnecessary info!!! \n\n");
+
    uint16 bundle_no =
       splinter_leaf_rebundle_all_branches(spl, leaf, target_leaf_tuples, FALSE);
+
+         if(istracking(ctx))
+                 platform_log("\n\n\n is tracking unnecessary info!!! \n\n");
+
    splinter_inc_generation(spl, leaf);
+
+         if(istracking(ctx))
+                 platform_log("\n\n\n is tracking unnecessary info!!! \n\n");
+
    uint64 last_next_addr = splinter_next_addr(spl, leaf);
 
    for (uint16 leaf_no = 0; leaf_no < num_leaves; leaf_no++) {
@@ -5356,6 +5386,9 @@ splinter_split_leaf(splinter_handle  *spl,
       page_handle *new_leaf;
       if (leaf_no != 0) {
          // allocate a new leaf
+         if(istracking(ctx))
+                 platform_log("\n\n\n is tracking unnecessary info!!! \n\n");
+
          uint64 addr = splinter_alloc(spl, 0);
          new_leaf = splinter_node_get(spl, addr);
          splinter_node_claim(spl, &new_leaf);

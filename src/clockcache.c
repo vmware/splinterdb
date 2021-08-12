@@ -147,6 +147,7 @@ uint16       clockcache_get_read_ref         (clockcache *cc, page_handle *page)
 bool         clockcache_present              (clockcache *cc, page_handle *page);
 static void  clockcache_enable_sync_get      (clockcache *cc, bool enabled);
 allocator *  clockcache_allocator            (clockcache *cc);
+ThreadContext * clockcache_context           (clockcache *cc);
 
 static cache_ops clockcache_ops = {
    .extent_alloc      = (extent_alloc_fn)      clockcache_alloc_extent,
@@ -189,6 +190,8 @@ static cache_ops clockcache_ops = {
    .cache_present     = (cache_present_fn)     clockcache_present,
    .enable_sync_get   = (enable_sync_get_fn)   clockcache_enable_sync_get,
    .cache_allocator   = (cache_allocator_fn)   clockcache_allocator,
+
+   .cache_get_context = (cache_get_context_fn) clockcache_context,
 };
 
 /*
@@ -691,7 +694,7 @@ clockcache_try_get_claim(clockcache *cc,
          clockcache_test_flag(cc, entry_number, CC_CLAIMED));
 
    if (clockcache_set_flag(cc, entry_number, CC_CLAIMED)) {
-      clockcache_log(0, entry_number, "return false\n", NULL);
+      //clockcache_log(0, entry_number, "return false\n", NULL);
       return GET_RC_CONFLICT;
    }
 
@@ -1432,6 +1435,7 @@ clockcache_init(clockcache           *cc,     // OUT
    int i;
    threadid thr_i;
 
+   platform_log("calling clockcache_init \n");
    platform_assert(cc != NULL);
    ZERO_CONTENTS(cc);
 
@@ -1481,14 +1485,21 @@ clockcache_init(clockcache           *cc,     // OUT
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
 
+   //char* entry_pathname = "/mnt/pmem0/entry";
+   //cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
+   //                               cc->cfg->page_capacity, entry_pathname);
    cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
                                   cc->cfg->page_capacity);
+
+
    if (!cc->entry) {
       goto alloc_error;
    }
 
+   create_context(cc->contextMap);
+
    /* data must be aligned because of O_DIRECT */
-   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid);
+   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid, cc->cfg->cachefile);
    if (!cc->bh) {
       goto alloc_error;
    }
@@ -2281,6 +2292,7 @@ void
 clockcache_lock(clockcache   *cc,
                 page_handle **page)
 {
+   ctx_lock(cc->contextMap, platform_get_tid());
    uint32 old_entry_no = clockcache_page_to_entry_number(cc, *page);
 
    clockcache_record_backtrace(cc, old_entry_no);
@@ -2317,6 +2329,7 @@ clockcache_unlock(clockcache  *cc,
                   page_handle *page) // this is the new page of the cow
 {
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   ctx_unlock(cc->contextMap, platform_get_tid(), entry_number);
 
    clockcache_entry *new_entry = clockcache_page_to_entry(cc, page);
    if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
@@ -3095,4 +3108,10 @@ allocator *
 clockcache_allocator(clockcache *cc)
 {
    return cc->al;
+}
+
+ThreadContext *
+clockcache_context(clockcache *cc)
+{
+   return get_context(cc->contextMap, platform_get_tid());
 }
