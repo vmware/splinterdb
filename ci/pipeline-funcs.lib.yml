@@ -205,6 +205,28 @@ plan:
   file: ci-config/ci/tasks/run-tests.yml
 #@ end
 
+#@ def steps_pr_debug_build_test(compiler):
+- in_parallel:
+    fail_fast: true
+    steps:
+    - get: ci-config
+    - get: #@ "build-env-image-" + compiler
+      passed:
+      - #@ "recreate-build-env-" + compiler
+- task: debug-build-test
+  image: #@ "build-env-image-" + compiler
+  config:
+    platform: linux
+    inputs:
+    - name: github-pull-request
+    run:
+      path: sh
+      dir: github-pull-request
+      args:
+      - "-c"
+      - "make debug && ./test.sh"
+#@ end
+
 #@ def steps_pr_clang_format():
 - in_parallel:
     fail_fast: true
