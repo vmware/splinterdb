@@ -15,6 +15,7 @@
 #@         "job_main_build_test",
 #@         "job_pr_check",
 #@         "steps_pr_build_test",
+#@         "steps_pr_debug_build_test",
 #@         "steps_pr_clang_format",
 #@         "steps_pr_shell_scripts",
 #@ )
@@ -110,6 +111,9 @@ jobs:
 - #@ job_pr_check("clang-format", steps_pr_clang_format(), description="check C source formatting")
 - #@ job_pr_check("shell-scripts", steps_pr_shell_scripts(), description="lint and format any shell scripts")
 
+- #@ job_pr_check("debug-clang-12", steps_pr_debug_build_test("clang-12"), description="debug build and test")
+- #@ job_pr_check("debug-gcc-9", steps_pr_debug_build_test("gcc-9"), description="debug build and test")
+
 groups:
 - name: main_branch
   jobs:
@@ -119,7 +123,9 @@ groups:
 - name: pull_requests
   jobs:
   - pr-clang-12
+  - pr-debug-clang-12
   - pr-gcc-9
+  - pr-debug-gcc-9
   - pr-clang-format
   - pr-shell-scripts
 
