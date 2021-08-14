@@ -2578,7 +2578,6 @@ clockcache_prefetch_callback(void *          metadata,
       debug_assert(addr != CC_UNMAPPED_ADDR);
       debug_assert(addr == last_addr + cc->cfg->page_size ||
                    last_addr == CC_UNMAPPED_ADDR);
-      debug_assert(addr == iovec[page_off].iov_base);
       debug_code(last_addr = addr);
       debug_assert(entry_no == clockcache_lookup(cc, addr));
    }
