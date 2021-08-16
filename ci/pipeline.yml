@@ -13,6 +13,7 @@
 #@         "resource_splinterdb_git_repo",
 #@         "job_recreate_build_env",
 #@         "job_main_build_test_push",
+#@         "job_debug_main_build_test",
 #@         "job_pr_check",
 #@         "steps_pr_build_test",
 #@         "steps_pr_debug_build_test",
@@ -105,6 +106,9 @@ jobs:
 - #@ job_main_build_test_push("clang-12")
 - #@ job_main_build_test_push("gcc-9", also_latest=True)
 
+- #@ job_debug_main_build_test("clang-12")
+- #@ job_debug_main_build_test("gcc-9")
+
 - #@ job_pr_check("clang-12", steps_pr_build_test("clang-12"), description="build and test")
 - #@ job_pr_check("gcc-9", steps_pr_build_test("gcc-9"), description="build and test")
 
@@ -119,6 +123,8 @@ groups:
   jobs:
   - main-build-test-clang-12
   - main-build-test-gcc-9
+  - main-debug-build-test-clang-12
+  - main-debug-build-test-gcc-9
 
 - name: pull_requests
   jobs:
