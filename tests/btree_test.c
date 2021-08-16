@@ -1204,11 +1204,6 @@ btree_test(int argc, char *argv[])
       config_argv += 2;
    }
 
-   //platform_log("\nStarted btree_test!!\n");
-   //if (1) {
-   //   return 0;
-   //}
-
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
    platform_heap_id hid;
