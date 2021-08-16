@@ -68,22 +68,26 @@ source:
 
 ---
 
+#@ def set_commit_status(status, context=""):
+put: github-commit-status
+inputs: [branch-main]
+params:
+  state: #@ status
+  #@ if context:
+  context: #@ context
+  #@ end
+#@ end
+
+---
+
+
 #! Build, test and publish container images
-#@ def job_main_build_test(compiler, also_latest=False):
+#@ def job_main_build_test_push(compiler, also_latest=False):
 name: #@ "main-build-test-" + compiler
 public: true
-on_success:
-  put: github-commit-status
-  inputs: [branch-main]
-  params: {state: success}
-on_failure:
-  put: github-commit-status
-  inputs: [branch-main]
-  params: {state: failure}
-on_error:
-  put: github-commit-status
-  inputs: [branch-main]
-  params: {state: error}
+on_success: #@ set_commit_status("success")
+on_failure: #@ set_commit_status("failure")
+on_error: #@ set_commit_status("error")
 plan:
 - in_parallel:
   - get: ci-config
@@ -101,9 +105,7 @@ plan:
 - load_var: git-commit-sha
   file: branch-main/.git/ref
   reveal: true
-- put: github-commit-status
-  inputs: [branch-main]
-  params: {state: pending}
+- #@ set_commit_status("pending")
 - task: #@ "build-splinterdb-image-" + compiler
   privileged: true
   input_mapping:
@@ -138,6 +140,7 @@ plan:
 #@ end
 
 #@ end
+
 
 
 ---
