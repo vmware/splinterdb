@@ -118,15 +118,13 @@ mini_allocator_alloc(mini_allocator *mini,
                      char           *key,
                      uint64         *next_extent)
 {
-   uint64                   next_addr = mini->next_addr[batch];
-   mini_allocator_meta_hdr *hdr;
-   uint64                   new_meta_tail;
-   uint64                   wait = 1;
-   platform_status          rc = STATUS_OK;
-
    platform_assert(batch < mini->num_batches);
 
+   platform_status rc        = STATUS_OK;
+   uint64          next_addr = mini->next_addr[batch];
+
    // wait until we hold the lock for our batch
+   uint64 wait = 1;
    while (0 || next_addr == MINI_WAIT
             || !__sync_bool_compare_and_swap(&mini->next_addr[batch],
                                              next_addr, MINI_WAIT))
@@ -175,12 +173,12 @@ mini_allocator_alloc(mini_allocator *mini,
       // FIXME: [aconway 2021-05-10] This is residual, delete eventually:
       debug_assert(meta_page->disk_addr == mini->meta_tail);
 
-      hdr = (mini_allocator_meta_hdr *)meta_page->data;
+      mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
       if (hdr->pos == (cache_page_size(mini->cc)
             - sizeof(mini_allocator_meta_hdr))
             / sizeof(mini_allocator_meta_entry)) {
          // need a new meta page
-         new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
+         uint64 new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
          if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
             // need to allocate the next meta extent
             rc = allocator_alloc_extent(mini->al, &new_meta_tail);

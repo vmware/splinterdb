@@ -23,15 +23,12 @@
  * unmapped */
 #define CC_UNMAPPED_ENTRY UINT32_MAX
 #define CC_UNMAPPED_ADDR  UINT64_MAX
-#define CC_PIN_TID        (MAX_THREADS - 1)
 
-/* how distributed the rw locks are */
-#define CC_RC_WIDTH 4
+// Number of entries to clean/evict/get_free in a per-thread batch
+#define CC_ENTRIES_PER_BATCH 64
 
 /* number of events to poll for during clockcache_wait */
 #define CC_DEFAULT_MAX_IO_EVENTS 32
-
-#define CC_DEFAULT_CLEANUP 32
 
 /*
  * clockcache_log, etc. are used to write an output of cache operations to a
