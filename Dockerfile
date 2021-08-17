@@ -11,16 +11,19 @@ ARG build_env_image=projects.registry.vmware.com/splinterdb/build-env:latest
 ARG run_env_image=projects.registry.vmware.com/splinterdb/run-env:latest
 
 FROM $build_env_image AS build
-COPY . /src
-RUN make -C /src
+COPY . /splinterdb
+ARG compiler=clang
+ENV CC=$compiler
+ENV LD=$compiler
+RUN $compiler --version && make -C /splinterdb
 
 FROM $run_env_image
-COPY --from=build /src/bin/driver_test /splinterdb/bin/driver_test
-COPY --from=build /src/bin/splinterdb.so /splinterdb/bin/splinterdb.so
-COPY --from=build /src/test.sh /splinterdb/test.sh
+COPY --from=build /splinterdb/bin/driver_test /splinterdb/bin/driver_test
+COPY --from=build /splinterdb/bin/splinterdb.so /splinterdb/bin/splinterdb.so
+COPY --from=build /splinterdb/test.sh /splinterdb/test.sh
 
 # TODO(gabe): fold this into a make target, once we've sorted out include directories
-COPY --from=build /src/src/kvstore.h /src/src/data.h /src/src/platform_public.h /splinterdb/include/
+COPY --from=build /splinterdb/src/kvstore.h /splinterdb/src/data.h /splinterdb/src/platform_public.h /splinterdb/include/
 
 WORKDIR "/splinterdb"
 CMD ["/splinterdb/test.sh"]

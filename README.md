@@ -29,7 +29,9 @@ docker run -it --rm splinterdb /bin/bash
 
 ### Build from source on Linux
 Builds are known to work on Ubuntu using recent versions of GCC and Clang.
-We test against `gcc-9` and `clang-12` in CI.
+
+In CI, we test against the versions that Ubuntu "focal" 20.04 provides by
+default, currently GCC 9 and Clang 10.
 
 ```shell
 export COMPILER=gcc-9
