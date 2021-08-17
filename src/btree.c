@@ -75,12 +75,19 @@ struct PACKED btree_hdr {
  *-----------------------------------------------------------------------------
  */
 
-uint64 btree_alloc(mini_allocator *mini,
-                   uint64          height,
-                   char           *key,
-                   uint64         *next_extent)
+void
+btree_alloc(cache          *cc,
+            mini_allocator *mini,
+            uint64          height,
+            char           *key,
+            uint64         *next_extent,
+            page_type       type,
+            btree_node     *node)
 {
-   return mini_allocator_alloc(mini, height, key, next_extent);
+   node->addr = mini_allocator_alloc(mini, height, key, next_extent);
+   debug_assert(node->addr != 0);
+   node->page = cache_alloc(cc, node->addr, type);
+   node->hdr  = (btree_hdr *)(node->page->data);
 }
 
 
@@ -905,14 +912,8 @@ btree_add_shared_pivot(cache          *cc,
    debug_assert(!btree_is_packed(cfg, child));
    debug_assert(btree_height(cfg, parent) != 0);
 
-   uint64 wait = 1;
-   new_child->addr = btree_alloc(mini, btree_height(cfg, child), NULL, NULL);
-   btree_node_get(cc, cfg, new_child, PAGE_TYPE_MEMTABLE);
-   while (!btree_node_claim(cc, cfg, new_child)) {
-      platform_sleep(wait);
-      wait = wait > 2048 ? wait : 2 * wait;
-   }
-   btree_node_lock(cc, cfg, new_child);
+   uint16 height = btree_height(cfg, child);
+   btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
    cache_share(cc, child->page, new_child->page);
    uint16 child_num_entries = btree_num_entries(cfg, child);
    uint16 new_entry_num = child_num_entries - child_num_entries / 2;
@@ -954,15 +955,8 @@ int btree_split_root(btree_config   *cfg,       // IN
 {
    // allocate a new left node
    btree_node left_node;
-   left_node.addr = btree_alloc(mini, btree_height(cfg, root_node), NULL, NULL);
-   btree_node_get(cc, cfg, &left_node, PAGE_TYPE_MEMTABLE);
-   uint64 wait = 1;
-   while(!btree_node_claim(cc, cfg, &left_node)) {
-      platform_sleep(wait);
-      wait = wait > 1024 ? wait : 2 * wait;
-   }
-   wait = 1;
-   btree_node_lock(cc, cfg, &left_node);
+   uint16     height = btree_height(cfg, root_node);
+   btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, &left_node);
 
    // copy root to left, then split
    memmove(left_node.hdr, root_node->hdr, btree_page_size(cfg));
@@ -1004,22 +998,27 @@ btree_init(cache          *cc,
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
    // maintain constant height
-   page_handle *new_pages[MAX_PAGES_PER_EXTENT];
    page_type type = is_packed ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
-   cache_extent_alloc(cc, new_pages, type);
+   allocator      *al   = cache_allocator(cc);
+   uint64          base_addr;
+   platform_status rc = allocator_alloc_extent(al, &base_addr);
+   platform_assert_status_ok(rc);
+   page_handle *root_page = cache_alloc(cc, base_addr, type);
 
    // FIXME: [yfogel 2020-07-01] maybe here (or refactor?)
    //    we need to be able to have range tree initialized
    // set up the root
    btree_node root;
-   root.page = new_pages[0];
-   root.addr = new_pages[0]->disk_addr;
-   root.hdr  = (btree_hdr *)new_pages[0]->data;
-   root.hdr->next_addr = 0;
-   root.hdr->generation = 0;
+   root.page = root_page;
+   root.addr = base_addr;
+   root.hdr  = (btree_hdr *)root_page->data;
+
+   root.hdr->next_addr   = 0;
+   root.hdr->generation  = 0;
    root.hdr->num_entries = 0;
-   root.hdr->height = 0;
-   root.hdr->is_packed = is_packed;
+   root.hdr->height      = 0;
+   root.hdr->is_packed   = is_packed;
+
    if (!is_packed) {
       uint8 *table = btree_get_table(cfg, &root);
       for (uint64 i = 0; i < cfg->tuples_per_leaf; i++) {
@@ -1027,12 +1026,10 @@ btree_init(cache          *cc,
       }
    }
    cache_mark_dirty(cc, root.page);
-   // release all the blocks
-   for (uint64 i = 0; i < 32; i++) {
-      cache_unlock(cc, new_pages[i]);
-      cache_unclaim(cc, new_pages[i]);
-      cache_unget(cc, new_pages[i]);
-   }
+   // release root
+   cache_unlock(cc, root_page);
+   cache_unclaim(cc, root_page);
+   cache_unget(cc, root_page);
 
    // set up the mini allocator
    mini_allocator_init(mini, cc, cfg->data_cfg, root.addr + cfg->page_size, 0,
@@ -2351,13 +2348,13 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
 
    // set up the first leaf
    char first_key[MAX_KEY_SIZE] = { 0 };
-   tree->edge[0].addr =
-      btree_alloc(&tree->mini, 0, first_key, &tree->next_extent);
-   btree_node_get(cc, cfg, &tree->edge[0], PAGE_TYPE_BRANCH);
-   // FIXME: [aconway 2020-08-07] Why are we sure this claim will be successful?
-   bool success = btree_node_claim(cc, cfg, &tree->edge[0]);
-   platform_assert(success);
-   btree_node_lock(cc, cfg, &tree->edge[0]);
+   btree_alloc(cc,
+               &tree->mini,
+               0,
+               first_key,
+               &tree->next_extent,
+               PAGE_TYPE_BRANCH,
+               &tree->edge[0]);
    debug_assert(cache_page_valid(cc, tree->next_extent));
    btree_pack_node_init_hdr(&tree->edge[0], tree->next_extent, 0, TRUE);
 }
@@ -2371,17 +2368,15 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
    if (tree->idx[0] == tree->cfg->tuples_per_packed_leaf) {
       // the current leaf is full, allocate a new one and add to index
       tree->old_edge = tree->edge[0];
-      // FIXME: [yfogel 2020-07-02] we can use 2 dynamic handle or ... (Ask Alex)
-      tree->new_edge.addr =
-         btree_alloc(&tree->mini, 0, key, &tree->next_extent);
+      btree_alloc(tree->cc,
+                  &tree->mini,
+                  0,
+                  key,
+                  &tree->next_extent,
+                  PAGE_TYPE_BRANCH,
+                  &tree->new_edge);
       tree->edge[0].hdr->next_addr = tree->new_edge.addr;
       btree_node_full_unlock(tree->cc, tree->cfg, &tree->edge[0]);
-      btree_node_get(tree->cc, tree->cfg, &tree->new_edge, PAGE_TYPE_BRANCH);
-
-      __attribute__((unused))
-         bool success = btree_node_claim(tree->cc, tree->cfg, &tree->new_edge);
-      debug_assert(success);
-      btree_node_lock(tree->cc, tree->cfg, &tree->new_edge);
 
       // initialize the new leaf edge
       tree->edge[0] = tree->new_edge;
@@ -2410,14 +2405,15 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
       // along the way it allocates new index nodes as necessary
       for (i = 1; tree->idx[i] == tree->cfg->pivots_per_packed_index; i++) {
          tree->old_edge = tree->edge[i];
-         tree->new_edge.addr =
-            btree_alloc(&tree->mini, i, key, &tree->next_extent);
+         btree_alloc(tree->cc,
+                     &tree->mini,
+                     i,
+                     key,
+                     &tree->next_extent,
+                     PAGE_TYPE_BRANCH,
+                     &tree->new_edge);
          tree->edge[i].hdr->next_addr = tree->new_edge.addr;
          btree_node_full_unlock(tree->cc, tree->cfg, &tree->edge[i]);
-         btree_node_get(tree->cc, tree->cfg, &tree->new_edge, PAGE_TYPE_BRANCH);
-         success = btree_node_claim(tree->cc, tree->cfg, &tree->new_edge);
-         debug_assert(success);
-         btree_node_lock(tree->cc, tree->cfg, &tree->new_edge);
 
          // initialize the new index edge
          tree->edge[i] = tree->new_edge;
@@ -2432,12 +2428,13 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
       if (i > tree->height) {
          // need to add a new root
          char first_key[MAX_KEY_SIZE] = { 0 };
-         tree->edge[i].addr =
-            btree_alloc(&tree->mini, i, first_key, &tree->next_extent);
-         btree_node_get(tree->cc, tree->cfg, &tree->edge[i], PAGE_TYPE_BRANCH);
-         success = btree_node_claim(tree->cc, tree->cfg, &tree->edge[i]);
-         debug_assert(success);
-         btree_node_lock(tree->cc, tree->cfg, &tree->edge[i]);
+         btree_alloc(tree->cc,
+                     &tree->mini,
+                     i,
+                     first_key,
+                     &tree->next_extent,
+                     PAGE_TYPE_BRANCH,
+                     &tree->edge[i]);
          btree_pack_node_init_hdr(&tree->edge[i], tree->next_extent, i, TRUE);
          tree->height++;
 

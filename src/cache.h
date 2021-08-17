@@ -67,11 +67,6 @@ typedef struct cache_stats {
 _Static_assert(IS_POWER_OF_2(MAX_PAGES_PER_EXTENT),
                "MAX_PAGES_PER_EXTENT not a power of 2");
 
-typedef platform_status (*extent_alloc_fn)(
-   cache *cc,
-   page_handle *page_arr[static MAX_PAGES_PER_EXTENT],
-   page_type type);
-
 typedef enum {
    // Success without needing async IO because of cache hit.
    async_success = 0xc0ffee,
@@ -103,95 +98,99 @@ typedef struct cache_async_ctxt {
    } stats;
 } cache_async_ctxt;
 
-typedef bool          (*page_dealloc_fn)       (cache *cc, uint64 addr, page_type type);
-typedef uint8         (*page_get_ref_fn)       (cache *cc, uint64 addr);
-typedef page_handle * (*page_get_fn)           (cache *cc, uint64 addr, bool blocking, page_type type);
-typedef cache_async_result (*page_get_async_fn)(cache *cc, uint64 addr, page_type type, cache_async_ctxt *ctxt);
-typedef void          (*page_async_done_fn)    (cache *cc, page_type type, cache_async_ctxt *ctxt);
-typedef void          (*page_unget_fn)         (cache *cc, page_handle *page);
-typedef bool          (*page_claim_fn)         (cache *cc, page_handle *page);
-typedef void          (*page_unclaim_fn)       (cache *cc, page_handle *page);
-typedef void          (*page_lock_fn)          (cache *cc, page_handle *page);
-typedef void          (*page_unlock_fn)        (cache *cc, page_handle *page);
+typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
+typedef bool (*page_dealloc_fn)(cache *cc, uint64 addr, page_type type);
+typedef uint8 (*page_get_ref_fn)(cache *cc, uint64 addr);
+typedef page_handle *(*page_get_fn)(cache    *cc,
+                                    uint64    addr,
+                                    bool      blocking,
+                                    page_type type);
+typedef cache_async_result (*page_get_async_fn)(cache            *cc,
+                                                uint64            addr,
+                                                page_type         type,
+                                                cache_async_ctxt *ctxt);
+typedef void (*page_async_done_fn)(cache            *cc,
+                                   page_type         type,
+                                   cache_async_ctxt *ctxt);
+typedef void (*page_unget_fn)(cache *cc, page_handle *page);
+typedef bool (*page_claim_fn)(cache *cc, page_handle *page);
+typedef void (*page_unclaim_fn)(cache *cc, page_handle *page);
+typedef void (*page_lock_fn)(cache *cc, page_handle *page);
+typedef void (*page_unlock_fn)(cache *cc, page_handle *page);
+typedef void (*page_pin_fn)(cache *cc, page_handle *page);
+typedef void (*page_unpin_fn)(cache *cc, page_handle *page);
+typedef void (*page_sync_fn)(cache       *cc,
+                             page_handle *page,
+                             bool         is_blocking,
+                             page_type    type);
+typedef uint64 (*extent_sync_fn)(cache  *cc,
+                                 uint64  addr,
+                                 uint64 *pages_outstanding);
 
-typedef void          (*page_pin_fn)           (cache *cc, page_handle *page);
-typedef void          (*page_unpin_fn)         (cache *cc, page_handle *page);
-typedef void          (*page_sync_fn)          (cache *cc, page_handle *page, bool is_blocking, page_type type);
-typedef uint64        (*extent_sync_fn)        (cache *cc, uint64 addr, uint64 *pages_outstanding);
-
-typedef void          (*share_fn)              (cache *cc, page_handle *page_to_share, page_handle *anon_page);
-typedef void          (*unshare_fn)            (cache *cc, page_handle *anon_page);
-
+typedef void (*share_fn)(cache       *cc,
+                         page_handle *page_to_share,
+                         page_handle *anon_page);
+typedef void (*unshare_fn)(cache *cc, page_handle *anon_page);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
+typedef void (*page_mark_dirty_fn)(cache *cc, page_handle *page);
+typedef void (*flush_fn)(cache *cc);
+typedef int (*evict_fn)(cache *cc, bool ignore_pinned);
+typedef void (*cleanup_fn)(cache *cc);
+typedef uint64 (*get_cache_size_fn)(cache *cc);
+typedef void (*assert_ungot_fn)(cache *cc, uint64 addr);
+typedef void (*assert_free_fn)(cache *cc);
+typedef void (*assert_noleaks)(cache *cc);
+typedef bool (*page_valid_fn)(cache *cc, uint64 addr);
+typedef void (*validate_page_fn)(cache *cc, page_handle *page, uint64 addr);
+typedef void (*print_fn)(cache *cc);
+typedef void (*reset_stats_fn)(cache *cc);
+typedef void (*io_stats_fn)(cache *cc, uint64 *read_bytes, uint64 *write_bytes);
+typedef uint32 (*count_dirty_fn)(cache *cc);
+typedef uint32 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
+typedef bool (*cache_present_fn)(cache *cc, page_handle *page);
+typedef void (*enable_sync_get_fn)(cache *cc, bool enabled);
 
-typedef void          (*page_mark_dirty_fn)    (cache *cc, page_handle *page);
-
-typedef void          (*flush_fn)              (cache *cc);
-typedef int           (*evict_fn)              (cache *cc, bool ignore_pinned);
-typedef void          (*cleanup_fn)            (cache *cc);
-
-typedef uint64        (*get_cache_size_fn)     (cache *cc);
-
-typedef void          (*assert_ungot_fn)       (cache *cc, uint64 addr);
-
-typedef void          (*assert_free_fn)        (cache *cc);
-typedef void          (*assert_noleaks)        (cache *cc);
-typedef bool          (*page_valid_fn)         (cache *cc, uint64 addr);
-typedef void          (*validate_page_fn)      (cache *cc, page_handle *page, uint64 addr);
-
-typedef void          (*print_fn)              (cache *cc);
-typedef void          (*reset_stats_fn)        (cache *cc);
-typedef void          (*io_stats_fn)           (cache *cc, uint64 *read_bytes, uint64 *write_bytes);
-
-typedef uint32        (*count_dirty_fn)        (cache *cc);
-typedef uint32        (*page_get_read_ref_fn)  (cache *cc, page_handle *page);
-
-typedef bool          (*cache_present_fn)      (cache *cc, page_handle *page);
-typedef void          (*enable_sync_get_fn)    (cache *cc, bool enabled);
-
-typedef allocator *   (*cache_allocator_fn)    (cache *cc);
+typedef allocator *(*cache_allocator_fn)(cache *cc);
 
 typedef struct cache_ops {
-   extent_alloc_fn       extent_alloc;
-   page_dealloc_fn       page_dealloc;
-   page_get_ref_fn       page_get_ref;
-   page_get_fn           page_get;
-   page_get_async_fn     page_get_async;
-   page_async_done_fn    page_async_done;
-   page_unget_fn         page_unget;
-   page_claim_fn         page_claim;
-   page_unclaim_fn       page_unclaim;
-   page_lock_fn          page_lock;
-   page_unlock_fn        page_unlock;
-   share_fn              share;
-   unshare_fn            unshare;
-   page_prefetch_fn      page_prefetch;
-   page_mark_dirty_fn    page_mark_dirty;
-   page_pin_fn           page_pin;
-   page_unpin_fn         page_unpin;
-   page_sync_fn          page_sync;
-   extent_sync_fn        extent_sync;
-   flush_fn              flush;
-   evict_fn              evict;
-   cleanup_fn            cleanup;
-   get_cache_size_fn     get_page_size;
-   get_cache_size_fn     get_extent_size;
-   assert_ungot_fn       assert_ungot;
-   assert_free_fn        assert_free;
-   assert_noleaks        assert_noleaks;
-   print_fn              print;
-   print_fn              print_stats;
-   io_stats_fn           io_stats;
-   reset_stats_fn        reset_stats;
-   page_valid_fn         page_valid;
-   validate_page_fn      validate_page;
-
-   count_dirty_fn        count_dirty;
-   page_get_read_ref_fn  page_get_read_ref;
-
-   cache_present_fn      cache_present;
-   enable_sync_get_fn    enable_sync_get;
-   cache_allocator_fn    cache_allocator;
+   page_alloc_fn        page_alloc;
+   page_dealloc_fn      page_dealloc;
+   page_get_ref_fn      page_get_ref;
+   page_get_fn          page_get;
+   page_get_async_fn    page_get_async;
+   page_async_done_fn   page_async_done;
+   page_unget_fn        page_unget;
+   page_claim_fn        page_claim;
+   page_unclaim_fn      page_unclaim;
+   page_lock_fn         page_lock;
+   page_unlock_fn       page_unlock;
+   share_fn             share;
+   unshare_fn           unshare;
+   page_prefetch_fn     page_prefetch;
+   page_mark_dirty_fn   page_mark_dirty;
+   page_pin_fn          page_pin;
+   page_unpin_fn        page_unpin;
+   page_sync_fn         page_sync;
+   extent_sync_fn       extent_sync;
+   flush_fn             flush;
+   evict_fn             evict;
+   cleanup_fn           cleanup;
+   get_cache_size_fn    get_page_size;
+   get_cache_size_fn    get_extent_size;
+   assert_ungot_fn      assert_ungot;
+   assert_free_fn       assert_free;
+   assert_noleaks       assert_noleaks;
+   print_fn             print;
+   print_fn             print_stats;
+   io_stats_fn          io_stats;
+   reset_stats_fn       reset_stats;
+   page_valid_fn        page_valid;
+   validate_page_fn     validate_page;
+   count_dirty_fn       count_dirty;
+   page_get_read_ref_fn page_get_read_ref;
+   cache_present_fn     cache_present;
+   enable_sync_get_fn   enable_sync_get;
+   cache_allocator_fn   cache_allocator;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -199,12 +198,10 @@ struct cache {
    const cache_ops *ops;
 };
 
-static inline platform_status
-cache_extent_alloc(cache *cc,
-                   page_handle *page_arr[static MAX_PAGES_PER_EXTENT],
-                   page_type type)
+static inline page_handle *
+cache_alloc(cache *cc, uint64 addr, page_type type)
 {
-   return cc->ops->extent_alloc(cc, page_arr, type);
+   return cc->ops->page_alloc(cc, addr, type);
 }
 
 static inline bool

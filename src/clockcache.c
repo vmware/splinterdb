@@ -23,15 +23,12 @@
  * unmapped */
 #define CC_UNMAPPED_ENTRY UINT32_MAX
 #define CC_UNMAPPED_ADDR  UINT64_MAX
-#define CC_PIN_TID        (MAX_THREADS - 1)
 
-/* how distributed the rw locks are */
-#define CC_RC_WIDTH 4
+// Number of entries to clean/evict/get_free in a per-thread batch
+#define CC_ENTRIES_PER_BATCH 64
 
 /* number of events to poll for during clockcache_wait */
 #define CC_DEFAULT_MAX_IO_EVENTS 32
-
-#define CC_DEFAULT_CLEANUP 32
 
 /*
  * clockcache_log, etc. are used to write an output of cache operations to a
@@ -101,7 +98,8 @@
 #endif
 
 
-platform_status clockcache_alloc_extent      (clockcache *cc, page_handle **page_arr, page_type type);
+// clang-format off
+page_handle *clockcache_alloc                (clockcache *cc, uint64 addr, page_type type);
 bool         clockcache_dealloc              (clockcache *cc, uint64 addr, page_type type);
 uint8        clockcache_get_allocator_ref    (clockcache *cc, uint64 addr);
 page_handle *clockcache_get                  (clockcache *cc, uint64 addr, bool blocking, page_type type);
@@ -148,7 +146,7 @@ static void  clockcache_enable_sync_get      (clockcache *cc, bool enabled);
 allocator *  clockcache_allocator            (clockcache *cc);
 
 static cache_ops clockcache_ops = {
-   .extent_alloc      = (extent_alloc_fn)      clockcache_alloc_extent,
+   .page_alloc        = (page_alloc_fn)        clockcache_alloc,
    .page_dealloc      = (page_dealloc_fn)      clockcache_dealloc,
    .page_get_ref      = (page_get_ref_fn)      clockcache_get_allocator_ref,
    .page_get          = (page_get_fn)          clockcache_get,
@@ -189,6 +187,7 @@ static cache_ops clockcache_ops = {
    .enable_sync_get   = (enable_sync_get_fn)   clockcache_enable_sync_get,
    .cache_allocator   = (cache_allocator_fn)   clockcache_allocator,
 };
+// clang-format on
 
 /*
  *----------------------------------------------------------------------
@@ -1502,11 +1501,12 @@ clockcache_init(clockcache           *cc,     // OUT
    }
 
    /* Entry per-thread ref counts */
-   cc->refcount = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->refcount,
-                                     CC_RC_WIDTH * cc->cfg->page_capacity);
-   if (!cc->refcount) {
+   size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
+   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_handle, mid);
+   if (!cc->rc_bh) {
       goto alloc_error;
    }
+   cc->refcount = platform_buffer_getaddr(cc->rc_bh);
    /* Separate ref counts for pins */
    cc->pincount = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->pincount,
                                      cc->cfg->page_capacity);
@@ -1552,8 +1552,9 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #endif
    }
 
-   platform_free_volatile(cc->heap_id, cc->refcount);
-   platform_free_volatile(cc->heap_id, cc->pincount);
+   if (cc->rc_bh) {
+      platform_buffer_destroy(cc->rc_bh);
+   }
 
    platform_free(cc->heap_id, cc->entry);
    platform_free(cc->heap_id, cc->lookup);
@@ -1568,52 +1569,37 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 /*
  *----------------------------------------------------------------------
  *
- * clockcache_alloc_extent --
+ * clockcache_alloc --
  *
- *      Allocates an extent of pages in memory and on disk. The extent is
- *      guaranteed to be contiguous on disk, but not in memory.
+ *      Given a disk_addr, allocate entry in the cache and return its page with
+ *      a write lock.
  *
  *----------------------------------------------------------------------
  */
 
-platform_status
-clockcache_alloc_extent(clockcache   *cc,
-                        page_handle  *page_arr[static MAX_PAGES_PER_EXTENT],
-                        page_type     type)
+page_handle *
+clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 {
-   int i;
-   uint32 entry_no;
-   clockcache_entry *entry;
-   uint64 base_addr;
-   const threadid tid = platform_get_tid();
-   uint64 lookup_no;
-   platform_status rc = allocator_alloc_extent(cc->al, &base_addr);
-   if (!SUCCESS(rc)) {
-      platform_log("extent allocation failed\n");
-      return rc;
+   uint32            entry_no = clockcache_get_free_page(cc,
+                                              CC_ALLOC_STATUS,
+                                              TRUE,  // refcount
+                                              TRUE); // blocking
+   clockcache_entry *entry    = &cc->entry[entry_no];
+   entry->page.disk_addr      = addr;
+   entry->type                = type;
+   if (cc->cfg->use_stats) {
+      const threadid tid = platform_get_tid();
+      cc->stats[tid].page_allocs[type]++;
    }
+   uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
+   cc->lookup[lookup_no] = entry_no;
 
-   for (i = 0; i < cc->cfg->pages_per_extent; i++) {
-      entry_no = clockcache_get_free_page(cc, CC_ALLOC_STATUS,
-                                          TRUE,  // refcount
-                                          TRUE); // blocking
-      entry = &cc->entry[entry_no];
-      entry->page.disk_addr
-         = base_addr + clockcache_multiply_by_page_size(cc, i);
-      entry->type = type;
-      if (cc->cfg->use_stats) {
-         cc->stats[tid].page_allocs[type]++;
-      }
-      lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
-      cc->lookup[lookup_no] = entry_no;
-      page_arr[i] = &entry->page;
-
-      clockcache_log(entry->page.disk_addr, entry_no,
-            "alloc_extent: entry %u addr %lu\n",
-            entry_no, entry->page.disk_addr);
-   }
-
-   return STATUS_OK;
+   clockcache_log(entry->page.disk_addr,
+                  entry_no,
+                  "alloc: entry %u addr %lu\n",
+                  entry_no,
+                  entry->page.disk_addr);
+   return &entry->page;
 }
 
 /*

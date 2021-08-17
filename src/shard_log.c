@@ -56,11 +56,11 @@ shard_log_get_thread_data(shard_log *log,
    return &log->thread_data[thr_id];
 }
 
-uint64
-shard_log_alloc(shard_log *log,
-                uint64    *next_extent)
+page_handle *
+shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
-   return mini_allocator_alloc(&log->mini, 0, NULL, next_extent);
+   uint64 addr = mini_allocator_alloc(&log->mini, 0, NULL, next_extent);
+   return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
 platform_status
@@ -76,16 +76,9 @@ shard_log_init(shard_log        *log,
    uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
    log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
 
-   page_handle *meta_pages[MAX_PAGES_PER_EXTENT];
-   cache_extent_alloc(cc, meta_pages, PAGE_TYPE_LOG);
-   log->meta_head = meta_pages[0]->disk_addr;
-
-   uint64 pages_per_extent = cfg->extent_size / cfg->page_size;
-   for (uint64 i = 0; i < pages_per_extent; i++) {
-      cache_unlock(cc, meta_pages[i]);
-      cache_unclaim(cc, meta_pages[i]);
-      cache_unget(cc, meta_pages[i]);
-   }
+   allocator      *al = cache_allocator(cc);
+   platform_status rc = allocator_alloc_extent(al, &log->meta_head);
+   platform_assert_status_ok(rc);
 
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data
@@ -124,51 +117,40 @@ shard_log_write(log_handle *logh,
                 uint64      generation)
 {
    shard_log *log = (shard_log *)logh;
-   cache                 *cc = log->cc;
-   char                  *key_cursor;
-   char                  *data_cursor;
-   uint64                 next_extent;
-   shard_log_hdr         *hdr;
+   cache     *cc  = log->cc;
+
+   page_handle           *page;
    shard_log_thread_data *thread_data =
       shard_log_get_thread_data(log, platform_get_tid());
-   uint64                 wait = 1;
-
-   page_handle *page;
-   char *cursor;
    if (thread_data->addr == SHARD_UNMAPPED) {
-      thread_data->addr = shard_log_alloc(log, &next_extent);
-      page = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
-      while (!cache_claim(cc, page)) {
-         platform_sleep(wait);
-         wait = wait > 1024 ? wait : 2 * wait;
-      }
-      wait = 1;
-      cache_lock(cc, page);
-      shard_log_hdr *hdr = (shard_log_hdr *)page->data;
-      hdr->magic = log->magic;
+      uint64 next_extent;
+      page                  = shard_log_alloc(log, &next_extent);
+      thread_data->addr     = page->disk_addr;
+      shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
+      hdr->magic            = log->magic;
       hdr->next_extent_addr = next_extent;
-      thread_data->offset = sizeof(shard_log_hdr);
-      thread_data->pos = 0;
+      thread_data->offset   = sizeof(shard_log_hdr);
+      thread_data->pos      = 0;
    } else {
-      page = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
+      page        = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
+      uint64 wait = 1;
       while (!cache_claim(cc, page)) {
          platform_sleep(wait);
          wait = wait > 1024 ? wait : 2 * wait;
       }
-      wait = 1;
       cache_lock(cc, page);
    }
-   cursor = page->data + thread_data->offset;
+   char *cursor = page->data + thread_data->offset;
 
    uint64 *generation_cursor = (uint64 *)cursor;
    cursor += sizeof(uint64);
    thread_data->offset += sizeof(uint64);
 
-   key_cursor = cursor;
+   char *key_cursor = cursor;
    cursor += log->cfg->data_cfg->key_size;
    thread_data->offset += log->cfg->data_cfg->key_size;
 
-   data_cursor = cursor;
+   char *data_cursor = cursor;
    cursor += log->cfg->data_cfg->message_size;
    thread_data->offset += log->cfg->data_cfg->message_size;
    debug_assert(cursor - page->data < log->cfg->page_size);
@@ -179,7 +161,7 @@ shard_log_write(log_handle *logh,
 
    thread_data->pos++;
    if (thread_data->pos == log->cfg->entries_per_page) {
-      hdr = (shard_log_hdr *)page->data;
+      shard_log_hdr *hdr = (shard_log_hdr *)page->data;
       hdr->checksum = shard_log_checksum(log->cfg, page);
 
       cache_unlock(cc, page);

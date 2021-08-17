@@ -293,19 +293,24 @@ memtable_context_create(platform_heap_id  hid,
    ctxt->cc = cc;
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
-   uint64 pages_per_extent =
-      cfg->btree_cfg->extent_size / cfg->btree_cfg->page_size;
-   page_handle *lock_pages[MAX_PAGES_PER_EXTENT];
-   cache_extent_alloc(cc, lock_pages, PAGE_TYPE_LOCK_NO_DATA);
+   uint64          base_addr;
+   allocator      *al = cache_allocator(cc);
+   platform_status rc = allocator_alloc_extent(al, &base_addr);
+   platform_assert_status_ok(rc);
 
-   ctxt->insert_lock_addr = lock_pages[0]->disk_addr;
-   ctxt->lookup_lock_addr = lock_pages[1]->disk_addr;
+   ctxt->insert_lock_addr = base_addr;
+   ctxt->lookup_lock_addr = base_addr + cache_page_size(cc);
 
-   for (uint64 page_no = 0; page_no < pages_per_extent; page_no++) {
-      cache_unlock(cc, lock_pages[page_no]);
-      cache_unclaim(cc, lock_pages[page_no]);
-      cache_unget(cc, lock_pages[page_no]);
-   }
+   page_handle *lock_page =
+      cache_alloc(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   cache_unlock(cc, lock_page);
+   cache_unclaim(cc, lock_page);
+   cache_unget(cc, lock_page);
+
+   lock_page = cache_alloc(cc, ctxt->lookup_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   cache_unlock(cc, lock_page);
+   cache_unclaim(cc, lock_page);
+   cache_unget(cc, lock_page);
 
    platform_mutex_init(&ctxt->incorporation_mutex, platform_get_module_id(),
          hid);
