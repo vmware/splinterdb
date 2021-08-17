@@ -1016,8 +1016,9 @@ btree_init(cache          *cc,
    root.hdr->next_addr   = 0;
    root.hdr->generation  = 0;
    root.hdr->num_entries = 0;
-   root.hdr->height = 0;
-   root.hdr->is_packed = is_packed;
+   root.hdr->height      = 0;
+   root.hdr->is_packed   = is_packed;
+
    if (!is_packed) {
       uint8 *table = btree_get_table(cfg, &root);
       for (uint64 i = 0; i < cfg->tuples_per_leaf; i++) {

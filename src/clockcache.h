@@ -15,11 +15,13 @@
 #include "io.h"
 #include "task.h"
 
-#define CC_ENTRIES_PER_BATCH 64
-#define CC_CLEANER_GAP_FRAC 8
 //#define ADDR_TRACING
-#define TRACE_ADDR 7213056
+#define TRACE_ADDR  (UINT64_MAX - 1)
 #define TRACE_ENTRY (UINT32_MAX-1)
+
+/* how distributed the rw locks are */
+#define CC_RC_WIDTH 4
+
 
 typedef struct clockcache_config {
    uint64 page_size;
