@@ -569,6 +569,7 @@ typedef struct splinter_system_state {
  *-----------------------------------------------------------------------------
  */
 
+// clang-format off
 static inline bool                 splinter_is_leaf                   (splinter_handle *spl, page_handle *node);
 static inline uint64               splinter_next_addr                 (splinter_handle *spl, page_handle *node);
 static inline int                  splinter_key_compare               (splinter_handle *spl, const char *key1, const char *key2);
@@ -578,7 +579,7 @@ static inline void                 splinter_node_claim                (splinter_
 static inline void                 splinter_node_unclaim              (splinter_handle *spl, page_handle *node);
 static inline void                 splinter_node_lock                 (splinter_handle *spl, page_handle *node);
 static inline void                 splinter_node_unlock               (splinter_handle *spl, page_handle *node);
-uint64                             splinter_alloc                     (splinter_handle *spl, uint64 height);
+page_handle *                      splinter_alloc                     (splinter_handle *spl, uint64 height);
 static inline char *               splinter_get_pivot                 (splinter_handle *spl, page_handle *node, uint16 pivot_no);
 static inline splinter_pivot_data *splinter_get_pivot_data            (splinter_handle *spl, page_handle *node, uint16 pivot_no);
 static inline uint16               splinter_find_pivot                (splinter_handle *spl, page_handle *node, char *key, lookup_type comp);
@@ -653,6 +654,8 @@ const static iterator_ops splinter_btree_skiperator_ops = {
    .advance  = splinter_btree_skiperator_advance,
    .print    = splinter_btree_skiperator_print,
 };
+
+// clang-format on
 
 /*
  *-----------------------------------------------------------------------------
@@ -947,10 +950,11 @@ splinter_node_unlock(splinter_handle *spl,
    cache_unlock(spl->cc, node);
 }
 
-uint64 splinter_alloc(splinter_handle *spl,
-                      uint64           height)
+page_handle *
+splinter_alloc(splinter_handle *spl, uint64 height)
 {
-   return mini_allocator_alloc(&spl->mini, height, NULL, NULL);
+   uint64 addr = mini_allocator_alloc(&spl->mini, height, NULL, NULL);
+   return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 
 void splinter_dealloc(splinter_handle *spl,
@@ -5005,10 +5009,8 @@ splinter_split_index(splinter_handle *spl,
       spl->stats[platform_get_tid()].index_splits++;
 
    // allocate right node and write lock it
-   uint64 right_addr = splinter_alloc(spl, height);
-   page_handle *right_node = splinter_node_get(spl, right_addr);
-   splinter_node_claim(spl, &right_node);
-   splinter_node_lock(spl, right_node);
+   page_handle *right_node = splinter_alloc(spl, height);
+   uint64       right_addr = right_node->disk_addr;
 
    // ALEX: Maybe worth figuring out the real page size
    memmove(right_node->data, left_node->data, spl->cfg.page_size);
@@ -5353,10 +5355,7 @@ splinter_split_leaf(splinter_handle *spl,
       page_handle *new_leaf;
       if (leaf_no != 0) {
          // allocate a new leaf
-         uint64 addr = splinter_alloc(spl, 0);
-         new_leaf = splinter_node_get(spl, addr);
-         splinter_node_claim(spl, &new_leaf);
-         splinter_node_lock(spl, new_leaf);
+         new_leaf = splinter_alloc(spl, 0);
 
          // copy leaf to new leaf
          memmove(new_leaf->data, leaf->data, spl->cfg.page_size);
@@ -5498,17 +5497,11 @@ int
 splinter_split_root(splinter_handle *spl,
                     page_handle     *root)
 {
-   uint64 child_addr;
    splinter_trunk_hdr *root_hdr = (splinter_trunk_hdr *)root->data;
-   page_handle *child;
-   splinter_trunk_hdr *child_hdr;
 
    // allocate a new child node
-   child_addr = splinter_alloc(spl, root_hdr->height);
-   child = splinter_node_get(spl, child_addr);
-   splinter_node_claim(spl, &child);
-   splinter_node_lock(spl, child);
-   child_hdr = (splinter_trunk_hdr *)child->data;
+   page_handle *       child     = splinter_alloc(spl, root_hdr->height);
+   splinter_trunk_hdr *child_hdr = (splinter_trunk_hdr *)child->data;
 
    // copy root to child, fix up root, then split
    memmove(child_hdr, root_hdr, spl->cfg.page_size);
@@ -6912,39 +6905,31 @@ splinter_create(splinter_config  *cfg,
    srq_init(&spl->srq, platform_get_module_id(), hid);
 
    // get a free node for the root
-   // we don't use the mini allocator for this, since the root doesn't
-   // maintain constant height
-   // FIXME: [yfogel 2020-03-30] add a constant for max pages_per_extent
-   //        and enforce it in config?  there are a lot of VLAs
-   //        that could become fixed at size MAX_PAGES_PER_EXTENT and that
-   //        would be convenient.  Probably not big enough to be a problem
-   //        and skip a lot of mallocs and cleanup
-   uint64 pages_per_extent = cfg->extent_size / cfg->page_size;
-   page_handle *new_pages[MAX_PAGES_PER_EXTENT];
-   cache_extent_alloc(spl->cc, new_pages, PAGE_TYPE_TRUNK);
-
-   page_handle *root = new_pages[0];
-   spl->root_addr = root->disk_addr;
+   //    we don't use the mini allocator for this, since the root doesn't
+   //    maintain constant height
+   platform_status rc = allocator_alloc_extent(spl->al, &spl->root_addr);
+   platform_assert_status_ok(rc);
+   page_handle *root = cache_alloc(spl->cc, spl->root_addr, PAGE_TYPE_TRUNK);
    splinter_trunk_hdr *root_hdr = (splinter_trunk_hdr *)root->data;
-   memset(root_hdr, 0, sizeof(*root_hdr));
+   ZERO_CONTENTS(root_hdr);
 
+   // set up the mini allocator
+   //    we use the root extent as the initial mini_allocator head
+   uint64 meta_addr = spl->root_addr + cfg->page_size;
+   mini_allocator_init(&spl->mini,
+                       cc,
+                       spl->cfg.data_cfg,
+                       meta_addr,
+                       0,
+                       SPLINTER_MAX_HEIGHT,
+                       PAGE_TYPE_TRUNK);
+
+   // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
          splinter_memtable_flush_virtual, spl);
 
-   uint64 meta_addr = new_pages[1]->disk_addr;
-
-   // release all the blocks except the root
-   for (uint64 i = 1; i < pages_per_extent; i++) {
-      cache_unlock(cc, new_pages[i]);
-      cache_unclaim(cc, new_pages[i]);
-      cache_unget(cc, new_pages[i]);
-   }
-
-   // set up the mini allocator
-   mini_allocator_init(&spl->mini, cc, spl->cfg.data_cfg, meta_addr, 0,
-         SPLINTER_MAX_HEIGHT, PAGE_TYPE_TRUNK);
-
+   // set up the log
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
    }
@@ -6953,10 +6938,7 @@ splinter_create(splinter_config  *cfg,
    splinter_set_super_block(spl, FALSE, FALSE, TRUE);
 
    // set up the initial leaf
-   uint64 leaf_addr = splinter_alloc(spl, 0);
-   page_handle *leaf = splinter_node_get(spl, leaf_addr);
-   splinter_node_claim(spl, &leaf);
-   splinter_node_lock(spl, leaf);
+   page_handle *       leaf     = splinter_alloc(spl, 0);
    splinter_trunk_hdr *leaf_hdr = (splinter_trunk_hdr *)leaf->data;
    memset(leaf_hdr, 0, spl->cfg.page_size);
    const char *min_key = spl->cfg.data_cfg->min_key;
