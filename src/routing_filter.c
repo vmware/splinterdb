@@ -200,23 +200,6 @@ routing_header_length(routing_config *cfg,
    return metamessage_size + sizeof(routing_hdr);
 }
 
-static inline page_handle *
-routing_get_and_lock_page(cache  *cc,
-                          uint64  addr)
-{
-   page_handle *page = cache_get(cc, addr, TRUE, PAGE_TYPE_FILTER);
-   uint64 wait = 100;
-   while (!cache_claim(cc, page)) {
-      cache_unget(cc, page);
-      platform_sleep(wait);
-      wait *= 2;
-      page = cache_get(cc, addr, TRUE, PAGE_TYPE_FILTER);
-   }
-   cache_lock(cc, page);
-   cache_mark_dirty(cc, page);
-   return page;
-}
-
 static inline void
 routing_unlock_and_unget_page(cache       *cc,
                               page_handle *page)
@@ -441,35 +424,31 @@ routing_filter_add(cache            *cc,
    memset(encoding_buffer, 0xff, ROUTING_FPS_PER_PAGE / 32 * sizeof(uint32));
 
    // we use a mini_allocator to obtain pages
+   allocator *     al = cache_allocator(cc);
+   uint64          meta_head;
+   platform_status rc = allocator_alloc_extent(al, &meta_head);
+   platform_assert_status_ok(rc);
+   filter->meta_head = meta_head;
    mini_allocator mini;
-   page_handle *meta_page[MAX_PAGES_PER_EXTENT];
-   cache_extent_alloc(cc, meta_page, PAGE_TYPE_FILTER);
-   for (uint64 i = 0; i < pages_per_extent; i++) {
-      routing_unlock_and_unget_page(cc, meta_page[i]);
-   }
-   filter->meta_head = meta_page[0]->disk_addr;
-   mini_allocator_init(&mini, cc, NULL, filter->meta_head, 0, 1,
-         PAGE_TYPE_FILTER);
+   mini_allocator_init(
+      &mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER);
 
-   /* set up the index pages
-    * we use the mini allocator to alloc the extent so that it can be zapped
-    * that way
-    */
+   // set up the index pages
    uint64 addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
    uint64 index_addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
-   assert(index_addr % extent_size == 0);
-   index_page[0] = routing_get_and_lock_page(cc, index_addr);
+   platform_assert(index_addr % extent_size == 0);
+   index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
    for (uint64 i = 1; i < pages_per_extent; i++) {
       uint64 next_index_addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
-      assert(next_index_addr == index_addr + i * page_size);
-      index_page[i] = routing_get_and_lock_page(cc, next_index_addr);
+      platform_assert(next_index_addr == index_addr + i * page_size);
+      index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
    }
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
    uint64 addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
-   page_handle *filter_page = routing_get_and_lock_page(cc, addr);
+   page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char *filter_cursor = filter_page->data;
    uint64 bytes_remaining_on_page = page_size;
 
@@ -600,7 +579,7 @@ routing_filter_add(cache            *cc,
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
             addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
-            filter_page = routing_get_and_lock_page(cc, addr);
+            filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
             filter_cursor = filter_page->data;
