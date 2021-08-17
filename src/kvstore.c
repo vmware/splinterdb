@@ -148,9 +148,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
  *      Txn, logging and mounting existing tables to be added in the future
  *
  * Results:
- *      0 on success, -1 on failure
- *      FIXME
- *      Change to platform_status once it can be consumed outside
+ *      0 on success, otherwise an errno
  *
  * Side effects:
  *      None.
@@ -334,9 +332,7 @@ kvstore_register_thread(const kvstore_handle kvs_handle) // IN
  *      Insert a tuple into splinter
  *
  * Results:
- *      0 on success, -1 on failure
- *      FIXME
- *      Change to platform_status once it can be consumed outside
+ *      0 on success, otherwise an errno
  *
  * Side effects:
  *      None.
@@ -366,9 +362,7 @@ kvstore_insert(const kvstore_handle kvs_handle, // IN
  *      Look up a key from splinter
  *
  * Results:
- *      0 on success, -1 on failure
- *      FIXME
- *      Change to platform_status once it can be consumed outside
+ *      0 on success, otherwise an errno
  *
  * Side effects:
  *      None.
