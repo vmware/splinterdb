@@ -11,7 +11,7 @@
 #@ load("pipeline-funcs.lib.yml",
 #@         "resource_container_image",
 #@         "resource_splinterdb_git_repo",
-#@         "job_recreate_build_env",
+#@         "job_recreate_image",
 #@         "job_main_build_test_push",
 #@         "job_debug_main_build_test",
 #@         "job_pr_check",
@@ -41,15 +41,13 @@ resources:
 
 #! Container images for the build environment
 - #@ resource_container_image("build-env", "latest")
-- #@ resource_container_image("build-env", "clang-12")
-- #@ resource_container_image("build-env", "gcc-9")
 
 #! Container images for the run environment
 - #@ resource_container_image("run-env", "latest")
 
 #! Container image with the final built splinterdb SO file and test binary
-- #@ resource_container_image("splinterdb", "clang-12")
-- #@ resource_container_image("splinterdb", "gcc-9")
+- #@ resource_container_image("splinterdb", "clang")
+- #@ resource_container_image("splinterdb", "gcc")
 - #@ resource_container_image("splinterdb", "latest")
 
 #! Source code for the container image holding the build environment
@@ -57,9 +55,6 @@ resources:
 
 #! Source code for the container image holding the run environment
 - #@ resource_splinterdb_git_repo("run-env-source", "main", { "paths": [ "Dockerfile.run-env" ] })
-
-#! CI config, may be versioned separately from main branch
-- #@ resource_splinterdb_git_repo("ci-config", "ci-config")
 
 #! Source code repo, main branch
 - #@ resource_splinterdb_git_repo("branch-main", "main", { "ignore_paths": [ "ci" ] })
@@ -83,60 +78,45 @@ resources:
     base_branch: main
 
 jobs:
-- #@ job_recreate_build_env("clang-12")
-- #@ job_recreate_build_env("gcc-9", also_latest=True)
 
-#! Create the container image that holds the runtime environment
-- name: recreate-run-env
-  public: true
-  plan:
-  - in_parallel:
-    - get: ci-config
-    - get: run-env-source
-      trigger: true
-  - task: create-run-env-image
-    privileged: true
-    file: ci-config/ci/tasks/create-run-env-image.yml
-  - put: run-env-image-latest
-    params:
-      image: image/image.tar
-      additional_tags: run-env-source/.git/ref
+#! Create the container image that holds the build environment
+- #@ job_recreate_image("build-env")
+- #@ job_recreate_image("run-env")
 
 #! Build, test and publish container images
-- #@ job_main_build_test_push("clang-12")
-- #@ job_main_build_test_push("gcc-9", also_latest=True)
+- #@ job_main_build_test_push("clang")
+- #@ job_main_build_test_push("gcc", also_latest=True)
 
-- #@ job_debug_main_build_test("clang-12")
-- #@ job_debug_main_build_test("gcc-9")
+- #@ job_debug_main_build_test("clang")
+- #@ job_debug_main_build_test("gcc")
 
-- #@ job_pr_check("clang-12", steps_pr_build_test("clang-12"), description="build and test")
-- #@ job_pr_check("gcc-9", steps_pr_build_test("gcc-9"), description="build and test")
+- #@ job_pr_check("clang", steps_pr_build_test("clang"), description="build and test")
+- #@ job_pr_check("gcc", steps_pr_build_test("gcc"), description="build and test")
 
 - #@ job_pr_check("clang-format", steps_pr_clang_format(), description="check C source formatting")
 - #@ job_pr_check("shell-scripts", steps_pr_shell_scripts(), description="lint and format any shell scripts")
 
-- #@ job_pr_check("debug-clang-12", steps_pr_debug_build_test("clang-12"), description="debug build and test")
-- #@ job_pr_check("debug-gcc-9", steps_pr_debug_build_test("gcc-9"), description="debug build and test")
+- #@ job_pr_check("debug-clang", steps_pr_debug_build_test("clang"), description="debug build and test")
+- #@ job_pr_check("debug-gcc", steps_pr_debug_build_test("gcc"), description="debug build and test")
 
 groups:
 - name: main_branch
   jobs:
-  - main-build-test-clang-12
-  - main-build-test-gcc-9
-  - main-debug-build-test-clang-12
-  - main-debug-build-test-gcc-9
+  - main-build-test-clang
+  - main-build-test-gcc
+  - main-debug-build-test-clang
+  - main-debug-build-test-gcc
 
 - name: pull_requests
   jobs:
-  - pr-clang-12
-  - pr-debug-clang-12
-  - pr-gcc-9
-  - pr-debug-gcc-9
+  - pr-clang
+  - pr-debug-clang
+  - pr-gcc
+  - pr-debug-gcc
   - pr-clang-format
   - pr-shell-scripts
 
 - name: env_images
   jobs:
-  - recreate-build-env-clang-12
-  - recreate-build-env-gcc-9
+  - recreate-build-env
   - recreate-run-env
