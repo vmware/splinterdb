@@ -19,27 +19,27 @@ kvstore_test(int argc, char *argv[])
 {
    fprintf(stderr, "kvstore_test: starting\n");
 
-   int            kvResult;
-   kvstore_handle kvsHandle = {0};
-   kvstore_config kvsCfg    = {0};
+   int            kv_result;
+   kvstore_handle kvs_handle = {0};
+   kvstore_config kvs_cfg    = {0};
 
-   kvsCfg.filename   = "db";
-   kvsCfg.cache_size = Giga;      // see config.c: cache_capacity
-   kvsCfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
+   kvs_cfg.filename   = "db";
+   kvs_cfg.cache_size = Giga;      // see config.c: cache_capacity
+   kvs_cfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
 
-   kvsCfg.data_cfg = *test_data_config;
+   kvs_cfg.data_cfg = *test_data_config;
 
-   kvResult = kvstore_init(&kvsCfg, &kvsHandle);
-   if (kvResult != 0) {
-      fprintf(stderr, "kvstore_init error: %d\n", kvResult);
+   kv_result = kvstore_init(&kvs_cfg, &kvs_handle);
+   if (kv_result != 0) {
+      fprintf(stderr, "kvstore_init error: %d\n", kv_result);
       return -1;
    }
 
-   kvstore_register_thread(kvsHandle);
+   kvstore_register_thread(kvs_handle);
 
    fprintf(stderr, "kvstore_test: initializing test data\n");
-   char *key   = calloc(1, kvsCfg.data_cfg.key_size);
-   char *value = calloc(1, kvsCfg.data_cfg.message_size);
+   char *key   = calloc(1, kvs_cfg.data_cfg.key_size);
+   char *value = calloc(1, kvs_cfg.data_cfg.message_size);
    if (value == NULL) {
       fprintf(stderr, "calloc value buffer\n");
    }
@@ -47,14 +47,14 @@ kvstore_test(int argc, char *argv[])
    memcpy(key, "foo", 3);
 
    fprintf(stderr, "kvstore_test: lookup non-existent key...");
-   kvResult = kvstore_lookup(kvsHandle, key, value, &found);
-   if (kvResult != 0) {
-      fprintf(stderr, "kvstore_lookup: %d\n", kvResult);
+   kv_result = kvstore_lookup(kvs_handle, key, value, &found);
+   if (kv_result != 0) {
+      fprintf(stderr, "kvstore_lookup: %d\n", kv_result);
       goto cleanup;
    }
    fprintf(stderr, "found=%d\n", found);
    if (found) {
-      kvResult = -1;
+      kv_result = -1;
       fprintf(stderr, "unexpectedly found a key we haven't set\n");
       goto cleanup;
    }
@@ -68,16 +68,16 @@ kvstore_test(int argc, char *argv[])
            "inserting key with data = %.*s\n",
            3,
            (char *)(valueStruct->data));
-   kvResult = kvstore_insert(kvsHandle, key, value);
-   if (kvResult != 0) {
-      fprintf(stderr, "kvstore_insert: %d\n", kvResult);
+   kv_result = kvstore_insert(kvs_handle, key, value);
+   if (kv_result != 0) {
+      fprintf(stderr, "kvstore_insert: %d\n", kv_result);
       goto cleanup;
    }
 
    // muck with the value, just to see that it gets reset
    valueStruct->message_type = MESSAGE_TYPE_UPDATE;
    snprintf((void *)(valueStruct->data),
-            kvsCfg.data_cfg.message_size - offsetof(data_handle, data),
+            kvs_cfg.data_cfg.message_size - offsetof(data_handle, data),
             "zzz");
    fprintf(
       stderr,
@@ -86,19 +86,19 @@ kvstore_test(int argc, char *argv[])
       (char *)(valueStruct->data));
 
    fprintf(stderr, "kvstore_test: lookup #2...");
-   kvResult = kvstore_lookup(kvsHandle, key, value, &found);
-   if (kvResult != 0) {
-      fprintf(stderr, "kvstore_lookup: %d\n", kvResult);
+   kv_result = kvstore_lookup(kvs_handle, key, value, &found);
+   if (kv_result != 0) {
+      fprintf(stderr, "kvstore_lookup: %d\n", kv_result);
       goto cleanup;
    }
    fprintf(stderr, "found=%d\n", found);
    if (!found) {
-      kvResult = -1;
+      kv_result = -1;
       fprintf(stderr, "unexpectedly 'found' is false\n");
       goto cleanup;
    }
    if (memcmp(valueStruct->data, "bar", 3) != 0) {
-      kvResult = -1;
+      kv_result = -1;
       fprintf(stderr,
               "lookup returned an unexpected value for data = %.*s\n",
               3,
@@ -107,28 +107,29 @@ kvstore_test(int argc, char *argv[])
 
    fprintf(stderr, "kvstore_test: delete key\n");
    valueStruct->message_type = MESSAGE_TYPE_DELETE;
-   kvResult                  = kvstore_insert(kvsHandle, key, value);
-   if (kvResult != 0) {
-      fprintf(stderr, "kvstore_insert (for delete): %d\n", kvResult);
+   kv_result                 = kvstore_insert(kvs_handle, key, value);
+   if (kv_result != 0) {
+      fprintf(stderr, "kvstore_insert (for delete): %d\n", kv_result);
       goto cleanup;
    }
 
    fprintf(stderr, "kvstore_test: lookup #3, for now-deleted key...");
-   kvResult = kvstore_lookup(kvsHandle, key, value, &found);
-   if (kvResult != 0) {
-      fprintf(stderr, "kvstore_lookup: %d\n", kvResult);
+   kv_result = kvstore_lookup(kvs_handle, key, value, &found);
+   if (kv_result != 0) {
+      fprintf(stderr, "kvstore_lookup: %d\n", kv_result);
       goto cleanup;
    }
    fprintf(stderr, "found=%d\n", found);
    if (found) {
-      kvResult = -1;
+      kv_result = -1;
       fprintf(stderr, "unexpectedly 'found' is true\n");
       goto cleanup;
    }
 
+
 cleanup:
-   kvstore_deinit(kvsHandle);
-   if (kvResult == 0) {
+   kvstore_deinit(kvs_handle);
+   if (kv_result == 0) {
       fprintf(stderr, "kvstore_test: succeeded\n");
       return 0;
    } else {
