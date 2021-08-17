@@ -39,6 +39,9 @@ fi
 if [ -z "${diff-unset}" ]; then
    echo Format OK
    exit 0
+elif [[ ${diff} == *"no modified files to format"* ]]; then
+   echo No modified files to format
+   exit 0
 else
    echo "Error: Code formatting
 To fix, run
