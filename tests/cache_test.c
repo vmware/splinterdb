@@ -65,29 +65,26 @@ cache_test_alloc_extents(cache *cc,
                          uint64 addr_arr[],
                          uint32 extents_to_allocate)
 {
-   uint32 ea;
-   platform_status rc = STATUS_OK;
-
-   for (ea = 0; ea < extents_to_allocate; ea++) {
-      page_handle *extent_page_arr[MAX_PAGES_PER_EXTENT];
-
-      rc = cache_extent_alloc(cc, extent_page_arr, PAGE_TYPE_MISC);
+   allocator      *al = cache_allocator(cc);
+   platform_status rc;
+   for (uint32 j = 0; j < extents_to_allocate; j++) {
+      uint64 base_addr;
+      rc = allocator_alloc_extent(al, &base_addr);
       if (!SUCCESS(rc)) {
          platform_error_log("Expected to be able to allocate %u entries,"
-                            "but only allocated: %u", extents_to_allocate, ea);
-         for (uint32 i = 0; i < ea; i++) {
-            cache_dealloc(cc, addr_arr[i * cfg->pages_per_extent],
-                          PAGE_TYPE_MISC);
-         }
+                            "but only allocated: %u",
+                            extents_to_allocate,
+                            j);
          break;
       }
 
       for (uint32 i = 0; i < cfg->pages_per_extent; i++) {
-         addr_arr[ea * cfg->pages_per_extent + i]
-            = extent_page_arr[i]->disk_addr;
-         cache_unlock(cc, extent_page_arr[i]);
-         cache_unclaim(cc, extent_page_arr[i]);
-         cache_unget(cc, extent_page_arr[i]);
+         uint64       addr = base_addr + i * cfg->page_size;
+         page_handle *page = cache_alloc(cc, addr, PAGE_TYPE_MISC);
+         addr_arr[j * cfg->pages_per_extent + i] = addr;
+         cache_unlock(cc, page);
+         cache_unclaim(cc, page);
+         cache_unget(cc, page);
       }
    }
 

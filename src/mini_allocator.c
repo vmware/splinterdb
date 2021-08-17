@@ -42,43 +42,45 @@ mini_allocator_init(mini_allocator *mini,
                     uint64          num_batches,
                     page_type       type)
 {
-   page_handle *meta_page;
-   const uint64 pages_per_extent = cache_extent_size(cc) / cache_page_size(cc);
-   page_handle *new_pages[MAX_PAGES_PER_EXTENT];
-   uint64 i;
-   uint64 batch;
-   uint64 wait = 1;
-
-   memset(mini, 0, sizeof(mini_allocator));
-   mini->cc           = cc;
-   mini->data_cfg     = data_cfg;
-   mini->meta_head    = meta_head;
-   if (meta_tail == 0) {
-      mini->meta_tail = meta_head;
-   } else {
-      mini->meta_tail = meta_tail;
-   }
-   mini->type         = type;
-   mini->num_batches  = num_batches;
    platform_assert(num_batches <= MINI_MAX_BATCHES);
 
-   meta_page = cache_get(cc, mini->meta_tail, TRUE, type);
-   while (!cache_claim(cc, meta_page)) {
-      // should never happen
-      platform_sleep(wait);
-      wait = wait > 1024 ? wait : 2 * wait;
+   memset(mini, 0, sizeof(mini_allocator));
+
+   mini->cc          = cc;
+   mini->al          = cache_allocator(cc);
+   mini->data_cfg    = data_cfg;
+   mini->meta_head   = meta_head;
+   mini->type        = type;
+   mini->num_batches = num_batches;
+   platform_assert(num_batches <= MINI_MAX_BATCHES);
+
+   page_handle *meta_page;
+   if (meta_tail == 0) {
+      // new mini allocator
+      mini->meta_tail = meta_head;
+      meta_page       = cache_alloc(cc, mini->meta_head, type);
+   } else {
+      // load mini allocator
+      mini->meta_tail = meta_tail;
+      meta_page       = cache_get(cc, mini->meta_tail, TRUE, type);
+      uint64 wait     = 1;
+      while (!cache_claim(cc, meta_page)) {
+         // should never happen
+         platform_sleep(wait);
+         wait = wait > 1024 ? wait : 2 * wait;
+      }
+      cache_lock(cc, meta_page);
    }
-   wait = 1;
-   cache_lock(cc, meta_page);
    mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
    if (meta_tail == 0) {
       hdr->next_meta_addr = 0;
       hdr->pos = 0;
    }
 
-   for (batch = 0; batch < num_batches; batch++) {
-      cache_extent_alloc(cc, new_pages, type);
-      mini->next_extent[batch] = new_pages[0]->disk_addr;
+   for (uint64 batch = 0; batch < num_batches; batch++) {
+      platform_status rc =
+         allocator_alloc_extent(mini->al, &mini->next_extent[batch]);
+      platform_assert_status_ok(rc);
       //platform_log("mini_allocator_alloc %lu-%lu.%lu : %lu\n",
       //      mini->meta_head, mini->meta_tail, hdr->pos, mini->next_extent[batch]);
       if (hdr->pos == (cache_page_size(mini->cc)
@@ -87,36 +89,18 @@ mini_allocator_init(mini_allocator *mini,
          mini->meta_tail += cache_page_size(mini->cc);
          if (mini->meta_tail % cache_extent_size(mini->cc) == 0) {
             // need to allocate the next meta extent
-            page_handle *new_pages[MAX_PAGES_PER_EXTENT];
-            cache_extent_alloc(mini->cc, new_pages, type);
-            mini->meta_tail = new_pages[0]->disk_addr;
-            for (i = 0; i < pages_per_extent; i++) {
-               cache_unlock(mini->cc, new_pages[i]);
-               cache_unclaim(mini->cc, new_pages[i]);
-               cache_unget(mini->cc, new_pages[i]);
-            }
+            rc = allocator_alloc_extent(mini->al, (uint64 *)&mini->meta_tail);
+            platform_assert_status_ok(rc);
          }
          hdr->next_meta_addr = mini->meta_tail;
          page_handle *last_meta_page = meta_page;
-         meta_page = cache_get(mini->cc, mini->meta_tail, TRUE, type);
-         while (!cache_claim(mini->cc, meta_page)) {
-            platform_sleep(wait);
-            wait = wait > 1024 ? wait : 2 * wait;
-         }
-         wait = 1;
-         cache_lock(mini->cc, meta_page);
-         cache_mark_dirty(mini->cc, last_meta_page);
+         meta_page = cache_alloc(mini->cc, mini->meta_tail, type);
          cache_unlock(mini->cc, last_meta_page);
          cache_unclaim(mini->cc, last_meta_page);
          cache_unget(mini->cc, last_meta_page);
          hdr = (mini_allocator_meta_hdr *)meta_page->data;
          hdr->pos = 0;
          hdr->next_meta_addr = 0;
-      }
-      for (i = 0; i < pages_per_extent; i++) {
-         cache_unlock(cc, new_pages[i]);
-         cache_unclaim(cc, new_pages[i]);
-         cache_unget(cc, new_pages[i]);
       }
    }
 
@@ -135,8 +119,6 @@ mini_allocator_alloc(mini_allocator *mini,
                      uint64         *next_extent)
 {
    uint64                   next_addr = mini->next_addr[batch];
-   uint64                   next_extent_addr;
-   uint64                   i;
    mini_allocator_meta_hdr *hdr;
    uint64                   new_meta_tail;
    uint64                   wait = 1;
@@ -157,26 +139,18 @@ mini_allocator_alloc(mini_allocator *mini,
 
    if (next_addr % cache_extent_size(mini->cc) == 0) {
       // need to allocate the next extent
-      uint64 pages_per_extent =
-         cache_extent_size(mini->cc) / cache_page_size(mini->cc);
-      page_handle *new_pages[MAX_PAGES_PER_EXTENT];
-      rc = cache_extent_alloc(mini->cc, new_pages, mini->type);
+
+      uint64 next_extent_addr = mini->next_extent[batch];
+      rc = allocator_alloc_extent(mini->al, &mini->next_extent[batch]);
       platform_assert_status_ok(rc);
-      //platform_log("meta_head %lu next_extent %lu new_extent %lu\n",
-      //      mini->meta_head, mini->next_extent[batch], new_pages[0]->disk_addr);
-      debug_assert(mini->next_extent[batch] != new_pages[0]->disk_addr);
-      next_extent_addr = mini->next_extent[batch];
-      mini->next_extent[batch] = new_pages[0]->disk_addr;
       next_addr = next_extent_addr;
       if (next_extent) {
          *next_extent = mini->next_extent[batch];
       }
+      // platform_log("meta_head %lu next_extent %lu new_extent %lu\n",
+      //       mini->meta_head, mini->next_extent[batch],
+      //       new_pages[0]->disk_addr);
       mini->next_addr[batch] = next_extent_addr + cache_page_size(mini->cc);
-      for (i = 0; i < pages_per_extent; i++) {
-         cache_unlock(mini->cc, new_pages[i]);
-         cache_unclaim(mini->cc, new_pages[i]);
-         cache_unget(mini->cc, new_pages[i]);
-      }
 
       page_handle *meta_page;
 
@@ -198,6 +172,7 @@ mini_allocator_alloc(mini_allocator *mini,
       }
       wait = 1;
       cache_lock(mini->cc, meta_page);
+      // FIXME: [aconway 2021-05-10] This is residual, delete eventually:
       debug_assert(meta_page->disk_addr == mini->meta_tail);
 
       hdr = (mini_allocator_meta_hdr *)meta_page->data;
@@ -208,27 +183,12 @@ mini_allocator_alloc(mini_allocator *mini,
          new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
          if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
             // need to allocate the next meta extent
-            uint64 pages_per_extent =
-               cache_extent_size(mini->cc) / cache_page_size(mini->cc);
-            page_handle *new_pages[MAX_PAGES_PER_EXTENT];
-            cache_extent_alloc(mini->cc, new_pages, mini->type);
-            new_meta_tail = new_pages[0]->disk_addr;
-            for (i = 0; i < pages_per_extent; i++) {
-               cache_unlock(mini->cc, new_pages[i]);
-               cache_unclaim(mini->cc, new_pages[i]);
-               cache_unget(mini->cc, new_pages[i]);
-            }
+            rc = allocator_alloc_extent(mini->al, &new_meta_tail);
+            platform_assert_status_ok(rc);
          }
          hdr->next_meta_addr = new_meta_tail;
          page_handle *last_meta_page = meta_page;
-         meta_page = cache_get(mini->cc, new_meta_tail, TRUE, mini->type);
-         while (!cache_claim(mini->cc, meta_page)) {
-            // should never happen
-            platform_sleep(wait);
-            wait = wait > 1024 ? wait : 2 * wait;
-         }
-         wait = 1;
-         cache_lock(mini->cc, meta_page);
+         meta_page       = cache_alloc(mini->cc, new_meta_tail, mini->type);
          mini->meta_tail = new_meta_tail;
          cache_mark_dirty(mini->cc, last_meta_page);
          cache_unlock(mini->cc, last_meta_page);

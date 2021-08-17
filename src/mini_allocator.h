@@ -19,16 +19,17 @@
 #define MINI_MAX_BATCHES 8
 
 typedef struct mini_allocator {
-   cache           *cc;
-   data_config     *data_cfg;
-   uint64           meta_head;
-   volatile uint64  meta_tail;
-   uint64           num_batches;
-   volatile uint64  next_addr[MINI_MAX_BATCHES];
-   uint64           next_extent[MINI_MAX_BATCHES];
-   uint64           last_meta_addr[MINI_MAX_BATCHES];
-   uint64           last_meta_pos[MINI_MAX_BATCHES];
-   page_type        type;
+   allocator      *al;
+   cache          *cc;
+   data_config    *data_cfg;
+   uint64          meta_head;
+   volatile uint64 meta_tail;
+   uint64          num_batches;
+   volatile uint64 next_addr[MINI_MAX_BATCHES];
+   uint64          next_extent[MINI_MAX_BATCHES];
+   uint64          last_meta_addr[MINI_MAX_BATCHES];
+   uint64          last_meta_pos[MINI_MAX_BATCHES];
+   page_type       type;
 } mini_allocator;
 
 typedef struct mini_allocator_sync_arg {

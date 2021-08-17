@@ -212,9 +212,6 @@ laio_callback(io_context_t  ctx,
 
    platform_assert(res2 == 0);
    req = (io_async_req *)((char *)iocb - offsetof(io_async_req, iocb));
-   if (UNLIKELY(res != req->bytes)) {
-      status = STATUS_IO_ERROR;
-   }
    req->callback(req->metadata, req->iovec, req->count, status);
    req->busy = FALSE;
 }

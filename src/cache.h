@@ -67,11 +67,6 @@ typedef struct cache_stats {
 _Static_assert(IS_POWER_OF_2(MAX_PAGES_PER_EXTENT),
                "MAX_PAGES_PER_EXTENT not a power of 2");
 
-typedef platform_status (*extent_alloc_fn)(
-   cache *cc,
-   page_handle *page_arr[static MAX_PAGES_PER_EXTENT],
-   page_type type);
-
 typedef enum {
    // Success without needing async IO because of cache hit.
    async_success = 0xc0ffee,
@@ -103,6 +98,8 @@ typedef struct cache_async_ctxt {
    } stats;
 } cache_async_ctxt;
 
+// clang-format off
+typedef page_handle * (*page_alloc_fn)         (cache *cc, uint64 addr, page_type type);
 typedef bool          (*page_dealloc_fn)       (cache *cc, uint64 addr, page_type type);
 typedef uint8         (*page_get_ref_fn)       (cache *cc, uint64 addr);
 typedef page_handle * (*page_get_fn)           (cache *cc, uint64 addr, bool blocking, page_type type);
@@ -152,7 +149,7 @@ typedef void          (*enable_sync_get_fn)    (cache *cc, bool enabled);
 typedef allocator *   (*cache_allocator_fn)    (cache *cc);
 
 typedef struct cache_ops {
-   extent_alloc_fn       extent_alloc;
+   page_alloc_fn         page_alloc;
    page_dealloc_fn       page_dealloc;
    page_get_ref_fn       page_get_ref;
    page_get_fn           page_get;
@@ -193,18 +190,17 @@ typedef struct cache_ops {
    enable_sync_get_fn    enable_sync_get;
    cache_allocator_fn    cache_allocator;
 } cache_ops;
+// clang-format on
 
 // To sub-class cache, make a cache your first field;
 struct cache {
    const cache_ops *ops;
 };
 
-static inline platform_status
-cache_extent_alloc(cache *cc,
-                   page_handle *page_arr[static MAX_PAGES_PER_EXTENT],
-                   page_type type)
+static inline page_handle *
+cache_alloc(cache *cc, uint64 addr, page_type type)
 {
-   return cc->ops->extent_alloc(cc, page_arr, type);
+   return cc->ops->page_alloc(cc, addr, type);
 }
 
 static inline bool
