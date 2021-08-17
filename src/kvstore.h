@@ -34,9 +34,10 @@ void kvstore_register_thread(const kvstore_handle h);
 // FIXME: key/value can't be marked const until splinter API's are fixed
 int kvstore_insert(const kvstore_handle h, char *key, char *message);
 
-int kvstore_lookup(const kvstore_handle h,
-                   char *               key,
-                   char *               message,
-                   bool *               found);
+int kvstore_lookup(const kvstore_handle h,       // IN
+                   char *               key,     // OUT
+                   char *               message, // OUT
+                   bool *               found    // OUT
+);
 
 #endif // _KVSTORE_H_
