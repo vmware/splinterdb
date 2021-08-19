@@ -9,7 +9,6 @@
  *     The user must provide a data_config that encodes
  *     values and message-types.
  *
- *     For a simpler API, look at splinter_simple.h
  */
 
 #ifndef _KVSTORE_H_
