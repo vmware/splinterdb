@@ -179,7 +179,8 @@ kvstore_test(int argc, char *argv[])
       platform_assert(expected_val_len > 0 && expected_val_len < max_val_size);
 
       kvstore_iterator_get_current(it, &current_key, &current_msg);
-      char *current_val = (char *)(((data_handle *)current_msg)->data);
+      const char *current_val =
+         (const char *)(((const data_handle *)current_msg)->data);
 
       if (memcmp(current_key, expected_key, kvs_cfg.data_cfg.key_size) != 0) {
          fprintf(stderr, "iteration %d: mismatched key\n", i);
