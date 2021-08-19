@@ -10,9 +10,9 @@
 
 #include "platform.h"
 
-#include "kvstore.h"
 #include "clockcache.h"
 #include "config.h"
+#include "kvstore.h"
 #include "rc_allocator.h"
 #include "splinter.h"
 
@@ -403,7 +403,8 @@ kvstore_iterator_init(const kvstore *    kvs,      // IN
    it->last_rc = STATUS_OK;
 
    splinter_range_iterator *range_itor = &(it->sri);
-   platform_status          rc         = splinter_range_iterator_init(
+
+   platform_status rc = splinter_range_iterator_init(
       kvs->spl, range_itor, start_key, NULL, UINT64_MAX);
    if (!SUCCESS(rc)) {
       // TODO(gabe): copied in from splinter.c::splinter_range
