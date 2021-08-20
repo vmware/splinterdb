@@ -40,6 +40,7 @@
 #pragma GCC poison aligned_alloc
 #pragma GCC poison free
 #pragma GCC poison malloc
+#pragma GCC poison calloc
 #pragma GCC poison realloc
 
 #pragma GCC poison fclose
