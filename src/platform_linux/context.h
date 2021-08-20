@@ -3,6 +3,12 @@
 
 #include "platform.h"
 
+
+#define UNLOCKALL            (1u<<0)
+#define UNLOCKDELAY          (1u<<1)
+#define NONTXUNLOCK	     (1u<<2)
+
+
 typedef struct {
     uint64_t id;
     int32_t locksHeld;
@@ -19,6 +25,13 @@ typedef struct {
     bool trackTxs;
     uint64_t trackTxnum;
 
+    uint32 entry_array[MAX_LOCKS];
+    bool write_array[MAX_LOCKS];
+    bool claim_array[MAX_LOCKS];
+    bool get_array[MAX_LOCKS];
+    uint32 delayed_array[MAX_LOCKS];
+    uint32 lock_curr;
+
     uint64_t reserved[2];
 } ThreadContext;
 
@@ -27,12 +40,20 @@ void create_context(ThreadContext *contextMap);
 ThreadContext *get_context(ThreadContext *contextMap, threadid idx);
 
 int ctx_lock(ThreadContext *contextMap, threadid idx);
-int ctx_unlock(ThreadContext *contextMap, threadid idx, uint32 entry_number);
+int ctx_unlock(ThreadContext *contextMap, threadid idx);
+
+int unlockall_or_unlock_delay(ThreadContext *contextMap, threadid idx);
 
 void start_nontx(ThreadContext *ctx);
 void end_nontx(ThreadContext *ctx);
 
 void start_nontx_print(ThreadContext *ctx, threadid idx);
 
+
+void start_nontx_withlocks(ThreadContext *ctx);
+void end_nontx_withlocks(ThreadContext *ctx);
+
 bool istracking(ThreadContext *ctx);
+
+bool isinTX(ThreadContext *ctx);
 #endif // CONTEXT_H

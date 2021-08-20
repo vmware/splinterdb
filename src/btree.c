@@ -1095,6 +1095,7 @@ btree_should_zap_dec_ref(cache        *cc,
    return should_zap;
 }
 
+//TODO: set flag so it doesn't trigger start nontx in TX
 void
 btree_inc_range(cache        *cc,
                 btree_config *cfg,
@@ -1103,14 +1104,14 @@ btree_inc_range(cache        *cc,
                 const char   *end_key)
 {
    ThreadContext * ctx = cache_get_context(cc);
-   start_nontx(ctx);
+   start_nontx_withlocks(ctx);
    uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    if (start_key != NULL && end_key != NULL) {
       debug_assert(btree_key_compare(cfg, start_key, end_key) < 0);
    }
    mini_allocator_inc_range(cc, cfg->data_cfg, PAGE_TYPE_BRANCH,
          meta_page_addr, start_key, end_key);
-   end_nontx(ctx);
+   end_nontx_withlocks(ctx);
 }
 
 bool
@@ -2371,8 +2372,6 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
                 char                *data,   // IN
                 bool                *at_end) // IN/OUT
 {
-   ThreadContext * ctx = cache_get_context(tree->cc);
-   start_nontx(ctx);
    if (tree->idx[0] == tree->cfg->tuples_per_packed_leaf) {
       // the current leaf is full, allocate a new one and add to index
       tree->old_edge = tree->edge[0];
@@ -2494,16 +2493,12 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
       iterator_advance(tree->itor);
       iterator_at_end(tree->itor, at_end);
    }
-   end_nontx(ctx);
 }
 
 
 static inline void
 btree_pack_post_loop(btree_pack_internal *tree)
 {
-   ThreadContext * ctx = cache_get_context(tree->cc);
-   start_nontx(ctx);
-
    cache *cc = tree->cc;
    btree_config *cfg = tree->cfg;
    // we want to use the allocation node, so we copy the root created in the
@@ -2548,7 +2543,6 @@ btree_pack_post_loop(btree_pack_internal *tree)
       btree_zap(tree->cc, tree->cfg, *(tree->root_addr), PAGE_TYPE_BRANCH);
       *(tree->root_addr) = 0;
    }
-   end_nontx(ctx);
 }
 
 /*
@@ -2565,8 +2559,9 @@ btree_pack_post_loop(btree_pack_internal *tree)
 platform_status
 btree_pack(btree_pack_req *req)
 {
-   //ThreadContext * ctx = cache_get_context(req->cc);
-   //start_nontx(ctx);
+   ThreadContext * ctx = cache_get_context(req->cc);
+   start_nontx(ctx);
+
    btree_pack_internal tree;
    ZERO_STRUCT(tree);
 
@@ -2590,7 +2585,9 @@ btree_pack(btree_pack_req *req)
 
    btree_pack_post_loop(&tree);
    platform_assert(IMPLIES(req->num_tuples == 0, req->root_addr == 0));
-   //end_nontx(ctx);
+
+   end_nontx(ctx);
+
    return STATUS_OK;
 }
 
@@ -2608,6 +2605,8 @@ btree_pack(btree_pack_req *req)
 platform_status
 branch_pack(platform_heap_id hid, branch_pack_req *req)
 {
+   ThreadContext * ctx = cache_get_context(req->point_req.cc);
+   start_nontx(ctx);
    btree_pack_internal *point_tree = TYPED_MALLOC(hid, point_tree);
    btree_pack_internal *range_tree = TYPED_MALLOC(hid, range_tree);
    ZERO_CONTENTS(point_tree);
@@ -2656,6 +2655,7 @@ branch_pack(platform_heap_id hid, branch_pack_req *req)
 
    platform_free(hid, point_tree);
    platform_free(hid, range_tree);
+   end_nontx(ctx);
    return STATUS_OK;
 }
 

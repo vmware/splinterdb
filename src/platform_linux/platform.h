@@ -65,6 +65,8 @@
 
 #define MAX_THREADS (64)
 
+#define MAX_LOCKS (64)
+
 #define HASH_SEED   (42)
 #define UNUSED_FUNCTION()  __attribute__((__unused__))
 

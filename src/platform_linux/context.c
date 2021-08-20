@@ -15,9 +15,7 @@ static uint64_t totalFrees = 0;
 #endif
 
 
-
 void create_context(ThreadContext *contextMap) {
-    printf("Creating context, max thread = %u \n", MAX_THREADS);
     for (uint64_t i = 0; i < MAX_THREADS; i++) {
         ThreadContext *ctx = &contextMap[i];
         if (__sync_bool_compare_and_swap(&ctx->id, 0, i)) {
@@ -30,17 +28,23 @@ void create_context(ThreadContext *contextMap) {
             ctx->frees = 0;
 	    ctx->trackTxs = TRUE;
 	    ctx->trackTxnum = 0;
+	    ctx->lock_curr = 0;
         }
+	for(int i = 0; i < MAX_LOCKS; i++){
+	    ctx->delayed_array[i] = -1;
+	    ctx->write_array[i] = FALSE;
+	    ctx->get_array[i] = FALSE;
+	    ctx->claim_array[i] = FALSE;
+	    ctx->entry_array[i] = -1;
+	}
     }
 }
 
 ThreadContext *get_context(ThreadContext *contextMap, threadid idx) {
-   ThreadContext *ctx = &contextMap[idx % MAX_THREADS];
+   ThreadContext *ctx = &contextMap[idx];
    assert(ctx!=NULL);
-   if (ctx->id == (uint64_t)idx) 
-	   return ctx;
-   else
-	   return NULL;
+   assert(ctx->id == (uint64_t)idx);
+   return ctx;
 }
 
 
@@ -52,10 +56,6 @@ int ctx_lock(ThreadContext *contextMap, threadid idx){
       return 1;
    }
 
-   if(ctx->endTxs != 0)
-	   printf("ctx in context.c= %p, threadid = %lu \n", ctx, idx);
-
-
    assert(ctx->endTxs == 0);
    if (ctx->openTxs == 0) {
       //tx_open(ctx);
@@ -65,18 +65,29 @@ int ctx_lock(ThreadContext *contextMap, threadid idx){
    return 0;
 }
 
-void release_all_locks(ThreadContext *ctx){}
 
-void add_unlock_delay(ThreadContext *contextMap, uint32 entry_number){}
+int unlockall_or_unlock_delay(ThreadContext *contextMap, threadid idx){
+    ThreadContext *ctx = get_context(contextMap, idx);
+    if(!ctx->trackTxs){
+	//assert(!isinTX(ctx));
+	return NONTXUNLOCK;
+    }
+    if (ctx->locksHeld == 0 && ctx->endTxs == 0) {
+        return UNLOCKALL;
+    }
+    else
+	return UNLOCKDELAY;
+}
 
-int ctx_unlock(ThreadContext *contextMap, threadid idx, uint32 entry_number){
+
+int ctx_unlock(ThreadContext *contextMap, threadid idx){
     ThreadContext *ctx = get_context(contextMap, idx);
 
     if(ctx->locksHeld > 0)
         ctx->locksHeld--;
     assert(ctx->locksHeld >= 0);
 
-   if(!ctx->trackTxs)
+    if(!ctx->trackTxs)
       return 1;
 
     if (ctx->openTxs>0){
@@ -87,10 +98,7 @@ int ctx_unlock(ThreadContext *contextMap, threadid idx, uint32 entry_number){
     if (ctx->locksHeld == 0 && ctx->endTxs > 0) {
         //tx_commit(ctx);
         ctx->endTxs--;
-	release_all_locks(ctx);
     }
-    else
-        add_unlock_delay(ctx, entry_number);
 
     return 0;
 }
@@ -100,6 +108,8 @@ int ctx_unlock(ThreadContext *contextMap, threadid idx, uint32 entry_number){
 void start_nontx(ThreadContext *ctx){
    //assert(ctx->trackTxs);
 
+   assert(ctx->lock_curr == 0);
+   assert(!isinTX(ctx));
    ctx->trackTxnum++;
     
    ctx->trackTxs = FALSE;
@@ -110,11 +120,26 @@ void start_nontx_print(ThreadContext *ctx, threadid idx){
 }
 
 
+void start_nontx_withlocks(ThreadContext *ctx){
+   ctx->trackTxnum++;
+
+   ctx->trackTxs = FALSE;
+}
+
+
 void end_nontx(ThreadContext *ctx){
    //assert(!ctx->trackTxs);
   
+   assert(!isinTX(ctx));
    ctx->trackTxnum--;
    if(ctx->trackTxnum == 0)   
+   ctx->trackTxs = TRUE;
+}
+
+
+void end_nontx_withlocks(ThreadContext *ctx){
+   ctx->trackTxnum--;
+   if(ctx->trackTxnum == 0)
    ctx->trackTxs = TRUE;
 }
 
@@ -123,3 +148,9 @@ bool istracking(ThreadContext *ctx){
 	return ctx->trackTxs;
 }
 
+bool isinTX(ThreadContext *ctx){
+	if(ctx->endTxs!=0)
+	return TRUE;
+	else
+		return FALSE;
+}

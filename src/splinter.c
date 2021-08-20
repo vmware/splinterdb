@@ -3296,9 +3296,18 @@ splinter_memtable_incorporate(splinter_handle *spl,
    uint64 wait = 1;
    while (!did_flush && splinter_node_is_full(spl, root)) {
       ThreadContext * ctx = cache_get_context(spl->cc);
+      //downgrade
+      splinter_node_unlock(spl, root);
       start_nontx(ctx);
+      //upgrade
+      splinter_node_lock(spl, &root);
+      //FIXME: This flush is just temporarily nonTX
       did_flush = splinter_flush_fullest(spl, &root);
+      //downgrade
+      splinter_node_unlock(spl, root);
       end_nontx(ctx);
+      //upgrade
+      splinter_node_lock(spl, &root);
       if (!did_flush) {
          splinter_node_unlock(spl, root);
          platform_sleep(wait);
@@ -6055,6 +6064,7 @@ splinter_insert(splinter_handle *spl,
                 char            *key,
                 char            *data)
 {
+
    timestamp ts;
    __attribute ((unused)) const threadid tid = platform_get_tid();
    data_config *data_cfg;
