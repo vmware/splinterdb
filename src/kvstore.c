@@ -70,11 +70,14 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
 )
 {
    if (!data_validate_config(&kvs_cfg->data_cfg)) {
+      platform_error_log("data_validate_config error\n");
       return STATUS_BAD_PARAM;
    }
 
    if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0 ||
        kvs_cfg->disk_size == 0) {
+      platform_error_log(
+         "expect filename, cache_size and disk_size to be set\n");
       return STATUS_BAD_PARAM;
    }
 
@@ -147,6 +150,8 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
  *      of each subsystem. For unspecified/internal parameters, defaults are
  *      used.
  *
+ *      kvs_cfg may be stack-allocated.  The reference is not retained.
+ *
  *      TODO
  *      Txn, logging and mounting existing tables to be added in the future
  *
@@ -177,7 +182,7 @@ kvstore_init(const kvstore_config *kvs_cfg, // IN
 
    status = kvstore_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init io handle: %s\n",
+      platform_error_log("Failed to init config: %s\n",
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
