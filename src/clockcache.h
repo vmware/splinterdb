@@ -31,7 +31,7 @@ typedef struct clockcache_config {
    bool   use_stats;
    char   logfile[MAX_STRING_LENGTH];
 
-   char   *cachefile;
+   char   cachefile[MAX_STRING_LENGTH];
 
    // computed
    uint64 batch_capacity;
@@ -164,6 +164,7 @@ void clockcache_config_init(clockcache_config *cache_config,
                             uint64             extent_size,
                             uint64             capacity,
                             char              *cache_logfile,
+			    char              *cache_file,
                             uint64             use_stats);
 
 platform_status

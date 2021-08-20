@@ -39,6 +39,7 @@ config_set_defaults(master_config *cfg)
 
       .seed                     = 0,
 
+      .cache_file               = NULL,
    };
 }
 
@@ -158,6 +159,7 @@ config_parse(master_config *cfg,
       } config_set_uint64("key-size", cfg, key_size) {
       } config_set_uint64("data-size", cfg, message_size) {
       } config_set_uint64("seed", cfg, seed) {
+      } config_set_charptr("cache-file", cfg, cache_file) {
       } config_set_else {
          platform_error_log("config: invalid option: %s\n", argv[i]);
          return STATUS_BAD_PARAM;

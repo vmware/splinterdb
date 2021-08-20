@@ -1483,6 +1483,7 @@ void clockcache_config_init(clockcache_config *cache_cfg,
                             uint64             extent_size,
                             uint64             capacity,
                             char              *cache_logfile,
+			    char              *cache_file,
                             uint64             use_stats)
 {
    int rc;
@@ -1497,6 +1498,12 @@ void clockcache_config_init(clockcache_config *cache_cfg,
 
    rc = snprintf(cache_cfg->logfile, MAX_STRING_LENGTH, "%s", cache_logfile);
    platform_assert(rc < MAX_STRING_LENGTH);
+
+   if(cache_file != NULL){
+           rc = snprintf(cache_cfg->cachefile, MAX_STRING_LENGTH, "%s", cache_file);
+           platform_assert(rc < MAX_STRING_LENGTH);
+   }
+
 }
 
 platform_status
@@ -1513,7 +1520,6 @@ clockcache_init(clockcache           *cc,     // OUT
    int i;
    threadid thr_i;
 
-   platform_log("calling clockcache_init \n");
    platform_assert(cc != NULL);
    ZERO_CONTENTS(cc);
 

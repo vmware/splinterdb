@@ -114,7 +114,8 @@ KVStoreInitConfig(const KVStoreConfig *kvsCfg,  // IN
 
    clockcache_config_init(&kvs->cacheCfg, masterCfg.page_size,
                           masterCfg.extent_size, masterCfg.cache_capacity,
-                          masterCfg.cache_logfile, masterCfg.use_stats);
+                          masterCfg.cache_logfile, masterCfg.cache_file,
+			  masterCfg.use_stats);
 
    splinter_config_init(&kvs->splinterCfg, &kvs->dataCfg, NULL,
                         masterCfg.memtable_capacity, masterCfg.fanout,
