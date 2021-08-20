@@ -269,3 +269,58 @@ try_string_to_int8(const char *nptr, // IN
    *n = tmp;
    return TRUE;
 }
+
+static const char table[16] = {'0',
+                               '1',
+                               '2',
+                               '3',
+                               '4',
+                               '5',
+                               '6',
+                               '7',
+                               '8',
+                               '9',
+                               'a',
+                               'b',
+                               'c',
+                               'd',
+                               'e',
+                               'f'};
+
+void
+debug_hex_encode(char *       dst,
+                 const size_t dst_len,
+                 const char * data,
+                 const size_t data_len)
+{
+   if (dst_len == 0) {
+      return;
+   }
+
+   // 0x prefix + 2 bytes per octet + \0 terminator
+   size_t max_len = 2 + 2 * data_len + 1;
+   if (max_len > dst_len) {
+      max_len = dst_len;
+   }
+
+   if (max_len == 1) {
+      goto null_terminate;
+   }
+
+   dst[0] = '0';
+   dst[1] = 'x';
+   int dp = 2;
+   for (int i = 0; i < data_len; i++) {
+      if (dp >= max_len - 1) {
+         // only remaining space will be used for \0
+         goto null_terminate;
+      }
+
+      unsigned char x = data[i];
+      dst[dp]         = table[(x & 0xF0) >> 4];
+      dst[dp + 1]     = table[(x & 0x0F)];
+      dp += 2;
+   }
+null_terminate:
+   dst[max_len - 1] = '\0';
+}

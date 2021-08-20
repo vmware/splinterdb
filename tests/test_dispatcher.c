@@ -15,6 +15,7 @@ static void usage(void) {
    platform_error_log("\tlog_test\n");
    platform_error_log("\tcache_test\n");
    platform_error_log("\tkvstore_test\n");
+   platform_error_log("\tutil_test\n");
 #ifdef PLATFORM_LINUX
    platform_error_log("\tycsb_test\n");
 #endif
@@ -44,6 +45,8 @@ test_dispatcher(int argc, char *argv[])
          return cache_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "kvstore_test")) {
          return kvstore_test(argc - 1, &argv[1]);
+      } else if (STRING_EQUALS_LITERAL(test_name, "util_test")) {
+         return util_test(argc - 1, &argv[1]);
 #ifdef PLATFORM_LINUX
       } else if (STRING_EQUALS_LITERAL(test_name, "ycsb_test")) {
          return ycsb_test(argc - 1, &argv[1]);
