@@ -51,6 +51,8 @@ cache_test(int argc, char *argv[]);
 int
 kvstore_test(int argc, char *argv[]);
 
+int util_test(int argc, char *argv[]);
+
 int
 ycsb_test(int argc, char *argv[]);
 

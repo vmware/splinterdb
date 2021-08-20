@@ -16,3 +16,5 @@ DRIVER="${DRIVER:-"${BINDIR:-bin}/driver_test"}"
 "$DRIVER" btree_test --seed "$SEED"
 
 "$DRIVER" log_test --seed "$SEED"
+
+"$DRIVER" util_test --seed "$SEED"
