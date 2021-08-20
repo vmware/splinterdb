@@ -16,7 +16,7 @@
 
 #include "data.h"
 
-typedef struct kvstore_config {
+typedef struct {
    const char *filename;
    uint64      cache_size;
    uint64      disk_size;
@@ -33,6 +33,8 @@ typedef struct kvstore kvstore;
 //
 // The library will allocate and own the memory for kvstore
 // and will free it on kvstore_deinit
+//
+// cfg may be stack-allocated, since it is not stored on kvs.
 int kvstore_init(const kvstore_config *cfg, kvstore **kvs);
 
 void kvstore_deinit(kvstore *kvs);
