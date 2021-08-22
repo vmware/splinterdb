@@ -127,8 +127,8 @@
 page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type);
 
-bool
-clockcache_dealloc(clockcache *cc, uint64 addr, page_type type);
+void
+clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type);
 
 uint8
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr);
@@ -238,6 +238,9 @@ clockcache_enable_sync_get(clockcache *cc, bool enabled);
 allocator *
 clockcache_allocator(clockcache *cc);
 
+uint64
+clockcache_base_addr(clockcache *cc, uint64 addr);
+
 /*
  *-----------------------------------------------------------------------------
  *
@@ -256,11 +259,11 @@ clockcache_alloc_virtual(cache *c, uint64 addr, page_type type)
    return clockcache_alloc(cc, addr, type);
 }
 
-bool
-clockcache_dealloc_virtual(cache *c, uint64 addr, page_type type)
+void
+clockcache_hard_evict_extent_virtual(cache *c, uint64 addr, page_type type)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_dealloc(cc, addr, type);
+   return clockcache_hard_evict_extent(cc, addr, type);
 }
 
 uint8
@@ -507,10 +510,16 @@ clockcache_allocator_virtual(cache *c)
    return clockcache_allocator(cc);
 }
 
+uint64
+clockcache_base_addr_virtual(cache *c, uint64 addr)
+{
+   clockcache *cc = (clockcache *)c;
+   return clockcache_base_addr(cc, addr);
+}
 
 static cache_ops clockcache_ops = {
    .page_alloc        = clockcache_alloc_virtual,
-   .page_dealloc      = clockcache_dealloc_virtual,
+   .extent_hard_evict = clockcache_hard_evict_extent_virtual,
    .page_get_ref      = clockcache_get_allocator_ref_virtual,
    .page_get          = clockcache_get_virtual,
    .page_get_async    = clockcache_get_async_virtual,
@@ -545,6 +554,7 @@ static cache_ops clockcache_ops = {
    .cache_present     = clockcache_present_virtual,
    .enable_sync_get   = clockcache_enable_sync_get_virtual,
    .cache_allocator   = clockcache_allocator_virtual,
+   .base_addr         = clockcache_base_addr_virtual,
 };
 
 /*
@@ -1937,7 +1947,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 /*
  *----------------------------------------------------------------------
  *
- * clockcache_try_dealloc_page --
+ * clockcache_try_hard_evict --
  *
  *      Evicts the page with address addr if it is in cache.
  *
@@ -1945,17 +1955,20 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
  */
 
 void
-clockcache_try_dealloc_page(clockcache *cc,
-                            uint64      addr)
+clockcache_try_hard_evict(clockcache *cc, uint64 addr)
 {
    const threadid tid = platform_get_tid();
    while (TRUE) {
       uint32 entry_number = clockcache_lookup(cc, addr);
       if (entry_number == CC_UNMAPPED_ENTRY) {
-         clockcache_log(addr, entry_number,
-               "dealloc (uncached): entry %u addr %lu\n", entry_number, addr);
+         clockcache_log(addr,
+                        entry_number,
+                        "try_hard_evict (uncached): entry %u addr %lu\n",
+                        entry_number,
+                        addr);
          return;
       }
+
       /*
        * in cache, so evict:
        * 1. read lock
@@ -1996,8 +2009,11 @@ clockcache_try_dealloc_page(clockcache *cc,
       }
 
       /* log only after steps that can fail */
-      clockcache_log(addr, entry_number,
-            "dealloc (cached): entry %u addr %lu\n", entry_number, addr);
+      clockcache_log(addr,
+                     entry_number,
+                     "try_hard_evict (cached): entry %u addr %lu\n",
+                     entry_number,
+                     addr);
 
       /* 4. write lock */
       clockcache_get_write(cc, entry_number);
@@ -2020,41 +2036,26 @@ clockcache_try_dealloc_page(clockcache *cc,
 /*
  *----------------------------------------------------------------------
  *
- * clockcache_dealloc --
+ * clockcache_hard_evict_extent --
  *
- *      Lowers the allocator ref count on the extent with the given base
- *      address. If the ref count logically drops to 0 (1 in the allocator),
- *      any of those pages which are in cache are also freed and then the
- *      allocation is release (the allocator ref count is lowered to 0).
- *      If this drops to 0, the block is freed.
+ *      Attempts to evict all the pages in the extent. Will wait for writeback,
+ *      but will evict and discard dirty pages.
  *
  *----------------------------------------------------------------------
  */
 
-bool
-clockcache_dealloc(clockcache *cc,
-                   uint64      addr,
-                   page_type   type)
+void
+clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 {
    debug_assert(addr % cc->cfg->extent_size == 0);
-   const threadid tid = platform_get_tid();
+   debug_code(allocator *al = cc->al);
+   debug_assert(allocator_get_refcount(al, addr) == 1);
 
-   clockcache_log(addr, 0, "dealloc extent: addr %lu\n", addr);
-   uint8 allocator_rc = allocator_dec_refcount(cc->al, addr);
-   if (allocator_rc == 2) {
-      // this means it is now 1, meaning not free but unref'd
-      for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
-         uint64 page_addr = addr + clockcache_multiply_by_page_size(cc, i);
-         clockcache_try_dealloc_page(cc, page_addr);
-      }
-      allocator_rc = allocator_dec_refcount(cc->al, addr);
-      debug_assert(allocator_rc == 1);
-      if (cc->cfg->use_stats) {
-         cc->stats[tid].page_deallocs[type] += cc->cfg->pages_per_extent;
-      }
-      return TRUE;
+   clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
+   for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
+      uint64 page_addr = addr + clockcache_multiply_by_page_size(cc, i);
+      clockcache_try_hard_evict(cc, page_addr);
    }
-   return FALSE;
 }
 
 /*
@@ -3327,4 +3328,10 @@ allocator *
 clockcache_allocator(clockcache *cc)
 {
    return cc->al;
+}
+
+uint64
+clockcache_base_addr(clockcache *cc, uint64 addr)
+{
+   return addr / cc->cfg->extent_size * cc->cfg->extent_size;
 }

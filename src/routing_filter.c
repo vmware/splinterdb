@@ -350,7 +350,7 @@ routing_filter_add(cache            *cc,
    uint32 old_value_mask = 0;
    size_t old_remainder_and_value_size = 0;
    if (old_filter->addr != 0) {
-      mini_allocator_prefetch(cc, PAGE_TYPE_FILTER, old_filter->meta_head);
+      mini_unkeyed_prefetch(cc, PAGE_TYPE_FILTER, old_filter->meta_head);
       old_log_num_buckets = 31 - __builtin_clz(old_filter->num_fingerprints);
       if (old_log_num_buckets < cfg->log_index_size) {
          old_log_num_buckets = cfg->log_index_size;
@@ -429,28 +429,28 @@ routing_filter_add(cache            *cc,
    platform_status rc = allocator_alloc_extent(al, &meta_head);
    platform_assert_status_ok(rc);
    filter->meta_head = meta_head;
+   // filters use an unkeyed mini allocator
    mini_allocator mini;
-   mini_allocator_init(
-      &mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER);
+   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, FALSE);
 
    // set up the index pages
    uint64 addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64 index_addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+   uint64       index_addr = mini_alloc(&mini, 0, NULL, NULL);
    platform_assert(index_addr % extent_size == 0);
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
    for (uint64 i = 1; i < pages_per_extent; i++) {
-      uint64 next_index_addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+      uint64 next_index_addr = mini_alloc(&mini, 0, NULL, NULL);
       platform_assert(next_index_addr == index_addr + i * page_size);
       index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
    }
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64 addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+   uint64       addr                    = mini_alloc(&mini, 0, NULL, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
-   char *filter_cursor = filter_page->data;
-   uint64 bytes_remaining_on_page = page_size;
+   char *       filter_cursor           = filter_page->data;
+   uint64       bytes_remaining_on_page = page_size;
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
       new_fp_arr[new_fp_no] >>= 32 - cfg->fingerprint_size;
@@ -578,7 +578,7 @@ routing_filter_add(cache            *cc,
          uint32 header_size = encoding_size + sizeof(routing_hdr);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
-            addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+            addr        = mini_alloc(&mini, 0, NULL, NULL);
             filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
@@ -621,7 +621,7 @@ routing_filter_add(cache            *cc,
       routing_unlock_and_unget_page(cc, index_page[i]);
    }
 
-   mini_allocator_release(&mini, NULL);
+   mini_release(&mini, NULL);
 
    platform_free(hid, temp);
 
@@ -1149,14 +1149,7 @@ routing_filter_zap(cache          *cc,
    }
 
    uint64 meta_head = filter->meta_head;
-   // If this returns 2, then we hold the only ref, i.e. it's safe to zap
-   uint64 ref = cache_get_ref(cc, meta_head);
-
-   if (ref == 2) {
-      mini_allocator_zap(cc, NULL, meta_head, NULL, NULL, PAGE_TYPE_FILTER);
-   } else {
-      cache_dealloc(cc, meta_head, PAGE_TYPE_FILTER);
-   }
+   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_FILTER);
 }
 
 /*

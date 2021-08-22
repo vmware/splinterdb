@@ -240,12 +240,6 @@ btree_zap(cache        *cc,
           uint64        root_addr,
           page_type     type);
 
-bool
-btree_should_zap_dec_ref(cache        *cc,
-                         btree_config *cfg,
-                         uint64        root_addr,
-                         page_type     type);
-
 void
 btree_inc_range(cache        *cc,
                 btree_config *cfg,
@@ -369,11 +363,6 @@ btree_verify_tree(cache *cc,
                   btree_config *cfg,
                   uint64 addr,
                   page_type type);
-
-uint64
-btree_extent_count(cache        *cc,
-                   btree_config *cfg,
-                   uint64        root_addr);
 
 uint64
 btree_space_use_in_range(cache        *cc,

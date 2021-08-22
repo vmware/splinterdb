@@ -63,7 +63,7 @@ shard_log_get_thread_data(shard_log *log,
 page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
-   uint64 addr = mini_allocator_alloc(&log->mini, 0, NULL, next_extent);
+   uint64 addr = mini_alloc(&log->mini, 0, NULL, next_extent);
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
@@ -92,8 +92,15 @@ shard_log_init(shard_log        *log,
       thread_data->offset = 0;
    }
 
-   log->addr = mini_allocator_init(&log->mini, cc, log->cfg->data_cfg,
-         log->meta_head, 0, 1, PAGE_TYPE_LOG);
+   // the log uses an unkeyed mini allocator
+   log->addr = mini_init(&log->mini,
+                         cc,
+                         log->cfg->data_cfg,
+                         log->meta_head,
+                         0,
+                         1,
+                         PAGE_TYPE_LOG,
+                         FALSE);
    //platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
 
    return STATUS_OK;
@@ -111,7 +118,7 @@ shard_log_zap(shard_log *log)
       thread_data->offset = 0;
    }
 
-   mini_allocator_zap(cc, NULL, log->meta_head, NULL, NULL, PAGE_TYPE_LOG);
+   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
 }
 
 int

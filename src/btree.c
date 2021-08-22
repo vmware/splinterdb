@@ -88,7 +88,7 @@ btree_alloc(cache *         cc,
             page_type       type,
             btree_node *    node)
 {
-   node->addr = mini_allocator_alloc(mini, height, key, next_extent);
+   node->addr = mini_alloc(mini, height, key, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
    node->hdr  = (btree_hdr *)(node->page->data);
@@ -1028,65 +1028,22 @@ btree_init(cache          *cc,
    cache_unget(cc, root_page);
 
    // set up the mini allocator
-   mini_allocator_init(mini, cc, cfg->data_cfg, root.addr + cfg->page_size, 0,
-         BTREE_MAX_HEIGHT, type);
+   uint64 meta_head = root.addr + cfg->page_size;
+   if (is_packed) {
+      // use keyed mini allocator for branches
+      mini_init(
+         mini, cc, cfg->data_cfg, meta_head, 0, BTREE_MAX_HEIGHT, type, TRUE);
+   } else {
+      // use unkeyed mini allocator for memtables
+      mini_init(mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
+   }
 
    return root.addr;
 }
 
-/*
- * By separating should_zap and zap, this allows us to use a single
- * refcount to control multiple b-trees.  For example a branch
- * in splinter that has a point tree and range-delete tree
- */
-bool
-btree_should_zap_dec_ref(cache        *cc,
-                         btree_config *cfg,
-                         uint64        root_addr,
-                         page_type     type)
-{
-   // FIXME: [yfogel 2020-07-06] Should we assert that both cfgs provide
-   //       work the same w.r.t. root_to_meta_addr?
-   //       Right now we're always passing in the point config
-   uint64       meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   page_handle *meta_page;
-   uint64       wait = 1;
-
-   debug_assert(type == PAGE_TYPE_MEMTABLE || type == PAGE_TYPE_BRANCH);
-   while (1) {
-      meta_page = cache_get(cc, meta_page_addr, TRUE, type);
-      if (cache_claim(cc, meta_page))
-         break;
-      cache_unget(cc, meta_page);
-      platform_sleep(wait);
-      wait *= 2;
-   }
-   cache_lock(cc, meta_page);
-
-   // ALEX: We don't hold the root lock, but we only dealloc from here
-   // so there shouldn't be a race between this refcount check and the
-   // dealloc
-   uint64 ref = cache_get_ref(cc, root_addr);
-   //if (ref != 2)
-   //   platform_log("dec_ref %lu; %u\n", root_addr, ref - 1);
-   //else
-   //   platform_log("dec_ref %lu; %u\n", root_addr, 0);
-
-   bool should_zap;
-   if (ref > 2) {
-      cache_dealloc(cc, root_addr, type);
-      should_zap = FALSE;
-   } else {
-      // we are responsible for zapping the whole tree
-      // If we're talking about a branch we should zap the whole branch
-      should_zap = TRUE;
-   }
-   cache_unlock(cc, meta_page);
-   cache_unclaim(cc, meta_page);
-   cache_unget(cc, meta_page);
-   return should_zap;
-}
-
+// FIXME: [aconway 2021-08-21]
+// Functions like this probably should have branch_ prefixes to indicate they
+// are only for branches and not memtables.
 void
 btree_inc_range(cache        *cc,
                 btree_config *cfg,
@@ -1094,14 +1051,17 @@ btree_inc_range(cache        *cc,
                 const char   *start_key,
                 const char   *end_key)
 {
-   uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    if (start_key != NULL && end_key != NULL) {
       debug_assert(btree_key_compare(cfg, start_key, end_key) < 0);
    }
-   mini_allocator_inc_range(cc, cfg->data_cfg, PAGE_TYPE_BRANCH,
-         meta_page_addr, start_key, end_key);
+   mini_keyed_inc_ref(
+      cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_key, end_key);
 }
 
+// FIXME: [aconway 2021-08-21]
+// branch only function
+// should return void
 bool
 btree_zap_range(cache        *cc,
                 btree_config *cfg,
@@ -1110,25 +1070,27 @@ btree_zap_range(cache        *cc,
                 const char   *end_key,
                 page_type     type)
 {
-   debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
-   debug_assert(type == PAGE_TYPE_BRANCH || start_key == NULL);
+   debug_assert(type == PAGE_TYPE_BRANCH);
 
    if (start_key != NULL && end_key != NULL) {
       platform_assert(btree_key_compare(cfg, start_key, end_key) < 0);
    }
 
-   uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   bool fully_zapped = mini_allocator_zap(cc, cfg->data_cfg, meta_page_addr,
-         start_key, end_key, type);
-   return fully_zapped;
+   uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   mini_keyed_dec_ref(
+      cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_key, end_key);
+   return TRUE;
 }
 
-bool btree_zap(cache        *cc,
-               btree_config *cfg,
-               uint64        root_addr,
-               page_type     type)
+// FIXME: [aconway 2021-08-21]
+// memtable function only
+bool
+btree_zap(cache *cc, btree_config *cfg, uint64 root_addr, page_type type)
 {
-   return btree_zap_range(cc, cfg, root_addr, NULL, NULL, type);
+   platform_assert(type == PAGE_TYPE_MEMTABLE);
+   uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type);
+   return ref == 0;
 }
 
 page_handle *
@@ -1137,9 +1099,13 @@ btree_blind_inc(cache        *cc,
                 uint64        root_addr,
                 page_type     type)
 {
-   //platform_log("(%2lu)blind inc %14lu\n", platform_get_tid(), root_addr);
-   uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   return mini_allocator_blind_inc(cc, meta_page_addr);
+   // FIXME: [aconway 2021-08-21]
+   // This is broken in this commit, fixing later.
+   //
+   // platform_log("(%2lu)blind inc %14lu\n", platform_get_tid(), root_addr);
+   // uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   // return mini_allocator_blind_inc(cc, meta_page_addr);
+   return NULL;
 }
 
 void
@@ -1148,8 +1114,11 @@ btree_blind_zap(cache        *cc,
                 page_handle  *meta_page,
                 page_type     type)
 {
-   //platform_log("(%2lu)blind zap %14lu\n", platform_get_tid(), root_addr);
-   mini_allocator_blind_zap(cc, type, meta_page);
+   // FIXME: [aconway 2021-08-21]
+   // This is broken in this commit, fixing later.
+   //
+   // platform_log("(%2lu)blind zap %14lu\n", platform_get_tid(), root_addr);
+   // mini_allocator_blind_zap(cc, type, meta_page);
 }
 
 
@@ -2387,11 +2356,12 @@ btree_pack_post_loop(btree_pack_internal *tree)
 
    char last_key[MAX_KEY_SIZE];
    memmove(last_key, tree->cfg->data_cfg->max_key, MAX_KEY_SIZE);
-   mini_allocator_release(&tree->mini, last_key);
+   mini_release(&tree->mini, last_key);
 
    // if output tree is empty, zap the tree
    if (*(tree->num_tuples) == 0) {
-      btree_zap(tree->cc, tree->cfg, *(tree->root_addr), PAGE_TYPE_BRANCH);
+      btree_zap_range(
+         tree->cc, tree->cfg, *(tree->root_addr), NULL, NULL, PAGE_TYPE_BRANCH);
       *(tree->root_addr) = 0;
    }
 }
@@ -2652,9 +2622,10 @@ btree_space_use_in_range(cache        *cc,
                          const char   *start_key,
                          const char   *end_key)
 {
+   platform_assert(type == PAGE_TYPE_BRANCH);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   uint64 extents_used = mini_allocator_count_extents_in_range(cc,
-         cfg->data_cfg, type, meta_head, start_key, end_key);
+   uint64 extents_used = mini_keyed_extent_count(
+      cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_key, end_key);
    return extents_used * cfg->extent_size;
 }
 
@@ -2829,15 +2800,6 @@ btree_print_lookup(cache *cc,            // IN
    uint16 idx = btree_find_tuple(cfg, &node, key, greater_than_or_equal);
    platform_log("Matching index: %u of %u\n", idx, node.hdr->num_entries);
    btree_node_unget(cc, cfg, &node);
-}
-
-uint64
-btree_extent_count(cache        *cc,
-                   btree_config *cfg,
-                   uint64        root_addr)
-{
-   uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   return mini_allocator_extent_count(cc, PAGE_TYPE_BRANCH, meta_head);
 }
 
 /*

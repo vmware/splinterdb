@@ -310,23 +310,21 @@ rc_allocator_dismount(rc_allocator *al)
  *
  * rc_allocator_inc_ref --
  *
- *      Increments the ref count of the given address.
+ *      Increments the ref count of the given address and returns the new one.
  *
  *----------------------------------------------------------------------
  */
 
 uint8
-rc_allocator_inc_ref(rc_allocator *al,
-                     uint64 addr)
+rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
-   uint64 extent_no;
-   uint8  ref_count;
-
    debug_assert(addr % al->cfg->extent_size == 0);
-   extent_no = addr / al->cfg->extent_size;
+
+   uint64 extent_no = addr / al->cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
-   ref_count = __sync_fetch_and_add(&al->ref_count[extent_no], 1);
-   platform_assert(ref_count != 0 && ref_count != UINT8_MAX);
+
+   uint8 ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
+   platform_assert(ref_count != 1 && ref_count != 0);
    return ref_count;
 }
 
@@ -341,8 +339,7 @@ rc_allocator_inc_ref(rc_allocator *al,
  */
 
 uint8
-rc_allocator_get_ref(rc_allocator *al,
-                     uint64       addr)
+rc_allocator_get_ref(rc_allocator *al, uint64 addr)
 {
    uint64 extent_no;
 
@@ -364,22 +361,17 @@ rc_allocator_get_ref(rc_allocator *al,
  */
 
 uint8
-rc_allocator_dec_ref(rc_allocator *al,
-                     uint64        addr)
+rc_allocator_dec_ref(rc_allocator *al, uint64 addr)
 {
-   uint64 extent_no;
-   uint8  ref_count;
-
    debug_assert(addr % al->cfg->extent_size == 0);
-   extent_no = addr / al->cfg->extent_size;
+
+   uint64 extent_no = addr / al->cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
-   ref_count = __sync_fetch_and_sub(&al->ref_count[extent_no], 1);
+
+   uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
+   platform_assert(ref_count != UINT8_MAX);
    if (ref_count == 0) {
-      platform_log("allocator ref count < 0: %lu\n", addr);
-   }
-   platform_assert(ref_count != 0);
-   if (ref_count == 1) {
-      __sync_fetch_and_sub(&al->allocated, 1);
+      __sync_sub_and_fetch(&al->allocated, 1);
    }
    return ref_count;
 }
