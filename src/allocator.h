@@ -16,6 +16,9 @@
 typedef uint64 allocator_root_id;
 #define INVALID_ALLOCATOR_ROOT_ID (0)
 
+#define AL_NO_REFS 1
+#define AL_FREE    0
+
 typedef struct allocator allocator;
 
 typedef platform_status

@@ -265,7 +265,13 @@ test_cache_basic(cache             *cc,
     * Deallocate all the entries.
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      cache_dealloc(cc, addr_arr[i * cfg->pages_per_extent], PAGE_TYPE_MISC);
+      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      allocator *al   = cache_allocator(cc);
+      uint8      ref  = allocator_dec_refcount(al, addr);
+      platform_assert(ref == AL_NO_REFS);
+      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      ref = allocator_dec_refcount(al, addr);
+      platform_assert(ref == AL_FREE);
    }
 
 exit:
@@ -508,7 +514,13 @@ test_cache_flush(cache             *cc,
     * Deallocate all the entries.
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      cache_dealloc(cc, addr_arr[i * cfg->pages_per_extent], PAGE_TYPE_MISC);
+      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      allocator *al   = cache_allocator(cc);
+      uint8      ref  = allocator_dec_refcount(al, addr);
+      platform_assert(ref == AL_NO_REFS);
+      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      ref = allocator_dec_refcount(al, addr);
+      platform_assert(ref == AL_FREE);
    }
    platform_log("Dealloc took %lu secs\n",
                 NSEC_TO_SEC(platform_timestamp_elapsed(t_start)));
@@ -877,7 +889,13 @@ test_cache_async(cache             *cc,
    }
    // Deallocate all the entries.
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      cache_dealloc(cc, addr_arr[i * cfg->pages_per_extent], PAGE_TYPE_MISC);
+      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      allocator *al   = cache_allocator(cc);
+      uint8      ref  = allocator_dec_refcount(al, addr);
+      platform_assert(ref == AL_NO_REFS);
+      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      ref = allocator_dec_refcount(al, addr);
+      platform_assert(ref == AL_FREE);
    }
    platform_free(hid, addr_arr);
    platform_free(hid, params);

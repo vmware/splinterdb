@@ -668,7 +668,7 @@ splinter_set_super_block(splinter_handle *spl,
 
    super = (splinter_super_block *)super_page->data;
    super->root_addr     = spl->root_addr;
-   super->meta_tail     = mini_allocator_meta_tail(&spl->mini);
+   super->meta_tail     = mini_meta_tail(&spl->mini);
    if (spl->cfg.use_log) {
       super->log_addr      = log_addr(spl->log);
       super->log_meta_addr = log_meta_addr(spl->log);
@@ -928,14 +928,8 @@ splinter_node_unlock(splinter_handle *spl,
 page_handle *
 splinter_alloc(splinter_handle *spl, uint64 height)
 {
-   uint64 addr = mini_allocator_alloc(&spl->mini, height, NULL, NULL);
+   uint64 addr = mini_alloc(&spl->mini, height, NULL, NULL);
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
-}
-
-void splinter_dealloc(splinter_handle *spl,
-                      uint64           addr)
-{
-   cache_dealloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 
 /*
@@ -2998,7 +2992,7 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    memtable *mt = splinter_get_memtable(spl, generation);
 
    memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
-   mini_allocator_release(&mt->mini, NULL);
+   mini_release(&mt->mini, NULL);
 
    splinter_compacted_memtable *cmt =
       splinter_get_compacted_memtable(spl, generation);
@@ -3465,8 +3459,7 @@ splinter_inc_filter(splinter_handle *spl,
                     routing_filter  *filter)
 {
    debug_assert(filter->addr != 0);
-   __attribute__ ((unused)) uint8 ref =
-      allocator_inc_refcount(spl->al, filter->addr);
+   mini_unkeyed_inc_ref(spl->cc, filter->meta_head);
 }
 
 static inline void
@@ -3477,37 +3470,6 @@ splinter_dec_filter(splinter_handle *spl,
       return;
    }
    cache *cc = spl->cc;
-   page_handle *meta_page;
-   uint64 wait = 100;
-   while (1) {
-      meta_page = cache_get(cc, filter->meta_head, TRUE, PAGE_TYPE_FILTER);
-      if (cache_claim(cc, meta_page)) {
-         break;
-      }
-      cache_unget(cc, meta_page);
-      platform_sleep(wait);
-      wait *= 2;
-   }
-   cache_lock(cc, meta_page);
-
-   /*
-    * This is the only entry point to dec this ref count, so we are guaranteed
-    * that there isn't a race.
-    */
-   uint8 ref = allocator_get_refcount(spl->al, filter->addr);
-   if (ref > 2) {
-      cache_dealloc(cc, filter->addr, PAGE_TYPE_FILTER);
-      cache_unlock(cc, meta_page);
-      cache_unclaim(cc, meta_page);
-      cache_unget(cc, meta_page);
-      return;
-   }
-
-   // we are responsible for zapping the whole tree
-   cache_unlock(cc, meta_page);
-   cache_unclaim(cc, meta_page);
-   cache_unget(cc, meta_page);
-
    routing_filter_zap(cc, filter);
 }
 
@@ -6831,13 +6793,15 @@ splinter_create(splinter_config  *cfg,
    // set up the mini allocator
    //    we use the root extent as the initial mini_allocator head
    uint64 meta_addr = spl->root_addr + cfg->page_size;
-   mini_allocator_init(&spl->mini,
-                       cc,
-                       spl->cfg.data_cfg,
-                       meta_addr,
-                       0,
-                       SPLINTER_MAX_HEIGHT,
-                       PAGE_TYPE_TRUNK);
+   // The trunk uses an unkeyed mini allocator
+   mini_init(&spl->mini,
+             cc,
+             spl->cfg.data_cfg,
+             meta_addr,
+             0,
+             SPLINTER_MAX_HEIGHT,
+             PAGE_TYPE_TRUNK,
+             FALSE);
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
@@ -6953,8 +6917,15 @@ splinter_mount(splinter_config  *cfg,
    spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
          splinter_memtable_flush_virtual, spl);
 
-   mini_allocator_init(&spl->mini, cc, spl->cfg.data_cfg, meta_head, meta_tail,
-         SPLINTER_MAX_HEIGHT, PAGE_TYPE_TRUNK);
+   // the trunk uses un unkeyed mini allocato
+   mini_init(&spl->mini,
+             cc,
+             spl->cfg.data_cfg,
+             meta_head,
+             meta_tail,
+             SPLINTER_MAX_HEIGHT,
+             PAGE_TYPE_TRUNK,
+             FALSE);
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
    }
@@ -7070,8 +7041,7 @@ splinter_destroy(splinter_handle *spl)
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
-   mini_allocator_zap(spl->cc, NULL, spl->mini.meta_head, NULL, NULL,
-         PAGE_TYPE_TRUNK);
+   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
 
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
@@ -8201,15 +8171,6 @@ splinter_branch_count_num_tuples(splinter_handle *spl,
    return num_tuples;
 }
 
-uint64
-splinter_branch_extent_count(splinter_handle *spl,
-                             page_handle     *node,
-                             uint16           branch_no)
-{
-   splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
-   return btree_extent_count(spl->cc, &spl->cfg.btree_cfg, branch->root_addr);
-}
-
 bool
 splinter_node_print_branches(splinter_handle *spl,
                              uint64           addr,
@@ -8239,7 +8200,10 @@ splinter_node_print_branches(splinter_handle *spl,
    {
       uint64 addr = splinter_get_branch(spl, node, branch_no)->root_addr;
       uint64 num_tuples_in_branch = splinter_branch_count_num_tuples(spl, node, branch_no);
-      uint64 kib_in_branch = splinter_branch_extent_count(spl, node, branch_no);
+      // FIXME: [aconway 2021-08-21] this is broken and also may not have been
+      // accurate before
+      uint64 kib_in_branch = 0;
+      // splinter_branch_extent_count(spl, node, branch_no);
       kib_in_branch *= spl->cfg.extent_size / 1024;
       fraction space_amp = init_fraction(kib_in_branch * 1024,
             num_tuples_in_branch * (spl->cfg.data_cfg->key_size +
@@ -8260,33 +8224,33 @@ splinter_print_branches(splinter_handle *spl)
    splinter_for_each_node(spl, splinter_node_print_branches, NULL);
 }
 
-bool
-splinter_node_print_extent_count(splinter_handle *spl,
-                                 uint64           addr,
-                                 void            *arg)
-{
-   page_handle *node = splinter_node_get(spl, addr);
-
-   uint16 start_branch = splinter_start_branch(spl, node);
-   uint16 end_branch = splinter_end_branch(spl, node);
-   uint64 num_extents = 0;
-   for (uint16 branch_no = start_branch;
-        branch_no != end_branch;
-        branch_no = splinter_branch_no_add(spl, branch_no, 1))
-   {
-      num_extents += splinter_branch_extent_count(spl, node, branch_no);
-   }
-   platform_log("%8lu\n", num_extents);
-   splinter_node_unget(spl, &node);
-   return TRUE;
-}
-
-void
-splinter_print_extent_counts(splinter_handle *spl)
-{
-   platform_log("extent counts:\n");
-   splinter_for_each_node(spl, splinter_node_print_extent_count, NULL);
-}
+// bool
+// splinter_node_print_extent_count(splinter_handle *spl,
+//                                 uint64           addr,
+//                                 void            *arg)
+//{
+//   page_handle *node = splinter_node_get(spl, addr);
+//
+//   uint16 start_branch = splinter_start_branch(spl, node);
+//   uint16 end_branch = splinter_end_branch(spl, node);
+//   uint64 num_extents = 0;
+//   for (uint16 branch_no = start_branch;
+//        branch_no != end_branch;
+//        branch_no = splinter_branch_no_add(spl, branch_no, 1))
+//   {
+//      num_extents += splinter_branch_extent_count(spl, node, branch_no);
+//   }
+//   platform_log("%8lu\n", num_extents);
+//   splinter_node_unget(spl, &node);
+//   return TRUE;
+//}
+//
+// void
+// splinter_print_extent_counts(splinter_handle *spl)
+//{
+//   platform_log("extent counts:\n");
+//   splinter_for_each_node(spl, splinter_node_print_extent_count, NULL);
+//}
 
 /*
  *-----------------------------------------------------------------------------
