@@ -424,7 +424,7 @@ routing_filter_add(cache            *cc,
    memset(encoding_buffer, 0xff, ROUTING_FPS_PER_PAGE / 32 * sizeof(uint32));
 
    // we use a mini_allocator to obtain pages
-   allocator      *al = cache_allocator(cc);
+   allocator *     al = cache_allocator(cc);
    uint64          meta_head;
    platform_status rc = allocator_alloc_extent(al, &meta_head);
    platform_assert_status_ok(rc);

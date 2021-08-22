@@ -126,7 +126,7 @@ struct clockcache {
    platform_heap_id      heap_id;
 
    // Distributed locks (the write bit is in the status uint32 of the entry)
-   buffer_handle  *rc_bh;
+   buffer_handle * rc_bh;
    volatile uint8 *refcount;
    volatile uint8 *pincount;
 

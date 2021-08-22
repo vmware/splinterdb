@@ -294,7 +294,7 @@ memtable_context_create(platform_heap_id  hid,
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
    uint64          base_addr;
-   allocator      *al = cache_allocator(cc);
+   allocator *     al = cache_allocator(cc);
    platform_status rc = allocator_alloc_extent(al, &base_addr);
    platform_assert_status_ok(rc);
 

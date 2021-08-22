@@ -76,7 +76,7 @@ shard_log_init(shard_log        *log,
    uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
    log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
 
-   allocator      *al = cache_allocator(cc);
+   allocator *     al = cache_allocator(cc);
    platform_status rc = allocator_alloc_extent(al, &log->meta_head);
    platform_assert_status_ok(rc);
 
@@ -117,9 +117,9 @@ shard_log_write(log_handle *logh,
                 uint64      generation)
 {
    shard_log *log = (shard_log *)logh;
-   cache     *cc  = log->cc;
+   cache *    cc  = log->cc;
 
-   page_handle           *page;
+   page_handle *          page;
    shard_log_thread_data *thread_data =
       shard_log_get_thread_data(log, platform_get_tid());
    if (thread_data->addr == SHARD_UNMAPPED) {
