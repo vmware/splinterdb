@@ -5539,7 +5539,7 @@ splinter_split_root(splinter_handle *spl,
    splinter_trunk_hdr *root_hdr = (splinter_trunk_hdr *)root->data;
 
    // allocate a new child node
-   page_handle        *child     = splinter_alloc(spl, root_hdr->height);
+   page_handle *       child     = splinter_alloc(spl, root_hdr->height);
    splinter_trunk_hdr *child_hdr = (splinter_trunk_hdr *)child->data;
 
    // copy root to child, fix up root, then split
@@ -6977,7 +6977,7 @@ splinter_create(splinter_config  *cfg,
    splinter_set_super_block(spl, FALSE, FALSE, TRUE);
 
    // set up the initial leaf
-   page_handle        *leaf     = splinter_alloc(spl, 0);
+   page_handle *       leaf     = splinter_alloc(spl, 0);
    splinter_trunk_hdr *leaf_hdr = (splinter_trunk_hdr *)leaf->data;
    memset(leaf_hdr, 0, spl->cfg.page_size);
    const char *min_key = spl->cfg.data_cfg->min_key;

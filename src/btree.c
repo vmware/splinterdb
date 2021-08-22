@@ -76,13 +76,13 @@ struct PACKED btree_hdr {
  */
 
 void
-btree_alloc(cache          *cc,
+btree_alloc(cache *         cc,
             mini_allocator *mini,
             uint64          height,
-            char           *key,
-            uint64         *next_extent,
+            char *          key,
+            uint64 *        next_extent,
             page_type       type,
-            btree_node     *node)
+            btree_node *    node)
 {
    node->addr = mini_allocator_alloc(mini, height, key, next_extent);
    debug_assert(node->addr != 0);
@@ -999,7 +999,7 @@ btree_init(cache          *cc,
    // we don't use the next_addr arr for this, since the root doesn't
    // maintain constant height
    page_type type = is_packed ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
-   allocator      *al   = cache_allocator(cc);
+   allocator *     al   = cache_allocator(cc);
    uint64          base_addr;
    platform_status rc = allocator_alloc_extent(al, &base_addr);
    platform_assert_status_ok(rc);

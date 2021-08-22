@@ -65,7 +65,7 @@ cache_test_alloc_extents(cache *cc,
                          uint64 addr_arr[],
                          uint32 extents_to_allocate)
 {
-   allocator      *al = cache_allocator(cc);
+   allocator *     al = cache_allocator(cc);
    platform_status rc;
    for (uint32 j = 0; j < extents_to_allocate; j++) {
       uint64 base_addr;

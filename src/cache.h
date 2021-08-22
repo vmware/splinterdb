@@ -101,15 +101,15 @@ typedef struct cache_async_ctxt {
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef bool (*page_dealloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef uint8 (*page_get_ref_fn)(cache *cc, uint64 addr);
-typedef page_handle *(*page_get_fn)(cache    *cc,
+typedef page_handle *(*page_get_fn)(cache *   cc,
                                     uint64    addr,
                                     bool      blocking,
                                     page_type type);
-typedef cache_async_result (*page_get_async_fn)(cache            *cc,
+typedef cache_async_result (*page_get_async_fn)(cache *           cc,
                                                 uint64            addr,
                                                 page_type         type,
                                                 cache_async_ctxt *ctxt);
-typedef void (*page_async_done_fn)(cache            *cc,
+typedef void (*page_async_done_fn)(cache *           cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
 typedef void (*page_unget_fn)(cache *cc, page_handle *page);
@@ -119,15 +119,15 @@ typedef void (*page_lock_fn)(cache *cc, page_handle *page);
 typedef void (*page_unlock_fn)(cache *cc, page_handle *page);
 typedef void (*page_pin_fn)(cache *cc, page_handle *page);
 typedef void (*page_unpin_fn)(cache *cc, page_handle *page);
-typedef void (*page_sync_fn)(cache       *cc,
+typedef void (*page_sync_fn)(cache *      cc,
                              page_handle *page,
                              bool         is_blocking,
                              page_type    type);
-typedef uint64 (*extent_sync_fn)(cache  *cc,
+typedef uint64 (*extent_sync_fn)(cache * cc,
                                  uint64  addr,
                                  uint64 *pages_outstanding);
 
-typedef void (*share_fn)(cache       *cc,
+typedef void (*share_fn)(cache *      cc,
                          page_handle *page_to_share,
                          page_handle *anon_page);
 typedef void (*unshare_fn)(cache *cc, page_handle *anon_page);

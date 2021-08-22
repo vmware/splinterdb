@@ -19,9 +19,9 @@
 #define MINI_MAX_BATCHES 8
 
 typedef struct mini_allocator {
-   allocator      *al;
-   cache          *cc;
-   data_config    *data_cfg;
+   allocator *     al;
+   cache *         cc;
+   data_config *   data_cfg;
    uint64          meta_head;
    volatile uint64 meta_tail;
    uint64          num_batches;
