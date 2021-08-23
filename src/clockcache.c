@@ -1569,11 +1569,11 @@ clockcache_init(clockcache           *cc,     // OUT
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
 
-   //char* entry_pathname = "/mnt/pmem0/entry";
-   //cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
-   //                               cc->cfg->page_capacity, entry_pathname);
-   cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
-                                  cc->cfg->page_capacity);
+   char* entry_pathname = "/mnt/pmem0/entry";
+   cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
+                                  cc->cfg->page_capacity, entry_pathname);
+   //cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
+   //                               cc->cfg->page_capacity);
 
 
    if (!cc->entry) {
