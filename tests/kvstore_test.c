@@ -162,10 +162,8 @@ kvstore_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   // to check that we get not-found at the end
    const char *current_key;
    const char *current_msg;
-
    int i = 0;
    for (; kvstore_iterator_valid(it); kvstore_iterator_next(it)) {
       char expected_key[24] = {0};

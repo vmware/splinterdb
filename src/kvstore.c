@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -434,7 +434,7 @@ kvstore_iterator_init(const kvstore *    kvs,      // IN
 void
 kvstore_iterator_deinit(kvstore_iterator *iter)
 {
-   splinter_range_iterator *range_itor = (splinter_range_iterator *)iter;
+   splinter_range_iterator *range_itor = &(iter->sri);
 
    splinter_handle *spl = range_itor->spl;
    splinter_range_iterator_deinit(range_itor);
