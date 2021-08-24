@@ -94,8 +94,15 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    masterCfg.key_size           = kvs_cfg->data_cfg.key_size;
    masterCfg.message_size       = kvs_cfg->data_cfg.message_size;
    kvs->data_cfg                = kvs_cfg->data_cfg;
-   memset(kvs->data_cfg.min_key, 0, kvs->data_cfg.key_size);
-   memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
+
+   // check if min_key and max_key are set
+   if (0 == memcmp(kvs->data_cfg.min_key,
+                   kvs->data_cfg.max_key,
+                   sizeof(kvs->data_cfg.min_key))) {
+      // application hasn't set them, so provide defaults
+      memset(kvs->data_cfg.min_key, 0, kvs->data_cfg.key_size);
+      memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
+   }
 
    kvs->heap_handle = kvs_cfg->heap_handle;
    kvs->heap_id     = kvs_cfg->heap_id;
