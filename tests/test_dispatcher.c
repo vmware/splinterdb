@@ -14,6 +14,7 @@ static void usage(void) {
    platform_error_log("\tsplinter_test\n");
    platform_error_log("\tlog_test\n");
    platform_error_log("\tcache_test\n");
+   platform_error_log("\tkvstore_basic_test\n");
    platform_error_log("\tkvstore_test\n");
    platform_error_log("\tutil_test\n");
 #ifdef PLATFORM_LINUX
@@ -43,6 +44,8 @@ test_dispatcher(int argc, char *argv[])
          return log_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "cache_test")) {
          return cache_test(argc - 1, &argv[1]);
+      } else if (STRING_EQUALS_LITERAL(test_name, "kvstore_basic_test")) {
+         return kvstore_basic_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "kvstore_test")) {
          return kvstore_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "util_test")) {

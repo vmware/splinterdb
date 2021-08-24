@@ -9,6 +9,8 @@
  *     The user must provide a data_config that encodes
  *     values and message-types.
  *
+ *     For simple use cases, start with kvstore_basic
+ *
  */
 
 #ifndef _KVSTORE_H_
