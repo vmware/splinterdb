@@ -2531,7 +2531,7 @@ btree_pack_post_loop(btree_pack_internal *tree)
    }
 
    char last_key[MAX_KEY_SIZE];
-   memset(last_key, 0xff, MAX_KEY_SIZE);
+   memmove(last_key, tree->cfg->data_cfg->max_key, MAX_KEY_SIZE);
    mini_allocator_release(&tree->mini, last_key);
 
    // if output tree is empty, zap the tree
