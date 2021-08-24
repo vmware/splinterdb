@@ -99,6 +99,9 @@ struct data_config {
    clobber_message_with_range_delete_fn clobber_message_with_range_delete;
    key_or_message_to_str_fn key_to_string;
    key_or_message_to_str_fn message_to_string;
+
+   // additional context, available to the above callbacks
+   void *context;
 };
 
 static inline int
