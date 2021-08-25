@@ -3302,11 +3302,11 @@ splinter_memtable_incorporate(splinter_handle *spl,
       ThreadContext * ctx = cache_get_context(spl->cc);
       splinter_node_unlock(spl, root);
       start_nontx(ctx);
-      splinter_node_lock(spl, &root);
+      splinter_node_lock(spl, root);
       did_flush = splinter_flush_fullest(spl, root);
       splinter_node_unlock(spl, root);
       end_nontx(ctx);
-      splinter_node_lock(spl, &root);
+      splinter_node_lock(spl, root);
       if (!did_flush) {
          splinter_node_unlock(spl, root);
          platform_sleep(wait);
@@ -3515,10 +3515,11 @@ splinter_dec_filter(splinter_handle *spl,
       return;
    }
 
+   cache *cc = spl->cc;
+
    ThreadContext * ctx = cache_get_context(cc);
    start_nontx(ctx);
 
-   cache *cc = spl->cc;
    page_handle *meta_page;
    uint64 wait = 100;
    while (1) {

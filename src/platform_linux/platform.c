@@ -64,7 +64,7 @@ platform_buffer_create(size_t length,
           int flags = MAP_PRIVATE | MAP_SHARED_VALIDATE| MAP_SYNC;
           if (platform_use_hugetlb) {
             flags |= MAP_HUGETLB;
-          }  
+          } 
 
           bh->addr = mmap(NULL, length, prot, flags, fd, 0);
       }
