@@ -76,14 +76,14 @@ test_log_basic(cache            *cc,
       test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
       data_type type;
       iterator_get_curr(itorh, &returned_key, &returned_data, &type);
-      if (data_key_compare(cfg->data_cfg, key, returned_key) != 0
+      if (fixed_size_data_key_compare(cfg->data_cfg, key, returned_key) != 0
             || memcmp(data, returned_data, cfg->data_cfg->message_size) != 0) {
          platform_log("log_test_basic: key or data mismatch\n");
-         data_key_to_string(cfg->data_cfg, key, key_str, 128);
-         data_message_to_string(cfg->data_cfg, data, data_str, 128);
+         fixed_size_data_key_to_string(cfg->data_cfg, key, key_str, 128);
+         fixed_size_data_message_to_string(cfg->data_cfg, data, data_str, 128);
          platform_log("expected: %s -- %s\n", key_str, data_str);
-         data_key_to_string(cfg->data_cfg, returned_key, key_str, 128);
-         data_message_to_string(cfg->data_cfg, returned_data, data_str, 128);
+         fixed_size_data_key_to_string(cfg->data_cfg, returned_key, key_str, 128);
+         fixed_size_data_message_to_string(cfg->data_cfg, returned_data, data_str, 128);
          platform_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }
@@ -159,14 +159,14 @@ test_log_crash(clockcache           *cc,
       test_key(key, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
       iterator_get_curr(itorh, &returned_key, &returned_data, &type);
-      if (data_key_compare(cfg->data_cfg, key, returned_key) != 0
+      if (fixed_size_data_key_compare(cfg->data_cfg, key, returned_key) != 0
             || memcmp(data, returned_data, cfg->data_cfg->message_size) != 0) {
          platform_log("log_test_basic: key or data mismatch\n");
-         data_key_to_string(cfg->data_cfg, key, key_str, 0);
-         data_message_to_string(cfg->data_cfg, data, data_str, 0);
+         fixed_size_data_key_to_string(cfg->data_cfg, key, key_str, 0);
+         fixed_size_data_message_to_string(cfg->data_cfg, data, data_str, 0);
          platform_log("expected: %s -- %s\n", key_str, data_str);
-         data_key_to_string(cfg->data_cfg, returned_key, key_str, 0);
-         data_message_to_string(cfg->data_cfg, returned_data, data_str, 0);
+         fixed_size_data_key_to_string(cfg->data_cfg, returned_key, key_str, 0);
+         fixed_size_data_message_to_string(cfg->data_cfg, returned_data, data_str, 0);
          platform_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }

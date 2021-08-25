@@ -104,7 +104,7 @@ btree_merge_tuples(btree_config *cfg,
    //    here (as if it was a tiny compaction), or add a separate parameter
    //    to the existing callbacks to indicate it's a one-off
    //    Until/unless we add start/end this doesn't matter
-   return data_merge_tuples(cfg->data_cfg, key, old_data, new_data);
+   return fixed_size_data_merge_tuples(cfg->data_cfg, key, old_data, new_data);
 }
 
 

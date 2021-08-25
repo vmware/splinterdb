@@ -2796,7 +2796,7 @@ splinter_btree_lookup(splinter_handle *spl,
    if (local_found) {
       *found = TRUE;
       if (needs_merge) {
-         data_merge_tuples(data_cfg, key, data_temp, data);
+         fixed_size_data_merge_tuples(data_cfg, key, data_temp, data);
       } else {
          memmove(data, data_temp, splinter_message_size(spl));
       }
@@ -2853,7 +2853,7 @@ splinter_btree_lookup_async(splinter_handle     *spl,      // IN
    if (res == async_success && local_found) {
       *found = TRUE;
       if (needs_merge) {
-         data_merge_tuples(data_cfg, key, data_temp, data);
+         fixed_size_data_merge_tuples(data_cfg, key, data_temp, data);
       } else {
          memmove(data, data_temp, splinter_message_size(spl));
       }
@@ -3459,12 +3459,12 @@ splinter_memtable_lookup(splinter_handle *spl,
    if (local_found) {
       *found = TRUE;
       if (needs_merge) {
-         data_merge_tuples(data_cfg, key, data_temp, data);
+         fixed_size_data_merge_tuples(data_cfg, key, data_temp, data);
       } else {
          memmove(data, data_temp, splinter_message_size(spl));
       }
       btree_node_unget(cc, cfg, &node);
-      message_type type = data_message_class(data_cfg, data);
+      message_type type = fixed_size_data_message_class(data_cfg, data);
       if (type != MESSAGE_TYPE_UPDATE) {
          return FALSE;
       }
@@ -6027,7 +6027,7 @@ splinter_insert(splinter_handle *spl,
    }
 
    if (spl->cfg.use_stats) {
-      switch(data_message_class(data_cfg, data)) {
+      switch(fixed_size_data_message_class(data_cfg, data)) {
          case MESSAGE_TYPE_INSERT:
             spl->stats[tid].insertions++;
             platform_histo_insert(spl->stats[tid].insert_latency_histo,
@@ -6087,7 +6087,7 @@ splinter_filter_lookup(splinter_handle *spl,
          spl->stats[tid].branch_lookups[height]++;
       }
       if (local_found) {
-         if (data_message_class(spl->cfg.data_cfg, data) != MESSAGE_TYPE_UPDATE) {
+         if (fixed_size_data_message_class(spl->cfg.data_cfg, data) != MESSAGE_TYPE_UPDATE) {
             return FALSE;
          }
       } else if(spl->cfg.use_stats) {
@@ -6137,7 +6137,7 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
             spl->stats[tid].branch_lookups[height]++;
          }
          if (local_found) {
-            if (data_message_class(spl->cfg.data_cfg, data) != MESSAGE_TYPE_UPDATE) {
+            if (fixed_size_data_message_class(spl->cfg.data_cfg, data) != MESSAGE_TYPE_UPDATE) {
                return FALSE;
             }
          } else if(spl->cfg.use_stats) {
@@ -6238,7 +6238,7 @@ splinter_lookup(splinter_handle *spl,
       // FIXME: [aconway 2020-08-26] wrap with a branch lookup
       splinter_memtable_lookup(spl, mt_gen, key, data, found);
       if (*found) {
-         type = data_message_class(data_cfg, data);
+         type = fixed_size_data_message_class(data_cfg, data);
          if (type != MESSAGE_TYPE_UPDATE) {
             found_in_memtable = TRUE;
             goto found_final_answer_early;
@@ -6275,11 +6275,11 @@ splinter_lookup(splinter_handle *spl,
       goto found_final_answer_early;
    }
 
-   platform_assert(!*found || data_message_class(data_cfg, data) == MESSAGE_TYPE_UPDATE);
+   platform_assert(!*found || fixed_size_data_message_class(data_cfg, data) == MESSAGE_TYPE_UPDATE);
    if (*found) {
-      data_merge_tuples_final(spl->cfg.data_cfg, key, data);
+      fixed_size_data_merge_tuples_final(spl->cfg.data_cfg, key, data);
 found_final_answer_early:
-      type = data_message_class(data_cfg, data);
+      type = fixed_size_data_message_class(data_cfg, data);
       *found = type != MESSAGE_TYPE_DELETE;
    }
 
@@ -6461,7 +6461,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
             // FIXME: [aconway 2020-08-26] wrap with a branch lookup
             splinter_memtable_lookup(spl, mt_gen, key, data, &ctxt->found);
             if (ctxt->found) {
-               ctxt->type = data_message_class(data_cfg, data);
+               ctxt->type = fixed_size_data_message_class(data_cfg, data);
                if (ctxt->type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
                         async_state_found_final_answer_early);
@@ -6678,7 +6678,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
          case async_success:
             // I don't own the cache context, btree does
             if (ctxt->found) {
-               ctxt->type = data_message_class(data_cfg, data);
+               ctxt->type = fixed_size_data_message_class(data_cfg, data);
                if (ctxt->type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
                              async_state_found_final_answer_early);
@@ -6742,8 +6742,8 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
       {
          if (ctxt->height == 0) {
             if (ctxt->found && ctxt->type != MESSAGE_TYPE_INSERT) {
-               data_merge_tuples_final(spl->cfg.data_cfg, key, data);
-               ctxt->type = data_message_class(data_cfg, data);
+               fixed_size_data_merge_tuples_final(spl->cfg.data_cfg, key, data);
+               ctxt->type = fixed_size_data_message_class(data_cfg, data);
                ctxt->found = ctxt->type != MESSAGE_TYPE_DELETE;
             }
             splinter_async_set_state(ctxt, async_state_end);

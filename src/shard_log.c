@@ -436,8 +436,8 @@ shard_log_print(shard_log *log) {
                cursor += log->cfg->data_cfg->key_size;
                data = cursor;
                cursor += log->cfg->data_cfg->message_size;
-               data_key_to_string(cfg->data_cfg, key, key_str, 128);
-               data_message_to_string(cfg->data_cfg, data, data_str, 128);
+               fixed_size_data_key_to_string(cfg->data_cfg, key, key_str, 128);
+               fixed_size_data_message_to_string(cfg->data_cfg, data, data_str, 128);
                platform_log("%s -- %s : %lu\n", key_str, data_str, generation);
             }
          }

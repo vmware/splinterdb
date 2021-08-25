@@ -197,7 +197,7 @@ mini_allocator_alloc(mini_allocator *mini,
       uint64 new_meta_addr = meta_page->disk_addr;
       mini_allocator_meta_entry *entry = &hdr->entry[hdr->pos++];
       if (key != NULL) {
-         data_key_copy(mini->data_cfg, entry->start_key, key);
+         fixed_size_data_key_copy(mini->data_cfg, entry->start_key, key);
 
          // Set the end_key of the last extent from this batch
          if (mini->last_meta_addr[batch] != 0) {
@@ -219,7 +219,7 @@ mini_allocator_alloc(mini_allocator *mini,
                (mini_allocator_meta_hdr *)last_meta_page->data;
             mini_allocator_meta_entry *last_entry =
                &last_hdr->entry[mini->last_meta_pos[batch]];
-            data_key_copy(mini->data_cfg, last_entry->end_key, key);
+            fixed_size_data_key_copy(mini->data_cfg, last_entry->end_key, key);
             cache_mark_dirty(mini->cc, last_meta_page);
             if (mini->last_meta_addr[batch] != mini->meta_tail) {
                cache_unlock(mini->cc, last_meta_page);
@@ -237,7 +237,7 @@ mini_allocator_alloc(mini_allocator *mini,
       entry->zapped = FALSE;
       //if (key != NULL) {
       //   char key_str[256];
-      //   data_key_to_string(key, key_str, 24);
+      //   fixed_size_data_key_to_string(key, key_str, 24);
       //   platform_log("alloc %12lu %12lu %2lu %s\n",
       //         next_extent_addr, new_meta_addr, new_pos, key_str);
       //} else {
@@ -284,7 +284,7 @@ mini_allocator_release(mini_allocator *mini,
             (mini_allocator_meta_hdr *)last_meta_page->data;
          mini_allocator_meta_entry *last_entry =
             &last_hdr->entry[mini->last_meta_pos[batch]];
-         data_key_copy(mini->data_cfg, last_entry->end_key, key);
+         fixed_size_data_key_copy(mini->data_cfg, last_entry->end_key, key);
          cache_mark_dirty(mini->cc, last_meta_page);
          cache_unlock(mini->cc, last_meta_page);
          cache_unclaim(mini->cc, last_meta_page);
@@ -318,9 +318,9 @@ mini_allocator_print(cache                      *cc,
       for (i = 0; i < hdr->pos; i++) {
          mini_allocator_meta_entry *entry = &hdr->entry[i];
          char start_key_str[256];
-         data_key_to_string(data_cfg, entry->start_key, start_key_str, 24);
+         fixed_size_data_key_to_string(data_cfg, entry->start_key, start_key_str, 24);
          char end_key_str[256];
-         data_key_to_string(data_cfg, entry->end_key, end_key_str, 24);
+         fixed_size_data_key_to_string(data_cfg, entry->end_key, end_key_str, 24);
          allocator *al = cache_allocator(cc);
          uint8 ref_count = allocator_get_refcount(al, entry->extent_addr);
          platform_log("%2lu %12lu %s %s %d (%u)\n",
@@ -393,14 +393,14 @@ mini_allocator_for_each(cache                      *cc,
             // case 3
             extent_in_range =
                   1
-               && data_key_compare(data_cfg, start_key, entry->end_key) <= 0
-               && data_key_compare(data_cfg, entry->start_key, start_key) <= 0;
+               && fixed_size_data_key_compare(data_cfg, start_key, entry->end_key) <= 0
+               && fixed_size_data_key_compare(data_cfg, entry->start_key, start_key) <= 0;
          } else {
             // case 2
             extent_in_range =
                   1
-               && data_key_compare(data_cfg, start_key, entry->end_key) <= 0
-               && data_key_compare(data_cfg, entry->start_key, end_key) <= 0;
+               && fixed_size_data_key_compare(data_cfg, start_key, entry->end_key) <= 0
+               && fixed_size_data_key_compare(data_cfg, entry->start_key, end_key) <= 0;
          }
          if (extent_in_range) {
             if (entry->zapped) {
@@ -461,14 +461,14 @@ mini_allocator_zap(cache       *cc,
    //if (start_key != NULL) {
    //   char start_key_str[256];
    //   if (start_key != NULL) {
-   //      data_key_to_string(start_key, start_key_str, 24);
+   //      fixed_size_data_key_to_string(start_key, start_key_str, 24);
    //   }
    //   if (end_key == NULL) {
    //      platform_log("mini_allocator_zap %12lu %s\n",
    //            meta_head, start_key_str);
    //   } else {
    //      char end_key_str[256];
-   //      data_key_to_string(end_key, end_key_str, 24);
+   //      fixed_size_data_key_to_string(end_key, end_key_str, 24);
    //      platform_log("mini_allocator_zap %12lu %s %s\n",
    //            meta_head, start_key_str, end_key_str);
    //   }
@@ -531,14 +531,14 @@ mini_allocator_inc_range(cache       *cc,
    //if (start_key != NULL) {
    //   char start_key_str[256];
    //   if (start_key != NULL) {
-   //      data_key_to_string(start_key, start_key_str, 24);
+   //      fixed_size_data_key_to_string(start_key, start_key_str, 24);
    //   }
    //   if (end_key == NULL) {
    //      platform_log("mini_allocator_inc_range %12lu %s\n",
    //            meta_head, start_key_str);
    //   } else {
    //      char end_key_str[256];
-   //      data_key_to_string(end_key, end_key_str, 24);
+   //      fixed_size_data_key_to_string(end_key, end_key_str, 24);
    //      platform_log("mini_allocator_inc_range %12lu %s %s\n",
    //            meta_head, start_key_str, end_key_str);
    //   }

@@ -62,6 +62,34 @@ init_fraction(uint64 numerator, uint64 denominator)
       .denominator = 1,             \
    })
 
+typedef struct bytebuffer {
+   uint64 length;
+   void *data;
+} bytebuffer;
+
+static inline bytebuffer make_bytebuffer(uint64 len, void *data)
+{
+   return (bytebuffer) {
+      .length = len,
+      .data = data
+   };
+}
+
+static inline uint64 bytebuffer_length(const bytebuffer b)
+{
+   return b.length;
+}
+
+static inline const void *bytebuffer_const_data(const bytebuffer b)
+{
+   return b.data;
+}
+
+static inline void *bytebuffer_data(bytebuffer b)
+{
+   return b.data;
+}
+
 /*
  * try_string_to_(u)int64
  *
