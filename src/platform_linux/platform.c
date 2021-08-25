@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "platform.h"
+#include "context.h"
 
 #include <sys/mman.h>
+#include <sys/syscall.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 __thread threadid xxxtid;
 
@@ -24,26 +28,60 @@ platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
 void
 platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle)) {}
 
+
+int
+platform_get_fd(char* filepath, size_t length)
+{
+        struct stat st;
+        int fd;
+        if (stat(filepath, &st) < 0) { // need to create file
+                fd = open(filepath, O_RDWR | O_CREAT | O_EXCL, 0644);
+                assert(fd != -1);
+                int s = ftruncate(fd, length);
+                assert(s != -1);
+        } else {
+                //assert(st.st_size == length);
+                fd = open(filepath, O_RDWR, 0644);
+                assert(fd != -1);
+        }
+
+        return fd;
+}
+
+
 buffer_handle *
 platform_buffer_create(size_t length,
                        platform_heap_handle UNUSED_PARAM(heap_handle),
-                       platform_module_id UNUSED_PARAM(module_id))
+                       platform_module_id UNUSED_PARAM(module_id),
+		       char* pathname)
 {
    buffer_handle *bh = TYPED_MALLOC(platform_get_heap_id(), bh);
 
    if (bh != NULL) {
       int prot= PROT_READ | PROT_WRITE;
-      int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
-      if (platform_use_hugetlb) {
-        flags |= MAP_HUGETLB;
-      }
+      if(pathname!=NULL){ //allocate PMEM cache
+          int fd = platform_get_fd(pathname, length);
+          int flags = MAP_PRIVATE | MAP_SHARED_VALIDATE| MAP_SYNC;
+          if (platform_use_hugetlb) {
+            flags |= MAP_HUGETLB;
+          }  
 
-      bh->addr = mmap(NULL, length, prot, flags, -1, 0);
+          bh->addr = mmap(NULL, length, prot, flags, fd, 0);
+      }
+      else{ //allocate from DRAM cache
+         int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+	 if (platform_use_hugetlb) {
+            flags |= MAP_HUGETLB;
+         }
+
+         bh->addr = mmap(NULL, length, prot, flags, -1, 0);
+      }
       if (bh->addr == MAP_FAILED) {
          platform_error_log("mmap (%lu) failed with error: %s\n", length,
                             strerror(errno));
          goto error;
       }
+
 
       if (platform_use_mlock) {
          int rc = mlock(bh->addr, length);

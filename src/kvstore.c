@@ -115,6 +115,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
                           masterCfg.extent_size,
                           masterCfg.cache_capacity,
                           masterCfg.cache_logfile,
+			  masterCfg.cache_file,
                           masterCfg.use_stats);
 
    splinter_config_init(&kvs->splinter_cfg,
