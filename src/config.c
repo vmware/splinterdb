@@ -38,6 +38,7 @@ config_set_defaults(master_config *cfg)
       .message_size             = 100,
 
       .seed                     = 0,
+      .cache_file               = NULL,
    };
 }
 
@@ -75,6 +76,7 @@ void config_usage()
    platform_error_log("\t--key-size\n");
    platform_error_log("\t--data-size\n");
    platform_error_log("\t--seed\n");
+   platform_error_log("\t--cache-file\n");
 }
 
 platform_status
@@ -156,6 +158,7 @@ config_parse(master_config *cfg,
       } config_set_uint64("key-size", cfg, key_size) {
       } config_set_uint64("data-size", cfg, message_size) {
       } config_set_uint64("seed", cfg, seed) {
+      } config_set_charptr("cache-file", cfg, cache_file) {
       } config_set_else {
          platform_error_log("config: invalid option: %s\n", argv[i]);
          return STATUS_BAD_PARAM;

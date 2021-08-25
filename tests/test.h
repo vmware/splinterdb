@@ -275,7 +275,8 @@ test_config_init(splinter_config     *splinter_cfg,
 
    clockcache_config_init(cache_cfg, master_cfg->page_size,
                           master_cfg->extent_size, master_cfg->cache_capacity,
-                          master_cfg->cache_logfile, master_cfg->use_stats);
+                          master_cfg->cache_logfile, master_cfg->cache_file,
+			  master_cfg->use_stats);
 
    shard_log_config_init(log_cfg, data_cfg, master_cfg->page_size,
                          master_cfg->extent_size);

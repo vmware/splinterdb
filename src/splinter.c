@@ -3308,7 +3308,14 @@ splinter_memtable_incorporate(splinter_handle *spl,
    bool did_flush = FALSE;
    uint64 wait = 1;
    while (!did_flush && splinter_node_is_full(spl, root)) {
+      ThreadContext * ctx = cache_get_context(spl->cc);
+      splinter_node_unlock(spl, root);
+      start_nontx(ctx);
+      splinter_node_lock(spl, &root);
       did_flush = splinter_flush_fullest(spl, root);
+      splinter_node_unlock(spl, root);
+      end_nontx(ctx);
+      splinter_node_lock(spl, &root);
       if (!did_flush) {
          splinter_node_unlock(spl, root);
          platform_sleep(wait);
@@ -3516,6 +3523,10 @@ splinter_dec_filter(splinter_handle *spl,
    if (filter->addr == 0) {
       return;
    }
+
+   ThreadContext * ctx = cache_get_context(cc);
+   start_nontx(ctx);
+
    cache *cc = spl->cc;
    page_handle *meta_page;
    uint64 wait = 100;
@@ -3540,6 +3551,7 @@ splinter_dec_filter(splinter_handle *spl,
       cache_unlock(cc, meta_page);
       cache_unclaim(cc, meta_page);
       cache_unget(cc, meta_page);
+      end_nontx(ctx);
       return;
    }
 
@@ -3549,6 +3561,8 @@ splinter_dec_filter(splinter_handle *spl,
    cache_unget(cc, meta_page);
 
    routing_filter_zap(cc, filter);
+
+   end_nontx(ctx);
 }
 
 static inline page_handle *
@@ -4080,6 +4094,9 @@ splinter_flush(splinter_handle     *spl,
                splinter_pivot_data *pdata,
                bool                 is_space_rec)
 {
+   ThreadContext * ctx = cache_get_context(spl->cc);
+   start_nontx(ctx);
+
    uint64 wait_start, flush_start;
    if (spl->cfg.use_stats)
       wait_start = platform_get_timestamp();
@@ -4143,12 +4160,16 @@ splinter_flush(splinter_handle     *spl,
       if (splinter_is_leaf(spl, child)) {
          platform_free(spl->heap_id, req);
          uint16 child_idx = splinter_pdata_to_pivot_index(spl, parent, pdata);
+	 start_nontx(ctx);
          splinter_split_leaf(spl, parent, child, child_idx);
+	 end_nontx(ctx);
          debug_assert(splinter_verify_node(spl, child));
          return TRUE;
       } else {
          uint64 child_idx = splinter_pdata_to_pivot_index(spl, parent, pdata);
+	 start_nontx(ctx);
          splinter_split_index(spl, parent, child, child_idx);
+	 end_nontx(ctx);
       }
    }
 
@@ -4177,6 +4198,8 @@ splinter_flush(splinter_handle     *spl,
          }
       }
    }
+
+   end_nontx(ctx);
    return TRUE;
 }
 
