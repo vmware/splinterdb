@@ -56,11 +56,18 @@ typedef message_type (*message_class_fn) (const data_config *cfg,
 //       It's not obvious it's necessary because even with the above, the app
 //       needs to deal with the same keys to be compacted twice sinlce
 //       logging & recovery is not combined between app & splinter.
+
+// Given two messages, merge them, based on their types
+// And return the result in new_raw_message
 typedef void (*merge_tuple_fn) (const data_config *cfg,
                                 const void *key,
                                 const void *old_raw_message,
                                 void *new_raw_message);
 
+// Called for non-MESSAGE_TYPE_INSERT messages
+// when they are determined to be the oldest message
+//
+// Can change data_class or contents.  If necessary, update new_data.
 typedef void (*merge_tuple_final_fn) (const data_config *cfg,
                                       const void *key,
                                       void *oldest_raw_message);
@@ -92,6 +99,9 @@ struct data_config {
    clobber_message_with_range_delete_fn clobber_message_with_range_delete;
    key_or_message_to_str_fn key_to_string;
    key_or_message_to_str_fn message_to_string;
+
+   // additional context, available to the above callbacks
+   void *context;
 };
 
 static inline int

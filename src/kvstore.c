@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -70,11 +70,14 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
 )
 {
    if (!data_validate_config(&kvs_cfg->data_cfg)) {
+      platform_error_log("data_validate_config error\n");
       return STATUS_BAD_PARAM;
    }
 
    if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0 ||
        kvs_cfg->disk_size == 0) {
+      platform_error_log(
+         "expect filename, cache_size and disk_size to be set\n");
       return STATUS_BAD_PARAM;
    }
 
@@ -91,8 +94,15 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    masterCfg.key_size           = kvs_cfg->data_cfg.key_size;
    masterCfg.message_size       = kvs_cfg->data_cfg.message_size;
    kvs->data_cfg                = kvs_cfg->data_cfg;
-   memset(kvs->data_cfg.min_key, 0, kvs->data_cfg.key_size);
-   memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
+
+   // check if min_key and max_key are set
+   if (0 == memcmp(kvs->data_cfg.min_key,
+                   kvs->data_cfg.max_key,
+                   sizeof(kvs->data_cfg.min_key))) {
+      // application hasn't set them, so provide defaults
+      memset(kvs->data_cfg.min_key, 0, kvs->data_cfg.key_size);
+      memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
+   }
 
    kvs->heap_handle = kvs_cfg->heap_handle;
    kvs->heap_id     = kvs_cfg->heap_id;
@@ -147,6 +157,8 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
  *      of each subsystem. For unspecified/internal parameters, defaults are
  *      used.
  *
+ *      kvs_cfg may be stack-allocated.  The reference is not retained.
+ *
  *      TODO
  *      Txn, logging and mounting existing tables to be added in the future
  *
@@ -177,7 +189,7 @@ kvstore_init(const kvstore_config *kvs_cfg, // IN
 
    status = kvstore_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init io handle: %s\n",
+      platform_error_log("Failed to init config: %s\n",
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
@@ -422,7 +434,7 @@ kvstore_iterator_init(const kvstore *    kvs,      // IN
 void
 kvstore_iterator_deinit(kvstore_iterator *iter)
 {
-   splinter_range_iterator *range_itor = (splinter_range_iterator *)iter;
+   splinter_range_iterator *range_itor = &(iter->sri);
 
    splinter_handle *spl = range_itor->spl;
    splinter_range_iterator_deinit(range_itor);

@@ -130,4 +130,20 @@ try_string_to_int8(const char *nptr, // IN
 
 #define PACKED  __attribute__((__packed__))
 
+// Hex-encode arbitrary bytes to a destination buffer
+//    e.g. 0xc0de4f00de
+//
+// Unless dst_len is 0, the result is always \0-terminated.
+//
+// It should be suitable for basic debug output, printf-style.
+//
+// Do not rely on the result for comparison or equality checking,
+// because the data may be truncated when dst_len is too small.
+//
+// To avoid truncation, ensure dst_len >= 3 + 2 * data_len.
+void debug_hex_encode(char *      dst,
+                      size_t      dst_len,
+                      const char *data,
+                      size_t      data_len);
+
 #endif
