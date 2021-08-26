@@ -41,7 +41,6 @@ extern page_handle *trace_page;
  */
 
 typedef struct btree_config {
-   data_type    type;                // data type
    uint64       page_size;           // must match the cache/fs page_size
    uint64       extent_size;         // same
 
@@ -113,11 +112,6 @@ typedef struct btree_pack_req {
    uint64        num_tuples;  // no. of tuples in the output tree
    uint32       *fingerprint_arr; // hashes of the keys in the tree
 } btree_pack_req;
-
-typedef struct branch_pack_req {
-   btree_pack_req point_req;
-   btree_pack_req range_req;
-} branch_pack_req;
 
 struct btree_async_ctxt;
 typedef void (*btree_async_cb)(struct btree_async_ctxt *ctxt);
@@ -272,17 +266,16 @@ btree_blind_zap(cache        *cc,
                 page_type     type);
 
 void
-btree_iterator_init(cache *cc,
-                    btree_config *cfg,
+btree_iterator_init(cache *         cc,
+                    btree_config *  cfg,
                     btree_iterator *iterator,
-                    uint64 root_addr,
-                    page_type page_type,
-                    const char *min_key,
-                    const char *max_key,
-                    bool do_prefetch,
-                    bool is_live,
-                    uint32 height,
-                    data_type data_type);
+                    uint64          root_addr,
+                    page_type       page_type,
+                    const char *    min_key,
+                    const char *    max_key,
+                    bool            do_prefetch,
+                    bool            is_live,
+                    uint32          height);
 
 void
 btree_iterator_deinit(btree_iterator *itor);
@@ -320,9 +313,6 @@ btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 
 platform_status
 btree_pack(btree_pack_req *req);
-
-platform_status
-branch_pack(platform_heap_id hid, branch_pack_req *req);
 
 uint64
 btree_count_in_range(cache        *cc,
@@ -396,7 +386,6 @@ btree_space_use_in_range(cache        *cc,
 void
 btree_config_init(btree_config *btree_cfg,
                   data_config  *data_cfg,
-                  data_type     type,
                   uint64        rough_count_height,
                   uint64        page_size,
                   uint64        extent_size);

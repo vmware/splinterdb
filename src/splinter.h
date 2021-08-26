@@ -53,21 +53,12 @@ typedef struct splinter_config {
    // stats
    bool                 use_stats;
 
-   // FIXME: [yfogel 2020-07-01] For btree_config and data_config
-   //        need to rename default name to point_*
-   //        delayed for parallelism
    memtable_config      mt_cfg;
-   btree_config         btree_cfg; // point message btree config
-   btree_config         range_btree_cfg; // range delete btree config
+   btree_config         btree_cfg;
    routing_config       index_filter_cfg;
    routing_config       leaf_filter_cfg;
 
-   // FIXME: [yfogel 2020-07-01] turn *data_cfg into data_cfg
-   //    delaying for parallelism
-   // FIXME: [yfogel 2020-07-01] rename data_cfg to point_data_cfg
-   //    delaying for parallelism
-   data_config         *data_cfg; // point message data config
-   data_config          range_data_cfg; // range delete data config
+   data_config *data_cfg;
 
    bool                 use_log;
    log_config          *log_cfg;
@@ -153,7 +144,6 @@ typedef struct splinter_branch {
    // FIXME: [yfogel 2020-07-01] need to rename root_addr to point_root_addr
    //                            delaying the rename to unblock parallelism
    uint64 root_addr; // root address of point btree
-   uint64 range_root_addr; // root address of range btree
 } splinter_branch;
 
 typedef struct splinter_handle splinter_handle;
@@ -219,9 +209,6 @@ typedef struct splinter_range_iterator {
    iterator         super;
    splinter_handle *spl;
    uint64           num_tuples;
-   // FIXME: [yfogel 2020-07-01] We need to modify this iterator
-   //       at some point.  num_branches is how many PAIRS of
-   //       trees.  Does this need to stay NumTrees or numbranches?
    uint64           num_branches;
    uint64           num_memtable_branches;
    uint64           memtable_start_gen;
@@ -346,46 +333,74 @@ typedef struct {
  *----------------------------------------------------------------------
  */
 
-platform_status  splinter_insert                (splinter_handle *spl, char *key, char *data);
-// FIXME: [yfogel 2020-07-01] need to document contract/... for range delete
-// Inclusive start_key, Exclusive end_key
 platform_status
-splinter_range_delete(splinter_handle *spl,
-                      char *start_key,
-                      char *end_key);
+splinter_insert(splinter_handle *spl, char *key, char *data);
+platform_status
+splinter_lookup(splinter_handle *spl, char *key, char *data, bool *found);
+cache_async_result
+splinter_lookup_async(splinter_handle *    spl,
+                      char *               key,
+                      char *               data,
+                      bool *               found,
+                      splinter_async_ctxt *ctxt);
+platform_status
+splinter_range_iterator_init(splinter_handle *        spl,
+                             splinter_range_iterator *range_itor,
+                             char *                   min_key,
+                             char *                   max_key,
+                             uint64                   num_tuples);
+void
+splinter_range_iterator_deinit(splinter_range_iterator *range_itor);
+platform_status
+splinter_range(splinter_handle *spl,
+               char *           start_key,
+               uint64           num_tuples,
+               uint64 *         tuples_returned,
+               char *           out);
 
-platform_status  splinter_lookup                (splinter_handle *spl, char *key, char *data, bool *found);
-cache_async_result  splinter_lookup_async       (splinter_handle *spl, char *key, char *data, bool *found, splinter_async_ctxt *ctxt);
-platform_status  splinter_range_iterator_init   (splinter_handle *spl, splinter_range_iterator *range_itor, char *min_key, char *max_key, uint64 num_tuples);
-void             splinter_range_iterator_deinit (splinter_range_iterator *range_itor);
-platform_status  splinter_range                 (splinter_handle *spl, char *start_key, uint64 num_tuples, uint64 *tuples_returned, char *out);
+splinter_handle *
+splinter_create(splinter_config * cfg,
+                allocator *       al,
+                cache *           cc,
+                task_system *     ts,
+                allocator_root_id id,
+                platform_heap_id  hid);
+void
+splinter_destroy(splinter_handle *spl);
+splinter_handle *
+splinter_mount(splinter_config * cfg,
+               allocator *       al,
+               cache *           cc,
+               task_system *     ts,
+               allocator_root_id id,
+               platform_heap_id  hid);
+void
+splinter_dismount(splinter_handle *spl);
 
-splinter_handle *splinter_create                (splinter_config *cfg,
-                                                 allocator *al, cache *cc,
-                                                 task_system *ts,
-                                                 allocator_root_id id,
-                                                 platform_heap_id hid);
-void             splinter_destroy               (splinter_handle *spl);
-splinter_handle *splinter_mount                 (splinter_config *cfg,
-                                                 allocator *al, cache *cc,
-                                                 task_system *ts,
-                                                 allocator_root_id id,
-                                                 platform_heap_id hid);
-void             splinter_dismount              (splinter_handle *spl);
+void
+splinter_perform_tasks(splinter_handle *spl);
 
-void             splinter_perform_tasks         (splinter_handle *spl);
+void
+splinter_force_flush(splinter_handle *spl);
+void
+splinter_print_insertion_stats(splinter_handle *spl);
+void
+splinter_print_lookup_stats(splinter_handle *spl);
+void
+splinter_reset_stats(splinter_handle *spl);
 
-void             splinter_force_flush           (splinter_handle *spl);
-void             splinter_print_insertion_stats (splinter_handle *spl);
-void             splinter_print_lookup_stats    (splinter_handle *spl);
-void             splinter_reset_stats           (splinter_handle *spl);
-
-void             splinter_print                 (splinter_handle *spl);
-void             splinter_print_lookup          (splinter_handle *spl, char *key);
-void             splinter_print_branches        (splinter_handle *spl);
-void             splinter_print_extent_counts   (splinter_handle *spl);
-void             splinter_print_space_use       (splinter_handle *spl);
-bool             splinter_verify_tree           (splinter_handle *spl);
+void
+splinter_print(splinter_handle *spl);
+void
+splinter_print_lookup(splinter_handle *spl, char *key);
+void
+splinter_print_branches(splinter_handle *spl);
+void
+splinter_print_extent_counts(splinter_handle *spl);
+void
+splinter_print_space_use(splinter_handle *spl);
+bool
+splinter_verify_tree(splinter_handle *spl);
 
 static inline uint64
 splinter_key_size(splinter_handle *spl)
@@ -406,32 +421,29 @@ splinter_tuple_size(splinter_handle *spl)
 }
 
 static inline int
-splinter_key_compare(splinter_handle *spl,
-                     const char      *key1,
-                     const char      *key2)
+splinter_key_compare(splinter_handle *spl, const char *key1, const char *key2)
 {
    return btree_key_compare(&spl->cfg.btree_cfg, key1, key2);
 }
 
 static inline void
 splinter_key_to_string(splinter_handle *spl,
-                       const char      *key,
-                       char            str[static 128])
+                       const char *     key,
+                       char             str[static 128])
 {
    btree_key_to_string(&spl->cfg.btree_cfg, key, str);
 }
 
 static inline void
 splinter_message_to_string(splinter_handle *spl,
-                        const char      *data,
-                        char            str[static 128])
+                           const char *     data,
+                           char             str[static 128])
 {
    btree_message_to_string(&spl->cfg.btree_cfg, data, str);
 }
 
 static inline void
-splinter_async_ctxt_init(splinter_async_ctxt *ctxt,
-                         splinter_async_cb    cb)
+splinter_async_ctxt_init(splinter_async_ctxt *ctxt, splinter_async_cb cb)
 {
    ZERO_CONTENTS(ctxt);
    ctxt->state = async_state_start;
@@ -449,8 +461,8 @@ splinter_trunk_hdr_size();
 
 void
 splinter_config_init(splinter_config *splinter_cfg,
-                     data_config     *data_cfg,
-                     log_config      *log_cfg,
+                     data_config *    data_cfg,
+                     log_config *     log_cfg,
                      uint64           memtable_capacity,
                      uint64           fanout,
                      uint64           max_branches_per_node,

@@ -614,9 +614,16 @@ test_btree_basic(cache             *cc,
    uint64 root_addr = memtable_root_addr(mt);
    btree_iterator itor;
    start_time = platform_get_timestamp();
-   btree_iterator_init(cc, btree_cfg, &itor, root_addr, PAGE_TYPE_MEMTABLE,
-                       btree_min_key(btree_cfg), NULL, FALSE, FALSE, 0,
-                       data_type_point);
+   btree_iterator_init(cc,
+                       btree_cfg,
+                       &itor,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       btree_min_key(btree_cfg),
+                       NULL,
+                       FALSE,
+                       FALSE,
+                       0);
    platform_log("btree iterator init time %luns\n", platform_timestamp_elapsed(start_time));
    btree_pack_req req;
    memset(&req, 0, sizeof(req));
@@ -744,9 +751,16 @@ test_btree_create_packed_trees(cache             *cc,
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
       memtable *mt = &ctxt->mt_ctxt->mt[tree_no];
       btree_iterator itor;
-      btree_iterator_init(cc, btree_cfg, &itor, memtable_root_addr(mt),
-                          PAGE_TYPE_MEMTABLE, btree_min_key(btree_cfg), NULL,
-                          FALSE, FALSE, 0, data_type_point);
+      btree_iterator_init(cc,
+                          btree_cfg,
+                          &itor,
+                          memtable_root_addr(mt),
+                          PAGE_TYPE_MEMTABLE,
+                          btree_min_key(btree_cfg),
+                          NULL,
+                          FALSE,
+                          FALSE,
+                          0);
 
       btree_pack_req req;
       btree_pack_req_init(&req, cc, btree_cfg, &itor.super, 0, NULL, 0, hid);
@@ -820,16 +834,29 @@ test_btree_merge_basic(cache             *cc,
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
       char *max_key = pivot_no == arity - 1 ? NULL : pivot_key[pivot_no + 1].k;
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-         btree_iterator_init(cc, btree_cfg, &btree_itor_arr[tree_no],
-               root_addr[tree_no], PAGE_TYPE_BRANCH, pivot_key[pivot_no].k,
-               max_key, TRUE, FALSE, 0, data_type_point);
+         btree_iterator_init(cc,
+                             btree_cfg,
+                             &btree_itor_arr[tree_no],
+                             root_addr[tree_no],
+                             PAGE_TYPE_BRANCH,
+                             pivot_key[pivot_no].k,
+                             max_key,
+                             TRUE,
+                             FALSE,
+                             0);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
       merge_iterator *merge_itor;
       // FIXME: [yfogel 2020-07-01] really not a good idea to pass in
       //        NULL for the range data config
-      rc = merge_iterator_create(hid, btree_cfg->data_cfg, NULL, arity,
-            itor_arr, TRUE, TRUE, TRUE, &merge_itor);
+      rc = merge_iterator_create(hid,
+                                 btree_cfg->data_cfg,
+                                 arity,
+                                 itor_arr,
+                                 TRUE,
+                                 TRUE,
+                                 TRUE,
+                                 &merge_itor);
       if (!SUCCESS(rc)) {
          goto destroy_btrees;
       }
@@ -983,16 +1010,29 @@ test_btree_rough_iterator(cache             *cc,
    platform_assert(rough_itor);
 
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
-      btree_iterator_init(cc, btree_cfg, &rough_btree_itor[tree_no],
-            root_addr[tree_no], PAGE_TYPE_BRANCH, min_key, max_key, TRUE,
-            FALSE, 1, data_type_point);
+      btree_iterator_init(cc,
+                          btree_cfg,
+                          &rough_btree_itor[tree_no],
+                          root_addr[tree_no],
+                          PAGE_TYPE_BRANCH,
+                          min_key,
+                          max_key,
+                          TRUE,
+                          FALSE,
+                          1);
       rough_itor[tree_no] = &rough_btree_itor[tree_no].super;
    }
 
    merge_iterator *rough_merge_itor;
    //FIXME: [yfogel 2020-07-01] replace NULL
-   rc = merge_iterator_create(hid, btree_cfg->data_cfg, NULL, num_trees,
-                              rough_itor, TRUE, TRUE, FALSE, &rough_merge_itor);
+   rc = merge_iterator_create(hid,
+                              btree_cfg->data_cfg,
+                              num_trees,
+                              rough_itor,
+                              TRUE,
+                              TRUE,
+                              FALSE,
+                              &rough_merge_itor);
    platform_assert_status_ok(rc);
    //uint64 target_num_pivots =
    //   cfg->mt_cfg->max_tuples_per_memtable / btree_cfg->tuples_per_leaf;
@@ -1004,9 +1044,7 @@ test_btree_rough_iterator(cache             *cc,
    for (pivot_no = 0; !at_end; pivot_no++) {
       //uint64 rough_count_pivots = 0;
       char *curr_key, *dummy_data;
-      data_type PAGE_TYPE_BRANCH;
-      iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data,
-                        &PAGE_TYPE_BRANCH);
+      iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
       memmove(pivot[pivot_no].k, curr_key, btree_key_size(btree_cfg));
       at_end = TRUE;
       //char key_str[128];
@@ -1110,16 +1148,28 @@ test_btree_merge_perf(cache             *cc,
             pivot_no == arity - 1 ? NULL : pivot_key[pivot_no + 1].k;
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
             uint64 global_tree_no = merge_no * num_merges + tree_no;
-            btree_iterator_init(cc, btree_cfg, &btree_itor_arr[tree_no],
-                  root_addr[global_tree_no], PAGE_TYPE_BRANCH,
-                  pivot_key[pivot_no].k, max_key, TRUE, FALSE, 0,
-                  data_type_point);
+            btree_iterator_init(cc,
+                                btree_cfg,
+                                &btree_itor_arr[tree_no],
+                                root_addr[global_tree_no],
+                                PAGE_TYPE_BRANCH,
+                                pivot_key[pivot_no].k,
+                                max_key,
+                                TRUE,
+                                FALSE,
+                                0);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
          merge_iterator *merge_itor;
          // FIXME: [yfogel 2020-07-01] replaceNULL
-         rc = merge_iterator_create(hid, btree_cfg->data_cfg, NULL, arity,
-               itor_arr, TRUE, TRUE, TRUE, &merge_itor);
+         rc = merge_iterator_create(hid,
+                                    btree_cfg->data_cfg,
+                                    arity,
+                                    itor_arr,
+                                    TRUE,
+                                    TRUE,
+                                    TRUE,
+                                    &merge_itor);
          if (!SUCCESS(rc)) {
             goto destroy_btrees;
          }

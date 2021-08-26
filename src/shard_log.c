@@ -18,7 +18,8 @@
 
 static uint64 shard_log_magic_idx = 0;
 
-int    shard_log_write     (log_handle *log, char *key, char *data, uint64 generation);
+int
+       shard_log_write(log_handle *log, char *key, char *data, uint64 generation);
 uint64 shard_log_addr      (log_handle *log);
 uint64 shard_log_meta_addr (log_handle *log);
 uint64 shard_log_magic     (log_handle *log);
@@ -30,9 +31,12 @@ static log_ops shard_log_ops = {
    .magic     = shard_log_magic,
 };
 
-void            shard_log_iterator_get_curr (iterator *itor, char **key, char **data, data_type *type);
-platform_status shard_log_iterator_at_end   (iterator *itor, bool *at_end);
-platform_status shard_log_iterator_advance  (iterator *itor);
+void
+shard_log_iterator_get_curr(iterator *itor, char **key, char **data);
+platform_status
+shard_log_iterator_at_end(iterator *itor, bool *at_end);
+platform_status
+shard_log_iterator_advance(iterator *itor);
 
 const static iterator_ops shard_log_iterator_ops = {
    .get_curr = shard_log_iterator_get_curr,
@@ -332,10 +336,7 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 //    shard log actually does (what are the types?)
 //    Do we also need a key_type?
 void
-shard_log_iterator_get_curr(iterator   *itorh,
-                            char      **key,
-                            char      **data,
-                            data_type  *type)
+shard_log_iterator_get_curr(iterator *itorh, char **key, char **data)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    char *cursor = itor->cursor;
