@@ -24,8 +24,8 @@
 typedef struct ordered_iterator {
    iterator *itor;
    int seq;
-   char *key;
-   char *data;
+   bytebuffer key;
+   bytebuffer data;
    data_type type;
    bool next_key_equal;
 } ordered_iterator;
@@ -38,13 +38,15 @@ typedef struct ordered_iterator {
  */
 // FIXME: [nsarmicanic 2020-07-29] maybe move range_stack to scratch
 typedef struct range_stack {
-   uint32 size;
-   char   limits[MAX_MERGE_ARITY][MAX_KEY_SIZE];
-   char   start_key[MAX_KEY_SIZE];
-   int    end_seq;
-   int    seq[MAX_MERGE_ARITY];
-   int    num_sequences;
-   bool   has_start_key;
+   uint32     size;
+   char       limits_bufs[MAX_MERGE_ARITY][MAX_KEY_SIZE];
+   bytebuffer limits[MAX_MERGE_ARITY];
+   char       start_key_buffer[MAX_KEY_SIZE];
+   bytebuffer start_key;
+   int        end_seq;
+   int        seq[MAX_MERGE_ARITY];
+   int        num_sequences;
+   bool       has_start_key;
 } range_stack;
 
 typedef struct merge_iterator {
@@ -58,8 +60,8 @@ typedef struct merge_iterator {
    // FIXME: [yfogel 2020-07-01] rename cfg to point_cfg/delayed for paralelizem
    data_config           *cfg;             // point message tree data config
    data_config           *range_cfg;       // range delete tree data config
-   char                  *key;             // next key
-   char                  *data;            // next data
+   bytebuffer             key;             // next key
+   bytebuffer             data;            // next data
    data_type              type;            // next data type
 
    // FIXME: [nsarmicanic 2020-07-02] Maybe preallocate one of these sections

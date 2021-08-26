@@ -37,6 +37,9 @@ range_stack_init(range_stack *stack, int num_trees)
    stack->seq[0] = -1;
    stack->end_seq = -1;
    stack->num_sequences = num_trees;
+   for (int i = 0; i < MAX_MERGE_ARITY; i++)
+     stack->limits[i] = make_bytebuffer(MAX_KEY_SIZE, stack->limits_bufs);
+   stack->start_key = make_bytebuffer(MAX_KEY_SIZE, stack->start_key_buffer);
 }
 
 static inline bool
@@ -60,14 +63,14 @@ range_stack_clobbers_point(range_stack *stack, int point_seq)
    return point_seq < stack->seq[0];
 }
 
-static inline char*
+static inline bytebuffer
 range_stack_get_start_key(range_stack *stack)
 {
    return stack->start_key;
 }
 
 // end_key is the data of range delete (key, data)
-static inline char*
+static inline bytebuffer
 range_stack_get_end_key(range_stack *stack)
 {
    debug_assert(stack->end_seq >= 0);
@@ -114,11 +117,11 @@ find_predecessor(range_stack *stack, int seq)
  *-----------------------------------------------------------------------------
  */
 static int
-find_useful_successor(range_stack *stack,
-                      const char  *limit,
-                      int          seq,
-                      int          insert_position,
-                      data_config *cfg)
+find_useful_successor(range_stack      *stack,
+                      const bytebuffer  limit,
+                      int               seq,
+                      int               insert_position,
+                      data_config      *cfg)
 {
    /*
     * While this COULD be done with binary search, it would actually be SLOWER
@@ -142,7 +145,7 @@ find_useful_successor(range_stack *stack,
        */
       debug_assert(stack->seq[i] < seq);
       // note that it's > and NOT >=
-      if (fixed_size_data_key_compare(cfg, stack->limits[stack->seq[i]], limit) > 0) {
+      if (data_key_compare(cfg, stack->limits[stack->seq[i]], limit) > 0) {
          // This index (and everything later) is useful to keep
          return i;
       }
@@ -186,7 +189,7 @@ debug_range_stack_check_invariants(debug_only range_stack *stack,
        }
        // Verify first limit is strictly greater than start_key
        int seq = stack->seq[0];
-       debug_assert(fixed_size_data_key_compare(cfg, stack->start_key,
+       debug_assert(data_key_compare(cfg, stack->start_key,
                                      stack->limits[seq]) < 0);
     } else {
        debug_assert(stack->seq[0] == -1);
@@ -196,7 +199,7 @@ debug_range_stack_check_invariants(debug_only range_stack *stack,
     for (int i = 1; i < stack->size; i++) {
        int seq_lo = stack->seq[i - 1];
        int seq_hi = stack->seq[i];
-       debug_assert(fixed_size_data_key_compare(cfg, stack->limits[seq_lo],
+       debug_assert(data_key_compare(cfg, stack->limits[seq_lo],
                                      stack->limits[seq_hi]) < 0);
     }
 #endif
@@ -204,21 +207,22 @@ debug_range_stack_check_invariants(debug_only range_stack *stack,
 
 
 static void
-add_new_range_delete_to_stack(range_stack *stack,
-                              const char  *startkey,
-                              const char  *limit,
-                              int          seq,
-                              data_config *cfg)
+add_new_range_delete_to_stack(range_stack      *stack,
+                              const bytebuffer  startkey,
+                              const bytebuffer  limit,
+                              int               seq,
+                              data_config      *cfg)
 {
    debug_range_stack_check_invariants(stack, cfg);
 
    if (stack->size == 0) {
       debug_assert(!stack->has_start_key);
       stack->has_start_key = TRUE;
-      memmove(stack->start_key, startkey, cfg->key_size);
+      bytebuffer_copy_contents(stack->start_key, startkey);
       stack->end_seq = -1;
       stack->size = 1;
-      memmove(stack->limits[seq], limit, cfg->key_size);
+      bytebuffer_copy_contents(stack->start_key, startkey);
+      bytebuffer_copy_contents(stack->limits[seq], limit);
       stack->seq[0] = seq;
       goto done;
    }
@@ -234,7 +238,7 @@ add_new_range_delete_to_stack(range_stack *stack,
    int predecessor = find_predecessor(stack, seq);
    debug_assert(predecessor == -1 || stack->seq[predecessor] > seq);
    if (predecessor >= 0 &&
-       fixed_size_data_key_compare(cfg, stack->limits[stack->seq[predecessor]],
+       data_key_compare(cfg, stack->limits[stack->seq[predecessor]],
                         limit) >= 0) {
       // The input range delete is redunant; throw it away.
       goto done;
@@ -244,7 +248,7 @@ add_new_range_delete_to_stack(range_stack *stack,
    int insert_position = predecessor + 1;
 
    // We are keeping the range delete; clone the limit key.
-   memmove(stack->limits[seq], limit, cfg->key_size);
+   bytebuffer_copy_contents(stack->limits[seq], limit);
 
    int successor = find_useful_successor(stack, limit, seq,
                                          insert_position, cfg);
@@ -294,7 +298,7 @@ done:
  */
 static bool
 maybe_remove_range_deletes(range_stack *stack,
-                           char *next_key,
+                           const bytebuffer next_key,
                            data_config *cfg)
 {
    bool r;
@@ -357,7 +361,7 @@ bsearch_comp(const ordered_iterator *itor_one,
              const data_config *cfg,
              bool *keys_equal)
 {
-   int cmp = fixed_size_data_key_compare(cfg,
+   int cmp = data_key_compare(cfg,
                               itor_one->key,
                               itor_two->key);
    *keys_equal = (cmp == 0);
@@ -420,9 +424,13 @@ bsearch_insert(register const ordered_iterator *key,
 }
 
 static inline void
-set_curr_ordered_iterator(ordered_iterator *itor)
+set_curr_ordered_iterator(const data_config *cfg, ordered_iterator *itor)
 {
-   iterator_get_curr(itor->itor, &itor->key, &itor->data, &itor->type);
+   char *key = NULL;
+   char *message = NULL;
+   iterator_get_curr(itor->itor, &key, &message, &itor->type);
+   itor->key = make_bytebuffer(cfg->key_size, key);
+   itor->data = make_bytebuffer(cfg->message_size, message);
 }
 
 static inline void
@@ -451,7 +459,7 @@ debug_assert_message_type_valid(debug_only merge_iterator *merge_itor)
    debug_code(char *data = merge_itor->data);
    debug_code(data_config *cfg = merge_itor->cfg);
    message_type type =
-      data == NULL ? MESSAGE_TYPE_INVALID : fixed_size_data_message_class(cfg, data);
+      data == NULL ? MESSAGE_TYPE_INVALID : data_message_class(cfg, data);
    debug_assert(!merge_itor->has_data ||
                 !merge_itor->discard_deletes ||
                 data == NULL ||
@@ -472,7 +480,7 @@ debug_verify_sorted(debug_only merge_iterator *merge_itor,
       return;
    }
    const int cmp =
-      fixed_size_data_key_compare(merge_itor->cfg,
+      data_key_compare(merge_itor->cfg,
                        merge_itor->ordered_iterators[index]->key,
                        merge_itor->ordered_iterators[index + 1]->key);
    if (merge_itor->ordered_iterators[index]->next_key_equal) {
@@ -494,8 +502,8 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
-   merge_itor->ordered_iterators[0]->key = NULL;
-   merge_itor->ordered_iterators[0]->data = NULL;
+   //merge_itor->ordered_iterators[0]->key = NULL;
+   //merge_itor->ordered_iterators[0]->data = NULL;
    rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
    if (!SUCCESS(rc)) {
       return rc;
@@ -520,7 +528,7 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    }
 
    // Pull out key and data (now that we know we aren't at end)
-   set_curr_ordered_iterator(merge_itor->ordered_iterators[0]);
+   set_curr_ordered_iterator(merge_itor->cfg, merge_itor->ordered_iterators[0]);
    if (merge_itor->num_remaining == 1) {
       goto out;
    }
@@ -573,7 +581,7 @@ process_one_range_delete_or_clobber_one_point(merge_iterator *merge_itor)
          // FIXME: [nsarmicanic 2020-07-31] remove if guard when this function
          //        is not NULL
          if (range_cfg->clobber_message_with_range_delete) {
-            fixed_size_data_clobber_message_with_range_delete(range_cfg, ordered_itor->key,
+            data_clobber_message_with_range_delete(range_cfg, ordered_itor->key,
                                                    ordered_itor->data);
          }
          break;
@@ -646,8 +654,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
        * a point that is not clobbered by range deletes.
        */
 
-      memmove(merge_itor->merge_buffer, merge_itor->data, cfg->message_size);
-      merge_itor->data = merge_itor->merge_buffer;
+      memmove(merge_itor->merge_buffer, bytebuffer_data(merge_itor->data), bytebuffer_length(merge_itor->data));
+      merge_itor->data.data = merge_itor->merge_buffer;
       do {
          if (1
              && merge_itor->ordered_iterators[1]->type == data_type_point
@@ -664,14 +672,14 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
             debug_assert(merge_itor->num_remaining >= 2);
             // Verify keys match
             debug_assert(
-                  !fixed_size_data_key_compare(cfg,
-                     merge_itor->key,
-                     merge_itor->ordered_iterators[1]->key));
+                  !data_key_compare(cfg,
+                                    merge_itor->key,
+                                    merge_itor->ordered_iterators[1]->key));
             debug_assert(merge_itor->data == merge_itor->merge_buffer);
 
-            fixed_size_data_merge_tuples(cfg, merge_itor->key,
-                  merge_itor->ordered_iterators[1]->data,
-                  merge_itor->data);
+            data_merge_tuples(cfg, merge_itor->key,
+                              merge_itor->ordered_iterators[1]->data,
+                              merge_itor->data);
             // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
             //    We should crash or cancel the entire compaction
 
@@ -707,7 +715,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
       // Dealt with all duplicates, now pointing to last copy.
       debug_assert(!merge_itor->ordered_iterators[0]->next_key_equal);
 
-      message_type class = fixed_size_data_message_class(cfg, merge_itor->data);
+      message_type class = data_message_class(cfg, merge_itor->data);
       /*
        * If retry is TRUE that means we threw away a point delete
        * because we didn't need it because of range delete
@@ -716,7 +724,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
        */
       *retry = range_stack_makes_point_redundant(&merge_itor->stack, class);
    } else {
-      merge_itor->data = NULL;
+      merge_itor->data = make_bytebuffer(0, NULL);
       process_one_range_delete_or_clobber_one_point(merge_itor);
       process_remaining_range_deletes_and_clobber_points(merge_itor);
       *retry = TRUE;
@@ -766,18 +774,18 @@ merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
 {
    debug_assert(merge_itor->type == data_type_point);
    data_config *cfg = merge_itor->cfg;
-   message_type class = fixed_size_data_message_class(cfg, merge_itor->data);
+   message_type class = data_message_class(cfg, merge_itor->data);
    // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
    //    We should crash or cancel the entire compaction
    if (class != MESSAGE_TYPE_INSERT && merge_itor->resolve_updates) {
-      if (merge_itor->data != merge_itor->merge_buffer) {
+      if (merge_itor->data.data != merge_itor->merge_buffer) {
          // We might already be in merge_buffer if we did some merging.
-         memmove(merge_itor->merge_buffer, merge_itor->data, cfg->message_size);
-         merge_itor->data = merge_itor->merge_buffer;
+         memmove(merge_itor->merge_buffer, bytebuffer_data(merge_itor->data), bytebuffer_length(merge_itor->data));
+         merge_itor->data.data = merge_itor->merge_buffer;
       }
-      fixed_size_data_merge_tuples_final(cfg, merge_itor->key,
+      data_merge_tuples_final(cfg, merge_itor->key,
                               merge_itor->data);
-      class = fixed_size_data_message_class(cfg, merge_itor->data);
+      class = data_message_class(cfg, merge_itor->data);
       // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
       //    We should crash or cancel the entire compaction
    }
@@ -795,7 +803,7 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
    // Determine whether we're at the end.
    if (merge_itor->num_remaining == 0) {
       if (maybe_remove_range_deletes(&merge_itor->stack,
-                                     merge_itor->range_cfg->max_key,
+                                     data_key_positive_infinity,
                                      merge_itor->range_cfg))
       {
          // We're at the end (modulo range in the stack)
@@ -961,8 +969,8 @@ merge_iterator_create(platform_heap_id  hid,
      merge_itor->ordered_iterator_stored[i] = (ordered_iterator) {
         .seq = i,
         .itor = i == -1 ? NULL : itor_arr[i],
-        .key = NULL,
-        .data = NULL,
+        .key = null_bytebuffer,
+        .data = null_bytebuffer,
         .next_key_equal = FALSE,
      };
      merge_itor->ordered_iterators[i] =
@@ -986,7 +994,7 @@ merge_iterator_create(platform_heap_id  hid,
          merge_itor->ordered_iterators[i] = tmp;
          merge_itor->num_remaining--;
       } else {
-         set_curr_ordered_iterator(merge_itor->ordered_iterators[i]);
+         set_curr_ordered_iterator(cfg, merge_itor->ordered_iterators[i]);
          i++;
       }
    }
@@ -995,7 +1003,7 @@ merge_iterator_create(platform_heap_id  hid,
                       merge_itor->cfg, &temp);
    // Generate initial value for next_key_equal bits
    for (i = 0; i + 1 < merge_itor->num_remaining; ++i) {
-      int cmp = fixed_size_data_key_compare(merge_itor->cfg,
+      int cmp = data_key_compare(merge_itor->cfg,
                                  merge_itor->ordered_iterators[i]->key,
                                  merge_itor->ordered_iterators[i + 1]->key);
       debug_assert(cmp <= 0);
@@ -1110,8 +1118,8 @@ merge_get_curr(iterator   *itor,
    merge_iterator *merge_itor = (merge_iterator *)itor;
    debug_assert(!merge_itor->at_end);
    debug_assert(merge_itor->type != data_type_invalid);
-   *key = merge_itor->key;
-   *data = merge_itor->data;
+   *key = bytebuffer_data(merge_itor->key);
+   *data = bytebuffer_data(merge_itor->data);
    *type = merge_itor->type;
 }
 
@@ -1137,8 +1145,8 @@ merge_advance(iterator *itor)
    debug_assert(!merge_itor->has_data || merge_itor->data);
    bool retry;
    do {
-      merge_itor->key = NULL;
-      merge_itor->data = NULL;
+      merge_itor->key = null_bytebuffer;
+      merge_itor->data = null_bytebuffer;
       if (merge_itor->type != data_type_range) {
          // Advance one iterator
          rc = advance_and_resort_min_ritor(merge_itor);

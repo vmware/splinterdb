@@ -67,6 +67,8 @@ typedef struct bytebuffer {
    void *data;
 } bytebuffer;
 
+extern const bytebuffer null_bytebuffer;
+
 static inline bytebuffer make_bytebuffer(uint64 len, void *data)
 {
    return (bytebuffer) {
@@ -89,6 +91,19 @@ static inline void *bytebuffer_data(bytebuffer b)
 {
    return b.data;
 }
+
+static inline void bytebuffer_copy_contents(bytebuffer dst, const bytebuffer src)
+{
+  memmove(dst.data, src.data, src.length);
+  dst.length = src.length;
+}
+
+static inline bool bytebuffers_physically_equal(const bytebuffer a, const bytebuffer b)
+{
+  return a.length == b.length && a.data == b.data;
+}
+
+
 
 /*
  * try_string_to_(u)int64
