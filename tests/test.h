@@ -168,6 +168,8 @@ test_count_tuples_in_range(cache        *cc,
                            char         *high_key,
                            uint64       *count)     // OUTPUT
 {
+   bytebuffer blow_key = make_bytebuffer(cfg->data_cfg->key_size, low_key);
+   bytebuffer bhigh_key = make_bytebuffer(cfg->data_cfg->key_size, high_key);
    btree_iterator itor;
    uint64 i;
    *count = 0;
@@ -180,35 +182,35 @@ test_count_tuples_in_range(cache        *cc,
                           high_key, TRUE, FALSE, 0, data_type_point);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
+      bytebuffer last_key = null_bytebuffer;
       while (!at_end) {
-         char *key = NULL, *data, *last_key = NULL;
+         bytebuffer key, data;
          data_type type;
-         last_key = key;
          iterator_get_curr(&itor.super, &key, &data, &type);
-         if (last_key != NULL && btree_key_compare(cfg, last_key, key) > 0) {
+         if (!bytebuffer_is_null(last_key) && data_key_compare(cfg->data_cfg, last_key, key) > 0) {
             char last_key_str[128], key_str[128];
-            btree_key_to_string(cfg, last_key, last_key_str);
-            btree_key_to_string(cfg, key, key_str);
+            data_key_to_string(cfg->data_cfg, last_key, last_key_str, 128);
+            data_key_to_string(cfg->data_cfg, key, key_str, 128);
             btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of order\n");
             platform_log("last %s\nkey %s\n", last_key_str, key_str);
             platform_assert(0);
          }
-         if (btree_key_compare(cfg, low_key, key) > 0) {
+         if (data_key_compare(cfg->data_cfg, blow_key, key) > 0) {
             char low_key_str[128], key_str[128], high_key_str[128];
-            btree_key_to_string(cfg, low_key, low_key_str);
-            btree_key_to_string(cfg, key, key_str);
-            btree_key_to_string(cfg, high_key, high_key_str);
+            data_key_to_string(cfg->data_cfg, blow_key, low_key_str, 128);
+            data_key_to_string(cfg->data_cfg, key, key_str, 128);
+            data_key_to_string(cfg->data_cfg, bhigh_key, high_key_str, 128);
             btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of range\n");
             platform_log("low %s\nkey %s\nmax %s\n", low_key_str, key_str, high_key_str);
             platform_assert(0);
          }
-         if (high_key && btree_key_compare(cfg, key, high_key) > 0) {
+         if (high_key && data_key_compare(cfg->data_cfg, key, bhigh_key) > 0) {
             char low_key_str[128], key_str[128], high_key_str[128];
-            btree_key_to_string(cfg, low_key, low_key_str);
-            btree_key_to_string(cfg, key, key_str);
-            btree_key_to_string(cfg, high_key, high_key_str);
+            data_key_to_string(cfg->data_cfg, blow_key, low_key_str, 128);
+            data_key_to_string(cfg->data_cfg, key, key_str, 128);
+            data_key_to_string(cfg->data_cfg, bhigh_key, high_key_str, 128);
             btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of range\n");
             platform_log("low %s\nkey %s\nmax %s\n", low_key_str, key_str, high_key_str);
@@ -242,11 +244,11 @@ test_btree_print_all_keys(cache        *cc,
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
       while (!at_end) {
-         char *key = NULL, *data;
+         bytebuffer key, data;
          data_type type;
          iterator_get_curr(&itor.super, &key, &data, &type);
          char key_str[128];
-         btree_key_to_string(cfg, key, key_str);
+         data_key_to_string(cfg->data_cfg, key, key_str, 128);
          platform_log("%s\n", key_str);
          iterator_advance(&itor.super);
          iterator_at_end(&itor.super, &at_end);

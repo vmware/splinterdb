@@ -11,7 +11,7 @@
 #include "poison.h"
 
 /* Function declarations and iterator_ops */
-void            merge_get_curr (iterator *itor, char **key, char **data,
+void            merge_get_curr (iterator *itor, bytebuffer *key, bytebuffer *data,
                                 data_type *type);
 platform_status merge_at_end   (iterator *itor, bool *at_end);
 platform_status merge_advance  (iterator *itor);
@@ -426,11 +426,7 @@ bsearch_insert(register const ordered_iterator *key,
 static inline void
 set_curr_ordered_iterator(const data_config *cfg, ordered_iterator *itor)
 {
-   char *key = NULL;
-   char *message = NULL;
-   iterator_get_curr(itor->itor, &key, &message, &itor->type);
-   itor->key = make_bytebuffer(cfg->key_size, key);
-   itor->data = make_bytebuffer(cfg->message_size, message);
+   iterator_get_curr(itor->itor, &itor->key, &itor->data, &itor->type);
 }
 
 static inline void
@@ -456,17 +452,19 @@ debug_assert_message_type_valid(debug_only merge_iterator *merge_itor)
    } else {
       debug_assert(merge_itor->type == data_type_invalid);
    }
-   debug_code(char *data = merge_itor->data);
-   debug_code(data_config *cfg = merge_itor->cfg);
+   //debug_code(char *data = merge_itor->data);
+   //debug_code(data_config *cfg = merge_itor->cfg);
    message_type type =
-      data == NULL ? MESSAGE_TYPE_INVALID : data_message_class(cfg, data);
+      bytebuffer_is_null(merge_itor->data)
+     ? MESSAGE_TYPE_INVALID
+     : data_message_class(merge_itor->cfg, merge_itor->data);
    debug_assert(!merge_itor->has_data ||
                 !merge_itor->discard_deletes ||
-                data == NULL ||
+                bytebuffer_is_null(merge_itor->data) ||
                 type != MESSAGE_TYPE_DELETE);
    debug_assert(!merge_itor->has_data ||
                 !merge_itor->resolve_updates ||
-                data == NULL ||
+                bytebuffer_is_null(merge_itor->data) ||
                 type != MESSAGE_TYPE_UPDATE);
 #endif
 }
@@ -496,9 +494,9 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
 {
    platform_status rc;
 
-   debug_assert(merge_itor->key != merge_itor->ordered_iterators[0]->key);
+   debug_assert(!bytebuffers_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
    if (merge_itor->has_data) {
-      debug_assert(merge_itor->data != merge_itor->ordered_iterators[0]->data);
+      debug_assert(!bytebuffers_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
@@ -612,7 +610,7 @@ process_remaining_range_deletes_and_clobber_points(merge_iterator *merge_itor)
        * iterator is advanced
        */
       merge_itor->key = merge_itor->ordered_iterators[1]->key;
-      debug_assert(merge_itor->data != merge_itor->ordered_iterators[0]->data);
+      debug_assert(!bytebuffers_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
       platform_status rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
@@ -635,8 +633,8 @@ process_remaining_range_deletes_and_clobber_points(merge_iterator *merge_itor)
 static platform_status
 merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
    debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
-   debug_assert(merge_itor->data != merge_itor->merge_buffer);
-   debug_assert(merge_itor->key == merge_itor->ordered_iterators[0]->key);
+   debug_assert(bytebuffer_data(merge_itor->data) != merge_itor->merge_buffer);
+   debug_assert(bytebuffers_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
    data_config *cfg = merge_itor->cfg;
 
@@ -675,11 +673,11 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
                   !data_key_compare(cfg,
                                     merge_itor->key,
                                     merge_itor->ordered_iterators[1]->key));
-            debug_assert(merge_itor->data == merge_itor->merge_buffer);
+            debug_assert(bytebuffer_data(merge_itor->data) == merge_itor->merge_buffer);
 
             data_merge_tuples(cfg, merge_itor->key,
                               merge_itor->ordered_iterators[1]->data,
-                              merge_itor->data);
+                              &merge_itor->data);
             // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
             //    We should crash or cancel the entire compaction
 
@@ -689,7 +687,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
              * iterator is advanced
              */
             merge_itor->key = merge_itor->ordered_iterators[1]->key;
-            debug_assert(merge_itor->data == merge_itor->merge_buffer);
+            debug_assert(bytebuffer_data(merge_itor->data) == merge_itor->merge_buffer);
             platform_status rc = advance_and_resort_min_ritor(merge_itor);
             if (!SUCCESS(rc)) {
                return rc;
@@ -705,7 +703,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
              * This deals with all duplicates so we break out of the loop once
              * we are done.
              */
-            debug_assert(merge_itor->data == merge_itor->merge_buffer);
+            debug_assert(bytebuffer_data(merge_itor->data) == merge_itor->merge_buffer);
             process_remaining_range_deletes_and_clobber_points(merge_itor);
             debug_assert(merge_itor->stack.size > 0);
             break;
@@ -784,7 +782,7 @@ merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
          merge_itor->data.data = merge_itor->merge_buffer;
       }
       data_merge_tuples_final(cfg, merge_itor->key,
-                              merge_itor->data);
+                              &merge_itor->data);
       class = data_message_class(cfg, merge_itor->data);
       // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
       //    We should crash or cancel the entire compaction
@@ -1086,7 +1084,7 @@ merge_at_end(iterator *itor,   // IN
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    *at_end = merge_itor->at_end;
-   debug_assert(*at_end == (merge_itor->key == NULL));
+   debug_assert(*at_end == bytebuffer_is_null(merge_itor->key));
 
    return STATUS_OK;
 }
@@ -1111,15 +1109,15 @@ merge_at_end(iterator *itor,   // IN
 // FIXME: [tjiaheng 2020-07-17] should support data_type_range
 void
 merge_get_curr(iterator   *itor,
-               char      **key,
-               char      **data,
+               bytebuffer *key,
+               bytebuffer *data,
                data_type  *type)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    debug_assert(!merge_itor->at_end);
    debug_assert(merge_itor->type != data_type_invalid);
-   *key = bytebuffer_data(merge_itor->key);
-   *data = bytebuffer_data(merge_itor->data);
+   *key = merge_itor->key;
+   *data = merge_itor->data;
    *type = merge_itor->type;
 }
 
@@ -1142,7 +1140,7 @@ merge_advance(iterator *itor)
    platform_status rc = STATUS_OK;
    merge_iterator *merge_itor = (merge_iterator *)itor;
 
-   debug_assert(!merge_itor->has_data || merge_itor->data);
+   debug_assert(!merge_itor->has_data || !bytebuffer_is_null(merge_itor->data));
    bool retry;
    do {
       merge_itor->key = null_bytebuffer;
@@ -1169,11 +1167,12 @@ void
 merge_iterator_print(merge_iterator *merge_itor)
 {
    uint64 i;
-   char *key, *data, key_str[MAX_KEY_SIZE];
+   bytebuffer key, data;
+   char key_str[MAX_KEY_SIZE];
    data_type type;
    data_config *data_cfg = merge_itor->cfg;
    iterator_get_curr(&merge_itor->super, &key, &data, &type);
-   fixed_size_data_key_to_string(data_cfg, key, key_str, 32);
+   data_key_to_string(data_cfg, key, key_str, 32);
 
    platform_log("****************************************\n");
    platform_log("** merge iterator\n");
@@ -1190,7 +1189,7 @@ merge_iterator_print(merge_iterator *merge_itor)
          platform_log("_ : ");
       if (i < merge_itor->num_remaining) {
          iterator_get_curr(merge_itor->ordered_iterators[i]->itor, &key, &data, &type);
-         fixed_size_data_key_to_string(data_cfg, key, key_str, 32);
+         data_key_to_string(data_cfg, key, key_str, 32);
          platform_log("%s\n", key_str);
       } else {
          platform_log("\n");

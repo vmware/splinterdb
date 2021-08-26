@@ -4,6 +4,8 @@
 #ifndef __ITERATOR_H
 #define __ITERATOR_H
 
+#include "util.h"
+
 /*
  * DO NOT CHANGE definitions of data types without being absolutely certain
  * because they are reflected on disk.
@@ -22,7 +24,7 @@ typedef enum data_type {
 typedef struct iterator iterator;
 
 // FIXME: [nsarmicanic 2020-07-16] Might be better to return type instead of void
-typedef void (*iterator_get_curr_fn)(iterator *itor, char **key, char **data, data_type *type);
+typedef void (*iterator_get_curr_fn)(iterator *itor, bytebuffer *key, bytebuffer *data, data_type *type);
 typedef platform_status (*iterator_at_end_fn)  (iterator *itor, bool *at_end);
 typedef platform_status (*iterator_advance_fn) (iterator *itor);
 typedef void  (*iterator_print_fn)   (iterator *itor);
@@ -41,7 +43,7 @@ struct iterator {
 };
 
 static inline void
-iterator_get_curr(iterator *itor, char **key, char **data, data_type *type)
+iterator_get_curr(iterator *itor, bytebuffer *key, bytebuffer *data, data_type *type)
 {
    itor->ops->get_curr(itor, key, data, type);
 }

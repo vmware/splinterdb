@@ -1212,14 +1212,13 @@ routing_filter_verify(cache          *cc,
    bool at_end;
    iterator_at_end(itor, &at_end);
    while (!at_end) {
-      char *key;
-      char *data;
+      bytebuffer key;
+      bytebuffer message;
       data_type dummy_type;
-      iterator_get_curr(itor, &key, &data, &dummy_type);
+      iterator_get_curr(itor, &key, &message, &dummy_type);
       uint64 found_values;
-      bytebuffer bkey = make_bytebuffer(cfg->data_cfg->key_size, key);
       platform_status rc =
-         routing_filter_lookup(cc, cfg, filter, bkey, &found_values);
+         routing_filter_lookup(cc, cfg, filter, key, &found_values);
       platform_assert_status_ok(rc);
       platform_assert(routing_filter_is_value_found(found_values, value));
       iterator_advance(itor);

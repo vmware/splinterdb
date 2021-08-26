@@ -35,13 +35,13 @@ static void
 test_data_merge_tuples(const data_config *cfg,
                        const bytebuffer   key,
                        const bytebuffer   old_raw_data,
-                       bytebuffer         new_raw_data)
+                       bytebuffer        *new_raw_data)
 {
    assert(sizeof(data_handle) <= bytebuffer_length(old_raw_data));
-   assert(sizeof(data_handle) <= bytebuffer_length(new_raw_data));
+   assert(sizeof(data_handle) <= bytebuffer_length(*new_raw_data));
 
    const data_handle *old_data = bytebuffer_const_data(old_raw_data);
-   data_handle *new_data = bytebuffer_data(new_raw_data);
+   data_handle *new_data = bytebuffer_data(*new_raw_data);
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
    //platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d new=%d\n",
@@ -108,11 +108,11 @@ test_data_merge_tuples(const data_config *cfg,
 static void
 test_data_merge_tuples_final(const data_config *cfg,
                              const bytebuffer   key, // IN
-                             bytebuffer         oldest_raw_data) // IN/OUT
+                             bytebuffer        *oldest_raw_data) // IN/OUT
 {
-   assert(sizeof(data_handle) <= bytebuffer_length(oldest_raw_data));
+   assert(sizeof(data_handle) <= bytebuffer_length(*oldest_raw_data));
 
-   data_handle *old_data = bytebuffer_data(oldest_raw_data);
+   data_handle *old_data = bytebuffer_data(*oldest_raw_data);
    debug_assert(old_data != NULL);
 
    if (old_data->message_type == MESSAGE_TYPE_UPDATE) {

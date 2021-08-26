@@ -30,7 +30,7 @@ static log_ops shard_log_ops = {
    .magic     = shard_log_magic,
 };
 
-void            shard_log_iterator_get_curr (iterator *itor, char **key, char **data, data_type *type);
+void            shard_log_iterator_get_curr (iterator *itor, bytebuffer *key, bytebuffer *data, data_type *type);
 platform_status shard_log_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status shard_log_iterator_advance  (iterator *itor);
 
@@ -333,8 +333,8 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 //    Do we also need a key_type?
 void
 shard_log_iterator_get_curr(iterator   *itorh,
-                            char      **key,
-                            char      **data,
+                            bytebuffer *key,
+                            bytebuffer *data,
                             data_type  *type)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
@@ -342,9 +342,9 @@ shard_log_iterator_get_curr(iterator   *itorh,
 
    // skip over generation
    cursor += sizeof(uint64);
-   *key = cursor;
+   *key = make_bytebuffer(itor->cfg->data_cfg->key_size, cursor);
    cursor += itor->cfg->data_cfg->key_size;
-   *data = cursor;
+   *data = make_bytebuffer(itor->cfg->data_cfg->message_size, cursor);
 }
 
 platform_status

@@ -65,7 +65,7 @@ typedef message_type (*message_class_fn) (const data_config *cfg,
 typedef void (*merge_tuple_fn) (const data_config *cfg,
                                 const bytebuffer   key,
                                 const bytebuffer   old_raw_message,
-                                bytebuffer         new_raw_message);
+                                bytebuffer        *new_raw_message);
 
 // Called for non-MESSAGE_TYPE_INSERT messages
 // when they are determined to be the oldest message
@@ -74,7 +74,7 @@ typedef void (*merge_tuple_fn) (const data_config *cfg,
 // guaranteed by caller: oldest_raw_message has enough space to hold a max-length message
 typedef void (*merge_tuple_final_fn) (const data_config *cfg,
                                       const bytebuffer   key,
-                                      bytebuffer         oldest_raw_message);
+                                      bytebuffer        *oldest_raw_message);
 
 // robj: I think this callback is ill-advised, at least w/o the
 // start/end compaction calls discussed above.
@@ -140,14 +140,14 @@ static inline message_type data_message_class(const data_config *cfg,
 static inline void data_merge_tuples(const data_config *cfg,
                                      const bytebuffer   key,
                                      const bytebuffer   old_raw_message,
-                                     bytebuffer         new_raw_message)
+                                     bytebuffer        *new_raw_message)
 {
   cfg->merge_tuples(cfg, key, old_raw_message, new_raw_message);
 }
 
 static inline void data_merge_tuples_final(const data_config *cfg,
                                            const bytebuffer   key,
-                                           bytebuffer         oldest_raw_message)
+                                           bytebuffer        *oldest_raw_message)
 {
   return cfg->merge_tuples_final(cfg, key, oldest_raw_message);
 }
@@ -233,19 +233,21 @@ static inline void fixed_size_data_merge_tuples(const data_config *cfg,
                                      const void                   *old_raw_message,
                                      void                         *new_raw_message)
 {
+  bytebuffer tmp = make_bytebuffer(cfg->message_size, new_raw_message);
   cfg->merge_tuples(cfg,
                     make_bytebuffer(cfg->key_size, (void *)key),
                     make_bytebuffer(cfg->message_size, (void *)old_raw_message),
-                    make_bytebuffer(cfg->message_size, new_raw_message));
+                    &tmp);
 }
 
 static inline void fixed_size_data_merge_tuples_final(const data_config *cfg,
                                            const void                   *key,
                                            void                         *oldest_raw_message)
 {
+  bytebuffer tmp = make_bytebuffer(cfg->message_size, oldest_raw_message);
   return cfg->merge_tuples_final(cfg,
                                  make_bytebuffer(cfg->key_size, (void *)key),
-                                 make_bytebuffer(cfg->message_size, oldest_raw_message));
+                                 &tmp);
 }
 
 static inline void fixed_size_data_clobber_message_with_range_delete(const data_config *cfg,
