@@ -74,8 +74,7 @@ test_log_basic(cache            *cc,
    for (i = 0; i < num_entries && !at_end; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      data_type type;
-      iterator_get_curr(itorh, &returned_key, &returned_data, &type);
+      iterator_get_curr(itorh, &returned_key, &returned_data);
       if (data_key_compare(cfg->data_cfg, key, returned_key) != 0
             || memcmp(data, returned_data, cfg->data_cfg->message_size) != 0) {
          platform_log("log_test_basic: key or data mismatch\n");
@@ -154,11 +153,10 @@ test_log_crash(clockcache           *cc,
    itorh = (iterator *)&itor;
 
    iterator_at_end(itorh, &at_end);
-   data_type type;
    for (i = 0; i < num_entries && !at_end; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      iterator_get_curr(itorh, &returned_key, &returned_data, &type);
+      iterator_get_curr(itorh, &returned_key, &returned_data);
       if (data_key_compare(cfg->data_cfg, key, returned_key) != 0
             || memcmp(data, returned_data, cfg->data_cfg->message_size) != 0) {
          platform_log("log_test_basic: key or data mismatch\n");

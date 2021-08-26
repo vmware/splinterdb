@@ -469,9 +469,8 @@ kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
                              const char **     message // OUT
 )
 {
-   data_type type; // ignored
    iterator *itor = &(kvi->sri.super);
-   iterator_get_curr(itor, (char **)key, (char **)message, &type);
+   iterator_get_curr(itor, (char **)key, (char **)message);
    // TODO(gabe): casting away the const is gross
    // Maybe we can change the signature of iterator_get_curr?
 }
