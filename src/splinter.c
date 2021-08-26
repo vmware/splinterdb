@@ -3897,7 +3897,8 @@ splinter_filter_lookup_async(splinter_handle    *spl,
                              uint64             *found_values,
                              routing_async_ctxt *ctxt)
 {
-   return routing_filter_lookup_async(spl->cc, cfg, filter, key, found_values,
+   bytebuffer bkey = make_bytebuffer(cfg->data_cfg->key_size, key);
+   return routing_filter_lookup_async(spl->cc, cfg, filter, bkey, found_values,
          ctxt);
 }
 
@@ -6070,8 +6071,9 @@ splinter_filter_lookup(splinter_handle *spl,
    }
 
    uint64 found_values;
+   bytebuffer bkey = make_bytebuffer(cfg->data_cfg->key_size, (void *)key);
    platform_status rc =
-      routing_filter_lookup(spl->cc, cfg, filter, key, &found_values);
+      routing_filter_lookup(spl->cc, cfg, filter, bkey, &found_values);
    platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       spl->stats[tid].filter_lookups[height]++;
@@ -6125,8 +6127,9 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
          splinter_subbundle_filter(spl, node, sb, filter_no);
       debug_assert(filter->addr != 0);
       // FIXME: [aconway 2020-09-14] was index
+      bytebuffer bkey = make_bytebuffer(spl->cfg.data_cfg->key_size, (void *)key);
       platform_status rc = routing_filter_lookup(spl->cc,
-            &spl->cfg.leaf_filter_cfg, filter, key, &found_values);
+            &spl->cfg.leaf_filter_cfg, filter, bkey, &found_values);
       platform_assert_status_ok(rc);
       if (found_values) {
          uint16 branch_no = sb->start_branch;

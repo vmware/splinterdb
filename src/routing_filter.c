@@ -805,11 +805,11 @@ routing_filter_estimate_unique_fp(cache            *cc,
  */
 
 platform_status
-routing_filter_lookup(cache          *cc,
-                      routing_config *cfg,
-                      routing_filter *filter,
-                      const char     *key,
-                      uint64         *found_values)
+routing_filter_lookup(cache            *cc,
+                      routing_config   *cfg,
+                      routing_filter   *filter,
+                      const bytebuffer  key,
+                      uint64           *found_values)
 {
    if (filter->addr == 0) {
       *found_values = 0;
@@ -817,11 +817,10 @@ routing_filter_lookup(cache          *cc,
    }
 
    hash_fn hash            = cfg->hash;
-   uint64  key_size        = cfg->data_cfg->key_size;
    uint64  seed            = cfg->seed;
    uint64  index_size      = cfg->index_size;
 
-   uint32 fp = hash(key, key_size, seed);
+   uint32 fp = hash(bytebuffer_data(key), bytebuffer_length(key), seed);
    fp >>= 32 - cfg->fingerprint_size;
    size_t value_size = filter->value_size;
    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
@@ -982,7 +981,7 @@ cache_async_result
 routing_filter_lookup_async(cache              *cc,
                             routing_config     *cfg,
                             routing_filter     *filter,
-                            char               *key,
+                            const bytebuffer    key,
                             uint64             *found_values,
                             routing_async_ctxt *ctxt)
 {
@@ -995,10 +994,9 @@ routing_filter_lookup_async(cache              *cc,
       {
          // Calculate filter parameters for the key
          hash_fn hash            = cfg->hash;
-         uint64  key_size        = cfg->data_cfg->key_size;
          uint64  seed            = cfg->seed;
 
-         uint32 fp = hash(key, key_size, seed);
+         uint32 fp = hash(bytebuffer_data(key), bytebuffer_length(key), seed);
          fp >>= 32 - cfg->fingerprint_size;
          size_t value_size = filter->value_size;
          uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
@@ -1219,8 +1217,9 @@ routing_filter_verify(cache          *cc,
       data_type dummy_type;
       iterator_get_curr(itor, &key, &data, &dummy_type);
       uint64 found_values;
+      bytebuffer bkey = make_bytebuffer(cfg->data_cfg->key_size, key);
       platform_status rc =
-         routing_filter_lookup(cc, cfg, filter, key, &found_values);
+         routing_filter_lookup(cc, cfg, filter, bkey, &found_values);
       platform_assert_status_ok(rc);
       platform_assert(routing_filter_is_value_found(found_values, value));
       iterator_advance(itor);
