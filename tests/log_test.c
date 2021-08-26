@@ -61,10 +61,13 @@ test_log_crash(clockcache           *cc,
    addr = log_addr(logh);
    magic = log_magic(logh);
 
+   slice skey = slice_create(cfg->data_cfg->key_size, keybuffer);
+   slice smessage = slice_create(cfg->data_cfg->message_size, databuffer);
+
    for (i = 0; i < num_entries; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       test_insert_data(databuffer, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      log_write(logh, keybuffer, databuffer, i);
+      log_write(logh, skey, smessage, i);
    }
 
    if (crash) {
@@ -133,10 +136,13 @@ test_log_thread(void *arg)
    char *data = TYPED_ARRAY_MALLOC(hid, data, log->cfg->data_cfg->message_size);
    char dummy;
 
+   slice skey = slice_create(log->cfg->data_cfg->key_size, key);
+   slice smessage = slice_create(log->cfg->data_cfg->message_size, data);
+
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       test_insert_data(data, 1, &dummy, 0, log->cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      log_write(logh, key, data, i);
+      log_write(logh, skey, smessage, i);
    }
 
    platform_free(hid, data);

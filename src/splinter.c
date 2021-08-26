@@ -2981,7 +2981,7 @@ splinter_memtable_iterator_deinit(splinter_handle *spl,
 platform_status
 splinter_memtable_insert(splinter_handle *spl,
                          char            *key,
-                         char            *data)
+                         char            *message)
 {
    page_handle *lock_page;
    uint64 generation;
@@ -2994,13 +2994,15 @@ splinter_memtable_insert(splinter_handle *spl,
    // this call is safe because we hold the insert lock
    memtable *mt = splinter_get_memtable(spl, generation);
    uint64 leaf_generation; // used for ordering the log
-   rc = memtable_insert(spl->mt_ctxt, mt, key, data, &leaf_generation);
+   rc = memtable_insert(spl->mt_ctxt, mt, key, message, &leaf_generation);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
 
    if (spl->cfg.use_log) {
-      int crappy_rc = log_write(spl->log, key, data, leaf_generation);
+      slice skey = slice_create(splinter_key_size(spl), key);
+      slice smessage = slice_create(splinter_message_size(spl), message);
+      int crappy_rc = log_write(spl->log, skey, smessage, leaf_generation);
       if (crappy_rc != 0) {
          goto unlock_insert_lock;
       }
