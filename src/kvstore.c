@@ -469,13 +469,13 @@ kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
                              const char **     message // OUT
 )
 {
-   bytebuffer bkey;
-   bytebuffer bmessage;
+   slice bkey;
+   slice bmessage;
    data_type type; // ignored
    iterator *itor = &(kvi->sri.super);
    iterator_get_curr(itor, &bkey, &bmessage, &type);
-   *key = bytebuffer_data(bkey);
-   *message = bytebuffer_data(bmessage);
+   *key = slice_data(bkey);
+   *message = slice_data(bmessage);
 }
 
 int

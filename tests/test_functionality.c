@@ -174,8 +174,8 @@ verify_range_against_shadow(splinter_handle            *spl,
                             uint64                      end_index)
 {
    platform_status status;
-   bytebuffer splinter_keybuf;
-   bytebuffer splinter_message;
+   slice splinter_keybuf;
+   slice splinter_message;
    data_handle *splinter_data_handle;
    uint64 splinter_key;
    uint64 i;
@@ -218,8 +218,8 @@ verify_range_against_shadow(splinter_handle            *spl,
       iterator_get_curr((iterator *)range_itor,
                         &splinter_keybuf, &splinter_message,
                         &type);
-      splinter_key = be64toh(*(uint64 *)bytebuffer_data(splinter_keybuf));
-      splinter_data_handle = bytebuffer_data(splinter_message);
+      splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
+      splinter_data_handle = slice_data(splinter_message);
 
       //platform_log("Range test %d: Shadow: 0x%08lx, Tree: 0x%08lx\n",
       //   i,
@@ -252,7 +252,7 @@ verify_range_against_shadow(splinter_handle            *spl,
                shadow_refcount,
                splinter_data_handle->message_type,
                splinter_data_handle->ref_count);
-         splinter_print_lookup(spl, (char *)bytebuffer_data(splinter_keybuf));
+         splinter_print_lookup(spl, (char *)slice_data(splinter_keybuf));
          platform_assert(0);
          status = STATUS_INVALID_STATE;
          goto destroy;
@@ -270,7 +270,7 @@ verify_range_against_shadow(splinter_handle            *spl,
       iterator_get_curr((iterator *)range_itor,
                         &splinter_keybuf, &splinter_message,
                         &type);
-      splinter_key = be64toh(*(uint64 *)bytebuffer_data(splinter_keybuf));
+      splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
 
       platform_log("Range iterator EXTRA KEY: %08lx \n"
             "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",

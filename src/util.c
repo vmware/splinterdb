@@ -7,7 +7,7 @@
 
 #include "poison.h"
 
-const bytebuffer null_bytebuffer = (bytebuffer){0, NULL};
+const slice null_slice = (slice){0, NULL};
 
 /*
  * Utility function; you should not use this directly

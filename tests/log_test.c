@@ -38,12 +38,12 @@ test_log_crash(clockcache           *cc,
    log_handle         *logh;
    uint64              i;
    char                keybuffer[MAX_KEY_SIZE];
-   bytebuffer          key = make_bytebuffer(cfg->data_cfg->key_size, keybuffer);
+   slice          key = slice_create(cfg->data_cfg->key_size, keybuffer);
    char               *databuffer = TYPED_ARRAY_MALLOC(hid, databuffer,
                                                        cfg->data_cfg->message_size);
-   bytebuffer          data = make_bytebuffer(cfg->data_cfg->message_size, databuffer);
-   bytebuffer          returned_key;
-   bytebuffer          returned_data;
+   slice          data = slice_create(cfg->data_cfg->message_size, databuffer);
+   slice          returned_key;
+   slice          returned_data;
    char                dummy = 'z';
    uint64              addr;
    uint64              magic;
@@ -85,10 +85,10 @@ test_log_crash(clockcache           *cc,
       data_type type;
       iterator_get_curr(itorh, &returned_key, &returned_data, &type);
       if (
-          bytebuffer_length(returned_key) != cfg->data_cfg->key_size
+          slice_length(returned_key) != cfg->data_cfg->key_size
           || data_key_compare(cfg->data_cfg, key, returned_key) != 0
-          || bytebuffer_length(returned_data) != cfg->data_cfg->message_size
-          || memcmp(databuffer, bytebuffer_data(returned_data), cfg->data_cfg->message_size) != 0) {
+          || slice_length(returned_data) != cfg->data_cfg->message_size
+          || memcmp(databuffer, slice_data(returned_data), cfg->data_cfg->message_size) != 0) {
          platform_log("log_test_basic: key or data mismatch\n");
          data_key_to_string(cfg->data_cfg, key, key_str, 128);
          data_message_to_string(cfg->data_cfg, data, data_str, 128);

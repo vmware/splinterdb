@@ -641,7 +641,7 @@ void                               splinter_print                     (splinter_
 void                               splinter_print_node                (splinter_handle *spl, uint64 addr, platform_stream_handle stream);
 void                               splinter_print_locked_node         (splinter_handle *spl, page_handle *node, platform_stream_handle stream);
 static void                        splinter_btree_skiperator_init     (splinter_handle *spl, splinter_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, data_type data_type, key_buffer pivots[static SPLINTER_MAX_PIVOTS]);
-void                               splinter_btree_skiperator_get_curr (iterator *itor, bytebuffer *key, bytebuffer *data, data_type *type);
+void                               splinter_btree_skiperator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
 platform_status                    splinter_btree_skiperator_advance  (iterator *itor);
 platform_status                    splinter_btree_skiperator_at_end   (iterator *itor, bool *at_end);
 void                               splinter_btree_skiperator_print    (iterator *itor);
@@ -953,7 +953,7 @@ splinter_node_unlock(splinter_handle *spl,
 page_handle *
 splinter_alloc(splinter_handle *spl, uint64 height)
 {
-   uint64 addr = mini_allocator_alloc(&spl->mini, height, null_bytebuffer, NULL);
+   uint64 addr = mini_allocator_alloc(&spl->mini, height, null_slice, NULL);
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 
@@ -3028,7 +3028,7 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    memtable *mt = splinter_get_memtable(spl, generation);
 
    memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
-   mini_allocator_release(&mt->mini, null_bytebuffer);
+   mini_allocator_release(&mt->mini, null_slice);
 
    splinter_compacted_memtable *cmt =
       splinter_get_compacted_memtable(spl, generation);
@@ -3897,7 +3897,7 @@ splinter_filter_lookup_async(splinter_handle    *spl,
                              uint64             *found_values,
                              routing_async_ctxt *ctxt)
 {
-   bytebuffer bkey = make_bytebuffer(cfg->data_cfg->key_size, key);
+   slice bkey = slice_create(cfg->data_cfg->key_size, key);
    return routing_filter_lookup_async(spl->cc, cfg, filter, bkey, found_values,
          ctxt);
 }
@@ -4388,8 +4388,8 @@ splinter_btree_skiperator_init(
 
 void
 splinter_btree_skiperator_get_curr(iterator   *itor,
-                                   bytebuffer *key,
-                                   bytebuffer *data,
+                                   slice *key,
+                                   slice *data,
                                    data_type  *type)
 {
    debug_assert(itor != NULL);
@@ -5288,14 +5288,14 @@ splinter_split_leaf(splinter_handle *spl,
          }
 
          if (!at_end) {
-            bytebuffer curr_key, dummy_data;
+            slice curr_key, dummy_data;
             data_type dummy_type;
             iterator_get_curr(&rough_merge_itor->super, &curr_key,
                               &dummy_data, &dummy_type);
-            debug_assert(bytebuffer_length(curr_key) == splinter_key_size(spl));
+            debug_assert(slice_length(curr_key) == splinter_key_size(spl));
             // copy new pivot (in parent) of new leaf
             memmove(scratch->pivot[num_leaves + 1],
-                    bytebuffer_data(curr_key),
+                    slice_data(curr_key),
                     splinter_key_size(spl));
          }
       }
@@ -5544,7 +5544,7 @@ splinter_split_root(splinter_handle *spl,
  *-----------------------------------------------------------------------------
  */
 
-void             splinter_range_iterator_get_curr (iterator *itor, bytebuffer *key, bytebuffer *data, data_type *type);
+void             splinter_range_iterator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
 platform_status  splinter_range_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status  splinter_range_iterator_advance  (iterator *itor);
 void             splinter_range_iterator_deinit   (splinter_range_iterator *range_itor);
@@ -5751,8 +5751,8 @@ splinter_range_iterator_init(splinter_handle         *spl,
 
 void
 splinter_range_iterator_get_curr(iterator   *itor,
-                                 bytebuffer *key,
-                                 bytebuffer *data,
+                                 slice *key,
+                                 slice *data,
                                  data_type  *type)
 {
    debug_assert(itor != NULL);
@@ -6072,7 +6072,7 @@ splinter_filter_lookup(splinter_handle *spl,
    }
 
    uint64 found_values;
-   bytebuffer bkey = make_bytebuffer(cfg->data_cfg->key_size, (void *)key);
+   slice bkey = slice_create(cfg->data_cfg->key_size, (void *)key);
    platform_status rc =
       routing_filter_lookup(spl->cc, cfg, filter, bkey, &found_values);
    platform_assert_status_ok(rc);
@@ -6128,7 +6128,7 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
          splinter_subbundle_filter(spl, node, sb, filter_no);
       debug_assert(filter->addr != 0);
       // FIXME: [aconway 2020-09-14] was index
-      bytebuffer bkey = make_bytebuffer(spl->cfg.data_cfg->key_size, (void *)key);
+      slice bkey = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
       platform_status rc = routing_filter_lookup(spl->cc,
             &spl->cfg.leaf_filter_cfg, filter, bkey, &found_values);
       platform_assert_status_ok(rc);
@@ -6861,14 +6861,14 @@ splinter_range(splinter_handle *spl,
    iterator_at_end(&range_itor->super, &at_end);
 
    for (*tuples_returned = 0; *tuples_returned < num_tuples && !at_end; (*tuples_returned)++) {
-      bytebuffer key, data;
+      slice key, data;
       iterator_get_curr(&range_itor->super, &key, &data, &type);
-      debug_assert(bytebuffer_length(key) == splinter_key_size(spl));
-      debug_assert(bytebuffer_length(data) == splinter_message_size(spl));
+      debug_assert(slice_length(key) == splinter_key_size(spl));
+      debug_assert(slice_length(data) == splinter_message_size(spl));
       char *next_key = out + *tuples_returned * (splinter_key_size(spl) + splinter_message_size(spl));
       char *next_data = next_key + splinter_key_size(spl);
-      memmove(next_key, bytebuffer_data(key), splinter_key_size(spl));
-      memmove(next_data, bytebuffer_data(data), splinter_message_size(spl));
+      memmove(next_key, slice_data(key), splinter_key_size(spl));
+      memmove(next_data, slice_data(data), splinter_message_size(spl));
       iterator_advance(&range_itor->super);
       iterator_at_end(&range_itor->super, &at_end);
    }
@@ -7163,7 +7163,7 @@ splinter_destroy(splinter_handle *spl)
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
-   mini_allocator_zap(spl->cc, NULL, spl->mini.meta_head, null_bytebuffer, null_bytebuffer,
+   mini_allocator_zap(spl->cc, NULL, spl->mini.meta_head, null_slice, null_slice,
          PAGE_TYPE_TRUNK);
 
    // clear out this splinter table from the meta page.

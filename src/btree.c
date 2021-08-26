@@ -41,7 +41,7 @@ btree_root_to_meta_addr(cache *cc,
    return root_addr + (meta_page_no + 1) * cfg->page_size;
 }
 
-void            btree_iterator_get_curr (iterator *itor, bytebuffer *key, bytebuffer *data, data_type *type);
+void            btree_iterator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
 platform_status btree_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status btree_iterator_advance  (iterator *itor);
 void            btree_iterator_print    (iterator *itor);
@@ -84,7 +84,7 @@ btree_alloc(cache *         cc,
             page_type       type,
             btree_node *    node)
 {
-   bytebuffer bkey = key ? make_bytebuffer(mini->data_cfg->key_size, key) : null_bytebuffer;
+   bytebuffer bkey = key ? slice_create(mini->data_cfg->key_size, key) : null_slice;
    node->addr = mini_allocator_alloc(mini, height, bkey, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
@@ -1103,8 +1103,8 @@ btree_inc_range(cache        *cc,
    if (start_key != NULL && end_key != NULL) {
       debug_assert(btree_key_compare(cfg, start_key, end_key) < 0);
    }
-   bytebuffer bstart_key = start_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)start_key) : null_bytebuffer;
-   bytebuffer bend_key = end_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)end_key) : null_bytebuffer;
+   slice bstart_key = start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key) : null_slice;
+   slice bend_key = end_key ? slice_create(cfg->data_cfg->key_size, (void *)end_key) : null_slice;
    mini_allocator_inc_range(cc, cfg->data_cfg, PAGE_TYPE_BRANCH,
          meta_page_addr, bstart_key, bend_key);
 }
@@ -1125,8 +1125,8 @@ btree_zap_range(cache        *cc,
    }
 
    uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   bytebuffer bstart_key = start_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)start_key) : null_bytebuffer;
-   bytebuffer bend_key = end_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)end_key) : null_bytebuffer;
+   slice bstart_key = start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key) : null_slice;
+   slice bend_key = end_key ? slice_create(cfg->data_cfg->key_size, (void *)end_key) : null_slice;
    bool fully_zapped = mini_allocator_zap(cc, cfg->data_cfg, meta_page_addr,
          bstart_key, bend_key, type);
    return fully_zapped;
@@ -1707,8 +1707,8 @@ btree_lookup_async_with_ref(cache *cc,              // IN
 
 void
 btree_iterator_get_curr(iterator   *base_itor,
-                        bytebuffer *key,
-                        bytebuffer *data,
+                        slice *key,
+                        slice *data,
                         data_type  *type)
 {
    debug_assert(base_itor != NULL);
@@ -1724,9 +1724,9 @@ btree_iterator_get_curr(iterator   *base_itor,
    debug_assert((char *)itor->curr.hdr == itor->curr.page->data);
    cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
    debug_assert(itor->curr_key != NULL);
-   *key = make_bytebuffer(itor->cfg->data_cfg->key_size, itor->curr_key);
+   *key = slice_create(itor->cfg->data_cfg->key_size, itor->curr_key);
    debug_assert((itor->curr_data != NULL) == (itor->height == 0));
-   *data = make_bytebuffer(itor->cfg->data_cfg->message_size, itor->curr_data);
+   *data = slice_create(itor->cfg->data_cfg->message_size, itor->curr_data);
    *type = itor->cfg->type;
 }
 
@@ -2534,7 +2534,7 @@ btree_pack_post_loop(btree_pack_internal *tree)
 
    char last_key[MAX_KEY_SIZE];
    memmove(last_key, tree->cfg->data_cfg->max_key, MAX_KEY_SIZE);
-   bytebuffer blast_key = make_bytebuffer(tree->cfg->data_cfg->key_size, last_key);
+   slice blast_key = slice_create(tree->cfg->data_cfg->key_size, last_key);
    mini_allocator_release(&tree->mini, blast_key);
 
    // if output tree is empty, zap the tree
@@ -2563,7 +2563,7 @@ btree_pack(btree_pack_req *req)
 
    btree_pack_setup(req, &tree);
 
-   bytebuffer key, message;
+   slice key, message;
    data_type type;
    bool at_end;
 
@@ -2571,9 +2571,9 @@ btree_pack(btree_pack_req *req)
    while (!at_end) {
       iterator_get_curr(tree.itor, &key, &message, &type);
       debug_assert(type == req->cfg->type);
-      debug_assert(bytebuffer_length(key) == req->cfg->data_cfg->key_size);
-      debug_assert(bytebuffer_length(message) == req->cfg->data_cfg->message_size);
-      btree_pack_loop(&tree, bytebuffer_data(key), bytebuffer_data(message), &at_end);
+      debug_assert(slice_length(key) == req->cfg->data_cfg->key_size);
+      debug_assert(slice_length(message) == req->cfg->data_cfg->message_size);
+      btree_pack_loop(&tree, slice_data(key), slice_data(message), &at_end);
       // FIXME: [tjiaheng 2020-07-29] find out how we can use req->max_tuples
       // here
       // if (req->max_tuples != 0 && *(tree.num_tuples) == req->max_tuples) {
@@ -2612,7 +2612,7 @@ branch_pack(platform_heap_id hid, branch_pack_req *req)
    trees[data_type_point] = point_tree;
    trees[data_type_range] = range_tree;
 
-   bytebuffer key, message;
+   slice key, message;
    data_type type;
    bool at_end;
 
@@ -2631,9 +2631,9 @@ branch_pack(platform_heap_id hid, branch_pack_req *req)
    iterator_at_end(itor, &at_end);
    while (!at_end) {
       iterator_get_curr(itor, &key, &message, &type);
-      debug_assert(bytebuffer_length(key) == req->point_req.cfg->data_cfg->key_size);
-      debug_assert(bytebuffer_length(message) == req->point_req.cfg->data_cfg->message_size);
-      btree_pack_loop(trees[type], bytebuffer_data(key), bytebuffer_data(message), &at_end);
+      debug_assert(slice_length(key) == req->point_req.cfg->data_cfg->key_size);
+      debug_assert(slice_length(message) == req->point_req.cfg->data_cfg->message_size);
+      btree_pack_loop(trees[type], slice_data(key), slice_data(message), &at_end);
       // FIXME: [tjiaheng 2020-07-29] find out how we can use req->max_tuples
       // here
       // if (max_tuples_per_tree != 0
@@ -2869,8 +2869,8 @@ btree_space_use_in_range(cache        *cc,
                          const char   *end_key)
 {
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   bytebuffer bstart_key = start_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)start_key) : null_bytebuffer;
-   bytebuffer bend_key = end_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)end_key) : null_bytebuffer;
+   slice bstart_key = start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key) : null_slice;
+   slice bend_key = end_key ? slice_create(cfg->data_cfg->key_size, (void *)end_key) : null_slice;
    uint64 extents_used = mini_allocator_count_extents_in_range(cc,
          cfg->data_cfg, type, meta_head, bstart_key, bend_key);
    return extents_used * cfg->extent_size;

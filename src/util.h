@@ -62,48 +62,48 @@ init_fraction(uint64 numerator, uint64 denominator)
       .denominator = 1,             \
    })
 
-typedef struct bytebuffer {
+typedef struct slice {
    uint64 length;
    void *data;
-} bytebuffer;
+} slice;
 
-extern const bytebuffer null_bytebuffer;
+extern const slice null_slice;
 
-static inline bool bytebuffer_is_null(bytebuffer b)
+static inline bool slice_is_null(slice b)
 {
   return b.length == 0 && b.data == NULL;
 }
 
-static inline bytebuffer make_bytebuffer(uint64 len, void *data)
+static inline slice slice_create(uint64 len, void *data)
 {
-   return (bytebuffer) {
+   return (slice) {
       .length = len,
       .data = data
    };
 }
 
-static inline uint64 bytebuffer_length(const bytebuffer b)
+static inline uint64 slice_length(const slice b)
 {
    return b.length;
 }
 
-static inline const void *bytebuffer_const_data(const bytebuffer b)
+static inline const void *slice_const_data(const slice b)
 {
    return b.data;
 }
 
-static inline void *bytebuffer_data(bytebuffer b)
+static inline void *slice_data(slice b)
 {
    return b.data;
 }
 
-static inline void bytebuffer_copy_contents(bytebuffer dst, const bytebuffer src)
+static inline void slice_copy_contents(slice dst, const slice src)
 {
   memmove(dst.data, src.data, src.length);
   dst.length = src.length;
 }
 
-static inline bool bytebuffers_physically_equal(const bytebuffer a, const bytebuffer b)
+static inline bool slices_physically_equal(const slice a, const slice b)
 {
   return a.length == b.length && a.data == b.data;
 }

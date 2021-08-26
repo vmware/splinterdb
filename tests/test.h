@@ -168,8 +168,8 @@ test_count_tuples_in_range(cache        *cc,
                            char         *high_key,
                            uint64       *count)     // OUTPUT
 {
-   bytebuffer blow_key = make_bytebuffer(cfg->data_cfg->key_size, low_key);
-   bytebuffer bhigh_key = make_bytebuffer(cfg->data_cfg->key_size, high_key);
+   slice blow_key = slice_create(cfg->data_cfg->key_size, low_key);
+   slice bhigh_key = slice_create(cfg->data_cfg->key_size, high_key);
    btree_iterator itor;
    uint64 i;
    *count = 0;
@@ -182,12 +182,12 @@ test_count_tuples_in_range(cache        *cc,
                           high_key, TRUE, FALSE, 0, data_type_point);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
-      bytebuffer last_key = null_bytebuffer;
+      slice last_key = null_slice;
       while (!at_end) {
-         bytebuffer key, data;
+         slice key, data;
          data_type type;
          iterator_get_curr(&itor.super, &key, &data, &type);
-         if (!bytebuffer_is_null(last_key) && data_key_compare(cfg->data_cfg, last_key, key) > 0) {
+         if (!slice_is_null(last_key) && data_key_compare(cfg->data_cfg, last_key, key) > 0) {
             char last_key_str[128], key_str[128];
             data_key_to_string(cfg->data_cfg, last_key, last_key_str, 128);
             data_key_to_string(cfg->data_cfg, key, key_str, 128);
@@ -244,7 +244,7 @@ test_btree_print_all_keys(cache        *cc,
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
       while (!at_end) {
-         bytebuffer key, data;
+         slice key, data;
          data_type type;
          iterator_get_curr(&itor.super, &key, &data, &type);
          char key_str[128];

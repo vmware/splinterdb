@@ -30,7 +30,7 @@ static log_ops shard_log_ops = {
    .magic     = shard_log_magic,
 };
 
-void            shard_log_iterator_get_curr (iterator *itor, bytebuffer *key, bytebuffer *data, data_type *type);
+void            shard_log_iterator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
 platform_status shard_log_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status shard_log_iterator_advance  (iterator *itor);
 
@@ -59,7 +59,7 @@ shard_log_get_thread_data(shard_log *log,
 page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
-    uint64 addr = mini_allocator_alloc(&log->mini, 0, null_bytebuffer, next_extent);
+   uint64 addr = mini_allocator_alloc(&log->mini, 0, null_slice, next_extent);
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
@@ -107,7 +107,7 @@ shard_log_zap(shard_log *log)
       thread_data->offset = 0;
    }
 
-   mini_allocator_zap(cc, NULL, log->meta_head, null_bytebuffer, null_bytebuffer, PAGE_TYPE_LOG);
+   mini_allocator_zap(cc, NULL, log->meta_head, null_slice, null_slice, PAGE_TYPE_LOG);
 }
 
 int
@@ -333,8 +333,8 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 //    Do we also need a key_type?
 void
 shard_log_iterator_get_curr(iterator   *itorh,
-                            bytebuffer *key,
-                            bytebuffer *data,
+                            slice *key,
+                            slice *data,
                             data_type  *type)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
@@ -342,9 +342,9 @@ shard_log_iterator_get_curr(iterator   *itorh,
 
    // skip over generation
    cursor += sizeof(uint64);
-   *key = make_bytebuffer(itor->cfg->data_cfg->key_size, cursor);
+   *key = slice_create(itor->cfg->data_cfg->key_size, cursor);
    cursor += itor->cfg->data_cfg->key_size;
-   *data = make_bytebuffer(itor->cfg->data_cfg->message_size, cursor);
+   *data = slice_create(itor->cfg->data_cfg->message_size, cursor);
 }
 
 platform_status

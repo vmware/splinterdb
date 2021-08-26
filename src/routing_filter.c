@@ -436,7 +436,7 @@ routing_filter_add(cache            *cc,
    // set up the index pages
    uint64 addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64 index_addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
+   uint64 index_addr = mini_allocator_alloc(&mini, 0, null_slice, NULL);
    platform_assert(index_addr % extent_size == 0);
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
    for (uint64 i = 1; i < pages_per_extent; i++) {
@@ -447,7 +447,7 @@ routing_filter_add(cache            *cc,
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64 addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
+   uint64 addr = mini_allocator_alloc(&mini, 0, null_slice, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char *filter_cursor = filter_page->data;
    uint64 bytes_remaining_on_page = page_size;
@@ -578,8 +578,13 @@ routing_filter_add(cache            *cc,
          uint32 header_size = encoding_size + sizeof(routing_hdr);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
+<<<<<<< HEAD
             addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
             filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
+=======
+            addr = mini_allocator_alloc(&mini, 0, null_slice, NULL);
+            filter_page = routing_get_and_lock_page(cc, addr);
+>>>>>>> ce5b3c3 (/bytebuffer/slice/ and /make_bytebuffer/slice_create/)
 
             bytes_remaining_on_page = page_size;
             filter_cursor = filter_page->data;
@@ -621,7 +626,7 @@ routing_filter_add(cache            *cc,
       routing_unlock_and_unget_page(cc, index_page[i]);
    }
 
-   mini_allocator_release(&mini, null_bytebuffer);
+   mini_allocator_release(&mini, null_slice);
 
    platform_free(hid, temp);
 
@@ -808,7 +813,7 @@ platform_status
 routing_filter_lookup(cache            *cc,
                       routing_config   *cfg,
                       routing_filter   *filter,
-                      const bytebuffer  key,
+                      const slice  key,
                       uint64           *found_values)
 {
    if (filter->addr == 0) {
@@ -820,7 +825,7 @@ routing_filter_lookup(cache            *cc,
    uint64  seed            = cfg->seed;
    uint64  index_size      = cfg->index_size;
 
-   uint32 fp = hash(bytebuffer_data(key), bytebuffer_length(key), seed);
+   uint32 fp = hash(slice_data(key), slice_length(key), seed);
    fp >>= 32 - cfg->fingerprint_size;
    size_t value_size = filter->value_size;
    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
@@ -981,7 +986,7 @@ cache_async_result
 routing_filter_lookup_async(cache              *cc,
                             routing_config     *cfg,
                             routing_filter     *filter,
-                            const bytebuffer    key,
+                            const slice    key,
                             uint64             *found_values,
                             routing_async_ctxt *ctxt)
 {
@@ -996,7 +1001,7 @@ routing_filter_lookup_async(cache              *cc,
          hash_fn hash            = cfg->hash;
          uint64  seed            = cfg->seed;
 
-         uint32 fp = hash(bytebuffer_data(key), bytebuffer_length(key), seed);
+         uint32 fp = hash(slice_data(key), slice_length(key), seed);
          fp >>= 32 - cfg->fingerprint_size;
          size_t value_size = filter->value_size;
          uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
@@ -1151,7 +1156,7 @@ routing_filter_zap(cache          *cc,
    uint64 ref = cache_get_ref(cc, meta_head);
 
    if (ref == 2) {
-      mini_allocator_zap(cc, NULL, meta_head, null_bytebuffer, null_bytebuffer, PAGE_TYPE_FILTER);
+      mini_allocator_zap(cc, NULL, meta_head, null_slice, null_slice, PAGE_TYPE_FILTER);
    } else {
       cache_dealloc(cc, meta_head, PAGE_TYPE_FILTER);
    }
@@ -1212,8 +1217,8 @@ routing_filter_verify(cache          *cc,
    bool at_end;
    iterator_at_end(itor, &at_end);
    while (!at_end) {
-      bytebuffer key;
-      bytebuffer message;
+      slice key;
+      slice message;
       data_type dummy_type;
       iterator_get_curr(itor, &key, &message, &dummy_type);
       uint64 found_values;

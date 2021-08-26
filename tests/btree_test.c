@@ -1003,21 +1003,21 @@ test_btree_rough_iterator(cache             *cc,
    uint64 pivot_no;
    for (pivot_no = 0; !at_end; pivot_no++) {
       //uint64 rough_count_pivots = 0;
-      bytebuffer curr_key, dummy_data;
+      slice curr_key, dummy_data;
       data_type PAGE_TYPE_BRANCH;
       iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data,
                         &PAGE_TYPE_BRANCH);
-      if (bytebuffer_length(curr_key) != btree_key_size(btree_cfg)) {
+      if (slice_length(curr_key) != btree_key_size(btree_cfg)) {
          platform_log("Weird key length: %lu should be: %lu\n",
-                      bytebuffer_length(curr_key),
+                      slice_length(curr_key),
                       btree_key_size(btree_cfg));
       }
-      if (bytebuffer_length(dummy_data) != 0) {
+      if (slice_length(dummy_data) != 0) {
          platform_log("Weird data length: %lu should be: %lu\n",
-                      bytebuffer_length(dummy_data),
+                      slice_length(dummy_data),
                       0UL);
       }
-      memmove(pivot[pivot_no].k, bytebuffer_data(curr_key), btree_key_size(btree_cfg));
+      memmove(pivot[pivot_no].k, slice_data(curr_key), btree_key_size(btree_cfg));
       at_end = TRUE;
       //char key_str[128];
       //btree_key_to_string(btree_cfg, pivot[pivot_no].k, key_str);

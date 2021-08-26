@@ -117,7 +117,7 @@ mini_allocator_init(mini_allocator *mini,
 uint64
 mini_allocator_alloc(mini_allocator   *mini,
                      uint64            batch,
-                     const bytebuffer  key,
+                     const slice  key,
                      uint64           *next_extent)
 {
    platform_assert(batch < mini->num_batches);
@@ -198,8 +198,8 @@ mini_allocator_alloc(mini_allocator   *mini,
       uint64 new_pos = hdr->pos;
       uint64 new_meta_addr = meta_page->disk_addr;
       mini_allocator_meta_entry *entry = &hdr->entry[hdr->pos++];
-      if (!bytebuffer_is_null(key)) {
-         entry->start_key_length = bytebuffer_length(key);
+      if (!slice_is_null(key)) {
+         entry->start_key_length = slice_length(key);
          data_key_copy(mini->data_cfg, entry->start_key, key);
 
          // Set the end_key of the last extent from this batch
@@ -222,7 +222,7 @@ mini_allocator_alloc(mini_allocator   *mini,
                (mini_allocator_meta_hdr *)last_meta_page->data;
             mini_allocator_meta_entry *last_entry =
                &last_hdr->entry[mini->last_meta_pos[batch]];
-            last_entry->end_key_length = bytebuffer_length(key);
+            last_entry->end_key_length = slice_length(key);
             data_key_copy(mini->data_cfg, last_entry->end_key, key);
             cache_mark_dirty(mini->cc, last_meta_page);
             if (mini->last_meta_addr[batch] != mini->meta_tail) {
@@ -268,14 +268,14 @@ mini_allocator_alloc(mini_allocator   *mini,
 
 void
 mini_allocator_release(mini_allocator  *mini,
-                       const bytebuffer key)
+                       const slice key)
 {
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
       cache_dealloc(mini->cc, mini->next_extent[batch], mini->type);
 
       // Set the end_key of the last extent from this batch
-      if (!bytebuffer_is_null(key) && mini->last_meta_addr[batch] != 0) {
+      if (!slice_is_null(key) && mini->last_meta_addr[batch] != 0) {
          page_handle *last_meta_page =
             cache_get(mini->cc, mini->last_meta_addr[batch], TRUE, mini->type);
          uint64 wait = 1;
@@ -290,7 +290,7 @@ mini_allocator_release(mini_allocator  *mini,
             (mini_allocator_meta_hdr *)last_meta_page->data;
          mini_allocator_meta_entry *last_entry =
             &last_hdr->entry[mini->last_meta_pos[batch]];
-         last_entry->end_key_length = bytebuffer_length(key);
+         last_entry->end_key_length = slice_length(key);
          data_key_copy(mini->data_cfg, last_entry->end_key, key);
          cache_mark_dirty(mini->cc, last_meta_page);
          cache_unlock(mini->cc, last_meta_page);
@@ -356,8 +356,8 @@ mini_allocator_for_each(cache                      *cc,
                         page_type                   type,
                         uint64                      meta_head,
                         mini_allocator_for_each_fn  func,
-                        const bytebuffer            start_key,
-                        const bytebuffer            end_key,
+                        const slice            start_key,
+                        const slice            end_key,
                         uint64                     *pages_outstanding)
 {
    page_handle             *meta_page;
@@ -367,7 +367,7 @@ mini_allocator_for_each(cache                      *cc,
    uint64                   last_meta_addr;
    uint64                   wait = 1;
 
-   debug_assert(IMPLIES(data_cfg == NULL, bytebuffer_is_null(start_key)));
+   debug_assert(IMPLIES(data_cfg == NULL, slice_is_null(start_key)));
 
    bool fully_zapped = TRUE;
    do {
@@ -386,8 +386,8 @@ mini_allocator_for_each(cache                      *cc,
 
       for (i = 0; i < hdr->pos; i++) {
          mini_allocator_meta_entry *entry = &hdr->entry[i];
-         bytebuffer entry_start_key = make_bytebuffer(entry->start_key_length, entry->start_key);
-         bytebuffer entry_end_key = make_bytebuffer(entry->end_key_length, entry->end_key);
+         slice entry_start_key = slice_create(entry->start_key_length, entry->start_key);
+         slice entry_end_key = slice_create(entry->end_key_length, entry->end_key);
          /*
           * extent is in range if
           * 1. full range (start_key == NULL and end_key == NULL)
@@ -395,10 +395,10 @@ mini_allocator_for_each(cache                      *cc,
           * 3. range is a point (end_key == NULL) and point is in extent
           */
          bool extent_in_range = FALSE;
-         if (bytebuffer_is_null(start_key) && bytebuffer_is_null(end_key)) {
+         if (slice_is_null(start_key) && slice_is_null(end_key)) {
             // case 1
             extent_in_range = TRUE;
-         } else if (bytebuffer_is_null(end_key)) {
+         } else if (slice_is_null(end_key)) {
             // case 3
             extent_in_range =
                   1
@@ -463,8 +463,8 @@ bool
 mini_allocator_zap(cache            *cc,
                    data_config      *data_cfg,
                    uint64            meta_head,
-                   const bytebuffer  start_key,
-                   const bytebuffer  end_key,
+                   const slice  start_key,
+                   const slice  end_key,
                    page_type         type)
 {
    //if (start_key != NULL) {
@@ -515,7 +515,7 @@ mini_allocator_sync(cache     *cc,
                     uint64    *pages_outstanding)
 {
    mini_allocator_for_each(cc, NULL, type, meta_head, mini_allocator_sync_extent,
-         null_bytebuffer, null_bytebuffer, pages_outstanding);
+         null_slice, null_slice, pages_outstanding);
 }
 
 bool
@@ -534,8 +534,8 @@ mini_allocator_inc_range(cache            *cc,
                          data_config      *data_cfg,
                          page_type         type,
                          uint64            meta_head,
-                         const bytebuffer  start_key,
-                         const bytebuffer  end_key)
+                         const slice  start_key,
+                         const slice  end_key)
 {
    //if (start_key != NULL) {
    //   char start_key_str[256];
@@ -603,8 +603,8 @@ mini_allocator_count_extents_in_range(cache            *cc,
                                       data_config      *data_cfg,
                                       page_type         type,
                                       uint64            meta_head,
-                                      const bytebuffer  start_key,
-                                      const bytebuffer  end_key)
+                                      const slice  start_key,
+                                      const slice  end_key)
 {
    uint64 num_extents = 0;
    mini_allocator_for_each(cc, data_cfg, type, meta_head,
@@ -628,7 +628,7 @@ mini_allocator_prefetch(cache     *cc,
                         uint64     meta_head)
 {
    mini_allocator_for_each(cc, NULL, type, meta_head,
-         mini_allocator_prefetch_extent, null_bytebuffer, null_bytebuffer,
+         mini_allocator_prefetch_extent, null_slice, null_slice,
          NULL);
 }
 

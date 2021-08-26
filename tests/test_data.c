@@ -5,13 +5,13 @@
 
 static int
 test_data_key_cmp(const data_config *cfg,
-                  const bytebuffer   key1,
-                  const bytebuffer   key2)
+                  const slice   key1,
+                  const slice   key2)
 {
-  uint64 len1 = bytebuffer_length(key1);
-  uint64 len2 = bytebuffer_length(key2);
+  uint64 len1 = slice_length(key1);
+  uint64 len2 = slice_length(key2);
   uint64 minlen = len1 < len2 ? len1 : len2;
-  int cmp = memcmp(bytebuffer_data(key1), bytebuffer_data(key2), minlen);
+  int cmp = memcmp(slice_data(key1), slice_data(key2), minlen);
   if (cmp)
     return cmp;
   else if (len1 < len2)
@@ -33,15 +33,15 @@ test_data_key_cmp(const data_config *cfg,
 
 static void
 test_data_merge_tuples(const data_config *cfg,
-                       const bytebuffer   key,
-                       const bytebuffer   old_raw_data,
-                       bytebuffer        *new_raw_data)
+                       const slice   key,
+                       const slice   old_raw_data,
+                       slice        *new_raw_data)
 {
-   assert(sizeof(data_handle) <= bytebuffer_length(old_raw_data));
-   assert(sizeof(data_handle) <= bytebuffer_length(*new_raw_data));
+   assert(sizeof(data_handle) <= slice_length(old_raw_data));
+   assert(sizeof(data_handle) <= slice_length(*new_raw_data));
 
-   const data_handle *old_data = bytebuffer_const_data(old_raw_data);
-   data_handle *new_data = bytebuffer_data(*new_raw_data);
+   const data_handle *old_data = slice_const_data(old_raw_data);
+   data_handle *new_data = slice_data(*new_raw_data);
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
    //platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d new=%d\n",
@@ -107,12 +107,12 @@ test_data_merge_tuples(const data_config *cfg,
  */
 static void
 test_data_merge_tuples_final(const data_config *cfg,
-                             const bytebuffer   key, // IN
-                             bytebuffer        *oldest_raw_data) // IN/OUT
+                             const slice   key, // IN
+                             slice        *oldest_raw_data) // IN/OUT
 {
-   assert(sizeof(data_handle) <= bytebuffer_length(*oldest_raw_data));
+   assert(sizeof(data_handle) <= slice_length(*oldest_raw_data));
 
-   data_handle *old_data = bytebuffer_data(*oldest_raw_data);
+   data_handle *old_data = slice_data(*oldest_raw_data);
    debug_assert(old_data != NULL);
 
    if (old_data->message_type == MESSAGE_TYPE_UPDATE) {
@@ -134,11 +134,11 @@ test_data_merge_tuples_final(const data_config *cfg,
 
 static message_type
 test_data_message_class(const data_config *cfg,
-                        const bytebuffer   raw_data)
+                        const slice   raw_data)
 {
-   assert(sizeof(data_handle) <= bytebuffer_length(raw_data));
+   assert(sizeof(data_handle) <= slice_length(raw_data));
 
-   const data_handle *data = bytebuffer_const_data(raw_data);
+   const data_handle *data = slice_const_data(raw_data);
    switch(data->message_type) {
       case MESSAGE_TYPE_INSERT:
          return data->ref_count == 0 ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
@@ -155,24 +155,24 @@ test_data_message_class(const data_config *cfg,
 
 static void
 test_data_key_to_string(const data_config *cfg,
-                        const bytebuffer   key,
+                        const slice   key,
                         char              *str,
                         size_t             len)
 {
-   assert(sizeof(uint64) <= bytebuffer_length(key));
-   snprintf(str, len, "0x%016lx", be64toh(*(uint64 *)bytebuffer_data(key)));
+   assert(sizeof(uint64) <= slice_length(key));
+   snprintf(str, len, "0x%016lx", be64toh(*(uint64 *)slice_data(key)));
 }
 
 // FIXME: [yfogel 2020-03-17] need to be passing in the size of the string as
 //        well and use snprintf
 static void
 test_data_message_to_string(const data_config *cfg,
-                            const bytebuffer   raw_data,
+                            const slice   raw_data,
                             char              *str_p,
                             size_t             max_len)
 {
-   assert(sizeof(data_handle) <= bytebuffer_length(raw_data));
-   const data_handle *data = bytebuffer_const_data(raw_data);
+   assert(sizeof(data_handle) <= slice_length(raw_data));
+   const data_handle *data = slice_const_data(raw_data);
    snprintf(str_p, max_len, "%d:%d:%lu", data->message_type, data->ref_count,
           *(uint64 *)data->data);
 }

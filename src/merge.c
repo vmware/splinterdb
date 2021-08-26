@@ -11,7 +11,7 @@
 #include "poison.h"
 
 /* Function declarations and iterator_ops */
-void            merge_get_curr (iterator *itor, bytebuffer *key, bytebuffer *data,
+void            merge_get_curr (iterator *itor, slice *key, slice *data,
                                 data_type *type);
 platform_status merge_at_end   (iterator *itor, bool *at_end);
 platform_status merge_advance  (iterator *itor);
@@ -38,8 +38,8 @@ range_stack_init(range_stack *stack, int num_trees)
    stack->end_seq = -1;
    stack->num_sequences = num_trees;
    for (int i = 0; i < MAX_MERGE_ARITY; i++)
-     stack->limits[i] = make_bytebuffer(MAX_KEY_SIZE, stack->limits_bufs);
-   stack->start_key = make_bytebuffer(MAX_KEY_SIZE, stack->start_key_buffer);
+     stack->limits[i] = slice_create(MAX_KEY_SIZE, stack->limits_bufs);
+   stack->start_key = slice_create(MAX_KEY_SIZE, stack->start_key_buffer);
 }
 
 static inline bool
@@ -63,14 +63,14 @@ range_stack_clobbers_point(range_stack *stack, int point_seq)
    return point_seq < stack->seq[0];
 }
 
-static inline bytebuffer
+static inline slice
 range_stack_get_start_key(range_stack *stack)
 {
    return stack->start_key;
 }
 
 // end_key is the data of range delete (key, data)
-static inline bytebuffer
+static inline slice
 range_stack_get_end_key(range_stack *stack)
 {
    debug_assert(stack->end_seq >= 0);
@@ -118,7 +118,7 @@ find_predecessor(range_stack *stack, int seq)
  */
 static int
 find_useful_successor(range_stack      *stack,
-                      const bytebuffer  limit,
+                      const slice  limit,
                       int               seq,
                       int               insert_position,
                       data_config      *cfg)
@@ -208,8 +208,8 @@ debug_range_stack_check_invariants(debug_only range_stack *stack,
 
 static void
 add_new_range_delete_to_stack(range_stack      *stack,
-                              const bytebuffer  startkey,
-                              const bytebuffer  limit,
+                              const slice  startkey,
+                              const slice  limit,
                               int               seq,
                               data_config      *cfg)
 {
@@ -218,11 +218,11 @@ add_new_range_delete_to_stack(range_stack      *stack,
    if (stack->size == 0) {
       debug_assert(!stack->has_start_key);
       stack->has_start_key = TRUE;
-      bytebuffer_copy_contents(stack->start_key, startkey);
+      slice_copy_contents(stack->start_key, startkey);
       stack->end_seq = -1;
       stack->size = 1;
-      bytebuffer_copy_contents(stack->start_key, startkey);
-      bytebuffer_copy_contents(stack->limits[seq], limit);
+      slice_copy_contents(stack->start_key, startkey);
+      slice_copy_contents(stack->limits[seq], limit);
       stack->seq[0] = seq;
       goto done;
    }
@@ -248,7 +248,7 @@ add_new_range_delete_to_stack(range_stack      *stack,
    int insert_position = predecessor + 1;
 
    // We are keeping the range delete; clone the limit key.
-   bytebuffer_copy_contents(stack->limits[seq], limit);
+   slice_copy_contents(stack->limits[seq], limit);
 
    int successor = find_useful_successor(stack, limit, seq,
                                          insert_position, cfg);
@@ -298,7 +298,7 @@ done:
  */
 static bool
 maybe_remove_range_deletes(range_stack *stack,
-                           const bytebuffer next_key,
+                           const slice next_key,
                            data_config *cfg)
 {
    bool r;
@@ -455,16 +455,16 @@ debug_assert_message_type_valid(debug_only merge_iterator *merge_itor)
    //debug_code(char *data = merge_itor->data);
    //debug_code(data_config *cfg = merge_itor->cfg);
    message_type type =
-      bytebuffer_is_null(merge_itor->data)
+      slice_is_null(merge_itor->data)
      ? MESSAGE_TYPE_INVALID
      : data_message_class(merge_itor->cfg, merge_itor->data);
    debug_assert(!merge_itor->has_data ||
                 !merge_itor->discard_deletes ||
-                bytebuffer_is_null(merge_itor->data) ||
+                slice_is_null(merge_itor->data) ||
                 type != MESSAGE_TYPE_DELETE);
    debug_assert(!merge_itor->has_data ||
                 !merge_itor->resolve_updates ||
-                bytebuffer_is_null(merge_itor->data) ||
+                slice_is_null(merge_itor->data) ||
                 type != MESSAGE_TYPE_UPDATE);
 #endif
 }
@@ -494,9 +494,9 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
 {
    platform_status rc;
 
-   debug_assert(!bytebuffers_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+   debug_assert(!slices_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
    if (merge_itor->has_data) {
-      debug_assert(!bytebuffers_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
+      debug_assert(!slices_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
@@ -610,7 +610,7 @@ process_remaining_range_deletes_and_clobber_points(merge_iterator *merge_itor)
        * iterator is advanced
        */
       merge_itor->key = merge_itor->ordered_iterators[1]->key;
-      debug_assert(!bytebuffers_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
+      debug_assert(!slices_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
       platform_status rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
@@ -633,8 +633,8 @@ process_remaining_range_deletes_and_clobber_points(merge_iterator *merge_itor)
 static platform_status
 merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
    debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
-   debug_assert(bytebuffer_data(merge_itor->data) != merge_itor->merge_buffer);
-   debug_assert(bytebuffers_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+   debug_assert(slice_data(merge_itor->data) != merge_itor->merge_buffer);
+   debug_assert(slices_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
    data_config *cfg = merge_itor->cfg;
 
@@ -652,7 +652,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
        * a point that is not clobbered by range deletes.
        */
 
-      memmove(merge_itor->merge_buffer, bytebuffer_data(merge_itor->data), bytebuffer_length(merge_itor->data));
+      memmove(merge_itor->merge_buffer, slice_data(merge_itor->data), slice_length(merge_itor->data));
       merge_itor->data.data = merge_itor->merge_buffer;
       do {
          if (1
@@ -673,7 +673,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
                   !data_key_compare(cfg,
                                     merge_itor->key,
                                     merge_itor->ordered_iterators[1]->key));
-            debug_assert(bytebuffer_data(merge_itor->data) == merge_itor->merge_buffer);
+            debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
 
             data_merge_tuples(cfg, merge_itor->key,
                               merge_itor->ordered_iterators[1]->data,
@@ -687,7 +687,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
              * iterator is advanced
              */
             merge_itor->key = merge_itor->ordered_iterators[1]->key;
-            debug_assert(bytebuffer_data(merge_itor->data) == merge_itor->merge_buffer);
+            debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
             platform_status rc = advance_and_resort_min_ritor(merge_itor);
             if (!SUCCESS(rc)) {
                return rc;
@@ -703,7 +703,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
              * This deals with all duplicates so we break out of the loop once
              * we are done.
              */
-            debug_assert(bytebuffer_data(merge_itor->data) == merge_itor->merge_buffer);
+            debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
             process_remaining_range_deletes_and_clobber_points(merge_itor);
             debug_assert(merge_itor->stack.size > 0);
             break;
@@ -722,7 +722,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
        */
       *retry = range_stack_makes_point_redundant(&merge_itor->stack, class);
    } else {
-      merge_itor->data = make_bytebuffer(0, NULL);
+      merge_itor->data = slice_create(0, NULL);
       process_one_range_delete_or_clobber_one_point(merge_itor);
       process_remaining_range_deletes_and_clobber_points(merge_itor);
       *retry = TRUE;
@@ -778,7 +778,7 @@ merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
    if (class != MESSAGE_TYPE_INSERT && merge_itor->resolve_updates) {
       if (merge_itor->data.data != merge_itor->merge_buffer) {
          // We might already be in merge_buffer if we did some merging.
-         memmove(merge_itor->merge_buffer, bytebuffer_data(merge_itor->data), bytebuffer_length(merge_itor->data));
+         memmove(merge_itor->merge_buffer, slice_data(merge_itor->data), slice_length(merge_itor->data));
          merge_itor->data.data = merge_itor->merge_buffer;
       }
       data_merge_tuples_final(cfg, merge_itor->key,
@@ -967,8 +967,8 @@ merge_iterator_create(platform_heap_id  hid,
      merge_itor->ordered_iterator_stored[i] = (ordered_iterator) {
         .seq = i,
         .itor = i == -1 ? NULL : itor_arr[i],
-        .key = null_bytebuffer,
-        .data = null_bytebuffer,
+        .key = null_slice,
+        .data = null_slice,
         .next_key_equal = FALSE,
      };
      merge_itor->ordered_iterators[i] =
@@ -1084,7 +1084,7 @@ merge_at_end(iterator *itor,   // IN
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    *at_end = merge_itor->at_end;
-   debug_assert(*at_end == bytebuffer_is_null(merge_itor->key));
+   debug_assert(*at_end == slice_is_null(merge_itor->key));
 
    return STATUS_OK;
 }
@@ -1109,8 +1109,8 @@ merge_at_end(iterator *itor,   // IN
 // FIXME: [tjiaheng 2020-07-17] should support data_type_range
 void
 merge_get_curr(iterator   *itor,
-               bytebuffer *key,
-               bytebuffer *data,
+               slice *key,
+               slice *data,
                data_type  *type)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
@@ -1140,11 +1140,11 @@ merge_advance(iterator *itor)
    platform_status rc = STATUS_OK;
    merge_iterator *merge_itor = (merge_iterator *)itor;
 
-   debug_assert(!merge_itor->has_data || !bytebuffer_is_null(merge_itor->data));
+   debug_assert(!merge_itor->has_data || !slice_is_null(merge_itor->data));
    bool retry;
    do {
-      merge_itor->key = null_bytebuffer;
-      merge_itor->data = null_bytebuffer;
+      merge_itor->key = null_slice;
+      merge_itor->data = null_slice;
       if (merge_itor->type != data_type_range) {
          // Advance one iterator
          rc = advance_and_resort_min_ritor(merge_itor);
@@ -1167,7 +1167,7 @@ void
 merge_iterator_print(merge_iterator *merge_itor)
 {
    uint64 i;
-   bytebuffer key, data;
+   slice key, data;
    char key_str[MAX_KEY_SIZE];
    data_type type;
    data_config *data_cfg = merge_itor->cfg;
