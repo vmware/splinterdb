@@ -84,7 +84,8 @@ btree_alloc(cache *         cc,
             page_type       type,
             btree_node *    node)
 {
-   node->addr = mini_allocator_alloc(mini, height, key, next_extent);
+   bytebuffer bkey = key ? make_bytebuffer(mini->data_cfg->key_size, key) : null_bytebuffer;
+   node->addr = mini_allocator_alloc(mini, height, bkey, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
    node->hdr  = (btree_hdr *)(node->page->data);
@@ -1102,8 +1103,10 @@ btree_inc_range(cache        *cc,
    if (start_key != NULL && end_key != NULL) {
       debug_assert(btree_key_compare(cfg, start_key, end_key) < 0);
    }
+   bytebuffer bstart_key = start_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)start_key) : null_bytebuffer;
+   bytebuffer bend_key = end_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)end_key) : null_bytebuffer;
    mini_allocator_inc_range(cc, cfg->data_cfg, PAGE_TYPE_BRANCH,
-         meta_page_addr, start_key, end_key);
+         meta_page_addr, bstart_key, bend_key);
 }
 
 bool
@@ -1122,8 +1125,10 @@ btree_zap_range(cache        *cc,
    }
 
    uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   bytebuffer bstart_key = start_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)start_key) : null_bytebuffer;
+   bytebuffer bend_key = end_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)end_key) : null_bytebuffer;
    bool fully_zapped = mini_allocator_zap(cc, cfg->data_cfg, meta_page_addr,
-         start_key, end_key, type);
+         bstart_key, bend_key, type);
    return fully_zapped;
 }
 
@@ -2529,7 +2534,8 @@ btree_pack_post_loop(btree_pack_internal *tree)
 
    char last_key[MAX_KEY_SIZE];
    memmove(last_key, tree->cfg->data_cfg->max_key, MAX_KEY_SIZE);
-   mini_allocator_release(&tree->mini, last_key);
+   bytebuffer blast_key = make_bytebuffer(tree->cfg->data_cfg->key_size, last_key);
+   mini_allocator_release(&tree->mini, blast_key);
 
    // if output tree is empty, zap the tree
    if (*(tree->num_tuples) == 0) {
@@ -2859,8 +2865,10 @@ btree_space_use_in_range(cache        *cc,
                          const char   *end_key)
 {
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   bytebuffer bstart_key = start_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)start_key) : null_bytebuffer;
+   bytebuffer bend_key = end_key ? make_bytebuffer(cfg->data_cfg->key_size, (void *)end_key) : null_bytebuffer;
    uint64 extents_used = mini_allocator_count_extents_in_range(cc,
-         cfg->data_cfg, type, meta_head, start_key, end_key);
+         cfg->data_cfg, type, meta_head, bstart_key, bend_key);
    return extents_used * cfg->extent_size;
 }
 

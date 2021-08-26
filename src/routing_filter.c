@@ -436,18 +436,18 @@ routing_filter_add(cache            *cc,
    // set up the index pages
    uint64 addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64 index_addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+   uint64 index_addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
    platform_assert(index_addr % extent_size == 0);
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
    for (uint64 i = 1; i < pages_per_extent; i++) {
-      uint64 next_index_addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+      uint64 next_index_addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
       platform_assert(next_index_addr == index_addr + i * page_size);
       index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
    }
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64 addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+   uint64 addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char *filter_cursor = filter_page->data;
    uint64 bytes_remaining_on_page = page_size;
@@ -578,7 +578,7 @@ routing_filter_add(cache            *cc,
          uint32 header_size = encoding_size + sizeof(routing_hdr);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
-            addr = mini_allocator_alloc(&mini, 0, NULL, NULL);
+            addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
             filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
@@ -621,7 +621,7 @@ routing_filter_add(cache            *cc,
       routing_unlock_and_unget_page(cc, index_page[i]);
    }
 
-   mini_allocator_release(&mini, NULL);
+   mini_allocator_release(&mini, null_bytebuffer);
 
    platform_free(hid, temp);
 
@@ -1153,7 +1153,7 @@ routing_filter_zap(cache          *cc,
    uint64 ref = cache_get_ref(cc, meta_head);
 
    if (ref == 2) {
-      mini_allocator_zap(cc, NULL, meta_head, NULL, NULL, PAGE_TYPE_FILTER);
+      mini_allocator_zap(cc, NULL, meta_head, null_bytebuffer, null_bytebuffer, PAGE_TYPE_FILTER);
    } else {
       cache_dealloc(cc, meta_head, PAGE_TYPE_FILTER);
    }

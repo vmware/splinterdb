@@ -69,6 +69,11 @@ typedef struct bytebuffer {
 
 extern const bytebuffer null_bytebuffer;
 
+static inline bool bytebuffer_is_null(bytebuffer b)
+{
+  return b.length == 0 && b.data == NULL;
+}
+
 static inline bytebuffer make_bytebuffer(uint64 len, void *data)
 {
    return (bytebuffer) {

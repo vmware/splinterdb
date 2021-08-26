@@ -47,21 +47,21 @@ mini_allocator_init(mini_allocator *mini,
                     page_type       type);
 
 uint64
-mini_allocator_alloc(mini_allocator *mini,
-                     uint64          batch,
-                     char           *key,
-                     uint64         *next_extent);
+mini_allocator_alloc(mini_allocator  *mini,
+                     uint64           batch,
+                     const bytebuffer key,
+                     uint64          *next_extent);
 
 void
-mini_allocator_release(mini_allocator *mini,
-                       char           *key);
+mini_allocator_release(mini_allocator  *mini,
+                       const bytebuffer key);
 
 bool
 mini_allocator_zap(cache       *cc,
                    data_config *data_cfg,
                    uint64       meta_head,
-                   const char  *start_key,
-                   const char  *end_key,
+                   const bytebuffer start_key,
+                   const bytebuffer end_key,
                    page_type    type);
 
 void
@@ -75,8 +75,8 @@ mini_allocator_inc_range(cache       *cc,
                          data_config *data_cfg,
                          page_type    type,
                          uint64       meta_head,
-                         const char  *start_key,
-                         const char  *end_key);
+                         const bytebuffer start_key,
+                         const bytebuffer end_key);
 
 page_handle *
 mini_allocator_blind_inc(cache *cc,
@@ -97,8 +97,8 @@ mini_allocator_count_extents_in_range(cache       *cc,
                                       data_config *data_cfg,
                                       page_type    type,
                                       uint64       meta_head,
-                                      const char  *start_key,
-                                      const char  *end_key);
+                                      const bytebuffer start_key,
+                                      const bytebuffer end_key);
 
 void
 mini_allocator_prefetch(cache     *cc,
