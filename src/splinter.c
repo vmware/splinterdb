@@ -2029,9 +2029,9 @@ splinter_bundle_clear_subbundles(splinter_handle *spl,
       routing_filter *filter =
          splinter_get_sb_filter(spl, node, filter_no);
       splinter_dec_filter(spl, filter);
-      //platform_log("dec filter %lu in %lu (%u)\n",
+      // platform_log("dec filter %lu in %lu (%u)\n",
       //      filter->addr, node->disk_addr,
-      //      allocator_get_refcount(spl->al, filter->addr));
+      //      allocator_get_ref(spl->al, filter->addr));
    }
    hdr->start_sb_filter = end_filter;
    hdr->start_subbundle = bundle->end_subbundle;
@@ -2560,9 +2560,9 @@ splinter_replace_bundle_branches(splinter_handle             *spl,
          routing_filter *old_filter =
             splinter_get_sb_filter(spl, node, filter_no);
          splinter_dec_filter(spl, old_filter);
-         //platform_log("dec filter %lu in %lu (%u)\n",
+         // platform_log("dec filter %lu in %lu (%u)\n",
          //      old_filter->addr, node->disk_addr,
-         //      allocator_get_refcount(spl->al, old_filter->addr));
+         //      allocator_get_ref(spl->al, old_filter->addr));
       }
 
       // move any later filters
@@ -2681,8 +2681,8 @@ splinter_inc_branch_range(splinter_handle *spl,
 static inline void
 splinter_zap_branch_range(splinter_handle *spl,
                           splinter_branch *branch,
-                          const char      *start_key,
-                          const char      *end_key,
+                          const char *     start_key,
+                          const char *     end_key,
                           page_type        type)
 {
    platform_assert(type == PAGE_TYPE_BRANCH);
@@ -2879,7 +2879,7 @@ splinter_memtable_inc_ref(splinter_handle *spl,
                           uint64           mt_gen)
 {
    memtable *mt = splinter_get_memtable(spl, mt_gen);
-   allocator_inc_refcount(spl->al, mt->root_addr);
+   allocator_inc_ref(spl->al, mt->root_addr);
 }
 
 
@@ -2901,15 +2901,15 @@ splinter_memtable_dec_ref(splinter_handle *spl,
  */
 static void
 splinter_memtable_iterator_init(splinter_handle *spl,
-                                btree_iterator  *itor,
+                                btree_iterator * itor,
                                 uint64           root_addr,
-                                const char      *min_key,
-                                const char      *max_key,
+                                const char *     min_key,
+                                const char *     max_key,
                                 bool             is_live,
-                                bool             inc_refcount)
+                                bool             inc_ref)
 {
-   if (inc_refcount) {
-      allocator_inc_refcount(spl->al, root_addr);
+   if (inc_ref) {
+      allocator_inc_ref(spl->al, root_addr);
    }
    btree_iterator_init(spl->cc,
                        &spl->cfg.btree_cfg,
@@ -2925,12 +2925,12 @@ splinter_memtable_iterator_init(splinter_handle *spl,
 
 static void
 splinter_memtable_iterator_deinit(splinter_handle *spl,
-                                  btree_iterator  *itor,
+                                  btree_iterator * itor,
                                   uint64           mt_gen,
-                                  bool             dec_refcount)
+                                  bool             dec_ref)
 {
    btree_iterator_deinit(itor);
-   if (dec_refcount) {
+   if (dec_ref) {
       splinter_memtable_dec_ref(spl, mt_gen);
    }
 }
@@ -3046,9 +3046,9 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    platform_status rc = routing_filter_add(spl->cc, &spl->cfg.leaf_filter_cfg,
          spl->heap_id, &empty_filter, &cmt->filter, cmt->req->fp_arr,
          req.num_tuples, 0);
-   //platform_log("cre filter %lu in %lu (%u)\n",
+   // platform_log("cre filter %lu in %lu (%u)\n",
    //      cmt->filter.addr, spl->root_addr,
-   //      allocator_get_refcount(spl->al, cmt->filter.addr));
+   //      allocator_get_ref(spl->al, cmt->filter.addr));
    platform_assert(SUCCESS(rc));
    if (spl->cfg.use_stats) {
       spl->stats[tid].root_filter_time_ns +=
@@ -3645,9 +3645,9 @@ splinter_build_filters(splinter_handle             *spl,
       platform_status rc = routing_filter_add(spl->cc, filter_cfg,
             spl->heap_id, &old_filter, &new_filter, fp_arr, num_fingerprints,
             value);
-      //platform_log("cre filter %lu in %lu (%u), gen %lu\n",
+      // platform_log("cre filter %lu in %lu (%u), gen %lu\n",
       //      new_filter.addr, req->addr,
-      //      allocator_get_refcount(spl->al, new_filter.addr), generation);
+      //      allocator_get_ref(spl->al, new_filter.addr), generation);
       platform_assert(SUCCESS(rc));
 
       req->filter[pos] = new_filter;
@@ -3680,18 +3680,18 @@ splinter_replace_routing_filter(splinter_handle             *spl,
          if (pos != SPLINTER_MAX_PIVOTS && req->filter[pos].addr != 0) {
             splinter_dec_filter(spl, &req->filter[pos]);
             ZERO_CONTENTS(&req->filter[pos]);
-            //platform_log("dec filter %lu in %lu (%u)\n",
+            // platform_log("dec filter %lu in %lu (%u)\n",
             //      req->filter[pos].addr, node->disk_addr,
-            //      allocator_get_refcount(spl->al, req->filter[pos].addr));
+            //      allocator_get_ref(spl->al, req->filter[pos].addr));
          }
          continue;
       }
       platform_assert(pos != SPLINTER_MAX_PIVOTS);
       debug_assert(pdata->generation < req->max_pivot_generation);
       splinter_dec_filter(spl, &pdata->filter);
-      //platform_log("dec filter %lu in %lu (%u)\n",
+      // platform_log("dec filter %lu in %lu (%u)\n",
       //      pdata->filter.addr, node->disk_addr,
-      //      allocator_get_refcount(spl->al, pdata->filter.addr));
+      //      allocator_get_ref(spl->al, pdata->filter.addr));
       pdata->filter = req->filter[pos];
       ZERO_CONTENTS(&req->filter[pos]);
       uint64 num_tuples_to_reclaim =
@@ -3943,9 +3943,9 @@ splinter_flush_into_bundle(splinter_handle             *spl,    // IN
                splinter_subbundle_filter(spl, parent, parent_sb, i);
             *child_filter = *parent_filter;
             splinter_inc_filter(spl, child_filter);
-            //splinter_log_stream("inc filter %lu in %lu (%u)\n",
+            // splinter_log_stream("inc filter %lu in %lu (%u)\n",
             //      child_filter->addr, child->disk_addr,
-            //      allocator_get_refcount(spl->al, child_filter->addr));
+            //      allocator_get_ref(spl->al, child_filter->addr));
          }
          debug_assert(splinter_subbundle_branch_count(spl,
                                                       child, child_sb) != 0);
@@ -4884,9 +4884,9 @@ splinter_split_index(splinter_handle *spl,
       routing_filter *filter =
          splinter_get_sb_filter(spl, left_node, filter_no);
       splinter_inc_filter(spl, filter);
-      //platform_log("inc filter %lu in %lu (%u)\n",
+      // platform_log("inc filter %lu in %lu (%u)\n",
       //      filter->addr, right_node->disk_addr,
-      //      allocator_get_refcount(spl->al, filter->addr));
+      //      allocator_get_ref(spl->al, filter->addr));
    }
 
    // set the headers appropriately
@@ -5282,9 +5282,9 @@ splinter_split_leaf(splinter_handle *spl,
             routing_filter *filter =
                splinter_get_sb_filter(spl, new_leaf, filter_no);
             splinter_inc_filter(spl, filter);
-            //splinter_log_stream("inc filter %lu in %lu (%u)\n",
+            // splinter_log_stream("inc filter %lu in %lu (%u)\n",
             //      filter->addr, new_leaf->disk_addr,
-            //      allocator_get_refcount(spl->al, filter->addr));
+            //      allocator_get_ref(spl->al, filter->addr));
          }
 
          /*
@@ -6784,7 +6784,8 @@ splinter_create(splinter_config  *cfg,
    // get a free node for the root
    //    we don't use the mini allocator for this, since the root doesn't
    //    maintain constant height
-   platform_status rc = allocator_alloc_extent(spl->al, &spl->root_addr);
+   platform_status rc =
+      allocator_alloc(spl->al, &spl->root_addr, PAGE_TYPE_TRUNK);
    platform_assert_status_ok(rc);
    page_handle *root = cache_alloc(spl->cc, spl->root_addr, PAGE_TYPE_TRUNK);
    splinter_trunk_hdr *root_hdr = (splinter_trunk_hdr *)root->data;
@@ -7001,9 +7002,9 @@ splinter_node_destroy(splinter_handle *spl,
       splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pivot_no);
       if (pdata->filter.addr != 0) {
          splinter_dec_filter(spl, &pdata->filter);
-         //platform_log("dec filter %lu in %lu (%u)\n",
+         // platform_log("dec filter %lu in %lu (%u)\n",
          //      pdata->filter.addr, node->disk_addr,
-         //      allocator_get_refcount(spl->al, pdata->filter.addr));
+         //      allocator_get_ref(spl->al, pdata->filter.addr));
       }
       for (uint16 branch_no = pdata->start_branch;
            branch_no != splinter_end_branch(spl, node);
@@ -7011,8 +7012,19 @@ splinter_node_destroy(splinter_handle *spl,
          splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
          const char *start_key = splinter_get_pivot(spl, node, pivot_no);
          const char *end_key = splinter_get_pivot(spl, node, pivot_no + 1);
-         splinter_zap_branch_range(spl, branch, start_key, end_key,
-               PAGE_TYPE_BRANCH);
+
+         splinter_zap_branch_range(
+            spl, branch, start_key, end_key, PAGE_TYPE_BRANCH);
+         // bool freed = splinter_zap_branch_range(
+         //   spl, branch, start_key, end_key, PAGE_TYPE_BRANCH);
+         // uint64 meta_head = branch->root_addr + 4096;
+         // if (!freed) {
+         //   mini_keyed_print(spl->cc,
+         //                    spl->cfg.data_cfg,
+         //                    meta_head,
+         //                    PAGE_TYPE_BRANCH);
+         //} else {
+         //}
       }
    }
    uint16 start_filter = splinter_start_sb_filter(spl, node);
@@ -7020,9 +7032,9 @@ splinter_node_destroy(splinter_handle *spl,
    for (uint16 filter_no = start_filter; filter_no != end_filter; filter_no++) {
       routing_filter *filter = splinter_get_sb_filter(spl, node, filter_no);
       splinter_dec_filter(spl, filter);
-      //platform_log("dec filter %lu in %lu (%u)\n",
+      // platform_log("dec filter %lu in %lu (%u)\n",
       //      filter->addr, node->disk_addr,
-      //      allocator_get_refcount(spl->al, filter->addr));
+      //      allocator_get_ref(spl->al, filter->addr));
    }
 
    splinter_node_unlock(spl, node);
@@ -7041,6 +7053,7 @@ splinter_destroy(splinter_handle *spl)
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
+   mini_release(&spl->mini, NULL);
    mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
 
    // clear out this splinter table from the meta page.
@@ -7622,8 +7635,10 @@ splinter_print_memtable(splinter_handle        *spl,
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       memtable *mt = splinter_get_memtable(spl, mt_gen);
       platform_log_stream("%lu: gen %lu ref_count %u state %d\n",
-            mt_gen, mt->root_addr,
-            allocator_get_refcount(spl->al, mt->root_addr), mt->state);
+                          mt_gen,
+                          mt->root_addr,
+                          allocator_get_ref(spl->al, mt->root_addr),
+                          mt->state);
    }
    platform_log_stream("\n");
 }

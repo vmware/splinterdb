@@ -200,9 +200,6 @@ void
 clockcache_assert_ungot(clockcache *cc, uint64 addr);
 
 void
-clockcache_assert_noleaks(clockcache *cc);
-
-void
 clockcache_assert_no_locks_held(clockcache *cc);
 
 void
@@ -420,13 +417,6 @@ clockcache_assert_ungot_virtual(cache *c, uint64 addr)
 }
 
 void
-clockcache_assert_noleaks_virtual(cache *c)
-{
-   clockcache *cc = (clockcache *)c;
-   clockcache_assert_noleaks(cc);
-}
-
-void
 clockcache_assert_no_locks_held_virtual(cache *c)
 {
    clockcache *cc = (clockcache *)c;
@@ -542,7 +532,6 @@ static cache_ops clockcache_ops = {
    .get_extent_size   = clockcache_get_extent_size_virtual,
    .assert_ungot      = clockcache_assert_ungot_virtual,
    .assert_free       = clockcache_assert_no_locks_held_virtual,
-   .assert_noleaks    = clockcache_assert_noleaks_virtual,
    .print             = clockcache_print_virtual,
    .print_stats       = clockcache_print_stats_virtual,
    .io_stats          = clockcache_io_stats_virtual,
@@ -1904,7 +1893,6 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       platform_buffer_destroy(cc->bh);
    }
    cc->data = NULL;
-   //clockcache_assert_noleaks(cc);
    platform_free_volatile(cc->heap_id, cc->batch_busy);
 }
 
@@ -1929,10 +1917,6 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
    clockcache_entry *entry    = &cc->entry[entry_no];
    entry->page.disk_addr      = addr;
    entry->type                = type;
-   if (cc->cfg->use_stats) {
-      const threadid tid = platform_get_tid();
-      cc->stats[tid].page_allocs[type]++;
-   }
    uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
    cc->lookup[lookup_no] = entry_no;
 
@@ -2049,7 +2033,7 @@ clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 {
    debug_assert(addr % cc->cfg->extent_size == 0);
    debug_code(allocator *al = cc->al);
-   debug_assert(allocator_get_refcount(al, addr) == 1);
+   debug_assert(allocator_get_ref(al, addr) == 1);
 
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
@@ -2071,7 +2055,7 @@ clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 uint8
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr)
 {
-   return allocator_get_refcount(cc->al, addr);
+   return allocator_get_ref(cc->al, addr);
 }
 
 /*
@@ -2109,7 +2093,7 @@ clockcache_get_internal(clockcache *cc,              // IN
    uint64 start, elapsed;
    const threadid tid = platform_get_tid();
 
-   debug_assert(allocator_get_refcount(cc->al, base_addr) > 1);
+   debug_assert(allocator_get_ref(cc->al, base_addr) > 1);
 
    entry_number = clockcache_lookup(cc, addr);
    if (entry_number != CC_UNMAPPED_ENTRY) {
@@ -2342,7 +2326,7 @@ clockcache_get_async(clockcache        *cc,        // IN
       - addr % cc->cfg->extent_size;
    const threadid tid = platform_get_tid();
 
-   debug_assert(allocator_get_refcount(cc->al, base_addr) > 1);
+   debug_assert(allocator_get_ref(cc->al, base_addr) > 1);
 
    ctxt->page = NULL;
    entry_number = clockcache_lookup(cc, addr);
@@ -3021,10 +3005,11 @@ clockcache_page_valid(clockcache *cc,
    if (addr % cc->cfg->page_size != 0)
       return FALSE;
    uint64 base_addr = addr - addr % cc->cfg->extent_size;
-   if (addr < allocator_get_capacity(cc->al))
-      return base_addr != 0 && allocator_get_refcount(cc->al, base_addr) != 0;
-   else
+   if (addr < allocator_get_capacity(cc->al)) {
+      return base_addr != 0 && allocator_get_ref(cc->al, base_addr) != 0;
+   } else {
       return FALSE;
+   }
 }
 
 void
@@ -3048,50 +3033,6 @@ clockcache_assert_ungot(clockcache *cc,
                                     = clockcache_get_ref(cc, entry_number, tid);
       debug_assert(ref_count == 0);
    }
-}
-
-void
-clockcache_assert_noleaks(clockcache *cc)
-{
-   if (!cc->cfg->use_stats) {
-      return;
-   }
-   page_type type;
-   uint64 i, allocs[NUM_PAGE_TYPES] = {0}, deallocs[NUM_PAGE_TYPES] = {0};
-
-   const char *page_type_strings[NUM_PAGE_TYPES] = {
-      SET_ARRAY_INDEX_TO_STRINGIFY(PAGE_TYPE_TRUNK),
-      SET_ARRAY_INDEX_TO_STRINGIFY(PAGE_TYPE_BRANCH),
-      SET_ARRAY_INDEX_TO_STRINGIFY(PAGE_TYPE_MEMTABLE),
-      SET_ARRAY_INDEX_TO_STRINGIFY(PAGE_TYPE_FILTER),
-      SET_ARRAY_INDEX_TO_STRINGIFY(PAGE_TYPE_LOG),
-      SET_ARRAY_INDEX_TO_STRINGIFY(PAGE_TYPE_MISC),
-   };
-
-   for (i = 0; i < MAX_THREADS; i++) {
-      for (type = 0; type < NUM_PAGE_TYPES; type++) {
-         allocs[type] += cc->stats[i].page_allocs[type];
-         deallocs[type] += cc->stats[i].page_deallocs[type];
-      }
-   }
-
-   bool deallocs_match = TRUE;
-   for (type = 0; type < NUM_PAGE_TYPES; type++) {
-      if (type == PAGE_TYPE_LOG) {
-         continue;
-      }
-      if (allocs[type] != deallocs[type]) {
-         platform_log("%s: allocs %lu deallocs %lu\n",
-                      page_type_strings[type],
-                      allocs[PAGE_TYPE_TRUNK],
-                      deallocs[PAGE_TYPE_TRUNK]);
-         deallocs_match = FALSE;
-      }
-   }
-   if (!deallocs_match) {
-      //allocator_print_allocated(cc->al);
-   }
-   platform_assert(deallocs_match);
 }
 
 void
@@ -3138,8 +3079,6 @@ clockcache_print_stats(clockcache *cc)
          global_stats.cache_misses[type] += cc->stats[i].cache_misses[type];
          global_stats.cache_miss_time_ns[type] +=
             cc->stats[i].cache_miss_time_ns[type];
-         global_stats.page_allocs[type] += cc->stats[i].page_allocs[type];
-         global_stats.page_deallocs[type] += cc->stats[i].page_deallocs[type];
          global_stats.page_writes[type] += cc->stats[i].page_writes[type];
          page_writes += cc->stats[i].page_writes[type];
          global_stats.page_reads[type] += cc->stats[i].page_reads[type];
@@ -3193,13 +3132,6 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(miss_time[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_MISC]));
-   platform_log("pages allocated | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
-         global_stats.page_allocs[PAGE_TYPE_TRUNK],
-         global_stats.page_allocs[PAGE_TYPE_BRANCH],
-         global_stats.page_allocs[PAGE_TYPE_MEMTABLE],
-         global_stats.page_allocs[PAGE_TYPE_FILTER],
-         global_stats.page_allocs[PAGE_TYPE_LOG],
-         global_stats.page_allocs[PAGE_TYPE_MISC]);
    platform_log("pages written   | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_writes[PAGE_TYPE_TRUNK],
          global_stats.page_writes[PAGE_TYPE_BRANCH],
@@ -3224,43 +3156,12 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_MISC]));
-   platform_log("footprint       | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
-          global_stats.page_allocs[PAGE_TYPE_TRUNK]
-             - global_stats.page_deallocs[PAGE_TYPE_TRUNK],
-          global_stats.page_allocs[PAGE_TYPE_BRANCH]
-             - global_stats.page_deallocs[PAGE_TYPE_BRANCH],
-          global_stats.page_allocs[PAGE_TYPE_MEMTABLE]
-             - global_stats.page_deallocs[PAGE_TYPE_MEMTABLE],
-          global_stats.page_allocs[PAGE_TYPE_FILTER]
-             - global_stats.page_deallocs[PAGE_TYPE_FILTER],
-          global_stats.page_allocs[PAGE_TYPE_LOG]
-             - global_stats.page_deallocs[PAGE_TYPE_LOG],
-          global_stats.page_allocs[PAGE_TYPE_MISC]
-             - global_stats.page_deallocs[PAGE_TYPE_MISC]);
    platform_default_log("-----------------------------------------------------------------------------------------------\n");
    platform_log("avg write pgs: "FRACTION_FMT(9,2)"\n",
          FRACTION_ARGS(avg_write_pages));
-
-   uint64 total_space_use_pages = global_stats.page_allocs[PAGE_TYPE_TRUNK]
-                                - global_stats.page_deallocs[PAGE_TYPE_TRUNK]
-                                + global_stats.page_allocs[PAGE_TYPE_BRANCH]
-                                - global_stats.page_deallocs[PAGE_TYPE_BRANCH]
-                                + global_stats.page_allocs[PAGE_TYPE_MEMTABLE]
-                                - global_stats.page_deallocs[PAGE_TYPE_MEMTABLE]
-                                + global_stats.page_allocs[PAGE_TYPE_FILTER]
-                                - global_stats.page_deallocs[PAGE_TYPE_FILTER]
-                                + global_stats.page_allocs[PAGE_TYPE_LOG]
-                                - global_stats.page_deallocs[PAGE_TYPE_LOG]
-                                + global_stats.page_allocs[PAGE_TYPE_MISC]
-                                - global_stats.page_deallocs[PAGE_TYPE_MISC];
-   uint64 total_space_use_bytes = total_space_use_pages * cc->cfg->page_size;
-   platform_default_log("\nTotal space use: %lu MiB\n",
-         B_TO_MiB(total_space_use_bytes));
-   platform_default_log("Total space use (allocator): %lu MiB\n",
-         B_TO_MiB(allocator_in_use(cc->al)));
-   platform_default_log("Max space use (allocator): %lu MiB\n\n",
-         B_TO_MiB(allocator_max_allocated(cc->al)));
    // clang-format on
+
+   allocator_print_stats(cc->al);
 }
 
 void

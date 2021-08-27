@@ -274,7 +274,8 @@ void
 memtable_deinit(cache            *cc,
                 memtable         *mt)
 {
-   __attribute__((unused)) bool freed =
+   mini_release(&mt->mini, NULL);
+   debug_only bool freed =
       btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);
 }
@@ -293,7 +294,7 @@ memtable_context_create(platform_heap_id  hid,
 
    uint64          base_addr;
    allocator *     al = cache_allocator(cc);
-   platform_status rc = allocator_alloc_extent(al, &base_addr);
+   platform_status rc = allocator_alloc(al, &base_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert_status_ok(rc);
 
    ctxt->insert_lock_addr = base_addr;
@@ -347,11 +348,12 @@ memtable_context_destroy(platform_heap_id  hid,
     * lookup lock and insert lock share extents but not pages.
     * this deallocs both.
     */
-   allocator *al  = cache_allocator(cc);
-   uint8      ref = allocator_dec_refcount(al, ctxt->insert_lock_addr);
+   allocator *al = cache_allocator(cc);
+   uint8      ref =
+      allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_NO_REFS);
    cache_hard_evict_extent(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   ref = allocator_dec_refcount(al, ctxt->insert_lock_addr);
+   ref = allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_FREE);
 
    platform_free(hid, ctxt);

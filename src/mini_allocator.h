@@ -65,7 +65,7 @@ mini_keyed_inc_ref(cache *      cc,
                    uint64       meta_head,
                    const char * start_key,
                    const char * end_key);
-void
+bool
 mini_keyed_dec_ref(cache *      cc,
                    data_config *data_cfg,
                    page_type    type,

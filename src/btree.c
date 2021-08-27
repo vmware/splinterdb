@@ -997,7 +997,7 @@ btree_init(cache          *cc,
    page_type type = is_packed ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
    allocator *     al   = cache_allocator(cc);
    uint64          base_addr;
-   platform_status rc = allocator_alloc_extent(al, &base_addr);
+   platform_status rc = allocator_alloc(al, &base_addr, type);
    platform_assert_status_ok(rc);
    page_handle *root_page = cache_alloc(cc, base_addr, type);
 
@@ -1077,9 +1077,8 @@ btree_zap_range(cache        *cc,
    }
 
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   mini_keyed_dec_ref(
+   return mini_keyed_dec_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_key, end_key);
-   return TRUE;
 }
 
 // FIXME: [aconway 2021-08-21]

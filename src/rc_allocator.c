@@ -30,43 +30,169 @@
  */
 
 // allocator.h functions
-platform_status      rc_allocator_alloc_extent         (rc_allocator *al, uint64 *addr_arr);
-uint8                rc_allocator_inc_ref              (rc_allocator *al, uint64 addr);
-uint8                rc_allocator_dec_ref              (rc_allocator *al, uint64 addr);
-uint8                rc_allocator_get_ref              (rc_allocator *al, uint64 addr);
-uint64               rc_allocator_get_capacity         (rc_allocator *al);
-platform_status      rc_allocator_get_super_addr       (rc_allocator *al,
-                                                        allocator_root_id spl_id,
-                                                        uint64 *addr);
-platform_status      rc_allocator_alloc_super_addr     (rc_allocator *al,
-                                                        allocator_root_id spl_id,
-                                                        uint64 *addr);
-void                 rc_allocator_remove_super_addr    (rc_allocator *al,
-                                                        allocator_root_id spl_id);
-uint64               rc_allocator_extent_size          (rc_allocator *al);
-uint64               rc_allocator_page_size            (rc_allocator *al);
-void                 rc_allocator_print_allocated      (rc_allocator *al);
-uint64               rc_allocator_max_allocated        (rc_allocator *al);
-uint64               rc_allocator_in_use               (rc_allocator *al);
+platform_status
+rc_allocator_alloc(rc_allocator *al, uint64 *addr, page_type type);
 
-// other functions
+platform_status
+rc_allocator_alloc_virtual(allocator *a, uint64 *addr, page_type type)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_alloc(al, addr, type);
+}
+
+uint8
+rc_allocator_inc_ref(rc_allocator *al, uint64 addr);
+
+uint8
+rc_allocator_inc_ref_virtual(allocator *a, uint64 addr)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_inc_ref(al, addr);
+}
+
+uint8
+rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type);
+
+uint8
+rc_allocator_dec_ref_virtual(allocator *a, uint64 addr, page_type type)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_dec_ref(al, addr, type);
+}
+
+uint8
+rc_allocator_get_ref(rc_allocator *al, uint64 addr);
+
+uint8
+rc_allocator_get_ref_virtual(allocator *a, uint64 addr)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_get_ref(al, addr);
+}
+
+platform_status
+rc_allocator_get_super_addr(rc_allocator *    al,
+                            allocator_root_id spl_id,
+                            uint64 *          addr);
+
+platform_status
+rc_allocator_get_super_addr_virtual(allocator *       a,
+                                    allocator_root_id spl_id,
+                                    uint64 *          addr)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_get_super_addr(al, spl_id, addr);
+}
+
+platform_status
+rc_allocator_alloc_super_addr(rc_allocator *    al,
+                              allocator_root_id spl_id,
+                              uint64 *          addr);
+
+platform_status
+rc_allocator_alloc_super_addr_virtual(allocator *       a,
+                                      allocator_root_id spl_id,
+                                      uint64 *          addr)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_alloc_super_addr(al, spl_id, addr);
+}
+
+void
+rc_allocator_remove_super_addr(rc_allocator *al, allocator_root_id spl_id);
+
+void
+rc_allocator_remove_super_addr_virtual(allocator *a, allocator_root_id spl_id)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   rc_allocator_remove_super_addr(al, spl_id);
+}
+
+uint64
+rc_allocator_in_use(rc_allocator *al);
+
+uint64
+rc_allocator_in_use_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_in_use(al);
+}
+
+uint64
+rc_allocator_get_capacity(rc_allocator *al);
+
+uint64
+rc_allocator_get_capacity_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_get_capacity(al);
+}
+
+uint64
+rc_allocator_extent_size(rc_allocator *al);
+
+uint64
+rc_allocator_extent_size_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_extent_size(al);
+}
+
+uint64
+rc_allocator_page_size(rc_allocator *al);
+
+uint64
+rc_allocator_page_size_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_page_size(al);
+}
+
+void
+rc_allocator_assert_noleaks(rc_allocator *al);
+
+void
+rc_allocator_assert_noleaks_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   rc_allocator_assert_noleaks(al);
+}
+
+void
+rc_allocator_print_stats(rc_allocator *al);
+
+void
+rc_allocator_print_stats_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   rc_allocator_print_stats(al);
+}
+
+void
+rc_allocator_debug_print(rc_allocator *al);
+
+void
+rc_allocator_debug_print_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   rc_allocator_debug_print(al);
+}
 
 const static allocator_ops rc_allocator_ops = {
-   .alloc_extent      = (alloc_extent_fn)      rc_allocator_alloc_extent,
-   .inc_refcount      = (inc_refcount_fn)      rc_allocator_inc_ref,
-   .dec_refcount      = (dec_refcount_fn)      rc_allocator_dec_ref,
-   .get_refcount      = (get_refcount_fn)      rc_allocator_get_ref,
-   .get_capacity      = (get_capacity_fn)      rc_allocator_get_capacity,
-   .get_super_addr    = (get_super_addr_fn)    rc_allocator_get_super_addr,
-   .alloc_super_addr  = (alloc_super_addr_fn)  rc_allocator_alloc_super_addr,
-   .remove_super_addr = (remove_super_addr_fn) rc_allocator_remove_super_addr,
-   .in_use            = (in_use_fn)            rc_allocator_in_use,
-   .get_extent_size   = (get_size_fn)          rc_allocator_extent_size,
-   .get_page_size     = (get_size_fn)          rc_allocator_page_size,
-   .print_allocated   = (print_allocated_fn)   rc_allocator_print_allocated,
-   .max_allocated     = (max_allocated_fn)     rc_allocator_max_allocated,
+   .alloc             = rc_allocator_alloc_virtual,
+   .inc_ref           = rc_allocator_inc_ref_virtual,
+   .dec_ref           = rc_allocator_dec_ref_virtual,
+   .get_ref           = rc_allocator_get_ref_virtual,
+   .get_super_addr    = rc_allocator_get_super_addr_virtual,
+   .alloc_super_addr  = rc_allocator_alloc_super_addr_virtual,
+   .remove_super_addr = rc_allocator_remove_super_addr_virtual,
+   .get_capacity      = rc_allocator_get_capacity_virtual,
+   .get_extent_size   = rc_allocator_extent_size_virtual,
+   .get_page_size     = rc_allocator_page_size_virtual,
+   .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
+   .print_stats       = rc_allocator_print_stats_virtual,
+   .debug_print       = rc_allocator_debug_print_virtual,
 };
-
 
 static platform_status
 rc_allocator_init_meta_page(rc_allocator *al)
@@ -185,7 +311,7 @@ rc_allocator_init(rc_allocator         *al,
    memset(al->ref_count, 0, buffer_size);
 
    // allocate the super block
-   allocator_alloc_extent(&al->super, &addr);
+   allocator_alloc(&al->super, &addr, PAGE_TYPE_MISC);
    // super block extent should always start from address 0.
    platform_assert(addr == RC_ALLOCATOR_BASE_OFFSET);
 
@@ -196,7 +322,7 @@ rc_allocator_init(rc_allocator         *al,
    rc_extent_count = (buffer_size + al->cfg->extent_size - 1)
       / al->cfg->extent_size;
    for (uint64 i = 0; i < rc_extent_count; i++) {
-      allocator_alloc_extent(&al->super, &addr);
+      allocator_alloc(&al->super, &addr, PAGE_TYPE_MISC);
       platform_assert(addr == cfg->extent_size * (i + 1));
    }
 
@@ -281,11 +407,11 @@ rc_allocator_mount(rc_allocator         *al,
    platform_assert_status_ok(status);
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
       if (al->ref_count[i] != 0) {
-         al->allocated++;
+         al->stats.curr_allocated++;
       }
    }
    platform_log("Allocated at mount: %lu MiB\n",
-         B_TO_MiB(al->allocated * cfg->extent_size));
+                B_TO_MiB(al->stats.curr_allocated * cfg->extent_size));
    return STATUS_OK;
 }
 
@@ -296,7 +422,7 @@ rc_allocator_dismount(rc_allocator *al)
    platform_status status;
 
    platform_log("Allocated at dismount: %lu MiB\n",
-         B_TO_MiB(al->allocated * al->cfg->extent_size));
+                B_TO_MiB(al->stats.curr_allocated * al->cfg->extent_size));
    // persist the ref counts upon dismount.
    uint32 io_size = ROUNDUP(al->cfg->extent_capacity, al->cfg->page_size);
    status = io_write(al->io, al->ref_count, io_size, al->cfg->extent_size);
@@ -308,9 +434,11 @@ rc_allocator_dismount(rc_allocator *al)
 /*
  *----------------------------------------------------------------------
  *
- * rc_allocator_inc_ref --
+ * rc_allocator_[inc,dec,get]_ref --
  *
- *      Increments the ref count of the given address and returns the new one.
+ *      Increments/decrements/fetches the ref count of the given address and
+ *      returns the new one. If the ref_count goes to 0, then the extent is
+ *      freed.
  *
  *----------------------------------------------------------------------
  */
@@ -328,15 +456,22 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
    return ref_count;
 }
 
-/*
- *----------------------------------------------------------------------
- *
- * rc_allocator_get_ref --
- *
- *      Returns the ref count of the given address.
- *
- *----------------------------------------------------------------------
- */
+uint8
+rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
+{
+   debug_assert(addr % al->cfg->extent_size == 0);
+
+   uint64 extent_no = addr / al->cfg->extent_size;
+   debug_assert(extent_no < al->cfg->extent_capacity);
+
+   uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
+   platform_assert(ref_count != UINT8_MAX);
+   if (ref_count == 0) {
+      __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
+      __sync_add_and_fetch(&al->stats.extent_deallocs[type], 1);
+   }
+   return ref_count;
+}
 
 uint8
 rc_allocator_get_ref(rc_allocator *al, uint64 addr)
@@ -347,33 +482,6 @@ rc_allocator_get_ref(rc_allocator *al, uint64 addr)
    extent_no = addr / al->cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
    return al->ref_count[extent_no];
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * rc_allocator_dec_ref --
- *
- *      Decrements the ref count and returns the new one. If the ref_count
- *      is 0, then the extent is free.
- *
- *----------------------------------------------------------------------
- */
-
-uint8
-rc_allocator_dec_ref(rc_allocator *al, uint64 addr)
-{
-   debug_assert(addr % al->cfg->extent_size == 0);
-
-   uint64 extent_no = addr / al->cfg->extent_size;
-   debug_assert(extent_no < al->cfg->extent_capacity);
-
-   uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
-   platform_assert(ref_count != UINT8_MAX);
-   if (ref_count == 0) {
-      __sync_sub_and_fetch(&al->allocated, 1);
-   }
-   return ref_count;
 }
 
 
@@ -414,16 +522,6 @@ rc_allocator_get_super_addr(rc_allocator *al,
    platform_mutex_unlock(&al->lock);
    return status;
 
-}
-
-uint64 rc_allocator_in_use(rc_allocator *al)
-{
-   return al->allocated * al->cfg->extent_size;
-}
-
-uint64 rc_allocator_max_allocated(rc_allocator *al)
-{
-   return al->max_allocated * al->cfg->extent_size;
 }
 
 platform_status
@@ -505,7 +603,7 @@ rc_allocator_page_size(rc_allocator *al)
 /*
  *----------------------------------------------------------------------
  *
- * rc_allocator_alloc_extent --
+ * rc_allocator_alloc--
  *
  *      Allocate an extent
  *
@@ -513,8 +611,9 @@ rc_allocator_page_size(rc_allocator *al)
  */
 
 platform_status
-rc_allocator_alloc_extent(rc_allocator *al,         /* IN  */
-                          uint64       *addr)       /* OUT */
+rc_allocator_alloc(rc_allocator *al,   // IN
+                   uint64 *      addr, // OUT
+                   page_type     type)     // IN
 {
    uint64 first_hand = al->hand % al->cfg->extent_capacity;
    uint64 hand;
@@ -526,17 +625,19 @@ rc_allocator_alloc_extent(rc_allocator *al,         /* IN  */
          extent_is_free = __sync_bool_compare_and_swap(&al->ref_count[hand], 0, 2);
    } while (!extent_is_free && (hand + 1) % al->cfg->extent_capacity != first_hand);
    if (!extent_is_free) {
-      platform_log ("Out of Space: allocated %lu out of %lu addrs.\n",
-            al->allocated, al->cfg->extent_capacity);
+      platform_log("Out of Space: allocated %lu out of %lu addrs.\n",
+                   al->stats.curr_allocated,
+                   al->cfg->extent_capacity);
       return STATUS_NO_SPACE;
    }
-   int64 curr_allocated =__sync_add_and_fetch(&al->allocated, 1);
-   int64 max_allocated = al->max_allocated;
+   int64 curr_allocated = __sync_add_and_fetch(&al->stats.curr_allocated, 1);
+   int64 max_allocated  = al->stats.max_allocated;
    while (curr_allocated > max_allocated) {
-      __sync_bool_compare_and_swap(&al->max_allocated, max_allocated,
-                                   curr_allocated);
-      max_allocated = al->max_allocated;
+      __sync_bool_compare_and_swap(
+         &al->stats.max_allocated, max_allocated, curr_allocated);
+      max_allocated = al->stats.max_allocated;
    }
+   __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
    *addr = hand * al->cfg->extent_size;
 
    return STATUS_OK;
@@ -545,7 +646,107 @@ rc_allocator_alloc_extent(rc_allocator *al,         /* IN  */
 /*
  *----------------------------------------------------------------------
  *
- * rc_allocator_print_allocated --
+ * rc_allocator_in_use --
+ *
+ *      Returns the number of extents currently allocated
+ *
+ *----------------------------------------------------------------------
+ */
+
+uint64
+rc_allocator_in_use(rc_allocator *al)
+{
+   return al->stats.curr_allocated;
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * rc_allocator_assert_noleaks --
+ *
+ *      Asserts that the allocations of each type are completely matched by
+ *      deallocations.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+rc_allocator_assert_noleaks(rc_allocator *al)
+{
+   for (page_type type = PAGE_TYPE_TRUNK; type != NUM_PAGE_TYPES; type++) {
+      if (type == PAGE_TYPE_LOG || type == PAGE_TYPE_MISC) {
+         continue;
+      }
+      if (al->stats.extent_allocs[type] != al->stats.extent_deallocs[type]) {
+         platform_default_log("assert_noleaks: leak found\n");
+         platform_default_log("\n");
+         rc_allocator_print_stats(al);
+         rc_allocator_debug_print(al);
+         platform_assert(0);
+      }
+   }
+}
+
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * rc_allocator_print_stats --
+ *
+ *      Prints basic statistics about the allocator state.
+ *
+ *      Max allocations, and page type stats are since last mount.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+rc_allocator_print_stats(rc_allocator *al)
+{
+   int64 divider = GiB / al->cfg->extent_size;
+   platform_default_log(
+      "----------------------------------------------------------------\n");
+   platform_default_log(
+      "| Allocator Stats                                              |\n");
+   platform_default_log(
+      "|--------------------------------------------------------------|\n");
+   uint64 curr_gib = al->stats.curr_allocated / divider;
+   platform_default_log(
+      "| Currently Allocated: %12lu extents (%4luGiB)          |\n",
+      al->stats.curr_allocated,
+      curr_gib);
+   uint64 max_gib = al->stats.max_allocated / divider;
+   platform_default_log(
+      "| Max Allocated:       %12lu extents (%4luGiB)          |\n",
+      al->stats.max_allocated,
+      max_gib);
+   platform_default_log(
+      "|--------------------------------------------------------------|\n");
+   platform_default_log(
+      "| Page Type | Allocations | Deallocations | Footprint (bytes)  |\n");
+   platform_default_log(
+      "|--------------------------------------------------------------|\n");
+   for (page_type type = PAGE_TYPE_TRUNK; type != NUM_PAGE_TYPES; type++) {
+      const char *str           = page_type_str[type];
+      int64       allocs        = al->stats.extent_allocs[type];
+      int64       deallocs      = al->stats.extent_deallocs[type];
+      int64       footprint     = allocs - deallocs;
+      int64       footprint_gib = footprint / divider;
+      platform_default_log("| %9s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
+                           str,
+                           allocs,
+                           deallocs,
+                           footprint,
+                           footprint_gib);
+   }
+   platform_default_log(
+      "----------------------------------------------------------------\n");
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * rc_allocator_debug_print --
  *
  *      Prints the base addrs of all allocated extents.
  *
@@ -553,14 +754,14 @@ rc_allocator_alloc_extent(rc_allocator *al,         /* IN  */
  */
 
 void
-rc_allocator_print_allocated(rc_allocator *al)
+rc_allocator_debug_print(rc_allocator *al)
 {
    uint64 i;
    uint8  ref;
-   platform_log("Allocated: %lu\n", al->allocated);
+   platform_default_log("Allocated: %lu\n", al->stats.curr_allocated);
    for (i = 0; i < al->cfg->extent_capacity; i++) {
       ref = al->ref_count[i];
       if (ref != 0)
-         platform_log("%lu -- %u\n", i * al->cfg->extent_size, ref);
+         platform_default_log("%lu -- %u\n", i * al->cfg->extent_size, ref);
    }
 }

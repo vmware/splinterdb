@@ -60,16 +60,16 @@ out:
 }
 
 static platform_status
-cache_test_alloc_extents(cache *cc,
+cache_test_alloc_extents(cache *            cc,
                          clockcache_config *cfg,
-                         uint64 addr_arr[],
-                         uint32 extents_to_allocate)
+                         uint64             addr_arr[],
+                         uint32             extents_to_allocate)
 {
    allocator *     al = cache_allocator(cc);
    platform_status rc;
    for (uint32 j = 0; j < extents_to_allocate; j++) {
       uint64 base_addr;
-      rc = allocator_alloc_extent(al, &base_addr);
+      rc = allocator_alloc(al, &base_addr, PAGE_TYPE_MISC);
       if (!SUCCESS(rc)) {
          platform_error_log("Expected to be able to allocate %u entries,"
                             "but only allocated: %u",
@@ -267,10 +267,10 @@ test_cache_basic(cache             *cc,
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * cfg->pages_per_extent];
       allocator *al   = cache_allocator(cc);
-      uint8      ref  = allocator_dec_refcount(al, addr);
+      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
-      ref = allocator_dec_refcount(al, addr);
+      ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
 
@@ -516,10 +516,10 @@ test_cache_flush(cache             *cc,
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * cfg->pages_per_extent];
       allocator *al   = cache_allocator(cc);
-      uint8      ref  = allocator_dec_refcount(al, addr);
+      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
-      ref = allocator_dec_refcount(al, addr);
+      ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
    platform_log("Dealloc took %lu secs\n",
@@ -891,10 +891,10 @@ test_cache_async(cache             *cc,
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * cfg->pages_per_extent];
       allocator *al   = cache_allocator(cc);
-      uint8      ref  = allocator_dec_refcount(al, addr);
+      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
-      ref = allocator_dec_refcount(al, addr);
+      ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
    platform_free(hid, addr_arr);

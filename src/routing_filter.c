@@ -426,7 +426,7 @@ routing_filter_add(cache            *cc,
    // we use a mini_allocator to obtain pages
    allocator *     al = cache_allocator(cc);
    uint64          meta_head;
-   platform_status rc = allocator_alloc_extent(al, &meta_head);
+   platform_status rc = allocator_alloc(al, &meta_head, PAGE_TYPE_FILTER);
    platform_assert_status_ok(rc);
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
