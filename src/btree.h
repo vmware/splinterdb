@@ -247,17 +247,11 @@ btree_inc_range(cache        *cc,
                 const char   *start_key,
                 const char   *end_key);
 
-page_handle *
-btree_blind_inc(cache        *cc,
-                btree_config *cfg,
-                uint64        root_addr,
-                page_type     type);
+void
+btree_block_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
 
 void
-btree_blind_zap(cache        *cc,
-                btree_config *cfg,
-                page_handle  *meta_page,
-                page_type     type);
+btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
 
 void
 btree_iterator_init(cache *         cc,

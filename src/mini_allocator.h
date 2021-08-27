@@ -73,6 +73,12 @@ mini_keyed_dec_ref(cache *      cc,
                    const char * start_key,
                    const char * end_key);
 
+void
+mini_block_dec_ref(cache *cc, uint64 meta_head);
+
+void
+mini_unblock_dec_ref(cache *cc, uint64 meta_head);
+
 uint64
 mini_keyed_extent_count(cache *      cc,
                         data_config *data_cfg,

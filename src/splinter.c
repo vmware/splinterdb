@@ -5467,7 +5467,6 @@ splinter_range_iterator_init(splinter_handle         *spl,
    range_itor->at_end = FALSE;
 
    ZERO_ARRAY(range_itor->compacted);
-   ZERO_ARRAY(range_itor->meta_page);
 
    // grab the lookup lock
    page_handle *mt_lookup_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
@@ -5489,10 +5488,8 @@ splinter_range_iterator_init(splinter_handle         *spl,
       uint64 root_addr =
          splinter_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
       range_itor->compacted[range_itor->num_branches] = compacted;
-      page_type type = compacted ?  PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
       if (compacted) {
-         range_itor->meta_page[range_itor->num_branches] =
-            btree_blind_inc(spl->cc, &spl->cfg.btree_cfg, root_addr, type);
+         btree_block_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
       } else {
          splinter_memtable_inc_ref(spl, mt_gen);
       }
@@ -5524,9 +5521,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
             *splinter_get_branch(spl, node, branch_no);
          range_itor->compacted[range_itor->num_branches] = TRUE;
          uint64 root_addr = range_itor->branch[range_itor->num_branches].root_addr;
-
-         range_itor->meta_page[range_itor->num_branches] =
-            btree_blind_inc(spl->cc, &spl->cfg.btree_cfg, root_addr, PAGE_TYPE_BRANCH);
+         btree_block_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
          range_itor->num_branches++;
       }
 
@@ -5544,8 +5539,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
       range_itor->branch[range_itor->num_branches] =
          *splinter_get_branch(spl, node, branch_no);
       uint64 root_addr = range_itor->branch[range_itor->num_branches].root_addr;
-      range_itor->meta_page[range_itor->num_branches] =
-         btree_blind_inc(spl->cc, &spl->cfg.btree_cfg, root_addr, PAGE_TYPE_BRANCH);
+      btree_block_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
       range_itor->compacted[range_itor->num_branches] = TRUE;
       range_itor->num_branches++;
    }
@@ -5691,9 +5685,9 @@ splinter_range_iterator_deinit(splinter_range_iterator *range_itor)
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
       btree_iterator *btree_itor = &range_itor->btree_itor[i];
       if (range_itor->compacted[i]) {
+         uint64 root_addr = btree_itor->root_addr;
          splinter_branch_iterator_deinit(spl, btree_itor, FALSE);
-         page_handle *meta_page = range_itor->meta_page[i];
-         btree_blind_zap(spl->cc, &spl->cfg.btree_cfg, meta_page, PAGE_TYPE_BRANCH);
+         btree_unblock_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
       } else {
          uint64 mt_gen = range_itor->memtable_start_gen - i;
          splinter_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);

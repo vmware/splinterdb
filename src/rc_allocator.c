@@ -467,6 +467,7 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
    uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != UINT8_MAX);
    if (ref_count == 0) {
+      platform_assert(type != PAGE_TYPE_INVALID);
       __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
       __sync_add_and_fetch(&al->stats.extent_deallocs[type], 1);
    }

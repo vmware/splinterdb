@@ -1092,34 +1092,19 @@ btree_zap(cache *cc, btree_config *cfg, uint64 root_addr, page_type type)
    return ref == 0;
 }
 
-page_handle *
-btree_blind_inc(cache        *cc,
-                btree_config *cfg,
-                uint64        root_addr,
-                page_type     type)
+void
+btree_block_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
 {
-   // FIXME: [aconway 2021-08-21]
-   // This is broken in this commit, fixing later.
-   //
-   // platform_log("(%2lu)blind inc %14lu\n", platform_get_tid(), root_addr);
-   // uint64 meta_page_addr = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   // return mini_allocator_blind_inc(cc, meta_page_addr);
-   return NULL;
+   uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   mini_block_dec_ref(cc, meta_head);
 }
 
 void
-btree_blind_zap(cache        *cc,
-                btree_config *cfg,
-                page_handle  *meta_page,
-                page_type     type)
+btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
 {
-   // FIXME: [aconway 2021-08-21]
-   // This is broken in this commit, fixing later.
-   //
-   // platform_log("(%2lu)blind zap %14lu\n", platform_get_tid(), root_addr);
-   // mini_allocator_blind_zap(cc, type, meta_page);
+   uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
+   mini_unblock_dec_ref(cc, meta_head);
 }
-
 
 /*
  *-----------------------------------------------------------------------------
