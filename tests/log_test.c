@@ -38,12 +38,10 @@ test_log_crash(clockcache           *cc,
    log_handle         *logh;
    uint64              i;
    char                keybuffer[MAX_KEY_SIZE];
-   slice          key = slice_create(cfg->data_cfg->key_size, keybuffer);
    char               *databuffer = TYPED_ARRAY_MALLOC(hid, databuffer,
                                                        cfg->data_cfg->message_size);
-   slice          data = slice_create(cfg->data_cfg->message_size, databuffer);
-   slice          returned_key;
-   slice          returned_data;
+   slice               returned_key;
+   slice               returned_message;
    char                dummy = 'z';
    uint64              addr;
    uint64              magic;
@@ -61,12 +59,12 @@ test_log_crash(clockcache           *cc,
    addr = log_addr(logh);
    magic = log_magic(logh);
 
-   slice skey = slice_create(cfg->data_cfg->key_size, keybuffer);
-   slice smessage = slice_create(cfg->data_cfg->message_size, databuffer);
 
    for (i = 0; i < num_entries; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       test_insert_data(databuffer, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
+      slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
+      slice smessage = slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
       log_write(logh, skey, smessage, i);
    }
 
@@ -85,19 +83,17 @@ test_log_crash(clockcache           *cc,
    for (i = 0; i < num_entries && !at_end; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       test_insert_data(databuffer, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
+      slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
+      slice smessage = slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
       data_type type;
-      iterator_get_curr(itorh, &returned_key, &returned_data, &type);
-      if (
-          slice_length(returned_key) != cfg->data_cfg->key_size
-          || data_key_compare(cfg->data_cfg, key, returned_key) != 0
-          || slice_length(returned_data) != cfg->data_cfg->message_size
-          || memcmp(databuffer, slice_data(returned_data), cfg->data_cfg->message_size) != 0) {
+      iterator_get_curr(itorh, &returned_key, &returned_message, &type);
+      if (slice_lex_cmp(skey, returned_key) || slice_lex_cmp(smessage, returned_message)) {
          platform_log("log_test_basic: key or data mismatch\n");
-         data_key_to_string(cfg->data_cfg, key, key_str, 128);
-         data_message_to_string(cfg->data_cfg, data, data_str, 128);
+         data_key_to_string(cfg->data_cfg, skey, key_str, 128);
+         data_message_to_string(cfg->data_cfg, smessage, data_str, 128);
          platform_log("expected: %s -- %s\n", key_str, data_str);
          data_key_to_string(cfg->data_cfg, returned_key, key_str, 128);
-         data_message_to_string(cfg->data_cfg, returned_data, data_str, 128);
+         data_message_to_string(cfg->data_cfg, returned_message, data_str, 128);
          platform_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }

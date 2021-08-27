@@ -108,7 +108,7 @@ shard_log_zap(shard_log *log)
    mini_allocator_zap(cc, NULL, log->meta_head, null_slice, null_slice, PAGE_TYPE_LOG);
 }
 
-struct log_entry {
+struct PACKED log_entry {
   uint64 generation;
   uint16 keylen;
   uint16 messagelen;

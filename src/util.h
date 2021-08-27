@@ -69,7 +69,7 @@ typedef struct slice {
 
 extern const slice null_slice;
 
-static inline bool slice_is_null(slice b)
+static inline bool slice_is_null(const slice b)
 {
   return b.length == 0 && b.data == NULL;
 }
@@ -87,12 +87,7 @@ static inline uint64 slice_length(const slice b)
    return b.length;
 }
 
-static inline const void *slice_const_data(const slice b)
-{
-   return b.data;
-}
-
-static inline void *slice_data(slice b)
+static inline void *slice_data(const slice b)
 {
    return b.data;
 }
@@ -108,7 +103,19 @@ static inline bool slices_physically_equal(const slice a, const slice b)
   return a.length == b.length && a.data == b.data;
 }
 
-
+static inline int slice_lex_cmp(const slice a, const slice b)
+{
+  uint64 len1 = slice_length(a);
+  uint64 len2 = slice_length(b);
+  uint64 minlen = len1 < len2 ? len1 : len2;
+  int cmp = memcmp(slice_data(a), slice_data(b), minlen);
+  if (cmp)
+    return cmp;
+  else if (len1 < len2)
+    return -1;
+  else
+    return len1 - len2;
+}
 
 /*
  * try_string_to_(u)int64

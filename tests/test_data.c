@@ -8,16 +8,7 @@ test_data_key_cmp(const data_config *cfg,
                   const slice   key1,
                   const slice   key2)
 {
-  uint64 len1 = slice_length(key1);
-  uint64 len2 = slice_length(key2);
-  uint64 minlen = len1 < len2 ? len1 : len2;
-  int cmp = memcmp(slice_data(key1), slice_data(key2), minlen);
-  if (cmp)
-    return cmp;
-  else if (len1 < len2)
-    return -1;
-  else
-    return len1 - len2;
+  return slice_lex_cmp(key1, key2);
 }
 
 /*
@@ -40,7 +31,7 @@ test_data_merge_tuples(const data_config *cfg,
    assert(sizeof(data_handle) <= slice_length(old_raw_data));
    assert(sizeof(data_handle) <= slice_length(*new_raw_data));
 
-   const data_handle *old_data = slice_const_data(old_raw_data);
+   const data_handle *old_data = slice_data(old_raw_data);
    data_handle *new_data = slice_data(*new_raw_data);
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
@@ -138,7 +129,7 @@ test_data_message_class(const data_config *cfg,
 {
    assert(sizeof(data_handle) <= slice_length(raw_data));
 
-   const data_handle *data = slice_const_data(raw_data);
+   const data_handle *data = slice_data(raw_data);
    switch(data->message_type) {
       case MESSAGE_TYPE_INSERT:
          return data->ref_count == 0 ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
@@ -159,8 +150,10 @@ test_data_key_to_string(const data_config *cfg,
                         char              *str,
                         size_t             len)
 {
-   assert(sizeof(uint64) <= slice_length(key));
-   snprintf(str, len, "0x%016lx", be64toh(*(uint64 *)slice_data(key)));
+  char *data = slice_data(key);
+  for (int i = 0; 2*i + 2 < len && i < slice_length(key); i++) {
+    snprintf(str + 2*i, 3, "0x%02x", data[i]);
+  }
 }
 
 // FIXME: [yfogel 2020-03-17] need to be passing in the size of the string as
@@ -171,10 +164,7 @@ test_data_message_to_string(const data_config *cfg,
                             char              *str_p,
                             size_t             max_len)
 {
-   assert(sizeof(data_handle) <= slice_length(raw_data));
-   const data_handle *data = slice_const_data(raw_data);
-   snprintf(str_p, max_len, "%d:%d:%lu", data->message_type, data->ref_count,
-          *(uint64 *)data->data);
+  test_data_key_to_string(cfg, raw_data, str_p, max_len);
 }
 
 static data_config config =
