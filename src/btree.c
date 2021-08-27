@@ -84,7 +84,7 @@ btree_alloc(cache *         cc,
             page_type       type,
             btree_node *    node)
 {
-   bytebuffer bkey = key ? slice_create(mini->data_cfg->key_size, key) : null_slice;
+   slice bkey = key ? slice_create(mini->data_cfg->key_size, key) : null_slice;
    node->addr = mini_allocator_alloc(mini, height, bkey, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);

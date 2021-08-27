@@ -102,11 +102,11 @@ const static key_comparator_fn default_key_comparator = (&variable_len_compare);
 
 static int
 basic_key_compare(const data_config *cfg,
-                  const void *       key1_raw,
-                  const void *       key2_raw)
+                  const slice        key1_raw,
+                  const slice        key2_raw)
 {
-   basic_key_encoding *key1 = (basic_key_encoding *)key1_raw;
-   basic_key_encoding *key2 = (basic_key_encoding *)key2_raw;
+   basic_key_encoding *key1 = (basic_key_encoding *)slice_data(key1_raw);
+   basic_key_encoding *key2 = (basic_key_encoding *)slice_data(key2_raw);
 
    assert(key1->length <= KVSTORE_BASIC_MAX_KEY_SIZE);
    assert(key2->length <= KVSTORE_BASIC_MAX_KEY_SIZE);
@@ -121,9 +121,9 @@ basic_key_compare(const data_config *cfg,
 
 static void
 basic_merge_tuples(const data_config *cfg,
-                   const void *       key,
-                   const void *       old_raw_data,
-                   void *             new_raw_data)
+                   const slice        key,
+                   const slice        old_raw_data,
+                   slice             *new_raw_data)
 {
    // we don't implement UPDATEs, so this is a no-op:
    // new is always left intact
@@ -131,8 +131,8 @@ basic_merge_tuples(const data_config *cfg,
 
 static void
 basic_merge_tuples_final(const data_config *cfg,
-                         const void *       key,            // IN
-                         void *             oldest_raw_data // IN/OUT
+                         const slice        key,            // IN
+                         slice             *oldest_raw_data // IN/OUT
 )
 {
    // we don't implement UPDATEs, so this is a no-op:
@@ -140,9 +140,9 @@ basic_merge_tuples_final(const data_config *cfg,
 }
 
 static message_type
-basic_message_class(const data_config *cfg, const void *raw_data)
+basic_message_class(const data_config *cfg, const slice raw_data)
 {
-   const basic_message *msg = raw_data;
+   const basic_message *msg = slice_data(raw_data);
    switch (msg->type) {
       case MESSAGE_TYPE_INSERT:
          return MESSAGE_TYPE_INSERT;
@@ -181,20 +181,20 @@ encode_value(void *       msg_buffer,
 
 static void
 basic_key_to_string(const data_config *cfg,
-                    const void *       key,
+                    const slice        key,
                     char *             str,
                     size_t             max_len)
 {
-   debug_hex_encode(str, max_len, key, MAX_KEY_SIZE);
+  debug_hex_encode(str, max_len, slice_data(key), slice_length(key));
 }
 
 static void
 basic_message_to_string(const data_config *cfg,
-                        const void *       raw_data,
+                        const slice        raw_data,
                         char *             str,
                         size_t             max_len)
 {
-   debug_hex_encode(str, max_len, raw_data, MAX_MESSAGE_SIZE);
+   debug_hex_encode(str, max_len, slice_data(raw_data), slice_length(raw_data));
 }
 
 static data_config _template_basic_data_config = {

@@ -168,7 +168,7 @@ static int get_new_page_for_thread(shard_log *log,
 {
    uint64                 next_extent;
 
-   *page =  = shard_log_alloc(log, &next_extent);
+   *page = shard_log_alloc(log, &next_extent);
    thread_data->addr = (*page)->disk_addr;
    shard_log_hdr *hdr = (shard_log_hdr *)(*page)->data;
    hdr->magic = log->magic;
@@ -188,7 +188,6 @@ shard_log_write(log_handle *logh,
    cache                 *cc = log->cc;
    shard_log_thread_data *thread_data =
       shard_log_get_thread_data(log, platform_get_tid());
-   uint64                 wait = 1;
 
    page_handle *page;
    if (thread_data->addr == SHARD_UNMAPPED) {

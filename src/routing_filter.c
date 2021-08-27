@@ -440,7 +440,7 @@ routing_filter_add(cache            *cc,
    platform_assert(index_addr % extent_size == 0);
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
    for (uint64 i = 1; i < pages_per_extent; i++) {
-      uint64 next_index_addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
+      uint64 next_index_addr = mini_allocator_alloc(&mini, 0, null_slice, NULL);
       platform_assert(next_index_addr == index_addr + i * page_size);
       index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
    }
@@ -578,13 +578,8 @@ routing_filter_add(cache            *cc,
          uint32 header_size = encoding_size + sizeof(routing_hdr);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
-<<<<<<< HEAD
-            addr = mini_allocator_alloc(&mini, 0, null_bytebuffer, NULL);
-            filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
-=======
             addr = mini_allocator_alloc(&mini, 0, null_slice, NULL);
-            filter_page = routing_get_and_lock_page(cc, addr);
->>>>>>> ce5b3c3 (/bytebuffer/slice/ and /make_bytebuffer/slice_create/)
+            filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
             filter_cursor = filter_page->data;
