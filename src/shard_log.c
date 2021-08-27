@@ -81,7 +81,7 @@ shard_log_init(shard_log        *log,
    log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
 
    allocator *     al = cache_allocator(cc);
-   platform_status rc = allocator_alloc_extent(al, &log->meta_head);
+   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
    platform_assert_status_ok(rc);
 
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {

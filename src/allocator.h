@@ -11,6 +11,7 @@
 #define __ALLOCATOR_H
 
 #include "platform.h"
+
 #include "io.h"
 
 typedef uint64 allocator_root_id;
@@ -19,47 +20,63 @@ typedef uint64 allocator_root_id;
 #define AL_NO_REFS 1
 #define AL_FREE    0
 
+typedef enum page_type {
+   PAGE_TYPE_TRUNK,
+   PAGE_TYPE_BRANCH,
+   PAGE_TYPE_MEMTABLE,
+   PAGE_TYPE_FILTER,
+   PAGE_TYPE_LOG,
+   PAGE_TYPE_MISC,
+   PAGE_TYPE_LOCK_NO_DATA,
+   NUM_PAGE_TYPES,
+   PAGE_TYPE_INVALID,
+} page_type;
+
+static const char *const page_type_str[NUM_PAGE_TYPES] =
+   {"trunk", "branch", "memtable", "filter", "log", "misc", "lock"};
+
 typedef struct allocator allocator;
 
-typedef platform_status
-               (*alloc_extent_fn)    (allocator *al, uint64 *addr_arr);
+typedef platform_status (*alloc_fn)(allocator *al,
+                                    uint64 *   addr,
+                                    page_type  type);
 
-typedef uint8  (*inc_refcount_fn)    (allocator *al, uint64 addr);
-typedef uint8  (*dec_refcount_fn)    (allocator *al, uint64 addr);
-typedef uint8  (*get_refcount_fn)    (allocator *al, uint64 addr);
+typedef uint8 (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
+typedef uint8 (*generic_ref_fn)(allocator *al, uint64 addr);
 
-typedef uint64 (*get_capacity_fn)    (allocator *al);
-typedef platform_status (*get_super_addr_fn)  (allocator *al,
+typedef platform_status (*get_super_addr_fn)(allocator *       al,
+                                             allocator_root_id spl_id,
+                                             uint64 *          addr);
+typedef platform_status (*alloc_super_addr_fn)(allocator *       al,
                                                allocator_root_id spl_id,
-                                               uint64 *addr);
-typedef platform_status (*alloc_super_addr_fn) (allocator *al,
-                                                allocator_root_id spl_id,
-                                                uint64 *addr);
-typedef void (*remove_super_addr_fn) (allocator *al,
-                                      allocator_root_id spl_id);
-typedef uint64 (*get_size_fn)        (allocator *al);
+                                               uint64 *          addr);
+typedef void (*remove_super_addr_fn)(allocator *al, allocator_root_id spl_id);
+typedef uint64 (*get_size_fn)(allocator *al);
 
-typedef void   (*print_allocated_fn) (allocator *al);
-typedef uint64 (*max_allocated_fn)   (allocator *al);
-typedef uint64 (*in_use_fn)          (allocator *al);
+typedef void (*print_fn)(allocator *al);
+typedef void (*assert_fn)(allocator *al);
 
 typedef struct allocator_ops {
-   alloc_extent_fn      alloc_extent;
+   alloc_fn alloc;
 
-   inc_refcount_fn      inc_refcount;
-   dec_refcount_fn      dec_refcount;
-   get_refcount_fn      get_refcount;
+   generic_ref_fn inc_ref;
+   dec_ref_fn     dec_ref;
+   generic_ref_fn get_ref;
 
-   get_capacity_fn      get_capacity;
-   get_super_addr_fn    get_super_addr;
    alloc_super_addr_fn  alloc_super_addr;
+   get_super_addr_fn    get_super_addr;
    remove_super_addr_fn remove_super_addr;
-   in_use_fn            in_use;
-   max_allocated_fn     max_allocated;
-   get_size_fn          get_extent_size;
-   get_size_fn          get_page_size;
 
-   print_allocated_fn   print_allocated;
+   get_size_fn in_use;
+
+   get_size_fn get_capacity;
+   get_size_fn get_extent_size;
+   get_size_fn get_page_size;
+
+   assert_fn assert_noleaks;
+
+   print_fn print_stats;
+   print_fn debug_print;
 } allocator_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -68,33 +85,27 @@ struct allocator {
 };
 
 static inline platform_status
-allocator_alloc_extent(allocator *al, uint64 *addr)
+allocator_alloc(allocator *al, uint64 *addr, page_type type)
 {
-   return al->ops->alloc_extent(al, addr);
+   return al->ops->alloc(al, addr, type);
 }
 
 static inline uint8
-allocator_inc_refcount(allocator *al, uint64 addr)
+allocator_inc_ref(allocator *al, uint64 addr)
 {
-   return al->ops->inc_refcount(al, addr);
+   return al->ops->inc_ref(al, addr);
 }
 
 static inline uint8
-allocator_dec_refcount(allocator *al, uint64 addr)
+allocator_dec_ref(allocator *al, uint64 addr, page_type type)
 {
-   return al->ops->dec_refcount(al, addr);
+   return al->ops->dec_ref(al, addr, type);
 }
 
 static inline uint8
-allocator_get_refcount(allocator *al, uint64 addr)
+allocator_get_ref(allocator *al, uint64 addr)
 {
-   return al->ops->get_refcount(al, addr);
-}
-
-static inline uint64
-allocator_get_capacity(allocator *al)
-{
-   return al->ops->get_capacity(al);
+   return al->ops->get_ref(al, addr);
 }
 
 static inline platform_status
@@ -104,9 +115,17 @@ allocator_get_super_addr(allocator *al, allocator_root_id spl_id, uint64 *addr)
 }
 
 static inline platform_status
-allocator_alloc_super_addr(allocator *al, allocator_root_id spl_id, uint64 *addr)
+allocator_alloc_super_addr(allocator *       al,
+                           allocator_root_id spl_id,
+                           uint64 *          addr)
 {
    return al->ops->alloc_super_addr(al, spl_id, addr);
+}
+
+static inline void
+allocator_remove_super_addr(allocator *al, allocator_root_id spl_id)
+{
+   return al->ops->remove_super_addr(al, spl_id);
 }
 
 static inline uint64
@@ -115,10 +134,11 @@ allocator_in_use(allocator *al)
    return al->ops->in_use(al);
 }
 
+
 static inline uint64
-allocator_max_allocated(allocator *al)
+allocator_get_capacity(allocator *al)
 {
-   return al->ops->max_allocated(al);
+   return al->ops->get_capacity(al);
 }
 
 static inline uint64
@@ -134,14 +154,21 @@ allocator_page_size(allocator *al)
 }
 
 static inline void
-allocator_print_allocated(allocator *al)
+allocator_assert_noleaks(allocator *al)
 {
-   return al->ops->print_allocated(al);
+   return al->ops->assert_noleaks(al);
 }
 
 static inline void
-allocator_remove_super_addr(allocator *al, allocator_root_id spl_id)
+allocator_print_stats(allocator *al)
 {
-   return al->ops->remove_super_addr(al, spl_id);
+   return al->ops->print_stats(al);
 }
+
+static inline void
+allocator_debug_print(allocator *al)
+{
+   return al->ops->debug_print(al);
+}
+
 #endif // __ALLOCATOR_H

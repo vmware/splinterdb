@@ -51,24 +51,11 @@ typedef struct memtable_tree {
 #endif
 
 typedef struct memtable {
-   // FIXME: [aconway 2020-08-26] need to implement:
    volatile memtable_state state;
    uint64                  generation;
-
-#if 1
-   // the core memtable stuff
-   // "a memtable tree"
-   // FIXME: [yfogel 2020-08-26] do we need num_trees anymore?
-   // size_t         num_trees;
-   // FIXME: [yfogel 2020-08-26] refactor into:
-   // memtable_tree  trees[NUM_DATA_TYPES];
    uint64          root_addr;
    mini_allocator  mini;
    btree_config   *cfg;
-#else
-   memtable_tree trees[NUM_DATA_TYPES];
-#endif
-
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
 // FIXME: [aconway 2020-09-01] MUST_CHECK_RETURN

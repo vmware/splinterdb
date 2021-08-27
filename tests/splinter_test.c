@@ -2707,6 +2707,7 @@ splinter_test(int argc, char *argv[])
    }
    platform_free(hid, caches);
    platform_free(hid, cc);
+   allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
    test_deinit_splinter(hid, ts);
 handle_deinit:

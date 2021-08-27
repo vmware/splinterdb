@@ -185,7 +185,7 @@ mini_unget_unclaim_meta_page(cache *cc, page_handle *meta_page)
  *
  *      There are two types of mini allocator, keyed and unkeyed. A keyed
  *      allocator stores a key range for each extent and allows incrementing
- *      and decrementing key ranges. An unkeyed allocator has a single refcount
+ *      and decrementing key ranges. An unkeyed allocator has a single ref
  *      for the whole allocator which is overloaded onto the meta_head
  *      disk-allocator ref count.
  *
@@ -233,7 +233,7 @@ mini_init(mini_allocator *mini,
       if (!keyed) {
          // meta_page gets an extra ref
          uint64 base_addr = cache_base_addr(cc, mini->meta_head);
-         uint8  ref       = allocator_inc_refcount(mini->al, base_addr);
+         uint8  ref       = allocator_inc_ref(mini->al, base_addr);
          platform_assert(ref == MINI_NO_REFS + 1);
       }
 
@@ -247,7 +247,7 @@ mini_init(mini_allocator *mini,
       // because we recover ref counts from the mini allocators on recovery, we
       // don't need to store these in the mini allocator until we consume them.
       platform_status rc =
-         allocator_alloc_extent(mini->al, &mini->next_extent[batch]);
+         allocator_alloc(mini->al, &mini->next_extent[batch], type);
       platform_assert_status_ok(rc);
    }
 
@@ -478,9 +478,10 @@ mini_release(mini_allocator *mini, const char *key)
 
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
-      uint8 ref = allocator_dec_refcount(mini->al, mini->next_extent[batch]);
+      uint8 ref =
+         allocator_dec_ref(mini->al, mini->next_extent[batch], mini->type);
       platform_assert(ref == AL_NO_REFS);
-      ref = allocator_dec_refcount(mini->al, mini->next_extent[batch]);
+      ref = allocator_dec_ref(mini->al, mini->next_extent[batch], mini->type);
       platform_assert(ref == AL_FREE);
 
       if (mini->keyed) {
@@ -612,7 +613,7 @@ mini_alloc(mini_allocator *mini,
 
       uint64          extent_addr = mini->next_extent[batch];
       platform_status rc =
-         allocator_alloc_extent(mini->al, &mini->next_extent[batch]);
+         allocator_alloc(mini->al, &mini->next_extent[batch], mini->type);
       platform_assert_status_ok(rc);
       next_addr = extent_addr;
 
@@ -622,7 +623,7 @@ mini_alloc(mini_allocator *mini,
          uint64 new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
          if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
             // need to allocate the next meta extent
-            rc = allocator_alloc_extent(mini->al, &new_meta_tail);
+            rc = allocator_alloc(mini->al, &new_meta_tail, mini->type);
             platform_assert_status_ok(rc);
          }
 
@@ -861,7 +862,7 @@ mini_unkeyed_inc_ref(cache *cc, uint64 meta_head)
 {
    allocator *al        = cache_allocator(cc);
    uint64     base_addr = cache_base_addr(cc, meta_head);
-   uint8      ref       = allocator_inc_refcount(al, base_addr);
+   uint8      ref       = allocator_inc_ref(al, base_addr);
    platform_assert(ref > MINI_NO_REFS);
    return ref - MINI_NO_REFS;
 }
@@ -886,23 +887,32 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type)
 
       if (!mini_addrs_share_extent(cc, last_meta_addr, meta_addr)) {
          uint64 last_meta_base_addr = cache_base_addr(cc, last_meta_addr);
-         uint8  ref = allocator_dec_refcount(al, last_meta_base_addr);
+         uint8  ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_NO_REFS);
          cache_hard_evict_extent(cc, last_meta_base_addr, type);
-         ref = allocator_dec_refcount(al, last_meta_base_addr);
+         ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_FREE);
       }
    } while (meta_addr != 0);
+
+   // platform_default_log(
+   //   "---------------------------------------------------------------------\n");
+   // platform_default_log("| Mini Keyed Allocator -- meta_head: %12lu FREED
+   // |\n",
+   //             meta_head);
+   // platform_default_log(
+   //   "|-------------------------------------------------------------------|\n");
+   // platform_default_log("\n");
 }
 
 bool
 mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    allocator *al  = cache_allocator(cc);
-   uint8      ref = allocator_dec_refcount(al, base_addr);
+   uint8      ref = allocator_dec_ref(al, base_addr, type);
    platform_assert(ref == AL_NO_REFS);
    cache_hard_evict_extent(cc, base_addr, type);
-   ref = allocator_dec_refcount(al, base_addr);
+   ref = allocator_dec_ref(al, base_addr, type);
    platform_assert(ref == AL_FREE);
    return TRUE;
 }
@@ -912,7 +922,7 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type)
 {
    allocator *al        = cache_allocator(cc);
    uint64     base_addr = cache_base_addr(cc, meta_head);
-   uint8      ref       = allocator_dec_refcount(al, base_addr);
+   uint8      ref       = allocator_dec_ref(al, base_addr, type);
    if (ref != MINI_NO_REFS) {
       debug_assert(ref != AL_NO_REFS);
       debug_assert(ref != AL_FREE);
@@ -958,7 +968,7 @@ mini_keyed_inc_ref_extent(cache *   cc,
                           void *    out)
 {
    allocator *al = cache_allocator(cc);
-   allocator_inc_refcount(al, base_addr);
+   allocator_inc_ref(al, base_addr);
    return FALSE;
 }
 
@@ -987,17 +997,17 @@ mini_keyed_dec_ref_extent(cache *   cc,
                           void *    out)
 {
    allocator *al  = cache_allocator(cc);
-   uint8      ref = allocator_dec_refcount(al, base_addr);
+   uint8      ref = allocator_dec_ref(al, base_addr, type);
    if (ref == AL_NO_REFS) {
       cache_hard_evict_extent(cc, base_addr, type);
-      ref = allocator_dec_refcount(al, base_addr);
+      ref = allocator_dec_ref(al, base_addr, type);
       platform_assert(ref == AL_FREE);
       return TRUE;
    }
    return FALSE;
 }
 
-void
+bool
 mini_keyed_dec_ref(cache *      cc,
                    data_config *data_cfg,
                    page_type    type,
@@ -1017,6 +1027,7 @@ mini_keyed_dec_ref(cache *      cc,
    if (should_cleanup) {
       mini_deinit(cc, meta_head, type);
    }
+   return should_cleanup;
 }
 
 /*
@@ -1149,27 +1160,34 @@ mini_keyed_print(cache *      cc,
                  uint64       meta_head,
                  page_type    type)
 {
-   uint64 next_meta_addr = meta_head;
+   allocator *al             = cache_allocator(cc);
+   uint64     next_meta_addr = meta_head;
 
-   platform_log(
-      "----------------------------------------------------------------\n");
-   platform_log("| Mini Keyed Allocator -- meta_head: %12lu              |\n",
-                meta_head);
-   platform_log(
-      "|--------------------------------------------------------------|\n");
-   platform_log(
-      "| idx | %12s | %18s | %18s |\n", "extent_addr", "start_key", "end_key");
-   platform_log(
-      "|--------------------------------------------------------------|\n");
+   platform_default_log("------------------------------------------------------"
+                        "---------------\n");
+   platform_default_log(
+      "| Mini Keyed Allocator -- meta_head: %12lu                   |\n",
+      meta_head);
+   platform_default_log("|-----------------------------------------------------"
+                        "--------------|\n");
+   platform_default_log("| idx | %12s | %18s | %18s | %2s |\n",
+                        "extent_addr",
+                        "start_key",
+                        "end_key",
+                        "rc");
+   platform_default_log("|-----------------------------------------------------"
+                        "--------------|\n");
 
    do {
       page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
 
-      platform_log(
-         "| meta addr: %12lu                                      |\n",
-         next_meta_addr);
-      platform_log(
-         "|--------------------------------------------------------------|\n");
+      uint64 base_meta_addr = cache_base_addr(cc, next_meta_addr);
+      platform_default_log(
+         "| meta addr: %12lu (%u)                                       |\n",
+         next_meta_addr,
+         allocator_get_ref(al, base_meta_addr));
+      platform_default_log("|--------------------------------------------------"
+                           "-----------------|\n");
 
       uint64 num_entries = mini_num_entries(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
@@ -1182,17 +1200,19 @@ mini_keyed_print(cache *      cc,
             data_cfg, start_key, start_key_str, MAX_KEY_STR_LEN);
          char end_key_str[MAX_KEY_STR_LEN];
          data_key_to_string(data_cfg, end_key, end_key_str, MAX_KEY_STR_LEN);
-         platform_log("| %3lu | %12lu | %18s | %18s |\n",
-                      i,
-                      extent_addr,
-                      start_key_str,
-                      end_key_str);
+         uint8 ref = allocator_get_ref(al, extent_addr);
+         platform_default_log("| %3lu | %12lu | %18s | %18s | %2u |\n",
+                              i,
+                              extent_addr,
+                              start_key_str,
+                              end_key_str,
+                              ref);
       }
-      platform_log(
-         "|--------------------------------------------------------------|\n");
+      platform_default_log("|--------------------------------------------------"
+                           "-----------------|\n");
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
    } while (next_meta_addr != 0);
-   platform_log("\n");
+   platform_default_log("\n");
 }

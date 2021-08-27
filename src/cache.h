@@ -21,24 +21,10 @@ typedef struct page_handle {
 
 typedef struct cache cache;
 
-typedef enum page_type {
-   PAGE_TYPE_TRUNK,
-   PAGE_TYPE_BRANCH,
-   PAGE_TYPE_MEMTABLE,
-   PAGE_TYPE_FILTER,
-   PAGE_TYPE_LOG,
-   PAGE_TYPE_MISC,
-   PAGE_TYPE_LOCK_NO_DATA,
-   NUM_PAGE_TYPES,
-   PAGE_TYPE_INVALID,
-} page_type;
-
 typedef struct cache_stats {
    uint64 cache_hits[NUM_PAGE_TYPES];
    uint64 cache_misses[NUM_PAGE_TYPES];
    uint64 cache_miss_time_ns[NUM_PAGE_TYPES];
-   uint64 page_allocs[NUM_PAGE_TYPES];
-   uint64 page_deallocs[NUM_PAGE_TYPES];
    uint64 page_writes[NUM_PAGE_TYPES];
    uint64 page_reads[NUM_PAGE_TYPES];
    uint64 prefetches_issued[NUM_PAGE_TYPES];
@@ -160,7 +146,6 @@ typedef struct cache_ops {
    cache_generic_fn        cleanup;
    assert_ungot_fn         assert_ungot;
    cache_generic_fn        assert_free;
-   cache_generic_fn        assert_noleaks;
    page_valid_fn           page_valid;
    validate_page_fn        validate_page;
    cache_present_fn        cache_present;
@@ -334,12 +319,6 @@ static inline void
 cache_assert_free(cache *cc)
 {
    return cc->ops->assert_free(cc);
-}
-
-static inline void
-cache_assert_noleaks(cache *cc)
-{
-   return cc->ops->assert_noleaks(cc);
 }
 
 static inline void
