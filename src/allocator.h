@@ -17,6 +17,7 @@
 typedef uint64 allocator_root_id;
 #define INVALID_ALLOCATOR_ROOT_ID (0)
 
+#define AL_ONE_REF 2
 #define AL_NO_REFS 1
 #define AL_FREE    0
 

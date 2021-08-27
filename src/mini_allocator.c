@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.
+// Copyright 2018-2021 VMware, Inc.MINI_NO_REFS on the meta_head before
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -894,15 +894,6 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type)
          platform_assert(ref == AL_FREE);
       }
    } while (meta_addr != 0);
-
-   // platform_default_log(
-   //   "---------------------------------------------------------------------\n");
-   // platform_default_log("| Mini Keyed Allocator -- meta_head: %12lu FREED
-   // |\n",
-   //             meta_head);
-   // platform_default_log(
-   //   "|-------------------------------------------------------------------|\n");
-   // platform_default_log("\n");
 }
 
 bool
@@ -951,6 +942,15 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type)
  *      allocator). Therefore, a dec_ref which deallocates every extent it
  *      intersects must have deallocated this extent as well, and therefore
  *      there are no refs in the allocator and it can be cleaned up.
+ *
+ *      Note: Range queries do not hold keyed references to branches in the
+ *      mini_allocator (b/c it's too expensive), and instead hold references to
+ *      the meta_head, called blocks here. To prevent calls from
+ *      mini_keyed_dec_ref from deallocating while they are reading,
+ *      mini_keyed_dec_ref must see no additional refs (blockers) on the
+ *      meta_head before proceeding. After starting, they do not need to check
+ *      again, since a range query cannot have gotten a refernce to their range
+ *      after the call to dec_ref is made.
  *
  * Results:
  *      None
@@ -1007,6 +1007,18 @@ mini_keyed_dec_ref_extent(cache *   cc,
    return FALSE;
 }
 
+void
+mini_wait_for_blockers(cache *cc, uint64 meta_head)
+{
+   allocator *al        = cache_allocator(cc);
+   uint64     base_addr = cache_base_addr(cc, meta_head);
+   uint64     wait      = 1;
+   while (allocator_get_ref(al, base_addr) != AL_ONE_REF) {
+      platform_sleep(wait);
+      wait = wait > 1024 ? wait : 2 * wait;
+   }
+}
+
 bool
 mini_keyed_dec_ref(cache *      cc,
                    data_config *data_cfg,
@@ -1015,6 +1027,7 @@ mini_keyed_dec_ref(cache *      cc,
                    const char * start_key,
                    const char * end_key)
 {
+   mini_wait_for_blockers(cc, meta_head);
    bool should_cleanup =
       mini_keyed_for_each_self_exclusive(cc,
                                          data_cfg,
@@ -1025,9 +1038,48 @@ mini_keyed_dec_ref(cache *      cc,
                                          mini_keyed_dec_ref_extent,
                                          NULL);
    if (should_cleanup) {
+      allocator *al        = cache_allocator(cc);
+      uint64     base_addr = cache_base_addr(cc, meta_head);
+      uint8      ref       = allocator_get_ref(al, base_addr);
+      platform_assert(ref == AL_ONE_REF);
       mini_deinit(cc, meta_head, type);
    }
    return should_cleanup;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * mini_keyed_(un)block_dec_ref --
+ *
+ *      Block/unblock dec_ref callers. See note in mini_keyed_dec_ref for
+ *details.
+ *
+ * Results:
+ *      None
+ *
+ * Side effects:
+ *      None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+void
+mini_block_dec_ref(cache *cc, uint64 meta_head)
+{
+   allocator *al        = cache_allocator(cc);
+   uint64     base_addr = cache_base_addr(cc, meta_head);
+   uint8      ref       = allocator_inc_ref(al, base_addr);
+   platform_assert(ref > AL_ONE_REF);
+}
+
+void
+mini_unblock_dec_ref(cache *cc, uint64 meta_head)
+{
+   allocator *al        = cache_allocator(cc);
+   uint64     base_addr = cache_base_addr(cc, meta_head);
+   uint8      ref       = allocator_dec_ref(al, base_addr, PAGE_TYPE_INVALID);
+   platform_assert(ref >= AL_ONE_REF);
 }
 
 /*

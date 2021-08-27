@@ -216,7 +216,6 @@ typedef struct splinter_range_iterator {
    uint64           memtable_start_gen;
    uint64           memtable_end_gen;
    bool             compacted[SPLINTER_MAX_TOTAL_DEGREE];
-   page_handle     *meta_page[SPLINTER_MAX_TOTAL_DEGREE];
    merge_iterator  *merge_itor;
    bool             has_max_key;
    bool             at_end;
