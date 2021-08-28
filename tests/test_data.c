@@ -150,10 +150,7 @@ test_data_key_to_string(const data_config *cfg,
                         char              *str,
                         size_t             len)
 {
-  char *data = slice_data(key);
-  for (int i = 0; 2*i + 2 < len && i < slice_length(key); i++) {
-    snprintf(str + 2*i, 3, "0x%02x", data[i]);
-  }
+  debug_hex_encode(str, len, slice_data(key), slice_length(key));
 }
 
 // FIXME: [yfogel 2020-03-17] need to be passing in the size of the string as
@@ -161,10 +158,10 @@ test_data_key_to_string(const data_config *cfg,
 static void
 test_data_message_to_string(const data_config *cfg,
                             const slice   raw_data,
-                            char              *str_p,
-                            size_t             max_len)
+                            char              *str,
+                            size_t             len)
 {
-  test_data_key_to_string(cfg, raw_data, str_p, max_len);
+  debug_hex_encode(str, len, slice_data(raw_data), slice_length(raw_data));
 }
 
 static data_config config =

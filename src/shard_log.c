@@ -208,7 +208,7 @@ shard_log_write(log_handle *logh,
    log_entry *cursor = (log_entry *)(page->data + thread_data->offset);
    uint64 new_entry_size = log_entry_size(key, message);
    uint64 free_space = log->cfg->page_size - thread_data->offset;
-   debug_assert(new_entry_size <= logh->cfg->page_size - sizeof(shard_log_hdr));
+   debug_assert(new_entry_size <= log->cfg->page_size - sizeof(shard_log_hdr));
 
    if (free_space < new_entry_size) {
       memset(cursor, 0, free_space);
