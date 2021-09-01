@@ -7,6 +7,8 @@
  *     This file contains the implementation for b-trees.
  */
 
+#include <emmintrin.h>
+
 #include "platform.h"
 
 #include "util.h"
@@ -1940,6 +1942,8 @@ btree_iterator_clamp_end(btree_iterator *itor)
    }
 }
 
+btree_hdr* hdr_buf = NULL;
+btree_hdr* prev = NULL;
 platform_status
 btree_iterator_advance(iterator *base_itor)
 {
@@ -1990,9 +1994,55 @@ btree_iterator_advance(iterator *base_itor)
                debug_assert(btree_is_packed(cfg, &next));
             }
          }
+	 
+/*
+         if(hdr_buf != NULL){
+	    itor->curr.hdr = prev;
+            memmove(itor->curr.hdr, hdr_buf, 4096);
+	 }
+         else{
+            hdr_buf = TYPED_ARRAY_MALLOC(platform_get_heap_id(), hdr_buf, 4096);
+	 }
+*/
+
+
+
+	 /*
+         void *prefetch_hdr = (void*)(itor->curr.hdr);
+
+         for(uint64 prefetch_offset = 0; prefetch_offset < 1024 * 4;
+                      prefetch_offset = prefetch_offset + 64)
+         {
+             _mm_prefetch((char*)(prefetch_hdr + prefetch_offset), 1);
+         }
+	 */
+
+
+
          btree_node_unget(cc, cfg, &itor->curr);
+
          itor->curr = next;
          itor->idx = 0;
+
+/*
+	 prev = itor->curr.hdr;
+	 memmove(hdr_buf, itor->curr.hdr, 4096);
+	 itor->curr.hdr = hdr_buf;
+	 itor->curr.page->data = (char*)hdr_buf;
+*/
+
+
+
+	 /*
+	 void *prefetch_hdr = (void*)(itor->curr.hdr->next_addr);
+
+         for(uint64 prefetch_offset = 0; prefetch_offset < 1024 * 4;
+                      prefetch_offset = prefetch_offset + 64)
+         {
+             _mm_prefetch((char*)(prefetch_hdr + prefetch_offset), 1);
+         }
+	 */
+
 
          // To prefetch:
          // 1. btree must be static
@@ -2569,6 +2619,18 @@ btree_pack(btree_pack_req *req)
    iterator_at_end(tree.itor, &at_end);
    while (!at_end) {
       iterator_get_curr(tree.itor, &key, &data, &type);
+      //void *prefetch_hdr = (void*)(((btree_iterator *)(tree.itor))->curr.hdr);
+      //__builtin_prefetch((void*)(key));
+      //__builtin_prefetch((void*)(data));
+      
+      /*
+      for(uint64 prefetch_offset = 0; prefetch_offset < 1024 * 4; 
+		      prefetch_offset = prefetch_offset + 64)
+      {
+         _mm_prefetch((char*)(prefetch_hdr + prefetch_offset), 0);
+      }
+      */
+
       debug_assert(type == req->cfg->type);
       btree_pack_loop(&tree, key, data, &at_end);
       // FIXME: [tjiaheng 2020-07-29] find out how we can use req->max_tuples
@@ -2631,6 +2693,10 @@ branch_pack(platform_heap_id hid, branch_pack_req *req)
    iterator_at_end(itor, &at_end);
    while (!at_end) {
       iterator_get_curr(itor, &key, &data, &type);
+      //_mm_prefetch((char*)(key),_MM_HINT_T0);
+      //_mm_prefetch((char*)(data),_MM_HINT_T0);
+      //__builtin_prefetch((void*)(key));
+      //__builtin_prefetch((void*)(data));
       btree_pack_loop(trees[type], key, data, &at_end);
       // FIXME: [tjiaheng 2020-07-29] find out how we can use req->max_tuples
       // here
