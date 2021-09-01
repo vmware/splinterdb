@@ -116,7 +116,7 @@ typedef void (*page_async_done_fn)(cache *           cc,
 typedef void (*page_unget_fn)(cache *cc, page_handle *page);
 typedef bool (*page_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_unclaim_fn)(cache *cc, page_handle *page);
-typedef void (*page_lock_fn)(cache *cc, page_handle *page);
+typedef void (*page_lock_fn)(cache *cc, page_handle **page);
 typedef void (*page_unlock_fn)(cache *cc, page_handle *page);
 typedef void (*page_pin_fn)(cache *cc, page_handle *page);
 typedef void (*page_unpin_fn)(cache *cc, page_handle *page);
@@ -267,7 +267,7 @@ cache_unclaim(cache *cc, page_handle *page)
 }
 
 static inline void
-cache_lock(cache *cc, page_handle *page)
+cache_lock(cache *cc, page_handle **page)
 {
    return cc->ops->page_lock(cc, page);
 }

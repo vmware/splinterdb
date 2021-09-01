@@ -138,7 +138,7 @@ shard_log_write(log_handle *logh,
          platform_sleep(wait);
          wait = wait > 1024 ? wait : 2 * wait;
       }
-      cache_lock(cc, page);
+      cache_lock(cc, &page);
    }
    char *cursor = page->data + thread_data->offset;
 

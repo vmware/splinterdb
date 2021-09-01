@@ -6,5 +6,8 @@ CMakeLists.txt
 .debug
 bin/
 obj/
+data/
 db
 cache-log
+tags
+build.sh
