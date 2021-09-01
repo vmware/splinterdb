@@ -11,8 +11,7 @@
 #include "poison.h"
 
 /* Function declarations and iterator_ops */
-void            merge_get_curr (iterator *itor, slice *key, slice *data,
-                                data_type *type);
+void            merge_get_curr (iterator *itor, slice *key, slice *data);
 platform_status merge_at_end   (iterator *itor, bool *at_end);
 platform_status merge_advance  (iterator *itor);
 
@@ -25,327 +24,6 @@ static iterator_ops merge_ops = {
    .at_end   = merge_at_end,
    .advance  = merge_advance,
 };
-
-
-// Range Stack Accessors and Mutators
-
-// Caller must zero this struct before init
-static void
-range_stack_init(range_stack *stack, int num_trees)
-{
-   // if stack is empty, index 0 will be -1
-   stack->seq[0] = -1;
-   stack->end_seq = -1;
-   stack->num_sequences = num_trees;
-   for (int i = 0; i < MAX_MERGE_ARITY; i++)
-     stack->limits[i] = slice_create(MAX_KEY_SIZE, stack->limits_bufs);
-   stack->start_key = slice_create(MAX_KEY_SIZE, stack->start_key_buffer);
-}
-
-static inline bool
-range_stack_makes_point_redundant(range_stack *stack, message_type class)
-{
-   return stack->size > 0 && class == MESSAGE_TYPE_DELETE;
-}
-
-static inline bool
-range_stack_clobbers_point(range_stack *stack, int point_seq)
-{
-   debug_assert(point_seq >= 0);
-
-   /*
-    * merge_iterator takes homogenous input iterators so anything on the stack
-    * cannot share a sequence with a point.
-    * Also if stack is empty, index 0 will be -1
-    */
-   debug_assert(point_seq != stack->seq[0]);
-
-   return point_seq < stack->seq[0];
-}
-
-static inline slice
-range_stack_get_start_key(range_stack *stack)
-{
-   return stack->start_key;
-}
-
-// end_key is the data of range delete (key, data)
-static inline slice
-range_stack_get_end_key(range_stack *stack)
-{
-   debug_assert(stack->end_seq >= 0);
-   debug_assert(stack->end_seq < stack->num_sequences);
-   return stack->limits[stack->end_seq];
-}
-
-static int
-find_predecessor(range_stack *stack, int seq)
-{
-   /*
-    * FIXME: [yfogel 2020-06-11] maybe do binary search?  maybe do binary search
-    * iff stack size is big enough?
-    * You can do a binary search for highest index where stack[i].seq >= seq
-    * (note == should assert(FALSE))
-    * use linear scan for first run.. we can consider binary search later
-    * (including algo that decides on linear or binary depending on size)
-    * It's PROBABLY never worth it to do binary search
-    */
-
-   // find highest index i s.t. stack.seq[i] > seq
-   for (int i = stack->size - 1; i >= 0; --i) {
-      if (stack->seq[i] > seq) {
-         return i;
-      }
-   }
-   return -1;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * find_useful_successor --
- *
- *    This function looks for the lowest index i such that limit will be
- *    less than all limits in stack for starting index insert_position.
- *
- *    Precondition:
- *       seq > stack->seq[i] for all insert_position <= i < stack->size
- *
- *    Return found index i, otherwise return stack size
- *
- *-----------------------------------------------------------------------------
- */
-static int
-find_useful_successor(range_stack      *stack,
-                      const slice  limit,
-                      int               seq,
-                      int               insert_position,
-                      data_config      *cfg)
-{
-   /*
-    * While this COULD be done with binary search, it would actually be SLOWER
-    * in common cases than a linear scan!!!
-    * this particular function (in both callers) is amortized O(1) if you do a
-    * linear scan starting at the right position, so there's no point to do the
-    * more complicated binary search
-    */
-
-   /*
-    * Search for the lowest index i such that
-    * limits[stack.seq[i]] > limit
-    *    Note: don't search indexes lower than insert_position
-    */
-
-   for (int i = insert_position; i < stack->size; ++i) {
-      /*
-       * (seq[i] == seq) would mean range deletes from one sequence
-       *    overlap (which is illegal)
-       * (seq[i] > seq) would imply the precondition was violated
-       */
-      debug_assert(stack->seq[i] < seq);
-      // note that it's > and NOT >=
-      if (data_key_compare(cfg, stack->limits[stack->seq[i]], limit) > 0) {
-         // This index (and everything later) is useful to keep
-         return i;
-      }
-   }
-
-   return stack->size;
-}
-
-
-// FIXME: [nsarmicanic 2020-08-17] Right now there's no validating types of
-// config inside of merge_iterator. Move data_type from btree_config
-// to data_config so we can validate type
-static inline void
-debug_range_stack_check_invariants(debug_only range_stack *stack,
-                                   debug_only data_config *cfg)
-{
-#if SPLINTER_DEBUG
-    debug_assert(stack->size <= ARRAY_SIZE(stack->seq));
-    debug_assert(stack->num_sequences <= ARRAY_SIZE(stack->seq));
-
-    // has_start_key should only be set if there is something in the stack
-    debug_assert(stack->has_start_key == (stack->size > 0));
-
-    debug_assert(IMPLIES((stack->end_seq >= 0), (stack->size == 0)));
-    if (stack->end_seq >= 0) {
-       debug_assert(stack->end_seq < stack->num_sequences);
-    } else {
-       debug_assert(stack->end_seq == -1);
-    }
-
-    // Verify that sequence strictly decreases as index increases
-    for (int i = 1; i < stack->size; i++) {
-       debug_assert(stack->seq[i - 1] > stack->seq[i]);
-    }
-
-    if (stack->size > 0) {
-       // Verify all sequences are valid
-       for (int i = 0; i < stack->size; i++) {
-          debug_assert(stack->seq[i] >= 0);
-          debug_assert(stack->seq[i] < stack->num_sequences);
-       }
-       // Verify first limit is strictly greater than start_key
-       int seq = stack->seq[0];
-       debug_assert(data_key_compare(cfg, stack->start_key,
-                                     stack->limits[seq]) < 0);
-    } else {
-       debug_assert(stack->seq[0] == -1);
-    }
-
-    // Verify that end key is strictly increasing as index increases
-    for (int i = 1; i < stack->size; i++) {
-       int seq_lo = stack->seq[i - 1];
-       int seq_hi = stack->seq[i];
-       debug_assert(data_key_compare(cfg, stack->limits[seq_lo],
-                                     stack->limits[seq_hi]) < 0);
-    }
-#endif
-}
-
-
-static void
-add_new_range_delete_to_stack(range_stack      *stack,
-                              const slice  startkey,
-                              const slice  limit,
-                              int               seq,
-                              data_config      *cfg)
-{
-   debug_range_stack_check_invariants(stack, cfg);
-
-   if (stack->size == 0) {
-      debug_assert(!stack->has_start_key);
-      stack->has_start_key = TRUE;
-      slice_copy_contents(stack->start_key, startkey);
-      stack->end_seq = -1;
-      stack->size = 1;
-      slice_copy_contents(stack->start_key, startkey);
-      slice_copy_contents(stack->limits[seq], limit);
-      stack->seq[0] = seq;
-      goto done;
-   }
-
-   /*
-    * Note: find_predecessor is NOT amortized O(1) here
-    *     It's actually possible to do find_useful_successor before
-    *     find_predecessor but it's not obvious that it would ever help
-    *     to do that.
-    *     Doing so would make find_useful_successor stop being amortized O(1)
-    *     and binary search on comparison functions is somewhat expensive
-    */
-   int predecessor = find_predecessor(stack, seq);
-   debug_assert(predecessor == -1 || stack->seq[predecessor] > seq);
-   if (predecessor >= 0 &&
-       data_key_compare(cfg, stack->limits[stack->seq[predecessor]],
-                        limit) >= 0) {
-      // The input range delete is redunant; throw it away.
-      goto done;
-   }
-
-   // We need to put the new range delete immediately after the predecessor
-   int insert_position = predecessor + 1;
-
-   // We are keeping the range delete; clone the limit key.
-   slice_copy_contents(stack->limits[seq], limit);
-
-   int successor = find_useful_successor(stack, limit, seq,
-                                         insert_position, cfg);
-
-   int num_deleting = successor - insert_position;
-
-   /*
-    * limits are NOT stored in the array but instead per-sequence.
-    * This avoids an expensive memmove of the keys when we really only
-    * need (at most) one per sequence and thus don't care
-    *
-    * shift things
-    *    if nothing is being deleted this is shifting everything right by 1,
-    *    if 1 is being deleted it's a no-op
-    *    if more than 1 is being deleted it's a left shift
-    *    if we're deleting everything the memmove moves 0 bytes
-    */
-   int *dst = &stack->seq[insert_position + 1];
-   const int *src = &stack->seq[successor];
-   const int *end = &stack->seq[stack->size];
-   size_t bytes_to_move = (end - src) * sizeof(*src);
-   memmove(dst, src, bytes_to_move);
-
-   stack->size -= num_deleting;
-   // A new range is added to the stack, increment stack size
-   stack->size++;
-   stack->seq[insert_position] = seq;
-
-done:
-   debug_range_stack_check_invariants(stack, cfg);
-   return;
-}
-
-/*
- *-----------------------------------------------------------------------------
- *
- * maybe_remove_range_deletes --
- *
- *  Inform range stack that we have started processing a new key. Modifies
- *  the stack and removes any range deletes no longer necessary.
- *
- *  returns:
- *    TRUE if a range delete was generated to be outputted by the merge_iterator
- *    FALSE otherwise
- *
- *-----------------------------------------------------------------------------
- */
-static bool
-maybe_remove_range_deletes(range_stack *stack,
-                           const slice next_key,
-                           data_config *cfg)
-{
-   bool r;
-   debug_range_stack_check_invariants(stack, cfg);
-   if (stack->size == 0) {
-      r = FALSE;
-      goto done;
-   }
-
-   // Find the first relevant/useful range_delete
-   int num_deleting =
-      find_useful_successor(stack, next_key,
-                            //passing a number bigger than anything on the stack
-                            stack->seq[0] + 1,
-                            0, cfg);
-   debug_assert(num_deleting >= 0);
-   debug_assert(num_deleting <= stack->size);
-
-   if (num_deleting == stack->size) {
-      // we are deleting EVERYTHING
-      debug_assert(stack->has_start_key);
-      stack->end_seq = stack->seq[stack->size - 1];
-      stack->has_start_key = FALSE;
-      stack->size = 0;
-      // if stack is empty, index 0 should be -1
-      stack->seq[0] = -1;
-      r = TRUE;
-      goto done;
-   }
-
-   /*
-    * we're shifting the ones we're keeping to left,
-    * and we don't care about clearing out the remainder
-    */
-   int *dest = &stack->seq[0];
-   const int *src = &stack->seq[num_deleting];
-   const int *end = &stack->seq[stack->size];
-   size_t bytes_to_move = (end - src) * sizeof(*src);
-   memmove(dest, src, bytes_to_move);
-
-   stack->size -= num_deleting;
-   r = FALSE;
-
-done:
-   debug_range_stack_check_invariants(stack, cfg);
-   return r;
-}
 
 /*
  * bsearch which returns insertion position
@@ -426,34 +104,13 @@ bsearch_insert(register const ordered_iterator *key,
 static inline void
 set_curr_ordered_iterator(const data_config *cfg, ordered_iterator *itor)
 {
-   iterator_get_curr(itor->itor, &itor->key, &itor->data, &itor->type);
-}
-
-static inline void
-assert_data_config_valid(data_config *point_cfg,
-                         data_config *range_cfg)
-{
-   // FIXME: [nsarmicanic 2020-07-31] Should we add type to data_config?
-   //debug_assert(point_cfg->type = data_type_point);
-   //debug_assert(range_cfg->type = data_type_range);
-
-   debug_assert(point_cfg->key_size <= point_cfg->message_size);
-   debug_assert(range_cfg->key_size == range_cfg->message_size);
-   debug_assert(point_cfg->key_size == range_cfg->key_size);
-   debug_assert(point_cfg->key_size <= MAX_KEY_SIZE);
+   iterator_get_curr(itor->itor, &itor->key, &itor->data);
 }
 
 static inline void
 debug_assert_message_type_valid(debug_only merge_iterator *merge_itor)
 {
 #if SPLINTER_DEBUG
-   if (!merge_itor->at_end) {
-      debug_assert(merge_itor->type == data_type_point);
-   } else {
-      debug_assert(merge_itor->type == data_type_invalid);
-   }
-   //debug_code(char *data = merge_itor->data);
-   //debug_code(data_config *cfg = merge_itor->cfg);
    message_type type =
       slice_is_null(merge_itor->data)
      ? MESSAGE_TYPE_INVALID
@@ -568,42 +225,42 @@ out:
    return STATUS_OK;
 }
 
-static void
-process_one_range_delete_or_clobber_one_point(merge_iterator *merge_itor)
-{
-   ordered_iterator *ordered_itor = merge_itor->ordered_iterators[0];
-   data_config *range_cfg = merge_itor->range_cfg;
-
-   switch (ordered_itor->type) {
-      case data_type_point:
-         // FIXME: [nsarmicanic 2020-07-31] remove if guard when this function
-         //        is not NULL
-         if (range_cfg->clobber_message_with_range_delete) {
-            data_clobber_message_with_range_delete(range_cfg, ordered_itor->key,
-                                                   ordered_itor->data);
-         }
-         break;
-      case data_type_range:
-         add_new_range_delete_to_stack(&merge_itor->stack,
-                                       ordered_itor->key,
-                                       ordered_itor->data,
-                                       ordered_itor->seq,
-                                       range_cfg);
-         break;
-      default:
-         debug_assert(FALSE);
-         break;
-   }
-}
+/*
+ * In the case where the two minimum iterators of the merge iterator have equal
+ * keys, resolve_equal_keys will merge the data as necessary
+ */
 
 static platform_status
-process_remaining_range_deletes_and_clobber_points(merge_iterator *merge_itor)
+merge_resolve_equal_keys(merge_iterator *merge_itor)
 {
+   debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
+   debug_assert(merge_itor->data != merge_itor->merge_buffer);
+   debug_assert(merge_itor->key == merge_itor->ordered_iterators[0]->key);
+
+   data_config *cfg = merge_itor->cfg;
+
 #if SPLINTER_DEBUG
    ordered_iterator *expected_itor = merge_itor->ordered_iterators[1];
 #endif
-   debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
+
+   // there is more than one copy of the current key
+   memmove(merge_itor->merge_buffer, slice_data(merge_itor->data), slice_length(merge_itor->data));
+   merge_itor->data.data = merge_itor->merge_buffer;
    do {
+      // Verify we don't fall off the end
+      debug_assert(merge_itor->num_remaining >= 2);
+      // Verify keys match
+      debug_assert(!data_key_compare(
+         cfg, merge_itor->key, merge_itor->ordered_iterators[1]->key));
+      debug_assert(merge_itor->data == merge_itor->merge_buffer);
+
+      data_merge_tuples(cfg,
+                        merge_itor->key,
+                        merge_itor->ordered_iterators[1]->data,
+                        &merge_itor->data);
+      // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
+      //    We should crash or cancel the entire compaction
+
       /*
        * Need to maintain invariant that merge_itor->key points to a valid
        * page; this means that this pointer must be updated before the 0th
@@ -619,139 +276,12 @@ process_remaining_range_deletes_and_clobber_points(merge_iterator *merge_itor)
       debug_assert(expected_itor == merge_itor->ordered_iterators[0]);
       expected_itor = merge_itor->ordered_iterators[1];
 #endif
-      process_one_range_delete_or_clobber_one_point(merge_itor);
    } while (merge_itor->ordered_iterators[0]->next_key_equal);
 
-   return STATUS_OK;
-}
-
-/*
- * In the case where the two minimum iterators of the merge iterator have equal
- * keys, resolve_equal_keys will merge the data as necessary
- */
-
-static platform_status
-merge_resolve_equal_keys(merge_iterator *merge_itor, bool *retry) {
-   debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
-   debug_assert(slice_data(merge_itor->data) != merge_itor->merge_buffer);
-   debug_assert(slices_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
-
-   data_config *cfg = merge_itor->cfg;
-
-#if SPLINTER_DEBUG
-   ordered_iterator *expected_itor = merge_itor->ordered_iterators[1];
-#endif
-
-   if (1
-       && merge_itor->ordered_iterators[0]->type == data_type_point
-       && !range_stack_clobbers_point(&merge_itor->stack,
-                                      merge_itor->ordered_iterators[0]->seq))
-   {
-      /*
-       * There is more than one copy of the current key, and the newest copy is
-       * a point that is not clobbered by range deletes.
-       */
-
-      memmove(merge_itor->merge_buffer, slice_data(merge_itor->data), slice_length(merge_itor->data));
-      merge_itor->data.data = merge_itor->merge_buffer;
-      do {
-         if (1
-             && merge_itor->ordered_iterators[1]->type == data_type_point
-             && !range_stack_clobbers_point(
-                                 &merge_itor->stack,
-                                 merge_itor->ordered_iterators[1]->seq))
-         {
-            /*
-             * There is at least one more point that is not clobbered by
-             * range deletes.
-             */
-
-            // Verify we don't fall off the end
-            debug_assert(merge_itor->num_remaining >= 2);
-            // Verify keys match
-            debug_assert(
-                  !data_key_compare(cfg,
-                                    merge_itor->key,
-                                    merge_itor->ordered_iterators[1]->key));
-            debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
-
-            data_merge_tuples(cfg, merge_itor->key,
-                              merge_itor->ordered_iterators[1]->data,
-                              &merge_itor->data);
-            // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
-            //    We should crash or cancel the entire compaction
-
-            /*
-             * Need to maintain invariant that merge_itor->key points to a valid
-             * page; this means that this pointer must be updated before the 0th
-             * iterator is advanced
-             */
-            merge_itor->key = merge_itor->ordered_iterators[1]->key;
-            debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
-            platform_status rc = advance_and_resort_min_ritor(merge_itor);
-            if (!SUCCESS(rc)) {
-               return rc;
-            }
-#if SPLINTER_DEBUG
-            debug_assert(expected_itor == merge_itor->ordered_iterators[0]);
-            expected_itor = merge_itor->ordered_iterators[1];
-#endif
-
-         } else {
-            /* Anything that's left over is either range deletes or points that
-             * are being clobbered.
-             * This deals with all duplicates so we break out of the loop once
-             * we are done.
-             */
-            debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
-            process_remaining_range_deletes_and_clobber_points(merge_itor);
-            debug_assert(merge_itor->stack.size > 0);
-            break;
-         }
-      } while (merge_itor->ordered_iterators[0]->next_key_equal);
-
-      // Dealt with all duplicates, now pointing to last copy.
-      debug_assert(!merge_itor->ordered_iterators[0]->next_key_equal);
-
-      message_type class = data_message_class(cfg, merge_itor->data);
-      /*
-       * If retry is TRUE that means we threw away a point delete
-       * because we didn't need it because of range delete
-       *
-       * Point deletes on top of range deletes are redundant.
-       */
-      *retry = range_stack_makes_point_redundant(&merge_itor->stack, class);
-   } else {
-      merge_itor->data = slice_create(0, NULL);
-      process_one_range_delete_or_clobber_one_point(merge_itor);
-      process_remaining_range_deletes_and_clobber_points(merge_itor);
-      *retry = TRUE;
-   }
+   // Dealt with all duplicates, now pointing to last copy.
+   debug_assert(!merge_itor->ordered_iterators[0]->next_key_equal);
 
    return STATUS_OK;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * discard_range_deletes--
- *
- * if merge_itor->discard_deletes:
- *    discards MESSAGE_TYPE_DELETE messages
- * return True if discarded a range delete
- *
- *-----------------------------------------------------------------------------
- */
-static inline bool
-discard_range_deletes(merge_iterator *merge_itor)
-{
-   debug_assert(merge_itor->type == data_type_range);
-   debug_assert(merge_itor->discard_deletes == !!merge_itor->discard_deletes);
-
-   // Increment stats iff discarded_deletes is true
-   merge_itor->discarded_deletes += merge_itor->discard_deletes;
-   return merge_itor->discard_deletes;
 }
 
 
@@ -770,7 +300,6 @@ discard_range_deletes(merge_iterator *merge_itor)
 static inline bool
 merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
 {
-   debug_assert(merge_itor->type == data_type_point);
    data_config *cfg = merge_itor->cfg;
    message_type class = data_message_class(cfg, merge_itor->data);
    // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
@@ -800,72 +329,28 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
    *retry= FALSE;
    // Determine whether we're at the end.
    if (merge_itor->num_remaining == 0) {
-      if (maybe_remove_range_deletes(&merge_itor->stack,
-                                     data_key_positive_infinity,
-                                     merge_itor->range_cfg))
-      {
-         // We're at the end (modulo range in the stack)
-         merge_itor->type = data_type_range;
-         merge_itor->key = range_stack_get_start_key(&merge_itor->stack);
-         merge_itor->data = range_stack_get_end_key(&merge_itor->stack);
-         *retry = discard_range_deletes(merge_itor);
-         debug_assert(merge_itor->stack.size == 0);
-      } else {
-         merge_itor->type = data_type_invalid;
-         merge_itor->at_end = TRUE;
-      }
+      merge_itor->at_end = TRUE;
       return STATUS_OK;
    }
 
-   // set the next key/data/type from the min ritor
+   // set the next key/data from the min ritor
    merge_itor->key = merge_itor->ordered_iterators[0]->key;
-   data_type type = merge_itor->ordered_iterators[0]->type;
-   debug_assert(type == data_type_point || type == data_type_range);
    if (!merge_itor->has_data) {
       /*
        * We only have keys.  We COULD still merge (skip duplicates) the keys
        * but it would break callers.  Right now, rough estimates rely on the
        * duplicate keys outputted to improve the estimates.
        */
-      merge_itor->type = type;
       return STATUS_OK;
    }
    merge_itor->data = merge_itor->ordered_iterators[0]->data;
 
-   if (maybe_remove_range_deletes(&merge_itor->stack, merge_itor->key,
-                                  merge_itor->range_cfg))
-   {
-      merge_itor->type = data_type_range;
-      merge_itor->key = range_stack_get_start_key(&merge_itor->stack);
-      merge_itor->data = range_stack_get_end_key(&merge_itor->stack);
-      *retry = discard_range_deletes(merge_itor);
-      return STATUS_OK;
-   }
-
    if (merge_itor->ordered_iterators[0]->next_key_equal) {
-      platform_status rc = merge_resolve_equal_keys(merge_itor, retry);
+      platform_status rc = merge_resolve_equal_keys(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
       }
-      if (*retry) {
-         return STATUS_OK;
-      }
-   } else if (merge_itor->ordered_iterators[0]->type == data_type_range ||
-         range_stack_clobbers_point(&merge_itor->stack,
-                                    merge_itor->ordered_iterators[0]->seq))
-   {
-      /*
-       * We have no duplicates and have either
-       * - a point that gets clobbered or
-       * - one range delete.
-       */
-      process_one_range_delete_or_clobber_one_point(merge_itor);
-      *retry = TRUE;
-      return STATUS_OK;
    }
-
-   merge_itor->type = type;
-   debug_assert(merge_itor->type == data_type_point);
 
    if (merge_resolve_updates_and_discard_deletes(merge_itor)) {
       *retry = TRUE;
@@ -891,14 +376,9 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
  *-----------------------------------------------------------------------------
  */
 
-// FIXME: [yfogel 2020-07-17] rename cfg to point_cfg
-// FIXME: [yfogel 2020-07-17] ADD data_type type; to data_config (dont' remove
-//       from btree_config (yet? maybe later)
-// FIXME: [yfogel 2020-08-24] Verify all input iterators are homogeneous for data_type
 platform_status
 merge_iterator_create(platform_heap_id  hid,
                       data_config      *cfg,
-                      data_config      *range_cfg,
                       int               num_trees,
                       iterator        **itor_arr,
                       bool              discard_deletes,
@@ -914,24 +394,14 @@ merge_iterator_create(platform_heap_id  hid,
    //        (also sanity functions WHEN FIRST NEEDED for splinterconfig and
    //         btree_config)
 
-   // FIXME: [nsarmicanic 2020-07-31] remove if guard once range_cfg is never passed as NULL
-   if (range_cfg) {
-      assert_data_config_valid(cfg, range_cfg);
-   }
-
-   // FIXME: [yfogel 2020-07-01] need to also err on missing range_cfg
-   //      but callers are currently passing NULL until callers
-   //      are fixed
-   if (0
-       || !out_itor
-       || !itor_arr
-       || !cfg
-       || num_trees < 0
-       || num_trees >= ARRAY_SIZE(merge_itor->ordered_iterator_stored))
-   {
+   if (!out_itor || !itor_arr || !cfg || num_trees < 0 ||
+       num_trees >= ARRAY_SIZE(merge_itor->ordered_iterator_stored)) {
       platform_log("merge_iterator_create: bad parameter merge_itor %p"
-            " num_trees %d itor_arr %p cfg %p range_cfg %p\n",
-            out_itor, num_trees, itor_arr, cfg, range_cfg);
+                   " num_trees %d itor_arr %p cfg %p\n",
+                   out_itor,
+                   num_trees,
+                   itor_arr,
+                   cfg);
       return STATUS_BAD_PARAM;
    }
 
@@ -957,22 +427,18 @@ merge_iterator_create(platform_heap_id  hid,
    //                            everywhere else)
    //                            maybe also copy data config locally?
    merge_itor->cfg = cfg;
-   merge_itor->range_cfg = range_cfg;
-
-   // Initialize range stack
-   range_stack_init(&merge_itor->stack, num_trees);
 
    // index -1 initializes the pad variable
    for (i = -1; i < num_trees; i++) {
-     merge_itor->ordered_iterator_stored[i] = (ordered_iterator) {
-        .seq = i,
-        .itor = i == -1 ? NULL : itor_arr[i],
-        .key = null_slice,
-        .data = null_slice,
-        .next_key_equal = FALSE,
-     };
-     merge_itor->ordered_iterators[i] =
-        &merge_itor->ordered_iterator_stored[i];
+      merge_itor->ordered_iterator_stored[i] = (ordered_iterator){
+         .seq            = i,
+         .itor           = i == -1 ? NULL : itor_arr[i],
+         .key            = null_slice,
+         .data           = null_slice,
+         .next_key_equal = FALSE,
+      };
+      merge_itor->ordered_iterators[i] =
+         &merge_itor->ordered_iterator_stored[i];
    }
 
    // Move all the dead iterators to the end and count how many are still alive.
@@ -1106,19 +572,13 @@ merge_at_end(iterator *itor,   // IN
  *-----------------------------------------------------------------------------
  */
 
-// FIXME: [tjiaheng 2020-07-17] should support data_type_range
 void
-merge_get_curr(iterator   *itor,
-               slice *key,
-               slice *data,
-               data_type  *type)
+merge_get_curr(iterator *itor, slice *key, slice *data)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    debug_assert(!merge_itor->at_end);
-   debug_assert(merge_itor->type != data_type_invalid);
    *key = merge_itor->key;
    *data = merge_itor->data;
-   *type = merge_itor->type;
 }
 
 /*
@@ -1145,14 +605,11 @@ merge_advance(iterator *itor)
    do {
       merge_itor->key = null_slice;
       merge_itor->data = null_slice;
-      if (merge_itor->type != data_type_range) {
-         // Advance one iterator
-         rc = advance_and_resort_min_ritor(merge_itor);
-         if (!SUCCESS(rc)) {
-            return rc;
-         }
+      // Advance one iterator
+      rc = advance_and_resort_min_ritor(merge_itor);
+      if (!SUCCESS(rc)) {
+         return rc;
       }
-      merge_itor->type = data_type_invalid;
 
       rc = advance_one_loop(merge_itor, &retry);
       if (!SUCCESS(rc)) {
@@ -1169,9 +626,8 @@ merge_iterator_print(merge_iterator *merge_itor)
    uint64 i;
    slice key, data;
    char key_str[MAX_KEY_SIZE];
-   data_type type;
    data_config *data_cfg = merge_itor->cfg;
-   iterator_get_curr(&merge_itor->super, &key, &data, &type);
+   iterator_get_curr(&merge_itor->super, &key, &data);
    data_key_to_string(data_cfg, key, key_str, 32);
 
    platform_log("****************************************\n");
@@ -1188,7 +644,7 @@ merge_iterator_print(merge_iterator *merge_itor)
       else
          platform_log("_ : ");
       if (i < merge_itor->num_remaining) {
-         iterator_get_curr(merge_itor->ordered_iterators[i]->itor, &key, &data, &type);
+         iterator_get_curr(merge_itor->ordered_iterators[i]->itor, &key, &data);
          data_key_to_string(data_cfg, key, key_str, 32);
          platform_log("%s\n", key_str);
       } else {

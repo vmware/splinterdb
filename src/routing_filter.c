@@ -1214,8 +1214,7 @@ routing_filter_verify(cache          *cc,
    while (!at_end) {
       slice key;
       slice message;
-      data_type dummy_type;
-      iterator_get_curr(itor, &key, &message, &dummy_type);
+      iterator_get_curr(itor, &key, &message);
       uint64 found_values;
       platform_status rc =
          routing_filter_lookup(cc, cfg, filter, key, &found_values);

@@ -14,7 +14,7 @@ TESTSDIR = tests
 OBJDIR   = obj
 BINDIR   = bin
 
-SRC := $(shell find $(SRCDIR) -name "*.c")
+SRC := $(shell find $(SRCDIR) -name "*.c" | grep -v dynamic_btree.c)
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)

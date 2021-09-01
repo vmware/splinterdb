@@ -471,9 +471,8 @@ kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
 {
    slice bkey;
    slice bmessage;
-   data_type type; // ignored
    iterator *itor = &(kvi->sri.super);
-   iterator_get_curr(itor, &bkey, &bmessage, &type);
+   iterator_get_curr(itor, &bkey, &bmessage);
    *key = slice_data(bkey);
    *message = slice_data(bmessage);
 }

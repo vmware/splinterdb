@@ -41,7 +41,7 @@ btree_root_to_meta_addr(cache *cc,
    return root_addr + (meta_page_no + 1) * cfg->page_size;
 }
 
-void            btree_iterator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
+void            btree_iterator_get_curr (iterator *itor, slice *key, slice *data);
 platform_status btree_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status btree_iterator_advance  (iterator *itor);
 void            btree_iterator_print    (iterator *itor);
@@ -1706,10 +1706,7 @@ btree_lookup_async_with_ref(cache *cc,              // IN
  */
 
 void
-btree_iterator_get_curr(iterator   *base_itor,
-                        slice *key,
-                        slice *data,
-                        data_type  *type)
+btree_iterator_get_curr(iterator *base_itor, slice *key, slice *data)
 {
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
@@ -1727,7 +1724,6 @@ btree_iterator_get_curr(iterator   *base_itor,
    *key = slice_create(itor->cfg->data_cfg->key_size, itor->curr_key);
    debug_assert((itor->curr_data != NULL) == (itor->height == 0));
    *data = slice_create(itor->cfg->data_cfg->message_size, itor->curr_data);
-   *type = itor->cfg->type;
 }
 
 
@@ -1784,85 +1780,6 @@ btree_iterator_is_at_end(btree_iterator *itor)
    return itor->curr.addr == itor->end.addr && itor->idx == itor->end_idx;
 }
 
-static bool
-btree_iterator_is_last_tuple(btree_iterator *itor)
-{
-   debug_assert(!itor->at_end);
-   debug_assert(!btree_iterator_is_at_end(itor));
-   debug_assert(itor->height == 0);
-   debug_assert(itor->cfg->type == data_type_range);
-   debug_assert(itor->idx < itor->curr.hdr->num_entries);
-   btree_config *cfg = itor->cfg;
-   if (itor->is_live) {
-      if (itor->curr.hdr->next_addr == 0 &&
-          itor->idx + 1 == itor->curr.hdr->num_entries)
-      {
-         /*
-          * reached the very last element in entire tree
-          * This can happen if max_key == null or reached end before max key
-          */
-         return TRUE;
-      }
-      if (itor->max_key != NULL) {
-         char *next_key;
-         if (itor->idx + 1 == itor->curr.hdr->num_entries) {
-            // at last element of the leaf; get first element of next leaf
-            btree_node next = { .addr = itor->curr.hdr->next_addr };
-            btree_node_get(itor->cc, cfg, &next, itor->page_type);
-            next_key = btree_get_tuple(cfg, &next, 0);
-            btree_node_unget(itor->cc, cfg, &next);
-         } else {
-            // get next element of this leaf
-            next_key = btree_get_tuple(cfg, &itor->curr,
-                                       itor->idx + 1);
-         }
-         return btree_key_compare(cfg, itor->max_key, next_key) <= 0;
-      }
-      return FALSE;
-   } else {
-      if (itor->end.addr == 0) {
-         /*
-          * There is no max key
-          * It's the last tuple if we're in the last leaf and idx is the last
-          * tuple in the leaf.
-          */
-
-         debug_assert(itor->max_key == NULL);
-
-         return itor->curr.hdr->next_addr == 0 &&
-                itor->idx + 1 == itor->curr.hdr->num_entries;
-      }
-      // there is a max key
-      // FIXME: [yfogel 2020-07-14] when less_than is an available query
-      //    we only have one case.  We will always point to a REAL tuple
-      //    that is the last tuple included.
-      //    If nothing found that way, it means entire tree (or at least
-      //    entire iteration) is empty.
-      //    finding -1 in a leaf is impossible on any but 0th leaf (you'd
-      //    find instead the previous leaf)
-      //    Depends on if the less_than query for find_node is smart
-      //    it should be of course.
-      //    so -1 means iteration is 100% empty and you're done
-      //    (empty btree or no matches)
-      //    the "ugly" part of doing this, is that end becomes INCLUSIVE
-      //    we can workaround that by increasing index by 1
-      //    then we remove ALL rollovers except during advance going to next
-      //    (after the is_last test)
-
-      debug_assert(itor->max_key != NULL);
-
-      if (itor->end_idx) {
-         // It's the last tuple if on the end leaf and just before end_idx
-         return itor->curr.addr == itor->end.addr &&
-                itor->end_idx == itor->idx + 1;
-      } else {
-         // It's the last tuple if on 2nd-to-end leaf and last tuple on the leaf
-         return itor->curr.hdr->next_addr == itor->end.addr &&
-                itor->curr.hdr->num_entries == itor->idx + 1;
-      }
-   }
-}
-
 // Set curr_key and curr_data acording to height
 static void
 btree_iterator_set_curr_key_and_data(btree_iterator *itor)
@@ -1895,22 +1812,6 @@ debug_btree_iterator_validate_next_tuple(debug_only btree_iterator *itor)
    if (itor->max_key) {
       debug_assert(btree_key_compare(cfg, itor->curr_key, itor->max_key) < 0);
    }
-   if (itor->cfg->type == data_type_range) {
-      int cmp = btree_key_compare(cfg, itor->debug_prev_end_key, itor->curr_key);
-      if (itor->debug_is_packed) {
-         // Not a memtable, touching ranges are not allowed.
-         // FIXME: [nsarmicanic 2020-08-11] replace <= with <
-         //    once merge_iterator merges touching ranges
-         debug_assert(cmp <= 0);
-      } else {
-         // It is a memtable, touching ranges are allowed.
-         debug_assert(cmp <= 0);
-      }
-      if (itor->max_key) {
-         debug_assert(
-               btree_key_compare(cfg, itor->curr_data, itor->max_key) <= 0);
-      }
-   }
 #endif
 }
 
@@ -1922,24 +1823,7 @@ debug_btree_iterator_save_last_tuple(debug_only btree_iterator *itor)
 
    uint64 key_size = itor->cfg->data_cfg->key_size;
    memmove(itor->debug_prev_key, itor->curr_key, key_size);
-   if (itor->cfg->type == data_type_range) {
-      memmove(itor->debug_prev_end_key, itor->curr_data, key_size);
-   }
 #endif
-}
-
-static void
-btree_iterator_clamp_end(btree_iterator *itor)
-{
-   if (1
-       && itor->height == 0
-       && itor->cfg->type == data_type_range
-       && btree_iterator_is_last_tuple(itor)
-       && btree_key_compare(itor->cfg, itor->curr_data, itor->max_key) > 0)
-   {
-      // FIXME: [aconway 2020-09-11] Handle this better
-      itor->curr_data = (char *) itor->max_key;
-   }
 }
 
 platform_status
@@ -2027,8 +1911,6 @@ btree_iterator_advance(iterator *base_itor)
 
    btree_iterator_set_curr_key_and_data(itor);
 
-   btree_iterator_clamp_end(itor);
-
    debug_btree_iterator_validate_next_tuple(itor);
    debug_btree_iterator_save_last_tuple(itor);
 
@@ -2071,31 +1953,21 @@ btree_iterator_print(iterator *itor)
  * Caller must guarantee:
  *    min_key needs to be valid until the first call to advance() returns
  *    max_key (if not null) needs to be valid until at_end() returns true
- * If we are iterating over ranges
- *    (data_type == data_type_range && height == 0)
- *
- * btree_iterator on range_delete (leaves only) clamps the ranges outputted to
- *  the input min/max.  It also includes all ranges that overlap the [min,max)
- *  range, and not just keys that overlap it. (Potentially 1 extra range
- *  included in the iteration)
  *
  *-----------------------------------------------------------------------------
  */
 void
-btree_iterator_init(cache          *cc,
-                    btree_config   *cfg,
+btree_iterator_init(cache *         cc,
+                    btree_config *  cfg,
                     btree_iterator *itor,
                     uint64          root_addr,
                     page_type       page_type,
-                    const char     *min_key,
-                    const char     *max_key,
+                    const char *    min_key,
+                    const char *    max_key,
                     bool            do_prefetch,
                     bool            is_live,
-                    uint32          height,
-                    data_type       data_type)
+                    uint32          height)
 {
-   debug_assert(cfg->type == data_type);
-
    ZERO_CONTENTS(itor);
    itor->cc          = cc;
    itor->cfg         = cfg;
@@ -2196,18 +2068,6 @@ btree_iterator_init(cache          *cc,
    if (height == 0) {
       //FIXME: [yfogel 2020-07-08] no need for extra compare when less_than_or_equal is supproted
       itor->idx = btree_find_tuple(cfg, &itor->curr, min_key, greater_than_or_equal);
-      if (data_type == data_type_range && itor->idx > 0) {
-         char *end_data = btree_get_data(cfg, &itor->curr, itor->idx-1);
-         if (btree_key_compare(cfg, end_data, min_key) > 0) {
-            /*
-             * [start_key,end_data) overlaps min_key
-             * it MUST be on the leaf where that key would belong. So we have to
-             * look to the left on the same leaf, but only on the same leaf.
-             */
-            itor->idx--;
-            start_is_clamped = FALSE;
-         }
-      }
    } else {
       itor->idx = btree_find_pivot(cfg, &itor->curr, min_key, greater_than_or_equal);
    }
@@ -2268,8 +2128,6 @@ btree_iterator_init(cache          *cc,
    if (!start_is_clamped) {
       itor->curr_key = (char *)min_key;
    }
-
-   btree_iterator_clamp_end(itor);
 
    debug_assert(btree_key_compare(cfg, min_key, itor->curr_key) <= 0);
    debug_btree_iterator_save_last_tuple(itor);
@@ -2564,13 +2422,11 @@ btree_pack(btree_pack_req *req)
    btree_pack_setup(req, &tree);
 
    slice key, message;
-   data_type type;
    bool at_end;
 
    iterator_at_end(tree.itor, &at_end);
    while (!at_end) {
-      iterator_get_curr(tree.itor, &key, &message, &type);
-      debug_assert(type == req->cfg->type);
+      iterator_get_curr(tree.itor, &key, &message);
       debug_assert(slice_length(key) == req->cfg->data_cfg->key_size);
       debug_assert(slice_length(message) == req->cfg->data_cfg->message_size);
       btree_pack_loop(&tree, slice_data(key), slice_data(message), &at_end);
@@ -2583,73 +2439,6 @@ btree_pack(btree_pack_req *req)
 
    btree_pack_post_loop(&tree);
    platform_assert(IMPLIES(req->num_tuples == 0, req->root_addr == 0));
-   return STATUS_OK;
-}
-
-/*
- *-----------------------------------------------------------------------------
- *
- * branch_pack --
- *
- *      Packs a branch (point and range btree) from an iterator source. Zaps the
- *      empty output tree.
- *
- *-----------------------------------------------------------------------------
- */
-
-platform_status
-branch_pack(platform_heap_id hid, branch_pack_req *req)
-{
-   btree_pack_internal *point_tree = TYPED_MALLOC(hid, point_tree);
-   btree_pack_internal *range_tree = TYPED_MALLOC(hid, range_tree);
-   ZERO_CONTENTS(point_tree);
-   ZERO_CONTENTS(range_tree);
-
-   btree_pack_setup(&req->point_req, point_tree);
-   btree_pack_setup(&req->range_req, range_tree);
-
-   btree_pack_internal *trees[NUM_DATA_TYPES];
-   trees[data_type_point] = point_tree;
-   trees[data_type_range] = range_tree;
-
-   slice key, message;
-   data_type type;
-   bool at_end;
-
-   /*
-    * We are assuming point and range req have the same max_tuples and itor,
-    * thus using them interchangeably below
-    */
-   platform_assert(req->point_req.max_tuples == req->range_req.max_tuples);
-   platform_assert(req->point_req.itor == req->range_req.itor);
-
-   // FIXME: [tjiaheng 2020-07-29] find out how we can use req->max_tuples
-   // here
-   // uint64 max_tuples_per_tree = req->point_req.max_tuples;
-   iterator *itor = req->point_req.itor;
-
-   iterator_at_end(itor, &at_end);
-   while (!at_end) {
-      iterator_get_curr(itor, &key, &message, &type);
-      debug_assert(slice_length(key) == req->point_req.cfg->data_cfg->key_size);
-      debug_assert(slice_length(message) == req->point_req.cfg->data_cfg->message_size);
-      btree_pack_loop(trees[type], slice_data(key), slice_data(message), &at_end);
-      // FIXME: [tjiaheng 2020-07-29] find out how we can use req->max_tuples
-      // here
-      // if (max_tuples_per_tree != 0
-      //     && *(trees[type]->num_tuples) == max_tuples_per_tree) {
-      //    at_end = TRUE;
-      // }
-   }
-
-   btree_pack_post_loop(point_tree);
-   platform_assert(IMPLIES(req->point_req.num_tuples == 0, req->point_req.root_addr == 0));
-   btree_pack_post_loop(range_tree);
-   platform_assert(IMPLIES(req->range_req.num_tuples == 0, req->range_req.root_addr == 0));
-   platform_assert(req->range_req.root_addr == 0);
-
-   platform_free(hid, point_tree);
-   platform_free(hid, range_tree);
    return STATUS_OK;
 }
 
@@ -2704,8 +2493,16 @@ btree_count_in_range_by_iterator(cache        *cc,
 {
    btree_iterator btree_itor;
    iterator *itor = &btree_itor.super;
-   btree_iterator_init(cc, cfg, &btree_itor, root_addr, PAGE_TYPE_BRANCH,
-         min_key, max_key, TRUE, FALSE, 0, data_type_point);
+   btree_iterator_init(cc,
+                       cfg,
+                       &btree_itor,
+                       root_addr,
+                       PAGE_TYPE_BRANCH,
+                       min_key,
+                       max_key,
+                       TRUE,
+                       FALSE,
+                       0);
    bool at_end;
    uint64 count= 0;
    iterator_at_end(itor, &at_end);
@@ -3072,7 +2869,6 @@ btree_extent_count(cache        *cc,
 void
 btree_config_init(btree_config *btree_cfg,
                   data_config  *data_cfg,
-                  data_type     type,
                   uint64        rough_count_height,
                   uint64        page_size,
                   uint64        extent_size)
@@ -3118,6 +2914,4 @@ btree_config_init(btree_config *btree_cfg,
    if (btree_cfg->pivots_per_index > MAX_UNPACKED_IDX) {
       btree_cfg->pivots_per_index = MAX_UNPACKED_IDX;
    }
-
-   btree_cfg->type = type;
 }

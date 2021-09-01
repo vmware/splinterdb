@@ -178,15 +178,14 @@ test_count_tuples_in_range(cache        *cc,
          btree_print_tree(cc, cfg, root_addr[i]);
          platform_assert(0);
       }
-      btree_iterator_init(cc, cfg, &itor, root_addr[i], type, low_key,
-                          high_key, TRUE, FALSE, 0, data_type_point);
+      btree_iterator_init(
+         cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, FALSE, 0);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
       slice last_key = null_slice;
       while (!at_end) {
          slice key, data;
-         data_type type;
-         iterator_get_curr(&itor.super, &key, &data, &type);
+         iterator_get_curr(&itor.super, &key, &data);
          if (!slice_is_null(last_key) && data_key_compare(cfg->data_cfg, last_key, key) > 0) {
             char last_key_str[128], key_str[128];
             data_key_to_string(cfg->data_cfg, last_key, last_key_str, 128);
@@ -239,14 +238,13 @@ test_btree_print_all_keys(cache        *cc,
    uint64 i;
    for (i = 0; i < num_trees; i++) {
       platform_log("tree number %lu\n", i);
-      btree_iterator_init(cc, cfg, &itor, root_addr[i], type,
-            low_key, high_key, TRUE, FALSE, 0, data_type_point);
+      btree_iterator_init(
+         cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, FALSE, 0);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
       while (!at_end) {
          slice key, data;
-         data_type type;
-         iterator_get_curr(&itor.super, &key, &data, &type);
+         iterator_get_curr(&itor.super, &key, &data);
          char key_str[128];
          data_key_to_string(cfg->data_cfg, key, key_str, 128);
          platform_log("%s\n", key_str);

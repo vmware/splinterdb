@@ -197,7 +197,6 @@ verify_range_against_shadow(splinter_handle            *spl,
       goto out;
    }
 
-   data_type type;
    for (i = start_index; i < end_index; i++) {
       uint64 shadow_key = sharr->keys[i];
       int8 shadow_refcount = sharr->ref_counts[i];
@@ -216,8 +215,7 @@ verify_range_against_shadow(splinter_handle            *spl,
       }
 
       iterator_get_curr((iterator *)range_itor,
-                        &splinter_keybuf, &splinter_message,
-                        &type);
+                        &splinter_keybuf, &splinter_message);
       splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
       splinter_data_handle = slice_data(splinter_message);
 
@@ -268,8 +266,7 @@ verify_range_against_shadow(splinter_handle            *spl,
           !at_end) {
       status = STATUS_LIMIT_EXCEEDED;
       iterator_get_curr((iterator *)range_itor,
-                        &splinter_keybuf, &splinter_message,
-                        &type);
+                        &splinter_keybuf, &splinter_message);
       splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
 
       platform_log("Range iterator EXTRA KEY: %08lx \n"

@@ -85,8 +85,7 @@ test_log_crash(clockcache           *cc,
       test_insert_data(databuffer, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
       slice smessage = slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
-      data_type type;
-      iterator_get_curr(itorh, &returned_key, &returned_message, &type);
+      iterator_get_curr(itorh, &returned_key, &returned_message);
       if (slice_lex_cmp(skey, returned_key) || slice_lex_cmp(smessage, returned_message)) {
          platform_log("log_test_basic: key or data mismatch\n");
          data_key_to_string(cfg->data_cfg, skey, key_str, 128);

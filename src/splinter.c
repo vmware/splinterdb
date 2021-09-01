@@ -453,7 +453,6 @@ typedef struct PACKED splinter_trunk_hdr {
 
 typedef struct splinter_pivot_data {
    uint64         addr;         // PBN of the child
-   // FIXME: [tjiaheng 2020-07-23] do we want to also include range_num_tuples
    uint64         num_tuples;   // estimate of the # of tuples for this pivot
    uint64         generation;   // receives new higher number when pivot splits
    uint16         start_branch; // first branch live (not used in leaves)
@@ -640,8 +639,8 @@ int                                splinter_split_root                (splinter_
 void                               splinter_print                     (splinter_handle *spl);
 void                               splinter_print_node                (splinter_handle *spl, uint64 addr, platform_stream_handle stream);
 void                               splinter_print_locked_node         (splinter_handle *spl, page_handle *node, platform_stream_handle stream);
-static void                        splinter_btree_skiperator_init     (splinter_handle *spl, splinter_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, data_type data_type, key_buffer pivots[static SPLINTER_MAX_PIVOTS]);
-void                               splinter_btree_skiperator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
+static void                        splinter_btree_skiperator_init     (splinter_handle *spl, splinter_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static SPLINTER_MAX_PIVOTS]);
+void                               splinter_btree_skiperator_get_curr (iterator *itor, slice *key, slice *data);
 platform_status                    splinter_btree_skiperator_advance  (iterator *itor);
 platform_status                    splinter_btree_skiperator_at_end   (iterator *itor, bool *at_end);
 void                               splinter_btree_skiperator_print    (iterator *itor);
@@ -818,7 +817,6 @@ splinter_node_is_full(splinter_handle *spl,
    for (uint16 i = 0; i < splinter_num_children(spl, node); i++) {
       num_tuples += splinter_get_pivot_data(spl, node, i)->num_tuples;
    }
-   // FIXME: [tjiaheng 2020-07-23] do we want to also include range_num_tuples
    return num_tuples > spl->cfg.max_tuples_per_node;
 }
 
@@ -1403,7 +1401,6 @@ splinter_add_pivot_new_root(splinter_handle *spl,
    splinter_set_pivot_data_new_root(spl, parent, child_addr);
 }
 
-// FIXME: [tjiaheng 2020-07-23] do we want to also include range_num_tuples
 /*
  * update_num_tuples updates the estimate of the tuples (num_tuples) in each
  * pivot to include an estimate of those from new_branch.
@@ -1423,7 +1420,6 @@ splinter_update_num_tuples(splinter_handle *spl,
    }
 }
 
-// FIXME: [tjiaheng 2020-07-23] do we want to also include range_num_tuples
 /*
  * pivot_recount_num_tuples recounts num_tuples for the pivot at position
  * pivot_no using a rough count.
@@ -1445,8 +1441,6 @@ splinter_pivot_recount_num_tuples(splinter_handle *spl,
          splinter_pivot_tuples_in_branch(spl, node, pivot_no, branch_no);
    }
 }
-
-// FIXME: [tjiaheng 2020-07-23] do we want to also include range_num_tuples
 
 uint64
 splinter_pivot_num_tuples(splinter_handle *spl,
@@ -1642,7 +1636,6 @@ splinter_pivot_tuples_in_branch_slow(splinter_handle *spl,
  * a subsequent flush, the tuple count for the node must be updated to include
  * their tuples.
  */
-// FIXME: [tjiaheng 2020-07-23] do we want to also include range_num_tuples
 void
 splinter_leaf_count_num_tuples(splinter_handle *spl,
                                page_handle     *node,
@@ -2721,21 +2714,16 @@ splinter_zap_branch_range(splinter_handle *spl,
                           const char      *end_key,
                           page_type        type)
 {
-   platform_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
-   platform_assert(0 || (1 && start_key == NULL
-                           && end_key == NULL)
-                     || (1 && type != PAGE_TYPE_MEMTABLE
-                           && start_key != NULL));
-   if (branch->root_addr) {
-      btree_zap_range(spl->cc, &spl->cfg.btree_cfg, branch->root_addr,
-            start_key, end_key, PAGE_TYPE_BRANCH);
-   }
-   if (branch->range_root_addr) {
-      btree_zap_range(spl->cc, &spl->cfg.btree_cfg, branch->range_root_addr,
-            start_key, end_key, PAGE_TYPE_BRANCH);
-   }
-   // FIXME: [yfogel 2020-07-06] If/when we add range-delete filter
-   //    (e.g. on components) we should clean up the range filter here
+   platform_assert(type == PAGE_TYPE_BRANCH);
+   platform_assert((start_key == NULL && end_key == NULL) ||
+                   (type != PAGE_TYPE_MEMTABLE && start_key != NULL));
+   platform_assert(branch->root_addr != 0);
+   btree_zap_range(spl->cc,
+                   &spl->cfg.btree_cfg,
+                   branch->root_addr,
+                   start_key,
+                   end_key,
+                   PAGE_TYPE_BRANCH);
 }
 
 /*
@@ -2952,9 +2940,16 @@ splinter_memtable_iterator_init(splinter_handle *spl,
    if (inc_refcount) {
       allocator_inc_refcount(spl->al, root_addr);
    }
-   btree_iterator_init(spl->cc, &spl->cfg.btree_cfg, itor, root_addr,
-         PAGE_TYPE_MEMTABLE, min_key, max_key, FALSE, is_live, 0,
-         data_type_point);
+   btree_iterator_init(spl->cc,
+                       &spl->cfg.btree_cfg,
+                       itor,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       min_key,
+                       max_key,
+                       FALSE,
+                       is_live,
+                       0);
 }
 
 static void
@@ -3025,8 +3020,6 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
 {
    timestamp comp_start = platform_get_timestamp();
 
-   // FIXME: [yfogel 2020-07-01] initialization needs to happen ~here
-   //    for range_root_addr
    memtable *mt = splinter_get_memtable(spl, generation);
 
    memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
@@ -3041,7 +3034,6 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    btree_iterator  btree_itor;
    iterator       *itor = &btree_itor.super;
    const char     *min_key = spl->cfg.data_cfg->min_key;
-   // FIXME: [yfogel 2020-07-01] needs to also do the range tree.
 
    splinter_memtable_iterator_init(spl, &btree_itor, memtable_root_addr,
          min_key, NULL, FALSE, FALSE);
@@ -4228,46 +4220,14 @@ splinter_flush_fullest(splinter_handle *spl,
    return FALSE;
 }
 
-UNUSED_FUNCTION()
-static inline uint64
-branch_choose_root(splinter_branch *branch,
-                   data_type type)
-{
-   switch (type) {
-      case data_type_point:
-         return branch->root_addr;
-      case data_type_range:
-         return branch->range_root_addr;
-      case data_type_invalid:
-      default:
-         platform_assert(FALSE);
-   }
-}
-
-static inline btree_config*
-splinter_choose_btree_config(splinter_handle *spl,
-                             data_type type)
-{
-   switch (type) {
-      case data_type_point:
-         return &spl->cfg.btree_cfg;
-      case data_type_range:
-         return &spl->cfg.range_btree_cfg;
-      case data_type_invalid:
-      default:
-         platform_assert(FALSE);
-   }
-}
-
 void
 save_pivots_to_compact_bundle_scratch(splinter_handle        *spl,     // IN
                                       page_handle            *node,    // IN
-                                      data_type               type,    // IN
                                       compact_bundle_scratch *scratch) // IN/OUT
 {
    uint32 num_pivot_keys = splinter_num_pivot_keys(spl, node);
 
-   btree_config *cfg = splinter_choose_btree_config(spl, type);
+   btree_config *cfg = &spl->cfg.btree_cfg;
 
    debug_assert(num_pivot_keys < ARRAY_SIZE(scratch->saved_pivot_keys));
 
@@ -4290,19 +4250,24 @@ splinter_branch_iterator_init(splinter_handle *spl,
                               const char      *min_key,
                               const char      *max_key,
                               bool             do_prefetch,
-                              data_type        data_type,
                               bool             should_inc_ref)
 {
    cache *cc = spl->cc;
-   btree_config *btree_cfg = data_type == data_type_point ?
-      &spl->cfg.btree_cfg : &spl->cfg.range_btree_cfg;
-   uint64 root_addr = data_type == data_type_point ?
-      branch->root_addr : branch->range_root_addr;
+   btree_config *btree_cfg = &spl->cfg.btree_cfg;
+   uint64        root_addr = branch->root_addr;
    if (root_addr != 0 && should_inc_ref) {
       btree_inc_range(cc, btree_cfg, root_addr, min_key, max_key);
    }
-   btree_iterator_init(cc, btree_cfg, itor, root_addr, PAGE_TYPE_BRANCH,
-         min_key, max_key, do_prefetch, FALSE, 0, data_type);
+   btree_iterator_init(cc,
+                       btree_cfg,
+                       itor,
+                       root_addr,
+                       PAGE_TYPE_BRANCH,
+                       min_key,
+                       max_key,
+                       do_prefetch,
+                       FALSE,
+                       0);
 }
 
 void
@@ -4339,7 +4304,6 @@ splinter_btree_skiperator_init(
       splinter_btree_skiperator *skip_itor,
       page_handle               *node,
       uint16                     branch_idx,
-      data_type                  data_type,
       key_buffer                 pivots[static SPLINTER_MAX_PIVOTS])
 {
    ZERO_CONTENTS(skip_itor);
@@ -4368,8 +4332,13 @@ splinter_btree_skiperator_init(
             min_key : pivots[first_pivot].k;
          char *pivot_max_key = i == max_pivot_no ? max_key : pivots[i].k;
          btree_iterator *btree_itor = &skip_itor->itor[skip_itor->end++];
-         splinter_branch_iterator_init(spl, btree_itor, &skip_itor->branch,
-               pivot_min_key, pivot_max_key, TRUE, data_type, TRUE);
+         splinter_branch_iterator_init(spl,
+                                       btree_itor,
+                                       &skip_itor->branch,
+                                       pivot_min_key,
+                                       pivot_max_key,
+                                       TRUE,
+                                       TRUE);
          iterator_started = FALSE;
       }
    }
@@ -4389,14 +4358,11 @@ splinter_btree_skiperator_init(
 }
 
 void
-splinter_btree_skiperator_get_curr(iterator   *itor,
-                                   slice *key,
-                                   slice *data,
-                                   data_type  *type)
+splinter_btree_skiperator_get_curr(iterator   *itor, slice *key, slice *data)
 {
    debug_assert(itor != NULL);
    splinter_btree_skiperator *skip_itor = (splinter_btree_skiperator *)itor;
-   iterator_get_curr(&skip_itor->itor[skip_itor->curr].super, key, data, type);
+   iterator_get_curr(&skip_itor->itor[skip_itor->curr].super, key, data);
 }
 
 platform_status
@@ -4464,35 +4430,19 @@ splinter_btree_skiperator_deinit(splinter_handle           *spl,
  */
 
 
-// FIXME: [yfogel 2020-07-02]
-// figureout if this need to support both or can just support one and
-// May want to add range_btree_pack
-// probably want this to handle the branch
-// and call the lower level pack_req_init twice
-// but may want to wrap this function in another that handles two.
-// API needs to change if you do that so yo ucan PASS IN filter cfg
-// (or hash/seed) for example
 static inline void
-splinter_branch_pack_req_init(splinter_handle *spl,
-                              iterator        *itor,
-                              branch_pack_req *req)
+splinter_btree_pack_req_init(splinter_handle *spl,
+                             iterator *       itor,
+                             btree_pack_req * req)
 {
-   btree_pack_req_init(&req->point_req, spl->cc, &spl->cfg.btree_cfg, itor,
-                       spl->cfg.max_tuples_per_node, spl->cfg.leaf_filter_cfg.hash,
-                       spl->cfg.leaf_filter_cfg.seed, spl->heap_id);
-   // only point tree uses filter for now
-   btree_pack_req_init(&req->range_req, spl->cc, &spl->cfg.range_btree_cfg,
-                       itor, spl->cfg.max_tuples_per_node, NULL, 0,
+   btree_pack_req_init(req,
+                       spl->cc,
+                       &spl->cfg.btree_cfg,
+                       itor,
+                       spl->cfg.max_tuples_per_node,
+                       spl->cfg.leaf_filter_cfg.hash,
+                       spl->cfg.leaf_filter_cfg.seed,
                        spl->heap_id);
-}
-
-__attribute__ ((unused))
-static inline void
-splinter_branch_pack_req_deinit(splinter_handle *spl,
-                                branch_pack_req *req)
-{
-   // only point tree uses filter for now
-   btree_pack_req_deinit(&req->point_req, spl->heap_id);
 }
 
 /*
@@ -4642,7 +4592,6 @@ splinter_compact_bundle(void *arg,
    uint16 bundle_start_branch = splinter_bundle_start_branch(spl, node, bundle);
    uint16 bundle_end_branch   = splinter_bundle_end_branch(spl, node, bundle);
    uint16 num_branches        = splinter_bundle_branch_count(spl, node, bundle);
-   uint16 num_trees           = num_branches * 2;
 
    /*
     * Update and delete messages need to be kept around until/unless they have
@@ -4661,48 +4610,25 @@ splinter_compact_bundle(void *arg,
    /*
     * 6. Build iterators
     */
-   // FIXME: [nsarmicanic 2020-07-02] calc num_trees and use it instead of
-   //  num_branches
-   //  Figure out num_itors or num_trees is a better name (For the entire func)
-   platform_assert(num_trees <= ARRAY_SIZE(scratch->skip_itor));
+   platform_assert(num_branches <= ARRAY_SIZE(scratch->skip_itor));
    splinter_btree_skiperator *skip_itor_arr = scratch->skip_itor;
    iterator **itor_arr = scratch->itor_arr;
 
-   save_pivots_to_compact_bundle_scratch(spl, node, data_type_point,
-                                         scratch);
+   save_pivots_to_compact_bundle_scratch(spl, node, scratch);
 
    uint16 tree_offset = 0;
    for (uint16 branch_no = bundle_start_branch; branch_no != bundle_end_branch;
          branch_no = splinter_branch_no_add(spl, branch_no, 1)) {
       /*
        * We are iterating from oldest to newest branch
-       *
-       * RangeDeleteTree is older than PointTree in the same branch
-       * therefor range_delete tree skiperator should be earlier
-       * than point_tree skiperator
        */
-      splinter_btree_skiperator_init(spl, &skip_itor_arr[tree_offset], node,
-                                     branch_no, data_type_range,
+      splinter_btree_skiperator_init(spl,
+                                     &skip_itor_arr[tree_offset],
+                                     node,
+                                     branch_no,
                                      scratch->saved_pivot_keys);
       itor_arr[tree_offset] = &skip_itor_arr[tree_offset].super;
       tree_offset++;
-
-      splinter_btree_skiperator_init(spl, &skip_itor_arr[tree_offset], node,
-                                     branch_no, data_type_point,
-                                     scratch->saved_pivot_keys);
-      itor_arr[tree_offset] = &skip_itor_arr[tree_offset].super;
-      tree_offset++;
-
-      // FIXME: [nsarmicanic 2020-07-02] Is it branch ref count or tree refcoutn?
-      //       refcount is per branch, but we should increment
-      //       the refcount for each iterator created
-      //       (it's two references)
-      //       on creation it's trivial to just add one refrence
-      //       but a little harder to only remove one reference at end
-      //       so if it's easy to clean up just 1, that's fine, otherwise
-      //       add one reference for EACH iterator created (each tree)
-      //       if you feel there is perf on the tabel, leave a FIXME explaining
-      //       the type of optimization before committing
    }
    splinter_log_node(spl, node);
 
@@ -4715,67 +4641,51 @@ splinter_compact_bundle(void *arg,
     * 8. Perform compaction
     */
    merge_iterator *merge_itor;
-   // FIXME: [yfogel 2020-07-01] Determine if we properly
-   // initialized range_cfg (probably since using standard inits?)
-   rc = merge_iterator_create(
-         spl->heap_id, spl->cfg.data_cfg, &spl->cfg.range_data_cfg,
-         num_trees, itor_arr, resolve_updates_and_discard_deletes,
-         resolve_updates_and_discard_deletes, TRUE, &merge_itor);
+   rc = merge_iterator_create(spl->heap_id,
+                              spl->cfg.data_cfg,
+                              num_branches,
+                              itor_arr,
+                              resolve_updates_and_discard_deletes,
+                              resolve_updates_and_discard_deletes,
+                              TRUE,
+                              &merge_itor);
    platform_assert_status_ok(rc);
-   branch_pack_req pack_req;
-   splinter_branch_pack_req_init(spl, &merge_itor->super, &pack_req);
-   req->fp_arr = pack_req.point_req.fingerprint_arr;
+   btree_pack_req pack_req;
+   splinter_btree_pack_req_init(spl, &merge_itor->super, &pack_req);
+   req->fp_arr = pack_req.fingerprint_arr;
    if (spl->cfg.use_stats) {
       pack_start = platform_get_timestamp();
    }
-   // FIXME: [yfogel 2020-07-06] is there a refcount inside here?
-   //    need to be carefull to make sure we have refcounts right
-   //    need to maybe kill one tree here if it's fully empty
-   //    and then make sure refcount is on the remaining one's
-   //    address
-   branch_pack(spl->heap_id, &pack_req);
+   btree_pack(&pack_req);
    if (spl->cfg.use_stats) {
       spl->stats[tid].compaction_pack_time_ns[height]
          += platform_timestamp_elapsed(pack_start);
    }
-   btree_pack_req *point_req = &pack_req.point_req;
-   btree_pack_req *range_req = &pack_req.range_req;
-   //platform_assert(point_req->num_tuples <= spl->cfg.max_tuples_per_node);
-   //platform_assert(range_req->num_tuples <= spl->cfg.max_tuples_per_node);
 
    splinter_branch new_branch;
-   new_branch.root_addr = point_req->root_addr;
-   // FIXME: [yfogel 2020-07-01] will need to initialize range root addr
-   //    ~here
-   new_branch.range_root_addr = range_req->root_addr;
+   new_branch.root_addr = pack_req.root_addr;
 
-   req->fp_arr = point_req->fingerprint_arr;
+   req->fp_arr = pack_req.fingerprint_arr;
 
-   splinter_log_stream("output: %lu\n", point_req->root_addr);
+   splinter_log_stream("output: %lu\n", req->root_addr);
    if (spl->cfg.use_stats) {
-      // FIXME: [aconway 2020-09-12] Need to check range as well at some point
-      if (point_req->num_tuples == 0) {
+      if (pack_req.num_tuples == 0) {
          spl->stats[tid].compactions_empty[height]++;
       }
-      spl->stats[tid].compaction_tuples[height] += point_req->num_tuples;
-      if (point_req->num_tuples > spl->stats[tid].compaction_max_tuples[height]) {
-         spl->stats[tid].compaction_max_tuples[height] = point_req->num_tuples;
+      spl->stats[tid].compaction_tuples[height] += pack_req.num_tuples;
+      if (pack_req.num_tuples > spl->stats[tid].compaction_max_tuples[height]) {
+         spl->stats[tid].compaction_max_tuples[height] = pack_req.num_tuples;
       }
    }
 
-   splinter_log_stream("output point: %lu\n", point_req->root_addr);
-   splinter_log_stream("output range: %lu\n", range_req->root_addr);
-   // FIXME: [aconway 2020-09-14] Can't deinit here, because build_filter will
-   // use the fp_arr
-   //splinter_branch_pack_req_deinit(spl, &pack_req);
+   splinter_log_stream("output point: %lu\n", pack_req.root_addr);
 
    /*
     * 10. Clean up
     */
    rc = merge_iterator_destroy(spl->heap_id, &merge_itor);
    platform_assert_status_ok(rc);
-   // FIXME: [nsarmicanic 2020-07-02] num_itors
-   for (uint64 i = 0; i < num_trees; i++) {
+   for (uint64 i = 0; i < num_branches; i++) {
       splinter_btree_skiperator_deinit(spl, &skip_itor_arr[i]);
    }
 
@@ -4824,7 +4734,7 @@ splinter_compact_bundle(void *arg,
       }
 
       if (splinter_bundle_live(spl, node, req->bundle_no)) {
-         if (point_req->num_tuples != 0) {
+         if (pack_req.num_tuples != 0) {
             splinter_replace_bundle_branches(spl, node, &new_branch, req);
             num_replacements++;
             splinter_log_stream("inserted %lu into %lu\n",
@@ -4850,9 +4760,8 @@ splinter_compact_bundle(void *arg,
       splinter_log_node(spl, node);
       debug_assert(splinter_verify_node(spl, node));
 
-      if (1 && num_replacements != 0
-            && point_req->num_tuples != 0
-            && start_generation == generation) {
+      if (num_replacements != 0 && pack_req.num_tuples != 0 &&
+          start_generation == generation) {
          const char *max_key = splinter_max_key(spl, node);
          splinter_zap_branch_range(spl, &new_branch, max_key, NULL,
                PAGE_TYPE_BRANCH);
@@ -5218,8 +5127,6 @@ splinter_split_leaf(splinter_handle *spl,
            splinter_key_size(spl));
 
    if (target_num_leaves != 1) {
-      // FIXME: [yfogel 2020-07-22] This entire function needs to support
-      //    range_delete trees and does not yet.
       /*
        * 1. Create a rough merge iterator on all the branches
        *
@@ -5237,38 +5144,43 @@ splinter_split_leaf(splinter_handle *spl,
        */
 
       platform_assert(num_branches <= ARRAY_SIZE(scratch->btree_itor));
-      btree_iterator  *rough_btree_itor = scratch->btree_itor;
-      iterator       **rough_itor = scratch->rough_itor;
+      btree_iterator *rough_btree_itor = scratch->btree_itor;
+      iterator **     rough_itor       = scratch->rough_itor;
       char            min_key[MAX_KEY_SIZE];
       char            max_key[MAX_KEY_SIZE];
-      memmove(min_key, splinter_get_pivot(spl, leaf, 0), splinter_key_size(spl));
-      memmove(max_key, splinter_get_pivot(spl, leaf, 1), splinter_key_size(spl));
+      memmove(
+         min_key, splinter_get_pivot(spl, leaf, 0), splinter_key_size(spl));
+      memmove(
+         max_key, splinter_get_pivot(spl, leaf, 1), splinter_key_size(spl));
 
-      for (uint64 branch_offset = 0;
-           branch_offset < num_branches;
+      for (uint64 branch_offset = 0; branch_offset < num_branches;
            branch_offset++) {
          uint64 branch_no =
             splinter_branch_no_add(spl, start_branch, branch_offset);
          debug_assert(branch_no != splinter_end_branch(spl, leaf));
          splinter_branch *branch = splinter_get_branch(spl, leaf, branch_no);
-         // FIXME: [yfogel 2020-07-22] need to also do the range_delete tree here
-         //        pivots are already saved (see above)
-         //        may need to increase size of scratch to 2x so room
-         //        for range delete trees
-         btree_iterator_init(
-               spl->cc, &spl->cfg.btree_cfg,
-               &rough_btree_itor[branch_offset], branch->root_addr,
-               PAGE_TYPE_BRANCH, min_key, max_key, TRUE, FALSE, 1,
-               data_type_point);
+         btree_iterator_init(spl->cc,
+                             &spl->cfg.btree_cfg,
+                             &rough_btree_itor[branch_offset],
+                             branch->root_addr,
+                             PAGE_TYPE_BRANCH,
+                             min_key,
+                             max_key,
+                             TRUE,
+                             FALSE,
+                             1);
          rough_itor[branch_offset] = &rough_btree_itor[branch_offset].super;
       }
 
       merge_iterator *rough_merge_itor;
-      platform_status rc =
-         merge_iterator_create(spl->heap_id, spl->cfg.data_cfg,
-                               &spl->cfg.range_data_cfg, num_branches,
-                               rough_itor, FALSE, FALSE, FALSE,
-                               &rough_merge_itor);
+      platform_status rc = merge_iterator_create(spl->heap_id,
+                                                 spl->cfg.data_cfg,
+                                                 num_branches,
+                                                 rough_itor,
+                                                 FALSE,
+                                                 FALSE,
+                                                 FALSE,
+                                                 &rough_merge_itor);
       platform_assert_status_ok(rc);
 
       /*
@@ -5291,9 +5203,8 @@ splinter_split_leaf(splinter_handle *spl,
 
          if (!at_end) {
             slice curr_key, dummy_data;
-            data_type dummy_type;
             iterator_get_curr(&rough_merge_itor->super, &curr_key,
-                              &dummy_data, &dummy_type);
+                              &dummy_data);
             debug_assert(slice_length(curr_key) == splinter_key_size(spl));
             // copy new pivot (in parent) of new leaf
             memmove(scratch->pivot[num_leaves + 1],
@@ -5306,9 +5217,6 @@ splinter_split_leaf(splinter_handle *spl,
       rc = merge_iterator_destroy(spl->heap_id, &rough_merge_itor);
       platform_assert_status_ok(rc);
       for (uint64 i = 0; i < num_branches; i++) {
-         // FIXME: [yfogel 2020-07-22] may need to modify for range_delete trees.
-         // FIXME: [yfogel 2020-07-22] need to change initialization of this branch
-         //    cause need both point and range initialized
          btree_iterator_deinit(&rough_btree_itor[i]);
       }
    } else {
@@ -5546,7 +5454,7 @@ splinter_split_root(splinter_handle *spl,
  *-----------------------------------------------------------------------------
  */
 
-void             splinter_range_iterator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
+void             splinter_range_iterator_get_curr (iterator *itor, slice *key, slice *data);
 platform_status  splinter_range_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status  splinter_range_iterator_advance  (iterator *itor);
 void             splinter_range_iterator_deinit   (splinter_range_iterator *range_itor);
@@ -5625,8 +5533,6 @@ splinter_range_iterator_init(splinter_handle         *spl,
       }
 
       range_itor->branch[range_itor->num_branches].root_addr = root_addr;
-      // FIXME: [yfogel 2020-07-06] need to init range root addr
-      range_itor->branch[range_itor->num_branches].range_root_addr = 0;
 
       range_itor->num_branches++;
    }
@@ -5701,9 +5607,13 @@ splinter_range_iterator_init(splinter_handle         *spl,
       if (range_itor->compacted[branch_no]) {
          bool do_prefetch = range_itor->compacted[branch_no] &&
             num_tuples > SPLINTER_PREFETCH_MIN ? TRUE : FALSE;
-         splinter_branch_iterator_init(spl, btree_itor, branch,
-               range_itor->min_key, range_itor->local_max_key, do_prefetch,
-               data_type_point, FALSE);
+         splinter_branch_iterator_init(spl,
+                                       btree_itor,
+                                       branch,
+                                       range_itor->min_key,
+                                       range_itor->local_max_key,
+                                       do_prefetch,
+                                       FALSE);
       } else {
          uint64 mt_root_addr = branch->root_addr;
          bool is_live = branch_no == 0;
@@ -5715,10 +5625,12 @@ splinter_range_iterator_init(splinter_handle         *spl,
 
    platform_status rc = merge_iterator_create(spl->heap_id,
                                               spl->cfg.data_cfg,
-                                              &spl->cfg.range_data_cfg,
                                               range_itor->num_branches,
-                                              range_itor->itor, TRUE, TRUE,
-                                              TRUE, &range_itor->merge_itor);
+                                              range_itor->itor,
+                                              TRUE,
+                                              TRUE,
+                                              TRUE,
+                                              &range_itor->merge_itor);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -5752,14 +5664,11 @@ splinter_range_iterator_init(splinter_handle         *spl,
 }
 
 void
-splinter_range_iterator_get_curr(iterator   *itor,
-                                 slice *key,
-                                 slice *data,
-                                 data_type  *type)
+splinter_range_iterator_get_curr(iterator   *itor, slice *key, slice *data)
 {
    debug_assert(itor != NULL);
    splinter_range_iterator *range_itor = (splinter_range_iterator *)itor;
-   iterator_get_curr(&range_itor->merge_itor->super, key, data, type);
+   iterator_get_curr(&range_itor->merge_itor->super, key, data);
 }
 
 platform_status
@@ -6858,13 +6767,12 @@ splinter_range(splinter_handle *spl,
       goto destroy_range_itor;
    }
 
-   data_type type;
    bool at_end;
    iterator_at_end(&range_itor->super, &at_end);
 
    for (*tuples_returned = 0; *tuples_returned < num_tuples && !at_end; (*tuples_returned)++) {
       slice key, data;
-      iterator_get_curr(&range_itor->super, &key, &data, &type);
+      iterator_get_curr(&range_itor->super, &key, &data);
       debug_assert(slice_length(key) == splinter_key_size(spl));
       debug_assert(slice_length(data) == splinter_message_size(spl));
       char *next_key = out + *tuples_returned * (splinter_key_size(spl) + splinter_message_size(spl));
@@ -7628,12 +7536,14 @@ splinter_print_locked_node(splinter_handle        *spl,
                pdata->srq_idx, pdata->generation);
       }
    }
+   // clang-format off
    platform_log_stream("|-------------------------------------------------------------------------------------|\n");
    platform_log_stream("|                              BRANCHES AND [SUB]BUNDLES                              |\n");
    platform_log_stream("|-------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|   # |  point addr  |  range addr  | filter1 addr | filter2 addr | filter3 addr |    |\n");
+   platform_log_stream("|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |    |\n");
    platform_log_stream("|     |    pivot/bundle/subbundle   |  num tuples  |              |              |    |\n");
    platform_log_stream("|-----|--------------|--------------|--------------|--------------|--------------|----|\n");
+   // clang-format on
    uint16 start_branch = splinter_start_branch(spl, node);
    uint16 end_branch = splinter_end_branch(spl, node);
    uint16 start_bundle = splinter_start_bundle(spl, node);
@@ -7649,7 +7559,10 @@ splinter_print_locked_node(splinter_handle        *spl,
            pivot_no++)
       {
          if (branch_no == splinter_pivot_start_branch(spl, node, pivot_no)) {
-            platform_log_stream("|     |        -- pivot %2u --       |              |              |              |    |\n", pivot_no);
+            // clang-format off
+            platform_log_stream("|     |        -- pivot %2u --       |              |              |              |    |\n",
+                                pivot_no);
+            // clang-format on
          }
       }
       for (uint16 bundle_no = start_bundle;
@@ -7679,7 +7592,11 @@ splinter_print_locked_node(splinter_handle        *spl,
       }
 
       splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
-      platform_log_stream("| %3u | %12lu | %12lu |              |              |              |    |\n", branch_no, branch->root_addr, branch->range_root_addr);
+      // clang-format off
+      platform_log_stream("| %3u |         %12lu       |              |              |              |    |\n",
+                          branch_no,
+                          branch->root_addr);
+      // clang-format on
    }
    platform_log_stream("---------------------------------------------------------------------------------------\n");
    platform_log_stream("\n");
@@ -8394,37 +8311,7 @@ splinter_config_init(splinter_config *splinter_cfg,
    routing_config *leaf_filter_cfg = &splinter_cfg->leaf_filter_cfg;
 
    ZERO_CONTENTS(splinter_cfg);
-   // FIXME: [yfogel 2020-07-01] need to change splinter_cfg->data_cfg to a
-   //       struct from pointer (parameter to func here is still pointer)
    splinter_cfg->data_cfg = data_cfg;
-
-   // Calculate range data config from point data config.
-   // FIXME: [yfogel 2020-07-01] will we want this as a function (for tests?)
-   {
-      splinter_cfg->range_data_cfg = (data_config) {
-         .key_size = data_cfg->key_size,
-         .message_size = data_cfg->key_size, // data IS a key
-         // C Does not allow us to copy arrays; use a memmove outside
-         //.min_key = data_cfg->min_key,
-         //.max_key = data_cfg->max_key,
-         .key_compare = data_cfg->key_compare,
-         .key_to_string = data_cfg->key_to_string,
-         .message_to_string = data_cfg->key_to_string, // data IS a key
-         // FIXME: [yfogel 2020-07-01] These NULLs should be replaced by
-         //     stub implementations that immediate panic.
-         //     That will be easier to debug/understand it's intentional
-         //     and describing a massive bug rather than a crash you have
-         //     to reverse engineer
-         .merge_tuples = NULL,
-         .merge_tuples_final = NULL,
-         .message_class = NULL,
-         .clobber_message_with_range_delete = NULL,
-      };
-      memmove(splinter_cfg->range_data_cfg.min_key,
-              data_cfg->min_key, sizeof(data_cfg->min_key));
-      memmove(splinter_cfg->range_data_cfg.max_key,
-              data_cfg->max_key, sizeof(data_cfg->max_key));
-   }
 
    splinter_cfg->log_cfg = log_cfg;
 
@@ -8447,15 +8334,6 @@ splinter_config_init(splinter_config *splinter_cfg,
    // Initialize point message btree
    btree_config_init(&splinter_cfg->btree_cfg,
                      splinter_cfg->data_cfg,
-                     data_type_point,
-                     btree_rough_count_height,
-                     splinter_cfg->page_size, splinter_cfg->extent_size);
-   // Initialize range delete btree
-   // FIXME: [yfogel 2020-07-01] replace NULL with panic-immediately
-   //        hash function
-   btree_config_init(&splinter_cfg->range_btree_cfg,
-                     &splinter_cfg->range_data_cfg,
-                     data_type_range,
                      btree_rough_count_height,
                      splinter_cfg->page_size, splinter_cfg->extent_size);
 
@@ -8467,8 +8345,6 @@ splinter_config_init(splinter_config *splinter_cfg,
          SPLINTER_NUM_MEMTABLES, memtable_capacity);
 
    // Has to be set after btree_config_init is called
-   // FIXME: [yfogel 2020-07-01] re-evaluate if this calc needs to take
-   //        into account the range delete tree? (2x? 1x? what?)
    splinter_cfg->max_tuples_per_node
       = splinter_cfg->fanout * splinter_cfg->mt_cfg.max_tuples_per_memtable;
    splinter_cfg->target_leaf_tuples = splinter_cfg->max_tuples_per_node / 2;

@@ -30,7 +30,7 @@ static log_ops shard_log_ops = {
    .magic     = shard_log_magic,
 };
 
-void            shard_log_iterator_get_curr (iterator *itor, slice *key, slice *data, data_type *type);
+void            shard_log_iterator_get_curr (iterator *itor, slice *key, slice *data);
 platform_status shard_log_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status shard_log_iterator_advance  (iterator *itor);
 
@@ -395,8 +395,7 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 void
 shard_log_iterator_get_curr(iterator  *itorh,
                             slice     *key,
-                            slice     *message,
-                            data_type *type)
+                            slice     *message)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *key = log_entry_key(itor->entries[itor->pos]);

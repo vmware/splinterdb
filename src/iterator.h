@@ -6,25 +6,10 @@
 
 #include "util.h"
 
-/*
- * DO NOT CHANGE definitions of data types without being absolutely certain
- * because they are reflected on disk.
- * All legitimate (e.g. non-error) data types must be 0-based and dense
- * because they are used as array indexes.
- *
- * Order of types should be "newest to oldest" (points are newer than ranges)
- */
-typedef enum data_type {
-   data_type_point = 0,
-   data_type_range = 1,
-   NUM_DATA_TYPES,
-   data_type_invalid,
-} data_type;
-
 typedef struct iterator iterator;
 
 // FIXME: [nsarmicanic 2020-07-16] Might be better to return type instead of void
-typedef void (*iterator_get_curr_fn)(iterator *itor, slice *key, slice *data, data_type *type);
+typedef void (*iterator_get_curr_fn)(iterator *itor, slice *key, slice *data);
 typedef platform_status (*iterator_at_end_fn)  (iterator *itor, bool *at_end);
 typedef platform_status (*iterator_advance_fn) (iterator *itor);
 typedef void  (*iterator_print_fn)   (iterator *itor);
@@ -43,9 +28,9 @@ struct iterator {
 };
 
 static inline void
-iterator_get_curr(iterator *itor, slice *key, slice *data, data_type *type)
+iterator_get_curr(iterator *itor, slice *key, slice *data)
 {
-   itor->ops->get_curr(itor, key, data, type);
+   itor->ops->get_curr(itor, key, data);
 }
 
 static inline platform_status
