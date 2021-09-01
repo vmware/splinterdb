@@ -8,13 +8,14 @@
  */
 #include "platform.h"
 
-#include "clockcache.h"
 #include "allocator.h"
+#include "clockcache.h"
 #include "io.h"
 #include "task.h"
+#include "util.h"
 
 #include <stddef.h>
-#include "util.h"
+#include <sys/mman.h>
 
 #include "poison.h"
 
@@ -108,7 +109,7 @@ void         clockcache_async_done           (clockcache *cc, page_type type, ca
 void         clockcache_unget                (clockcache *cc, page_handle *page);
 bool         clockcache_claim                (clockcache *cc, page_handle *page);
 void         clockcache_unclaim              (clockcache *cc, page_handle *page);
-void         clockcache_lock                 (clockcache *cc, page_handle *page);
+void         clockcache_lock                 (clockcache *cc, page_handle **page);
 void         clockcache_unlock               (clockcache *cc, page_handle *page);
 void         clockcache_share                (clockcache *cc, page_handle *page_to_share, page_handle *anon_page);
 void         clockcache_unshare              (clockcache *cc, page_handle *anon_page);
@@ -1681,6 +1682,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
                   "alloc: entry %u addr %lu\n",
                   entry_no,
                   entry->page.disk_addr);
+
    return &entry->page;
 }
 
@@ -2420,16 +2422,43 @@ clockcache_unclaim(clockcache *cc,
 
 void
 clockcache_lock(clockcache  *cc,
-                page_handle *page)
+                page_handle **page)
 {
    ctx_lock(cc->contextMap, platform_get_tid());
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint32 old_entry_no = clockcache_page_to_entry_number(cc, *page);
 
-   clockcache_record_backtrace(cc, entry_number);
-   clockcache_log(page->disk_addr, entry_number,
+
+   clockcache_record_backtrace(cc, old_entry_no);
+   clockcache_log((*page)->disk_addr, old_entry_no,
          "lock: entry %u addr %lu\n",
-         entry_number, page->disk_addr);
-   clockcache_get_write(cc, entry_number);
+         old_entry_no, (*page)->disk_addr);
+   clockcache_get_write(cc, old_entry_no);
+
+
+   clockcache_entry *old_entry = &cc->entry[old_entry_no];
+
+   /*
+    * FIXME: [aconway 2021-08-06] Temporary hack to avoid false asserts on
+    * super page
+    *
+    */
+   debug_assert(0 || (*page)->disk_addr < cc->cfg->extent_size
+                  || old_entry->old_entry_no == CC_UNMAPPED_ENTRY);
+   uint32 new_entry_no =
+      clockcache_get_free_page(cc, old_entry->status, TRUE, TRUE);
+   clockcache_entry *new_entry = &cc->entry[new_entry_no];
+
+   // copy the data and everything in the entry except the (*page).data pointer
+   memmove(new_entry->page.data, old_entry->page.data, cc->cfg->page_size);
+   new_entry->type = old_entry->type;
+   new_entry->page.disk_addr = old_entry->page.disk_addr;
+   new_entry->old_entry_no = old_entry_no;
+
+
+   debug_code(int rc = mprotect((*page)->data, cc->cfg->page_size, PROT_NONE));
+   debug_assert(rc == 0);
+
+   *page = &new_entry->page;
 }
 
 void
@@ -2485,18 +2514,36 @@ clockcache_unlock(clockcache  *cc,
 {
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
 
-
    ctx_unlock(cc->contextMap, platform_get_tid());
 
-   /*
-   clockcache_record_backtrace(cc, entry_number);
-   clockcache_log(page->disk_addr, entry_number,
-         "unlock: entry %u addr %lu\n",
-         entry_number, page->disk_addr);
-   __attribute__ ((unused)) uint32 was_writing
-      = clockcache_clear_flag(cc, entry_number, CC_WRITELOCKED);
-   debug_assert(was_writing);
-   */
+   clockcache_entry *new_entry = clockcache_page_to_entry(cc, page);
+   if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
+      // a cow page
+      uint64 lookup_no = clockcache_divide_by_page_size(cc, page->disk_addr);
+      // change the lookup to the new page
+      cc->lookup[lookup_no] = entry_number;
+      clockcache_entry *old_entry = &cc->entry[new_entry->old_entry_no];
+
+      /*
+       * FIXME: [aconway 2021-08-06] Temporary hack to avoid false asserts on
+       * super page
+       *
+       */
+
+      debug_assert(0 || page->disk_addr < cc->cfg->extent_size
+                     || old_entry->old_entry_no == CC_UNMAPPED_ENTRY);
+
+      debug_code(int rc = mprotect(old_entry->page.data, cc->cfg->page_size, PROT_READ | PROT_WRITE));
+      debug_assert(rc == 0);
+
+      old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
+      old_entry->status = CC_FREE_STATUS;
+      threadid tid = platform_get_tid();
+      clockcache_dec_ref(cc, new_entry->old_entry_no, tid);
+
+      new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
+   }
+
    uint32 unlockopt = unlockall_or_unlock_delay(cc->contextMap, platform_get_tid());
    if(unlockopt == NONTXUNLOCK)
    {
