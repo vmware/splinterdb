@@ -4,10 +4,15 @@
 # Source for the image
 #    projects.registry.vmware.com/splinterdb/build-env
 #
-# This contains the build-time dependencies for splinterdb
+# This contains the build-time dependencies for SplinterDB.
 #
-# It is maintained separately from the main Dockerfile
-# to reduce build-times when the splinterdb source changes
+# To build this image locally:
+# $ docker build -t build-env < Dockerfile.build-env
+# To then build SplinterDB itself from souce:
+# $ docker run -it --rm --mount type=bind,source="$PWD",target=/splinterdb build-env /bin/bash
+#
+# This file is maintained separately from the other Dockerfiles
+# to reduce build times when the SplinterDB source changes
 
 ARG base_image=library/ubuntu:20.04
 FROM $base_image
