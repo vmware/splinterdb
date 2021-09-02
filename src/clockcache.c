@@ -1419,6 +1419,7 @@ clockcache_get_free_page(clockcache *cc,
                                                              CC_ALLOC_STATUS)) {
             if (refcount) {
                clockcache_inc_ref(cc, entry_no, tid);
+	       entry->old_entry_no = -1;
             }
             entry->status = status;
             debug_assert(entry->page.disk_addr == CC_UNMAPPED_ADDR);
@@ -2434,6 +2435,7 @@ clockcache_lock(clockcache  *cc,
          old_entry_no, (*page)->disk_addr);
    clockcache_get_write(cc, old_entry_no);
 
+   if(istracking(cc->contextMap)){
 
    clockcache_entry *old_entry = &cc->entry[old_entry_no];
 
@@ -2459,6 +2461,7 @@ clockcache_lock(clockcache  *cc,
    debug_assert(rc == 0);
 
    *page = &new_entry->page;
+   }
 }
 
 void
@@ -2517,6 +2520,9 @@ clockcache_unlock(clockcache  *cc,
    ctx_unlock(cc->contextMap, platform_get_tid());
 
    clockcache_entry *new_entry = clockcache_page_to_entry(cc, page);
+
+   if(istracking(cc->contextMap)){
+
    if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
       // a cow page
       uint64 lookup_no = clockcache_divide_by_page_size(cc, page->disk_addr);
@@ -2542,6 +2548,8 @@ clockcache_unlock(clockcache  *cc,
       clockcache_dec_ref(cc, new_entry->old_entry_no, tid);
 
       new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
+   }
+
    }
 
    uint32 unlockopt = unlockall_or_unlock_delay(cc->contextMap, platform_get_tid());
