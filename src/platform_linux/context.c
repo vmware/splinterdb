@@ -68,10 +68,10 @@ int ctx_lock(ThreadContext *contextMap, threadid idx){
 
 int unlockall_or_unlock_delay(ThreadContext *contextMap, threadid idx){
     ThreadContext *ctx = get_context(contextMap, idx);
-//    if(!ctx->trackTxs){
+    if(!ctx->trackTxs){
 	//assert(!isinTX(ctx));
 	return NONTXUNLOCK;
-//    }
+    }
     if (ctx->locksHeld == 0 && ctx->endTxs == 0) {
         return UNLOCKALL;
     }
@@ -145,12 +145,12 @@ void end_nontx_withlocks(ThreadContext *ctx){
 
 
 bool istracking(ThreadContext *ctx){
-	return ctx->trackTxs;
+   return ctx->trackTxs;
 }
 
 bool isinTX(ThreadContext *ctx){
-	if(ctx->endTxs!=0)
-	return TRUE;
-	else
-		return FALSE;
+   if(ctx->endTxs!=0)
+      return TRUE;
+   else
+      return FALSE;
 }
