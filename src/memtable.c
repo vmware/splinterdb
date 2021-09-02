@@ -312,7 +312,7 @@ memtable_context_create(platform_heap_id  hid,
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 
-   platform_mutex_init(&ctxt->incorporation_mutex, platform_get_module_id(),
+   platform_spinlock_init(&ctxt->incorporation_lock, platform_get_module_id(),
          hid);
 
    for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
@@ -343,7 +343,7 @@ memtable_context_destroy(platform_heap_id  hid,
       memtable_deinit(cc, &ctxt->mt[mt_no]);
    }
 
-   platform_mutex_destroy(&ctxt->incorporation_mutex);
+   platform_spinlock_destroy(&ctxt->incorporation_lock);
 
    /*
     * lookup lock and insert lock share extents but not pages.

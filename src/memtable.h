@@ -154,27 +154,26 @@ typedef struct memtable_config {
 
 typedef struct memtable_context {
    // FIXME: [aconway 2020-08-25] what needs volatile here?
-   cache           *cc;
-   memtable_config  cfg;
-   task_system     *ts;
+   cache            *cc;
+   memtable_config   cfg;
+   task_system      *ts;
 
-   process_fn       process;
-   void            *process_ctxt;
+   process_fn        process;
+   void             *process_ctxt;
 
    // Protected by insert_lock. Can read without lock. Must get read lock to
    // freeze and write lock to modify.
-   uint64           insert_lock_addr;
-   volatile uint64  generation;
+   uint64            insert_lock_addr;
+   volatile uint64   generation;
 
-   // Protected by incorporation_mutex. Must hold to read or modify.
-   // FIXME: [aconway 2020-09-02] Would be better as a spin lock
-   platform_mutex   incorporation_mutex;
-   volatile uint64  generation_to_incorporate;
+   // Protected by incorporation_lock. Must hold to read or modify.
+   platform_spinlock incorporation_lock;
+   volatile uint64   generation_to_incorporate;
 
    // Protected by the lookup lock. Must hold read lock to read and write lock
    // to modify.
-   uint64           lookup_lock_addr;
-   volatile uint64  generation_retired;
+   uint64            lookup_lock_addr;
+   volatile uint64   generation_retired;
 
    /*
     * num_tuples is the sum of per-thread inserted tuples, each up to the last
@@ -327,13 +326,13 @@ memtable_increment_to_generation_retired(memtable_context *ctxt,
 static inline void
 memtable_lock_incorporation_lock(memtable_context *ctxt)
 {
-   platform_mutex_lock(&ctxt->incorporation_mutex);
+   platform_spin_lock(&ctxt->incorporation_lock);
 }
 
 static inline void
 memtable_unlock_incorporation_lock(memtable_context *ctxt)
 {
-   platform_mutex_unlock(&ctxt->incorporation_mutex);
+   platform_spin_unlock(&ctxt->incorporation_lock);
 }
 
 static inline void

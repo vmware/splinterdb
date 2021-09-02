@@ -75,6 +75,9 @@ typedef pthread_t platform_thread;
 // Mutex
 typedef pthread_mutex_t platform_mutex;
 
+// Spin lock
+typedef pthread_spinlock_t platform_spinlock;
+
 // Buffer handle
 typedef struct {
    void              *addr;

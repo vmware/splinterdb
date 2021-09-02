@@ -482,6 +482,12 @@ platform_mutex_lock(platform_mutex *mu);
 static inline platform_status
 platform_mutex_unlock(platform_mutex *mu);
 
+static inline platform_status
+platform_spin_lock(platform_spinlock *mu);
+
+static inline platform_status
+platform_spin_unlock(platform_spinlock *mu);
+
 platform_status
 platform_histo_create(platform_heap_id heap_id,
                       uint32 num_buckets,
@@ -531,6 +537,14 @@ platform_mutex_init(platform_mutex *mu,
 
 platform_status
 platform_mutex_destroy(platform_mutex *mu);
+
+platform_status
+platform_spinlock_init(platform_spinlock *lock,
+                       platform_module_id module_id,
+                       platform_heap_id heap_id);
+
+platform_status
+platform_spinlock_destroy(platform_spinlock *lock);
 
 platform_status platform_thread_create(platform_thread *thread,
                                        bool detached,
