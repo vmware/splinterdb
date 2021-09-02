@@ -1,8 +1,18 @@
 # Copyright 2018-2021 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+# Source for the image
+#    projects.registry.vmware.com/splinterdb/splinterdb
+#
+# When built, this image contains runtime dependencies for SplinterDB,
+# the test binary, shared library and header files.
+# This image is suitable for integrating SplinterDB into another application.
+#
+# It does not contain dependencies for building SplinterDB itself from source.
+# For that, look at `Dockerfile.build-env`.
+#
 # Example usage:
-#   docker build -t splinterdb . && docker --rm run splinterdb
+# $ docker build -t splinterdb . && docker --rm run splinterdb
 
 # see Dockerfile.build-env
 ARG build_env_image=projects.registry.vmware.com/splinterdb/build-env:latest
