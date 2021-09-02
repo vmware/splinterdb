@@ -92,10 +92,10 @@ static inline void *slice_data(const slice b)
    return b.data;
 }
 
-static inline void slice_copy_contents(slice dst, const slice src)
+static inline void slice_copy_contents(slice *dst, const slice src)
 {
-  memmove(dst.data, src.data, src.length);
-  dst.length = src.length;
+  memmove(dst->data, src.data, src.length);
+  dst->length = src.length;
 }
 
 static inline bool slices_physically_equal(const slice a, const slice b)
