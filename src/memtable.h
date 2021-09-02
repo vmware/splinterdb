@@ -168,12 +168,12 @@ typedef struct memtable_context {
 
    // Protected by incorporation_lock. Must hold to read or modify.
    platform_spinlock incorporation_lock;
-   volatile uint64   generation_to_incorporate;
+   volatile uint64  generation_to_incorporate;
 
    // Protected by the lookup lock. Must hold read lock to read and write lock
    // to modify.
-   uint64            lookup_lock_addr;
-   volatile uint64   generation_retired;
+   uint64           lookup_lock_addr;
+   volatile uint64  generation_retired;
 
    /*
     * num_tuples is the sum of per-thread inserted tuples, each up to the last
