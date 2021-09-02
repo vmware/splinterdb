@@ -4,7 +4,7 @@
 .DEFAULT_GOAL := release
 
 PLATFORM = linux
-
+TARGET_ARCH = -arch x86_64
 #*************************************************************#
 # DIRECTORIES, SRC, OBJ, ETC
 #
@@ -44,14 +44,12 @@ INCLUDE = -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM)
 .PHONY: .libconfig.mk
 .libconfig.mk:
 	@rm -f $@
-	@echo -n "LIBCONFIG_CFLAGS = " >> $@
-	@pkg-config --cflags libconfig >> $@
-	@echo -n "LIBCONFIG_LIBS = " >> $@
-	@pkg-config --libs libconfig >> $@
+	@echo "	" -n "LIBCONFIG_CFLAGS = " >> $@ @pkg-config --cflags libconfig >> $@
+	@echo "	" -n "LIBCONFIG_LIBS = " >> $@ @pkg-config --libs libconfig >> $@
 include .libconfig.mk
 #######END libconfig
 
-DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror
+DEFAULT_CFLAGS += -D_GNU_SOURCE -Wall -Wfatal-errors
 DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY -fPIC
 #DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 #DEFAULT_CFLAGS += -fsanitize=address
@@ -59,17 +57,17 @@ DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY -fPIC
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
 
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
-DEFAULT_LDFLAGS = -ggdb3 -pthread
-LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
-LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
+CFLAGS += $(DEFAULT_CFLAGS) -march=native
+DEFAULT_LDFLAGS = 
+LDFLAGS = $(DEFAULT_LDFLAGS)
+LIBS = -lxxhash $(LIBCONFIG_LIBS)
 
 
 #*********************************************************#
 # Targets to track whether we have a release or debug build
 #
 
-all: $(BINDIR)/splinterdb.so $(BINDIR)/driver_test
+all: $(BINDIR)/splinterdb.so
 
 release: .release all
 	rm -f .debug
@@ -104,15 +102,15 @@ debug-log: .debug-log all
 # RECIPES
 #
 
-$(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+#$(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
+#	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS) $(TARGET_ARCH) -arch i386 -macosx_version_min 11.0  -o $@ $^
 
 $(BINDIR)/splinterdb.so : $(OBJ) | $$(@D)/.
-	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+	$(LD) $(LDFLAGS) -dylib -arch i386 -macosx_version_min 11.0 -weak_reference_mismatches non-weak  -o $@ $^ $(LIBS) $(TARGET_ARCH) -L /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -L /usr/local/opt/xxhash/lib -lSystem
 
 DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
 
-COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -pthreads -Ofast -flto -lm -c
 
 $(OBJDIR)/%.o: %.c | $$(@D)/.
 	$(COMPILE.c) $< -o $@
@@ -136,8 +134,8 @@ tags:
 
 .PHONY: test install
 
-test: $(BINDIR)/driver_test
-	./test.sh
+#test: $(BINDIR)/driver_test
+#	./test.sh
 
 INSTALL_PATH ?= /usr/local
 

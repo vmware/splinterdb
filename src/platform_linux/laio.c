@@ -13,6 +13,7 @@
 #include "laio.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -28,6 +29,59 @@ platform_status laio_read_async    (io_handle *ioh, io_async_req *req, io_callba
 platform_status laio_write_async   (io_handle *ioh, io_async_req *req, io_callback_fn callback, uint64 count, uint64 addr);
 void            laio_cleanup       (io_handle *ioh, uint64 count);
 void            laio_cleanup_all   (io_handle *ioh);
+
+static  int io_setup (unsigned nr, io_context_t *ctxp)
+{
+	//return syscall(__NR_io_setup, nr, ctxp);
+	return 0;
+}
+
+static void fallocate(int fd, int mode, off_t offset, off_t length)
+{
+
+}
+
+static int io_destroy (io_context_t ctxp)
+{
+	return 0;
+}
+
+static inline void io_prep_preadv(struct iocb *iocb, int fd, const struct iovec *iov, int iovcnt, long long offset) 
+{
+
+}
+
+int io_submit(io_context_t ctx, long nr, struct iocb *ios[]) {
+	return 0;
+}
+
+static inline void io_set_callback(struct iocb *iocb, io_callback_fn cb)
+{
+	//iocb->data = (void *)cb;
+}
+
+static inline void io_prep_pwritev(struct iocb *iocb, int fd, const struct iovec *iov, int iovcnt, long long offset)
+{
+	memset(iocb, 0, sizeof(*iocb));
+	iocb->aio_fildes = fd;
+	iocb->aio_lio_opcode = 8; //IO_CMD_PWRITEV;
+	iocb->aio_reqprio = 0;
+	//iocb->u.c.buf = (void *)iov;
+	//iocb->u.c.nbytes = iovcnt;
+	//iocb->u.c.offset = offset;
+}
+
+struct io_event {
+	uint64_t		data;		/* the data field from the iocb */
+	uint64_t		obj;		/* what iocb this event came from */
+	int64_t		res;		/* result code for this event */
+	int64_t		res2;		/* secondary result */
+};
+
+int io_getevents(io_context_t ctx_id, long min_nr, long nr, struct io_event *events, struct timespec *timeout)
+{
+	return 0;
+}
 
 io_async_req * laio_get_kth_req   (laio_handle *io, uint64 k);
 

@@ -8,7 +8,8 @@
 #include <ctype.h> // for isspace,isascii,isdigit,isalpha,isupper
 #include <errno.h>
 #include <fcntl.h>
-#include <malloc.h>
+//#include <malloc.h>
+#include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdlib.h>

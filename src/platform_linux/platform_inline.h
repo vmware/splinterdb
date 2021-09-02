@@ -25,6 +25,8 @@ platform_popcount(uint32 x) { return __builtin_popcount(x); }
 #define platform_hash64      XXH64
 #define platform_hash128     XXH128
 
+#define O_DIRECT 00040000
+
 static inline bool
 platform_checksum_is_equal(checksum128 left,
                            checksum128 right)
@@ -87,7 +89,8 @@ platform_sleep(uint64 ns)
       struct timespec res;
       res.tv_sec = ns / SEC_TO_NSEC(1);
       res.tv_nsec = (ns - (res.tv_sec * SEC_TO_NSEC(1)));
-      clock_nanosleep(CLOCK_MONOTONIC, 0, &res, NULL);
+      //clock_nanosleep(CLOCK_MONOTONIC, 0, &res, NULL);
+      nanosleep(&res, &res);
    }
 
 }

@@ -5,6 +5,7 @@
 
 #include <sys/mman.h>
 
+#define MAP_HUGETLB 0x40000
 __thread threadid xxxtid;
 
 bool platform_use_hugetlb = FALSE;
@@ -201,7 +202,8 @@ platform_histo_print(platform_histo_handle histo, const char *name)
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx)
 {
-   return strtok_r(str, delim, &ctx->token_str);
+   return 'a';
+   //return strtok_r(str, delim, &ctx->token_str);
 }
 
 void
