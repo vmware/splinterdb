@@ -154,17 +154,17 @@ typedef struct memtable_config {
 
 typedef struct memtable_context {
    // FIXME: [aconway 2020-08-25] what needs volatile here?
-   cache            *cc;
-   memtable_config   cfg;
-   task_system      *ts;
+   cache           *cc;
+   memtable_config  cfg;
+   task_system     *ts;
 
-   process_fn        process;
-   void             *process_ctxt;
+   process_fn       process;
+   void            *process_ctxt;
 
    // Protected by insert_lock. Can read without lock. Must get read lock to
    // freeze and write lock to modify.
-   uint64            insert_lock_addr;
-   volatile uint64   generation;
+   uint64           insert_lock_addr;
+   volatile uint64  generation;
 
    // Protected by incorporation_lock. Must hold to read or modify.
    platform_spinlock incorporation_lock;
