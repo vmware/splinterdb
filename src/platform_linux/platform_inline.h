@@ -162,6 +162,26 @@ platform_mutex_unlock(platform_mutex *mu)
    return CONST_STATUS(ret);
 }
 
+static inline platform_status
+platform_spin_lock(platform_spinlock *lock)
+{
+   int ret;
+
+   ret = pthread_spin_lock(lock);
+
+   return CONST_STATUS(ret);
+}
+
+static inline platform_status
+platform_spin_unlock(platform_spinlock *lock)
+{
+   int ret;
+
+   ret = pthread_spin_unlock(lock);
+
+   return CONST_STATUS(ret);
+}
+
 static inline threadid
 platform_get_tid()
 {
