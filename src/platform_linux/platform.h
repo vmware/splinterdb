@@ -476,18 +476,6 @@ platform_semaphore_post(platform_semaphore *sema);
 static inline void
 platform_semaphore_wait(platform_semaphore *sema);
 
-static inline platform_status
-platform_mutex_lock(platform_mutex *mu);
-
-static inline platform_status
-platform_mutex_unlock(platform_mutex *mu);
-
-static inline platform_status
-platform_spin_lock(platform_spinlock *mu);
-
-static inline platform_status
-platform_spin_unlock(platform_spinlock *mu);
-
 platform_status
 platform_histo_create(platform_heap_id heap_id,
                       uint32 num_buckets,
