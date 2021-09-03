@@ -312,8 +312,8 @@ memtable_context_create(platform_heap_id  hid,
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 
-   platform_spinlock_init(&ctxt->incorporation_lock, platform_get_module_id(),
-         hid);
+   platform_spinlock_init(
+      &ctxt->incorporation_lock, platform_get_module_id(), hid);
 
    for (uint64 mt_no = 0; mt_no < cfg->max_memtables; mt_no++) {
       uint64 generation = mt_no;
