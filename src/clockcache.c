@@ -145,7 +145,12 @@ uint16       clockcache_get_read_ref         (clockcache *cc, page_handle *page)
 bool         clockcache_present              (clockcache *cc, page_handle *page);
 static void  clockcache_enable_sync_get      (clockcache *cc, bool enabled);
 allocator *  clockcache_allocator            (clockcache *cc);
-ThreadContext * clockcache_context           (clockcache *cc);
+ThreadContext * clockcache_get_context       (clockcache *cc);
+cache *	     clockcache_get_volatile_cache   (clockcache *cc);
+bool	     clockcache_if_volatile_page     (clockcache *cc, page_handle *page);
+bool	     clockcache_if_volatile_addr     (clockcache *cc, uint64 addr);
+bool	     clockcache_if_diskaddr_in_volatile_cache (clockcache *cc, uint64 disk_addr);
+
 static cache_ops clockcache_ops = {
    .page_alloc        = (page_alloc_fn)        clockcache_alloc,
    .page_dealloc      = (page_dealloc_fn)      clockcache_dealloc,
@@ -187,7 +192,11 @@ static cache_ops clockcache_ops = {
    .cache_present     = (cache_present_fn)     clockcache_present,
    .enable_sync_get   = (enable_sync_get_fn)   clockcache_enable_sync_get,
    .cache_allocator   = (cache_allocator_fn)   clockcache_allocator,
-   .cache_get_context = (cache_get_context_fn) clockcache_context,
+   .cache_get_context = (cache_get_context_fn) clockcache_get_context,
+   .cache_get_volatile_cache = (cache_get_volatile_cache_fn) clockcache_get_volatile_cache,
+   .cache_if_volatile_page   = (cache_if_volatile_page_fn)   clockcache_if_volatile_page,
+   .cache_if_volatile_addr   = (cache_if_volatile_addr_fn)   clockcache_if_volatile_addr,
+   .cache_if_diskaddr_in_volatile_cache = (cache_if_diskaddr_in_volatile_cache_fn) clockcache_if_diskaddr_in_volatile_cache,
 };
 // clang-format on
 
@@ -367,8 +376,20 @@ static inline uint32
 clockcache_page_to_entry_number(clockcache  *cc,
                                 page_handle *page)
 {
-   return clockcache_page_to_entry(cc, page) - cc->entry;
+   size_t entry_table_size = cc->cfg->page_capacity * sizeof(*cc->entry);
+   uint32 entry_number = clockcache_page_to_entry(cc, page) - cc->entry;
+   if ((entry_number <= entry_table_size) && (entry_number >= 0))
+      return entry_number;
+    
+   clockcache  *vcc = cc->volatile_cache;
+   entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
+   entry_number = clockcache_page_to_entry(vcc, page) - vcc->entry;
+   assert((entry_number <= entry_table_size) && (entry_number >= 0));
+
+   return entry_number;
 }
+
+
 
 static inline uint32
 clockcache_data_to_entry_number(clockcache *cc,
@@ -1494,6 +1515,7 @@ void clockcache_config_init(clockcache_config *cache_cfg,
 
 }
 
+bool pmemcache = TRUE;
 platform_status
 clockcache_init(clockcache           *cc,     // OUT
                 clockcache_config    *cfg,    // IN
@@ -1557,12 +1579,17 @@ clockcache_init(clockcache           *cc,     // OUT
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
 
+   /*
    char* entry_pathname = "/mnt/pmem0/entry";
    cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
                                   cc->cfg->page_capacity, entry_pathname);
 
-   //cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
-   //                               cc->cfg->page_capacity);
+   *
+   */
+
+   cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
+                                  cc->cfg->page_capacity);
+
    if (!cc->entry) {
       goto alloc_error;
    }
@@ -1612,6 +1639,28 @@ clockcache_init(clockcache           *cc,     // OUT
       goto alloc_error;
    }
    cc->ts = ts;
+
+   if(pmemcache){
+      pmemcache = FALSE;
+      clockcache *vcc = TYPED_ARRAY_MALLOC(hid, vcc, 1);
+      clockcache_config *vcache_cfg = TYPED_ARRAY_MALLOC(hid, vcache_cfg, 1);
+      memcpy(vcache_cfg, cfg, sizeof(clockcache_config));
+      memcpy(vcache_cfg->cachefile, "/dev/shm/volatile_cache", 23);
+
+      platform_status rc = clockcache_init(vcc, vcache_cfg, io, al, name, ts, hh, hid, mid);
+      platform_assert_status_ok(rc);
+      cc->volatile_cache = vcc;
+      
+      cache *vcaches = TYPED_ARRAY_MALLOC(hid, vcaches, 1);
+      platform_assert(vcaches != NULL);
+      vcaches = (cache *)vcc;
+
+      cc->v_cc = vcaches;
+      
+   }
+   else
+      cc->volatile_cache = NULL;
+
 
    return STATUS_OK;
 
@@ -2435,7 +2484,7 @@ clockcache_lock(clockcache  *cc,
          old_entry_no, (*page)->disk_addr);
    clockcache_get_write(cc, old_entry_no);
 
-   if(istracking(cc->contextMap)){
+   if(istracking(get_context(cc->contextMap, platform_get_tid()))){
 
    clockcache_entry *old_entry = &cc->entry[old_entry_no];
 
@@ -2521,7 +2570,6 @@ clockcache_unlock(clockcache  *cc,
 
    clockcache_entry *new_entry = clockcache_page_to_entry(cc, page);
 
-   if(istracking(cc->contextMap)){
 
    if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
       // a cow page
@@ -2550,7 +2598,7 @@ clockcache_unlock(clockcache  *cc,
       new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
    }
 
-   }
+
 
    uint32 unlockopt = unlockall_or_unlock_delay(cc->contextMap, platform_get_tid());
    if(unlockopt == NONTXUNLOCK)
@@ -3320,8 +3368,63 @@ clockcache_allocator(clockcache *cc)
 }
 
 ThreadContext *
-clockcache_context(clockcache *cc)
+clockcache_get_context(clockcache *cc)
 {
    return get_context(cc->contextMap, platform_get_tid());
+}
+
+
+cache *
+clockcache_get_volatile_cache(clockcache *cc)
+{
+   return cc->v_cc;
+}
+
+
+bool
+clockcache_if_volatile_page(clockcache  *cc,
+                            page_handle *page)
+{
+   size_t entry_table_size = cc->cfg->page_capacity * sizeof(*cc->entry);
+   uint32 entry_number = clockcache_page_to_entry(cc, page) - cc->entry;
+   if ((entry_number <= entry_table_size) && (entry_number >= 0))
+      return FALSE;
+
+   clockcache  *vcc = cc->volatile_cache;
+   entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
+   entry_number = clockcache_page_to_entry(vcc, page) - vcc->entry;
+   assert((entry_number <= entry_table_size) && (entry_number >= 0));
+
+   return TRUE;
+}
+
+//TODO: By default, currently loading unmapped pages to persistent cache
+// This could be optimized for read-only pages
+bool
+clockcache_if_volatile_addr(clockcache *cc, uint64 addr)
+{
+   size_t entry_table_size = cc->cfg->page_capacity * sizeof(*cc->entry);
+   uint32 entry_number = clockcache_lookup(cc, addr);
+   if ((entry_number <= entry_table_size) && (entry_number >= 0))
+      return FALSE;
+
+   clockcache  *vcc = cc->volatile_cache;
+   entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
+   entry_number = clockcache_lookup(vcc, addr);
+   if((entry_number <= entry_table_size) && (entry_number >= 0))
+      return TRUE;
+   if(entry_number == CC_UNMAPPED_ENTRY)
+      return FALSE;
+   assert(0);
+}
+
+bool
+clockcache_if_diskaddr_in_volatile_cache(clockcache *cc, uint64 disk_addr)
+{
+   for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
+      uint64 page_addr = disk_addr + clockcache_multiply_by_page_size(cc, i);
+      return clockcache_if_volatile_addr(cc, page_addr);
+   }
+   return FALSE;
 }
 
