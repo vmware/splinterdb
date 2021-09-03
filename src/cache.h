@@ -155,6 +155,11 @@ typedef allocator *(*cache_allocator_fn)(cache *cc);
 
 typedef ThreadContext* (*cache_get_context_fn) (cache *cc);
 
+typedef cache * (*cache_get_volatile_cache_fn)(cache *cc);
+typedef bool (*cache_if_volatile_page_fn)(cache *cc, page_handle *page);
+typedef bool (*cache_if_volatile_addr_fn)(cache *cc, uint64 addr);
+typedef bool (*cache_if_diskaddr_in_volatile_cache_fn)(cache *cc, uint64 disk_addr);
+
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
    page_dealloc_fn      page_dealloc;
@@ -195,6 +200,10 @@ typedef struct cache_ops {
    enable_sync_get_fn   enable_sync_get;
    cache_allocator_fn   cache_allocator;
    cache_get_context_fn cache_get_context;
+   cache_get_volatile_cache_fn cache_get_volatile_cache;
+   cache_if_volatile_page_fn   cache_if_volatile_page;
+   cache_if_volatile_addr_fn   cache_if_volatile_addr;
+   cache_if_diskaddr_in_volatile_cache_fn cache_if_diskaddr_in_volatile_cache;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -202,6 +211,34 @@ struct cache {
    const cache_ops *ops;
 };
 
+static inline cache *
+cache_get_volatile_cache(cache *cc)
+{
+  return cc->ops->cache_get_volatile_cache(cc);
+}
+
+
+
+static inline bool
+cache_if_volatile_page(cache *cc, page_handle *page)
+{
+  return cc->ops->cache_if_volatile_page(cc, page);
+}
+
+
+static inline bool
+cache_if_volatile_addr(cache *cc, uint64 addr)
+{
+  return cc->ops->cache_if_volatile_addr(cc, addr);
+}
+
+static inline bool
+cache_if_diskaddr_in_volatile_cache(cache *cc, uint64 disk_addr)
+{
+  return cc->ops->cache_if_diskaddr_in_volatile_cache(cc, disk_addr);
+}
+
+//TODO: cache alloc cc type can only be decided by user
 static inline page_handle *
 cache_alloc(cache *cc, uint64 addr, page_type type)
 {
@@ -211,21 +248,37 @@ cache_alloc(cache *cc, uint64 addr, page_type type)
 static inline bool
 cache_dealloc(cache *cc, uint64 addr, page_type type)
 {
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_dealloc(vcc, addr, type);
+   }
    return cc->ops->page_dealloc(cc, addr, type);
 }
 
 static inline uint8
 cache_get_ref(cache *cc, uint64 addr)
 {
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_get_ref(vcc, addr);
+   }
    return cc->ops->page_get_ref(cc, addr);
 }
 
 static inline page_handle *
 cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
 {
+   if(cache_if_volatile_addr(cc, addr))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_get(vcc, addr, blocking, type);
+   }
    return cc->ops->page_get(cc, addr, blocking, type);
 }
 
+//TODO: Find out how to decide cc type in this init
 static inline void
 cache_ctxt_init(cache * cc, cache_async_cb cb, void *cbdata, cache_async_ctxt * ctxt)
 {
@@ -235,13 +288,21 @@ cache_ctxt_init(cache * cc, cache_async_cb cb, void *cbdata, cache_async_ctxt * 
    ctxt->page = NULL;
 }
 
+
 static inline cache_async_result
 cache_get_async(cache *cc, uint64 addr, page_type type,
                 cache_async_ctxt *ctxt)
 {
+   if(cache_if_volatile_addr(cc, addr))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_get_async(vcc, addr, type, ctxt);
+   }
+
    return cc->ops->page_get_async(cc, addr, type, ctxt);
 }
 
+//TODO: Figure out the cache type
 static inline void
 cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
 {
@@ -251,99 +312,180 @@ cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
 static inline void
 cache_unget(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_unget(vcc, page);
+   }
+
    return cc->ops->page_unget(cc, page);
 }
 
 static inline bool
 cache_claim(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_claim(vcc, page);
+   }
+
    return cc->ops->page_claim(cc, page);
 }
 
 static inline void
 cache_unclaim(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_unclaim(vcc, page);
+   }
+
    return cc->ops->page_unclaim(cc, page);
 }
 
 static inline void
 cache_lock(cache *cc, page_handle **page)
 {
+   if(cache_if_volatile_page(cc, *page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_lock(vcc, page);
+   }
+
    return cc->ops->page_lock(cc, page);
 }
 
 static inline void
 cache_unlock(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_unlock(vcc, page);
+   }
+
    return cc->ops->page_unlock(cc, page);
 }
 
+//TODO: By default, prefetching into PMEM
+// The addr is the to-be-fetched addr
 static inline void
 cache_prefetch(cache *cc, uint64 addr, page_type type)
 {
    return cc->ops->page_prefetch(cc, addr, type);
 }
 
+//TODO: check if it's safe to use page_to_share to identify cache type
 static inline void
 cache_share(cache *cc, page_handle *page_to_share, page_handle *anon_page)
 {
+   if(cache_if_volatile_page(cc, page_to_share))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->share(vcc, page_to_share, anon_page);
+   }
+
    return cc->ops->share(cc, page_to_share, anon_page);
 }
 
 static inline void
 cache_unshare(cache *cc, page_handle *anon_page)
 {
+   if(cache_if_volatile_page(cc, anon_page))
+   {  
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->unshare(vcc, anon_page);
+   }
+
    return cc->ops->unshare(cc, anon_page);
 }
 
 static inline void
 cache_mark_dirty(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_mark_dirty(vcc, page);
+   }
+
    return cc->ops->page_mark_dirty(cc, page);
 }
 
 static inline void
 cache_pin(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_pin(vcc, page);
+   }
+
    return cc->ops->page_pin(cc, page);
 }
 
 static inline void
 cache_unpin(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_unpin(vcc, page);
+   }
+
    return cc->ops->page_unpin(cc, page);
 }
 
 static inline void
 cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_sync(vcc, page);
+   }
+
    return cc->ops->page_sync(cc, page, is_blocking, type);
 }
 
 static inline void
 cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
 {
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->extent_sync(vcc, addr, pages_outstanding);
+   }
+
    cc->ops->extent_sync(cc, addr, pages_outstanding);
 }
 
+//TODO: Can't distinguish cache_flush cache type
+//Figure out if this matters, seems not used
 static inline void
 cache_flush(cache *cc)
 {
    cc->ops->flush(cc);
 }
 
+//TODO: Can't distinguish cache_evict cache type
+//Figure out if this matters, seems not used
 static inline int
 cache_evict(cache *cc, bool ignore_pinned_pages)
 {
    return cc->ops->evict(cc, ignore_pinned_pages);
 }
 
+//FIXME: cleanup the right cache
 static inline void
 cache_cleanup(cache *cc)
 {
    return cc->ops->cleanup(cc);
 }
 
+//TODO: assuming the below functions return same value for both caches
 static inline uint64
 cache_page_size(cache *cc)
 {
@@ -445,5 +587,7 @@ cache_get_context(cache *cc)
 {
    return cc->ops->cache_get_context(cc);
 }
+
+
 
 #endif // __CACHE_H

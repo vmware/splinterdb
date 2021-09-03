@@ -1006,7 +1006,8 @@ btree_init(cache          *cc,
    uint64          base_addr;
    platform_status rc = allocator_alloc_extent(al, &base_addr);
    platform_assert_status_ok(rc);
-   page_handle *root_page = cache_alloc(cc, base_addr, type);
+   
+   page_handle *root_page = cache_alloc(cache_get_volatile_cache(cc), base_addr, type);
 
    // FIXME: [yfogel 2020-07-01] maybe here (or refactor?)
    //    we need to be able to have range tree initialized

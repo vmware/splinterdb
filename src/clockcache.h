@@ -102,6 +102,9 @@ struct clockcache_entry {
 
 struct clockcache {
    cache                 super;
+
+   clockcache		*volatile_cache;
+   cache		*v_cc;
    clockcache_config    *cfg;
    allocator            *al;
    io_handle            *io;
