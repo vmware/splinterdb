@@ -144,7 +144,7 @@ platform_mutex_destroy(platform_mutex *mu)
 platform_status
 platform_spinlock_init(platform_spinlock *lock,
                        platform_module_id UNUSED_PARAM(module_id),
-                       platform_heap_id UNUSED_PARAM(heap_id))
+                       platform_heap_id   UNUSED_PARAM(heap_id))
 {
    int ret;
 
