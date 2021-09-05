@@ -615,8 +615,7 @@ clockcache_lock_checkflag(clockcache *cc,
                           uint32 entry_number,
                           uint32 flag)
 {
-    ThreadContext *ctx = get_context(cc->contextMap, platform_get_tid());
-
+    ThreadContext *ctx = clockcache_get_context(cc);
     for(int i = 0; i < ctx->lock_curr; i++){
         if(ctx->entry_array[i] == entry_number){
           if(ctx->delayed_array[i] == CC_UNLOCKDELAYED){
@@ -633,7 +632,7 @@ void add_unlock_delay(clockcache  *cc,
                       uint32 entry_number,
                       uint32 flag)
 {
-    ThreadContext *ctx = get_context(cc->contextMap, platform_get_tid());
+    ThreadContext *ctx = clockcache_get_context(cc);
     for(int i = 0; i < ctx->lock_curr; i++){
         if(ctx->entry_array[i] == entry_number){
            if(flag == CC_CLAIMED)
@@ -1651,15 +1650,12 @@ clockcache_init(clockcache           *cc,     // OUT
       platform_assert_status_ok(rc);
       cc->volatile_cache = vcc;
       
-      cache *vcaches = TYPED_ARRAY_MALLOC(hid, vcaches, 1);
-      platform_assert(vcaches != NULL);
-      vcaches = (cache *)vcc;
-
-      cc->v_cc = vcaches;
-      
+      cc->persistent_cache = NULL; 
+      vcc->persistent_cache = cc;
    }
-   else
+   else{
       cc->volatile_cache = NULL;
+   }
 
 
    return STATUS_OK;
@@ -1925,8 +1921,7 @@ clockcache_lock_checkflag_unlock(clockcache *cc,
                           uint32 entry_number,
                           uint32 flag)
 {
-    ThreadContext *ctx = get_context(cc->contextMap, platform_get_tid());
-
+    ThreadContext *ctx = clockcache_get_context(cc);
     for(int i = 0; i < ctx->lock_curr; i++){
         if(ctx->entry_array[i] == entry_number){
 
@@ -2477,14 +2472,13 @@ clockcache_lock(clockcache  *cc,
    ctx_lock(cc->contextMap, platform_get_tid());
    uint32 old_entry_no = clockcache_page_to_entry_number(cc, *page);
 
-
    clockcache_record_backtrace(cc, old_entry_no);
    clockcache_log((*page)->disk_addr, old_entry_no,
          "lock: entry %u addr %lu\n",
          old_entry_no, (*page)->disk_addr);
    clockcache_get_write(cc, old_entry_no);
 
-   if(istracking(get_context(cc->contextMap, platform_get_tid()))){
+   if(istracking(clockcache_get_context(cc))){
 
    clockcache_entry *old_entry = &cc->entry[old_entry_no];
 
@@ -2533,7 +2527,7 @@ void release_all_locks(clockcache  *cc,
                        page_handle *page) // this is the new page of the cow
 {
 
-    ThreadContext *ctx = get_context(cc->contextMap, platform_get_tid());
+    ThreadContext *ctx = clockcache_get_context(cc);
     for(int i = 0; i < ctx->lock_curr; i++){
         //call unlock funcs;
         if(ctx->delayed_array[i] == CC_UNLOCKDELAYED){
@@ -2556,7 +2550,9 @@ void release_all_locks(clockcache  *cc,
         ctx->get_array[i] = FALSE;
     }
     ctx->lock_curr = 0;
-    assert(ctx->locksHeld == 0);
+    //if(ctx->locksHeld !=0)
+    //platform_log("ctx->locksHeld = %d \n", ctx->locksHeld);
+    //assert(ctx->locksHeld == 0);
 }
 
 
@@ -3370,6 +3366,13 @@ clockcache_allocator(clockcache *cc)
 ThreadContext *
 clockcache_get_context(clockcache *cc)
 {
+	/*
+   if(cc->persistent_cache != NULL){
+      clockcache *pcc = cc->persistent_cache;
+      return get_context(pcc->contextMap, platform_get_tid());
+   }
+   */
+      
    return get_context(cc->contextMap, platform_get_tid());
 }
 
@@ -3377,7 +3380,7 @@ clockcache_get_context(clockcache *cc)
 cache *
 clockcache_get_volatile_cache(clockcache *cc)
 {
-   return cc->v_cc;
+   return (cache*)cc->volatile_cache;
 }
 
 
