@@ -374,6 +374,8 @@ cache_unlock(cache *cc, page_handle *page)
 static inline void
 cache_prefetch(cache *cc, uint64 addr, page_type type)
 {
+   //cache *vcc = cache_get_volatile_cache(cc);
+   //return vcc->ops->page_prefetch(vcc, addr, type);
    return cc->ops->page_prefetch(cc, addr, type);
 }
 
@@ -444,7 +446,7 @@ cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_sync(vcc, page);
+      return vcc->ops->page_sync(vcc, page, is_blocking, type);
    }
 
    return cc->ops->page_sync(cc, page, is_blocking, type);
@@ -456,32 +458,36 @@ cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->extent_sync(vcc, addr, pages_outstanding);
+      vcc->ops->extent_sync(vcc, addr, pages_outstanding);
    }
 
    cc->ops->extent_sync(cc, addr, pages_outstanding);
 }
 
-//TODO: Can't distinguish cache_flush cache type
-//Figure out if this matters, seems not used
 static inline void
 cache_flush(cache *cc)
 {
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->flush(vcc);
+
    cc->ops->flush(cc);
 }
 
-//TODO: Can't distinguish cache_evict cache type
-//Figure out if this matters, seems not used
 static inline int
 cache_evict(cache *cc, bool ignore_pinned_pages)
 {
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->evict(vcc, ignore_pinned_pages);
+
    return cc->ops->evict(cc, ignore_pinned_pages);
 }
 
-//FIXME: cleanup the right cache
 static inline void
 cache_cleanup(cache *cc)
 {
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->cleanup(vcc);
+
    return cc->ops->cleanup(cc);
 }
 
@@ -501,81 +507,135 @@ cache_extent_size(cache *cc)
 static inline void
 cache_assert_ungot(cache *cc, uint64 addr)
 {
+   if(cache_if_volatile_addr(cc, addr))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->assert_ungot(vcc, addr);
+   }
+
    return cc->ops->assert_ungot(cc, addr);
 }
 
 static inline void
 cache_assert_free(cache *cc)
 {
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->assert_free(vcc);
+
    return cc->ops->assert_free(cc);
 }
 
 static inline void
 cache_assert_noleaks(cache *cc)
 {
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->assert_noleaks(vcc);
+
    return cc->ops->assert_noleaks(cc);
 }
 
 static inline void
 cache_print(cache *cc)
 {
+   platform_log("--------------PRINTING VOLATILE CACHE--------------\n");
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->print(vcc);
+   platform_log("--------------PRINTING PERSISTENT CACHE--------------\n");
    return cc->ops->print(cc);
 }
 
 static inline void
 cache_print_stats(cache *cc)
 {
+   platform_log("--------------PRINTING VOLATILE STATS--------------\n");
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->print_stats(vcc);
+   platform_log("--------------PRINTING PERSISTENT CACHE--------------\n");
    return cc->ops->print_stats(cc);
 }
 
 static inline void
 cache_reset_stats(cache *cc)
 {
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->reset_stats(vcc);
    return cc->ops->reset_stats(cc);
 }
 
 static inline void
 cache_io_stats(cache *cc, uint64 *read_bytes, uint64 *write_bytes)
 {
+   cache *vcc = cache_get_volatile_cache(cc);
+   vcc->ops->io_stats(vcc, read_bytes, write_bytes);
    return cc->ops->io_stats(cc, read_bytes, write_bytes);
 }
 
 static inline bool
 cache_page_valid(cache *cc, uint64 addr)
 {
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_valid(vcc, addr);
+   }
+
    return cc->ops->page_valid(cc, addr);
 }
 
 static inline void
 cache_validate_page(cache *cc, page_handle *page, uint64 addr)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      vcc->ops->validate_page(vcc, page, addr);
+   }
+
    cc->ops->validate_page(cc, page, addr);
 }
 
+//FIXME: Find out where this is called
+// Seems only used on cache test
 static inline uint32
 cache_count_dirty(cache *cc)
 {
    return cc->ops->count_dirty(cc);
 }
 
+
 static inline uint32
 cache_get_read_ref(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->page_get_read_ref(vcc, page);
+   }
+
    return cc->ops->page_get_read_ref(cc, page);
 }
 
 static inline bool
 cache_present(cache *cc, page_handle *page)
 {
+   if(cache_if_volatile_page(cc, page))
+   {  
+      cache *vcc = cache_get_volatile_cache(cc);
+      return vcc->ops->cache_present(vcc, page);
+   }
+
    return cc->ops->cache_present(cc, page);
 }
 
+//FIXME: Find out where this is called
+// Seems only used for debug
 static inline void
 cache_enable_sync_get(cache *cc, bool enabled)
 {
    cc->ops->enable_sync_get(cc, enabled);
 }
 
+// Two caches share the same allocator
 static inline allocator *
 cache_allocator(cache *cc)
 {
