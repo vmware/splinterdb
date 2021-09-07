@@ -1,4 +1,6 @@
-# SplinterDB
+![SplinterDB Project Logo](docs/images/splinterDB-logo.png)
+
+## What is SplinterDB?
 SplinterDB is a key-value store designed for high performance on fast storage devices.
 
 See
