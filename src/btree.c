@@ -88,7 +88,8 @@ btree_alloc(cache *         cc,
 {
    node->addr = mini_allocator_alloc(mini, height, key, next_extent);
    debug_assert(node->addr != 0);
-   node->page = cache_alloc(cc, node->addr, type);
+   node->page = cache_alloc(cache_get_volatile_cache(cc), node->addr, type);
+   //node->page = cache_alloc(cc, node->addr, type);
    node->hdr  = (btree_hdr *)(node->page->data);
 }
 
@@ -130,6 +131,7 @@ btree_node_get(cache        *cc,
 
    node->page = cache_get(cc, node->addr, TRUE, type);
    node->hdr = (btree_hdr *)(node->page->data);
+
 }
 
 bool
@@ -916,7 +918,8 @@ btree_add_shared_pivot(cache          *cc,
    debug_assert(btree_height(cfg, parent) != 0);
 
    uint16 height = btree_height(cfg, child);
-   btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
+   //btree_alloc(cache_get_volatile_cache(cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
+   btree_alloc((cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
    cache_share(cc, child->page, new_child->page);
    uint16 child_num_entries = btree_num_entries(cfg, child);
    uint16 new_entry_num = child_num_entries - child_num_entries / 2;
@@ -1007,8 +1010,8 @@ btree_init(cache          *cc,
    platform_status rc = allocator_alloc_extent(al, &base_addr);
    platform_assert_status_ok(rc);
    
-   page_handle *root_page = cache_alloc(cache_get_volatile_cache(cc), base_addr, type);
-   //page_handle *root_page = cache_alloc(cc, base_addr, type);
+   //page_handle *root_page = cache_alloc(cache_get_volatile_cache(cc), base_addr, type);
+   page_handle *root_page = cache_alloc(cc, base_addr, type);
 
    // FIXME: [yfogel 2020-07-01] maybe here (or refactor?)
    //    we need to be able to have range tree initialized

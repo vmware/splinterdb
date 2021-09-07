@@ -18,6 +18,7 @@
 typedef struct page_handle {
    char   *data;
    uint64  disk_addr;
+   bool    persistent;
 } page_handle;
 
 typedef struct cache cache;
@@ -128,7 +129,8 @@ typedef uint64 (*extent_sync_fn)(cache * cc,
                                  uint64  addr,
                                  uint64 *pages_outstanding);
 
-typedef void (*share_fn)(cache *      cc,
+typedef void (*share_fn)(cache *      cc_to_share,
+			 cache *      anon_cc,
                          page_handle *page_to_share,
                          page_handle *anon_page);
 typedef void (*unshare_fn)(cache *cc, page_handle *anon_page);
@@ -270,11 +272,12 @@ cache_get_ref(cache *cc, uint64 addr)
 static inline page_handle *
 cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
 {
-   if(cache_if_volatile_addr(cc, addr))
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       return vcc->ops->page_get(vcc, addr, blocking, type);
    }
+
    return cc->ops->page_get(cc, addr, blocking, type);
 }
 
@@ -293,7 +296,8 @@ static inline cache_async_result
 cache_get_async(cache *cc, uint64 addr, page_type type,
                 cache_async_ctxt *ctxt)
 {
-   if(cache_if_volatile_addr(cc, addr))
+   assert(0);
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       return vcc->ops->page_get_async(vcc, addr, type, ctxt);
@@ -306,6 +310,7 @@ cache_get_async(cache *cc, uint64 addr, page_type type,
 static inline void
 cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
 {
+   assert(0);
    return cc->ops->page_async_done(cc, type, ctxt);
 }
 
@@ -379,17 +384,22 @@ cache_prefetch(cache *cc, uint64 addr, page_type type)
    return cc->ops->page_prefetch(cc, addr, type);
 }
 
-//TODO: check if it's safe to use page_to_share to identify cache type
 static inline void
 cache_share(cache *cc, page_handle *page_to_share, page_handle *anon_page)
 {
+   cache *cc_to_share;
+   cache *anon_cc;
    if(cache_if_volatile_page(cc, page_to_share))
-   {
-      cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->share(vcc, page_to_share, anon_page);
-   }
+      cc_to_share = cache_get_volatile_cache(cc);
+   else
+      cc_to_share = cc;
 
-   return cc->ops->share(cc, page_to_share, anon_page);
+   if(cache_if_volatile_page(cc, anon_page))
+      anon_cc = cache_get_volatile_cache(cc);
+   else
+      anon_cc = cc;
+
+   return cc->ops->share(cc_to_share, anon_cc, page_to_share, anon_page);
 }
 
 static inline void
@@ -460,8 +470,8 @@ cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
       cache *vcc = cache_get_volatile_cache(cc);
       vcc->ops->extent_sync(vcc, addr, pages_outstanding);
    }
-
-   cc->ops->extent_sync(cc, addr, pages_outstanding);
+   else
+      cc->ops->extent_sync(cc, addr, pages_outstanding);
 }
 
 static inline void
@@ -507,7 +517,7 @@ cache_extent_size(cache *cc)
 static inline void
 cache_assert_ungot(cache *cc, uint64 addr)
 {
-   if(cache_if_volatile_addr(cc, addr))
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       return vcc->ops->assert_ungot(vcc, addr);
@@ -585,13 +595,16 @@ cache_page_valid(cache *cc, uint64 addr)
 static inline void
 cache_validate_page(cache *cc, page_handle *page, uint64 addr)
 {
-   if(cache_if_volatile_page(cc, page))
-   {
+   assert(page->disk_addr == addr);
+   if(cache_if_volatile_page(cc, page)){
+      assert(cache_if_diskaddr_in_volatile_cache(cc, addr));
       cache *vcc = cache_get_volatile_cache(cc);
       vcc->ops->validate_page(vcc, page, addr);
    }
-
-   cc->ops->validate_page(cc, page, addr);
+   else{
+      assert(!cache_if_diskaddr_in_volatile_cache(cc, addr));
+      cc->ops->validate_page(cc, page, addr);
+   }
 }
 
 //FIXME: Find out where this is called
