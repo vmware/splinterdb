@@ -162,6 +162,8 @@ typedef bool (*cache_if_volatile_page_fn)(cache *cc, page_handle *page);
 typedef bool (*cache_if_volatile_addr_fn)(cache *cc, uint64 addr);
 typedef bool (*cache_if_diskaddr_in_volatile_cache_fn)(cache *cc, uint64 disk_addr);
 
+typedef cache * (*cache_get_addr_cache_fn)(cache *cc, uint64 addr);
+
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
    page_dealloc_fn      page_dealloc;
@@ -206,6 +208,7 @@ typedef struct cache_ops {
    cache_if_volatile_page_fn   cache_if_volatile_page;
    cache_if_volatile_addr_fn   cache_if_volatile_addr;
    cache_if_diskaddr_in_volatile_cache_fn cache_if_diskaddr_in_volatile_cache;
+   cache_get_addr_cache_fn     cache_get_addr_cache;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -220,6 +223,11 @@ cache_get_volatile_cache(cache *cc)
 }
 
 
+static inline cache*
+cache_get_addr_cache(cache *cc, uint64 addr)
+{
+  return cc->ops->cache_get_addr_cache(cc, addr);
+}
 
 static inline bool
 cache_if_volatile_page(cache *cc, page_handle *page)
@@ -244,7 +252,18 @@ cache_if_diskaddr_in_volatile_cache(cache *cc, uint64 disk_addr)
 static inline page_handle *
 cache_alloc(cache *cc, uint64 addr, page_type type)
 {
-   return cc->ops->page_alloc(cc, addr, type);
+   page_handle* page = cc->ops->page_alloc(cc, addr, type);
+
+   /*
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+      assert(cache_get_volatile_cache(cc) == NULL);
+   else
+      assert(cache_get_volatile_cache(cc) != NULL);
+   */
+
+   //assert(cache_get_addr_cache(cc, addr) == cc);
+
+   return page;
 }
 
 static inline bool
@@ -256,6 +275,10 @@ cache_dealloc(cache *cc, uint64 addr, page_type type)
       return vcc->ops->page_dealloc(vcc, addr, type);
    }
    return cc->ops->page_dealloc(cc, addr, type);
+   /*
+   cache *rcc = cache_get_addr_cache(cc, addr);
+   return rcc->ops->page_dealloc(rcc, addr, type);
+   */
 }
 
 static inline uint8

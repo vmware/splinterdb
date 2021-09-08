@@ -39,10 +39,10 @@ void create_context(ThreadContext *contextMap);
 
 ThreadContext *get_context(ThreadContext *contextMap, threadid idx);
 
-int ctx_lock(ThreadContext *contextMap, threadid idx);
-int ctx_unlock(ThreadContext *contextMap, threadid idx);
+int ctx_lock(ThreadContext *ctx);
+int ctx_unlock(ThreadContext *ctx);
 
-int unlockall_or_unlock_delay(ThreadContext *contextMap, threadid idx);
+int unlockall_or_unlock_delay(ThreadContext *ctx);
 
 void start_nontx(ThreadContext *ctx);
 void end_nontx(ThreadContext *ctx);

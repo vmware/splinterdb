@@ -88,8 +88,8 @@ btree_alloc(cache *         cc,
 {
    node->addr = mini_allocator_alloc(mini, height, key, next_extent);
    debug_assert(node->addr != 0);
-   node->page = cache_alloc(cache_get_volatile_cache(cc), node->addr, type);
-   //node->page = cache_alloc(cc, node->addr, type);
+   //node->page = cache_alloc(cache_get_volatile_cache(cc), node->addr, type);
+   node->page = cache_alloc(cc, node->addr, type);
    node->hdr  = (btree_hdr *)(node->page->data);
 }
 
@@ -1010,8 +1010,8 @@ btree_init(cache          *cc,
    platform_status rc = allocator_alloc_extent(al, &base_addr);
    platform_assert_status_ok(rc);
    
-   //page_handle *root_page = cache_alloc(cache_get_volatile_cache(cc), base_addr, type);
-   page_handle *root_page = cache_alloc(cc, base_addr, type);
+   page_handle *root_page = cache_alloc(cache_get_volatile_cache(cc), base_addr, type);
+   //page_handle *root_page = cache_alloc(cc, base_addr, type);
 
    // FIXME: [yfogel 2020-07-01] maybe here (or refactor?)
    //    we need to be able to have range tree initialized
