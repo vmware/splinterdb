@@ -48,8 +48,7 @@ ThreadContext *get_context(ThreadContext *contextMap, threadid idx) {
 }
 
 
-int ctx_lock(ThreadContext *contextMap, threadid idx){
-   ThreadContext *ctx = get_context(contextMap, idx);
+int ctx_lock(ThreadContext *ctx){
    ctx->locksHeld++;
 
    if(!ctx->trackTxs){
@@ -66,12 +65,11 @@ int ctx_lock(ThreadContext *contextMap, threadid idx){
 }
 
 
-int unlockall_or_unlock_delay(ThreadContext *contextMap, threadid idx){
-    ThreadContext *ctx = get_context(contextMap, idx);
-    if(!ctx->trackTxs){
+int unlockall_or_unlock_delay(ThreadContext *ctx){
+//    if(!ctx->trackTxs){
 	//assert(!isinTX(ctx));
 	return NONTXUNLOCK;
-    }
+//    }
     if (ctx->locksHeld == 0 && ctx->endTxs == 0) {
         return UNLOCKALL;
     }
@@ -80,8 +78,7 @@ int unlockall_or_unlock_delay(ThreadContext *contextMap, threadid idx){
 }
 
 
-int ctx_unlock(ThreadContext *contextMap, threadid idx){
-    ThreadContext *ctx = get_context(contextMap, idx);
+int ctx_unlock(ThreadContext *ctx){
 
     if(ctx->locksHeld > 0)
         ctx->locksHeld--;
