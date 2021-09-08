@@ -17,13 +17,14 @@ set -eu -o pipefail
 # Redirect output to stderr
 exec 1>&2
 
+TOOL="git-clang-format-10"
+
 # Check if git-clang-format exists
-if ! command -v git-clang-format &> /dev/null; then
-   cat << \EOF
-Error: missing required tool git-clang-format
+if ! command -v "$TOOL" &> /dev/null; then
+   echo "Error: missing required tool $TOOL
 
 This tool is typically provided by the clang-format package
-EOF
+"
    exit 1
 fi
 
@@ -31,7 +32,7 @@ fi
 # positional argument, or just the main branch
 BASE_REF="${1:-main}"
 
-diff="$(git-clang-format "$BASE_REF" --diff --quiet)"
+diff="$("$TOOL" "$BASE_REF" --diff --quiet)"
 
 if [ -z "${diff-unset}" ]; then
    echo Format OK
@@ -43,7 +44,7 @@ else
    echo "Error: Code formatting
 To fix, run
 
-   git-clang-format ${BASE_REF:-}
+   $TOOL ${BASE_REF:-}
 
 "
    echo "${diff}"
