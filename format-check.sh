@@ -27,14 +27,11 @@ EOF
    exit 1
 fi
 
-# bash variable set/unset stuff: https://serverfault.com/a/382740
-if [ -z "${1+set}" ]; then
-   # If there's not an argument
-   diff="$(git-clang-format --diff --quiet)"
-else
-   BASE_REF="$1"
-   diff="$(git-clang-format "$BASE_REF" --diff --quiet)"
-fi
+# What to compare against?
+# positional argument, or just the main branch
+BASE_REF="${1:-main}"
+
+diff="$(git-clang-format "$BASE_REF" --diff --quiet)"
 
 if [ -z "${diff-unset}" ]; then
    echo Format OK
