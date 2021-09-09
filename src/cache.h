@@ -163,6 +163,7 @@ typedef bool (*cache_if_volatile_addr_fn)(cache *cc, uint64 addr);
 typedef bool (*cache_if_diskaddr_in_volatile_cache_fn)(cache *cc, uint64 disk_addr);
 
 typedef cache * (*cache_get_addr_cache_fn)(cache *cc, uint64 addr);
+typedef void (*cache_unset_accessing_flag_fn)(cache *cc, uint64 addr);
 
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
@@ -209,6 +210,7 @@ typedef struct cache_ops {
    cache_if_volatile_addr_fn   cache_if_volatile_addr;
    cache_if_diskaddr_in_volatile_cache_fn cache_if_diskaddr_in_volatile_cache;
    cache_get_addr_cache_fn     cache_get_addr_cache;
+   cache_unset_accessing_flag_fn cache_unset_accessing_flag;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -269,13 +271,17 @@ cache_alloc(cache *cc, uint64 addr, page_type type)
 static inline bool
 cache_dealloc(cache *cc, uint64 addr, page_type type)
 {
+   bool ret; 
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_dealloc(vcc, addr, type);
+      ret = vcc->ops->page_dealloc(vcc, addr, type);
+      vcc->ops->cache_unset_accessing_flag(vcc, addr);
+      return ret;
    }
-   return cc->ops->page_dealloc(cc, addr, type);
-   //TODO: unset the accessing flag for the entry
+   ret = cc->ops->page_dealloc(cc, addr, type);
+   cc->ops->cache_unset_accessing_flag(cc, addr);
+   return ret;
    /*
    cache *rcc = cache_get_addr_cache(cc, addr);
    return rcc->ops->page_dealloc(rcc, addr, type);
@@ -285,24 +291,34 @@ cache_dealloc(cache *cc, uint64 addr, page_type type)
 static inline uint8
 cache_get_ref(cache *cc, uint64 addr)
 {
+   uint8 ret;
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_get_ref(vcc, addr);
+      ret = vcc->ops->page_get_ref(vcc, addr);
+      vcc->ops->cache_unset_accessing_flag(vcc, addr);
+      return ret;
    }
-   return cc->ops->page_get_ref(cc, addr);
+   ret = cc->ops->page_get_ref(cc, addr);
+   cc->ops->cache_unset_accessing_flag(cc, addr);
+   return ret;
 }
 
 static inline page_handle *
 cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
 {
+   page_handle *ret;
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_get(vcc, addr, blocking, type);
+      ret = vcc->ops->page_get(vcc, addr, blocking, type);
+      //vcc->ops->cache_unset_accessing_flag(vcc, addr);
+      return ret;
    }
 
-   return cc->ops->page_get(cc, addr, blocking, type);
+   ret = cc->ops->page_get(cc, addr, blocking, type);
+   //cc->ops->cache_unset_accessing_flag(cc, addr);
+   return ret;
 }
 
 //TODO: Find out how to decide cc type in this init
@@ -320,21 +336,27 @@ static inline cache_async_result
 cache_get_async(cache *cc, uint64 addr, page_type type,
                 cache_async_ctxt *ctxt)
 {
+   cache_async_result ret;
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       ctxt->cc = vcc;
-      return vcc->ops->page_get_async(vcc, addr, type, ctxt);
+      ret = vcc->ops->page_get_async(vcc, addr, type, ctxt);
+      //vcc->ops->cache_unset_accessing_flag(vcc, addr);
+      return ret;
    }
 
-   return cc->ops->page_get_async(cc, addr, type, ctxt);
+   ret = cc->ops->page_get_async(cc, addr, type, ctxt);
+   //cc->ops->cache_unset_accessing_flag(cc, addr);
+   return ret;
 }
 
 //TODO: Figure out the cache type
 static inline void
 cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
 {
-   return cc->ops->page_async_done(cc, type, ctxt);
+   cc->ops->page_async_done(cc, type, ctxt);
+   return;
 }
 
 static inline void
@@ -343,10 +365,14 @@ cache_unget(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_unget(vcc, page);
+      vcc->ops->page_unget(vcc, page);
+      //vcc->ops->cache_unset_accessing_flag(vcc, page->disk_addr);
+      return;
    }
 
-   return cc->ops->page_unget(cc, page);
+   cc->ops->page_unget(cc, page);
+   //cc->ops->cache_unset_accessing_flag(cc, page->disk_addr);
+   return;
 }
 
 static inline bool
