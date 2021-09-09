@@ -275,6 +275,7 @@ cache_dealloc(cache *cc, uint64 addr, page_type type)
       return vcc->ops->page_dealloc(vcc, addr, type);
    }
    return cc->ops->page_dealloc(cc, addr, type);
+   //TODO: unset the accessing flag for the entry
    /*
    cache *rcc = cache_get_addr_cache(cc, addr);
    return rcc->ops->page_dealloc(rcc, addr, type);
