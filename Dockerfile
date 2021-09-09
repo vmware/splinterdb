@@ -33,7 +33,7 @@ COPY --from=build /splinterdb/bin/splinterdb.so /splinterdb/bin/splinterdb.so
 COPY --from=build /splinterdb/test.sh /splinterdb/test.sh
 
 # TODO(gabe): fold this into a make target, once we've sorted out include directories
-COPY --from=build /splinterdb/src/kvstore.h /splinterdb/src/data.h /splinterdb/src/platform_public.h /splinterdb/include/
+COPY --from=build /splinterdb/src/kvstore_basic.h /splinterdb/src/kvstore.h /splinterdb/src/data.h /splinterdb/src/platform_public.h /splinterdb/include/
 
 WORKDIR "/splinterdb"
 CMD ["/splinterdb/test.sh"]
