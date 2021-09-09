@@ -319,10 +319,10 @@ static inline cache_async_result
 cache_get_async(cache *cc, uint64 addr, page_type type,
                 cache_async_ctxt *ctxt)
 {
-   assert(0);
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
+      ctxt->cc = vcc;
       return vcc->ops->page_get_async(vcc, addr, type, ctxt);
    }
 
@@ -333,7 +333,6 @@ cache_get_async(cache *cc, uint64 addr, page_type type,
 static inline void
 cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
 {
-   assert(0);
    return cc->ops->page_async_done(cc, type, ctxt);
 }
 

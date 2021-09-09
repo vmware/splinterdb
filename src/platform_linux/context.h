@@ -26,6 +26,7 @@ typedef struct {
     uint64_t trackTxnum;
 
     uint32 entry_array[MAX_LOCKS];
+    uint64 addr_array[MAX_LOCKS];
     bool write_array[MAX_LOCKS];
     bool claim_array[MAX_LOCKS];
     bool get_array[MAX_LOCKS];
