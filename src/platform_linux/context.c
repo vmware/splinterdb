@@ -36,6 +36,7 @@ void create_context(ThreadContext *contextMap) {
 	    ctx->get_array[i] = FALSE;
 	    ctx->claim_array[i] = FALSE;
 	    ctx->entry_array[i] = -1;
+	    ctx->addr_array[i] = -1;
 	}
     }
 }
@@ -66,10 +67,10 @@ int ctx_lock(ThreadContext *ctx){
 
 
 int unlockall_or_unlock_delay(ThreadContext *ctx){
-//    if(!ctx->trackTxs){
+    if(!ctx->trackTxs){
 	//assert(!isinTX(ctx));
 	return NONTXUNLOCK;
-//    }
+    }
     if (ctx->locksHeld == 0 && ctx->endTxs == 0) {
         return UNLOCKALL;
     }
