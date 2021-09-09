@@ -67,10 +67,10 @@ include .libconfig.mk
 #######END libconfig
 
 # Linux and Mac/OSX use these default cflags:
-DEFAULT_CFLAGS += -D_GNU_SOURCE -Wall -Wfatal-errors
+DEFAULT_CFLAGS += -D_GNU_SOURCE -Wall -Wfatal-errors -Werror
 
-ifeq (Platform, Linux)
-    DEFAULT_CFLAGS += -ggdb3 -pthread -Werror
+ifeq ($(PLATFORM),linux)
+    DEFAULT_CFLAGS += -ggdb3 -pthread
 endif
 
 DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY -fPIC
@@ -101,7 +101,8 @@ else
     MacSDKs := /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
     OPT_LIBS_FLAGS := -L $(MacSDKs)/usr/lib -L /usr/local/opt/xxhash/lib -lSystem
     PF_EXTRA_ARGS := -dylib -arch i386 -macosx_version_min 11.0 -weak_reference_mismatches non-weak
-    INCLUDE += -I $(MacSDKs)/usr/include -I $(MacSDKs)/usr/include/sys
+    # INCLUDE += -I $(MacSDKs)/usr/include -I $(MacSDKs)/usr/include/sys
+    INCLUDE += -I$(MacSDKs)/usr/include/sys -I$(MacSDKs)/usr/include
 endif
 
 CFLAGS += $(DEFAULT_CFLAGS) $(OPT_C_LDFLAGS) -march=native
