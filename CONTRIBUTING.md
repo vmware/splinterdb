@@ -15,6 +15,7 @@ Before you submit a bug report about the code in the repository, please check th
 Feature requests should fall within the scope of the project.
 
 ## Pull Requests
+See [docs/build.md](docs/build.md) for instructions on building from source.
 
 Before submitting a pull request, please ensure that:
 - code builds: `make`
