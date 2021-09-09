@@ -153,6 +153,7 @@ bool	     clockcache_if_volatile_page     (clockcache *cc, page_handle *page);
 bool	     clockcache_if_volatile_addr     (clockcache *cc, uint64 addr);
 bool	     clockcache_if_diskaddr_in_volatile_cache (clockcache *cc, uint64 disk_addr);
 cache *      clockcache_get_addr_cache       (clockcache *cc, uint64 addr);
+void 	     clockcache_unset_accessing_flag (clockcache *cc, uint64 addr);
 
 static cache_ops clockcache_ops = {
    .page_alloc        = (page_alloc_fn)        clockcache_alloc,
@@ -202,6 +203,8 @@ static cache_ops clockcache_ops = {
    .cache_if_diskaddr_in_volatile_cache = (cache_if_diskaddr_in_volatile_cache_fn) clockcache_if_diskaddr_in_volatile_cache,
 
    .cache_get_addr_cache    = (cache_get_addr_cache_fn) clockcache_get_addr_cache,
+
+   .cache_unset_accessing_flag = (cache_unset_accessing_flag_fn) clockcache_unset_accessing_flag,
 };
 // clang-format on
 
@@ -228,60 +231,74 @@ static cache_ops clockcache_ops = {
 #define CC_FREE_STATUS \
          (0 \
             | CC_FREE \
+	    | CC_ACCESSING \
          )
 #define CC_EVICTABLE_STATUS \
          (0 \
             | CC_CLEAN \
+	    | CC_ACCESSING \
          )
 #define CC_LOCKED_EVICTABLE_STATUS \
          (0 \
             | CC_CLEAN \
             | CC_CLAIMED \
             | CC_WRITELOCKED \
+	    | CC_ACCESSING \
          )
 #define CC_ACCESSED_STATUS \
          (0 \
             | CC_ACCESSED \
             | CC_CLEAN \
+	    | CC_ACCESSING \
          )
 #define CC_ALLOC_STATUS /* dirty */ \
          (0 \
             | CC_WRITELOCKED \
             | CC_CLAIMED \
+	    | CC_ACCESSING \
          )
 #define CC_CLEANABLE1_STATUS /* dirty */ \
-         (0)
+         (0 \
+	  | CC_ACCESSING \
+	  )
 #define CC_CLEANABLE2_STATUS /* dirty */ \
          (0 \
-            | CC_ACCESSED \
+	  | CC_ACCESSING \
+          | CC_ACCESSED \
          )
 #define CC_WRITEBACK1_STATUS \
          (0 \
+	    | CC_ACCESSING \
             | CC_WRITEBACK \
          )
 #define CC_WRITEBACK2_STATUS \
          (0 \
             | CC_ACCESSED \
             | CC_WRITEBACK \
+	    | CC_ACCESSING \
          )
 #define CC_READ_LOADING_STATUS \
          (0 \
             | CC_ACCESSED \
             | CC_CLEAN \
             | CC_LOADING \
+	    | CC_ACCESSING \
          )
 #define CC_WRITE_LOADING_STATUS \
          (0 \
             | CC_ACCESSED \
             | CC_CLEAN \
             | CC_LOADING \
+	    | CC_ACCESSING \
             | CC_WRITELOCKED \
          )
 
 
 #define CC_MIGRATABLE1_STATUS \
          (0 \
-            | CC_LOCKED_EVICTABLE_STATUS \
+	    | CC_CLEAN \
+            | CC_CLAIMED \
+            | CC_WRITELOCKED \
 	    | CC_ACCESSED \
          )
 
@@ -291,6 +308,16 @@ static cache_ops clockcache_ops = {
             | CC_CLAIMED \
             | CC_WRITELOCKED \
          )
+
+/*----------------------------------------------------------------------
+ * function declarations for migration
+ */
+
+static bool
+clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
+                uint64 disk_addr, page_handle **page, bool read_lock, bool write_unlock);
+
+
 
 /*----------------------------------------------------------------------
  *
@@ -629,183 +656,6 @@ clockcache_assert_clean(clockcache *cc)
 }
 
 
-//TODO: Move this function to the back of the file
-
-/* This function need to be called at the very beginning of read lock,
- * or at the end of unlock, right before release locks of write lock*/
-static void
-clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc, 
-		uint32 entry_number, page_handle **page, bool write_unlock)
-{
-   clockcache_entry *old_entry = &src_cc->entry[entry_number];
-
-   const threadid tid = platform_get_tid();
-
-   /* store status for testing, then clear CC_ACCESSED */
-   uint32 status = old_entry->status;
-
-   /* If this call happens at the end of an unlock,
-    * right before it calles internal_unlock,
-    * then it's unnecessary to go through the tests.
-    */
-   if(write_unlock)
-      goto set_migration;
-
-   /* T&T&S */
-   if (clockcache_test_flag(src_cc, entry_number, CC_ACCESSED)) {
-      clockcache_clear_flag(src_cc, entry_number, CC_ACCESSED);
-   }
-
-
-   /*
-    * perform fast tests and quit if they fail */
-   /* Note: this implicitly tests for:
-    * CC_ACCESSED, CC_CLAIMED, CC_WRITELOCK, CC_WRITEBACK
-    * Different from the eviction policy, the page doesn't need to be clean.
-    * Note: here is where we check that the evicting thread doesn't hold a read
-    * lock itself.
-    */
-   // TODO: may want to do a quick test about the flag
-   if (clockcache_get_ref(src_cc, entry_number, tid)
-         || clockcache_get_pin(src_cc, entry_number)) {
-      goto out;
-   }
-
-
-   /* try to evict with at read lock:
-    * 1. try to read lock
-    * 2. try to claim
-    * 3. try to write lock
-    * 4. verify still evictable*/
-
-   /* 1. try to read lock */
-   if (clockcache_try_get_read(src_cc, entry_number, TRUE) != GET_RC_SUCCESS) {
-      goto out;
-   }
-
-   /* 2. try to claim */
-   if (clockcache_try_get_claim(src_cc, entry_number) != GET_RC_SUCCESS) {
-      goto release_ref;
-   }
-
-   /*
-    * 3. try to write lock
-    *      -- first check if loading
-    */
-   if (clockcache_test_flag(src_cc, entry_number, CC_LOADING)
-         || clockcache_try_get_write(src_cc, entry_number) != GET_RC_SUCCESS) {
-      goto release_claim;
-   }
-
-   /* 4. verify still evictable
-    * redo fast tests in case another thread has changed the status before we
-    * obtained the lock
-    * note: do not re-check the ref count for the active thread, because
-    * it acquired a read lock in order to lock the entry.
-    */
-   if (clockcache_get_pin(src_cc, entry_number)) {
-      goto release_write;
-   }
-
-set_migration:
-   /* 1. Set up the src_cc migration flag */
-   status = old_entry->status;
-   /*
-   uint32 real_flag = -1;
-   if(status == CC_MIGRATABLE1_STATUS)
-      real_flag = CC_MIGRATABLE1_STATUS;
-   if(status == CC_MIGRATABLE2_STATUS)
-      real_flag = CC_MIGRATABLE2_STATUS;
-   assert(real_flag != -1);
-   if (!__sync_bool_compare_and_swap(old_entry->status,
-            real_flag, CC_MIGRATING))
-   {
-      if(write_unlock)
-         goto out;
-      else
-         goto release_write;
-   }
-   */
-
-   if(!clockcache_test_flag(src_cc, entry_number, CC_ACCESSING)){
-         clockcache_set_flag(src_cc, entry_number, CC_MIGRATING);
-   }
-   else{
-      if(write_unlock)
-         goto out;
-      else
-         goto release_write;
-   }
-
-
-
-   /* 2. Set dest_cc entry be migrating */
-   uint32 new_entry_no =
-      clockcache_get_free_page(dest_cc, old_entry->status, TRUE, TRUE);
-   clockcache_entry *new_entry = &cc->entry[new_entry_no];
-   clockcache_set_flag(dest_cc, new_entry_no, CC_MIGRATING);
-
-
-
-   /* 3. Set the dest_cc entry point to the disk addr */
-   uint64 addr = old_entry->page.disk_addr;
-   uint64 lookup_no = clockcache_divide_by_page_size(dest_cc, addr);
-   dest_cc->lookup[lookup_no] = new_entry_no;
-
-
-   /* Do the data copy and set up the new page */
-   memmove(new_entry->page.data, old_entry->page.data, cc->cfg->page_size);
-   new_entry->type = old_entry->type;
-   new_entry->page.disk_addr = old_entry->page.disk_addr;
-   new_entry->page.persistent = old_entry->page.persistent;
-   new_entry->old_entry_no = old_entry_no;
-
-   *page = &new_entry->page;
-
-   /* 4. Set the src_cc entry point to the unmapped addr */
-   if (addr != CC_UNMAPPED_ADDR) {
-      lookup_no = clockcache_divide_by_page_size(src_cc, addr);
-      src_cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
-      old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
-   }
-
-
-   /* 5. Set the src_cc entry be not migrating */
-   clockcache_clear_flag(src_cc, entry_number, CC_MIGRATING);
-
-
-   /* 6. Set the dest_cc entry be not migrating */
-   clockcache_clear_flag(dest_cc, new_entry_no, CC_MIGRATING);
-
-
-   /* 7. set status to CC_FREE_STATUS (clears claim and write lock) */
-   old_entry->status = CC_FREE_STATUS;
-
-   clockcache_log(addr, entry_number, "migrate: entry %u addr %lu\n",
-         entry_number, addr);
-
-
-
-   /* 7. release read lock */
-   goto release_ref;
-
-release_write:
-   debug_status = clockcache_clear_flag(src_cc, entry_number, CC_WRITELOCKED);
-   debug_assert(debug_status);
-release_claim:
-   debug_status = clockcache_clear_flag(cc, entry_number, CC_CLAIMED);
-   debug_assert(debug_status);
-release_ref:
-   if (clockcache_test_flag(src_cc, entry_number, CC_ACCESSED)) {
-      debug_status = clockcache_clear_flag(src_cc, entry_number, CC_ACCESSED);
-      debug_assert(debug_status);
-   }
-   clockcache_dec_ref(cc, entry_number, tid);
-out:
-   return;
-
-
-}
 /*
  *----------------------------------------------------------------------
  *
@@ -1954,11 +1804,13 @@ page_handle *
 clockcache_alloc(clockcache *cache, uint64 addr, page_type type)
 {
    clockcache *cc = cache;
+   /*
    if(type == PAGE_TYPE_TRUNK)
    {
       cc = cache->volatile_cache;
       assert(cc!=NULL);
    }
+   */
    uint32            entry_no = clockcache_get_free_page(cc,
                                               CC_ALLOC_STATUS,
                                               TRUE,  // refcount
@@ -2245,12 +2097,14 @@ clockcache_lock_checkflag_unlock(clockcache *cc,
  */
 
 static bool
-clockcache_get_internal(clockcache *cc,              // IN
+clockcache_get_internal(clockcache *cache,              // IN
                         uint64      addr,            // IN
                         bool        blocking,        // IN
                         page_type   type,            // IN
                         page_handle **page)          // OUT
 {
+   clockcache *cc = cache;
+
    debug_assert(addr % cc->cfg->page_size == 0);
    uint32 entry_number = CC_UNMAPPED_ENTRY;
    uint64 lookup_no = clockcache_divide_by_page_size(cc, addr);
@@ -2275,6 +2129,9 @@ clockcache_get_internal(clockcache *cc,              // IN
 
       *page = &entry->page;
 
+      // This means the page is write locked (not released
+      // because of the transaction lock extension).
+      // We cannot migrate the page because it's write-locked.
       return FALSE;
    }
 
@@ -2299,6 +2156,7 @@ clockcache_get_internal(clockcache *cc,              // IN
                      "get (locked -- non-blocking): entry %u addr %lu\n",
                      entry_number, addr);
                *page = NULL;
+	       // This means the page is write-locked, cannot be page migration.
                return FALSE;
             case GET_RC_EVICTED:
                clockcache_log(addr, entry_number,
@@ -2329,12 +2187,27 @@ clockcache_get_internal(clockcache *cc,              // IN
             "get (cached): entry %u addr %lu rc %u\n",
             entry_number, addr, clockcache_get_ref(cc, entry_number, tid));
       *page = &entry->page;
+
+
+
+      // Read lock is held. Migrate the page, and update the locks.
+      if(cc->volatile_cache != NULL){
+         if(clockcache_page_migration(cc, cc->volatile_cache, addr, page, TRUE, FALSE))
+            cc = cc->volatile_cache;
+      }
+
       return FALSE;
    }
    /*
     * If a matching entry was not found, evict a page and load the requested
     * page from disk.
     */
+
+   // By default, it's safe to load the disk page (clean) to DRAM.
+
+   if(cc->volatile_cache != NULL)
+      cc = cc->volatile_cache;
+
    entry_number = clockcache_get_free_page(cc, CC_READ_LOADING_STATUS,
                                            TRUE,  // refcount
                                            TRUE); // blocking
@@ -2402,7 +2275,7 @@ clockcache_get_internal(clockcache *cc,              // IN
  */
 
 page_handle *
-clockcache_get(clockcache *cc,
+clockcache_get(clockcache *cache,
                uint64     addr,
                bool       blocking,
                page_type  type)
@@ -2410,8 +2283,11 @@ clockcache_get(clockcache *cc,
    bool retry;
    page_handle *handle;
 
-   debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get ||
+   debug_assert(cache->per_thread[platform_get_tid()].enable_sync_get ||
                 type == PAGE_TYPE_MEMTABLE || type == PAGE_TYPE_LOCK_NO_DATA);
+
+   clockcache *cc = cache;
+
    while (1) {
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
       if (!retry) {
@@ -3768,11 +3644,24 @@ clockcache_if_volatile_addr(clockcache *cc, uint64 addr)
       present_in_either_cache = TRUE;
    }
    looptime++;
-   if(!present_in_either_cache && (looptime > 1)){
+  if(!present_in_either_cache && (looptime > 1)){
       if(entry_number == CC_UNMAPPED_ENTRY)
          return FALSE;
    }
    }
+}
+
+void
+clockcache_unset_accessing_flag(clockcache *cc, uint64 addr)
+{
+   uint32 entry_number = clockcache_lookup(cc, addr);
+   if(entry_number == CC_UNMAPPED_ENTRY)
+      return;
+   if(clockcache_test_flag(cc, entry_number, CC_ACCESSING))
+      clockcache_clear_flag(cc, entry_number, CC_ACCESSING);
+
+   return;
+   /* if test flag is not CC_ACCESSING, this page is likely by freed */
 }
 
 cache*
@@ -3848,5 +3737,207 @@ clockcache_if_volatile_page(clockcache  *cc,
    return TRUE;
    */
    return clockcache_if_diskaddr_in_volatile_cache(cc, page->disk_addr);
+}
+
+
+
+/* This function need to be called at the end of read lock, after the read lock is held.
+ * Or at the end of unlock, right before release locks of write lock*/
+static bool
+clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
+		uint64 disk_addr, page_handle **page, bool read_lock, bool write_unlock)
+{
+   bool ret = FALSE;
+
+
+   uint32 entry_number = clockcache_lookup(src_cc, disk_addr);
+   clockcache_entry *old_entry = &src_cc->entry[entry_number];
+
+   const threadid tid = platform_get_tid();
+
+   if(clockcache_test_flag(src_cc, entry_number, CC_ACCESSING))
+      goto out;
+   /* store status for testing, then clear CC_ACCESSED */
+   //uint32 status = old_entry->status;
+
+   /* If this call happens at the end of an unlock,
+    * right before it calles internal_unlock,
+    * then it's unnecessary to go through the tests.
+    */
+   if(write_unlock)
+      goto set_migration;
+
+   if(read_lock)
+      goto set_claim;
+
+
+   /* T&T&S */
+   if (clockcache_test_flag(src_cc, entry_number, CC_ACCESSED)) {
+      clockcache_clear_flag(src_cc, entry_number, CC_ACCESSED);
+   }
+
+
+   /*
+    * perform fast tests and quit if they fail */
+   /* Note: this implicitly tests for:
+    * CC_ACCESSED, CC_CLAIMED, CC_WRITELOCK, CC_WRITEBACK
+    * Different from the eviction policy, the page doesn't need to be clean.
+    * Note: here is where we check that the evicting thread doesn't hold a read
+    * lock itself.
+    */
+   // TODO: may want to do a quick test about the flag
+   if (clockcache_get_ref(src_cc, entry_number, tid)
+         || clockcache_get_pin(src_cc, entry_number)) {
+      goto out;
+   }
+
+
+   /* try to evict with at read lock:
+    * 1. try to read lock
+    * 2. try to claim
+    * 3. try to write lock
+    * 4. verify still evictable*/
+
+   /* 1. try to read lock*/
+   if (clockcache_try_get_read(src_cc, entry_number, TRUE) != GET_RC_SUCCESS) {
+      goto out;
+   }
+
+set_claim:
+   /* 2. try to claim */
+   if (clockcache_try_get_claim(src_cc, entry_number) != GET_RC_SUCCESS) {
+      goto release_ref;
+   }
+
+   /*
+    * 3. try to write lock
+    *      -- first check if loading
+    */
+   if (clockcache_test_flag(src_cc, entry_number, CC_LOADING)
+         || clockcache_try_get_write(src_cc, entry_number) != GET_RC_SUCCESS) {
+      goto release_claim;
+   }
+
+   /* 4. verify still evictable
+    * redo fast tests in case another thread has changed the status before we
+    * obtained the lock
+    * note: do not re-check the ref count for the active thread, because
+    * it acquired a read lock in order to lock the entry.
+    */
+   if (clockcache_get_pin(src_cc, entry_number)) {
+      goto release_write;
+   }
+
+set_migration:
+   /* 1. Set up the src_cc migration flag */
+   //uint32 status = old_entry->status;
+   /*
+   uint32 real_flag = -1;
+   if(status == CC_MIGRATABLE1_STATUS)
+      real_flag = CC_MIGRATABLE1_STATUS;
+   if(status == CC_MIGRATABLE2_STATUS)
+      real_flag = CC_MIGRATABLE2_STATUS;
+   assert(real_flag != -1);
+   if (!__sync_bool_compare_and_swap(old_entry->status,
+            real_flag, CC_MIGRATING))
+   {
+      if(write_unlock)
+         goto out;
+      else
+         goto release_write;
+   }
+   */
+
+   if(!clockcache_test_flag(src_cc, entry_number, CC_ACCESSING)){
+         clockcache_set_flag(src_cc, entry_number, CC_MIGRATING);
+   }
+   else{
+      if(write_unlock)
+         goto out;
+      else
+         goto release_write;
+   }
+
+
+
+   /* 2. Set dest_cc entry be migrating */
+   uint32 new_entry_no =
+      clockcache_get_free_page(dest_cc, old_entry->status, TRUE, TRUE);
+   clockcache_entry *new_entry = &dest_cc->entry[new_entry_no];
+   clockcache_set_flag(dest_cc, new_entry_no, CC_MIGRATING);
+
+
+
+   /* 3. Set the dest_cc entry point to the disk addr */
+   uint64 addr = old_entry->page.disk_addr;
+   uint64 lookup_no = clockcache_divide_by_page_size(dest_cc, addr);
+   dest_cc->lookup[lookup_no] = new_entry_no;
+
+
+   /* Do the data copy and set up the new page */
+   memmove(new_entry->page.data, old_entry->page.data, src_cc->cfg->page_size);
+   new_entry->type = old_entry->type;
+   new_entry->page.disk_addr = old_entry->page.disk_addr;
+   new_entry->page.persistent = old_entry->page.persistent;
+   new_entry->old_entry_no = entry_number;
+
+   *page = &new_entry->page;
+
+   /* 4. Set the src_cc entry point to the unmapped addr */
+   // FIXME: This state need to sync with PMEM when copy back (or
+   // if we make only CLEAN pages can be copied to DRAM, then we don't
+   // need to maintain a PMEM copy)
+   // Check if it's clean by CC_MIGRATABLE1_STATUS flag
+   if (addr != CC_UNMAPPED_ADDR) {
+      lookup_no = clockcache_divide_by_page_size(src_cc, addr);
+      src_cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
+   }
+
+
+   /* 5. Set the src_cc entry be not migrating */
+   clockcache_clear_flag(src_cc, entry_number, CC_MIGRATING);
+
+
+   /* 6. Set the dest_cc entry be not migrating */
+   clockcache_clear_flag(dest_cc, new_entry_no, CC_MIGRATING);
+
+
+   /* 7. set status to CC_FREE_STATUS (clears claim and write lock) */
+   old_entry->status = CC_FREE_STATUS;
+
+   clockcache_log(addr, entry_number, "migrate: entry %u addr %lu\n",
+         entry_number, addr);
+
+   /* 8. Migrate the read lock */
+   // Set up locks on new page
+   if(read_lock){
+      clockcache_get(dest_cc, addr, TRUE, new_entry->type);
+   }      
+
+   ret = TRUE;
+
+   /* 7. release read lock */
+   goto release_ref;
+
+   __attribute__ ((unused)) uint32 debug_status;
+release_write:
+   debug_status = clockcache_clear_flag(src_cc, entry_number, CC_WRITELOCKED);
+   debug_assert(debug_status);
+release_claim:
+   debug_status = clockcache_clear_flag(src_cc, entry_number, CC_CLAIMED);
+   debug_assert(debug_status);
+release_ref:
+   if ((ret == TRUE) && (read_lock)){
+      if (clockcache_test_flag(src_cc, entry_number, CC_ACCESSED)) {
+         debug_status = clockcache_clear_flag(src_cc, entry_number, CC_ACCESSED);
+         debug_assert(debug_status);
+      }
+      clockcache_dec_ref(src_cc, entry_number, tid);
+   }
+out:
+   return ret;
+
+
 }
 
