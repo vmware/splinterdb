@@ -83,6 +83,13 @@ typedef enum {
    async_io_started
 } cache_async_result;
 
+typedef enum {
+   PMEM_CACHE,
+   DRAM_CACHE,
+   NOT_IN_CACHE,
+} cache_type;
+
+
 struct cache_async_ctxt;
 typedef void (*cache_async_cb)(struct cache_async_ctxt *ctxt);
 
@@ -158,12 +165,13 @@ typedef allocator *(*cache_allocator_fn)(cache *cc);
 typedef ThreadContext* (*cache_get_context_fn) (cache *cc);
 
 typedef cache * (*cache_get_volatile_cache_fn)(cache *cc);
-typedef bool (*cache_if_volatile_page_fn)(cache *cc, page_handle *page);
-typedef bool (*cache_if_volatile_addr_fn)(cache *cc, uint64 addr);
-typedef bool (*cache_if_diskaddr_in_volatile_cache_fn)(cache *cc, uint64 disk_addr);
+typedef cache_type (*cache_if_volatile_page_fn)(cache *cc, page_handle *page);
+typedef cache_type (*cache_if_volatile_addr_fn)(cache *cc, uint64 addr, page_handle *page);
+typedef cache_type (*cache_if_diskaddr_in_volatile_cache_fn)(cache *cc, uint64 disk_addr, page_handle *page);
 
 typedef cache * (*cache_get_addr_cache_fn)(cache *cc, uint64 addr);
-typedef void (*cache_unset_accessing_flag_fn)(cache *cc, uint64 addr);
+
+typedef bool (*cache_dec_page_ref_fn)(cache *cc, uint64 addr);
 
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
@@ -210,7 +218,7 @@ typedef struct cache_ops {
    cache_if_volatile_addr_fn   cache_if_volatile_addr;
    cache_if_diskaddr_in_volatile_cache_fn cache_if_diskaddr_in_volatile_cache;
    cache_get_addr_cache_fn     cache_get_addr_cache;
-   cache_unset_accessing_flag_fn cache_unset_accessing_flag;
+   cache_dec_page_ref_fn       cache_dec_page_ref;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -232,6 +240,12 @@ cache_get_addr_cache(cache *cc, uint64 addr)
 }
 
 static inline bool
+cache_dec_page_ref(cache *cc, uint64 addr)
+{
+  return cc->ops->cache_dec_page_ref(cc, addr);
+}
+
+static inline bool
 cache_if_volatile_page(cache *cc, page_handle *page)
 {
   return cc->ops->cache_if_volatile_page(cc, page);
@@ -239,15 +253,15 @@ cache_if_volatile_page(cache *cc, page_handle *page)
 
 
 static inline bool
-cache_if_volatile_addr(cache *cc, uint64 addr)
+cache_if_volatile_addr(cache *cc, uint64 addr, page_handle *page)
 {
-  return cc->ops->cache_if_volatile_addr(cc, addr);
+  return cc->ops->cache_if_volatile_addr(cc, addr, page);
 }
 
 static inline bool
-cache_if_diskaddr_in_volatile_cache(cache *cc, uint64 disk_addr)
+cache_if_diskaddr_in_volatile_cache(cache *cc, uint64 disk_addr, page_handle *page)
 {
-  return cc->ops->cache_if_diskaddr_in_volatile_cache(cc, disk_addr);
+  return cc->ops->cache_if_diskaddr_in_volatile_cache(cc, disk_addr, page);
 }
 
 //TODO: cache alloc cc type can only be decided by user
@@ -272,35 +286,38 @@ static inline bool
 cache_dealloc(cache *cc, uint64 addr, page_type type)
 {
    bool ret; 
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
-   {
-      cache *vcc = cache_get_volatile_cache(cc);
-      ret = vcc->ops->page_dealloc(vcc, addr, type);
-      vcc->ops->cache_unset_accessing_flag(vcc, addr);
-      return ret;
+   page_handle dummy;
+   cache_type ct= cache_if_diskaddr_in_volatile_cache(cc, addr, &dummy);
+   cache *vcc = cache_get_volatile_cache(cc);
+   switch(ct){
+	   case PMEM_CACHE:
+	      ret = cc->ops->page_dealloc(cc, addr, type);
+	      return ret;
+	   case DRAM_CACHE:
+	      ret = vcc->ops->page_dealloc(vcc, addr, type);
+	      return ret;
+	   case NOT_IN_CACHE:
+	      ret = cc->ops->page_dealloc(cc, addr, type);
+	      return ret;
+           default:
+              assert(0);
+              return FALSE;
    }
-   ret = cc->ops->page_dealloc(cc, addr, type);
-   cc->ops->cache_unset_accessing_flag(cc, addr);
-   return ret;
-   /*
-   cache *rcc = cache_get_addr_cache(cc, addr);
-   return rcc->ops->page_dealloc(rcc, addr, type);
-   */
 }
 
 static inline uint8
 cache_get_ref(cache *cc, uint64 addr)
 {
+   page_handle dummy;
    uint8 ret;
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   //dummy pointer, but never used 
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr, &dummy))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       ret = vcc->ops->page_get_ref(vcc, addr);
-      vcc->ops->cache_unset_accessing_flag(vcc, addr);
       return ret;
    }
    ret = cc->ops->page_get_ref(cc, addr);
-   cc->ops->cache_unset_accessing_flag(cc, addr);
    return ret;
 }
 
@@ -308,17 +325,38 @@ static inline page_handle *
 cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
 {
    page_handle *ret;
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   /*
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr, NULL))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       ret = vcc->ops->page_get(vcc, addr, blocking, type);
-      //vcc->ops->cache_unset_accessing_flag(vcc, addr);
+      cache_dec_page_ref(vcc, addr);
       return ret;
    }
 
    ret = cc->ops->page_get(cc, addr, blocking, type);
-   //cc->ops->cache_unset_accessing_flag(cc, addr);
+   cache_dec_page_ref(cc, addr);
    return ret;
+   */
+   cache_type ct= cache_if_diskaddr_in_volatile_cache(cc, addr, NULL);
+   cache *vcc = cache_get_volatile_cache(cc);
+   switch(ct){
+           case PMEM_CACHE:
+	      ret = cc->ops->page_get(cc, addr, blocking, type);
+	      cache_dec_page_ref(cc, addr);
+              return ret;
+           case DRAM_CACHE:
+	      ret = vcc->ops->page_get(vcc, addr, blocking, type);
+	      cache_dec_page_ref(vcc, addr);
+              return ret;
+           case NOT_IN_CACHE:
+	      ret = cc->ops->page_get(cc, addr, blocking, type);
+              return ret;
+	   default:
+	      assert(0);
+	      return NULL;
+   }
+
 }
 
 //TODO: Find out how to decide cc type in this init
@@ -337,18 +375,40 @@ cache_get_async(cache *cc, uint64 addr, page_type type,
                 cache_async_ctxt *ctxt)
 {
    cache_async_result ret;
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   /*
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr, NULL))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       ctxt->cc = vcc;
       ret = vcc->ops->page_get_async(vcc, addr, type, ctxt);
-      //vcc->ops->cache_unset_accessing_flag(vcc, addr);
+      cache_dec_page_ref(vcc, addr);
       return ret;
    }
 
    ret = cc->ops->page_get_async(cc, addr, type, ctxt);
-   //cc->ops->cache_unset_accessing_flag(cc, addr);
+   cache_dec_page_ref(cc, addr);
    return ret;
+   */
+   cache_type ct= cache_if_diskaddr_in_volatile_cache(cc, addr, NULL);
+   cache *vcc = cache_get_volatile_cache(cc);
+   switch(ct){
+           case PMEM_CACHE:
+	      ret = cc->ops->page_get_async(cc, addr, type, ctxt);
+              cache_dec_page_ref(cc, addr);
+              return ret;
+           case DRAM_CACHE:
+	      ctxt->cc = vcc;
+	      ret = vcc->ops->page_get_async(vcc, addr, type, ctxt);
+              cache_dec_page_ref(vcc, addr);
+              return ret;
+           case NOT_IN_CACHE:
+	      ret = cc->ops->page_get_async(cc, addr, type, ctxt);
+              return ret;
+           default:
+              assert(0);
+              return ret;
+   }
+
 }
 
 //TODO: Figure out the cache type
@@ -366,12 +426,10 @@ cache_unget(cache *cc, page_handle *page)
    {
       cache *vcc = cache_get_volatile_cache(cc);
       vcc->ops->page_unget(vcc, page);
-      //vcc->ops->cache_unset_accessing_flag(vcc, page->disk_addr);
       return;
    }
 
    cc->ops->page_unget(cc, page);
-   //cc->ops->cache_unset_accessing_flag(cc, page->disk_addr);
    return;
 }
 
@@ -514,13 +572,16 @@ cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
 static inline void
 cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
 {
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   page_handle dummy;
+   //FIXME: Verify it's safe to sync extent without holding read locks
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr, &dummy))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       vcc->ops->extent_sync(vcc, addr, pages_outstanding);
    }
-   else
+   else{
       cc->ops->extent_sync(cc, addr, pages_outstanding);
+   }
 }
 
 static inline void
@@ -566,7 +627,9 @@ cache_extent_size(cache *cc)
 static inline void
 cache_assert_ungot(cache *cc, uint64 addr)
 {
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   page_handle dummy;
+   //FIXME: verify it's safe to assert ungot without holding any locks.
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr, &dummy))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       return vcc->ops->assert_ungot(vcc, addr);
@@ -632,7 +695,9 @@ cache_io_stats(cache *cc, uint64 *read_bytes, uint64 *write_bytes)
 static inline bool
 cache_page_valid(cache *cc, uint64 addr)
 {
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
+   page_handle dummy;
+   //FIXME: verify it's safe to verify pages without holding locks.
+   if(cache_if_diskaddr_in_volatile_cache(cc, addr, &dummy))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       return vcc->ops->page_valid(vcc, addr);
@@ -646,12 +711,12 @@ cache_validate_page(cache *cc, page_handle *page, uint64 addr)
 {
    assert(page->disk_addr == addr);
    if(cache_if_volatile_page(cc, page)){
-      assert(cache_if_diskaddr_in_volatile_cache(cc, addr));
+      assert(cache_if_diskaddr_in_volatile_cache(cc, addr, page));
       cache *vcc = cache_get_volatile_cache(cc);
       vcc->ops->validate_page(vcc, page, addr);
    }
    else{
-      assert(!cache_if_diskaddr_in_volatile_cache(cc, addr));
+      assert(!cache_if_diskaddr_in_volatile_cache(cc, addr, page));
       cc->ops->validate_page(cc, page, addr);
    }
 }
