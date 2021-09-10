@@ -718,7 +718,8 @@ void add_unlock_delay(clockcache  *cc,
 static get_rc
 clockcache_try_get_read(clockcache *cc,
                         uint32      entry_number,
-                        bool        set_access)
+                        bool        set_access,
+			bool	    inc_ref)
 {
    const threadid tid = platform_get_tid();
    clockcache_record_backtrace(cc, entry_number);
@@ -726,18 +727,23 @@ clockcache_try_get_read(clockcache *cc,
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
       add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
 
-      clockcache_inc_ref(cc, entry_number, tid);
+      if(inc_ref)
+         clockcache_inc_ref(cc, entry_number, tid);
       return GET_RC_SUCCESS;
    }
 
    // first check if write lock is held
    uint32 cc_writing = clockcache_test_flag(cc, entry_number, CC_WRITELOCKED);
    if (UNLIKELY(cc_writing)) {
+      if(!inc_ref)
+        clockcache_dec_ref(cc, entry_number, platform_get_tid());
+
       return GET_RC_CONFLICT;
    }
 
    // then obtain the read lock
-   clockcache_inc_ref(cc, entry_number, tid);
+   if(inc_ref)
+      clockcache_inc_ref(cc, entry_number, tid);
 
    // clockcache_test_flag returns 32 bits, not 1 (cannot use bool)
    uint32 cc_free = clockcache_test_flag(cc, entry_number, CC_FREE);
@@ -779,23 +785,25 @@ clockcache_try_get_read(clockcache *cc,
 
 static get_rc
 clockcache_get_read(clockcache *cc,
-                    uint32      entry_number)
+                    uint32      entry_number,
+		    bool 	inc_ref)
 {
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
         add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
-        clockcache_inc_ref(cc, entry_number, platform_get_tid());
+	//if(inc_ref)
+           clockcache_inc_ref(cc, entry_number, platform_get_tid());
 
         return GET_RC_SUCCESS;
    }
 
    clockcache_record_backtrace(cc, entry_number);
-   get_rc rc = clockcache_try_get_read(cc, entry_number, TRUE);
+   get_rc rc = clockcache_try_get_read(cc, entry_number, TRUE, inc_ref);
 
    uint64 wait = 1;
    while (rc == GET_RC_CONFLICT) {
       platform_sleep(wait);
       wait = wait > 1024 ? wait : 2 * wait;
-      rc = clockcache_try_get_read(cc, entry_number, TRUE);
+      rc = clockcache_try_get_read(cc, entry_number, TRUE, TRUE);
    }
 
    return rc;
@@ -1288,7 +1296,7 @@ clockcache_try_evict(clockcache *cc,
     * 7. release read lock */
 
    /* 1. try to read lock */
-   if (clockcache_try_get_read(cc, entry_number, FALSE) != GET_RC_SUCCESS) {
+   if (clockcache_try_get_read(cc, entry_number, FALSE, TRUE) != GET_RC_SUCCESS) {
       goto out;
    }
 
@@ -1930,7 +1938,7 @@ clockcache_try_dealloc_page(clockcache *cache,
       //platform_assert(clockcache_get_ref(cc, entry_number, tid) == 0);
 
       /* 1. read lock */
-      if (clockcache_get_read(cc, entry_number) == GET_RC_EVICTED) {
+      if (clockcache_get_read(cc, entry_number, TRUE) == GET_RC_EVICTED) {
          // raced with eviction, try again
          continue;
       }
@@ -2087,6 +2095,7 @@ clockcache_get_internal(clockcache *cache,              // IN
                         uint64      addr,            // IN
                         bool        blocking,        // IN
                         page_type   type,            // IN
+			bool 	    inc_ref,	     // IN
                         page_handle **page)          // OUT
 {
    clockcache *cc = cache;
@@ -2104,8 +2113,10 @@ clockcache_get_internal(clockcache *cache,              // IN
    debug_assert(allocator_get_refcount(cc->al, base_addr) > 1);
 
    entry_number = clockcache_lookup(cc, addr);
+
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
-      clockcache_inc_ref(cc, entry_number, platform_get_tid());
+      //if(inc_ref)
+         clockcache_inc_ref(cc, entry_number, platform_get_tid());
       add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
       entry = &cc->entry[entry_number];
 
@@ -2123,7 +2134,7 @@ clockcache_get_internal(clockcache *cache,              // IN
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
       if (blocking) {
-         if (clockcache_get_read(cc, entry_number) != GET_RC_SUCCESS) {
+         if (clockcache_get_read(cc, entry_number, inc_ref) != GET_RC_SUCCESS) {
             // this means we raced with eviction, start over
             clockcache_log(addr, entry_number,
                   "get (eviction race): entry %u addr %lu\n",
@@ -2136,7 +2147,7 @@ clockcache_get_internal(clockcache *cache,              // IN
             return TRUE;
          }
       } else {
-         switch(clockcache_try_get_read(cc, entry_number, TRUE)) {
+         switch(clockcache_try_get_read(cc, entry_number, TRUE, inc_ref)) {
             case GET_RC_CONFLICT:
                clockcache_log(addr, entry_number,
                      "get (locked -- non-blocking): entry %u addr %lu\n",
@@ -2286,7 +2297,7 @@ clockcache_try_get_read_without_page_in(clockcache *cc, uint32 entry_number, uin
 
 
 
-         switch(clockcache_try_get_read(cc, entry_number, TRUE)) {
+         switch(clockcache_try_get_read(cc, entry_number, TRUE, TRUE)) {
             case GET_RC_CONFLICT:
                clockcache_log(addr, entry_number,
                      "get (locked -- non-blocking): entry %u addr %lu\n",
@@ -2357,8 +2368,18 @@ clockcache_get(clockcache *cache,
 
    clockcache *cc = cache;
 
+   uint32 entry_no = clockcache_lookup(cc, addr);
+   if(entry_no!=-1)
+   {
+   retry = clockcache_get_internal(cc, addr, blocking, type, FALSE, &handle);
+   if (!retry) {
+      return handle;
+   }
+
+   }
+
    while (1) {
-      retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
+      retry = clockcache_get_internal(cc, addr, blocking, type, TRUE, &handle);
       if (!retry) {
          return handle;
       }
@@ -2464,7 +2485,7 @@ clockcache_get_async(clockcache        *cc,        // IN
    ctxt->page = NULL;
    entry_number = clockcache_lookup(cc, addr);
    if (entry_number != CC_UNMAPPED_ENTRY) {
-      if (clockcache_try_get_read(cc, entry_number, TRUE) != GET_RC_SUCCESS) {
+      if (clockcache_try_get_read(cc, entry_number, TRUE, TRUE) != GET_RC_SUCCESS) {
          /*
           * This means we raced with eviction, or there's another
           * thread that has the write lock. Either case, start over.
@@ -3188,7 +3209,7 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
          
       get_rc get_read_rc;
       if (entry_no != CC_UNMAPPED_ENTRY) {
-         get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE);
+         get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE, TRUE);
       } else {
          get_read_rc = GET_RC_EVICTED;
 	 cc = cache;
@@ -3198,7 +3219,7 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
          entry_no = clockcache_lookup(vcc, addr);
 	 cc = vcc;
          if (entry_no != CC_UNMAPPED_ENTRY) {
-            get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE);
+            get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE, TRUE);
          } else {
             get_read_rc = GET_RC_EVICTED;
 	    cc = cache;
@@ -3738,7 +3759,7 @@ clockcache_dec_page_ref(clockcache *cc, uint64 addr)
 
    threadid counter_no = platform_get_tid();
    if(clockcache_get_ref(cc, entry_number, counter_no)>0){
-      clockcache_dec_ref(cc, entry_number, counter_no);
+    //  clockcache_dec_ref(cc, entry_number, counter_no);
       return TRUE;
    }
    else
@@ -3889,7 +3910,7 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
     * 4. verify still evictable*/
 
    /* 1. try to read lock*/
-   if (clockcache_try_get_read(src_cc, entry_number, TRUE) != GET_RC_SUCCESS) {
+   if (clockcache_try_get_read(src_cc, entry_number, TRUE, TRUE) != GET_RC_SUCCESS) {
       goto out;
    }
 
