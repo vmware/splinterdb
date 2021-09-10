@@ -3,15 +3,12 @@
 
 .DEFAULT_GOAL := release
 
-TARGET_ARCH :=
-
 # Determine the platform we are compiling on.
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
     PLATFORM := linux
 else ifeq ($(UNAME_S),Darwin)
     PLATFORM := macOSX
-    TARGET_ARCH := -arch x86_64
 else
     PLATFORM := linux
 endif
@@ -67,7 +64,7 @@ include .libconfig.mk
 #######END libconfig
 
 # Linux and Mac/OSX use these default cflags:
-DEFAULT_CFLAGS += -D_GNU_SOURCE -Wall -Wfatal-errors -Werror
+DEFAULT_CFLAGS += -D_GNU_SOURCE -Wall -Wfatal-errors
 
 ifeq ($(PLATFORM),linux)
     DEFAULT_CFLAGS += -ggdb3 -pthread
@@ -79,13 +76,11 @@ DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY -fPIC
 #DEFAULT_CFLAGS += -fsanitize=integer
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
-
-$(info    PLATFORM is $(PLATFORM))
-
+TARGET_ARCH :=
 # Default Mac/OSX flags / args are minimal
 DEFAULT_LDFLAGS :=
-OPT_C_LDFLAGS :=
-OPT_LIBS_FLAGS :=
+DEFAULT_LIBS_FLAGS := -lxxhash
+OPT_C_LDFLAGS := -Ofast -flto
 
 # Platform-specific extra args needed for cc / ld commands
 PF_EXTRA_ARGS :=
@@ -93,21 +88,26 @@ PF_EXTRA_ARGS :=
 # For Linux compiles, we need few more arguments
 ifeq ($(PLATFORM),linux)
     DEFAULT_LDFLAGS := -ggdb3 -pthread
-    OPT_C_LDFLAGS := -Ofast -flto
+    OPT_CFLAGS := -Werror $(OPT_C_LDFLAGS)
+    OPT_LDFLAGS := $(OPT_C_LDFLAGS)
     OPT_LIBS_FLAGS := -lm -lpthread -laio
     PF_EXTRA_ARGS := -shared
+    $(info PLATFORM is: $(PLATFORM))
 else
     # Mac/OSX: Specify library path for diff system include headers
+    TARGET_ARCH := -arch x86_64
     MacSDKs := /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+    OPT_CFLAGS := $(OPT_C_LDFLAGS)
+    OPT_LDFLAGS :=
     OPT_LIBS_FLAGS := -L $(MacSDKs)/usr/lib -L /usr/local/opt/xxhash/lib -lSystem
     PF_EXTRA_ARGS := -dylib -arch i386 -macosx_version_min 11.0 -weak_reference_mismatches non-weak
-    # INCLUDE += -I $(MacSDKs)/usr/include -I $(MacSDKs)/usr/include/sys
-    INCLUDE += -I$(MacSDKs)/usr/include/sys -I$(MacSDKs)/usr/include
+    INCLUDE += -I $(MacSDKs)/usr/include
+    $(info PLATFORM is: $(PLATFORM))
 endif
 
-CFLAGS += $(DEFAULT_CFLAGS) $(OPT_C_LDFLAGS) -march=native
-LDFLAGS = $(DEFAULT_LDFLAGS) $(OPT_C_LDFLAGS)
-LIBS = $(OPT_LIBS_FLAGS) -lxxhash $(LIBCONFIG_LIBS)
+CFLAGS += $(DEFAULT_CFLAGS) $(OPT_CFLAGS) -march=native
+LDFLAGS = $(DEFAULT_LDFLAGS) $(OPT_LDFLAGS)
+LIBS = $(DEFAULT_LIBS_FLAGS) $(OPT_LIBS_FLAGS) $(LIBCONFIG_LIBS)
 
 #*********************************************************#
 # Targets to track whether we have a release or debug build

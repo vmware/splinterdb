@@ -4,11 +4,9 @@
 #ifndef PLATFORM_MACOSX_DARWIN_TYPES_H
 #define PLATFORM_MACOSX_DARWIN_TYPES_H
 
-#include <assert.h>
 #include <ctype.h> // for isspace,isascii,isdigit,isalpha,isupper
 #include <errno.h>
 #include <fcntl.h>
-#include <malloc.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdlib.h>
@@ -76,8 +74,9 @@ typedef pthread_t platform_thread;
 // Mutex
 typedef pthread_mutex_t platform_mutex;
 
-// Spin lock
-typedef pthread_spinlock_t platform_spinlock;
+// On Mac, use a different Spin lock API. This is less-performant but should
+// be functionally correct.
+typedef pthread_rwlock_t platform_spinlock;
 
 // Buffer handle
 typedef struct {

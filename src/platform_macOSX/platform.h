@@ -138,7 +138,7 @@ typedef int (*platform_sort_cmpfn)(const void *a, const void *b,
  * Section 2:
  * Platform-specific types/typedefs
  */
-#include <platform_types.h>
+#include "platform_types.h"
 
 // Platform status
 typedef struct {
