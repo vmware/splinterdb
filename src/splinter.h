@@ -141,8 +141,6 @@ typedef struct splinter_stats {
 
 // splinter refers to btrees as branches
 typedef struct splinter_branch {
-   // FIXME: [yfogel 2020-07-01] need to rename root_addr to point_root_addr
-   //                            delaying the rename to unblock parallelism
    uint64 root_addr; // root address of point btree
 } splinter_branch;
 
