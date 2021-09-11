@@ -173,6 +173,8 @@ typedef cache * (*cache_get_addr_cache_fn)(cache *cc, uint64 addr);
 
 typedef bool (*cache_dec_page_ref_fn)(cache *cc, uint64 addr);
 
+typedef page_handle* (*cache_get_page_in_any_cache_fn)(cache *cc, uint64 addr, bool blocking, page_type type);
+
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
    page_dealloc_fn      page_dealloc;
@@ -219,6 +221,7 @@ typedef struct cache_ops {
    cache_if_diskaddr_in_volatile_cache_fn cache_if_diskaddr_in_volatile_cache;
    cache_get_addr_cache_fn     cache_get_addr_cache;
    cache_dec_page_ref_fn       cache_dec_page_ref;
+   cache_get_page_in_any_cache_fn cache_get_page_in_any_cache;
 } cache_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -263,6 +266,13 @@ cache_if_diskaddr_in_volatile_cache(cache *cc, uint64 disk_addr, page_handle *pa
 {
   return cc->ops->cache_if_diskaddr_in_volatile_cache(cc, disk_addr, page);
 }
+
+static inline page_handle*
+cache_get_page_in_any_cache(cache *cc, uint64 addr, bool blocking, page_type type)
+{
+  return cc->ops->cache_get_page_in_any_cache(cc, addr, blocking, type);
+}
+
 
 //TODO: cache alloc cc type can only be decided by user
 static inline page_handle *
@@ -338,6 +348,7 @@ cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
    cache_dec_page_ref(cc, addr);
    return ret;
    */
+   /*
    cache_type ct= cache_if_diskaddr_in_volatile_cache(cc, addr, NULL);
    cache *vcc = cache_get_volatile_cache(cc);
    switch(ct){
@@ -356,7 +367,12 @@ cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
 	      assert(0);
 	      return NULL;
    }
+   */
 
+
+   ret = cc->ops->cache_get_page_in_any_cache(cc, addr, blocking, type);
+   platform_assert(ret != NULL);
+   return ret;
 }
 
 //TODO: Find out how to decide cc type in this init
