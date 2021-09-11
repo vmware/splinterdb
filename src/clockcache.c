@@ -155,6 +155,8 @@ cache_type   clockcache_if_diskaddr_in_volatile_cache (clockcache *cc, uint64 di
 cache *      clockcache_get_addr_cache       (clockcache *cc, uint64 addr);
 bool 	     clockcache_dec_page_ref         (clockcache *cc, uint64 addr);
 
+page_handle * clockcache_get_page_in_any_cache    (clockcache *cc, uint64 addr, bool blocking, page_type type);
+
 static cache_ops clockcache_ops = {
    .page_alloc        = (page_alloc_fn)        clockcache_alloc,
    .page_dealloc      = (page_dealloc_fn)      clockcache_dealloc,
@@ -204,6 +206,9 @@ static cache_ops clockcache_ops = {
 
    .cache_get_addr_cache    = (cache_get_addr_cache_fn) clockcache_get_addr_cache,
    .cache_dec_page_ref      = (cache_dec_page_ref_fn) clockcache_dec_page_ref,
+
+
+   .cache_get_page_in_any_cache  = (cache_get_page_in_any_cache_fn) clockcache_get_page_in_any_cache,
 };
 // clang-format on
 
@@ -2270,21 +2275,30 @@ clockcache_get_internal(clockcache *cache,              // IN
  *
  *----------------------------------------------------------------------
  */
-static bool
-clockcache_try_get_read_without_page_in(clockcache *cc, uint32 entry_number, uint64 addr)
+static page_handle*
+clockcache_try_get_read_without_page_in(clockcache *cc, 
+		                        uint32 entry_number, 
+					uint64 addr,
+					bool   blocking,
+					page_type type)
 {
    const threadid tid = platform_get_tid();
 
+   page_handle *page;
+   clockcache_entry *entry;
 
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
       add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
+      clockcache_inc_ref(cc, entry_number, platform_get_tid());
 
-      /*
+
+      entry = &cc->entry[entry_number];
+
       if (cc->cfg->use_stats) {
          cc->stats[tid].cache_hits[type]++;
       }
-      */
 
+      page = &entry->page;
 
       // This means the page is write locked (not released
       // because of the transaction lock extension).
@@ -2292,51 +2306,148 @@ clockcache_try_get_read_without_page_in(clockcache *cc, uint32 entry_number, uin
 
       //Should not happen
       assert(0);
-      return TRUE;
+      return page;
+   }
+
+
+   switch(clockcache_try_get_read(cc, entry_number, TRUE, TRUE)) {
+      case GET_RC_CONFLICT:
+         clockcache_log(addr, entry_number,
+              "get (locked -- non-blocking): entry %u addr %lu\n",
+               entry_number, addr);
+         page = NULL;
+               // This means the page is write-locked, cannot be page migration.
+         return page;
+      case GET_RC_EVICTED:
+         clockcache_log(addr, entry_number,
+               "get (eviction race): entry %u addr %lu\n",
+               entry_number, addr);
+	 return NULL;
+      case GET_RC_SUCCESS:
+         if (cc->entry[entry_number].page.disk_addr != addr) {
+            // this also means we raced with eviction and really lost
+            clockcache_dec_ref(cc, entry_number, tid);
+            return NULL;
+         }
+         break;
+      default:
+         platform_assert(0);
    }
 
 
 
-         switch(clockcache_try_get_read(cc, entry_number, TRUE, TRUE)) {
-            case GET_RC_CONFLICT:
-               clockcache_log(addr, entry_number,
-                     "get (locked -- non-blocking): entry %u addr %lu\n",
-                     entry_number, addr);
-               return FALSE;
-            case GET_RC_EVICTED:
-               clockcache_log(addr, entry_number,
-                     "get (eviction race): entry %u addr %lu\n",
-                     entry_number, addr);
-               return FALSE;
-            case GET_RC_SUCCESS:
-               if (cc->entry[entry_number].page.disk_addr != addr) {
-                  // this also means we raced with eviction and really lost
-                  clockcache_dec_ref(cc, entry_number, tid);
-                  return FALSE;
-               }
-               break;
-            default:
-               platform_assert(0);
-         }
+   while (clockcache_test_flag(cc, entry_number, CC_LOADING)) {
+      clockcache_wait(cc);
+   }
+
+   entry = &cc->entry[entry_number];
+
+   if (cc->cfg->use_stats) {
+      cc->stats[tid].cache_hits[type]++;
+   }
+   clockcache_log(addr, entry_number,
+         "get (cached): entry %u addr %lu rc %u\n",
+         entry_number, addr, clockcache_get_ref(cc, entry_number, tid));
+   page = &entry->page;
 
 
 
-      while (clockcache_test_flag(cc, entry_number, CC_LOADING)) {
-         clockcache_wait(cc);
-      }
+   if(cc->volatile_cache != NULL){
+      //if(clockcache_page_migration(cc, cc->volatile_cache, addr, page, TRUE, FALSE))
+      //   cc = cc->volatile_cache;
+   }
 
-      /*
-      if (cc->cfg->use_stats) {
-         cc->stats[tid].cache_hits[type]++;
-      }
-      */
-      clockcache_log(addr, entry_number,
-            "get (cached): entry %u addr %lu rc %u\n",
-            entry_number, addr, clockcache_get_ref(cc, entry_number, tid));
-
-      return TRUE;
+   return page;
 }
 
+
+static page_handle*
+clockcache_try_get_read_with_page_in(clockcache *cc,
+                                        uint32 entry_number,
+                                        uint64 addr,
+                                        bool   blocking,
+                                        page_type type)
+{
+
+   assert(entry_number == CC_UNMAPPED_ENTRY);
+
+   entry_number = clockcache_get_free_page(cc, CC_READ_LOADING_STATUS,
+                                           TRUE,  // refcount
+                                           TRUE); // blocking
+   clockcache_entry *entry;
+   entry = &cc->entry[entry_number];
+
+   page_handle *page;
+   uint64 lookup_no = clockcache_divide_by_page_size(cc, addr);
+   uint64 start, elapsed;
+   __attribute__ ((unused)) platform_status status;
+   __attribute__ ((unused)) uint64 base_addr = addr
+      - addr % cc->cfg->extent_size;
+   const threadid tid = platform_get_tid();
+   /*
+    * If someone else is loading the page and has reserved the lookup, let them
+    * do it.
+    */
+
+   if (!__sync_bool_compare_and_swap(&cc->lookup[lookup_no],
+            CC_UNMAPPED_ENTRY, entry_number)) {
+      clockcache_dec_ref(cc, entry_number, tid);
+
+      entry->status = CC_FREE_STATUS;
+      clockcache_log(addr, entry_number,
+            "get abort: entry: %u addr: %lu\n",
+            entry_number, addr);
+      return NULL;
+   }
+
+   /* Set up the page */
+   entry->page.disk_addr = addr;
+   if (cc->persistent_cache == NULL)
+      entry->page.persistent  = TRUE;
+   else
+      entry->page.persistent  = FALSE;
+   if (cc->cfg->use_stats) {
+      start = platform_get_timestamp();
+   }
+
+   status = io_read(cc->io, entry->page.data, cc->cfg->page_size, addr);
+   platform_assert_status_ok(status);
+
+   if (cc->cfg->use_stats) {
+      elapsed = platform_timestamp_elapsed(start);
+      cc->stats[tid].cache_misses[type]++;
+      cc->stats[tid].page_reads[type]++;
+      cc->stats[tid].cache_miss_time_ns[type] += elapsed;
+   }
+
+   clockcache_log(addr, entry_number,
+         "get (load): entry %u addr %lu\n",
+         entry_number, addr);
+
+   /* Clear the loading flag */
+   clockcache_clear_flag(cc, entry_number, CC_LOADING);
+   page = &entry->page;
+
+
+
+   /* check if present in the other cache */
+   clockcache *another_cc;
+   if (cc->persistent_cache != NULL)
+      another_cc = cc->persistent_cache;
+   else
+      another_cc = cc->volatile_cache;
+
+
+   size_t entry_table_size = another_cc->cfg->page_capacity * sizeof(*another_cc->entry);
+   entry_number = clockcache_lookup(another_cc, addr);
+   if ((entry_number <= entry_table_size) && (entry_number >= 0)){
+      clockcache_dealloc(another_cc, addr, type);
+      page = clockcache_try_get_read_without_page_in(another_cc, entry_number, addr, blocking, type);
+      assert(page != NULL);
+      return page;
+   }
+   return page;
+}
 
 
 /*
@@ -2367,16 +2478,6 @@ clockcache_get(clockcache *cache,
                 type == PAGE_TYPE_MEMTABLE || type == PAGE_TYPE_LOCK_NO_DATA);
 
    clockcache *cc = cache;
-
-   uint32 entry_no = clockcache_lookup(cc, addr);
-   if(entry_no!=-1)
-   {
-   retry = clockcache_get_internal(cc, addr, blocking, type, FALSE, &handle);
-   if (!retry) {
-      return handle;
-   }
-
-   }
 
    while (1) {
       retry = clockcache_get_internal(cc, addr, blocking, type, TRUE, &handle);
@@ -3682,6 +3783,56 @@ clockcache_get_volatile_cache(clockcache *cc)
 }
 
 
+page_handle*
+clockcache_get_page_in_any_cache(clockcache *cc, uint64 addr,
+		bool blocking, page_type type)
+{
+   clockcache* vcc = cc->volatile_cache;
+   clockcache* pcc;
+
+
+   if(vcc == NULL){
+      pcc = cc->persistent_cache;
+      vcc = cc;
+   }
+   else{
+      pcc = cc;
+   }
+   debug_assert(vcc!=NULL);
+   debug_assert(pcc!=NULL);
+
+
+   page_handle *page = NULL;
+
+   while(TRUE){
+      uint32 entry_number = clockcache_lookup(pcc, addr);
+      size_t entry_table_size = pcc->cfg->page_capacity * sizeof(*pcc->entry);
+      if ((entry_number <= entry_table_size) && (entry_number >= 0))
+      {
+         debug_assert((pcc->volatile_cache) != NULL);
+	 page = clockcache_try_get_read_without_page_in(pcc, entry_number, addr, blocking, type); 
+	 if(page != NULL)
+            return page;
+      }
+
+      entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
+      entry_number = clockcache_lookup(vcc, addr);
+      if((entry_number <= entry_table_size) && (entry_number >= 0))
+      {
+         debug_assert((vcc->volatile_cache) == NULL);
+	 page = clockcache_try_get_read_without_page_in(vcc, entry_number, addr, blocking, type);
+	 if(page != NULL)
+            return page;
+      }
+      if (entry_number == CC_UNMAPPED_ENTRY)
+      {
+         page = clockcache_try_get_read_with_page_in(cc, entry_number, addr, blocking, type);
+	 if(page != NULL)
+	    return page;
+      }
+   }
+}
+
 
 
 //TODO: By default, currently loading unmapped pages to persistent cache
@@ -3704,48 +3855,34 @@ clockcache_if_volatile_addr(clockcache *cc, uint64 addr, page_handle *page)
    debug_assert(pcc!=NULL);
 
 
-   bool present_in_either_cache = FALSE;
-   uint32 looptime = 0;
-
    size_t entry_table_size = pcc->cfg->page_capacity * sizeof(*pcc->entry);
-   while(TRUE){
    uint32 entry_number = clockcache_lookup(pcc, addr);
    if ((entry_number <= entry_table_size) && (entry_number >= 0))
    {
       debug_assert((pcc->volatile_cache) != NULL);
-//      platform_log("entry %d is in persistent cache \n", entry_number);
+      assert(page != NULL);
       if(page!=NULL)
          return PMEM_CACHE;
-      if(clockcache_try_get_read_without_page_in(pcc, entry_number, addr))
-         return PMEM_CACHE;
-      present_in_either_cache = TRUE;
    }
    
 
-   //entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
+   entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
    entry_number = clockcache_lookup(vcc, addr);
    if((entry_number <= entry_table_size) && (entry_number >= 0))
    {
       debug_assert((vcc->volatile_cache) == NULL);
-//      platform_log("entry %d is in volatile cache \n", entry_number);
+      assert(page != NULL);
       if(page!=NULL)
 	 return DRAM_CACHE;
-      if(clockcache_try_get_read_without_page_in(vcc, entry_number, addr))
-         return DRAM_CACHE;
-      present_in_either_cache = TRUE;
    }
+
+
    //FIXME: If the page is not in either caches, bring it in DRAM by default.
-   if ((page!=NULL) && (entry_number == CC_UNMAPPED_ENTRY))
+   if ( (entry_number == CC_UNMAPPED_ENTRY))
 	 return NOT_IN_CACHE;
-   looptime++;
-   if(!present_in_either_cache && (looptime > 1)){
-      if(entry_number == CC_UNMAPPED_ENTRY)
-         return NOT_IN_CACHE;
-   }
 
+   platform_assert(0);
 
-   //TODO: shell game handling
-   }
 }
 
 bool
