@@ -705,7 +705,7 @@ splinter_set_super_block(splinter_handle *spl,
          SPLINTER_SUPER_CSUM_SEED);
 
    cache_mark_dirty(spl->cc, super_page);
-   cache_unlock(spl->cc, super_page);
+   cache_unlock(spl->cc, &super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
    cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_MISC);
@@ -947,7 +947,7 @@ static inline void
 splinter_node_unlock(splinter_handle *spl,
                      page_handle     *node)
 {
-   cache_unlock(spl->cc, node);
+   cache_unlock(spl->cc, &node);
 }
 
 page_handle *
@@ -3540,7 +3540,7 @@ splinter_dec_filter(splinter_handle *spl,
    uint8 ref = allocator_get_refcount(spl->al, filter->addr);
    if (ref > 2) {
       cache_dealloc(cc, filter->addr, PAGE_TYPE_FILTER);
-      cache_unlock(cc, meta_page);
+      cache_unlock(cc, &meta_page);
       cache_unclaim(cc, meta_page);
       cache_unget(cc, meta_page);
       end_nontx(ctx);
@@ -3548,7 +3548,7 @@ splinter_dec_filter(splinter_handle *spl,
    }
 
    // we are responsible for zapping the whole tree
-   cache_unlock(cc, meta_page);
+   cache_unlock(cc, &meta_page);
    cache_unclaim(cc, meta_page);
    cache_unget(cc, meta_page);
 

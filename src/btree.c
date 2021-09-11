@@ -157,7 +157,7 @@ btree_node_unlock(cache *cc,           // IN
                   btree_config *cfg,   // IN
                   btree_node *node)    // IN
 {
-   cache_unlock(cc, node->page);
+   cache_unlock(cc, &node->page);
 }
 
 void
@@ -1035,7 +1035,7 @@ btree_init(cache          *cc,
    }
    cache_mark_dirty(cc, root.page);
    // release root
-   cache_unlock(cc, root_page);
+   cache_unlock(cc, &root_page);
    cache_unclaim(cc, root_page);
    cache_unget(cc, root_page);
 
@@ -1093,7 +1093,7 @@ btree_should_zap_dec_ref(cache        *cc,
       // If we're talking about a branch we should zap the whole branch
       should_zap = TRUE;
    }
-   cache_unlock(cc, meta_page);
+   cache_unlock(cc, &meta_page);
    cache_unclaim(cc, meta_page);
    cache_unget(cc, meta_page);
    return should_zap;

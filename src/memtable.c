@@ -83,7 +83,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
 
             uint64 process_generation = ctxt->generation++;
             memtable_clear_num_tuples(ctxt);
-            cache_unlock(cc, *lock_page);
+            cache_unlock(cc, lock_page);
             cache_unclaim(cc, *lock_page);
             cache_unget(cc, *lock_page);
             // FIXME: [aconway 2020-09-01] process
@@ -193,7 +193,7 @@ memtable_unlock_unclaim_unget_lookup_lock(memtable_context *ctxt,
                                           page_handle      *lock_page)
 {
    cache *cc = ctxt->cc;
-   cache_unlock(cc, lock_page);
+   cache_unlock(cc, &lock_page);
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 }
@@ -247,7 +247,7 @@ memtable_force_finalize(memtable_context *ctxt)
    uint64 process_generation = ctxt->generation++;
    memtable_clear_num_tuples(ctxt);
 
-   cache_unlock(cc, lock_page);
+   cache_unlock(cc, &lock_page);
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 
@@ -303,12 +303,12 @@ memtable_context_create(platform_heap_id  hid,
 
    page_handle *lock_page =
       cache_alloc(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   cache_unlock(cc, lock_page);
+   cache_unlock(cc, &lock_page);
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 
    lock_page = cache_alloc(cc, ctxt->lookup_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
-   cache_unlock(cc, lock_page);
+   cache_unlock(cc, &lock_page);
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 

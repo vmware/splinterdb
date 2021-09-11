@@ -204,7 +204,7 @@ static inline void
 routing_unlock_and_unget_page(cache       *cc,
                               page_handle *page)
 {
-   cache_unlock(cc, page);
+   cache_unlock(cc, &page);
    cache_unclaim(cc, page);
    cache_unget(cc, page);
 }

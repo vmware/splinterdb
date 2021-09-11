@@ -118,7 +118,7 @@ typedef void (*page_unget_fn)(cache *cc, page_handle *page);
 typedef bool (*page_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_unclaim_fn)(cache *cc, page_handle *page);
 typedef void (*page_lock_fn)(cache *cc, page_handle **page);
-typedef void (*page_unlock_fn)(cache *cc, page_handle *page);
+typedef void (*page_unlock_fn)(cache *cc, page_handle **page);
 typedef void (*page_pin_fn)(cache *cc, page_handle *page);
 typedef void (*page_unpin_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache *      cc,
@@ -385,9 +385,9 @@ cache_lock(cache *cc, page_handle **page)
 }
 
 static inline void
-cache_unlock(cache *cc, page_handle *page)
+cache_unlock(cache *cc, page_handle **page)
 {
-   if(cache_if_volatile_page(cc, page))
+   if(cache_if_volatile_page(cc, *page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
       return vcc->ops->page_unlock(vcc, page);

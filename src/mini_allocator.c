@@ -95,7 +95,7 @@ mini_allocator_init(mini_allocator *mini,
          hdr->next_meta_addr = mini->meta_tail;
          page_handle *last_meta_page = meta_page;
          meta_page = cache_alloc(mini->cc, mini->meta_tail, type);
-         cache_unlock(mini->cc, last_meta_page);
+         cache_unlock(mini->cc, &last_meta_page);
          cache_unclaim(mini->cc, last_meta_page);
          cache_unget(mini->cc, last_meta_page);
          hdr = (mini_allocator_meta_hdr *)meta_page->data;
@@ -105,7 +105,7 @@ mini_allocator_init(mini_allocator *mini,
    }
 
    cache_mark_dirty(cc, meta_page);
-   cache_unlock(cc, meta_page);
+   cache_unlock(cc, &meta_page);
    cache_unclaim(cc, meta_page);
    cache_unget(cc, meta_page);
 
@@ -181,7 +181,7 @@ mini_allocator_alloc(mini_allocator *mini,
          meta_page       = cache_alloc(mini->cc, new_meta_tail, mini->type);
          mini->meta_tail = new_meta_tail;
          cache_mark_dirty(mini->cc, last_meta_page);
-         cache_unlock(mini->cc, last_meta_page);
+         cache_unlock(mini->cc, &last_meta_page);
          cache_unclaim(mini->cc, last_meta_page);
          cache_unget(mini->cc, last_meta_page);
          hdr = (mini_allocator_meta_hdr *)meta_page->data;
@@ -222,7 +222,7 @@ mini_allocator_alloc(mini_allocator *mini,
             data_key_copy(mini->data_cfg, last_entry->end_key, key);
             cache_mark_dirty(mini->cc, last_meta_page);
             if (mini->last_meta_addr[batch] != mini->meta_tail) {
-               cache_unlock(mini->cc, last_meta_page);
+               cache_unlock(mini->cc, &last_meta_page);
                cache_unclaim(mini->cc, last_meta_page);
                cache_unget(mini->cc, last_meta_page);
             }
@@ -245,7 +245,7 @@ mini_allocator_alloc(mini_allocator *mini,
       //         next_extent_addr, new_meta_addr, new_pos);
       //}
       cache_mark_dirty(mini->cc, meta_page);
-      cache_unlock(mini->cc, meta_page);
+      cache_unlock(mini->cc, &meta_page);
       cache_unclaim(mini->cc, meta_page);
       cache_unget(mini->cc, meta_page);
 
@@ -286,7 +286,7 @@ mini_allocator_release(mini_allocator *mini,
             &last_hdr->entry[mini->last_meta_pos[batch]];
          data_key_copy(mini->data_cfg, last_entry->end_key, key);
          cache_mark_dirty(mini->cc, last_meta_page);
-         cache_unlock(mini->cc, last_meta_page);
+         cache_unlock(mini->cc, &last_meta_page);
          cache_unclaim(mini->cc, last_meta_page);
          cache_unget(mini->cc, last_meta_page);
       }
@@ -417,7 +417,7 @@ mini_allocator_for_each(cache                      *cc,
       next_meta_addr = hdr->next_meta_addr;
 
       cache_mark_dirty(cc, meta_page);
-      cache_unlock(cc, meta_page);
+      cache_unlock(cc, &meta_page);
       cache_unclaim(cc, meta_page);
       cache_unget(cc, meta_page);
    } while (next_meta_addr != 0);

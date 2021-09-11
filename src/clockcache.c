@@ -111,7 +111,7 @@ void         clockcache_unget                (clockcache *cc, page_handle *page)
 bool         clockcache_claim                (clockcache *cc, page_handle *page);
 void         clockcache_unclaim              (clockcache *cc, page_handle *page);
 void         clockcache_lock                 (clockcache *cc, page_handle **page);
-void         clockcache_unlock               (clockcache *cc, page_handle *page);
+void         clockcache_unlock               (clockcache *cc, page_handle **page);
 void         clockcache_share                (clockcache *cc_to_share, clockcache *anon_cc, 
 					      page_handle *page_to_share, page_handle *anon_page);
 void         clockcache_unshare              (clockcache *cc, page_handle *anon_page);
@@ -3023,7 +3023,7 @@ void release_all_locks(clockcache  *cache,
 
 void
 clockcache_unlock(clockcache  *cache,
-                  page_handle *page)
+                  page_handle **page)
 {
 /*
    clockcache *vcc = cache->volatile_cache;
@@ -3044,17 +3044,17 @@ clockcache_unlock(clockcache  *cache,
 */
    clockcache *cc = cache;
 
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint32 entry_number = clockcache_page_to_entry_number(cc, *page);
 
    ctx_unlock(clockcache_get_context(cc));
 
-   clockcache_entry *new_entry = clockcache_page_to_entry(cc, page);
+   clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
 
 
    if(cc->persistent_cache == NULL){
    if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
       // a cow page
-      uint64 lookup_no = clockcache_divide_by_page_size(cc, page->disk_addr);
+      uint64 lookup_no = clockcache_divide_by_page_size(cc, (*page)->disk_addr);
       // change the lookup to the new page
       cc->lookup[lookup_no] = entry_number;
       clockcache_entry *old_entry = &cc->entry[new_entry->old_entry_no];
@@ -3098,13 +3098,13 @@ clockcache_unlock(clockcache  *cache,
    uint32 unlockopt = unlockall_or_unlock_delay(clockcache_get_context(cc));
    if(unlockopt == NONTXUNLOCK)
    {
-      clockcache_internal_unlock(cc, page, entry_number);
+      clockcache_internal_unlock(cc, *page, entry_number);
    }
    else{
-      add_unlock_delay(cc, entry_number, page->disk_addr, CC_WRITELOCKED);
+      add_unlock_delay(cc, entry_number, (*page)->disk_addr, CC_WRITELOCKED);
       if(unlockopt == UNLOCKALL)
       {
-         release_all_locks(cc, page);
+         release_all_locks(cc, *page);
       }
    }
 
