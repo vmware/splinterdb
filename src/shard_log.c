@@ -164,7 +164,7 @@ shard_log_write(log_handle *logh,
       shard_log_hdr *hdr = (shard_log_hdr *)page->data;
       hdr->checksum = shard_log_checksum(log->cfg, page);
 
-      cache_unlock(cc, page);
+      cache_unlock(cc, &page);
       cache_unclaim(cc, page);
       cache_page_sync(cc, page, FALSE, PAGE_TYPE_LOG);
       cache_unget(cc, page);
@@ -173,7 +173,7 @@ shard_log_write(log_handle *logh,
       thread_data->pos = 0;
       thread_data->offset = 0;
    } else {
-      cache_unlock(cc, page);
+      cache_unlock(cc, &page);
       cache_unclaim(cc, page);
       cache_unget(cc, page);
    }

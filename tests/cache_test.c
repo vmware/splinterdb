@@ -34,7 +34,7 @@ test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
       cache_claim(cc, page);
       cache_lock(cc, &page);
       cache_pin(cc, page);
-      cache_unlock(cc, page);
+      cache_unlock(cc, &page);
       cache_unclaim(cc, page);
       cache_unget(cc, page);
    }
@@ -82,7 +82,7 @@ cache_test_alloc_extents(cache *cc,
          uint64       addr = base_addr + i * cfg->page_size;
          page_handle *page = cache_alloc(cc, addr, PAGE_TYPE_MISC);
          addr_arr[j * cfg->pages_per_extent + i] = addr;
-         cache_unlock(cc, page);
+         cache_unlock(cc, &page);
          cache_unclaim(cc, page);
          cache_unget(cc, page);
       }
@@ -190,7 +190,7 @@ test_cache_basic(cache             *cc,
          }
       }
       for (i = 0; i < cfg->page_capacity / 2; i++) {
-         cache_unlock(cc, page_arr[i]);
+         cache_unlock(cc, &page_arr[i]);
          cache_unclaim(cc, page_arr[i]);
          cache_unget(cc, page_arr[i]);
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
@@ -237,7 +237,7 @@ test_cache_basic(cache             *cc,
       }
       for (i = 0; i < cfg->page_capacity / 2; i++) {
          cache_mark_dirty(cc, page_arr[i]);
-         cache_unlock(cc, page_arr[i]);
+         cache_unlock(cc, &page_arr[i]);
          cache_unclaim(cc, page_arr[i]);
          cache_unget(cc, page_arr[i]);
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
@@ -408,7 +408,7 @@ cache_test_dirty_flush(cache *cc,
          break;
       }
       cache_mark_dirty(cc, ph);
-      cache_unlock(cc, ph);
+      cache_unlock(cc, &ph);
       cache_unclaim(cc, ph);
       cache_unget(cc, ph);
       refcount = cache_get_read_ref(cc, ph);
@@ -754,7 +754,7 @@ test_writer_thread(void *arg)
       if (i >= k + params->num_pages_ws) {
          for (; k < i - params->num_pages_ws; k++) {
             platform_assert(handle_arr[k] != NULL);
-            cache_unlock(cc, handle_arr[k]);
+            cache_unlock(cc, &handle_arr[k]);
             cache_unclaim(cc, handle_arr[k]);
             cache_unget(cc, handle_arr[k]);
             handle_arr[k] = NULL;
@@ -772,7 +772,7 @@ test_writer_thread(void *arg)
    }
    for (; k < num_pages; k++) {
       platform_assert(handle_arr[k] != NULL);
-      cache_unlock(cc, handle_arr[k]);
+      cache_unlock(cc, &handle_arr[k]);
       cache_unclaim(cc, handle_arr[k]);
       cache_unget(cc, handle_arr[k]);
       handle_arr[k] = NULL;
