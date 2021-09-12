@@ -240,14 +240,21 @@ static cache_ops clockcache_ops = {
 #define CC_MIGRATABLE1_STATUS \
          (0 \
 	   | CC_CLEAN \
-            | CC_ACCESSED \
+           | CC_ACCESSED \
          )
+
 
 #define CC_LOCKED_MIGRATABLE1_STATUS \
          (0 \
 	    | CC_ACCESSED \
             | CC_CLAIMED \
-	     | CC_CLEAN \
+	    | CC_CLEAN \
+            | CC_WRITELOCKED \
+         )
+
+#define CC_MIGRATABLE2_STATUS \
+         (0 \
+            | CC_CLAIMED \
             | CC_WRITELOCKED \
          )
 
@@ -1240,15 +1247,35 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
 
    /* Temporarily clear access flag */
 
-   uint32 status = old_entry->status;
    const threadid tid = platform_get_tid();
 
+   /*
+   bool cleared_access_flag = FALSE;
+   if(write_unlock){
+   if (clockcache_test_flag(src_cc, entry_number, CC_ACCESSED)) {
+      clockcache_clear_flag(src_cc, entry_number, CC_ACCESSED);
+      cleared_access_flag = TRUE;
+   }
+   }
+   */
+
+   uint32 status = old_entry->status;
    // TODO:
    /* this is only true when called from the page in step in clockcache_get */
-   if (status != CC_MIGRATABLE1_STATUS
+   if(read_lock){
+   if ((!((status == CC_MIGRATABLE1_STATUS && read_lock)
+	 || (status == CC_MIGRATABLE2_STATUS && write_unlock)))
          || (clockcache_get_ref(src_cc, entry_number, tid)>1)
          || clockcache_get_pin(src_cc, entry_number)) {
       goto out;
+   }
+   }
+
+   if(write_unlock){
+      if((clockcache_get_ref(src_cc, entry_number, tid)>1)
+         || clockcache_get_pin(src_cc, entry_number)) {
+      goto out;
+   }
    }
 
    /* store status for testing, then clear CC_ACCESSED */
@@ -1328,9 +1355,11 @@ set_migration:
    uint32 new_entry_no = CC_UNMAPPED_ENTRY;
    // TODO:
    /* this is only true when called from the page in step in clockcache_get */
+   if (read_lock){
    if ((status != CC_LOCKED_MIGRATABLE1_STATUS)
          || clockcache_get_pin(src_cc, entry_number)) {
       goto release_write_reacquire_read;
+   }
    }
 
    /* 1. Set up the src_cc migration flag */
@@ -1437,6 +1466,9 @@ release_ref:
       */
       clockcache_dec_ref(src_cc, entry_number, tid);
       clockcache_set_flag(dest_cc, new_entry_no, CC_ACCESSED);
+   }
+   if(ret && write_unlock){
+      clockcache_dec_ref(src_cc, entry_number, tid);
    }
 out:
    return ret;
@@ -1605,6 +1637,7 @@ clockcache_evict_batch(clockcache *cc,
 int
 clockcache_evict_all(clockcache *cc, bool ignore_pinned_pages)
 {
+
    uint32 evict_hand;
    uint32 i;
 
@@ -2866,7 +2899,9 @@ clockcache_claim(clockcache *cc,
    clockcache_log(page->disk_addr, entry_number,
          "claim: entry %u addr %lu\n", entry_number, page->disk_addr);
 
-   return clockcache_try_get_claim(cc, entry_number) == GET_RC_SUCCESS;
+   bool ret =  clockcache_try_get_claim(cc, entry_number) == GET_RC_SUCCESS;
+
+   return ret;
 }
 
 void
@@ -3065,7 +3100,7 @@ clockcache_unlock(clockcache  *cache,
        *
        */
 
-      debug_assert(0 || page->disk_addr < cc->cfg->extent_size
+      debug_assert(0 || (*page)->disk_addr < cc->cfg->extent_size
                      || old_entry->old_entry_no == CC_UNMAPPED_ENTRY);
 
       debug_code(int rc = mprotect(old_entry->page.data, cc->cfg->page_size, PROT_READ | PROT_WRITE));
@@ -3080,19 +3115,16 @@ clockcache_unlock(clockcache  *cache,
       new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
    }
    }
-   /*
    else{
-      debug_assert(cc->volatile_cache != NULL);
-      bool migrated = clockcache_page_migration(cc, cc->volatile_cache, 
+      debug_assert(cc->persistent_cache != NULL);
+      bool migrated = clockcache_page_migration(cc, cc->persistent_cache, 
 		      new_entry->page.disk_addr, page, FALSE, TRUE);
-      if(migrated){
-         cc = cc->volatile_cache;
-         entry_number = clockcache_lookup(cc, page->disk_addr);
-         entry = &cc->entry[entry_number];
-         debug_assert(page == &entry->page);
-      }
+      assert(migrated);
+         cc = cc->persistent_cache;
+         entry_number = clockcache_lookup(cc, (*page)->disk_addr);
+         clockcache_entry* entry = &cc->entry[entry_number];
+         assert(*page == &entry->page);
    }
-   */
 
 
    uint32 unlockopt = unlockall_or_unlock_delay(clockcache_get_context(cc));
@@ -3446,7 +3478,8 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
          get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE);
       } else {
          get_read_rc = GET_RC_EVICTED;
-	 cc = cache;
+	 cc = vcc;
+//	 cc = cache;
       }
 
       if(entry_no == CC_UNMAPPED_ENTRY){
