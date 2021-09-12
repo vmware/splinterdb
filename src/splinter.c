@@ -578,7 +578,7 @@ static inline void                 splinter_node_unget                (splinter_
 static inline void                 splinter_node_claim                (splinter_handle *spl, page_handle **node);
 static inline void                 splinter_node_unclaim              (splinter_handle *spl, page_handle *node);
 static inline void                 splinter_node_lock                 (splinter_handle *spl, page_handle **node);
-static inline void                 splinter_node_unlock               (splinter_handle *spl, page_handle *node);
+static inline void                 splinter_node_unlock               (splinter_handle *spl, page_handle **node);
 page_handle *                      splinter_alloc                     (splinter_handle *spl, uint64 height);
 static inline char *               splinter_get_pivot                 (splinter_handle *spl, page_handle *node, uint16 pivot_no);
 static inline splinter_pivot_data *splinter_get_pivot_data            (splinter_handle *spl, page_handle *node, uint16 pivot_no);
@@ -945,9 +945,9 @@ splinter_node_lock(splinter_handle  *spl,
 
 static inline void
 splinter_node_unlock(splinter_handle *spl,
-                     page_handle     *node)
+                     page_handle     **node)
 {
-   cache_unlock(spl->cc, &node);
+   cache_unlock(spl->cc, node);
 }
 
 page_handle *
@@ -3300,15 +3300,15 @@ splinter_memtable_incorporate(splinter_handle *spl,
    uint64 wait = 1;
    while (!did_flush && splinter_node_is_full(spl, root)) {
       ThreadContext * ctx = cache_get_context(spl->cc);
-      splinter_node_unlock(spl, root);
+      splinter_node_unlock(spl, &root);
       start_nontx(ctx);
       splinter_node_lock(spl, &root);
       did_flush = splinter_flush_fullest(spl, &root);
-      splinter_node_unlock(spl, root);
+      splinter_node_unlock(spl, &root);
       end_nontx(ctx);
       splinter_node_lock(spl, &root);
       if (!did_flush) {
-         splinter_node_unlock(spl, root);
+         splinter_node_unlock(spl, &root);
          platform_sleep(wait);
          wait = wait > 2048 ? 2048 : 2 * wait;
          splinter_node_lock(spl, &root);
@@ -3321,7 +3321,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
    }
 
    // X. Unlock the root
-   splinter_node_unlock(spl, root);
+   splinter_node_unlock(spl, &root);
    splinter_node_unclaim(spl, root);
    splinter_node_unget(spl, &root);
 
@@ -3864,7 +3864,7 @@ splinter_bundle_build_filters(void *arg,
          if (splinter_bundle_live(spl, node, req->bundle_no)) {
             splinter_clear_bundle(spl, node, req->bundle_no);
          }
-         splinter_node_unlock(spl, node);
+         splinter_node_unlock(spl, &node);
          splinter_node_unclaim(spl, node);
          req->addr = splinter_next_addr(spl, node);
          generation = splinter_generation(spl, node);
@@ -4166,7 +4166,7 @@ splinter_flush(splinter_handle      *spl,
    }
 
    debug_assert(splinter_verify_node(spl, child));
-   splinter_node_unlock(spl, child);
+   splinter_node_unlock(spl, &child);
    splinter_node_unclaim(spl, child);
    splinter_node_unget(spl, &child);
 
@@ -4589,7 +4589,7 @@ splinter_compact_bundle(void *arg,
       bool flush_successful = TRUE;
       while (flush_successful && splinter_node_is_full(spl, node))
          flush_successful = splinter_flush_fullest(spl, &node);
-      splinter_node_unlock(spl, node);
+      splinter_node_unlock(spl, &node);
       splinter_node_unclaim(spl, node);
    }
 
@@ -4837,7 +4837,7 @@ splinter_compact_bundle(void *arg,
             spl->stats[tid].compaction_time_wasted_ns[height]
                += platform_timestamp_elapsed(compaction_start);
          }
-         splinter_node_unlock(spl, node);
+         splinter_node_unlock(spl, &node);
          splinter_node_unclaim(spl, node);
          splinter_node_unget(spl, &node);
 
@@ -4882,7 +4882,7 @@ splinter_compact_bundle(void *arg,
                PAGE_TYPE_BRANCH);
       }
 
-      splinter_node_unlock(spl, node);
+      splinter_node_unlock(spl, &node);
       splinter_node_unclaim(spl, node);
       splinter_node_unget(spl, &node);
       if (start_generation != generation) {
@@ -4943,7 +4943,7 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
       }
    }
 
-   splinter_node_unlock(spl, node);
+   splinter_node_unlock(spl, &node);
    splinter_node_unclaim(spl, node);
    splinter_node_unget(spl, &node);
 
@@ -4966,7 +4966,7 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
       }
    }
 
-   splinter_node_unlock(spl, node);
+   splinter_node_unlock(spl, &node);
    splinter_node_unclaim(spl, node);
    splinter_node_unget(spl, &node);
 
@@ -5105,7 +5105,7 @@ splinter_split_index(splinter_handle *spl,
    splinter_log_node(spl, right_node);
    splinter_close_log_stream();
 
-   splinter_node_unlock(spl, right_node);
+   splinter_node_unlock(spl, &right_node);
    splinter_node_unclaim(spl, right_node);
    splinter_node_unget(spl, &right_node);
 
@@ -5206,8 +5206,8 @@ splinter_split_leaf(splinter_handle  *spl,
    uint64 num_branches = splinter_branch_count(spl, leaf);
    uint64 start_branch = splinter_start_branch(spl, leaf);
 
-   splinter_node_unlock(spl, *parent);
-   splinter_node_unlock(spl, leaf);
+   splinter_node_unlock(spl, parent);
+   splinter_node_unlock(spl, &leaf);
 
    splinter_open_log_stream();
    splinter_log_stream("split_leaf addr %lu\n", leaf->disk_addr);
@@ -5467,7 +5467,7 @@ splinter_split_leaf(splinter_handle  *spl,
          splinter_log_node(spl, leaf);
 
          debug_assert(splinter_verify_node(spl, leaf));
-         splinter_node_unlock(spl, leaf);
+         splinter_node_unlock(spl, &leaf);
          splinter_node_unclaim(spl, leaf);
          splinter_node_unget(spl, &leaf);
       }
@@ -5498,7 +5498,7 @@ splinter_split_leaf(splinter_handle  *spl,
    splinter_log_node(spl, leaf);
 
    debug_assert(splinter_verify_node(spl, leaf));
-   splinter_node_unlock(spl, leaf);
+   splinter_node_unlock(spl, &leaf);
    splinter_node_unclaim(spl, leaf);
    splinter_node_unget(spl, &leaf);
 
@@ -5550,7 +5550,7 @@ splinter_split_root(splinter_handle *spl,
 
    splinter_split_index(spl, root, child, 0);
 
-   splinter_node_unlock(spl, child);
+   splinter_node_unlock(spl, &child);
    splinter_node_unclaim(spl, child);
    splinter_node_unget(spl, &child);
 
@@ -5998,13 +5998,13 @@ splinter_reclaim_space(splinter_handle *spl)
                platform_timestamp_elapsed(sr_start);
          }
          if (!flush_succeeded) {
-            splinter_node_unlock(spl, node);
+            splinter_node_unlock(spl, &node);
             splinter_node_unclaim(spl, node);
             splinter_node_unget(spl, &node);
             continue;
          }
       }
-      splinter_node_unlock(spl, node);
+      splinter_node_unlock(spl, &node);
       splinter_node_unclaim(spl, node);
       splinter_node_unget(spl, &node);
       return STATUS_OK;
@@ -6981,11 +6981,11 @@ splinter_create(splinter_config  *cfg,
    splinter_add_pivot_new_root(spl, root, leaf);
    splinter_inc_pivot_generation(spl, root);
 
-   splinter_node_unlock(spl, leaf);
+   splinter_node_unlock(spl, &leaf);
    splinter_node_unclaim(spl, leaf);
    splinter_node_unget(spl, &leaf);
 
-   splinter_node_unlock(spl, root);
+   splinter_node_unlock(spl, &root);
    splinter_node_unclaim(spl, root);
    splinter_node_unget(spl, &root);
 
@@ -7171,7 +7171,7 @@ splinter_node_destroy(splinter_handle *spl,
       //      allocator_get_refcount(spl->al, filter->addr));
    }
 
-   splinter_node_unlock(spl, node);
+   splinter_node_unlock(spl, &node);
    splinter_node_unclaim(spl, node);
    splinter_node_unget(spl, &node);
    return TRUE;
