@@ -73,7 +73,15 @@ platform_get_real_time(void)
 static inline void
 platform_pause()
 {
+#if defined(__i386__) || defined(__x86_64__)
    __builtin_ia32_pause();
+#elif defined(__aarch64__) // ARM64
+   // pause + memory fence for x64 and ARM
+   // https://chromium.googlesource.com/chromium/src/third_party/WebKit/Source/wtf/+/823d62cdecdbd5f161634177e130e5ac01eb7b48/SpinLock.cpp
+   __asm__ __volatile__("yield");
+#else
+#   error Unknown CPU arch
+#endif
 }
 
 static inline void

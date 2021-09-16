@@ -52,7 +52,13 @@ include .libconfig.mk
 #######END libconfig
 
 DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror
-DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY -fPIC
+DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
+
+cpu_arch := $(shell uname -p)
+ifeq ($(cpu_arch),x86_64)
+  # not supported on ARM64
+  DEFAULT_CFLAGS += -msse4.2 -mpopcnt
+endif
 #DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 #DEFAULT_CFLAGS += -fsanitize=address
 #DEFAULT_CFLAGS += -fsanitize=integer
