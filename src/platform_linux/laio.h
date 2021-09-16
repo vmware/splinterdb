@@ -4,7 +4,7 @@
 /*
  * laio.h --
  *
- *     This file contains the interface for a libaio wrapper.
+ *     This file contains the interface for a Linux libaio wrapper.
  */
 
 #ifndef __LAIO_H

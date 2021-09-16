@@ -4,9 +4,9 @@
 #ifndef PLATFORM_LINUX_INLINE_H
 #define PLATFORM_LINUX_INLINE_H
 
-#include <laio.h>
 #include <string.h> // for memcpy, strerror
 #include <time.h> // for nanosecond sleep api.
+#include "laio.h"
 
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen)

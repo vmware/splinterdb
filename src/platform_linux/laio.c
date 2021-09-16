@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * laio_io.h --
+ * laio.c --
  *
- *     This file contains the inplementation for a libaio wrapper.
+ *     This file contains the inplementation for a Linux libaio wrapper.
  */
 
 #define POISON_FROM_PLATFORM_IMPLEMENTATION

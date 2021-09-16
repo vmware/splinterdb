@@ -4,21 +4,22 @@
 /*
  * laio.h --
  *
- *     This file contains the interface for a libaio wrapper.
+ *     This file contains the interface for a Mac/OSX libaio wrapper.
  */
 
-#ifndef __LAIO_H
-#define __LAIO_H
+#ifndef __LAIO_H__
+#define __LAIO_H__
 
+#include <aio.h>
 #include "io.h"
 #include "task.h"
-#include <libaio.h>
 
-struct io_async_req {
-    struct iocb     iocb;        // laio callback
-    struct iocb    *iocb_p;      // laio callback pointer
-    io_callback_fn  callback;    // issuer callback
-    char            metadata[64];// issuer callback data
+struct io_async_req
+{
+    struct aiocb     iocb;          // laio callback
+    struct aiocb    *iocb_p;        // laio callback pointer
+    io_callback_fn  callback;       // issuer callback
+    char            metadata[64];   // issuer callback data
     uint64          number;      // request number/id
     bool            busy;        // request in-use flag
     uint64          bytes;       // total bytes in the IO request
@@ -26,7 +27,8 @@ struct io_async_req {
     struct iovec    iovec[];     // vector with IO offsets and size
 };
 
-typedef struct laio_handle {
+typedef struct laio_handle
+{
     io_handle         super;
     io_config        *cfg;
     int               fd;
@@ -38,4 +40,4 @@ typedef struct laio_handle {
     platform_heap_id  heap_id;
 } laio_handle;
 
-#endif //__LAIO_H
+#endif //__LAIO_H__

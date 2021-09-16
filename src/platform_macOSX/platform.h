@@ -555,7 +555,7 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  * Non-inline implementations belong in a .c file in the platform_* directory.
  * Declarations for the non-inline functions can go in platform_inline.h
  */
-#include <platform_inline.h>
+#include "platform_inline.h"
 
 
 

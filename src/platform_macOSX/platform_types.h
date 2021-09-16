@@ -64,8 +64,8 @@ typedef void* List_Links;
 
 
 /*
- * Linux understands that you cannot continue after a failed assert already,
- * so we do not need a workaround for platform_assert in linux
+ * Mac/OSX understands that you cannot continue after a failed assert already,
+ * so we do not need a workaround for platform_assert in Mac/OSX.
  */
 #define platform_assert( expr ) assert(expr)
 
