@@ -221,7 +221,6 @@ static cache_ops clockcache_ops = {
 #define CC_WRITELOCKED   (1u<<5)
 #define CC_CLAIMED       (1u<<6)
 #define CC_UNLOCKDELAYED (1u<<7)
-#define CC_BACKUP	 (1u<<8)
 
 /* Common status flag combinations */
 #define CC_FREE_STATUS \
@@ -240,6 +239,7 @@ static cache_ops clockcache_ops = {
          )
 #define CC_MIGRATABLE1_STATUS \
          (0 \
+	   | CC_CLEAN \
            | CC_ACCESSED \
          )
 
@@ -248,6 +248,7 @@ static cache_ops clockcache_ops = {
          (0 \
 	    | CC_ACCESSED \
             | CC_CLAIMED \
+	    | CC_CLEAN \
             | CC_WRITELOCKED \
          )
 
@@ -553,22 +554,6 @@ clockcache_dec_ref(clockcache *cc,
          &cc->refcount[counter_no * cc->cfg->page_capacity + rc_number], 1);
    debug_assert(refcount != 0);
 }
-
-
-
-static inline void
-clockcache_clear_ref(clockcache *cc,
-                     uint32      entry_number)
-{
-  threadid i;
-  for (i = 0; i < (MAX_THREADS-1); i++) {
-        if (clockcache_get_ref(cc, entry_number, i) != 0) {
-           clockcache_dec_ref(cc, entry_number, i);
-	   assert(clockcache_get_ref(cc, entry_number, i) == 0);
-     }
-  }
-}
-
 
 static inline uint8
 clockcache_get_pin(clockcache *cc,
@@ -1254,7 +1239,7 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
 {
    bool ret = FALSE;
 
-   //return FALSE;
+//   return FALSE;
 
    uint32 entry_number = clockcache_lookup(src_cc, disk_addr);
    clockcache_entry *old_entry = &src_cc->entry[entry_number];
@@ -1377,11 +1362,25 @@ set_migration:
    }
    }
 
+   /* 1. Set up the src_cc migration flag */
+
+   /*
+   if(!clockcache_test_flag(src_cc, entry_number, CC_ACCESSING)){
+         clockcache_set_flag(src_cc, entry_number, CC_MIGRATING);
+   }
+   else{
+      if(write_unlock)
+         goto out;
+      else
+         goto release_write;
+   }
+   */
+
+
 
    /* 2. Set dest_cc entry be migrating 
     *    At this time, the read lock is acquired */
    new_entry_no  = clockcache_get_free_page(dest_cc, old_entry->status, TRUE, TRUE);
-
    clockcache_entry *new_entry = &dest_cc->entry[new_entry_no];
    //clockcache_set_flag(dest_cc, new_entry_no, CC_MIGRATING);
 
@@ -1415,52 +1414,15 @@ set_migration:
    // need to maintain a PMEM copy)
    // Check if it's clean by CC_MIGRATABLE1_STATUS flag
 
-   if(read_lock){
-	   /*
    if (addr != CC_UNMAPPED_ADDR) {
       lookup_no = clockcache_divide_by_page_size(src_cc, addr);
       src_cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
       old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
-   }
-   */
-
-
-   /* 7. set status to CC_FREE_STATUS (clears claim and write lock) */
-   //old_entry->status = CC_FREE_STATUS;
-   clockcache_set_flag(src_cc, entry_number, CC_BACKUP);
-   }
-
-   if(write_unlock){
-   if (addr != CC_UNMAPPED_ADDR) {
-      lookup_no = clockcache_divide_by_page_size(src_cc, addr);
-      src_cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
-      old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
-   }
-
-      uint32 backup_entry_no;
-   if(write_unlock){
-      backup_entry_no = clockcache_lookup(dest_cc, disk_addr);
-      if (backup_entry_no != CC_UNMAPPED_ENTRY) {
-         platform_assert(clockcache_test_flag(dest_cc, backup_entry_no, CC_BACKUP));
-         clockcache_clear_flag(dest_cc, backup_entry_no, CC_BACKUP);
-         clockcache_clear_ref(dest_cc, backup_entry_no);
-         //clockcache_inc_ref(dest_cc, new_entry_no, tid);
-
-//   if (addr != CC_UNMAPPED_ADDR) {
-      uint64 backup_lookup_no = clockcache_divide_by_page_size(dest_cc, disk_addr);
-      dest_cc->lookup[backup_lookup_no] = CC_UNMAPPED_ENTRY;
-      dest_cc->entry[backup_entry_no].page.disk_addr = CC_UNMAPPED_ADDR;
-//   }
-   dest_cc->entry[backup_entry_no].status = CC_FREE_STATUS;
-
-
-      }
    }
 
 
    /* 7. set status to CC_FREE_STATUS (clears claim and write lock) */
    old_entry->status = CC_FREE_STATUS;
-   }
 
    clockcache_log(addr, entry_number, "migrate: entry %u addr %lu\n",
          entry_number, addr);
@@ -1502,7 +1464,7 @@ release_ref:
          debug_assert(debug_status);
       }
       */
-//      clockcache_dec_ref(src_cc, entry_number, tid);
+      clockcache_dec_ref(src_cc, entry_number, tid);
       clockcache_set_flag(dest_cc, new_entry_no, CC_ACCESSED);
    }
    if(ret && write_unlock){
@@ -2186,12 +2148,10 @@ clockcache_try_dealloc_page(clockcache *cache,
    debug_assert(vcc!=NULL);
    debug_assert(pcc!=NULL);
 
-   bool free_pentry = FALSE;
-   uint32 pentry_number;
    while (TRUE) {
-      uint32 entry_number = clockcache_lookup(vcc, addr);
+      uint32 entry_number = clockcache_lookup(pcc, addr);
       if (entry_number == CC_UNMAPPED_ENTRY) {
-	 entry_number = clockcache_lookup(pcc, addr);
+	 entry_number = clockcache_lookup(vcc, addr);
 	 if (entry_number == CC_UNMAPPED_ENTRY) {
             clockcache_log(addr, entry_number,
                   "dealloc (uncached): entry %u addr %lu\n", entry_number, addr);
@@ -2199,17 +2159,10 @@ clockcache_try_dealloc_page(clockcache *cache,
             return;
 	 }
 	 else
-	    cc = pcc;
+	    cc = vcc;
       }
       else
-      {
-         cc = vcc;
-	 pentry_number = clockcache_lookup(pcc, addr);
-	 if (pentry_number != CC_UNMAPPED_ENTRY) {
-            assert(clockcache_test_flag(pcc, pentry_number, CC_BACKUP));
-	    free_pentry = TRUE;
-	 }
-      }
+         cc = pcc;
 
       /*
        * in cache, so evict:
@@ -2263,23 +2216,11 @@ clockcache_try_dealloc_page(clockcache *cache,
       debug_assert(entry->page.disk_addr == addr);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
 
-      if(free_pentry){
-	 uint64 plookup_no = clockcache_divide_by_page_size(pcc, addr);
-	 pcc->lookup[plookup_no] = CC_UNMAPPED_ENTRY;
-	 clockcache_entry *pentry = &pcc->entry[pentry_number];
-	 pentry->page.disk_addr = CC_UNMAPPED_ADDR;
-	 pentry->status = CC_FREE_STATUS;
-      }
-
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       entry->status = CC_FREE_STATUS;
 
       /* 7. release read lock */
       clockcache_dec_ref(cc, entry_number, tid);
-
-      if(free_pentry)
-        clockcache_clear_ref(pcc, pentry_number);
-
       return;
    }
 }
@@ -3174,7 +3115,6 @@ clockcache_unlock(clockcache  *cache,
       new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
    }
    }
-   /*
    else{
       debug_assert(cc->persistent_cache != NULL);
       bool migrated = clockcache_page_migration(cc, cc->persistent_cache, 
@@ -3185,7 +3125,6 @@ clockcache_unlock(clockcache  *cache,
          clockcache_entry* entry = &cc->entry[entry_number];
          assert(*page == &entry->page);
    }
-   */
 
 
    uint32 unlockopt = unlockall_or_unlock_delay(clockcache_get_context(cc));
@@ -4038,10 +3977,8 @@ clockcache_if_volatile_addr(clockcache *cc, uint64 addr)
    uint32 entry_number = clockcache_lookup(pcc, addr);
    if ((entry_number <= entry_table_size) && (entry_number >= 0))
    {
-   if(!clockcache_test_flag(pcc, entry_number, CC_BACKUP)){
       assert((pcc->volatile_cache) != NULL);
       return FALSE;
-   }
    }
 
    entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
@@ -4080,9 +4017,7 @@ clockcache_get_addr_cache(clockcache *cc, uint64 addr)
    uint32 entry_number = clockcache_lookup(pcc, addr);
    if ((entry_number <= entry_table_size) && (entry_number >= 0))
    { 
-   if(!clockcache_test_flag(pcc, entry_number, CC_BACKUP)){
       cache_ptr = (cache*)pcc;
-   }
    }
 
    entry_table_size = vcc->cfg->page_capacity * sizeof(*vcc->entry);
