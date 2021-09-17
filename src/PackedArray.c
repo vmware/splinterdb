@@ -1,6 +1,8 @@
 // From https://github.com/gpakosz/PackedArray
 // Lightly edited to match the routing filter API
 //
+// clang-format off
+//
 // see README.md for usage instructions.
 // (‑●‑●)> released under the WTFPL v2 license, by Gregory Pakosz (@gpakosz)
 
@@ -225,8 +227,9 @@ void PACKEDARRAY_JOIN(__PackedArray_pack_, PACKEDARRAY_IMPL_BITS_PER_ITEM)(uint3
       } while (--n > 0);
     }
 
-    if (count == 0)
+    if (count == 0) {
       return;
+    }
 
     offset = 0;
     startBit = 0;
@@ -274,8 +277,9 @@ void PACKEDARRAY_JOIN(__PackedArray_unpack_, PACKEDARRAY_IMPL_BITS_PER_ITEM)(con
       } while (--n > 0);
     }
 
-    if (count == 0)
+    if (count == 0) {
       return;
+    }
 
     packed = *++in;
     offset = 0;
