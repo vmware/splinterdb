@@ -220,7 +220,6 @@ static cache_ops clockcache_ops = {
 #define CC_LOADING       (1u<<4)
 #define CC_WRITELOCKED   (1u<<5)
 #define CC_CLAIMED       (1u<<6)
-#define CC_UNLOCKDELAYED (1u<<7)
 
 /* Common status flag combinations */
 #define CC_FREE_STATUS \
@@ -670,7 +669,8 @@ clockcache_lock_checkflag(clockcache *cc,
     ThreadContext *ctx = clockcache_get_context(cc);
     for(int i = 0; i < ctx->lock_curr; i++){
         if(ctx->entry_array[i] == entry_number){
-          if(ctx->delayed_array[i] == CC_UNLOCKDELAYED){
+          assert(ctx->addr_array[i] == cc->entry[entry_number].page.disk_addr);
+          if(ctx->delayed_array[i]){
                   return TRUE;
           }
         }
@@ -692,17 +692,36 @@ void add_unlock_delay(clockcache  *cc,
               ctx->claim_array[i] = TRUE;
            if(flag == CC_ACCESSED)
               ctx->get_array[i] = TRUE;
+	   /*
+	   if(flag == CC_WRITELOCKED){
+	      //ctx->write_array[i] = TRUE;
+              //ctx->lock_curr++;
+	      if(cc->persistent_cache == NULL)
+	         ctx->old_page_persistent[i] = TRUE;
+	      else
+	         ctx->old_page_persistent[i] = FALSE;
+	   }
+	   */
            return;
         }
     }
+    if(flag == CC_WRITELOCKED)
+    {
     ctx->entry_array[ctx->lock_curr] = entry_number;
+
+       ctx->write_array[ctx->lock_curr] = TRUE;
     if(addr != CC_DUMMY_ADDR)
        ctx->addr_array[ctx->lock_curr]  = addr;
-    ctx->write_array[ctx->lock_curr] = flag;
-    ctx->delayed_array[ctx->lock_curr] = CC_UNLOCKDELAYED;
-    ctx->lock_curr++;
+    ctx->delayed_array[ctx->lock_curr] = TRUE;
+    /*
+                  if(cc->persistent_cache == NULL)
+                 ctx->old_page_persistent[ctx->persistent_cache] = TRUE;
+              else
+                 ctx->old_page_persistent[ctx->persistent_cache] = FALSE;
+		 */
 
-
+       ctx->lock_curr++;
+    }
 }
 
 
@@ -717,6 +736,8 @@ clockcache_try_get_read(clockcache *cc,
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
       add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
 
+      clockcache_set_flag(cc, entry_number, CC_ACCESSED);
+      if(clockcache_get_ref(cc, entry_number, platform_get_tid())==0)
       clockcache_inc_ref(cc, entry_number, tid);
       return GET_RC_SUCCESS;
    }
@@ -729,6 +750,7 @@ clockcache_try_get_read(clockcache *cc,
 
    // then obtain the read lock
    clockcache_inc_ref(cc, entry_number, tid);
+
 
    // clockcache_test_flag returns 32 bits, not 1 (cannot use bool)
    uint32 cc_free = clockcache_test_flag(cc, entry_number, CC_FREE);
@@ -774,8 +796,10 @@ clockcache_get_read(clockcache *cc,
 {
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
         add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
+	if(clockcache_get_ref(cc, entry_number, platform_get_tid()) == 0)
         clockcache_inc_ref(cc, entry_number, platform_get_tid());
 
+	clockcache_set_flag(cc, entry_number, CC_ACCESSED);
         return GET_RC_SUCCESS;
    }
 
@@ -818,6 +842,7 @@ clockcache_try_get_claim(clockcache *cc,
    if(clockcache_lock_checkflag(cc, entry_number, CC_CLAIMED))
    {
       add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_CLAIMED);
+      clockcache_set_flag(cc, entry_number, CC_CLAIMED);
       return GET_RC_SUCCESS;
    }
 
@@ -903,6 +928,8 @@ clockcache_get_write(clockcache *cc,
          }
       }
    }
+
+   //assert(clockcache_get_ref(cc, entry_number, platform_get_tid()) == 1);
 
    clockcache_record_backtrace(cc, entry_number);
 }
@@ -1686,6 +1713,9 @@ clockcache_move_hand(clockcache *cc,
    volatile bool *clean_batch_busy;
    uint64 cleaner_hand;
 
+   if(cc->persistent_cache == NULL)
+      is_urgent = TRUE;
+
    /* move the hand a batch forward */
    uint64 evict_hand = cc->per_thread[tid].free_hand;
    __attribute__ ((unused)) bool was_busy = TRUE;
@@ -1889,6 +1919,10 @@ clockcache_init(clockcache           *cc,     // OUT
    /* lookup maps addrs to entries, entry contains the entries themselves */
    cc->lookup = TYPED_ARRAY_MALLOC(cc->heap_id, cc->lookup,
                                    allocator_page_capacity);
+
+   cc->persistence = TYPED_ARRAY_MALLOC(cc->heap_id, cc->persistence,
+                                   allocator_page_capacity);
+
    if (!cc->lookup) {
       goto alloc_error;
    }
@@ -1896,16 +1930,15 @@ clockcache_init(clockcache           *cc,     // OUT
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
 
-   /*
-   char* entry_pathname = "/mnt/pmem0/entry";
-   cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
+   if(pmemcache) {
+      char* entry_pathname = "/mnt/pmem0/entry";
+      cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
                                   cc->cfg->page_capacity, entry_pathname);
-
-   *
-   */
-
-   cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
-                                  cc->cfg->page_capacity);
+   }
+   else{
+      cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
+                                     cc->cfg->page_capacity);
+   }
 
    if (!cc->entry) {
       goto alloc_error;
@@ -2038,13 +2071,13 @@ clockcache_alloc(clockcache *cache, uint64 addr, page_type type)
 {
    clockcache *cc = cache;
    cc = cache->volatile_cache;
-   /*
-   if(type == PAGE_TYPE_TRUNK)
+   bool setpersistence = FALSE;
+
+   if(type == PAGE_TYPE_MEMTABLE_INTERNAL)
    {
-      cc = cache->volatile_cache;
-      assert(cc!=NULL);
+      type = PAGE_TYPE_MEMTABLE;
+      setpersistence = TRUE;
    }
-   */
    uint32            entry_no = clockcache_get_free_page(cc,
                                               CC_ALLOC_STATUS,
                                               TRUE,  // refcount
@@ -2062,6 +2095,10 @@ clockcache_alloc(clockcache *cache, uint64 addr, page_type type)
    }
    uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
    cc->lookup[lookup_no] = entry_no;
+   if(setpersistence)
+      cc->persistence[lookup_no] = FALSE;
+   else
+      cc->persistence[lookup_no] = TRUE;
 
 
    clockcache_log(entry->page.disk_addr,
@@ -2290,7 +2327,7 @@ clockcache_lock_checkflag_unlock(clockcache *cc,
     for(int i = 0; i < ctx->lock_curr; i++){
         if(ctx->entry_array[i] == entry_number){
 
-          if(ctx->delayed_array[i] == CC_UNLOCKDELAYED){
+          if(ctx->delayed_array[i]){
              if(flag == CC_ACCESSED){
                 if(ctx->get_array[i] == TRUE)
                    return TRUE;
@@ -2351,7 +2388,10 @@ clockcache_get_internal(clockcache *cc,                     // IN
 
    entry_number = clockcache_lookup(cc, addr);
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
+      if(clockcache_get_ref(cc, entry_number, platform_get_tid()) == 0)
       clockcache_inc_ref(cc, entry_number, platform_get_tid());
+
+      clockcache_set_flag(cc, entry_number, CC_ACCESSED);
       add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
       entry = &cc->entry[entry_number];
 
@@ -2450,7 +2490,6 @@ clockcache_get_internal(clockcache *cc,                     // IN
       }
 
 
-
       *page = &entry->page;
       return FALSE;
    }
@@ -2509,8 +2548,8 @@ clockcache_get_internal(clockcache *cc,                     // IN
    size_t entry_table_size = another_cc->cfg->page_capacity * sizeof(*another_cc->entry);
    uint32 another_entry_number = clockcache_lookup(another_cc, addr);
    if ((another_entry_number <= entry_table_size) && (another_entry_number >= 0)){
-      clockcache_dec_ref(cc, entry_number, tid);
       entry->status = CC_FREE_STATUS;
+      clockcache_dec_ref(cc, entry_number, tid);
       platform_assert(__sync_bool_compare_and_swap(&cc->lookup[lookup_no],
             entry_number, CC_UNMAPPED_ENTRY));
 
@@ -2863,13 +2902,23 @@ clockcache_unget(clockcache *cc,
                  page_handle *page)
 {
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+    ThreadContext *ctx = clockcache_get_context(cc);
+    for(int i = 0; i < ctx->lock_curr; i++){
+        //call unlock funcs;
+	if(ctx->entry_array[i] == entry_number){
+        if(ctx->delayed_array[i]){
+                ctx->get_array[i] = TRUE;
+                return;
+        }
+	}
+    }
+
    if(clockcache_lock_checkflag_unlock(cc, entry_number, CC_ACCESSED))
    {
            clockcache_dec_ref(cc, entry_number, platform_get_tid());
            return;
    }
    clockcache_internal_unget(cc, page, entry_number);
-
 }
 
 
@@ -2899,6 +2948,7 @@ clockcache_claim(clockcache *cc,
    clockcache_log(page->disk_addr, entry_number,
          "claim: entry %u addr %lu\n", entry_number, page->disk_addr);
 
+
    bool ret =  clockcache_try_get_claim(cc, entry_number) == GET_RC_SUCCESS;
 
    return ret;
@@ -2909,7 +2959,6 @@ clockcache_internal_unclaim(clockcache *cc,
                             page_handle *page,
 			    uint32 entry_number)
 {
-
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr, entry_number,
          "unclaim: entry %u addr %lu\n",
@@ -2917,6 +2966,7 @@ clockcache_internal_unclaim(clockcache *cc,
 
    __attribute__ ((unused)) uint32 status
       = clockcache_clear_flag(cc, entry_number, CC_CLAIMED);
+
    debug_assert(status);
 }
 
@@ -2925,6 +2975,18 @@ clockcache_unclaim(clockcache *cc,
                    page_handle *page)
 {
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+
+    ThreadContext *ctx = clockcache_get_context(cc);
+    for(int i = 0; i < ctx->lock_curr; i++){
+        //call unlock funcs;
+	if(ctx->entry_array[i] == entry_number){
+        if(ctx->delayed_array[i]){
+		ctx->claim_array[i] = TRUE;
+		return;
+	}
+	}
+    }
+
 
    if(clockcache_lock_checkflag_unlock(cc, entry_number, CC_CLAIMED))
    {
@@ -2974,6 +3036,7 @@ clockcache_lock(clockcache  *cc,
 
    clockcache_entry *old_entry = &cc->entry[old_entry_no];
 
+	   if(old_entry->type != PAGE_TYPE_MEMTABLE){
    /*
     * FIXME: [aconway 2021-08-06] Temporary hack to avoid false asserts on
     * super page
@@ -2999,50 +3062,94 @@ clockcache_lock(clockcache  *cc,
    *page = &new_entry->page;
    }
    }
+   }
+
+   //assert(clockcache_get_ref(cc, old_entry_no, platform_get_tid()) == 1);
 }
 
 void
 clockcache_internal_unlock(clockcache  *cc,
-                           page_handle *page, // this is the new page of the cow
+                           page_handle **page, // this is the new page of the cow
                            uint32 entry_number)
 {
-            uint32 flag = CC_WRITELOCKED;
-            clockcache_record_backtrace(cc, entry_number);
-            clockcache_log(page->disk_addr, entry_number,
-            "unlock: entry %u addr %lu\n",
-            entry_number, page->disk_addr);
-            __attribute__ ((unused)) uint32 was_writing
-            = clockcache_clear_flag(cc, entry_number, flag);
-            debug_assert(was_writing);
+   assert(entry_number == clockcache_page_to_entry_number(cc, *page));
+   clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
+
+
+   if(cc->persistent_cache == NULL){
+      if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
+          if(new_entry->type != PAGE_TYPE_MEMTABLE){
+            clockcache_entry *old_entry = &cc->entry[new_entry->old_entry_no];
+
+            debug_assert(0 || (*page)->disk_addr < cc->cfg->extent_size
+                           || old_entry->old_entry_no == CC_UNMAPPED_ENTRY);
+
+            debug_code(int rc = mprotect(old_entry->page.data, cc->cfg->page_size, PROT_READ | PROT_WRITE));
+            debug_assert(rc == 0);
+
+            old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
+            old_entry->status = CC_FREE_STATUS;
+
+            threadid tid = platform_get_tid();
+            clockcache_dec_ref(cc, new_entry->old_entry_no, tid);
+
+            new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
+        }
+     }
+  }
+
+   uint32 flag = CC_WRITELOCKED;
+   clockcache_record_backtrace(cc, entry_number);
+   clockcache_log((*page)->disk_addr, entry_number,
+   "unlock: entry %u addr %lu\n",
+    entry_number, (*page)->disk_addr);
+    __attribute__ ((unused)) uint32 was_writing
+    = clockcache_clear_flag(cc, entry_number, flag);
+    debug_assert(was_writing);
 }
 
 
-void release_all_locks(clockcache  *cache,
-                       page_handle *page) // this is the new page of the cow
+void release_all_locks(clockcache  *cache, page_handle **current_page)
 {
-
+    bool current = FALSE;
     ThreadContext *ctx = clockcache_get_context(cache);
     clockcache *cc = cache;
+    
     for(int i = 0; i < ctx->lock_curr; i++){
         //call unlock funcs;
-        if(ctx->delayed_array[i] == CC_UNLOCKDELAYED){
+        if(ctx->delayed_array[i]){
             //uint32 entry_number = ctx->entry_array[i];
 	    uint64 addr         = ctx->addr_array[i];
             bool write        = ctx->write_array[i];
             assert(write);
 	    cc = (clockcache*)clockcache_get_addr_cache(cc, addr);
 	    uint32 entry_number = clockcache_lookup(cc, addr);
+	    clockcache_entry *entry = &cc->entry[entry_number];
+	    page_handle *tmp_page = &entry->page;
+	    page_handle **page = &tmp_page;
+	    if(*page == *current_page)
+	       current = TRUE;
 
+	    //assert(clockcache_get_ref(cc, entry_number, platform_get_tid()) == 1);
             clockcache_internal_unlock(cc, page, entry_number);
+	    cc = (clockcache*)clockcache_get_addr_cache(cc, addr);
+	    entry_number = clockcache_lookup(cc, addr);
+	    entry = &cc->entry[entry_number];
+	    tmp_page = &entry->page;
+	    page = &tmp_page;
             if(ctx->claim_array[i]){
 
-                clockcache_internal_unclaim(cc, page, entry_number);
+                clockcache_internal_unclaim(cc, *page, entry_number);
             }
             if(ctx->get_array[i]){
-                clockcache_internal_unget(cc, page, entry_number);
+                clockcache_internal_unget(cc, *page, entry_number);
             }
+	    if(current)
+	       *current_page = *page;
+
+	    //assert(!clockcache_test_flag(cc, entry_number, CC_WRITELOCKED));
         }
-        ctx->delayed_array[i] = -1;
+        ctx->delayed_array[i] = FALSE;
         ctx->entry_array[i] = -1;
 	ctx->addr_array[i]  = -1;
         ctx->write_array[i] = FALSE;
@@ -3060,26 +3167,12 @@ void
 clockcache_unlock(clockcache  *cache,
                   page_handle **page)
 {
-/*
-   clockcache *vcc = cache->volatile_cache;
-   clockcache *pcc;
-   clockcache *cc;
-   if(vcc == NULL){
-      pcc = cache->persistent_cache;
-      vcc = cache;
-   }
-   else{
-      pcc = cache;
-   }
-   debug_assert(vcc!=NULL);
-   debug_assert(pcc!=NULL);
-
-   clockcache *src_cc;
-   clockcache *dest_cc;
-*/
    clockcache *cc = cache;
 
    uint32 entry_number = clockcache_page_to_entry_number(cc, *page);
+
+   //clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
+   //assert(clockcache_get_ref(cc, entry_number, platform_get_tid()) == 1);
 
    ctx_unlock(clockcache_get_context(cc));
 
@@ -3087,56 +3180,42 @@ clockcache_unlock(clockcache  *cache,
 
 
    if(cc->persistent_cache == NULL){
-   if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
-      // a cow page
-      uint64 lookup_no = clockcache_divide_by_page_size(cc, (*page)->disk_addr);
-      // change the lookup to the new page
-      cc->lookup[lookup_no] = entry_number;
-      clockcache_entry *old_entry = &cc->entry[new_entry->old_entry_no];
-
-      /*
-       * FIXME: [aconway 2021-08-06] Temporary hack to avoid false asserts on
-       * super page
-       *
-       */
-
-      debug_assert(0 || (*page)->disk_addr < cc->cfg->extent_size
-                     || old_entry->old_entry_no == CC_UNMAPPED_ENTRY);
-
-      debug_code(int rc = mprotect(old_entry->page.data, cc->cfg->page_size, PROT_READ | PROT_WRITE));
-      debug_assert(rc == 0);
-
-      old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
-      old_entry->status = CC_FREE_STATUS;
-
-      threadid tid = platform_get_tid();
-      clockcache_dec_ref(cc, new_entry->old_entry_no, tid);
-
-      new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
-   }
+      if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
+         if(new_entry->type != PAGE_TYPE_MEMTABLE){
+            uint64 lookup_no = clockcache_divide_by_page_size(cc, (*page)->disk_addr);
+            cc->lookup[lookup_no] = entry_number;
+	 }
+      }
    }
    else{
+	    
+      if(new_entry->type!=PAGE_TYPE_MEMTABLE){
       debug_assert(cc->persistent_cache != NULL);
+
       bool migrated = clockcache_page_migration(cc, cc->persistent_cache, 
 		      new_entry->page.disk_addr, page, FALSE, TRUE);
       assert(migrated);
-         cc = cc->persistent_cache;
-         entry_number = clockcache_lookup(cc, (*page)->disk_addr);
-         clockcache_entry* entry = &cc->entry[entry_number];
-         assert(*page == &entry->page);
+      cc = cc->persistent_cache;
+      entry_number = clockcache_lookup(cc, (*page)->disk_addr);
+      clockcache_entry* entry = &cc->entry[entry_number];
+      assert(*page == &entry->page);
+    }
    }
 
+
+
+   //assert(clockcache_get_ref(cc, entry_number, platform_get_tid()) == 1);
 
    uint32 unlockopt = unlockall_or_unlock_delay(clockcache_get_context(cc));
    if(unlockopt == NONTXUNLOCK)
    {
-      clockcache_internal_unlock(cc, *page, entry_number);
+      clockcache_internal_unlock(cc, page, entry_number);
    }
    else{
       add_unlock_delay(cc, entry_number, (*page)->disk_addr, CC_WRITELOCKED);
       if(unlockopt == UNLOCKALL)
       {
-         release_all_locks(cc, *page);
+         release_all_locks(cc, page);
       }
    }
 
@@ -3521,7 +3600,7 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
             break;
          case GET_RC_EVICTED: {
             // need to prefetch
-	    assert(cc->volatile_cache == NULL);
+	    //assert(cc->volatile_cache == NULL);
             uint32 free_entry_no = clockcache_get_free_page(
                cc, CC_READ_LOADING_STATUS, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];

@@ -919,7 +919,13 @@ btree_add_shared_pivot(cache          *cc,
 
    uint16 height = btree_height(cfg, child);
    //btree_alloc(cache_get_volatile_cache(cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
-   btree_alloc((cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
+   //btree_alloc((cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
+   if (btree_height(cfg, child) == 0)
+      btree_alloc((cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
+   else
+      btree_alloc((cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE_INTERNAL, new_child);
+
+
    cache_share(cc, child->page, new_child->page);
    uint16 child_num_entries = btree_num_entries(cfg, child);
    uint16 new_entry_num = child_num_entries - child_num_entries / 2;
@@ -962,7 +968,7 @@ int btree_split_root(btree_config   *cfg,       // IN
    // allocate a new left node
    btree_node left_node;
    uint16     height = btree_height(cfg, root_node);
-   btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, &left_node);
+   btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE_INTERNAL, &left_node);
 
    // copy root to left, then split
    memmove(left_node.hdr, root_node->hdr, btree_page_size(cfg));
@@ -1011,6 +1017,8 @@ btree_init(cache          *cc,
    platform_assert_status_ok(rc);
    
    //page_handle *root_page = cache_alloc(cache_get_volatile_cache(cc), base_addr, type);
+   if(type == PAGE_TYPE_MEMTABLE)
+      type = PAGE_TYPE_MEMTABLE_INTERNAL;
    page_handle *root_page = cache_alloc(cc, base_addr, type);
 
    // FIXME: [yfogel 2020-07-01] maybe here (or refactor?)

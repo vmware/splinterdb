@@ -30,7 +30,8 @@ typedef struct {
     bool write_array[MAX_LOCKS];
     bool claim_array[MAX_LOCKS];
     bool get_array[MAX_LOCKS];
-    uint32 delayed_array[MAX_LOCKS];
+    bool old_page_persistent[MAX_LOCKS];
+    bool delayed_array[MAX_LOCKS];
     uint32 lock_curr;
 
     uint64_t reserved[2];

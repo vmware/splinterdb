@@ -35,6 +35,7 @@ void create_context(ThreadContext *contextMap) {
 	    ctx->write_array[i] = FALSE;
 	    ctx->get_array[i] = FALSE;
 	    ctx->claim_array[i] = FALSE;
+	    ctx->old_page_persistent[i] = TRUE;
 	    ctx->entry_array[i] = -1;
 	    ctx->addr_array[i] = -1;
 	}
