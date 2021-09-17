@@ -1591,6 +1591,32 @@ clockcache_try_evict(clockcache *cc,
       goto release_write;
    }
 
+
+   /*
+   uint32 new_entry_no = CC_UNMAPPED_ENTRY;
+   if(cc->volatile_cache == NULL){
+      clockcache *dest_cc = cc->persistent_cache;
+   new_entry_no  = clockcache_get_free_page(dest_cc, entry->status, TRUE, TRUE);
+   clockcache_entry *new_entry = &dest_cc->entry[new_entry_no];
+
+
+
+   uint64 addr = entry->page.disk_addr;
+   uint64 lookup_no = clockcache_divide_by_page_size(dest_cc, addr);
+   dest_cc->lookup[lookup_no] = new_entry_no;
+
+
+   memmove(new_entry->page.data, entry->page.data, cc->cfg->page_size);
+   new_entry->type = entry->type;
+   new_entry->page.disk_addr = entry->page.disk_addr;
+   new_entry->page.persistent = entry->page.persistent;
+   new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
+
+
+   }
+   */
+
+
    /* 5. clear lookup, disk addr */
    uint64 addr = entry->page.disk_addr;
    if (addr != CC_UNMAPPED_ADDR) {
@@ -1619,6 +1645,13 @@ release_claim:
    debug_assert(debug_status);
 release_ref:
    clockcache_dec_ref(cc, entry_number, tid);
+   /*
+   if((cc->volatile_cache == NULL) && (new_entry_no != CC_UNMAPPED_ENTRY)){
+      clockcache_clear_flag(cc->persistent_cache, new_entry_no, CC_WRITELOCKED);
+      clockcache_clear_flag(cc->persistent_cache, new_entry_no, CC_CLAIMED);
+      clockcache_dec_ref(cc->persistent_cache, new_entry_no, tid);
+   }
+   */
 out:
    return;
 }
@@ -2002,6 +2035,9 @@ clockcache_init(clockcache           *cc,     // OUT
       memcpy(vcache_cfg, cfg, sizeof(clockcache_config));
       memcpy(vcache_cfg->cachefile, "/dev/shm/volatile_cache", 23);
 
+       clockcache_config_init(vcache_cfg, cfg->page_size, cfg->extent_size, 
+		       cfg->capacity, cfg->logfile, "/dev/shm/volatile_cache", cfg->use_stats);
+
       platform_status rc = clockcache_init(vcc, vcache_cfg, io, al, name, ts, hh, hid, mid);
       platform_assert_status_ok(rc);
 
@@ -2071,6 +2107,11 @@ clockcache_alloc(clockcache *cache, uint64 addr, page_type type)
 {
    clockcache *cc = cache;
    cc = cache->volatile_cache;
+   /*
+   if(type == PAGE_TYPE_LOG)
+	   cc = cc->persistent_cache;
+	   */
+
    bool setpersistence = FALSE;
 
    if(type == PAGE_TYPE_MEMTABLE_INTERNAL)
@@ -2506,6 +2547,13 @@ clockcache_get_internal(clockcache *cc,                     // IN
 
 
    assert(cc->volatile_cache == NULL);
+
+   /*
+      if(type == PAGE_TYPE_LOG)
+           cc = cc->persistent_cache;
+*/
+   //cc = cc->persistent_cache;
+
    entry_number = clockcache_get_free_page(cc, CC_READ_LOADING_STATUS,
                                            TRUE,  // refcount
                                            TRUE); // blocking
@@ -3036,7 +3084,7 @@ clockcache_lock(clockcache  *cc,
 
    clockcache_entry *old_entry = &cc->entry[old_entry_no];
 
-	   if(old_entry->type != PAGE_TYPE_MEMTABLE){
+//	   if((old_entry->type != PAGE_TYPE_MEMTABLE)&&(old_entry->type != PAGE_TYPE_LOG)){
    /*
     * FIXME: [aconway 2021-08-06] Temporary hack to avoid false asserts on
     * super page
@@ -3062,7 +3110,7 @@ clockcache_lock(clockcache  *cc,
    *page = &new_entry->page;
    }
    }
-   }
+//   }
 
    //assert(clockcache_get_ref(cc, old_entry_no, platform_get_tid()) == 1);
 }
@@ -3078,7 +3126,7 @@ clockcache_internal_unlock(clockcache  *cc,
 
    if(cc->persistent_cache == NULL){
       if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
-          if(new_entry->type != PAGE_TYPE_MEMTABLE){
+//          if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){
             clockcache_entry *old_entry = &cc->entry[new_entry->old_entry_no];
 
             debug_assert(0 || (*page)->disk_addr < cc->cfg->extent_size
@@ -3095,7 +3143,7 @@ clockcache_internal_unlock(clockcache  *cc,
 
             new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
         }
-     }
+//     }
   }
 
    uint32 flag = CC_WRITELOCKED;
@@ -3181,15 +3229,20 @@ clockcache_unlock(clockcache  *cache,
 
    if(cc->persistent_cache == NULL){
       if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
-         if(new_entry->type != PAGE_TYPE_MEMTABLE){
+//        if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){
+//         if(new_entry->type != PAGE_TYPE_MEMTABLE){
             uint64 lookup_no = clockcache_divide_by_page_size(cc, (*page)->disk_addr);
             cc->lookup[lookup_no] = entry_number;
 	 }
-      }
+//	 }
+//      }
    }
    else{
-	    
-      if(new_entry->type!=PAGE_TYPE_MEMTABLE){
+//	   uint64 lookup_no = clockcache_divide_by_page_size(cc, (*page)->disk_addr);
+ //     if(cc->persistence[lookup_no]){
+
+//	 if(new_entry->type != PAGE_TYPE_MEMTABLE){
+//      if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){	   
       debug_assert(cc->persistent_cache != NULL);
 
       bool migrated = clockcache_page_migration(cc, cc->persistent_cache, 
@@ -3199,8 +3252,9 @@ clockcache_unlock(clockcache  *cache,
       entry_number = clockcache_lookup(cc, (*page)->disk_addr);
       clockcache_entry* entry = &cc->entry[entry_number];
       assert(*page == &entry->page);
+//	}
     }
-   }
+//   }
 
 
 
@@ -3601,6 +3655,19 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
          case GET_RC_EVICTED: {
             // need to prefetch
 	    //assert(cc->volatile_cache == NULL);
+	    if(cc->volatile_cache!=NULL)
+	    {
+	       cc = cc->volatile_cache;
+	    }
+
+	    /*
+	       if(type == PAGE_TYPE_LOG)
+           cc = cc->persistent_cache;
+	   */
+
+
+	    //cc = cc->persistent_cache;
+
             uint32 free_entry_no = clockcache_get_free_page(
                cc, CC_READ_LOADING_STATUS, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];
