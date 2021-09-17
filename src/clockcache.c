@@ -1855,10 +1855,16 @@ clockcache_init(clockcache           *cc,     // OUT
       char* entry_pathname = "/mnt/pmem0/entry";
       cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
                                   cc->cfg->page_capacity, entry_pathname);
+      char* ctxmap_pathname = "/mnt/pmem0/ctxmap";
+      cc->contextMap = TYPED_ARRAY_PALLOC(cc->heap_id, cc->contextMap,
+                                  MAX_THREADS, ctxmap_pathname);
+
    }
    else{
       cc->entry = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry,
                                      cc->cfg->page_capacity);
+      cc->contextMap = TYPED_ARRAY_ZALLOC(cc->heap_id, cc->contextMap,
+		      		     MAX_THREADS);
    }
 
    if (!cc->entry) {

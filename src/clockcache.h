@@ -153,7 +153,7 @@ struct clockcache {
 
    task_system          *ts;
 
-   ThreadContext         contextMap[MAX_THREADS];
+   ThreadContext         *contextMap;
 };
 
 
