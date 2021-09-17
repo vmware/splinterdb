@@ -29,13 +29,15 @@
 
 #define Mega (1024UL * 1024UL)
 
+#define TEST_DB_NAME "db"
+
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 {
    fprintf(stderr, "kvstore_basic_test: setup\n");
 
    *cfg = (kvstore_basic_cfg){
-      .filename       = "db",
+      .filename       = TEST_DB_NAME,
       .cache_size     = Mega,
       .disk_size      = 30 * Mega,
       .max_key_size   = 21, // less than MAX_KEY_SIZE, just to try things out
@@ -44,7 +46,7 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
       .key_comparator_context = cfg->key_comparator_context,
    };
 
-   int rc = kvstore_basic_init(cfg, kvsb);
+   int rc = kvstore_basic_create(cfg, kvsb);
    if (rc != 0) {
       fprintf(stderr, "setup: init error: %d\n", rc);
       return -1;
@@ -160,7 +162,7 @@ test_kvstore_basic_flow()
    test_assert(val_len == sizeof("a-value"), "lookup #4: wrong length");
 
 cleanup:
-   kvstore_basic_deinit(kvsb);
+   kvstore_basic_close(kvsb);
    if (rc == 0) {
       fprintf(stderr, "succeeded\n");
       return 0;
@@ -234,7 +236,7 @@ test_kvstore_basic_large_keys()
    rc = 0;
 
 cleanup:
-   kvstore_basic_deinit(kvsb);
+   kvstore_basic_close(kvsb);
    if (rc == 0) {
       fprintf(stderr, "succeeded\n");
       return 0;
@@ -378,7 +380,7 @@ test_kvstore_basic_variable_length_values()
                   found_value);
 
 cleanup:
-   kvstore_basic_deinit(kvsb);
+   kvstore_basic_close(kvsb);
    if (rc == 0) {
       fprintf(stderr, "succeeded\n");
    } else {
@@ -487,7 +489,7 @@ cleanup:
       kvstore_basic_iter_deinit(it);
    }
    if (kvsb != NULL) {
-      kvstore_basic_deinit(kvsb);
+      kvstore_basic_close(kvsb);
    }
    if (rc == 0) {
       fprintf(stderr, "succeeded\n");
@@ -574,7 +576,62 @@ cleanup:
    }
    if (kvsb != NULL) {
       fprintf(stderr, "deinit kvstore_basic...");
-      kvstore_basic_deinit(kvsb);
+      kvstore_basic_close(kvsb);
+   }
+   if (rc == 0) {
+      fprintf(stderr, "succeeded\n");
+   } else {
+      fprintf(stderr, "FAILED\n");
+   }
+   return rc;
+}
+
+int
+test_kvstore_basic_close_and_reopen()
+{
+   kvstore_basic *   kvsb = NULL;
+   kvstore_basic_cfg cfg  = {0};
+   int               rc   = 0;
+
+   char * key     = "some-key";
+   size_t key_len = sizeof("some-key");
+   bool   found, val_truncated;
+   char * value = calloc(1, cfg.max_value_size);
+   size_t val_len;
+
+   fprintf(stderr, "remove old db...");
+   test_assert(remove(TEST_DB_NAME) == 0, "removing old db");
+
+   fprintf(stderr, "creating new db...");
+   test_assert_rc(setup_kvstore_basic(&kvsb, &cfg), "setup");
+
+   fprintf(stderr, "insert...");
+   test_assert_rc(kvstore_basic_insert(
+                     kvsb, key, key_len, "some-value", sizeof("some-value")),
+                  "insert");
+
+   fprintf(stderr, "close and reopen...");
+   kvstore_basic_close(kvsb);
+   test_assert_rc(kvstore_basic_open(&cfg, &kvsb), "reopen");
+
+   fprintf(stderr, "lookup...");
+   rc = kvstore_basic_lookup(kvsb,
+                             key,
+                             key_len,
+                             value,
+                             cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   test_assert_rc(rc, "lookup: %d", rc);
+   test_assert(found, "ERROR: unexpectedly lookup did not succeed.");
+
+   fprintf(stderr, "OK.\n");
+
+cleanup:
+   if (kvsb != NULL) {
+      fprintf(stderr, "deinit kvstore_basic...");
+      kvstore_basic_close(kvsb);
    }
    if (rc == 0) {
       fprintf(stderr, "succeeded\n");
@@ -604,6 +661,10 @@ kvstore_basic_test(int argc, char *argv[])
    fprintf(stderr, "start: kvstore_basic iterator with custom comparator\n");
    test_assert_rc(test_kvstore_basic_iterator_custom_comparator(),
                   "kvstore_basic_iterator_custom_comparator");
+
+   fprintf(stderr, "start: kvstore_basic close and re-open\n");
+   test_assert_rc(test_kvstore_basic_close_and_reopen(),
+                  "kvstore_basic_close_and_reopen");
 cleanup:
    if (rc == 0) {
       fprintf(stderr, "OK\n");

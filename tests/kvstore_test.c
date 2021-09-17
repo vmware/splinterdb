@@ -234,7 +234,7 @@ iter_cleanup:
       goto cleanup;
    }
    if (!found) {
-      fprintf( stderr, "after db close and re-open: failed to find key\n");
+      fprintf(stderr, "after db close and re-open: failed to find key\n");
       rc = -1;
       goto cleanup;
    }
