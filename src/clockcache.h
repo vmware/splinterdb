@@ -110,6 +110,7 @@ struct clockcache {
    io_handle            *io;
 
    uint32               *lookup;
+   bool			*persistence;
    clockcache_entry     *entry;
    buffer_handle        *bh;   // actual memory for pages
    char                 *data; // convenience pointer for bh

@@ -23,6 +23,7 @@ typedef struct page_handle {
 
 typedef struct cache cache;
 
+
 typedef enum page_type {
    PAGE_TYPE_TRUNK,
    PAGE_TYPE_BRANCH,
@@ -31,6 +32,7 @@ typedef enum page_type {
    PAGE_TYPE_LOG,
    PAGE_TYPE_MISC,
    PAGE_TYPE_LOCK_NO_DATA,
+   PAGE_TYPE_MEMTABLE_INTERNAL,
    NUM_PAGE_TYPES,
    PAGE_TYPE_INVALID,
 } page_type;
