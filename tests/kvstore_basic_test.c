@@ -4,15 +4,25 @@
 /*
  * kvstore_basic_test.c --
  *
- *     exercises the kvstore_basic API
+ *     Exercises the kvstore_basic API, which exposes keys & values
+ *     instead of the keys & messages of the lower layers.
  *
- *     API deals with keys/values rather than keys/messages
+ *     This test code can be easily modified to be an example of a standalone
+ *     program that integrates with SplinterDB.
+
+ *     To compile this into a standalone programe, just rename the function
+ *     kvstore_basic_test() to be main(), and ensure you've got the
+ *     kvstore_basic.h header and libsplinterdb.so available for linking.
+ *
+ *     $ cc -I /splinterdb/include -lsplinterdb kvstore_basic_test.c
+ *
  */
 
 #include "kvstore_basic.h"
-#include "util.h"
+#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -488,7 +498,7 @@ cleanup:
 }
 
 
-static uint64 key_comp_context = 0;
+static uint64_t key_comp_context = 0;
 
 // a spy comparator
 int
@@ -510,7 +520,7 @@ custom_key_comparator(const void *context,
       else if (key1_len > key2_len)
          r = +1;
    }
-   uint64 *counter = (uint64 *)context;
+   uint64_t *counter = (uint64_t *)context;
    *counter += 1;
    return r;
 }

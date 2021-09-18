@@ -28,12 +28,20 @@ ENV LD=$compiler
 RUN $compiler --version && make -C /splinterdb
 
 FROM $run_env_image
+
+# note we rename the library from the make output.  This should get fixed in the Makefile
+COPY --from=build /splinterdb/bin/splinterdb.so /splinterdb/lib/libsplinterdb.so
+
 COPY --from=build /splinterdb/bin/driver_test /splinterdb/bin/driver_test
-COPY --from=build /splinterdb/bin/splinterdb.so /splinterdb/bin/splinterdb.so
+
+# currently driver_test expects the library at this relative path, but that's non-standard
+# and again should be fixed in the Makefile
+RUN ln -s /splinterdb/lib/libsplinterdb.so /splinterdb/bin/splinterdb.so
+
 COPY --from=build /splinterdb/test.sh /splinterdb/test.sh
 
 # TODO(gabe): fold this into a make target, once we've sorted out include directories
-COPY --from=build /splinterdb/src/kvstore.h /splinterdb/src/data.h /splinterdb/src/platform_public.h /splinterdb/include/
+COPY --from=build /splinterdb/src/kvstore_basic.h /splinterdb/src/kvstore.h /splinterdb/src/data.h /splinterdb/src/platform_public.h /splinterdb/include/
 
 WORKDIR "/splinterdb"
 CMD ["/splinterdb/test.sh"]
