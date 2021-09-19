@@ -6897,6 +6897,7 @@ splinter_create(splinter_config  *cfg,
    return spl;
 }
 
+// open (mount) an existing splinter database
 splinter_handle *
 splinter_mount(splinter_config  *cfg,
                allocator        *al,
@@ -7055,6 +7056,7 @@ splinter_node_destroy(splinter_handle *spl,
    return TRUE;
 }
 
+// destroy a database such that it cannot be re-opened later
 void
 splinter_destroy(splinter_handle *spl)
 {
@@ -7085,6 +7087,8 @@ splinter_destroy(splinter_handle *spl)
    platform_free(spl->heap_id, spl);
 }
 
+// close (dismount) a database without destroying it
+// it can be re-opened later with splinter_mount
 void
 splinter_dismount(splinter_handle *spl)
 {
