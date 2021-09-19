@@ -108,8 +108,8 @@ struct data_config {
    void *context;
 };
 
-extern const void       *data_key_negative_infinity_buffer;
-extern const void       *data_key_positive_infinity_buffer;
+extern const void  *data_key_negative_infinity_buffer;
+extern const void  *data_key_positive_infinity_buffer;
 extern const slice  data_key_negative_infinity;
 extern const slice  data_key_positive_infinity;
 

@@ -106,11 +106,6 @@ typedef struct dynamic_btree_pack_req {
    uint32       *fingerprint_arr; // hashes of the keys in the tree
 } dynamic_btree_pack_req;
 
-typedef struct dynamic_branch_pack_req {
-   dynamic_btree_pack_req point_req;
-   dynamic_btree_pack_req range_req;
-} dynamic_branch_pack_req;
-
 struct dynamic_btree_async_ctxt;
 typedef void (*dynamic_btree_async_cb)(struct dynamic_btree_async_ctxt *ctxt);
 
@@ -312,22 +307,25 @@ dynamic_btree_pack_req_deinit(dynamic_btree_pack_req *req, platform_heap_id hid)
 platform_status
 dynamic_btree_pack(dynamic_btree_pack_req *req);
 
-platform_status
-dynamic_branch_pack(platform_heap_id hid, dynamic_branch_pack_req *req);
+void
+dynamic_btree_count_in_range(cache                *cc,
+                             dynamic_btree_config *cfg,
+                             uint64                root_addr,
+                             const slice           min_key,
+                             const slice           max_key,
+                             uint32               *kv_rank,
+                             uint32               *key_bytes_rank,
+                             uint32               *message_bytes_rank);
 
-uint64
-dynamic_btree_count_in_range(cache        *cc,
-                     dynamic_btree_config *cfg,
-                     uint64        root_addr,
-                     slice        min_key,
-                     slice        max_key);
-
-uint64
-dynamic_btree_count_in_range_by_iterator(cache        *cc,
-                                 dynamic_btree_config *cfg,
-                                 uint64        root_addr,
-                                 slice        min_key,
-                                 slice        max_key);
+void
+dynamic_btree_count_in_range_by_iterator(cache                *cc,
+                                         dynamic_btree_config *cfg,
+                                         uint64                root_addr,
+                                         const slice           min_key,
+                                         const slice           max_key,
+                                         uint32               *kv_rank,
+                                         uint32               *key_bytes_rank,
+                                         uint32               *message_bytes_rank);
 
 uint64
 dynamic_btree_rough_count(cache        *cc,
@@ -342,16 +340,15 @@ dynamic_btree_print_tree(cache *cc,
                  uint64 addr);
 
 void
-dynamic_btree_print_locked_node(cache                 *cc,
-                        dynamic_btree_config          *cfg,
-                        dynamic_btree_node            *node,
-                        platform_stream_handle stream);
+dynamic_btree_print_locked_node(dynamic_btree_config   *cfg,
+                                dynamic_btree_node     *node,
+                                platform_stream_handle  stream);
 
 void
 dynamic_btree_print_node(cache                 *cc,
                  dynamic_btree_config          *cfg,
                  dynamic_btree_node            *node,
-                 platform_stream_handle stream);
+                 platform_stream_handle         stream);
 
 void
 dynamic_btree_print_tree_stats(cache *cc,
