@@ -41,6 +41,15 @@ int kvstore_create(const kvstore_config *cfg, kvstore **kvs);
 
 void kvstore_deinit(kvstore *kvs);
 
+// Register the current thread so that it can be used for
+// operations against the kvstore.
+//
+// It must be called no more than once per thread, and before
+// any operation on the database, including kvstore_deinit.
+//
+// Note: kvstore_create causes an implicit kvstore_register_thread
+// So it is safe to call kvstore_deinit from the same thread
+// that called kvstore_create without an exra kvstore_register_thread.
 void kvstore_register_thread(const kvstore *kvs);
 
 int kvstore_insert(const kvstore *kvs, char *key, char *message);
