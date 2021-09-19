@@ -29,9 +29,9 @@ kvstore_test(int argc, char *argv[])
 
    kvs_cfg.data_cfg = *test_data_config;
 
-   rc = kvstore_init(&kvs_cfg, &kvs);
+   rc = kvstore_create(&kvs_cfg, &kvs);
    if (rc != 0) {
-      fprintf(stderr, "kvstore_init error: %d\n", rc);
+      fprintf(stderr, "kvstore_create error: %d\n", rc);
       return -1;
    }
 

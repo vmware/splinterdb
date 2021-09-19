@@ -31,13 +31,13 @@ typedef struct {
 
 typedef struct kvstore kvstore;
 
-// Initialize a kvstore from a given config
+// Create a new kvstore from a given config
 //
 // The library will allocate and own the memory for kvstore
 // and will free it on kvstore_deinit
 //
 // cfg may be stack-allocated, since it is not stored on kvs.
-int kvstore_init(const kvstore_config *cfg, kvstore **kvs);
+int kvstore_create(const kvstore_config *cfg, kvstore **kvs);
 
 void kvstore_deinit(kvstore *kvs);
 

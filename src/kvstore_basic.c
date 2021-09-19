@@ -284,7 +284,7 @@ kvstore_basic_init(const kvstore_basic_cfg *cfg,     // IN
    kvsb->data_config_context = ctxt; // store, so we can free it later
    data_cfg.context          = ctxt; // make it usable from the callbacks
 
-   // this can be stack-allocated since kvstore_init does a shallow-copy
+   // this can be stack-allocated since kvstore_create does a shallow-copy
    kvstore_config kvs_config = {
       .filename    = cfg->filename,
       .cache_size  = cfg->cache_size,
@@ -294,9 +294,9 @@ kvstore_basic_init(const kvstore_basic_cfg *cfg,     // IN
       .heap_handle = cfg->heap_handle,
    };
 
-   res = kvstore_init(&kvs_config, &(kvsb->kvs));
+   res = kvstore_create(&kvs_config, &(kvsb->kvs));
    if (res != 0) {
-      platform_error_log("kvstore_init error\n");
+      platform_error_log("kvstore_create error\n");
       return res;
    }
    *kvsb_out = kvsb;
