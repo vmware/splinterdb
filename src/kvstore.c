@@ -148,9 +148,9 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * kvstore_init --
+ * kvstore_create --
  *
- *      Init a kvstore.
+ *      Create a new kvstore.
  *
  *      Init splinter to use as a kvstore.  Relevant config parameters are
  *      provided via kvstore_config, which are translated to appropriate configs
@@ -172,7 +172,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
  */
 
 int
-kvstore_init(const kvstore_config *kvs_cfg, // IN
+kvstore_create(const kvstore_config *kvs_cfg, // IN
              kvstore **            kvs_out  // OUT
 )
 {
