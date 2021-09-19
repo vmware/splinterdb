@@ -211,14 +211,37 @@ kvstore_test(int argc, char *argv[])
       rc = -1;
       goto iter_cleanup;
    }
-   fprintf(stderr, "OK.  iterator test complete\n");
-
-
+   fprintf(stderr, "OK.  iterator test complete, last key=%s\n", current_key);
 iter_cleanup:
-   fprintf(stderr, "\nkvstore_test: de-init iterator\n");
+   fprintf(stderr, "kvstore_test: de-init iterator\n");
    kvstore_iterator_deinit(it);
+   if (rc != 0) {
+      goto cleanup;
+   }
+
+   fprintf(stderr, "check that kvstore can be closed and re-opened...\n");
+   kvstore_close(kvs);
+   fprintf(stderr, "closed, now will re-open...");
+   rc = kvstore_open(&kvs_cfg, &kvs);
+   if (rc != 0) {
+      fprintf(stderr, "kvstore_open error: %d\n", rc);
+      return -1;
+   }
+   fprintf(stderr, "lookup for key %s after closing and re-opening...", key);
+   rc = kvstore_lookup(kvs, key, msg_buffer, &found);
+   if (rc != 0) {
+      fprintf(stderr, "kvstore_lookup: %d\n", rc);
+      goto cleanup;
+   }
+   if (!found) {
+      fprintf( stderr, "after db close and re-open: failed to find key\n");
+      rc = -1;
+      goto cleanup;
+   }
+   fprintf(stderr, "found=%d, db close and re-open test OK\n", found);
+
 cleanup:
-   kvstore_deinit(kvs);
+   kvstore_close(kvs);
    if (rc == 0) {
       fprintf(stderr, "kvstore_test: succeeded\n");
       return 0;

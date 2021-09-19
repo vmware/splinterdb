@@ -145,35 +145,11 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
 }
 
 
-/*
- *-----------------------------------------------------------------------------
- *
- * kvstore_create --
- *
- *      Create a new kvstore.
- *
- *      Init splinter to use as a kvstore.  Relevant config parameters are
- *      provided via kvstore_config, which are translated to appropriate configs
- *      of each subsystem. For unspecified/internal parameters, defaults are
- *      used.
- *
- *      kvs_cfg may be stack-allocated.  The reference is not retained.
- *
- *      TODO
- *      Txn, logging and mounting existing tables to be added in the future
- *
- * Results:
- *      0 on success, otherwise an errno
- *
- * Side effects:
- *      None.
- *
- *-----------------------------------------------------------------------------
- */
-
+// internal function for create or open
 int
-kvstore_create(const kvstore_config *kvs_cfg, // IN
-             kvstore **            kvs_out  // OUT
+kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
+                       kvstore **            kvs_out,      // OUT
+                       bool                  open_existing // IN
 )
 {
    kvstore *       kvs;
@@ -217,12 +193,21 @@ kvstore_create(const kvstore_config *kvs_cfg, // IN
       goto deinit_iohandle;
    }
 
-   status = rc_allocator_init(&kvs->allocator_handle,
-                              &kvs->allocator_cfg,
-                              (io_handle *)&kvs->io_handle,
-                              kvs->heap_handle,
-                              kvs->heap_id,
-                              platform_get_module_id());
+   if (open_existing) {
+      status = rc_allocator_mount(&kvs->allocator_handle,
+                                  &kvs->allocator_cfg,
+                                  (io_handle *)&kvs->io_handle,
+                                  kvs->heap_handle,
+                                  kvs->heap_id,
+                                  platform_get_module_id());
+   } else {
+      status = rc_allocator_init(&kvs->allocator_handle,
+                                 &kvs->allocator_cfg,
+                                 (io_handle *)&kvs->io_handle,
+                                 kvs->heap_handle,
+                                 kvs->heap_id,
+                                 platform_get_module_id());
+   }
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init allocator: %s\n",
                          platform_status_to_string(status));
@@ -245,12 +230,21 @@ kvstore_create(const kvstore_config *kvs_cfg, // IN
    }
 
    kvs->splinter_id = 1;
-   kvs->spl         = splinter_create(&kvs->splinter_cfg,
-                              (allocator *)&kvs->allocator_handle,
-                              (cache *)&kvs->cache_handle,
-                              kvs->system,
-                              kvs->splinter_id,
-                              kvs->heap_id);
+   if (open_existing) {
+      kvs->spl = splinter_mount(&kvs->splinter_cfg,
+                                (allocator *)&kvs->allocator_handle,
+                                (cache *)&kvs->cache_handle,
+                                kvs->system,
+                                kvs->splinter_id,
+                                kvs->heap_id);
+   } else {
+      kvs->spl = splinter_create(&kvs->splinter_cfg,
+                                 (allocator *)&kvs->allocator_handle,
+                                 (cache *)&kvs->cache_handle,
+                                 kvs->system,
+                                 kvs->splinter_id,
+                                 kvs->heap_id);
+   }
    if (kvs->spl == NULL) {
       platform_error_log("Failed to init splinter\n");
       platform_assert(kvs->spl != NULL);
@@ -263,7 +257,7 @@ kvstore_create(const kvstore_config *kvs_cfg, // IN
 deinit_cache:
    clockcache_deinit(&kvs->cache_handle);
 deinit_allocator:
-   rc_allocator_deinit(&kvs->allocator_handle);
+   rc_allocator_dismount(&kvs->allocator_handle);
 deinit_system:
    task_system_destroy(kvs->heap_id, kvs->system);
 deinit_iohandle:
@@ -274,16 +268,29 @@ deinit_kvhandle:
    return platform_status_to_int(status);
 }
 
+int
+kvstore_create(const kvstore_config *cfg, // IN
+               kvstore **            kvs  // OUT
+)
+{
+   return kvstore_create_or_open(cfg, kvs, FALSE);
+}
+
+int
+kvstore_open(const kvstore_config *cfg, // IN
+             kvstore **            kvs  // OUT
+)
+{
+   return kvstore_create_or_open(cfg, kvs, TRUE);
+}
+
 
 /*
  *-----------------------------------------------------------------------------
  *
- * kvstore_deinit --
+ * kvstore_close --
  *
- *      Deinit a kvstore.
- *
- *      TODO
- *      Unmount support to be added in the future
+ *      Close a kvstore, flushing to disk and releasing resources
  *
  * Results:
  *      None.
@@ -295,13 +302,13 @@ deinit_kvhandle:
  */
 
 void
-kvstore_deinit(kvstore *kvs) // IN
+kvstore_close(kvstore *kvs) // IN
 {
    platform_assert(kvs != NULL);
 
-   splinter_destroy(kvs->spl);
+   splinter_dismount(kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
-   rc_allocator_deinit(&kvs->allocator_handle);
+   rc_allocator_dismount(&kvs->allocator_handle);
    io_handle_deinit(&kvs->io_handle);
    task_system_destroy(kvs->heap_id, kvs->system);
    platform_free(kvs->heap_id, kvs);
