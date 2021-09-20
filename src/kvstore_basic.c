@@ -254,9 +254,9 @@ new_basic_data_config(const size_t max_key_size,   // IN
 // Implementation of public API begins here...
 
 int
-kvstore_basic_init(const kvstore_basic_cfg *cfg,     // IN
-                   kvstore_basic **         kvsb_out // OUT
-)
+kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
+                             kvstore_basic **         kvsb_out, // OUT
+                             bool                     open_existing)
 {
    data_config data_cfg = {0};
    int         res =
@@ -284,7 +284,7 @@ kvstore_basic_init(const kvstore_basic_cfg *cfg,     // IN
    kvsb->data_config_context = ctxt; // store, so we can free it later
    data_cfg.context          = ctxt; // make it usable from the callbacks
 
-   // this can be stack-allocated since kvstore_init does a shallow-copy
+   // this can be stack-allocated since kvstore_create does a shallow-copy
    kvstore_config kvs_config = {
       .filename    = cfg->filename,
       .cache_size  = cfg->cache_size,
@@ -294,19 +294,39 @@ kvstore_basic_init(const kvstore_basic_cfg *cfg,     // IN
       .heap_handle = cfg->heap_handle,
    };
 
-   res = kvstore_init(&kvs_config, &(kvsb->kvs));
+   if (open_existing) {
+      res = kvstore_open(&kvs_config, &(kvsb->kvs));
+   } else {
+      res = kvstore_create(&kvs_config, &(kvsb->kvs));
+   }
    if (res != 0) {
-      platform_error_log("kvstore_init error\n");
+      platform_error_log("kvstore_create error\n");
       return res;
    }
    *kvsb_out = kvsb;
    return res;
 }
 
-void
-kvstore_basic_deinit(kvstore_basic *kvsb)
+int
+kvstore_basic_create(const kvstore_basic_cfg *cfg,     // IN
+                     kvstore_basic **         kvsb_out // OUT
+)
 {
-   kvstore_deinit(kvsb->kvs);
+   return kvstore_basic_create_or_open(cfg, kvsb_out, FALSE);
+}
+
+int
+kvstore_basic_open(const kvstore_basic_cfg *cfg,     // IN
+                   kvstore_basic **         kvsb_out // OUT
+)
+{
+   return kvstore_basic_create_or_open(cfg, kvsb_out, TRUE);
+}
+
+void
+kvstore_basic_close(kvstore_basic *kvsb)
+{
+   kvstore_close(kvsb->kvs);
    if (kvsb->data_config_context != NULL) {
       platform_free(kvsb->heap_id, kvsb->data_config_context);
    }

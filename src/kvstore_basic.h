@@ -68,13 +68,21 @@ typedef struct kvstore_basic kvstore_basic;
 // Must always = MAX_MESSAGE_SIZE - sizeof(basic_message)
 #define KVSTORE_BASIC_MAX_VALUE_SIZE 120
 
-// Provide config, get back a handle to a live database
-int kvstore_basic_init(const kvstore_basic_cfg *cfg, // IN
-                       kvstore_basic **         kvsb // OUT
+// Create a new kvstore_basic from the provided config
+int
+kvstore_basic_create(const kvstore_basic_cfg *cfg, // IN
+                     kvstore_basic **         kvsb // OUT
+);
+
+// Open an existing kvstore_basic using the provided config
+int
+kvstore_basic_open(const kvstore_basic_cfg *cfg, // IN
+                   kvstore_basic **         kvsb // OUT
 );
 
 // De-init a handle and associated in-memory resources
-void kvstore_basic_deinit(kvstore_basic *kvsb);
+void
+kvstore_basic_close(kvstore_basic *kvsb);
 
 // Call this once for each thread that needs to use the db
 void kvstore_basic_register_thread(const kvstore_basic *kvsb);

@@ -31,16 +31,39 @@ typedef struct {
 
 typedef struct kvstore kvstore;
 
-// Initialize a kvstore from a given config
+// Create a new kvstore from a given config
 //
 // The library will allocate and own the memory for kvstore
-// and will free it on kvstore_deinit
+// and will free it on kvstore_close
 //
-// cfg may be stack-allocated, since it is not stored on kvs.
-int kvstore_init(const kvstore_config *cfg, kvstore **kvs);
+// It is ok for the caller to stack-allocate cfg, since it is not retained
+int
+kvstore_create(const kvstore_config *cfg, kvstore **kvs);
 
-void kvstore_deinit(kvstore *kvs);
+// Open an existing kvstore, using the provided config
+//
+// The library will allocate and own the memory for kvstore
+// and will free it on kvstore_close
+//
+// It is ok for the caller to stack-allocate cfg, since it is not retained
+int
+kvstore_open(const kvstore_config *cfg, kvstore **kvs);
 
+// Close a kvstore
+//
+// This will flush everything to disk and release all resources
+void
+kvstore_close(kvstore *kvs);
+
+// Register the current thread so that it can be used for
+// operations against the kvstore.
+//
+// It must be called no more than once per thread, and before
+// any operation on the database, including kvstore_close.
+//
+// Note: kvstore_create causes an implicit kvstore_register_thread
+// So it is safe to call kvstore_close from the same thread
+// that called kvstore_create without an exra kvstore_register_thread.
 void kvstore_register_thread(const kvstore *kvs);
 
 int kvstore_insert(const kvstore *kvs, char *key, char *message);
