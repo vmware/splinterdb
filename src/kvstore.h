@@ -106,8 +106,7 @@ Sample application code:
    const char* key;
    const char* msg;
    for(; kvstore_iterator_valid(it); kvstore_iterator_next(it)) {
-      rc = kvstore_iterator_get_current(it, &key, &msg);
-      if (rc != 0) { ... handle error ... }
+      kvstore_iterator_get_current(it, &key, &msg);
       // read key and msg ...
    }
    // loop exit may mean error, or just that we've reached the end of the range

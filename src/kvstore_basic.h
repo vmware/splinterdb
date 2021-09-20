@@ -130,8 +130,7 @@ Sample application code:
    const char* val;
    size_t key_len, val_len;
    for(; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
-      rc = kvstore_basic_iter_get_current(it, &key, &key_len, &val, &val_len);
-      if (rc != 0) { ... handle error ... }
+      kvstore_basic_iter_get_current(it, &key, &key_len, &val, &val_len);
 
       // read key and val, but do not modify them
       printf("key=%.*s val=%.*s", (int)(key_len), key, (int)(val_len), val);
