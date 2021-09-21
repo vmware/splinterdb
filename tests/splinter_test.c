@@ -2682,7 +2682,7 @@ splinter_test(int argc, char *argv[])
          break;
       case functionality:
          for (uint8 i = 0; i < num_tables; i++) {
-            splinter_cfg[i].data_cfg->key_to_string = test_data_config->key_to_string;
+            splinter_cfg[i].data_cfg->key_to_string = test_data_config.key_to_string;
          }
          rc = test_functionality(alp, (io_handle *)io, caches,
                                  splinter_cfg, seed, test_ops,

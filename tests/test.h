@@ -265,7 +265,7 @@ test_config_init(splinter_config     *splinter_cfg,
                  io_config           *io_cfg,
                  master_config       *master_cfg)
 {
-   *data_cfg = *test_data_config;
+   *data_cfg = test_data_config;
    data_cfg->key_size           = master_cfg->key_size;
    data_cfg->message_size       = master_cfg->message_size;
 

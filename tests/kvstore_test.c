@@ -27,7 +27,7 @@ kvstore_test(int argc, char *argv[])
    kvs_cfg.cache_size = Giga;      // see config.c: cache_capacity
    kvs_cfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
 
-   kvs_cfg.data_cfg = *test_data_config;
+   kvs_cfg.data_cfg = test_data_config;
 
    rc = kvstore_init(&kvs_cfg, &kvs);
    if (rc != 0) {

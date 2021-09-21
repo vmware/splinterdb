@@ -341,7 +341,8 @@ dynamic_btree_print_tree(cache *cc,
 
 void
 dynamic_btree_print_locked_node(dynamic_btree_config   *cfg,
-                                dynamic_btree_node     *node,
+                                uint64                  addr,
+                                dynamic_btree_hdr      *hdr,
                                 platform_stream_handle  stream);
 
 void
@@ -402,8 +403,7 @@ dynamic_btree_key_compare(const dynamic_btree_config *cfg,
                   slice              key1,
                   slice              key2)
 {
-  platform_assert(0); // Need to update data interface to handle slices
-  //return data_key_compare(cfg->data_cfg, key1, key2);
+  return data_key_compare(cfg->data_cfg, key1, key2);
 }
 
 static inline void
@@ -411,8 +411,7 @@ dynamic_btree_key_to_string(dynamic_btree_config *cfg,
                     slice        key,
                     char          str[static 128])
 {
-  platform_assert(0); // Need to update data interface to handle slices
-  //return data_key_to_string(cfg->data_cfg, key, str, 128);
+  return data_key_to_string(cfg->data_cfg, key, str, 128);
 }
 
 static inline void
@@ -420,8 +419,7 @@ dynamic_btree_message_to_string(dynamic_btree_config *cfg,
                      slice           data,
                      char             str[static 128])
 {
-  platform_assert(0); // Need to update data interface to handle slices
-  //return data_message_to_string(cfg->data_cfg, data, str, 128);
+  return data_message_to_string(cfg->data_cfg, data, str, 128);
 }
 
 #endif // __DYNAMIC_BTREE_H

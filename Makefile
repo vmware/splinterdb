@@ -11,14 +11,20 @@ PLATFORM = linux
 
 SRCDIR   = src
 TESTSDIR = tests
+UNITTESTSDIR  = tests/unit
 OBJDIR   = obj
 BINDIR   = bin
+UNITOBJDIR = obj/unit
+UNITBINDIR = bin/unit
 
-SRC := $(shell find $(SRCDIR) -name "*.c" | grep -v dynamic_btree.c)
+SRC := $(shell find $(SRCDIR) -name "*.c")
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
+UNITSRC := $(shell find $(UNITTESTSDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 TESTOBJ= $(TESTSRC:%.c=$(OBJDIR)/%.o)
+UNITTESTOBJ= $(UNITSRC:%.c=$(UNITOBJDIR)/%.o)
+UNITTESTBINS= $(UNITSRC:%.c=$(UNITBINDIR)/%)
 
 # Automatically create directories, based on
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
@@ -110,9 +116,17 @@ $(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
 $(BINDIR)/splinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
+$(UNITBINDIR)/%: $(UNITOBJDIR)/%.o obj/tests/test_data.o obj/src/util.o | $$(@D)/.
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+
 DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
 
 COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+
+$(UNITOBJDIR)/%.o: $(UNITTESTSDIR)/%.c $(SRC) tests/test_data.c $(TESTSRC) | $$(@D)/.
+	$(COMPILE.c) -I . $< -o $@
+
 
 $(OBJDIR)/%.o: %.c | $$(@D)/.
 	$(COMPILE.c) $< -o $@

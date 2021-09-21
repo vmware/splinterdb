@@ -164,7 +164,7 @@ test_data_message_to_string(const data_config *cfg,
   debug_hex_encode(str, len, slice_data(raw_data), slice_length(raw_data));
 }
 
-static data_config config =
+data_config test_data_config =
   {
    .key_size = 24,
    .message_size = 24,
@@ -181,5 +181,3 @@ static data_config config =
    .message_class                     = test_data_message_class,
    .clobber_message_with_range_delete = NULL
   };
-
-data_config *test_data_config = &config;
