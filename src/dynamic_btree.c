@@ -231,6 +231,8 @@ static inline slice dynamic_btree_get_pivot(const dynamic_btree_config *cfg,
                                             const dynamic_btree_hdr    *hdr,
                                             uint32                      k)
 {
+  if (k == 0)
+    return data_key_negative_infinity;
   return index_entry_key_slice(dynamic_btree_get_index_entry(cfg, hdr, k));
 }
 
@@ -402,112 +404,76 @@ dynamic_btree_insert_leaf_entry(const dynamic_btree_config *cfg,
  *
  * dynamic_btree_find_pivot --
  *
- *      performs a binary search to find the extremal pivot relative to comp.
- *      attempts to reduce branches.
- *
- *      in the first step, computes the largest power of 2 less than num_entries,
- *      then starts the binary search on the two overlapping ranges of that
- *      size which cover all the indices. E.g. for 7, the power of 2 is 4
- *      and the ranges are:
- *      (1 2 3 (4) 5 6 7)
- *
- *      the binary search then continues on a range which is a power of two
- *
- *      NOTE: if comp is less_than or less_than_or_equal, there must be a valid
- *      pivot index to return.
+ *      Returns idx such that
+ *          - 0 <= idx < num_entries
+ *          - forall i | 0 <= i <= idx         :: key_i <= key
+ *          - forall i | idx < i < num_entries :: key   <  key_i
+ *          - note that key_0 is always treated as negative infinity
+ *      Also
+ *          - *found == 0 || *found == 1
+ *          - *found == 1 <==> (0 <= idx && key_idx == key)
  *
  *-----------------------------------------------------------------------------
  */
 
-typedef enum lookup_type {
-   less_than,
-   less_than_or_equal,
-   greater_than,
-   greater_than_or_equal,
-} lookup_type;
+/*
+ * The C code below is a translation of the following verified dafny implementation.
 
-static inline uint32
-round_down_logarithm(uint32 size)
+method bsearch(s: seq<int>, k: int) returns (idx: int, f: bool)
+  requires forall i, j | 0 <= i < j < |s| :: s[i] < s[j]
+  ensures -1 <= idx < |s|
+  ensures forall i | 0 <= i <= idx :: s[i] <= k
+  ensures forall i | idx < i < |s| :: k < s[i]
+  ensures f <==> (0 <= idx && s[idx] == k)
 {
-   if (size <= 1) return 0;
-   return (8 * sizeof(uint32)) - __builtin_clz(size - 1);
+  var lo := -1;
+  var hi := |s| - 1;
+
+  f := false;
+
+  while lo < hi
+    invariant -1 <= lo <= hi < |s|
+    invariant forall i | 0 <= i <= lo :: s[i] <= k
+    invariant forall i | hi < i < |s| :: k < s[i]
+    invariant f <==> (0 <= lo && s[lo] == k)
+  {
+    var mid := 1 + (lo + hi) / 2;
+    if s[mid] <= k {
+      lo := mid;
+      f := s[mid] == k;
+    } else {
+      hi := mid-1;
+    }
+  }
+
+  idx := lo;
 }
 
-static inline void
-dynamic_btree_update_lowerbound(uint16      *lo,
-                                uint16      *mid,
-                                int          cmp,
-                                lookup_type  comp)
-{
-   switch(comp) {
-      case less_than:
-      case greater_than_or_equal:
-         if (cmp < 0) *lo = *mid;
-         break;
-      case less_than_or_equal:
-      case greater_than:
-         if (cmp <= 0) *lo = *mid;
-         break;
-      default:
-         platform_assert(0);
-   }
-}
+*/
 
-static inline uint32
+static inline int32
 dynamic_btree_find_pivot(const dynamic_btree_config *cfg,
                          const dynamic_btree_hdr    *hdr,
                          slice                       key,
-                         lookup_type                 comp)
+                         bool                       *found)
 {
-   uint16 lo_idx = 0, mid_idx;
-   uint32 i;
-   int cmp;
-   uint32 size = dynamic_btree_num_entries(hdr);
+   int64 lo = 0, hi = dynamic_btree_num_entries(hdr) - 1;
 
-   // handle small sizes with special cases
-   if (size == 0) {
-      return 0;
+   *found = 0;
+
+   while (lo < hi)
+   {
+     int64 mid = 1 + (lo + hi) / 2;
+     int cmp = mid == 0 ? -1 : dynamic_btree_key_compare(cfg, dynamic_btree_get_pivot(cfg, hdr, mid), key);
+     if (cmp <= 0) {
+       lo = mid;
+       *found = cmp ? 0 : 1;
+     } else {
+       hi = mid - 1;
+     }
    }
 
-   if (size == 1) {
-      //cmp = dynamic_btree_key_compare(cfg, dynamic_btree_get_pivot(cfg, hdr, 0), key);
-      switch (comp) {
-         case less_than:
-         case less_than_or_equal:
-            return 0;
-         case greater_than:
-         case greater_than_or_equal:
-            return 1;
-      }
-   }
-
-   // compute round down po2 then start binary search on overlapping ranges
-   mid_idx = size - (1u << (round_down_logarithm(size) - 1));
-   size = 1u << (round_down_logarithm(size) - 1);
-   cmp = mid_idx == 0 ? -1 : dynamic_btree_key_compare(cfg, dynamic_btree_get_pivot(cfg, hdr, mid_idx), key);
-   dynamic_btree_update_lowerbound(&lo_idx, &mid_idx, cmp, comp);
-
-   // continue binary search (ranges are now powers of 2)
-   for (i = round_down_logarithm(size); i != 0; i--) {
-      size /= 2;
-      mid_idx = lo_idx + size;
-      cmp = mid_idx == 0 ? -1 : dynamic_btree_key_compare(cfg, dynamic_btree_get_pivot(cfg, hdr, mid_idx), key);
-      dynamic_btree_update_lowerbound(&lo_idx, &mid_idx, cmp, comp);
-   }
-
-   // adjust final result based on comp
-   switch(comp) {
-      case less_than:
-      case less_than_or_equal:
-         return lo_idx;
-      case greater_than:
-      case greater_than_or_equal:
-         return lo_idx + 1;
-      default:
-         platform_assert(0);
-   }
-   // should be unreachable
-   return (uint16)-1;
+   return lo;
 }
 
 /*
@@ -1631,7 +1597,8 @@ start_over:
    /* read lock on parent_node, parent_node is an index, and
       parent_node will not need to split. */
 
-   uint32 child_idx = dynamic_btree_find_pivot(cfg, parent_node.hdr, key, less_than_or_equal);
+   bool found;
+   uint32 child_idx = dynamic_btree_find_pivot(cfg, parent_node.hdr, key, &found);
    index_entry *parent_entry = dynamic_btree_get_index_entry(cfg, parent_node.hdr, child_idx);
    dynamic_btree_node child_node;
    child_node.addr = index_entry_child_addr(parent_entry);
@@ -1667,7 +1634,7 @@ start_over:
       }
       /* read lock on parent_node, which won't require a split. */
 
-      child_idx = dynamic_btree_find_pivot(cfg, parent_node.hdr, key, less_than_or_equal);
+      child_idx = dynamic_btree_find_pivot(cfg, parent_node.hdr, key, &found);
       parent_entry = dynamic_btree_get_index_entry(cfg, parent_node.hdr, child_idx);
       debug_assert(parent_entry->num_kvs_in_tree == DYNAMIC_BTREE_UNKNOWN);
       debug_assert(parent_entry->key_bytes_in_tree == DYNAMIC_BTREE_UNKNOWN);
@@ -1770,7 +1737,8 @@ dynamic_btree_lookup_node(cache                *cc, // IN
    dynamic_btree_node_get(cc, cfg, &node, type);
 
    for (h = dynamic_btree_height(node.hdr); h > stop_at_height; h--) {
-      child_idx = dynamic_btree_find_pivot(cfg, node.hdr, key, less_than_or_equal);
+      bool found;
+      child_idx = dynamic_btree_find_pivot(cfg, node.hdr, key, &found);
       index_entry *entry = dynamic_btree_get_index_entry(cfg, node.hdr, child_idx);
       child_node.addr = index_entry_child_addr(entry);
 
@@ -1985,7 +1953,8 @@ dynamic_btree_lookup_async_with_ref(cache                    *cc, // IN
             dynamic_btree_async_set_state(ctxt, dynamic_btree_async_state_get_leaf_complete);
             break;
          }
-         uint16 child_idx = dynamic_btree_find_pivot(cfg, node->hdr, key, less_than_or_equal);
+         bool found_pivot;
+         uint16 child_idx = dynamic_btree_find_pivot(cfg, node->hdr, key, &found_pivot);
          ctxt->child_addr = dynamic_btree_get_child_addr(cfg, node->hdr, child_idx);
          dynamic_btree_async_set_state(ctxt, dynamic_btree_async_state_get_node);
          break;
@@ -2454,16 +2423,16 @@ const static iterator_ops dynamic_btree_iterator_ops = {
  *-----------------------------------------------------------------------------
  */
 void
-dynamic_btree_iterator_init(cache          *cc,
-                    dynamic_btree_config   *cfg,
-                    dynamic_btree_iterator *itor,
-                    uint64          root_addr,
-                    page_type       page_type,
-                    const slice     min_key,
-                    const slice     max_key,
-                    bool            do_prefetch,
-                    bool            is_live,
-                    uint32          height)
+dynamic_btree_iterator_init(cache                  *cc,
+                            dynamic_btree_config   *cfg,
+                            dynamic_btree_iterator *itor,
+                            uint64                  root_addr,
+                            page_type               page_type,
+                            const slice             min_key,
+                            const slice             max_key,
+                            bool                    do_prefetch,
+                            bool                    is_live,
+                            uint32                  height)
 {
    debug_assert(cfg->type == data_type);
 
@@ -2534,7 +2503,9 @@ dynamic_btree_iterator_init(cache          *cc,
       if (height == 0) {
          itor->end_idx = dynamic_btree_find_tuple(cfg, itor->end.hdr, max_key, &found);
       } else {
-         itor->end_idx = dynamic_btree_find_pivot(cfg, itor->end.hdr, max_key, greater_than_or_equal);
+         itor->end_idx = dynamic_btree_find_pivot(cfg, itor->end.hdr, max_key, &found);
+         if (found)
+           itor->end_idx++;
       }
 
       debug_assert(itor->end_idx == itor->end.hdr->num_entries || ((height == 0) &&
@@ -2562,12 +2533,14 @@ dynamic_btree_iterator_init(cache          *cc,
       return;
    }
 
+   bool found;
    if (height == 0) {
       //FIXME: [yfogel 2020-07-08] no need for extra compare when less_than_or_equal is supproted
-      bool found;
       itor->idx = dynamic_btree_find_tuple(cfg, itor->curr.hdr, min_key, &found);
     } else {
-      itor->idx = dynamic_btree_find_pivot(cfg, itor->curr.hdr, min_key, greater_than_or_equal);
+      itor->idx = dynamic_btree_find_pivot(cfg, itor->curr.hdr, min_key, &found);
+      if (found)
+        itor->idx++;
    }
 
    // we need to check this at-end condition because its possible that the next
@@ -3329,7 +3302,8 @@ dynamic_btree_print_lookup(cache                *cc, // IN
    dynamic_btree_node_get(cc, cfg, &node, type);
 
    for (h = node.hdr->height; h > 0; h--) {
-      child_idx = dynamic_btree_find_pivot(cfg, node.hdr, key, less_than_or_equal);
+      bool found;
+      child_idx = dynamic_btree_find_pivot(cfg, node.hdr, key, &found);
       child_node.addr = dynamic_btree_get_child_addr(cfg, node.hdr, child_idx);
       dynamic_btree_print_node(cc, cfg, &child_node, PLATFORM_DEFAULT_LOG_HANDLE);
       dynamic_btree_node_get(cc, cfg, &child_node, type);
