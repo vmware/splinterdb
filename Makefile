@@ -61,10 +61,8 @@ DEFAULT_CFLAGS += -msse4.2 -mpopcnt -DXXH_STATIC_LINKING_ONLY -fPIC
 #DEFAULT_CFLAGS += -fsanitize=integer
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
-
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
 DEFAULT_LDFLAGS = -ggdb3 -pthread
-LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
+
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
 
@@ -129,10 +127,10 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 # It links only with its needed .o files
 #
 
-$(BINDIR)/unit/%: $(UNITDIR)/%.c | $$(@D)/.
-	$(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LDFLAGS) $^ -o $@ $(LIBS)
+$(BINDIR)/unit/%: $(OBJDIR)/unit/%.o | $$(@D)/.
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-bin/unit/dynamic_btree: obj/tests/test_data.o obj/src/util.o obj/src/data.o
+bin/unit/dynamic_btree: obj/tests/test_data.o obj/src/util.o obj/src/data.o obj/src/mini_allocator.o
 
 #*************************************************************#
 

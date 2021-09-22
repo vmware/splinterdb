@@ -47,7 +47,6 @@
 
 typedef uint16 entry_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
-typedef uint16 node_index;  //  So we can make this bigger for bigger nodes.
 typedef node_offset table_entry;
 typedef uint8 inline_key_size;
 typedef uint8 inline_message_size;
@@ -220,7 +219,7 @@ static inline uint64 leaf_entry_message_size(const leaf_entry *entry)
 static inline index_entry *
 dynamic_btree_get_index_entry(const dynamic_btree_config *cfg,
                               const dynamic_btree_hdr    *hdr,
-                              uint32                      k)
+                              entry_index                 k)
 {
    platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries + 1]) <= hdr->offsets[k]);
    platform_assert(hdr->offsets[k] <= dynamic_btree_page_size(cfg) - sizeof(index_entry));
@@ -229,7 +228,7 @@ dynamic_btree_get_index_entry(const dynamic_btree_config *cfg,
 
 static inline slice dynamic_btree_get_pivot(const dynamic_btree_config *cfg,
                                             const dynamic_btree_hdr    *hdr,
-                                            uint32                      k)
+                                            entry_index                 k)
 {
   if (k == 0)
     return data_key_negative_infinity;
@@ -238,7 +237,7 @@ static inline slice dynamic_btree_get_pivot(const dynamic_btree_config *cfg,
 
 static inline uint64 dynamic_btree_get_child_addr(const dynamic_btree_config *cfg,
                                                   const dynamic_btree_hdr    *hdr,
-                                                  uint32                      k)
+                                                  entry_index                 k)
 {
   return index_entry_child_addr(dynamic_btree_get_index_entry(cfg, hdr, k));
 }
@@ -257,7 +256,7 @@ dynamic_btree_fill_index_entry(index_entry *entry, slice new_pivot_key, uint64 n
 static inline bool
 dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
                               dynamic_btree_hdr          *hdr,
-                              uint32                      k,
+                              entry_index                 k,
                               slice                       new_pivot_key,
                               uint64                      new_addr,
                               int64                       kv_pairs,
@@ -321,7 +320,7 @@ dynamic_btree_insert_index_entry(const dynamic_btree_config *cfg,
 static inline leaf_entry *
 dynamic_btree_get_leaf_entry(const dynamic_btree_config *cfg,
                              const dynamic_btree_hdr    *hdr,
-                             uint32                      k)
+                             entry_index                 k)
 {
    platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries + 1]) <= hdr->offsets[k]);
    platform_assert(hdr->offsets[k] <= dynamic_btree_page_size(cfg) - sizeof(leaf_entry));
@@ -330,14 +329,14 @@ dynamic_btree_get_leaf_entry(const dynamic_btree_config *cfg,
 
 static inline slice dynamic_btree_get_tuple_key(const dynamic_btree_config *cfg,
                                                 const dynamic_btree_hdr    *hdr,
-                                                uint32                      k)
+                                                entry_index                      k)
 {
   return leaf_entry_key_slice(dynamic_btree_get_leaf_entry(cfg, hdr, k));
 }
 
 static inline slice dynamic_btree_get_tuple_message(const dynamic_btree_config *cfg,
                                                     const dynamic_btree_hdr    *hdr,
-                                                    uint32                      k)
+                                                    entry_index                      k)
 {
   return leaf_entry_message_slice(dynamic_btree_get_leaf_entry(cfg, hdr, k));
 }
@@ -354,7 +353,7 @@ dynamic_btree_fill_leaf_entry(leaf_entry *entry, slice key, slice message)
 static inline bool
 dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
                              dynamic_btree_hdr          *hdr,
-                             uint32                      k,
+                             entry_index                      k,
                              slice                       new_key,
                              slice                       new_message)
 {
@@ -386,7 +385,7 @@ dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
 static inline bool
 dynamic_btree_insert_leaf_entry(const dynamic_btree_config *cfg,
                                 dynamic_btree_hdr          *hdr,
-                                uint32                      k,
+                                entry_index                      k,
                                 slice                       new_key,
                                 slice                       new_message)
 {
@@ -426,54 +425,54 @@ method bsearch(s: seq<int>, k: int) returns (idx: int, f: bool)
   ensures forall i | idx < i < |s| :: k < s[i]
   ensures f <==> (0 <= idx && s[idx] == k)
 {
-  var lo := -1;
-  var hi := |s| - 1;
+  var lo := 0;
+  var hi := |s|;
 
   f := false;
 
   while lo < hi
-    invariant -1 <= lo <= hi < |s|
-    invariant forall i | 0 <= i <= lo :: s[i] <= k
-    invariant forall i | hi < i < |s| :: k < s[i]
-    invariant f <==> (0 <= lo && s[lo] == k)
+    invariant 0 <= lo <= hi <= |s|
+    invariant forall i | 0 <= i < lo :: s[i] <= k
+    invariant forall i | hi <= i < |s| :: k < s[i]
+    invariant f <==> (0 < lo && s[lo-1] == k)
   {
-    var mid := 1 + (lo + hi) / 2;
+    var mid := (lo + hi) / 2;
     if s[mid] <= k {
-      lo := mid;
+      lo := mid + 1;
       f := s[mid] == k;
     } else {
-      hi := mid-1;
+      hi := mid;
     }
   }
 
-  idx := lo;
+  idx := lo - 1;
 }
 
 */
 
-static inline int32
+static inline int64
 dynamic_btree_find_pivot(const dynamic_btree_config *cfg,
                          const dynamic_btree_hdr    *hdr,
                          slice                       key,
                          bool                       *found)
 {
-   int64 lo = 0, hi = dynamic_btree_num_entries(hdr) - 1;
+   int64 lo = 0, hi = dynamic_btree_num_entries(hdr);
 
    *found = 0;
 
    while (lo < hi)
    {
-     int64 mid = 1 + (lo + hi) / 2;
+     int64 mid = (lo + hi) / 2;
      int cmp = mid == 0 ? -1 : dynamic_btree_key_compare(cfg, dynamic_btree_get_pivot(cfg, hdr, mid), key);
      if (cmp <= 0) {
-       lo = mid;
+       lo = mid + 1;
        *found = cmp ? 0 : 1;
      } else {
-       hi = mid - 1;
+       hi = mid;
      }
    }
 
-   return lo;
+   return lo - 1;
 }
 
 /*
@@ -493,63 +492,33 @@ dynamic_btree_find_pivot(const dynamic_btree_config *cfg,
  */
 
 /*
- * The C code below is a translation of the following verified dafny implementation.
-
-method bsearch(s: seq<int>, k: int) returns (idx: int, f: bool)
-  requires forall i, j | 0 <= i < j < |s| :: s[i] < s[j]
-  ensures -1 <= idx < |s|
-  ensures forall i | 0 <= i <= idx :: s[i] <= k
-  ensures forall i | idx < i < |s| :: k < s[i]
-  ensures f <==> (0 <= idx && s[idx] == k)
-{
-  var lo := -1;
-  var hi := |s| - 1;
-
-  f := false;
-
-  while lo < hi
-    invariant -1 <= lo <= hi < |s|
-    invariant forall i | 0 <= i <= lo :: s[i] <= k
-    invariant forall i | hi < i < |s| :: k < s[i]
-    invariant f <==> (0 <= lo && s[lo] == k)
-  {
-    var mid := 1 + (lo + hi) / 2;
-    if s[mid] <= k {
-      lo := mid;
-      f := s[mid] == k;
-    } else {
-      hi := mid-1;
-    }
-  }
-
-  idx := lo;
-}
-
+ * The C code below is a translation of the same dafny implementation as above.
+ *
 */
 
-static inline int32
+static inline int64
 dynamic_btree_find_tuple(const dynamic_btree_config *cfg,
                          const dynamic_btree_hdr    *hdr,
                          slice                       key,
                          bool                       *found)
 {
-   int64 lo = -1, hi = dynamic_btree_num_entries(hdr) - 1;
+   int64 lo = 0, hi = dynamic_btree_num_entries(hdr);
 
    *found = 0;
 
    while (lo < hi)
    {
-     int64 mid = 1 + (lo + hi) / 2;
-     int cmp = mid == 0 ? -1 : dynamic_btree_key_compare(cfg, dynamic_btree_get_tuple_key(cfg, hdr, mid), key);
+     int64 mid = (lo + hi) / 2;
+     int cmp = dynamic_btree_key_compare(cfg, dynamic_btree_get_tuple_key(cfg, hdr, mid), key);
      if (cmp <= 0) {
-       lo = mid;
+       lo = mid + 1;
        *found = cmp ? 0 : 1;
      } else {
-       hi = mid - 1;
+       hi = mid;
      }
    }
 
-   return lo;
+   return lo - 1;
 }
 
 /*
@@ -605,10 +574,10 @@ dynamic_btree_leaf_incorporate_tuple(const dynamic_btree_config *cfg,
    bool found;
    debug_assert(dynamic_btree_height(hdr) == 0);
 
-   uint64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
+   int64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
 
    if (!found) {
-     succeeded = dynamic_btree_insert_leaf_entry(cfg, hdr, idx, key, message);
+     succeeded = dynamic_btree_insert_leaf_entry(cfg, hdr, idx + 1, key, message);
      if (succeeded) {
        *generation = hdr->generation++;
        return leaf_add_result_new_key;
@@ -667,7 +636,7 @@ dynamic_btree_choose_leaf_split(const dynamic_btree_config *cfg, // IN
    total_entry_bytes += (dynamic_btree_num_entries(hdr) + 1) * sizeof(table_entry);
 
    bool found;
-   uint64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
+   int64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
    uint64 total_node_space = cfg->page_size - sizeof(*hdr);
 
    /* Now figure out the number of entries to move, and figure out how
@@ -1597,7 +1566,7 @@ start_over:
       parent_node will not need to split. */
 
    bool found;
-   uint32 child_idx = dynamic_btree_find_pivot(cfg, parent_node.hdr, key, &found);
+   entry_index child_idx = dynamic_btree_find_pivot(cfg, parent_node.hdr, key, &found);
    index_entry *parent_entry = dynamic_btree_get_index_entry(cfg, parent_node.hdr, child_idx);
    dynamic_btree_node child_node;
    child_node.addr = index_entry_child_addr(parent_entry);
@@ -1767,7 +1736,7 @@ dynamic_btree_lookup_with_ref(cache                 *cc, // IN
                               bool                  *found) // OUT
 {
    dynamic_btree_lookup_node(cc, cfg, root_addr, key, 0, type, node, NULL, NULL, NULL);
-   uint16 idx = dynamic_btree_find_tuple(cfg, node->hdr, key, found);
+   int64 idx = dynamic_btree_find_tuple(cfg, node->hdr, key, found);
    if (*found) {
      leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, node->hdr, idx);
      *data = leaf_entry_message_slice(entry);
@@ -1953,14 +1922,14 @@ dynamic_btree_lookup_async_with_ref(cache                    *cc, // IN
             break;
          }
          bool found_pivot;
-         uint16 child_idx = dynamic_btree_find_pivot(cfg, node->hdr, key, &found_pivot);
+         int64 child_idx = dynamic_btree_find_pivot(cfg, node->hdr, key, &found_pivot);
          ctxt->child_addr = dynamic_btree_get_child_addr(cfg, node->hdr, child_idx);
          dynamic_btree_async_set_state(ctxt, dynamic_btree_async_state_get_node);
          break;
       }
       case dynamic_btree_async_state_get_leaf_complete:
       {
-         const uint16 idx = dynamic_btree_find_tuple(cfg, node->hdr, key, found);
+         int64 idx = dynamic_btree_find_tuple(cfg, node->hdr, key, found);
          if (*found) {
             *data = dynamic_btree_get_tuple_message(cfg, node->hdr, idx);
             *node_out = *node;
@@ -2860,7 +2829,7 @@ dynamic_btree_get_rank(cache                *cc,
    dynamic_btree_lookup_node(cc, cfg, root_addr, key, 0, PAGE_TYPE_BRANCH, &leaf,
                              kv_rank, key_bytes_rank, message_bytes_rank);
    bool found;
-   uint64 tuple_rank_in_leaf =
+   int64 tuple_rank_in_leaf =
      dynamic_btree_find_tuple(cfg, leaf.hdr, key, &found);
    accumulate_node_ranks(cfg, leaf.hdr, 0, tuple_rank_in_leaf, kv_rank, key_bytes_rank, message_bytes_rank);
    dynamic_btree_node_unget(cc, cfg, &leaf);
@@ -3039,7 +3008,7 @@ dynamic_btree_print_subtree(cache                  *cc,
       return;
    }
    dynamic_btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
-   uint32 idx;
+   entry_index idx;
 
    if (node.hdr->height > 0) {
       for (idx = 0; idx < node.hdr->num_entries; idx++) {
@@ -3104,7 +3073,7 @@ dynamic_btree_verify_node(cache                *cc,
    node.addr = addr;
    debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
    dynamic_btree_node_get(cc, cfg, &node, type);
-   uint32 idx;
+   entry_index idx;
    bool result = FALSE;
 
    platform_open_log_stream();
@@ -3249,7 +3218,7 @@ dynamic_btree_print_lookup(cache                *cc, // IN
 {
    dynamic_btree_node node, child_node;
    uint32 h;
-   uint16 child_idx;
+   entry_index child_idx;
 
    node.addr = root_addr;
    dynamic_btree_print_node(cc, cfg, &node, PLATFORM_DEFAULT_LOG_HANDLE);
@@ -3266,8 +3235,8 @@ dynamic_btree_print_lookup(cache                *cc, // IN
    }
 
    bool found;
-   uint16 idx = dynamic_btree_find_tuple(cfg, node.hdr, key, &found);
-   platform_log("Matching index: %u (%d) of %u\n", idx, found, node.hdr->num_entries);
+   int64 idx = dynamic_btree_find_tuple(cfg, node.hdr, key, &found);
+   platform_log("Matching index: %lu (%d) of %u\n", idx, found, node.hdr->num_entries);
    dynamic_btree_node_unget(cc, cfg, &node);
 }
 

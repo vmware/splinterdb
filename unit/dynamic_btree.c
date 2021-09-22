@@ -64,14 +64,16 @@ static int leaf_hdr_search_tests(dynamic_btree_config *cfg, dynamic_btree_scratc
   char leaf_buffer[cfg->page_size];
   dynamic_btree_hdr *hdr = (dynamic_btree_hdr *)leaf_buffer;
   dynamic_btree_init_hdr(cfg, hdr);
-  int nkvs = 250;
+  int nkvs = 256;
 
-  for (uint8 i = 0; i < 2*nkvs; i++) {
+  for (int i = 0; i < nkvs; i++) {
     uint64 generation;
+    uint8 keybuf[1];
     uint8 messagebuf[8];
+    keybuf[0] = 17 * i;
     messagebuf[0] = i;
 
-    slice key     = slice_create(1, &i);
+    slice key     = slice_create(1, &keybuf);
     slice message = slice_create(i % 8, messagebuf);
     leaf_add_result result = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, hdr, key, message, &generation);
     if (result != leaf_add_result_new_key)
@@ -80,6 +82,12 @@ static int leaf_hdr_search_tests(dynamic_btree_config *cfg, dynamic_btree_scratc
       platform_log("bad generation %d %lu\n", i, generation);
   }
 
+  for (int i = 0; i < nkvs; i++) {
+    slice key = dynamic_btree_get_tuple_key(cfg, hdr, i);
+    uint8 ui = i;
+    if (slice_lex_cmp(slice_create(1, &ui), key))
+      platform_log("bad 4-byte key %d\n", i);
+  }
 
   return 0;
 }
