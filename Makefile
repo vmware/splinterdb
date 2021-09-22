@@ -67,8 +67,10 @@ endif
 #DEFAULT_CFLAGS += -fsanitize=integer
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
-DEFAULT_LDFLAGS = -ggdb3 -pthread
 
+CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
+DEFAULT_LDFLAGS = -ggdb3 -pthread
+LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
 
