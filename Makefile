@@ -11,20 +11,17 @@ PLATFORM = linux
 
 SRCDIR   = src
 TESTSDIR = tests
-UNITTESTSDIR  = tests/unit
+UNITDIR  = unit
 OBJDIR   = obj
 BINDIR   = bin
-UNITOBJDIR = obj/unit
-UNITBINDIR = bin/unit
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
-UNITSRC := $(shell find $(UNITTESTSDIR) -name "*.c")
+UNITSRC := $(shell find $(UNITDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 TESTOBJ= $(TESTSRC:%.c=$(OBJDIR)/%.o)
-UNITTESTOBJ= $(UNITSRC:%.c=$(UNITOBJDIR)/%.o)
-UNITTESTBINS= $(UNITSRC:%.c=$(UNITBINDIR)/%)
+UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
 
 # Automatically create directories, based on
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
@@ -75,7 +72,7 @@ LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 # Targets to track whether we have a release or debug build
 #
 
-all: $(BINDIR)/splinterdb.so $(BINDIR)/driver_test
+all: $(BINDIR)/splinterdb.so $(BINDIR)/driver_test $(UNITBINS)
 
 release: .release all
 	rm -f .debug
@@ -116,29 +113,33 @@ $(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
 $(BINDIR)/splinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
-$(UNITBINDIR)/%: $(UNITOBJDIR)/%.o obj/tests/test_data.o obj/src/util.o | $$(@D)/.
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
-
-
 DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
 
 COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
-
-$(UNITOBJDIR)/%.o: $(UNITTESTSDIR)/%.c $(SRC) tests/test_data.c $(TESTSRC) | $$(@D)/.
-	$(COMPILE.c) -I . $< -o $@
-
 
 $(OBJDIR)/%.o: %.c | $$(@D)/.
 	$(COMPILE.c) $< -o $@
 
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
 
+#####################################################
+# Unit tests
+#
+# Each unit test is a self-contained binary.
+# It links only with its needed .o files
+#
+
+$(BINDIR)/unit/%: $(UNITDIR)/%.c | $$(@D)/.
+	$(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LDFLAGS) $^ -o $@ $(LIBS)
+
+bin/unit/dynamic_btree: obj/tests/test_data.o obj/src/util.o obj/src/data.o
+
 #*************************************************************#
 
 .PHONY : clean tags
 clean :
 	rm -rf $(OBJDIR)/*
-	rm -f $(BINDIR)/*
+	rm -rf $(BINDIR)/*
 
 tags:
 	ctags -R src

@@ -234,8 +234,8 @@ static platform_status
 merge_resolve_equal_keys(merge_iterator *merge_itor)
 {
    debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
-   debug_assert(merge_itor->data != merge_itor->merge_buffer);
-   debug_assert(merge_itor->key == merge_itor->ordered_iterators[0]->key);
+   debug_assert(slice_data(merge_itor->data) != merge_itor->merge_buffer);
+   debug_assert(slices_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
    data_config *cfg = merge_itor->cfg;
 
@@ -252,7 +252,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
       // Verify keys match
       debug_assert(!data_key_compare(
          cfg, merge_itor->key, merge_itor->ordered_iterators[1]->key));
-      debug_assert(merge_itor->data == merge_itor->merge_buffer);
+      debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
 
       data_merge_tuples(cfg,
                         merge_itor->key,

@@ -603,8 +603,7 @@ dynamic_btree_leaf_incorporate_tuple(const dynamic_btree_config *cfg,
 {
    bool succeeded;
    bool found;
-   debug_assert(dynamic_btree_height(cfg, hdr) == 0);
-   debug_assert(!dynamic_btree_is_packed(cfg, hdr));
+   debug_assert(dynamic_btree_height(hdr) == 0);
 
    uint64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
 
@@ -2061,9 +2060,9 @@ dynamic_btree_iterator_get_curr(iterator   *base_itor,
    debug_assert(itor->curr.page->disk_addr == itor->curr.addr);
    debug_assert((char *)itor->curr.hdr == itor->curr.page->data);
    cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
-   debug_assert(itor->curr_key != NULL);
+   debug_assert(!slice_is_null(itor->curr_key));
    *key = itor->curr_key;
-   debug_assert((itor->curr_data != NULL) == (itor->height == 0));
+   debug_assert(slice_is_null(itor->curr_data) == (itor->height != 0));
    *data = itor->curr_data;
 }
 
@@ -2111,13 +2110,13 @@ dynamic_btree_iterator_is_at_end(dynamic_btree_iterator *itor)
 
    if (itor->end.addr == 0) {
       // There is no max_key
-      debug_assert(itor->max_key == NULL);
+      debug_assert(slice_is_null(itor->max_key));
       return itor->curr.hdr->next_addr == 0 && itor->idx == itor->curr.hdr->num_entries;
    }
 
    debug_dynamic_btree_check_unexpected_at_end(itor);
 
-   debug_assert(itor->max_key != NULL);
+   debug_assert(!slice_is_null(itor->max_key));
    return itor->curr.addr == itor->end.addr && itor->idx == itor->end_idx;
 }
 
@@ -2127,7 +2126,6 @@ dynamic_btree_iterator_is_last_tuple(dynamic_btree_iterator *itor)
    debug_assert(!itor->at_end);
    debug_assert(!dynamic_btree_iterator_is_at_end(itor));
    debug_assert(itor->height == 0);
-   debug_assert(itor->cfg->type == data_type_range);
    debug_assert(itor->idx < itor->curr.hdr->num_entries);
    dynamic_btree_config *cfg = itor->cfg;
    if (itor->is_live) {
@@ -2163,7 +2161,7 @@ dynamic_btree_iterator_is_last_tuple(dynamic_btree_iterator *itor)
           * tuple in the leaf.
           */
 
-         debug_assert(itor->max_key == NULL);
+         debug_assert(slice_is_null(itor->max_key));
 
          return itor->curr.hdr->next_addr == 0 &&
                 itor->idx + 1 == itor->curr.hdr->num_entries;
@@ -2185,7 +2183,7 @@ dynamic_btree_iterator_is_last_tuple(dynamic_btree_iterator *itor)
       //    then we remove ALL rollovers except during advance going to next
       //    (after the is_last test)
 
-      debug_assert(itor->max_key != NULL);
+      debug_assert(!slice_is_null(itor->max_key));
 
       if (itor->end_idx) {
          // It's the last tuple if on the end leaf and just before end_idx
@@ -2215,11 +2213,11 @@ dynamic_btree_iterator_set_curr_key_and_data(dynamic_btree_iterator *itor)
   if (itor->height == 0) {
      itor->curr_key = dynamic_btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
      itor->curr_data = dynamic_btree_get_tuple_message(itor->cfg, itor->curr.hdr, itor->idx);
-     debug_assert(itor->curr_data != NULL);
+     debug_assert(!slice_is_null(itor->curr_data));
   } else {
      itor->curr_key = dynamic_btree_get_pivot(itor->cfg, itor->curr.hdr, itor->idx);
   }
-  debug_assert(itor->curr_key != NULL);
+  debug_assert(!slice_is_null(itor->curr_key));
 }
 
 static void
@@ -2227,25 +2225,8 @@ debug_dynamic_btree_iterator_validate_next_tuple(debug_only dynamic_btree_iterat
 {
 #if SPLINTER_DEBUG
    dynamic_btree_config *cfg = itor->cfg;
-   debug_assert(dynamic_btree_key_compare(cfg, itor->debug_prev_key, itor->curr_key) < 0);
-   if (itor->max_key) {
+   if (!slice_is_null(itor->max_key)) {
       debug_assert(dynamic_btree_key_compare(cfg, itor->curr_key, itor->max_key) < 0);
-   }
-   if (itor->cfg->type == data_type_range) {
-      int cmp = dynamic_btree_key_compare(cfg, itor->debug_prev_end_key, itor->curr_key);
-      if (itor->debug_is_packed) {
-         // Not a memtable, touching ranges are not allowed.
-         // FIXME: [nsarmicanic 2020-08-11] replace <= with <
-         //    once merge_iterator merges touching ranges
-         debug_assert(cmp <= 0);
-      } else {
-         // It is a memtable, touching ranges are allowed.
-         debug_assert(cmp <= 0);
-      }
-      if (itor->max_key) {
-         debug_assert(
-               dynamic_btree_key_compare(cfg, itor->curr_data, itor->max_key) <= 0);
-      }
    }
 #endif
 }
@@ -2254,13 +2235,7 @@ static void
 debug_dynamic_btree_iterator_save_last_tuple(debug_only dynamic_btree_iterator *itor)
 {
 #if SPLINTER_DEBUG
-   itor->debug_is_packed = dynamic_btree_is_packed(itor->cfg, &itor->curr);
-
-   uint64 key_size = itor->cfg->data_cfg->key_size;
-   memmove(itor->debug_prev_key, itor->curr_key, key_size);
-   if (itor->cfg->type == data_type_range) {
-      memmove(itor->debug_prev_end_key, itor->curr_data, key_size);
-   }
+  //uint64 key_size = itor->cfg->data_cfg->key_size;
 #endif
 }
 
@@ -2322,11 +2297,6 @@ dynamic_btree_iterator_advance(iterator *base_itor)
          if (itor->curr.hdr->next_addr != 0) {
             next.addr = itor->curr.hdr->next_addr;
             dynamic_btree_node_get(cc, cfg, &next, itor->page_type);
-            if (itor->page_type == PAGE_TYPE_MEMTABLE) {
-               debug_assert(!dynamic_btree_is_packed(cfg, &next));
-            } else {
-               debug_assert(dynamic_btree_is_packed(cfg, &next));
-            }
          }
          dynamic_btree_node_unget(cc, cfg, &itor->curr);
          itor->curr = next;
@@ -2434,8 +2404,6 @@ dynamic_btree_iterator_init(cache                  *cc,
                             bool                    is_live,
                             uint32                  height)
 {
-   debug_assert(cfg->type == data_type);
-
    ZERO_CONTENTS(itor);
    itor->cc          = cc;
    itor->cfg         = cfg;
@@ -2474,11 +2442,6 @@ dynamic_btree_iterator_init(cache                  *cc,
          .addr = root_addr,
       };
       dynamic_btree_node_get(cc, cfg, &temp, page_type);
-      if (page_type == PAGE_TYPE_MEMTABLE) {
-         debug_assert(!dynamic_btree_is_packed(cfg, &temp));
-      } else {
-         debug_assert(dynamic_btree_is_packed(cfg, &temp));
-      }
       uint32 root_height = dynamic_btree_height(temp.hdr);
       dynamic_btree_node_unget(cc, cfg, &temp);
       if (root_height < height) {
@@ -2494,11 +2457,6 @@ dynamic_btree_iterator_init(cache                  *cc,
    // don't try to hold two read locks on that node, which can cause deadlocks
    if (!is_live && !slice_is_null(max_key)) {
      dynamic_btree_lookup_node(cc, cfg, root_addr, max_key, height, page_type, &itor->end, NULL, NULL, NULL);
-      if (page_type == PAGE_TYPE_MEMTABLE) {
-         debug_assert(!dynamic_btree_is_packed(cfg, &itor->end));
-      } else {
-         debug_assert(dynamic_btree_is_packed(cfg, &itor->end));
-      }
       bool found;
       if (height == 0) {
          itor->end_idx = dynamic_btree_find_tuple(cfg, itor->end.hdr, max_key, &found);
@@ -2509,24 +2467,19 @@ dynamic_btree_iterator_init(cache                  *cc,
       }
 
       debug_assert(itor->end_idx == itor->end.hdr->num_entries || ((height == 0) &&
-            dynamic_btree_key_compare(cfg, max_key, dynamic_btree_get_tuple(cfg, &itor->end, itor->end_idx)) <= 0)
+            dynamic_btree_key_compare(cfg, max_key, dynamic_btree_get_tuple_key(cfg, itor->end.hdr, itor->end_idx)) <= 0)
             || ((height != 0) && dynamic_btree_key_compare(cfg, max_key,
-                  dynamic_btree_get_pivot(cfg, &itor->end, itor->end_idx)) <= 0));
+                  dynamic_btree_get_pivot(cfg, itor->end.hdr, itor->end_idx)) <= 0));
       debug_assert(itor->end_idx == itor->end.hdr->num_entries || itor->end_idx == 0 ||
             ((height == 0) && dynamic_btree_key_compare(cfg, max_key,
-               dynamic_btree_get_tuple(cfg, &itor->end, itor->end_idx - 1)) > 0) || ((height != 0)
+               dynamic_btree_get_tuple_key(cfg, itor->end.hdr, itor->end_idx - 1)) > 0) || ((height != 0)
             && dynamic_btree_key_compare(cfg, max_key,
-               dynamic_btree_get_pivot(cfg, &itor->end, itor->end_idx - 1)) > 0));
+               dynamic_btree_get_pivot(cfg, itor->end.hdr, itor->end_idx - 1)) > 0));
 
       dynamic_btree_node_unget(cc, cfg, &itor->end);
    }
 
    dynamic_btree_lookup_node(cc, cfg, root_addr, min_key, height, page_type, &itor->curr, NULL, NULL, NULL);
-   if (page_type == PAGE_TYPE_MEMTABLE) {
-      debug_assert(!dynamic_btree_is_packed(cfg, &itor->curr));
-   } else {
-      debug_assert(dynamic_btree_is_packed(cfg, &itor->curr));
-   }
    // empty
    if (itor->curr.hdr->num_entries == 0 && itor->curr.hdr->next_addr == 0) {
       itor->at_end = TRUE;
