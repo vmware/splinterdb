@@ -142,6 +142,28 @@ platform_mutex_destroy(platform_mutex *mu)
 }
 
 platform_status
+platform_spinlock_init(platform_spinlock *lock,
+                       platform_module_id UNUSED_PARAM(module_id),
+                       platform_heap_id   UNUSED_PARAM(heap_id))
+{
+   int ret;
+
+   ret = pthread_spin_init(lock, PTHREAD_PROCESS_PRIVATE);
+
+   return CONST_STATUS(ret);
+}
+
+platform_status
+platform_spinlock_destroy(platform_spinlock *lock)
+{
+   int ret;
+
+   ret = pthread_spin_destroy(lock);
+
+   return CONST_STATUS(ret);
+}
+
+platform_status
 platform_histo_create(platform_heap_id heap_id,
                       uint32 num_buckets,
                       const int64* const bucket_limits,

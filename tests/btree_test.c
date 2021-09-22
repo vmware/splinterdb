@@ -550,7 +550,7 @@ test_btree_basic(cache             *cc,
       btree_test_async_ctxt *async_ctxt =
          btree_test_get_async_ctxt(async_lookup);
 
-      if (ctxt == NULL) {
+      if (async_ctxt == NULL) {
          test_btree_tuple(ctxt, key, expected_data, insert_num, 0);
          ZERO_CONTENTS(data);
          bool correct =

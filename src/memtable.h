@@ -166,9 +166,8 @@ typedef struct memtable_context {
    uint64           insert_lock_addr;
    volatile uint64  generation;
 
-   // Protected by incorporation_mutex. Must hold to read or modify.
-   // FIXME: [aconway 2020-09-02] Would be better as a spin lock
-   platform_mutex   incorporation_mutex;
+   // Protected by incorporation_lock. Must hold to read or modify.
+   platform_spinlock incorporation_lock;
    volatile uint64  generation_to_incorporate;
 
    // Protected by the lookup lock. Must hold read lock to read and write lock
@@ -327,13 +326,13 @@ memtable_increment_to_generation_retired(memtable_context *ctxt,
 static inline void
 memtable_lock_incorporation_lock(memtable_context *ctxt)
 {
-   platform_mutex_lock(&ctxt->incorporation_mutex);
+   platform_spin_lock(&ctxt->incorporation_lock);
 }
 
 static inline void
 memtable_unlock_incorporation_lock(memtable_context *ctxt)
 {
-   platform_mutex_unlock(&ctxt->incorporation_mutex);
+   platform_spin_unlock(&ctxt->incorporation_lock);
 }
 
 static inline void
