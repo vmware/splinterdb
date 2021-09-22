@@ -27,12 +27,15 @@ UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
 .SECONDEXPANSION:
 
-.PRECIOUS: $(OBJDIR)/%/.
+.SECONDARY:
 
 $(OBJDIR)/. $(BINDIR)/.:
 	mkdir -p $@
 
-$(OBJDIR)/%/. $(BINDIR)/%/.:
+$(OBJDIR)/%/.:
+	mkdir -p $@
+
+$(BINDIR)/%/.:
 	mkdir -p $@
 
 #*************************************************************#
@@ -119,6 +122,9 @@ $(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
 $(BINDIR)/splinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
+$(BINDIR)/unit/%: $(OBJDIR)/unit/%.o | $$(@D)/.
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
 DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
 
 COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
@@ -129,14 +135,11 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
 
 #####################################################
-# Unit tests
+# Unit test dependencies
 #
 # Each unit test is a self-contained binary.
 # It links only with its needed .o files
 #
-
-$(BINDIR)/unit/%: $(OBJDIR)/unit/%.o | $$(@D)/.
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 bin/unit/dynamic_btree: obj/tests/test_data.o obj/src/util.o obj/src/data.o obj/src/mini_allocator.o
 
