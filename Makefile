@@ -13,6 +13,7 @@ SRCDIR   = src
 TESTSDIR = tests
 OBJDIR   = obj
 BINDIR   = bin
+LIBDIR   = lib
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
@@ -26,7 +27,7 @@ TESTOBJ= $(TESTSRC:%.c=$(OBJDIR)/%.o)
 
 .PRECIOUS: $(OBJDIR)/%/.
 
-$(OBJDIR)/. $(BINDIR)/.:
+$(OBJDIR)/. $(BINDIR)/. $(LIBDIR)/.:
 	mkdir -p $@
 
 $(OBJDIR)/%/. $(BINDIR)/%/.:
@@ -74,8 +75,7 @@ LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 #*********************************************************#
 # Targets to track whether we have a release or debug build
 #
-
-all: $(BINDIR)/splinterdb.so $(BINDIR)/driver_test
+all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test
 
 release: .release all
 	rm -f .debug
@@ -110,11 +110,16 @@ debug-log: .debug-log all
 # RECIPES
 #
 
-$(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
+$(BINDIR)/driver_test : $(TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(BINDIR)/splinterdb.so : $(OBJ) | $$(@D)/.
+$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+
+# -c: Create an archive if it does not exist. -r, replacing objects
+# -s: Create/update an index to the archive
+$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
+	$(AR) -crs $@ $^
 
 DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
 
@@ -130,7 +135,8 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 .PHONY : clean tags
 clean :
 	rm -rf $(OBJDIR)/*
-	rm -f $(BINDIR)/*
+	rm -f  $(BINDIR)/*
+	rm -f  $(LIBDIR)/*
 
 tags:
 	ctags -R src
@@ -147,7 +153,9 @@ test: $(BINDIR)/driver_test
 
 INSTALL_PATH ?= /usr/local
 
-install: $(BINDIR)/splinterdb.so
+install: $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
-	cp $(BINDIR)/splinterdb.so $(INSTALL_PATH)/lib/libsplinterdb.so
-	cp $(SRCDIR)/data.h $(SRCDIR)/platform_public.h $(SRCDIR)/kvstore.h $(SRCDIR)/kvstore_basic.h $(INSTALL_PATH)/include/splinterdb/
+
+	# -p retains the timestamp of the file being copied over$
+	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
+	cp -p $(SRCDIR)/data.h $(SRCDIR)/platform_public.h $(SRCDIR)/kvstore.h $(SRCDIR)/kvstore_basic.h $(INSTALL_PATH)/include/splinterdb/
