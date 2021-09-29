@@ -174,7 +174,6 @@ static data_config config =
    .merge_tuples                      = test_data_merge_tuples,
    .merge_tuples_final                = test_data_merge_tuples_final,
    .message_class                     = test_data_message_class,
-   .clobber_message_with_range_delete = NULL
   };
 
 data_config *test_data_config = &config;

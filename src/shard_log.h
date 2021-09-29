@@ -24,9 +24,6 @@ typedef struct shard_log_config {
    uint64       seed;
    // data config of point message tree
    data_config *data_cfg;
-   // FIXME: [yfogel 2020-07-01] If we ever need to log range_delete
-   //        in shard log, need to have separate point and rangedelete
-   //        data_cfgs (data_cfg above is the point-message config)
 } shard_log_config;
 
 typedef struct shard_log_thread_data {

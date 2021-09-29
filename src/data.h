@@ -72,12 +72,6 @@ typedef void (*merge_tuple_final_fn) (const data_config *cfg,
                                       const void *key,
                                       void *oldest_raw_message);
 
-// robj: I think this callback is ill-advised, at least w/o the
-// start/end compaction calls discussed above.
-typedef void (*clobber_message_with_range_delete_fn) (const data_config *cfg,
-                                                      const void *key,
-                                                      const void *message);
-
 typedef void (*key_or_message_to_str_fn) (const data_config *cfg,
                                           const void *key_or_message,
                                           char *str,
@@ -96,7 +90,6 @@ struct data_config {
    message_class_fn         message_class;
    merge_tuple_fn           merge_tuples;
    merge_tuple_final_fn     merge_tuples_final;
-   clobber_message_with_range_delete_fn clobber_message_with_range_delete;
    key_or_message_to_str_fn key_to_string;
    key_or_message_to_str_fn message_to_string;
 
@@ -131,13 +124,6 @@ static inline void data_merge_tuples_final(const data_config *cfg,
                                            void *oldest_raw_message)
 {
   return cfg->merge_tuples_final(cfg, key, oldest_raw_message);
-}
-
-static inline void data_clobber_message_with_range_delete(const data_config *cfg,
-                                                          const void *key,
-                                                          const void *message)
-{
-  return cfg->clobber_message_with_range_delete(cfg, key, message);
 }
 
 static inline void data_key_to_string(const data_config *cfg,
