@@ -209,7 +209,7 @@ static data_config _template_basic_data_config = {
    .message_class      = basic_message_class,
    .key_to_string      = basic_key_to_string,
    .message_to_string  = basic_message_to_string,
-   .clobber_message_with_range_delete = NULL};
+};
 
 static int
 new_basic_data_config(const size_t max_key_size,   // IN
