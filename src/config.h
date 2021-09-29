@@ -11,7 +11,7 @@
 #define __CONFIG_H
 
 #include "clockcache.h"
-#include "data.h"
+#include "splinterdb/data.h"
 #include "io.h"
 #include "rc_allocator.h"
 #include "shard_log.h"

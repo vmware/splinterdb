@@ -11,8 +11,8 @@
 
 #include "platform.h"
 
-#include "kvstore.h"
-#include "kvstore_basic.h"
+#include "splinterdb/kvstore.h"
+#include "splinterdb/kvstore_basic.h"
 #include "util.h"
 
 #include "poison.h"

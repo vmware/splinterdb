@@ -14,7 +14,7 @@
 #include "mini_allocator.h"
 #include "allocator.h"
 #include "cache.h"
-#include "data.h"
+#include "splinterdb/data.h"
 
 #include "poison.h"
 

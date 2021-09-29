@@ -14,6 +14,7 @@ TESTSDIR = tests
 OBJDIR   = obj
 BINDIR   = bin
 LIBDIR   = lib
+INCDIR   = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
@@ -37,7 +38,7 @@ $(OBJDIR)/%/. $(BINDIR)/%/.:
 # CFLAGS, ETC
 #
 
-INCLUDE = -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM)
+INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM)
 
 #######BEGIN libconfig
 # Get output of `pkg-config --(cflags|libs) libconfig` every time we run make,
@@ -158,4 +159,4 @@ install: $(LIBDIR)/libsplinterdb.so
 
 	# -p retains the timestamp of the file being copied over$
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
-	cp -p $(SRCDIR)/data.h $(SRCDIR)/platform_public.h $(SRCDIR)/kvstore.h $(SRCDIR)/kvstore_basic.h $(INSTALL_PATH)/include/splinterdb/
+	cp -p $(INCDIR)/splinterdb/*.h $(INSTALL_PATH)/include/splinterdb/

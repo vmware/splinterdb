@@ -8,7 +8,7 @@
  */
 #include "platform.h"
 
-#include "data.h"
+#include "splinterdb/data.h"
 #include "test.h"
 #include "routing_filter.h"
 #include "allocator.h"
