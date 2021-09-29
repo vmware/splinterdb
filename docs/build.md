@@ -16,6 +16,7 @@ $ export CC=$COMPILER
 $ export LD=$COMPILER
 $ make
 $ make test
+$ sudo make install
 ```
 
 ### Using Docker
@@ -31,7 +32,7 @@ $ docker run -it --rm --mount type=bind,source="$PWD",target=/splinterdb \
 contain the SplinterDB source code.  That must be mounted into the running
 container, e.g. the `--mount` command shown above.
 
-Inside the container is a Linux environment with 
+Inside the container is a Linux environment with
 [all dependencies for building and testing](../Dockerfile.build-env)
 with either GCC or Clang.
 
@@ -42,4 +43,5 @@ docker$ export CC=clang  # or gcc
 docker$ export LD=clang
 docker$ make
 docker$ make test
+docker$ make install
 ```
