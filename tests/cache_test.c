@@ -14,7 +14,7 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
-#include "data.h"
+#include "splinterdb/data.h"
 #include "task.h"
 #include "util.h"
 #include "random.h"

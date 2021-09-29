@@ -8,7 +8,7 @@
 #include "clockcache.h"
 #include "rc_allocator.h"
 #include "log.h"
-#include "data.h"
+#include "splinterdb/data.h"
 #include "test.h"
 #include "random.h"
 #include "util.h"

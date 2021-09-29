@@ -12,7 +12,7 @@
 
 #include "clockcache.h"
 #include "config.h"
-#include "kvstore.h"
+#include "splinterdb/kvstore.h"
 #include "rc_allocator.h"
 #include "splinter.h"
 

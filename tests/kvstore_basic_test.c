@@ -14,11 +14,11 @@
  *     kvstore_basic_test() to be main(), and ensure you've got the
  *     kvstore_basic.h header and libsplinterdb.so available for linking.
  *
- *     $ cc -I /splinterdb/include -lsplinterdb kvstore_basic_test.c
- *
+ *     $ cc -L ./lib -I ./include \
+ *          tests/kvstore_basic_test.c -lsplinterdb -Wl,-rpath,./lib
  */
 
-#include "kvstore_basic.h"
+#include "splinterdb/kvstore_basic.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdbool.h>

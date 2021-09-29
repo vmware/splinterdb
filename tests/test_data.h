@@ -4,7 +4,7 @@
 #ifndef __TEST_DATA_H
 #define __TEST_DATA_H
 
-#include "data.h"
+#include "splinterdb/data.h"
 #include "util.h"
 
 extern data_config *test_data_config;

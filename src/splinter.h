@@ -10,7 +10,7 @@
 #ifndef __SPLINTER_H
 #define __SPLINTER_H
 
-#include "data.h"
+#include "splinterdb/data.h"
 #include "btree.h"
 #include "memtable.h"
 #include "routing_filter.h"

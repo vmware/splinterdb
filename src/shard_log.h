@@ -13,7 +13,7 @@
 #include "log.h"
 #include "cache.h"
 #include "iterator.h"
-#include "data.h"
+#include "splinterdb/data.h"
 #include "mini_allocator.h"
 #include "task.h"
 

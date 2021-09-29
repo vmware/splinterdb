@@ -16,7 +16,7 @@
 #ifndef _KVSTORE_H_
 #define _KVSTORE_H_
 
-#include "data.h"
+#include "splinterdb/data.h"
 
 typedef struct {
    const char *filename;
