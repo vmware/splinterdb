@@ -64,14 +64,17 @@ kvstore_close(kvstore *kvs);
 // Note: kvstore_create causes an implicit kvstore_register_thread
 // So it is safe to call kvstore_close from the same thread
 // that called kvstore_create without an exra kvstore_register_thread.
-void kvstore_register_thread(const kvstore *kvs);
+void
+kvstore_register_thread(const kvstore *kvs);
 
-int kvstore_insert(const kvstore *kvs, char *key, char *message);
+int
+kvstore_insert(const kvstore *kvs, char *key, char *message);
 
-int kvstore_lookup(const kvstore *kvs,     // IN
-                   char *         key,     // IN
-                   char *         message, // OUT
-                   bool *         found    // OUT
+int
+kvstore_lookup(const kvstore *kvs,     // IN
+               char *         key,     // IN
+               char *         message, // OUT
+               bool *         found    // OUT
 );
 
 /*
@@ -116,35 +119,41 @@ Sample application code:
 
 typedef struct kvstore_iterator kvstore_iterator;
 
-int kvstore_iterator_init(const kvstore *    kvs,      // IN
-                          kvstore_iterator **iter,     // OUT
-                          char *             start_key // IN
+int
+kvstore_iterator_init(const kvstore *    kvs,      // IN
+                      kvstore_iterator **iter,     // OUT
+                      char *             start_key // IN
 );
 
-void kvstore_iterator_deinit(kvstore_iterator *iter);
+void
+kvstore_iterator_deinit(kvstore_iterator *iter);
 
 // checks that the iterator status is OK (no errors) and that get_current will
 // succeed If false, there are two possibilities:
 // 1. Iterator has passed the final item.  In this case, status() == 0
 // 2. Iterator has encountered an error.  In this case, status() != 0
-bool kvstore_iterator_valid(kvstore_iterator *iter);
+bool
+kvstore_iterator_valid(kvstore_iterator *iter);
 
 // attempts to advance the iterator to the next item
 // any error will cause valid() == false and be visible with status()
-void kvstore_iterator_next(kvstore_iterator *iter);
+void
+kvstore_iterator_next(kvstore_iterator *iter);
 
 // Sets *key and *message to the locations of the current item
 // Callers must not modify that memory
 //
 // If valid() == false, then behavior is undefined.
-void kvstore_iterator_get_current(kvstore_iterator *iter,   // IN
-                                  const char **     key,    // OUT
-                                  const char **     message // OUT
+void
+kvstore_iterator_get_current(kvstore_iterator *iter,   // IN
+                             const char **     key,    // OUT
+                             const char **     message // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.
 //
 // End-of-range is not an error
-int kvstore_iterator_status(const kvstore_iterator *iter);
+int
+kvstore_iterator_status(const kvstore_iterator *iter);
 
 #endif // _KVSTORE_H_
