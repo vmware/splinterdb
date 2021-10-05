@@ -40,7 +40,8 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
       .filename       = TEST_DB_NAME,
       .cache_size     = Mega,
       .disk_size      = 30 * Mega,
-      .max_key_size   = 21, // less than MAX_KEY_SIZE, just to try things out
+                        // less than external max-key-size, just to try things out
+      .max_key_size   = (KVSTORE_BASIC_MAX_KEY_SIZE - 3),
       .max_value_size = 16,
       .key_comparator = cfg->key_comparator,
       .key_comparator_context = cfg->key_comparator_context,
@@ -323,6 +324,47 @@ test_kvstore_basic_value_size_gt_max_value_size()
 cleanup:
    if (too_large_value)
       free(too_large_value);
+   kvstore_basic_close(kvsb);
+   if (rc == 0) {
+      fprintf(stderr, "succeeded\n");
+      return 0;
+   } else {
+      fprintf(stderr, "FAILED\n");
+      return -1;
+   }
+}
+
+/*
+ * Exercise test case to verify core interfaces when value-size is > max
+ * value-size. Here, we basically exercise the insert interface, which will
+ * trip up if very large values are supplied. (Once insert fails, there is
+ * no further need to verify the other interfaces for very-large-values.)
+ */
+int
+test_kvstore_basic_value_size_gt_max_value_size()
+{
+   kvstore_basic *   kvsb;
+   kvstore_basic_cfg cfg = {0};
+
+   int rc = setup_kvstore_basic(&kvsb, &cfg);
+   if (rc != 0) {
+      return -1;
+   }
+
+   size_t too_large_value_len = cfg.max_value_size + 1;
+   char too_large_value[too_large_value_len];
+   memset(too_large_value, 'z', too_large_value_len);
+
+   static const char short_key[] = "a_short_key";
+   rc = kvstore_basic_insert(kvsb, short_key, sizeof(short_key),
+                             too_large_value, too_large_value_len);
+
+   test_assert(rc == EINVAL, "insert too-large value: %d", rc);
+
+   fprintf(stderr, "large value handling is correct\n");
+   rc = 0;
+
+cleanup:
    kvstore_basic_close(kvsb);
    if (rc == 0) {
       fprintf(stderr, "succeeded\n");

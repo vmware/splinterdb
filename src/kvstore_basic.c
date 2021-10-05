@@ -350,6 +350,7 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
                          kvsb->max_app_key_size,
                          (int)key_len,
                          key);
+
       return EINVAL;
    }
 
