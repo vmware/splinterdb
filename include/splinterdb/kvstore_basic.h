@@ -12,6 +12,26 @@
 #define _KVSTORE_BASIC_H_
 
 #include <stddef.h> // for size_t
+#include "splinterdb/limits.h"
+
+// Length-prefix encoding of a variable-sized key
+// Should be == sizeof(basic_key_encoding), which is enforced elsewhere
+#define KVSTORE_BASIC_KEY_HDR_SIZE ((int)sizeof(uint8_t))
+
+// Minimum size of a key, in bytes
+#define KVSTORE_BASIC_MIN_KEY_SIZE 2
+
+// Max size of a key, in bytes
+// Must always be = ( MAX_KEY_SIZE - sizeof(basic_key_encoding) )
+#define KVSTORE_BASIC_MAX_KEY_SIZE (MAX_KEY_SIZE - KVSTORE_BASIC_KEY_HDR_SIZE)
+
+// Should be == sizeof(basic_message), which is enforced elsewhere
+#define KVSTORE_BASIC_MSG_HDR_SIZE ((int)sizeof(void *))
+
+// Maximum size of a value, in bytes
+// Must always == ( MAX_MESSAGE_SIZE - sizeof(basic_message) )
+#define KVSTORE_BASIC_MAX_VALUE_SIZE                                           \
+   (MAX_MESSAGE_SIZE - KVSTORE_BASIC_MSG_HDR_SIZE)
 
 typedef int (*key_comparator_fn)(const void *context,
                                  const void *key1,
@@ -54,19 +74,6 @@ typedef struct {
 
 // Handle to a live instance of splinterdb
 typedef struct kvstore_basic kvstore_basic;
-
-// Minimum size of a key, in bytes
-#define KVSTORE_BASIC_MIN_KEY_SIZE 2
-
-// Max size of a key, in bytes
-//
-// Must always be = MAX_KEY_SIZE - sizeof(basic_key_encoding)
-#define KVSTORE_BASIC_MAX_KEY_SIZE 23
-
-// Maximum size of a value
-//
-// Must always = MAX_MESSAGE_SIZE - sizeof(basic_message)
-#define KVSTORE_BASIC_MAX_VALUE_SIZE 120
 
 // Create a new kvstore_basic from the provided config
 int
