@@ -41,12 +41,14 @@ typedef struct PACKED {
    uint8 data[0]; // offset 1: 1st byte of value, aligned for 64-bit access
 } basic_key_encoding;
 
-#define BASIC_KEY_HDR_SIZE ((uint8)(sizeof(basic_key_encoding)))
-static_assert(sizeof(basic_key_encoding) == sizeof(uint8),
+static_assert((sizeof(basic_key_encoding) == KVSTORE_BASIC_KEY_HDR_SIZE),
               "basic_key_encoding header should have length 1");
+
 static_assert(offsetof(basic_key_encoding, data[0]) == sizeof(uint8),
               "start of data should equal header size");
-static_assert((MAX_KEY_SIZE == KVSTORE_BASIC_MAX_KEY_SIZE + BASIC_KEY_HDR_SIZE),
+
+static_assert((MAX_KEY_SIZE ==
+               (KVSTORE_BASIC_MAX_KEY_SIZE + KVSTORE_BASIC_KEY_HDR_SIZE)),
               "KVSTORE_BASIC_MAX_KEY_SIZE should be updated when "
               "MAX_KEY_SIZE changes");
 
@@ -63,16 +65,11 @@ typedef struct KVSB_PACK_PTR {
    uint8  value[0]; // offset 8: 1st byte of value, aligned for 64-bit access
 } basic_message;
 
-#define BASIC_MSG_HDR_SIZE ((uint8)(sizeof(basic_message)))
-static_assert(sizeof(basic_message) == sizeof(void *),
+static_assert(sizeof(basic_message) == KVSTORE_BASIC_MSG_HDR_SIZE,
               "basic_message header should have the same size as a pointer");
+
 static_assert(offsetof(basic_message, value[0]) == sizeof(void *),
               "start of data value should be aligned to pointer access");
-static_assert((MAX_MESSAGE_SIZE ==
-               KVSTORE_BASIC_MAX_VALUE_SIZE + BASIC_MSG_HDR_SIZE),
-              "KVSTORE_BASIC_MAX_VALUE_SIZE should be updated when "
-              "MAX_MESSAGE_SIZE changes");
-
 
 static int
 variable_len_compare(const void *context,
@@ -233,8 +230,8 @@ new_basic_data_config(const size_t max_key_size,   // IN
    }
    // compute sizes for data_config, which are larger than the sizes the
    // application sees
-   const size_t key_size = max_key_size + BASIC_KEY_HDR_SIZE;
-   const size_t msg_size = max_value_size + BASIC_MSG_HDR_SIZE;
+   const size_t key_size = max_key_size + KVSTORE_BASIC_KEY_HDR_SIZE;
+   const size_t msg_size = max_value_size + KVSTORE_BASIC_MSG_HDR_SIZE;
    *out_cfg              = _template_basic_data_config;
    out_cfg->key_size     = key_size;
    out_cfg->message_size = msg_size;
@@ -347,14 +344,22 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
                      const size_t         val_len)
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log(
-         "kvstore_basic_insert: key_len exceeds max_key_size\n");
+      platform_error_log("kvstore_basic_insert: key_len, %lu, exceeds"
+                         " max_key_size, %lu bytes; key='%.*s'\n",
+                         key_len,
+                         kvsb->max_app_key_size,
+                         (int)key_len,
+                         key);
       return EINVAL;
    }
 
    if (val_len > kvsb->max_app_val_size) {
-      platform_error_log(
-         "kvstore_basic_insert: val_len exceeds max_value_size\n");
+      platform_error_log("kvstore_basic_insert: val_len, %lu, exceeds"
+                         " max_value_size, %lu bytes; value='%.*s ...'\n",
+                         val_len,
+                         kvsb->max_app_val_size,
+                         (int)kvsb->max_app_val_size,
+                         value);
       return EINVAL;
    }
 
@@ -371,8 +376,12 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
                      const size_t         key_len)
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log(
-         "kvstore_basic_delete: key_len exceeds max_key_size\n");
+      platform_error_log("kvstore_basic_delete: key_len, %lu, exceeds"
+                         " max_key_size, %lu bytes; key='%.*s'\n",
+                         key_len,
+                         kvsb->max_app_key_size,
+                         (int)key_len,
+                         key);
       return EINVAL;
    }
 
@@ -396,8 +405,12 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
 )
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log(
-         "kvstore_basic_lookup: key_len exceeds max_key_size\n");
+      platform_error_log("kvstore_basic_lookup: key_len, %lu, exceeds"
+                         " max_key_size, %lu bytes; key='%.*s'\n",
+                         key_len,
+                         kvsb->max_app_key_size,
+                         (int)key_len,
+                         key);
       return EINVAL;
    }
    char key_buffer[MAX_KEY_SIZE] = {0};

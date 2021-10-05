@@ -11,11 +11,9 @@
 #ifndef __DATA_H
 #define __DATA_H
 
-#include "splinterdb/platform_public.h"
 #include <string.h> // for memmove
-
-#define MAX_KEY_SIZE     24
-#define MAX_MESSAGE_SIZE 128
+#include "splinterdb/limits.h"
+#include "splinterdb/platform_public.h"
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
