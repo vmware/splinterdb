@@ -14,9 +14,10 @@
 #include "platform_public.h"
 #include <string.h> // for memmove
 
-// Internal limits of key and value size
-#define MAX_KEY_SIZE        ((int) 24)
-#define MAX_MESSAGE_SIZE    ((int) 128)
+// Higher Internal limits of key and value size, to enable integration under FDB
+// The external user-visible limits will be derived from these values.
+#define MAX_KEY_SIZE        ((int) 100)             // ((int) 24)
+#define MAX_MESSAGE_SIZE    ((int) 2000)            // ((int) 128)
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
