@@ -152,14 +152,6 @@ void
 clockcache_unlock(clockcache *cc, page_handle *page);
 
 void
-clockcache_share(clockcache * cc,
-                 page_handle *page_to_share,
-                 page_handle *anon_page);
-
-void
-clockcache_unshare(clockcache *cc, page_handle *anon_page);
-
-void
 clockcache_prefetch(clockcache *cc, uint64 addr, page_type type);
 
 void
@@ -318,22 +310,6 @@ clockcache_unlock_virtual(cache *c, page_handle *page)
 {
    clockcache *cc = (clockcache *)c;
    clockcache_unlock(cc, page);
-}
-
-void
-clockcache_share_virtual(cache *      c,
-                         page_handle *page_to_share,
-                         page_handle *anon_page)
-{
-   clockcache *cc = (clockcache *)c;
-   clockcache_share(cc, page_to_share, anon_page);
-}
-
-void
-clockcache_unshare_virtual(cache *c, page_handle *anon_page)
-{
-   clockcache *cc = (clockcache *)c;
-   clockcache_unshare(cc, anon_page);
 }
 
 void
@@ -544,8 +520,6 @@ static cache_ops clockcache_ops = {
    .page_unclaim      = clockcache_unclaim_virtual,
    .page_lock         = clockcache_lock_virtual,
    .page_unlock       = clockcache_unlock_virtual,
-   .share             = clockcache_share_virtual,
-   .unshare           = clockcache_unshare_virtual,
    .page_prefetch     = clockcache_prefetch_virtual,
    .page_mark_dirty   = clockcache_mark_dirty_virtual,
    .page_pin          = clockcache_pin_virtual,
@@ -1968,51 +1942,6 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
                   entry_no,
                   entry->page.disk_addr);
    return &entry->page;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * clockcache_share --
- *
- *      Maps lookups for the addr of anon_page to page_to_share.
- *      Both pages must be at least read locked.
- *
- *----------------------------------------------------------------------
- */
-
-void
-clockcache_share(clockcache  *cc,
-                 page_handle *page_to_share,
-                 page_handle *anon_page)
-{
-   uint64 addr = anon_page->disk_addr;
-   uint64 lookup_number = clockcache_divide_by_page_size(cc, addr);
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page_to_share);
-   cc->lookup[lookup_number] = entry_number;
-}
-
-/*
- *----------------------------------------------------------------------
- *
- * clockcache_unshare --
- *
- *      Remaps lookups for the addr of anon_page back to anon_page.
- *
- *      Both pages must be at least read locked, and anon_page must be write
- *      locked.
- *
- *----------------------------------------------------------------------
- */
-
-void
-clockcache_unshare(clockcache  *cc,
-                   page_handle *anon_page)
-{
-   uint64 addr = anon_page->disk_addr;
-   uint64 lookup_number = clockcache_divide_by_page_size(cc, addr);
-   uint32 entry_number  = clockcache_page_to_entry_number(cc, anon_page);
-   cc->lookup[lookup_number] = entry_number;
 }
 
 /*
