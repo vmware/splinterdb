@@ -10,18 +10,17 @@
 #ifndef __CLOCKCACHE_H
 #define __CLOCKCACHE_H
 
-#include "cache.h"
 #include "allocator.h"
+#include "cache.h"
 #include "io.h"
 #include "task.h"
 
 //#define ADDR_TRACING
 #define TRACE_ADDR  (UINT64_MAX - 1)
-#define TRACE_ENTRY (UINT32_MAX-1)
+#define TRACE_ENTRY (UINT32_MAX - 1)
 
 /* how distributed the rw locks are */
 #define CC_RC_WIDTH 4
-
 
 typedef struct clockcache_config {
    uint64 page_size;
@@ -38,42 +37,8 @@ typedef struct clockcache_config {
    uint64 pages_per_extent;
 } clockcache_config;
 
-typedef struct clockcache clockcache;
+typedef struct clockcache       clockcache;
 typedef struct clockcache_entry clockcache_entry;
-
-extern uint64 cache_misses;
-extern uint64 cache_miss_time;
-
-/*
- *----------------------------------------------------------------------
- *
- * clockcache_entry --
- *
- *     The meta data entry in the cache. Each entry has the underlying
- *     page_handle together with some flags.
- *
- *----------------------------------------------------------------------
- */
-
-//#define RECORD_ACQUISITION_STACKS
-
-#ifdef RECORD_ACQUISITION_STACKS
-typedef struct history_record {
-   uint32 status;
-   int refcount;
-   void *backtrace[32];
-} history_record;
-#endif
-
-struct clockcache_entry {
-   page_handle page;
-   volatile uint32 status;
-   page_type type;
-#ifdef RECORD_ACQUISITION_STACKS
-   int next_history_record;
-   history_record history[32];
-#endif
-};
 
 /*
  *----------------------------------------------------------------------
@@ -112,18 +77,18 @@ struct clockcache_entry {
  */
 
 struct clockcache {
-   cache                 super;
-   clockcache_config    *cfg;
-   allocator            *al;
-   io_handle            *io;
+   cache              super;
+   clockcache_config *cfg;
+   allocator *        al;
+   io_handle *        io;
 
-   uint32               *lookup;
-   clockcache_entry     *entry;
-   buffer_handle        *bh;   // actual memory for pages
-   char                 *data; // convenience pointer for bh
-   platform_log_handle   logfile;
-   platform_heap_handle  heap_handle;
-   platform_heap_id      heap_id;
+   uint32 *             lookup;
+   clockcache_entry *   entry;
+   buffer_handle *      bh;   // actual memory for pages
+   char *               data; // convenience pointer for bh
+   platform_log_handle  logfile;
+   platform_heap_handle heap_handle;
+   platform_heap_id     heap_id;
 
    // Distributed locks (the write bit is in the status uint32 of the entry)
    buffer_handle * rc_bh;
@@ -131,20 +96,20 @@ struct clockcache {
    volatile uint8 *pincount;
 
    // Clock hands and related metadata
-   volatile uint32       evict_hand;
-   volatile uint32       free_hand;
-   volatile bool        *batch_busy;
-   uint64                cleaner_gap;
+   volatile uint32 evict_hand;
+   volatile uint32 free_hand;
+   volatile bool * batch_busy;
+   uint64          cleaner_gap;
 
    volatile struct {
-      volatile uint32    free_hand;
-      bool               enable_sync_get;
+      volatile uint32 free_hand;
+      bool            enable_sync_get;
    } PLATFORM_CACHELINE_ALIGNED per_thread[MAX_THREADS];
 
    // Stats
-   cache_stats           stats[MAX_THREADS];
+   cache_stats stats[MAX_THREADS];
 
-   task_system          *ts;
+   task_system *ts;
 };
 
 
@@ -156,24 +121,26 @@ struct clockcache {
  *-----------------------------------------------------------------------------
  */
 
-void clockcache_config_init(clockcache_config *cache_config,
-                            uint64             page_size,
-                            uint64             extent_size,
-                            uint64             capacity,
-                            char              *cache_logfile,
-                            uint64             use_stats);
+void
+clockcache_config_init(clockcache_config *cache_config,
+                       uint64             page_size,
+                       uint64             extent_size,
+                       uint64             capacity,
+                       char *             cache_logfile,
+                       uint64             use_stats);
 
 platform_status
-clockcache_init(clockcache           *cc,     // OUT
-                clockcache_config    *cfg,    // IN
-                io_handle            *io,     // IN
-                allocator            *al,     // IN
-                char                 *name,   // IN
-                task_system          *ts,     // IN
-                platform_heap_handle  hh,     // IN
-                platform_heap_id      hid,    // IN
-                platform_module_id    mid);   // IN
+clockcache_init(clockcache *         cc,   // OUT
+                clockcache_config *  cfg,  // IN
+                io_handle *          io,   // IN
+                allocator *          al,   // IN
+                char *               name, // IN
+                task_system *        ts,   // IN
+                platform_heap_handle hh,   // IN
+                platform_heap_id     hid,  // IN
+                platform_module_id   mid);   // IN
 
-void clockcache_deinit(clockcache *cc);      // IN
+void
+clockcache_deinit(clockcache *cc); // IN
 
 #endif // __CLOCKCACHE_H
