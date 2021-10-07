@@ -18,6 +18,21 @@
 
 #include "poison.h"
 
+// clang-format off
+
+// Construct a simplified "internal" limits descriptor that one can probe
+// using 'strings'
+const char SplinterDB_Limits_Int[] =
+                "SplinterDB Internal Limits"
+                ": SPLINTER_MAX_HEIGHT=" STRINGIFY_VALUE(SPLINTER_MAX_HEIGHT)
+                ", SPLINTER_MAX_TOTAL_DEGREE=" STRINGIFY_VALUE(SPLINTER_MAX_TOTAL_DEGREE)
+                ", MAX_PAGES_PER_EXTENT=" STRINGIFY_VALUE(MAX_PAGES_PER_EXTENT)
+                ", MAX_THREADS=" STRINGIFY_VALUE(MAX_THREADS)
+                ", DEFAULT_THROTTLE_INTERVAL_SEC=" STRINGIFY_VALUE(DEFAULT_THROTTLE_INTERVAL_SEC)
+                ;
+
+// clang-format on
+
 typedef struct kvstore {
    task_system *        system;
    data_config          data_cfg;

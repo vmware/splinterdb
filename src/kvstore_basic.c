@@ -17,6 +17,19 @@
 
 #include "poison.h"
 
+// clang-format off
+
+// Construct a simplified "external" limits descriptor that one can probe
+// using 'strings'
+const char SplinterDB_Limits[] =
+                "SplinterDB Limits"
+                ": MIN_KEY_SIZE=" STRINGIFY_VALUE(KVSTORE_BASIC_MIN_KEY_SIZE)
+                ", MAX_KEY_SIZE=" STRINGIFY_VALUE(MAX_KEY_SIZE)
+                ", MAX_MESSAGE_SIZE=" STRINGIFY_VALUE(MAX_MESSAGE_SIZE)
+                ;
+
+// clang-format on
+
 typedef struct {
    key_comparator_fn key_comparator;
    void *            key_comparator_context;
