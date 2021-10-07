@@ -33,26 +33,6 @@
 #define KVSTORE_BASIC_MAX_VALUE_SIZE                                           \
    (MAX_MESSAGE_SIZE - KVSTORE_BASIC_MSG_HDR_SIZE)
 
-// Length-prefix encoding of a variable-sized key
-// Should be == sizeof(basic_key_encoding); defined elsewhere in some .c file.
-#define KVSTORE_BASIC_KEY_HDR_SIZE  ((int) sizeof(uint8))
-
-// Minimum size of a key, in bytes
-#define KVSTORE_BASIC_MIN_KEY_SIZE 2
-
-// Max size of a key, in bytes
-// Must always be = ( MAX_KEY_SIZE - sizeof(basic_key_encoding) )
-#define KVSTORE_BASIC_MAX_KEY_SIZE                                  \
-        (MAX_KEY_SIZE - KVSTORE_BASIC_KEY_HDR_SIZE)
-
-// Should be == sizeof(basic_message); defined elsewhere in some .c file
-#define KVSTORE_BASIC_MSG_HDR_SIZE ((int) sizeof(void *))
-
-// Maximum size of a value, in bytes
-// Must always == ( MAX_MESSAGE_SIZE - sizeof(basic_message) )
-#define KVSTORE_BASIC_MAX_VALUE_SIZE                                \
-        (MAX_MESSAGE_SIZE - KVSTORE_BASIC_MSG_HDR_SIZE)
-
 typedef int (*key_comparator_fn)(const void *context,
                                  const void *key1,
                                  size_t      key1_len,
