@@ -11,7 +11,7 @@
 #ifndef __LIMITS_H__
 #define __LIMITS_H__
 
-#define MAX_KEY_SIZE     100
+#define MAX_KEY_SIZE 100
 
 // We get assertion from BTree code if this limit is 2000.
 // We get value-too-large error if this is 1800, when FDB seemingly inserts

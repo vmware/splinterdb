@@ -132,7 +132,7 @@ try_string_to_int8(const char *nptr, // IN
 
 // Macro to compute the size of an output char buffer in which n-bytes of
 // data can be reliably printf()'ed in hex format, by debug_hex_encode()
-#define NBYTES2HEX(n)     (2 + (2 * (n)) + 1)
+#define NBYTES2HEX(n) (2 + (2 * (n)) + 1)
 
 // Hex-encode arbitrary bytes to a destination buffer
 //    e.g. 0xc0de4f00de
@@ -150,6 +150,7 @@ void debug_hex_encode(char *      dst,
                       const char *data,
                       size_t      data_len);
 
-void prBytes(const char *data, size_t data_len);
+void
+prBytes(const char *data, size_t data_len);
 
 #endif

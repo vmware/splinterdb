@@ -2,6 +2,10 @@
 #include <string.h>
 
 
+// Function prototypes
+static void
+util__prBytes(const char *teststr);
+
 static const char debug_hex_encode_sample_data[10] =
    {0, 1, 2, 3, 0xa4, 5, 0xd6, 7, 8, 9};
 
@@ -121,18 +125,52 @@ test_util_debug_hex_encode()
 /*
  * Exercise debug print utility method, prBytes(), to see if it works
  * reliably for few cases.
- * Test fn copied from test_util_debug_hex_encode() 
+ * Test fn copied from test_util_debug_hex_encode()
  */
 int
 test_util_prBytes(void)
 {
    fprintf(stderr, "start: test_util_prBytes\n");
 
-   static const char teststr[] = "0x00010203a405d6070809\0xx";
-   prBytes(teststr, sizeof(teststr));
+   char *teststr = "0x00010203a405d6070809\0xx";
+   util__prBytes(teststr);
 
-   prBytes((char *) prBytes, 200);
+   teststr = "abcdefghijklmnopqrstuvwxyz";
+   util__prBytes(teststr);
+
+   teststr = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+   util__prBytes(teststr);
+
+   teststr = "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ";
+   util__prBytes(teststr);
+
+   int nbytes = 200;
+   fprintf(stderr, "\n-- prBytes() on prBytes() for %d bytes\n", nbytes);
+   prBytes((char *)prBytes, nbytes);
+
+   char outbuf[NBYTES2HEX(200)];
+   fprintf(
+      stderr, "\n-- debug_hex_encode() on prBytes() for %d bytes\n", nbytes);
+   debug_hex_encode(outbuf, sizeof(outbuf), (char *)prBytes, nbytes);
+   fprintf(stderr, "%p: %s\n", (void *)prBytes, outbuf);
    return 0;
+}
+
+/*
+ * Helper function to invoke prBytes() and debug_hex_encode() on an input
+ * string. Useful for manual comparison of outputs.
+ */
+static void
+util__prBytes(const char *teststr)
+{
+   fprintf(stderr,
+           "\n-- prBytes() v/s debug_hex_encode() for %lu bytes\n",
+           strlen(teststr));
+   prBytes(teststr, strlen(teststr));
+
+   char outbuf[NBYTES2HEX(200)];
+   debug_hex_encode(outbuf, sizeof(outbuf), teststr, strlen(teststr));
+   fprintf(stderr, "%p: %s\n", (void *)prBytes, outbuf);
 }
 
 int
