@@ -118,9 +118,28 @@ test_util_debug_hex_encode()
    return 0;
 }
 
+/*
+ * Exercise debug print utility method, prBytes(), to see if it works
+ * reliably for few cases.
+ * Test fn copied from test_util_debug_hex_encode() 
+ */
+int
+test_util_prBytes(void)
+{
+   fprintf(stderr, "start: test_util_prBytes\n");
+
+   static const char teststr[] = "0x00010203a405d6070809\0xx";
+   prBytes(teststr, sizeof(teststr));
+
+   prBytes((char *) prBytes, 200);
+   return 0;
+}
+
 int
 util_test(int argc, char *argv[])
 {
+   test_util_prBytes();
+
    int rc = test_util_debug_hex_encode();
    if (rc == 0) {
       fprintf(stderr, "util_test: succeeded\n");

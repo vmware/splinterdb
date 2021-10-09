@@ -1,6 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <ctype.h>
 #include "platform.h"
 
 #include "util.h"
@@ -293,12 +294,12 @@ debug_hex_encode(char *       dst,
                  const char * data,
                  const size_t data_len)
 {
-   if (dst_len == 0) {
+   if (!dst || (dst_len == 0) || !data) {
       return;
    }
 
    // 0x prefix + 2 bytes per octet + \0 terminator
-   size_t max_len = 2 + 2 * data_len + 1;
+   size_t max_len = NBYTES2HEX(data_len);   // 2 + 2 * data_len + 1;
    if (max_len > dst_len) {
       max_len = dst_len;
    }
@@ -324,3 +325,88 @@ debug_hex_encode(char *       dst,
 null_terminate:
    dst[max_len - 1] = '\0';
 }
+
+/*
+ * Utility function to print to stdout / stderr a formatted output of
+ * n-bytes, in hex notation. Characters that are valid ascii are printed
+ * to the side, to facilitiate quick inspection of char data that is
+ * embedded in a byte stream.
+ *
+ * Each line prints 16 bytes. Output format will be like so:
+ *
+ * <addr> 4-sets-of <4-bytes in hex> <ascii dump of 32 bytes>
+ * <addr> 4-sets-of <4-bytes in hex> <ascii dump of 32 bytes>
+ * <addr> <4-bytes in hex>           <ascii dump of remaining bytes>
+ */
+/*
+void hexdump(FILE* fout, int buflen, void* ptr) {
+	unsigned char* buf = (unsigned char*)ptr;
+	int i, j;
+	for (i = 0; i < buflen; i += 32) {
+		fprintf(fout, "%06x: ", i);
+		for (j = 0; j < 32; j++) {
+			if (j == 16)
+				fprintf(fout, "  ");
+			if (i + j < buflen)
+				fprintf(fout, "%02x ", buf[i + j]);
+			else
+				fprintf(fout, "   ");
+		}
+		fprintf(fout, " ");
+		for (j = 0; j < 32; j++) {
+			if (j == 16)
+				fprintf(fout, "  ");
+			if (i + j < buflen)
+				fprintf(fout, "%c", isprint(buf[i + j]) ? buf[i + j] : '.');
+		}
+		fprintf(fout, "\n");
+	}
+}
+*/
+void
+prBytes(const char * datap, const size_t data_len)
+{
+   if (!datap || !data_len)
+      return;
+
+   int  nbytes_per_chunk = 4;
+   int  nchunks = 4;
+   char * linep = (char *) datap;
+
+   int nbytes_per_line = (nbytes_per_chunk * nchunks);
+
+   // Leading byte-counter print format specifier
+   char * bfmt = ((data_len < 10)   ? "[%d] %p" :
+                  (data_len < 100)  ? "[%2d] %p" :
+                  (data_len < 1000) ? "[%3d] %p" : "[%4d] %p");
+
+   // Walk set of 4-bytes-in-a-chunk; print a line of 16 bytes
+   for (int ictr = 0;
+        ictr < data_len;
+        ictr += nbytes_per_line, linep += nbytes_per_line) {
+
+        platform_error_log(bfmt, ictr, linep);
+		for (int jctr = 0; jctr < nbytes_per_line; jctr++) {
+
+			if ((jctr % nbytes_per_chunk) == 0)
+				platform_error_log(" ");
+
+			if ((ictr + jctr) < data_len)
+				platform_error_log("%02x", linep[jctr]);
+			else
+				platform_error_log("  ");
+		}
+		platform_error_log(" ");
+		for (int jctr = 0; jctr < nbytes_per_line; jctr++) {
+
+			if ((jctr % nbytes_per_chunk) == 0)
+				platform_error_log(" ");
+			if (ictr + jctr < data_len)
+				platform_error_log("%c",
+                        isprint(linep[jctr]) ? linep[jctr] : '.');
+		}
+		platform_error_log("\n");
+	}
+
+}
+
