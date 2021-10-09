@@ -2,13 +2,6 @@
  * Copyright 2018-2020 VMware, Inc.  All rights reserved. -- VMware Confidential
  * **********************************************************/
 
-
-/*
- * btree_node.c --
- *
- *     This file contains the operations on individual b-tree nodes.
- */
-
 #include "dynamic_btree.h"
 #include "poison.h"
 
@@ -276,7 +269,7 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
    }
 
    platform_assert(k <= hdr->num_entries);
-   uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k;
+   uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k + 1;
    if (hdr->next_entry - index_entry_size(new_pivot_key) < diff_ptr(hdr, &hdr->offsets[new_num_entries + 1])) {
      return FALSE;
    }
@@ -625,49 +618,53 @@ dynamic_btree_choose_leaf_split(const dynamic_btree_config *cfg, // IN
                                 const slice                 message, // IN
                                 slice                      *splitting_key) // OUT
 {
+   bool found;
+   int64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
+
    /* Split the content by bytes -- roughly half the bytes go to the
       right node.  So count the bytes, including the new entry to be
       inserted. */
   uint64 total_entry_bytes = leaf_entry_size(key, message);
    for (uint64 i = 0; i < dynamic_btree_num_entries(hdr); i++) {
-     leaf_entry *entry  = dynamic_btree_get_leaf_entry(cfg, hdr, i);
-     total_entry_bytes += sizeof_leaf_entry(entry);
+     if (i != idx || !found) {
+       leaf_entry *entry  = dynamic_btree_get_leaf_entry(cfg, hdr, i);
+       total_entry_bytes += sizeof_leaf_entry(entry);
+     }
    }
-   total_entry_bytes += (dynamic_btree_num_entries(hdr) + 1) * sizeof(table_entry);
+   total_entry_bytes += (dynamic_btree_num_entries(hdr) + !found) * sizeof(table_entry);
 
-   bool found;
-   int64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
    uint64 total_node_space = cfg->page_size - sizeof(*hdr);
 
    /* Now figure out the number of entries to move, and figure out how
       much free space will be created in the left_hdr by the split. */
-   uint64 target_left_entries  = 0;
+   int64 target_left_entries  = 0;
    uint64 new_left_entry_bytes = 0;
-   while (new_left_entry_bytes < total_entry_bytes / 2) {
-     leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, hdr, target_left_entries);
-     if (target_left_entries == idx) {
-       if (new_left_entry_bytes + sizeof(table_entry) + leaf_entry_size(key, message) < total_node_space) {
-         new_left_entry_bytes += sizeof(table_entry) + leaf_entry_size(key, message);
-         *splitting_key = leaf_entry_key_slice(entry);
-         if (new_left_entry_bytes >= total_entry_bytes / 2)
-           break;
-       } else {
-         break;
-       }
-     }
-     if (new_left_entry_bytes + sizeof(table_entry) + sizeof_leaf_entry(entry) < total_node_space) {
-       new_left_entry_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
-       target_left_entries++;
-       if (target_left_entries == idx) {
-         *splitting_key = key;
-       } else {
-         leaf_entry *next_entry = dynamic_btree_get_leaf_entry(cfg, hdr, target_left_entries);
-         *splitting_key = leaf_entry_key_slice(next_entry);
-       }
-     } else {
-       break;
-     }
+   leaf_entry *entry = NULL;
+
+   while (new_left_entry_bytes < total_entry_bytes / 2 &&
+          target_left_entries < idx) {
+     entry = dynamic_btree_get_leaf_entry(cfg, hdr, target_left_entries);
+     new_left_entry_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
+     target_left_entries++;
    }
+   if (entry)
+     *splitting_key = leaf_entry_key_slice(entry);
+
+   if (target_left_entries >= idx &&
+       new_left_entry_bytes + sizeof(table_entry) + leaf_entry_size(key, message) < total_node_space) {
+     new_left_entry_bytes += sizeof(table_entry) + leaf_entry_size(key, message);
+   }
+   if (target_left_entries == idx && found)
+     target_left_entries++;
+
+   while (new_left_entry_bytes < total_entry_bytes / 2 &&
+          target_left_entries < dynamic_btree_num_entries(hdr)) {
+     entry = dynamic_btree_get_leaf_entry(cfg, hdr, target_left_entries);
+     new_left_entry_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
+     target_left_entries++;
+   }
+   *splitting_key = leaf_entry_key_slice(entry);
+
    return target_left_entries;
 }
 
