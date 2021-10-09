@@ -366,18 +366,22 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
       return EINVAL;
    }
 
+   char msg_buffer[MAX_MESSAGE_SIZE] = {0};
+
    if (val_len > kvsb->max_app_val_size) {
+      debug_hex_encode(msg_buffer, sizeof(msg_buffer), value, 200);
       platform_error_log("kvstore_basic_insert: val_len, %lu, exceeds"
-                         " max_value_size, %lu bytes; value='%.*s ...'\n",
+                         " max_value_size, %lu bytes; key='%.*s', value='%.*s ...'\n"
+                         "-> %s\n",
                          val_len,
                          kvsb->max_app_val_size,
+                         (int) key_len, key,
                          (int)kvsb->max_app_val_size,
-                         value);
+                         value, msg_buffer);
       return EINVAL;
    }
 
    char key_buffer[MAX_KEY_SIZE]     = {0};
-   char msg_buffer[MAX_MESSAGE_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
    encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
    return kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
