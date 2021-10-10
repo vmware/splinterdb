@@ -301,13 +301,60 @@ cleanup:
 }
 
 /*
- * Test case to verify core interfaces when value-size is > max value-size.
+ * Test case to verify core interfaces when value-size is > max value-size
+ * and key-size is also max-key-size, then insert will fail.
  * Here, we basically exercise the insert interface, which will trip up
- * if very large values are supplied. (Once insert fails, there is
- * no further need to verify the other interfaces for very-large-values.)
+ * because for chunking up wide-values we need at least 1 spare byte in the
+ * key (to generate the chunk counter).
  */
 int
-test_kvstore_basic_value_size_gt_max_value_size()
+test_kvstore_insert_value_gt_max_value_size_with_max_key()
+{
+   kvstore_basic *   kvsb;
+   kvstore_basic_cfg cfg = {0};
+
+   int rc = setup_kvstore_basic(&kvsb, &cfg);
+   if (rc != 0) {
+      return -1;
+   }
+
+   size_t max_key_len = cfg.max_key_size;
+   char *max_key = calloc(1, max_key_len);
+   size_t            too_large_value_len = cfg.max_value_size + 1;
+   char *            too_large_value     = calloc(1, too_large_value_len);
+
+   memset(max_key, 'M', max_key_len);
+   memset(too_large_value, 'z', too_large_value_len);
+   rc = kvstore_basic_insert(
+      kvsb, max_key, max_key_len, too_large_value, too_large_value_len);
+
+   test_assert(rc == EINVAL, "insert too-large value, with max-key-size (%lu): %d",
+               max_key_len, rc);
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
+   rc = 0;
+
+cleanup:
+   if (max_key)
+       free(max_key);
+   if (too_large_value)
+      free(too_large_value);
+   kvstore_basic_close(kvsb);
+
+   if (rc == 0) {
+      fprintf(stderr, "succeeded\n");
+      return 0;
+   } else {
+      fprintf(stderr, "FAILED\n");
+      return -1;
+   }
+}
+
+/*
+ * Test case to verify core interfaces when value-size is > max value-size
+ * but key-size is short-enough that we can still do chunked insertions.
+ */
+int
+test_kvstore_insert_value_size_gt_max_value_size_with_short_keys()
 {
    kvstore_basic *   kvsb;
    kvstore_basic_cfg cfg = {0};
@@ -325,9 +372,50 @@ test_kvstore_basic_value_size_gt_max_value_size()
    rc = kvstore_basic_insert(
       kvsb, short_key, sizeof(short_key), too_large_value, too_large_value_len);
 
-   test_assert(rc == EINVAL, "insert too-large value: %d", rc);
+   // test_assert(rc == EINVAL, "insert too-large value: %d", rc);
+   test_assert_rc(rc, "insert too-large value: %d", rc);
 
-   fprintf(stderr, "large value handling is correct\n");
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
+   rc = 0;
+
+cleanup:
+   if (too_large_value)
+      free(too_large_value);
+   kvstore_basic_close(kvsb);
+   if (rc == 0) {
+      fprintf(stderr, "succeeded\n");
+      return 0;
+   } else {
+      fprintf(stderr, "FAILED\n");
+      return -1;
+   }
+}
+
+/*
+ * Test case to verify core interfaces for very large values which will
+ * be chunked up in multiple inserts.
+ */
+int
+test_kvstore_insert_very_large_values_with_short_keys()
+{
+   kvstore_basic *   kvsb;
+   kvstore_basic_cfg cfg = {0};
+
+   int rc = setup_kvstore_basic(&kvsb, &cfg);
+   if (rc != 0) {
+      return -1;
+   }
+
+   size_t            too_large_value_len = (3 * cfg.max_value_size) + 100;
+   char *            too_large_value     = calloc(1, too_large_value_len);
+   static const char short_key[]         = "a_short_key";
+
+   memset(too_large_value, 'Z', too_large_value_len);
+   rc = kvstore_basic_insert(
+      kvsb, short_key, sizeof(short_key), too_large_value, too_large_value_len);
+
+   test_assert_rc(rc, "insert very-wide values: %d", rc);
+
    fprintf(stderr, "%s: PASS\n", __FUNCTION__);
    rc = 0;
 
@@ -1094,8 +1182,14 @@ kvstore_basic_test(int argc, char *argv[])
    test_assert_rc(test_kvstore_basic_key_size_gt_max_key_size(),
                   "kvstore_basic_key_size_gt_max_key_size");
 
-   test_assert_rc(test_kvstore_basic_value_size_gt_max_value_size(),
-                  "kvstore_basic_value_size_gt_max_value_size");
+   test_assert_rc(test_kvstore_insert_value_gt_max_value_size_with_max_key(),
+                  "kvstore_insert_value_gt_max_value_size_with_max_key");
+
+   test_assert_rc(test_kvstore_insert_value_size_gt_max_value_size_with_short_keys(),
+                  "kvstore_insert_value_size_gt_max_value_size_with_short_keys");
+
+   test_assert_rc(test_kvstore_insert_very_large_values_with_short_keys(),
+                  "kvstore_insert_very_large_values_with_short_keys");
 
    fprintf(stderr, "\nstart: kvstore_basic variable-length values\n");
    test_assert_rc(test_kvstore_basic_variable_length_values(),

@@ -84,6 +84,28 @@ static_assert(sizeof(basic_message) == KVSTORE_BASIC_MSG_HDR_SIZE,
 static_assert(offsetof(basic_message, value[0]) == sizeof(void *),
               "start of data value should be aligned to pointer access");
 
+// Return values from check on insert's physical limits
+typedef enum {
+     KV_INS_FAIL         = 0
+   , KV_INS_WIDEVAL
+   , KV_INS_INROW
+} kvs_ins_phycheck_rv;
+
+// Funtion prototypes
+
+static int kvstore_insert_wideval(const kvstore_basic *kvsb,
+                     const char *         key,
+                     const size_t         key_len,
+                     const char *         value,
+                     const size_t         val_len,
+                     int *                nchunks);
+
+static kvs_ins_phycheck_rv kvstore_basic_check_insert_limits(const kvstore_basic *kvsb,
+                     const char *         key,
+                     const size_t         key_len,
+                     const char *         value,
+                     const size_t         val_len);
+
 static int
 variable_len_compare(const void *context,
                      const void *key1,
@@ -356,31 +378,110 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
                      const char *         value,
                      const size_t         val_len)
 {
-   if (key_len > kvsb->max_app_key_size) {
-      platform_error_log("kvstore_basic_insert: key_len, %lu, exceeds"
-                         " max_key_size, %lu bytes; key='%.*s'\n",
-                         key_len,
-                         kvsb->max_app_key_size,
-                         (int)key_len,
-                         key);
-      return EINVAL;
-   }
-
-   if (val_len > kvsb->max_app_val_size) {
-      platform_error_log("kvstore_basic_insert: val_len, %lu, exceeds"
-                         " max_value_size, %lu bytes; key='%.*s', value:\n",
-                         val_len,
-                         kvsb->max_app_val_size,
-                         (int) key_len, key);
-      prBytes(value, val_len);
+   kvs_ins_phycheck_rv ins_rv;
+   ins_rv = kvstore_basic_check_insert_limits(kvsb,
+                                          key,
+                                          key_len,
+                                          value,
+                                          val_len);
+   if (!ins_rv) {
       return EINVAL;
    }
 
    char key_buffer[MAX_KEY_SIZE]     = {0};
    char msg_buffer[MAX_MESSAGE_SIZE] = {0};
-   encode_key(key_buffer, key, key_len);
-   encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
-   return kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
+   int rv = 0;
+   if (ins_rv == KV_INS_WIDEVAL) {
+
+       // Also used to return chunk ctr at which insertion fails
+       int nchunks = 0;
+       rv = kvstore_insert_wideval(kvsb, key, key_len, value, val_len,
+                                   &nchunks);
+       if (rv) {
+           platform_error_log("*** Insert wide values failed while inserting"
+                              " chunk number %d;"
+                              " key_len=%lu, val_len=%lu, key='%.*s'\n",
+                              nchunks, key_len, val_len,
+                              (int) key_len, key);
+       }
+   }
+   else {
+       encode_key(key_buffer, key, key_len);
+       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
+       rv = kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
+   }
+   return rv;
+}
+
+/*
+ * Wrapper routine to drive the insertion of wide values into the KVS.
+ * Chunk up the value into max–value-size pieces, and insert multiple
+ * chunks. The 2nd chunk onwards, the key is extended with a 1-byte counter
+ * to number the chunks. (1st chunk is implicitly ctr==0.)
+ * Caller has verified that we have sufficient space in the key to track
+ * counter of chunks.
+ *
+ * Returns: Insert return value. # of chunks inserted is returned as an
+ *  output parameter. If function fails overall, nchunks will give the
+ *  chunk number at which last attempted insert failed.
+ */
+static int
+kvstore_insert_wideval(const kvstore_basic *kvsb,
+                       const char *         key,
+                       const size_t         key_len,
+                       const char *         value,
+                       const size_t         val_len,
+                       int *                nchunks)
+{
+    int ins_rv = 0;
+    return ins_rv;
+    // kvsb->max_app_key_size
+
+   char key_buffer[MAX_KEY_SIZE]     = {0};
+   char msg_buffer[MAX_MESSAGE_SIZE] = {0};
+
+   // Init local variables to insert 0th chunk
+   char * valp = (char *) value;
+   int cctr = 0;
+   int rem_len = (int) val_len;
+   size_t keylen = key_len;
+   size_t vallen = val_len;
+
+    // Chunk up values into max-value pieces, and insert each key
+    while (rem_len > 0) {
+        char thiskey[KVSTORE_BASIC_MAX_KEY_SIZE];
+        if (cctr) {
+            snprintf(thiskey, sizeof(thiskey), "%.*s%d",
+                     (int) key_len, key, cctr);
+        }
+        else {
+            snprintf(thiskey, sizeof(thiskey), "%.*s", (int) key_len, key);
+        }
+
+       vallen = ((rem_len >= kvsb->max_app_key_size)
+                    ? kvsb->max_app_key_size : rem_len);
+       encode_key(key_buffer, thiskey, keylen);
+       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, valp, vallen);
+
+       // Insert new chunk, and return immediately on failure.
+       ins_rv = kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
+       if (ins_rv)
+           break;
+
+        // Position to start of next chunk of value
+        valp += kvsb->max_app_key_size;
+        rem_len -= kvsb->max_app_key_size;
+
+        // All keys after the 0th key are byte-extended with chunk counter
+        if (!cctr)
+            keylen++;
+        cctr++;
+    }
+    // Return # of chunks we inserted, which will also be the chunk #
+    // we last tried to insert and failed.
+    if (nchunks)
+        *nchunks = cctr;
+    return ins_rv;
 }
 
 int
@@ -539,4 +640,60 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
    *val_len                    = msg->value_length;
    *key                        = (char *)(key_enc->data);
    *value                      = (char *)(msg->value);
+}
+
+/*
+ * Error checking for physical limits that we can support during inserts.
+ *
+ * Returns:
+ */
+static kvs_ins_phycheck_rv
+kvstore_basic_check_insert_limits(const kvstore_basic *kvsb,
+                                  const char *         key,
+                                  const size_t         key_len,
+                                  const char *         value,
+                                  const size_t         val_len)
+{
+   if (key_len > kvsb->max_app_key_size) {
+      platform_error_log("kvstore_basic_insert: key_len, %lu, exceeds"
+                         " max_key_size, %lu bytes; key='%.*s'\n",
+                         key_len,
+                         kvsb->max_app_key_size,
+                         (int)key_len,
+                         key);
+      return KV_INS_FAIL;
+   }
+
+   // In order to support value sizes that are larger than the limit
+   // supported, we chunk up large values, followed by multiple inserts.
+   // These chunks are tracked by a 1-byte value-counter snuck away at
+   // end of each key. So, it's a physical limitation error if the value
+   // is "too big" and there is no spare byte in the key.
+   if (val_len > kvsb->max_app_val_size) {
+      if (key_len == kvsb->max_app_key_size) {
+          platform_error_log("kvstore_basic_insert: Cannot insert large"
+                             " value. val_len, %lu, exceeds"
+                             " max_value_size, %lu bytes, and key is at"
+                             " max_key_size, %lu bytes. key='%.*s'."
+                             " Value=\n",
+                             val_len,
+                             kvsb->max_app_val_size,
+                             kvsb->max_app_key_size,
+                             (int) key_len, key);
+          prBytes(value, kvsb->max_app_val_size);
+          return KV_INS_FAIL;
+      }
+      return KV_INS_WIDEVAL;
+   }
+
+   if (val_len > kvsb->max_app_val_size) {
+      platform_error_log("kvstore_basic_insert: val_len, %lu, exceeds"
+                         " max_value_size, %lu bytes; key='%.*s', value:\n",
+                         val_len,
+                         kvsb->max_app_val_size,
+                         (int) key_len, key);
+      prBytes(value, val_len);
+      return KV_INS_FAIL;
+   }
+   return KV_INS_INROW;
 }
