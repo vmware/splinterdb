@@ -21,11 +21,13 @@
 #include "splinterdb/kvstore_basic.h"
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define Mega (1024UL * 1024UL)
 
@@ -728,6 +730,56 @@ cleanup:
    return rc;
 }
 
+int test_kvstore_basic_lots_of_data()
+{
+   kvstore_basic *   kvsb;
+   kvstore_basic_cfg cfg = {0};
+
+   cfg.cache_size = 200 * Mega;
+   cfg.disk_size = 900 * Mega;
+   cfg.max_key_size = 22;
+   cfg.max_value_size = 116;
+   int rc = setup_kvstore_basic(&kvsb, &cfg);
+   if (rc != 0) {
+      return -1;
+   }
+
+   int random_data = open("/dev/urandom", O_RDONLY);
+   if (random_data < 0) {
+      return -1;
+   }
+
+   char key_buf[KVSTORE_BASIC_MAX_KEY_SIZE] = {0};
+   char value_buf[KVSTORE_BASIC_MAX_VALUE_SIZE] = {0};
+
+   fprintf(stderr, "writing lots of data...");
+   for (uint64_t i = 0; i < 2 * Mega; i ++ ) {
+      size_t result = read(random_data, key_buf, sizeof key_buf);
+      if (result < 0) {
+         rc = -1;
+         break;
+      }
+      result = read(random_data, value_buf, sizeof key_buf);
+      if (result < 0) {
+         rc = -1;
+         break;
+      }
+      rc = kvstore_basic_insert(
+         kvsb, key_buf, cfg.max_key_size, value_buf, cfg.max_value_size);
+      test_assert_rc(rc, "insert: %d", rc);
+   }
+
+cleanup:
+   kvstore_basic_close(kvsb);
+   if (rc == 0) {
+      fprintf(stderr, "succeeded\n");
+      return 0;
+   } else {
+      fprintf(stderr, "FAILED\n");
+      return -1;
+   }
+}
+
 int
 kvstore_basic_test(int argc, char *argv[])
 {
@@ -758,6 +810,10 @@ kvstore_basic_test(int argc, char *argv[])
    fprintf(stderr, "start: kvstore_basic close and re-open\n");
    test_assert_rc(test_kvstore_basic_close_and_reopen(),
                   "kvstore_basic_close_and_reopen");
+
+   fprintf(stderr, "start: kvstore_basic lots of data\n");
+   test_assert_rc(test_kvstore_basic_lots_of_data(),
+                  "kvstore_basic_lots_of_data");
 cleanup:
    if (rc == 0) {
       fprintf(stderr, "OK\n");
