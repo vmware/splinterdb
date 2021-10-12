@@ -38,10 +38,10 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 
    *cfg = (kvstore_basic_cfg){
       .filename       = TEST_DB_NAME,
-      .cache_size     = Mega,
-      .disk_size      = 30 * Mega,
-      .max_key_size   = 21, // less than MAX_KEY_SIZE, just to try things out
-      .max_value_size = 16,
+      .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
+      .disk_size      = (cfg->disk_size) ? cfg->disk_size : 30 * Mega,
+      .max_key_size   = (cfg->max_key_size) ? cfg->max_key_size : 21,
+      .max_value_size = (cfg->max_value_size) ? cfg->max_value_size: 16,
       .key_comparator = cfg->key_comparator,
       .key_comparator_context = cfg->key_comparator_context,
    };
