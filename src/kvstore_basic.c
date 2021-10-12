@@ -8,7 +8,7 @@
  *
  *     API deals with keys/values rather than keys/messages.
  */
-
+#include <unistd.h>
 #include "platform.h"
 
 #include "splinterdb/kvstore.h"
@@ -72,7 +72,7 @@ static_assert((MAX_KEY_SIZE ==
 // and the size of the value in bytes
 typedef struct KVSB_PACK_PTR {
    uint8  type;         // offset 0
-   uint8  _reserved1;   // offset 1
+   uint8  n_chunks;     // # of chunks of max-value size inserted
    uint16 _reserved2;   // offset 2
    uint32 value_length; // offset 4
    uint8  value[0]; // offset 8: 1st byte of value, aligned for 64-bit access
@@ -197,16 +197,23 @@ encode_key(void *key_buffer, const void *key, size_t key_len)
    memmove(&(key_enc->data), key, key_len);
 }
 
+/*
+ * "Encode" a value into the message buffer. Sets up the fields in the
+ * basic_message{} struct, and copies over user-supplied value to the
+ * msg buffer.
+ */
 static void
 encode_value(void *       msg_buffer,
              message_type type,
              const void * value,
-             size_t       value_len)
+             size_t       value_len,
+             int          n_chunks)
 {
    basic_message *msg = (basic_message *)msg_buffer;
    msg->type          = type;
    platform_assert(value_len <= UINT32_MAX &&
                    value_len <= KVSTORE_BASIC_MAX_VALUE_SIZE);
+   msg->n_chunks = n_chunks;
    msg->value_length = value_len;
    memmove(&(msg->value), value, value_len);
 }
@@ -369,6 +376,8 @@ void
 kvstore_basic_register_thread(const kvstore_basic *kvsb)
 {
    kvstore_register_thread(kvsb->kvs);
+   platform_error_log("\n[Sp: ThreadID=%lu, %d] Registered\n",
+                      platform_get_tid(), gettid());
 }
 
 int
@@ -398,18 +407,26 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
        rv = kvstore_insert_wideval(kvsb, key, key_len, value, val_len,
                                    &nchunks);
        if (rv) {
-           platform_error_log("*** Insert wide values failed while inserting"
+           platform_error_log("\n*** [Sp: ThreadID=%lu, %d] Insert wide values"
+                              " failed while inserting"
                               " chunk number %d;"
                               " key_len=%lu, val_len=%lu, key='%.*s'\n",
+                              platform_get_tid(), gettid(),
                               nchunks, key_len, val_len,
                               (int) key_len, key);
+           return rv;
        }
    }
    else {
        encode_key(key_buffer, key, key_len);
-       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
+       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len, 0);
        rv = kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
    }
+   platform_error_log("\n[Sp: ThreadID=%lu, %d] Insert %s succeeded:"
+                      " key_len=%lu, key='%.*s'\n",
+                      platform_get_tid(), gettid(),
+                      ((ins_rv == KV_INS_WIDEVAL) ? "wide row" : ""),
+                      key_len, (int) key_len, key);
    return rv;
 }
 
@@ -433,10 +450,7 @@ kvstore_insert_wideval(const kvstore_basic *kvsb,
                        const size_t         val_len,
                        int *                nchunks)
 {
-    int ins_rv = 0;
-    return ins_rv;
-    // kvsb->max_app_key_size
-
+   int ins_rv = 0;
    char key_buffer[MAX_KEY_SIZE]     = {0};
    char msg_buffer[MAX_MESSAGE_SIZE] = {0};
 
@@ -447,6 +461,11 @@ kvstore_insert_wideval(const kvstore_basic *kvsb,
    size_t keylen = key_len;
    size_t vallen = val_len;
 
+   // # of chunks for entire value @max_app_val_size per key
+   int n_chunks = CEILING(val_len, kvsb->max_app_val_size);
+
+   platform_error_log("**** Info! %s: %d chunks inserted\n",
+                      __FUNCTION__, n_chunks);
     // Chunk up values into max-value pieces, and insert each key
     while (rem_len > 0) {
         char thiskey[KVSTORE_BASIC_MAX_KEY_SIZE];
@@ -458,10 +477,10 @@ kvstore_insert_wideval(const kvstore_basic *kvsb,
             snprintf(thiskey, sizeof(thiskey), "%.*s", (int) key_len, key);
         }
 
-       vallen = ((rem_len >= kvsb->max_app_key_size)
-                    ? kvsb->max_app_key_size : rem_len);
+       vallen = ((rem_len >= kvsb->max_app_val_size)
+                    ? kvsb->max_app_val_size : rem_len);
        encode_key(key_buffer, thiskey, keylen);
-       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, valp, vallen);
+       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, valp, vallen, n_chunks);
 
        // Insert new chunk, and return immediately on failure.
        ins_rv = kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
@@ -469,12 +488,16 @@ kvstore_insert_wideval(const kvstore_basic *kvsb,
            break;
 
         // Position to start of next chunk of value
-        valp += kvsb->max_app_key_size;
-        rem_len -= kvsb->max_app_key_size;
+        valp += kvsb->max_app_val_size;
+        rem_len -= kvsb->max_app_val_size;
 
-        // All keys after the 0th key are byte-extended with chunk counter
-        if (!cctr)
+        // All keys after the 0th key are byte-extended with chunk counter.
+        // Total # of chunks in entire stream is tracked only in the 0th
+        // chunk.
+        if (!cctr) {
             keylen++;
+            n_chunks = 0;
+        }
         cctr++;
     }
     // Return # of chunks we inserted, which will also be the chunk #
@@ -502,7 +525,7 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
    char key_buffer[MAX_KEY_SIZE]     = {0};
    char msg_buffer[MAX_MESSAGE_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   encode_value(msg_buffer, MESSAGE_TYPE_DELETE, NULL, 0);
+   encode_value(msg_buffer, MESSAGE_TYPE_DELETE, NULL, 0, 0);
    return kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
 }
 
@@ -556,6 +579,17 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
 
    *val_truncated = (msg->value_length > n_bytes);
 
+   // Track lookups of wide-values, where we are missing out on data
+   if (msg->n_chunks) {
+      platform_error_log("\n**** Warning! kvstore_basic_lookup: %d chunks"
+                         " of wide-value are missing. Key_len, %lu"
+                         " max_key_size, %lu bytes; key='%.*s'\n",
+                         (msg->n_chunks - 1), key_len,
+                         kvsb->max_app_key_size,
+                         (int)key_len,
+                         key);
+      return -1;
+   }
    return result;
 }
 
