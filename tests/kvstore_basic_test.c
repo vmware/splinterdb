@@ -43,7 +43,7 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
       .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
       .disk_size      = (cfg->disk_size) ? cfg->disk_size : 30 * Mega,
       .max_key_size   = (cfg->max_key_size) ? cfg->max_key_size : 21,
-      .max_value_size = (cfg->max_value_size) ? cfg->max_value_size: 16,
+      .max_value_size = (cfg->max_value_size) ? cfg->max_value_size : 16,
       .key_comparator = cfg->key_comparator,
       .key_comparator_context = cfg->key_comparator_context,
    };
@@ -730,16 +730,17 @@ cleanup:
    return rc;
 }
 
-int test_kvstore_basic_lots_of_data()
+int
+test_kvstore_basic_lots_of_data()
 {
    kvstore_basic *   kvsb;
    kvstore_basic_cfg cfg = {0};
 
-   cfg.cache_size = 200 * Mega;
-   cfg.disk_size = 900 * Mega;
-   cfg.max_key_size = 22;
+   cfg.cache_size     = 200 * Mega;
+   cfg.disk_size      = 900 * Mega;
+   cfg.max_key_size   = 22;
    cfg.max_value_size = 116;
-   int rc = setup_kvstore_basic(&kvsb, &cfg);
+   int rc             = setup_kvstore_basic(&kvsb, &cfg);
    if (rc != 0) {
       return -1;
    }
@@ -749,11 +750,11 @@ int test_kvstore_basic_lots_of_data()
       return -1;
    }
 
-   char key_buf[KVSTORE_BASIC_MAX_KEY_SIZE] = {0};
+   char key_buf[KVSTORE_BASIC_MAX_KEY_SIZE]     = {0};
    char value_buf[KVSTORE_BASIC_MAX_VALUE_SIZE] = {0};
 
    fprintf(stderr, "writing lots of data...");
-   for (uint64_t i = 0; i < 2 * Mega; i ++ ) {
+   for (uint64_t i = 0; i < 2 * Mega; i++) {
       size_t result = read(random_data, key_buf, sizeof key_buf);
       if (result < 0) {
          rc = -1;
