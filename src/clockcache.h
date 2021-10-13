@@ -56,6 +56,7 @@ typedef struct history_record {
 struct clockcache_entry {
    page_handle     page;
    volatile uint32 status;
+   bool shadow;
    uint32 old_entry_no;
    page_type type;
 #ifdef RECORD_ACQUISITION_STACKS
