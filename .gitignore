@@ -10,4 +10,3 @@ data/
 db
 cache-log
 tags
-build.sh
