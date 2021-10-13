@@ -2364,6 +2364,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
    debug_assert(allocator_get_refcount(cc->al, base_addr) > 1);
 
    entry_number = clockcache_lookup(cc, addr);
+   /*
    if(clockcache_lock_checkflag(cc, entry_number, CC_ACCESSED)){
       if(clockcache_get_ref(cc, entry_number, platform_get_tid()) == 0)
       clockcache_inc_ref(cc, entry_number, platform_get_tid());
@@ -2380,6 +2381,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
 
       return FALSE;
    }
+   */
 
    /* When an entry_number == CC_UNMAPPED_ENTRY,
     * it means we are either in the wrong cache (page is migrated),
