@@ -51,6 +51,7 @@ ThreadContext *get_context(ThreadContext *contextMap, threadid idx) {
 
 
 int ctx_lock(ThreadContext *ctx){
+/*
    ctx->locksHeld++;
 
    if(!ctx->trackTxs){
@@ -62,7 +63,7 @@ int ctx_lock(ThreadContext *ctx){
       //tx_open(ctx);
       ctx->openTxs++;
    }
-
+*/
    return 0;
 }
 
@@ -81,7 +82,7 @@ int unlockall_or_unlock_delay(ThreadContext *ctx){
 
 
 int ctx_unlock(ThreadContext *ctx){
-
+/*
     if(ctx->locksHeld > 0)
         ctx->locksHeld--;
     assert(ctx->locksHeld >= 0);
@@ -98,7 +99,7 @@ int ctx_unlock(ThreadContext *ctx){
         //tx_commit(ctx);
         ctx->endTxs--;
     }
-
+*/
     return 0;
 }
 
@@ -107,8 +108,8 @@ int ctx_unlock(ThreadContext *ctx){
 void start_nontx(ThreadContext *ctx){
    //assert(ctx->trackTxs);
 
-   assert(ctx->lock_curr == 0);
-   assert(!isinTX(ctx));
+//   assert(ctx->lock_curr == 0);
+//   assert(!isinTX(ctx));
    ctx->trackTxnum++;
     
    ctx->trackTxs = FALSE;
@@ -128,8 +129,7 @@ void start_nontx_withlocks(ThreadContext *ctx){
 
 void end_nontx(ThreadContext *ctx){
    //assert(!ctx->trackTxs);
-  
-   assert(!isinTX(ctx));
+//   assert(!isinTX(ctx));
    ctx->trackTxnum--;
    if(ctx->trackTxnum == 0)   
    ctx->trackTxs = TRUE;
@@ -153,3 +153,4 @@ bool isinTX(ThreadContext *ctx){
    else
       return FALSE;
 }
+
