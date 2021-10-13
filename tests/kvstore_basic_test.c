@@ -682,17 +682,17 @@ test_kvstore_basic_close_and_reopen()
    kvstore_basic_cfg cfg  = {0};
    int               rc   = 0;
 
-   char * key     = "some-key";
-   size_t key_len = sizeof("some-key");
-   bool   found, val_truncated;
-   char * value = calloc(1, cfg.max_value_size);
-   size_t val_len;
-
    fprintf(stderr, "remove old db...");
    test_assert(remove(TEST_DB_NAME) == 0, "removing old db");
 
    fprintf(stderr, "creating new db...");
    test_assert_rc(setup_kvstore_basic(&kvsb, &cfg), "setup");
+
+   char * key     = "some-key";
+   size_t key_len = sizeof("some-key");
+   bool   found, val_truncated;
+   char * value = calloc(1, cfg.max_value_size);
+   size_t val_len;
 
    fprintf(stderr, "insert...");
    test_assert_rc(kvstore_basic_insert(
