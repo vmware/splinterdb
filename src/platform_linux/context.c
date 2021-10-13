@@ -68,10 +68,10 @@ int ctx_lock(ThreadContext *ctx){
 
 
 int unlockall_or_unlock_delay(ThreadContext *ctx){
-    if(!ctx->trackTxs){
+//    if(!ctx->trackTxs){
 	//assert(!isinTX(ctx));
 	return NONTXUNLOCK;
-    }
+//    }
     if (ctx->locksHeld == 0 && ctx->endTxs == 0) {
         return UNLOCKALL;
     }
