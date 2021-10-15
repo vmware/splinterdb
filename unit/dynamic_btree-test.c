@@ -14,7 +14,7 @@ static int leaf_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scra
 {
   char leaf_buffer[cfg->page_size];
   dynamic_btree_hdr *hdr = (dynamic_btree_hdr *)leaf_buffer;
-  int nkvs = 302;
+  int nkvs = 240;
 
   dynamic_btree_init_hdr(cfg, hdr);
 
@@ -46,7 +46,7 @@ static int leaf_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scra
       platform_log("bad 4-byte message %ld\n", i);
   }
 
-  dynamic_btree_defragment_leaf(cfg, scratch, hdr);
+  dynamic_btree_defragment_leaf(cfg, scratch, hdr, -1);
 
   for (uint64 i = 0; i < nkvs; i++) {
     slice key = dynamic_btree_get_tuple_key(cfg, hdr, i);
@@ -77,8 +77,9 @@ static int leaf_hdr_search_tests(dynamic_btree_config *cfg, dynamic_btree_scratc
 
     slice key     = slice_create(1, &keybuf);
     slice message = slice_create(i % 8, messagebuf);
-    leaf_add_result result = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, hdr, key, message, &generation);
-    if (result != leaf_add_result_new_key)
+    leaf_incorporate_spec spec;
+    bool result = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, hdr, key, message, &spec, &generation);
+    if (!result)
       platform_log("couldn't incorporate kv pair %d\n", i);
     if (generation != i)
       platform_log("bad generation %d %lu\n", i, generation);
@@ -176,40 +177,41 @@ static int index_hdr_search_tests(dynamic_btree_config *cfg)
   return 0;
 }
 
-static int leaf_split_tests(dynamic_btree_config *cfg)
+static int leaf_split_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch, int nkvs)
 {
   char leaf_buffer[cfg->page_size];
   char msg_buffer[cfg->page_size];
   dynamic_btree_hdr *hdr = (dynamic_btree_hdr *)leaf_buffer;
 
-  slice dog    = slice_create(3, "dog");
-  slice marmut = slice_create(6, "marmut");
-  slice msg    = slice_create(4 * cfg->page_size / 10, msg_buffer);
-
   dynamic_btree_init_hdr(cfg, hdr);
-  if (!dynamic_btree_set_leaf_entry(cfg, hdr, 0, dog, msg))
-    platform_log("failed to insert kvpair dog\n");
-  if (!dynamic_btree_set_leaf_entry(cfg, hdr, 1, marmut, msg))
-    platform_log("failed to insert kvpair marmut\n");
 
-  slice cat   = slice_create(3, "cat");
-  slice emu   = slice_create(3, "emu");
-  slice zebra = slice_create(5, "zebra");
+  int msgsize = cfg->page_size / (nkvs + 1);
+  slice msg    = slice_create(msgsize, msg_buffer);
+  slice bigger_msg = slice_create(msgsize + sizeof(table_entry) + 1, msg_buffer);
 
-  uint64 idx;
-  slice splitting_key;
+  uint8 realnkvs = 0;
+  while (realnkvs < nkvs) {
+    uint8 keybuf[1];
+    keybuf[0] = 2 * realnkvs + 1;
+    if (!dynamic_btree_set_leaf_entry(cfg, hdr, realnkvs, slice_create(1, &keybuf), msg))
+      break;
+    realnkvs++;
+  }
 
-  idx = dynamic_btree_choose_leaf_split(cfg, hdr, cat, msg, &splitting_key);
-  if (idx != 0)
-    platform_log("bad splitting index %lu (expected 0)\n", idx);
-
-  idx = dynamic_btree_choose_leaf_split(cfg, hdr, emu, msg, &splitting_key);
-  if (idx != 1)
-    platform_log("bad splitting index %lu (expected 1)\n", idx);
-
-  idx = dynamic_btree_choose_leaf_split(cfg, hdr, zebra, msg, &splitting_key);
-  if (idx != 2)
-    platform_log("bad splitting index %lu (expected 2)\n", idx);
+  for (uint8 i = 0; i < 2 * realnkvs + 1; i++) {
+    uint64 generation;
+    leaf_incorporate_spec spec;
+    slice key = slice_create(1, &i);
+    bool success = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
+    if (success) {
+      platform_log("Weird.  An incorporate that was supposed to fail actually succeeded (nkvs=%d, realnkvs=%d, i=%d).\n",
+                   nkvs, realnkvs, i);
+      dynamic_btree_print_locked_node(cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
+    }
+    leaf_splitting_plan plan = dynamic_btree_build_leaf_splitting_plan(cfg, hdr, spec);
+    platform_assert(realnkvs / 2 - 1 <= plan.split_idx);
+    platform_assert(plan.split_idx <= realnkvs / 2 + 1);
+  }
 
   return 0;
 }
@@ -222,5 +224,6 @@ int main(int argc, char **argv)
   index_hdr_tests(&test_config, &test_scratch);
   index_hdr_search_tests(&test_config);
 
-  leaf_split_tests(&test_config);
+  for (int nkvs = 2; nkvs < 100; nkvs++)
+    leaf_split_tests(&test_config, &test_scratch, nkvs);
 }

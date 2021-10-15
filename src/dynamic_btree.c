@@ -41,8 +41,8 @@
 typedef uint16 entry_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
 typedef node_offset table_entry;
-typedef uint8 inline_key_size;
-typedef uint8 inline_message_size;
+typedef uint16 inline_key_size;
+typedef uint16 inline_message_size;
 
 #define DYNAMIC_BTREE_MAX_HEIGHT 32
 
@@ -214,7 +214,7 @@ dynamic_btree_get_index_entry(const dynamic_btree_config *cfg,
                               const dynamic_btree_hdr    *hdr,
                               entry_index                 k)
 {
-   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries + 1]) <= hdr->offsets[k]);
+   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <= hdr->offsets[k]);
    platform_assert(hdr->offsets[k] <= dynamic_btree_page_size(cfg) - sizeof(index_entry));
    return (index_entry *)((uint8 *)hdr + hdr->offsets[k]);
 }
@@ -270,7 +270,7 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
 
    platform_assert(k <= hdr->num_entries);
    uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k + 1;
-   if (hdr->next_entry - index_entry_size(new_pivot_key) < diff_ptr(hdr, &hdr->offsets[new_num_entries + 1])) {
+   if (hdr->next_entry - index_entry_size(new_pivot_key) < diff_ptr(hdr, &hdr->offsets[new_num_entries])) {
      return FALSE;
    }
 
@@ -315,7 +315,7 @@ dynamic_btree_get_leaf_entry(const dynamic_btree_config *cfg,
                              const dynamic_btree_hdr    *hdr,
                              entry_index                 k)
 {
-   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries + 1]) <= hdr->offsets[k]);
+   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <= hdr->offsets[k]);
    platform_assert(hdr->offsets[k] <= dynamic_btree_page_size(cfg) - sizeof(leaf_entry));
    return (leaf_entry *)((uint8 *)hdr + hdr->offsets[k]);
 }
@@ -343,10 +343,36 @@ dynamic_btree_fill_leaf_entry(leaf_entry *entry, slice key, slice message)
   entry->message_size = slice_length(message);
 }
 
+static inline
+bool dynamic_btree_can_set_leaf_entry(const dynamic_btree_config *cfg,
+                                      const dynamic_btree_hdr    *hdr,
+                                      entry_index                 k,
+                                      slice                       new_key,
+                                      slice                       new_message)
+{
+   if (hdr->num_entries < k)
+      return FALSE;
+
+   if (k < hdr->num_entries) {
+     leaf_entry *old_entry = dynamic_btree_get_leaf_entry(cfg, hdr, k);
+     if (leaf_entry_size(new_key, new_message) <= sizeof_leaf_entry(old_entry)) {
+       return TRUE;
+     }
+     /* Fall through */
+   }
+
+   uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k + 1;
+   if (hdr->next_entry < diff_ptr(hdr, &hdr->offsets[new_num_entries]) + leaf_entry_size(new_key, new_message)) {
+     return FALSE;
+   }
+
+   return TRUE;
+}
+
 static inline bool
 dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
                              dynamic_btree_hdr          *hdr,
-                             entry_index                      k,
+                             entry_index                 k,
                              slice                       new_key,
                              slice                       new_message)
 {
@@ -361,7 +387,7 @@ dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
 
    platform_assert(k <= hdr->num_entries);
    uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k + 1;
-   if (hdr->next_entry - leaf_entry_size(new_key, new_message) < diff_ptr(hdr, &hdr->offsets[new_num_entries + 1])) {
+   if (hdr->next_entry < diff_ptr(hdr, &hdr->offsets[new_num_entries]) + leaf_entry_size(new_key, new_message)) {
      return FALSE;
    }
 
@@ -529,12 +555,6 @@ dynamic_btree_find_tuple(const dynamic_btree_config *cfg,
  *-----------------------------------------------------------------------------
  */
 
-typedef enum leaf_add_result {
-  leaf_add_result_no_room,
-  leaf_add_result_new_key,
-  leaf_add_result_existing_key
-} leaf_add_result;
-
 static inline slice
 dynamic_btree_merge_tuples(const dynamic_btree_config *cfg,
                            slice                       key,
@@ -555,136 +575,72 @@ dynamic_btree_merge_tuples(const dynamic_btree_config *cfg,
   return tmp;
 }
 
-static inline leaf_add_result
+typedef struct leaf_incorporate_spec {
+  slice  key;
+  slice  message;
+  int64  idx;
+  bool   existed;
+} leaf_incorporate_spec;
+
+static inline void
+dynamic_btree_leaf_create_incorporate_spec(const dynamic_btree_config *cfg,
+                                           dynamic_btree_hdr          *hdr,
+                                           dynamic_btree_scratch      *scratch,
+                                           slice                       key,
+                                           slice                       message,
+                                           leaf_incorporate_spec      *spec)
+{
+  spec->key = key;
+  spec->idx = dynamic_btree_find_tuple(cfg, hdr, key, &spec->existed);
+  if (!spec->existed) {
+    spec->message = message;
+    spec->idx++;
+  } else {
+    leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, hdr, spec->idx);
+    spec->message = dynamic_btree_merge_tuples(cfg, key, leaf_entry_message_slice(entry), message, scratch->add_tuple.merged_data);
+  }
+}
+
+static inline bool
+dynamic_btree_leaf_can_perform_incorporate_spec(const dynamic_btree_config *cfg,
+                                                dynamic_btree_hdr          *hdr,
+                                                leaf_incorporate_spec       spec)
+{
+   if (!spec.existed) {
+     return dynamic_btree_can_set_leaf_entry(cfg, hdr, dynamic_btree_num_entries(hdr), spec.key, spec.message);
+   } else {
+     return dynamic_btree_can_set_leaf_entry(cfg, hdr, spec.idx, spec.key, spec.message);
+   }
+}
+
+static inline bool
+dynamic_btree_leaf_perform_incorporate_spec(const dynamic_btree_config *cfg,
+                                            dynamic_btree_hdr          *hdr,
+                                            leaf_incorporate_spec       spec,
+                                            uint64                     *generation)
+{
+   bool success;
+   if (!spec.existed) {
+     success = dynamic_btree_insert_leaf_entry(cfg, hdr, spec.idx, spec.key, spec.message);
+   } else {
+     success = dynamic_btree_set_leaf_entry(cfg, hdr, spec.idx, spec.key, spec.message);
+   }
+   if (success)
+     *generation = hdr->generation++;
+   return success;
+}
+
+static inline bool
 dynamic_btree_leaf_incorporate_tuple(const dynamic_btree_config *cfg,
                                      dynamic_btree_scratch      *scratch,
                                      dynamic_btree_hdr          *hdr,
                                      slice                       key,
                                      slice                       message,
+                                     leaf_incorporate_spec      *spec,
                                      uint64                     *generation)
 {
-   bool succeeded;
-   bool found;
-   debug_assert(dynamic_btree_height(hdr) == 0);
-
-   int64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
-
-   if (!found) {
-     succeeded = dynamic_btree_insert_leaf_entry(cfg, hdr, idx + 1, key, message);
-     if (succeeded) {
-       *generation = hdr->generation++;
-       return leaf_add_result_new_key;
-     } else {
-       return leaf_add_result_no_room;
-     }
-   }
-
-   leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, hdr, idx);
-   slice merged_message = dynamic_btree_merge_tuples(cfg, key, leaf_entry_message_slice(entry), message, scratch->add_tuple.merged_data);
-   succeeded = dynamic_btree_set_leaf_entry(cfg, hdr, idx, key, merged_message);
-   // FIXME: [yfogel 2020-01-11] We should fail the insert if any of:
-   //  - old data is INVALID
-   //  - new data is INVALID (probably failed earlier)
-   //  - merged is INVALID
-
-   if (succeeded) {
-     *generation = hdr->generation++;
-     return leaf_add_result_existing_key;
-   } else {
-     return leaf_add_result_no_room;
-   }
-}
-
-/*
- *-----------------------------------------------------------------------------
- *
- * dynamic_btree_split_leaf --
- *
- *      Splits the node at left_addr into a new node at right_addr.
- *
- *      Assumes write lock on both nodes.
- *
- *-----------------------------------------------------------------------------
- */
-
-/* Choose a splitting point so that we are guaranteed to be able to
-   insert the given key-message pair into the correct node after the
-   split. Assumes all leaf entries are at most half the total free
-   space in an empty leaf. */
-static inline uint64
-dynamic_btree_choose_leaf_split(const dynamic_btree_config *cfg, // IN
-                                const dynamic_btree_hdr    *hdr, // IN
-                                const slice                 key, // IN
-                                const slice                 message, // IN
-                                slice                      *splitting_key) // OUT
-{
-   bool found;
-   int64 idx = dynamic_btree_find_tuple(cfg, hdr, key, &found);
-
-   /* Split the content by bytes -- roughly half the bytes go to the
-      right node.  So count the bytes, including the new entry to be
-      inserted. */
-  uint64 total_entry_bytes = leaf_entry_size(key, message);
-   for (uint64 i = 0; i < dynamic_btree_num_entries(hdr); i++) {
-     if (i != idx || !found) {
-       leaf_entry *entry  = dynamic_btree_get_leaf_entry(cfg, hdr, i);
-       total_entry_bytes += sizeof_leaf_entry(entry);
-     }
-   }
-   total_entry_bytes += (dynamic_btree_num_entries(hdr) + !found) * sizeof(table_entry);
-
-   uint64 total_node_space = cfg->page_size - sizeof(*hdr);
-
-   /* Now figure out the number of entries to move, and figure out how
-      much free space will be created in the left_hdr by the split. */
-   int64 target_left_entries  = 0;
-   uint64 new_left_entry_bytes = 0;
-   leaf_entry *entry = NULL;
-
-   while (new_left_entry_bytes < total_entry_bytes / 2 &&
-          target_left_entries < idx) {
-     entry = dynamic_btree_get_leaf_entry(cfg, hdr, target_left_entries);
-     new_left_entry_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
-     target_left_entries++;
-   }
-   if (entry)
-     *splitting_key = leaf_entry_key_slice(entry);
-
-   if (target_left_entries >= idx &&
-       new_left_entry_bytes + sizeof(table_entry) + leaf_entry_size(key, message) < total_node_space) {
-     new_left_entry_bytes += sizeof(table_entry) + leaf_entry_size(key, message);
-   }
-   if (target_left_entries == idx && found)
-     target_left_entries++;
-
-   while (new_left_entry_bytes < total_entry_bytes / 2 &&
-          target_left_entries < dynamic_btree_num_entries(hdr)) {
-     entry = dynamic_btree_get_leaf_entry(cfg, hdr, target_left_entries);
-     new_left_entry_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
-     target_left_entries++;
-   }
-   *splitting_key = leaf_entry_key_slice(entry);
-
-   return target_left_entries;
-}
-
-static inline void
-dynamic_btree_split_leaf_build_right_node(const dynamic_btree_config *cfg, // IN
-                                          const dynamic_btree_hdr    *left_hdr, // IN
-                                          uint64                      target_left_entries, // IN
-                                          dynamic_btree_hdr          *right_hdr) // IN/OUT
-{
-  uint64 target_right_entries = dynamic_btree_num_entries(left_hdr) - target_left_entries;
-
-   /* Build the right node. */
-   memmove(right_hdr, left_hdr, sizeof(*right_hdr));
-   dynamic_btree_reset_node_entries(cfg, right_hdr);
-   for (uint64 i = 0; i < target_right_entries; i++) {
-     leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, left_hdr, target_left_entries + i);
-     dynamic_btree_set_leaf_entry(cfg, right_hdr, i, leaf_entry_key_slice(entry), leaf_entry_message_slice(entry));
-   }
-
-   platform_assert(0);
+  dynamic_btree_leaf_create_incorporate_spec(cfg, hdr, scratch, key, message, spec);
+  return dynamic_btree_leaf_perform_incorporate_spec(cfg, hdr, *spec, generation);
 }
 
 /*
@@ -699,22 +655,24 @@ dynamic_btree_split_leaf_build_right_node(const dynamic_btree_config *cfg, // IN
 static inline void
 dynamic_btree_defragment_leaf(const dynamic_btree_config *cfg, // IN
                               dynamic_btree_scratch      *scratch,
-                              dynamic_btree_hdr          *hdr) // IN
+                              dynamic_btree_hdr          *hdr,
+                              int64                       omit_idx) // IN
 {
   dynamic_btree_hdr *scratch_hdr = (dynamic_btree_hdr *)scratch->defragment_node.scratch_node;
   memcpy(scratch_hdr, hdr, dynamic_btree_page_size(cfg));
   dynamic_btree_reset_node_entries(cfg, hdr);
   for (uint64 i = 0; i < dynamic_btree_num_entries(scratch_hdr); i++) {
-    leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, scratch_hdr, i);
-    dynamic_btree_set_leaf_entry(cfg, hdr, i, leaf_entry_key_slice(entry), leaf_entry_message_slice(entry));
+    if (i != omit_idx) {
+      leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, scratch_hdr, i);
+      dynamic_btree_set_leaf_entry(cfg, hdr, i, leaf_entry_key_slice(entry), leaf_entry_message_slice(entry));
+    }
   }
 }
 
 static inline void
 dynamic_btree_truncate_leaf(const dynamic_btree_config *cfg, // IN
-                    dynamic_btree_scratch      *scratch,
-                    dynamic_btree_hdr          *hdr, // IN
-                    uint64              target_entries) // IN
+                            dynamic_btree_hdr          *hdr, // IN
+                            uint64                      target_entries) // IN
 {
    uint64 new_next_entry = dynamic_btree_page_size(cfg);
 
@@ -724,11 +682,132 @@ dynamic_btree_truncate_leaf(const dynamic_btree_config *cfg, // IN
    }
 
    hdr->num_entries = target_entries;
+   hdr->next_entry = new_next_entry;
+}
 
-   if (new_next_entry < dynamic_btree_page_size(cfg) / 4)
-      dynamic_btree_defragment_leaf(cfg, scratch, hdr);
-   else
-      hdr->next_entry = new_next_entry;
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * dynamic_btree_split_leaf --
+ *
+ *      Splits the node at left_addr into a new node at right_addr.
+ *
+ *      Assumes write lock on both nodes.
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+/* This structure is intended to capture all the decisions in a leaf split.
+   That way, we can have a single function that defines the entire policy,
+   separate from the code that executes the policy (possibly as several steps
+   for concurrency reasons). */
+typedef struct leaf_splitting_plan {
+  uint64 split_idx;            // keys with idx < split_idx go left
+  bool   insertion_goes_left;  // does the key to be inserted go to the left child
+} leaf_splitting_plan;
+
+/* Choose a splitting point so that we are guaranteed to be able to
+   insert the given key-message pair into the correct node after the
+   split. Assumes all leaf entries are at most half the total free
+   space in an empty leaf. */
+static inline leaf_splitting_plan
+dynamic_btree_build_leaf_splitting_plan(const dynamic_btree_config *cfg, // IN
+                                        const dynamic_btree_hdr    *hdr,
+                                        leaf_incorporate_spec       spec) // IN
+{
+   /* Split the content by bytes -- roughly half the bytes go to the
+      right node.  So count the bytes, including the new entry to be
+      inserted. */
+  uint64 entry_size = leaf_entry_size(spec.key, spec.message);
+  uint64 total_entry_bytes = entry_size;
+   for (uint64 i = 0; i < dynamic_btree_num_entries(hdr); i++) {
+     if (i != spec.idx || !spec.existed) {
+       leaf_entry *entry  = dynamic_btree_get_leaf_entry(cfg, hdr, i);
+       total_entry_bytes += sizeof_leaf_entry(entry);
+     }
+   }
+   total_entry_bytes += (dynamic_btree_num_entries(hdr) + !spec.existed) * sizeof(table_entry);
+
+   /* Now figure out the number of entries to move, and figure out how
+      much free space will be created in the left_hdr by the split. */
+   uint64 new_left_entry_bytes = 0;
+   leaf_splitting_plan plan = { 0, FALSE };
+
+   leaf_entry *entry;
+   while (plan.split_idx < spec.idx &&
+          (entry = dynamic_btree_get_leaf_entry(cfg, hdr, plan.split_idx)) &&
+          new_left_entry_bytes + sizeof(table_entry) + sizeof_leaf_entry(entry)
+          < (total_entry_bytes + sizeof(table_entry) + sizeof_leaf_entry(entry)) / 2) {
+     new_left_entry_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
+     plan.split_idx++;
+   }
+
+   if (plan.split_idx == spec.idx &&
+       new_left_entry_bytes + sizeof(table_entry) + entry_size
+       < (total_entry_bytes + sizeof(table_entry) + entry_size) / 2) {
+     new_left_entry_bytes += sizeof(table_entry) + entry_size;
+     plan.insertion_goes_left = TRUE;
+   } else {
+     return plan;
+   }
+   if (spec.existed) {
+     plan.split_idx++;
+   }
+
+   while (plan.split_idx < dynamic_btree_num_entries(hdr) &&
+          (entry = dynamic_btree_get_leaf_entry(cfg, hdr, plan.split_idx)) &&
+          new_left_entry_bytes + sizeof(table_entry) + sizeof_leaf_entry(entry)
+          < (total_entry_bytes + sizeof(table_entry) + sizeof_leaf_entry(entry)) / 2) {
+     new_left_entry_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
+     plan.split_idx++;
+   }
+
+   return plan;
+}
+
+static inline slice
+dynamic_btree_splitting_pivot(const dynamic_btree_config *cfg, // IN
+                              const dynamic_btree_hdr    *hdr,
+                              leaf_incorporate_spec       spec,
+                              leaf_splitting_plan         plan)
+{
+  if (plan.split_idx == spec.idx && !spec.existed && !plan.insertion_goes_left)
+    return spec.key;
+  else
+    return dynamic_btree_get_tuple_key(cfg, hdr, plan.split_idx);
+}
+
+static inline void
+dynamic_btree_split_leaf_build_right_node(const dynamic_btree_config *cfg, // IN
+                                          const dynamic_btree_hdr    *left_hdr, // IN
+                                          leaf_incorporate_spec       spec, // IN
+                                          leaf_splitting_plan         plan, // IN
+                                          dynamic_btree_hdr          *right_hdr) // IN/OUT
+{
+   /* Build the right node. */
+   memmove(right_hdr, left_hdr, sizeof(*right_hdr));
+   dynamic_btree_reset_node_entries(cfg, right_hdr);
+   uint64 dst_idx = 0;
+   for (uint64 i = plan.split_idx; i < dynamic_btree_num_entries(left_hdr); i++) {
+     if (i != spec.idx || !spec.existed) {
+       leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, left_hdr, i);
+       dynamic_btree_set_leaf_entry(cfg, right_hdr, dst_idx, leaf_entry_key_slice(entry), leaf_entry_message_slice(entry));
+       dst_idx++;
+     }
+   }
+}
+
+static inline void
+dynamic_btree_split_leaf_cleanup_left_node(const dynamic_btree_config *cfg, // IN
+                                           dynamic_btree_scratch      *scratch,
+                                           dynamic_btree_hdr          *left_hdr, // IN
+                                           leaf_incorporate_spec       spec, // IN
+                                           leaf_splitting_plan         plan) // IN
+{
+  dynamic_btree_truncate_leaf(cfg, left_hdr, plan.split_idx);
+  if (plan.insertion_goes_left &&
+      !dynamic_btree_leaf_can_perform_incorporate_spec(cfg, left_hdr, spec))
+    dynamic_btree_defragment_leaf(cfg, scratch, left_hdr, spec.existed ? spec.idx : -1);
 }
 
 /*
@@ -790,8 +869,6 @@ dynamic_btree_split_index_build_right_node(const dynamic_btree_config *cfg, // I
      dynamic_btree_set_index_entry(cfg, right_hdr, i, index_entry_key_slice(entry), index_entry_child_addr(entry),
                                    entry->num_kvs_in_tree, entry->key_bytes_in_tree, entry->message_bytes_in_tree);
    }
-
-   platform_assert(0);
 }
 
 /*
@@ -1217,28 +1294,19 @@ dynamic_btree_blind_zap(cache              *cc,
  * order to minimize the amount of time that we hold write-locks on
  * the parent and child:
  *
- * 1. dynamic_btree_alloc_shared_node.
- *    Allocate a shared node that will become the right child after
- *    the split.  This does not require any locks on the parent (but,
- *    typically, the thread performing the split will hold a claim on
- *    the parent durin this step).
+ * 1. Allocate a node for the right child.  Hold a write lock on the
+ *    new node.
  *
- * 2. dynamic_btree_add_shared_pivot.
- *    Insert a new pivot in the parent for the new child.  This pivot
- *    points to the old child.  This step requires a write-lock on the
- *    parent.  The parent can be completely unlocked as soon as this
- *    step is complete.
+ * 2. dynamic_btree_add_pivot.  Insert a new pivot in the parent for
+ *    the new child.  This step requires a write-lock on the parent.
+ *    The parent can be completely unlocked as soon as this step is
+ *    complete.
  *
  * 3. dynamic_btree_split_{leaf,index}_build_right_node
  *    Fill in the contents of the right child.  No lock on parent
  *    required.
  *
- * 4. cache_unshare.
- *    Unshare the old and new child.  This is the moment that the new
- *    child becomes visible to other threads.  As soon as this step is
- *    completed, the new child can be unlocked completely.
- *
- * 5. dynamic_btree_truncate_{leaf,index}
+ * 4. dynamic_btree_truncate_{leaf,index}
  *    Truncate (and optionally defragment) the old child.  This is the
  *    only step that requires a write-lock on the old child.
  *
@@ -1253,74 +1321,182 @@ dynamic_btree_blind_zap(cache              *cc,
 
 /* Requires write-lock on parent.
    Requires read-lock on child. */
-static inline uint64
-dynamic_btree_add_shared_pivot(const dynamic_btree_config *cfg,
-                       dynamic_btree_node                 *parent,
-                       uint64                              parents_pivot_idx,
-                       const slice                         key_to_be_inserted,
-                       const slice                         message_to_be_inserted,
-                       const dynamic_btree_node           *child,
-                       dynamic_btree_node                 *new_child)
+/* static inline uint64 */
+/* dynamic_btree_add_pivot(const dynamic_btree_config *cfg, */
+/*                         dynamic_btree_node         *parent, */
+/*                         uint64                      parents_pivot_idx, */
+/*                         const slice                 key_to_be_inserted, */
+/*                         const slice                 message_to_be_inserted, */
+/*                         const dynamic_btree_node   *child, */
+/*                         dynamic_btree_node         *new_child) */
+/* { */
+/*    debug_assert(dynamic_btree_height(parent->hdr) != 0); */
+
+/*    uint64 childs_split_position; */
+/*    slice pivot_key; */
+/*    if (dynamic_btree_height(child->hdr) != 0) { */
+/*       childs_split_position = dynamic_btree_choose_index_split(cfg, child->hdr); */
+/*       pivot_key = dynamic_btree_get_pivot(cfg, child->hdr, childs_split_position); */
+/*    } else { */
+/*       childs_split_position = dynamic_btree_choose_leaf_split(cfg, child->hdr, idx, replacing, entry_size); */
+/*       debug_assert(0 < childs_split_position); */
+/*    } */
+
+/*    dynamic_btree_insert_index_entry(cfg, parent->hdr, parents_pivot_idx + 1, pivot_key, new_child->addr, */
+/*                                     DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN); */
+
+/*    index_entry *entry = dynamic_btree_get_index_entry(cfg, parent->hdr, parents_pivot_idx); */
+/*    entry->num_kvs_in_tree = entry->key_bytes_in_tree = entry->message_bytes_in_tree = DYNAMIC_BTREE_UNKNOWN; */
+
+/*    return childs_split_position; */
+/* } */
+
+/* Requires:
+   - claim on parent
+   - claim on child
+   Upon completion:
+   - all nodes unlocked
+   - the insertion is complete
+*/
+static inline int
+dynamic_btree_split_child_leaf(cache                      *cc,
+                               const dynamic_btree_config *cfg,
+                               mini_allocator             *mini,
+                               dynamic_btree_scratch      *scratch,
+                               dynamic_btree_node         *parent,
+                               uint64                      index_of_child_in_parent,
+                               dynamic_btree_node         *child,
+                               leaf_incorporate_spec       spec,
+                               uint64                     *generation) // OUT
 {
-   debug_assert(dynamic_btree_height(parent->hdr) != 0);
+  dynamic_btree_node right_child;
 
-   uint64 childs_split_position;
-   slice pivot_key;
-   if (dynamic_btree_height(child->hdr) != 0) {
-      childs_split_position = dynamic_btree_choose_index_split(cfg, child->hdr);
-      pivot_key = dynamic_btree_get_pivot(cfg, child->hdr, childs_split_position);
-   } else {
-      childs_split_position = dynamic_btree_choose_leaf_split(cfg, child->hdr, key_to_be_inserted, message_to_be_inserted, &pivot_key);
-      debug_assert(0 < childs_split_position);
-   }
+  /* p: claim, c: claim, rc: - */
 
-   dynamic_btree_insert_index_entry(cfg, parent->hdr, parents_pivot_idx + 1, pivot_key, new_child->addr,
-                                    DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN);
+  leaf_splitting_plan plan = dynamic_btree_build_leaf_splitting_plan(cfg, child->hdr, spec);
 
-   index_entry *entry = dynamic_btree_get_index_entry(cfg, parent->hdr, parents_pivot_idx);
-   entry->num_kvs_in_tree = entry->key_bytes_in_tree = entry->message_bytes_in_tree = DYNAMIC_BTREE_UNKNOWN;
+  /* p: claim, c: claim, rc: - */
 
-   return childs_split_position;
+  dynamic_btree_alloc(cc, mini, dynamic_btree_height(child->hdr), null_slice, NULL, PAGE_TYPE_MEMTABLE, &right_child);
+
+  /* p: claim, c: claim, rc: write */
+
+  dynamic_btree_node_lock(cc, cfg, parent);
+  {
+    /* limit the scope of pivot_key, since subsequent mutations of the nodes may invalidate the memory it points to. */
+    slice pivot_key = dynamic_btree_splitting_pivot(cfg, child->hdr, spec, plan);
+    dynamic_btree_insert_index_entry(cfg, parent->hdr, index_of_child_in_parent + 1, pivot_key, right_child.addr,
+                                     DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN);
+  }
+  dynamic_btree_node_full_unlock(cc, cfg, parent);
+
+  /* p: fully unlocked, c: claim, rc: write */
+
+  dynamic_btree_split_leaf_build_right_node(cfg, child->hdr, spec, plan, right_child.hdr);
+
+  /* p: fully unlocked, c: claim, rc: write */
+
+  if (!plan.insertion_goes_left) {
+    spec.idx -= plan.split_idx;
+    dynamic_btree_leaf_perform_incorporate_spec(cfg, right_child.hdr, spec, generation);
+  }
+  dynamic_btree_node_full_unlock(cc, cfg, &right_child);
+
+  /* p: fully unlocked, c: claim, rc: fully unlocked */
+
+  dynamic_btree_node_lock(cc, cfg, child);
+  dynamic_btree_split_leaf_cleanup_left_node(cfg, scratch, child->hdr, spec, plan);
+  if (plan.insertion_goes_left) {
+    dynamic_btree_leaf_perform_incorporate_spec(cfg, child->hdr, spec, generation);
+  }
+  dynamic_btree_node_full_unlock(cc, cfg, child);
+
+  /* p: fully unlocked, c: fully unlocked, rc: fully unlocked */
+
+  return 0;
 }
 
 /* Requires:
    - claim on parent
    - claim on child
    Upon completion:
-   - parent is unlocked
-   - claim on new_child
-   - other child is unlocked
-  Upon return: new_child is the child for key_of_interest
+   - all nodes fully unlocked
+   - insertion is complete
+*/
+
+static inline int
+dynamic_btree_defragment_or_split_child_leaf(cache                      *cc,
+                                             const dynamic_btree_config *cfg,
+                                             mini_allocator             *mini,
+                                             dynamic_btree_scratch      *scratch,
+                                             dynamic_btree_node         *parent,
+                                             uint64                      index_of_child_in_parent,
+                                             dynamic_btree_node         *child,
+                                             leaf_incorporate_spec       spec,
+                                             uint64                     *generation) // OUT
+{
+  uint64 nentries = dynamic_btree_num_entries(child->hdr);
+  uint64 live_bytes = 0;
+  for (uint64 i = 0; i < nentries; i++) {
+    if (!spec.existed || i != spec.idx) {
+      leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, child->hdr, i);
+      live_bytes += sizeof_leaf_entry(entry);
+    }
+  }
+  uint64 total_space_required =
+    live_bytes +
+    leaf_entry_size(spec.key, spec.message) +
+    (nentries + spec.existed ? 0 : 1) * sizeof(index_entry);
+
+  if (total_space_required < cfg->page_size / 2) {
+    dynamic_btree_node_full_unlock(cc, cfg, parent);
+    dynamic_btree_node_lock(cc, cfg, child);
+    dynamic_btree_defragment_leaf(cfg, scratch, child->hdr, spec.existed ? spec.idx : -1);
+    dynamic_btree_leaf_perform_incorporate_spec(cfg, child->hdr, spec, generation);
+    dynamic_btree_node_full_unlock(cc, cfg, child);
+  } else {
+    dynamic_btree_split_child_leaf(cc, cfg, mini, scratch, parent, index_of_child_in_parent, child, spec, generation);
+  }
+
+  return 0;
+}
+
+/* Requires:
+   - claim on parent
+   - claim on child
+   Upon completion:
+   - new_child is read-locked
+   - all other nodes unlocked
 */
 static inline int
-dynamic_btree_split_child(cache                      *cc,
-                          const dynamic_btree_config *cfg,
-                          mini_allocator             *mini,
-                          dynamic_btree_scratch      *scratch,
-                          dynamic_btree_node         *parent,
-                          uint64                      index_of_child_in_parent,
-                          const slice                 key_to_be_inserted,
-                          const slice                 message_to_be_inserted,
-                          dynamic_btree_node         *child,
-                          dynamic_btree_node         *new_child) // OUT
+dynamic_btree_split_child_index(cache                      *cc,
+                                const dynamic_btree_config *cfg,
+                                mini_allocator             *mini,
+                                dynamic_btree_scratch      *scratch,
+                                dynamic_btree_node         *parent,
+                                uint64                      index_of_child_in_parent,
+                                dynamic_btree_node         *child,
+                                slice                       key_to_be_inserted,
+                                dynamic_btree_node         *new_child) // OUT
 {
   dynamic_btree_node right_child;
 
-  /* p: claim, c: claim, nc: - */
+  /* p: claim, c: claim, rc: - */
 
-  /* dynamic_btree_alloc_shared_node(cc, cfg, mini, child, &right_child); */
+  uint64 idx = dynamic_btree_choose_index_split(cfg, child->hdr);
+
+  /* p: claim, c: claim, rc: - */
+
   dynamic_btree_alloc(cc, mini, dynamic_btree_height(child->hdr), null_slice, NULL, PAGE_TYPE_MEMTABLE, &right_child);
-  cache_share(cc, child->page, right_child.page);
 
-  /* p: claim, c: claim, nc: write */
+  /* p: claim, c: claim, rc: write */
 
   dynamic_btree_node_lock(cc, cfg, parent);
-  uint64 childs_split_position = dynamic_btree_add_shared_pivot(cfg, parent, index_of_child_in_parent + 1,
-                                                                key_to_be_inserted, message_to_be_inserted,
-                                                                child, &right_child);
-  { /* pivot_key is not safe to access after we release the lock on
-       parent, so limit its scope. */
-    slice pivot_key = dynamic_btree_get_pivot(cfg, parent->hdr, index_of_child_in_parent + 1);
+  {
+    /* limit the scope of pivot_key, since subsequent mutations of the nodes may invalidate the memory it points to. */
+    slice pivot_key = dynamic_btree_get_pivot(cfg, child->hdr, idx);
+    dynamic_btree_insert_index_entry(cfg, parent->hdr, index_of_child_in_parent + 1, pivot_key, right_child.addr,
+                                     DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN);
     if (dynamic_btree_key_compare(cfg, key_to_be_inserted, pivot_key) < 0)
       *new_child = *child;
     else
@@ -1328,41 +1504,29 @@ dynamic_btree_split_child(cache                      *cc,
   }
   dynamic_btree_node_full_unlock(cc, cfg, parent);
 
-  /* p: unlocked, c: claim, rc: write */
+  /* p: fully unlocked, c: claim, rc: write */
 
-  if (dynamic_btree_height(child->hdr) == 0) {
-    dynamic_btree_split_leaf_build_right_node(cfg, child->hdr, childs_split_position, right_child.hdr);
-  } else {
-    dynamic_btree_split_index_build_right_node(cfg, child->hdr, childs_split_position, right_child.hdr);
-  }
+  dynamic_btree_split_index_build_right_node(cfg, child->hdr, idx, right_child.hdr);
 
-  /* p: unlocked, c: claim, rc: write */
+  /* p: fully unlocked, c: claim, rc: write */
 
-  cache_unshare(cc, right_child.page);
   dynamic_btree_node_unlock(cc, cfg, &right_child);
-  if (new_child->addr == child->addr) {
-    dynamic_btree_node_unclaim(cc, cfg, &right_child);
+  dynamic_btree_node_unclaim(cc, cfg, &right_child);
+  if (new_child->addr != right_child.addr)
     dynamic_btree_node_unget(cc, cfg, &right_child);
-  }
 
-  /* p: unlocked, c: claim, rc: if rc == nc then claim else unlocked */
+  /* p: fully unlocked, c: claim, rc: if nc == rc then read-locked else fully unlocked */
 
   dynamic_btree_node_lock(cc, cfg, child);
-  if (dynamic_btree_height(child->hdr) == 0) {
-    dynamic_btree_truncate_leaf(cfg, scratch, child->hdr, childs_split_position);
-  } else {
-    dynamic_btree_truncate_index(cfg, scratch, child->hdr, childs_split_position);
-  }
+  dynamic_btree_truncate_index(cfg, scratch, child->hdr, idx);
   dynamic_btree_node_unlock(cc, cfg, child);
-
-  /* p: unlocked, c: claim, rc: if rc == nc then claim else unlocked */
-
-  if (new_child->addr != child->addr) {
-    dynamic_btree_node_unclaim(cc, cfg, child);
+  dynamic_btree_node_unclaim(cc, cfg, child);
+  if (new_child->addr != child->addr)
     dynamic_btree_node_unget(cc, cfg, child);
-  }
 
-  /* p: unlocked, c: if c == nc then claim else unlocked, rc: if rc == nc then claim else unlocked */
+  /* p:  fully unlocked,
+     c:  if nc == c  then read-locked else fully unlocked
+     rc: if nc == rc then read-locked else fully unlocked */
 
   return 0;
 }
@@ -1417,22 +1581,29 @@ static inline void accumulate_node_ranks(const dynamic_btree_config *cfg,
   }
 }
 
+/*
+  requires
+  - claim on root node
+  ensures
+  - read lock on root node
+*/
+
 static inline int
 dynamic_btree_grow_root(cache                      *cc, // IN
                         const dynamic_btree_config *cfg, // IN
                         mini_allocator             *mini, // IN/OUT
-                        dynamic_btree_node         *root_node, // IN/OUT
-                        dynamic_btree_node         *child) // OUT
+                        dynamic_btree_node         *root_node) // OUT
 {
    uint32 num_kvs = 0, key_bytes = 0, message_bytes = 0;
    accumulate_node_ranks(cfg, root_node->hdr, 0, dynamic_btree_num_entries(root_node->hdr), &num_kvs, &key_bytes, &message_bytes);
 
    // allocate a new left node
-   dynamic_btree_alloc(cc, mini, dynamic_btree_height(root_node->hdr), null_slice, NULL, PAGE_TYPE_MEMTABLE, child);
+   dynamic_btree_node child;
+   dynamic_btree_alloc(cc, mini, dynamic_btree_height(root_node->hdr), null_slice, NULL, PAGE_TYPE_MEMTABLE, &child);
 
    // copy root to child
-   memmove(child->hdr, root_node->hdr, dynamic_btree_page_size(cfg));
-   dynamic_btree_node_unlock(cc, cfg, child);
+   memmove(child.hdr, root_node->hdr, dynamic_btree_page_size(cfg));
+   dynamic_btree_node_full_unlock(cc, cfg, &child);
 
    dynamic_btree_node_lock(cc, cfg, root_node);
 
@@ -1440,42 +1611,13 @@ dynamic_btree_grow_root(cache                      *cc, // IN
    dynamic_btree_increment_height(root_node->hdr);
    static char dummy_data[1];
    static slice dummy_pivot = (slice){.length = 0, .data = dummy_data };
-   dynamic_btree_set_index_entry(cfg, root_node->hdr, 0, dummy_pivot, child->addr,
+   dynamic_btree_set_index_entry(cfg, root_node->hdr, 0, dummy_pivot, child.addr,
                                  num_kvs, key_bytes, message_bytes);
 
    dynamic_btree_node_unlock(cc, cfg, root_node);
+   dynamic_btree_node_unclaim(cc, cfg, root_node);
 
    return 0;
-}
-
-/* Requires:
-   - claim on root
-   Upon completion:
-   - root is unlocked
-   - read-lock on child of root for key_to_be_inserted
-   - other child of root is unlocked
-*/
-static inline int
-dynamic_btree_split_root(cache                      *cc,
-                         const dynamic_btree_config *cfg,
-                         mini_allocator             *mini,
-                         dynamic_btree_scratch      *scratch,
-                         dynamic_btree_node         *root_node,
-                         const slice                 key_to_be_inserted,
-                         const slice                 message_to_be_inserted,
-                         dynamic_btree_node         *child) // OUT
-{
-  dynamic_btree_node child_of_root;
-
-  int failure = dynamic_btree_grow_root(cc, cfg, mini, root_node, &child_of_root);
-  if (failure)
-    return failure;
-
-  failure = dynamic_btree_split_child(cc, cfg, mini, scratch, root_node, 0,
-                              key_to_be_inserted, message_to_be_inserted,
-                              &child_of_root, child);
-
-  return failure;
 }
 
 /*
@@ -1504,6 +1646,7 @@ dynamic_btree_insert(cache                      *cc, // IN
                      uint64                     *generation, // OUT
                      bool                       *was_unique) // OUT
 {
+  leaf_incorporate_spec spec;
    uint64 leaf_wait = 1;
 
    dynamic_btree_node root_node;
@@ -1514,50 +1657,30 @@ start_over:
    dynamic_btree_node_get(cc, cfg, &root_node, PAGE_TYPE_MEMTABLE);
 
    if (dynamic_btree_height(root_node.hdr) == 0) {
-     if (dynamic_btree_node_claim(cc, cfg, &root_node)) {
-       dynamic_btree_node_lock(cc, cfg, &root_node);
-       leaf_add_result result = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, root_node.hdr, key, message, generation);
-       if (result == leaf_add_result_no_room) {
-         dynamic_btree_node child;
-         dynamic_btree_node_unlock(cc, cfg, &root_node);
-         dynamic_btree_split_root(cc, cfg, mini, scratch, &root_node, key, message, &child);
-         if (dynamic_btree_node_claim(cc, cfg, &child)) {
-           dynamic_btree_node_lock(cc, cfg, &child);
-           result = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, child.hdr, key, message, generation);
-           dynamic_btree_node_full_unlock(cc, cfg, &child);
-           /* Fall through */
-         } else {
-           dynamic_btree_node_unget(cc, cfg, &child);
-           goto start_over;
-         }
-       }
-       if (result == leaf_add_result_no_room) {
-         goto start_over;
-       } else if (result == leaf_add_result_existing_key) {
-         *was_unique = FALSE;
-       } else {
-         *was_unique = TRUE;
-       }
-       return STATUS_OK;
-     } else {
+     if (!dynamic_btree_node_claim(cc, cfg, &root_node)) {
        dynamic_btree_node_unget(cc, cfg, &root_node);
        goto start_over;
      }
+     dynamic_btree_node_lock(cc, cfg, &root_node);
+     if (dynamic_btree_leaf_incorporate_tuple(cfg, scratch, root_node.hdr, key, message, &spec, generation)) {
+       *was_unique = !spec.existed;
+       return STATUS_OK;
+     }
+     dynamic_btree_grow_root(cc, cfg, mini, &root_node);
    }
 
    /* read-lock on root */
    /* root is _not_ a leaf if we get here. */
 
-   dynamic_btree_node parent_node = root_node;
-
    if (dynamic_btree_index_is_full(cfg, root_node.hdr)) {
-     if (dynamic_btree_node_claim(cc, cfg, &root_node)) {
-       dynamic_btree_split_root(cc, cfg, mini, scratch, &root_node, key, message, &parent_node);
-     } else {
+     if (!dynamic_btree_node_claim(cc, cfg, &root_node)) {
        dynamic_btree_node_unget(cc, cfg, &root_node);
        goto start_over;
      }
+     dynamic_btree_grow_root(cc, cfg, mini, &root_node);
    }
+
+   dynamic_btree_node parent_node = root_node;
 
    /* read lock on parent_node, parent_node is an index, and
       parent_node will not need to split. */
@@ -1575,7 +1698,7 @@ start_over:
      /* loop invariant:
         - read lock on parent_node, parent_node is an index, and parent_node will not need to split.
         - read lock on child_node
-        - height > 1
+        - height >= 1
      */
       if (dynamic_btree_index_is_full(cfg, child_node.hdr)) {
         if (!dynamic_btree_node_claim(cc, cfg, &parent_node)) {
@@ -1590,8 +1713,7 @@ start_over:
           goto start_over;
         }
         dynamic_btree_node new_child;
-        dynamic_btree_split_child(cc, cfg, mini, scratch, &parent_node, child_idx, key, message, &child_node, &new_child);
-        dynamic_btree_node_unclaim(cc, cfg, &new_child);
+        dynamic_btree_split_child_index(cc, cfg, mini, scratch, &parent_node, child_idx, &child_node, key, &new_child);
         parent_node = new_child;
       } else {
         dynamic_btree_node_unget(cc, cfg, &parent_node);
@@ -1628,34 +1750,21 @@ start_over:
       - write lock on child_node
       - height of parent == 1
    */
-   leaf_add_result result = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, child_node.hdr, key, message, generation);
-   if (result == leaf_add_result_no_room) {
-     dynamic_btree_node new_child;
-     if (!dynamic_btree_node_claim(cc, cfg, &parent_node)) {
-       dynamic_btree_node_unget(cc, cfg, &parent_node);
-       dynamic_btree_node_unlock(cc, cfg, &child_node);
-       dynamic_btree_node_unclaim(cc, cfg, &child_node);
-       dynamic_btree_node_unget(cc, cfg, &child_node);
-       goto start_over;
-     }
-     dynamic_btree_node_unlock(cc, cfg, &child_node);
-     dynamic_btree_split_child(cc, cfg, mini, scratch, &parent_node, child_idx, key, message, &child_node, &new_child);
-     /* only thing we have now is claim on new_child */
-     dynamic_btree_node_lock(cc, cfg, &new_child);
-     result = dynamic_btree_leaf_incorporate_tuple(cfg, scratch, new_child.hdr, key, message, generation);
-     platform_assert(result != leaf_add_result_no_room);
-     dynamic_btree_node_full_unlock(cc, cfg, &new_child);
-     /* no locks of any kind */
-   } else {
+   if (dynamic_btree_leaf_incorporate_tuple(cfg, scratch, child_node.hdr, key, message, &spec, generation)) {
      dynamic_btree_node_unget(cc, cfg, &parent_node);
      dynamic_btree_node_full_unlock(cc, cfg, &child_node);
-     /* no locks of any kind */
+     *was_unique = !spec.existed;
+     return STATUS_OK;
+   } else if (!dynamic_btree_node_claim(cc, cfg, &parent_node)) {
+       dynamic_btree_node_unget(cc, cfg, &parent_node);
+       dynamic_btree_node_full_unlock(cc, cfg, &child_node);
+       goto start_over;
+   } else {
+       dynamic_btree_node_unlock(cc, cfg, &child_node);
+       dynamic_btree_defragment_or_split_child_leaf(cc, cfg, mini, scratch, &parent_node, child_idx, &child_node, spec, generation);
+       *was_unique = !spec.existed;
+       return STATUS_OK;
    }
-   if (result == leaf_add_result_existing_key)
-     *was_unique = FALSE;
-   else
-     *was_unique = TRUE;
-   return STATUS_OK;
 }
 
 
@@ -2936,8 +3045,9 @@ dynamic_btree_print_locked_node(dynamic_btree_config   *cfg,
       platform_log_stream("**  num_entries: %u \n", dynamic_btree_num_entries(hdr));
       platform_log_stream("-------------------\n");
       table_entry *table = dynamic_btree_get_table(hdr);
+      platform_log_stream("Table\n");
       for (uint64 i = 0; i < hdr->num_entries; i++)
-        platform_log_stream("%lu:%u ", i, table[i]);
+        platform_log_stream("  %lu:%u\n", i, table[i]);
       platform_log_stream("\n");
       platform_log_stream("-------------------\n");
       for (uint64 i = 0; i < dynamic_btree_num_entries(hdr); i++) {

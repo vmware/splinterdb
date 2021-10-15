@@ -57,7 +57,7 @@ typedef struct {
    char scratch_node[MAX_NODE_SIZE];
 } scratch_dynamic_btree_defragment_node;
 
-typedef union {
+typedef struct { // Note: not a union
    scratch_dynamic_btree_add_tuple add_tuple;
    scratch_dynamic_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED dynamic_btree_scratch;

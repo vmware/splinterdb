@@ -141,7 +141,7 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 # It links only with its needed .o files
 #
 
-bin/unit/dynamic_btree: obj/tests/test_data.o obj/src/util.o obj/src/data.o obj/src/mini_allocator.o
+bin/unit/dynamic_btree-test: obj/tests/test_data.o obj/src/util.o obj/src/data.o obj/src/mini_allocator.o
 
 #*************************************************************#
 
