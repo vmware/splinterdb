@@ -1,14 +1,6 @@
+#include "../tests/test.h"
 #include "../tests/test_data.h"
 #include "dynamic_btree.c"
-
-static dynamic_btree_config test_config = {
-  .page_size = 4096,
-  .extent_size = 32 * 4096,
-  .rough_count_height = 1,
-  .data_cfg = &test_data_config
-};
-
-dynamic_btree_scratch test_scratch;
 
 static int leaf_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
 {
@@ -216,14 +208,87 @@ static int leaf_split_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *sc
   return 0;
 }
 
+/* static int insert_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch, int nkvs) */
+/* { */
+/*   return 0; */
+/* } */
+
+static int init_data_config_from_master_config(data_config *data_cfg, master_config *master_cfg)
+{
+   data_cfg->key_size           = master_cfg->key_size;
+   data_cfg->message_size       = master_cfg->message_size;
+   return 1;
+}
+
+static int init_io_config_from_master_config(io_config *io_cfg, master_config *master_cfg)
+{
+   io_config_init(io_cfg, master_cfg->page_size, master_cfg->extent_size,
+                  master_cfg->io_flags, master_cfg->io_perms,
+                  master_cfg->io_async_queue_depth, master_cfg->io_filename);
+   return 1;
+}
+
+static int init_rc_allocator_config_from_master_config(rc_allocator_config *allocator_cfg, master_config *master_cfg)
+{
+   rc_allocator_config_init(allocator_cfg, master_cfg->page_size,
+                            master_cfg->extent_size,
+                            master_cfg->allocator_capacity);
+   return 1;
+}
+
+static int init_clockcache_config_from_master_config(clockcache_config *cache_cfg, master_config *master_cfg)
+{
+   clockcache_config_init(cache_cfg, master_cfg->page_size,
+                          master_cfg->extent_size, master_cfg->cache_capacity,
+                          master_cfg->cache_logfile, master_cfg->use_stats);
+   return 1;
+}
+
+static int init_dynamic_btree_config_from_master_config(dynamic_btree_config *dbtree_cfg, master_config *master_cfg, data_config *data_cfg)
+{
+  dynamic_btree_config_init(dbtree_cfg,
+                            data_cfg,
+                            master_cfg->btree_rough_count_height,
+                            master_cfg->page_size,
+                            master_cfg->extent_size);
+  return 1;
+}
+
 int main(int argc, char **argv)
 {
-  leaf_hdr_tests(&test_config, &test_scratch);
-  leaf_hdr_search_tests(&test_config, &test_scratch);
+  master_config         master_cfg;
+  data_config           data_cfg;
+  io_config             io_cfg;
+  rc_allocator_config   allocator_cfg;
+  clockcache_config     cache_cfg;
+  uint64                seed;
+  dynamic_btree_scratch test_scratch;
+  dynamic_btree_config  dbtree_cfg;
+  /*   .page_size = 4096, */
+  /*   .extent_size = 32 * 4096, */
+  /*   .rough_count_height = 1, */
+  /*   .data_cfg = &test_data_config */
 
-  index_hdr_tests(&test_config, &test_scratch);
-  index_hdr_search_tests(&test_config);
+  config_set_defaults(&master_cfg);
+  data_cfg = test_data_config;
+  if (!SUCCESS(config_parse(&master_cfg, 1, argc - 1, argv + 1))
+      || !init_data_config_from_master_config(&data_cfg, &master_cfg)
+      || !init_io_config_from_master_config(&io_cfg, &master_cfg)
+      || !init_rc_allocator_config_from_master_config(&allocator_cfg, &master_cfg)
+      || !init_clockcache_config_from_master_config(&cache_cfg, &master_cfg)
+      || !init_dynamic_btree_config_from_master_config(&dbtree_cfg, &master_cfg, &data_cfg)
+      )
+    return -1;
+  seed = master_cfg.seed;
+
+  leaf_hdr_tests(&dbtree_cfg, &test_scratch);
+  leaf_hdr_search_tests(&dbtree_cfg, &test_scratch);
+
+  index_hdr_tests(&dbtree_cfg, &test_scratch);
+  index_hdr_search_tests(&dbtree_cfg);
 
   for (int nkvs = 2; nkvs < 100; nkvs++)
-    leaf_split_tests(&test_config, &test_scratch, nkvs);
+    leaf_split_tests(&dbtree_cfg, &test_scratch, nkvs);
+
+  return 0;
 }

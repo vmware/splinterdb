@@ -8,8 +8,8 @@
  *     This file contains the interface for dynamic b-trees/memtables.
  */
 
-#ifndef __BTREE_H
-#define __BTREE_H
+#ifndef __DYNAMIC_BTREE_H
+#define __DYNAMIC_BTREE_H
 
 #include "mini_allocator.h"
 #include "iterator.h"

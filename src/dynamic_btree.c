@@ -907,11 +907,10 @@ dynamic_btree_truncate_index(const dynamic_btree_config *cfg, // IN
          new_next_entry = hdr->offsets[i];
 
    hdr->num_entries = target_entries;
+   hdr->next_entry = new_next_entry;
 
    if (new_next_entry < dynamic_btree_page_size(cfg) / 4)
       dynamic_btree_defragment_index(cfg, scratch, hdr);
-   else
-      hdr->next_entry = new_next_entry;
 }
 
 static inline void
