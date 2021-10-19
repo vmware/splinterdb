@@ -3930,52 +3930,52 @@ clockcache_print_stats(clockcache *cc)
 
    // clang-format off
    platform_log("Cache Statistics\n");
-   platform_log("-----------------------------------------------------------------------------------------------\n");
-   platform_log("page type       |      trunk |     branch |   memtable |     filter |        log |       misc |\n");
-   platform_log("----------------|------------|------------|------------|------------|------------|------------|\n");
-   platform_log("cache hits      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("--------------------------------------------------------------------------------------------------------\n");
+   platform_log("page type                |      trunk |     branch |   memtable |     filter |        log |       misc |\n");
+   platform_log("-------------------------|------------|------------|------------|------------|------------|------------|\n");
+   platform_log("cache hits               | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_hits[PAGE_TYPE_TRUNK],
          global_stats.cache_hits[PAGE_TYPE_BRANCH],
          global_stats.cache_hits[PAGE_TYPE_MEMTABLE],
          global_stats.cache_hits[PAGE_TYPE_FILTER],
          global_stats.cache_hits[PAGE_TYPE_LOG],
          global_stats.cache_hits[PAGE_TYPE_MISC]);
-   platform_log("cache misses    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("cache misses             | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_misses[PAGE_TYPE_TRUNK],
          global_stats.cache_misses[PAGE_TYPE_BRANCH],
          global_stats.cache_misses[PAGE_TYPE_MEMTABLE],
          global_stats.cache_misses[PAGE_TYPE_FILTER],
          global_stats.cache_misses[PAGE_TYPE_LOG],
          global_stats.cache_misses[PAGE_TYPE_MISC]);
-   platform_log("cache_migrates_to_PMEM    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("migrates to PMEM         | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_migrates_to_PMEM[PAGE_TYPE_TRUNK],
          global_stats.cache_migrates_to_PMEM[PAGE_TYPE_BRANCH],
          global_stats.cache_migrates_to_PMEM[PAGE_TYPE_MEMTABLE],
          global_stats.cache_migrates_to_PMEM[PAGE_TYPE_FILTER],
          global_stats.cache_migrates_to_PMEM[PAGE_TYPE_LOG],
          global_stats.cache_migrates_to_PMEM[PAGE_TYPE_MISC]);
-   platform_log("cache_migrates_to_DRAM_without_shadow    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("migrates to DRAM         | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_TRUNK],
          global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_BRANCH],
          global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_MEMTABLE],
          global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_FILTER],
          global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_LOG],
          global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_MISC]);
-   platform_log("cache_migrates_to_DRAM_with_shadow    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("migrates to DRAM (shadow)| %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_TRUNK],
          global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_BRANCH],
          global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_MEMTABLE],
          global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_FILTER],
          global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_LOG],
          global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_MISC]);
-   platform_log("cache_evicts_to_PMEM    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("evicts to PMEM           | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_evicts_to_PMEM[PAGE_TYPE_TRUNK],
          global_stats.cache_evicts_to_PMEM[PAGE_TYPE_BRANCH],
          global_stats.cache_evicts_to_PMEM[PAGE_TYPE_MEMTABLE],
          global_stats.cache_evicts_to_PMEM[PAGE_TYPE_FILTER],
          global_stats.cache_evicts_to_PMEM[PAGE_TYPE_LOG],
          global_stats.cache_evicts_to_PMEM[PAGE_TYPE_MISC]);
-   platform_log("cache_evicts_to_disk    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("evicts to disk           | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_evicts_to_disk[PAGE_TYPE_TRUNK],
          global_stats.cache_evicts_to_disk[PAGE_TYPE_BRANCH],
          global_stats.cache_evicts_to_disk[PAGE_TYPE_MEMTABLE],
@@ -3983,7 +3983,7 @@ clockcache_print_stats(clockcache *cc)
          global_stats.cache_evicts_to_disk[PAGE_TYPE_LOG],
          global_stats.cache_evicts_to_disk[PAGE_TYPE_MISC]);
 
-   platform_log("cache miss time | " FRACTION_FMT(9, 2)"s | "
+   platform_log("cache miss time          | " FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s |\n",
@@ -3993,28 +3993,28 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(miss_time[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_MISC]));
-   platform_log("pages allocated | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("pages allocated          | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_allocs[PAGE_TYPE_TRUNK],
          global_stats.page_allocs[PAGE_TYPE_BRANCH],
          global_stats.page_allocs[PAGE_TYPE_MEMTABLE],
          global_stats.page_allocs[PAGE_TYPE_FILTER],
          global_stats.page_allocs[PAGE_TYPE_LOG],
          global_stats.page_allocs[PAGE_TYPE_MISC]);
-   platform_log("pages written   | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("pages written            | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_writes[PAGE_TYPE_TRUNK],
          global_stats.page_writes[PAGE_TYPE_BRANCH],
          global_stats.page_writes[PAGE_TYPE_MEMTABLE],
          global_stats.page_writes[PAGE_TYPE_FILTER],
          global_stats.page_writes[PAGE_TYPE_LOG],
          global_stats.page_writes[PAGE_TYPE_MISC]);
-   platform_log("pages read      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("pages read               | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_reads[PAGE_TYPE_TRUNK],
          global_stats.page_reads[PAGE_TYPE_BRANCH],
          global_stats.page_reads[PAGE_TYPE_MEMTABLE],
          global_stats.page_reads[PAGE_TYPE_FILTER],
          global_stats.page_reads[PAGE_TYPE_LOG],
          global_stats.page_reads[PAGE_TYPE_MISC]);
-   platform_log("avg prefetch pg |  " FRACTION_FMT(9, 2)" |  "
+   platform_log("avg prefetch pg          |  " FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |\n",
@@ -4024,7 +4024,7 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_MISC]));
-   platform_log("footprint       | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log("footprint                | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
           global_stats.page_allocs[PAGE_TYPE_TRUNK]
              - global_stats.page_deallocs[PAGE_TYPE_TRUNK],
           global_stats.page_allocs[PAGE_TYPE_BRANCH]
@@ -4037,7 +4037,7 @@ clockcache_print_stats(clockcache *cc)
              - global_stats.page_deallocs[PAGE_TYPE_LOG],
           global_stats.page_allocs[PAGE_TYPE_MISC]
              - global_stats.page_deallocs[PAGE_TYPE_MISC]);
-   platform_default_log("-----------------------------------------------------------------------------------------------\n");
+   platform_default_log("-----------------------------------------------------------------------------------------------------\n");
    platform_log("avg write pgs: "FRACTION_FMT(9,2)"\n",
          FRACTION_ARGS(avg_write_pages));
 
