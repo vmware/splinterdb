@@ -1397,6 +1397,17 @@ set_migration:
    ret = TRUE;
 
 
+   if (dest_cc->cfg->use_stats) {
+      if(dest_cc->persistent_cache == NULL)
+         dest_cc->stats[tid].cache_migrates_to_PMEM[new_entry->type]++;
+      else{
+         if(setup_shadow_page)
+            dest_cc->stats[tid].cache_migrates_to_DRAM_with_shadow[new_entry->type]++;
+         else
+            dest_cc->stats[tid].cache_migrates_to_DRAM_without_shadow[new_entry->type]++;
+      }
+   }
+
    __attribute__ ((unused)) uint32 debug_status;
 release_write_reacquire_read:
    if (!ret && (read_lock)){
@@ -1523,6 +1534,78 @@ clockcache_try_evict(clockcache *cc,
       goto release_write;
    }
 
+   /*--------------------------------------------evict DRAM page to PMEM cache--------------------------- */
+
+
+
+   if(cc->volatile_cache == NULL){
+      clockcache* src_cc = cc;
+      clockcache* dest_cc = cc->persistent_cache;
+      uint64 addr = entry->page.disk_addr;
+      bool unset_shadow_page = FALSE;
+      uint32 shadow_entry_number;
+      shadow_entry_number = clockcache_lookup(dest_cc, addr);
+      size_t entry_table_size = dest_cc->cfg->page_capacity * sizeof(*dest_cc->entry);
+      if ((shadow_entry_number <= entry_table_size) && (shadow_entry_number >= 0))
+         unset_shadow_page = TRUE;
+
+      clockcache_entry *shadow_entry;
+      if(unset_shadow_page)
+         shadow_entry = &dest_cc->entry[shadow_entry_number];
+
+
+      uint32 new_entry_no = CC_UNMAPPED_ENTRY;
+      new_entry_no  = clockcache_get_free_page(dest_cc, entry->status, TRUE, TRUE);
+      clockcache_entry *new_entry = &dest_cc->entry[new_entry_no];
+
+
+
+      /* Set the dest_cc entry point to the disk addr */
+      uint64 lookup_no = clockcache_divide_by_page_size(dest_cc, addr);
+      dest_cc->lookup[lookup_no] = new_entry_no;
+
+
+      /* Do the data copy and set up the new page */
+      memmove(new_entry->page.data, entry->page.data, src_cc->cfg->page_size);
+      new_entry->type = entry->type;
+      new_entry->page.disk_addr = entry->page.disk_addr;
+      new_entry->page.persistent = entry->page.persistent;
+      new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
+
+
+      if (addr != CC_UNMAPPED_ADDR) {
+         lookup_no = clockcache_divide_by_page_size(src_cc, addr);
+         src_cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+         entry->page.disk_addr = CC_UNMAPPED_ADDR;
+      }
+
+      if(unset_shadow_page){
+         shadow_entry->page.disk_addr = CC_UNMAPPED_ADDR;
+         shadow_entry->status = CC_FREE_STATUS;
+      }
+
+      entry->status = CC_FREE_STATUS;
+
+      clockcache_log(addr, entry_number, "migrate (in eviction): entry %u addr %lu\n",
+            entry_number, addr);
+
+      clockcache_clear_flag(dest_cc, new_entry_no, CC_WRITELOCKED);
+      clockcache_clear_flag(dest_cc, new_entry_no, CC_CLAIMED);
+      clockcache_dec_ref(dest_cc, new_entry_no, tid);
+      
+      if (dest_cc->cfg->use_stats) {
+         dest_cc->stats[tid].cache_evicts_to_PMEM[new_entry->type]++;
+      }
+
+
+
+      goto release_ref;
+   }
+
+
+
+   /*--------------------------------------- end of DRAM->PMEM cache eviction------------------------------------*/
+
 
    /*
    uint32 new_entry_no = CC_UNMAPPED_ENTRY;
@@ -1562,6 +1645,10 @@ clockcache_try_evict(clockcache *cc,
 
    clockcache_log(addr, entry_number, "evict: entry %u addr %lu\n",
          entry_number, addr);
+
+   if (cc->cfg->use_stats) {
+      cc->stats[tid].cache_evicts_to_disk[entry->type]++;
+   }
 
    /* 7. release read lock */
    goto release_ref;
@@ -3805,6 +3892,12 @@ clockcache_print_stats(clockcache *cc)
    ZERO_CONTENTS(&global_stats);
    for (i = 0; i < MAX_THREADS; i++) {
       for (type = 0; type < NUM_PAGE_TYPES; type++) {
+         global_stats.cache_migrates_to_PMEM[type] += cc->stats[i].cache_migrates_to_PMEM[type];
+         global_stats.cache_migrates_to_DRAM_without_shadow[type] += cc->stats[i].cache_migrates_to_DRAM_without_shadow[type];
+         global_stats.cache_migrates_to_DRAM_with_shadow[type] += cc->stats[i].cache_migrates_to_DRAM_with_shadow[type];
+         global_stats.cache_evicts_to_PMEM[type] += cc->stats[i].cache_evicts_to_PMEM[type];
+         global_stats.cache_evicts_to_disk[type] += cc->stats[i].cache_evicts_to_disk[type];
+
          global_stats.cache_hits[type] += cc->stats[i].cache_hits[type];
          global_stats.cache_misses[type] += cc->stats[i].cache_misses[type];
          global_stats.cache_miss_time_ns[type] +=
@@ -3854,6 +3947,42 @@ clockcache_print_stats(clockcache *cc)
          global_stats.cache_misses[PAGE_TYPE_FILTER],
          global_stats.cache_misses[PAGE_TYPE_LOG],
          global_stats.cache_misses[PAGE_TYPE_MISC]);
+   platform_log("cache_migrates_to_PMEM    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+         global_stats.cache_migrates_to_PMEM[PAGE_TYPE_TRUNK],
+         global_stats.cache_migrates_to_PMEM[PAGE_TYPE_BRANCH],
+         global_stats.cache_migrates_to_PMEM[PAGE_TYPE_MEMTABLE],
+         global_stats.cache_migrates_to_PMEM[PAGE_TYPE_FILTER],
+         global_stats.cache_migrates_to_PMEM[PAGE_TYPE_LOG],
+         global_stats.cache_migrates_to_PMEM[PAGE_TYPE_MISC]);
+   platform_log("cache_migrates_to_DRAM_without_shadow    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+         global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_TRUNK],
+         global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_BRANCH],
+         global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_MEMTABLE],
+         global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_FILTER],
+         global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_LOG],
+         global_stats.cache_migrates_to_DRAM_without_shadow[PAGE_TYPE_MISC]);
+   platform_log("cache_migrates_to_DRAM_with_shadow    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+         global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_TRUNK],
+         global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_BRANCH],
+         global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_MEMTABLE],
+         global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_FILTER],
+         global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_LOG],
+         global_stats.cache_migrates_to_DRAM_with_shadow[PAGE_TYPE_MISC]);
+   platform_log("cache_evicts_to_PMEM    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+         global_stats.cache_evicts_to_PMEM[PAGE_TYPE_TRUNK],
+         global_stats.cache_evicts_to_PMEM[PAGE_TYPE_BRANCH],
+         global_stats.cache_evicts_to_PMEM[PAGE_TYPE_MEMTABLE],
+         global_stats.cache_evicts_to_PMEM[PAGE_TYPE_FILTER],
+         global_stats.cache_evicts_to_PMEM[PAGE_TYPE_LOG],
+         global_stats.cache_evicts_to_PMEM[PAGE_TYPE_MISC]);
+   platform_log("cache_evicts_to_disk    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+         global_stats.cache_evicts_to_disk[PAGE_TYPE_TRUNK],
+         global_stats.cache_evicts_to_disk[PAGE_TYPE_BRANCH],
+         global_stats.cache_evicts_to_disk[PAGE_TYPE_MEMTABLE],
+         global_stats.cache_evicts_to_disk[PAGE_TYPE_FILTER],
+         global_stats.cache_evicts_to_disk[PAGE_TYPE_LOG],
+         global_stats.cache_evicts_to_disk[PAGE_TYPE_MISC]);
+
    platform_log("cache miss time | " FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
@@ -3941,6 +4070,12 @@ clockcache_reset_stats(clockcache *cc)
 
    for (i = 0; i < MAX_THREADS; i++) {
       cache_stats *stats = &cc->stats[i];
+
+      memset(stats->cache_migrates_to_PMEM, 0, sizeof(stats->cache_migrates_to_PMEM));
+      memset(stats->cache_migrates_to_DRAM_without_shadow, 0, sizeof(stats->cache_migrates_to_DRAM_without_shadow));
+      memset(stats->cache_migrates_to_DRAM_with_shadow, 0, sizeof(stats->cache_migrates_to_DRAM_with_shadow));
+      memset(stats->cache_evicts_to_PMEM, 0, sizeof(stats->cache_evicts_to_PMEM));
+      memset(stats->cache_evicts_to_disk, 0, sizeof(stats->cache_evicts_to_disk));
 
       memset(stats->cache_hits, 0, sizeof(stats->cache_hits));
       memset(stats->cache_misses, 0, sizeof(stats->cache_misses));

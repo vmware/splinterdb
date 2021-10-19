@@ -38,6 +38,13 @@ typedef enum page_type {
 } page_type;
 
 typedef struct cache_stats {
+   uint64 cache_migrates_to_PMEM[NUM_PAGE_TYPES];
+   uint64 cache_migrates_to_DRAM_without_shadow[NUM_PAGE_TYPES];
+   uint64 cache_migrates_to_DRAM_with_shadow[NUM_PAGE_TYPES];
+
+   uint64 cache_evicts_to_PMEM[NUM_PAGE_TYPES];
+   uint64 cache_evicts_to_disk[NUM_PAGE_TYPES];
+
    uint64 cache_hits[NUM_PAGE_TYPES];
    uint64 cache_misses[NUM_PAGE_TYPES];
    uint64 cache_miss_time_ns[NUM_PAGE_TYPES];
