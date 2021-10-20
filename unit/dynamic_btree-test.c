@@ -266,25 +266,16 @@ static int insert_tests(cache                 *cc,
   uint8 msgbuf[cfg->page_size];
 
   for (uint64 i = 0; i < nkvs; i++) {
-    if (i == nkvs-1)
-      platform_log("hello\n");
     if (!SUCCESS(dynamic_btree_insert(cc, cfg, scratch, root_addr, &mini,
                                       gen_key(cfg, i, keybuf),
                                       gen_msg(cfg, i, msgbuf),
                                       &generation,
                                       &was_unique)))
       platform_log("failed to insert 4-byte %ld\n", i);
-    if (!verify_inserts(cc, cfg, root_addr, i + 1)) {
-      platform_log("invalid tree\n");
-    }
   }
 
-  slice msg = slice_create(0, msgbuf);
-  for (uint64 i = 0; i < nkvs; i++) {
-    bool found;
-    dynamic_btree_lookup(cc, cfg, root_addr, gen_key(cfg, i, keybuf), &msg, &found);
-    platform_assert(found);
-    platform_assert(!slice_lex_cmp(msg, gen_msg(cfg, i, msgbuf)));
+  if (!verify_inserts(cc, cfg, root_addr, nkvs)) {
+    platform_log("invalid tree\n");
   }
 
   return 0;
@@ -387,7 +378,7 @@ int main(int argc, char **argv)
   for (int nkvs = 2; nkvs < 100; nkvs++)
     leaf_split_tests(&dbtree_cfg, &test_scratch, nkvs);
 
-  insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, 429);
+  insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, 1000000);
 
   return 0;
 }

@@ -826,7 +826,7 @@ static inline bool
 dynamic_btree_index_is_full(const dynamic_btree_config *cfg, // IN
                             const dynamic_btree_hdr    *hdr) // IN
 {
-  return hdr->next_entry - sizeof(index_entry) - MAX_KEY_SIZE < diff_ptr(hdr, &hdr->offsets[hdr->num_entries + 2]);
+  return hdr->next_entry < diff_ptr(hdr, &hdr->offsets[hdr->num_entries + 2]) + sizeof(index_entry) + MAX_INLINE_KEY_SIZE;
 }
 
 static inline uint64
@@ -1384,8 +1384,9 @@ dynamic_btree_split_child_leaf(cache                      *cc,
   {
     /* limit the scope of pivot_key, since subsequent mutations of the nodes may invalidate the memory it points to. */
     slice pivot_key = dynamic_btree_splitting_pivot(cfg, child->hdr, spec, plan);
-    dynamic_btree_insert_index_entry(cfg, parent->hdr, index_of_child_in_parent + 1, pivot_key, right_child.addr,
-                                     DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN);
+    bool success = dynamic_btree_insert_index_entry(cfg, parent->hdr, index_of_child_in_parent + 1, pivot_key, right_child.addr,
+                                                    DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN);
+    platform_assert(success);
   }
   dynamic_btree_node_full_unlock(cc, cfg, parent);
 
@@ -1649,6 +1650,8 @@ dynamic_btree_insert(cache                      *cc, // IN
    dynamic_btree_node root_node;
    root_node.addr = root_addr;
 
+   platform_assert(slice_length(key) <= MAX_INLINE_KEY_SIZE);
+   platform_assert(slice_length(message) <= MAX_INLINE_MESSAGE_SIZE);
 
 start_over:
    dynamic_btree_node_get(cc, cfg, &root_node, PAGE_TYPE_MEMTABLE);

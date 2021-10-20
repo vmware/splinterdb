@@ -15,6 +15,7 @@
 #include "iterator.h"
 #include "util.h"
 
+#define MAX_INLINE_KEY_SIZE (512)
 #define MAX_INLINE_MESSAGE_SIZE (2048)
 #define MAX_NODE_SIZE (1ULL << 16)
 
