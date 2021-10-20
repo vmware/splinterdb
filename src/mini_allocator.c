@@ -152,8 +152,9 @@ mini_allocator_alloc(mini_allocator *mini,
 
       page_handle *meta_page;
       while (1) {
-         meta_page = cache_get(mini->cc, mini->meta_tail, TRUE, mini->type);
-         if (cache_claim(mini->cc, meta_page)) {
+         uint64 meta_tail = mini->meta_tail;
+         meta_page        = cache_get(mini->cc, meta_tail, TRUE, mini->type);
+         if (meta_tail == mini->meta_tail && cache_claim(mini->cc, meta_page)) {
             break;
          }
          cache_unget(mini->cc, meta_page);
