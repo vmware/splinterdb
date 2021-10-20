@@ -4,6 +4,7 @@ set -euxo pipefail
 
 SEED="${SEED:-135}"
 DRIVER="${DRIVER:-"${BINDIR:-bin}/driver_test"}"
+TEST_RUST="${TEST_RUST:-false}"
 
 "$DRIVER" kvstore_test --seed "$SEED"
 
@@ -22,5 +23,16 @@ DRIVER="${DRIVER:-"${BINDIR:-bin}/driver_test"}"
 "$DRIVER" filter_test --seed "$SEED"
 
 "$DRIVER" util_test --seed "$SEED"
+
+if [ "$TEST_RUST" = "true" ]; then
+   pushd rust
+      cargo fmt --all -- --check
+      cargo build
+      cargo test
+      cargo clippy -- -D warnings
+      cargo build --release
+      cargo test --release
+   popd
+fi
 
 echo ALL PASSED
