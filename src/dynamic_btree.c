@@ -44,7 +44,7 @@ typedef node_offset table_entry;
 typedef uint16 inline_key_size;
 typedef uint16 inline_message_size;
 
-#define DYNAMIC_BTREE_MAX_HEIGHT 32
+#define DYNAMIC_BTREE_MAX_HEIGHT 8
 
 /***********************
  * Node headers
@@ -155,7 +155,7 @@ static inline uint64 index_entry_key_size(const index_entry *entry)
   return entry->key_size;
 }
 
-static inline uint8 index_entry_child_addr(const index_entry *entry)
+static inline uint64 index_entry_child_addr(const index_entry *entry)
 {
   return entry->child_addr;
 }
@@ -1448,7 +1448,8 @@ dynamic_btree_defragment_or_split_child_leaf(cache                      *cc,
     (nentries + spec.existed ? 0 : 1) * sizeof(index_entry);
 
   if (total_space_required < cfg->page_size / 2) {
-    dynamic_btree_node_full_unlock(cc, cfg, parent);
+    dynamic_btree_node_unclaim(cc, cfg, parent);
+    dynamic_btree_node_unget(cc, cfg, parent);
     dynamic_btree_node_lock(cc, cfg, child);
     dynamic_btree_defragment_leaf(cfg, scratch, child->hdr, spec.existed ? spec.idx : -1);
     dynamic_btree_leaf_perform_incorporate_spec(cfg, child->hdr, spec, generation);
@@ -1593,9 +1594,6 @@ dynamic_btree_grow_root(cache                      *cc, // IN
                         mini_allocator             *mini, // IN/OUT
                         dynamic_btree_node         *root_node) // OUT
 {
-   uint32 num_kvs = 0, key_bytes = 0, message_bytes = 0;
-   accumulate_node_ranks(cfg, root_node->hdr, 0, dynamic_btree_num_entries(root_node->hdr), &num_kvs, &key_bytes, &message_bytes);
-
    // allocate a new left node
    dynamic_btree_node child;
    dynamic_btree_alloc(cc, mini, dynamic_btree_height(root_node->hdr), null_slice, NULL, PAGE_TYPE_MEMTABLE, &child);
@@ -1611,7 +1609,7 @@ dynamic_btree_grow_root(cache                      *cc, // IN
    static char dummy_data[1];
    static slice dummy_pivot = (slice){.length = 0, .data = dummy_data };
    dynamic_btree_set_index_entry(cfg, root_node->hdr, 0, dummy_pivot, child.addr,
-                                 num_kvs, key_bytes, message_bytes);
+                                 DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN, DYNAMIC_BTREE_UNKNOWN);
 
    dynamic_btree_node_unlock(cc, cfg, root_node);
    dynamic_btree_node_unclaim(cc, cfg, root_node);
@@ -1663,8 +1661,10 @@ start_over:
      dynamic_btree_node_lock(cc, cfg, &root_node);
      if (dynamic_btree_leaf_incorporate_tuple(cfg, scratch, root_node.hdr, key, message, &spec, generation)) {
        *was_unique = !spec.existed;
+       dynamic_btree_node_full_unlock(cc, cfg, &root_node);
        return STATUS_OK;
      }
+     dynamic_btree_node_unlock(cc, cfg, &root_node);
      dynamic_btree_grow_root(cc, cfg, mini, &root_node);
    }
 
@@ -1845,6 +1845,8 @@ dynamic_btree_lookup_with_ref(cache                 *cc, // IN
    if (*found) {
      leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, node->hdr, idx);
      *data = leaf_entry_message_slice(entry);
+   } else {
+     dynamic_btree_print_locked_node(cfg, node->addr, node->hdr, PLATFORM_ERR_LOG_HANDLE);
    }
 }
 

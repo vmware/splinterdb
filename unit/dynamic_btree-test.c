@@ -208,10 +208,87 @@ static int leaf_split_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *sc
   return 0;
 }
 
-/* static int insert_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch, int nkvs) */
-/* { */
-/*   return 0; */
-/* } */
+static slice gen_key(dynamic_btree_config  *cfg,
+                      uint64                 i,
+                      uint8                  buffer[static cfg->page_size])
+{
+  uint64 keylen = sizeof(i) + (i % 100);
+  memset(buffer, 0, keylen);
+  memcpy(buffer, &i, sizeof(i));
+  return slice_create(keylen, buffer);
+}
+
+static slice gen_msg(dynamic_btree_config  *cfg,
+                      uint64                 i,
+                      uint8                  buffer[static cfg->page_size])
+{
+  data_handle *dh = (data_handle *)buffer;
+  uint64 datalen = sizeof(i) + (i % (cfg->page_size / 3));
+
+  dh->message_type = MESSAGE_TYPE_INSERT;
+  dh->ref_count = 1;
+  memset(dh->data, 0, datalen);
+  memcpy(dh->data, &i, sizeof(i));
+  return slice_create(sizeof(data_handle) + datalen, buffer);
+}
+
+static int verify_inserts(cache                 *cc,
+                          dynamic_btree_config  *cfg,
+                          uint64                 root_addr,
+                          int                    nkvs)
+{
+  uint8 keybuf[cfg->page_size];
+  uint8 msgbuf[cfg->page_size];
+
+  slice msg = slice_create(0, msgbuf);
+  for (uint64 i = 0; i < nkvs; i++) {
+    bool found;
+    dynamic_btree_lookup(cc, cfg, root_addr, gen_key(cfg, i, keybuf), &msg, &found);
+    if (!found || slice_lex_cmp(msg, gen_msg(cfg, i, msgbuf))) {
+      dynamic_btree_print_tree(cc, cfg, root_addr);
+      platform_assert(0);
+    }
+  }
+
+  return 1;
+}
+
+static int insert_tests(cache                 *cc,
+                        dynamic_btree_config  *cfg,
+                        dynamic_btree_scratch *scratch,
+                        int                    nkvs)
+{
+  mini_allocator mini;
+  uint64 root_addr = dynamic_btree_init(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+  uint64 generation;
+  bool was_unique;
+  uint8 keybuf[cfg->page_size];
+  uint8 msgbuf[cfg->page_size];
+
+  for (uint64 i = 0; i < nkvs; i++) {
+    if (i == nkvs-1)
+      platform_log("hello\n");
+    if (!SUCCESS(dynamic_btree_insert(cc, cfg, scratch, root_addr, &mini,
+                                      gen_key(cfg, i, keybuf),
+                                      gen_msg(cfg, i, msgbuf),
+                                      &generation,
+                                      &was_unique)))
+      platform_log("failed to insert 4-byte %ld\n", i);
+    if (!verify_inserts(cc, cfg, root_addr, i + 1)) {
+      platform_log("invalid tree\n");
+    }
+  }
+
+  slice msg = slice_create(0, msgbuf);
+  for (uint64 i = 0; i < nkvs; i++) {
+    bool found;
+    dynamic_btree_lookup(cc, cfg, root_addr, gen_key(cfg, i, keybuf), &msg, &found);
+    platform_assert(found);
+    platform_assert(!slice_lex_cmp(msg, gen_msg(cfg, i, msgbuf)));
+  }
+
+  return 0;
+}
 
 static int init_data_config_from_master_config(data_config *data_cfg, master_config *master_cfg)
 {
@@ -246,12 +323,12 @@ static int init_clockcache_config_from_master_config(clockcache_config *cache_cf
 
 static int init_dynamic_btree_config_from_master_config(dynamic_btree_config *dbtree_cfg, master_config *master_cfg, data_config *data_cfg)
 {
-  dynamic_btree_config_init(dbtree_cfg,
-                            data_cfg,
-                            master_cfg->btree_rough_count_height,
-                            master_cfg->page_size,
-                            master_cfg->extent_size);
-  return 1;
+   dynamic_btree_config_init(dbtree_cfg,
+                             data_cfg,
+                             master_cfg->btree_rough_count_height,
+                             master_cfg->page_size,
+                             master_cfg->extent_size);
+   return 1;
 }
 
 int main(int argc, char **argv)
@@ -264,10 +341,6 @@ int main(int argc, char **argv)
   uint64                seed;
   dynamic_btree_scratch test_scratch;
   dynamic_btree_config  dbtree_cfg;
-  /*   .page_size = 4096, */
-  /*   .extent_size = 32 * 4096, */
-  /*   .rough_count_height = 1, */
-  /*   .data_cfg = &test_data_config */
 
   config_set_defaults(&master_cfg);
   data_cfg = test_data_config;
@@ -277,9 +350,33 @@ int main(int argc, char **argv)
       || !init_rc_allocator_config_from_master_config(&allocator_cfg, &master_cfg)
       || !init_clockcache_config_from_master_config(&cache_cfg, &master_cfg)
       || !init_dynamic_btree_config_from_master_config(&dbtree_cfg, &master_cfg, &data_cfg)
-      )
+      ) {
+    platform_log("Failed to parse args\n");
     return -1;
+  }
   seed = master_cfg.seed;
+
+  // Create a heap for io, allocator, cache and splinter
+  platform_heap_handle hh;
+  platform_heap_id hid;
+  if (!SUCCESS(platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid))) {
+    platform_log("Failed to init heap\n");
+    return -3;
+  }
+
+  platform_io_handle io;
+  uint8 num_bg_threads[NUM_TASK_TYPES] = { 0 };
+  task_system *ts;
+  rc_allocator al;
+  clockcache cc;
+
+  if (   !SUCCESS(io_handle_init(&io, &io_cfg, hh, hid))
+      || !SUCCESS(task_system_create(hid, &io, &ts, master_cfg.use_stats, FALSE, num_bg_threads, sizeof(dynamic_btree_scratch)))
+      || !SUCCESS(rc_allocator_init(&al, &allocator_cfg, (io_handle *)&io, hh, hid, platform_get_module_id()))
+      || !SUCCESS(clockcache_init(&cc, &cache_cfg, (io_handle *)&io, (allocator *)&al, "test", ts, hh, hid, platform_get_module_id()))) {
+    platform_log("Failed to init io or task system or rc_allocator or clockcache\n");
+    return -2;
+  }
 
   leaf_hdr_tests(&dbtree_cfg, &test_scratch);
   leaf_hdr_search_tests(&dbtree_cfg, &test_scratch);
@@ -289,6 +386,8 @@ int main(int argc, char **argv)
 
   for (int nkvs = 2; nkvs < 100; nkvs++)
     leaf_split_tests(&dbtree_cfg, &test_scratch, nkvs);
+
+  insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, 429);
 
   return 0;
 }
