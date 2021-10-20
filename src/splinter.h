@@ -119,6 +119,10 @@ typedef struct splinter_stats {
    uint64 leaf_split_time_ns;
    uint64 leaf_split_max_time_ns;
 
+   uint64 single_leaf_splits;
+   uint64 single_leaf_tuples;
+   uint64 single_leaf_max_tuples;
+
    uint64 root_filters_built;
    uint64 root_filter_tuples;
    uint64 root_filter_time_ns;
