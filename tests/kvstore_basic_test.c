@@ -10,12 +10,12 @@
  *     This test code can be easily modified to be an example of a standalone
  *     program that integrates with SplinterDB.
 
- *     To compile this into a standalone programe, just rename the function
+ *     To compile this into a standalone program, just rename the function
  *     kvstore_basic_test() to be main(), and ensure you've got the
- *     kvstore_basic.h header and libsplinterdb.so available for linking.
+ *     kvstore_basic.h header and libsplinterdb.a available for linking.
  *
- *     $ cc -L ./lib -I ./include \
- *          tests/kvstore_basic_test.c -lsplinterdb -Wl,-rpath,./lib
+ *     $ cc -L splinterdb/lib -I splinterdb/include \
+ *          my_program.c -lsplinterdb -lxxhash -laio -lpthread -lm
  */
 
 #include "splinterdb/kvstore_basic.h"
