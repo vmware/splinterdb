@@ -2962,6 +2962,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                 */
                entry->page.disk_addr = CC_UNMAPPED_ADDR;
                entry->status         = CC_FREE_STATUS;
+               page_off--;
             }
             break;
          }
