@@ -20,7 +20,6 @@
 
 #include "poison.h"
 
-/*
 static platform_status
 test_filter_basic(cache            *cc,
                   routing_config   *cfg,
@@ -374,4 +373,3 @@ cleanup:
 
    return r;
 }
-   */
