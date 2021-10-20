@@ -2295,6 +2295,8 @@ typedef struct {
    uint32         *fingerprint_arr;
    unsigned int    seed;
 
+   uint64 max_tuples; // max tuples to output
+
    uint64         *root_addr;  // pointers to pack_req's root_addr
    uint64         *num_tuples; // pointers to pack_req's num_tuples
 
@@ -2336,6 +2338,7 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
    tree->root_addr = &req->root_addr;
    tree->num_tuples = &req->num_tuples;
    *(tree->num_tuples) = 0;
+   tree->max_tuples      = req->max_tuples;
 
    cache *cc = tree->cc;
    btree_config *cfg = tree->cfg;
@@ -2395,7 +2398,8 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
 #endif
       btree_add_tuple_at_pos(tree->cfg, &tree->edge[0], key, data, 0);
       tree->idx[0] = 1;
-      // FIXME: [nsarmicanic 2020-07-02] Not needed for range
+      platform_assert(tree->max_tuples == 0 ||
+                      *(tree->num_tuples) < tree->max_tuples);
       if (tree->hash) {
          tree->fingerprint_arr[*(tree->num_tuples)] =
             tree->hash(key, tree->cfg->data_cfg->key_size, tree->seed);

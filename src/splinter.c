@@ -5197,9 +5197,8 @@ splinter_split_leaf(splinter_handle *spl,
       estimated_unique_keys = num_tuples;
    }
    uint64 target_num_leaves = estimated_unique_keys / spl->cfg.target_leaf_tuples;
-   if (1 && target_num_leaves == 1
-         && estimated_unique_keys > 9 * spl->cfg.max_tuples_per_node / 10)
-   {
+   if (1 && target_num_leaves == 1 &&
+       estimated_unique_keys > 8 * spl->cfg.max_tuples_per_node / 10) {
       target_num_leaves = 2;
    }
    uint64 target_leaf_tuples = num_tuples / target_num_leaves;
