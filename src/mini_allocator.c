@@ -180,12 +180,10 @@ mini_allocator_alloc(mini_allocator *mini,
       }
 
       while (1) {
-         meta_page = cache_get(mini->cc, mini->meta_tail, TRUE, mini->type);
-         if (cache_claim(mini->cc, meta_page)) {
-            if (meta_page->disk_addr == mini->meta_tail)
-               break;
-            else
-               cache_unclaim(mini->cc, meta_page);
+         uint64 meta_tail = mini->meta_tail;
+         meta_page        = cache_get(mini->cc, meta_tail, TRUE, mini->type);
+         if (meta_tail == mini->meta_tail && cache_claim(mini->cc, meta_page)) {
+            break;
          }
          cache_unget(mini->cc, meta_page);
          platform_sleep(wait);
