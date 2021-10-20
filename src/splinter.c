@@ -50,6 +50,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 #define SPLINTER_PREFETCH_MIN (16384)
 #define SPLINTER_MIN_SPACE_RECL (2048)
 #define SPLINTER_SUPER_CSUM_SEED (42)
+#define SPLINTER_SINGLE_LEAF_THRESHOLD_PCT (75)
 
 //#define SPLINTER_LOG
 
@@ -461,25 +462,33 @@ typedef struct splinter_pivot_data {
    int64          srq_idx;      // index in the space rec queue
 } splinter_pivot_data;
 
+typedef enum splinter_compaction_type {
+   SPLINTER_COMPACTION_TYPE_FLUSH,
+   SPLINTER_COMPACTION_TYPE_LEAF_SPLIT,
+   SPLINTER_COMPACTION_TYPE_SINGLE_LEAF_SPLIT,
+   SPLINTER_COMPACTION_TYPE_SPACE_REC,
+   NUM_SPLINTER_COMPACTION_TYPES,
+} splinter_compaction_type;
+
 // arguments to a compact_bundle job
 struct splinter_compact_bundle_req {
-   splinter_handle *spl;
-   uint64           addr;
-   uint16           height;
-   uint16           bundle_no;
-   uint64           generation;
-   uint64           filter_generation;
-   uint64           pivot_generation[SPLINTER_MAX_PIVOTS];
-   uint64           max_pivot_generation;
-   uint64           input_pivot_count[SPLINTER_MAX_PIVOTS];
-   uint64           output_pivot_count[SPLINTER_MAX_PIVOTS];
-   bool             is_space_rec;
-   uint64           tuples_reclaimed;
-   uint32          *fp_arr;
-   bool             should_build[SPLINTER_MAX_PIVOTS];
-   routing_filter   old_filter[SPLINTER_MAX_PIVOTS];
-   uint16           value[SPLINTER_MAX_PIVOTS];
-   routing_filter   filter[SPLINTER_MAX_PIVOTS];
+   splinter_handle *        spl;
+   uint64                   addr;
+   uint16                   height;
+   uint16                   bundle_no;
+   splinter_compaction_type type;
+   uint64                   generation;
+   uint64                   filter_generation;
+   uint64                   pivot_generation[SPLINTER_MAX_PIVOTS];
+   uint64                   max_pivot_generation;
+   uint64                   input_pivot_count[SPLINTER_MAX_PIVOTS];
+   uint64                   output_pivot_count[SPLINTER_MAX_PIVOTS];
+   uint64                   tuples_reclaimed;
+   uint32 *                 fp_arr;
+   bool                     should_build[SPLINTER_MAX_PIVOTS];
+   routing_filter           old_filter[SPLINTER_MAX_PIVOTS];
+   uint16                   value[SPLINTER_MAX_PIVOTS];
+   routing_filter           filter[SPLINTER_MAX_PIVOTS];
 };
 
 // an iterator which skips masked pivots
@@ -4086,7 +4095,8 @@ splinter_flush(splinter_handle     *spl,
          req->input_pivot_count);
    splinter_bundle_inc_pivot_rc(spl, child, bundle);
    debug_assert(cache_page_valid(spl->cc, req->addr));
-   req->is_space_rec = is_space_rec;
+   req->type = is_space_rec ? SPLINTER_COMPACTION_TYPE_FLUSH
+                            : SPLINTER_COMPACTION_TYPE_SPACE_REC;
 
    // split child if necessary
    if (splinter_needs_split(spl, child)) {
@@ -4743,11 +4753,16 @@ splinter_compact_bundle(void *arg,
    } while (start_generation != generation);
 
    if (spl->cfg.use_stats) {
-      if (req->is_space_rec) {
+      if (req->type == SPLINTER_COMPACTION_TYPE_SPACE_REC) {
          spl->stats[tid].space_rec_tuples_reclaimed[height] +=
             req->tuples_reclaimed;
       }
-      spl->stats[tid].tuples_reclaimed[height] += req->tuples_reclaimed;
+      if (req->type == SPLINTER_COMPACTION_TYPE_SINGLE_LEAF_SPLIT) {
+         spl->stats[tid].single_leaf_tuples += pack_req.num_tuples;
+         if (pack_req.num_tuples > spl->stats[tid].single_leaf_max_tuples) {
+            spl->stats[tid].single_leaf_max_tuples = pack_req.num_tuples;
+         }
+      }
    }
    if (num_replacements == 0) {
       splinter_dec_ref(spl, &new_branch, FALSE);
@@ -5016,9 +5031,27 @@ splinter_pivot_estimate_unique_keys(splinter_handle     *spl,
 }
 
 /*
- * split_leaf splits a trunk leaf logically. It determines pivots to split on,
- * uses them to split the leaf and adds them to its parent. It then issues
- * compact_bundle jobs on each leaf to perform the actual compaction.
+ *----------------------------------------------------------------------
+ *
+ * splinter_single_leaf_threshold --
+ *
+ *      Returns an upper bound for the number of estimated tuples for which a
+ *      leaf split can output a single leaf.
+ *
+ *----------------------------------------------------------------------
+ */
+
+static inline uint64
+splinter_single_leaf_threshold(splinter_handle *spl)
+{
+   return SPLINTER_SINGLE_LEAF_THRESHOLD_PCT * spl->cfg.max_tuples_per_node /
+          100;
+}
+
+/*
+ * split_leaf splits a trunk leaf logically. It determines pivots to split
+ * on, uses them to split the leaf and adds them to its parent. It then
+ * issues compact_bundle jobs on each leaf to perform the actual compaction.
  *
  * Must be called with a lock on both the parent and child
  * Returns with lock on parent and releases child and all new leaves
@@ -5028,8 +5061,8 @@ splinter_pivot_estimate_unique_keys(splinter_handle     *spl,
  * then uses the rough iterator to find the next pivot. It copies the current
  * leaf to a new leaf, and sets the end key of the current leaf and start key
  * of the new leaf to the pivot. It then issues a compact_bundle job on the
- * current leaf and releases it. Finally, the loop continues with the new leaf
- * as current.
+ * current leaf and releases it. Finally, the loop continues with the new
+ * leaf as current.
  *
  * Algorithm:
  * 1. Create a rough merge iterator on all the branches
@@ -5075,11 +5108,17 @@ splinter_split_leaf(splinter_handle *spl,
    if (estimated_unique_keys > num_tuples * 19 / 20) {
       estimated_unique_keys = num_tuples;
    }
+   splinter_compaction_type comp_type = SPLINTER_COMPACTION_TYPE_LEAF_SPLIT;
    uint64 target_num_leaves = estimated_unique_keys / spl->cfg.target_leaf_tuples;
-   if (1 && target_num_leaves == 1
-         && estimated_unique_keys > 9 * spl->cfg.max_tuples_per_node / 10)
-   {
-      target_num_leaves = 2;
+   if (target_num_leaves == 1) {
+      if (estimated_unique_keys > splinter_single_leaf_threshold(spl)) {
+         target_num_leaves = 2;
+      } else {
+         comp_type = SPLINTER_COMPACTION_TYPE_SINGLE_LEAF_SPLIT;
+         if (spl->cfg.use_stats) {
+            spl->stats[tid].single_leaf_splits++;
+         }
+      }
    }
    uint64 target_leaf_tuples = num_tuples / target_num_leaves;
    uint64 target_num_pivots =
@@ -5297,13 +5336,13 @@ splinter_split_leaf(splinter_handle *spl,
           * 6. Issue compact_bundle for leaf and release
           */
          splinter_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-         req->spl = spl;
-         req->addr = leaf->disk_addr;
-         // req->height already 0
-         req->bundle_no = bundle_no;
-         req->generation = splinter_generation(spl, leaf);
+         req->spl                         = spl;
+         req->addr                        = leaf->disk_addr;
+         req->type                        = comp_type;
+         req->bundle_no                   = bundle_no;
+         req->generation                  = splinter_generation(spl, leaf);
          req->max_pivot_generation = splinter_pivot_generation(spl, leaf);
-         req->pivot_generation[0] = splinter_pivot_generation(spl, leaf) - 1;
+         req->pivot_generation[0]  = splinter_pivot_generation(spl, leaf) - 1;
          req->input_pivot_count[0] = splinter_pivot_num_tuples(spl, leaf, 0);
 
          splinter_default_log("enqueuing compact_bundle %lu-%u\n",
@@ -5756,7 +5795,7 @@ splinter_compact_leaf(splinter_handle *spl,
    req->max_pivot_generation = splinter_pivot_generation(spl, leaf);
    req->pivot_generation[0] = splinter_pivot_generation(spl, leaf) - 1;
    req->input_pivot_count[0] = splinter_pivot_num_tuples(spl, leaf, 0);
-   req->is_space_rec = TRUE;
+   req->type                 = SPLINTER_COMPACTION_TYPE_SPACE_REC;
 
    splinter_default_log("enqueuing compact_bundle %lu-%u\n",
          req->addr, req->bundle_no);
@@ -7628,6 +7667,7 @@ splinter_print(splinter_handle *spl)
    platform_close_log_stream(PLATFORM_DEFAULT_LOG_HANDLE);
 }
 
+// clang-format off
 void
 splinter_print_insertion_stats(splinter_handle *spl)
 {
@@ -7761,6 +7801,13 @@ splinter_print_insertion_stats(splinter_handle *spl)
             spl->stats[thr_i].leaf_split_max_time_ns;
       }
 
+      global->single_leaf_splits          += spl->stats[thr_i].single_leaf_splits;
+      global->single_leaf_tuples          += spl->stats[thr_i].single_leaf_tuples;
+      if (spl->stats[thr_i].single_leaf_max_tuples >
+            global->single_leaf_max_tuples) {
+         global->single_leaf_max_tuples = spl->stats[thr_i].single_leaf_max_tuples;
+      }
+
       global->root_filters_built          += spl->stats[thr_i].root_filters_built;
       global->root_filter_tuples          += spl->stats[thr_i].root_filter_tuples;
       global->root_filter_time_ns         += spl->stats[thr_i].root_filter_time_ns;
@@ -7870,20 +7917,24 @@ splinter_print_insertion_stats(splinter_handle *spl)
    }
    uint64 leaf_avg_split_time = global->leaf_splits == 0 ? 0
       : global->leaf_split_time_ns / global->leaf_splits;
+   uint64 single_leaf_avg_tuples = global->single_leaf_splits == 0 ? 0 :
+      global->single_leaf_tuples / global->single_leaf_splits;
 
    platform_log("Leaf Split Statistics\n");
-   platform_log("-------------------------------------------------------------------------------\n");
-   platform_log(" leaf splits | avg leaves created | avg split time (ns) | max split time (ns) |\n");
-   platform_log("-------------|--------------------|---------------------|---------------------|\n");
-   platform_log(" %11lu | "FRACTION_FMT(18, 2)" | %19lu | %19lu\n",
+   platform_log("--------------------------------------------------------------------------------------------------------------------------------\n");
+   platform_log("| leaf splits | avg leaves created | avg split time (ns) | max split time (ns) | single splits | ss avg tuples | ss max tuples |\n");
+   platform_log("--------------|--------------------|---------------------|---------------------|---------------|---------------|---------------|\n");
+   platform_log("| %11lu | "FRACTION_FMT(18, 2)" | %19lu | %19lu | %13lu | %13lu | %13lu |\n",
          global->leaf_splits, FRACTION_ARGS(avg_leaves_created),
-         leaf_avg_split_time, global->leaf_split_max_time_ns);
-   platform_log("------------------------------------------------------------------------------|\n");
+         leaf_avg_split_time, global->leaf_split_max_time_ns,
+         global->single_leaf_splits, single_leaf_avg_tuples,
+         global->single_leaf_max_tuples);
+   platform_log("-------------------------------------------------------------------------------------------------------------------------------|\n");
    platform_log("\n");
 
    platform_log("Filter Build Statistics\n");
    platform_log("---------------------------------------------------------------------------------\n");
-   platform_log("  height |   built | avg tuples | avg build time (ns) | build_time / tuple (ns) |\n");
+   platform_log("| height |   built | avg tuples | avg build time (ns) | build_time / tuple (ns) |\n");
    platform_log("---------|---------|------------|---------------------|-------------------------|\n");
 
    avg_filter_tuples = global->root_filters_built == 0 ? 0 :
@@ -7893,7 +7944,7 @@ splinter_print_insertion_stats(splinter_handle *spl)
    filter_time_per_tuple = global->root_filter_tuples == 0 ? 0 :
       global->root_filter_time_ns / global->root_filter_tuples;
 
-   platform_log("    root | %7lu | %10lu | %19lu | %23lu |\n",
+   platform_log("|   root | %7lu | %10lu | %19lu | %23lu |\n",
          global->root_filters_built, avg_filter_tuples,
          avg_filter_time, filter_time_per_tuple);
    for (h = 1; h <= height; h++) {
@@ -7904,7 +7955,7 @@ splinter_print_insertion_stats(splinter_handle *spl)
          global->filter_time_ns[rev_h] / global->filters_built[rev_h];
       filter_time_per_tuple = global->filter_tuples[rev_h] == 0 ? 0 :
          global->filter_time_ns[rev_h] / global->filter_tuples[rev_h];
-      platform_log("%8u | %7lu | %10lu | %19lu | %23lu |\n",
+      platform_log("| %6u | %7lu | %10lu | %19lu | %23lu |\n",
             rev_h, global->filters_built[rev_h], avg_filter_tuples,
             avg_filter_time, filter_time_per_tuple);
    }
@@ -7930,7 +7981,6 @@ splinter_print_insertion_stats(splinter_handle *spl)
    platform_default_log("\n");
    platform_free(spl->heap_id, global);
 }
-
 
 void
 splinter_print_lookup_stats(splinter_handle *spl)
@@ -8017,6 +8067,7 @@ splinter_print_lookup_stats(splinter_handle *spl)
    platform_default_log("\n");
    platform_free(spl->heap_id, global);
 }
+// clang-format on
 
 
 void
