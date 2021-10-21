@@ -294,7 +294,7 @@ typedef struct {
          int32  incr;
       } mono;
       struct {
-         PRG rs;
+         random_state rs;
          uint32       min;
          uint32       max;
       } rand;
@@ -324,7 +324,7 @@ cache_test_index_itor_rand_init(cache_test_index_itor *itor,
                                 uint32 max)
 {
    itor->type = RAND;
-   init_platform_hash_prg(&itor->rand.rs, seed, 0);
+   random_init(&itor->rand.rs, seed, 0);
    itor->rand.min = min;
    itor->rand.max = max;
 }
@@ -365,7 +365,7 @@ cache_test_index_itor_get(cache_test_index_itor *itor)
    case RAND:
    {
       uint32 range = itor->rand.max - itor->rand.min;
-      idx = itor->rand.min + PRG_step(&itor->rand.rs) % range;
+      idx = itor->rand.min + random_next_uint32(&itor->rand.rs) % range;
       break;
    }
    }
