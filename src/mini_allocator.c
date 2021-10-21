@@ -151,6 +151,13 @@ mini_allocator_alloc(mini_allocator *mini,
       mini->next_addr[batch] = next_extent_addr + cache_page_size(mini->cc);
 
       page_handle *meta_page;
+
+      /*
+       * need to get, claim and lock mini->meta_tail in order to add the new
+       * extent. The loop follows the standard idiom for obtaining a claim.
+       * Note that mini is shared, so the value of mini->meta_tail can change
+       * before we obtain the lock, thus we must check after the get.
+       */
       while (1) {
          uint64 meta_tail = mini->meta_tail;
          meta_page        = cache_get(mini->cc, meta_tail, TRUE, mini->type);
