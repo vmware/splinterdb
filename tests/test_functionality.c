@@ -296,15 +296,15 @@ out:
 #define VERIFY_RANGE_ENDPOINT_LESS    (6)
 
 static void *
-choose_key(data_config *cfg,    // IN
-           test_splinter_shadow_array *sharr, // IN
-           PRG *prg,   // IN/OUT
-           int type,            // IN
-           bool is_start,       // IN
-           void *startkey,      // IN
-           int start_index,     // IN
-           int *index,          // OUT
-           void *keybuf)        // OUT
+choose_key(data_config *               cfg,         // IN
+           test_splinter_shadow_array *sharr,       // IN
+           random_state *              prg,         // IN/OUT
+           int                         type,        // IN
+           bool                        is_start,    // IN
+           void *                      startkey,    // IN
+           int                         start_index, // IN
+           int *                       index,       // OUT
+           void *                      keybuf)                            // OUT
 {
    uint64 num_keys = sharr->nkeys;
 
@@ -321,10 +321,11 @@ choose_key(data_config *cfg,    // IN
       case VERIFY_RANGE_ENDPOINT_RAND: {
          // Pick in the middle 3/5ths of the array
          uint64 pos;
-         pos = num_keys / 5 + (PRG_step(prg) %
-               ((num_keys < 5) ? (num_keys + 1) / 2: (3 * num_keys / 5)));
+         pos = num_keys / 5 +
+               (random_next_uint64(prg) %
+                ((num_keys < 5) ? (num_keys + 1) / 2 : (3 * num_keys / 5)));
          uint64 key = sharr->keys[pos];
-         if (PRG_step(prg) % 2 && pos < sharr->nkeys) {
+         if (random_next_uint64(prg) % 2 && pos < sharr->nkeys) {
             key++;
             pos++;
          }
@@ -338,7 +339,7 @@ choose_key(data_config *cfg,    // IN
          return startkey;
       case VERIFY_RANGE_ENDPOINT_LESS:
          platform_assert(!is_start && startkey);
-         *index = start_index ? (PRG_step(prg) % start_index) : 0;
+         *index = start_index ? (random_next_uint64(prg) % start_index) : 0;
          test_int_to_key(keybuf, sharr->keys[*index], cfg->key_size);
          return keybuf;
       default:
@@ -349,8 +350,8 @@ choose_key(data_config *cfg,    // IN
 }
 
 platform_status
-verify_range_against_shadow_all_types(splinter_handle            *spl,
-                                      PRG               *prg,
+verify_range_against_shadow_all_types(splinter_handle *           spl,
+                                      random_state *              prg,
                                       test_splinter_shadow_array *sharr,
                                       platform_heap_id            hid,
                                       bool                        do_it)
@@ -403,15 +404,15 @@ verify_range_against_shadow_all_types(splinter_handle            *spl,
 }
 
 static platform_status
-validate_tree_against_shadow(splinter_handle           *spl,
-                             PRG              *prg,
-                             char                      *keybuf,
-                             data_handle               *msg,
+validate_tree_against_shadow(splinter_handle *          spl,
+                             random_state *             prg,
+                             char *                     keybuf,
+                             data_handle *              msg,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_handle       hh,
                              platform_heap_id           hid,
                              bool                       do_it,
-                             test_async_lookup         *async_lookup)
+                             test_async_lookup *        async_lookup)
 {
    test_splinter_shadow_array dry_run_sharr = {
       .nkeys = 1,
@@ -475,17 +476,17 @@ cleanup:
  *-----------------------------------------------------------------------------
  */
 static platform_status
-insert_random_messages(splinter_handle *spl,
-                       test_splinter_shadow_tree          *shadow,
-                       PRG    *prg,
-                       char            *keybuf,
-                       data_handle     *msg,
-                       int              num_messages,
-                       message_type     op,
-                       uint64           minkey,
-                       uint64           maxkey,
-                       int64            mindelta,
-                       int64            maxdelta)
+insert_random_messages(splinter_handle *          spl,
+                       test_splinter_shadow_tree *shadow,
+                       random_state *             prg,
+                       char *                     keybuf,
+                       data_handle *              msg,
+                       int                        num_messages,
+                       message_type               op,
+                       uint64                     minkey,
+                       uint64                     maxkey,
+                       int64                      mindelta,
+                       int64                      maxdelta)
 {
    uint64 key_size  = spl->cfg.data_cfg->key_size;
    uint64 data_size = spl->cfg.data_cfg->message_size;
@@ -503,14 +504,15 @@ insert_random_messages(splinter_handle *spl,
       // Generate a random message (op, key).
       // (the refcount field of our messages are always 1)
       key = minkey + (((key - minkey) + mindelta +
-               (PRG_step(prg) % (maxdelta - mindelta + 1))) % (maxkey - minkey + 1));
+                       (random_next_uint64(prg) % (maxdelta - mindelta + 1))) %
+                      (maxkey - minkey + 1));
 
       // Insert message into Splinter
       test_int_to_key(keybuf, key, key_size);
 
       msg->message_type = op;
       if (op != MESSAGE_TYPE_DELETE)
-         msg->ref_count = ((int)(PRG_step(prg) % 256)) - 127;
+         msg->ref_count = ((int)(random_next_uint64(prg) % 256)) - 127;
       else
          msg->ref_count = 0;
 
@@ -608,12 +610,12 @@ test_functionality(allocator            *al,
       async_lookup = NULL;
    }
 
-   PRG prg;
+   random_state    prg;
    platform_status status;
    char *keybuf = NULL;
    data_handle *msgbuf = NULL;
 
-   init_platform_hash_prg(&prg, seed, 0);
+   random_init(&prg, seed, 0);
 
    // Initialize the splinter/shadow for each splinter table.
    for (uint8 idx = 0; idx < num_tables; idx++) {
@@ -664,7 +666,7 @@ test_functionality(allocator            *al,
 
       // We pick different operations with different probabilities.
       // This is choice from the probability space.
-      randop = PRG_step(&prg) % 100;
+      randop = random_next_uint64(&prg) % 100;
       // Favor inserts
       if (randop < 80)
          op = MESSAGE_TYPE_INSERT;
@@ -675,21 +677,21 @@ test_functionality(allocator            *al,
 
       // Numer of messages geometrically distributed.
       // Make num_messages not always a power of 2.
-      num_messages     = 1 << (2 * (PRG_step(&prg) % 10));
-      num_messages     =      num_messages + (PRG_step(&prg) % num_messages);
+      num_messages = 1 << (2 * (random_next_uint64(&prg) % 10));
+      num_messages = num_messages + (random_next_uint64(&prg) % num_messages);
       if (num_messages > num_inserts - total_inserts)
          num_messages = num_inserts - total_inserts;
 
       // Size of the deltas geometrically distributed.
-      mindelta         = 1 << (PRG_step(&prg) % 26);
-      delta_range_size = 1 << (2* (PRG_step(&prg) % 13));
-      sign_mindelta    =      PRG_step(&prg) % 2;
+      mindelta         = 1 << (random_next_uint64(&prg) % 26);
+      delta_range_size = 1 << (2 * (random_next_uint64(&prg) % 13));
+      sign_mindelta    = random_next_uint64(&prg) % 2;
       mindelta         =      (2*sign_mindelta - 1) * mindelta;
       maxdelta         =      mindelta + delta_range_size;
       average_delta    =      (mindelta + maxdelta) / 2;
 
       // minkey uniformly distributed.  size of key range geometrically distributed.
-      minkey           =      PRG_step(&prg) % (1ULL << 25);
+      minkey = random_next_uint64(&prg) % (1ULL << 25);
       key_range_size   =
          delta_range_size > int64abs(num_messages * average_delta)
          ? delta_range_size
