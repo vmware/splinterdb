@@ -4877,9 +4877,9 @@ splinter_compact_bundle(void *arg,
             req->tuples_reclaimed;
       }
       if (req->type == SPLINTER_COMPACTION_TYPE_SINGLE_LEAF_SPLIT) {
-         spl->stats[tid].single_leaf_tuples += pack_req.num_tuples;
-         if (pack_req.num_tuples > spl->stats[tid].single_leaf_max_tuples) {
-            spl->stats[tid].single_leaf_max_tuples = pack_req.num_tuples;
+         spl->stats[tid].single_leaf_tuples += pack_req.point_req.num_tuples;
+         if (pack_req.point_req.num_tuples > spl->stats[tid].single_leaf_max_tuples) {
+            spl->stats[tid].single_leaf_max_tuples = pack_req.point_req.num_tuples;
          }
       }
    }
