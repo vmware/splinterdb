@@ -529,38 +529,6 @@ typedef union {
 
 
 /*
- * Splinter specific state that gets created during initialization in
- * splinter_system_init(). Contains global state for splinter such as the
- * init thread, init thread's scratch memory, thread_id counter and an array
- * of all the threads, which acts like a map that is accessed by thread id
- * to get the thread pointer.
- *
- * This structure is passed around like an opaque structure to all the
- * entities that need to access it. Some of them are task creation and
- * execution, task queue and clockcache.
- */
-
-typedef struct splinter_system_state {
-   // lookup array for threads registered with this system.
-   thread_task           *thread_lookup[MAX_THREADS];
-   // array of threads for this system.
-   thread_task            thread_tasks[MAX_THREADS];
-   // scratch memory for each thread.
-   splinter_task_scratch  task_scratch[MAX_THREADS];
-   // IO handle (currently one splinter system has just one)
-   platform_io_handle    *ioh;
-   /*
-    * bitmask used for generating and clearing thread id's.
-    * If a bit is set to 0, it means we have an in use thread id for that
-    * particular position, 1 means it is unset and that thread id is available
-    * for use.
-    */
-   uint64                 tid_bitmask;
-   // max thread id so far.
-   threadid               max_tid;
-} splinter_system_state;
-
-/*
  *-----------------------------------------------------------------------------
  *
  * function declarations
