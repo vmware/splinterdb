@@ -9,10 +9,10 @@
  * Structure of a node:
  *                                 hdr->next_entry
  *                                               |
- *   0                                           v     page_size
- *   -----------------------------------------------------------
- *   | header | offsets table ---> | empty space | <--- entries|
- *   -----------------------------------------------------------
+ *   0                                           v              page_size
+ *   +--------+--------------------+-------------+-------------+--------+
+ *   | header | offsets table ---> | empty space | <--- entries|checksum|
+ *   +--------+--------------------+-------------+-------------+--------+
  *
  * The arrows indicate that the offsets table grows to the left
  * and the entries grow to the right.
@@ -38,11 +38,16 @@
  *
  *******************************************************************/
 
+// Use General naming convention of <something>_t for typedef names
+
 typedef uint16 entry_index; //  So we can make this bigger for bigger nodes.
+
+// Rename typedef to btoff_t ? 
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
+
 typedef node_offset table_entry;
-typedef uint16 inline_key_size;
-typedef uint16 inline_message_size;
+typedef uint16 inline_key_size;     // ? Rename to btkeysize_t ?
+typedef uint16 inline_message_size; // ? Rename to btmsgsize_t ?
 
 #define DYNAMIC_BTREE_MAX_HEIGHT 8
 
@@ -52,16 +57,39 @@ typedef uint16 inline_message_size;
 
 #define DYNAMIC_BTREE_UNKNOWN (0x7fffffffUL)
 
-struct PACKED dynamic_btree_hdr {
+/* Few comments, suggestions to include:
+ *
+ * Take a look at Postgres page layout, described here:
+ *  https://www.postgresql.org/docs/9.3/storage-page-layout.html
+ * and found in code here:
+ *  https://github.com/postgres/postgres/blob/master/src/include/storage/bufpage.h
+ *
+ * - field naming prefix: bth_next_addr, bth_next_extent_addr, and so on.
+ * - Currently offsets[] starts at offset 29; for 2-byte offset. That causes
+ *   needless awkardness when accessing the field.
+ * - Include a 2-/4-byte checksum field at tail of the page
+ *
+ * Here is a reorganized page header, with some new fields suggested.
+ */
+// ? What's dynamic about this header? Why not name it simply btree_hdr{} ?
+typedef struct PACKED dynamic_btree_hdr {
    uint64      next_addr;
    uint64      next_extent_addr;
    uint64      generation;
-   uint8       height;
-   node_offset next_entry;
-   entry_index num_entries;
-   table_entry offsets[];
-};
 
+   // node_offset next_entry;
+   btoff_t     free_offset;
+
+   entry_index num_entries;
+   uint8       height;
+   uint8       flags;
+   uint8       version;
+   uint8       spare;           // Makes total of 32 bytes
+   table_entry offsets[];
+} btree_hdr;
+
+// ? Can we encode this in a byte, and save it in page header?
+// Will be useful in case we ever want to support mixed page sizes in a store.
 static inline uint64
 dynamic_btree_page_size(const dynamic_btree_config *cfg)
 {
@@ -107,6 +135,9 @@ dynamic_btree_reset_node_entries(const dynamic_btree_config *cfg,
  * Node entries
  ***********************************/
 
+/*
+ * Name is too close to typedef entry_index. Very confusing. Options?
+ */
 typedef struct PACKED index_entry {
   uint64          child_addr;
   uint32          num_kvs_in_tree;

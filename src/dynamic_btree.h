@@ -35,6 +35,11 @@ extern page_handle *trace_page;
  *----------------------------------------------------------------------
  */
 
+// Naming conventions for structs: UPPER_CASE ? Let's discuss.
+// All these lower-case names, e.g. dynamic_btree_config ... makes it unclear
+// if it's a field, or a member or a typedef or a struct.
+
+// ? Do these fields need to be uint64? Won't uint32 (4 bill) suffice?
 typedef struct dynamic_btree_config {
    uint64       page_size;           // must match the cache/fs page_size
    uint64       extent_size;         // same
@@ -45,9 +50,9 @@ typedef struct dynamic_btree_config {
 typedef struct PACKED dynamic_btree_hdr dynamic_btree_hdr;
 
 typedef struct dynamic_btree_node {
-   uint64 addr;
-   page_handle *page;
-   dynamic_btree_hdr *hdr;
+   uint64 addr;                 // btn_addr;
+   page_handle *page;           // btn_pgptr;
+   dynamic_btree_hdr *hdr;      // btn_hdr;
 } dynamic_btree_node;
 
 typedef struct {
@@ -63,6 +68,7 @@ typedef struct { // Note: not a union
    scratch_dynamic_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED dynamic_btree_scratch;
 
+// Strong request to use unique prefix; btit_super, btit_cc, btit_cfg ... 
 typedef struct dynamic_btree_iterator {
    iterator              super;
    cache                *cc;
@@ -89,7 +95,7 @@ typedef struct dynamic_btree_iterator {
    debug_code(char debug_prev_end_key[MAX_KEY_SIZE]);
 } dynamic_btree_iterator;
 
-typedef struct dynamic_btree_pack_req {
+typedef struct dynamic_btree_pack_req {     // Unique prefix: btpr_
    // inputs to the pack
    cache        *cc;
    dynamic_btree_config *cfg;

@@ -126,6 +126,11 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *             thinly wrapped using their root_addr, which is thinly wrapped
  *             using btree_static_handle.
  *
+ * NOTE: Did not find definitions for btree_dynamic_handle or btree_static_handle.
+ * ? Do we [not?] want to expand this section to describe dynamic BTrees?
+ * - Nomenclature of new dynamic BTrees in dynamic_btree.c conflicts with
+ *   this existing usage
+ *
  *-----------------------------------------------------------------------------
  */
 
@@ -162,6 +167,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          data moves down the tree and the second limits the number of
  *          branches on a root-to-leaf path and therefore the worst-case lookup
  *          cost.
+ *
+ *  ? Is a 'node' a BTree page? Is it root, intermediate, leaf of any BTree page?
  *
  *          When a node fills, a flush is initiated to each pivot (child) of
  *          the node which has at least max_branches_per_node live branches. If
@@ -212,6 +219,10 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          asynchronously compacts the shared branches into a single unshared
  *          branch with the tuples from each new leaf's range.
  *
+ *  ? Are all these physical operations; i.e. split, flush, compaction logged
+ *    and recoverable? Or, is it that these BTree pages are purely in-memory
+ *    and will be reconstructed as part of bootstrapping internal structures
+ *    after crash recovery?
  *-----------------------------------------------------------------------------
  */
 
@@ -350,7 +361,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *-----------------------------------------------------------------------------
  *
  * structs
- *
+ * NOTE: It will be good to document which struct is on-disk and which is
+ *  constructed in-memory at run-time.
  *-----------------------------------------------------------------------------
  */
 
@@ -403,7 +415,9 @@ typedef struct PACKED splinter_subbundle {
 typedef struct PACKED splinter_bundle {
    uint16 start_subbundle;
    uint16 end_subbundle;
-   uint64 num_tuples;
+   uint64 num_tuples;   // Why is this uint64? It makes the struct size 12 bytes.
+                        // uint32 should suffice, which will keep the struct
+                        // size at 8 bytes.
 } splinter_bundle;
 
 /*
@@ -420,7 +434,12 @@ typedef struct PACKED splinter_bundle {
  *       leaves. This is because there are no processes which need to revisit
  *       all the created leaves.
  */
-
+/* NOTE: defining next_addr, generation, pivot_generation all as uint64 is a
+ * bit confusing, and potentially error prone. Any thoughts on introducing
+ * clarifying typedefs for each data types?
+ *
+ * The set of uint16 fields -- what are they ? Bundle ID? Or Offset?
+ */
 typedef struct PACKED splinter_trunk_hdr {
    uint16 num_pivot_keys;    // number of used pivot keys (== num_children + 1)
    uint16 height;            // height of the node
@@ -441,6 +460,9 @@ typedef struct PACKED splinter_trunk_hdr {
    splinter_bundle    bundle[SPLINTER_MAX_BUNDLES];
    splinter_subbundle subbundle[SPLINTER_MAX_SUBBUNDLES];
    routing_filter     sb_filter[SPLINTER_MAX_FILTERS];
+                        /* Statically sized arrays -- Do we run the risk of
+                        ** overflowing capacity?
+                        */
 } splinter_trunk_hdr;
 
 /*
@@ -454,6 +476,7 @@ typedef struct PACKED splinter_trunk_hdr {
 typedef struct splinter_pivot_data {
    uint64         addr;         // PBN of the child
    uint64         num_tuples;   // estimate of the # of tuples for this pivot
+                                // Isn't uint32 (4 billion) sufficent?
    uint64         generation;   // receives new higher number when pivot splits
    uint16         start_branch; // first branch live (not used in leaves)
    uint16         start_bundle; // first bundle live (not used in leaves)
