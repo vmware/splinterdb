@@ -162,7 +162,7 @@ kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
 );
 
 void
-kvstore_basic_iter_deinit(kvstore_basic_iterator *iter);
+kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp);
 
 // checks that the iterator status is OK (no errors) and that get_current will
 // succeed If false, there are two possibilities:
