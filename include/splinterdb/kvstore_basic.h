@@ -91,9 +91,29 @@ kvstore_basic_open(const kvstore_basic_cfg *cfg, // IN
 void
 kvstore_basic_close(kvstore_basic *kvsb);
 
-// Call this once for each thread that needs to use the db
+// Register the current thread so that it can be used with the kvstore_basic.
+// This causes scratch space to be allocated for the thread.
+//
+// Any thread that uses a kvstore_basic must first be registered with it.
+//
+// The only exception is the initial thread which called create or open,
+// as that thread is implicitly registered.  Re-registering it will leak memory.
+//
+// A thread should not be registered more than once; that would leak memory.
+//
+// kvstore_basic_close will use scratch space, so the thread that calls it must
+// have been registered (or implicitly registered by being the initial thread).
+//
+// Note: There is currently a limit of MAX_THREADS registered at a given time
 void
 kvstore_basic_register_thread(const kvstore_basic *kvsb);
+
+// Deregister the current thread and free its scratch space.
+//
+// Call this function before exiting a registered thread.
+// Otherwise, you'll leak memory.
+void
+kvstore_basic_deregister_thread(const kvstore_basic *kvsb);
 
 // Insert a key:value pair
 int

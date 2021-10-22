@@ -733,7 +733,6 @@ test_reader_thread(void *arg)
    for (k = 0; k < num_pages; k ++) {
       cache_assert_ungot(cc, addr_arr[k]);
    }
-   task_clear_threadid(params->ts, tid);
 }
 
 void
@@ -774,7 +773,6 @@ test_writer_thread(void *arg)
       cache_unget(cc, handle_arr[k]);
       handle_arr[k] = NULL;
    }
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 /*
