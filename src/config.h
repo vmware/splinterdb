@@ -48,6 +48,7 @@ typedef struct master_config {
 
    // splinter
    uint64 memtable_capacity;
+   uint64 max_memtables;
    uint64 fanout;
    uint64 max_branches_per_node;
    uint64 use_stats;

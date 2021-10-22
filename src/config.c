@@ -6,38 +6,39 @@
 void
 config_set_defaults(master_config *cfg)
 {
-   *cfg = (master_config) {
-      .io_filename = "db",
+   *cfg = (master_config){
+      .io_filename   = "db",
       .cache_logfile = "cache_log",
 
-      .page_size                = 4096,
-      .extent_size              = 128 * 1024,
+      .page_size   = 4096,
+      .extent_size = 128 * 1024,
 
-      .io_flags                 = O_RDWR | O_CREAT,
-      .io_perms                 = 0755,
-      .io_async_queue_depth     = 256,
+      .io_flags             = O_RDWR | O_CREAT,
+      .io_perms             = 0755,
+      .io_async_queue_depth = 256,
 
-      .allocator_capacity       = GiB_TO_B(30),
+      .allocator_capacity = GiB_TO_B(30),
 
-      .cache_capacity           = GiB_TO_B(1),
+      .cache_capacity = GiB_TO_B(1),
 
       .btree_rough_count_height = 1,
 
-      .filter_remainder_size    = 6,
-      .filter_index_size        = 256,
+      .filter_remainder_size = 6,
+      .filter_index_size     = 256,
 
-      .use_log                  = FALSE,
+      .use_log = FALSE,
 
-      .memtable_capacity        = MiB_TO_B(24),
-      .fanout                   = 8,
-      .max_branches_per_node    = 24,
-      .use_stats                = FALSE,
-      .reclaim_threshold        = UINT64_MAX,
+      .memtable_capacity     = MiB_TO_B(24),
+      .max_memtables         = SPLINTER_NUM_MEMTABLES,
+      .fanout                = 8,
+      .max_branches_per_node = 24,
+      .use_stats             = FALSE,
+      .reclaim_threshold     = UINT64_MAX,
 
-      .key_size                 = 24,
-      .message_size             = 100,
+      .key_size     = 24,
+      .message_size = 100,
 
-      .seed                     = 0,
+      .seed = 0,
    };
 }
 
@@ -133,30 +134,39 @@ config_parse(master_config *cfg,
       } config_set_mib("cache-capacity", cfg, cache_capacity) {
       } config_set_gib("cache-capacity", cfg, cache_capacity) {
       } config_set_string("cache-debug-log", cfg, cache_logfile) {
-      } config_set_mib("memtable-capacity", cfg, memtable_capacity) {
-      } config_set_gib("memtable-capacity", cfg, memtable_capacity) {
-      } config_set_uint64("rough-count-height", cfg, btree_rough_count_height) {
-      } config_set_uint64("filter-remainder-size", cfg, filter_remainder_size) {
-      } config_set_uint64("fanout", cfg, fanout) {
-      } config_set_uint64("max-branches-per-node", cfg, max_branches_per_node) {
-      } config_set_mib("reclaim-threshold", cfg, reclaim_threshold) {
-      } config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {
-      } config_has_option("stats") {
+      }
+      config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
+      config_set_gib("memtable-capacity", cfg, memtable_capacity) {}
+      config_set_uint64("max-memtables", cfg, max_memtables) {}
+      config_set_uint64("rough-count-height", cfg, btree_rough_count_height) {}
+      config_set_uint64("filter-remainder-size", cfg, filter_remainder_size) {}
+      config_set_uint64("fanout", cfg, fanout) {}
+      config_set_uint64("max-branches-per-node", cfg, max_branches_per_node) {}
+      config_set_mib("reclaim-threshold", cfg, reclaim_threshold) {}
+      config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {}
+      config_has_option("stats")
+      {
          for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
             cfg[cfg_idx].use_stats = TRUE;
          }
-      } config_has_option("no-stats") {
+      }
+      config_has_option("no-stats")
+      {
          for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
             cfg[cfg_idx].use_stats = FALSE;
          }
-      } config_has_option("log") {
+      }
+      config_has_option("log")
+      {
          for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
             cfg[cfg_idx].use_log = TRUE;
          }
-      } config_set_uint64("key-size", cfg, key_size) {
-      } config_set_uint64("data-size", cfg, message_size) {
-      } config_set_uint64("seed", cfg, seed) {
-      } config_set_else {
+      }
+      config_set_uint64("key-size", cfg, key_size) {}
+      config_set_uint64("data-size", cfg, message_size) {}
+      config_set_uint64("seed", cfg, seed) {}
+      config_set_else
+      {
          platform_error_log("config: invalid option: %s\n", argv[i]);
          return STATUS_BAD_PARAM;
       }
