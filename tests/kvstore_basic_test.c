@@ -33,6 +33,15 @@
 
 #define TEST_DB_NAME "db"
 
+// Hard-coded format strings to generate key and values
+static const char key_fmt[] = "key-%02x";
+static const char val_fmt[] = "val-%02x";
+
+// Function prototypes
+static int
+insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys,
+            const int incr);
+
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 {
@@ -781,10 +790,131 @@ cleanup:
    }
 }
 
+/*
+ * Test case simplified from larger test case developed to
+ * verify behaviour of iterator init methods.
+ * test_kvstore_iterator_with_missing_startkey_in_sequence().
+ *
+ * In this test case, we seem to be running into an endless loop
+ * if the wrong iterator interfaces are being used.
+ */
+int
+test_kvstore_iterator_hang_bug()
+{
+   kvstore_basic *         kvsb = NULL;
+   kvstore_basic_cfg       cfg  = {0};
+   kvstore_basic_iterator *it   = NULL;
+   int                     rc   = 0;
+
+   test_assert_rc(setup_kvstore_basic(&kvsb, &cfg), "setup");
+
+   const int num_inserts = 50;
+   // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
+   int minkey = 1;
+   test_assert_rc(insert_keys(kvsb, minkey, num_inserts, 3), "insert keys with incr=3");
+
+   char key[TEST_INSERT_KEY_LENGTH];
+
+   // (a) Test iter_init with a value == the min-key-value.
+   snprintf(key, sizeof(key), key_fmt, minkey);
+
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with start key == min-key-value");
+
+   test_assert(kvstore_basic_iter_valid(it), "iterator should be valid");
+
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is below min-key inserted thus far.
+   int ictr = minkey;
+   test_assert_rc(check_current_tuple(it, ictr), "check current ictr=<minkey>");
+
+   // If you skip this call, then kvstore_basic_iter_deinit() done below,
+   // as part of cleanup: target will cause an indefinite hang.
+   // kvstore_basic_iter_deinit(it);
+
+   // (b) Test iter_init with a value below the min-key-value.
+   int kctr = (minkey - 1);
+
+   snprintf(key, sizeof(key), key_fmt, kctr);
+
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with start key less than min-key-value");
+
+   /*
+    * This was part of the test case being developed, but it's commented
+    * out now, as it's not relevant to reproducing the hang situation.
+    *
+   test_assert(kvstore_basic_iter_valid(it), "iterator should be valid");
+
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is below min-key inserted thus far.
+   ictr = minkey;
+   test_assert_rc(check_current_tuple(it, ictr), "check current, expected 1");
+   */
+
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
+
+cleanup:
+   if ((it != NULL) && kvstore_basic_iter_valid(it)) {
+       fprintf(stderr, "Starting to call kvstore_basic_iter_deinit() ...\n");
+      kvstore_basic_iter_deinit(it);
+   }
+   if (kvsb != NULL) {
+      kvstore_basic_close(kvsb);
+   }
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
+   }
+   return rc;
+}
+
+/*
+ * Helper function to insert n-keys (num_inserts), using pre-formatted
+ * key and value strings. Allows user to specify start value and increment
+ * between keys. This can be used to load either fully sequential keys
+ * or some with defined gaps.
+ *
+ * Parameters:
+ *  kvsb    - Ptr to KVStore handle
+ *  minkey  - Start key to insert
+ *  numkeys - # of keys to insert
+ *  incr    - Increment between keys (default is 1)
+ *
+ * Returns: Return code: rc == 0 => success; anything else => failure
+ */
+static int
+insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys,
+            const int incr)
+{
+   int rc = -1;
+
+   // Minimally, error check input arguments
+   if (!kvsb || (numkeys <= 0) || (incr < 0))
+       return rc;
+
+   // insert keys forwards, starting from minkey value
+   for (int kctr = minkey; numkeys; kctr += incr, numkeys--) {
+      char key[TEST_INSERT_KEY_LENGTH] = {0};
+      char val[TEST_INSERT_VAL_LENGTH] = {0};
+
+      snprintf(key, sizeof(key), key_fmt, kctr);
+      snprintf(val, sizeof(val), val_fmt, kctr);
+
+      rc = kvstore_basic_insert(kvsb, key, sizeof(key), val, sizeof(val));
+      test_assert_rc(rc, "insert key=%d: rc=%d", kctr, rc);
+   }
+   rc = 0;
+
+cleanup:
+   return rc;
+}
+
 int
 kvstore_basic_test(int argc, char *argv[])
 {
    int rc = 0;
+   /*
    fprintf(stderr, "start: kvstore_basic flow\n");
    test_assert_rc(test_kvstore_basic_flow(), "kvstore_basic_flow");
 
@@ -815,6 +945,11 @@ kvstore_basic_test(int argc, char *argv[])
    fprintf(stderr, "start: kvstore_basic lots of data\n");
    test_assert_rc(test_kvstore_basic_lots_of_data(),
                   "kvstore_basic_lots_of_data");
+   */
+   fprintf(stderr, "\nstart: kvstore_basic iterator test leading to a hang:\n");
+   test_assert_rc(test_kvstore_iterator_hang_bug(),
+                  "kvstore_iterator_hang_bug");
+
 cleanup:
    if (rc == 0) {
       fprintf(stderr, "OK\n");
