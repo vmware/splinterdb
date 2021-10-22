@@ -282,16 +282,21 @@ test_config_init(splinter_config     *splinter_cfg,
    shard_log_config_init(log_cfg, data_cfg, master_cfg->page_size,
                          master_cfg->extent_size);
 
-   splinter_config_init(splinter_cfg, data_cfg, (log_config *)log_cfg,
+   splinter_config_init(splinter_cfg,
+                        data_cfg,
+                        (log_config *)log_cfg,
                         SPLINTER_NUM_MEMTABLES,
                         master_cfg->memtable_capacity,
-                        master_cfg->fanout, master_cfg->max_branches_per_node,
+                        master_cfg->fanout,
+                        master_cfg->max_branches_per_node,
                         master_cfg->btree_rough_count_height,
-                        master_cfg->page_size, master_cfg->extent_size,
+                        master_cfg->page_size,
+                        master_cfg->extent_size,
                         master_cfg->filter_remainder_size,
                         master_cfg->filter_index_size,
                         master_cfg->reclaim_threshold,
-                        master_cfg->use_log, master_cfg->use_stats);
+                        master_cfg->use_log,
+                        master_cfg->use_stats);
 }
 
 static inline platform_status

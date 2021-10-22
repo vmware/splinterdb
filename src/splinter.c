@@ -6835,8 +6835,8 @@ splinter_create(splinter_config  *cfg,
    // The context remains NULL if mt_cfg->max_memtables is 0
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    if (spl->cfg.mt_cfg.max_memtables > 0) {
-      spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
-            splinter_memtable_flush_virtual, spl);
+      spl->mt_ctxt = memtable_context_create(
+         spl->heap_id, cc, mt_cfg, splinter_memtable_flush_virtual, spl);
    }
 
    // set up the log
@@ -6949,8 +6949,8 @@ splinter_mount(splinter_config  *cfg,
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    // The context remains NULL if mt_cfg->max_memtables is 0
    if (mt_cfg->max_memtables > 0) {
-      spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
-            splinter_memtable_flush_virtual, spl);
+      spl->mt_ctxt = memtable_context_create(
+         spl->heap_id, cc, mt_cfg, splinter_memtable_flush_virtual, spl);
    }
 
    mini_allocator_init(&spl->mini, cc, spl->cfg.data_cfg, meta_head, meta_tail,
@@ -8294,8 +8294,8 @@ splinter_print_extent_counts(splinter_handle *spl)
 
 void
 splinter_config_init(splinter_config *splinter_cfg,
-                     data_config     *data_cfg,
-                     log_config      *log_cfg,
+                     data_config *    data_cfg,
+                     log_config *     log_cfg,
                      uint64           max_memtables,
                      uint64           memtable_capacity,
                      uint64           fanout,
@@ -8341,10 +8341,12 @@ splinter_config_init(splinter_config *splinter_cfg,
                      btree_rough_count_height,
                      splinter_cfg->page_size, splinter_cfg->extent_size);
 
-   // Initialize memtables according to max_memtables 
+   // Initialize memtables according to max_memtables
    platform_assert(max_memtables <= SPLINTER_NUM_MEMTABLES);
-   memtable_config_init(&splinter_cfg->mt_cfg, &splinter_cfg->btree_cfg,
-         max_memtables, memtable_capacity);
+   memtable_config_init(&splinter_cfg->mt_cfg,
+                        &splinter_cfg->btree_cfg,
+                        max_memtables,
+                        memtable_capacity);
 
    // Has to be set after btree_config_init is called
    splinter_cfg->max_tuples_per_node
