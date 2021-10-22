@@ -130,6 +130,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    splinter_config_init(&kvs->splinter_cfg,
                         &kvs->data_cfg,
                         NULL,
+                        SPLINTER_NUM_MEMTABLES,
                         masterCfg.memtable_capacity,
                         masterCfg.fanout,
                         masterCfg.max_branches_per_node,

@@ -26,6 +26,8 @@
 // examin cost of increasing
 #define SPLINTER_MAX_TOTAL_DEGREE 256
 
+#define SPLINTER_NUM_MEMTABLES (4)
+
 /*
  *----------------------------------------------------------------------
  *
@@ -461,6 +463,7 @@ void
 splinter_config_init(splinter_config *splinter_cfg,
                      data_config *    data_cfg,
                      log_config *     log_cfg,
+                     uint64           max_memtables,
                      uint64           memtable_capacity,
                      uint64           fanout,
                      uint64           max_branches_per_node,

@@ -283,6 +283,7 @@ test_config_init(splinter_config     *splinter_cfg,
                          master_cfg->extent_size);
 
    splinter_config_init(splinter_cfg, data_cfg, (log_config *)log_cfg,
+                        SPLINTER_NUM_MEMTABLES,
                         master_cfg->memtable_capacity,
                         master_cfg->fanout, master_cfg->max_branches_per_node,
                         master_cfg->btree_rough_count_height,

@@ -41,7 +41,6 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
    10000000000     // 10  s
 };
 
-#define SPLINTER_NUM_MEMTABLES (4)
 #define SPLINTER_HARD_MAX_NUM_TREES (128)
 #define SPLINTER_MAX_PIVOTS (20)
 #define SPLINTER_MAX_BUNDLES (12)
@@ -6833,9 +6832,12 @@ splinter_create(splinter_config  *cfg,
                        PAGE_TYPE_TRUNK);
 
    // set up the memtable context
+   // The context remains NULL if mt_cfg->max_memtables is 0
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
-         splinter_memtable_flush_virtual, spl);
+   if (spl->cfg.mt_cfg.max_memtables > 0) {
+      spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
+            splinter_memtable_flush_virtual, spl);
+   }
 
    // set up the log
    if (spl->cfg.use_log) {
@@ -6945,8 +6947,11 @@ splinter_mount(splinter_config  *cfg,
    // maintain constant height
 
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
-   spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
-         splinter_memtable_flush_virtual, spl);
+   // The context remains NULL if mt_cfg->max_memtables is 0
+   if (mt_cfg->max_memtables > 0) {
+      spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
+            splinter_memtable_flush_virtual, spl);
+   }
 
    mini_allocator_init(&spl->mini, cc, spl->cfg.data_cfg, meta_head, meta_tail,
          SPLINTER_MAX_HEIGHT, PAGE_TYPE_TRUNK);
@@ -6993,7 +6998,7 @@ splinter_deinit(splinter_handle *spl)
    //        other calls to spl have returned and all tasks have been complete.
    //        Therefore, this race shouldn't exist. Similarly, we don't hold the
    //        insert lock or rotate while flushing the memtable.
-   if (!memtable_is_empty(spl->mt_ctxt)) {
+   if (spl->mt_ctxt && !memtable_is_empty(spl->mt_ctxt)) {
       uint64 generation = memtable_force_finalize(spl->mt_ctxt);
       splinter_memtable_flush(spl, generation);
    }
@@ -7002,7 +7007,9 @@ splinter_deinit(splinter_handle *spl)
    task_perform_all(spl->ts);
 
    // destroy memtable context (and its memtables)
-   memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
+   if (spl->mt_ctxt) {
+      memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
+   }
 
    // release the log
    if (spl->cfg.use_log) {
@@ -8289,6 +8296,7 @@ void
 splinter_config_init(splinter_config *splinter_cfg,
                      data_config     *data_cfg,
                      log_config      *log_cfg,
+                     uint64           max_memtables,
                      uint64           memtable_capacity,
                      uint64           fanout,
                      uint64           max_branches_per_node,
@@ -8333,12 +8341,10 @@ splinter_config_init(splinter_config *splinter_cfg,
                      btree_rough_count_height,
                      splinter_cfg->page_size, splinter_cfg->extent_size);
 
-   // FIXME: [yfogel 2020-08-27] MUST not be hardcoded for
-   //    SPLINTER_NUM_MEMTABLES
-   //    tests need to specify and that must happen HERE
-   //    so must be plumbed
+   // Initialize memtables according to max_memtables 
+   platform_assert(max_memtables <= SPLINTER_NUM_MEMTABLES);
    memtable_config_init(&splinter_cfg->mt_cfg, &splinter_cfg->btree_cfg,
-         SPLINTER_NUM_MEMTABLES, memtable_capacity);
+         max_memtables, memtable_capacity);
 
    // Has to be set after btree_config_init is called
    splinter_cfg->max_tuples_per_node
