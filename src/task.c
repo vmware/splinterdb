@@ -12,6 +12,23 @@ int hook_init_done = 0;
 static int num_hooks = 0;
 static task_hook hooks[MAX_HOOKS];
 
+// forward declarations that aren't part of the public API of the task system
+platform_status
+task_register_hook(task_hook newhook);
+
+threadid *
+task_system_get_max_tid(task_system *ts);
+
+uint64 *
+task_system_get_tid_bitmask(task_system *ts);
+
+void
+task_system_io_register_thread(task_system *ts);
+
+void
+task_system_register_thread(task_system *ts);
+// end forward declarations
+
 #define INVALID_TID (MAX_THREADS)
 
 void
@@ -96,22 +113,9 @@ task_run_thread_hooks(task_system *ts)
 }
 
 void
-task_init_thread_task(task_system *ts,
-                      const threadid tid,
-                      thread_task *task,
-                      void *task_scratch)
+task_init_thread_task(task_system *ts, const threadid tid, void *task_scratch)
 {
-   thread_task **thread_lookup = task_system_get_system_threads(ts);
-   thread_lookup[tid] = task;
-   task->scratch = task_scratch;
-}
-
-bool
-task_is_threadid_allocated(task_system *ts, threadid tid)
-{
-   uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
-   // check for bit to be set to 0.
-   return !(*tid_bitmask & (1ULL << tid));
+   ts->thread_scratch[tid] = task_scratch;
 }
 
 void
@@ -141,20 +145,28 @@ task_register_hook(task_hook newhook)
    return STATUS_OK;
 }
 
+typedef struct {
+   platform_thread_worker func;
+   void *                 arg;
+   void *                 scratch;
+
+   // task system, used for running hook function and thread lookups.
+   task_system *    ts;
+   platform_heap_id heap_id;
+} thread_invoke;
+
 static void
-task_start_thread_with_hooks(void *func_and_args)
+task_invoke_with_hooks(void *func_and_args)
 {
-   thread_task *thread_to_start = (thread_task *)func_and_args;
+   thread_invoke *        thread_to_start = (thread_invoke *)func_and_args;
    platform_thread_worker func = thread_to_start->func;
    void *arg = thread_to_start->arg;
    task_system *ts = thread_to_start->ts;
 
-   thread_task **thread_lookup = task_system_get_system_threads(ts);
-
    for (int i = 0; i < num_hooks; i++)
       hooks[i](ts);
 
-   thread_lookup[platform_get_tid()] = thread_to_start;
+   ts->thread_scratch[platform_get_tid()] = thread_to_start->scratch;
    func(arg);
    platform_free(thread_to_start->heap_id, func_and_args);
 }
@@ -169,9 +181,8 @@ task_create_thread_with_hooks(platform_thread        *thread,
                               platform_heap_id        hid)
 {
    platform_status ret;
-   thread_task *thread_to_create =
-      TYPED_ZALLOC_MANUAL(hid, thread_to_create,
-                          sizeof(*thread_to_create) + scratch_size);
+   thread_invoke * thread_to_create = TYPED_ZALLOC_MANUAL(
+      hid, thread_to_create, sizeof(*thread_to_create) + scratch_size);
    if (thread_to_create == NULL) {
       return STATUS_NO_MEMORY;
    }
@@ -186,8 +197,8 @@ task_create_thread_with_hooks(platform_thread        *thread,
    }
 
    thread_to_create->ts = ts;
-   ret = platform_thread_create(thread, detached, task_start_thread_with_hooks,
-                                thread_to_create, hid);
+   ret                  = platform_thread_create(
+      thread, detached, task_invoke_with_hooks, thread_to_create, hid);
    if (!SUCCESS(ret)) {
       platform_free(hid, thread_to_create);
    }
@@ -624,12 +635,6 @@ task_system_use_bg_threads(task_system *ts)
    return ts->use_bg_threads;
 }
 
-thread_task **
-task_system_get_system_threads(task_system *ts)
-{
-   return ts->thread_tasks;
-}
-
 void
 task_system_io_register_thread(task_system *ts)
 {
@@ -643,8 +648,7 @@ task_system_register_thread(task_system *ts)
    const threadid tid = platform_get_tid();
    // Only register init thread
    platform_assert(ts->init_tid == INVALID_TID);
-   task_init_thread_task(ts, tid, &ts->init_thread_task,
-                         ts->init_task_scratch);
+   task_init_thread_task(ts, tid, ts->init_task_scratch);
 }
 
 void
@@ -672,8 +676,7 @@ void *
 task_system_get_thread_scratch(task_system    *ts,
                                const threadid  tid)
 {
-   thread_task *thread = task_system_get_system_threads(ts)[tid];
-   return thread->scratch;
+   return ts->thread_scratch[tid];
 }
 
 void

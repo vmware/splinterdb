@@ -339,7 +339,7 @@ void
 kvstore_register_thread(const kvstore *kvs) // IN
 {
    platform_assert(kvs != NULL);
-   task_system_register_thread(kvs->system);
+   // TODO: implement this correctly
 }
 
 
