@@ -24,9 +24,6 @@ task_system_get_tid_bitmask(task_system *ts);
 
 void
 task_system_io_register_thread(task_system *ts);
-
-void
-task_system_register_thread(task_system *ts);
 // end forward declarations
 
 #define INVALID_TID (MAX_THREADS)
@@ -113,12 +110,6 @@ task_run_thread_hooks(task_system *ts)
 }
 
 void
-task_init_thread_task(task_system *ts, const threadid tid, void *task_scratch)
-{
-   ts->thread_scratch[tid] = task_scratch;
-}
-
-void
 task_clear_threadid(task_system *ts, threadid tid)
 {
    uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
@@ -145,13 +136,38 @@ task_register_hook(task_hook newhook)
    return STATUS_OK;
 }
 
+// Register the calling thread and allocate scratch space for it
+void
+task_register_this_thread(task_system *ts, uint64 scratch_size)
+{
+   char *scratch = NULL;
+   if (scratch_size > 0) {
+      scratch = TYPED_ZALLOC_MANUAL(ts->heap_id, scratch, scratch_size);
+   }
+   task_run_thread_hooks(ts);
+   ts->thread_scratch[platform_get_tid()] = scratch;
+}
+
+// Deregister the calling thread and free its scratch space
+void
+task_deregister_this_thread(task_system *ts)
+{
+   uint64 tid = platform_get_tid();
+
+   void *scratch = ts->thread_scratch[tid];
+   if (scratch != NULL) {
+      platform_free(ts->heap_id, scratch);
+      ts->thread_scratch[tid] = NULL;
+   }
+   task_clear_threadid(ts, tid); // allow thread id to be re-used
+}
+
 typedef struct {
    platform_thread_worker func;
    void *                 arg;
-   void *                 scratch;
 
-   // task system, used for running hook function and thread lookups.
    task_system *    ts;
+   uint64           scratch_size;
    platform_heap_id heap_id;
 } thread_invoke;
 
@@ -161,13 +177,14 @@ task_invoke_with_hooks(void *func_and_args)
    thread_invoke *        thread_to_start = (thread_invoke *)func_and_args;
    platform_thread_worker func = thread_to_start->func;
    void *arg = thread_to_start->arg;
-   task_system *ts = thread_to_start->ts;
 
-   for (int i = 0; i < num_hooks; i++)
-      hooks[i](ts);
+   task_register_this_thread(thread_to_start->ts,
+                             thread_to_start->scratch_size);
 
-   ts->thread_scratch[platform_get_tid()] = thread_to_start->scratch;
    func(arg);
+
+   task_deregister_this_thread(thread_to_start->ts);
+
    platform_free(thread_to_start->heap_id, func_and_args);
 }
 
@@ -181,8 +198,7 @@ task_create_thread_with_hooks(platform_thread        *thread,
                               platform_heap_id        hid)
 {
    platform_status ret;
-   thread_invoke * thread_to_create = TYPED_ZALLOC_MANUAL(
-      hid, thread_to_create, sizeof(*thread_to_create) + scratch_size);
+   thread_invoke * thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
    if (thread_to_create == NULL) {
       return STATUS_NO_MEMORY;
    }
@@ -190,14 +206,10 @@ task_create_thread_with_hooks(platform_thread        *thread,
    thread_to_create->func = func;
    thread_to_create->arg = arg;
    thread_to_create->heap_id = hid;
-   if (scratch_size > 0) {
-      thread_to_create->scratch = (void *)(thread_to_create + 1);
-   } else {
-      thread_to_create->scratch = NULL;
-   }
-
+   thread_to_create->scratch_size = scratch_size;
    thread_to_create->ts = ts;
-   ret                  = platform_thread_create(
+
+   ret = platform_thread_create(
       thread, detached, task_invoke_with_hooks, thread_to_create, hid);
    if (!SUCCESS(ret)) {
       platform_free(hid, thread_to_create);
@@ -624,7 +636,10 @@ task_system_create(platform_heap_id     hid,
     * better to make that requirement explicit and have callers register.
     * It would be nice to get rid of the register dependency for init/deinit.
     */
-   task_system_register_thread(ts);
+   task_run_thread_hooks(ts);
+   const threadid tid      = platform_get_tid();
+   ts->thread_scratch[tid] = ts->init_task_scratch;
+
    *system = ts;
    return STATUS_OK;
 }
@@ -639,16 +654,6 @@ void
 task_system_io_register_thread(task_system *ts)
 {
    io_thread_register(&ts->ioh->super);
-}
-
-void
-task_system_register_thread(task_system *ts)
-{
-   task_run_thread_hooks(ts);
-   const threadid tid = platform_get_tid();
-   // Only register init thread
-   platform_assert(ts->init_tid == INVALID_TID);
-   task_init_thread_task(ts, tid, ts->init_task_scratch);
 }
 
 void

@@ -398,7 +398,6 @@ ycsb_thread(void *arg)
       + end_thread_cputime.tv_nsec - SEC_TO_NSEC(start_thread_cputime.tv_sec)
       - start_thread_cputime.tv_nsec;
    __sync_fetch_and_add(&params->times.sum_of_cpu_times, thread_cputime);
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 static int run_ycsb_phase(splinter_handle  *spl,

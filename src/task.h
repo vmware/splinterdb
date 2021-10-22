@@ -112,9 +112,6 @@ struct task_system {
    char               init_task_scratch[];
 };
 
-void            task_clear_threadid     (task_system *ts,
-                                         threadid tid);
-
 platform_status
 task_thread_create(const char             *name,
                    platform_thread_worker  func,
@@ -123,6 +120,15 @@ task_thread_create(const char             *name,
                    task_system            *ts,
                    platform_heap_id        hid,
                    platform_thread        *thread);
+
+// Register the calling thread, allocating scratch space for it
+void
+task_register_this_thread(task_system *ts, uint64 scratch_size);
+
+// Unregister the calling thread and free its scratch space
+void
+task_deregister_this_thread(task_system *ts);
+
 
 platform_status
 task_system_create(platform_heap_id     hid,
