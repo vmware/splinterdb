@@ -218,6 +218,16 @@ static slice gen_key(dynamic_btree_config  *cfg,
   return slice_create(keylen, buffer);
 }
 
+static uint64 ungen_key(slice key)
+{
+  if (slice_length(key) < sizeof(uint64))
+    return 0;
+
+  uint64 k;
+  memcpy(&k, key.data, sizeof(k));
+  return k;
+}
+
 static slice gen_msg(dynamic_btree_config  *cfg,
                       uint64                 i,
                       uint8                  buffer[static cfg->page_size])
@@ -253,6 +263,52 @@ static int verify_inserts(cache                 *cc,
   return 1;
 }
 
+static int verify_ranges(cache                 *cc,
+                         dynamic_btree_config  *cfg,
+                         uint64                 root_addr,
+                         int                    nkvs)
+{
+  dynamic_btree_iterator dbiter;
+
+  dynamic_btree_iterator_init(cc, cfg, &dbiter, root_addr, PAGE_TYPE_MEMTABLE,
+                              data_key_negative_infinity,
+                              data_key_positive_infinity,
+                              FALSE,
+                              TRUE,
+                              0);
+
+  iterator *iter = (iterator *)&dbiter;
+
+  uint64 seen = 0;
+  bool at_end;
+  uint8 prevbuf[cfg->page_size];
+  slice prev = data_key_negative_infinity;
+
+  while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
+    uint8 keybuf[cfg->page_size];
+    uint8 msgbuf[cfg->page_size];
+    slice key, msg;
+
+    iterator_get_curr(iter, &key, &msg);
+    uint64 k = ungen_key(key);
+    platform_assert(k < nkvs);
+    platform_assert(!slice_lex_cmp(key, gen_key(cfg, k, keybuf)));
+    platform_assert(!slice_lex_cmp(msg, gen_msg(cfg, k, msgbuf)));
+    platform_assert(slice_lex_cmp(prev, key) < 0);
+
+    seen++;
+    prev.data = prevbuf;
+    slice_copy_contents(&prev, key);
+
+    if (!SUCCESS(iterator_advance(iter)))
+      break;
+  }
+
+  platform_assert(seen == nkvs);
+
+  return 1;
+}
+
 static int insert_tests(cache                 *cc,
                         dynamic_btree_config  *cfg,
                         dynamic_btree_scratch *scratch,
@@ -276,6 +332,10 @@ static int insert_tests(cache                 *cc,
 
   if (!verify_inserts(cc, cfg, root_addr, nkvs)) {
     platform_log("invalid tree\n");
+  }
+
+  if (!verify_ranges(cc, cfg, root_addr, nkvs)) {
+    platform_log("invalid ranges\n");
   }
 
   return 0;

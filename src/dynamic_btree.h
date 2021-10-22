@@ -63,13 +63,15 @@ typedef struct { // Note: not a union
    scratch_dynamic_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED dynamic_btree_scratch;
 
+typedef uint16 entry_index; //  So we can make this bigger for bigger nodes.
+
 typedef struct dynamic_btree_iterator {
    iterator              super;
    cache                *cc;
    dynamic_btree_config *cfg;
    uint64                root_addr;
    dynamic_btree_node    curr, end;
-   uint16                idx, end_idx;
+   entry_index           idx, end_idx;
    uint16                start_idx;
    uint64                start_addr;
    bool                  do_prefetch;

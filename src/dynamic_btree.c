@@ -38,7 +38,6 @@
  *
  *******************************************************************/
 
-typedef uint16 entry_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
 typedef node_offset table_entry;
 typedef uint16 inline_key_size;
@@ -802,8 +801,10 @@ dynamic_btree_split_leaf_cleanup_left_node(const dynamic_btree_config *cfg, // I
                                            dynamic_btree_scratch      *scratch,
                                            dynamic_btree_hdr          *left_hdr, // IN
                                            leaf_incorporate_spec       spec, // IN
-                                           leaf_splitting_plan         plan) // IN
+                                           leaf_splitting_plan         plan,
+                                           uint64                      right_addr) // IN
 {
+  left_hdr->next_addr = right_addr;
   dynamic_btree_truncate_leaf(cfg, left_hdr, plan.split_idx);
   if (plan.insertion_goes_left &&
       !dynamic_btree_leaf_can_perform_incorporate_spec(cfg, left_hdr, spec))
@@ -1405,7 +1406,7 @@ dynamic_btree_split_child_leaf(cache                      *cc,
   /* p: fully unlocked, c: claim, rc: fully unlocked */
 
   dynamic_btree_node_lock(cc, cfg, child);
-  dynamic_btree_split_leaf_cleanup_left_node(cfg, scratch, child->hdr, spec, plan);
+  dynamic_btree_split_leaf_cleanup_left_node(cfg, scratch, child->hdr, spec, plan, right_child.addr);
   if (plan.insertion_goes_left) {
     dynamic_btree_leaf_perform_incorporate_spec(cfg, child->hdr, spec, generation);
   }
@@ -2568,11 +2569,15 @@ dynamic_btree_iterator_init(cache                  *cc,
    bool found;
    if (height == 0) {
       //FIXME: [yfogel 2020-07-08] no need for extra compare when less_than_or_equal is supproted
-      itor->idx = dynamic_btree_find_tuple(cfg, itor->curr.hdr, min_key, &found);
+      int64 idx = dynamic_btree_find_tuple(cfg, itor->curr.hdr, min_key, &found);
+      if (!found)
+        idx++;
+      itor->idx = idx;
     } else {
-      itor->idx = dynamic_btree_find_pivot(cfg, itor->curr.hdr, min_key, &found);
+      int64 idx = dynamic_btree_find_pivot(cfg, itor->curr.hdr, min_key, &found);
       if (found)
-        itor->idx++;
+        idx++;
+      itor->idx = idx;
    }
 
    // we need to check this at-end condition because its possible that the next
