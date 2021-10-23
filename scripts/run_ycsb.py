@@ -9,10 +9,11 @@ import os
 import pwd
 import time
 
-device = "nvme0n1p1"
-base_trace_dir = "/mnt/traces/"
+device = "nvme4n1"
+base_trace_dir = "/mnt/nvme3/"
 
-config_options = "--db-location /dev/nvme0n1p1 --set-O_DIRECT --unset-O_CREAT --memtable-capacity-mib 24 --fanout 8 --max-branches-per-node 24 --stats"
+config_options = "--db-location /dev/nvme4n1 --set-O_DIRECT --unset-O_CREAT --cache-file /mnt/pmem0/splinter --memtable-capacity-mib 24 --fanout 8 --max-branches-per-node 24 --stats"
+#config_options = "--db-location /dev/nvme4n1 --set-O_DIRECT --unset-O_CREAT --set-mlock --set-hugetlb --memtable-capacity-mib 24 --fanout 8 --max-branches-per-node 24 --stats"
 
 # get sudo user
 def check_sudo_get_user():
@@ -263,8 +264,8 @@ dbsize = 400
 # name is built into the output file names
 # each workload is appended to base_trace_dir/80gib_24b_[100b,1kib]/replay_ to build the trcae filenames
 # use_routing_filters should be deprecated
-ycsb = Benchmark("ycsb", ["load", "a", "b", "c", "u", "d", "f", "e"], [16], [splintersize], dbsize, 24, 100, 1)
+ycsb = Benchmark("ycsb", ["load", "a", "b", "c", "u", "d", "f", "e"], [16], [splintersize], dbsize, 24, 100, 1, log=0)
 
 # The parameter given to run is prepended to the output filenames
-ycsb.run("output");
+ycsb.run("/home/aconway/pmem_data/");
 
