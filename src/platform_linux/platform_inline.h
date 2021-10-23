@@ -378,11 +378,12 @@ pmem_aligned_mmap(const platform_heap_id UNUSED_PARAM(heap_id),
     */
    //const size_t padding = (alignment - (length % alignment)) % alignment;
    int prot= PROT_READ | PROT_WRITE;
-   int flags = MAP_SHARED_VALIDATE| MAP_SYNC;
+   //int flags = MAP_SHARED_VALIDATE| MAP_SYNC;
+   int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
 
-   int fd = platform_get_fd(pathname, length);
+   //int fd = platform_get_fd(pathname, length);
 
-   void* addr = mmap(NULL, length, prot, flags, fd, 0);
+   void* addr = mmap(NULL, length, prot, flags, -1, 0);
    assert(addr!=NULL);
 
    return addr;
