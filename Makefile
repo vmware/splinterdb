@@ -60,6 +60,7 @@ cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
   # not supported on ARM64
   DEFAULT_CFLAGS += -msse4.2 -mpopcnt
+  CFLAGS += -march=native
 endif
 #DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 #DEFAULT_CFLAGS += -fsanitize=address
@@ -67,7 +68,7 @@ endif
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
 
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
+CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 DEFAULT_LDFLAGS = -ggdb3 -pthread
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
