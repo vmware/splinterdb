@@ -1,5 +1,6 @@
 # Using SplinterDB
 
+<<<<<<< HEAD
 SplinterDB is an embedded key-value store.  It is currently Linux-only.
 
 To use SplinterDB, you must link your program to the library and call
@@ -72,7 +73,6 @@ looks out-of-date, please open an issue or pull request.
 - Internally SplinterDB supports asynchronous IO, but this capability is not
   yet documented.  Some example code for this may be found in the unit and
   functional tests.
-
 
 ## Example programs
 - [`tests/unit/splinterdb_quick_test.c`](../tests/unit/splinterdb_quick_test.c) covers

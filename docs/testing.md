@@ -8,6 +8,7 @@ _Audience: All users and contributors._
 
 ## Testing Overview
 In CI, we execute these tests against the following build modes
+
 - All tests on optimized and debug builds using clang
 - All tests on optimized and debug builds using gcc
 - All tests using address-sanitizer debug builds using the clang compiler
@@ -38,6 +39,7 @@ described below.
 
 As part of the make build output the following artifacts are produced under
 the `./bin` directory:
+<<<<<<< HEAD
 - A `unit_test` binary, which runs a collection of quick-running unit tests
 - A collection of stand-alone unit-test binaries in the `./bin/unit` directory.
 - A `driver_test` binary to drive functional and performance tests
@@ -57,7 +59,6 @@ You can run them standalone as follows: `$ ./bin/unit/btree_stress_test`
 
 See [Unit testing](../tests/unit/README.md)
 for more details on unit test development and unit testing.
-
 
 ## Running Functional Tests
 
