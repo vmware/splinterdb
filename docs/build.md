@@ -1,5 +1,8 @@
 # Building from source
-This document is about how to build and test SplinterDB itself.
+This document describes how to build the sources and test SplinterDB itself.
+The bulk of the SplinterDB library code is written in C, with some supporting code implemented
+in Rust.
+
 To integrate SplinterDB into another application, see [Usage](usage.md).
 
 ## On Linux

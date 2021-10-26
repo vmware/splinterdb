@@ -1,10 +1,22 @@
 # Using SplinterDB
 
-_A rough guide for how to integrate SplinterDB into a program._
+_A quick-start guide for how to integrate SplinterDB into a program._
 
 (Or just skip to the [Example programs](#example-programs) below.)
 
 ## 1. Get the SplinterDB library and headers
+
+## Table of contents
+1. [Get the SplinterDB library and headers  <a name="SDB_libs_and_headers"></a>](#get-the-splinterdb-library-and-headers--)
+    - [Option 1: from source](#option-1-from-source)
+    - [Option 2: using Docker](#option-2-using-docker)
+ 2. [Include SplinterDB in your program](#include-splinterdb-in-your-program)
+ 3. [Call SplinterDB APIs from your program](#call-splinterdb-apis-from-your-program)
+ 4. [SplinterDB CLI](#splinterdb-cli)
+
+------
+
+## Get the SplinterDB library and headers
 
 ### Option 1: from source
 Follow instructions to [build SplinterDB from source](build.md).
@@ -19,13 +31,13 @@ $ docker run -it --rm projects.registry.vmware.com/splinterdb/splinterdb /bin/ba
 ```
 
 The container includes:
-- runtime dependencies for SplinterDB, including `libaio` and `libxxhash`
-- the SplinterDB static and shared libraries: `/usr/local/lib/libsplinterdb.{a,so}`
-- header files for SplinterDB's public API: `/usr/local/include/splinterdb/`
-- the pre-built test binary and test script: `/splinterdb/bin/driver_test` and `/splinterdb/test.sh`
+- Runtime dependencies for SplinterDB, including `libaio` and `libxxhash`
+- The SplinterDB static and shared libraries: `/usr/local/lib/libsplinterdb.{a,so}`
+- Header files for SplinterDB's public API: `/usr/local/include/splinterdb/`
+- The pre-built test binary and test script: `/splinterdb/bin/driver_test` and `/splinterdb/test.sh`
 
-> Note: this image does not include tools to build SplinterDB itself
-from source.  See [our build docs](build.md) for that.
+> Note: this image does not include the tools to build SplinterDB itself
+from source.  See [our build docs](build.md) for those instructions.
 
 Docker-based development is beyond the scope of this doc, but consider
 using bind mounts to access source code on your host OS:
@@ -36,12 +48,12 @@ $ docker run -it --rm \
 ```
 
 
-## 2. Include SplinterDB in your program
+## Include SplinterDB in your program
 
 For example, a C linker would need the flag `-lsplinterdb`.  You may also need to configure include and library directories.
 
 
-## 3. Call SplinterDB APIs from your program
+## Call SplinterDB APIs from your program
 
 For basic key-value store use cases, [`splinterdb_kv.h`](../include/splinterdb/splinterdb_kv.h) should suffice.
 
@@ -89,3 +101,4 @@ Our C unit tests serve as examples for how to call SplinterDB APIs.  For example
 - [`tests/unit/splinterdb_kv_stress_test.c`](../tests/unit/splinterdb_kv_stress_test.c) uses multiple threads
 
 In addition, [`splinterdb-cli`](../rust/splinterdb-cli) is a small Rust program that may serve as an example for basic usage, including threading.
+
