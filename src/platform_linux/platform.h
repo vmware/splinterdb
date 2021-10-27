@@ -572,15 +572,17 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  * (which may or may not end up inlined)
  * Wrap free and free_volatile:
  */
-#define platform_free(id, p) do {        \
-      platform_free_from_heap(id, (p));  \
-      (p) = NULL;                        \
-   } while (0);
+#define platform_free(id, p)                                                   \
+   do {                                                                        \
+      platform_free_from_heap(id, (p));                                        \
+      (p) = NULL;                                                              \
+   } while (0)
 
-#define platform_free_volatile(id, p) do {        \
-      platform_free_volatile_from_heap(id, (p));  \
-      (p) = NULL;                                 \
-   } while (0);
+#define platform_free_volatile(id, p)                                          \
+   do {                                                                        \
+      platform_free_volatile_from_heap(id, (p));                               \
+      (p) = NULL;                                                              \
+   } while (0)
 
 // Convenience function to free something volatile
 static inline void

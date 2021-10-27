@@ -33,6 +33,17 @@
 
 #define TEST_DB_NAME "db"
 
+// Hard-coded format strings to generate key and values
+static const char key_fmt[] = "key-%02x";
+static const char val_fmt[] = "val-%02x";
+
+// We use only short values while loading data in these test cases
+#define TEST_SHORT_VALUE_SIZE MAX_KEY_SIZE
+
+// Function prototypes
+static int
+insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr);
+
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 {
@@ -162,18 +173,17 @@ test_kvstore_basic_flow()
    test_assert_rc(rc, "lookup #4: %d", rc);
    test_assert(found, "lookup #4: unexpectedly not found");
    test_assert(val_len == sizeof("a-value"), "lookup #4: wrong length");
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    kvstore_basic_close(kvsb);
    if (large_key)
       free(large_key);
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-      return 0;
-   } else {
-      fprintf(stderr, "FAILED\n");
-      return -1;
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
+   return rc;
 }
 
 /*
@@ -218,6 +228,7 @@ test_kvstore_basic_large_keys()
    fprintf(stderr, "lookup correct, now delete...\n");
    rc = kvstore_basic_delete(kvsb, large_key, cfg.max_key_size);
    test_assert_rc(rc, "delete large key: %d", rc);
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    if (large_key)
@@ -225,13 +236,11 @@ cleanup:
    if (value)
       free(value);
    kvstore_basic_close(kvsb);
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-      return 0;
-   } else {
-      fprintf(stderr, "FAILED\n");
-      return -1;
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
+   return rc;
 }
 
 /*
@@ -275,6 +284,7 @@ test_kvstore_basic_key_size_gt_max_key_size()
 
    fprintf(stderr, "large key handling is correct\n");
    rc = 0;
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    if (too_large_key)
@@ -283,13 +293,11 @@ cleanup:
       free(value);
 
    kvstore_basic_close(kvsb);
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-      return 0;
-   } else {
-      fprintf(stderr, "FAILED\n");
-      return -1;
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
+   return rc;
 }
 
 /*
@@ -320,19 +328,18 @@ test_kvstore_basic_value_size_gt_max_value_size()
    test_assert(rc == EINVAL, "insert too-large value: %d", rc);
 
    fprintf(stderr, "large value handling is correct\n");
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
    rc = 0;
 
 cleanup:
    if (too_large_value)
       free(too_large_value);
    kvstore_basic_close(kvsb);
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-      return 0;
-   } else {
-      fprintf(stderr, "FAILED\n");
-      return -1;
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
+   return rc;
 }
 
 int
@@ -467,13 +474,13 @@ test_kvstore_basic_variable_length_values()
                   long_string,
                   (int)(val_len),
                   found_value);
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    kvstore_basic_close(kvsb);
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-   } else {
-      fprintf(stderr, "FAILED\n");
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
    return rc;
 }
@@ -481,6 +488,12 @@ cleanup:
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7
 
+/*
+ * Helper function to insert n-keys (num_inserts), using pre-formatted
+ * key and value strings.
+ *
+ * Returns: Return code: rc == 0 => success; anything else => failure
+ */
 int
 insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
 {
@@ -492,29 +505,77 @@ insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
       char key[TEST_INSERT_KEY_LENGTH] = {0};
       char val[TEST_INSERT_VAL_LENGTH] = {0};
 
-      test_assert(6 == snprintf(key, sizeof(key), "key-%02x", i), "key length");
-      test_assert(6 == snprintf(val, sizeof(val), "val-%02x", i), "val length");
+      test_assert(6 == snprintf(key, sizeof(key), key_fmt, i), "key length");
+      test_assert(6 == snprintf(val, sizeof(val), val_fmt, i), "val length");
 
       rc = kvstore_basic_insert(kvsb, key, sizeof(key), val, sizeof(val));
       test_assert_rc(rc, "insert: %d", rc);
    }
-   fprintf(stderr, "\n done.\n");
+   fprintf(stderr, "\n");
 
 cleanup:
    return rc;
 }
 
+/*
+ * Helper function to insert n-keys (num_inserts), using pre-formatted
+ * key and value strings. Allows user to specify start value and increment
+ * between keys. This can be used to load either fully sequential keys
+ * or some with defined gaps.
+ *
+ * Parameters:
+ *  kvsb    - Ptr to KVStore handle
+ *  minkey  - Start key to insert
+ *  numkeys - # of keys to insert
+ *  incr    - Increment between keys (default is 1)
+ *
+ * Returns: Return code: rc == 0 => success; anything else => failure
+ */
+static int
+insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr)
+{
+   int rc = -1;
+
+   // Minimally, error check input arguments
+   if (!kvsb || (numkeys <= 0) || (incr < 0))
+      return rc;
+
+   // insert keys forwards, starting from minkey value
+   for (int kctr = minkey; numkeys; kctr += incr, numkeys--) {
+      char key[TEST_INSERT_KEY_LENGTH] = {0};
+      char val[TEST_INSERT_VAL_LENGTH] = {0};
+
+      snprintf(key, sizeof(key), key_fmt, kctr);
+      snprintf(val, sizeof(val), val_fmt, kctr);
+
+      rc = kvstore_basic_insert(kvsb, key, sizeof(key), val, sizeof(val));
+      test_assert_rc(rc, "insert key=%d: rc=%d", kctr, rc);
+   }
+   rc = 0;
+
+cleanup:
+   return rc;
+}
+
+/*
+ * Work horse routine to check if the current tuple pointed to by the
+ * iterator is the expected one, as indicated by its index,
+ * expected_i. We use pre-constructed key / value formats to verify
+ * if the current tuple is of the expected format.
+ *
+ * Returns: Return code: rc == 0 => success; anything else => failure
+ */
 int
 check_current_tuple(kvstore_basic_iterator *it, const int expected_i)
 {
    int  rc               = 0;
-   char expected_key[24] = {0};
-   char expected_val[24] = {0};
+   char expected_key[MAX_KEY_SIZE]          = {0};
+   char expected_val[TEST_SHORT_VALUE_SIZE] = {0};
    test_assert(
-      6 == snprintf(expected_key, sizeof(expected_key), "key-%02x", expected_i),
+      6 == snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i),
       "key");
    test_assert(
-      6 == snprintf(expected_val, sizeof(expected_val), "val-%02x", expected_i),
+      6 == snprintf(expected_val, sizeof(expected_val), val_fmt, expected_i),
       "val");
 
    const char *key;
@@ -529,8 +590,20 @@ check_current_tuple(kvstore_basic_iterator *it, const int expected_i)
       TEST_INSERT_VAL_LENGTH == val_len, "wrong value length: %lu", val_len);
    int key_cmp = memcmp(expected_key, key, key_len);
    int val_cmp = memcmp(expected_val, val, val_len);
-   test_assert(0 == key_cmp, "key match failed: %d", key_cmp);
-   test_assert(0 == val_cmp, "val match failed: %d", val_cmp);
+   test_assert(0 == key_cmp,
+               "key match failed: expected key='%s'"
+               ", found key='%.*s', key_cmp=%d",
+               expected_key,
+               (int)key_len,
+               key,
+               key_cmp);
+   test_assert(0 == val_cmp,
+               "val match failed: expected val='%s'"
+               ", found val='%.*s', val_cmp=%d",
+               expected_val,
+               (int)val_len,
+               val,
+               val_cmp);
 
 cleanup:
    return rc;
@@ -572,18 +645,246 @@ test_kvstore_basic_iterator()
                "iterator still valid, this should not happen");
 
    fprintf(stderr, "OK.  iterator test complete\n");
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    if (it != NULL) {
-      kvstore_basic_iter_deinit(it);
+      kvstore_basic_iter_deinit(&it);
    }
    if (kvsb != NULL) {
       kvstore_basic_close(kvsb);
    }
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-   } else {
-      fprintf(stderr, "FAILED\n");
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
+   }
+   return rc;
+}
+
+/*
+ * Test case to exercise and verify that kvstore iterator interfaces with a
+ * non-NULL start key correctly sets up the start scan at the requested
+ * initial key value.
+ */
+int
+test_kvstore_iterator_with_startkey()
+{
+   kvstore_basic *         kvsb = NULL;
+   kvstore_basic_cfg       cfg  = {0};
+   kvstore_basic_iterator *it   = NULL;
+   int                     rc   = 0;
+
+   test_assert_rc(setup_kvstore_basic(&kvsb, &cfg), "setup");
+
+   const int num_inserts = 50;
+   test_assert_rc(insert_some_keys(num_inserts, kvsb), "inserting keys ");
+
+   char key[TEST_INSERT_KEY_LENGTH] = {0};
+
+   for (int ictr = 0; ictr < num_inserts; ictr++) {
+
+      // Initialize the i'th key
+      snprintf(key, sizeof(key), key_fmt, ictr);
+      test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                     "init iter");
+
+      test_assert(kvstore_basic_iter_valid(it), "iter is valid");
+
+      // Scan should have been positioned at the i'th key
+      test_assert_rc(check_current_tuple(it, ictr), "check current");
+
+      kvstore_basic_iter_deinit(&it);
+   }
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
+
+cleanup:
+   if (it != NULL) {
+      kvstore_basic_iter_deinit(&it);
+   }
+   if (kvsb != NULL) {
+      kvstore_basic_close(kvsb);
+   }
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
+   }
+   return rc;
+}
+
+/*
+ * Test case to exercise kvstore iterator with a non-NULL but non-existent
+ * start-key. The iterator just starts at the first key, if any, after the
+ * specified start-key.
+ *  . If start-key > max-key, we will find no more keys to scan.
+ *  . If start-key < min-key, we will start scan from 1st key in set.
+ */
+int
+test_kvstore_iterator_with_non_existent_startkey()
+{
+   kvstore_basic *         kvsb = NULL;
+   kvstore_basic_cfg       cfg  = {0};
+   kvstore_basic_iterator *it   = NULL;
+   int                     rc   = 0;
+
+   test_assert_rc(setup_kvstore_basic(&kvsb, &cfg), "setup");
+
+   const int num_inserts = 50;
+   test_assert_rc(insert_some_keys(num_inserts, kvsb), "inserting keys ");
+
+   // start-key > max-key ('key-50')
+   char *key = "unknownKey";
+
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with non-existent start key > max-key");
+
+   test_assert(!kvstore_basic_iter_valid(it), "iterator should be invalid");
+
+   kvstore_basic_iter_deinit(&it);
+
+   // If you start with a key before min-key-value, scan will start from
+   // 1st key inserted. (We do lexicographic comparison, so 'U' sorts
+   // before 'key...', which is what key's format is.)
+   key = "UnknownKey";
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with non-existent start key < min-key");
+
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is not found, but below the min-key inserted.
+   int ictr = 0;
+   test_assert_rc(check_current_tuple(it, ictr), "check current");
+
+   // Just to be sure, run through the set of keys, to cross-check that
+   // we are getting all of them back in the right order.
+   for (; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
+      test_assert_rc(check_current_tuple(it, ictr), "check current");
+      ictr++;
+   }
+
+   // We should have run through all the keys inserted
+   test_assert((ictr == num_inserts),
+               "Expected to find all %d keys, only processed %d keys",
+               num_inserts,
+               ictr);
+
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
+
+cleanup:
+   if (it != NULL) {
+      kvstore_basic_iter_deinit(&it);
+   }
+   if (kvsb != NULL) {
+      kvstore_basic_close(kvsb);
+   }
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
+   }
+   return rc;
+}
+
+/*
+ * Test case to exercise kvstore iterator with a non-NULL but non-existent
+ * start-key.  The data in this test case is loaded such that we have a
+ * sequence of key values with gaps of 2 (i.e. 1, 4, 7, 10, ...).
+ *
+ * Then, there are basically 4 sub-cases we exercise here:
+ *
+ *  a) start-key exactly == min-key
+ *  b) start-key < min-key
+ *  c) start-key between some existing key values; (Choose 5, which should
+ *      end up starting the scan at 7.)
+ *  d) start-key beyond max-key (Scan should come out as invalid.)
+ */
+int
+test_kvstore_iterator_with_missing_startkey_in_sequence()
+{
+   kvstore_basic *         kvsb = NULL;
+   kvstore_basic_cfg       cfg  = {0};
+   kvstore_basic_iterator *it   = NULL;
+   int                     rc   = 0;
+
+   test_assert_rc(setup_kvstore_basic(&kvsb, &cfg), "setup");
+
+   const int num_inserts = 50;
+   // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
+   int minkey = 1;
+   test_assert_rc(insert_keys(kvsb, minkey, num_inserts, 3),
+                  "insert keys with incr=3");
+
+   char key[TEST_INSERT_KEY_LENGTH];
+
+   // (a) Test iter_init with a key == the min-key
+   snprintf(key, sizeof(key), key_fmt, minkey);
+
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with start key == min-key");
+
+   test_assert(kvstore_basic_iter_valid(it), "iterator should be valid");
+
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is below min-key inserted thus far.
+   int ictr = minkey;
+   test_assert_rc(check_current_tuple(it, ictr), "check current ictr=<minkey>");
+
+   kvstore_basic_iter_deinit(&it);
+
+   // (b) Test iter_init with a value below the min-key-value.
+   int kctr = (minkey - 1);
+
+   snprintf(key, sizeof(key), key_fmt, kctr);
+
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with start key less than min-key");
+
+   test_assert(kvstore_basic_iter_valid(it),
+               "iterator should be valid, kctr==(minkey - 1)");
+
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is below min-key inserted thus far.
+   ictr = minkey;
+   test_assert_rc(check_current_tuple(it, ictr), "check current, expected 1");
+
+   kvstore_basic_iter_deinit(&it);
+
+   // (c) Test with a non-existent value between 2 valid key values.
+   kctr = 5;
+   snprintf(key, sizeof(key), key_fmt, kctr);
+
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with non-existent start key");
+
+   test_assert(kvstore_basic_iter_valid(it),
+               "iterator should be valid, kctr=5");
+
+   // Iterator should be initialized to next key following kctr.
+   ictr = 7;
+   test_assert_rc(check_current_tuple(it, ictr), "check current expected 7");
+
+   kvstore_basic_iter_deinit(&it);
+
+   // (d) Test with a non-existent value beyond max key value.
+   //     iter_init should end up as being invalid.
+   kctr = -1;
+   snprintf(key, sizeof(key), key_fmt, kctr);
+
+   test_assert_rc(kvstore_basic_iter_init(kvsb, &it, key, strlen(key)),
+                  "init iter with non-existent start key beyond max-key");
+
+   test_assert(!kvstore_basic_iter_valid(it),
+               "iterator should not be valid, kctr=-1");
+
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
+
+cleanup:
+   if ((it != NULL) && kvstore_basic_iter_valid(it)) {
+      kvstore_basic_iter_deinit(&it);
+   }
+   if (kvsb != NULL) {
+      kvstore_basic_close(kvsb);
+   }
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
    return rc;
 }
@@ -657,20 +958,20 @@ test_kvstore_basic_iterator_custom_comparator()
                "iterator still valid, this should not happen");
 
    fprintf(stderr, "OK.  iterator test complete\n");
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    if (it != NULL) {
       fprintf(stderr, "deinit iterator...");
-      kvstore_basic_iter_deinit(it);
+      kvstore_basic_iter_deinit(&it);
    }
    if (kvsb != NULL) {
       fprintf(stderr, "deinit kvstore_basic...");
       kvstore_basic_close(kvsb);
    }
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-   } else {
-      fprintf(stderr, "FAILED\n");
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
    return rc;
 }
@@ -715,17 +1016,16 @@ test_kvstore_basic_close_and_reopen()
    test_assert_rc(rc, "lookup: %d", rc);
    test_assert(found, "ERROR: unexpectedly lookup did not succeed.");
 
-   fprintf(stderr, "OK.\n");
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    if (kvsb != NULL) {
       fprintf(stderr, "deinit kvstore_basic...");
       kvstore_basic_close(kvsb);
    }
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-   } else {
-      fprintf(stderr, "FAILED\n");
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
    return rc;
 }
@@ -769,26 +1069,26 @@ test_kvstore_basic_lots_of_data()
          kvsb, key_buf, cfg.max_key_size, value_buf, cfg.max_value_size);
       test_assert_rc(rc, "insert: %d", rc);
    }
+   fprintf(stderr, "%s: PASS\n", __FUNCTION__);
 
 cleanup:
    kvstore_basic_close(kvsb);
-   if (rc == 0) {
-      fprintf(stderr, "succeeded\n");
-      return 0;
-   } else {
-      fprintf(stderr, "FAILED\n");
-      return -1;
+   if (rc) {
+      fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
+      rc = -1;
    }
+   return rc;
 }
 
 int
 kvstore_basic_test(int argc, char *argv[])
 {
    int rc = 0;
-   fprintf(stderr, "start: kvstore_basic flow\n");
+
+   fprintf(stderr, "\nstart: kvstore_basic flow\n");
    test_assert_rc(test_kvstore_basic_flow(), "kvstore_basic_flow");
 
-   fprintf(stderr, "start: kvstore_basic large keys\n");
+   fprintf(stderr, "\nstart: kvstore_basic large keys\n");
    test_assert_rc(test_kvstore_basic_large_keys(), "kvstore_basic_large_keys");
 
    test_assert_rc(test_kvstore_basic_key_size_gt_max_key_size(),
@@ -797,22 +1097,36 @@ kvstore_basic_test(int argc, char *argv[])
    test_assert_rc(test_kvstore_basic_value_size_gt_max_value_size(),
                   "kvstore_basic_value_size_gt_max_value_size");
 
-   fprintf(stderr, "start: kvstore_basic variable-length values\n");
+   fprintf(stderr, "\nstart: kvstore_basic variable-length values\n");
    test_assert_rc(test_kvstore_basic_variable_length_values(),
                   "kvstore_basic_variable_length_values");
 
-   fprintf(stderr, "start: kvstore_basic iterator\n");
+   fprintf(stderr, "\nstart: kvstore_basic iterator\n");
    test_assert_rc(test_kvstore_basic_iterator(), "kvstore_basic_iterator");
 
-   fprintf(stderr, "start: kvstore_basic iterator with custom comparator\n");
+   fprintf(stderr, "\nstart: kvstore_basic iterator with start key\n");
+   test_assert_rc(test_kvstore_iterator_with_startkey(),
+                  "kvstore_iterator_with_startkey");
+
+   fprintf(stderr, "\nstart: kvstore_basic iterator with unknown start key\n");
+   test_assert_rc(test_kvstore_iterator_with_non_existent_startkey(),
+                  "kvstore_iterator_with_non_existent_startkey");
+
+   fprintf(stderr,
+           "\nstart: kvstore_basic iterator with unknown start key"
+           " from middle\n");
+   test_assert_rc(test_kvstore_iterator_with_missing_startkey_in_sequence(),
+                  "kvstore_iterator_with_missing_startkey_in_sequence");
+
+   fprintf(stderr, "\nstart: kvstore_basic iterator with custom comparator\n");
    test_assert_rc(test_kvstore_basic_iterator_custom_comparator(),
                   "kvstore_basic_iterator_custom_comparator");
 
-   fprintf(stderr, "start: kvstore_basic close and re-open\n");
+   fprintf(stderr, "\nstart: kvstore_basic close and re-open\n");
    test_assert_rc(test_kvstore_basic_close_and_reopen(),
                   "kvstore_basic_close_and_reopen");
 
-   fprintf(stderr, "start: kvstore_basic lots of data\n");
+   fprintf(stderr, "\nstart: kvstore_basic lots of data\n");
    test_assert_rc(test_kvstore_basic_lots_of_data(),
                   "kvstore_basic_lots_of_data");
 cleanup:
