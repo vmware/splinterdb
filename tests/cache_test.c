@@ -932,7 +932,7 @@ cache_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   splinter_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
    rc = test_parse_args(splinter_cfg, &data_cfg, &io_cfg, &al_cfg, &cache_cfg,
                         &log_cfg, &seed, config_argc, config_argv);
    if (!SUCCESS(rc)) {

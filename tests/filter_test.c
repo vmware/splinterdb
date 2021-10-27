@@ -290,7 +290,7 @@ filter_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   splinter_config *cfg = TYPED_MALLOC(hid, cfg);
+   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg, &data_cfg, &io_cfg, &allocator_cfg, &cache_cfg,
                         &log_cfg, &seed, config_argc, config_argv);

@@ -15,7 +15,7 @@
 #include "io.h"
 #include "rc_allocator.h"
 #include "shard_log.h"
-#include "splinter.h"
+#include "trunk.h"
 #include "util.h"
 
 typedef struct master_config {

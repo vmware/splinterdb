@@ -18,12 +18,12 @@
 
 /*
  * Callback called when an IO completes on behalf of a context used by
- * splinter_lookup_async(). This is the producer end of ready_q and
+ * trunk_lookup_async(). This is the producer end of ready_q and
  * enqueues the ctxt into it. This is called from IO completion
  * context.
  */
 static void
-test_async_callback(splinter_async_ctxt *spl_ctxt)
+test_async_callback(trunk_async_ctxt *spl_ctxt)
 {
    test_async_ctxt *ctxt = container_of(spl_ctxt, test_async_ctxt, ctxt);
 
@@ -32,7 +32,7 @@ test_async_callback(splinter_async_ctxt *spl_ctxt)
 }
 
 /*
- * Get a new context from the avail_q, for use in a splinter_lookup_async()
+ * Get a new context from the avail_q, for use in a trunk_lookup_async()
  * Returns NULL if no contexts are avaiable (max_async_inflight reached).
  */
 test_async_ctxt *
@@ -45,13 +45,13 @@ async_ctxt_get(test_async_lookup *async_lookup)
    if (!SUCCESS(rc)) {
       return NULL;
    }
-   splinter_async_ctxt_init(&ctxt->ctxt, test_async_callback);
+   trunk_async_ctxt_init(&ctxt->ctxt, test_async_callback);
 
    return ctxt;
 }
 
 /*
- * Ungets a context after splinter_lookup_async() returns success. The
+ * Ungets a context after trunk_lookup_async() returns success. The
  * context should not be in-flight. It's returned back to avail_q.
  */
 void
@@ -120,7 +120,7 @@ async_ctxt_deinit(platform_heap_id   hid,
  * and if successful, run process_cb on it.
  */
 void
-async_ctxt_process_one(splinter_handle       *spl,
+async_ctxt_process_one(trunk_handle       *spl,
                        test_async_lookup     *async_lookup,
                        test_async_ctxt       *ctxt,
                        timestamp             *latency_max,
@@ -132,7 +132,7 @@ async_ctxt_process_one(splinter_handle       *spl,
    timestamp ts;
 
    ts = platform_get_timestamp();
-   res = splinter_lookup_async(spl, ctxt->key, ctxt->data, &found,
+   res = trunk_lookup_async(spl, ctxt->key, ctxt->data, &found,
                                &ctxt->ctxt);
    ts = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
@@ -162,7 +162,7 @@ async_ctxt_process_one(splinter_handle       *spl,
  * Returns: TRUE if no context at all are used.
  */
 bool
-async_ctxt_process_ready(splinter_handle       *spl,
+async_ctxt_process_ready(trunk_handle       *spl,
                          test_async_lookup     *async_lookup,
                          timestamp             *latency_max,
                          async_ctxt_process_cb  process_cb,

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * kvstore.c --
+ * splinterdb.c --
  *
- *     This file contains the implementation of external kvstore interfaces
+ *     This file contains the implementation of external splinterdb interfaces
  *     based on splinterdb
  */
 
@@ -12,13 +12,13 @@
 
 #include "clockcache.h"
 #include "config.h"
-#include "splinterdb/kvstore.h"
+#include "splinterdb/splinterdb.h"
 #include "rc_allocator.h"
-#include "splinter.h"
+#include "trunk.h"
 
 #include "poison.h"
 
-typedef struct kvstore {
+typedef struct splinterdb {
    task_system *        system;
    data_config          data_cfg;
    io_config            io_cfg;
@@ -27,12 +27,12 @@ typedef struct kvstore {
    rc_allocator         allocator_handle;
    clockcache_config    cache_cfg;
    clockcache           cache_handle;
-   allocator_root_id    splinter_id;
-   splinter_config      splinter_cfg;
-   splinter_handle *    spl;
+   allocator_root_id    trunk_id;
+   trunk_config      trunk_cfg;
+   trunk_handle *    spl;
    platform_heap_handle heap_handle; // for platform_buffer_create
    platform_heap_id     heap_id;
-} kvstore;
+} splinterdb;
 
 
 /*
@@ -51,9 +51,9 @@ platform_status_to_int(const platform_status status) // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * kvstore_init_config --
+ * splinterdb_init_config --
  *
- *      Translate kvstore_config to configs for individual subsystems.
+ *      Translate splinterdb_config to configs for individual subsystems.
  *
  * Results:
  *      STATUS_OK on success, appopriate error on failure.
@@ -65,8 +65,8 @@ platform_status_to_int(const platform_status status) // IN
  */
 
 static platform_status
-kvstore_init_config(const kvstore_config *kvs_cfg, // IN
-                    kvstore *             kvs      // OUT
+splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
+                    splinterdb *             kvs      // OUT
 )
 {
    if (!data_validate_config(&kvs_cfg->data_cfg)) {
@@ -127,7 +127,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
                           masterCfg.cache_logfile,
                           masterCfg.use_stats);
 
-   splinter_config_init(&kvs->splinter_cfg,
+   trunk_config_init(&kvs->trunk_cfg,
                         &kvs->data_cfg,
                         NULL,
                         masterCfg.memtable_capacity,
@@ -147,12 +147,12 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
 
 // internal function for create or open
 int
-kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
-                       kvstore **            kvs_out,      // OUT
+splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
+                       splinterdb **            kvs_out,      // OUT
                        bool                  open_existing // IN
 )
 {
-   kvstore *       kvs;
+   splinterdb *       kvs;
    platform_status status;
 
    platform_assert(kvs_out != NULL);
@@ -163,7 +163,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
       return platform_status_to_int(status);
    }
 
-   status = kvstore_init_config(kvs_cfg, kvs);
+   status = splinterdb_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init config: %s\n",
                          platform_status_to_string(status));
@@ -186,7 +186,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                                TRUE,
                                FALSE,
                                num_bg_threads,
-                               splinter_get_scratch_size());
+                               trunk_get_scratch_size());
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));
@@ -229,20 +229,20 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
       goto deinit_allocator;
    }
 
-   kvs->splinter_id = 1;
+   kvs->trunk_id = 1;
    if (open_existing) {
-      kvs->spl = splinter_mount(&kvs->splinter_cfg,
+      kvs->spl = trunk_mount(&kvs->trunk_cfg,
                                 (allocator *)&kvs->allocator_handle,
                                 (cache *)&kvs->cache_handle,
                                 kvs->system,
-                                kvs->splinter_id,
+                                kvs->trunk_id,
                                 kvs->heap_id);
    } else {
-      kvs->spl = splinter_create(&kvs->splinter_cfg,
+      kvs->spl = trunk_create(&kvs->trunk_cfg,
                                  (allocator *)&kvs->allocator_handle,
                                  (cache *)&kvs->cache_handle,
                                  kvs->system,
-                                 kvs->splinter_id,
+                                 kvs->trunk_id,
                                  kvs->heap_id);
    }
    if (kvs->spl == NULL) {
@@ -269,28 +269,28 @@ deinit_kvhandle:
 }
 
 int
-kvstore_create(const kvstore_config *cfg, // IN
-               kvstore **            kvs  // OUT
+splinterdb_create(const splinterdb_config *cfg, // IN
+               splinterdb **            kvs  // OUT
 )
 {
-   return kvstore_create_or_open(cfg, kvs, FALSE);
+   return splinterdb_create_or_open(cfg, kvs, FALSE);
 }
 
 int
-kvstore_open(const kvstore_config *cfg, // IN
-             kvstore **            kvs  // OUT
+splinterdb_open(const splinterdb_config *cfg, // IN
+             splinterdb **            kvs  // OUT
 )
 {
-   return kvstore_create_or_open(cfg, kvs, TRUE);
+   return splinterdb_create_or_open(cfg, kvs, TRUE);
 }
 
 
 /*
  *-----------------------------------------------------------------------------
  *
- * kvstore_close --
+ * splinterdb_close --
  *
- *      Close a kvstore, flushing to disk and releasing resources
+ *      Close a splinterdb, flushing to disk and releasing resources
  *
  * Results:
  *      None.
@@ -302,11 +302,11 @@ kvstore_open(const kvstore_config *cfg, // IN
  */
 
 void
-kvstore_close(kvstore *kvs) // IN
+splinterdb_close(splinterdb *kvs) // IN
 {
    platform_assert(kvs != NULL);
 
-   splinter_dismount(kvs->spl);
+   trunk_dismount(kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_dismount(&kvs->allocator_handle);
    io_handle_deinit(&kvs->io_handle);
@@ -318,9 +318,9 @@ kvstore_close(kvstore *kvs) // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * kvstore_register_thread --
+ * splinterdb_register_thread --
  *
- *      Register a thread for kvstore operations. Needs to be called from the
+ *      Register a thread for splinterdb operations. Needs to be called from the
  *      threads execution context.
  *
  *      This function must be called by a thread before it performs any
@@ -336,7 +336,7 @@ kvstore_close(kvstore *kvs) // IN
  */
 
 void
-kvstore_register_thread(const kvstore *kvs) // IN
+splinterdb_register_thread(const splinterdb *kvs) // IN
 {
    platform_assert(kvs != NULL);
    task_system_register_thread(kvs->system);
@@ -346,7 +346,7 @@ kvstore_register_thread(const kvstore *kvs) // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * kvstore_insert --
+ * splinterdb_insert --
  *
  *      Insert a tuple into splinter
  *
@@ -360,7 +360,7 @@ kvstore_register_thread(const kvstore *kvs) // IN
  */
 
 int
-kvstore_insert(const kvstore *kvs,  // IN
+splinterdb_insert(const splinterdb *kvs,  // IN
                char *         key,  // IN
                char *         value // IN
 )
@@ -368,7 +368,7 @@ kvstore_insert(const kvstore *kvs,  // IN
    platform_status status;
 
    platform_assert(kvs != NULL);
-   status = splinter_insert(kvs->spl, key, value);
+   status = trunk_insert(kvs->spl, key, value);
    return platform_status_to_int(status);
 }
 
@@ -376,7 +376,7 @@ kvstore_insert(const kvstore *kvs,  // IN
 /*
  *-----------------------------------------------------------------------------
  *
- * kvstore_lookup --
+ * splinterdb_lookup --
  *
  *      Look up a key from splinter
  *
@@ -390,7 +390,7 @@ kvstore_insert(const kvstore *kvs,  // IN
  */
 
 int
-kvstore_lookup(const kvstore *kvs,   // IN
+splinterdb_lookup(const splinterdb *kvs,   // IN
                char *         key,   // IN
                char *         value, // OUT
                bool *         found  // OUT
@@ -399,37 +399,37 @@ kvstore_lookup(const kvstore *kvs,   // IN
    platform_status status;
 
    platform_assert(kvs != NULL);
-   status = splinter_lookup(kvs->spl, key, value, found);
+   status = trunk_lookup(kvs->spl, key, value, found);
    return platform_status_to_int(status);
 }
 
-struct kvstore_iterator {
-   splinter_range_iterator sri;
+struct splinterdb_iterator {
+   trunk_range_iterator sri;
    platform_status         last_rc;
 };
 
 int
-kvstore_iterator_init(const kvstore *    kvs,      // IN
-                      kvstore_iterator **iter,     // OUT
+splinterdb_iterator_init(const splinterdb *    kvs,      // IN
+                      splinterdb_iterator **iter,     // OUT
                       char *             start_key // IN
 )
 {
-   kvstore_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);
+   splinterdb_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);
    if (it == NULL) {
       platform_error_log("TYPED_MALLOC error\n");
       return platform_status_to_int(STATUS_NO_MEMORY);
    }
    it->last_rc = STATUS_OK;
 
-   splinter_range_iterator *range_itor = &(it->sri);
+   trunk_range_iterator *range_itor = &(it->sri);
 
-   platform_status rc = splinter_range_iterator_init(
+   platform_status rc = trunk_range_iterator_init(
       kvs->spl, range_itor, start_key, NULL, UINT64_MAX);
    if (!SUCCESS(rc)) {
-      // TODO(gabe): copied in from splinter.c::splinter_range
+      // TODO(gabe): copied in from trunk.c::trunk_range
       // but is this even right?  Like, if init fails, de-init
       // is typically a no-op?
-      splinter_range_iterator_deinit(range_itor);
+      trunk_range_iterator_deinit(range_itor);
       platform_free(kvs->spl->heap_id, *iter);
       return platform_status_to_int(rc);
    }
@@ -439,17 +439,17 @@ kvstore_iterator_init(const kvstore *    kvs,      // IN
 }
 
 void
-kvstore_iterator_deinit(kvstore_iterator *iter)
+splinterdb_iterator_deinit(splinterdb_iterator *iter)
 {
-   splinter_range_iterator *range_itor = &(iter->sri);
+   trunk_range_iterator *range_itor = &(iter->sri);
 
-   splinter_handle *spl = range_itor->spl;
-   splinter_range_iterator_deinit(range_itor);
+   trunk_handle *spl = range_itor->spl;
+   trunk_range_iterator_deinit(range_itor);
    platform_free(spl->heap_id, range_itor);
 }
 
 bool
-kvstore_iterator_valid(kvstore_iterator *kvi)
+splinterdb_iterator_valid(splinterdb_iterator *kvi)
 {
    if (!SUCCESS(kvi->last_rc)) {
       return FALSE;
@@ -464,14 +464,14 @@ kvstore_iterator_valid(kvstore_iterator *kvi)
 }
 
 void
-kvstore_iterator_next(kvstore_iterator *kvi)
+splinterdb_iterator_next(splinterdb_iterator *kvi)
 {
    iterator *itor = &(kvi->sri.super);
    kvi->last_rc   = iterator_advance(itor);
 }
 
 void
-kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
+splinterdb_iterator_get_current(splinterdb_iterator *kvi,    // IN
                              const char **     key,    // OUT
                              const char **     message // OUT
 )
@@ -483,7 +483,7 @@ kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
 }
 
 int
-kvstore_iterator_status(const kvstore_iterator *iter)
+splinterdb_iterator_status(const splinterdb_iterator *iter)
 {
    return platform_status_to_int(iter->last_rc);
 }

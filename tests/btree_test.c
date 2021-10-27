@@ -1261,7 +1261,7 @@ btree_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    data_config *data_cfg = TYPED_MALLOC(hid, data_cfg);
-   splinter_config *cfg = TYPED_MALLOC(hid, cfg);
+   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
    rc = test_parse_args(cfg, data_cfg, &io_cfg, &al_cfg, &cache_cfg,
                         &log_cfg, &seed, config_argc, config_argv);
    // FIXME: [aconway 2020-08-23] Build this into a test arg parse function

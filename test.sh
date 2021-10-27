@@ -5,9 +5,9 @@ set -euxo pipefail
 SEED="${SEED:-135}"
 DRIVER="${DRIVER:-"${BINDIR:-bin}/driver_test"}"
 
-"$DRIVER" kvstore_test --seed "$SEED"
+"$DRIVER" splinterdb_test --seed "$SEED"
 
-"$DRIVER" kvstore_basic_test --seed "$SEED"
+"$DRIVER" splinterdb_kv_test --seed "$SEED"
 
 "$DRIVER" splinter_test --functionality 1000000 100 --seed "$SEED"
 

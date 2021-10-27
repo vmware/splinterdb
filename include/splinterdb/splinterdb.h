@@ -2,19 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * kvstore.h --
+ * splinterdb.h --
  *
- *     This file contains the external kvstore interfaces
+ *     This file contains the external splinterdb interfaces
  *     based on splinterdb.
  *     The user must provide a data_config that encodes
  *     values and message-types.
  *
- *     For simple use cases, start with kvstore_basic
+ *     For simple use cases, start with splinterdb_kv
  *
  */
 
-#ifndef _KVSTORE_H_
-#define _KVSTORE_H_
+#ifndef _SPLINTERDB_H_
+#define _SPLINTERDB_H_
 
 #include "splinterdb/data.h"
 
@@ -27,51 +27,51 @@ typedef struct {
 
    void *heap_handle;
    void *heap_id;
-} kvstore_config;
+} splinterdb_config;
 
-typedef struct kvstore kvstore;
+typedef struct splinterdb splinterdb;
 
-// Create a new kvstore from a given config
+// Create a new splinterdb from a given config
 //
-// The library will allocate and own the memory for kvstore
-// and will free it on kvstore_close
-//
-// It is ok for the caller to stack-allocate cfg, since it is not retained
-int
-kvstore_create(const kvstore_config *cfg, kvstore **kvs);
-
-// Open an existing kvstore, using the provided config
-//
-// The library will allocate and own the memory for kvstore
-// and will free it on kvstore_close
+// The library will allocate and own the memory for splinterdb
+// and will free it on splinterdb_close
 //
 // It is ok for the caller to stack-allocate cfg, since it is not retained
 int
-kvstore_open(const kvstore_config *cfg, kvstore **kvs);
+splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
 
-// Close a kvstore
+// Open an existing splinterdb, using the provided config
+//
+// The library will allocate and own the memory for splinterdb
+// and will free it on splinterdb_close
+//
+// It is ok for the caller to stack-allocate cfg, since it is not retained
+int
+splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
+
+// Close a splinterdb
 //
 // This will flush everything to disk and release all resources
 void
-kvstore_close(kvstore *kvs);
+splinterdb_close(splinterdb *kvs);
 
 // Register the current thread so that it can be used for
-// operations against the kvstore.
+// operations against the splinterdb.
 //
 // It must be called no more than once per thread, and before
-// any operation on the database, including kvstore_close.
+// any operation on the database, including splinterdb_close.
 //
-// Note: kvstore_create causes an implicit kvstore_register_thread
-// So it is safe to call kvstore_close from the same thread
-// that called kvstore_create without an exra kvstore_register_thread.
+// Note: splinterdb_create causes an implicit splinterdb_register_thread
+// So it is safe to call splinterdb_close from the same thread
+// that called splinterdb_create without an exra splinterdb_register_thread.
 void
-kvstore_register_thread(const kvstore *kvs);
+splinterdb_register_thread(const splinterdb *kvs);
 
 int
-kvstore_insert(const kvstore *kvs, char *key, char *message);
+splinterdb_insert(const splinterdb *kvs, char *key, char *message);
 
 int
-kvstore_lookup(const kvstore *kvs,     // IN
+splinterdb_lookup(const splinterdb *kvs,     // IN
                char *         key,     // IN
                char *         message, // OUT
                bool *         found    // OUT
@@ -102,50 +102,50 @@ It is always a good practice to check status() if the iterator is invalidated.
 
 Sample application code:
 
-   kvstore_iterator* it;
-   int rc = kvstore_iterator_init(kvs, &it, NULL);
+   splinterdb_iterator* it;
+   int rc = splinterdb_iterator_init(kvs, &it, NULL);
    if (rc != 0) { ... handle error ... }
 
    const char* key;
    const char* msg;
-   for(; kvstore_iterator_valid(it); kvstore_iterator_next(it)) {
-      kvstore_iterator_get_current(it, &key, &msg);
+   for(; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
+      splinterdb_iterator_get_current(it, &key, &msg);
       // read key and msg ...
    }
    // loop exit may mean error, or just that we've reached the end of the range
-   rc = kvstore_iterator_status(it);
+   rc = splinterdb_iterator_status(it);
    if (rc != 0) { ... handle error ... }
 */
 
-typedef struct kvstore_iterator kvstore_iterator;
+typedef struct splinterdb_iterator splinterdb_iterator;
 
 int
-kvstore_iterator_init(const kvstore *    kvs,      // IN
-                      kvstore_iterator **iter,     // OUT
+splinterdb_iterator_init(const splinterdb *    kvs,      // IN
+                      splinterdb_iterator **iter,     // OUT
                       char *             start_key // IN
 );
 
 void
-kvstore_iterator_deinit(kvstore_iterator *iter);
+splinterdb_iterator_deinit(splinterdb_iterator *iter);
 
 // checks that the iterator status is OK (no errors) and that get_current will
 // succeed If false, there are two possibilities:
 // 1. Iterator has passed the final item.  In this case, status() == 0
 // 2. Iterator has encountered an error.  In this case, status() != 0
 bool
-kvstore_iterator_valid(kvstore_iterator *iter);
+splinterdb_iterator_valid(splinterdb_iterator *iter);
 
 // attempts to advance the iterator to the next item
 // any error will cause valid() == false and be visible with status()
 void
-kvstore_iterator_next(kvstore_iterator *iter);
+splinterdb_iterator_next(splinterdb_iterator *iter);
 
 // Sets *key and *message to the locations of the current item
 // Callers must not modify that memory
 //
 // If valid() == false, then behavior is undefined.
 void
-kvstore_iterator_get_current(kvstore_iterator *iter,   // IN
+splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
                              const char **     key,    // OUT
                              const char **     message // OUT
 );
@@ -154,6 +154,6 @@ kvstore_iterator_get_current(kvstore_iterator *iter,   // IN
 //
 // End-of-range is not an error
 int
-kvstore_iterator_status(const kvstore_iterator *iter);
+splinterdb_iterator_status(const splinterdb_iterator *iter);
 
-#endif // _KVSTORE_H_
+#endif // _SPLINTERDB_H_

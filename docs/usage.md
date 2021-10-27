@@ -41,22 +41,22 @@ For example, a C linker would need the flag `-lsplinterdb`.  You may also need t
 
 ## 3. Call SplinterDB APIs from your program
 
-For basic key-value store use cases, [`kvstore_basic.h`](../src/kvstore_basic.h) should suffice.
+For basic key-value store use cases, [`splinterdb_kv.h`](../src/splinterdb_kv.h) should suffice.
 
-- Set the fields in `kvstore_basic_cfg`
+- Set the fields in `splinterdb_kv_cfg`
 
-- `kvstore_basic_create()` will create a new database and `kvstore_basic_close()` closes it.
-   Concurrent access to that database must go through the `kvstore_basic*` object
-   returned by `kvstore_basic_create()` (or `kvstore_basic_open()`).
+- `splinterdb_kv_create()` will create a new database and `splinterdb_kv_close()` closes it.
+   Concurrent access to that database must go through the `splinterdb_kv*` object
+   returned by `splinterdb_kv_create()` (or `splinterdb_kv_open()`).
 
     > For example, a RDBMS using SplinterDB as a storage layer might consolidate all "table open" and "table close"
       operations across different client connections into a shared, per-table, reference-counted resource which
-      internally calls `kvstore_basic_open()` in its constructor and `kvstore_basic_close()` in its destructor.
+      internally calls `splinterdb_kv_open()` in its constructor and `splinterdb_kv_close()` in its destructor.
 
-- `kvstore_basic_register_thread()` must be called once for each thread that needs to use the database.  Note this may be non-trivial for languages with [runtime-managed threading](https://en.wikipedia.org/wiki/Green_threads).
+- `splinterdb_kv_register_thread()` must be called once for each thread that needs to use the database.  Note this may be non-trivial for languages with [runtime-managed threading](https://en.wikipedia.org/wiki/Green_threads).
 
 - Once registered, a thread may insert, delete, lookup and iterate.
 
-- A range query should use the iterator workflow described in `kvstore_basic.h`.
+- A range query should use the iterator workflow described in `splinterdb_kv.h`.
 
-A complete (single-threaded) example is in [`tests/kvstore_basic_test.c`](../tests/kvstore_basic_test.c).
+A complete (single-threaded) example is in [`tests/splinterdb_kv_test.c`](../tests/splinterdb_kv_test.c).
