@@ -302,9 +302,6 @@ platform_status_to_string(const platform_status status)
 #define platform_thread_cleanup_pop(exec) \
    pthread_cleanup_pop((exec))
 
-#define splinter_list_insert(...)
-#define splinter_list_remove(...)
-
 static inline void
 platform_histo_insert(platform_histo_handle histo, int64 datum)
 {
