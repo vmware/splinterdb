@@ -6,6 +6,10 @@
  *
  *     This file contains constants and functions the pertain to
  *     keys and messages
+ *
+ *     A message encodes a value and an operation,
+ *     like insert, delete or update.
+ *
  */
 
 #ifndef __DATA_H
