@@ -95,6 +95,14 @@ kvstore_basic_close(kvstore_basic *kvsb);
 void
 kvstore_basic_register_thread(const kvstore_basic *kvsb);
 
+// Compare two keys
+int
+kvstore_basic_key_compare(const kvstore_basic *kvsb,
+                          const char *         key1,
+                          size_t               key1_len,
+                          const char *         key2,
+                          size_t               key2_len);
+
 // Insert a key:value pair
 int
 kvstore_basic_insert(const kvstore_basic *kvsb,

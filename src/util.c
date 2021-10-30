@@ -427,10 +427,12 @@ pr16Bytes(char *outbufp, int outbuflen, const char *datap, const size_t nbytes)
    outbuflen--;
    for (int jctr = 0; jctr < nbytes_per_line; jctr++) {
 
+      /*
       if ((jctr % nbytes_per_chunk) == 0) {
          *outp++ = ' ';
          outbuflen--;
       }
+      */
       if (jctr < nbytes) {
          npr = snprintf(
             outp, outbuflen, "%c", isprint(datap[jctr]) ? datap[jctr] : '.');

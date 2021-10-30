@@ -132,6 +132,19 @@ variable_len_compare(const void *context,
 }
 const static key_comparator_fn default_key_comparator = (&variable_len_compare);
 
+int
+kvstore_basic_key_compare(const kvstore_basic *kvsb,
+                          const char *key1,
+                          size_t      key1_len,
+                          const char *key2,
+                          size_t      key2_len)
+{
+   kvsb_data_config_context *ctx = kvsb->data_config_context;
+   return ctx->key_comparator(ctx->key_comparator_context,
+                              key1, key1_len, key2, key2_len);
+
+}
+
 static int
 basic_key_compare(const data_config *cfg,
                   const void *       key1_raw,
