@@ -20,20 +20,53 @@
 
 #define MINI_WAIT 1
 
-typedef struct mini_allocator_meta_entry {
-   uint64 extent_addr;
-   bool   zapped;
-   uint64 start_key_length;
-   char   start_key[MAX_KEY_SIZE];
-   uint64 end_key_length;
-   char   end_key[MAX_KEY_SIZE];
-} mini_allocator_meta_entry;
+#define MAX_INLINE_KEY_SIZE (256)
 
-typedef struct mini_allocator_meta_hdr {
+typedef struct meta_entry {
+   uint64 extent_addr;
+   uint16 start_key_length;
+   uint16 end_key_length;
+   bool   zapped;
+   char   end_key[MAX_INLINE_KEY_SIZE];
+   char   start_key[];
+} meta_entry;
+
+static uint64 sizeof_meta_entry(const meta_entry *entry)
+{
+  return sizeof(meta_entry) + entry->start_key_length;
+}
+
+static uint64 meta_entry_size(slice key)
+{
+  return sizeof(meta_entry) + slice_length(key);
+}
+
+static slice meta_entry_start_key(meta_entry *entry)
+{
+  return slice_create(entry->start_key_length, entry->start_key);
+}
+
+static slice meta_entry_end_key(meta_entry *entry)
+{
+  return slice_create(entry->end_key_length, entry->end_key);
+}
+
+typedef struct meta_hdr {
    uint64                    next_meta_addr;
-   uint64                    pos;
-   mini_allocator_meta_entry entry[];
-} mini_allocator_meta_hdr;
+   uint32                    pos;
+   uint32                    num_entries;
+   char entries[];
+} meta_hdr;
+
+static meta_entry *first_entry(meta_hdr *hdr)
+{
+  return (meta_entry *)hdr->entries;
+}
+
+static meta_entry *next_entry(meta_entry *entry)
+{
+  return (meta_entry *)((char *)entry + sizeof_meta_entry(entry));
+}
 
 uint64
 mini_allocator_init(mini_allocator *mini,
@@ -73,10 +106,11 @@ mini_allocator_init(mini_allocator *mini,
       }
       cache_lock(cc, meta_page);
    }
-   mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
+   meta_hdr *hdr = (meta_hdr *)meta_page->data;
    if (meta_tail == 0) {
       hdr->next_meta_addr = 0;
-      hdr->pos = 0;
+      hdr->pos = sizeof(meta_hdr);
+      hdr->num_entries = 0;
    }
 
    for (uint64 batch = 0; batch < num_batches; batch++) {
@@ -85,25 +119,6 @@ mini_allocator_init(mini_allocator *mini,
       platform_assert_status_ok(rc);
       //platform_log("mini_allocator_alloc %lu-%lu.%lu : %lu\n",
       //      mini->meta_head, mini->meta_tail, hdr->pos, mini->next_extent[batch]);
-      if (hdr->pos == (cache_page_size(mini->cc)
-            - sizeof(mini_allocator_meta_hdr)) / sizeof(uint64)) {
-         // need a new meta page
-         mini->meta_tail += cache_page_size(mini->cc);
-         if (mini->meta_tail % cache_extent_size(mini->cc) == 0) {
-            // need to allocate the next meta extent
-            rc = allocator_alloc_extent(mini->al, (uint64 *)&mini->meta_tail);
-            platform_assert_status_ok(rc);
-         }
-         hdr->next_meta_addr = mini->meta_tail;
-         page_handle *last_meta_page = meta_page;
-         meta_page = cache_alloc(mini->cc, mini->meta_tail, type);
-         cache_unlock(mini->cc, last_meta_page);
-         cache_unclaim(mini->cc, last_meta_page);
-         cache_unget(mini->cc, last_meta_page);
-         hdr = (mini_allocator_meta_hdr *)meta_page->data;
-         hdr->pos = 0;
-         hdr->next_meta_addr = 0;
-      }
    }
 
    cache_mark_dirty(cc, meta_page);
@@ -117,7 +132,7 @@ mini_allocator_init(mini_allocator *mini,
 uint64
 mini_allocator_alloc(mini_allocator   *mini,
                      uint64            batch,
-                     const slice  key,
+                     const slice       key,
                      uint64           *next_extent)
 {
    platform_assert(batch < mini->num_batches);
@@ -167,10 +182,8 @@ mini_allocator_alloc(mini_allocator   *mini,
       // FIXME: [aconway 2021-05-10] This is residual, delete eventually:
       debug_assert(meta_page->disk_addr == mini->meta_tail);
 
-      mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
-      if (hdr->pos == (cache_page_size(mini->cc)
-            - sizeof(mini_allocator_meta_hdr))
-            / sizeof(mini_allocator_meta_entry)) {
+      meta_hdr *hdr = (meta_hdr *)meta_page->data;
+      if (cache_page_size(mini->cc) < hdr->pos + meta_entry_size(key)) {
          // need a new meta page
          uint64 new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
          if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
@@ -186,18 +199,21 @@ mini_allocator_alloc(mini_allocator   *mini,
          cache_unlock(mini->cc, last_meta_page);
          cache_unclaim(mini->cc, last_meta_page);
          cache_unget(mini->cc, last_meta_page);
-         hdr = (mini_allocator_meta_hdr *)meta_page->data;
-         hdr->pos = 0;
+         hdr = (meta_hdr *)meta_page->data;
          hdr->next_meta_addr = 0;
+         hdr->pos = sizeof(meta_hdr);
+         hdr->num_entries = 0;
       }
+      platform_assert(hdr->pos + meta_entry_size(key) <= cache_page_size(mini->cc));
 
       //platform_log("mini_allocator_alloc %lu-%lu.%lu : %lu\n",
       //      mini->meta_head, mini->meta_tail, hdr->pos, new_extent_addr);
 
-      platform_assert(hdr == (mini_allocator_meta_hdr *)meta_page->data);
-      uint64 new_pos = hdr->pos;
+
+      platform_assert(hdr == (meta_hdr *)meta_page->data);
       uint64 new_meta_addr = meta_page->disk_addr;
-      mini_allocator_meta_entry *entry = &hdr->entry[hdr->pos++];
+      meta_entry *entry = (meta_entry *)((char *)hdr + hdr->pos);
+
       if (!slice_is_null(key)) {
          entry->start_key_length = slice_length(key);
          data_key_copy(mini->data_cfg, entry->start_key, key);
@@ -218,10 +234,9 @@ mini_allocator_alloc(mini_allocator   *mini,
                wait = 1;
                cache_lock(mini->cc, last_meta_page);
             }
-            mini_allocator_meta_hdr *last_hdr =
-               (mini_allocator_meta_hdr *)last_meta_page->data;
-            mini_allocator_meta_entry *last_entry =
-               &last_hdr->entry[mini->last_meta_pos[batch]];
+            meta_hdr *last_hdr =
+               (meta_hdr *)last_meta_page->data;
+            meta_entry *last_entry = (meta_entry *)((char *)last_hdr + mini->last_meta_pos[batch]);
             last_entry->end_key_length = slice_length(key);
             data_key_copy(mini->data_cfg, last_entry->end_key, key);
             cache_mark_dirty(mini->cc, last_meta_page);
@@ -231,16 +246,18 @@ mini_allocator_alloc(mini_allocator   *mini,
                cache_unget(mini->cc, last_meta_page);
             }
          }
-         mini->last_meta_pos[batch] = new_pos;
+         mini->last_meta_pos[batch] = hdr->pos;
+         hdr->pos += meta_entry_size(key);
          mini->last_meta_addr[batch] = new_meta_addr;
       } else {
          entry->start_key_length = 0;
-         memset(entry->start_key, 0, MAX_KEY_SIZE);
          entry->end_key_length = 0;
-         memset(entry->end_key, 0, MAX_KEY_SIZE);
+         memset(entry->end_key, 0, MAX_INLINE_KEY_SIZE);
       }
       entry->extent_addr = next_extent_addr;
       entry->zapped = FALSE;
+      hdr->num_entries++;
+
       //if (key != NULL) {
       //   char key_str[256];
       //   fixed_size_data_key_to_string(key, key_str, 24);
@@ -286,10 +303,8 @@ mini_allocator_release(mini_allocator  *mini,
          }
          wait = 1;
          cache_lock(mini->cc, last_meta_page);
-         mini_allocator_meta_hdr *last_hdr =
-            (mini_allocator_meta_hdr *)last_meta_page->data;
-         mini_allocator_meta_entry *last_entry =
-            &last_hdr->entry[mini->last_meta_pos[batch]];
+         meta_hdr *last_hdr     = (meta_hdr *)last_meta_page->data;
+         meta_entry *last_entry = (meta_entry *)&last_hdr->entries[mini->last_meta_pos[batch]];
          last_entry->end_key_length = slice_length(key);
          data_key_copy(mini->data_cfg, last_entry->end_key, key);
          cache_mark_dirty(mini->cc, last_meta_page);
@@ -308,25 +323,26 @@ mini_allocator_print(cache                      *cc,
 {
    page_handle             *meta_page;
    uint64                   i;
-   mini_allocator_meta_hdr *hdr;
+   meta_hdr *hdr;
    uint64                   next_meta_addr = meta_head;
 
    do {
       meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
-      hdr = (mini_allocator_meta_hdr *)meta_page->data;
+      hdr = (meta_hdr *)meta_page->data;
 
       platform_log("meta addr %12lu\n", next_meta_addr);
-      for (i = 0; i < hdr->pos; i++) {
-         mini_allocator_meta_entry *entry = &hdr->entry[i];
-         char start_key_str[256];
-         fixed_size_data_key_to_string(data_cfg, entry->start_key, start_key_str, 24);
-         char end_key_str[256];
-         fixed_size_data_key_to_string(data_cfg, entry->end_key, end_key_str, 24);
+      meta_entry *entry = first_entry(hdr);
+      for (i = 0; i < hdr->num_entries; i++) {
+         char start_key_str[MAX_INLINE_KEY_SIZE];
+         data_key_to_string(data_cfg, meta_entry_start_key(entry), start_key_str, sizeof(start_key_str));
+         char end_key_str[MAX_INLINE_KEY_SIZE];
+         data_key_to_string(data_cfg, meta_entry_end_key(entry), end_key_str, sizeof(end_key_str));
          allocator *al = cache_allocator(cc);
          uint8 ref_count = allocator_get_refcount(al, entry->extent_addr);
          platform_log("%2lu %12lu %s %s %d (%u)\n",
                i, entry->extent_addr, start_key_str, end_key_str,
                entry->zapped, ref_count);
+         entry = next_entry(entry);
       }
 
       next_meta_addr = hdr->next_meta_addr;
@@ -362,7 +378,7 @@ mini_allocator_for_each(cache                      *cc,
 {
    page_handle             *meta_page;
    uint64                   i;
-   mini_allocator_meta_hdr *hdr;
+   meta_hdr *hdr;
    uint64                   next_meta_addr = meta_head;
    uint64                   last_meta_addr;
    uint64                   wait = 1;
@@ -382,12 +398,12 @@ mini_allocator_for_each(cache                      *cc,
       wait = 1;
       cache_lock(cc, meta_page);
 
-      hdr = (mini_allocator_meta_hdr *)meta_page->data;
+      hdr = (meta_hdr *)meta_page->data;
 
-      for (i = 0; i < hdr->pos; i++) {
-         mini_allocator_meta_entry *entry = &hdr->entry[i];
-         slice entry_start_key = slice_create(entry->start_key_length, entry->start_key);
-         slice entry_end_key = slice_create(entry->end_key_length, entry->end_key);
+      meta_entry *entry = first_entry(hdr);
+      for (i = 0; i < hdr->num_entries; i++) {
+         slice entry_start_key = meta_entry_start_key(entry);
+         slice entry_end_key = meta_entry_end_key(entry);
          /*
           * extent is in range if
           * 1. full range (start_key == NULL and end_key == NULL)
@@ -420,6 +436,8 @@ mini_allocator_for_each(cache                      *cc,
             entry->zapped = func(cc, type, entry->extent_addr, pages_outstanding);
          }
          fully_zapped = fully_zapped && entry->zapped;
+
+         entry = next_entry(entry);
       }
 
       last_meta_addr = next_meta_addr;
@@ -430,12 +448,13 @@ mini_allocator_for_each(cache                      *cc,
       cache_unclaim(cc, meta_page);
       cache_unget(cc, meta_page);
    } while (next_meta_addr != 0);
+
    if (fully_zapped) {
       //platform_log("fully zapped %lu\n", meta_head - 4096);
       uint64 next_meta_addr = meta_head;
       do {
          meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
-         hdr = (mini_allocator_meta_hdr *)meta_page->data;
+         hdr = (meta_hdr *)meta_page->data;
          last_meta_addr = next_meta_addr;
          next_meta_addr = hdr->next_meta_addr;
          cache_unget(cc, meta_page);
@@ -574,13 +593,14 @@ mini_allocator_extent_count(cache     *cc,
       meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
       num_extents++;
 
-      mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
+      meta_hdr *hdr = (meta_hdr *)meta_page->data;
 
-      for (uint64 i = 0; i < hdr->pos; i++) {
-         mini_allocator_meta_entry *entry = &hdr->entry[i];
+      meta_entry *entry = first_entry(hdr);
+      for (uint64 i = 0; i < hdr->num_entries; i++) {
          if (!entry->zapped) {
             num_extents++;
          }
+         entry = next_entry(entry);
       }
       next_meta_addr = hdr->next_meta_addr;
       cache_unget(cc, meta_page);
@@ -640,10 +660,10 @@ mini_allocator_blind_inc(cache *cc,
    //uint64 next_meta_addr = meta_head;
    //do {
    //   page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
-   //   mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
+   //   meta_hdr *hdr = (meta_hdr *)meta_page->data;
    //   allocator *al = cache_allocator(cc);
    //   for (uint64 i = 0; i < hdr->pos; i++) {
-   //      mini_allocator_meta_entry *entry = &hdr->entry[i];
+   //      meta_entry *entry = &hdr->entry[i];
    //      if (!entry->zapped) {
    //         allocator_inc_refcount(al, entry->extent_addr);
    //      }
@@ -666,9 +686,9 @@ mini_allocator_blind_zap(cache       *cc,
    //   bool locked = FALSE;
    //   page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
 
-   //   mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
+   //   meta_hdr *hdr = (meta_hdr *)meta_page->data;
    //   for (uint64 i = 0; i < hdr->pos; i++) {
-   //      mini_allocator_meta_entry *entry = &hdr->entry[i];
+   //      meta_entry *entry = &hdr->entry[i];
    //      if (!entry->zapped) {
    //         bool just_zapped = cache_dealloc(cc, entry->extent_addr, type);
    //         if (just_zapped) {
@@ -706,7 +726,7 @@ mini_allocator_blind_zap(cache       *cc,
    //   uint64 next_meta_addr = meta_head;
    //   do {
    //      page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, PAGE_TYPE_MISC);
-   //      mini_allocator_meta_hdr *hdr = (mini_allocator_meta_hdr *)meta_page->data;
+   //      meta_hdr *hdr = (meta_hdr *)meta_page->data;
    //      uint64 last_meta_addr = next_meta_addr;
    //      next_meta_addr = hdr->next_meta_addr;
    //      cache_unget(cc, meta_page);

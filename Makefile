@@ -73,6 +73,8 @@ DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
 DEFAULT_LDFLAGS = -ggdb3 -pthread
+#DEFAULT_LDFLAGS += -fsanitize=memory
+#DEFAULT_LDFLAGS += -fsanitize=address
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
@@ -141,6 +143,7 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 # It links only with its needed .o files
 #
 
+obj/unit/dynamic_btree-test.o: src/dynamic_btree.c
 bin/unit/dynamic_btree-test: obj/tests/test_data.o obj/src/util.o obj/src/data.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
 
 #*************************************************************#

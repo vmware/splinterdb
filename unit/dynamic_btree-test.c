@@ -173,6 +173,9 @@ static int leaf_split_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *sc
 {
   char leaf_buffer[cfg->page_size];
   char msg_buffer[cfg->page_size];
+
+  memset(msg_buffer, 0, sizeof(msg_buffer));
+
   dynamic_btree_hdr *hdr = (dynamic_btree_hdr *)leaf_buffer;
 
   dynamic_btree_init_hdr(cfg, hdr);
@@ -242,19 +245,47 @@ static slice gen_msg(dynamic_btree_config  *cfg,
   return slice_create(sizeof(data_handle) + datalen, buffer);
 }
 
-static int verify_inserts(cache                 *cc,
-                          dynamic_btree_config  *cfg,
-                          uint64                 root_addr,
-                          int                    nkvs)
+static uint64 insert_tests(cache                 *cc,
+                           dynamic_btree_config  *cfg,
+                           dynamic_btree_scratch *scratch,
+                           int                    nkvs)
+{
+  mini_allocator mini;
+  uint64 root_addr = dynamic_btree_init(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
+  uint64 generation;
+  bool was_unique;
+  uint8 keybuf[cfg->page_size];
+  uint8 msgbuf[cfg->page_size];
+
+  for (uint64 i = 0; i < nkvs; i++) {
+    if (!SUCCESS(dynamic_btree_insert(cc, cfg, scratch, root_addr, &mini,
+                                      gen_key(cfg, i, keybuf),
+                                      gen_msg(cfg, i, msgbuf),
+                                      &generation,
+                                      &was_unique)))
+      platform_log("failed to insert 4-byte %ld\n", i);
+  }
+
+  return root_addr;
+}
+
+static int query_tests(cache                 *cc,
+                       dynamic_btree_config  *cfg,
+                       uint64                 root_addr,
+                       int                    nkvs)
 {
   uint8 keybuf[cfg->page_size];
   uint8 msgbuf[cfg->page_size];
+
+  memset(keybuf, 0, sizeof(keybuf));
+  memset(msgbuf, 0, sizeof(msgbuf));
 
   slice msg = slice_create(0, msgbuf);
   for (uint64 i = 0; i < nkvs; i++) {
     bool found;
     dynamic_btree_lookup(cc, cfg, root_addr, gen_key(cfg, i, keybuf), &msg, &found);
     if (!found || slice_lex_cmp(msg, gen_msg(cfg, i, msgbuf))) {
+      platform_log("failure on lookup %lu\n", i);
       dynamic_btree_print_tree(cc, cfg, root_addr);
       platform_assert(0);
     }
@@ -263,10 +294,10 @@ static int verify_inserts(cache                 *cc,
   return 1;
 }
 
-static int verify_ranges(cache                 *cc,
-                         dynamic_btree_config  *cfg,
-                         uint64                 root_addr,
-                         int                    nkvs)
+static int iterator_tests(cache                 *cc,
+                          dynamic_btree_config  *cfg,
+                          uint64                 root_addr,
+                          int                    nkvs)
 {
   dynamic_btree_iterator dbiter;
 
@@ -306,39 +337,39 @@ static int verify_ranges(cache                 *cc,
 
   platform_assert(seen == nkvs);
 
+  dynamic_btree_iterator_deinit(&dbiter);
+
   return 1;
 }
 
-static int insert_tests(cache                 *cc,
-                        dynamic_btree_config  *cfg,
-                        dynamic_btree_scratch *scratch,
-                        int                    nkvs)
+static int pack_tests(cache                 *cc,
+                      dynamic_btree_config  *cfg,
+                      platform_heap_id       hid,
+                      uint64                 root_addr,
+                      uint64                 nkvs)
 {
-  mini_allocator mini;
-  uint64 root_addr = dynamic_btree_init(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
-  uint64 generation;
-  bool was_unique;
-  uint8 keybuf[cfg->page_size];
-  uint8 msgbuf[cfg->page_size];
+  dynamic_btree_iterator dbiter;
+  iterator *iter = (iterator *)&dbiter;
 
-  for (uint64 i = 0; i < nkvs; i++) {
-    if (!SUCCESS(dynamic_btree_insert(cc, cfg, scratch, root_addr, &mini,
-                                      gen_key(cfg, i, keybuf),
-                                      gen_msg(cfg, i, msgbuf),
-                                      &generation,
-                                      &was_unique)))
-      platform_log("failed to insert 4-byte %ld\n", i);
+  dynamic_btree_iterator_init(cc, cfg, &dbiter, root_addr, PAGE_TYPE_MEMTABLE,
+                              data_key_negative_infinity,
+                              data_key_positive_infinity,
+                              FALSE,
+                              TRUE,
+                              0);
+
+  dynamic_btree_pack_req req;
+  dynamic_btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+
+  if (!SUCCESS(dynamic_btree_pack(&req))) {
+    platform_log("Pack failed!\n");
+  } else {
+    platform_log("Packed %lu items\n", req.num_tuples);
   }
 
-  if (!verify_inserts(cc, cfg, root_addr, nkvs)) {
-    platform_log("invalid tree\n");
-  }
+  dynamic_btree_pack_req_deinit(&req, hid);
 
-  if (!verify_ranges(cc, cfg, root_addr, nkvs)) {
-    platform_log("invalid ranges\n");
-  }
-
-  return 0;
+  return req.root_addr;
 }
 
 static int init_data_config_from_master_config(data_config *data_cfg, master_config *master_cfg)
@@ -438,7 +469,39 @@ int main(int argc, char **argv)
   for (int nkvs = 2; nkvs < 100; nkvs++)
     leaf_split_tests(&dbtree_cfg, &test_scratch, nkvs);
 
-  insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, 1000000);
+  int nkvs = 1000000;
+
+  uint64 root_addr = insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, nkvs);
+
+  if (!query_tests((cache *)&cc, &dbtree_cfg, root_addr, nkvs)) {
+    platform_log("invalid tree\n");
+  }
+
+  if (!iterator_tests((cache *)&cc, &dbtree_cfg, root_addr, nkvs)) {
+    platform_log("invalid ranges in original tree\n");
+  }
+
+  /* platform_log("\n\n\n"); */
+  /* dynamic_btree_print_tree((cache *)&cc, &dbtree_cfg, root_addr); */
+
+  uint64 packed_root_addr = pack_tests((cache *)&cc, &dbtree_cfg, hid, root_addr, nkvs);
+  if (0 < nkvs && !packed_root_addr) {
+    platform_log("pack failed\n");
+  }
+
+  /* platform_log("\n\n\n"); */
+  /* dynamic_btree_print_tree((cache *)&cc, &dbtree_cfg, packed_root_addr); */
+  /* platform_log("\n\n\n"); */
+
+  if (!query_tests((cache *)&cc, &dbtree_cfg, packed_root_addr, nkvs)) {
+    platform_log("invalid tree\n");
+  }
+
+  if (!iterator_tests((cache *)&cc, &dbtree_cfg, packed_root_addr, nkvs)) {
+    platform_log("invalid ranges in packed tree\n");
+  }
+
+
 
   return 0;
 }
