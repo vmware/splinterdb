@@ -12,7 +12,7 @@
 
 #include "clockcache.h"
 #include "config.h"
-#include "kvstore.h"
+#include "splinterdb/kvstore.h"
 #include "rc_allocator.h"
 #include "splinter.h"
 
@@ -186,7 +186,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                                TRUE,
                                FALSE,
                                num_bg_threads,
-                               0);
+                               splinter_get_scratch_size());
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));

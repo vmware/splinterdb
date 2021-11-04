@@ -12,7 +12,7 @@
 
 #include "cache.h"
 #include "iterator.h"
-#include "data.h"
+#include "splinterdb/data.h"
 #include "util.h"
 #include "platform.h"
 

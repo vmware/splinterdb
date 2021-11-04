@@ -35,9 +35,7 @@ test_dispatcher(int argc, char *argv[])
       if (STRING_EQUALS_LITERAL(test_name, "btree_test")) {
          return btree_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "filter_test")) {
-         //TODO: fix
-         return 0;
-         //return filter_test(argc - 1, &argv[1]);
+         return filter_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "splinter_test")) {
          return splinter_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "log_test")) {

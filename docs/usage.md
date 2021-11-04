@@ -16,30 +16,11 @@ Example usage:
 $ docker run -it --rm projects.registry.vmware.com/splinterdb/splinterdb /bin/bash
 ```
 
-The container includes the SplinterDB runtime dependencies, shared library,
-test binary, and the header files for SplinterDB's public API.
-
-```shell
-docker$ find /splinterdb
-/splinterdb
-/splinterdb/bin
-/splinterdb/bin/driver_test
-/splinterdb/bin/splinterdb.so
-/splinterdb/include
-/splinterdb/include/platform_public.h
-/splinterdb/include/data.h
-/splinterdb/include/kvstore.h
-/splinterdb/test.sh
-
-docker$ ldd /splinterdb/bin/splinterdb.so
-   linux-vdso.so.1 (0x00007ffc57fa4000)
-   libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007fefbd0dd000)
-   libpthread.so.0 => /lib/x86_64-linux-gnu/libpthread.so.0 (0x00007fefbd0ba000)
-   libaio.so.1 => /lib/x86_64-linux-gnu/libaio.so.1 (0x00007fefbd0b5000)
-   libxxhash.so.0 => /lib/x86_64-linux-gnu/libxxhash.so.0 (0x00007fefbd0ab000)
-   libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007fefbceb9000)
-   /lib64/ld-linux-x86-64.so.2 (0x00007fefbd2a9000)
-```
+The container includes:
+- runtime dependencies for SplinterDB, including `libaio` and `libxxhash`
+- the SplinterDB static and shared libraries: `/usr/local/lib/libsplinterdb.{a,so}`
+- header files for SplinterDB's public API: `/usr/local/include/splinterdb/`
+- the pre-built test binary and test script: `/splinterdb/bin/driver_test` and `/splinterdb/test.sh`
 
 > Note: this image does not include tools to build SplinterDB itself
 from source.  See [our build docs](build.md) for that.
@@ -64,11 +45,13 @@ For basic key-value store use cases, [`kvstore_basic.h`](../src/kvstore_basic.h)
 
 - Set the fields in `kvstore_basic_cfg`
 
-- `kvstore_basic_init()` will open a database and `kvstore_basic_deinit()` closes it.
+- `kvstore_basic_create()` will create a new database and `kvstore_basic_close()` closes it.
    Concurrent access to that database must go through the `kvstore_basic*` object
-   returned by `kvstore_basic_init()`.
+   returned by `kvstore_basic_create()` (or `kvstore_basic_open()`).
 
-    > For example, a RDBMS using SplinterDB as a storage layer might consolidate all "table open" and "table close" operations across different client connections into a shared, per-table, reference-counted resource which internally calls `kvstore_basic_init()` in its constructor and `kvstore_basic_deinit()` in its destructor.
+    > For example, a RDBMS using SplinterDB as a storage layer might consolidate all "table open" and "table close"
+      operations across different client connections into a shared, per-table, reference-counted resource which
+      internally calls `kvstore_basic_open()` in its constructor and `kvstore_basic_close()` in its destructor.
 
 - `kvstore_basic_register_thread()` must be called once for each thread that needs to use the database.  Note this may be non-trivial for languages with [runtime-managed threading](https://en.wikipedia.org/wiki/Green_threads).
 

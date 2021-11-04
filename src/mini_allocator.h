@@ -14,7 +14,7 @@
 #include "platform.h"
 #include "allocator.h"
 #include "cache.h"
-#include "data.h"
+#include "data_internal.h"
 
 #define MINI_MAX_BATCHES 8
 

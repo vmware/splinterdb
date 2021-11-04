@@ -12,9 +12,6 @@
 
 #include "util.h"
 #include "mini_allocator.h"
-#include "allocator.h"
-#include "cache.h"
-#include "data.h"
 
 #include "poison.h"
 
@@ -169,9 +166,17 @@ mini_allocator_alloc(mini_allocator   *mini,
       mini->next_addr[batch] = next_extent_addr + cache_page_size(mini->cc);
 
       page_handle *meta_page;
+
+      /*
+       * need to get, claim and lock mini->meta_tail in order to add the new
+       * extent. The loop follows the standard idiom for obtaining a claim.
+       * Note that mini is shared, so the value of mini->meta_tail can change
+       * before we obtain the lock, thus we must check after the get.
+       */
       while (1) {
-         meta_page = cache_get(mini->cc, mini->meta_tail, TRUE, mini->type);
-         if (cache_claim(mini->cc, meta_page)) {
+         uint64 meta_tail = mini->meta_tail;
+         meta_page        = cache_get(mini->cc, meta_tail, TRUE, mini->type);
+         if (meta_tail == mini->meta_tail && cache_claim(mini->cc, meta_page)) {
             break;
          }
          cache_unget(mini->cc, meta_page);

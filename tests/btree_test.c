@@ -8,7 +8,7 @@
  */
 #include "platform.h"
 
-#include "data.h"
+#include "splinterdb/data.h"
 #include "btree.h"
 #include "merge.h"
 #include "test.h"

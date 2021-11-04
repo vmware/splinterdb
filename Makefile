@@ -14,6 +14,8 @@ TESTSDIR = tests
 UNITDIR  = unit
 OBJDIR   = obj
 BINDIR   = bin
+LIBDIR   = lib
+INCDIR   = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
@@ -29,7 +31,7 @@ UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
 
 .SECONDARY:
 
-$(OBJDIR)/. $(BINDIR)/.:
+$(OBJDIR)/. $(BINDIR)/. $(LIBDIR)/.:
 	mkdir -p $@
 
 $(OBJDIR)/%/.:
@@ -42,7 +44,7 @@ $(BINDIR)/%/.:
 # CFLAGS, ETC
 #
 
-INCLUDE = -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM)
+INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM)
 
 #######BEGIN libconfig
 # Get output of `pkg-config --(cflags|libs) libconfig` every time we run make,
@@ -64,6 +66,7 @@ cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
   # not supported on ARM64
   DEFAULT_CFLAGS += -msse4.2 -mpopcnt
+  CFLAGS += -march=native
 endif
 #DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 #DEFAULT_CFLAGS += -fsanitize=address
@@ -71,7 +74,7 @@ endif
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
 
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
+CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 DEFAULT_LDFLAGS = -ggdb3 -pthread
 #DEFAULT_LDFLAGS += -fsanitize=memory
 #DEFAULT_LDFLAGS += -fsanitize=address
@@ -82,8 +85,7 @@ LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 #*********************************************************#
 # Targets to track whether we have a release or debug build
 #
-
-all: $(BINDIR)/splinterdb.so $(BINDIR)/driver_test $(UNITBINS)
+all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test $(UNITBINS)
 
 release: .release all
 	rm -f .debug
@@ -118,11 +120,16 @@ debug-log: .debug-log all
 # RECIPES
 #
 
-$(BINDIR)/driver_test : $(TESTOBJ) $(BINDIR)/splinterdb.so | $$(@D)/.
+$(BINDIR)/driver_test : $(TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(BINDIR)/splinterdb.so : $(OBJ) | $$(@D)/.
+$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+
+# -c: Create an archive if it does not exist. -r, replacing objects
+# -s: Create/update an index to the archive
+$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
+	$(AR) -crs $@ $^
 
 $(BINDIR)/unit/%: $(OBJDIR)/unit/%.o | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
@@ -144,7 +151,7 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 #
 
 obj/unit/dynamic_btree-test.o: src/dynamic_btree.c
-bin/unit/dynamic_btree-test: obj/tests/test_data.o obj/src/util.o obj/src/data.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
+bin/unit/dynamic_btree-test: obj/tests/test_data.o obj/src/util.o obj/src/data_internal.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
 
 #*************************************************************#
 
@@ -152,6 +159,7 @@ bin/unit/dynamic_btree-test: obj/tests/test_data.o obj/src/util.o obj/src/data.o
 clean :
 	rm -rf $(OBJDIR)/*
 	rm -rf $(BINDIR)/*
+	rm -f  $(LIBDIR)/*
 
 tags:
 	ctags -R src
@@ -168,7 +176,9 @@ test: $(BINDIR)/driver_test
 
 INSTALL_PATH ?= /usr/local
 
-install: $(BINDIR)/splinterdb.so
+install: $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
-	cp $(BINDIR)/splinterdb.so $(INSTALL_PATH)/lib/libsplinterdb.so
-	cp $(SRCDIR)/data.h $(SRCDIR)/platform_public.h $(SRCDIR)/kvstore.h $(SRCDIR)/kvstore_basic.h $(INSTALL_PATH)/include/splinterdb/
+
+	# -p retains the timestamp of the file being copied over$
+	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
+	cp -p $(INCDIR)/splinterdb/*.h $(INSTALL_PATH)/include/splinterdb/

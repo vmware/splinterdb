@@ -19,6 +19,8 @@ DRIVER="${DRIVER:-"${BINDIR:-bin}/driver_test"}"
 
 "$DRIVER" log_test --seed "$SEED"
 
+"$DRIVER" filter_test --seed "$SEED"
+
 "$DRIVER" util_test --seed "$SEED"
 
 echo ALL PASSED

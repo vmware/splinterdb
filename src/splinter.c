@@ -6898,8 +6898,6 @@ splinter_create(splinter_config  *cfg,
       }
    }
 
-   splinter_list_insert(&spl->links);
-
    // FIXME: [yfogel 2020-03-30] cleanup has to properly handle all the things
    //        that were allocated (possibly calling destroy/deinit something)
    return spl;
@@ -6986,7 +6984,6 @@ splinter_mount(splinter_config  *cfg,
          platform_assert_status_ok(rc);
       }
    }
-   splinter_list_insert(&spl->links);
    // FIXME: [yfogel 2020-03-30] proper error handling for this entire function
    return spl;
 }
@@ -7069,7 +7066,6 @@ void
 splinter_destroy(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
-   splinter_list_remove(&spl->links);
 
    splinter_deinit(spl);
 
@@ -7101,7 +7097,6 @@ void
 splinter_dismount(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
-   splinter_list_remove(&spl->links);
    splinter_set_super_block(spl, FALSE, TRUE, FALSE);
    splinter_deinit(spl);
    if (spl->cfg.use_stats) {
@@ -8426,4 +8421,3 @@ splinter_get_scratch_size()
 {
    return sizeof(splinter_task_scratch);
 }
-

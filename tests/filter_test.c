@@ -8,7 +8,7 @@
  */
 #include "platform.h"
 
-#include "data.h"
+#include "splinterdb/data.h"
 #include "test.h"
 #include "routing_filter.h"
 #include "allocator.h"
@@ -20,7 +20,6 @@
 
 #include "poison.h"
 
-/*
 static platform_status
 test_filter_basic(cache            *cc,
                   routing_config   *cfg,
@@ -48,6 +47,7 @@ test_filter_basic(cache            *cc,
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
    char key[MAX_KEY_SIZE];
+   slice key_slice = slice_create(key_size, key);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
          num_input_keys[i] = num_input_keys[i - 1];
@@ -92,7 +92,7 @@ test_filter_basic(cache            *cc,
          *(uint64 *)key = (i + 1) * j;
          uint64 found_values;
          rc =
-            routing_filter_lookup(cc, cfg, &filter[i + 1], key, &found_values);
+           routing_filter_lookup(cc, cfg, &filter[i + 1], key_slice, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i)) {
             platform_log("key-value pair (%lu, %lu) not found in filter\n",
@@ -109,7 +109,7 @@ test_filter_basic(cache            *cc,
       ZERO_ARRAY(key);
       *(uint64 *)key = i;
       uint64 found_values;
-      rc = routing_filter_lookup(cc, cfg, &filter[num_values], key, &found_values);
+      rc = routing_filter_lookup(cc, cfg, &filter[num_values], key_slice, &found_values);
       if (found_values) {
          false_positives++;
       }
@@ -157,6 +157,7 @@ test_filter_perf(cache            *cc,
       return STATUS_NO_MEMORY;
    }
    char key[MAX_KEY_SIZE];
+   slice key_slice = slice_create(key_size, key);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
          uint64 idx = k * num_values * num_fingerprints + i;
@@ -192,14 +193,14 @@ test_filter_perf(cache            *cc,
          ZERO_ARRAY(key);
          *(uint64 *)key = k * num_values * num_fingerprints + i;
          uint64 found_values;
-         rc = routing_filter_lookup(cc, cfg, &filter[k], key, &found_values);
+         rc = routing_filter_lookup(cc, cfg, &filter[k], key_slice, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i / num_fingerprints)) {
             platform_log("key-value pair (%lu, %lu) not found in filter %lu (%lu)\n",
                   k * num_values * num_fingerprints + i, i / num_fingerprints,
                   k, found_values);
 
-            routing_filter_lookup(cc, cfg, &filter[k], key, &found_values);
+            routing_filter_lookup(cc, cfg, &filter[k], key_slice, &found_values);
             platform_assert(0);
             rc = STATUS_NOT_FOUND;
             goto out;
@@ -218,7 +219,7 @@ test_filter_perf(cache            *cc,
          ZERO_ARRAY(key);
          *(uint64 *)key = k * num_values * num_fingerprints + i + unused_key;
          uint64 found_values;
-         rc = routing_filter_lookup(cc, cfg, &filter[k], key, &found_values);
+         rc = routing_filter_lookup(cc, cfg, &filter[k], key_slice, &found_values);
          platform_assert_status_ok(rc);
          if (found_values) {
             false_positives++;
@@ -374,4 +375,3 @@ cleanup:
 
    return r;
 }
-   */

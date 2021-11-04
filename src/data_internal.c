@@ -1,5 +1,5 @@
 
-#include "data.h"
+#include "data_internal.h"
 
 static const char  neginfbuf                         = 0;
 static const char  posinfbuf                         = 0;

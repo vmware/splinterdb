@@ -10,6 +10,7 @@
 #ifndef __BTREE_H
 #define __BTREE_H
 
+#include "data_internal.h"
 #include "mini_allocator.h"
 #include "iterator.h"
 #include "util.h"

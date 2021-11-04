@@ -123,14 +123,10 @@ typedef void (*page_sync_fn)(cache *      cc,
                              page_handle *page,
                              bool         is_blocking,
                              page_type    type);
-typedef uint64 (*extent_sync_fn)(cache * cc,
-                                 uint64  addr,
-                                 uint64 *pages_outstanding);
+typedef void (*extent_sync_fn)(cache * cc,
+                               uint64  addr,
+                               uint64 *pages_outstanding);
 
-typedef void (*share_fn)(cache *      cc,
-                         page_handle *page_to_share,
-                         page_handle *anon_page);
-typedef void (*unshare_fn)(cache *cc, page_handle *anon_page);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*page_mark_dirty_fn)(cache *cc, page_handle *page);
 typedef void (*flush_fn)(cache *cc);
@@ -146,7 +142,7 @@ typedef void (*print_fn)(cache *cc);
 typedef void (*reset_stats_fn)(cache *cc);
 typedef void (*io_stats_fn)(cache *cc, uint64 *read_bytes, uint64 *write_bytes);
 typedef uint32 (*count_dirty_fn)(cache *cc);
-typedef uint32 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
+typedef uint16 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
 typedef bool (*cache_present_fn)(cache *cc, page_handle *page);
 typedef void (*enable_sync_get_fn)(cache *cc, bool enabled);
 
@@ -164,8 +160,6 @@ typedef struct cache_ops {
    page_unclaim_fn      page_unclaim;
    page_lock_fn         page_lock;
    page_unlock_fn       page_unlock;
-   share_fn             share;
-   unshare_fn           unshare;
    page_prefetch_fn     page_prefetch;
    page_mark_dirty_fn   page_mark_dirty;
    page_pin_fn          page_pin;
@@ -278,18 +272,6 @@ static inline void
 cache_prefetch(cache *cc, uint64 addr, page_type type)
 {
    return cc->ops->page_prefetch(cc, addr, type);
-}
-
-static inline void
-cache_share(cache *cc, page_handle *page_to_share, page_handle *anon_page)
-{
-   return cc->ops->share(cc, page_to_share, anon_page);
-}
-
-static inline void
-cache_unshare(cache *cc, page_handle *anon_page)
-{
-   return cc->ops->unshare(cc, anon_page);
 }
 
 static inline void

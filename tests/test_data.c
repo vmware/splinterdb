@@ -5,10 +5,20 @@
 
 static int
 test_data_key_cmp(const data_config *cfg,
-                  const slice   key1,
-                  const slice   key2)
+                  uint64        key1_len,
+                  const void   *key1,
+                  uint64        key2_len,
+                  const void   *key2)
 {
-  return slice_lex_cmp(key1, key2);
+  uint64 mlen = key1_len < key2_len ? key1_len : key2_len;
+  int r = memcmp(key1, key2, mlen);
+  if (r)
+    return r;
+  else if (key1_len < key2_len)
+    return -1;
+  else if (key2_len < key1_len)
+    return 1;
+  return 0;
 }
 
 /*
@@ -24,15 +34,18 @@ test_data_key_cmp(const data_config *cfg,
 
 static void
 test_data_merge_tuples(const data_config *cfg,
-                       const slice   key,
-                       const slice   old_raw_data,
-                       slice        *new_raw_data)
+                       uint64        key_len,
+                       const void   *key,
+                       uint64        old_raw_data_len,
+                       const void   *old_raw_data,
+                       uint64       *new_raw_data_len,
+                       void         *new_raw_data)
 {
-   assert(sizeof(data_handle) <= slice_length(old_raw_data));
-   assert(sizeof(data_handle) <= slice_length(*new_raw_data));
+   assert(sizeof(data_handle) <= old_raw_data_len);
+   assert(sizeof(data_handle) <= *new_raw_data_len);
 
-   const data_handle *old_data = slice_data(old_raw_data);
-   data_handle *new_data = slice_data(*new_raw_data);
+   const data_handle *old_data = old_raw_data;
+   data_handle *new_data = new_raw_data;
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
    //platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d new=%d\n",
@@ -98,12 +111,14 @@ test_data_merge_tuples(const data_config *cfg,
  */
 static void
 test_data_merge_tuples_final(const data_config *cfg,
-                             const slice   key, // IN
-                             slice        *oldest_raw_data) // IN/OUT
+                             uint64        key_len,
+                             const void   *key, // IN
+                             uint64       *oldest_raw_data_len,
+                             void         *oldest_raw_data) // IN/OUT
 {
-   assert(sizeof(data_handle) <= slice_length(*oldest_raw_data));
+   assert(sizeof(data_handle) <= *oldest_raw_data_len);
 
-   data_handle *old_data = slice_data(*oldest_raw_data);
+   data_handle *old_data = oldest_raw_data;
    debug_assert(old_data != NULL);
 
    if (old_data->message_type == MESSAGE_TYPE_UPDATE) {
@@ -125,11 +140,12 @@ test_data_merge_tuples_final(const data_config *cfg,
 
 static message_type
 test_data_message_class(const data_config *cfg,
-                        const slice   raw_data)
+                        uint64        raw_data_len,
+                        const void   *raw_data)
 {
-   assert(sizeof(data_handle) <= slice_length(raw_data));
+   assert(sizeof(data_handle) <= raw_data_len);
 
-   const data_handle *data = slice_data(raw_data);
+   const data_handle *data = raw_data;
    switch(data->message_type) {
       case MESSAGE_TYPE_INSERT:
          return data->ref_count == 0 ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
@@ -146,22 +162,24 @@ test_data_message_class(const data_config *cfg,
 
 static void
 test_data_key_to_string(const data_config *cfg,
-                        const slice   key,
+                        uint64             key_len,
+                        const void        *key,
                         char              *str,
                         size_t             len)
 {
-  debug_hex_encode(str, len, slice_data(key), slice_length(key));
+  debug_hex_encode(str, len, key, key_len);
 }
 
 // FIXME: [yfogel 2020-03-17] need to be passing in the size of the string as
 //        well and use snprintf
 static void
 test_data_message_to_string(const data_config *cfg,
-                            const slice   raw_data,
+                            uint64             raw_data_len,
+                            const void        *raw_data,
                             char              *str,
                             size_t             len)
 {
-  debug_hex_encode(str, len, slice_data(raw_data), slice_length(raw_data));
+  debug_hex_encode(str, len, raw_data, raw_data_len);
 }
 
 data_config test_data_config =
@@ -179,5 +197,4 @@ data_config test_data_config =
    .merge_tuples                      = test_data_merge_tuples,
    .merge_tuples_final                = test_data_merge_tuples_final,
    .message_class                     = test_data_message_class,
-   .clobber_message_with_range_delete = NULL
   };

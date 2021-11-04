@@ -12,6 +12,26 @@
 #define _KVSTORE_BASIC_H_
 
 #include <stddef.h> // for size_t
+#include "splinterdb/limits.h"
+
+// Length-prefix encoding of a variable-sized key
+// Should be == sizeof(basic_key_encoding), which is enforced elsewhere
+#define KVSTORE_BASIC_KEY_HDR_SIZE ((int)sizeof(uint8_t))
+
+// Minimum size of a key, in bytes
+#define KVSTORE_BASIC_MIN_KEY_SIZE 2
+
+// Max size of a key, in bytes
+// Must always be = ( MAX_KEY_SIZE - sizeof(basic_key_encoding) )
+#define KVSTORE_BASIC_MAX_KEY_SIZE (MAX_KEY_SIZE - KVSTORE_BASIC_KEY_HDR_SIZE)
+
+// Should be == sizeof(basic_message), which is enforced elsewhere
+#define KVSTORE_BASIC_MSG_HDR_SIZE ((int)sizeof(void *))
+
+// Maximum size of a value, in bytes
+// Must always == ( MAX_MESSAGE_SIZE - sizeof(basic_message) )
+#define KVSTORE_BASIC_MAX_VALUE_SIZE                                           \
+   (MAX_MESSAGE_SIZE - KVSTORE_BASIC_MSG_HDR_SIZE)
 
 typedef int (*key_comparator_fn)(const void *context,
                                  const void *key1,
@@ -55,19 +75,6 @@ typedef struct {
 // Handle to a live instance of splinterdb
 typedef struct kvstore_basic kvstore_basic;
 
-// Minimum size of a key, in bytes
-#define KVSTORE_BASIC_MIN_KEY_SIZE 2
-
-// Max size of a key, in bytes
-//
-// Must always be = MAX_KEY_SIZE - sizeof(basic_key_encoding)
-#define KVSTORE_BASIC_MAX_KEY_SIZE 23
-
-// Maximum size of a value
-//
-// Must always = MAX_MESSAGE_SIZE - sizeof(basic_message)
-#define KVSTORE_BASIC_MAX_VALUE_SIZE 120
-
 // Create a new kvstore_basic from the provided config
 int
 kvstore_basic_create(const kvstore_basic_cfg *cfg, // IN
@@ -85,33 +92,37 @@ void
 kvstore_basic_close(kvstore_basic *kvsb);
 
 // Call this once for each thread that needs to use the db
-void kvstore_basic_register_thread(const kvstore_basic *kvsb);
+void
+kvstore_basic_register_thread(const kvstore_basic *kvsb);
 
 // Insert a key:value pair
-int kvstore_basic_insert(const kvstore_basic *kvsb,
-                         const char *         key,
-                         size_t               key_len,
-                         const char *         value,
-                         size_t               val_len);
+int
+kvstore_basic_insert(const kvstore_basic *kvsb,
+                     const char *         key,
+                     size_t               key_len,
+                     const char *         value,
+                     size_t               val_len);
 
 // Delete a given key and associated value
-int kvstore_basic_delete(const kvstore_basic *kvsb,
-                         const char *         key,
-                         size_t               key_len);
+int
+kvstore_basic_delete(const kvstore_basic *kvsb,
+                     const char *         key,
+                     size_t               key_len);
 
 
 // Lookup a given key
 //
 // Set val_max_len to the size of the val buffer
 // If found, val_bytes will hold the size of the value
-int kvstore_basic_lookup(const kvstore_basic *kvsb,
-                         const char *         key,           // IN
-                         size_t               key_len,       // IN
-                         char *               val,           // OUT
-                         size_t               val_max_len,   // IN
-                         size_t *             val_bytes,     // OUT
-                         _Bool *              val_truncated, // OUT
-                         _Bool *              found          // OUT
+int
+kvstore_basic_lookup(const kvstore_basic *kvsb,
+                     const char *         key,           // IN
+                     size_t               key_len,       // IN
+                     char *               val,           // OUT
+                     size_t               val_max_len,   // IN
+                     size_t *             val_bytes,     // OUT
+                     _Bool *              val_truncated, // OUT
+                     _Bool *              found          // OUT
 );
 
 /*
@@ -143,38 +154,44 @@ Sample application code:
 
 typedef struct kvstore_basic_iterator kvstore_basic_iterator;
 
-int kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
-                            kvstore_basic_iterator **iter,         // OUT
-                            const char *             start_key,    // IN
-                            size_t                   start_key_len // IN
+int
+kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
+                        kvstore_basic_iterator **iter,         // OUT
+                        const char *             start_key,    // IN
+                        size_t                   start_key_len // IN
 );
 
-void kvstore_basic_iter_deinit(kvstore_basic_iterator *iter);
+void
+kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp);
 
 // checks that the iterator status is OK (no errors) and that get_current will
 // succeed If false, there are two possibilities:
 // 1. Iterator has passed the final item.  In this case, status() == 0
 // 2. Iterator has encountered an error.  In this case, status() != 0
-_Bool kvstore_basic_iter_valid(kvstore_basic_iterator *iter);
+_Bool
+kvstore_basic_iter_valid(kvstore_basic_iterator *iter);
 
 // attempts to advance the iterator to the next item
 // any error will cause valid() == false and be visible with status()
-void kvstore_basic_iter_next(kvstore_basic_iterator *iter);
+void
+kvstore_basic_iter_next(kvstore_basic_iterator *iter);
 
 // Sets *key and *message to the locations of the current item
 // Callers must not modify that memory
 //
 // If valid() == false, then behavior is undefined.
-void kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
-                                    const char **           key,     // OUT
-                                    size_t *                key_len, // OUT
-                                    const char **           value,   // OUT
-                                    size_t *                val_len  // OUT
+void
+kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
+                               const char **           key,     // OUT
+                               size_t *                key_len, // OUT
+                               const char **           value,   // OUT
+                               size_t *                val_len  // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.
 //
 // End-of-range is not an error
-int kvstore_basic_iter_status(const kvstore_basic_iterator *iter);
+int
+kvstore_basic_iter_status(const kvstore_basic_iterator *iter);
 
 #endif // _KVSTORE_BASIC_H_

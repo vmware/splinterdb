@@ -7,7 +7,7 @@
  *     tests for the simplified kvstore api
  */
 
-#include "kvstore.h"
+#include "splinterdb/kvstore.h"
 #include "test_data.h"
 
 #define Kilo (1024UL)

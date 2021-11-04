@@ -10,6 +10,7 @@
 #include "platform.h"
 
 #include "shard_log.h"
+#include "data_internal.h"
 
 #include "poison.h"
 
