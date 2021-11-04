@@ -725,9 +725,23 @@ clockcache_try_get_read(clockcache *cc,
       add_unlock_delay(cc, entry_number, CC_DUMMY_ADDR, CC_ACCESSED);
 
       clockcache_set_flag(cc, entry_number, CC_ACCESSED);
-      if(clockcache_get_ref(cc, entry_number, platform_get_tid())==0)
-      clockcache_inc_ref(cc, entry_number, tid);
+      if (clockcache_get_ref(cc, entry_number, platform_get_tid()) == 0) {
+         clockcache_inc_ref(cc, entry_number, tid);
+      }
       return GET_RC_SUCCESS;
+   }
+
+   clockcache_entry *entry = &cc->entry[entry_number];
+   uint64            addr  = entry->page.disk_addr;
+   if (addr == CC_UNMAPPED_ADDR) {
+      return GET_RC_EVICTED;
+   }
+   uint32 cur_entry_number = clockcache_lookup(cc, addr);
+   if (cur_entry_number == CC_UNMAPPED_ENTRY) {
+      return GET_RC_EVICTED;
+   }
+   if (cur_entry_number != entry_number) {
+      return GET_RC_EVICTED;
    }
 
    // first check if write lock is held
@@ -1252,7 +1266,6 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
 {
    bool ret = FALSE;
 
-
    uint32 entry_number = clockcache_lookup(src_cc, disk_addr);
    clockcache_entry *old_entry = &src_cc->entry[entry_number];
 
@@ -1411,8 +1424,7 @@ set_migration:
    __attribute__ ((unused)) uint32 debug_status;
 release_write_reacquire_read:
    if (!ret && (read_lock)){
-      debug_status = clockcache_set_flag(src_cc, entry_number, CC_ACCESSED);
-      debug_assert(debug_status);
+      clockcache_set_flag(src_cc, entry_number, CC_ACCESSED);
 
       debug_status = clockcache_clear_flag(src_cc, entry_number, CC_WRITELOCKED);
       debug_assert(debug_status);
@@ -1979,7 +1991,6 @@ clockcache_init(clockcache           *cc,     // OUT
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
 
-   
    if(pmemcache) {
       char* entry_pathname = "/mnt/pmem0/entry";
       cc->entry = TYPED_ARRAY_PALLOC(cc->heap_id, cc->entry,
@@ -2003,7 +2014,7 @@ clockcache_init(clockcache           *cc,     // OUT
    create_context(cc->contextMap);
 
    /* data must be aligned because of O_DIRECT */
-   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid,cc->cfg->cachefile);
+   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid, cc->cfg->cachefile);
    platform_log("cache addr = %p \n", cc->bh->addr);
    if (!cc->bh) {
       goto alloc_error;
@@ -2058,7 +2069,7 @@ clockcache_init(clockcache           *cc,     // OUT
       memcpy(vcache_cfg, cfg, sizeof(clockcache_config));
       memcpy(vcache_cfg->cachefile, "/dev/shm/volatile_cache", 23);
 
-       clockcache_config_init(vcache_cfg, cfg->page_size, cfg->extent_size, 
+       clockcache_config_init(vcache_cfg, cfg->page_size, cfg->extent_size,
 		       cfg->capacity, cfg->logfile, "/dev/shm/volatile_cache", cfg->use_stats);
 
       platform_status rc = clockcache_init(vcc, vcache_cfg, io, al, name, ts, hh, hid, mid);
@@ -2066,8 +2077,8 @@ clockcache_init(clockcache           *cc,     // OUT
 
       cc->volatile_cache = vcc;
       //cc->volatile_cache = cc;
-      
-      cc->persistent_cache = NULL; 
+
+      cc->persistent_cache = NULL;
       vcc->persistent_cache = cc;
       platform_log("persistent cache addr = %p \n", cc);
       platform_log("volatile cache addr = %p \n\n\n", vcc);
@@ -2104,10 +2115,10 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       platform_buffer_destroy(cc->rc_bh);
    }
 
-   platform_free(cc->heap_id, cc->entry);
+   //platform_free(cc->heap_id, cc->entry);
    platform_free(cc->heap_id, cc->lookup);
    if (cc->bh) {
-      platform_buffer_destroy(cc->bh);
+      //platform_buffer_destroy(cc->bh);
    }
    cc->data = NULL;
    //clockcache_assert_noleaks(cc);
@@ -3123,8 +3134,8 @@ clockcache_lock(clockcache  *cc,
          new_entry->page.persistent = old_entry->page.persistent;
          new_entry->old_entry_no = old_entry_no;
 
-         debug_code(int rc = mprotect((*page)->data, pcc->cfg->page_size, PROT_NONE));
-         debug_assert(rc == 0);
+         //debug_code(int rc = mprotect((*page)->data, pcc->cfg->page_size, PROT_NONE));
+         //debug_assert(rc == 0);
 
          *page = &new_entry->page;
       }
@@ -3150,8 +3161,8 @@ clockcache_internal_unlock(clockcache  *cc,
          debug_assert(0 || (*page)->disk_addr < cc->cfg->extent_size
                         || old_entry->old_entry_no == CC_UNMAPPED_ENTRY);
 
-         debug_code(int rc = mprotect(old_entry->page.data, cc->cfg->page_size, PROT_READ | PROT_WRITE));
-         debug_assert(rc == 0);
+         //debug_code(int rc = mprotect(old_entry->page.data, cc->cfg->page_size, PROT_READ | PROT_WRITE));
+         //debug_assert(rc == 0);
 
          old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
          old_entry->status = CC_FREE_STATUS;

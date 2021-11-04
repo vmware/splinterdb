@@ -12,7 +12,7 @@ import time
 device = "nvme4n1"
 base_trace_dir = "/mnt/nvme3/"
 
-config_options = "--db-location /dev/nvme4n1 --set-O_DIRECT --unset-O_CREAT --cache-file /mnt/pmem0/splinter --memtable-capacity-mib 24 --fanout 8 --max-branches-per-node 24 --stats"
+config_options = "--db-location /dev/nvme4n1 --set-O_DIRECT --unset-O_CREAT --cache-file /mnt/pmem0/splinter --memtable-capacity-mib 24 --fanout 8 --max-branches-per-node 24 --stats --set-mlock --set-hugetlb"
 #config_options = "--db-location /dev/nvme4n1 --set-O_DIRECT --unset-O_CREAT --set-mlock --set-hugetlb --memtable-capacity-mib 24 --fanout 8 --max-branches-per-node 24 --stats"
 
 # get sudo user
@@ -164,7 +164,7 @@ class Benchmark:
                         run_command.append(str(op_count))
                         memory_mib = int(mem / 1024 / 1024)
                         run_command.append(str(memory_mib))
-                        if phase != "load":
+                        if phase != "load" and phase != "load_small" and phase != "load_resize":
                             run_command.append("-e")
 
                         # prepare the config part of the command
@@ -264,7 +264,9 @@ dbsize = 400
 # name is built into the output file names
 # each workload is appended to base_trace_dir/80gib_24b_[100b,1kib]/replay_ to build the trcae filenames
 # use_routing_filters should be deprecated
-ycsb = Benchmark("ycsb", ["load", "a", "b", "c", "u", "d", "f", "e"], [16], [splintersize], dbsize, 24, 100, 1, log=0)
+#ycsb = Benchmark("ycsb", ["load", "a", "b", "c", "u", "d", "f", "e"], [16], [splintersize], dbsize, 24, 100, 1, log=0)
+#ycsb = Benchmark("ycsb", ["load", "a", "b", "c", "d", "f", "e"], [16], [splintersize], dbsize, 24, 100, 1, log=0)
+ycsb = Benchmark("ycsb", ["load_resize", "a_resize", "c_resize"], [12], [splintersize], dbsize, 24, 100, 1, log=0)
 
 # The parameter given to run is prepended to the output filenames
 ycsb.run("/home/aconway/pmem_data/");

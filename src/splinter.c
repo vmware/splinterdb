@@ -1314,6 +1314,7 @@ splinter_find_pivot(splinter_handle *spl,
       default:
          platform_assert(0);
    }
+   return -1;
 }
 
 /*
@@ -4165,7 +4166,6 @@ splinter_flush(splinter_handle      *spl,
 	 start_nontx(ctx);
          splinter_split_leaf(spl, parent, child, child_idx);
 	 end_nontx(ctx);
-         debug_assert(splinter_verify_node(spl, child));
          return TRUE;
       } else {
          uint64 child_idx = splinter_pdata_to_pivot_index(spl, *parent, pdata);

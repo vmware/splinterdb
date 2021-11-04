@@ -59,26 +59,33 @@ platform_buffer_create(size_t length,
 
    if (bh != NULL) {
       int prot= PROT_READ | PROT_WRITE;
-      if((pathname != NULL)&&
-	(strncmp(pathname,"/mnt/pmem0/",10)==0)){ //allocate PMEM cache
-          int fd = platform_get_fd(pathname, length);
-          int flags = MAP_PRIVATE | MAP_SHARED_VALIDATE| MAP_SYNC;
-          if (platform_use_hugetlb) {
-            flags |= MAP_HUGETLB;
-          } 
+      if ((pathname != NULL) &&
+          (strncmp(pathname, "/mnt/pmem0/", 10) == 0)) { // allocate PMEM cache
+         int fd    = platform_get_fd(pathname, length);
+         int flags = MAP_PRIVATE | MAP_SHARED_VALIDATE | MAP_SYNC;
 
-          bh->addr = mmap(NULL, length, prot, flags, fd, 0);
-	  platform_log("Persistent cache base addr = %p \n", bh->addr);
-      }
-      else{ //allocate from DRAM cache
+         bh->addr = mmap(NULL, length, prot, flags, fd, 0);
+         platform_log("Persistent cache base addr = %p \n", bh->addr);
+      } else { // allocate from DRAM cache
          int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
-	 if (platform_use_hugetlb) {
+         if (platform_use_hugetlb) {
             flags |= MAP_HUGETLB;
          }
 
          bh->addr = mmap(NULL, length, prot, flags, -1, 0);
-	 if(pathname != NULL)
-	    platform_log("Volatile cache base addr = %p \n", bh->addr);
+         if (pathname != NULL) {
+            platform_log("Volatile cache base addr = %p \n", bh->addr);
+         }
+
+        if (platform_use_mlock) {
+           int rc = mlock(bh->addr, length);
+           if (rc != 0) {
+              platform_error_log("mlock (%lu) failed with error: %s\n", length,
+                                 strerror(errno));
+              munmap(bh->addr, length);
+              goto error;
+           }
+        }
       }
       if (bh->addr == MAP_FAILED) {
          platform_error_log("mmap (%lu) failed with error: %s\n", length,
@@ -86,16 +93,6 @@ platform_buffer_create(size_t length,
          goto error;
       }
 
-
-      if (platform_use_mlock) {
-         int rc = mlock(bh->addr, length);
-         if (rc != 0) {
-            platform_error_log("mlock (%lu) failed with error: %s\n", length,
-                               strerror(errno));
-            munmap(bh->addr, length);
-            goto error;
-         }
-      }
    }
 
    bh->length = length;
