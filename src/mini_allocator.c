@@ -136,6 +136,7 @@ mini_allocator_alloc(mini_allocator   *mini,
                      uint64           *next_extent)
 {
    platform_assert(batch < mini->num_batches);
+   platform_assert(slice_length(key) <= MAX_INLINE_KEY_SIZE);
 
    platform_status rc        = STATUS_OK;
    uint64          next_addr = mini->next_addr[batch];
@@ -287,6 +288,7 @@ void
 mini_allocator_release(mini_allocator  *mini,
                        const slice key)
 {
+   platform_assert(slice_length(key) <= MAX_INLINE_KEY_SIZE);
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
       cache_dealloc(mini->cc, mini->next_extent[batch], mini->type);
@@ -372,8 +374,8 @@ mini_allocator_for_each(cache                      *cc,
                         page_type                   type,
                         uint64                      meta_head,
                         mini_allocator_for_each_fn  func,
-                        const slice            start_key,
-                        const slice            end_key,
+                        const slice                 start_key,
+                        const slice                 end_key,
                         uint64                     *pages_outstanding)
 {
    page_handle             *meta_page;

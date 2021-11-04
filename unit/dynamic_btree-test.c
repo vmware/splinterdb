@@ -217,7 +217,8 @@ static slice gen_key(dynamic_btree_config  *cfg,
 {
   uint64 keylen = sizeof(i) + (i % 100);
   memset(buffer, 0, keylen);
-  memcpy(buffer, &i, sizeof(i));
+  uint64 j = i * 23232323731ULL + 99382474567ULL;
+  memcpy(buffer, &j, sizeof(j));
   return slice_create(keylen, buffer);
 }
 
@@ -228,7 +229,7 @@ static uint64 ungen_key(slice key)
 
   uint64 k;
   memcpy(&k, key.data, sizeof(k));
-  return k;
+  return (k - 99382474567ULL) * 14122572041603317147ULL;
 }
 
 static slice gen_msg(dynamic_btree_config  *cfg,
@@ -245,28 +246,43 @@ static slice gen_msg(dynamic_btree_config  *cfg,
   return slice_create(sizeof(data_handle) + datalen, buffer);
 }
 
-static uint64 insert_tests(cache                 *cc,
-                           dynamic_btree_config  *cfg,
-                           dynamic_btree_scratch *scratch,
-                           int                    nkvs)
+static void insert_tests(cache                 *cc,
+                         dynamic_btree_config  *cfg,
+                         dynamic_btree_scratch *scratch,
+                         mini_allocator        *mini,
+                         uint64                 root_addr,
+                         int                    start,
+                         int                    end)
 {
-  mini_allocator mini;
-  uint64 root_addr = dynamic_btree_init(cc, cfg, &mini, PAGE_TYPE_MEMTABLE);
   uint64 generation;
   bool was_unique;
   uint8 keybuf[cfg->page_size];
   uint8 msgbuf[cfg->page_size];
 
-  for (uint64 i = 0; i < nkvs; i++) {
-    if (!SUCCESS(dynamic_btree_insert(cc, cfg, scratch, root_addr, &mini,
+  for (uint64 i = start; i < end; i++) {
+    if (!SUCCESS(dynamic_btree_insert(cc, cfg, scratch, root_addr, mini,
                                       gen_key(cfg, i, keybuf),
                                       gen_msg(cfg, i, msgbuf),
                                       &generation,
                                       &was_unique)))
       platform_log("failed to insert 4-byte %ld\n", i);
   }
+}
 
-  return root_addr;
+typedef struct insert_thread_params {
+  cache                 *cc;
+  dynamic_btree_config  *cfg;
+  dynamic_btree_scratch *scratch;
+  mini_allocator        *mini;
+  uint64                 root_addr;
+  int                    start;
+  int                    end;
+} insert_thread_params;
+
+static void insert_thread(void *arg)
+{
+  insert_thread_params *params = (insert_thread_params *)arg;
+  insert_tests(params->cc, params->cfg, params->scratch, params->mini, params->root_addr, params->start, params->end);
 }
 
 static int query_tests(cache                 *cc,
@@ -342,11 +358,11 @@ static int iterator_tests(cache                 *cc,
   return 1;
 }
 
-static int pack_tests(cache                 *cc,
-                      dynamic_btree_config  *cfg,
-                      platform_heap_id       hid,
-                      uint64                 root_addr,
-                      uint64                 nkvs)
+static uint64 pack_tests(cache                 *cc,
+                         dynamic_btree_config  *cfg,
+                         platform_heap_id       hid,
+                         uint64                 root_addr,
+                         uint64                 nkvs)
 {
   dynamic_btree_iterator dbiter;
   iterator *iter = (iterator *)&dbiter;
@@ -469,9 +485,34 @@ int main(int argc, char **argv)
   for (int nkvs = 2; nkvs < 100; nkvs++)
     leaf_split_tests(&dbtree_cfg, &test_scratch, nkvs);
 
-  int nkvs = 1000000;
+  int nkvs = 10000000;
+  int nthreads = 8;
 
-  uint64 root_addr = insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, nkvs);
+  mini_allocator mini;
+  uint64 root_addr = dynamic_btree_init((cache *)&cc, &dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
+
+  insert_thread_params params[nthreads];
+  platform_thread threads[nthreads];
+
+  for (uint64 i = 0; i < nthreads; i++) {
+    params[i].cc = (cache *)&cc;
+    params[i].cfg = &dbtree_cfg;
+    params[i].scratch = TYPED_MALLOC(hid, params[i].scratch);
+    params[i].mini = &mini;
+    params[i].root_addr = root_addr;
+    params[i].start = i * (nkvs / nthreads);
+    params[i].end = i < nthreads - 1 ? (i+1) * (nkvs / nthreads) : nkvs;
+  }
+
+  for (uint64 i = 0; i < nthreads; i++) {
+    platform_status ret = task_thread_create("insert thread", insert_thread, &params[i], 0, ts, hid, &threads[i]);
+    platform_assert(SUCCESS(ret));
+    //insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, &mini, root_addr, 0, nkvs);
+  }
+
+  for (uint64 thread_no = 0; thread_no < nthreads; thread_no++) {
+    platform_thread_join(threads[thread_no]);
+  }
 
   if (!query_tests((cache *)&cc, &dbtree_cfg, root_addr, nkvs)) {
     platform_log("invalid tree\n");
