@@ -253,7 +253,6 @@ mini_allocator_alloc(mini_allocator   *mini,
             }
          }
          mini->last_meta_pos[batch] = hdr->pos;
-         hdr->pos += meta_entry_size(key);
          mini->last_meta_addr[batch] = new_meta_addr;
       } else {
          entry->start_key_length = 0;
@@ -263,6 +262,7 @@ mini_allocator_alloc(mini_allocator   *mini,
       entry->extent_addr = next_extent_addr;
       entry->zapped = FALSE;
       hdr->num_entries++;
+      hdr->pos += meta_entry_size(key);
 
       //if (key != NULL) {
       //   char key_str[256];
