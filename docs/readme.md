@@ -6,6 +6,8 @@ Table of Contents
 
 [Architecture](./architecture.md)
 
+For end-Users - who wish to build applications using SplinterDB as a library
+
 [User's Guide](./usage.md)
 
 [Administration](./administration.md)
@@ -13,6 +15,8 @@ Table of Contents
 [Configuration](./configuration.md)
 
 [API Reference Manual](./kvs_api_refman.md)
+
+For Developers - who wish to integrate with / extend SplinterDB capabilities:
 
 [Internals](./internals.md)
 

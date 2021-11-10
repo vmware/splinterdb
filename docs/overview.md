@@ -11,6 +11,8 @@ on the device, thereby delivering high-performance to your application.
 Keys and values are stored as byte-streams, where, by default, the keys are
 lexicographically sorted.  User-specified comparison methods are supported.
 
+Supports basic KV operations get, put and scans.
+
 **Salient Design Points**:
 
 * Saturate I/O bandwidth on storage device
@@ -28,8 +30,9 @@ or range of keys. See [KVS API Reference Manual](./kvs_api_refman.md) for more d
 
 **Technical Specifications**:
 
+* Should be one layer down ...
 * Supported on Linux (Mac support is in the works.)
-* OS-Level features used
+* OS-Level features used ... not a make or break, can be shoved down.
     * Async I/O (libaio?)
     * Pthread support
 
@@ -39,8 +42,12 @@ or range of keys. See [KVS API Reference Manual](./kvs_api_refman.md) for more d
 
 **History**
 
+Comes acros as a special case thing for VSan, and not generl purpose capability. rephrase ...
+
 SplinterDB was designed for deep integration with VMware's vSAN technology. Rooted from
 this history, the designs evolved to enable Splinter to run in resource-constrained environments.
+
+Worth saying ...
 Overall, SplinterDB has minimal resource usage, and we strive hard to maintain that characteristic.
 
 The version of Splinter ... should we talk about forked ... feature-gap?
