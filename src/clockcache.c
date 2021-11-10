@@ -1887,6 +1887,8 @@ void clockcache_config_init(clockcache_config *cache_cfg,
                             uint64             page_size,
                             uint64             extent_size,
                             uint64             capacity,
+			    uint64	       pmem_capacity,
+			    uint64	       dram_capacity,
                             char              *cache_logfile,
 			    char              *cache_file,
                             uint64             use_stats)
@@ -1897,6 +1899,21 @@ void clockcache_config_init(clockcache_config *cache_cfg,
    cache_cfg->page_size     = page_size;
    cache_cfg->extent_size   = extent_size;
    cache_cfg->capacity      = capacity;
+   cache_cfg->pmem_capacity = pmem_capacity;
+   cache_cfg->dram_capacity = dram_capacity;
+
+
+
+   if((cache_file != NULL)&&(strncmp(cache_file,"/mnt/pmem0/",10)==0)){
+      cache_cfg->capacity = cache_cfg->pmem_capacity;
+      capacity = pmem_capacity;
+   }
+   else{
+      cache_cfg->capacity = cache_cfg->dram_capacity;
+      capacity = dram_capacity;
+   }
+
+
    cache_cfg->log_page_size = 63 - __builtin_clzll(page_size);
    cache_cfg->page_capacity = capacity / page_size;
    cache_cfg->use_stats     = use_stats;
@@ -2004,7 +2021,7 @@ clockcache_init(clockcache           *cc,     // OUT
 
    /* data must be aligned because of O_DIRECT */
    cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid,cc->cfg->cachefile);
-   platform_log("cache addr = %p \n", cc->bh->addr);
+   platform_log("cache addr = %p, capacity = %lu \n", cc->bh->addr, cc->cfg->capacity);
    if (!cc->bh) {
       goto alloc_error;
    }
@@ -2058,8 +2075,8 @@ clockcache_init(clockcache           *cc,     // OUT
       memcpy(vcache_cfg, cfg, sizeof(clockcache_config));
       memcpy(vcache_cfg->cachefile, "/dev/shm/volatile_cache", 23);
 
-       clockcache_config_init(vcache_cfg, cfg->page_size, cfg->extent_size, 
-		       cfg->capacity, cfg->logfile, "/dev/shm/volatile_cache", cfg->use_stats);
+      clockcache_config_init(vcache_cfg, cfg->page_size, cfg->extent_size, 
+		       cfg->capacity, cfg->pmem_capacity, cfg->dram_capacity, cfg->logfile, "/dev/shm/volatile_cache", cfg->use_stats);
 
       platform_status rc = clockcache_init(vcc, vcache_cfg, io, al, name, ts, hh, hid, mid);
       platform_assert_status_ok(rc);
@@ -2104,7 +2121,7 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       platform_buffer_destroy(cc->rc_bh);
    }
 
-   platform_free(cc->heap_id, cc->entry);
+   //platform_free(cc->heap_id, cc->entry);
    platform_free(cc->heap_id, cc->lookup);
    if (cc->bh) {
       platform_buffer_destroy(cc->bh);

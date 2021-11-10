@@ -20,6 +20,8 @@ config_set_defaults(master_config *cfg)
       .allocator_capacity       = GiB_TO_B(30),
 
       .cache_capacity           = GiB_TO_B(1),
+      .pmem_cache_capacity	= GiB_TO_B(1),
+      .dram_cache_capacity      = GiB_TO_B(1),
 
       .btree_rough_count_height = 1,
 
@@ -61,6 +63,8 @@ void config_usage()
    platform_error_log("\t--db-capacity-mib\n");
    platform_error_log("\t--libaio-queue-depth\n");
    platform_error_log("\t--cache-capacity-gib\n");
+   platform_error_log("\t--dram-cache-capacity-gib\n");
+   platform_error_log("\t--pmem-cache-capacity-gib\n");
    platform_error_log("\t--cache-capacity-mib\n");
    platform_error_log("\t--cache-debug-log\n");
    platform_error_log("\t--memtable-capacity-gib\n");
@@ -134,6 +138,8 @@ config_parse(master_config *cfg,
       } config_set_uint64("libaio-queue-depth", cfg, io_async_queue_depth) {
       } config_set_mib("cache-capacity", cfg, cache_capacity) {
       } config_set_gib("cache-capacity", cfg, cache_capacity) {
+      } config_set_gib("pmem-cache-capacity", cfg, pmem_cache_capacity) {
+      } config_set_gib("dram-cache-capacity", cfg, dram_cache_capacity) {
       } config_set_string("cache-debug-log", cfg, cache_logfile) {
       } config_set_mib("memtable-capacity", cfg, memtable_capacity) {
       } config_set_gib("memtable-capacity", cfg, memtable_capacity) {
