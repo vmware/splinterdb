@@ -256,6 +256,13 @@ static cache_ops clockcache_ops = {
             | CC_WRITELOCKED \
          )
 
+#define CC_LOCKED_MIGRATABLE2_STATUS \
+          (0 \
+             | CC_ACCESSED \
+             | CC_CLAIMED \
+             | CC_WRITELOCKED \
+          )
+
 
 #define CC_ACCESSED_STATUS \
          (0 \
@@ -338,6 +345,12 @@ static inline bool
 clockcache_test_shadow(clockcache *cc, uint32 entry_number, uint32 flag)
 {
    return cc->entry[entry_number].shadow;
+}
+
+static inline void
+clockcache_unset_shadow(clockcache *cc, uint32 entry_number, uint32 flag)
+{
+   cc->entry[entry_number].shadow = FALSE;
 }
 
 
@@ -730,11 +743,34 @@ clockcache_try_get_read(clockcache *cc,
       return GET_RC_SUCCESS;
    }
 
+   uint64 addr = cc->entry[entry_number].page.disk_addr;
+   if(addr == CC_UNMAPPED_ADDR){
+      return GET_RC_EVICTED;
+   }
+
+   /* This reassign entry number prevent copies between PMEM->DRAM, DRAM->PMEM
+    * that causes the page location be moved in the same PMEM cache */
+
+   uint32 cur_entry_number = clockcache_lookup(cc, addr);
+   if(cur_entry_number == CC_UNMAPPED_ENTRY){
+      return GET_RC_EVICTED;
+   }
+   if(cur_entry_number != entry_number)
+   {
+      return GET_RC_EVICTED;
+   }
+
+   if(clockcache_test_shadow(cc, entry_number, CC_SHADOW)){
+      return GET_RC_EVICTED;
+   }
+
+
    // first check if write lock is held
    uint32 cc_writing = clockcache_test_flag(cc, entry_number, CC_WRITELOCKED);
    if (UNLIKELY(cc_writing)) {
       return GET_RC_CONFLICT;
    }
+
 
    // then obtain the read lock
    clockcache_inc_ref(cc, entry_number, tid);
@@ -1271,8 +1307,10 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
             || clockcache_get_pin(src_cc, entry_number)) {
          goto out;
       }
+#ifdef SHADOW_PAGE
       if(status == CC_MIGRATABLE2_STATUS && read_lock)
          setup_shadow_page = TRUE;
+#endif
       assert(src_cc->volatile_cache != NULL);
    }
 
@@ -1298,13 +1336,13 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
 
 
 set_claim:
-   /* 2. try to claim */
+   /* try to claim */
    if (clockcache_try_get_claim(src_cc, entry_number) != GET_RC_SUCCESS) {
       goto release_ref;
    }
 
    /*
-    * 3. try to write lock
+    * try to write lock
     *      -- first check if loading
     */
    if (clockcache_test_flag(src_cc, entry_number, CC_LOADING)
@@ -1312,23 +1350,27 @@ set_claim:
       goto release_claim;
    }
 
-   /* 4. verify still evictable
-    * redo fast tests in case another thread has changed the status before we
-    * obtained the lock
-    * note: do not re-check the ref count for the active thread, because
-    * it acquired a read lock in order to lock the entry.
-    */
 set_migration:
    status = old_entry->status;
    uint32 new_entry_no = CC_UNMAPPED_ENTRY;
    // TODO:
    /* this is only true when called from the page in step in clockcache_get */
-   if (read_lock){
-      if ((status != CC_LOCKED_MIGRATABLE1_STATUS)
-         || clockcache_get_pin(src_cc, entry_number)) {
-         goto release_write_reacquire_read;
+   if(read_lock){
+      if(!setup_shadow_page){
+         if ((status != CC_LOCKED_MIGRATABLE1_STATUS)
+            || clockcache_get_pin(src_cc, entry_number)) {
+                platform_assert(new_entry_no == -1);
+            goto release_write_reacquire_read;
+         }
       }
-   }
+      else{
+         if ((status != CC_LOCKED_MIGRATABLE2_STATUS)
+            || clockcache_get_pin(src_cc, entry_number)) {
+                platform_assert(new_entry_no == -1);
+            goto release_write_reacquire_read;
+         }
+       }
+    }
 
 
    uint64 addr = old_entry->page.disk_addr;
@@ -1382,6 +1424,7 @@ set_migration:
    if(unset_shadow_page){
       shadow_entry->page.disk_addr = CC_UNMAPPED_ADDR;
       shadow_entry->status = CC_FREE_STATUS;
+      clockcache_unset_shadow(dest_cc, shadow_entry_number, CC_SHADOW);
    }
 
 
@@ -1582,6 +1625,7 @@ clockcache_try_evict(clockcache *cc,
       if(unset_shadow_page){
          shadow_entry->page.disk_addr = CC_UNMAPPED_ADDR;
          shadow_entry->status = CC_FREE_STATUS;
+	 clockcache_unset_shadow(dest_cc, shadow_entry_number, CC_SHADOW);
       }
 
       entry->status = CC_FREE_STATUS;
