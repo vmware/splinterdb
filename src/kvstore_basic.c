@@ -389,8 +389,10 @@ void
 kvstore_basic_register_thread(const kvstore_basic *kvsb)
 {
    kvstore_register_thread(kvsb->kvs);
+   /*
    platform_error_log("\n[Sp: ThreadID=%lu, %d] Registered\n",
                       platform_get_tid(), gettid());
+   */
 }
 
 int
@@ -435,11 +437,13 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
        encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len, 0);
        rv = kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
    }
+   /*
    platform_error_log("\n[Sp: ThreadID=%lu, %d] Insert %s succeeded:"
                       " key_len=%lu, key='%.*s'\n",
                       platform_get_tid(), gettid(),
                       ((ins_rv == KV_INS_WIDEVAL) ? "wide row" : ""),
                       key_len, (int) key_len, key);
+    */
    return rv;
 }
 
