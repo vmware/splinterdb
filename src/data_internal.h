@@ -70,7 +70,18 @@ data_key_to_string(const data_config *cfg,
                    char *             str,
                    size_t             size)
 {
-   cfg->key_to_string(cfg, slice_length(key), slice_data(key), str, size);
+   if (slices_physically_equal(key, data_key_negative_infinity)) {
+     memmove(str, "(-infinity)", size < 12 ? size : 12);
+     if (size)
+       str[size-1] = 0;
+
+   } else if (slices_physically_equal(key, data_key_positive_infinity)) {
+     memmove(str, "(+infinity)", size < 12 ? size : 12);
+     if (size)
+       str[size-1] = 0;
+   } else {
+     cfg->key_to_string(cfg, slice_length(key), slice_data(key), str, size);
+   }
 }
 
 static inline void
