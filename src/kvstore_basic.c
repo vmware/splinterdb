@@ -345,6 +345,12 @@ kvstore_basic_register_thread(const kvstore_basic *kvsb)
    kvstore_register_thread(kvsb->kvs);
 }
 
+void
+kvstore_basic_deregister_thread(const kvstore_basic *kvsb)
+{
+   kvstore_deregister_thread(kvsb->kvs);
+}
+
 int
 kvstore_basic_insert(const kvstore_basic *kvsb,
                      const char *         key,

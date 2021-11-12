@@ -35,8 +35,6 @@ kvstore_test(int argc, char *argv[])
       return -1;
    }
 
-   kvstore_register_thread(kvs);
-
    fprintf(stderr, "kvstore_test: initializing test data\n");
    char *key        = calloc(1, kvs_cfg.data_cfg.key_size);
    char *msg_buffer = calloc(1, kvs_cfg.data_cfg.message_size);

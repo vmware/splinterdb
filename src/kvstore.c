@@ -19,7 +19,7 @@
 #include "poison.h"
 
 typedef struct kvstore {
-   task_system *        system;
+   task_system *        task_sys;
    data_config          data_cfg;
    io_config            io_cfg;
    platform_io_handle   io_handle;
@@ -182,7 +182,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
    // FIXME: [aconway 2020-09-09] Not sure how to get use_stats from here
    status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
-                               &kvs->system,
+                               &kvs->task_sys,
                                TRUE,
                                FALSE,
                                num_bg_threads,
@@ -219,7 +219,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                             (io_handle *)&kvs->io_handle,
                             (allocator *)&kvs->allocator_handle,
                             "kvStore",
-                            kvs->system,
+                            kvs->task_sys,
                             kvs->heap_handle,
                             kvs->heap_id,
                             platform_get_module_id());
@@ -234,14 +234,14 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
       kvs->spl = splinter_mount(&kvs->splinter_cfg,
                                 (allocator *)&kvs->allocator_handle,
                                 (cache *)&kvs->cache_handle,
-                                kvs->system,
+                                kvs->task_sys,
                                 kvs->splinter_id,
                                 kvs->heap_id);
    } else {
       kvs->spl = splinter_create(&kvs->splinter_cfg,
                                  (allocator *)&kvs->allocator_handle,
                                  (cache *)&kvs->cache_handle,
-                                 kvs->system,
+                                 kvs->task_sys,
                                  kvs->splinter_id,
                                  kvs->heap_id);
    }
@@ -259,7 +259,7 @@ deinit_cache:
 deinit_allocator:
    rc_allocator_dismount(&kvs->allocator_handle);
 deinit_system:
-   task_system_destroy(kvs->heap_id, kvs->system);
+   task_system_destroy(kvs->heap_id, kvs->task_sys);
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 deinit_kvhandle:
@@ -310,7 +310,8 @@ kvstore_close(kvstore *kvs) // IN
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_dismount(&kvs->allocator_handle);
    io_handle_deinit(&kvs->io_handle);
-   task_system_destroy(kvs->heap_id, kvs->system);
+   task_system_destroy(kvs->heap_id, kvs->task_sys);
+
    platform_free(kvs->heap_id, kvs);
 }
 
@@ -320,26 +321,55 @@ kvstore_close(kvstore *kvs) // IN
  *
  * kvstore_register_thread --
  *
- *      Register a thread for kvstore operations. Needs to be called from the
- *      threads execution context.
+ *      Allocate scratch space and register the current thread.
  *
- *      This function must be called by a thread before it performs any
- *      KV operations.
+ *      Any thread, other than the initializing thread, must call this function
+ *      exactly once before using the kvstore.
+ *
+ *      Notes:
+ *      - The task system imposes a limit of MAX_THREADS live at any time
  *
  * Results:
  *      None.
  *
  * Side effects:
- *      None.
+ *      Allocates memory
  *
  *-----------------------------------------------------------------------------
  */
 
 void
-kvstore_register_thread(const kvstore *kvs) // IN
+kvstore_register_thread(kvstore *kvs) // IN
 {
    platform_assert(kvs != NULL);
-   task_system_register_thread(kvs->system);
+
+   size_t scratch_size = splinter_get_scratch_size();
+   task_register_this_thread(kvs->task_sys, scratch_size);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * kvstore_deregister_thread --
+ *
+ *      Free scratch space.
+ *      Call this function before exiting a registered thread.
+ *      Otherwise, you'll leak memory.
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      Frees memory
+ *
+ *-----------------------------------------------------------------------------
+ */
+void
+kvstore_deregister_thread(kvstore *kvs)
+{
+   platform_assert(kvs != NULL);
+
+   task_deregister_this_thread(kvs->task_sys);
 }
 
 

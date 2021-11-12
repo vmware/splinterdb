@@ -187,7 +187,6 @@ out:
       splinter_handle *spl = spl_tables[i];
       splinter_perform_tasks(spl);
    }
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 static void
@@ -384,7 +383,6 @@ test_splinter_lookup_thread(void *arg)
 out:
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), lookup_base);
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 void
@@ -449,7 +447,6 @@ test_splinter_range_thread(void *arg)
 out:
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), range_base);
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 /*
@@ -729,7 +726,6 @@ out:
    for (uint8 i = 0; i < NUM_OP_TYPES; i++) {
       platform_free(platform_get_heap_id(), bases[i]);
    }
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 
