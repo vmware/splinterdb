@@ -74,9 +74,6 @@ io_handle_init(laio_handle          *io,
    req_size = sizeof(io_async_req) + cfg->async_max_pages * sizeof(struct iovec);
    total_req_size = req_size * cfg->async_queue_size;
    io->req = TYPED_ZALLOC_MANUAL(io->heap_id, io->req, total_req_size);
-   // FIXME: [yfogel 2020-03-23] do appropriate cleanup if zalloc fails
-   //        instead of assert
-   //        (need to clean up io->fd at the least, possibly more)
    platform_assert(io->req);
    for (i = 0; i < cfg->async_queue_size; i++) {
       req = laio_get_kth_req(io, i);

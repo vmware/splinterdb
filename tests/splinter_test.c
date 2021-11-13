@@ -859,7 +859,6 @@ test_splinter_perf(splinter_config  *cfg,
             &params[i], splinter_get_scratch_size(), ts, hid,
             &params[i].thread);
       if (!SUCCESS(ret)) {
-         // FIXME: [yfogel 2020-03-30] need to clean up properly
          return ret;
       }
    }
@@ -873,7 +872,6 @@ test_splinter_perf(splinter_config  *cfg,
 
    uint64 total_time = platform_timestamp_elapsed(start_time);
    timestamp insert_latency_max = 0;
-   // FIXME: [aconway 2021-07-30] Only reporting io stats for first cache.
    uint64 read_io_bytes, write_io_bytes;
    cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
    uint64 io_mib = (read_io_bytes + write_io_bytes) / MiB;
@@ -926,7 +924,6 @@ test_splinter_perf(splinter_config  *cfg,
          ret = task_thread_create("lookup thread", test_splinter_lookup_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1002,7 +999,6 @@ test_splinter_perf(splinter_config  *cfg,
          ret = task_thread_create("range thread", test_splinter_range_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1053,7 +1049,6 @@ test_splinter_perf(splinter_config  *cfg,
          ret = task_thread_create("range thread", test_splinter_range_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1103,7 +1098,6 @@ test_splinter_perf(splinter_config  *cfg,
          ret = task_thread_create("range thread", test_splinter_range_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1226,7 +1220,6 @@ test_splinter_periodic(splinter_config  *cfg,
             &params[i], splinter_get_scratch_size(), ts, hid,
             &params[i].thread);
       if (!SUCCESS(ret)) {
-         // FIXME: [yfogel 2020-03-30] need to clean up properly
          return ret;
       }
    }
@@ -1240,7 +1233,6 @@ test_splinter_periodic(splinter_config  *cfg,
 
    uint64 total_time = platform_timestamp_elapsed(start_time);
    timestamp insert_latency_max = 0;
-   // FIXME: [aconway 2021-07-30] Only reporting io stats for first cache.
    uint64 read_io_bytes, write_io_bytes;
    cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
    uint64 io_mib = (read_io_bytes + write_io_bytes) / MiB;
@@ -1292,7 +1284,6 @@ test_splinter_periodic(splinter_config  *cfg,
                &params[i], splinter_get_scratch_size(), ts, hid,
                &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1306,7 +1297,6 @@ test_splinter_periodic(splinter_config  *cfg,
 
       total_time = platform_timestamp_elapsed(start_time);
       insert_latency_max = 0;
-      // FIXME: [aconway 2021-07-30] Only reporting io stats for first cache.
       cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
       io_mib = (read_io_bytes + write_io_bytes) / MiB;
       bandwidth = io_mib / NSEC_TO_SEC(total_time);
@@ -1363,7 +1353,6 @@ test_splinter_periodic(splinter_config  *cfg,
          ret = task_thread_create("lookup thread", test_splinter_lookup_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1439,7 +1428,6 @@ test_splinter_periodic(splinter_config  *cfg,
          ret = task_thread_create("range thread", test_splinter_range_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1490,7 +1478,6 @@ test_splinter_periodic(splinter_config  *cfg,
          ret = task_thread_create("range thread", test_splinter_range_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1540,7 +1527,6 @@ test_splinter_periodic(splinter_config  *cfg,
          ret = task_thread_create("range thread", test_splinter_range_thread,
                &params[i], splinter_get_scratch_size(), ts, hid, &params[i].thread);
          if (!SUCCESS(ret)) {
-            // FIXME: [yfogel 2020-03-30] need to clean up properly
             return ret;
          }
       }
@@ -1658,7 +1644,6 @@ test_splinter_parallel_perf(splinter_config  *cfg,
             test_splinter_insert_lookup_thread, &params[i],
             splinter_get_scratch_size(), ts, hid, &params[i].thread);
       if (!SUCCESS(ret)) {
-         // FIXME: [yfogel 2020-03-30] need to clean up properly
          return ret;
       }
    }
@@ -1832,8 +1817,6 @@ test_splinter_delete(splinter_config  *cfg,
             &params[i], splinter_get_scratch_size(), ts, hid,
             &params[i].thread);
       if (!SUCCESS(ret)) {
-         // FIXME: [yfogel 2020-03-31] need to cleanup
-         //    goto destroy_splinter with some status?
          return ret;
       }
    }
@@ -1874,8 +1857,6 @@ test_splinter_delete(splinter_config  *cfg,
             &params[i], splinter_get_scratch_size(), ts, hid,
             &params[i].thread);
       if (!SUCCESS(ret)) {
-         // FIXME: [yfogel 2020-03-31] need to cleanup
-         //    goto destroy_splinter with some status?
          return ret;
       }
    }

@@ -22,16 +22,12 @@
 #include "srq.h"
 
 #define SPLINTER_MAX_HEIGHT 8
-// FIXME: [yfogel 2020-07-02] 72 * 2 > 128
-// examin cost of increasing
 #define SPLINTER_MAX_TOTAL_DEGREE 256
 
 /*
  *----------------------------------------------------------------------
  *
  * splinter --
- *
- *       TODO: describe the structure here a bit or something
  *
  *----------------------------------------------------------------------
  */
@@ -223,18 +219,7 @@ typedef struct splinter_range_iterator {
    char             max_key[MAX_KEY_SIZE];
    char             local_max_key[MAX_KEY_SIZE];
    char             rebuild_key[MAX_KEY_SIZE];
-   // FIXME: [yfogel 2020-07-01] we are definitely using (up to) double
-   // the space in btree_itor (with range deletes)
-   // FIXME: [yfogel 2020-07-01] task for during/after range query
-   //       increase MAX_TOTAL_DEGREE?? in theory may not be enough
-   //       after doubling but probably still fine
-   //       only 128 now... but ...
-   //       this is probably not fine RIGHT NOW in the worst case.
-   //       if we increase significantly (or increase dynamically allcoated)
-   //       we probably need to be careful about initialization
-   //       to not ahve to pay cost of zeroing massive amounts of data
    btree_iterator   btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
-   // FIXME: [yfogel 2020-07-01] this won't need to change
    splinter_branch  branch[SPLINTER_MAX_TOTAL_DEGREE];
 
    // used for merge iterator construction
@@ -242,7 +227,6 @@ typedef struct splinter_range_iterator {
 } splinter_range_iterator;
 
 
-// FIXME: [yfogel 2020-08-26] will need some extra states
 typedef enum {
    async_state_start,
    async_state_lookup_memtable,
@@ -310,10 +294,6 @@ typedef struct splinter_async_ctxt {
    cache_async_ctxt             cache_ctxt;    // Async cache context
 } splinter_async_ctxt;
 
-
-
-// FIXME: [nsarmicanic 2020-07-13] fix comment
-// FIXME: robj: can we get rid of this entirely?
 /*
  * Tests usually allocate a number of pivot keys.
  * Since we can't use VLAs, it's easier to allocate an array of a struct

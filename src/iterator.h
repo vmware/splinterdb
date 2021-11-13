@@ -6,7 +6,6 @@
 
 typedef struct iterator iterator;
 
-// FIXME: [nsarmicanic 2020-07-16] Might be better to return type instead of void
 typedef void (*iterator_get_curr_fn)(iterator *itor, char **key, char **data);
 typedef platform_status (*iterator_at_end_fn)  (iterator *itor, bool *at_end);
 typedef platform_status (*iterator_advance_fn) (iterator *itor);

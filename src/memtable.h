@@ -15,19 +15,6 @@
 #include "cache.h"
 #include "btree.h"
 
-// FIXME: [aconway 2020-08-25] What we're going to do is put the outputs of
-// compaction into new fields in the memtable struct, and then when
-// splinter_process_memtable completes, it will try to do incorporations in
-// order iff we are the on-deck memtable (have generation generation_to_retire).
-//
-// have to be careful about atomically setting/checking the ready bits (this is
-// the equivalent of the signal in a cv).
-//
-// Possible starvation for foreground threads (maybe this is just a comment).
-//
-// Maybe a fixme: modify incorporation to support bulk incorporation.
-// Another: Maybe split flushing and incorporation.
-
 typedef enum memtable_state {
    MEMTABLE_STATE_READY,        // if it's the correct one, go ahead and insert
    MEMTABLE_STATE_FINALIZED,
@@ -36,41 +23,25 @@ typedef enum memtable_state {
    MEMTABLE_STATE_INCORPORATION_ASSIGNED,
    MEMTABLE_STATE_INCORPORATING,
    MEMTABLE_STATE_INCORPORATED,
-   // one of these increments generation.  ASSERTS on 64-bit overflow
-   // FIXME: [yfogel 2020-08-26] referenced and waiting state?
    NUM_MEMTABLE_STATES,
 } memtable_state;
-
-#if 0
-// FIXME: [yfogel 2020-08-26] Refactor into:
-typedef struct memtable_tree {
-   uint64          root_addr;
-   mini_allocator  mini;
-   btree_config   *cfg;
-} memtable_tree;
-#endif
 
 typedef struct memtable {
    volatile memtable_state state;
    uint64                  generation;
-   uint64          root_addr;
-   mini_allocator  mini;
-   btree_config   *cfg;
+   uint64                  root_addr;
+   mini_allocator          mini;
+   btree_config *          cfg;
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
-// FIXME: [aconway 2020-09-01] MUST_CHECK_RETURN
 static inline bool
 memtable_try_transition(
    memtable *mt,
    memtable_state old_state,
    memtable_state new_state)
 {
-   // FIXME: [aconway 2020-09-02] These comments are out of date
    switch (old_state) {
       case MEMTABLE_STATE_READY:
-         // FIXME: [yfogel 2020-08-26] should happen during
-         //        memtable_maybe_rotate_and_get_insert_lock
-         //        This is as far as we go in btree tests probably
          debug_assert(new_state == MEMTABLE_STATE_FINALIZED);
          break;
       case MEMTABLE_STATE_FINALIZED:
@@ -111,7 +82,6 @@ memtable_try_transition(
                   actual_old_state != MEMTABLE_STATE_INCORPORATION_ASSIGNED);
             debug_assert(actual_old_state != MEMTABLE_STATE_INCORPORATING);
             break;
-         // FIXME: [aconway 2020-09-02]: Fill other cases as needed
          default:
          platform_assert(0);
       }
@@ -133,14 +103,10 @@ typedef void (*process_fn)(void *arg, uint64 generation);
 typedef struct memtable_config {
    uint64        max_tuples_per_memtable;
    uint64        max_memtables;
-
-   // FIXME: [yfogel 2020-08-26] refactor into:
-   //btree_config *cfgs[NUM_DATA_TYPES];
    btree_config *btree_cfg;
 } memtable_config;
 
 typedef struct memtable_context {
-   // FIXME: [aconway 2020-08-25] what needs volatile here?
    cache           *cc;
    memtable_config  cfg;
    task_system     *ts;
@@ -178,24 +144,13 @@ typedef struct memtable_context {
     *       instructions
     *    -- Need write_lock(lock_addr) to clear when rotating
     */
-   // FIXME: [yfogel 2020-08-26] should we align ALL these counts/generations?
    uint64               num_tuples;
    cache_aligned_uint64 thread_num_tuples[MAX_THREADS];
 
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];
 
-   // FIXME: [yfogel 2020-08-27] Optimization ideas for memtables...
-   //    1: use pointers and allocate 3x max_memtables
-   //       it's the same set of pointers 3 times in a row, e.g.
-   //       0,1,2,3,0,1,2,3,0,1,2,3
-   //       allows you to do % just once at beginning and then regardless
-   //       of iterating forward or backward you can always just go
-   //       at most max_memtables without having to % again.
-   //       Only useful if it simplifies the code.
-   //       not going to be worth it for perf
-   // FIXME: [yfogel 2020-08-31] memtable or memtable* ?
-   memtable mt[/*cfg.max_memtables*/];
+   memtable mt[];
 } memtable_context;
 
 platform_status
@@ -332,7 +287,6 @@ memtable_zap(cache    *cc,
 static inline bool
 memtable_ok_to_lookup(memtable *mt)
 {
-   // FIXME: [aconway 2020-09-02]: save state and check
    return mt->state != MEMTABLE_STATE_INCORPORATING &&
           mt->state != MEMTABLE_STATE_INCORPORATED;
 }
@@ -340,7 +294,6 @@ memtable_ok_to_lookup(memtable *mt)
 static inline bool
 memtable_ok_to_lookup_compacted(memtable *mt)
 {
-   // FIXME: [aconway 2020-09-02]: save state and check
    return mt->state == MEMTABLE_STATE_COMPACTED ||
           mt->state == MEMTABLE_STATE_INCORPORATION_ASSIGNED;
 }

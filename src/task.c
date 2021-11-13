@@ -347,7 +347,6 @@ task_group_deinit(task_group *group)
    }
 }
 
-// FIXME: [aconway 2020-09-14] can get use_bg_threads from ts
 static platform_status
 task_group_init(task_group *group,
                 task_system *ts,
@@ -476,11 +475,6 @@ task_perform_all(task_system *ts)
       do {
          rc = task_perform_one(ts);
          debug_assert(SUCCESS(rc) || STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
-         // FIXME: [yfogel 2020-08-27] where do we wait for the foreground
-         //        threads to be done compacting/incorporating?
-         //        cause that generates tasks
-         //        Someone said we expect them to have already stopped
-         //        before we call task_perform_all
       } while (STATUS_IS_NE(rc, STATUS_TIMEDOUT));
 
    } else {
@@ -501,7 +495,6 @@ static void task_queue_unlock(void *arg)
    platform_mutex_unlock(&group->fg.mutex);
 }
 
-// FIXME: [aconway 2020-09-14] change status to a bool *?
 static inline platform_status
 task_group_perform_one(task_group *group)
 {
@@ -611,6 +604,11 @@ task_system_create(platform_heap_id     hid,
    // task initialization
    register_init_tid_hook();
 
+   ts->use_bg_threads = use_bg_threads;
+   ts->heap_id        = hid;
+   ts->scratch_size   = scratch_size;
+   ts->init_tid       = INVALID_TID;
+
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type], ts,
             use_stats, use_bg_threads, num_bg_threads[type], scratch_size);
@@ -621,21 +619,6 @@ task_system_create(platform_heap_id     hid,
       }
    }
 
-   // FIXME: [aconway 2020-09-14] need to move above group_init
-   ts->use_bg_threads = use_bg_threads;
-   ts->heap_id = hid;
-   ts->scratch_size = scratch_size;
-   ts->init_tid = INVALID_TID;
-
-   /*
-    * FIXME: [srangaswamy 2020-06-30]
-    * The thread doing init doesn't have a dependency to be registered with
-    * tid. The deinit/unmount has dependency on cache operations it may have to
-    * perform. The tests all do init and deinit from the same thread, so this
-    * register is implicity satisfying the deinit dependency. It would be
-    * better to make that requirement explicit and have callers register.
-    * It would be nice to get rid of the register dependency for init/deinit.
-    */
    task_run_thread_hooks(ts);
    const threadid tid      = platform_get_tid();
    ts->thread_scratch[tid] = ts->init_task_scratch;
