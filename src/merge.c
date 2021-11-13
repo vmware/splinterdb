@@ -12,14 +12,14 @@
 
 /* Function declarations and iterator_ops */
 void
-                merge_get_curr(iterator *itor, char **key, char **data);
-platform_status merge_at_end   (iterator *itor, bool *at_end);
-platform_status merge_advance  (iterator *itor);
+merge_get_curr(iterator *itor, char **key, char **data);
 
-// FIXME: [nsarmicanic 2020-08-19]
-// Make these exisiting functions static, change API to take merge_iterator*
-// Add wrapper fucntions for external API that will take iterator* which will
-//    cast to merge_iterator* and call the internal functions
+platform_status
+merge_at_end(iterator *itor, bool *at_end);
+
+platform_status
+merge_advance(iterator *itor);
+
 static iterator_ops merge_ops = {
    .get_curr = merge_get_curr,
    .at_end   = merge_at_end,
@@ -260,8 +260,6 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
                         merge_itor->key,
                         merge_itor->ordered_iterators[1]->data,
                         merge_itor->data);
-      // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
-      //    We should crash or cancel the entire compaction
 
       /*
        * Need to maintain invariant that merge_itor->key points to a valid
@@ -304,8 +302,6 @@ merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
 {
    data_config *cfg = merge_itor->cfg;
    message_type class = data_message_class(cfg, merge_itor->data);
-   // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
-   //    We should crash or cancel the entire compaction
    if (class != MESSAGE_TYPE_INSERT && merge_itor->resolve_updates) {
       if (merge_itor->data != merge_itor->merge_buffer) {
          // We might already be in merge_buffer if we did some merging.
@@ -315,8 +311,6 @@ merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
       data_merge_tuples_final(cfg, merge_itor->key,
                               merge_itor->data);
       class = data_message_class(cfg, merge_itor->data);
-      // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
-      //    We should crash or cancel the entire compaction
    }
    if (class == MESSAGE_TYPE_DELETE && merge_itor->discard_deletes) {
       merge_itor->discarded_deletes++;
@@ -392,9 +386,6 @@ merge_iterator_create(platform_heap_id  hid,
    platform_status rc = STATUS_OK, merge_iterator_rc;
    merge_iterator *merge_itor;
    ordered_iterator *temp;
-   // FIXME: [yfogel 2020-07-17] Add and call sanity check functions
-   //        (also sanity functions WHEN FIRST NEEDED for splinterconfig and
-   //         btree_config)
 
    if (!out_itor || !itor_arr || !cfg || num_trees < 0 ||
        num_trees >= ARRAY_SIZE(merge_itor->ordered_iterator_stored)) {
@@ -423,11 +414,6 @@ merge_iterator_create(platform_heap_id  hid,
    merge_itor->resolve_updates = !!resolve_updates;
    merge_itor->has_data = has_data;
    merge_itor->at_end = FALSE;
-   // FIXME: [yfogel 2020-07-17] (YONI) optimization to figure out comparison
-   //                            function and call it DIRECTLY
-   //                            (won't work for sort, but works
-   //                            everywhere else)
-   //                            maybe also copy data config locally?
    merge_itor->cfg = cfg;
 
    // index -1 initializes the pad variable
@@ -595,7 +581,6 @@ merge_get_curr(iterator *itor, char **key, char **data)
  *
  *-----------------------------------------------------------------------------
  */
-// FIXME: [nsarmicanic 2020-08-06] merge_advance should take a merge_iterator*
 platform_status
 merge_advance(iterator *itor)
 {

@@ -146,8 +146,6 @@ test_data_key_to_string(const data_config *cfg,
   snprintf(str, len, "0x%016lx", be64toh(*(uint64 *)key));
 }
 
-// FIXME: [yfogel 2020-03-17] need to be passing in the size of the string as
-//        well and use snprintf
 static void
 test_data_message_to_string(const data_config *cfg,
                             const void *raw_data,

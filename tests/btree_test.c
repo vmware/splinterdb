@@ -228,7 +228,6 @@ test_btree_perf(cache             *cc,
       ret = task_thread_create("insert thread", test_btree_insert_thread,
             &params[thread_no], 0, ts, hid, &params[thread_no].thread);
       if (!SUCCESS(ret)) {
-         // FIXME: [yfogel 2020-03-31] need to clean up (e.g. btrees)
          return ret;
       }
    }
@@ -416,7 +415,6 @@ btree_test_run_pending(cache                   *cc,
                          expected_found, found);
             platform_assert(0);
          }
-         // FIXME: [aconway 2020-08-23] Should also verify data is correct
          btree_test_put_async_ctxt(async_lookup, ctxt);
          break;
       default:
@@ -804,11 +802,6 @@ test_btree_merge_basic(cache             *cc,
    uint64 *output_addr = TYPED_ARRAY_MALLOC(hid, output_addr, arity);
    platform_assert(output_addr);
 
-   // FIXME: [yfogel 2020-04-01] change all of these *arity allocs into a single
-   //        alloc of a larger structure.
-   //        This will require changing both of the follow btree_create APIs
-   //        (and all callers)
-
    platform_status rc;
 
    uint64 max_key = (uint64)-1;
@@ -848,8 +841,6 @@ test_btree_merge_basic(cache             *cc,
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
       merge_iterator *merge_itor;
-      // FIXME: [yfogel 2020-07-01] really not a good idea to pass in
-      //        NULL for the range data config
       rc = merge_iterator_create(hid,
                                  btree_cfg->data_cfg,
                                  arity,
@@ -899,7 +890,6 @@ test_btree_merge_basic(cache             *cc,
          platform_log("test_btree_merge_basic: input and output counts do not match\n");
          platform_log("input count %lu output count %lu\n", input_count, output_count);
          platform_log("btree_test: btree merge test failed\n");
-         // FIXME: [yfogel 2020-03-31] need to clean up
          return STATUS_INVALID_STATE;
       }
    }
@@ -1027,7 +1017,6 @@ test_btree_rough_iterator(cache             *cc,
    }
 
    merge_iterator *rough_merge_itor;
-   //FIXME: [yfogel 2020-07-01] replace NULL
    rc = merge_iterator_create(hid,
                               btree_cfg->data_cfg,
                               num_trees,
@@ -1164,7 +1153,6 @@ test_btree_merge_perf(cache             *cc,
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
          merge_iterator *merge_itor;
-         // FIXME: [yfogel 2020-07-01] replaceNULL
          rc = merge_iterator_create(hid,
                                     btree_cfg->data_cfg,
                                     arity,
@@ -1267,7 +1255,6 @@ btree_test(int argc, char *argv[])
    splinter_config *cfg = TYPED_MALLOC(hid, cfg);
    rc = test_parse_args(cfg, data_cfg, &io_cfg, &al_cfg, &cache_cfg,
                         &log_cfg, &seed, config_argc, config_argv);
-   // FIXME: [aconway 2020-08-23] Build this into a test arg parse function
    memtable_config *mt_cfg = &cfg->mt_cfg;
    mt_cfg->max_memtables = 128;
    test_btree_config test_cfg = { .mt_cfg = mt_cfg,

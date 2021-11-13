@@ -338,10 +338,6 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
    platform_free(hid, itor->contents);
 }
 
-// FIXME: [nsarmicanic 2020-07-12]
-//    Talk to alex and/or reverse engineer what
-//    shard log actually does (what are the types?)
-//    Do we also need a key_type?
 void
 shard_log_iterator_get_curr(iterator *itorh, char **key, char **data)
 {
