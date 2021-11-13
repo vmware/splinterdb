@@ -21,6 +21,11 @@
  */
 
 #define RC_ALLOCATOR_BASE_OFFSET (0)
+
+#define SHOULD_TRACE(addr) (0)
+//#define SHOULD_TRACE(addr) (1)
+//#define SHOULD_TRACE(addr) ((addr) / (4096 * 32) == 15465ULL)
+
 /*
  *------------------------------------------------------------------------------
  *
@@ -327,6 +332,9 @@ rc_allocator_inc_ref(rc_allocator *al,
    debug_assert(extent_no < al->cfg->extent_capacity);
    ref_count = __sync_fetch_and_add(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != 0 && ref_count != UINT8_MAX);
+   if (SHOULD_TRACE(addr)) {
+     platform_log("rc_allocator_inc_ref(%lu): %d -> %d\n", addr, ref_count, ref_count + 1);
+   }
    return ref_count;
 }
 
@@ -380,6 +388,9 @@ rc_allocator_dec_ref(rc_allocator *al,
    platform_assert(ref_count != 0);
    if (ref_count == 1) {
       __sync_fetch_and_sub(&al->allocated, 1);
+   }
+   if (SHOULD_TRACE(addr)) {
+     platform_log("rc_allocator_dec_ref(%lu): %d -> %d\n", addr, ref_count, ref_count - 1);
    }
    return ref_count;
 }
@@ -546,6 +557,9 @@ rc_allocator_alloc_extent(rc_allocator *al,         /* IN  */
       max_allocated = al->max_allocated;
    }
    *addr = hand * al->cfg->extent_size;
+   if (SHOULD_TRACE(*addr)) {
+     platform_log("rc_allocator_alloc_extent(%lu)\n", *addr);
+   }
 
    return STATUS_OK;
 }
