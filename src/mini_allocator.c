@@ -220,6 +220,7 @@ mini_allocator_alloc(mini_allocator   *mini,
       uint64 new_meta_addr = meta_page->disk_addr;
       meta_entry *entry = (meta_entry *)((char *)hdr + hdr->pos);
 
+      entry->end_key_length = 0;
       if (!slice_is_null(key)) {
          entry->start_key_length = slice_length(key);
          data_key_copy(mini->data_cfg, entry->start_key, key);
@@ -256,7 +257,6 @@ mini_allocator_alloc(mini_allocator   *mini,
          mini->last_meta_addr[batch] = new_meta_addr;
       } else {
          entry->start_key_length = 0;
-         entry->end_key_length = 0;
          memset(entry->end_key, 0, MAX_INLINE_KEY_SIZE);
       }
       entry->extent_addr = next_extent_addr;
