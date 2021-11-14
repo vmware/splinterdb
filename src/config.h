@@ -33,6 +33,8 @@ typedef struct master_config {
 
    // cache
    uint64 cache_capacity;
+   uint64 pmem_cache_capacity;
+   uint64 dram_cache_capacity;
    bool   cache_use_stats;
    char   cache_logfile[MAX_STRING_LENGTH];
 
