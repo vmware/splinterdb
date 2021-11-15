@@ -11,16 +11,6 @@ typedef struct task_system task_system;
 typedef void (*task_hook) (task_system *arg);
 typedef void (*task_fn)(void *arg, void *scratch);
 
-typedef struct thread_task {
-   platform_thread_worker  func;
-   void                   *arg;
-   // scratch memory for use by task dispatch functions
-   void                   *scratch;
-   // task system, used for running hook function and thread lookups.
-   task_system            *ts;
-   platform_heap_id        heap_id;
-} thread_task;
-
 typedef struct task {
    struct task *next;
    struct task *prev;
@@ -95,8 +85,8 @@ typedef enum task_type {
  */
 
 struct task_system {
-   // array of threads for this system.
-   thread_task        *thread_tasks[MAX_THREADS];
+   // array of scratch space pointers for this system.
+   void *thread_scratch[MAX_THREADS];
    // IO handle (currently one splinter system has just one)
    platform_io_handle *ioh;
    /*
@@ -115,24 +105,12 @@ struct task_system {
 
    // scratch memory for the init thread.
    uint64             scratch_size;
-   thread_task        init_thread_task;
+   void *             init_scratch;
    threadid           init_tid;
    // FIXME: [aconway 2020-09-14] maybe just alloc this separately?
    //                             or just platform_cacheline_aligned?
    char               init_task_scratch[];
 };
-
-platform_status
-task_register_hook(task_hook newhook);
-void register_init_tid_hook(void);
-void task_run_thread_hooks(task_system *ts);
-void task_init_thread_task(task_system *ts,
-                           const threadid tid,
-                           thread_task *task,
-                           void *task_scratch);
-void            task_clear_threadid     (task_system *ts,
-                                         threadid tid);
-threadid        task_get_max_tid        (task_system *tst);
 
 platform_status
 task_thread_create(const char             *name,
@@ -143,20 +121,14 @@ task_thread_create(const char             *name,
                    platform_heap_id        hid,
                    platform_thread        *thread);
 
-platform_status
-task_create_thread_with_hooks(platform_thread        *thread,
-                              bool                    detached,
-                              platform_thread_worker  func,
-                              void                   *arg,
-                              size_t                  scratch_size,
-                              task_system            *ts,
-                              platform_heap_id        hid);
-
+// Register the calling thread, allocating scratch space for it
 void
-task_init_tid_bitmask(uint64 *thread_bitmask);
+task_register_this_thread(task_system *ts, uint64 scratch_size);
 
-uint64 *
-task_system_get_tid_bitmask(task_system *ts);
+// Unregister the calling thread and free its scratch space
+void
+task_deregister_this_thread(task_system *ts);
+
 
 platform_status
 task_system_create(platform_heap_id     hid,
@@ -167,24 +139,9 @@ task_system_create(platform_heap_id     hid,
                    uint8                num_bg_threads[NUM_TASK_TYPES],
                    uint64               scratch_size);
 
-thread_task **
-task_system_get_system_threads(task_system *ts);
-
-threadid *
-task_system_get_max_tid(task_system *ts);
-
-void
-task_system_register_thread(task_system *ts);
-
-void
-task_system_io_register_thread(task_system *ts);
-
 void
 task_system_destroy(platform_heap_id hid, task_system *ts);
 
-bool
-task_is_threadid_allocated(task_system *ts,
-                           threadid tid);
 
 void *
 task_system_get_thread_scratch(task_system *ts,

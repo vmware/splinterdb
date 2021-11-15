@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #define Mega (1024UL * 1024UL)
 
@@ -64,7 +65,6 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
       fprintf(stderr, "setup: init error: %d\n", rc);
       return -1;
    }
-   kvstore_basic_register_thread(*kvsb);
    return 0;
 }
 
@@ -1080,6 +1080,124 @@ cleanup:
    return rc;
 }
 
+typedef struct {
+   uint32_t       num_inserts;
+   int            random_data;
+   kvstore_basic *kvsb;
+   uint16_t       max_key_size;
+   uint16_t       max_value_size;
+} worker_config;
+
+static void *
+thread_worker(void *w)
+{
+
+   char key_buf[KVSTORE_BASIC_MAX_KEY_SIZE]     = {0};
+   char value_buf[KVSTORE_BASIC_MAX_VALUE_SIZE] = {0};
+
+   worker_config *wcfg           = (worker_config *)w;
+   uint32_t       num_inserts    = wcfg->num_inserts;
+   int            random_data    = wcfg->random_data;
+   kvstore_basic *kvsb           = wcfg->kvsb;
+   uint16_t       max_key_size   = wcfg->max_key_size;
+   uint16_t       max_value_size = wcfg->max_value_size;
+
+   kvstore_basic_register_thread(kvsb);
+
+   pthread_t thread_id = pthread_self();
+
+   fprintf(stderr, "writing lots of data from thread %lu\n", thread_id);
+   int rc = 0;
+   for (uint32_t i = 0; i < num_inserts; i++) {
+      size_t result = read(random_data, key_buf, sizeof key_buf);
+      if (result < 0) {
+         rc = -1;
+         exit(1);
+      }
+      result = read(random_data, value_buf, sizeof value_buf);
+      if (result < 0) {
+         rc = -1;
+         exit(1);
+      }
+      rc = kvstore_basic_insert(
+         kvsb, key_buf, max_key_size, value_buf, max_value_size);
+      if (rc != 0) {
+         exit(1);
+      }
+
+      if (i % 100000 == 0) {
+         fprintf(stderr, "thread %lu has completed %u inserts\n", thread_id, i);
+      }
+   }
+
+   kvstore_basic_deregister_thread(kvsb);
+   return 0;
+}
+
+int
+test_kvstore_basic_lots_of_data_threaded()
+{
+   kvstore_basic *   kvsb;
+   kvstore_basic_cfg cfg = {0};
+
+   cfg.cache_size     = 1000 * Mega;
+   cfg.disk_size      = 9000 * Mega;
+   cfg.max_key_size   = 20;
+   cfg.max_value_size = 116;
+   int rc             = setup_kvstore_basic(&kvsb, &cfg);
+   if (rc != 0) {
+      return -1;
+   }
+
+   int random_data = open("/dev/urandom", O_RDONLY);
+   if (random_data < 0) {
+      return -1;
+   }
+
+   worker_config wcfg = {
+      .num_inserts    = 1000 * 1000,
+      .random_data    = random_data,
+      .kvsb           = kvsb,
+      .max_key_size   = cfg.max_key_size,
+      .max_value_size = cfg.max_value_size,
+   };
+
+   const uint8_t num_threads = 2;
+   pthread_t     thread_ids[num_threads];
+
+   for (int i = 0; i < num_threads; i++) {
+      rc = pthread_create(&thread_ids[i], NULL, &thread_worker, &wcfg);
+      if (rc != 0) {
+         fprintf(stderr, "thread create: %d\n", rc);
+         goto cleanup;
+      }
+   }
+   fprintf(stderr, "waiting for worker threads...\n");
+
+   for (int i = 0; i < num_threads; i++) {
+      void *thread_rc;
+      rc = pthread_join(thread_ids[i], &thread_rc);
+      if (rc != 0) {
+         fprintf(stderr, "thread join: %d\n", rc);
+         goto cleanup;
+      }
+      if (thread_rc != 0) {
+         fprintf(stderr, "thread %d had error: %p\n", i, thread_rc);
+         goto cleanup;
+      }
+   }
+
+cleanup:
+   kvstore_basic_close(kvsb);
+   if (rc == 0) {
+      fprintf(stderr, "succeeded\n");
+      return 0;
+   } else {
+      fprintf(stderr, "FAILED\n");
+      return -1;
+   }
+}
+
 int
 kvstore_basic_test(int argc, char *argv[])
 {
@@ -1129,6 +1247,10 @@ kvstore_basic_test(int argc, char *argv[])
    fprintf(stderr, "\nstart: kvstore_basic lots of data\n");
    test_assert_rc(test_kvstore_basic_lots_of_data(),
                   "kvstore_basic_lots_of_data");
+
+   fprintf(stderr, "start: kvstore_basic lots of data, threaded\n");
+   test_assert_rc(test_kvstore_basic_lots_of_data_threaded(),
+                  "kvstore_basic_lots_of_data_threaded");
 cleanup:
    if (rc == 0) {
       fprintf(stderr, "OK\n");

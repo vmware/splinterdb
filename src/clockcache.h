@@ -40,6 +40,16 @@ typedef struct clockcache_config {
 typedef struct clockcache       clockcache;
 typedef struct clockcache_entry clockcache_entry;
 
+struct clockcache_entry {
+   page_handle     page;
+   volatile uint32 status;
+   page_type       type;
+#ifdef RECORD_ACQUISITION_STACKS
+   int            next_history_record;
+   history_record history[32];
+#endif
+};
+
 /*
  *----------------------------------------------------------------------
  *

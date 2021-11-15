@@ -60,16 +60,16 @@ out:
 }
 
 static platform_status
-cache_test_alloc_extents(cache *cc,
+cache_test_alloc_extents(cache *            cc,
                          clockcache_config *cfg,
-                         uint64 addr_arr[],
-                         uint32 extents_to_allocate)
+                         uint64             addr_arr[],
+                         uint32             extents_to_allocate)
 {
    allocator *     al = cache_allocator(cc);
    platform_status rc;
    for (uint32 j = 0; j < extents_to_allocate; j++) {
       uint64 base_addr;
-      rc = allocator_alloc_extent(al, &base_addr);
+      rc = allocator_alloc(al, &base_addr, PAGE_TYPE_MISC);
       if (!SUCCESS(rc)) {
          platform_error_log("Expected to be able to allocate %u entries,"
                             "but only allocated: %u",
@@ -265,7 +265,13 @@ test_cache_basic(cache             *cc,
     * Deallocate all the entries.
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      cache_dealloc(cc, addr_arr[i * cfg->pages_per_extent], PAGE_TYPE_MISC);
+      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      allocator *al   = cache_allocator(cc);
+      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_NO_REFS);
+      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_FREE);
    }
 
 exit:
@@ -294,7 +300,7 @@ typedef struct {
          int32  incr;
       } mono;
       struct {
-         PRG rs;
+         random_state rs;
          uint32       min;
          uint32       max;
       } rand;
@@ -324,7 +330,7 @@ cache_test_index_itor_rand_init(cache_test_index_itor *itor,
                                 uint32 max)
 {
    itor->type = RAND;
-   init_platform_hash_prg(&itor->rand.rs, seed, 0);
+   random_init(&itor->rand.rs, seed, 0);
    itor->rand.min = min;
    itor->rand.max = max;
 }
@@ -365,7 +371,7 @@ cache_test_index_itor_get(cache_test_index_itor *itor)
    case RAND:
    {
       uint32 range = itor->rand.max - itor->rand.min;
-      idx = itor->rand.min + PRG_step(&itor->rand.rs) % range;
+      idx = itor->rand.min + random_next_uint32(&itor->rand.rs) % range;
       break;
    }
    }
@@ -508,7 +514,13 @@ test_cache_flush(cache             *cc,
     * Deallocate all the entries.
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      cache_dealloc(cc, addr_arr[i * cfg->pages_per_extent], PAGE_TYPE_MISC);
+      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      allocator *al   = cache_allocator(cc);
+      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_NO_REFS);
+      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_FREE);
    }
    platform_log("Dealloc took %lu secs\n",
                 NSEC_TO_SEC(platform_timestamp_elapsed(t_start)));
@@ -733,7 +745,6 @@ test_reader_thread(void *arg)
    for (k = 0; k < num_pages; k ++) {
       cache_assert_ungot(cc, addr_arr[k]);
    }
-   task_clear_threadid(params->ts, tid);
 }
 
 void
@@ -774,7 +785,6 @@ test_writer_thread(void *arg)
       cache_unget(cc, handle_arr[k]);
       handle_arr[k] = NULL;
    }
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 /*
@@ -879,7 +889,13 @@ test_cache_async(cache             *cc,
    }
    // Deallocate all the entries.
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      cache_dealloc(cc, addr_arr[i * cfg->pages_per_extent], PAGE_TYPE_MISC);
+      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      allocator *al   = cache_allocator(cc);
+      uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_NO_REFS);
+      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
+      platform_assert(ref == AL_FREE);
    }
    platform_free(hid, addr_arr);
    platform_free(hid, params);

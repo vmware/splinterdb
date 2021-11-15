@@ -57,6 +57,8 @@ test_log_basic(cache            *cc,
       log_write(logh, key, data, i);
    }
 
+   mini_release(&log->mini, NULL);
+
    rc = shard_log_iterator_init(cc, cfg, hid, addr, magic, &itor);
    platform_assert_status_ok(rc);
    itorh = (iterator *)&itor;

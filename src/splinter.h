@@ -119,6 +119,10 @@ typedef struct splinter_stats {
    uint64 leaf_split_time_ns;
    uint64 leaf_split_max_time_ns;
 
+   uint64 single_leaf_splits;
+   uint64 single_leaf_tuples;
+   uint64 single_leaf_max_tuples;
+
    uint64 root_filters_built;
    uint64 root_filter_tuples;
    uint64 root_filter_time_ns;
@@ -212,7 +216,6 @@ typedef struct splinter_range_iterator {
    uint64           memtable_start_gen;
    uint64           memtable_end_gen;
    bool             compacted[SPLINTER_MAX_TOTAL_DEGREE];
-   page_handle     *meta_page[SPLINTER_MAX_TOTAL_DEGREE];
    merge_iterator  *merge_itor;
    bool             has_max_key;
    bool             at_end;

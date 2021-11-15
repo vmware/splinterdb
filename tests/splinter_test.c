@@ -187,7 +187,6 @@ out:
       splinter_handle *spl = spl_tables[i];
       splinter_perform_tasks(spl);
    }
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 static void
@@ -384,7 +383,6 @@ test_splinter_lookup_thread(void *arg)
 out:
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), lookup_base);
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 void
@@ -449,7 +447,6 @@ test_splinter_range_thread(void *arg)
 out:
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), range_base);
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 /*
@@ -467,12 +464,12 @@ out:
  */
 
 static bool
-advance_base(const test_splinter_thread_params  *params,
-             uint64                             *curr_op,
-             uint64                             *base,
-             uint8                              *done,
-             PRG                                *rs,
-             test_splinter_pthread_op_type       type)
+advance_base(const test_splinter_thread_params *params,
+             uint64 *                           curr_op,
+             uint64 *                           base,
+             uint8 *                            done,
+             random_state *                     rs,
+             test_splinter_pthread_op_type      type)
 {
    const uint64          *total_ops           = params->total_ops;
    const uint64           op_granularity      = params->op_granularity;
@@ -502,29 +499,34 @@ advance_base(const test_splinter_thread_params  *params,
          // pick an random number to determine
          // if positive or negative lookup
          // [0, lookup_positive_pct) is positive lookup
-         if (PRG_step(rs) % 100 < lookup_positive_pct) {
+         if (random_next_uint64(rs) % 100 < lookup_positive_pct) {
             if (local_curr_op == op_granularity) {
                random_base = 0;
             } else {
                // positvie lookup by selecting random base
                // [op_granularity, local_curr_op)
-               random_base = ((PRG_step(rs) %
-                              (local_curr_op / op_granularity - 1)) + 1) *
-                              op_granularity;
+               random_base = ((random_next_uint64(rs) %
+                               (local_curr_op / op_granularity - 1)) +
+                              1) *
+                             op_granularity;
             }
          } else {
             if (local_curr_op >= total_ops[spl_idx] - op_granularity) {
                // one interval left,
                // may lookup the key never be inserted
-               random_base = (PRG_step(rs) / op_granularity) *
-                             op_granularity + local_curr_op;
+               random_base =
+                  (random_next_uint64(rs) / op_granularity) * op_granularity +
+                  local_curr_op;
             } else {
                // negative lookup by select random base
                // [local_curr_op + op_granularity, total_ops - op_granularity]
-               random_base = ((PRG_step(rs) %
-                              ((total_ops[spl_idx] - local_curr_op) /
-                              op_granularity - 1)) + 1) *
-                              op_granularity + local_curr_op;
+               random_base =
+                  ((random_next_uint64(rs) %
+                    ((total_ops[spl_idx] - local_curr_op) / op_granularity -
+                     1)) +
+                   1) *
+                     op_granularity +
+                  local_curr_op;
             }
          }
          base[spl_idx] = random_base;
@@ -663,9 +665,9 @@ test_splinter_insert_lookup_thread(void *arg)
    uint64 offsets[NUM_OP_TYPES];
    uint8  insert_done;
    uint64 num_ops = 0;
-   PRG rs;
+   random_state rs;
 
-   init_platform_hash_prg(&rs, seed, 0);
+   random_init(&rs, seed, 0);
 
    for (uint8 i = 0; i < NUM_OP_TYPES; i++) {
       bases[i] =  TYPED_ARRAY_ZALLOC(platform_get_heap_id(),
@@ -729,7 +731,6 @@ out:
    for (uint8 i = 0; i < NUM_OP_TYPES; i++) {
       platform_free(platform_get_heap_id(), bases[i]);
    }
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 
@@ -2706,6 +2707,7 @@ splinter_test(int argc, char *argv[])
    }
    platform_free(hid, caches);
    platform_free(hid, cc);
+   allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
    test_deinit_splinter(hid, ts);
 handle_deinit:

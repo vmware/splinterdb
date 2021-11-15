@@ -8,6 +8,7 @@
 #include "rc_allocator.h"
 #include "clockcache.h"
 #include "test.h"
+#include "random.h"
 
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -319,17 +320,17 @@ ycsb_thread(void *arg)
          ops->start_time = platform_get_timestamp();
          switch(ops->cmd) {
             case 'r': {
-                         rc = splinter_lookup(spl, ops->key,
-                               ops->value, &ops->found);
-                         platform_assert_status_ok(rc);
-                         //if (!ops->found) {
-                         //   char key_str[128];
-                         //   splinter_key_to_string(spl, ops->key, key_str);
-                         //   platform_log("Key %s not found\n", key_str);
-                         //   splinter_print_lookup(spl, ops->key);
-                         //   platform_assert(0);
-                         //}
-                         break;
+               char value[YCSB_DATA_SIZE];
+               rc = splinter_lookup(spl, ops->key, value, &ops->found);
+               platform_assert_status_ok(rc);
+               // if (!ops->found) {
+               //   char key_str[128];
+               //   splinter_key_to_string(spl, ops->key, key_str);
+               //   platform_log("Key %s not found\n", key_str);
+               //   splinter_print_lookup(spl, ops->key);
+               //   platform_assert(0);
+               //}
+               break;
                       }
             case 'd':
             case 'i':
@@ -398,7 +399,6 @@ ycsb_thread(void *arg)
       + end_thread_cputime.tv_nsec - SEC_TO_NSEC(start_thread_cputime.tv_sec)
       - start_thread_cputime.tv_nsec;
    __sync_fetch_and_add(&params->times.sum_of_cpu_times, thread_cputime);
-   task_clear_threadid(params->ts, platform_get_tid());
 }
 
 static int run_ycsb_phase(splinter_handle  *spl,
@@ -518,6 +518,7 @@ typedef struct parse_ycsb_log_req {
    uint64    end_line;
    uint64   *num_ops;
    ycsb_op **ycsb_ops;
+   uint64 *  max_range_len;
 } parse_ycsb_log_req;
 
 static void
@@ -527,6 +528,9 @@ parse_ycsb_log_file(void *arg)
    platform_heap_id hid = platform_get_heap_id();
    bool lock = req->lock;
    uint64 *num_ops = req->num_ops;
+
+   random_state rs;
+   random_init(&rs, req->start_line, 0);
 
    char *filename = req->filename;
    FILE *fp = fopen(filename, "r");
@@ -561,8 +565,7 @@ parse_ycsb_log_file(void *arg)
       platform_assert(ret > 0);
       data_handle *dh = (data_handle *)&result[i].value;
       dh->ref_count = 1;
-      ret = sscanf(buffer, "%c %64s\n", &result[i].cmd, result[i].key);
-      memmove(dh->data, buffer + 3 + YCSB_KEY_SIZE, YCSB_DATA_SIZE - 2);
+      ret = sscanf(buffer, "%c %64s", &result[i].cmd, result[i].key);
 
       platform_assert(ret == 2);
       if (result[i].cmd == 'r') {
@@ -572,13 +575,18 @@ parse_ycsb_log_file(void *arg)
          test_data_set_delete_flag(dh);
       } else if (result[i].cmd == 'u') {
          platform_assert(ret == 2);
+         random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
          test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 'i') {
          platform_assert(ret == 2);
+         random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
          test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 's') {
          ret = sscanf(buffer, "%c %64s %lu\n",
                &result[i].cmd, result[i].key, &result[i].range_len);
+         if (result[i].range_len > *req->max_range_len) {
+            *req->max_range_len = result[i].range_len;
+         }
          platform_assert(ret == 3);
       } else {
          platform_assert(0);
@@ -672,17 +680,17 @@ load_ycsb_logs(int          argc,
    }
    *memory_bytes_out = MiB_TO_B(strtoull(argv[5], NULL, 0));
 
-   char *resize_cgroup_command =
-      TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
-   platform_assert(resize_cgroup_command);
+   // char *resize_cgroup_command =
+   //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
+   // platform_assert(resize_cgroup_command);
 
-   uint64 load_bytes = *use_existing ? GiB_TO_B(128UL) : GiB_TO_B(128UL);
-   snprintf(resize_cgroup_command, 1024,
-         "echo %lu > /sys/fs/cgroup/memory/benchmark/memory.limit_in_bytes",
-         load_bytes);
-   int rc = system(resize_cgroup_command);
-   platform_assert(rc == 0);
-   platform_free(hid, resize_cgroup_command);
+   // uint64 load_bytes = *use_existing ? GiB_TO_B(128UL) : GiB_TO_B(128UL);
+   // snprintf(resize_cgroup_command, 1024,
+   //      "echo %lu > /sys/fs/cgroup/memory/benchmark/memory.limit_in_bytes",
+   //      load_bytes);
+   // int rc = system(resize_cgroup_command);
+   // platform_assert(rc == 0);
+   // platform_free(hid, resize_cgroup_command);
 
    ycsb_phase *phases = TYPED_ARRAY_MALLOC(hid, phases, _nphases);
    log_size_bytes += _nphases * sizeof(ycsb_phase);
@@ -703,17 +711,19 @@ load_ycsb_logs(int          argc,
    phases[0].measurement_command = measurement_command;
 
    uint64 start_line = 0;
+   uint64 max_range_len = 0;
    for (lognum = 0; lognum < num_threads; lognum++) {
       params[lognum].nthreads = 1;
       params[lognum].batch_size = batch_size;
       params[lognum].filename = trace_filename;
       parse_ycsb_log_req *req = TYPED_MALLOC(hid, req);
-      req->filename = params[lognum].filename;
+      req->filename             = trace_filename;
       req->lock = mlock_log;
       req->num_ops = &params[lognum].total_ops;
       req->ycsb_ops = &params[lognum].ycsb_ops;
       req->start_line = start_line;
       req->end_line = start_line + num_lines / num_threads;
+      req->max_range_len        = &max_range_len;
       if (lognum < num_lines % num_threads) {
          req->end_line++;
       }
@@ -734,6 +744,8 @@ load_ycsb_logs(int          argc,
          goto bad_params;
       }
    }
+   log_size_bytes +=
+      num_threads * max_range_len * (YCSB_KEY_SIZE + YCSB_DATA_SIZE);
 
    *log_size_bytes_out = log_size_bytes;
    *nphases = _nphases;
@@ -1110,15 +1122,34 @@ ycsb_test(int argc, char *argv[])
    rc = test_parse_args(splinter_cfg, data_cfg, &io_cfg, &allocator_cfg,
                         &cache_cfg, &log_cfg, &seed, config_argc, config_argv);
    if (!SUCCESS(rc)) {
-      platform_error_log("ycsb: failed to parse splinter_test.cfg: %s\n",
+      platform_error_log("ycsb: failed to parse config options: %s\n",
                          platform_status_to_string(rc));
       goto cleanup;
    }
 
-   uint64 overhead_bytes = memory_bytes / splinter_cfg->page_size * sizeof(uint32)
-                         + allocator_cfg.extent_capacity * sizeof(uint8)
-                         + allocator_cfg.page_capacity * sizeof(uint32);
-   uint64 buffer_bytes = use_existing ? MiB_TO_B(1024) : MiB_TO_B(1280);
+   if (data_cfg->message_size != YCSB_DATA_SIZE) {
+      rc = STATUS_BAD_PARAM;
+      platform_error_log("ycsb: data size configuration does not match\n");
+      goto cleanup;
+   }
+
+   if (data_cfg->key_size != YCSB_KEY_SIZE) {
+      rc = STATUS_BAD_PARAM;
+      platform_error_log("ycsb: key size configuration does not match\n");
+      goto cleanup;
+   }
+
+   uint64 overhead_bytes =
+      memory_bytes / splinter_cfg->page_size * (sizeof(clockcache_entry) + 64) +
+      allocator_cfg.extent_capacity * sizeof(uint8) +
+      allocator_cfg.page_capacity * sizeof(uint32);
+   uint64 buffer_bytes = MiB_TO_B(1024);
+   // if (memory_bytes > GiB_TO_B(40)) {
+   //   buffer_bytes = use_existing ? MiB_TO_B(2048) : MiB_TO_B(1280);
+   //} else {
+   //   buffer_bytes = use_existing ? MiB_TO_B(512) : MiB_TO_B(1280);
+   //}
+   // int64 buffer_bytes = use_existing ? MiB_TO_B(768) : MiB_TO_B(1280);
    buffer_bytes += overhead_bytes;
    buffer_bytes = ROUNDUP(buffer_bytes, 2 * MiB);
    platform_log("overhead %lu MiB buffer %lu MiB\n",
@@ -1131,32 +1162,32 @@ ycsb_test(int argc, char *argv[])
    platform_assert(cache_cfg.capacity % (2 * MiB) == 0);
    uint64 huge_tlb_memory_bytes = cache_cfg.capacity + al_size;
    platform_assert(huge_tlb_memory_bytes % (2 * MiB) == 0);
-   uint64 huge_tlb_pages = huge_tlb_memory_bytes / (2 * MiB);
-   uint64 remaining_memory_bytes =
-      memory_bytes + log_size_bytes - huge_tlb_memory_bytes;
+   // uint64 huge_tlb_pages = huge_tlb_memory_bytes / (2 * MiB);
+   // uint64 remaining_memory_bytes =
+   //   memory_bytes + log_size_bytes - huge_tlb_memory_bytes;
    platform_log("memory: %lu MiB hugeTLB: %lu MiB cache: %lu MiB\n",
          B_TO_MiB(memory_bytes), B_TO_MiB(huge_tlb_memory_bytes),
          B_TO_MiB(cache_cfg.capacity));
 
-   char *resize_cgroup_command =
-      TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
-   platform_assert(resize_cgroup_command);
-   snprintf(resize_cgroup_command, 1024,
-         "echo %lu > /sys/fs/cgroup/memory/benchmark/memory.limit_in_bytes",
-         remaining_memory_bytes);
-   int sys_rc = system(resize_cgroup_command);
-   platform_assert(sys_rc == 0);
-   platform_free(hid, resize_cgroup_command);
+   // char *resize_cgroup_command =
+   //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
+   // platform_assert(resize_cgroup_command);
+   // snprintf(resize_cgroup_command, 1024,
+   //      "echo %lu > /sys/fs/cgroup/memory/benchmark/memory.limit_in_bytes",
+   //      remaining_memory_bytes);
+   // int sys_rc = system(resize_cgroup_command);
+   // platform_assert(sys_rc == 0);
+   // platform_free(hid, resize_cgroup_command);
 
-   char *resize_hugetlb_command =
-      TYPED_ARRAY_MALLOC(hid, resize_hugetlb_command, 1024);
-   platform_assert(resize_hugetlb_command);
-   snprintf(resize_hugetlb_command, 1024,
-         "echo %lu > /proc/sys/vm/nr_hugepages",
-         huge_tlb_pages);
-   sys_rc = system(resize_hugetlb_command);
-   platform_assert(sys_rc == 0);
-   platform_free(hid, resize_hugetlb_command);
+   // char *resize_hugetlb_command =
+   //   TYPED_ARRAY_MALLOC(hid, resize_hugetlb_command, 1024);
+   // platform_assert(resize_hugetlb_command);
+   // snprintf(resize_hugetlb_command, 1024,
+   //      "echo %lu > /proc/sys/vm/nr_hugepages",
+   //      huge_tlb_pages);
+   // int sys_rc = system(resize_hugetlb_command);
+   // platform_assert(sys_rc == 0);
+   // platform_free(hid, resize_hugetlb_command);
 
    if (data_cfg->message_size != YCSB_DATA_SIZE) {
       platform_error_log("ycsb: data size configuration does not match\n");
@@ -1220,13 +1251,13 @@ ycsb_test(int argc, char *argv[])
    test_deinit_splinter(hid, ts);
    rc = STATUS_OK;
 
-   struct rusage usage;
-   sys_rc = getrusage(RUSAGE_SELF, &usage);
-   platform_assert(sys_rc == 0);
-   platform_log("max memory usage:             %8luMiB\n",
-         B_TO_MiB(usage.ru_maxrss * KiB));
-   platform_log("over provision for op buffer: %8luMiB\n",
-         B_TO_MiB(usage.ru_maxrss * KiB - log_size_bytes));
+   // struct rusage usage;
+   // sys_rc = getrusage(RUSAGE_SELF, &usage);
+   // platform_assert(sys_rc == 0);
+   // platform_log("max memory usage:             %8luMiB\n",
+   //      B_TO_MiB(usage.ru_maxrss * KiB));
+   // platform_log("over provision for op buffer: %8luMiB\n",
+   //      B_TO_MiB(usage.ru_maxrss * KiB - log_size_bytes));
 
    compute_all_report_data(phases, nphases);
    write_all_reports(phases, nphases);
