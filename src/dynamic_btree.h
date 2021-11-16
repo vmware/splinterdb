@@ -176,10 +176,10 @@ dynamic_btree_ctxt_init(dynamic_btree_async_ctxt *ctxt, // OUT
 }
 
 uint64
-dynamic_btree_init(cache              *cc,
-           const dynamic_btree_config *cfg,
-           mini_allocator             *mini,
-           page_type                   type);
+dynamic_btree_init(cache                      *cc,
+                   const dynamic_btree_config *cfg,
+                   mini_allocator             *mini,
+                   page_type                   type);
 
 bool
 dynamic_btree_should_zap_dec_ref(cache              *cc,

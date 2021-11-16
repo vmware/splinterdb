@@ -980,7 +980,7 @@ dynamic_btree_alloc(cache *               cc,
                     page_type             type,
                     dynamic_btree_node *  node)
 {
-   node->addr = mini_allocator_alloc(mini, height, key, next_extent);
+   node->addr = mini_alloc(mini, height, key, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
    node->hdr  = (dynamic_btree_hdr *)(node->page->data);
@@ -1135,7 +1135,7 @@ dynamic_btree_init(cache                      *cc,
    // maintain constant height
    allocator *     al   = cache_allocator(cc);
    uint64          base_addr;
-   platform_status rc = allocator_alloc_extent(al, &base_addr);
+   platform_status rc = allocator_alloc(al, &base_addr, type);
    platform_assert_status_ok(rc);
    page_handle *root_page = cache_alloc(cc, base_addr, type);
 
@@ -1156,78 +1156,25 @@ dynamic_btree_init(cache                      *cc,
    cache_unget(cc, root_page);
 
    // set up the mini allocator
-   mini_allocator_init(mini, cc, cfg->data_cfg, root.addr + cfg->page_size, 0,
-                       DYNAMIC_BTREE_MAX_HEIGHT, type);
+   mini_init(mini, cc, cfg->data_cfg, root.addr + cfg->page_size, 0,
+             DYNAMIC_BTREE_MAX_HEIGHT, type, type == PAGE_TYPE_BRANCH);
 
    return root.addr;
 }
 
-/*
- * By separating should_zap and zap, this allows us to use a single
- * refcount to control multiple b-trees.  For example a branch
- * in splinter that has a point tree and range-delete tree
- */
-bool
-dynamic_btree_should_zap_dec_ref(cache              *cc,
-                         const dynamic_btree_config *cfg,
-                         uint64                      root_addr,
-                         page_type                   type)
-{
-   // FIXME: [yfogel 2020-07-06] Should we assert that both cfgs provide
-   //       work the same w.r.t. root_to_meta_addr?
-   //       Right now we're always passing in the point config
-   uint64       meta_page_addr = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
-   page_handle *meta_page;
-   uint64       wait = 1;
-
-   debug_assert(type == PAGE_TYPE_MEMTABLE || type == PAGE_TYPE_BRANCH);
-   while (1) {
-      meta_page = cache_get(cc, meta_page_addr, TRUE, type);
-      if (cache_claim(cc, meta_page))
-         break;
-      cache_unget(cc, meta_page);
-      platform_sleep(wait);
-      wait *= 2;
-   }
-   cache_lock(cc, meta_page);
-
-   // ALEX: We don't hold the root lock, but we only dealloc from here
-   // so there shouldn't be a race between this refcount check and the
-   // dealloc
-   uint64 ref = cache_get_ref(cc, root_addr);
-   //if (ref != 2)
-   //   platform_log("dec_ref %lu; %u\n", root_addr, ref - 1);
-   //else
-   //   platform_log("dec_ref %lu; %u\n", root_addr, 0);
-
-   bool should_zap;
-   if (ref > 2) {
-      cache_dealloc(cc, root_addr, type);
-      should_zap = FALSE;
-   } else {
-      // we are responsible for zapping the whole tree
-      // If we're talking about a branch we should zap the whole branch
-      should_zap = TRUE;
-   }
-   cache_unlock(cc, meta_page);
-   cache_unclaim(cc, meta_page);
-   cache_unget(cc, meta_page);
-   return should_zap;
-}
-
 void
-dynamic_btree_inc_range(cache              *cc,
-                const dynamic_btree_config *cfg,
-                uint64                      root_addr,
-                const slice                 start_key,
-                const slice                 end_key)
+dynamic_btree_inc_range(cache                      *cc,
+                        const dynamic_btree_config *cfg,
+                        uint64                      root_addr,
+                        const slice                 start_key,
+                        const slice                 end_key)
 {
    uint64 meta_page_addr = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
    if (!slice_is_null(start_key) && !slice_is_null(end_key)) {
       debug_assert(dynamic_btree_key_compare(cfg, start_key, end_key) < 0);
    }
-   mini_allocator_inc_range(cc, cfg->data_cfg, PAGE_TYPE_BRANCH,
-                            meta_page_addr, start_key, end_key);
+   mini_keyed_inc_ref(cc, cfg->data_cfg, PAGE_TYPE_BRANCH,
+                       meta_page_addr, start_key, end_key);
 }
 
 bool
@@ -1238,17 +1185,16 @@ dynamic_btree_zap_range(cache              *cc,
                 const slice                 end_key,
                 page_type                   type)
 {
-   debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
-   debug_assert(type == PAGE_TYPE_BRANCH || slice_is_null(start_key));
+   debug_assert(type == PAGE_TYPE_BRANCH);
 
    if (!slice_is_null(start_key) && !slice_is_null(end_key)) {
       platform_assert(dynamic_btree_key_compare(cfg, start_key, end_key) < 0);
    }
 
    uint64 meta_page_addr = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
-   bool fully_zapped = mini_allocator_zap(cc, cfg->data_cfg, meta_page_addr,
-                                          start_key, end_key, type);
-   return fully_zapped;
+   return mini_keyed_dec_ref(cc, cfg->data_cfg, PAGE_TYPE_BRANCH,
+                             meta_page_addr,
+                             start_key, end_key);
 }
 
 bool dynamic_btree_zap(cache              *cc,
@@ -1256,42 +1202,25 @@ bool dynamic_btree_zap(cache              *cc,
                uint64                      root_addr,
                page_type                   type)
 {
-   return dynamic_btree_zap_range(cc, cfg, root_addr, null_slice, null_slice, type);
-}
-
-page_handle *
-dynamic_btree_blind_inc(cache        *cc,
-                dynamic_btree_config *cfg,
-                uint64                root_addr,
-                page_type             type)
-{
-   //platform_log("(%2lu)blind inc %14lu\n", platform_get_tid(), root_addr);
-   uint64 meta_page_addr = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
-   return mini_allocator_blind_inc(cc, meta_page_addr);
+   platform_assert(type == PAGE_TYPE_MEMTABLE);
+   uint64 meta_head = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
+   uint8 ref = mini_unkeyed_dec_ref(cc, meta_head, type);
+   return ref == 0;
 }
 
 void
-dynamic_btree_blind_zap(cache              *cc,
-                const dynamic_btree_config *cfg,
-                page_handle                *meta_page,
-                page_type                   type)
+dynamic_btree_block_dec_ref(cache *cc, dynamic_btree_config *cfg, uint64 root_addr)
 {
-   //platform_log("(%2lu)blind zap %14lu\n", platform_get_tid(), root_addr);
-   mini_allocator_blind_zap(cc, type, meta_page);
+   uint64 meta_head = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
+   mini_block_dec_ref(cc, meta_head);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+void
+dynamic_btree_unblock_dec_ref(cache *cc, dynamic_btree_config *cfg, uint64 root_addr)
+{
+   uint64 meta_head = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
+   mini_unblock_dec_ref(cc, meta_head);
+}
 
 /**********************************************************************
  * The process of splitting a child is divided into five steps in
@@ -2874,7 +2803,7 @@ dynamic_btree_pack_post_loop(dynamic_btree_pack_internal *tree)
       dynamic_btree_node_full_unlock(cc, cfg, &tree->edge[i]);
    }
 
-   mini_allocator_release(&tree->mini, data_key_positive_infinity);
+   mini_release(&tree->mini, data_key_positive_infinity);
 
    // if output tree is empty, zap the tree
    if (*(tree->num_tuples) == 0) {
@@ -3168,8 +3097,9 @@ dynamic_btree_space_use_in_range(cache        *cc,
                          const slice           end_key)
 {
    uint64 meta_head = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
-   uint64 extents_used = mini_allocator_count_extents_in_range(cc,
-         cfg->data_cfg, type, meta_head, start_key, end_key);
+   uint64 extents_used = mini_keyed_extent_count(cc,
+                                                 cfg->data_cfg, type, meta_head,
+                                                 start_key, end_key);
    return extents_used * cfg->extent_size;
 }
 
@@ -3349,15 +3279,6 @@ dynamic_btree_print_lookup(cache                *cc, // IN
    int64 idx = dynamic_btree_find_tuple(cfg, node.hdr, key, &found);
    platform_log("Matching index: %lu (%d) of %u\n", idx, found, node.hdr->num_entries);
    dynamic_btree_node_unget(cc, cfg, &node);
-}
-
-uint64
-dynamic_btree_extent_count(cache        *cc,
-                   dynamic_btree_config *cfg,
-                   uint64        root_addr)
-{
-   uint64 meta_head = dynamic_btree_root_to_meta_addr(cfg, root_addr, 0);
-   return mini_allocator_extent_count(cc, PAGE_TYPE_BRANCH, meta_head);
 }
 
 /*

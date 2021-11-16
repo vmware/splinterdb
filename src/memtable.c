@@ -274,7 +274,7 @@ void
 memtable_deinit(cache            *cc,
                 memtable         *mt)
 {
-   mini_release(&mt->mini, NULL);
+   mini_release(&mt->mini, null_slice);
    debug_only bool freed =
       btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);
