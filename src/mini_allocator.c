@@ -104,6 +104,7 @@ mini_init_meta_page(mini_allocator *mini, page_handle *meta_page)
    mini_meta_hdr *hdr  = (mini_meta_hdr *)meta_page->data;
    hdr->next_meta_addr = 0;
    hdr->pos            = offsetof(typeof(*hdr), entries);
+   hdr->num_entries    = 0;
 }
 
 /*
