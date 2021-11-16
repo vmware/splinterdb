@@ -6,6 +6,15 @@
  *
  *     This file contains the implementation of external kvstore interfaces
  *     based on splinterdb
+ *
+ *     Note: despite the name, the current API is centered around
+ *     keys & _messages_, not keys & values.
+ *
+ *     The user must provide a data_config that encodes
+ *     values into messages.
+ *
+ *     For simple use cases, start with kvstore_basic, which provides
+ *     a key-value abstraction.
  */
 
 #include "platform.h"
@@ -390,15 +399,15 @@ kvstore_deregister_thread(kvstore *kvs)
  */
 
 int
-kvstore_insert(const kvstore *kvs,  // IN
-               char *         key,  // IN
-               char *         value // IN
+kvstore_insert(const kvstore *kvs,    // IN
+               char *         key,    // IN
+               char *         message // IN
 )
 {
    platform_status status;
 
    platform_assert(kvs != NULL);
-   status = splinter_insert(kvs->spl, key, value);
+   status = splinter_insert(kvs->spl, key, message);
    return platform_status_to_int(status);
 }
 
@@ -420,16 +429,16 @@ kvstore_insert(const kvstore *kvs,  // IN
  */
 
 int
-kvstore_lookup(const kvstore *kvs,   // IN
-               char *         key,   // IN
-               char *         value, // OUT
-               bool *         found  // OUT
+kvstore_lookup(const kvstore *kvs,     // IN
+               char *         key,     // IN
+               char *         message, // OUT
+               bool *         found    // OUT
 )
 {
    platform_status status;
 
    platform_assert(kvs != NULL);
-   status = splinter_lookup(kvs->spl, key, value, found);
+   status = splinter_lookup(kvs->spl, key, message, found);
    return platform_status_to_int(status);
 }
 

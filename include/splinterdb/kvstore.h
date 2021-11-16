@@ -6,11 +6,15 @@
  *
  *     This file contains the external kvstore interfaces
  *     based on splinterdb.
+ *
+ *     Note: despite the name, the current API is centered around
+ *     keys & _messages_, not keys & values.
+ *
  *     The user must provide a data_config that encodes
- *     values and message-types.
+ *     values into messages.
  *
- *     For simple use cases, start with kvstore_basic
- *
+ *     For simple use cases, start with kvstore_basic, which provides
+ *     a key-value abstraction.
  */
 
 #ifndef _KVSTORE_H_
