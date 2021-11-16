@@ -151,9 +151,9 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
 {
    platform_status rc;
 
-   debug_assert(!slices_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+   debug_assert(!slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
    if (merge_itor->has_data) {
-      debug_assert(!slices_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
+      debug_assert(!slices_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
@@ -235,7 +235,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 {
    debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
    debug_assert(slice_data(merge_itor->data) != merge_itor->merge_buffer);
-   debug_assert(slices_physically_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+   debug_assert(slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
    data_config *cfg = merge_itor->cfg;
 
@@ -267,7 +267,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
        * iterator is advanced
        */
       merge_itor->key = merge_itor->ordered_iterators[1]->key;
-      debug_assert(!slices_physically_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
+      debug_assert(!slices_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
       platform_status rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;

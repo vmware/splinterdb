@@ -98,7 +98,7 @@ static inline void slice_copy_contents(slice *dst, const slice src)
   dst->length = src.length;
 }
 
-static inline bool slices_physically_equal(const slice a, const slice b)
+static inline bool slices_equal(const slice a, const slice b)
 {
   return a.length == b.length && a.data == b.data;
 }
