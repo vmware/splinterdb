@@ -13,5 +13,6 @@
 
 #define MAX_KEY_SIZE     24
 #define MAX_MESSAGE_SIZE 128
+#define MAX_KEY_STR_LEN  128
 
 #endif // __LIMITS_H__

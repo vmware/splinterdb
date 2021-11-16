@@ -207,11 +207,10 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
                                memtable         *mt)
 {
    cache *cc = ctxt->cc;
-   bool should_zap =
-      btree_should_zap_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
-   if (should_zap) {
+
+   bool freed = btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   if (freed) {
       platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
-      btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
       mt->root_addr = btree_init(cc, mt->cfg, &mt->mini, FALSE);
       memtable_lock_incorporation_lock(ctxt);
       mt->generation += ctxt->cfg.max_memtables;
@@ -221,7 +220,7 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
       memtable_transition(mt, MEMTABLE_STATE_INCORPORATED,
                               MEMTABLE_STATE_READY);
    }
-   return should_zap;
+   return freed;
 }
 
 uint64
@@ -275,10 +274,10 @@ void
 memtable_deinit(cache            *cc,
                 memtable         *mt)
 {
-   __attribute__ ((unused)) bool should_zap =
-      btree_should_zap_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
-   debug_assert(should_zap);
-   btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   mini_release(&mt->mini, NULL);
+   debug_only bool freed =
+      btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   debug_assert(freed);
 }
 
 memtable_context *
@@ -295,7 +294,7 @@ memtable_context_create(platform_heap_id  hid,
 
    uint64          base_addr;
    allocator *     al = cache_allocator(cc);
-   platform_status rc = allocator_alloc_extent(al, &base_addr);
+   platform_status rc = allocator_alloc(al, &base_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert_status_ok(rc);
 
    ctxt->insert_lock_addr = base_addr;
@@ -349,7 +348,14 @@ memtable_context_destroy(platform_heap_id  hid,
     * lookup lock and insert lock share extents but not pages.
     * this deallocs both.
     */
-   cache_dealloc(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   allocator *al = cache_allocator(cc);
+   uint8      ref =
+      allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   platform_assert(ref == AL_NO_REFS);
+   cache_hard_evict_extent(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   ref = allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   platform_assert(ref == AL_FREE);
+
    platform_free(hid, ctxt);
 }
 

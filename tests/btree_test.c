@@ -710,7 +710,8 @@ test_btree_basic(cache             *cc,
 
    btree_print_tree_stats(cc, btree_cfg, packed_root_addr);
 
-   btree_zap(cc, btree_cfg, packed_root_addr, PAGE_TYPE_BRANCH);
+   btree_zap_range(
+      cc, btree_cfg, packed_root_addr, NULL, NULL, PAGE_TYPE_BRANCH);
 
 destroy_btree:
    if (SUCCESS(rc))
@@ -905,8 +906,10 @@ test_btree_merge_basic(cache             *cc,
 
 destroy_btrees:
    for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-      btree_zap(cc, btree_cfg, root_addr[tree_no], PAGE_TYPE_BRANCH);
-      btree_zap(cc, btree_cfg, output_addr[tree_no], PAGE_TYPE_BRANCH);
+      btree_zap_range(
+         cc, btree_cfg, root_addr[tree_no], NULL, NULL, PAGE_TYPE_BRANCH);
+      btree_zap_range(
+         cc, btree_cfg, output_addr[tree_no], NULL, NULL, PAGE_TYPE_BRANCH);
    }
    if (SUCCESS(rc)) {
       platform_log("btree_test: btree merge test succeeded\n");
@@ -966,7 +969,7 @@ test_btree_count_in_range(cache             *cc,
    }
 
 destroy_btree:
-   btree_zap(cc, btree_cfg, root_addr, PAGE_TYPE_BRANCH);
+   btree_zap_range(cc, btree_cfg, root_addr, NULL, NULL, PAGE_TYPE_BRANCH);
 
    platform_free(hid, bound_key);
    if (SUCCESS(rc))

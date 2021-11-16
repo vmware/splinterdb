@@ -241,12 +241,6 @@ btree_zap(cache        *cc,
           uint64        root_addr,
           page_type     type);
 
-bool
-btree_should_zap_dec_ref(cache        *cc,
-                         btree_config *cfg,
-                         uint64        root_addr,
-                         page_type     type);
-
 void
 btree_inc_range(cache        *cc,
                 btree_config *cfg,
@@ -254,17 +248,11 @@ btree_inc_range(cache        *cc,
                 const char   *start_key,
                 const char   *end_key);
 
-page_handle *
-btree_blind_inc(cache        *cc,
-                btree_config *cfg,
-                uint64        root_addr,
-                page_type     type);
+void
+btree_block_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
 
 void
-btree_blind_zap(cache        *cc,
-                btree_config *cfg,
-                page_handle  *meta_page,
-                page_type     type);
+btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
 
 void
 btree_iterator_init(cache *         cc,
@@ -370,11 +358,6 @@ btree_verify_tree(cache *cc,
                   btree_config *cfg,
                   uint64 addr,
                   page_type type);
-
-uint64
-btree_extent_count(cache        *cc,
-                   btree_config *cfg,
-                   uint64        root_addr);
 
 uint64
 btree_space_use_in_range(cache        *cc,
