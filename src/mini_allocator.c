@@ -351,7 +351,7 @@ mini_keyed_append_entry(mini_allocator *mini,
                         uint64          extent_addr,
                         const slice     start_key)
 {
-   debug_assert(mini->keyed);
+   //debug_assert(mini->keyed);
    debug_assert(batch < mini->num_batches);
    //debug_assert(!slice_is_null(start_key));
    debug_assert(extent_addr != 0);
