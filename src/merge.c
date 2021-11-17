@@ -628,7 +628,7 @@ merge_iterator_print(merge_iterator *merge_itor)
    char key_str[MAX_KEY_SIZE];
    data_config *data_cfg = merge_itor->cfg;
    iterator_get_curr(&merge_itor->super, &key, &data);
-   data_key_to_string(data_cfg, key, key_str, 32);
+   data_key_to_string(data_cfg, key, key_str, MAX_KEY_SIZE);
 
    platform_log("****************************************\n");
    platform_log("** merge iterator\n");
@@ -645,7 +645,7 @@ merge_iterator_print(merge_iterator *merge_itor)
          platform_log("_ : ");
       if (i < merge_itor->num_remaining) {
          iterator_get_curr(merge_itor->ordered_iterators[i]->itor, &key, &data);
-         data_key_to_string(data_cfg, key, key_str, 32);
+         data_key_to_string(data_cfg, key, key_str, MAX_KEY_SIZE);
          platform_log("%s\n", key_str);
       } else {
          platform_log("\n");

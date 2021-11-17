@@ -436,7 +436,6 @@ int main(int argc, char **argv)
   io_config             io_cfg;
   rc_allocator_config   allocator_cfg;
   clockcache_config     cache_cfg;
-  uint64                seed;
   dynamic_btree_scratch test_scratch;
   dynamic_btree_config  dbtree_cfg;
 
@@ -452,7 +451,6 @@ int main(int argc, char **argv)
     platform_log("Failed to parse args\n");
     return -1;
   }
-  seed = master_cfg.seed;
 
   // Create a heap for io, allocator, cache and splinter
   platform_heap_handle hh;
