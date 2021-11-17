@@ -1580,7 +1580,7 @@ clockcache_try_evict(clockcache *cc,
    /*--------------------------------------------evict DRAM page to PMEM cache--------------------------- */
 
 
-
+#ifdef DRAM_CACHE
    if(cc->volatile_cache == NULL){
       clockcache* src_cc = cc;
       clockcache* dest_cc = cc->persistent_cache;
@@ -1646,7 +1646,7 @@ clockcache_try_evict(clockcache *cc,
       goto release_ref;
    }
 
-
+#endif
 
    /*--------------------------------------- end of DRAM->PMEM cache eviction------------------------------------*/
 
@@ -2112,6 +2112,7 @@ clockcache_init(clockcache           *cc,     // OUT
    }
    cc->ts = ts;
 
+#ifdef DRAM_CACHE
    if(pmemcache){
       pmemcache = FALSE;
       clockcache *vcc = TYPED_ARRAY_MALLOC(hid, vcc, 1);
@@ -2136,7 +2137,9 @@ clockcache_init(clockcache           *cc,     // OUT
    else{
       cc->volatile_cache = NULL;
    }
-
+#else
+   cc->volatile_cache = NULL;
+#endif
 
    return STATUS_OK;
 
@@ -2190,7 +2193,8 @@ page_handle *
 clockcache_alloc(clockcache *cache, uint64 addr, page_type type)
 {
    clockcache *cc = cache;
-   cc = cache->volatile_cache;
+   if(cache->volatile_cache != NULL)
+      cc = cache->volatile_cache;
    
    //if(type == PAGE_TYPE_LOG)
 	   //cc = cc->persistent_cache;
@@ -2296,9 +2300,10 @@ clockcache_try_dealloc_page(clockcache *cache,
                             uint64      addr)
 {
    const threadid tid = platform_get_tid();
-   clockcache *vcc = cache->volatile_cache;
-   clockcache *pcc;
+   clockcache *pcc = cache;
    clockcache *cc;
+#ifdef DRAM_CACHE
+   clockcache *vcc = cache->volatile_cache;
    if(vcc == NULL){
       pcc = cache->persistent_cache;
       vcc = cache;
@@ -2308,9 +2313,11 @@ clockcache_try_dealloc_page(clockcache *cache,
    }
    debug_assert(vcc!=NULL);
    debug_assert(pcc!=NULL);
+ #endif
 
    while (TRUE) {
       uint32 entry_number = clockcache_lookup(pcc, addr);
+#ifdef DRAM_CACHE
       if ((entry_number == CC_UNMAPPED_ENTRY) 
          ||(clockcache_test_shadow(pcc, entry_number, CC_SHADOW))){
 	 entry_number = clockcache_lookup(vcc, addr);
@@ -2325,6 +2332,15 @@ clockcache_try_dealloc_page(clockcache *cache,
       }
       else
          cc = pcc;
+ #else
+   if (entry_number == CC_UNMAPPED_ENTRY) {
+      clockcache_log(addr, entry_number,
+	    "dealloc (uncached): entry %u addr %lu\n", entry_number, addr);
+      return;
+   }
+   else 
+      cc = pcc;
+ #endif
 
       /*
        * in cache, so evict:
@@ -2538,7 +2554,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
     * both entry_numbers are CC_UNMMAPPED_ENTRY,
     * we should now go do page in. */
 
-
+#ifdef DRAM_CACHE
    if(entry_number == CC_UNMAPPED_ENTRY){
       clockcache *another_cc;
       if (cc->persistent_cache != NULL)
@@ -2563,7 +2579,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
       cc = another_cc;
       }
    }
-
+#endif
 
 
 
@@ -2684,7 +2700,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
    }
 
 
-
+#ifdef DRAM_CACHE
    clockcache *another_cc;
    if (cc->persistent_cache != NULL)
       another_cc = cc->persistent_cache;
@@ -2707,7 +2723,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
       return FALSE;
    }
    }
-
+#endif
 
    status = io_read(cc->io, entry->page.data, cc->cfg->page_size, addr);
    platform_assert_status_ok(status);
@@ -3655,9 +3671,10 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
    debug_assert(base_addr % cache->cfg->extent_size == 0);
 
 
-   clockcache *vcc = cache->volatile_cache;
-   clockcache *pcc;
+   clockcache *pcc = cache;
    clockcache *cc;
+#ifdef DRAM_CACHE
+   clockcache *vcc = cache->volatile_cache;
    if(vcc == NULL){
       pcc = cache->persistent_cache;
       vcc = cache;
@@ -3667,6 +3684,7 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
    }
    debug_assert(vcc!=NULL);
    debug_assert(pcc!=NULL);
+#endif
 
    for (uint64 page_off = 0; page_off < pages_per_extent; page_off++) {
       uint64 addr = base_addr + clockcache_multiply_by_page_size(cache, page_off);
@@ -3678,8 +3696,13 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
       if ((entry_no != CC_UNMAPPED_ENTRY)
          &&(!clockcache_test_shadow(pcc, entry_no, CC_SHADOW))) {
          get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE);
-      } else {
+      }
+      else {
          get_read_rc = GET_RC_EVICTED;
+      }
+#ifdef DRAM_CACHE 
+      if ((entry_no == CC_UNMAPPED_ENTRY)
+	 ||(clockcache_test_shadow(pcc, entry_no, CC_SHADOW))) {
 	 cc = vcc;
 //	 cc = cache;
       }
@@ -3697,6 +3720,7 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
          }
 	 assert(cc->volatile_cache == NULL);
       }
+#endif
 
 
       switch (get_read_rc) {
@@ -4223,6 +4247,7 @@ clockcache_get_volatile_cache(clockcache *cc)
 bool
 clockcache_if_volatile_addr(clockcache *cc, uint64 addr)
 {
+#ifdef DRAM_CACHE
    clockcache* vcc = cc->volatile_cache;
    clockcache* pcc;
 
@@ -4257,12 +4282,15 @@ clockcache_if_volatile_addr(clockcache *cc, uint64 addr)
    {
       return FALSE;
    }
-   assert(0);
+#else
+   return FALSE;
+#endif
 }
 
 cache*
 clockcache_get_addr_cache(clockcache *cc, uint64 addr)
 {
+#ifdef DRAM_CACHE
    clockcache* vcc = cc->volatile_cache;
    clockcache* pcc;
 
@@ -4301,7 +4329,9 @@ clockcache_get_addr_cache(clockcache *cc, uint64 addr)
       cache_ptr = (cache*)cc;
    assert(cache_ptr != NULL);
    return cache_ptr;
-   assert(0);
+#else
+   return (cache*)cc;
+#endif
 }
 
 
