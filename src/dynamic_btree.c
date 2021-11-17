@@ -73,10 +73,12 @@ dynamic_btree_height(const dynamic_btree_hdr   *hdr)
    return hdr->height;
 }
 
-static inline table_entry *
-dynamic_btree_get_table(dynamic_btree_hdr   *hdr)
+static inline table_entry
+dynamic_btree_get_table_entry(dynamic_btree_hdr   *hdr,
+                              int                  i)
 {
-   return hdr->offsets;
+  debug_assert(i < hdr->num_entries);
+  return hdr->offsets[i];
 }
 
 static inline entry_index
@@ -2892,8 +2894,6 @@ dynamic_btree_count_in_range(cache                *cc,
    uint32 min_kv_rank;
    uint32 min_key_bytes_rank;
    uint32 min_message_bytes_rank;
-   dynamic_btree_node root;
-   root.addr = root_addr;
 
    dynamic_btree_get_rank(cc, cfg, root_addr, min_key, &min_kv_rank, &min_key_bytes_rank, &min_message_bytes_rank);
    dynamic_btree_get_rank(cc, cfg, root_addr, max_key, kv_rank, key_bytes_rank, message_bytes_rank);
@@ -2977,10 +2977,9 @@ dynamic_btree_print_locked_node(dynamic_btree_config   *cfg,
       platform_log_stream("**  next_entry: %u \n", hdr->next_entry);
       platform_log_stream("**  num_entries: %u \n", dynamic_btree_num_entries(hdr));
       platform_log_stream("-------------------\n");
-      table_entry *table = dynamic_btree_get_table(hdr);
       platform_log_stream("Table\n");
       for (uint64 i = 0; i < hdr->num_entries; i++)
-        platform_log_stream("  %lu:%u\n", i, table[i]);
+        platform_log_stream("  %lu:%u\n", i, dynamic_btree_get_table_entry(hdr, i));
       platform_log_stream("\n");
       platform_log_stream("-------------------\n");
       for (uint64 i = 0; i < dynamic_btree_num_entries(hdr); i++) {
@@ -3001,9 +3000,8 @@ dynamic_btree_print_locked_node(dynamic_btree_config   *cfg,
       platform_log_stream("**  next_entry: %u \n", hdr->next_entry);
       platform_log_stream("**  num_entries: %u \n", dynamic_btree_num_entries(hdr));
       platform_log_stream("-------------------\n");
-      table_entry *table = dynamic_btree_get_table(hdr);
       for (uint64 i = 0; i < dynamic_btree_num_entries(hdr); i++)
-        platform_log_stream("%lu:%u ", i, table[i]);
+        platform_log_stream("%lu:%u ", i, dynamic_btree_get_table_entry(hdr, i));
       platform_log_stream("\n");
       platform_log_stream("-------------------\n");
       for (uint64 i = 0; i < dynamic_btree_num_entries(hdr); i++) {
