@@ -2631,7 +2631,7 @@ btree_space_use_in_range(cache        *cc,
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    slice  bstart_key =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
-                 : null_slice;
+                : null_slice;
    slice bend_key = end_key
                        ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
                        : null_slice;
