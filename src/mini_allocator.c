@@ -44,43 +44,58 @@ typedef struct PACKED mini_meta_hdr {
 
 #define MAX_INLINE_KEY_SIZE (256)
 
-typedef struct PACKED meta_entry {
+typedef struct PACKED keyed_meta_entry {
    uint64 extent_addr;
    uint16 start_key_length;
    uint16 end_key_length;
    char   end_key[MAX_INLINE_KEY_SIZE];
    char   start_key[];
-} meta_entry;
+} keyed_meta_entry;
 
-static uint64 sizeof_meta_entry(const meta_entry *entry)
+static uint64 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
 {
-  return sizeof(meta_entry) + entry->start_key_length;
+  return sizeof(keyed_meta_entry) + entry->start_key_length;
 }
 
-static uint64 meta_entry_size(slice key)
+static uint64 keyed_meta_entry_size(slice key)
 {
-  return sizeof(meta_entry) + slice_length(key);
+  return sizeof(keyed_meta_entry) + slice_length(key);
 }
 
-static slice meta_entry_start_key(meta_entry *entry)
+static slice keyed_meta_entry_start_key(keyed_meta_entry *entry)
 {
   return slice_create(entry->start_key_length, entry->start_key);
 }
 
-static slice meta_entry_end_key(meta_entry *entry)
+static slice keyed_meta_entry_end_key(keyed_meta_entry *entry)
 {
   return slice_create(entry->end_key_length, entry->end_key);
 }
 
-static meta_entry *first_entry(page_handle *meta_page)
+static keyed_meta_entry *keyed_first_entry(page_handle *meta_page)
 {
-  return (meta_entry *)((mini_meta_hdr *)meta_page->data)->entries;
+  return (keyed_meta_entry *)((mini_meta_hdr *)meta_page->data)->entries;
 }
 
-static meta_entry *next_entry(meta_entry *entry)
+static keyed_meta_entry *keyed_next_entry(keyed_meta_entry *entry)
 {
-  return (meta_entry *)((char *)entry + sizeof_meta_entry(entry));
+  return (keyed_meta_entry *)((char *)entry + sizeof_keyed_meta_entry(entry));
 }
+
+typedef struct PACKED unkeyed_meta_entry {
+   uint64 extent_addr;
+} unkeyed_meta_entry;
+
+static unkeyed_meta_entry *unkeyed_first_entry(page_handle *meta_page)
+{
+  return (unkeyed_meta_entry *)((mini_meta_hdr *)meta_page->data)->entries;
+}
+
+static unkeyed_meta_entry *unkeyed_next_entry(unkeyed_meta_entry *entry)
+{
+  return entry + 1;
+}
+
 
 /*
  *-----------------------------------------------------------------------------
@@ -361,10 +376,10 @@ mini_keyed_append_entry(mini_allocator *mini,
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
-   if (cache_page_size(mini->cc) < hdr->pos + meta_entry_size(start_key))
+   if (cache_page_size(mini->cc) < hdr->pos + keyed_meta_entry_size(start_key))
      return FALSE;
 
-   meta_entry *new_entry = (meta_entry *)((char *)hdr + hdr->pos);
+   keyed_meta_entry *new_entry = (keyed_meta_entry *)((char *)hdr + hdr->pos);
 
    new_entry->extent_addr = extent_addr;
    new_entry->end_key_length = 0;
@@ -375,7 +390,7 @@ mini_keyed_append_entry(mini_allocator *mini,
    mini->last_meta_addr[batch] = meta_page->disk_addr;
    mini->last_meta_pos[batch]  = hdr->pos;
 
-   hdr->pos += meta_entry_size(start_key);
+   hdr->pos += keyed_meta_entry_size(start_key);
    hdr->num_entries++;
    return TRUE;
 }
@@ -407,7 +422,7 @@ mini_keyed_set_last_end_key(mini_allocator *mini,
 
    uint64 pos = mini->last_meta_pos[batch];
    debug_assert(pos < last_hdr->pos);
-   meta_entry *old_entry = (meta_entry *)((char *)last_hdr + pos);
+   keyed_meta_entry *old_entry = (keyed_meta_entry *)((char *)last_hdr + pos);
 
    data_key_copy(mini->data_cfg, old_entry->end_key, end_key);
    old_entry->end_key_length = slice_length(end_key);
@@ -423,7 +438,20 @@ mini_unkeyed_append_entry(mini_allocator *mini,
                           uint64          extent_addr)
 {
    debug_assert(!mini->keyed);
-   return mini_keyed_append_entry(mini, 0, meta_page, extent_addr, null_slice);
+   debug_assert(extent_addr != 0);
+   debug_assert(extent_addr % cache_page_size(mini->cc) == 0);
+
+   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
+
+   if (cache_page_size(mini->cc) < hdr->pos + sizeof(unkeyed_meta_entry))
+     return FALSE;
+
+   unkeyed_meta_entry *new_entry = (unkeyed_meta_entry *)((char *)hdr + hdr->pos);
+   new_entry->extent_addr = extent_addr;
+
+   hdr->pos += sizeof(unkeyed_meta_entry);
+   hdr->num_entries++;
+   return TRUE;
 }
 
 /*
@@ -684,10 +712,10 @@ mini_unkeyed_for_each(cache *          cc,
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
 
       uint64 num_meta_entries = mini_num_entries(meta_page);
-      meta_entry *entry = first_entry(meta_page);
+      unkeyed_meta_entry *entry = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_meta_entries; i++) {
          func(cc, type, entry->extent_addr, out);
-         entry = next_entry(entry);
+         entry = unkeyed_next_entry(entry);
       }
       meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
@@ -743,17 +771,17 @@ mini_keyed_for_each(cache *          cc,
 
    do {
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
-      meta_entry *entry = first_entry(meta_page);
+      keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         const slice entry_start_key = meta_entry_start_key(entry);
-         const slice entry_end_key   = meta_entry_end_key(entry);
+         const slice entry_start_key = keyed_meta_entry_start_key(entry);
+         const slice entry_end_key   = keyed_meta_entry_end_key(entry);
          if (mini_keyed_extent_in_range(
                 cfg, entry_start_key, entry_end_key, start_key, end_key)) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, entry->extent_addr, out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
-         entry = next_entry(entry);
+         entry = keyed_next_entry(entry);
       }
 
       meta_addr = mini_get_next_meta_addr(meta_page);
@@ -785,17 +813,17 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    page_handle *meta_page = mini_get_claim_meta_page(cc, meta_head, type);
 
    do {
-      meta_entry *entry = first_entry(meta_page);
+      keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         const slice entry_start_key = meta_entry_start_key(entry);
-         const slice entry_end_key   = meta_entry_end_key(entry);
+         const slice entry_start_key = keyed_meta_entry_start_key(entry);
+         const slice entry_end_key   = keyed_meta_entry_end_key(entry);
          if (mini_keyed_extent_in_range(
                 cfg, entry_start_key, entry_end_key, start_key, end_key)) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, entry->extent_addr, out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
-         entry = next_entry(entry);
+         entry = keyed_next_entry(entry);
       }
 
       meta_addr = mini_get_next_meta_addr(meta_page);
@@ -1169,10 +1197,10 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
       platform_log("|-------------------------------------------|\n");
 
       uint64 num_entries = mini_num_entries(meta_page);
-      meta_entry *entry = first_entry(meta_page);
+      unkeyed_meta_entry *entry = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          platform_log("| %3lu | %35lu |\n", i, entry->extent_addr);
-         entry = next_entry(entry);
+         entry = unkeyed_next_entry(entry);
       }
       platform_log("|-------------------------------------------|\n");
 
@@ -1218,10 +1246,10 @@ mini_keyed_print(cache *      cc,
                            "-----------------|\n");
 
       uint64 num_entries = mini_num_entries(meta_page);
-      meta_entry *entry = first_entry(meta_page);
+      keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-        slice start_key = meta_entry_start_key(entry);
-        slice end_key   = meta_entry_end_key(entry);
+        slice start_key = keyed_meta_entry_start_key(entry);
+        slice end_key   = keyed_meta_entry_end_key(entry);
          char start_key_str[MAX_KEY_STR_LEN];
          data_key_to_string(
             data_cfg, start_key, start_key_str, MAX_KEY_STR_LEN);
@@ -1234,7 +1262,7 @@ mini_keyed_print(cache *      cc,
                               start_key_str,
                               end_key_str,
                               ref);
-         entry = next_entry(entry);
+         entry = keyed_next_entry(entry);
       }
       platform_default_log("|--------------------------------------------------"
                            "-----------------|\n");
