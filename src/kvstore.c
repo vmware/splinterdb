@@ -515,11 +515,11 @@ kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
                              const char **     message // OUT
 )
 {
-   slice bkey;
-   slice bmessage;
+   slice     bkey;
+   slice     bmessage;
    iterator *itor = &(kvi->sri.super);
    iterator_get_curr(itor, &bkey, &bmessage);
-   *key = slice_data(bkey);
+   *key     = slice_data(bkey);
    *message = slice_data(bmessage);
 }
 

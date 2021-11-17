@@ -5,20 +5,20 @@
 
 static int
 test_data_key_cmp(const data_config *cfg,
-                  uint64        key1_len,
-                  const void   *key1,
-                  uint64        key2_len,
-                  const void   *key2)
+                  uint64             key1_len,
+                  const void *       key1,
+                  uint64             key2_len,
+                  const void *       key2)
 {
-  uint64 mlen = key1_len < key2_len ? key1_len : key2_len;
-  int r = memcmp(key1, key2, mlen);
-  if (r)
-    return r;
-  else if (key1_len < key2_len)
-    return -1;
-  else if (key2_len < key1_len)
-    return 1;
-  return 0;
+   uint64 mlen = key1_len < key2_len ? key1_len : key2_len;
+   int    r    = memcmp(key1, key2, mlen);
+   if (r)
+      return r;
+   else if (key1_len < key2_len)
+      return -1;
+   else if (key2_len < key1_len)
+      return 1;
+   return 0;
 }
 
 /*
@@ -34,12 +34,12 @@ test_data_key_cmp(const data_config *cfg,
 
 static void
 test_data_merge_tuples(const data_config *cfg,
-                       uint64        key_len,
-                       const void   *key,
-                       uint64        old_raw_data_len,
-                       const void   *old_raw_data,
-                       uint64       *new_raw_data_len,
-                       void         *new_raw_data)
+                       uint64             key_len,
+                       const void *       key,
+                       uint64             old_raw_data_len,
+                       const void *       old_raw_data,
+                       uint64 *           new_raw_data_len,
+                       void *             new_raw_data)
 {
    assert(sizeof(data_handle) <= old_raw_data_len);
    assert(sizeof(data_handle) <= *new_raw_data_len);
@@ -111,10 +111,10 @@ test_data_merge_tuples(const data_config *cfg,
  */
 static void
 test_data_merge_tuples_final(const data_config *cfg,
-                             uint64        key_len,
-                             const void   *key, // IN
-                             uint64       *oldest_raw_data_len,
-                             void         *oldest_raw_data) // IN/OUT
+                             uint64             key_len,
+                             const void *       key, // IN
+                             uint64 *           oldest_raw_data_len,
+                             void *             oldest_raw_data) // IN/OUT
 {
    assert(sizeof(data_handle) <= *oldest_raw_data_len);
 
@@ -140,8 +140,8 @@ test_data_merge_tuples_final(const data_config *cfg,
 
 static message_type
 test_data_message_class(const data_config *cfg,
-                        uint64        raw_data_len,
-                        const void   *raw_data)
+                        uint64             raw_data_len,
+                        const void *       raw_data)
 {
    assert(sizeof(data_handle) <= raw_data_len);
 
@@ -163,11 +163,11 @@ test_data_message_class(const data_config *cfg,
 static void
 test_data_key_to_string(const data_config *cfg,
                         uint64             key_len,
-                        const void        *key,
-                        char              *str,
+                        const void *       key,
+                        char *             str,
                         size_t             len)
 {
-  debug_hex_encode(str, len, key, key_len);
+   debug_hex_encode(str, len, key, key_len);
 }
 
 // FIXME: [yfogel 2020-03-17] need to be passing in the size of the string as
@@ -175,26 +175,25 @@ test_data_key_to_string(const data_config *cfg,
 static void
 test_data_message_to_string(const data_config *cfg,
                             uint64             raw_data_len,
-                            const void        *raw_data,
-                            char              *str,
+                            const void *       raw_data,
+                            char *             str,
                             size_t             len)
 {
-  debug_hex_encode(str, len, raw_data, raw_data_len);
+   debug_hex_encode(str, len, raw_data, raw_data_len);
 }
 
-data_config test_data_config =
-  {
-   .key_size = 24,
-   .message_size = 24,
-   .min_key = { 0 },
-   .max_key = { 0xff, 0xff, 0xff, 0xff,   0xff, 0xff, 0xff, 0xff,
-                0xff, 0xff, 0xff, 0xff,   0xff, 0xff, 0xff, 0xff,
-                0xff, 0xff, 0xff, 0xff,   0xff, 0xff, 0xff, 0xff },
-   .key_compare                       = test_data_key_cmp,
-   .key_hash                          = platform_hash32,
-   .key_to_string                     = test_data_key_to_string,
-   .message_to_string                 = test_data_message_to_string,
-   .merge_tuples                      = test_data_merge_tuples,
-   .merge_tuples_final                = test_data_merge_tuples_final,
-   .message_class                     = test_data_message_class,
-  };
+data_config test_data_config = {
+   .key_size           = 24,
+   .message_size       = 24,
+   .min_key            = {0},
+   .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+   .key_compare        = test_data_key_cmp,
+   .key_hash           = platform_hash32,
+   .key_to_string      = test_data_key_to_string,
+   .message_to_string  = test_data_message_to_string,
+   .merge_tuples       = test_data_merge_tuples,
+   .merge_tuples_final = test_data_merge_tuples_final,
+   .message_class      = test_data_message_class,
+};

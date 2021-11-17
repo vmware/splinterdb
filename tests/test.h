@@ -168,8 +168,8 @@ test_count_tuples_in_range(cache        *cc,
                            char         *high_key,
                            uint64       *count)     // OUTPUT
 {
-   slice blow_key = slice_create(cfg->data_cfg->key_size, low_key);
-   slice bhigh_key = slice_create(cfg->data_cfg->key_size, high_key);
+   slice          blow_key  = slice_create(cfg->data_cfg->key_size, low_key);
+   slice          bhigh_key = slice_create(cfg->data_cfg->key_size, high_key);
    btree_iterator itor;
    uint64 i;
    *count = 0;
@@ -186,7 +186,8 @@ test_count_tuples_in_range(cache        *cc,
       while (!at_end) {
          slice key, data;
          iterator_get_curr(&itor.super, &key, &data);
-         if (!slice_is_null(last_key) && data_key_compare(cfg->data_cfg, last_key, key) > 0) {
+         if (!slice_is_null(last_key) &&
+             data_key_compare(cfg->data_cfg, last_key, key) > 0) {
             char last_key_str[128], key_str[128];
             data_key_to_string(cfg->data_cfg, last_key, last_key_str, 128);
             data_key_to_string(cfg->data_cfg, key, key_str, 128);
@@ -265,7 +266,7 @@ test_config_init(splinter_config     *splinter_cfg,
                  io_config           *io_cfg,
                  master_config       *master_cfg)
 {
-   *data_cfg = test_data_config;
+   *data_cfg                    = test_data_config;
    data_cfg->key_size           = master_cfg->key_size;
    data_cfg->message_size       = master_cfg->message_size;
 

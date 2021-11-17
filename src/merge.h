@@ -20,8 +20,8 @@
 typedef struct ordered_iterator {
    iterator *itor;
    int seq;
-   slice key;
-   slice data;
+   slice     key;
+   slice     data;
    bool next_key_equal;
 } ordered_iterator;
 

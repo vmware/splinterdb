@@ -11,7 +11,8 @@
 #include "poison.h"
 
 /* Function declarations and iterator_ops */
-void            merge_get_curr (iterator *itor, slice *key, slice *data);
+void
+                merge_get_curr(iterator *itor, slice *key, slice *data);
 platform_status merge_at_end   (iterator *itor, bool *at_end);
 platform_status merge_advance  (iterator *itor);
 
@@ -113,16 +114,12 @@ debug_assert_message_type_valid(debug_only merge_iterator *merge_itor)
 #if SPLINTER_DEBUG
    message_type type =
       slice_is_null(merge_itor->data)
-     ? MESSAGE_TYPE_INVALID
-     : data_message_class(merge_itor->cfg, merge_itor->data);
-   debug_assert(!merge_itor->has_data ||
-                !merge_itor->discard_deletes ||
-                slice_is_null(merge_itor->data) ||
-                type != MESSAGE_TYPE_DELETE);
-   debug_assert(!merge_itor->has_data ||
-                !merge_itor->resolve_updates ||
-                slice_is_null(merge_itor->data) ||
-                type != MESSAGE_TYPE_UPDATE);
+         ? MESSAGE_TYPE_INVALID
+         : data_message_class(merge_itor->cfg, merge_itor->data);
+   debug_assert(!merge_itor->has_data || !merge_itor->discard_deletes ||
+                slice_is_null(merge_itor->data) || type != MESSAGE_TYPE_DELETE);
+   debug_assert(!merge_itor->has_data || !merge_itor->resolve_updates ||
+                slice_is_null(merge_itor->data) || type != MESSAGE_TYPE_UPDATE);
 #endif
 }
 
@@ -151,14 +148,16 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
 {
    platform_status rc;
 
-   debug_assert(!slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+   debug_assert(
+      !slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
    if (merge_itor->has_data) {
-      debug_assert(!slices_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
+      debug_assert(!slices_equal(merge_itor->data,
+                                 merge_itor->ordered_iterators[0]->data));
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
-   //merge_itor->ordered_iterators[0]->key = NULL;
-   //merge_itor->ordered_iterators[0]->data = NULL;
+   // merge_itor->ordered_iterators[0]->key = NULL;
+   // merge_itor->ordered_iterators[0]->data = NULL;
    rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
    if (!SUCCESS(rc)) {
       return rc;
@@ -235,7 +234,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 {
    debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
    debug_assert(slice_data(merge_itor->data) != merge_itor->merge_buffer);
-   debug_assert(slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+   debug_assert(
+      slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
    data_config *cfg = merge_itor->cfg;
 
@@ -244,7 +244,9 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 #endif
 
    // there is more than one copy of the current key
-   memmove(merge_itor->merge_buffer, slice_data(merge_itor->data), slice_length(merge_itor->data));
+   memmove(merge_itor->merge_buffer,
+           slice_data(merge_itor->data),
+           slice_length(merge_itor->data));
    merge_itor->data.data = merge_itor->merge_buffer;
    do {
       // Verify we don't fall off the end
@@ -267,7 +269,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
        * iterator is advanced
        */
       merge_itor->key = merge_itor->ordered_iterators[1]->key;
-      debug_assert(!slices_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
+      debug_assert(!slices_equal(merge_itor->data,
+                                 merge_itor->ordered_iterators[0]->data));
       platform_status rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
@@ -307,11 +310,12 @@ merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
    if (class != MESSAGE_TYPE_INSERT && merge_itor->resolve_updates) {
       if (merge_itor->data.data != merge_itor->merge_buffer) {
          // We might already be in merge_buffer if we did some merging.
-         memmove(merge_itor->merge_buffer, slice_data(merge_itor->data), slice_length(merge_itor->data));
+         memmove(merge_itor->merge_buffer,
+                 slice_data(merge_itor->data),
+                 slice_length(merge_itor->data));
          merge_itor->data.data = merge_itor->merge_buffer;
       }
-      data_merge_tuples_final(cfg, merge_itor->key,
-                              &merge_itor->data);
+      data_merge_tuples_final(cfg, merge_itor->key, &merge_itor->data);
       class = data_message_class(cfg, merge_itor->data);
       // FIXME: [yfogel 2020-01-11] handle class==MESSAGE_TYPE_INVALID
       //    We should crash or cancel the entire compaction
@@ -603,7 +607,7 @@ merge_advance(iterator *itor)
    debug_assert(!merge_itor->has_data || !slice_is_null(merge_itor->data));
    bool retry;
    do {
-      merge_itor->key = null_slice;
+      merge_itor->key  = null_slice;
       merge_itor->data = null_slice;
       // Advance one iterator
       rc = advance_and_resort_min_ritor(merge_itor);
@@ -624,8 +628,8 @@ void
 merge_iterator_print(merge_iterator *merge_itor)
 {
    uint64 i;
-   slice key, data;
-   char key_str[MAX_KEY_SIZE];
+   slice        key, data;
+   char         key_str[MAX_KEY_SIZE];
    data_config *data_cfg = merge_itor->cfg;
    iterator_get_curr(&merge_itor->super, &key, &data);
    data_key_to_string(data_cfg, key, key_str, MAX_KEY_SIZE);

@@ -48,7 +48,7 @@ typedef struct shard_log_iterator {
    iterator          super;
    shard_log_config *cfg;
    char             *contents;
-   log_entry       **entries;
+   log_entry **      entries;
    uint64            num_entries;
    uint64            pos;
 } shard_log_iterator;

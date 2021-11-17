@@ -174,9 +174,9 @@ verify_range_against_shadow(splinter_handle            *spl,
                             uint64                      end_index)
 {
    platform_status status;
-   slice splinter_keybuf;
-   slice splinter_message;
-   data_handle *splinter_data_handle;
+   slice           splinter_keybuf;
+   slice           splinter_message;
+   data_handle *   splinter_data_handle;
    uint64 splinter_key;
    uint64 i;
    bool at_end;
@@ -214,9 +214,9 @@ verify_range_against_shadow(splinter_handle            *spl,
          goto destroy;
       }
 
-      iterator_get_curr((iterator *)range_itor,
-                        &splinter_keybuf, &splinter_message);
-      splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
+      iterator_get_curr(
+         (iterator *)range_itor, &splinter_keybuf, &splinter_message);
+      splinter_key         = be64toh(*(uint64 *)slice_data(splinter_keybuf));
       splinter_data_handle = slice_data(splinter_message);
 
       //platform_log("Range test %d: Shadow: 0x%08lx, Tree: 0x%08lx\n",
@@ -227,14 +227,15 @@ verify_range_against_shadow(splinter_handle            *spl,
       if (splinter_key == shadow_key) {
          status = STATUS_OK;
       } else {
-         platform_error_log("ERROR: Key mismatch: "
-               "Shadow Key: 0x%08lx, Shadow Refcount: %3d, "
-               "Tree Key: 0x%08lx, Tree Msg Type: 0x%02x, Tree Refcount: %3d\n",
-               shadow_key,
-               shadow_refcount,
-               splinter_key,
-               splinter_data_handle->message_type,
-               splinter_data_handle->ref_count);
+         platform_error_log(
+            "ERROR: Key mismatch: "
+            "Shadow Key: 0x%08lx, Shadow Refcount: %3d, "
+            "Tree Key: 0x%08lx, Tree Msg Type: 0x%02x, Tree Refcount: %3d\n",
+            shadow_key,
+            shadow_refcount,
+            splinter_key,
+            splinter_data_handle->message_type,
+            splinter_data_handle->ref_count);
          platform_assert(0);
          status = STATUS_INVALID_STATE;
          goto destroy;
@@ -244,12 +245,12 @@ verify_range_against_shadow(splinter_handle            *spl,
          status = STATUS_OK;
       } else {
          platform_error_log("ERROR: Refcount mismatch: "
-               "key: 0x%08lx, Shadow refcount: %3d, "
-               "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
-               shadow_key,
-               shadow_refcount,
-               splinter_data_handle->message_type,
-               splinter_data_handle->ref_count);
+                            "key: 0x%08lx, Shadow refcount: %3d, "
+                            "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
+                            shadow_key,
+                            shadow_refcount,
+                            splinter_data_handle->message_type,
+                            splinter_data_handle->ref_count);
          splinter_print_lookup(spl, (char *)slice_data(splinter_keybuf));
          platform_assert(0);
          status = STATUS_INVALID_STATE;
@@ -265,15 +266,15 @@ verify_range_against_shadow(splinter_handle            *spl,
    while (SUCCESS(iterator_at_end((iterator *)range_itor, &at_end)) &&
           !at_end) {
       status = STATUS_LIMIT_EXCEEDED;
-      iterator_get_curr((iterator *)range_itor,
-                        &splinter_keybuf, &splinter_message);
+      iterator_get_curr(
+         (iterator *)range_itor, &splinter_keybuf, &splinter_message);
       splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
 
       platform_log("Range iterator EXTRA KEY: %08lx \n"
-            "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
-            splinter_key,
-            splinter_data_handle->message_type,
-            splinter_data_handle->ref_count);
+                   "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
+                   splinter_key,
+                   splinter_data_handle->message_type,
+                   splinter_data_handle->ref_count);
       if (!SUCCESS(iterator_advance((iterator *)range_itor))) {
          goto destroy;
       }

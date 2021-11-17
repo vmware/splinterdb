@@ -28,17 +28,17 @@ typedef enum message_type {
 
 typedef struct data_config data_config;
 
-typedef int  (*key_compare_fn) (const data_config *cfg,
-                                uint64             key1_len,
-                                const void        *key1,
-                                uint64             key2_len,
-                                const void *       key2);
+typedef int (*key_compare_fn)(const data_config *cfg,
+                              uint64             key1_len,
+                              const void *       key1,
+                              uint64             key2_len,
+                              const void *       key2);
 
 typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
 
-typedef message_type (*message_class_fn) (const data_config *cfg,
-                                          uint64             raw_message_len,
-                                          const void        *raw_message);
+typedef message_type (*message_class_fn)(const data_config *cfg,
+                                         uint64             raw_message_len,
+                                         const void *       raw_message);
 
 // FIXME: [yfogel 2020-01-11] Need to add (to both merge_tuple fns)
 //  bool is_query (or enum)
@@ -65,30 +65,32 @@ typedef message_type (*message_class_fn) (const data_config *cfg,
 // Given two messages, merge them, based on their types
 // And return the result in new_raw_message
 //
-// guaranteed by caller: new_raw_message has enough space to hold a max-length message
-typedef void (*merge_tuple_fn) (const data_config *cfg,
-                                uint64        key_len,
-                                const void *  key,
-                                uint64        old_raw_message_len,
-                                const void *  old_raw_message,
-                                uint64 *      new_raw_message_len,
-                                void *        new_raw_message);
+// guaranteed by caller: new_raw_message has enough space to hold a max-length
+// message
+typedef void (*merge_tuple_fn)(const data_config *cfg,
+                               uint64             key_len,
+                               const void *       key,
+                               uint64             old_raw_message_len,
+                               const void *       old_raw_message,
+                               uint64 *           new_raw_message_len,
+                               void *             new_raw_message);
 
 // Called for non-MESSAGE_TYPE_INSERT messages
 // when they are determined to be the oldest message
 //
 // Can change data_class or contents.  If necessary, update new_data.
-// guaranteed by caller: oldest_raw_message has enough space to hold a max-length message
-typedef void (*merge_tuple_final_fn) (const data_config *cfg,
-                                      uint64        key_len,
-                                      const void *  key,
-                                      uint64 *      oldest_raw_message_len,
-                                      void *        oldest_raw_message);
+// guaranteed by caller: oldest_raw_message has enough space to hold a
+// max-length message
+typedef void (*merge_tuple_final_fn)(const data_config *cfg,
+                                     uint64             key_len,
+                                     const void *       key,
+                                     uint64 *           oldest_raw_message_len,
+                                     void *             oldest_raw_message);
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,
                                          const void *       key_or_message,
-                                         char              *str,
+                                         char *             str,
                                          size_t             max_len);
 
 struct data_config {

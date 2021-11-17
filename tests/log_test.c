@@ -21,25 +21,25 @@
 #include "poison.h"
 
 int
-test_log_crash(clockcache           *cc,
-               clockcache_config    *cache_cfg,
-               io_handle            *io,
-               allocator            *al,
-               shard_log_config     *cfg,
-               shard_log            *log,
-               uint64                num_entries,
-               task_system          *ts,
-               platform_heap_handle  hh,
-               platform_heap_id      hid,
-               bool                  crash)
+test_log_crash(clockcache *         cc,
+               clockcache_config *  cache_cfg,
+               io_handle *          io,
+               allocator *          al,
+               shard_log_config *   cfg,
+               shard_log *          log,
+               uint64               num_entries,
+               task_system *        ts,
+               platform_heap_handle hh,
+               platform_heap_id     hid,
+               bool                 crash)
 
 {
    platform_status     rc;
    log_handle         *logh;
    uint64              i;
    char                keybuffer[MAX_KEY_SIZE];
-   char               *databuffer = TYPED_ARRAY_MALLOC(hid, databuffer,
-                                                       cfg->data_cfg->message_size);
+   char *              databuffer =
+      TYPED_ARRAY_MALLOC(hid, databuffer, cfg->data_cfg->message_size);
    slice               returned_key;
    slice               returned_message;
    char                dummy = 'z';
@@ -62,17 +62,30 @@ test_log_crash(clockcache           *cc,
 
    for (i = 0; i < num_entries; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(databuffer, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
+      test_insert_data(databuffer,
+                       1,
+                       &dummy,
+                       0,
+                       cfg->data_cfg->message_size,
+                       MESSAGE_TYPE_INSERT);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      slice smessage = slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
+      slice smessage =
+         slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
       log_write(logh, skey, smessage, i);
    }
 
    if (crash) {
-     clockcache_deinit(cc);
-     rc = clockcache_init(cc, cache_cfg, io, al, "crashed", ts, hh, hid,
-                          platform_get_module_id());
-     platform_assert_status_ok(rc);
+      clockcache_deinit(cc);
+      rc = clockcache_init(cc,
+                           cache_cfg,
+                           io,
+                           al,
+                           "crashed",
+                           ts,
+                           hh,
+                           hid,
+                           platform_get_module_id());
+      platform_assert_status_ok(rc);
    }
 
    rc = shard_log_iterator_init((cache *)cc, cfg, hid, addr, magic, &itor);
@@ -82,11 +95,18 @@ test_log_crash(clockcache           *cc,
    iterator_at_end(itorh, &at_end);
    for (i = 0; i < num_entries && !at_end; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(databuffer, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
+      test_insert_data(databuffer,
+                       1,
+                       &dummy,
+                       0,
+                       cfg->data_cfg->message_size,
+                       MESSAGE_TYPE_INSERT);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      slice smessage = slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
+      slice smessage =
+         slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
       iterator_get_curr(itorh, &returned_key, &returned_message);
-      if (slice_lex_cmp(skey, returned_key) || slice_lex_cmp(smessage, returned_message)) {
+      if (slice_lex_cmp(skey, returned_key) ||
+          slice_lex_cmp(smessage, returned_message)) {
          platform_log("log_test_basic: key or data mismatch\n");
          data_key_to_string(cfg->data_cfg, skey, key_str, 128);
          data_message_to_string(cfg->data_cfg, smessage, data_str, 128);
@@ -131,7 +151,7 @@ test_log_thread(void *arg)
    char *data = TYPED_ARRAY_MALLOC(hid, data, log->cfg->data_cfg->message_size);
    char dummy;
 
-   slice skey = slice_create(log->cfg->data_cfg->key_size, key);
+   slice skey     = slice_create(log->cfg->data_cfg->key_size, key);
    slice smessage = slice_create(log->cfg->data_cfg->message_size, data);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
@@ -302,12 +322,30 @@ log_test(int argc, char *argv[])
       rc = -1;
       platform_assert_status_ok(ret);
    } else if (run_crash_test) {
-      rc = test_log_crash(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                          &log_cfg, log, 500000, ts, hh, hid, TRUE /* crash */);
+      rc = test_log_crash(cc,
+                          &cache_cfg,
+                          (io_handle *)io,
+                          (allocator *)&al,
+                          &log_cfg,
+                          log,
+                          500000,
+                          ts,
+                          hh,
+                          hid,
+                          TRUE /* crash */);
       platform_assert(rc == 0);
    } else {
-      rc = test_log_crash(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                          &log_cfg, log, 500000, ts, hh, hid, FALSE /* don't cash */);
+      rc = test_log_crash(cc,
+                          &cache_cfg,
+                          (io_handle *)io,
+                          (allocator *)&al,
+                          &log_cfg,
+                          log,
+                          500000,
+                          ts,
+                          hh,
+                          hid,
+                          FALSE /* don't cash */);
       platform_assert(rc == 0);
    }
 

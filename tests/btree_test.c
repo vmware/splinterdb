@@ -411,7 +411,8 @@ btree_test_run_pending(cache                   *cc,
          if (found ^ expected_found) {
             btree_print_tree(cc, cfg, root_addr);
             char key_string[128];
-            fixed_size_data_key_to_string(cfg->data_cfg, ctxt->key, key_string, 128);
+            fixed_size_data_key_to_string(
+               cfg->data_cfg, ctxt->key, key_string, 128);
             platform_log("key %s expect %u found %u\n", key_string,
                          expected_found, found);
             platform_assert(0);
@@ -1058,7 +1059,8 @@ test_btree_rough_iterator(cache             *cc,
                       slice_length(dummy_data),
                       0UL);
       }
-      memmove(pivot[pivot_no].k, slice_data(curr_key), btree_key_size(btree_cfg));
+      memmove(
+         pivot[pivot_no].k, slice_data(curr_key), btree_key_size(btree_cfg));
       at_end = TRUE;
       //char key_str[128];
       //btree_key_to_string(btree_cfg, pivot[pivot_no].k, key_str);

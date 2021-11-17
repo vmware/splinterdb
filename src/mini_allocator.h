@@ -61,15 +61,15 @@ mini_keyed_inc_ref(cache *      cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
-                   const slice start_key,
-                   const slice end_key);
+                   const slice  start_key,
+                   const slice  end_key);
 bool
 mini_keyed_dec_ref(cache *      cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
-                   const slice start_key,
-                   const slice end_key);
+                   const slice  start_key,
+                   const slice  end_key);
 
 void
 mini_block_dec_ref(cache *cc, uint64 meta_head);
@@ -82,8 +82,8 @@ mini_keyed_extent_count(cache *      cc,
                         data_config *data_cfg,
                         page_type    type,
                         uint64       meta_head,
-                        const slice start_key,
-                        const slice end_key);
+                        const slice  start_key,
+                        const slice  end_key);
 void
 mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head);
 

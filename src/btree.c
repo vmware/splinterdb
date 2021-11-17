@@ -41,10 +41,14 @@ btree_root_to_meta_addr(cache *cc,
    return root_addr + (meta_page_no + 1) * cfg->page_size;
 }
 
-void            btree_iterator_get_curr (iterator *itor, slice *key, slice *data);
-platform_status btree_iterator_at_end   (iterator *itor, bool *at_end);
-platform_status btree_iterator_advance  (iterator *itor);
-void            btree_iterator_print    (iterator *itor);
+void
+btree_iterator_get_curr(iterator *itor, slice *key, slice *data);
+platform_status
+btree_iterator_at_end(iterator *itor, bool *at_end);
+platform_status
+btree_iterator_advance(iterator *itor);
+void
+btree_iterator_print(iterator *itor);
 
 const static iterator_ops btree_iterator_ops = {
    .get_curr = btree_iterator_get_curr,
@@ -1052,8 +1056,12 @@ btree_inc_range(cache        *cc,
    if (start_key != NULL && end_key != NULL) {
       debug_assert(btree_key_compare(cfg, start_key, end_key) < 0);
    }
-   slice bstart_key = start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key) : null_slice;
-   slice bend_key = end_key ? slice_create(cfg->data_cfg->key_size, (void *)end_key) : null_slice;
+   slice bstart_key =
+      start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
+                : null_slice;
+   slice bend_key = end_key
+                       ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
+                       : null_slice;
    mini_keyed_inc_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, bstart_key, bend_key);
 }
@@ -1075,8 +1083,12 @@ btree_zap_range(cache        *cc,
       platform_assert(btree_key_compare(cfg, start_key, end_key) < 0);
    }
 
-   slice bstart_key = start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key) : null_slice;
-   slice bend_key = end_key ? slice_create(cfg->data_cfg->key_size, (void *)end_key) : null_slice;
+   slice bstart_key =
+      start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
+                : null_slice;
+   slice  bend_key  = end_key
+                         ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
+                         : null_slice;
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    return mini_keyed_dec_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, bstart_key, bend_key);
@@ -2617,8 +2629,12 @@ btree_space_use_in_range(cache        *cc,
 {
    platform_assert(type == PAGE_TYPE_BRANCH);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   slice bstart_key = start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key) : null_slice;
-   slice bend_key = end_key ? slice_create(cfg->data_cfg->key_size, (void *)end_key) : null_slice;
+   slice  bstart_key =
+      start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
+                 : null_slice;
+   slice  bend_key     = end_key
+                            ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
+                            : null_slice;
    uint64 extents_used = mini_keyed_extent_count(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, bstart_key, bend_key);
    return extents_used * cfg->extent_size;

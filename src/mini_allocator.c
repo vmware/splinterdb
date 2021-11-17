@@ -36,10 +36,10 @@
  */
 
 typedef struct PACKED mini_meta_hdr {
-   uint64                    next_meta_addr;
-   uint64                    pos;
-   uint32                    num_entries;
-   char entries[];
+   uint64 next_meta_addr;
+   uint64 pos;
+   uint32 num_entries;
+   char   entries[];
 } mini_meta_hdr;
 
 #define TERMINAL_EXTENT_ADDR ((uint64)-1)
@@ -51,43 +51,50 @@ typedef struct PACKED keyed_meta_entry {
    char   start_key[];
 } keyed_meta_entry;
 
-static uint64 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
+static uint64
+sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
 {
-  return sizeof(keyed_meta_entry) + entry->start_key_length;
+   return sizeof(keyed_meta_entry) + entry->start_key_length;
 }
 
-static uint64 keyed_meta_entry_size(slice key)
+static uint64
+keyed_meta_entry_size(slice key)
 {
-  return sizeof(keyed_meta_entry) + slice_length(key);
+   return sizeof(keyed_meta_entry) + slice_length(key);
 }
 
-static slice keyed_meta_entry_start_key(keyed_meta_entry *entry)
+static slice
+keyed_meta_entry_start_key(keyed_meta_entry *entry)
 {
-  return slice_create(entry->start_key_length, entry->start_key);
+   return slice_create(entry->start_key_length, entry->start_key);
 }
 
-static keyed_meta_entry *keyed_first_entry(page_handle *meta_page)
+static keyed_meta_entry *
+keyed_first_entry(page_handle *meta_page)
 {
-  return (keyed_meta_entry *)((mini_meta_hdr *)meta_page->data)->entries;
+   return (keyed_meta_entry *)((mini_meta_hdr *)meta_page->data)->entries;
 }
 
-static keyed_meta_entry *keyed_next_entry(keyed_meta_entry *entry)
+static keyed_meta_entry *
+keyed_next_entry(keyed_meta_entry *entry)
 {
-  return (keyed_meta_entry *)((char *)entry + sizeof_keyed_meta_entry(entry));
+   return (keyed_meta_entry *)((char *)entry + sizeof_keyed_meta_entry(entry));
 }
 
 typedef struct PACKED unkeyed_meta_entry {
    uint64 extent_addr;
 } unkeyed_meta_entry;
 
-static unkeyed_meta_entry *unkeyed_first_entry(page_handle *meta_page)
+static unkeyed_meta_entry *
+unkeyed_first_entry(page_handle *meta_page)
 {
-  return (unkeyed_meta_entry *)((mini_meta_hdr *)meta_page->data)->entries;
+   return (unkeyed_meta_entry *)((mini_meta_hdr *)meta_page->data)->entries;
 }
 
-static unkeyed_meta_entry *unkeyed_next_entry(unkeyed_meta_entry *entry)
+static unkeyed_meta_entry *
+unkeyed_next_entry(unkeyed_meta_entry *entry)
 {
-  return entry + 1;
+   return entry + 1;
 }
 
 
@@ -343,9 +350,9 @@ mini_keyed_append_entry(mini_allocator *mini,
                         uint64          extent_addr,
                         const slice     start_key)
 {
-   //debug_assert(mini->keyed);
+   // debug_assert(mini->keyed);
    debug_assert(batch < mini->num_batches);
-   //debug_assert(!slice_is_null(start_key));
+   // debug_assert(!slice_is_null(start_key));
    debug_assert(extent_addr != 0);
    debug_assert(extent_addr == TERMINAL_EXTENT_ADDR ||
                 extent_addr % cache_page_size(mini->cc) == 0);
@@ -353,12 +360,12 @@ mini_keyed_append_entry(mini_allocator *mini,
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
    if (cache_page_size(mini->cc) < hdr->pos + keyed_meta_entry_size(start_key))
-     return FALSE;
+      return FALSE;
 
    keyed_meta_entry *new_entry = (keyed_meta_entry *)((char *)hdr + hdr->pos);
 
    new_entry->extent_addr = extent_addr;
-   new_entry->batch = batch;
+   new_entry->batch       = batch;
    data_key_copy(mini->data_cfg, new_entry->start_key, start_key);
    new_entry->start_key_length = slice_length(start_key);
 
@@ -379,9 +386,10 @@ mini_unkeyed_append_entry(mini_allocator *mini,
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
    if (cache_page_size(mini->cc) < hdr->pos + sizeof(unkeyed_meta_entry))
-     return FALSE;
+      return FALSE;
 
-   unkeyed_meta_entry *new_entry = (unkeyed_meta_entry *)((char *)hdr + hdr->pos);
+   unkeyed_meta_entry *new_entry =
+      (unkeyed_meta_entry *)((char *)hdr + hdr->pos);
    new_entry->extent_addr = extent_addr;
 
    hdr->pos += sizeof(unkeyed_meta_entry);
@@ -502,41 +510,43 @@ mini_append_entry(mini_allocator *mini,
                   const slice     key,
                   uint64          next_addr)
 {
-  page_handle *meta_page = mini_full_lock_meta_tail(mini);
-  bool success;
-  if (mini->keyed) {
-    success = mini_keyed_append_entry(mini, batch, meta_page, next_addr, key);
-  } else {
-    // unkeyed
-    success = mini_unkeyed_append_entry(mini, meta_page, next_addr);
-  }
-  if (!success) {
-    // need to allocate a new meta page
-    uint64 new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
-    if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
-      // need to allocate the next meta extent
-      platform_status rc = allocator_alloc(mini->al, &new_meta_tail, mini->type);
-      platform_assert_status_ok(rc);
-    }
-
-    mini_set_next_meta_addr(mini, meta_page, new_meta_tail);
-
-    page_handle *last_meta_page = meta_page;
-    meta_page       = cache_alloc(mini->cc, new_meta_tail, mini->type);
-    mini->meta_tail = new_meta_tail;
-    mini_full_unlock_meta_page(mini, last_meta_page);
-    mini_init_meta_page(mini, meta_page);
-
-    if (mini->keyed) {
+   page_handle *meta_page = mini_full_lock_meta_tail(mini);
+   bool         success;
+   if (mini->keyed) {
       success = mini_keyed_append_entry(mini, batch, meta_page, next_addr, key);
-    } else {
+   } else {
       // unkeyed
       success = mini_unkeyed_append_entry(mini, meta_page, next_addr);
-    }
-    debug_assert(success);
-  }
-  mini_full_unlock_meta_page(mini, meta_page);
-  return TRUE;
+   }
+   if (!success) {
+      // need to allocate a new meta page
+      uint64 new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
+      if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
+         // need to allocate the next meta extent
+         platform_status rc =
+            allocator_alloc(mini->al, &new_meta_tail, mini->type);
+         platform_assert_status_ok(rc);
+      }
+
+      mini_set_next_meta_addr(mini, meta_page, new_meta_tail);
+
+      page_handle *last_meta_page = meta_page;
+      meta_page       = cache_alloc(mini->cc, new_meta_tail, mini->type);
+      mini->meta_tail = new_meta_tail;
+      mini_full_unlock_meta_page(mini, last_meta_page);
+      mini_init_meta_page(mini, meta_page);
+
+      if (mini->keyed) {
+         success =
+            mini_keyed_append_entry(mini, batch, meta_page, next_addr, key);
+      } else {
+         // unkeyed
+         success = mini_unkeyed_append_entry(mini, meta_page, next_addr);
+      }
+      debug_assert(success);
+   }
+   mini_full_unlock_meta_page(mini, meta_page);
+   return TRUE;
 }
 
 uint64
@@ -608,7 +618,7 @@ mini_release(mini_allocator *mini, const slice key)
 
       if (mini->keyed) {
          // Set the end_key of the last extent from this batch
-        mini_append_entry(mini, batch, key, TERMINAL_EXTENT_ADDR);
+         mini_append_entry(mini, batch, key, TERMINAL_EXTENT_ADDR);
       }
    }
 }
@@ -659,7 +669,7 @@ mini_unkeyed_for_each(cache *          cc,
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
 
       uint64 num_meta_entries = mini_num_entries(meta_page);
-      unkeyed_meta_entry *entry = unkeyed_first_entry(meta_page);
+      unkeyed_meta_entry *entry            = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_meta_entries; i++) {
          func(cc, type, entry->extent_addr, out);
          entry = unkeyed_next_entry(entry);
@@ -671,19 +681,19 @@ mini_unkeyed_for_each(cache *          cc,
 
 static int
 state(data_config *cfg,
-      const slice start_key,
-      const slice end_key,
-      const slice entry_start_key)
+      const slice  start_key,
+      const slice  end_key,
+      const slice  entry_start_key)
 {
    debug_assert(slice_is_null(start_key) == slice_is_null(end_key));
    if (slice_is_null(start_key)) {
       return 0;
    } else if (data_key_compare(cfg, entry_start_key, start_key) < 0) {
-     return -1;
+      return -1;
    } else if (data_key_compare(cfg, entry_start_key, end_key) <= 0) {
-     return 0;
+      return 0;
    } else {
-     return 1;
+      return 1;
    }
 }
 
@@ -709,28 +719,29 @@ mini_keyed_for_each(cache *          cc,
 
    uint64 meta_addr = meta_head;
 
-   int current_state[MINI_MAX_BATCHES];
+   int    current_state[MINI_MAX_BATCHES];
    uint64 extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
-     current_state[i] = -1;
-     extent_addr[i] = TERMINAL_EXTENT_ADDR;
+      current_state[i] = -1;
+      extent_addr[i]   = TERMINAL_EXTENT_ADDR;
    }
 
    do {
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
-      keyed_meta_entry *entry = keyed_first_entry(meta_page);
+      keyed_meta_entry *entry     = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         uint64 batch = entry->batch;
-         const slice entry_start_key   = keyed_meta_entry_start_key(entry);
+         uint64      batch           = entry->batch;
+         const slice entry_start_key = keyed_meta_entry_start_key(entry);
          int next_state = state(cfg, start_key, end_key, entry_start_key);
-         if (extent_addr[batch] != TERMINAL_EXTENT_ADDR && current_state[batch] * next_state < 1) {
+         if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
+             current_state[batch] * next_state < 1) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
-         extent_addr[batch] = entry->extent_addr;
+         extent_addr[batch]   = entry->extent_addr;
          current_state[batch] = next_state;
-         entry = keyed_next_entry(entry);
+         entry                = keyed_next_entry(entry);
       }
 
       meta_addr = mini_get_next_meta_addr(meta_page);
@@ -765,27 +776,28 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    uint64       meta_addr = meta_head;
    page_handle *meta_page = mini_get_claim_meta_page(cc, meta_head, type);
 
-   int current_state[MINI_MAX_BATCHES];
+   int    current_state[MINI_MAX_BATCHES];
    uint64 extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
-     current_state[i] = -1;
-     extent_addr[i] = TERMINAL_EXTENT_ADDR;
+      current_state[i] = -1;
+      extent_addr[i]   = TERMINAL_EXTENT_ADDR;
    }
 
    do {
       keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         uint64 batch = entry->batch;
+         uint64      batch           = entry->batch;
          const slice entry_start_key = keyed_meta_entry_start_key(entry);
          int next_state = state(cfg, start_key, end_key, entry_start_key);
-         if (extent_addr[batch] != TERMINAL_EXTENT_ADDR && current_state[batch] * next_state < 1) {
+         if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
+             current_state[batch] * next_state < 1) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
-         extent_addr[batch] = entry->extent_addr;
+         extent_addr[batch]   = entry->extent_addr;
          current_state[batch] = next_state;
-         entry = keyed_next_entry(entry);
+         entry                = keyed_next_entry(entry);
       }
 
       meta_addr = mini_get_next_meta_addr(meta_page);
@@ -1159,7 +1171,7 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
       platform_log("|-------------------------------------------|\n");
 
       uint64 num_entries = mini_num_entries(meta_page);
-      unkeyed_meta_entry *entry = unkeyed_first_entry(meta_page);
+      unkeyed_meta_entry *entry       = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          platform_log("| %3lu | %35lu |\n", i, entry->extent_addr);
          entry = unkeyed_next_entry(entry);
@@ -1208,7 +1220,7 @@ mini_keyed_print(cache *      cc,
                            "-----------------|\n");
 
       uint64 num_entries = mini_num_entries(meta_page);
-      keyed_meta_entry *entry = keyed_first_entry(meta_page);
+      keyed_meta_entry *entry       = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          slice start_key = keyed_meta_entry_start_key(entry);
          char start_key_str[MAX_KEY_STR_LEN];
@@ -1216,7 +1228,7 @@ mini_keyed_print(cache *      cc,
             data_cfg, start_key, start_key_str, MAX_KEY_STR_LEN);
          uint8 ref = -1;
          if (entry->extent_addr != TERMINAL_EXTENT_ADDR)
-           ref = allocator_get_ref(al, entry->extent_addr);
+            ref = allocator_get_ref(al, entry->extent_addr);
          platform_default_log("| %3lu | %5u | %12lu | %18s | %2u |\n",
                               i,
                               entry->batch,

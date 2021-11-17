@@ -124,8 +124,8 @@ basic_merge_tuples(const data_config *cfg,
                    const void *       key,
                    uint64             old_raw_data_len,
                    const void *       old_raw_data,
-                   uint64            *new_raw_data_len,
-                   void              *new_raw_data)
+                   uint64 *           new_raw_data_len,
+                   void *             new_raw_data)
 {
    // we don't implement UPDATEs, so this is a no-op:
    // new is always left intact
@@ -134,9 +134,9 @@ basic_merge_tuples(const data_config *cfg,
 static void
 basic_merge_tuples_final(const data_config *cfg,
                          uint64             key_len,
-                         const void *       key,            // IN
+                         const void *       key, // IN
                          uint64 *           oldest_raw_data_len,
-                         void              *oldest_raw_data // IN/OUT
+                         void *             oldest_raw_data // IN/OUT
 )
 {
    // we don't implement UPDATEs, so this is a no-op:
@@ -144,7 +144,9 @@ basic_merge_tuples_final(const data_config *cfg,
 }
 
 static message_type
-basic_message_class(const data_config *cfg, uint64 raw_data_len, const void *raw_data)
+basic_message_class(const data_config *cfg,
+                    uint64             raw_data_len,
+                    const void *       raw_data)
 {
    const basic_message *msg = raw_data;
    switch (msg->type) {
@@ -190,7 +192,7 @@ basic_key_to_string(const data_config *cfg,
                     char *             str,
                     size_t             max_len)
 {
-  debug_hex_encode(str, max_len, key, key_len);
+   debug_hex_encode(str, max_len, key, key_len);
 }
 
 static void

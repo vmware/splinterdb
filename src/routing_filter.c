@@ -447,7 +447,7 @@ routing_filter_add(cache            *cc,
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64       addr                    = mini_alloc(&mini, 0, null_slice, NULL);
+   uint64       addr          = mini_alloc(&mini, 0, null_slice, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char *       filter_cursor           = filter_page->data;
    uint64       bytes_remaining_on_page = page_size;
@@ -805,11 +805,11 @@ routing_filter_estimate_unique_fp(cache            *cc,
  */
 
 platform_status
-routing_filter_lookup(cache            *cc,
-                      routing_config   *cfg,
-                      routing_filter   *filter,
-                      const slice  key,
-                      uint64           *found_values)
+routing_filter_lookup(cache *         cc,
+                      routing_config *cfg,
+                      routing_filter *filter,
+                      const slice     key,
+                      uint64 *        found_values)
 {
    if (filter->addr == 0) {
       *found_values = 0;
@@ -978,11 +978,11 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
  */
 
 cache_async_result
-routing_filter_lookup_async(cache              *cc,
-                            routing_config     *cfg,
-                            routing_filter     *filter,
-                            const slice    key,
-                            uint64             *found_values,
+routing_filter_lookup_async(cache *             cc,
+                            routing_config *    cfg,
+                            routing_filter *    filter,
+                            const slice         key,
+                            uint64 *            found_values,
                             routing_async_ctxt *ctxt)
 {
    cache_async_result res = 0;
