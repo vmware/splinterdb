@@ -30,8 +30,6 @@ typedef struct mini_allocator {
    uint64          num_batches;
    volatile uint64 next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
-   uint64          last_meta_addr[MINI_MAX_BATCHES];
-   uint64          last_meta_pos[MINI_MAX_BATCHES];
 } mini_allocator;
 
 uint64
