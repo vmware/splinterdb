@@ -539,7 +539,7 @@ dynamic_btree_find_pivot(const dynamic_btree_config *cfg,
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int   cmp = mid == 0 ? -1
-                           : dynamic_btree_key_compare(
+                         : dynamic_btree_key_compare(
                               cfg, dynamic_btree_get_pivot(cfg, hdr, mid), key);
       if (cmp <= 0) {
          lo     = mid + 1;

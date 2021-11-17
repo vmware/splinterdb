@@ -1086,9 +1086,9 @@ btree_zap_range(cache        *cc,
    slice bstart_key =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
                 : null_slice;
-   slice  bend_key  = end_key
-                         ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
-                         : null_slice;
+   slice bend_key = end_key
+                       ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
+                       : null_slice;
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    return mini_keyed_dec_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, bstart_key, bend_key);
@@ -2632,9 +2632,9 @@ btree_space_use_in_range(cache        *cc,
    slice  bstart_key =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
                  : null_slice;
-   slice  bend_key     = end_key
-                            ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
-                            : null_slice;
+   slice bend_key = end_key
+                       ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
+                       : null_slice;
    uint64 extents_used = mini_keyed_extent_count(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, bstart_key, bend_key);
    return extents_used * cfg->extent_size;
