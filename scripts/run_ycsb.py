@@ -117,7 +117,7 @@ MESSAGE_SIZE = ARGS.message_size
 CONFIG_OPTIONS = ARGS.config
 DEVICE = ARGS.device
 
-assert len(DRAM_SIZES) == len(PMEM_SIZES)
+assert len(DRAM_SIZES) == len(PMEM_SIZES_GIB)
 
 # get date/time for labeling
 DATETIME_STRING = datetime.today().strftime('%Y_%m_%d_%H:%M')
@@ -127,7 +127,7 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
         time.sleep(3)
         # create and open the csv file
         pathlib.Path(SAVE_DIR).mkdir(parents=True, exist_ok=True)
-        ycsb_csv_name = get_ycsb_string(SAVE_DIR, DATETIME_STRING, thread_count, dram, pmem * GIB, MESSAGE_SIZE)
+        ycsb_csv_name = get_ycsb_string(SAVE_DIR, DATETIME_STRING, thread_count, dram, pmem_gib * GIB, MESSAGE_SIZE)
         with open(ycsb_csv_name, "w") as ycsb_csv:
             if DEVICE:
                 ycsb_csv.write(
@@ -138,7 +138,7 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
             for i, trace_filename in enumerate(TRACE_FILENAMES):
                 # create SAVE_DIR for this run's data
                 workload_string = get_workload_string(
-                    trace_filename, thread_count, dram, pmem * GIB, MESSAGE_SIZE)
+                    trace_filename, thread_count, dram, pmem_gib * GIB, MESSAGE_SIZE)
                 results_dir = "{}/{}-{}".format(SAVE_DIR, workload_string, DATETIME_STRING)
                 pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
 
@@ -178,14 +178,14 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
                 run_command.append(str(KEY_SIZE))
                 run_command.append("--data-size")
                 run_command.append(str(MESSAGE_SIZE + 2))
-                run_command.append("--pmem_cache_capacity_gib")
-                run_command.append(str(pmem_gib)
+                run_command.append("--pmem-cache-capacity-gib")
+                run_command.append(str(pmem_gib))
 
                 # run the benchmark, print output if it crashes, save it otherwise
+                print("Running benchmark {} with {} threads, {} RAM and {} PMEM".format(
+                    trace_filename, thread_count, bytes_to_str(dram), bytes_to_str(pmem_gib * GIB)))
+                print(" ".join(run_command))
                 try:
-                    print("Running benchmark {} with {} threads, {} RAM and {} PMEM".format(
-                        trace_filename, thread_count, bytes_to_str(dram), bytes_to_str(pmem_gib * GIB))
-                    print(" ".join(run_command))
                     workload_output = subprocess.check_output(run_command, stderr=subprocess.STDOUT)
                 except subprocess.CalledProcessError as error:
                     print("Benchmark failed\n")
