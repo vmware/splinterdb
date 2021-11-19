@@ -1286,6 +1286,7 @@ static bool
 clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
 		uint64 disk_addr, page_handle **page, bool read_lock, bool write_unlock)
 {
+#ifdef PAGE_MIGRATION
    bool ret = FALSE;
 
 
@@ -1486,7 +1487,9 @@ release_ref:
    }
 out:
    return ret;
-
+#else
+   return FALSE;
+#endif
 }
 
 
@@ -1581,6 +1584,7 @@ clockcache_try_evict(clockcache *cc,
 
 
 #ifdef DRAM_CACHE
+#ifdef EVICTION_OPT
    if(cc->volatile_cache == NULL){
       clockcache* src_cc = cc;
       clockcache* dest_cc = cc->persistent_cache;
@@ -1645,7 +1649,7 @@ clockcache_try_evict(clockcache *cc,
 
       goto release_ref;
    }
-
+#endif
 #endif
 
    /*--------------------------------------- end of DRAM->PMEM cache eviction------------------------------------*/
@@ -3170,8 +3174,13 @@ clockcache_lock(clockcache  *cc,
          old_entry_no, (*page)->disk_addr);
    clockcache_get_write(cc, old_entry_no);
 
+#ifdef PMEM_COW
    if(cc->persistent_cache == NULL){
+#ifdef NON_TX_OPT
       if(istracking(clockcache_get_context(cc))){
+#else
+      if(true){
+#endif
          clockcache *pcc;
          /*
          if(cc->volatile_cache == NULL)
@@ -3206,6 +3215,7 @@ clockcache_lock(clockcache  *cc,
          *page = &new_entry->page;
       }
    }
+#endif
 
    //assert(clockcache_get_ref(cc, old_entry_no, platform_get_tid()) == 1);
 }
@@ -3216,8 +3226,8 @@ clockcache_internal_unlock(clockcache  *cc,
                            uint32 entry_number)
 {
    assert(entry_number == clockcache_page_to_entry_number(cc, *page));
+#ifdef PMEM_COW
    clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
-
 
    if(cc->persistent_cache == NULL){
       if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
@@ -3239,6 +3249,7 @@ clockcache_internal_unlock(clockcache  *cc,
          new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
       }
   }
+#endif
 
   uint32 flag = CC_WRITELOCKED;
   clockcache_record_backtrace(cc, entry_number);
@@ -3312,7 +3323,7 @@ clockcache_unlock(clockcache  *cache,
    ctx_unlock(clockcache_get_context(cc));
 
    clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
-
+#ifdef PMEM_COW
    if(cc->persistent_cache == NULL){
       if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
       //if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){
@@ -3323,7 +3334,8 @@ clockcache_unlock(clockcache  *cache,
       //}
       //}
    }
-   else{
+#endif
+   if(cc->persistent_cache != NULL){
       //if(new_entry->type != PAGE_TYPE_MEMTABLE){
       //if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){	   
       debug_assert(cc->persistent_cache != NULL);
