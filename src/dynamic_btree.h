@@ -70,21 +70,17 @@ typedef struct dynamic_btree_iterator {
    iterator              super;
    cache *               cc;
    dynamic_btree_config *cfg;
-   uint64                root_addr;
-   dynamic_btree_node    curr, end;
-   entry_index           idx, end_idx;
-   uint16                start_idx;
-   uint64                start_addr;
    bool                  do_prefetch;
-   bool                  is_live;
    uint32                height;
    page_type             page_type;
-   slice                 min_key;
    slice                 max_key;
-   slice                 curr_key;
-   slice                 curr_data;
-   bool                  at_end;
-   bool                  empty_itor;
+
+   uint64                root_addr;
+   dynamic_btree_node    curr;
+   entry_index           idx;
+   uint64                end_addr;
+   entry_index           end_idx;
+   uint64                end_generation;
 
    // Variables used for debug only
    debug_code(bool debug_is_packed);
@@ -271,7 +267,6 @@ dynamic_btree_iterator_init(cache *                 cc,
                             slice                   min_key,
                             slice                   max_key,
                             bool                    do_prefetch,
-                            bool                    is_live,
                             uint32                  height);
 
 void

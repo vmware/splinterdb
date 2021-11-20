@@ -358,10 +358,9 @@ iterator_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
                                &dbiter,
                                root_addr,
                                PAGE_TYPE_MEMTABLE,
-                               data_key_negative_infinity,
-                               data_key_positive_infinity,
+                               null_slice,
+                               null_slice,
                                FALSE,
-                               TRUE,
                                0);
 
    iterator *iter = (iterator *)&dbiter;
@@ -369,7 +368,7 @@ iterator_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
    uint64 seen = 0;
    bool   at_end;
    uint8  prevbuf[cfg->page_size];
-   slice  prev = data_key_negative_infinity;
+   slice  prev = null_slice;
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
       uint8 keybuf[cfg->page_size];
@@ -381,7 +380,7 @@ iterator_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
       platform_assert(k < nkvs);
       platform_assert(!slice_lex_cmp(key, gen_key(cfg, k, keybuf)));
       platform_assert(!slice_lex_cmp(msg, gen_msg(cfg, k, msgbuf)));
-      platform_assert(slice_lex_cmp(prev, key) < 0);
+      platform_assert(slice_is_null(prev) || slice_lex_cmp(prev, key) < 0);
 
       seen++;
       prev.data = prevbuf;
@@ -413,10 +412,9 @@ pack_tests(cache *               cc,
                                &dbiter,
                                root_addr,
                                PAGE_TYPE_MEMTABLE,
-                               data_key_negative_infinity,
-                               data_key_positive_infinity,
+                               null_slice,
+                               null_slice,
                                FALSE,
-                               TRUE,
                                0);
 
    dynamic_btree_pack_req req;
@@ -569,7 +567,7 @@ main(int argc, char **argv)
    for (int nkvs = 2; nkvs < 100; nkvs++)
       leaf_split_tests(&dbtree_cfg, &test_scratch, nkvs);
 
-   int nkvs     = 10000000;
+   int nkvs     = 1000000;
    int nthreads = 8;
 
    mini_allocator mini;
