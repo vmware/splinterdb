@@ -48,11 +48,17 @@ typedef uint16      inline_message_size;
 
 #define DYNAMIC_BTREE_MAX_HEIGHT 8
 
+/* Branches keep track of the number of keys and the total size of
+   all keys and messages in their subtrees.  But memtables do not
+   (because it is difficult to maintain this information during
+   insertion).  However, the current implementation uses the same
+   data structure for both memtables and branches.  So memtables
+   store DYNAMIC_BTREE_UNKNOWN for these counters. */
+#define DYNAMIC_BTREE_UNKNOWN (0x7fffffffUL)
+
 /***********************
  * Node headers
  ***********************/
-
-#define DYNAMIC_BTREE_UNKNOWN (0x7fffffffUL)
 
 struct PACKED dynamic_btree_hdr {
    uint64      next_addr;
@@ -154,18 +160,6 @@ index_entry_key_slice(index_entry *entry)
    return slice_create(entry->key_size, entry->key);
 }
 
-static inline char *
-index_entry_key_data(index_entry *entry)
-{
-   return entry->key;
-}
-
-__attribute__((unused)) static inline uint64
-index_entry_key_size(const index_entry *entry)
-{
-   return entry->key_size;
-}
-
 static inline uint64
 index_entry_child_addr(const index_entry *entry)
 {
@@ -190,12 +184,6 @@ leaf_entry_key_slice(leaf_entry *entry)
    return slice_create(entry->key_size, entry->key_and_message);
 }
 
-__attribute__((unused)) static inline char *
-leaf_entry_key_data(leaf_entry *entry)
-{
-   return entry->key_and_message;
-}
-
 static inline uint64
 leaf_entry_key_size(const leaf_entry *entry)
 {
@@ -207,12 +195,6 @@ leaf_entry_message_slice(leaf_entry *entry)
 {
    return slice_create(entry->message_size,
                        entry->key_and_message + entry->key_size);
-}
-
-__attribute__((unused)) static inline char *
-leaf_entry_message_data(leaf_entry *entry)
-{
-   return entry->key_and_message + entry->key_size;
 }
 
 static inline uint64
@@ -231,11 +213,17 @@ dynamic_btree_get_index_entry(const dynamic_btree_config *cfg,
                               const dynamic_btree_hdr *   hdr,
                               entry_index                 k)
 {
-   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
-                   hdr->offsets[k]);
-   platform_assert(hdr->offsets[k] <=
-                   dynamic_btree_page_size(cfg) - sizeof(index_entry));
-   return (index_entry *)((uint8 *)hdr + hdr->offsets[k]);
+   /* Ensure that the kth entry's header is after the end of the table and
+      before the end of the page. */
+   debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
+                <= hdr->offsets[k]);
+   debug_assert(hdr->offsets[k] + sizeof(index_entry)
+                <= dynamic_btree_page_size(cfg));
+   index_entry *entry = (index_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
+   /* Now ensure that the entire entry fits in the page. */
+   debug_assert(hdr->offsets[k] + sizeof_index_entry(entry)
+                <= dynamic_btree_page_size(cfg));
+   return entry;
 }
 
 static inline slice
@@ -262,7 +250,7 @@ dynamic_btree_fill_index_entry(index_entry *entry,
                                uint32       key_bytes,
                                uint32       message_bytes)
 {
-   memcpy(index_entry_key_data(entry),
+   memcpy(entry->key,
           slice_data(new_pivot_key),
           slice_length(new_pivot_key));
    entry->key_size              = slice_length(new_pivot_key);
@@ -319,8 +307,8 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
       return FALSE;
    }
 
-   index_entry *new_entry = (index_entry *)((char *)hdr + hdr->next_entry -
-                                            index_entry_size(new_pivot_key));
+   index_entry *new_entry = (index_entry *)pointer_byte_offset(hdr,
+      hdr->next_entry - index_entry_size(new_pivot_key));
    dynamic_btree_fill_index_entry(
       new_entry, new_pivot_key, new_addr, kv_pairs, key_bytes, message_bytes);
 
@@ -368,11 +356,16 @@ dynamic_btree_get_leaf_entry(const dynamic_btree_config *cfg,
                              const dynamic_btree_hdr *   hdr,
                              entry_index                 k)
 {
-   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
-                   hdr->offsets[k]);
-   platform_assert(hdr->offsets[k] <=
-                   dynamic_btree_page_size(cfg) - sizeof(leaf_entry));
-   return (leaf_entry *)((uint8 *)hdr + hdr->offsets[k]);
+   /* Ensure that the kth entry's header is after the end of the table and
+      before the end of the page. */
+   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
+                   <= hdr->offsets[k]);
+   platform_assert(hdr->offsets[k] + sizeof(leaf_entry)
+                   <= dynamic_btree_page_size(cfg));
+   leaf_entry *entry = (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
+   debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
+                <= dynamic_btree_page_size(cfg));
+   return entry;
 }
 
 static inline slice
@@ -454,9 +447,8 @@ dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
       return FALSE;
    }
 
-   leaf_entry *new_entry =
-      (leaf_entry *)((char *)hdr + hdr->next_entry -
-                     leaf_entry_size(new_key, new_message));
+   leaf_entry *new_entry = (leaf_entry *)pointer_byte_offset(hdr,
+          hdr->next_entry - leaf_entry_size(new_key, new_message));
    platform_assert((void *)&hdr->offsets[new_num_entries] <= (void *)new_entry);
    dynamic_btree_fill_leaf_entry(new_entry, new_key, new_message);
 
