@@ -5929,8 +5929,8 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
          splinter_subbundle_filter(spl, node, sb, filter_no);
       debug_assert(filter->addr != 0);
       slice key_slice = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
-      platform_status rc = routing_filter_lookup(spl->cc,
-            &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
+      platform_status rc = routing_filter_lookup(
+         spl->cc, &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
       platform_assert_status_ok(rc);
       if (found_values) {
          uint16 branch_no = sb->start_branch;
