@@ -251,13 +251,17 @@ dynamic_btree_get_child_addr(const dynamic_btree_config *cfg,
 }
 
 static inline void
-dynamic_btree_fill_index_entry(index_entry *entry,
-                               slice        new_pivot_key,
-                               uint64       new_addr,
-                               uint32       kv_pairs,
-                               uint32       key_bytes,
-                               uint32       message_bytes)
+dynamic_btree_fill_index_entry(const dynamic_btree_config *cfg,
+                               dynamic_btree_hdr *         hdr,
+                               index_entry *               entry,
+                               slice                       new_pivot_key,
+                               uint64                      new_addr,
+                               uint32                      kv_pairs,
+                               uint32                      key_bytes,
+                               uint32                      message_bytes)
 {
+   debug_assert(pointer_byte_offset(entry, index_entry_size(new_pivot_key)) <=
+                pointer_byte_offset(hdr, cfg->page_size));
    memcpy(entry->key, slice_data(new_pivot_key), slice_length(new_pivot_key));
    entry->key_size              = slice_length(new_pivot_key);
    entry->child_addr            = new_addr;
@@ -299,7 +303,9 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
                  sizeof_index_entry(old_entry)) {
          /* old_entry is not the physically first in the node,
             but new entry will fit inside it. */
-         dynamic_btree_fill_index_entry(old_entry,
+         dynamic_btree_fill_index_entry(cfg,
+                                        hdr,
+                                        old_entry,
                                         new_pivot_key,
                                         new_addr,
                                         kv_pairs,
@@ -317,8 +323,14 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
 
    index_entry *new_entry = (index_entry *)pointer_byte_offset(
       hdr, hdr->next_entry - index_entry_size(new_pivot_key));
-   dynamic_btree_fill_index_entry(
-      new_entry, new_pivot_key, new_addr, kv_pairs, key_bytes, message_bytes);
+   dynamic_btree_fill_index_entry(cfg,
+                                  hdr,
+                                  new_entry,
+                                  new_pivot_key,
+                                  new_addr,
+                                  kv_pairs,
+                                  key_bytes,
+                                  message_bytes);
 
    hdr->offsets[k]  = diff_ptr(hdr, new_entry);
    hdr->num_entries = new_num_entries;
@@ -394,8 +406,14 @@ dynamic_btree_get_tuple_message(const dynamic_btree_config *cfg,
 }
 
 static inline void
-dynamic_btree_fill_leaf_entry(leaf_entry *entry, slice key, slice message)
+dynamic_btree_fill_leaf_entry(const dynamic_btree_config *cfg,
+                              dynamic_btree_hdr *         hdr,
+                              leaf_entry *                entry,
+                              slice                       key,
+                              slice                       message)
 {
+   debug_assert(pointer_byte_offset(entry, leaf_entry_size(key, message)) <=
+                pointer_byte_offset(hdr, cfg->page_size));
    memcpy(entry->key_and_message, slice_data(key), slice_length(key));
    memcpy(entry->key_and_message + slice_length(key),
           slice_data(message),
@@ -443,7 +461,8 @@ dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
       leaf_entry *old_entry = dynamic_btree_get_leaf_entry(cfg, hdr, k);
       if (leaf_entry_size(new_key, new_message) <=
           sizeof_leaf_entry(old_entry)) {
-         dynamic_btree_fill_leaf_entry(old_entry, new_key, new_message);
+         dynamic_btree_fill_leaf_entry(
+            cfg, hdr, old_entry, new_key, new_message);
          return TRUE;
       }
       /* Fall through */
@@ -459,7 +478,7 @@ dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
    leaf_entry *new_entry = (leaf_entry *)pointer_byte_offset(
       hdr, hdr->next_entry - leaf_entry_size(new_key, new_message));
    platform_assert((void *)&hdr->offsets[new_num_entries] <= (void *)new_entry);
-   dynamic_btree_fill_leaf_entry(new_entry, new_key, new_message);
+   dynamic_btree_fill_leaf_entry(cfg, hdr, new_entry, new_key, new_message);
 
    hdr->offsets[k]  = diff_ptr(hdr, new_entry);
    hdr->num_entries = new_num_entries;
