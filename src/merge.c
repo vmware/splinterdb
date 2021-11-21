@@ -156,8 +156,8 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
-   merge_itor->ordered_iterators[0]->key = null_slice;
-   merge_itor->ordered_iterators[0]->data = null_slice;
+   merge_itor->ordered_iterators[0]->key = NULL_SLICE;
+   merge_itor->ordered_iterators[0]->data = NULL_SLICE;
    rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
    if (!SUCCESS(rc)) {
       return rc;
@@ -437,8 +437,8 @@ merge_iterator_create(platform_heap_id  hid,
       merge_itor->ordered_iterator_stored[i] = (ordered_iterator){
          .seq            = i,
          .itor           = i == -1 ? NULL : itor_arr[i],
-         .key            = null_slice,
-         .data           = null_slice,
+         .key            = NULL_SLICE,
+         .data           = NULL_SLICE,
          .next_key_equal = FALSE,
       };
       merge_itor->ordered_iterators[i] =
@@ -607,8 +607,8 @@ merge_advance(iterator *itor)
    debug_assert(!merge_itor->has_data || !slice_is_null(merge_itor->data));
    bool retry;
    do {
-      merge_itor->key  = null_slice;
-      merge_itor->data = null_slice;
+      merge_itor->key  = NULL_SLICE;
+      merge_itor->data = NULL_SLICE;
       // Advance one iterator
       rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {

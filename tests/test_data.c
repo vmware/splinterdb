@@ -12,12 +12,13 @@ test_data_key_cmp(const data_config *cfg,
 {
    uint64 mlen = key1_len < key2_len ? key1_len : key2_len;
    int    r    = memcmp(key1, key2, mlen);
-   if (r)
+   if (r) {
       return r;
-   else if (key1_len < key2_len)
+   } else if (key1_len < key2_len) {
       return -1;
-   else if (key2_len < key1_len)
+   } else if (key2_len < key1_len) {
       return 1;
+   }
    return 0;
 }
 

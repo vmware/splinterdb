@@ -749,7 +749,7 @@ mini_keyed_for_each(cache *          cc,
 
    uint64 meta_addr = meta_head;
 
-   int    current_state[MINI_MAX_BATCHES];
+   boundary_state current_state[MINI_MAX_BATCHES];
    uint64 extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = -1;
@@ -762,7 +762,7 @@ mini_keyed_for_each(cache *          cc,
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
          uint64      batch           = entry->batch;
          const slice entry_start_key = keyed_meta_entry_start_key(entry);
-         int next_state = state(cfg, start_key, end_key, entry_start_key);
+         boundary_state next_state = state(cfg, start_key, end_key, entry_start_key);
          if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
              interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
@@ -807,7 +807,7 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    uint64       meta_addr = meta_head;
    page_handle *meta_page = mini_get_claim_meta_page(cc, meta_head, type);
 
-   int    current_state[MINI_MAX_BATCHES];
+   boundary_state current_state[MINI_MAX_BATCHES];
    uint64 extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = -1;
@@ -819,9 +819,9 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
          uint64      batch           = entry->batch;
          const slice entry_start_key = keyed_meta_entry_start_key(entry);
-         int next_state = state(cfg, start_key, end_key, entry_start_key);
+         boundary_state next_state = state(cfg, start_key, end_key, entry_start_key);
          if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
-             current_state[batch] * next_state < 1) {
+             interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
             should_cleanup            = should_cleanup && entry_should_cleanup;

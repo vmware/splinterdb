@@ -1404,7 +1404,7 @@ dynamic_btree_split_child_leaf(cache *                     cc,
    dynamic_btree_alloc(cc,
                        mini,
                        dynamic_btree_height(child->hdr),
-                       null_slice,
+                       NULL_SLICE,
                        NULL,
                        PAGE_TYPE_MEMTABLE,
                        &right_child);
@@ -1554,7 +1554,7 @@ dynamic_btree_split_child_index(cache *                     cc,
    dynamic_btree_alloc(cc,
                        mini,
                        dynamic_btree_height(child->hdr),
-                       null_slice,
+                       NULL_SLICE,
                        NULL,
                        PAGE_TYPE_MEMTABLE,
                        &right_child);
@@ -1724,7 +1724,7 @@ dynamic_btree_grow_root(cache *                     cc,   // IN
    dynamic_btree_alloc(cc,
                        mini,
                        dynamic_btree_height(root_node->hdr),
-                       null_slice,
+                       NULL_SLICE,
                        NULL,
                        PAGE_TYPE_MEMTABLE,
                        &child);
@@ -2884,7 +2884,7 @@ dynamic_btree_pack(dynamic_btree_pack_req *req)
 {
    dynamic_btree_pack_setup_start(req);
 
-   slice key = null_slice, data;
+   slice key = NULL_SLICE, data;
    bool  at_end;
 
    iterator_at_end(req->itor, &at_end);

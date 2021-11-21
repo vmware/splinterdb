@@ -382,8 +382,8 @@ iterator_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
                                &dbiter,
                                root_addr,
                                PAGE_TYPE_MEMTABLE,
-                               null_slice,
-                               null_slice,
+                               NULL_SLICE,
+                               NULL_SLICE,
                                FALSE,
                                0);
 
@@ -392,7 +392,7 @@ iterator_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
    uint64 seen = 0;
    bool   at_end;
    uint8  prevbuf[cfg->page_size];
-   slice  prev = null_slice;
+   slice  prev = NULL_SLICE;
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
       uint8 keybuf[cfg->page_size];
@@ -437,8 +437,8 @@ pack_tests(cache *               cc,
                                &dbiter,
                                root_addr,
                                PAGE_TYPE_MEMTABLE,
-                               null_slice,
-                               null_slice,
+                               NULL_SLICE,
+                               NULL_SLICE,
                                FALSE,
                                0);
 

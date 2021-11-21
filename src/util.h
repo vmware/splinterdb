@@ -80,7 +80,7 @@ typedef struct slice {
    void * data;
 } slice;
 
-extern const slice null_slice;
+extern const slice NULL_SLICE;
 
 static inline bool
 slice_is_null(const slice b)
@@ -126,12 +126,13 @@ slice_lex_cmp(const slice a, const slice b)
    uint64 len2   = slice_length(b);
    uint64 minlen = len1 < len2 ? len1 : len2;
    int    cmp    = memcmp(slice_data(a), slice_data(b), minlen);
-   if (cmp)
+   if (cmp) {
       return cmp;
-   else if (len1 < len2)
+   } else if (len1 < len2) {
       return -1;
-   else
+   } else {
       return len1 - len2;
+   }
 }
 
 /*

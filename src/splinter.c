@@ -928,7 +928,7 @@ splinter_node_unlock(splinter_handle *spl,
 page_handle *
 splinter_alloc(splinter_handle *spl, uint64 height)
 {
-   uint64 addr = mini_alloc(&spl->mini, height, null_slice, NULL);
+   uint64 addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 
@@ -2993,7 +2993,7 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    memtable *mt = splinter_get_memtable(spl, generation);
 
    memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
-   mini_release(&mt->mini, null_slice);
+   mini_release(&mt->mini, NULL_SLICE);
 
    splinter_compacted_memtable *cmt =
       splinter_get_compacted_memtable(spl, generation);
@@ -7057,7 +7057,7 @@ splinter_destroy(splinter_handle *spl)
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
-   mini_release(&spl->mini, null_slice);
+   mini_release(&spl->mini, NULL_SLICE);
    mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
 
    // clear out this splinter table from the meta page.

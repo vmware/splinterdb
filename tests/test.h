@@ -182,7 +182,7 @@ test_count_tuples_in_range(cache        *cc,
          cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, FALSE, 0);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
-      slice last_key = null_slice;
+      slice last_key = NULL_SLICE;
       while (!at_end) {
          slice key, data;
          iterator_get_curr(&itor.super, &key, &data);

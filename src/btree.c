@@ -88,7 +88,7 @@ btree_alloc(cache *         cc,
             page_type       type,
             btree_node *    node)
 {
-   slice bkey = key ? slice_create(mini->data_cfg->key_size, key) : null_slice;
+   slice bkey = key ? slice_create(mini->data_cfg->key_size, key) : NULL_SLICE;
    node->addr = mini_alloc(mini, height, bkey, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
@@ -1058,10 +1058,10 @@ btree_inc_range(cache        *cc,
    }
    slice start_slice =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
-                : null_slice;
+                : NULL_SLICE;
    slice end_slice = end_key
                        ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
-                       : null_slice;
+                       : NULL_SLICE;
    mini_keyed_inc_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_slice, end_slice);
 }
@@ -1085,10 +1085,10 @@ btree_zap_range(cache        *cc,
 
    slice start_slice =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
-                : null_slice;
+                : NULL_SLICE;
    slice end_slice = end_key
                        ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
-                       : null_slice;
+                       : NULL_SLICE;
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    return mini_keyed_dec_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_slice, end_slice);
@@ -2631,10 +2631,10 @@ btree_space_use_in_range(cache        *cc,
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    slice  start_slice =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
-                : null_slice;
+                : NULL_SLICE;
    slice end_slice = end_key
                        ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
-                       : null_slice;
+                       : NULL_SLICE;
    uint64 extents_used = mini_keyed_extent_count(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_slice, end_slice);
    return extents_used * cfg->extent_size;

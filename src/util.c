@@ -7,7 +7,7 @@
 
 #include "poison.h"
 
-const slice null_slice = (slice){0, NULL};
+const slice NULL_SLICE = (slice){0, NULL};
 
 /*
  * Utility function; you should not use this directly
