@@ -16,17 +16,20 @@ leaf_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
                                         hdr,
                                         i,
                                         slice_create(i % sizeof(i), &i),
-                                        slice_create(i % sizeof(i), &i)))
+                                        slice_create(i % sizeof(i), &i))) {
          platform_log("failed to insert 4-byte %d\n", i);
+      }
    }
 
    for (uint32 i = 0; i < nkvs; i++) {
       slice key     = dynamic_btree_get_tuple_key(cfg, hdr, i);
       slice message = dynamic_btree_get_tuple_message(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key))
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
          platform_log("bad 4-byte key %d\n", i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message))
+      }
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message)) {
          platform_log("bad 4-byte message %d\n", i);
+      }
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
@@ -34,17 +37,20 @@ leaf_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
                                         hdr,
                                         i,
                                         slice_create(i % sizeof(i), &i),
-                                        slice_create(i % sizeof(i), &i)))
+                                        slice_create(i % sizeof(i), &i))) {
          platform_log("failed to insert 8-byte %ld\n", i);
+      }
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
       slice key     = dynamic_btree_get_tuple_key(cfg, hdr, i);
       slice message = dynamic_btree_get_tuple_message(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key))
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
          platform_log("bad 4-byte key %ld\n", i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message))
+      }
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message)) {
          platform_log("bad 4-byte message %ld\n", i);
+      }
    }
 
    dynamic_btree_defragment_leaf(cfg, scratch, hdr, -1);
@@ -52,10 +58,12 @@ leaf_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
    for (uint64 i = 0; i < nkvs; i++) {
       slice key     = dynamic_btree_get_tuple_key(cfg, hdr, i);
       slice message = dynamic_btree_get_tuple_message(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key))
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
          platform_log("bad 4-byte key %ld\n", i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message))
+      }
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message)) {
          platform_log("bad 4-byte message %ld\n", i);
+      }
    }
 
    return 0;
@@ -82,17 +90,20 @@ leaf_hdr_search_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
       leaf_incorporate_spec spec;
       bool                  result = dynamic_btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, message, &spec, &generation);
-      if (!result)
+      if (!result) {
          platform_log("couldn't incorporate kv pair %d\n", i);
-      if (generation != i)
+      }
+      if (generation != i) {
          platform_log("bad generation %d %lu\n", i, generation);
+      }
    }
 
    for (int i = 0; i < nkvs; i++) {
       slice key = dynamic_btree_get_tuple_key(cfg, hdr, i);
       uint8 ui  = i;
-      if (slice_lex_cmp(slice_create(1, &ui), key))
+      if (slice_lex_cmp(slice_create(1, &ui), key)) {
          platform_log("bad 4-byte key %d\n", i);
+      }
    }
 
    return 0;
@@ -110,32 +121,38 @@ index_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
 
    for (uint32 i = 0; i < nkvs; i++) {
       if (!dynamic_btree_set_index_entry(
-             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0))
-         platform_log("failed to insert 4-byte %d\n", i);
+             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
+          platform_log("failed to insert 4-byte %d\n", i);
+      }
    }
 
    for (uint32 i = 0; i < nkvs; i++) {
       slice  key       = dynamic_btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = dynamic_btree_get_child_addr(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key))
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
          platform_log("bad 4-byte key %d\n", i);
-      if (childaddr != i)
+      }
+      if (childaddr != i) {
          platform_log("bad childaddr %d\n", i);
+      }
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
       if (!dynamic_btree_set_index_entry(
-             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0))
-         platform_log("failed to insert 8-byte %ld\n", i);
+             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
+          platform_log("failed to insert 8-byte %ld\n", i);
+      }
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
       slice  key       = dynamic_btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = dynamic_btree_get_child_addr(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key))
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
          platform_log("bad 4-byte key %ld\n", i);
-      if (childaddr != i)
+      }
+      if (childaddr != i) {
          platform_log("bad childaddr %ld\n", i);
+      }
    }
 
    dynamic_btree_defragment_index(cfg, scratch, hdr);
@@ -143,10 +160,12 @@ index_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
    for (uint64 i = 0; i < nkvs; i++) {
       slice  key       = dynamic_btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = dynamic_btree_get_child_addr(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key))
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
          platform_log("bad 4-byte key %ld\n", i);
-      if (childaddr != i)
+      }
+      if (childaddr != i) {
          platform_log("bad childaddr %ld\n", i);
+      }
    }
 
    return 0;
@@ -166,8 +185,9 @@ index_hdr_search_tests(dynamic_btree_config *cfg)
       uint8 keybuf[1];
       keybuf[0] = i;
       slice key = slice_create(1, &keybuf);
-      if (!dynamic_btree_set_index_entry(cfg, hdr, i / 2, key, i, 0, 0, 0))
+      if (!dynamic_btree_set_index_entry(cfg, hdr, i / 2, key, i, 0, 0, 0)) {
          platform_log("couldn't insert pivot %d\n", i);
+      }
    }
 
    for (int i = 0; i < nkvs; i++) {
@@ -176,8 +196,9 @@ index_hdr_search_tests(dynamic_btree_config *cfg)
       keybuf[0] = i;
       slice key = slice_create(1, &keybuf);
       int64 idx = dynamic_btree_find_pivot(cfg, hdr, key, &found);
-      if (idx != i / 2)
+      if (idx != i / 2) {
          platform_log("bad pivot search result %ld for %d\n", idx, i);
+      }
    }
 
    return 0;
@@ -207,8 +228,9 @@ leaf_split_tests(dynamic_btree_config * cfg,
       uint8 keybuf[1];
       keybuf[0] = 2 * realnkvs + 1;
       if (!dynamic_btree_set_leaf_entry(
-             cfg, hdr, realnkvs, slice_create(1, &keybuf), msg))
-         break;
+             cfg, hdr, realnkvs, slice_create(1, &keybuf), msg)) {
+          break;
+      }
       realnkvs++;
    }
 
@@ -250,8 +272,9 @@ gen_key(dynamic_btree_config *cfg,
 static uint64
 ungen_key(slice key)
 {
-   if (slice_length(key) < sizeof(uint64))
+   if (slice_length(key) < sizeof(uint64)) {
       return 0;
+   }
 
    uint64 k;
    memcpy(&k, key.data, sizeof(k));
@@ -296,8 +319,9 @@ insert_tests(cache *                cc,
                                         gen_key(cfg, i, keybuf),
                                         gen_msg(cfg, i, msgbuf),
                                         &generation,
-                                        &was_unique)))
+                                        &was_unique))) {
          platform_log("failed to insert 4-byte %ld\n", i);
+      }
    }
 }
 
@@ -386,8 +410,9 @@ iterator_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
       prev.data = prevbuf;
       slice_copy_contents(&prev, key);
 
-      if (!SUCCESS(iterator_advance(iter)))
+      if (!SUCCESS(iterator_advance(iter))) {
          break;
+      }
    }
 
    platform_assert(seen == nkvs);
@@ -564,8 +589,9 @@ main(int argc, char **argv)
    index_hdr_tests(&dbtree_cfg, &test_scratch);
    index_hdr_search_tests(&dbtree_cfg);
 
-   for (int nkvs = 2; nkvs < 100; nkvs++)
+   for (int nkvs = 2; nkvs < 100; nkvs++) {
       leaf_split_tests(&dbtree_cfg, &test_scratch, nkvs);
+   }
 
    int nkvs     = 1000000;
    int nthreads = 8;

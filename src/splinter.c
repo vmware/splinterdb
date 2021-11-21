@@ -2964,9 +2964,10 @@ splinter_memtable_insert(splinter_handle *spl, char *key, char *message)
    }
 
    if (spl->cfg.use_log) {
-      slice skey      = slice_create(splinter_key_size(spl), key);
-      slice smessage  = slice_create(splinter_message_size(spl), message);
-      int   crappy_rc = log_write(spl->log, skey, smessage, leaf_generation);
+      slice key_slice      = slice_create(splinter_key_size(spl), key);
+      slice message_slice  = slice_create(splinter_message_size(spl), message);
+      int   crappy_rc      = log_write(spl->log, key_slice, message_slice,
+                                       leaf_generation);
       if (crappy_rc != 0) {
          goto unlock_insert_lock;
       }
@@ -3828,9 +3829,9 @@ splinter_filter_lookup_async(splinter_handle    *spl,
                              uint64             *found_values,
                              routing_async_ctxt *ctxt)
 {
-   slice bkey = slice_create(cfg->data_cfg->key_size, key);
+   slice key_slice = slice_create(cfg->data_cfg->key_size, key);
    return routing_filter_lookup_async(
-      spl->cc, cfg, filter, bkey, found_values, ctxt);
+      spl->cc, cfg, filter, key_slice, found_values, ctxt);
 }
 
 /*
@@ -5944,9 +5945,9 @@ splinter_filter_lookup(splinter_handle *spl,
    }
 
    uint64 found_values;
-   slice           bkey = slice_create(cfg->data_cfg->key_size, (void *)key);
+   slice           key_slice = slice_create(cfg->data_cfg->key_size, (void *)key);
    platform_status rc =
-      routing_filter_lookup(spl->cc, cfg, filter, bkey, &found_values);
+      routing_filter_lookup(spl->cc, cfg, filter, key_slice, &found_values);
    platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       spl->stats[tid].filter_lookups[height]++;
@@ -6001,9 +6002,9 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
          splinter_subbundle_filter(spl, node, sb, filter_no);
       debug_assert(filter->addr != 0);
       // FIXME: [aconway 2020-09-14] was index
-      slice bkey = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
+      slice key_slice = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
       platform_status rc = routing_filter_lookup(
-         spl->cc, &spl->cfg.leaf_filter_cfg, filter, bkey, &found_values);
+         spl->cc, &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
       platform_assert_status_ok(rc);
       if (found_values) {
          uint16 branch_no = sb->start_branch;

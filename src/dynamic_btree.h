@@ -15,6 +15,7 @@
 #include "iterator.h"
 #include "util.h"
 
+#define DYNAMIC_BTREE_MAX_HEIGHT (8)
 #define MAX_INLINE_KEY_SIZE     (512)
 #define MAX_INLINE_MESSAGE_SIZE (2048)
 #define MAX_NODE_SIZE           (1ULL << 16)
@@ -64,8 +65,6 @@ typedef struct { // Note: not a union
    scratch_dynamic_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED dynamic_btree_scratch;
 
-typedef uint16 entry_index; //  So we can make this bigger for bigger nodes.
-
 typedef struct dynamic_btree_iterator {
    iterator              super;
    cache *               cc;
@@ -77,9 +76,9 @@ typedef struct dynamic_btree_iterator {
 
    uint64                root_addr;
    dynamic_btree_node    curr;
-   entry_index           idx;
+   uint64                idx;
    uint64                end_addr;
-   entry_index           end_idx;
+   uint64                end_idx;
    uint64                end_generation;
 
    // Variables used for debug only
@@ -92,17 +91,22 @@ typedef struct dynamic_btree_pack_req {
    // inputs to the pack
    cache *               cc;
    dynamic_btree_config *cfg;
-
-   // the itor which is being packed
-   iterator *itor;
-
+   iterator *itor; // the itor which is being packed
    uint64       max_tuples; // max tuples for the tree
    hash_fn      hash;       // hash function used for calculating filter_hash
    unsigned int seed;       // seed used for calculating filter_hash
 
+   // internal data
+   uint64 next_extent;
+   uint16 height;
+   dynamic_btree_node edge[DYNAMIC_BTREE_MAX_HEIGHT];
+   mini_allocator mini;
+
    // output of the compaction
    uint64  root_addr;       // root address of the output tree
    uint64  num_tuples;      // no. of tuples in the output tree
+   uint64  key_bytes;       // total size of keys in tuples of the output tree
+   uint64  message_bytes;   // total size of msgs in tuples of the output tree
    uint32 *fingerprint_arr; // hashes of the keys in the tree
 } dynamic_btree_pack_req;
 

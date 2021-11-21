@@ -79,7 +79,7 @@ data_message_to_string(const data_config *cfg,
 // robj: this is really just a convenience function.  Key copying is
 // _not_ an operation that the application can hook into.
 static inline void
-data_key_copy(const data_config *cfg, void *dst, const slice src)
+data_key_copy(void *dst, const slice src)
 {
    memmove(dst, slice_data(src), slice_length(src));
 }

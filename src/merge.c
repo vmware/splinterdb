@@ -156,8 +156,8 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
-   // merge_itor->ordered_iterators[0]->key = NULL;
-   // merge_itor->ordered_iterators[0]->data = NULL;
+   merge_itor->ordered_iterators[0]->key = null_slice;
+   merge_itor->ordered_iterators[0]->data = null_slice;
    rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
    if (!SUCCESS(rc)) {
       return rc;
@@ -643,10 +643,11 @@ merge_iterator_print(merge_iterator *merge_itor)
       bool at_end;
       iterator_at_end(merge_itor->ordered_iterators[i]->itor, &at_end);
       platform_log("%u: ", merge_itor->ordered_iterators[i]->seq);
-      if (at_end)
+      if (at_end) {
          platform_log("# : ");
-      else
+      } else {
          platform_log("_ : ");
+      }
       if (i < merge_itor->num_remaining) {
          iterator_get_curr(merge_itor->ordered_iterators[i]->itor, &key, &data);
          data_key_to_string(data_cfg, key, key_str, MAX_KEY_SIZE);

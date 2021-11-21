@@ -22,9 +22,16 @@
 
 #define RC_ALLOCATOR_BASE_OFFSET (0)
 
-#define SHOULD_TRACE(addr) (0)
-//#define SHOULD_TRACE(addr) (1)
-//#define SHOULD_TRACE(addr) ((addr) / (4096 * 32) == 339ULL)
+/* A predicate defining whether to trace allocations/ref-count changes
+ * on a given address.
+ *
+ * Examples:
+ * #define SHOULD_TRACE(addr) (1) // trace all addresses
+ * #define SHOULD_TRACE(addr) ((addr) / (4096 * 32) == 339ULL) // trace extent 339
+ *
+ */
+#define SHOULD_TRACE(addr) (0) // Do not trace anything
+
 
 /*
  *------------------------------------------------------------------------------
