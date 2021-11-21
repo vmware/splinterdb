@@ -1568,9 +1568,6 @@ splinter_pivot_tuples_in_btree(splinter_handle *spl,
 }
 
 
-/*
- * FIXME: [aconway 2020-08-11] Add description
- */
 static inline uint64
 splinter_pivot_tuples_in_branch(splinter_handle *spl,
                                 page_handle     *node,
@@ -1794,13 +1791,6 @@ splinter_get_bundle(splinter_handle *spl,
    return &hdr->bundle[bundle_no];
 }
 
-/*
- * get_new_bundle allocates a new bundle in the node and returns its index.
- *
- * FIXME: [aconway 2020-06-21] Name implies it returns a pointer to the bundle
- * FIXME: [aconway 2020-06-21] Currently crashes if there is no room in the
- * buffer
- */
 static inline uint16
 splinter_get_new_bundle(splinter_handle *spl,
                         page_handle     *node)
@@ -1857,9 +1847,6 @@ splinter_subbundle_no(splinter_handle    *spl,
 /*
  * get_new_subbundle allocates a new subbundle in the node and returns its
  * index.
- *
- * FIXME: [aconway 2020-06-21] Currently crashes if there is no room in the
- * buffer
  */
 static inline splinter_subbundle *
 splinter_get_new_subbundle(splinter_handle *spl,
@@ -2388,9 +2375,6 @@ splinter_get_branch(splinter_handle *spl,
 /*
  * get_new_branch allocates a new branch in the node and returns a pointer to
  * it.
- *
- * FIXME: [aconway 2020-06-21] Currently crashes if there is no room in the
- * buffer
  */
 static inline splinter_branch *
 splinter_get_new_branch(splinter_handle *spl,
@@ -2831,13 +2815,10 @@ splinter_btree_lookup_async(splinter_handle     *spl,      // IN
  *-----------------------------------------------------------------------------
  */
 
-// FIXME: [aconway 2020-09-02] Both these functions (get_memtable and
-// try_get_memtable) belong in memtable.[ch]
 memtable *
 splinter_try_get_memtable(splinter_handle *spl,
                           uint64           generation)
 {
-   // FIXME: [aconway 2020-09-01] change to cfg
    uint64 memtable_idx = generation % SPLINTER_NUM_MEMTABLES;
    memtable *mt = &spl->mt_ctxt->mt[memtable_idx];
    if (mt->generation != generation) {
@@ -2854,7 +2835,6 @@ memtable *
 splinter_get_memtable(splinter_handle *spl,
                       uint64           generation)
 {
-   // FIXME: [aconway 2020-09-01] change to cfg
    uint64 memtable_idx = generation % SPLINTER_NUM_MEMTABLES;
    memtable *mt = &spl->mt_ctxt->mt[memtable_idx];
    platform_assert(mt->generation == generation);
@@ -3043,7 +3023,6 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    uint32 *dup_fp_arr = TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
    memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
    routing_filter empty_filter = { 0 };
-   // FIXME: [aconway 2020-09-14] was index
    platform_status rc = routing_filter_add(spl->cc, &spl->cfg.leaf_filter_cfg,
          spl->heap_id, &empty_filter, &cmt->filter, cmt->req->fp_arr,
          req.num_tuples, 0);
@@ -3093,8 +3072,6 @@ splinter_try_start_incorporate(splinter_handle *spl,
       should_start = FALSE;
       goto unlock_incorp_lock;
    }
-   // FIXME: [aconway 2020-09-02] this should be a transation, not a try and
-   // return TRUE;
    should_start = memtable_try_transition(
          mt, MEMTABLE_STATE_COMPACTED, MEMTABLE_STATE_INCORPORATION_ASSIGNED);
 
@@ -3147,29 +3124,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
                               uint64           generation,
                               const threadid   tid)
 {
-   // FIXME: [yfogel 2020-08-26] this logic needs to be moved INTO incorporate
-   // FIXME: [yfogel,aconway 2020-08-26] merge conflicts need to update this as
-   //        well.  Also don't know if this code is correct even before we do
-   //        our context change.
-   //        see https://reviewboard.eng.vmware.com/r/1704658
-   //if (new_branch.num_tuples == 0) {
-   //   /*
-   //    * If the memtable is empty, we do not want to incorporate it,
-   //    * just release the claim , read lock and zap.
-   //    */
-   //   splinter_branch memtable_branch;
-   //   ZERO_STRUCT(memtable_branch);
-   //   memtable_branch.root_addr = spl->memtable[curr_memtable]->root_addr;
-   //   splinter_clear_memtable(spl, spl->memtable[curr_memtable]);
-   //   splinter_node_unclaim(spl, root);
-   //   splinter_node_unget(spl, &root);
-   //   splinter_dec_ref(spl, &memtable_branch, TRUE);
-   //   return;
-   //}
-
    // X. Get, claim and lock the lookup lock
-   // FIXME: [aconway 2020-09-01] Should probably first get claims on lookup
-   // lock and root, then upgrade to locks
    page_handle *mt_lookup_lock_page =
       memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
 
@@ -3178,8 +3133,6 @@ splinter_memtable_incorporate(splinter_handle *spl,
    // X. Get, claim and lock the root
    page_handle *root = splinter_node_get(spl, spl->root_addr);
    splinter_node_claim(spl, &root);
-   // FIXME: [aconway 2020-08-31] Change this to account for possibly
-   //        incorporating more than 1 memtable
    platform_assert(splinter_has_vacancy(spl, root, 1));
    splinter_node_lock(spl, root);
 
@@ -3214,8 +3167,6 @@ splinter_memtable_incorporate(splinter_handle *spl,
    req->height = splinter_height(spl, root);
    req->generation = splinter_generation(spl, root);
    req->max_pivot_generation = splinter_pivot_generation(spl, root);
-   // FIXME: [aconway 2020-09-01] This should happen during claim before
-   // lock, for root maybe even just read (SPLINTER-87)
    splinter_tuples_in_bundle(spl, root, bundle, req->output_pivot_count);
    splinter_pivot_add_bundle_num_tuples(spl, root, bundle, req->output_pivot_count);
    uint16 num_children = splinter_num_children(spl, root);
@@ -3286,8 +3237,6 @@ splinter_memtable_incorporate(splinter_handle *spl,
    memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
 
    if (spl->cfg.use_stats) {
-      // FIXME: [yfogel 2020-08-26] for stats, may need to store more..
-      // somewhere? especially when handed off
       const threadid tid = platform_get_tid();
       flush_start = platform_timestamp_elapsed(flush_start);
       spl->stats[tid].memtable_flush_time_ns += flush_start;
@@ -3368,8 +3317,6 @@ splinter_memtable_root_addr_for_lookup(splinter_handle *spl,
                                        uint64           generation,
                                        bool            *is_compacted)
 {
-   // FIXME: [aconway 2020-09-02] This needs to be try or the caller needs to
-   // try (and then pass the mt into here)
    memtable *mt = splinter_get_memtable(spl, generation);
    platform_assert(memtable_ok_to_lookup(mt));
 
@@ -3403,7 +3350,6 @@ splinter_memtable_lookup(splinter_handle *spl,
                          char            *data,
                          bool            *found)
 {
-   // FIXME: [aconway 2020-08-26] look in compacted if available
    bool needs_merge = *found;
    bool local_found;
    btree_node node;
@@ -3413,7 +3359,6 @@ splinter_memtable_lookup(splinter_handle *spl,
    data_config *data_cfg = spl->cfg.data_cfg;
    char *data_temp;
 
-   // FIXME: [aconway 2020-09-01] Maybe use this in stats
    bool memtable_is_compacted;
    uint64 root_addr = splinter_memtable_root_addr_for_lookup(spl, generation,
          &memtable_is_compacted);
@@ -4107,9 +4052,6 @@ splinter_flush(splinter_handle     *spl,
 /*
  * flush_fullest first flushes any pivots with too many live logical branches.
  * If the node is still full, it then flushes the pivot with the most tuples.
- *
- * FIXME: [aconway 2020-06-21] The name doesn't make it clear what the function
- * does.
  */
 bool
 splinter_flush_fullest(splinter_handle *spl,
@@ -4679,10 +4621,6 @@ splinter_compact_bundle(void *arg,
             splinter_log_stream("inserted %lu into %lu\n",
                                 new_branch.root_addr, addr);
          } else {
-            // FIXME: [yfogel 2020-07-02] come back
-            // This may create an empty branch, set the empty one to null before getting in loop?
-            // 1. Don't create it until the first element per tree: Perf cost
-            // 2. Delete it after pack: Maybe wierd interaction with ref_count
             splinter_replace_bundle_branches(spl, node, NULL, req);
             splinter_log_stream("compact_bundle empty %lu\n", addr);
          }
@@ -4808,10 +4746,6 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
 void
 splinter_force_flush(splinter_handle *spl)
 {
-   // FIXME [yfogel/aconway 2020-07-29] There is a race condition where both
-   //       this thread and (already existing thread) are both trying to flush
-   //       single memtable same time)
-   //       Need to fix that race.
    page_handle *lock_page;
    uint64 generation;
    platform_status rc =
@@ -5046,7 +4980,6 @@ splinter_split_leaf(splinter_handle *spl,
                     uint16           child_idx)
 {
    const threadid tid = platform_get_tid();
-   // FIXME: [aconway 2020-06-19] This scratch lookup feels a bit dirty
    splinter_task_scratch *task_scratch =
       task_system_get_thread_scratch(spl->ts, tid);
    split_leaf_scratch *scratch = &task_scratch->split_leaf;
@@ -5195,11 +5128,6 @@ splinter_split_leaf(splinter_handle *spl,
            splinter_max_key(spl, leaf),
            splinter_key_size(spl));
 
-   /*
-    * FIXME: [aconway 2020-07-16] This case can only happen with default params
-    * with a height 8+ tree and worst case flush. We do not currently handle
-    * this case.
-    */
    platform_assert(num_leaves + splinter_num_pivot_keys(spl, parent)
          <= spl->cfg.max_pivot_keys);
 
@@ -5726,7 +5654,6 @@ splinter_compact_leaf(splinter_handle *spl,
                       page_handle     *leaf)
 {
    const threadid tid = platform_get_tid();
-   // FIXME: [aconway 2020-06-19] This scratch lookup feels a bit dirty
 
    splinter_open_log_stream();
    splinter_log_stream("compact_leaf addr %lu\n", leaf->disk_addr);
@@ -6001,10 +5928,9 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
       routing_filter *filter =
          splinter_subbundle_filter(spl, node, sb, filter_no);
       debug_assert(filter->addr != 0);
-      // FIXME: [aconway 2020-09-14] was index
       slice key_slice = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
-      platform_status rc = routing_filter_lookup(
-         spl->cc, &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
+      platform_status rc = routing_filter_lookup(spl->cc,
+            &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
       platform_assert_status_ok(rc);
       if (found_values) {
          uint16 branch_no = sb->start_branch;
@@ -6114,7 +6040,6 @@ splinter_lookup(splinter_handle *spl,
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      // FIXME: [aconway 2020-08-26] wrap with a branch lookup
       splinter_memtable_lookup(spl, mt_gen, key, data, found);
       if (*found) {
          type = fixed_size_data_message_class(data_cfg, data);
@@ -6304,13 +6229,6 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
                       bool                *found,  // OUT
                       splinter_async_ctxt *ctxt)   // IN/OUT
 {
-   // FIXME: [yfogel 2020-08-26] giant switch statements are impossible to read
-   //       this needs to be refactored.
-   //       we can have a dispatch function that has the switch
-   //       and static function calls to split up all this enormous stuff going
-   //       on
-   // FIXME: [yfogel 2020-08-26] need to restore/reapply/convert/...
-   //       the lookup_async_changes from 272409ec66c AND from f1bee101262
    cache_async_result res = 0;
    threadid tid;
    data_config *data_cfg = spl->cfg.data_cfg;
@@ -6338,7 +6256,6 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
          uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
          uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
          for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-            // FIXME: [aconway 2020-08-26] wrap with a branch lookup
             splinter_memtable_lookup(spl, mt_gen, key, data, &ctxt->found);
             if (ctxt->found) {
                ctxt->type = fixed_size_data_message_class(data_cfg, data);
@@ -6772,7 +6689,6 @@ splinter_create(splinter_config  *cfg,
                 allocator_root_id       id,
                 platform_heap_id  hid)
 {
-   // FIXME: [yfogel 2020-03-30] handle all failures and properly cleanup
    splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, spl,
          compacted_memtable, SPLINTER_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
@@ -6866,8 +6782,6 @@ splinter_create(splinter_config  *cfg,
       }
    }
 
-   // FIXME: [yfogel 2020-03-30] cleanup has to properly handle all the things
-   //        that were allocated (possibly calling destroy/deinit something)
    return spl;
 }
 
@@ -6908,8 +6822,6 @@ splinter_mount(splinter_config  *cfg,
       splinter_release_super_block(spl, super_page);
    }
    if (spl->root_addr == 0) {
-      // FIXME: [yfogel 2020-03-30] we forgot to clean up (e.g.
-      //        free spl, possibly something else)
       return NULL;
    }
    uint64 meta_head = spl->root_addr + spl->cfg.page_size;
@@ -6959,21 +6871,25 @@ splinter_mount(splinter_config  *cfg,
          platform_assert_status_ok(rc);
       }
    }
-   // FIXME: [yfogel 2020-03-30] proper error handling for this entire function
    return spl;
 }
 
+/*
+ * This function is only safe to call when all other calls to spl have returned
+ * and all tasks have been complete.
+ */
 void
 splinter_deinit(splinter_handle *spl)
 {
    // write current memtable to disk
    // (any others must already be flushing/flushed)
 
-   // FIXME: [aconway 2020-08-24] This function is only safe to call when all
-   //        other calls to spl have returned and all tasks have been complete.
-   //        Therefore, this race shouldn't exist. Similarly, we don't hold the
-   //        insert lock or rotate while flushing the memtable.
    if (!memtable_is_empty(spl->mt_ctxt)) {
+      /*
+       * memtable_force_finalize is not thread safe. Note also, we do not hold
+       * the insert lock or rotate while flushing the memtable.
+       */
+
       uint64 generation = memtable_force_finalize(spl->mt_ctxt);
       splinter_memtable_flush(spl, generation);
    }
@@ -8066,9 +7982,6 @@ splinter_print_lookup(splinter_handle *spl,
    bool found = FALSE;
    char data[MAX_MESSAGE_SIZE];
 
-   // FIXME: [yfogel 2020-08-27] old existing race regarding root/...
-   // look in memtables
-   // if we want to point out it's just crappy debug code it needs comments saying that
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -8219,8 +8132,6 @@ splinter_node_print_branches(splinter_handle *spl,
    {
       uint64 addr = splinter_get_branch(spl, node, branch_no)->root_addr;
       uint64 num_tuples_in_branch = splinter_branch_count_num_tuples(spl, node, branch_no);
-      // FIXME: [aconway 2021-08-21] this is broken and also may not have been
-      // accurate before
       uint64 kib_in_branch = 0;
       // splinter_branch_extent_count(spl, node, branch_no);
       kib_in_branch *= spl->cfg.extent_size / 1024;
@@ -8330,10 +8241,6 @@ splinter_config_init(splinter_config *splinter_cfg,
                      btree_rough_count_height,
                      splinter_cfg->page_size, splinter_cfg->extent_size);
 
-   // FIXME: [yfogel 2020-08-27] MUST not be hardcoded for
-   //    SPLINTER_NUM_MEMTABLES
-   //    tests need to specify and that must happen HERE
-   //    so must be plumbed
    memtable_config_init(&splinter_cfg->mt_cfg, &splinter_cfg->btree_cfg,
          SPLINTER_NUM_MEMTABLES, memtable_capacity);
 

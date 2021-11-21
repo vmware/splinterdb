@@ -188,7 +188,6 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
    }
 
    uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   // FIXME: [aconway 2020-09-09] Not sure how to get use_stats from here
    status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
@@ -465,9 +464,6 @@ kvstore_iterator_init(const kvstore *    kvs,      // IN
    platform_status rc = splinter_range_iterator_init(
       kvs->spl, range_itor, start_key, NULL, UINT64_MAX);
    if (!SUCCESS(rc)) {
-      // TODO(gabe): copied in from splinter.c::splinter_range
-      // but is this even right?  Like, if init fails, de-init
-      // is typically a no-op?
       splinter_range_iterator_deinit(range_itor);
       platform_free(kvs->spl->heap_id, *iter);
       return platform_status_to_int(rc);
@@ -515,12 +511,12 @@ kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
                              const char **     message // OUT
 )
 {
-   slice     bkey;
-   slice     bmessage;
+   slice     key_slice;
+   slice     message_slice;
    iterator *itor = &(kvi->sri.super);
-   iterator_get_curr(itor, &bkey, &bmessage);
-   *key     = slice_data(bkey);
-   *message = slice_data(bmessage);
+   iterator_get_curr(itor, &key_slice, &message_slice);
+   *key     = slice_data(key_slice);
+   *message = slice_data(message_slice);
 }
 
 int

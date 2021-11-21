@@ -70,9 +70,6 @@ typedef enum task_type {
 } task_type;
 
 /*
- * FIXME: [aconway 2020-09-09] I moved this into task, because this struct
- * doesn't really have any splinter-level concepts.
- *
  * Splinter specific state that gets created during initialization in
  * splinter_system_init(). Contains global state for splinter such as the
  * init thread, init thread's scratch memory, thread_id counter and an array
@@ -107,8 +104,6 @@ struct task_system {
    uint64             scratch_size;
    void *             init_scratch;
    threadid           init_tid;
-   // FIXME: [aconway 2020-09-14] maybe just alloc this separately?
-   //                             or just platform_cacheline_aligned?
    char               init_task_scratch[];
 };
 

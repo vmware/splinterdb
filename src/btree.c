@@ -102,13 +102,6 @@ btree_merge_tuples(btree_config *cfg,
                    const char *old_data,
                    char *new_data)
 {
-   // FIXME: [yfogel 2020-01-11] If/when we have start/end compaction callbacks
-   //    this call is actually violating the contract (it's being called
-   //    outside of [start,end].
-   //    If/when we add those other callbacks.. we could just call them right
-   //    here (as if it was a tiny compaction), or add a separate parameter
-   //    to the existing callbacks to indicate it's a one-off
-   //    Until/unless we add start/end this doesn't matter
    return fixed_size_data_merge_tuples(cfg->data_cfg, key, old_data, new_data);
 }
 
@@ -566,11 +559,6 @@ btree_find_tuple(btree_config *cfg,
                  const char   *key,
                  lookup_type   comp)
 {
-   // FIXME: [yfogel 2020-07-08]
-   //     We actually want to change the return type
-   //     (and all the various indexes also) to be int32
-   //     That way it's just return -1 where the definition is
-   //     much more simple and straightforward
    uint16 lo_idx = 0, mid_idx;
    uint32 i;
    int cmp;
@@ -723,13 +711,6 @@ btree_add_tuple(btree_config  *cfg,
       memmove(old_data, btree_data, message_size);
       memmove(btree_data, data, message_size);
       btree_merge_tuples(cfg, key, old_data, btree_data);
-
-      // FIXME: [yfogel 2020-01-11] we should perhaps copy the key over as well
-      //    It compares the same but in theory we don't compare the whole key.
-      // FIXME: [yfogel 2020-01-11] We should fail the insert if any of:
-      //  - old data is INVALID
-      //  - new data is INVALID (probably failed earlier)
-      //  - merged is INVALID
 
       return FALSE;
    }
@@ -1002,8 +983,6 @@ btree_init(cache          *cc,
    platform_assert_status_ok(rc);
    page_handle *root_page = cache_alloc(cc, base_addr, type);
 
-   // FIXME: [yfogel 2020-07-01] maybe here (or refactor?)
-   //    we need to be able to have range tree initialized
    // set up the root
    btree_node root;
    root.page = root_page;
@@ -1042,9 +1021,6 @@ btree_init(cache          *cc,
    return root.addr;
 }
 
-// FIXME: [aconway 2021-08-21]
-// Functions like this probably should have branch_ prefixes to indicate they
-// are only for branches and not memtables.
 void
 btree_inc_range(cache        *cc,
                 btree_config *cfg,
@@ -1066,9 +1042,6 @@ btree_inc_range(cache        *cc,
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_slice, end_slice);
 }
 
-// FIXME: [aconway 2021-08-21]
-// branch only function
-// should return void
 bool
 btree_zap_range(cache        *cc,
                 btree_config *cfg,
@@ -1094,8 +1067,6 @@ btree_zap_range(cache        *cc,
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_slice, end_slice);
 }
 
-// FIXME: [aconway 2021-08-21]
-// memtable function only
 bool
 btree_zap(cache *cc, btree_config *cfg, uint64 root_addr, page_type type)
 {
@@ -1388,8 +1359,6 @@ btree_lookup_with_ref(cache         *cc,        // IN
    }
 }
 
-// FIXME: [nsarmicanic 2020-08-11] change key and data to void*
-// same for the external entire APIs
 void
 btree_lookup(cache        *cc,        // IN
              btree_config *cfg,       // IN
@@ -1801,19 +1770,6 @@ btree_iterator_advance(iterator *base_itor)
    itor->idx++;
    debug_assert(itor->idx <= itor->curr.hdr->num_entries);
 
-   /*
-    * FIXME: [aconway 2021-04-10] This check breaks ranges queries for live
-    * memtables. It causes them to stop prematurely as a result of
-    * btree-splitting. That change requires iterators not to advance to the
-    * next btree node when they hit num_entries, because that node may have
-    * been deallocated.
-    *
-    *itor->at_end = btree_iterator_is_at_end(itor);
-    *if (itor->at_end) {
-    *   return STATUS_OK;
-    *}
-    */
-
    if (itor->idx == itor->curr.hdr->num_entries) {
       // exhausted this node; need to move to next node
       if (itor->curr.hdr->next_addr != 0 &&
@@ -1943,9 +1899,6 @@ btree_iterator_init(cache *         cc,
     */
    bool start_is_clamped = TRUE;
 
-   // FIXME: [nsarmicanic 2020-07-15]
-   // May want to have a goto emtpy itor
-
    // Check if this is an empty iterator
    if ((itor->root_addr == 0) ||
        (max_key != NULL && btree_key_compare(cfg, min_key, max_key) >= 0)) {
@@ -2023,7 +1976,6 @@ btree_iterator_init(cache *         cc,
    }
 
    if (height == 0) {
-      //FIXME: [yfogel 2020-07-08] no need for extra compare when less_than_or_equal is supproted
       itor->idx = btree_find_tuple(cfg, &itor->curr, min_key, greater_than_or_equal);
    } else {
       itor->idx = btree_find_pivot(cfg, &itor->curr, min_key, greater_than_or_equal);
@@ -2072,7 +2024,6 @@ btree_iterator_init(cache *         cc,
    itor->at_end = btree_iterator_is_at_end(itor);
    if (itor->at_end) {
       // Special case of an empty iterator
-      // FIXME: [nsarmicanic 2020-07-15] Can do unget here and set
       // addr and empty_itor appropriately
       itor->empty_itor = TRUE;
       return;
@@ -2159,10 +2110,6 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
 
    cache *cc = tree->cc;
    btree_config *cfg = tree->cfg;
-
-   // FIXME: [yfogel 2020-07-02] Where is the transition between branch and tree (Alex)
-   // 1. Mini allocator? Pre-fetching?
-   // 2. Refcount? Shared
 
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end

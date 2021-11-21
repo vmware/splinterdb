@@ -60,9 +60,6 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
    while (TRUE) {
       *lock_page = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
       *generation = ctxt->generation;
-      // FIXME: [aconway 2020-09-02] memtable_try_get, then replace the state
-      // check with a mt != NULL check, and the state check should become an
-      // assert
       uint64 mt_no = *generation % ctxt->cfg.max_memtables;
       memtable *mt = &ctxt->mt[mt_no];
       if (mt->state != MEMTABLE_STATE_READY) {
@@ -86,7 +83,6 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
             cache_unlock(cc, *lock_page);
             cache_unclaim(cc, *lock_page);
             cache_unget(cc, *lock_page);
-            // FIXME: [aconway 2020-09-01] process
             memtable_process(ctxt, process_generation);
          } else {
             cache_unget(cc, *lock_page);
@@ -162,14 +158,6 @@ memtable_get_lookup_lock(memtable_context *ctxt)
                     PAGE_TYPE_LOCK_NO_DATA);
 }
 
-// FIXME: [aconway 2020-09-01] Not used by current algorithm? Delete?
-page_handle *
-memtable_try_get_lookup_lock(memtable_context *ctxt)
-{
-   return cache_get(ctxt->cc, ctxt->lookup_lock_addr, FALSE,
-                    PAGE_TYPE_LOCK_NO_DATA);
-}
-
 void
 memtable_unget_lookup_lock(memtable_context *ctxt,
                            page_handle      *lock_page)
@@ -214,8 +202,6 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
       mt->root_addr = btree_init(cc, mt->cfg, &mt->mini, FALSE);
       memtable_lock_incorporation_lock(ctxt);
       mt->generation += ctxt->cfg.max_memtables;
-      // FIXME: [aconway 2020-09-02] assert that memtable_get(...,
-      // mt->generation) == mt
       memtable_unlock_incorporation_lock(ctxt);
       memtable_transition(mt, MEMTABLE_STATE_INCORPORATED,
                               MEMTABLE_STATE_READY);
@@ -265,9 +251,6 @@ memtable_init(memtable         *mt,
    mt->state = MEMTABLE_STATE_READY;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;
-
-   // FIXME: [aconway 2020-08-24] Add tracing?
-   //TRACESplinter(1, SPLINTERTraceMemtableCreate, cfg->max_tuples_per_tree);
 }
 
 void
@@ -319,16 +302,12 @@ memtable_context_create(platform_heap_id  hid,
       memtable_init(&ctxt->mt[mt_no], cc, cfg, generation);
    }
 
-   // FIXME: [aconway 2020-09-02] These either need to start at 1 (0 for
-   // retired) or retired should always do a -1 somewhere.
    ctxt->generation = 0;
    ctxt->generation_to_incorporate = 0;
    ctxt->generation_retired = (uint64)-1;
 
    ctxt->process = process;
    ctxt->process_ctxt = process_ctxt;
-
-   // FIXME: [aconway 2020-08-22] Do we want/need TRACESplinter here?
 
    return ctxt;
 }

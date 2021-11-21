@@ -92,7 +92,6 @@ verify_tuple_callback(splinter_handle *spl,
  *
  * Results:
  *      Return STATUS_OK if successful, non-OK otherwise.
- *      FIXME remove asserts below and handle failure gracefully.
  *
  * Side effects:
  *      None.

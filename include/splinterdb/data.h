@@ -40,28 +40,6 @@ typedef message_type (*message_class_fn)(const data_config *cfg,
                                          uint64             raw_message_len,
                                          const void *       raw_message);
 
-// FIXME: [yfogel 2020-01-11] Need to add (to both merge_tuple fns)
-//  bool is_query (or enum)
-//  - Application needs to know if this is a compaction because that means
-//    that after merging data some of that info goes away permanently.
-//    e.g. if it needs to deallocate space.
-//  void* context:
-//  The above can be used to:
-//  - get message_size (in case we need to memmove parts that don't get updated)
-//  - let app keep track of statistics
-//  - let app do potentially heavier weight stuff (log things that need to be
-//    deallocated/learn whether blind inserts/deletes actually did anything)
-//  int thread_id: (0..n-1 as opposed to process id)
-//  - Any writing that app does with context can be more performant by
-//    providing it the thread id.
-//  As part of above we *may* need to add two new callbacks:
-//     start_compaction
-//     end_compaction
-//     In case the application needs to log/commit things to deallocate.
-//     It's not obvious it's necessary because even with the above, the app
-//     needs to deal with the same keys to be compacted twice sinlce
-//     logging & recovery is not combined between app & splinter.
-
 // Given two messages, merge them, based on their types
 // And return the result in new_raw_message
 //

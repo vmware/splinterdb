@@ -37,9 +37,6 @@ typedef struct merge_iterator {
    slice                  key;             // next key
    slice                  data;            // next data
 
-   // FIXME: [nsarmicanic 2020-07-02] Maybe preallocate one of these sections
-   // pre thread?
-
    // Padding so ordered_iterators[-1] is valid
    ordered_iterator       ordered_iterator_stored_pad;
    ordered_iterator       ordered_iterator_stored[MAX_MERGE_ARITY];

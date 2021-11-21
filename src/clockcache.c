@@ -34,6 +34,9 @@
 // Number of entries to clean/evict/get_free in a per-thread batch
 #define CC_ENTRIES_PER_BATCH 64
 
+// Number of batches that the cleaner hand is ahead of the evictor hand
+#define CC_CLEANER_GAP 512
+
 /* number of events to poll for during clockcache_wait */
 #define CC_DEFAULT_MAX_IO_EVENTS 32
 
@@ -1062,9 +1065,7 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
     * compaction+incorporation (that needs write locking) to
     * background threads.
     */
-   // FIXME: [aconway 2020-09-11] This assert doesn't work with less dist
-   // locks, not sure if it's fixable
-   // debug_assert(clockcache_get_ref(cc, entry_number, tid) == 1);
+   debug_assert(clockcache_get_ref(cc, entry_number, tid) >= 1);
    // Wait for flushing to finish
    while (clockcache_test_flag(cc, entry_number, CC_WRITEBACK)) {
       clockcache_wait(cc);
@@ -1781,11 +1782,7 @@ clockcache_init(clockcache           *cc,     // OUT
    platform_assert(cc->cfg->capacity == debug_capacity);
    platform_assert(cc->cfg->page_capacity % CC_ENTRIES_PER_BATCH == 0);
 
-   /* Set the cleaner gap to 1/8 of page_capacity */
-   /* FIXME: [aconway 2020-03-19]
-    * The cleaner gap should really be a fixed number of batches, rather than a
-    * fraction of the total cache capacity */
-   cc->cleaner_gap = 512;
+   cc->cleaner_gap = CC_CLEANER_GAP;
 
 #if defined(CC_LOG) || defined(ADDR_TRACING)
    cc->logfile = platform_open_log_file(cfg->logfile, "w");
@@ -1849,9 +1846,6 @@ clockcache_init(clockcache           *cc,     // OUT
       cc->per_thread[thr_i].free_hand = CC_UNMAPPED_ENTRY;
       cc->per_thread[thr_i].enable_sync_get = TRUE;
    }
-   // FIXME: [yfogel 2020-03-12] investigate performance implication of
-   // increasing to 8(64?) byte booleans, aligning, or perhaps interleaving the
-   // order of the hand.
    cc->batch_busy =
       TYPED_ARRAY_ZALLOC(cc->heap_id, cc->batch_busy,
                          cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
@@ -2567,9 +2561,6 @@ clockcache_unlock(clockcache  *cc,
  * clockcache_mark_dirty --
  *
  *      Marks the entry dirty.
- *
- *      FIXME: [aconway 2020-03-23]
- *      Maybe this should just get rolled into clockcache_lock?
  *
  *----------------------------------------------------------------------
  */
