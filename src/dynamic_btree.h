@@ -16,9 +16,9 @@
 #include "util.h"
 
 #define DYNAMIC_BTREE_MAX_HEIGHT (8)
-#define MAX_INLINE_KEY_SIZE     (512)
-#define MAX_INLINE_MESSAGE_SIZE (2048)
-#define MAX_NODE_SIZE           (1ULL << 16)
+#define MAX_INLINE_KEY_SIZE      (512)
+#define MAX_INLINE_MESSAGE_SIZE  (2048)
+#define MAX_NODE_SIZE            (1ULL << 16)
 
 extern char         trace_key[24];
 extern page_handle *trace_page;
@@ -92,9 +92,9 @@ typedef struct dynamic_btree_pack_req {
    cache *               cc;
    dynamic_btree_config *cfg;
    iterator *            itor;       // the itor which is being packed
-   uint64       max_tuples; // max tuples for the tree
-   hash_fn      hash;       // hash function used for calculating filter_hash
-   unsigned int seed;       // seed used for calculating filter_hash
+   uint64                max_tuples; // max tuples for the tree
+   hash_fn               hash; // hash function used for calculating filter_hash
+   unsigned int          seed; // seed used for calculating filter_hash
 
    // internal data
    uint64             next_extent;

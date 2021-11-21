@@ -924,7 +924,7 @@ dynamic_btree_split_leaf_build_right_node(
    right_hdr->generation++;
    dynamic_btree_reset_node_entries(cfg, right_hdr);
    uint64 num_left_entries = dynamic_btree_num_entries(left_hdr);
-   uint64 dst_idx = 0;
+   uint64 dst_idx          = 0;
    for (uint64 i = plan.split_idx; i < num_left_entries; i++) {
       if (i != spec.idx || !spec.existed) {
          leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, left_hdr, i);
@@ -2608,9 +2608,9 @@ dynamic_btree_iterator_init(cache *                 cc,
    itor->do_prefetch = do_prefetch;
    itor->height      = height;
    // itor->min_key     = min_key;
-   itor->max_key     = max_key;
-   itor->page_type   = page_type;
-   itor->super.ops   = &dynamic_btree_iterator_ops;
+   itor->max_key   = max_key;
+   itor->page_type = page_type;
+   itor->super.ops = &dynamic_btree_iterator_ops;
 
    dynamic_btree_iterator_find_end(itor);
 
@@ -2624,7 +2624,7 @@ dynamic_btree_iterator_init(cache *                 cc,
                              NULL,
                              NULL,
                              NULL);
-   bool found;
+   bool  found;
    int64 tmp;
    if (itor->height == 0) {
       tmp =
@@ -3369,7 +3369,7 @@ dynamic_btree_print_lookup(cache *               cc,        // IN
 
    for (h = node.hdr->height; h > 0; h--) {
       bool found;
-      child_idx       = dynamic_btree_find_pivot(cfg, node.hdr, key, &found);
+      child_idx = dynamic_btree_find_pivot(cfg, node.hdr, key, &found);
       if (child_idx < 0) {
          child_idx = 0;
       }

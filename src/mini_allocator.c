@@ -401,7 +401,7 @@ mini_unkeyed_append_entry(mini_allocator *mini,
    }
 
    unkeyed_meta_entry *new_entry = pointer_byte_offset(hdr, hdr->pos);
-   new_entry->extent_addr = extent_addr;
+   new_entry->extent_addr        = extent_addr;
 
    hdr->pos += sizeof(unkeyed_meta_entry);
    hdr->num_entries++;
@@ -752,7 +752,7 @@ mini_keyed_for_each(cache *          cc,
    uint64 meta_addr = meta_head;
 
    boundary_state current_state[MINI_MAX_BATCHES];
-   uint64 extent_addr[MINI_MAX_BATCHES];
+   uint64         extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = -1;
       extent_addr[i]   = TERMINAL_EXTENT_ADDR;
@@ -762,8 +762,8 @@ mini_keyed_for_each(cache *          cc,
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
       keyed_meta_entry *entry     = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         uint64      batch           = entry->batch;
-         const slice entry_start_key = keyed_meta_entry_start_key(entry);
+         uint64         batch           = entry->batch;
+         const slice    entry_start_key = keyed_meta_entry_start_key(entry);
          boundary_state next_state =
             state(cfg, start_key, end_key, entry_start_key);
          if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
@@ -811,7 +811,7 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    page_handle *meta_page = mini_get_claim_meta_page(cc, meta_head, type);
 
    boundary_state current_state[MINI_MAX_BATCHES];
-   uint64 extent_addr[MINI_MAX_BATCHES];
+   uint64         extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = -1;
       extent_addr[i]   = TERMINAL_EXTENT_ADDR;
@@ -820,8 +820,8 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    do {
       keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         uint64      batch           = entry->batch;
-         const slice entry_start_key = keyed_meta_entry_start_key(entry);
+         uint64         batch           = entry->batch;
+         const slice    entry_start_key = keyed_meta_entry_start_key(entry);
          boundary_state next_state =
             state(cfg, start_key, end_key, entry_start_key);
          if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
