@@ -27,7 +27,8 @@
  *
  * Examples:
  * #define SHOULD_TRACE(addr) (1) // trace all addresses
- * #define SHOULD_TRACE(addr) ((addr) / (4096 * 32) == 339ULL) // trace extent 339
+ * #define SHOULD_TRACE(addr) ((addr) / (4096 * 32) == 339ULL) // trace extent
+ * 339
  *
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything

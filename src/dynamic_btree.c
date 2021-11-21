@@ -46,8 +46,8 @@
    defrag the left node. */
 #define DYNAMIC_BTREE_DEFRAGMENT_THRESHOLD(page_size) ((page_size) / 4)
 
-char positive_infinity_buffer;
-slice positive_infinity = { 0, &positive_infinity_buffer };
+char  positive_infinity_buffer;
+slice positive_infinity = {0, &positive_infinity_buffer};
 
 typedef uint16 table_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
@@ -222,14 +222,15 @@ dynamic_btree_get_index_entry(const dynamic_btree_config *cfg,
 {
    /* Ensure that the kth entry's header is after the end of the table and
       before the end of the page. */
-   debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
-                <= hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(index_entry)
-                <= dynamic_btree_page_size(cfg));
-   index_entry *entry = (index_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
+   debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
+                hdr->offsets[k]);
+   debug_assert(hdr->offsets[k] + sizeof(index_entry) <=
+                dynamic_btree_page_size(cfg));
+   index_entry *entry =
+      (index_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
    /* Now ensure that the entire entry fits in the page. */
-   debug_assert(hdr->offsets[k] + sizeof_index_entry(entry)
-                <= dynamic_btree_page_size(cfg));
+   debug_assert(hdr->offsets[k] + sizeof_index_entry(entry) <=
+                dynamic_btree_page_size(cfg));
    return entry;
 }
 
@@ -257,9 +258,7 @@ dynamic_btree_fill_index_entry(index_entry *entry,
                                uint32       key_bytes,
                                uint32       message_bytes)
 {
-   memcpy(entry->key,
-          slice_data(new_pivot_key),
-          slice_length(new_pivot_key));
+   memcpy(entry->key, slice_data(new_pivot_key), slice_length(new_pivot_key));
    entry->key_size              = slice_length(new_pivot_key);
    entry->child_addr            = new_addr;
    entry->num_kvs_in_tree       = kv_pairs;
@@ -283,21 +282,23 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
    if (k < hdr->num_entries) {
       index_entry *old_entry = dynamic_btree_get_index_entry(cfg, hdr, k);
       if (hdr->next_entry == diff_ptr(old_entry, hdr) &&
-          diff_ptr(hdr, &hdr->offsets[new_num_entries]) + index_entry_size(new_pivot_key)
-          <= hdr->next_entry + sizeof_index_entry(old_entry)) {
-        /* special case to avoid creating fragmentation:
-           the old entry is the physically first entry in the node
-           and the new entry will fit in the space avaiable from the old
-           entry plus the free space preceding the old_entry.
+          diff_ptr(hdr, &hdr->offsets[new_num_entries]) +
+                index_entry_size(new_pivot_key) <=
+             hdr->next_entry + sizeof_index_entry(old_entry)) {
+         /* special case to avoid creating fragmentation:
+            the old entry is the physically first entry in the node
+            and the new entry will fit in the space avaiable from the old
+            entry plus the free space preceding the old_entry.
 
-           in this case, just reset next_entry so we can insert the new entry.
-        */
-        hdr->next_entry += sizeof_index_entry(old_entry);
-        /* Fall through */
+            in this case, just reset next_entry so we can insert the new entry.
+         */
+         hdr->next_entry += sizeof_index_entry(old_entry);
+         /* Fall through */
 
-      } else if (index_entry_size(new_pivot_key) <= sizeof_index_entry(old_entry)) {
-        /* old_entry is not the physically first in the node,
-           but new entry will fit inside it. */
+      } else if (index_entry_size(new_pivot_key) <=
+                 sizeof_index_entry(old_entry)) {
+         /* old_entry is not the physically first in the node,
+            but new entry will fit inside it. */
          dynamic_btree_fill_index_entry(old_entry,
                                         new_pivot_key,
                                         new_addr,
@@ -314,8 +315,8 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
       return FALSE;
    }
 
-   index_entry *new_entry = (index_entry *)pointer_byte_offset(hdr,
-      hdr->next_entry - index_entry_size(new_pivot_key));
+   index_entry *new_entry = (index_entry *)pointer_byte_offset(
+      hdr, hdr->next_entry - index_entry_size(new_pivot_key));
    dynamic_btree_fill_index_entry(
       new_entry, new_pivot_key, new_addr, kv_pairs, key_bytes, message_bytes);
 
@@ -365,13 +366,14 @@ dynamic_btree_get_leaf_entry(const dynamic_btree_config *cfg,
 {
    /* Ensure that the kth entry's header is after the end of the table and
       before the end of the page. */
-   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
-                   <= hdr->offsets[k]);
-   platform_assert(hdr->offsets[k] + sizeof(leaf_entry)
-                   <= dynamic_btree_page_size(cfg));
-   leaf_entry *entry = (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
-                <= dynamic_btree_page_size(cfg));
+   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
+                   hdr->offsets[k]);
+   platform_assert(hdr->offsets[k] + sizeof(leaf_entry) <=
+                   dynamic_btree_page_size(cfg));
+   leaf_entry *entry =
+      (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
+   debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry) <=
+                dynamic_btree_page_size(cfg));
    return entry;
 }
 
@@ -454,8 +456,8 @@ dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
       return FALSE;
    }
 
-   leaf_entry *new_entry = (leaf_entry *)pointer_byte_offset(hdr,
-          hdr->next_entry - leaf_entry_size(new_key, new_message));
+   leaf_entry *new_entry = (leaf_entry *)pointer_byte_offset(
+      hdr, hdr->next_entry - leaf_entry_size(new_key, new_message));
    platform_assert((void *)&hdr->offsets[new_num_entries] <= (void *)new_entry);
    dynamic_btree_fill_leaf_entry(new_entry, new_key, new_message);
 
@@ -548,7 +550,7 @@ dynamic_btree_find_pivot(const dynamic_btree_config *cfg,
    int64 lo = 0, hi = dynamic_btree_num_entries(hdr);
 
    if (slice_is_null(key)) {
-     return -1;
+      return -1;
    }
 
    *found = 0;
@@ -556,7 +558,7 @@ dynamic_btree_find_pivot(const dynamic_btree_config *cfg,
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int   cmp = dynamic_btree_key_compare(
-                              cfg, dynamic_btree_get_pivot(cfg, hdr, mid), key);
+         cfg, dynamic_btree_get_pivot(cfg, hdr, mid), key);
       if (cmp <= 0) {
          lo     = mid + 1;
          *found = cmp ? 0 : 1;
@@ -803,8 +805,8 @@ most_of_entry_is_on_left_side(uint64 total_bytes,
                               uint64 left_bytes,
                               uint64 entry_size)
 {
-  return left_bytes + sizeof(table_entry) + entry_size
-         < (total_bytes + sizeof(table_entry) + entry_size) / 2;
+   return left_bytes + sizeof(table_entry) + entry_size <
+          (total_bytes + sizeof(table_entry) + entry_size) / 2;
 }
 
 /* Figure out how many entries we can put on the left side.
@@ -821,17 +823,17 @@ most_of_entry_is_on_left_side(uint64 total_bytes,
  */
 static uint64
 accumulate_entries_loop(const dynamic_btree_config *cfg,
-                        const dynamic_btree_hdr    *hdr,
+                        const dynamic_btree_hdr *   hdr,
                         uint64                      max_entries,
                         uint64                      total_bytes,
                         uint64                      left_bytes, // IN/OUT
-                        leaf_splitting_plan        *plan) // IN/OUT
+                        leaf_splitting_plan *       plan)              // IN/OUT
 {
    leaf_entry *entry;
-   while (
-      plan->split_idx < max_entries &&
-      (entry = dynamic_btree_get_leaf_entry(cfg, hdr, plan->split_idx)) &&
-      most_of_entry_is_on_left_side(total_bytes, left_bytes, sizeof_leaf_entry(entry))) {
+   while (plan->split_idx < max_entries &&
+          (entry = dynamic_btree_get_leaf_entry(cfg, hdr, plan->split_idx)) &&
+          most_of_entry_is_on_left_side(
+             total_bytes, left_bytes, sizeof_leaf_entry(entry))) {
       left_bytes += sizeof(table_entry) + sizeof_leaf_entry(entry);
       plan->split_idx++;
    }
@@ -869,8 +871,8 @@ dynamic_btree_build_leaf_splitting_plan(const dynamic_btree_config *cfg, // IN
 
    /* Figure out how many of the items to the left of spec.idx can be
       put into the left node. */
-   left_bytes = accumulate_entries_loop(cfg, hdr, spec.idx, total_bytes,
-                                        left_bytes, &plan);
+   left_bytes = accumulate_entries_loop(
+      cfg, hdr, spec.idx, total_bytes, left_bytes, &plan);
 
    /* Figure out whether our new entry can go into the left node.  If it
       can't, then no subsequent entries can, either, so we're done. */
@@ -889,8 +891,8 @@ dynamic_btree_build_leaf_splitting_plan(const dynamic_btree_config *cfg, // IN
 
    /* Figure out how many more entries after spec.idx can go into the
       left node. */
-   accumulate_entries_loop(cfg, hdr, num_entries, total_bytes,
-                           left_bytes, &plan);
+   accumulate_entries_loop(
+      cfg, hdr, num_entries, total_bytes, left_bytes, &plan);
 
    return plan;
 }
@@ -901,8 +903,8 @@ dynamic_btree_splitting_pivot(const dynamic_btree_config *cfg, // IN
                               leaf_incorporate_spec       spec,
                               leaf_splitting_plan         plan)
 {
-   if (plan.split_idx == spec.idx &&
-       !spec.existed && !plan.insertion_goes_left) {
+   if (plan.split_idx == spec.idx && !spec.existed &&
+       !plan.insertion_goes_left) {
       return spec.key;
    } else {
       return dynamic_btree_get_tuple_key(cfg, hdr, plan.split_idx);
@@ -1537,11 +1539,11 @@ dynamic_btree_split_child_index(cache *                     cc,
                                 mini_allocator *            mini,
                                 dynamic_btree_scratch *     scratch,
                                 dynamic_btree_node *        parent,
-                                uint64                      index_of_child_in_parent,
-                                dynamic_btree_node         *child,
-                                const slice                 key_to_be_inserted,
-                                dynamic_btree_node         *new_child, // OUT
-                                int64                      *next_child_idx) // IN/OUT
+                                uint64              index_of_child_in_parent,
+                                dynamic_btree_node *child,
+                                const slice         key_to_be_inserted,
+                                dynamic_btree_node *new_child, // OUT
+                                int64 *             next_child_idx)         // IN/OUT
 {
    dynamic_btree_node right_child;
 
@@ -1579,10 +1581,10 @@ dynamic_btree_split_child_index(cache *                     cc,
    /* p: -, c: lock, rc: lock */
 
    if (*next_child_idx < idx) {
-     *new_child = *child;
+      *new_child = *child;
    } else {
-     *new_child = right_child;
-     *next_child_idx -= idx;
+      *new_child = right_child;
+      *next_child_idx -= idx;
    }
 
    dynamic_btree_split_index_build_right_node(
@@ -1619,22 +1621,23 @@ dynamic_btree_split_child_index(cache *                     cc,
    - all other nodes unlocked
 */
 static inline int
-dynamic_btree_defragment_or_split_child_index(cache *                     cc,
-                                              const dynamic_btree_config *cfg,
-                                              mini_allocator *            mini,
-                                              dynamic_btree_scratch *     scratch,
-                                              dynamic_btree_node *        parent,
-                                              uint64                      index_of_child_in_parent,
-                                              dynamic_btree_node         *child,
-                                              const slice                 key_to_be_inserted,
-                                              dynamic_btree_node         *new_child, // OUT
-                                              int64                      *next_child_idx) // IN/OUT
+dynamic_btree_defragment_or_split_child_index(
+   cache *                     cc,
+   const dynamic_btree_config *cfg,
+   mini_allocator *            mini,
+   dynamic_btree_scratch *     scratch,
+   dynamic_btree_node *        parent,
+   uint64                      index_of_child_in_parent,
+   dynamic_btree_node *        child,
+   const slice                 key_to_be_inserted,
+   dynamic_btree_node *        new_child, // OUT
+   int64 *                     next_child_idx)                 // IN/OUT
 {
    uint64 nentries   = dynamic_btree_num_entries(child->hdr);
    uint64 live_bytes = 0;
    for (uint64 i = 0; i < nentries; i++) {
-     index_entry *entry = dynamic_btree_get_index_entry(cfg, child->hdr, i);
-     live_bytes += sizeof_index_entry(entry);
+      index_entry *entry = dynamic_btree_get_index_entry(cfg, child->hdr, i);
+      live_bytes += sizeof_index_entry(entry);
    }
    uint64 total_space_required = live_bytes + nentries * sizeof(index_entry);
 
@@ -1681,17 +1684,19 @@ accumulate_node_ranks(const dynamic_btree_config *cfg,
    if (dynamic_btree_height(hdr) == 0) {
       for (int i = from; i < to; i++) {
          leaf_entry *entry = dynamic_btree_get_leaf_entry(cfg, hdr, i);
-         *key_bytes = add_possibly_unknown(*key_bytes, leaf_entry_key_size(entry));
-         *message_bytes =
-            add_possibly_unknown(*message_bytes, leaf_entry_message_size(entry));
+         *key_bytes =
+            add_possibly_unknown(*key_bytes, leaf_entry_key_size(entry));
+         *message_bytes = add_possibly_unknown(*message_bytes,
+                                               leaf_entry_message_size(entry));
       }
       *num_kvs = to - from;
    } else {
       for (int i = from; i < to; i++) {
          index_entry *entry = dynamic_btree_get_index_entry(cfg, hdr, i);
 
-         *num_kvs       = add_possibly_unknown(*num_kvs, entry->num_kvs_in_tree);
-         *key_bytes     = add_possibly_unknown(*key_bytes, entry->key_bytes_in_tree);
+         *num_kvs = add_possibly_unknown(*num_kvs, entry->num_kvs_in_tree);
+         *key_bytes =
+            add_possibly_unknown(*key_bytes, entry->key_bytes_in_tree);
          *message_bytes =
             add_possibly_unknown(*message_bytes, entry->message_bytes_in_tree);
       }
@@ -1736,14 +1741,15 @@ dynamic_btree_grow_root(cache *                     cc,   // IN
 
    dynamic_btree_reset_node_entries(cfg, root_node->hdr);
    dynamic_btree_increment_height(root_node->hdr);
-   bool         succeeded   = dynamic_btree_set_index_entry(cfg,
-                                                  root_node->hdr,
-                                                  0,
-                                                  dynamic_btree_get_pivot(cfg, child.hdr, 0),
-                                                  child.addr,
-                                                  DYNAMIC_BTREE_UNKNOWN,
-                                                  DYNAMIC_BTREE_UNKNOWN,
-                                                  DYNAMIC_BTREE_UNKNOWN);
+   bool succeeded =
+      dynamic_btree_set_index_entry(cfg,
+                                    root_node->hdr,
+                                    0,
+                                    dynamic_btree_get_pivot(cfg, child.hdr, 0),
+                                    child.addr,
+                                    DYNAMIC_BTREE_UNKNOWN,
+                                    DYNAMIC_BTREE_UNKNOWN,
+                                    DYNAMIC_BTREE_UNKNOWN);
    platform_assert(succeeded);
 
    dynamic_btree_node_unget(cc, cfg, &child);
@@ -1807,9 +1813,8 @@ start_over:
 
    /* read lock on root_node, root_node is an index. */
 
-   bool        found;
-   int64 child_idx =
-      dynamic_btree_find_pivot(cfg, root_node.hdr, key, &found);
+   bool  found;
+   int64 child_idx = dynamic_btree_find_pivot(cfg, root_node.hdr, key, &found);
    index_entry *parent_entry;
 
    if (child_idx < 0 || dynamic_btree_index_is_full(cfg, root_node.hdr)) {
@@ -1820,10 +1825,12 @@ start_over:
       dynamic_btree_node_lock(cc, cfg, &root_node);
       bool need_to_set_min_key = FALSE;
       if (child_idx < 0) {
-         child_idx = 0;
+         child_idx    = 0;
          parent_entry = dynamic_btree_get_index_entry(cfg, root_node.hdr, 0);
          need_to_set_min_key =
-            !dynamic_btree_set_index_entry(cfg, root_node.hdr, 0,
+            !dynamic_btree_set_index_entry(cfg,
+                                           root_node.hdr,
+                                           0,
                                            key,
                                            index_entry_child_addr(parent_entry),
                                            parent_entry->num_kvs_in_tree,
@@ -1837,7 +1844,9 @@ start_over:
       if (need_to_set_min_key) {
          parent_entry = dynamic_btree_get_index_entry(cfg, root_node.hdr, 0);
          bool success =
-            dynamic_btree_set_index_entry(cfg, root_node.hdr, 0,
+            dynamic_btree_set_index_entry(cfg,
+                                          root_node.hdr,
+                                          0,
                                           key,
                                           index_entry_child_addr(parent_entry),
                                           parent_entry->num_kvs_in_tree,
@@ -1865,13 +1874,15 @@ start_over:
    uint64 height = dynamic_btree_height(parent_node.hdr);
    while (height > 1) {
       /* loop invariant:
-         - read lock on parent_node, parent_node is an index, parent_node min key is up to date, and parent_node
-           will not need to split.
+         - read lock on parent_node, parent_node is an index, parent_node min
+         key is up to date, and parent_node will not need to split.
          - read lock on child_node
          - height >= 1
       */
-      int64 next_child_idx = dynamic_btree_find_pivot(cfg, child_node.hdr, key, &found);
-      if (next_child_idx < 0 || dynamic_btree_index_is_full(cfg, child_node.hdr)) {
+      int64 next_child_idx =
+         dynamic_btree_find_pivot(cfg, child_node.hdr, key, &found);
+      if (next_child_idx < 0 ||
+          dynamic_btree_index_is_full(cfg, child_node.hdr)) {
          if (!dynamic_btree_node_claim(cc, cfg, &parent_node)) {
             dynamic_btree_node_unget(cc, cfg, &parent_node);
             dynamic_btree_node_unget(cc, cfg, &child_node);
@@ -1889,15 +1900,18 @@ start_over:
 
          bool need_to_set_min_key = FALSE;
          if (next_child_idx < 0) {
-            next_child_idx = 0;
-            index_entry *child_entry =
-               dynamic_btree_get_index_entry(cfg, child_node.hdr, next_child_idx);
-            need_to_set_min_key = !dynamic_btree_set_index_entry(cfg, child_node.hdr, 0,
-                                                                 key,
-                                                                 index_entry_child_addr(child_entry),
-                                                                 child_entry->num_kvs_in_tree,
-                                                                 child_entry->key_bytes_in_tree,
-                                                                 child_entry->message_bytes_in_tree);
+            next_child_idx           = 0;
+            index_entry *child_entry = dynamic_btree_get_index_entry(
+               cfg, child_node.hdr, next_child_idx);
+            need_to_set_min_key = !dynamic_btree_set_index_entry(
+               cfg,
+               child_node.hdr,
+               0,
+               key,
+               index_entry_child_addr(child_entry),
+               child_entry->num_kvs_in_tree,
+               child_entry->key_bytes_in_tree,
+               child_entry->message_bytes_in_tree);
          }
 
          if (dynamic_btree_index_is_full(cfg, child_node.hdr)) {
@@ -1918,15 +1932,19 @@ start_over:
             parent_node = child_node;
          }
 
-         if (need_to_set_min_key) { // new_child is guaranteed to be child in this case
-           index_entry *child_entry =
+         if (need_to_set_min_key) { // new_child is guaranteed to be child in
+                                    // this case
+            index_entry *child_entry =
                dynamic_btree_get_index_entry(cfg, parent_node.hdr, 0);
-            bool success = dynamic_btree_set_index_entry(cfg, parent_node.hdr, 0,
-                                                         key,
-                                                         index_entry_child_addr(child_entry),
-                                                         child_entry->num_kvs_in_tree,
-                                                         child_entry->key_bytes_in_tree,
-                                                         child_entry->message_bytes_in_tree);
+            bool success = dynamic_btree_set_index_entry(
+               cfg,
+               parent_node.hdr,
+               0,
+               key,
+               index_entry_child_addr(child_entry),
+               child_entry->num_kvs_in_tree,
+               child_entry->key_bytes_in_tree,
+               child_entry->message_bytes_in_tree);
             platform_assert(success);
          }
 
@@ -2045,7 +2063,7 @@ dynamic_btree_lookup_node(
 {
    dynamic_btree_node node, child_node;
    uint32             h;
-   int64             child_idx;
+   int64              child_idx;
 
    if (kv_rank) {
       *kv_rank = *key_byte_rank = *message_byte_rank = 0;
@@ -2057,10 +2075,9 @@ dynamic_btree_lookup_node(
 
    for (h = dynamic_btree_height(node.hdr); h > stop_at_height; h--) {
       bool found;
-      child_idx =
-         slices_equal(key, positive_infinity)
-         ? dynamic_btree_num_entries(node.hdr) - 1
-         : dynamic_btree_find_pivot(cfg, node.hdr, key, &found);
+      child_idx = slices_equal(key, positive_infinity)
+                     ? dynamic_btree_num_entries(node.hdr) - 1
+                     : dynamic_btree_find_pivot(cfg, node.hdr, key, &found);
       if (child_idx < 0) {
          child_idx = 0;
       }
@@ -2295,7 +2312,7 @@ dynamic_btree_lookup_async_with_ref(cache *                   cc,        // IN
             int64 child_idx =
                dynamic_btree_find_pivot(cfg, node->hdr, key, &found_pivot);
             if (child_idx < 0) {
-              child_idx = 0;
+               child_idx = 0;
             }
             ctxt->child_addr =
                dynamic_btree_get_child_addr(cfg, node->hdr, child_idx);
@@ -2390,7 +2407,7 @@ dynamic_btree_lookup_async(cache *                   cc,        // IN
 static bool
 dynamic_btree_iterator_is_at_end(dynamic_btree_iterator *itor)
 {
-  return itor->curr.addr == itor->end_addr && itor->idx == itor->end_idx;
+   return itor->curr.addr == itor->end_addr && itor->idx == itor->end_idx;
 }
 
 void
@@ -2409,53 +2426,58 @@ dynamic_btree_iterator_get_curr(iterator *base_itor, slice *key, slice *data)
    debug_assert((char *)itor->curr.hdr == itor->curr.page->data);
    cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
    if (itor->curr.hdr->height == 0) {
-     *key  = dynamic_btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
-     *data = dynamic_btree_get_tuple_message(itor->cfg, itor->curr.hdr, itor->idx);
+      *key = dynamic_btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
+      *data =
+         dynamic_btree_get_tuple_message(itor->cfg, itor->curr.hdr, itor->idx);
    } else {
-     *key  = dynamic_btree_get_pivot(itor->cfg, itor->curr.hdr, itor->idx);
+      *key = dynamic_btree_get_pivot(itor->cfg, itor->curr.hdr, itor->idx);
    }
 }
 
-static void dynamic_btree_iterator_find_end(dynamic_btree_iterator *itor)
+static void
+dynamic_btree_iterator_find_end(dynamic_btree_iterator *itor)
 {
-  dynamic_btree_node end;
+   dynamic_btree_node end;
 
-  dynamic_btree_lookup_node(itor->cc,
-                            itor->cfg,
-                            itor->root_addr,
-                            itor->max_key,
-                            itor->height,
-                            itor->page_type,
-                            &end,
-                            NULL,
-                            NULL,
-                            NULL);
-  itor->end_addr = end.addr;
-  itor->end_generation = end.hdr->generation;
+   dynamic_btree_lookup_node(itor->cc,
+                             itor->cfg,
+                             itor->root_addr,
+                             itor->max_key,
+                             itor->height,
+                             itor->page_type,
+                             &end,
+                             NULL,
+                             NULL,
+                             NULL);
+   itor->end_addr       = end.addr;
+   itor->end_generation = end.hdr->generation;
 
-  if (slices_equal(itor->max_key, positive_infinity)) {
-    itor->end_idx = dynamic_btree_num_entries(end.hdr);
-  } else {
-    bool found;
-    int64 tmp;
-    if (itor->height == 0) {
-      tmp = dynamic_btree_find_tuple(itor->cfg, end.hdr, itor->max_key, &found);
-      if (!found) {
-         tmp++;
+   if (slices_equal(itor->max_key, positive_infinity)) {
+      itor->end_idx = dynamic_btree_num_entries(end.hdr);
+   } else {
+      bool  found;
+      int64 tmp;
+      if (itor->height == 0) {
+         tmp =
+            dynamic_btree_find_tuple(itor->cfg, end.hdr, itor->max_key, &found);
+         if (!found) {
+            tmp++;
+         }
+      } else if (itor->height > end.hdr->height) {
+         tmp = 0;
+         itor->height =
+            (uint32)-1; // So we will always exceed height in future lookups
+      } else {
+         tmp =
+            dynamic_btree_find_pivot(itor->cfg, end.hdr, itor->max_key, &found);
+         if (!found) {
+            tmp++;
+         }
       }
-    } else if (itor->height > end.hdr->height) {
-      tmp = 0;
-      itor->height = (uint32)-1; // So we will always exceed height in future lookups
-    } else {
-      tmp = dynamic_btree_find_pivot(itor->cfg, end.hdr, itor->max_key, &found);
-      if (!found) {
-         tmp++;
-      }
-    }
-    itor->end_idx = tmp;
-  }
+      itor->end_idx = tmp;
+   }
 
-  dynamic_btree_node_unget(itor->cc, itor->cfg, &end);
+   dynamic_btree_node_unget(itor->cc, itor->cfg, &end);
 }
 
 platform_status
@@ -2480,24 +2502,26 @@ dynamic_btree_iterator_advance(iterator *base_itor)
       dynamic_btree_node_unget(cc, cfg, &itor->curr);
       itor->curr.addr = next_addr;
       dynamic_btree_node_get(cc, cfg, &itor->curr, itor->page_type);
-      itor->idx  = 0;
+      itor->idx = 0;
 
-      if (   itor->curr.addr == itor->end_addr
-          && itor->curr.hdr->generation != itor->end_generation) {
+      if (itor->curr.addr == itor->end_addr &&
+          itor->curr.hdr->generation != itor->end_generation) {
          dynamic_btree_node_unget(itor->cc, itor->cfg, &itor->curr);
          dynamic_btree_iterator_find_end(itor);
-         dynamic_btree_node_get(itor->cc, itor->cfg, &itor->curr, itor->page_type);
+         dynamic_btree_node_get(
+            itor->cc, itor->cfg, &itor->curr, itor->page_type);
       }
 
       // To prefetch:
       // 1. we just moved from one extent to the next
       // 2. this can't be the last extent
-      if (   itor->do_prefetch
-          && !dynamic_btree_addrs_share_extent(cfg, last_addr, itor->curr.addr)
-          && itor->curr.hdr->next_extent_addr != 0
-          && !dynamic_btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr)) {
-            // IO prefetch the next extent
-            cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
+      if (itor->do_prefetch &&
+          !dynamic_btree_addrs_share_extent(cfg, last_addr, itor->curr.addr) &&
+          itor->curr.hdr->next_extent_addr != 0 &&
+          !dynamic_btree_addrs_share_extent(
+             cfg, itor->curr.addr, itor->end_addr)) {
+         // IO prefetch the next extent
+         cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
       }
    }
 
@@ -2570,11 +2594,11 @@ dynamic_btree_iterator_init(cache *                 cc,
 
    if (slice_is_null(_max_key)) {
       max_key = positive_infinity;
-   } else if (!slice_is_null(min_key)
-              && dynamic_btree_key_compare(cfg, min_key, _max_key) > 0) {
-     max_key = min_key;
+   } else if (!slice_is_null(min_key) &&
+              dynamic_btree_key_compare(cfg, min_key, _max_key) > 0) {
+      max_key = min_key;
    } else {
-     max_key = _max_key;
+      max_key = _max_key;
    }
 
    ZERO_CONTENTS(itor);
@@ -2583,7 +2607,7 @@ dynamic_btree_iterator_init(cache *                 cc,
    itor->root_addr   = root_addr;
    itor->do_prefetch = do_prefetch;
    itor->height      = height;
-   //itor->min_key     = min_key;
+   // itor->min_key     = min_key;
    itor->max_key     = max_key;
    itor->page_type   = page_type;
    itor->super.ops   = &dynamic_btree_iterator_ops;
@@ -2603,28 +2627,30 @@ dynamic_btree_iterator_init(cache *                 cc,
    bool found;
    int64 tmp;
    if (itor->height == 0) {
-      tmp = dynamic_btree_find_tuple(itor->cfg, itor->curr.hdr, min_key, &found);
+      tmp =
+         dynamic_btree_find_tuple(itor->cfg, itor->curr.hdr, min_key, &found);
       if (!found) {
          tmp++;
       }
    } else if (itor->height > itor->curr.hdr->height) {
-     tmp = 0;
+      tmp = 0;
    } else {
-      tmp = dynamic_btree_find_pivot(itor->cfg, itor->curr.hdr, min_key, &found);
+      tmp =
+         dynamic_btree_find_pivot(itor->cfg, itor->curr.hdr, min_key, &found);
       if (!found) {
          tmp++;
       }
    }
    itor->idx = tmp;
 
-   if (!dynamic_btree_iterator_is_at_end(itor)
-       && itor->idx == itor->curr.hdr->num_entries) {
-     dynamic_btree_iterator_advance(&itor->super);
+   if (!dynamic_btree_iterator_is_at_end(itor) &&
+       itor->idx == itor->curr.hdr->num_entries) {
+      dynamic_btree_iterator_advance(&itor->super);
    }
 
-   if (   itor->do_prefetch
-       && itor->curr.hdr->next_extent_addr != 0
-       && !dynamic_btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr)) {
+   if (itor->do_prefetch && itor->curr.hdr->next_extent_addr != 0 &&
+       !dynamic_btree_addrs_share_extent(
+          cfg, itor->curr.addr, itor->end_addr)) {
       // IO prefetch the next extent
       cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
    }
@@ -2650,18 +2676,17 @@ dynamic_btree_pack_node_init_hdr(const dynamic_btree_config *cfg,
 }
 
 static inline void
-dynamic_btree_pack_setup_start(dynamic_btree_pack_req *     req)
+dynamic_btree_pack_setup_start(dynamic_btree_pack_req *req)
 {
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end
    req->root_addr = dynamic_btree_init(req->cc, req->cfg, &req->mini, TRUE);
-   req->height         = 0;
+   req->height    = 0;
 }
 
 
 static inline void
-dynamic_btree_pack_setup_finish(dynamic_btree_pack_req *     req,
-                                slice first_key)
+dynamic_btree_pack_setup_finish(dynamic_btree_pack_req *req, slice first_key)
 {
    // set up the first leaf
    dynamic_btree_alloc(req->cc,
@@ -2677,10 +2702,10 @@ dynamic_btree_pack_setup_finish(dynamic_btree_pack_req *     req,
 }
 
 static inline void
-dynamic_btree_pack_loop(dynamic_btree_pack_req      *req,    // IN/OUT
-                        slice                        key,     // IN
-                        slice                        message, // IN
-                        bool *                       at_end)                         // IN/OUT
+dynamic_btree_pack_loop(dynamic_btree_pack_req *req,     // IN/OUT
+                        slice                   key,     // IN
+                        slice                   message, // IN
+                        bool *                  at_end)                    // IN/OUT
 {
    if (!dynamic_btree_set_leaf_entry(
           req->cfg,
@@ -2711,16 +2736,15 @@ dynamic_btree_pack_loop(dynamic_btree_pack_req      *req,    // IN/OUT
       // this loop finds the first level with a free slot
       // along the way it allocates new index nodes as necessary
       uint16 i = 1;
-      while (i <= req->height &&
-             !dynamic_btree_set_index_entry(
-                req->cfg,
-                req->edge[i].hdr,
-                dynamic_btree_num_entries(req->edge[i].hdr),
-                key,
-                req->edge[i - 1].addr,
-                0,
-                0,
-                0)) {
+      while (i <= req->height && !dynamic_btree_set_index_entry(
+                                    req->cfg,
+                                    req->edge[i].hdr,
+                                    dynamic_btree_num_entries(req->edge[i].hdr),
+                                    key,
+                                    req->edge[i - 1].addr,
+                                    0,
+                                    0,
+                                    0)) {
          dynamic_btree_node_full_unlock(req->cc, req->cfg, &old_edge);
          old_edge = req->edge[i];
 
@@ -2736,19 +2760,14 @@ dynamic_btree_pack_loop(dynamic_btree_pack_req      *req,    // IN/OUT
          // initialize the new index edge
          dynamic_btree_pack_node_init_hdr(
             req->cfg, req->edge[i].hdr, req->next_extent, i);
-         dynamic_btree_set_index_entry(req->cfg,
-                                       req->edge[i].hdr,
-                                       0,
-                                       key,
-                                       req->edge[i - 1].addr,
-                                       0,
-                                       0,
-                                       0);
+         dynamic_btree_set_index_entry(
+            req->cfg, req->edge[i].hdr, 0, key, req->edge[i - 1].addr, 0, 0, 0);
          i++;
       }
 
       if (req->height < i) {
-         slice smallest_key = dynamic_btree_get_pivot(req->cfg, old_edge.hdr, 0);
+         slice smallest_key =
+            dynamic_btree_get_pivot(req->cfg, old_edge.hdr, 0);
          // need to add a new root
          dynamic_btree_alloc(req->cc,
                              &req->mini,
@@ -2763,24 +2782,17 @@ dynamic_btree_pack_loop(dynamic_btree_pack_req      *req,    // IN/OUT
          platform_assert(req->height);
 
          // add old root and it's younger sibling
-         bool succeeded =
-            dynamic_btree_set_index_entry(req->cfg,
-                                          req->edge[i].hdr,
-                                          0,
-                                          smallest_key,
-                                          old_edge.addr,
-                                          req->num_tuples,
-                                          req->key_bytes,
-                                          req->message_bytes);
+         bool succeeded = dynamic_btree_set_index_entry(req->cfg,
+                                                        req->edge[i].hdr,
+                                                        0,
+                                                        smallest_key,
+                                                        old_edge.addr,
+                                                        req->num_tuples,
+                                                        req->key_bytes,
+                                                        req->message_bytes);
          platform_assert(succeeded);
-         succeeded = dynamic_btree_set_index_entry(req->cfg,
-                                                   req->edge[i].hdr,
-                                                   1,
-                                                   key,
-                                                   req->edge[i - 1].addr,
-                                                   0,
-                                                   0,
-                                                   0);
+         succeeded = dynamic_btree_set_index_entry(
+            req->cfg, req->edge[i].hdr, 1, key, req->edge[i - 1].addr, 0, 0, 0);
          platform_assert(succeeded);
       }
       dynamic_btree_node_full_unlock(req->cc, req->cfg, &old_edge);
@@ -2840,8 +2852,7 @@ dynamic_btree_pack_post_loop(dynamic_btree_pack_req *req, slice last_key)
       dynamic_btree_node_claim(cc, cfg, &root);
    debug_assert(success);
    dynamic_btree_node_lock(cc, cfg, &root);
-   memmove(
-      root.hdr, req->edge[req->height].hdr, dynamic_btree_page_size(cfg));
+   memmove(root.hdr, req->edge[req->height].hdr, dynamic_btree_page_size(cfg));
    // fix the root next extent
    root.hdr->next_extent_addr = 0;
    dynamic_btree_node_full_unlock(cc, cfg, &root);
@@ -2849,8 +2860,7 @@ dynamic_btree_pack_post_loop(dynamic_btree_pack_req *req, slice last_key)
    // release all the edge nodes;
    for (uint16 i = 0; i <= req->height; i++) {
       // go back and fix the dangling next extents
-      for (uint64 addr =
-              dynamic_btree_get_extent_base_addr(cfg, &req->edge[i]);
+      for (uint64 addr = dynamic_btree_get_extent_base_addr(cfg, &req->edge[i]);
            addr != req->edge[i].addr;
            addr += dynamic_btree_page_size(cfg)) {
          dynamic_btree_node node = {.addr = addr};
@@ -3257,12 +3267,11 @@ dynamic_btree_verify_node(cache *               cc,
          }
          if (child.hdr->height == 0) {
             // child leaf
-           if (0 < idx &&
-               dynamic_btree_key_compare(
-                          cfg,
-                          dynamic_btree_get_pivot(cfg, node.hdr, idx),
-                          dynamic_btree_get_tuple_key(cfg, child.hdr, 0)) !=
-                       0) {
+            if (0 < idx &&
+                dynamic_btree_key_compare(
+                   cfg,
+                   dynamic_btree_get_pivot(cfg, node.hdr, idx),
+                   dynamic_btree_get_tuple_key(cfg, child.hdr, 0)) != 0) {
                platform_log_stream(
                   "pivot key doesn't match in child and parent\n");
                platform_log_stream("addr: %lu idx %u\n", node.addr, idx);

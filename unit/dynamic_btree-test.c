@@ -122,7 +122,7 @@ index_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
    for (uint32 i = 0; i < nkvs; i++) {
       if (!dynamic_btree_set_index_entry(
              cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
-          platform_log("failed to insert 4-byte %d\n", i);
+         platform_log("failed to insert 4-byte %d\n", i);
       }
    }
 
@@ -140,7 +140,7 @@ index_hdr_tests(dynamic_btree_config *cfg, dynamic_btree_scratch *scratch)
    for (uint64 i = 0; i < nkvs; i++) {
       if (!dynamic_btree_set_index_entry(
              cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
-          platform_log("failed to insert 8-byte %ld\n", i);
+         platform_log("failed to insert 8-byte %ld\n", i);
       }
    }
 
@@ -229,7 +229,7 @@ leaf_split_tests(dynamic_btree_config * cfg,
       keybuf[0] = 2 * realnkvs + 1;
       if (!dynamic_btree_set_leaf_entry(
              cfg, hdr, realnkvs, slice_create(1, &keybuf), msg)) {
-          break;
+         break;
       }
       realnkvs++;
    }

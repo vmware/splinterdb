@@ -88,7 +88,8 @@ typedef struct PACKED unkeyed_meta_entry {
 static unkeyed_meta_entry *
 unkeyed_first_entry(page_handle *meta_page)
 {
-   return (unkeyed_meta_entry *)((mini_meta_hdr *)meta_page->data)->entry_buffer;
+   return (unkeyed_meta_entry *)((mini_meta_hdr *)meta_page->data)
+      ->entry_buffer;
 }
 
 static unkeyed_meta_entry *
@@ -346,7 +347,7 @@ mini_num_entries(page_handle *meta_page)
 static bool
 entry_fits_in_page(uint64 page_size, uint64 start, uint64 entry_size)
 {
-  return start + entry_size <= page_size;
+   return start + entry_size <= page_size;
 }
 
 static bool
@@ -365,8 +366,9 @@ mini_keyed_append_entry(mini_allocator *mini,
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
-   if (!entry_fits_in_page(cache_page_size(mini->cc), hdr->pos,
-                          keyed_meta_entry_size(start_key))) {
+   if (!entry_fits_in_page(cache_page_size(mini->cc),
+                           hdr->pos,
+                           keyed_meta_entry_size(start_key))) {
       return FALSE;
    }
 
@@ -393,8 +395,8 @@ mini_unkeyed_append_entry(mini_allocator *mini,
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
-   if (!entry_fits_in_page(cache_page_size(mini->cc), hdr->pos,
-                          sizeof(unkeyed_meta_entry))) {
+   if (!entry_fits_in_page(
+          cache_page_size(mini->cc), hdr->pos, sizeof(unkeyed_meta_entry))) {
       return FALSE;
    }
 
@@ -690,23 +692,23 @@ mini_unkeyed_for_each(cache *          cc,
    interval_intersects_range(). See its implementation and
    comments. */
 typedef enum boundary_state {
-  before_start = 1,
-  in_range = 0,
-  after_end = 2
+   before_start = 1,
+   in_range     = 0,
+   after_end    = 2
 } boundary_state;
 
-static bool interval_intersects_range(boundary_state left_state,
-                                      boundary_state right_state)
+static bool
+interval_intersects_range(boundary_state left_state, boundary_state right_state)
 {
-  /* The interval [left, right] intersects the interval [begin, end]
-     if left_state != right_state or if left_state == right_state ==
-     in_range = 0.
+   /* The interval [left, right] intersects the interval [begin, end]
+      if left_state != right_state or if left_state == right_state ==
+      in_range = 0.
 
-     The predicate below works as long as
-     - in_range == 0, and
-     - before_start & after_end == 0.
-*/
-  return (left_state & right_state) == 0;
+      The predicate below works as long as
+      - in_range == 0, and
+      - before_start & after_end == 0.
+ */
+   return (left_state & right_state) == 0;
 }
 
 static boundary_state
@@ -762,7 +764,8 @@ mini_keyed_for_each(cache *          cc,
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
          uint64      batch           = entry->batch;
          const slice entry_start_key = keyed_meta_entry_start_key(entry);
-         boundary_state next_state = state(cfg, start_key, end_key, entry_start_key);
+         boundary_state next_state =
+            state(cfg, start_key, end_key, entry_start_key);
          if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
              interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
@@ -819,7 +822,8 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
          uint64      batch           = entry->batch;
          const slice entry_start_key = keyed_meta_entry_start_key(entry);
-         boundary_state next_state = state(cfg, start_key, end_key, entry_start_key);
+         boundary_state next_state =
+            state(cfg, start_key, end_key, entry_start_key);
          if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
              interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);

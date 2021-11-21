@@ -156,8 +156,8 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    }
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
-   merge_itor->ordered_iterators[0]->key = NULL_SLICE;
-   merge_itor->ordered_iterators[0]->data = NULL_SLICE;
+   merge_itor->ordered_iterators[0]->key            = NULL_SLICE;
+   merge_itor->ordered_iterators[0]->data           = NULL_SLICE;
    rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
    if (!SUCCESS(rc)) {
       return rc;

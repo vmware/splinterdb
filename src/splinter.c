@@ -2964,10 +2964,10 @@ splinter_memtable_insert(splinter_handle *spl, char *key, char *message)
    }
 
    if (spl->cfg.use_log) {
-      slice key_slice      = slice_create(splinter_key_size(spl), key);
-      slice message_slice  = slice_create(splinter_message_size(spl), message);
-      int   crappy_rc      = log_write(spl->log, key_slice, message_slice,
-                                       leaf_generation);
+      slice key_slice     = slice_create(splinter_key_size(spl), key);
+      slice message_slice = slice_create(splinter_message_size(spl), message);
+      int   crappy_rc =
+         log_write(spl->log, key_slice, message_slice, leaf_generation);
       if (crappy_rc != 0) {
          goto unlock_insert_lock;
       }
@@ -5945,7 +5945,7 @@ splinter_filter_lookup(splinter_handle *spl,
    }
 
    uint64 found_values;
-   slice           key_slice = slice_create(cfg->data_cfg->key_size, (void *)key);
+   slice  key_slice = slice_create(cfg->data_cfg->key_size, (void *)key);
    platform_status rc =
       routing_filter_lookup(spl->cc, cfg, filter, key_slice, &found_values);
    platform_assert_status_ok(rc);

@@ -74,12 +74,12 @@ typedef struct dynamic_btree_iterator {
    page_type             page_type;
    slice                 max_key;
 
-   uint64                root_addr;
-   dynamic_btree_node    curr;
-   uint64                idx;
-   uint64                end_addr;
-   uint64                end_idx;
-   uint64                end_generation;
+   uint64             root_addr;
+   dynamic_btree_node curr;
+   uint64             idx;
+   uint64             end_addr;
+   uint64             end_idx;
+   uint64             end_generation;
 
    // Variables used for debug only
    debug_code(bool debug_is_packed);
@@ -91,16 +91,16 @@ typedef struct dynamic_btree_pack_req {
    // inputs to the pack
    cache *               cc;
    dynamic_btree_config *cfg;
-   iterator *itor; // the itor which is being packed
+   iterator *            itor;       // the itor which is being packed
    uint64       max_tuples; // max tuples for the tree
    hash_fn      hash;       // hash function used for calculating filter_hash
    unsigned int seed;       // seed used for calculating filter_hash
 
    // internal data
-   uint64 next_extent;
-   uint16 height;
+   uint64             next_extent;
+   uint16             height;
    dynamic_btree_node edge[DYNAMIC_BTREE_MAX_HEIGHT];
-   mini_allocator mini;
+   mini_allocator     mini;
 
    // output of the compaction
    uint64  root_addr;       // root address of the output tree

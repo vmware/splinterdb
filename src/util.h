@@ -18,16 +18,16 @@
    [x] = STRINGIFY(x)
 
 
-static inline
-const void *const_pointer_byte_offset(const void *base, int64 offset)
+static inline const void *
+const_pointer_byte_offset(const void *base, int64 offset)
 {
-  return (const uint8 *)base + offset;
+   return (const uint8 *)base + offset;
 }
 
-static inline
-void *pointer_byte_offset(void *base, int64 offset)
+static inline void *
+pointer_byte_offset(void *base, int64 offset)
 {
-  return (uint8 *)base + offset;
+   return (uint8 *)base + offset;
 }
 
 /*
