@@ -256,6 +256,13 @@ static cache_ops clockcache_ops = {
             | CC_WRITELOCKED \
          )
 
+#define CC_LOCKED_MIGRATABLE2_STATUS \
+          (0 \
+             | CC_ACCESSED \
+             | CC_CLAIMED \
+             | CC_WRITELOCKED \
+          )
+
 
 #define CC_ACCESSED_STATUS \
          (0 \
@@ -327,7 +334,7 @@ clockcache_test_flag(clockcache *cc, uint32 entry_number, uint32 flag)
 }
 
 
-static inline void
+__attribute__ ((unused)) static inline void
 clockcache_set_shadow(clockcache *cc, uint32 entry_number, uint32 flag)
 {
    cc->entry[entry_number].shadow = TRUE;
@@ -338,6 +345,12 @@ static inline bool
 clockcache_test_shadow(clockcache *cc, uint32 entry_number, uint32 flag)
 {
    return cc->entry[entry_number].shadow;
+}
+
+static inline void
+__attribute__ ((unused)) clockcache_unset_shadow(clockcache *cc, uint32 entry_number, uint32 flag)
+{
+   cc->entry[entry_number].shadow = FALSE;
 }
 
 
@@ -743,12 +756,16 @@ clockcache_try_get_read(clockcache *cc,
    if (cur_entry_number != entry_number) {
       return GET_RC_EVICTED;
    }
+   if(clockcache_test_shadow(cc, entry_number, CC_SHADOW)){
+      return GET_RC_EVICTED;
+   }
 
    // first check if write lock is held
    uint32 cc_writing = clockcache_test_flag(cc, entry_number, CC_WRITELOCKED);
    if (UNLIKELY(cc_writing)) {
       return GET_RC_CONFLICT;
    }
+
 
    // then obtain the read lock
    clockcache_inc_ref(cc, entry_number, tid);
@@ -1264,6 +1281,7 @@ static bool
 clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
 		uint64 disk_addr, page_handle **page, bool read_lock, bool write_unlock)
 {
+#ifdef PAGE_MIGRATION
    bool ret = FALSE;
 
    uint32 entry_number = clockcache_lookup(src_cc, disk_addr);
@@ -1284,8 +1302,10 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
             || clockcache_get_pin(src_cc, entry_number)) {
          goto out;
       }
+#ifdef SHADOW_PAGE
       if(status == CC_MIGRATABLE2_STATUS && read_lock)
          setup_shadow_page = TRUE;
+#endif
       assert(src_cc->volatile_cache != NULL);
    }
 
@@ -1311,13 +1331,13 @@ clockcache_page_migration(clockcache *src_cc, clockcache *dest_cc,
 
 
 set_claim:
-   /* 2. try to claim */
+   /* try to claim */
    if (clockcache_try_get_claim(src_cc, entry_number) != GET_RC_SUCCESS) {
       goto release_ref;
    }
 
    /*
-    * 3. try to write lock
+    * try to write lock
     *      -- first check if loading
     */
    if (clockcache_test_flag(src_cc, entry_number, CC_LOADING)
@@ -1325,23 +1345,27 @@ set_claim:
       goto release_claim;
    }
 
-   /* 4. verify still evictable
-    * redo fast tests in case another thread has changed the status before we
-    * obtained the lock
-    * note: do not re-check the ref count for the active thread, because
-    * it acquired a read lock in order to lock the entry.
-    */
 set_migration:
    status = old_entry->status;
    uint32 new_entry_no = CC_UNMAPPED_ENTRY;
    // TODO:
    /* this is only true when called from the page in step in clockcache_get */
-   if (read_lock){
-      if ((status != CC_LOCKED_MIGRATABLE1_STATUS)
-         || clockcache_get_pin(src_cc, entry_number)) {
-         goto release_write_reacquire_read;
+   if(read_lock){
+      if(!setup_shadow_page){
+         if ((status != CC_LOCKED_MIGRATABLE1_STATUS)
+            || clockcache_get_pin(src_cc, entry_number)) {
+                platform_assert(new_entry_no == -1);
+            goto release_write_reacquire_read;
+         }
       }
-   }
+      else{
+         if ((status != CC_LOCKED_MIGRATABLE2_STATUS)
+            || clockcache_get_pin(src_cc, entry_number)) {
+                platform_assert(new_entry_no == -1);
+            goto release_write_reacquire_read;
+         }
+       }
+    }
 
 
    uint64 addr = old_entry->page.disk_addr;
@@ -1395,6 +1419,7 @@ set_migration:
    if(unset_shadow_page){
       shadow_entry->page.disk_addr = CC_UNMAPPED_ADDR;
       shadow_entry->status = CC_FREE_STATUS;
+      clockcache_unset_shadow(dest_cc, shadow_entry_number, CC_SHADOW);
    }
 
 
@@ -1455,7 +1480,9 @@ release_ref:
    }
 out:
    return ret;
-
+#else
+   return FALSE;
+#endif
 }
 
 
@@ -1549,7 +1576,8 @@ clockcache_try_evict(clockcache *cc,
    /*--------------------------------------------evict DRAM page to PMEM cache--------------------------- */
 
 
-
+#ifdef DRAM_CACHE
+#ifdef EVICTION_OPT
    if(cc->volatile_cache == NULL){
       clockcache* src_cc = cc;
       clockcache* dest_cc = cc->persistent_cache;
@@ -1594,6 +1622,7 @@ clockcache_try_evict(clockcache *cc,
       if(unset_shadow_page){
          shadow_entry->page.disk_addr = CC_UNMAPPED_ADDR;
          shadow_entry->status = CC_FREE_STATUS;
+	 clockcache_unset_shadow(dest_cc, shadow_entry_number, CC_SHADOW);
       }
 
       entry->status = CC_FREE_STATUS;
@@ -1613,8 +1642,8 @@ clockcache_try_evict(clockcache *cc,
 
       goto release_ref;
    }
-
-
+#endif
+#endif
 
    /*--------------------------------------- end of DRAM->PMEM cache eviction------------------------------------*/
 
@@ -2079,6 +2108,7 @@ clockcache_init(clockcache           *cc,     // OUT
    }
    cc->ts = ts;
 
+#ifdef DRAM_CACHE
    if(pmemcache){
       pmemcache = FALSE;
       clockcache *vcc = TYPED_ARRAY_MALLOC(hid, vcc, 1);
@@ -2103,7 +2133,9 @@ clockcache_init(clockcache           *cc,     // OUT
    else{
       cc->volatile_cache = NULL;
    }
-
+#else
+   cc->volatile_cache = NULL;
+#endif
 
    return STATUS_OK;
 
@@ -2157,7 +2189,8 @@ page_handle *
 clockcache_alloc(clockcache *cache, uint64 addr, page_type type)
 {
    clockcache *cc = cache;
-   cc = cache->volatile_cache;
+   if(cache->volatile_cache != NULL)
+      cc = cache->volatile_cache;
    
    //if(type == PAGE_TYPE_LOG)
 	   //cc = cc->persistent_cache;
@@ -2263,9 +2296,10 @@ clockcache_try_dealloc_page(clockcache *cache,
                             uint64      addr)
 {
    const threadid tid = platform_get_tid();
-   clockcache *vcc = cache->volatile_cache;
-   clockcache *pcc;
+   clockcache *pcc = cache;
    clockcache *cc;
+#ifdef DRAM_CACHE
+   clockcache *vcc = cache->volatile_cache;
    if(vcc == NULL){
       pcc = cache->persistent_cache;
       vcc = cache;
@@ -2275,9 +2309,11 @@ clockcache_try_dealloc_page(clockcache *cache,
    }
    debug_assert(vcc!=NULL);
    debug_assert(pcc!=NULL);
+ #endif
 
    while (TRUE) {
       uint32 entry_number = clockcache_lookup(pcc, addr);
+#ifdef DRAM_CACHE
       if ((entry_number == CC_UNMAPPED_ENTRY) 
          ||(clockcache_test_shadow(pcc, entry_number, CC_SHADOW))){
 	 entry_number = clockcache_lookup(vcc, addr);
@@ -2292,6 +2328,15 @@ clockcache_try_dealloc_page(clockcache *cache,
       }
       else
          cc = pcc;
+ #else
+   if (entry_number == CC_UNMAPPED_ENTRY) {
+      clockcache_log(addr, entry_number,
+	    "dealloc (uncached): entry %u addr %lu\n", entry_number, addr);
+      return;
+   }
+   else 
+      cc = pcc;
+ #endif
 
       /*
        * in cache, so evict:
@@ -2505,7 +2550,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
     * both entry_numbers are CC_UNMMAPPED_ENTRY,
     * we should now go do page in. */
 
-
+#ifdef DRAM_CACHE
    if(entry_number == CC_UNMAPPED_ENTRY){
       clockcache *another_cc;
       if (cc->persistent_cache != NULL)
@@ -2530,7 +2575,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
       cc = another_cc;
       }
    }
-
+#endif
 
 
 
@@ -2651,7 +2696,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
    }
 
 
-
+#ifdef DRAM_CACHE
    clockcache *another_cc;
    if (cc->persistent_cache != NULL)
       another_cc = cc->persistent_cache;
@@ -2674,7 +2719,7 @@ clockcache_get_internal(clockcache *cc,                     // IN
       return FALSE;
    }
    }
-
+#endif
 
    status = io_read(cc->io, entry->page.data, cc->cfg->page_size, addr);
    platform_assert_status_ok(status);
@@ -3121,8 +3166,13 @@ clockcache_lock(clockcache  *cc,
          old_entry_no, (*page)->disk_addr);
    clockcache_get_write(cc, old_entry_no);
 
+#ifdef PMEM_COW
    if(cc->persistent_cache == NULL){
+#ifdef NON_TX_OPT
       if(istracking(clockcache_get_context(cc))){
+#else
+      if(true){
+#endif
          clockcache *pcc;
          /*
          if(cc->volatile_cache == NULL)
@@ -3157,6 +3207,7 @@ clockcache_lock(clockcache  *cc,
          *page = &new_entry->page;
       }
    }
+#endif
 
    //assert(clockcache_get_ref(cc, old_entry_no, platform_get_tid()) == 1);
 }
@@ -3167,8 +3218,8 @@ clockcache_internal_unlock(clockcache  *cc,
                            uint32 entry_number)
 {
    assert(entry_number == clockcache_page_to_entry_number(cc, *page));
+#ifdef PMEM_COW
    clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
-
 
    if(cc->persistent_cache == NULL){
       if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
@@ -3190,6 +3241,7 @@ clockcache_internal_unlock(clockcache  *cc,
          new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
       }
   }
+#endif
 
   uint32 flag = CC_WRITELOCKED;
   clockcache_record_backtrace(cc, entry_number);
@@ -3263,7 +3315,7 @@ clockcache_unlock(clockcache  *cache,
    ctx_unlock(clockcache_get_context(cc));
 
    clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
-
+#ifdef PMEM_COW
    if(cc->persistent_cache == NULL){
       if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
       //if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){
@@ -3274,7 +3326,8 @@ clockcache_unlock(clockcache  *cache,
       //}
       //}
    }
-   else{
+#endif
+   if(cc->persistent_cache != NULL){
       //if(new_entry->type != PAGE_TYPE_MEMTABLE){
       //if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){	   
       debug_assert(cc->persistent_cache != NULL);
@@ -3622,9 +3675,10 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
    debug_assert(base_addr % cache->cfg->extent_size == 0);
 
 
-   clockcache *vcc = cache->volatile_cache;
-   clockcache *pcc;
+   clockcache *pcc = cache;
    clockcache *cc;
+#ifdef DRAM_CACHE
+   clockcache *vcc = cache->volatile_cache;
    if(vcc == NULL){
       pcc = cache->persistent_cache;
       vcc = cache;
@@ -3634,6 +3688,7 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
    }
    debug_assert(vcc!=NULL);
    debug_assert(pcc!=NULL);
+#endif
 
    for (uint64 page_off = 0; page_off < pages_per_extent; page_off++) {
       uint64 addr = base_addr + clockcache_multiply_by_page_size(cache, page_off);
@@ -3645,8 +3700,13 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
       if ((entry_no != CC_UNMAPPED_ENTRY)
          &&(!clockcache_test_shadow(pcc, entry_no, CC_SHADOW))) {
          get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE);
-      } else {
+      }
+      else {
          get_read_rc = GET_RC_EVICTED;
+      }
+#ifdef DRAM_CACHE 
+      if ((entry_no == CC_UNMAPPED_ENTRY)
+	 ||(clockcache_test_shadow(pcc, entry_no, CC_SHADOW))) {
 	 cc = vcc;
 //	 cc = cache;
       }
@@ -3664,6 +3724,7 @@ clockcache_prefetch(clockcache *cache, uint64 base_addr, page_type type)
          }
 	 assert(cc->volatile_cache == NULL);
       }
+#endif
 
 
       switch (get_read_rc) {
@@ -4190,6 +4251,7 @@ clockcache_get_volatile_cache(clockcache *cc)
 bool
 clockcache_if_volatile_addr(clockcache *cc, uint64 addr)
 {
+#ifdef DRAM_CACHE
    clockcache* vcc = cc->volatile_cache;
    clockcache* pcc;
 
@@ -4224,12 +4286,15 @@ clockcache_if_volatile_addr(clockcache *cc, uint64 addr)
    {
       return FALSE;
    }
-   assert(0);
+#else
+   return FALSE;
+#endif
 }
 
 cache*
 clockcache_get_addr_cache(clockcache *cc, uint64 addr)
 {
+#ifdef DRAM_CACHE
    clockcache* vcc = cc->volatile_cache;
    clockcache* pcc;
 
@@ -4268,7 +4333,9 @@ clockcache_get_addr_cache(clockcache *cc, uint64 addr)
       cache_ptr = (cache*)cc;
    assert(cache_ptr != NULL);
    return cache_ptr;
-   assert(0);
+#else
+   return (cache*)cc;
+#endif
 }
 
 
