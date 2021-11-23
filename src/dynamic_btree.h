@@ -250,7 +250,8 @@ dynamic_btree_lookup(cache *               cc,
                      dynamic_btree_config *cfg,
                      uint64                root_addr,
                      slice                 key,
-                     slice *               data,
+                     uint64 *              data_out_len,
+                     void *                data_out,
                      bool *                found);
 
 cache_async_result
@@ -258,7 +259,8 @@ dynamic_btree_lookup_async(cache *                   cc,
                            dynamic_btree_config *    cfg,
                            uint64                    root_addr,
                            slice                     key,
-                           slice *                   data,
+                           uint64 *                  data_out_len,
+                           void *                    data_out,
                            bool *                    found,
                            dynamic_btree_async_ctxt *ctxt);
 

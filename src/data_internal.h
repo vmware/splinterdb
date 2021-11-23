@@ -34,27 +34,29 @@ static inline void
 data_merge_tuples(const data_config *cfg,
                   const slice        key,
                   const slice        old_raw_message,
-                  slice *            new_raw_message)
+                  uint64 *           new_raw_message_length,
+                  void *             new_raw_message)
 {
-   cfg->merge_tuples(cfg,
-                     slice_length(key),
-                     slice_data(key),
-                     slice_length(old_raw_message),
-                     slice_data(old_raw_message),
-                     &new_raw_message->length,
-                     slice_data(*new_raw_message));
+   return cfg->merge_tuples(cfg,
+                            slice_length(key),
+                            slice_data(key),
+                            slice_length(old_raw_message),
+                            slice_data(old_raw_message),
+                            new_raw_message_length,
+                            new_raw_message);
 }
 
 static inline void
 data_merge_tuples_final(const data_config *cfg,
                         const slice        key,
-                        slice *            oldest_raw_message)
+                        uint64 *           oldest_raw_message_length,
+                        void *             oldest_raw_message)
 {
    return cfg->merge_tuples_final(cfg,
                                   slice_length(key),
                                   slice_data(key),
-                                  &oldest_raw_message->length,
-                                  slice_data(*oldest_raw_message));
+                                  oldest_raw_message_length,
+                                  oldest_raw_message);
 }
 
 static inline void

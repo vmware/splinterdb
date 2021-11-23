@@ -76,8 +76,8 @@ init_fraction(uint64 numerator, uint64 denominator)
    })
 
 typedef struct slice {
-   uint64 length;
-   void * data;
+   uint64      length;
+   const void *data;
 } slice;
 
 extern const slice NULL_SLICE;
@@ -89,7 +89,7 @@ slice_is_null(const slice b)
 }
 
 static inline slice
-slice_create(uint64 len, void *data)
+slice_create(uint64 len, const void *data)
 {
    return (slice){.length = len, .data = data};
 }
@@ -100,17 +100,17 @@ slice_length(const slice b)
    return b.length;
 }
 
-static inline void *
+static inline const void *
 slice_data(const slice b)
 {
    return b.data;
 }
 
-static inline void
-slice_copy_contents(slice *dst, const slice src)
+static inline slice
+slice_copy_contents(void *dst, const slice src)
 {
-   memmove(dst->data, src.data, src.length);
-   dst->length = src.length;
+   memmove(dst, src.data, src.length);
+   return slice_create(src.length, dst);
 }
 
 static inline bool

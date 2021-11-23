@@ -164,32 +164,29 @@ verify_against_shadow(splinter_handle *spl,
    */
 
 platform_status
-verify_range_against_shadow(splinter_handle            *spl,
+verify_range_against_shadow(splinter_handle *           spl,
                             test_splinter_shadow_array *sharr,
-                            char                       *start_key,
-                            char                       *end_key,
+                            char *                      start_key,
+                            char *                      end_key,
                             platform_heap_id            hid,
                             uint64                      start_index,
                             uint64                      end_index)
 {
-   platform_status status;
-   slice           splinter_keybuf;
-   slice           splinter_message;
-   data_handle *   splinter_data_handle;
-   uint64 splinter_key;
-   uint64 i;
-   bool at_end;
+   platform_status    status;
+   slice              splinter_keybuf;
+   slice              splinter_message;
+   const data_handle *splinter_data_handle;
+   uint64             splinter_key;
+   uint64             i;
+   bool               at_end;
 
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
 
    splinter_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
-   status = splinter_range_iterator_init(spl,
-         range_itor,
-         start_key,
-         end_key,
-         end_index - start_index);
+   status = splinter_range_iterator_init(
+      spl, range_itor, start_key, end_key, end_index - start_index);
    if (!SUCCESS(status)) {
       platform_error_log("failed to create range itor: %s\n",
                          platform_status_to_string(status));
@@ -197,16 +194,18 @@ verify_range_against_shadow(splinter_handle            *spl,
    }
 
    for (i = start_index; i < end_index; i++) {
-      uint64 shadow_key = sharr->keys[i];
-      int8 shadow_refcount = sharr->ref_counts[i];
+      uint64 shadow_key      = sharr->keys[i];
+      int8   shadow_refcount = sharr->ref_counts[i];
 
       if (shadow_refcount == 0)
          continue;
 
       status = iterator_at_end((iterator *)range_itor, &at_end);
       if (!SUCCESS(status) || at_end) {
-         platform_error_log("ERROR: range itor failed or terminated early (at_end = %d): %s\n",
-                            at_end, platform_status_to_string(status));
+         platform_error_log(
+            "ERROR: range itor failed or terminated early (at_end = %d): %s\n",
+            at_end,
+            platform_status_to_string(status));
          if (SUCCESS(status)) {
             status = STATUS_NO_PERMISSION;
          }
@@ -218,7 +217,7 @@ verify_range_against_shadow(splinter_handle            *spl,
       splinter_key         = be64toh(*(uint64 *)slice_data(splinter_keybuf));
       splinter_data_handle = slice_data(splinter_message);
 
-      //platform_log("Range test %d: Shadow: 0x%08lx, Tree: 0x%08lx\n",
+      // platform_log("Range test %d: Shadow: 0x%08lx, Tree: 0x%08lx\n",
       //   i,
       //   be64toh(*(uint64 *)shadow_key),
       //   be64toh(*(uint64 *)key_p));

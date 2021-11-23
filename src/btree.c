@@ -83,7 +83,7 @@ void
 btree_alloc(cache *         cc,
             mini_allocator *mini,
             uint64          height,
-            char *          key,
+            const char *    key,
             uint64 *        next_extent,
             page_type       type,
             btree_node *    node)
@@ -730,10 +730,10 @@ btree_add_tuple(btree_config  *cfg,
 
 static inline void
 btree_add_tuple_at_pos(btree_config *cfg,
-                       btree_node *node,
-                       char *key,
-                       char *data,
-                       uint16 pos)
+                       btree_node *  node,
+                       const char *  key,
+                       const char *  data,
+                       uint16        pos)
 {
    memmove(btree_get_tuple(cfg, node, pos), key, btree_key_size(cfg));
    memmove(btree_get_data(cfg, node, pos), data, btree_message_size(cfg));
@@ -1043,11 +1043,11 @@ btree_inc_range(cache        *cc,
 }
 
 bool
-btree_zap_range(cache        *cc,
+btree_zap_range(cache *       cc,
                 btree_config *cfg,
                 uint64        root_addr,
-                const char   *start_key,
-                const char   *end_key,
+                const char *  start_key,
+                const char *  end_key,
                 page_type     type)
 {
    debug_assert(type == PAGE_TYPE_BRANCH);
@@ -1059,9 +1059,9 @@ btree_zap_range(cache        *cc,
    slice start_slice =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
                 : NULL_SLICE;
-   slice  end_slice = end_key
-                         ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
-                         : NULL_SLICE;
+   slice end_slice = end_key
+                        ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
+                        : NULL_SLICE;
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
    return mini_keyed_dec_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_slice, end_slice);
@@ -2130,10 +2130,10 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
 }
 
 static inline void
-btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
-                char                *key,    // IN
-                char                *data,   // IN
-                bool                *at_end) // IN/OUT
+btree_pack_loop(btree_pack_internal *tree, // IN/OUT
+                const char *         key,  // IN
+                const char *         data, // IN
+                bool *               at_end)              // IN/OUT
 {
    if (tree->idx[0] == tree->cfg->tuples_per_packed_leaf) {
       // the current leaf is full, allocate a new one and add to index
@@ -2156,7 +2156,8 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
 #if defined(BTREE_TRACE)
       if (btree_key_compare(tree->cfg, key, trace_key) == 0)
          platform_log("adding tuple to %lu, root addr %lu\n",
-                      tree->edge[0].addr, *tree->root_addr);
+                      tree->edge[0].addr,
+                      *tree->root_addr);
 #endif
       btree_add_tuple_at_pos(tree->cfg, &tree->edge[0], key, data, 0);
       tree->idx[0] = 1;
@@ -2189,16 +2190,16 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
          // initialize the new index edge
          tree->edge[i] = tree->new_edge;
          btree_pack_node_init_hdr(&tree->edge[i], tree->next_extent, i, TRUE);
-         btree_add_pivot_at_pos(tree->cfg, &tree->edge[i], &tree->edge[i - 1],
-                                0, FALSE);
-         //platform_log("adding %lu to %lu at pos 0\n",
+         btree_add_pivot_at_pos(
+            tree->cfg, &tree->edge[i], &tree->edge[i - 1], 0, FALSE);
+         // platform_log("adding %lu to %lu at pos 0\n",
          //                     edge[i-1].addr, edge[i].addr);
          tree->idx[i] = 1;
       }
 
       if (i > tree->height) {
          // need to add a new root
-         char first_key[MAX_KEY_SIZE] = { 0 };
+         char first_key[MAX_KEY_SIZE] = {0};
          btree_alloc(tree->cc,
                      &tree->mini,
                      i,
@@ -2210,20 +2211,23 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
          tree->height++;
 
          // add old root and it's younger sibling
-         btree_add_pivot_at_pos(tree->cfg, &tree->edge[tree->height],
-                                &tree->old_edge, 0, TRUE);
-         //platform_log("adding %lu to %lu at pos 0\n",
+         btree_add_pivot_at_pos(
+            tree->cfg, &tree->edge[tree->height], &tree->old_edge, 0, TRUE);
+         // platform_log("adding %lu to %lu at pos 0\n",
          //                     old_edge.addr, edge[height].addr);
-         btree_add_pivot_at_pos(tree->cfg, &tree->edge[tree->height],
-                                &tree->edge[tree->height - 1], 1, FALSE);
-         //platform_log("adding %lu to %lu at pos 1\n",
+         btree_add_pivot_at_pos(tree->cfg,
+                                &tree->edge[tree->height],
+                                &tree->edge[tree->height - 1],
+                                1,
+                                FALSE);
+         // platform_log("adding %lu to %lu at pos 1\n",
          //                     edge[height - 1].addr, edge[height].addr);
          tree->idx[tree->height] = 2;
       } else {
          // add to the index with a free slot
-         btree_add_pivot_at_pos(tree->cfg, &tree->edge[i], &tree->edge[i - 1],
-                                tree->idx[i], FALSE);
-         //platform_log("adding %lu to %lu at pos %u\n",
+         btree_add_pivot_at_pos(
+            tree->cfg, &tree->edge[i], &tree->edge[i - 1], tree->idx[i], FALSE);
+         // platform_log("adding %lu to %lu at pos %u\n",
          //                     edge[i - 1].addr, edge[i].addr, idx[i]);
          tree->idx[i]++;
       }
@@ -2231,16 +2235,19 @@ btree_pack_loop(btree_pack_internal *tree,   // IN/OUT
 #if defined(BTREE_TRACE)
       if (btree_key_compare(tree->cfg, key, trace_key) == 0)
          platform_log("adding tuple to %lu, root addr %lu\n",
-                              tree->edge[0].addr, *tree->root_addr);
+                      tree->edge[0].addr,
+                      *tree->root_addr);
 #endif
-      btree_add_tuple_at_pos(tree->cfg, &tree->edge[0], key, data, tree->idx[0]);
-      //if (idx[0] != 0) {
-      //   int comp = btree_key_compare(cfg, btree_get_tuple(cfg, &edge[0], idx[0] - 1), key);
-      //   if (comp >= 0) {
+      btree_add_tuple_at_pos(
+         tree->cfg, &tree->edge[0], key, data, tree->idx[0]);
+      // if (idx[0] != 0) {
+      //   int comp = btree_key_compare(cfg, btree_get_tuple(cfg, &edge[0],
+      //   idx[0] - 1), key); if (comp >= 0) {
       //      char key_str[128], last_key_str[128];
       //      btree_key_to_string(cfg, key, key_str);
-      //      btree_key_to_string(cfg, btree_get_tuple(cfg, &edge[0], idx[0] - 1), last_key_str);
-      //      platform_log("btree_pack OOO keys: \n%s \n%s\n%d\n",
+      //      btree_key_to_string(cfg, btree_get_tuple(cfg, &edge[0], idx[0] -
+      //      1), last_key_str); platform_log("btree_pack OOO keys: \n%s
+      //      \n%s\n%d\n",
       //                           last_key_str, key_str, comp);
       //      iterator_print(req->itor);
       //      platform_assert(0);
@@ -2576,12 +2583,12 @@ btree_space_use_in_range(cache        *cc,
 {
    platform_assert(type == PAGE_TYPE_BRANCH);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   slice  start_slice =
+   slice start_slice =
       start_key ? slice_create(cfg->data_cfg->key_size, (void *)start_key)
                  : NULL_SLICE;
-   slice  end_slice    = end_key
-                            ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
-                            : NULL_SLICE;
+   slice end_slice = end_key
+                        ? slice_create(cfg->data_cfg->key_size, (void *)end_key)
+                        : NULL_SLICE;
    uint64 extents_used = mini_keyed_extent_count(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_head, start_slice, end_slice);
    return extents_used * cfg->extent_size;

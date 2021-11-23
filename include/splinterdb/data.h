@@ -50,8 +50,8 @@ typedef void (*merge_tuple_fn)(const data_config *cfg,
                                const void *       key,
                                uint64             old_raw_message_len,
                                const void *       old_raw_message,
-                               uint64 *           new_raw_message_len,
-                               void *             new_raw_message);
+                               uint64 *           new_raw_message_len, // IN/OUT
+                               void *             new_raw_message);                 // IN/OUT
 
 // Called for non-MESSAGE_TYPE_INSERT messages
 // when they are determined to be the oldest message
@@ -62,8 +62,8 @@ typedef void (*merge_tuple_fn)(const data_config *cfg,
 typedef void (*merge_tuple_final_fn)(const data_config *cfg,
                                      uint64             key_len,
                                      const void *       key,
-                                     uint64 *           oldest_raw_message_len,
-                                     void *             oldest_raw_message);
+                                     uint64 *oldest_raw_message_len, // IN/OUT
+                                     void *  oldest_raw_message);      // IN/OUT
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,

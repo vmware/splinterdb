@@ -259,7 +259,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
       data_merge_tuples(cfg,
                         merge_itor->key,
                         merge_itor->ordered_iterators[1]->data,
-                        &merge_itor->data);
+                        &merge_itor->data.length,
+                        merge_itor->merge_buffer);
 
       /*
        * Need to maintain invariant that merge_itor->key points to a valid
@@ -301,7 +302,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 static inline bool
 merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
 {
-   data_config *cfg = merge_itor->cfg;
+   data_config *cfg   = merge_itor->cfg;
    message_type class = data_message_class(cfg, merge_itor->data);
    if (class != MESSAGE_TYPE_INSERT && merge_itor->resolve_updates) {
       if (merge_itor->data.data != merge_itor->merge_buffer) {
@@ -311,7 +312,10 @@ merge_resolve_updates_and_discard_deletes(merge_iterator *merge_itor)
                  slice_length(merge_itor->data));
          merge_itor->data.data = merge_itor->merge_buffer;
       }
-      data_merge_tuples_final(cfg, merge_itor->key, &merge_itor->data);
+      data_merge_tuples_final(cfg,
+                              merge_itor->key,
+                              &merge_itor->data.length,
+                              merge_itor->merge_buffer);
       class = data_message_class(cfg, merge_itor->data);
    }
    if (class == MESSAGE_TYPE_DELETE && merge_itor->discard_deletes) {

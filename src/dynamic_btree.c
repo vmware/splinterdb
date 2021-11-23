@@ -665,9 +665,9 @@ dynamic_btree_merge_tuples(const dynamic_btree_config *cfg,
                            slice                       new_data,
                            char merged_data[static MAX_INLINE_MESSAGE_SIZE])
 {
-   slice tmp = slice_create(0, merged_data);
-   slice_copy_contents(&tmp, new_data);
-   data_merge_tuples(cfg->data_cfg, key, old_data, &tmp);
+   slice tmp = slice_create(slice_length(new_data), merged_data);
+   slice_copy_contents(merged_data, new_data);
+   data_merge_tuples(cfg->data_cfg, key, old_data, &tmp.length, merged_data);
    return tmp;
 }
 
@@ -2145,12 +2145,13 @@ dynamic_btree_lookup_with_ref(cache *               cc,        // IN
 }
 
 void
-dynamic_btree_lookup(cache *               cc,        // IN
-                     dynamic_btree_config *cfg,       // IN
-                     uint64                root_addr, // IN
-                     const slice           key,       // IN
-                     slice *               data_out,  // OUT
-                     bool *                found)                     // OUT
+dynamic_btree_lookup(cache *               cc,              // IN
+                     dynamic_btree_config *cfg,             // IN
+                     uint64                root_addr,       // IN
+                     const slice           key,             // IN
+                     uint64 *              data_out_length, // OUT
+                     void *                data_out,        // OUT
+                     bool *                found)                           // OUT
 {
    dynamic_btree_node node;
    slice              data;
@@ -2158,6 +2159,7 @@ dynamic_btree_lookup(cache *               cc,        // IN
       cc, cfg, root_addr, PAGE_TYPE_BRANCH, key, &node, &data, found);
    if (*found) {
       slice_copy_contents(data_out, data);
+      *data_out_length = slice_length(data);
    }
    dynamic_btree_node_unget(cc, cfg, &node);
 }
@@ -2388,13 +2390,14 @@ dynamic_btree_lookup_async_with_ref(cache *                   cc,        // IN
  */
 
 cache_async_result
-dynamic_btree_lookup_async(cache *                   cc,        // IN
-                           dynamic_btree_config *    cfg,       // IN
-                           uint64                    root_addr, // IN
-                           slice                     key,       // IN
-                           slice *                   data_out,  // OUT
-                           bool *                    found,     // OUT
-                           dynamic_btree_async_ctxt *ctxt)      // IN
+dynamic_btree_lookup_async(cache *                   cc,           // IN
+                           dynamic_btree_config *    cfg,          // IN
+                           uint64                    root_addr,    // IN
+                           slice                     key,          // IN
+                           uint64 *                  data_out_len, // OUT
+                           void *                    data_out,     // OUT
+                           bool *                    found,        // OUT
+                           dynamic_btree_async_ctxt *ctxt)         // IN
 {
    cache_async_result res;
    dynamic_btree_node node;
@@ -2404,6 +2407,7 @@ dynamic_btree_lookup_async(cache *                   cc,        // IN
       cc, cfg, root_addr, key, &node, &data, found, ctxt);
    if (res == async_success && *found) {
       slice_copy_contents(data_out, data);
+      *data_out_len = slice_length(data);
       dynamic_btree_node_unget(cc, cfg, &node);
    }
 

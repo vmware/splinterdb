@@ -360,8 +360,13 @@ query_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
    slice msg = slice_create(0, msgbuf);
    for (uint64 i = 0; i < nkvs; i++) {
       bool found;
-      dynamic_btree_lookup(
-         cc, cfg, root_addr, gen_key(cfg, i, keybuf), &msg, &found);
+      dynamic_btree_lookup(cc,
+                           cfg,
+                           root_addr,
+                           gen_key(cfg, i, keybuf),
+                           &msg.length,
+                           msgbuf,
+                           &found);
       if (!found || slice_lex_cmp(msg, gen_msg(cfg, i, msgbuf))) {
          platform_log("failure on lookup %lu\n", i);
          dynamic_btree_print_tree(cc, cfg, root_addr);
@@ -408,7 +413,8 @@ iterator_tests(cache *cc, dynamic_btree_config *cfg, uint64 root_addr, int nkvs)
 
       seen++;
       prev.data = prevbuf;
-      slice_copy_contents(&prev, key);
+      slice_copy_contents(prevbuf, key);
+      prev.length = key.length;
 
       if (!SUCCESS(iterator_advance(iter))) {
          break;
