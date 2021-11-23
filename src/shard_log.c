@@ -14,16 +14,19 @@
 
 #include "poison.h"
 
-#define SHARD_WAIT 1
+#define SHARD_WAIT     1
 #define SHARD_UNMAPPED UINT64_MAX
 
 static uint64 shard_log_magic_idx = 0;
 
 int
 shard_log_write(log_handle *log, slice key, slice data, uint64 generation);
-uint64 shard_log_addr      (log_handle *log);
-uint64 shard_log_meta_addr (log_handle *log);
-uint64 shard_log_magic     (log_handle *log);
+uint64
+shard_log_addr(log_handle *log);
+uint64
+shard_log_meta_addr(log_handle *log);
+uint64
+shard_log_magic(log_handle *log);
 
 static log_ops shard_log_ops = {
    .write     = shard_log_write,

@@ -5350,7 +5350,7 @@ splinter_split_root(splinter_handle *spl,
  */
 
 void
-splinter_range_iterator_get_curr(iterator *itor, slice *key, slice *data);
+                 splinter_range_iterator_get_curr(iterator *itor, slice *key, slice *data);
 platform_status  splinter_range_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status  splinter_range_iterator_advance  (iterator *itor);
 void             splinter_range_iterator_deinit   (splinter_range_iterator *range_itor);
