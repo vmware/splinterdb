@@ -449,7 +449,7 @@ routing_filter_add(cache            *cc,
    // we write to the filter with the filter cursor
    uint64       addr          = mini_alloc(&mini, 0, NULL_SLICE, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
-   char *       filter_cursor           = filter_page->data;
+   char *       filter_cursor = filter_page->data;
    uint64       bytes_remaining_on_page = page_size;
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {

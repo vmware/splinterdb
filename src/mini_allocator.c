@@ -677,7 +677,7 @@ mini_unkeyed_for_each(cache *          cc,
    do {
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
 
-      uint64 num_meta_entries = mini_num_entries(meta_page);
+      uint64              num_meta_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry            = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_meta_entries; i++) {
          func(cc, type, entry->extent_addr, out);
@@ -759,7 +759,7 @@ mini_keyed_for_each(cache *          cc,
    }
 
    do {
-      page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
+      page_handle *     meta_page = cache_get(cc, meta_addr, TRUE, type);
       keyed_meta_entry *entry     = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
          uint64         batch           = entry->batch;
@@ -1205,7 +1205,7 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
       platform_log("| meta addr %31lu |\n", next_meta_addr);
       platform_log("|-------------------------------------------|\n");
 
-      uint64 num_entries = mini_num_entries(meta_page);
+      uint64              num_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry       = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          platform_log("| %3lu | %35lu |\n", i, entry->extent_addr);
@@ -1254,11 +1254,11 @@ mini_keyed_print(cache *      cc,
       platform_default_log("|--------------------------------------------------"
                            "-----------------|\n");
 
-      uint64 num_entries = mini_num_entries(meta_page);
+      uint64            num_entries = mini_num_entries(meta_page);
       keyed_meta_entry *entry       = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          slice start_key = keyed_meta_entry_start_key(entry);
-         char start_key_str[MAX_KEY_STR_LEN];
+         char  start_key_str[MAX_KEY_STR_LEN];
          data_key_to_string(
             data_cfg, start_key, start_key_str, MAX_KEY_STR_LEN);
          uint8 ref = -1;
