@@ -605,6 +605,7 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
                          kvsb->max_app_key_size,
                          (int)key_len,
                          key);
+      assert(msg->n_chunks == 0);
       return -1;
    }
    return result;

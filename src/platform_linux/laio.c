@@ -66,8 +66,8 @@ io_handle_init(laio_handle          *io,
    if (cfg->flags & O_CREAT) {
       io->fd = open(cfg->filename, cfg->flags, cfg->perms);
       // fallocate(io->fd, 0, 0, 128 * 1024);
-      // create an initial device of size 1GB
-      fallocate(io->fd, 0, 0, 1 * 1024 * 1024 * 1024);
+      // create an initial device of size 10 GB
+      fallocate(io->fd, 0, 0, 1.99 * 1024 * 1024 * 1024);
    } else {
       io->fd = open(cfg->filename, cfg->flags);
    }
