@@ -79,7 +79,7 @@ struct PACKED btree_hdr {
  *-----------------------------------------------------------------------------
  */
 
-void
+MUST_CHECK_RESULT platform_status
 btree_alloc(cache *         cc,
             mini_allocator *mini,
             uint64          height,
@@ -90,9 +90,12 @@ btree_alloc(cache *         cc,
 {
    slice bkey = key ? slice_create(mini->data_cfg->key_size, key) : NULL_SLICE;
    node->addr = mini_alloc(mini, height, bkey, next_extent);
-   debug_assert(node->addr != 0);
+   if (!node->addr) {
+      return STATUS_NO_SPACE;
+   }
    node->page = cache_alloc(cc, node->addr, type);
    node->hdr  = (btree_hdr *)(node->page->data);
+   return STATUS_OK;
 }
 
 
@@ -879,7 +882,7 @@ btree_split_node(cache *cc,              // IN
  * overwritten
  */
 
-void
+MUST_CHECK_RESULT platform_status
 btree_add_split_pivot(cache *         cc,
                       btree_config *  cfg,
                       mini_allocator *mini,
@@ -892,7 +895,11 @@ btree_add_split_pivot(cache *         cc,
    debug_assert(btree_height(cfg, parent) != 0);
 
    uint16 height = btree_height(cfg, child);
-   btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
+   platform_status rc =
+      btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, new_child);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    uint16 child_num_entries = btree_num_entries(cfg, child);
    uint16 new_entry_num = child_num_entries - child_num_entries / 2;
    char *pivot_key;
@@ -912,6 +919,8 @@ btree_add_split_pivot(cache *         cc,
    uint64 child_addr = new_child->addr;
    btree_set_pivot_key_and_addr(cfg, parent, pivot_idx, pivot_key, child_addr);
    btree_inc_num_entries(cfg, parent);
+
+   return STATUS_OK;
 }
 
 
@@ -926,15 +935,27 @@ btree_add_split_pivot(cache *         cc,
  *-----------------------------------------------------------------------------
  */
 
-int btree_split_root(btree_config   *cfg,       // IN
-                     cache          *cc,        // IN
-                     mini_allocator *mini,      // IN/OUT
-                     btree_node     *root_node) // IN/OUT
+MUST_CHECK_RESULT platform_status
+btree_split_root(btree_config *  cfg,   // IN
+                 cache *         cc,    // IN
+                 mini_allocator *mini,  // IN/OUT
+                 btree_node *    root_node) // IN/OUT
 {
    // allocate a new left node
    btree_node left_node;
    uint16     height = btree_height(cfg, root_node);
-   btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, &left_node);
+   platform_status rc =
+      btree_alloc(cc, mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE, &left_node);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   btree_node right_node;
+   rc =
+      btree_add_split_pivot(cc, cfg, mini, root_node, &left_node, &right_node);
+   if (!SUCCESS(rc)) {
+      /* FIXME: [robj] we should free left_node */
+      return rc;
+   }
 
    // copy root to left, then split
    memmove(left_node.hdr, root_node->hdr, btree_page_size(cfg));
@@ -964,14 +985,11 @@ int btree_split_root(btree_config   *cfg,       // IN
    btree_node_full_unlock(cc, cfg, &left_node);
    btree_node_full_unlock(cc, cfg, &right_node);
 
-   return 0;
+   return STATUS_OK;
 }
 
-uint64
-btree_init(cache          *cc,
-           btree_config   *cfg,
-           mini_allocator *mini,
-           bool            is_packed)
+MUST_CHECK_RESULT uint64
+btree_init(cache *cc, btree_config *cfg, mini_allocator *mini, bool is_packed)
 {
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
@@ -980,7 +998,10 @@ btree_init(cache          *cc,
    allocator *     al   = cache_allocator(cc);
    uint64          base_addr;
    platform_status rc = allocator_alloc(al, &base_addr, type);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to allocate root of a btree\n");
+      goto alloc_root_failure;
+   }
    page_handle *root_page = cache_alloc(cc, base_addr, type);
 
    // set up the root
@@ -1009,16 +1030,27 @@ btree_init(cache          *cc,
 
    // set up the mini allocator
    uint64 meta_head = root.addr + cfg->page_size;
+   uint64 result;
    if (is_packed) {
       // use keyed mini allocator for branches
-      mini_init(
+      result = mini_init(
          mini, cc, cfg->data_cfg, meta_head, 0, BTREE_MAX_HEIGHT, type, TRUE);
    } else {
       // use unkeyed mini allocator for memtables
-      mini_init(mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
+      result =
+         mini_init(mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
+   }
+   if (result == 0) {
+      platform_error_log("Failed to init mini allocator for a btree\n");
+      goto mini_init_failure;
    }
 
    return root.addr;
+
+mini_init_failure:
+   allocator_dec_ref(al, base_addr, type);
+alloc_root_failure:
+   return 0;
 }
 
 void
@@ -1106,16 +1138,16 @@ btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
  */
 
 
-platform_status
-btree_insert(cache          *cc,         // IN
-             btree_config   *cfg,        // IN
-             btree_scratch  *scratch,    // IN
+MUST_CHECK_RESULT platform_status
+btree_insert(cache *         cc,         // IN
+             btree_config *  cfg,        // IN
+             btree_scratch * scratch,    // IN
              uint64          root_addr,  // IN
              mini_allocator *mini,       // IN
-             const char     *key,        // IN
-             const char     *data,       // IN
-             uint64         *generation, // OUT
-             bool           *was_unique) // OUT
+             const char *    key,        // IN
+             const char *    data,       // IN
+             uint64 *        generation, // OUT
+             bool *          was_unique)           // OUT
 {
    uint64 wait = 1, leaf_wait = 1;
 
@@ -1131,7 +1163,11 @@ start_over:
          btree_node_claim(cc, cfg, &root_node)) {
       // root is full and we got the claim
       btree_node_lock(cc, cfg, &root_node);
-      btree_split_root(cfg, cc, mini, &root_node);
+      rc = btree_split_root(cfg, cc, mini, &root_node);
+      if (!SUCCESS(rc)) {
+         btree_node_full_unlock(cc, cfg, &root_node);
+         return rc;
+      }
    }
 
    // have a read lock on root and we are not responsible for splitting.
@@ -1153,7 +1189,11 @@ start_over:
 
       if (btree_node_is_full(cfg, &root_node)) {
          btree_node_lock(cc, cfg, &root_node);
-         btree_split_root(cfg, cc, mini, &root_node);
+         rc = btree_split_root(cfg, cc, mini, &root_node);
+         if (!SUCCESS(rc)) {
+            btree_node_full_unlock(cc, cfg, &root_node);
+            return rc;
+         }
       } else {
          btree_node_lock(cc, cfg, &root_node);
          *was_unique =
@@ -1206,8 +1246,13 @@ start_over:
             btree_node_lock(cc, cfg, &parent_node);
             btree_node_lock(cc, cfg, &child_node);
             btree_node new_child_node;
-            btree_add_split_pivot(
+            rc = btree_add_split_pivot(
                cc, cfg, mini, &parent_node, &child_node, &new_child_node);
+            if (!SUCCESS(rc)) {
+               btree_node_full_unlock(cc, cfg, &parent_node);
+               btree_node_full_unlock(cc, cfg, &child_node);
+               return rc;
+            }
             btree_node_full_unlock(cc, cfg, &parent_node);
 
             btree_split_node(cc, cfg, &child_node, &new_child_node);
@@ -2094,7 +2139,7 @@ btree_pack_node_init_hdr(btree_node *node,
    node->hdr->is_packed = is_packed;
 }
 
-static inline void
+static inline MUST_CHECK_RESULT platform_status
 btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
 {
    tree->cc = req->cc;
@@ -2114,22 +2159,35 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end
    *(tree->root_addr) = btree_init(cc, cfg, &tree->mini, TRUE);
+   if (!*(tree->root_addr)) {
+      return STATUS_NO_SPACE;
+   }
    tree->height = 0;
 
    // set up the first leaf
    char first_key[MAX_KEY_SIZE] = { 0 };
-   btree_alloc(cc,
-               &tree->mini,
-               0,
-               first_key,
-               &tree->next_extent,
-               PAGE_TYPE_BRANCH,
-               &tree->edge[0]);
+   platform_status rc                      = btree_alloc(cc,
+                                    &tree->mini,
+                                    0,
+                                    first_key,
+                                    &tree->next_extent,
+                                    PAGE_TYPE_BRANCH,
+                                    &tree->edge[0]);
+   if (!SUCCESS(rc)) {
+      char last_key[MAX_KEY_SIZE];
+      memmove(last_key, tree->cfg->data_cfg->max_key, MAX_KEY_SIZE);
+      mini_release(&tree->mini, last_key);
+      btree_zap_range(
+         tree->cc, tree->cfg, *(tree->root_addr), NULL, NULL, PAGE_TYPE_BRANCH);
+      *(tree->root_addr) = 0;
+      return STATUS_NO_SPACE;
+   }
    debug_assert(cache_page_valid(cc, tree->next_extent));
    btree_pack_node_init_hdr(&tree->edge[0], tree->next_extent, 0, TRUE);
+   return STATUS_OK;
 }
 
-static inline void
+static inline MUST_CHECK_RESULT platform_status
 btree_pack_loop(btree_pack_internal *tree, // IN/OUT
                 const char *         key,  // IN
                 const char *         data, // IN
@@ -2340,11 +2398,6 @@ btree_pack(btree_pack_req *req)
       debug_assert(slice_length(key) == req->cfg->data_cfg->key_size);
       debug_assert(slice_length(message) == req->cfg->data_cfg->message_size);
       btree_pack_loop(&tree, slice_data(key), slice_data(message), &at_end);
-      // FIXME: [tjiaheng 2020-07-29] find out how we can use req->max_tuples
-      // here
-      // if (req->max_tuples != 0 && *(tree.num_tuples) == req->max_tuples) {
-      //    at_end = TRUE;
-      // }
    }
 
    btree_pack_post_loop(&tree);
@@ -2568,12 +2621,12 @@ btree_print_tree_stats(cache *cc,
  */
 
 uint64
-btree_space_use_in_range(cache *       cc,
+btree_space_use_in_range(cache        *cc,
                          btree_config *cfg,
                          uint64        root_addr,
                          page_type     type,
-                         const char *  start_key,
-                         const char *  end_key)
+                         const char   *start_key,
+                         const char   *end_key)
 {
    platform_assert(type == PAGE_TYPE_BRANCH);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);

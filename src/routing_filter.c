@@ -330,15 +330,15 @@ routing_get_bucket_counts(routing_config *cfg,
  *----------------------------------------------------------------------
  */
 
-platform_status
-routing_filter_add(cache            *cc,
-                   routing_config   *cfg,
-                   platform_heap_id  hid,
-                   routing_filter   *old_filter,
-                   routing_filter   *filter,
-                   uint32           *new_fp_arr,
-                   uint64            num_new_fp,
-                   uint16            value)
+MUST_CHECK_RESULT platform_status
+routing_filter_add(cache *          cc,
+                   routing_config * cfg,
+                   platform_heap_id hid,
+                   routing_filter * old_filter,
+                   routing_filter * filter,
+                   uint32 *         new_fp_arr,
+                   uint64           num_new_fp,
+                   uint16           value)
 {
    ZERO_CONTENTS(filter);
 
@@ -411,9 +411,11 @@ routing_filter_add(cache            *cc,
       ROUTING_FPS_PER_PAGE / 32;  // encoding_buffer
    debug_assert(temp_buffer_count < 100000000);
    uint32 *temp = TYPED_ARRAY_ZALLOC( hid, temp, temp_buffer_count);
-
+   platform_status rc;
    if (temp == NULL) {
-      return STATUS_NO_MEMORY;
+      platform_error_log("Failed to allocate memory for filter construction\n");
+      rc = STATUS_NO_MEMORY;
+      goto memory_allocation_failure;
    }
    index_count = temp + num_new_fp;
    old_count = index_count + num_indices;
@@ -426,30 +428,54 @@ routing_filter_add(cache            *cc,
    // we use a mini_allocator to obtain pages
    allocator *     al = cache_allocator(cc);
    uint64          meta_head;
-   platform_status rc = allocator_alloc(al, &meta_head, PAGE_TYPE_FILTER);
-   platform_assert_status_ok(rc);
+   rc = allocator_alloc(al, &meta_head, PAGE_TYPE_FILTER);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to allocate disk space for filter\n");
+      goto allocator_alloc_failure;
+   }
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
    mini_allocator mini;
-   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, FALSE);
+   uint64         mini_result = mini_init(
+      &mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, FALSE);
+   if (mini_result == 0) {
+      platform_error_log("Failed to create mini_allocator for filter\n");
+      rc = STATUS_NO_SPACE;
+      goto mini_init_failure;
+   }
 
    // set up the index pages
    uint64 addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64       index_addr = mini_alloc(&mini, 0, NULL_SLICE, NULL);
-   platform_assert(index_addr % extent_size == 0);
+   uint64       index_addr = mini_alloc(&mini, 0, NULL, NULL);
+   if (index_addr == 0 || index_addr % extent_size != 0) {
+      platform_error_log("Failed to allocate first index page for filter\n");
+      rc = STATUS_NO_SPACE;
+      goto mini_index_alloc_failure;
+   }
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
-   for (uint64 i = 1; i < pages_per_extent; i++) {
+   uint64 nindex_pages;
+   for (nindex_pages = 1; nindex_pages < pages_per_extent; nindex_pages++) {
       uint64 next_index_addr = mini_alloc(&mini, 0, NULL_SLICE, NULL);
-      platform_assert(next_index_addr == index_addr + i * page_size);
-      index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
+      if (next_index_addr != index_addr + nindex_pages * page_size) {
+         platform_error_log("Failed to allocate index page for filter\n");
+         rc = STATUS_NO_SPACE;
+         goto mini_index_alloc_failure;
+      }
+      index_page[nindex_pages] =
+         cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
    }
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64       addr          = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+   uint64 addr = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+   if (addr == 0) {
+      platform_error_log("Failed to mini_alloc filter page\n");
+      rc = STATUS_NO_SPACE;
+      goto mini_page_alloc_failure;
+   }
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
-   char *       filter_cursor = filter_page->data;
+   char *       filter_cursor           = filter_page->data;
    uint64       bytes_remaining_on_page = page_size;
 
    for (uint32 new_fp_no = 0; new_fp_no < num_new_fp; new_fp_no++) {
@@ -578,7 +604,12 @@ routing_filter_add(cache            *cc,
          uint32 header_size = encoding_size + sizeof(routing_hdr);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
-            addr        = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+            addr = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+            if (addr == 0) {
+               platform_error_log("Failed to mini_alloc filter page\n");
+               rc = STATUS_NO_SPACE;
+               goto mini_page_alloc_failure;
+            }
             filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
@@ -626,6 +657,15 @@ routing_filter_add(cache            *cc,
    platform_free(hid, temp);
 
    return STATUS_OK;
+
+mini_page_alloc_failure:
+mini_index_alloc_failure:
+   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_FILTER);
+mini_init_failure:
+allocator_alloc_failure:
+   allocator_dec_ref(al, meta_head, PAGE_TYPE_FILTER);
+memory_allocation_failure:
+   return rc;
 }
 
 void

@@ -60,10 +60,8 @@ typedef struct shard_log_hdr {
    uint16        num_entries;
 } shard_log_hdr;
 
-platform_status
-shard_log_init(shard_log        *log,
-               cache            *cc,
-               shard_log_config *cfg);
+MUST_CHECK_RESULT platform_status
+shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg);
 
 void
 shard_log_zap(shard_log *log);

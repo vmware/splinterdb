@@ -339,23 +339,23 @@ splinter_range(splinter_handle *spl,
                uint64 *         tuples_returned,
                char *           out);
 
-splinter_handle *
-splinter_create(splinter_config * cfg,
-                allocator *       al,
-                cache *           cc,
-                task_system *     ts,
-                allocator_root_id id,
-                platform_heap_id  hid);
+MUST_CHECK_RESULT splinter_handle *
+                  splinter_create(splinter_config * cfg,
+                                  allocator *       al,
+                                  cache *           cc,
+                                  task_system *     ts,
+                                  allocator_root_id id,
+                                  platform_heap_id  hid);
 void
 splinter_destroy(splinter_handle *spl);
-splinter_handle *
-splinter_mount(splinter_config * cfg,
-               allocator *       al,
-               cache *           cc,
-               task_system *     ts,
-               allocator_root_id id,
-               platform_heap_id  hid);
-void
+MUST_CHECK_RESULT splinter_handle *
+                  splinter_mount(splinter_config * cfg,
+                                 allocator *       al,
+                                 cache *           cc,
+                                 task_system *     ts,
+                                 allocator_root_id id,
+                                 platform_heap_id  hid);
+MUST_CHECK_RESULT platform_status
 splinter_dismount(splinter_handle *spl);
 
 void

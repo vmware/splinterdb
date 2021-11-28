@@ -1084,24 +1084,30 @@ void write_all_reports(ycsb_phase *phases, int num_phases)
 int
 ycsb_test(int argc, char *argv[])
 {
-   io_config             io_cfg;
-   rc_allocator_config   allocator_cfg;
-   clockcache_config     cache_cfg;
-   shard_log_config      log_cfg;
-   int                   config_argc;
-   char                **config_argv;
-   platform_status       rc;
-   uint64                seed;
-   task_system          *ts;
+   io_config           io_cfg;
+   rc_allocator_config allocator_cfg;
+   clockcache_config   cache_cfg;
+   shard_log_config    log_cfg;
+   int                 config_argc;
+   char **             config_argv;
+   platform_status     rc;
+   uint64              seed;
+   task_system *       ts;
 
-   uint64 nphases;
-   bool use_existing = 0;
+   uint64      nphases;
+   bool        use_existing = 0;
    ycsb_phase *phases;
-   int args_consumed;
+   int         args_consumed;
 
    uint64 log_size_bytes, memory_bytes;
-   rc = load_ycsb_logs(argc, argv, &nphases, &use_existing,
-                       &phases, &args_consumed, &log_size_bytes, &memory_bytes);
+   rc = load_ycsb_logs(argc,
+                       argv,
+                       &nphases,
+                       &use_existing,
+                       &phases,
+                       &args_consumed,
+                       &log_size_bytes,
+                       &memory_bytes);
    if (!SUCCESS(rc) || phases == NULL) {
       platform_log("Failed to load ycsb logs\n");
       return -1;
@@ -1113,14 +1119,22 @@ ycsb_test(int argc, char *argv[])
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
-   platform_heap_id hid;
+   platform_heap_id     hid;
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config *data_cfg = TYPED_MALLOC(hid, data_cfg);;
+   data_config *data_cfg = TYPED_MALLOC(hid, data_cfg);
+   ;
    splinter_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
-   rc = test_parse_args(splinter_cfg, data_cfg, &io_cfg, &allocator_cfg,
-                        &cache_cfg, &log_cfg, &seed, config_argc, config_argv);
+   rc                            = test_parse_args(splinter_cfg,
+                        data_cfg,
+                        &io_cfg,
+                        &allocator_cfg,
+                        &cache_cfg,
+                        &log_cfg,
+                        &seed,
+                        config_argc,
+                        config_argv);
    if (!SUCCESS(rc)) {
       platform_error_log("ycsb: failed to parse config options: %s\n",
                          platform_status_to_string(rc));
@@ -1153,12 +1167,13 @@ ycsb_test(int argc, char *argv[])
    buffer_bytes += overhead_bytes;
    buffer_bytes = ROUNDUP(buffer_bytes, 2 * MiB);
    platform_log("overhead %lu MiB buffer %lu MiB\n",
-         B_TO_MiB(overhead_bytes), B_TO_MiB(buffer_bytes));
-   cache_cfg.capacity = memory_bytes - buffer_bytes;
+                B_TO_MiB(overhead_bytes),
+                B_TO_MiB(buffer_bytes));
+   cache_cfg.capacity      = memory_bytes - buffer_bytes;
    cache_cfg.page_capacity = cache_cfg.capacity / cache_cfg.page_size;
 
    uint64 al_size = allocator_cfg.extent_capacity * sizeof(uint8);
-   al_size = ROUNDUP(al_size, 2 * MiB);
+   al_size        = ROUNDUP(al_size, 2 * MiB);
    platform_assert(cache_cfg.capacity % (2 * MiB) == 0);
    uint64 huge_tlb_memory_bytes = cache_cfg.capacity + al_size;
    platform_assert(huge_tlb_memory_bytes % (2 * MiB) == 0);
@@ -1166,8 +1181,9 @@ ycsb_test(int argc, char *argv[])
    // uint64 remaining_memory_bytes =
    //   memory_bytes + log_size_bytes - huge_tlb_memory_bytes;
    platform_log("memory: %lu MiB hugeTLB: %lu MiB cache: %lu MiB\n",
-         B_TO_MiB(memory_bytes), B_TO_MiB(huge_tlb_memory_bytes),
-         B_TO_MiB(cache_cfg.capacity));
+                B_TO_MiB(memory_bytes),
+                B_TO_MiB(huge_tlb_memory_bytes),
+                B_TO_MiB(cache_cfg.capacity));
 
    // char *resize_cgroup_command =
    //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
@@ -1209,36 +1225,68 @@ ycsb_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = { 0 }; // no bg threads
-   rc = test_init_splinter(hid, io, &ts, splinter_cfg->use_stats, FALSE,
-         num_bg_threads);
+   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   rc                                   = test_init_splinter(
+      hid, io, &ts, splinter_cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
       goto deinit_iohandle;
    }
 
-   rc_allocator al;
-   clockcache *cc = TYPED_MALLOC(hid, cc);
+   rc_allocator     al;
+   clockcache *     cc = TYPED_MALLOC(hid, cc);
    splinter_handle *spl;
 
    if (use_existing) {
-      rc_allocator_mount(&al, &allocator_cfg, (io_handle *)io, hh, hid,
-                         platform_get_module_id());
-      rc = clockcache_init(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                           "test", ts, hh, hid, platform_get_module_id());
+      rc = rc_allocator_mount(&al,
+                              &allocator_cfg,
+                              (io_handle *)io,
+                              hh,
+                              hid,
+                              platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = splinter_mount(splinter_cfg, (allocator *)&al, (cache *)cc,
-                           ts, test_generate_allocator_root_id(), hid);
+      rc = clockcache_init(cc,
+                           &cache_cfg,
+                           (io_handle *)io,
+                           (allocator *)&al,
+                           "test",
+                           ts,
+                           hh,
+                           hid,
+                           platform_get_module_id());
+      platform_assert_status_ok(rc);
+      spl = splinter_mount(splinter_cfg,
+                           (allocator *)&al,
+                           (cache *)cc,
+                           ts,
+                           test_generate_allocator_root_id(),
+                           hid);
       platform_assert(spl);
    } else {
-      rc_allocator_init(&al, &allocator_cfg, (io_handle *)io, hh, hid,
-                        platform_get_module_id());
-      rc = clockcache_init(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                           "test", ts, hh, hid, platform_get_module_id());
+      rc = rc_allocator_init(&al,
+                             &allocator_cfg,
+                             (io_handle *)io,
+                             hh,
+                             hid,
+                             platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = splinter_create(splinter_cfg, (allocator *)&al, (cache *)cc,
-                            ts, test_generate_allocator_root_id(), hid);
+      rc = clockcache_init(cc,
+                           &cache_cfg,
+                           (io_handle *)io,
+                           (allocator *)&al,
+                           "test",
+                           ts,
+                           hh,
+                           hid,
+                           platform_get_module_id());
+      platform_assert_status_ok(rc);
+      spl = splinter_create(splinter_cfg,
+                            (allocator *)&al,
+                            (cache *)cc,
+                            ts,
+                            test_generate_allocator_root_id(),
+                            hid);
       platform_assert(spl);
    }
 

@@ -1227,27 +1227,28 @@ usage(const char *argv0) {
 int
 btree_test(int argc, char *argv[])
 {
-   io_config             io_cfg;
-   rc_allocator_config   al_cfg;
-   clockcache_config     cache_cfg;
-   shard_log_config      log_cfg;
-   int                   config_argc;
-   char                **config_argv;
-   bool                  run_perf_test;
-   platform_status       rc;
-   uint64                seed;
-   task_system          *ts;
+   io_config           io_cfg;
+   rc_allocator_config al_cfg;
+   clockcache_config   cache_cfg;
+   shard_log_config    log_cfg;
+   int                 config_argc;
+   char **             config_argv;
+   bool                run_perf_test;
+   platform_status     rc;
+   uint64              seed;
+   task_system *       ts;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
-      config_argc = argc - 2;
-      config_argv = argv + 2;
+      config_argc   = argc - 2;
+      config_argv   = argv + 2;
    } else {
       run_perf_test = FALSE;
-      config_argc = argc - 1;
-      config_argv = argv + 1;
+      config_argc   = argc - 1;
+      config_argv   = argv + 1;
    }
-   if (config_argc > 0 && strncmp(config_argv[0], "--max-async-inflight",
+   if (config_argc > 0 && strncmp(config_argv[0],
+                                  "--max-async-inflight",
                                   sizeof("--max-async-inflight")) == 0) {
       if (!try_string_to_uint64(config_argv[1], &max_async_inflight)) {
          usage(argv[0]);
@@ -1259,19 +1260,25 @@ btree_test(int argc, char *argv[])
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
-   platform_heap_id hid;
+   platform_heap_id     hid;
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config *data_cfg = TYPED_MALLOC(hid, data_cfg);
-   splinter_config *cfg = TYPED_MALLOC(hid, cfg);
-   rc = test_parse_args(cfg, data_cfg, &io_cfg, &al_cfg, &cache_cfg,
-                        &log_cfg, &seed, config_argc, config_argv);
-   memtable_config *mt_cfg = &cfg->mt_cfg;
-   mt_cfg->max_memtables = 128;
-   test_btree_config test_cfg = { .mt_cfg = mt_cfg,
-                                  .type = TEST_RANDOM,
-                                  .semiseq_freq = 0 };
+   data_config *    data_cfg  = TYPED_MALLOC(hid, data_cfg);
+   splinter_config *cfg       = TYPED_MALLOC(hid, cfg);
+   rc                         = test_parse_args(cfg,
+                        data_cfg,
+                        &io_cfg,
+                        &al_cfg,
+                        &cache_cfg,
+                        &log_cfg,
+                        &seed,
+                        config_argc,
+                        config_argv);
+   memtable_config *mt_cfg    = &cfg->mt_cfg;
+   mt_cfg->max_memtables      = 128;
+   test_btree_config test_cfg = {
+      .mt_cfg = mt_cfg, .type = TEST_RANDOM, .semiseq_freq = 0};
    if (!SUCCESS(rc)) {
       platform_error_log("btree_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));
@@ -1290,7 +1297,7 @@ btree_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = { 0 }; // no bg threads
+   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    rc = test_init_splinter(hid, io, &ts, cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
@@ -1299,12 +1306,24 @@ btree_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(&al, &al_cfg, (io_handle *)io, hh, hid,
-                     platform_get_module_id());
+   rc = rc_allocator_init(
+      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to init allocator: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_splinter;
+   }
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
-   rc = clockcache_init(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                        "test", ts, hh, hid, platform_get_module_id());
+   rc             = clockcache_init(cc,
+                        &cache_cfg,
+                        (io_handle *)io,
+                        (allocator *)&al,
+                        "test",
+                        ts,
+                        hh,
+                        hid,
+                        platform_get_module_id());
    platform_assert_status_ok(rc);
    cache *ccp = (cache *)cc;
 
@@ -1318,7 +1337,7 @@ btree_test(int argc, char *argv[])
       platform_assert_status_ok(rc);
    } else {
       uint64 total_inserts = test_cfg.mt_cfg->max_tuples_per_memtable -
-         (MAX_THREADS * (64 / sizeof(uint32)));
+                             (MAX_THREADS * (64 / sizeof(uint32)));
       rc = test_btree_basic(ccp, &test_cfg, hid, total_inserts);
       platform_assert_status_ok(rc);
 
@@ -1341,8 +1360,9 @@ btree_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_splinter(hid, ts);
    rc = STATUS_OK;
+deinit_splinter:
+   test_deinit_splinter(hid, ts);
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:

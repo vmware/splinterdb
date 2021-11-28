@@ -14,7 +14,7 @@
 
 #include "poison.h"
 
-#define SHARD_WAIT     1
+#define SHARD_WAIT 1
 #define SHARD_UNMAPPED UINT64_MAX
 
 static uint64 shard_log_magic_idx = 0;
@@ -64,35 +64,26 @@ shard_log_get_thread_data(shard_log *log,
    return &log->thread_data[thr_id];
 }
 
-page_handle *
-shard_log_alloc(shard_log *log, uint64 *next_extent)
+MUST_CHECK_RESULT page_handle *
+                  shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
    uint64 addr = mini_alloc(&log->mini, 0, NULL_SLICE, next_extent);
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
-platform_status
-shard_log_init(shard_log        *log,
-               cache            *cc,
-               shard_log_config *cfg)
+MUST_CHECK_RESULT platform_status
+shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
 {
    memset(log, 0, sizeof(shard_log));
-   log->cc = cc;
-   log->cfg = cfg;
-   log->super.ops = &shard_log_ops;
-
-   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
-   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
+   log->cc            = cc;
+   log->cfg           = cfg;
+   log->super.ops     = &shard_log_ops;
 
    allocator *     al = cache_allocator(cc);
    platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
-   platform_assert_status_ok(rc);
-
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data
-         = shard_log_get_thread_data(log, thr_i);
-      thread_data->addr   = SHARD_UNMAPPED;
-      thread_data->offset = 0;
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to allocate log meta_head\n");
+      goto meta_head_allocation_failure;
    }
 
    // the log uses an unkeyed mini allocator
@@ -104,9 +95,31 @@ shard_log_init(shard_log        *log,
                          1,
                          PAGE_TYPE_LOG,
                          FALSE);
-   //platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
+   if (!log->addr) {
+      platform_error_log("Failed to mini_init for log\n");
+      rc = STATUS_NO_SPACE;
+      goto mini_init_failure;
+   }
+   // platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
+
+   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
+   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
+
+
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data
+         = shard_log_get_thread_data(log, thr_i);
+      thread_data->addr   = SHARD_UNMAPPED;
+      thread_data->pos    = 0;
+      thread_data->offset = 0;
+   }
 
    return STATUS_OK;
+
+mini_init_failure:
+   allocator_dec_ref(al, log->meta_head, PAGE_TYPE_LOG);
+meta_head_allocation_failure:
+   return rc;
 }
 
 void
@@ -117,6 +130,7 @@ shard_log_zap(shard_log *log)
    for (threadid i = 0; i < MAX_THREADS; i++) {
       shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
       thread_data->addr = SHARD_UNMAPPED;
+      thread_data->pos = 0;
       thread_data->offset = 0;
    }
 
@@ -202,7 +216,7 @@ get_new_page_for_thread(shard_log *            log,
    return 0;
 }
 
-int
+MUST_CHECK_RESULT platform_status
 shard_log_write(log_handle *logh,
                 const slice key,
                 const slice message,
@@ -216,7 +230,7 @@ shard_log_write(log_handle *logh,
    page_handle *page;
    if (thread_data->addr == SHARD_UNMAPPED) {
       if (get_new_page_for_thread(log, thread_data, &page)) {
-         return -1;
+         return STATUS_NO_SPACE;
       }
    } else {
       page        = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
@@ -244,7 +258,7 @@ shard_log_write(log_handle *logh,
       cache_unget(cc, page);
 
       if (get_new_page_for_thread(log, thread_data, &page)) {
-         return -1;
+         return STATUS_NO_SPACE;
       }
       cursor = (log_entry *)(page->data + thread_data->offset);
       hdr    = (shard_log_hdr *)page->data;
@@ -318,15 +332,21 @@ shard_log_compare(const void *p1,
    return (*le1)->generation - (*le2)->generation;
 }
 
-log_handle *
-log_create(cache            *cc,
-           log_config       *lcfg,
-           platform_heap_id  hid)
+MUST_CHECK_RESULT log_handle *
+                  log_create(cache *cc, log_config *lcfg, platform_heap_id hid)
 {
    shard_log_config *cfg = (shard_log_config *)lcfg;
-   shard_log *slog = TYPED_MALLOC(hid, slog);
+   shard_log *       slog = TYPED_MALLOC(hid, slog);
+   if (!slog) {
+      platform_error_log("Failed to allocate memory for log\n");
+      return NULL;
+   }
    platform_status rc = shard_log_init(slog, cc, cfg);
-   platform_assert(SUCCESS(rc));
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to init log\n");
+      platform_free_from_heap(hid, slog);
+      return NULL;
+   }
    return (log_handle *)slog;
 }
 
@@ -345,6 +365,8 @@ shard_log_iterator_init(cache              *cc,
    uint64       num_valid_pages = 0;
    uint64       extent_addr;
    uint64       next_extent_addr;
+   uint64       entry_size;
+   char        *cursor, *temp;
 
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.ops = &shard_log_iterator_ops;
@@ -399,6 +421,7 @@ shard_log_iterator_init(cache              *cc,
       extent_addr = next_extent_addr;
    }
 
+   itor->cursor = itor->contents;
    // sort by generation
    log_entry *tmp;
    platform_sort_slow(itor->entries,

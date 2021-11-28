@@ -69,9 +69,7 @@ log_magic(log_handle *log)
    return log->ops->magic(log);
 }
 
-log_handle *
-log_create(cache      *cc,
-           log_config *cfg,
-           platform_heap_id hid);
+MUST_CHECK_RESULT log_handle *
+                  log_create(cache *cc, log_config *cfg, platform_heap_id hid);
 
 #endif //__LOG_H

@@ -555,7 +555,7 @@ static inline void                 splinter_node_claim                (splinter_
 static inline void                 splinter_node_unclaim              (splinter_handle *spl, page_handle *node);
 static inline void                 splinter_node_lock                 (splinter_handle *spl, page_handle *node);
 static inline void                 splinter_node_unlock               (splinter_handle *spl, page_handle *node);
-page_handle *                      splinter_alloc                     (splinter_handle *spl, uint64 height);
+MUST_CHECK_RESULT page_handle *    splinter_alloc                     (splinter_handle *spl, uint64 height);
 static inline char *               splinter_get_pivot                 (splinter_handle *spl, page_handle *node, uint16 pivot_no);
 static inline splinter_pivot_data *splinter_get_pivot_data            (splinter_handle *spl, page_handle *node, uint16 pivot_no);
 static inline uint16               splinter_find_pivot                (splinter_handle *spl, page_handle *node, char *key, lookup_type comp);
@@ -640,7 +640,7 @@ const static iterator_ops splinter_btree_skiperator_ops = {
  *
  *-----------------------------------------------------------------------------
  */
-void
+MUST_CHECK_RESULT platform_status
 splinter_set_super_block(splinter_handle *spl,
                          bool             is_checkpoint,
                          bool             is_dismount,
@@ -650,16 +650,20 @@ splinter_set_super_block(splinter_handle *spl,
    page_handle          *super_page;
    splinter_super_block *super;
    uint64                wait = 1;
-   platform_status rc;
+   platform_status       rc   = STATUS_OK;
 
    if (is_create) {
       rc = allocator_alloc_super_addr(spl->al, spl->id, &super_addr);
    } else {
       rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    }
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to allocate/get super address\n");
+      goto super_failure;
+   }
    super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_MISC);
    while (!cache_claim(spl->cc, super_page)) {
+      platform_assert(0);
       platform_sleep(wait);
       wait *= 2;
    }
@@ -685,6 +689,9 @@ splinter_set_super_block(splinter_handle *spl,
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
    cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_MISC);
+
+super_failure:
+   return rc;
 }
 
 splinter_super_block *
@@ -727,12 +734,11 @@ splinter_release_super_block(splinter_handle *spl,
  *-----------------------------------------------------------------------------
  */
 
-static inline uint16
-splinter_height(splinter_handle *spl,
-                page_handle     *node)
-{
-   splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
-   return hdr->height;
+   static inline uint16 splinter_height(splinter_handle * spl,
+                                        page_handle * node)
+   {
+      splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
+      return hdr->height;
 }
 
 static inline uint16
@@ -925,8 +931,8 @@ splinter_node_unlock(splinter_handle *spl,
    cache_unlock(spl->cc, node);
 }
 
-page_handle *
-splinter_alloc(splinter_handle *spl, uint64 height)
+MUST_CHECK_RESULT page_handle *
+                  splinter_alloc(splinter_handle *spl, uint64 height)
 {
    uint64 addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
@@ -4780,12 +4786,13 @@ splinter_needs_split(splinter_handle *spl,
    return splinter_num_children(spl, node) > spl->cfg.fanout;
 }
 
-int
+MUST_CHECK_RESULT platform_status
 splinter_split_index(splinter_handle *spl,
-                     page_handle     *parent,
-                     page_handle     *child,
+                     page_handle *    parent,
+                     page_handle *    child,
                      uint64           pivot_no)
 {
+   platform_status rc;
    splinter_open_log_stream();
    splinter_log_stream("split index %lu with parent %lu\n",
          child->disk_addr, parent->disk_addr);
@@ -4795,12 +4802,18 @@ splinter_split_index(splinter_handle *spl,
    uint16 target_num_children = splinter_num_children(spl, left_node) / 2;
    uint16 height = splinter_height(spl, left_node);
 
-   if (spl->cfg.use_stats)
-      spl->stats[platform_get_tid()].index_splits++;
-
    // allocate right node and write lock it
    page_handle *right_node = splinter_alloc(spl, height);
+   if (!right_node) {
+      platform_error_log("Failed to allocate disk space for right child of a "
+                         "splinter index split\n");
+      rc = STATUS_NO_SPACE;
+      goto right_node_allocation_failure;
+   }
    uint64       right_addr = right_node->disk_addr;
+
+   if (spl->cfg.use_stats)
+      spl->stats[platform_get_tid()].index_splits++;
 
    // ALEX: Maybe worth figuring out the real page size
    memmove(right_node->data, left_node->data, spl->cfg.page_size);
@@ -4872,7 +4885,10 @@ splinter_split_index(splinter_handle *spl,
    splinter_node_unclaim(spl, right_node);
    splinter_node_unget(spl, &right_node);
 
-   return 0;
+   return STATUS_OK;
+
+right_node_allocation_failure:
+   return rc;
 }
 
 /*
@@ -4973,10 +4989,10 @@ splinter_single_leaf_threshold(splinter_handle *spl)
  * 8. Clean up
  */
 
-void
+MUST_CHECK_RESULT platform_status
 splinter_split_leaf(splinter_handle *spl,
-                    page_handle     *parent,
-                    page_handle     *leaf,
+                    page_handle *    parent,
+                    page_handle *    leaf,
                     uint16           child_idx)
 {
    const threadid tid = platform_get_tid();
@@ -5163,7 +5179,6 @@ splinter_split_leaf(splinter_handle *spl,
       if (leaf_no != 0) {
          // allocate a new leaf
          new_leaf = splinter_alloc(spl, 0);
-
          // copy leaf to new leaf
          memmove(new_leaf->data, leaf->data, spl->cfg.page_size);
       } else {
@@ -5300,14 +5315,20 @@ splinter_split_leaf(splinter_handle *spl,
 }
 
 
-int
-splinter_split_root(splinter_handle *spl,
-                    page_handle     *root)
+MUST_CHECK_RESULT platform_status
+splinter_split_root(splinter_handle *spl, page_handle *root)
 {
+   platform_status     rc;
    splinter_trunk_hdr *root_hdr = (splinter_trunk_hdr *)root->data;
 
    // allocate a new child node
-   page_handle *       child     = splinter_alloc(spl, root_hdr->height);
+   page_handle *child = splinter_alloc(spl, root_hdr->height);
+   if (!child) {
+      platform_error_log(
+         "Failed to allocate child during splinter root split\n");
+      rc = NO_SPACE;
+      goto child_alloc_failure;
+   }
    splinter_trunk_hdr *child_hdr = (splinter_trunk_hdr *)child->data;
 
    // copy root to child, fix up root, then split
@@ -5334,7 +5355,10 @@ splinter_split_root(splinter_handle *spl,
    splinter_node_unclaim(spl, child);
    splinter_node_unget(spl, &child);
 
-   return 0;
+   return STATUS_OK;
+
+child_alloc_failure:
+   return rc;
 }
 
 
@@ -6681,6 +6705,80 @@ destroy_range_itor:
  *-----------------------------------------------------------------------------
  */
 
+static void
+splinter_destroy_stats(splinter_handle *spl)
+{
+   if (!spl->stats)
+      return;
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      if (spl->stats[i].insert_latency_histo) {
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[i].insert_latency_histo);
+      }
+      if (spl->stats[i].update_latency_histo) {
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[i].update_latency_histo);
+      }
+      if (spl->stats[i].delete_latency_histo) {
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[i].delete_latency_histo);
+      }
+   }
+
+   platform_free(spl->heap_id, spl->stats);
+}
+
+static MUST_CHECK_RESULT platform_status
+splinter_init_stats(splinter_handle *spl)
+{
+   platform_status rc;
+   spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
+   if (spl->stats == NULL) {
+      platform_error_log("Failed to allocate stats for splinter\n");
+      rc = STATUS_NO_MEMORY;
+      goto stats_zalloc_failure;
+   }
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].insert_latency_histo);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "Failed to allocate stats histogram for splinter\n");
+         goto histo_allocation_failure;
+      }
+
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].update_latency_histo);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "Failed to allocate stats histogram for splinter\n");
+         goto histo_allocation_failure;
+      }
+
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].delete_latency_histo);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "Failed to allocate stats histogram for splinter\n");
+         goto histo_allocation_failure;
+      }
+   }
+
+   return STATUS_OK;
+
+histo_allocation_failure:
+stats_zalloc_failure:
+   splinter_destroy_stats(spl);
+   return rc;
+}
+
 splinter_handle *
 splinter_create(splinter_config  *cfg,
                 allocator        *al,
@@ -6689,8 +6787,12 @@ splinter_create(splinter_config  *cfg,
                 allocator_root_id       id,
                 platform_heap_id  hid)
 {
-   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, spl,
-         compacted_memtable, SPLINTER_NUM_MEMTABLES);
+   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, spl, compacted_memtable, SPLINTER_NUM_MEMTABLES);
+   if (spl == NULL) {
+      platform_error_log("Failed to allocate memory for splinter handle\n");
+      goto splinter_handle_allocation_failure;
+   }
    memmove(&spl->cfg, cfg, sizeof(*cfg));
    spl->al = al;
    spl->cc = cc;
@@ -6706,7 +6808,11 @@ splinter_create(splinter_config  *cfg,
    //    maintain constant height
    platform_status rc =
       allocator_alloc(spl->al, &spl->root_addr, PAGE_TYPE_TRUNK);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to allocate disk page for splinter root\n");
+      goto splinter_root_allocation_failure;
+   }
+
    page_handle *root = cache_alloc(spl->cc, spl->root_addr, PAGE_TYPE_TRUNK);
    splinter_trunk_hdr *root_hdr = (splinter_trunk_hdr *)root->data;
    ZERO_CONTENTS(root_hdr);
@@ -6715,30 +6821,54 @@ splinter_create(splinter_config  *cfg,
    //    we use the root extent as the initial mini_allocator head
    uint64 meta_addr = spl->root_addr + cfg->page_size;
    // The trunk uses an unkeyed mini allocator
-   mini_init(&spl->mini,
-             cc,
-             spl->cfg.data_cfg,
-             meta_addr,
-             0,
-             SPLINTER_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK,
-             FALSE);
+   uint64 mini_page = mini_init(&spl->mini,
+                                cc,
+                                spl->cfg.data_cfg,
+                                meta_addr,
+                                0,
+                                SPLINTER_MAX_HEIGHT,
+                                PAGE_TYPE_TRUNK,
+                                FALSE);
+   if (mini_page == 0) {
+      platform_error_log("Failed to crete mini_allocator for splinter\n");
+      rc = STATUS_NO_SPACE;
+      goto mini_init_failure;
+   }
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
          splinter_memtable_flush_virtual, spl);
+   if (spl->mt_ctxt == NULL) {
+      platform_error_log("Failed to create memtable context for splinter\n");
+      rc = STATUS_NO_MEMORY;
+      goto memtable_context_create_failure;
+   }
 
    // set up the log
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
+      if (spl->log == NULL) {
+         platform_error_log("Failed to create log for splinter\n");
+         rc = STATUS_NO_MEMORY;
+         goto log_create_failure;
+      }
    }
 
    // ALEX: For now we assume an init means destroying any present super blocks
-   splinter_set_super_block(spl, FALSE, FALSE, TRUE);
+   rc = splinter_set_super_block(spl, FALSE, FALSE, TRUE);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to set splinter super block\n");
+      goto set_super_block_failure;
+   }
 
    // set up the initial leaf
-   page_handle *       leaf     = splinter_alloc(spl, 0);
+   page_handle *leaf = splinter_alloc(spl, 0);
+   if (leaf == NULL) {
+      platform_error_log("Failed to allocate first leaf for splinter\n");
+      rc = STATUS_NO_SPACE;
+      goto leaf_alloc_failure;
+   }
    splinter_trunk_hdr *leaf_hdr = (splinter_trunk_hdr *)leaf->data;
    memset(leaf_hdr, 0, spl->cfg.page_size);
    const char *min_key = spl->cfg.data_cfg->min_key;
@@ -6760,42 +6890,50 @@ splinter_create(splinter_config  *cfg,
    splinter_node_unget(spl, &root);
 
    if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      rc = splinter_init_stats(spl);
+      if (!SUCCESS(rc)) {
+         platform_error_log("Failed to init splinter stats\n");
+         goto init_stats_failure;
       }
    }
 
    return spl;
+
+init_stats_failure:
+leaf_alloc_failure:
+set_super_block_failure:
+   if (spl->log) {
+      log_release(spl->log);
+   }
+log_create_failure:
+   memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
+memtable_context_create_failure:
+   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_TRUNK);
+mini_init_failure:
+   allocator_dec_ref(spl->al, spl->root_addr, PAGE_TYPE_TRUNK);
+splinter_root_allocation_failure:
+   platform_free(spl->heap_id, spl);
+splinter_handle_allocation_failure:
+   return NULL;
 }
 
 // open (mount) an existing splinter database
-splinter_handle *
-splinter_mount(splinter_config  *cfg,
-               allocator        *al,
-               cache            *cc,
-               task_system      *ts,
-               allocator_root_id       id,
-               platform_heap_id  hid)
- {
-   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, spl,
-         compacted_memtable, SPLINTER_NUM_MEMTABLES);
+MUST_CHECK_RESULT splinter_handle *
+                  splinter_mount(splinter_config * cfg,
+                                 allocator *       al,
+                                 cache *           cc,
+                                 task_system *     ts,
+                                 allocator_root_id id,
+                                 platform_heap_id  hid)
+{
+   platform_status  rc;
+   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, spl, compacted_memtable, SPLINTER_NUM_MEMTABLES);
+   if (spl == NULL) {
+      platform_error_log("Failed to allocate memory for splinter handle\n");
+      rc = STATUS_NO_MEMORY;
+      goto splinter_allocation_error;
+   }
    memmove(&spl->cfg, cfg, sizeof(*cfg));
    spl->al = al;
    spl->cc = cc;
@@ -6822,7 +6960,8 @@ splinter_mount(splinter_config  *cfg,
       splinter_release_super_block(spl, super_page);
    }
    if (spl->root_addr == 0) {
-      return NULL;
+      platform_error_log("Failed to get splinter root on mount\n");
+      goto root_acquisition_failure;
    }
    uint64 meta_head = spl->root_addr + spl->cfg.page_size;
 
@@ -6833,45 +6972,66 @@ splinter_mount(splinter_config  *cfg,
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
    spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
          splinter_memtable_flush_virtual, spl);
-
-   // the trunk uses un unkeyed mini allocato
-   mini_init(&spl->mini,
-             cc,
-             spl->cfg.data_cfg,
-             meta_head,
-             meta_tail,
-             SPLINTER_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK,
-             FALSE);
-   if (spl->cfg.use_log) {
-      spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
+   if (spl->mt_ctxt == NULL) {
+      platform_error_log("Failed to create memtable context for splinter\n");
+      rc = STATUS_NO_MEMORY;
+      goto memtable_context_create_failure;
    }
 
-   splinter_set_super_block(spl, FALSE, FALSE, FALSE);
+   // the trunk uses un unkeyed mini allocato
+   uint64 mini_page = mini_init(&spl->mini,
+                                cc,
+                                spl->cfg.data_cfg,
+                                meta_head,
+                                meta_tail,
+                                SPLINTER_MAX_HEIGHT,
+                                PAGE_TYPE_TRUNK,
+                                FALSE);
+   if (mini_page == 0) {
+      platform_error_log("Failed to crete mini_allocator for splinter\n");
+      rc = STATUS_NO_SPACE;
+      goto mini_init_failure;
+   }
+
+   if (spl->cfg.use_log) {
+      spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
+      if (spl->log == NULL) {
+         platform_error_log("Failed to create log for splinter\n");
+         rc = STATUS_NO_MEMORY;
+         goto log_create_failure;
+      }
+   }
+
+   rc = splinter_set_super_block(spl, FALSE, FALSE, FALSE);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to set splinter super block\n");
+      goto set_super_block_failure;
+   }
+
 
    if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
+      rc = splinter_init_stats(spl);
+      if (!SUCCESS(rc)) {
+         platform_error_log("Failed to allocate memory for splinter stats\n");
+         goto init_stats_failure;
       }
    }
    return spl;
+
+init_stats_failure:
+set_super_block_failure:
+   if (spl->log) {
+      log_release(spl->log);
+   }
+log_create_failure:
+   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_TRUNK);
+mini_init_failure:
+   memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
+memtable_context_create_failure:
+root_acquisition_failure:
+   platform_free(spl->heap_id, spl);
+splinter_allocation_error:
+   return NULL;
 }
 
 /*
@@ -6980,37 +7140,27 @@ splinter_destroy(splinter_handle *spl)
    allocator_remove_super_addr(spl->al, spl->id);
 
    if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
+      splinter_destroy_stats(spl);
    }
    platform_free(spl->heap_id, spl);
 }
 
 // close (dismount) a database without destroying it
 // it can be re-opened later with splinter_mount
-void
+MUST_CHECK_RESULT platform_status
 splinter_dismount(splinter_handle *spl)
 {
+   platform_status rc;
+   rc = splinter_set_super_block(spl, FALSE, TRUE, FALSE);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to record splinter superblock\n");
+      /* Leave the system running so they can try again? */
+      return rc;
+   }
    srq_deinit(&spl->srq);
-   splinter_set_super_block(spl, FALSE, TRUE, FALSE);
    splinter_deinit(spl);
    if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
+      splinter_destroy_stats(spl);
    }
    platform_free(spl->heap_id, spl);
 }

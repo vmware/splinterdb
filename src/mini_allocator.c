@@ -127,7 +127,7 @@ mini_init_meta_page(mini_allocator *mini, page_handle *meta_page)
 /*
  *-----------------------------------------------------------------------------
  *
- * mini_full_[lock,unlock]_meta_tail --
+ * mini_full_[lock,unlock]_meta_[page,tail] --
  *
  *      Convenience functions to write lock/unlock the given meta_page or
  *      meta_tail.
@@ -239,7 +239,7 @@ mini_unget_unclaim_meta_page(cache *cc, page_handle *meta_page)
  *-----------------------------------------------------------------------------
  */
 
-uint64
+MUST_CHECK_RESULT uint64
 mini_init(mini_allocator *mini,
           cache *         cc,
           data_config *   cfg,
@@ -284,15 +284,27 @@ mini_init(mini_allocator *mini,
       mini->meta_tail = meta_tail;
    }
 
-   for (uint64 batch = 0; batch < num_batches; batch++) {
+   uint64 batch;
+   for (batch = 0; batch < num_batches; batch++) {
       // because we recover ref counts from the mini allocators on recovery, we
       // don't need to store these in the mini allocator until we consume them.
       platform_status rc =
          allocator_alloc(mini->al, &mini->next_extent[batch], type);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "Failed to allocate disk space for a mini allocator\n");
+         goto batch_allocation_failure;
+      }
    }
 
    return mini->next_extent[0];
+
+batch_allocation_failure:
+   for (uint64 i = 0; i < batch; i++) {
+      allocator_dec_ref(mini->al, mini->next_extent[i], type);
+   }
+
+   return 0;
 }
 
 /*
@@ -558,7 +570,7 @@ mini_append_entry(mini_allocator *mini,
  *
  *-----------------------------------------------------------------------------
  */
-uint64
+MUST_CHECK_RESULT uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,
            const slice     key,
@@ -575,7 +587,11 @@ mini_alloc(mini_allocator *mini,
       uint64          extent_addr = mini->next_extent[batch];
       platform_status rc =
          allocator_alloc(mini->al, &mini->next_extent[batch], mini->type);
-      platform_assert_status_ok(rc);
+      if (!SUCCESS(rc)) {
+         platform_error_log(
+            "Failed to allocate an extent for a mini-allocator\n");
+         goto extent_allocation_failure;
+      }
       next_addr = extent_addr;
 
       bool success = mini_append_entry(mini, batch, key, next_addr);
@@ -631,7 +647,6 @@ mini_release(mini_allocator *mini, const slice key)
       }
    }
 }
-
 
 /*
  *-----------------------------------------------------------------------------
