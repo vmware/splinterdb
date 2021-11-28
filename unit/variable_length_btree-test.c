@@ -3,20 +3,22 @@
 #include "variable_length_btree.c"
 
 static int
-leaf_hdr_tests(variable_length_btree_config *cfg, variable_length_btree_scratch *scratch)
+leaf_hdr_tests(variable_length_btree_config * cfg,
+               variable_length_btree_scratch *scratch)
 {
-   char               leaf_buffer[cfg->page_size];
+   char                       leaf_buffer[cfg->page_size];
    variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)leaf_buffer;
-   int                nkvs = 240;
+   int                        nkvs = 240;
 
    variable_length_btree_init_hdr(cfg, hdr);
 
    for (uint32 i = 0; i < nkvs; i++) {
-      if (!variable_length_btree_set_leaf_entry(cfg,
-                                        hdr,
-                                        i,
-                                        slice_create(i % sizeof(i), &i),
-                                        slice_create(i % sizeof(i), &i))) {
+      if (!variable_length_btree_set_leaf_entry(
+             cfg,
+             hdr,
+             i,
+             slice_create(i % sizeof(i), &i),
+             slice_create(i % sizeof(i), &i))) {
          platform_log("failed to insert 4-byte %d\n", i);
       }
    }
@@ -33,11 +35,12 @@ leaf_hdr_tests(variable_length_btree_config *cfg, variable_length_btree_scratch 
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
-      if (!variable_length_btree_set_leaf_entry(cfg,
-                                        hdr,
-                                        i,
-                                        slice_create(i % sizeof(i), &i),
-                                        slice_create(i % sizeof(i), &i))) {
+      if (!variable_length_btree_set_leaf_entry(
+             cfg,
+             hdr,
+             i,
+             slice_create(i % sizeof(i), &i),
+             slice_create(i % sizeof(i), &i))) {
          platform_log("failed to insert 8-byte %ld\n", i);
       }
    }
@@ -70,11 +73,12 @@ leaf_hdr_tests(variable_length_btree_config *cfg, variable_length_btree_scratch 
 }
 
 static int
-leaf_hdr_search_tests(variable_length_btree_config *cfg, variable_length_btree_scratch *scratch)
+leaf_hdr_search_tests(variable_length_btree_config * cfg,
+                      variable_length_btree_scratch *scratch)
 {
-   char               leaf_buffer[cfg->page_size];
+   char                       leaf_buffer[cfg->page_size];
    variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)leaf_buffer;
-   int                nkvs = 256;
+   int                        nkvs = 256;
 
    variable_length_btree_init_hdr(cfg, hdr);
 
@@ -88,7 +92,7 @@ leaf_hdr_search_tests(variable_length_btree_config *cfg, variable_length_btree_s
       slice                 key     = slice_create(1, &keybuf);
       slice                 message = slice_create(i % 8, messagebuf);
       leaf_incorporate_spec spec;
-      bool                  result = variable_length_btree_leaf_incorporate_tuple(
+      bool result = variable_length_btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, message, &spec, &generation);
       if (!result) {
          platform_log("couldn't incorporate kv pair %d\n", i);
@@ -110,11 +114,12 @@ leaf_hdr_search_tests(variable_length_btree_config *cfg, variable_length_btree_s
 }
 
 static int
-index_hdr_tests(variable_length_btree_config *cfg, variable_length_btree_scratch *scratch)
+index_hdr_tests(variable_length_btree_config * cfg,
+                variable_length_btree_scratch *scratch)
 {
-   char               index_buffer[cfg->page_size];
+   char                       index_buffer[cfg->page_size];
    variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)index_buffer;
-   int                nkvs = 100;
+   int                        nkvs = 100;
 
    variable_length_btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -174,9 +179,9 @@ index_hdr_tests(variable_length_btree_config *cfg, variable_length_btree_scratch
 static int
 index_hdr_search_tests(variable_length_btree_config *cfg)
 {
-   char               index_buffer[cfg->page_size];
+   char                       index_buffer[cfg->page_size];
    variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)index_buffer;
-   int                nkvs = 100;
+   int                        nkvs = 100;
 
    variable_length_btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -185,7 +190,8 @@ index_hdr_search_tests(variable_length_btree_config *cfg)
       uint8 keybuf[1];
       keybuf[0] = i;
       slice key = slice_create(1, &keybuf);
-      if (!variable_length_btree_set_index_entry(cfg, hdr, i / 2, key, i, 0, 0, 0)) {
+      if (!variable_length_btree_set_index_entry(
+             cfg, hdr, i / 2, key, i, 0, 0, 0)) {
          platform_log("couldn't insert pivot %d\n", i);
       }
    }
@@ -207,7 +213,7 @@ index_hdr_search_tests(variable_length_btree_config *cfg)
 static int
 leaf_split_tests(variable_length_btree_config * cfg,
                  variable_length_btree_scratch *scratch,
-                 int                    nkvs)
+                 int                            nkvs)
 {
    char leaf_buffer[cfg->page_size];
    char msg_buffer[cfg->page_size];
@@ -237,8 +243,8 @@ leaf_split_tests(variable_length_btree_config * cfg,
    for (uint8 i = 0; i < 2 * realnkvs + 1; i++) {
       uint64                generation;
       leaf_incorporate_spec spec;
-      slice                 key     = slice_create(1, &i);
-      bool                  success = variable_length_btree_leaf_incorporate_tuple(
+      slice                 key = slice_create(1, &i);
+      bool success              = variable_length_btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
       if (success) {
          platform_log("Weird.  An incorporate that was supposed to fail "
@@ -246,7 +252,8 @@ leaf_split_tests(variable_length_btree_config * cfg,
                       nkvs,
                       realnkvs,
                       i);
-         variable_length_btree_print_locked_node(cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
+         variable_length_btree_print_locked_node(
+            cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
       }
       leaf_splitting_plan plan =
          variable_length_btree_build_leaf_splitting_plan(cfg, hdr, spec);
@@ -259,8 +266,8 @@ leaf_split_tests(variable_length_btree_config * cfg,
 
 static slice
 gen_key(variable_length_btree_config *cfg,
-        uint64                i,
-        uint8                 buffer[static cfg->page_size])
+        uint64                        i,
+        uint8                         buffer[static cfg->page_size])
 {
    uint64 keylen = sizeof(i) + (i % 100);
    memset(buffer, 0, keylen);
@@ -283,8 +290,8 @@ ungen_key(slice key)
 
 static slice
 gen_msg(variable_length_btree_config *cfg,
-        uint64                i,
-        uint8                 buffer[static cfg->page_size])
+        uint64                        i,
+        uint8                         buffer[static cfg->page_size])
 {
    data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (cfg->page_size / 3));
@@ -297,13 +304,13 @@ gen_msg(variable_length_btree_config *cfg,
 }
 
 static void
-insert_tests(cache *                cc,
+insert_tests(cache *                        cc,
              variable_length_btree_config * cfg,
              variable_length_btree_scratch *scratch,
-             mini_allocator *       mini,
-             uint64                 root_addr,
-             int                    start,
-             int                    end)
+             mini_allocator *               mini,
+             uint64                         root_addr,
+             int                            start,
+             int                            end)
 {
    uint64 generation;
    bool   was_unique;
@@ -312,27 +319,27 @@ insert_tests(cache *                cc,
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(variable_length_btree_insert(cc,
-                                        cfg,
-                                        scratch,
-                                        root_addr,
-                                        mini,
-                                        gen_key(cfg, i, keybuf),
-                                        gen_msg(cfg, i, msgbuf),
-                                        &generation,
-                                        &was_unique))) {
+                                                cfg,
+                                                scratch,
+                                                root_addr,
+                                                mini,
+                                                gen_key(cfg, i, keybuf),
+                                                gen_msg(cfg, i, msgbuf),
+                                                &generation,
+                                                &was_unique))) {
          platform_log("failed to insert 4-byte %ld\n", i);
       }
    }
 }
 
 typedef struct insert_thread_params {
-   cache *                cc;
+   cache *                        cc;
    variable_length_btree_config * cfg;
    variable_length_btree_scratch *scratch;
-   mini_allocator *       mini;
-   uint64                 root_addr;
-   int                    start;
-   int                    end;
+   mini_allocator *               mini;
+   uint64                         root_addr;
+   int                            start;
+   int                            end;
 } insert_thread_params;
 
 static void
@@ -349,7 +356,10 @@ insert_thread(void *arg)
 }
 
 static int
-query_tests(cache *cc, variable_length_btree_config *cfg, uint64 root_addr, int nkvs)
+query_tests(cache *                       cc,
+            variable_length_btree_config *cfg,
+            uint64                        root_addr,
+            int                           nkvs)
 {
    uint8 keybuf[cfg->page_size];
    uint8 msgbuf[cfg->page_size];
@@ -361,12 +371,12 @@ query_tests(cache *cc, variable_length_btree_config *cfg, uint64 root_addr, int 
    for (uint64 i = 0; i < nkvs; i++) {
       bool found;
       variable_length_btree_lookup(cc,
-                           cfg,
-                           root_addr,
-                           gen_key(cfg, i, keybuf),
-                           &msg.length,
-                           msgbuf,
-                           &found);
+                                   cfg,
+                                   root_addr,
+                                   gen_key(cfg, i, keybuf),
+                                   &msg.length,
+                                   msgbuf,
+                                   &found);
       if (!found || slice_lex_cmp(msg, gen_msg(cfg, i, msgbuf))) {
          platform_log("failure on lookup %lu\n", i);
          variable_length_btree_print_tree(cc, cfg, root_addr);
@@ -378,19 +388,22 @@ query_tests(cache *cc, variable_length_btree_config *cfg, uint64 root_addr, int 
 }
 
 static int
-iterator_tests(cache *cc, variable_length_btree_config *cfg, uint64 root_addr, int nkvs)
+iterator_tests(cache *                       cc,
+               variable_length_btree_config *cfg,
+               uint64                        root_addr,
+               int                           nkvs)
 {
    variable_length_btree_iterator dbiter;
 
    variable_length_btree_iterator_init(cc,
-                               cfg,
-                               &dbiter,
-                               root_addr,
-                               PAGE_TYPE_MEMTABLE,
-                               NULL_SLICE,
-                               NULL_SLICE,
-                               FALSE,
-                               0);
+                                       cfg,
+                                       &dbiter,
+                                       root_addr,
+                                       PAGE_TYPE_MEMTABLE,
+                                       NULL_SLICE,
+                                       NULL_SLICE,
+                                       FALSE,
+                                       0);
 
    iterator *iter = (iterator *)&dbiter;
 
@@ -429,24 +442,24 @@ iterator_tests(cache *cc, variable_length_btree_config *cfg, uint64 root_addr, i
 }
 
 static uint64
-pack_tests(cache *               cc,
+pack_tests(cache *                       cc,
            variable_length_btree_config *cfg,
-           platform_heap_id      hid,
-           uint64                root_addr,
-           uint64                nkvs)
+           platform_heap_id              hid,
+           uint64                        root_addr,
+           uint64                        nkvs)
 {
    variable_length_btree_iterator dbiter;
-   iterator *             iter = (iterator *)&dbiter;
+   iterator *                     iter = (iterator *)&dbiter;
 
    variable_length_btree_iterator_init(cc,
-                               cfg,
-                               &dbiter,
-                               root_addr,
-                               PAGE_TYPE_MEMTABLE,
-                               NULL_SLICE,
-                               NULL_SLICE,
-                               FALSE,
-                               0);
+                                       cfg,
+                                       &dbiter,
+                                       root_addr,
+                                       PAGE_TYPE_MEMTABLE,
+                                       NULL_SLICE,
+                                       NULL_SLICE,
+                                       FALSE,
+                                       0);
 
    variable_length_btree_pack_req req;
    variable_length_btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
@@ -509,26 +522,27 @@ init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
 }
 
 static int
-init_variable_length_btree_config_from_master_config(variable_length_btree_config *dbtree_cfg,
-                                             master_config *       master_cfg,
-                                             data_config *         data_cfg)
+init_variable_length_btree_config_from_master_config(
+   variable_length_btree_config *dbtree_cfg,
+   master_config *               master_cfg,
+   data_config *                 data_cfg)
 {
    variable_length_btree_config_init(dbtree_cfg,
-                             data_cfg,
-                             master_cfg->btree_rough_count_height,
-                             master_cfg->page_size,
-                             master_cfg->extent_size);
+                                     data_cfg,
+                                     master_cfg->btree_rough_count_height,
+                                     master_cfg->page_size,
+                                     master_cfg->extent_size);
    return 1;
 }
 
 int
 main(int argc, char **argv)
 {
-   master_config         master_cfg;
-   data_config           data_cfg;
-   io_config             io_cfg;
-   rc_allocator_config   allocator_cfg;
-   clockcache_config     cache_cfg;
+   master_config                 master_cfg;
+   data_config                   data_cfg;
+   io_config                     io_cfg;
+   rc_allocator_config           allocator_cfg;
+   clockcache_config             cache_cfg;
    variable_length_btree_scratch test_scratch;
    variable_length_btree_config  dbtree_cfg;
 
@@ -603,8 +617,8 @@ main(int argc, char **argv)
    int nthreads = 8;
 
    mini_allocator mini;
-   uint64         root_addr =
-      variable_length_btree_init((cache *)&cc, &dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
+   uint64         root_addr = variable_length_btree_init(
+      (cache *)&cc, &dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
    insert_thread_params params[nthreads];
    platform_thread      threads[nthreads];
@@ -649,7 +663,8 @@ main(int argc, char **argv)
    }
 
    /* platform_log("\n\n\n"); */
-   /* variable_length_btree_print_tree((cache *)&cc, &dbtree_cfg, packed_root_addr); */
+   /* variable_length_btree_print_tree((cache *)&cc, &dbtree_cfg,
+    * packed_root_addr); */
    /* platform_log("\n\n\n"); */
 
    if (!query_tests((cache *)&cc, &dbtree_cfg, packed_root_addr, nkvs)) {

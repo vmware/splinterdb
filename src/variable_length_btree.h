@@ -30,8 +30,8 @@ extern page_handle *trace_page;
  * dynamic btree --
  *
  *       Each node in the btree is initially referred to with a
- *variable_length_btree_node. This object abstracts away the packing of nodes into
- *pages. Afterwards, the node can be directly manipulated via the
+ *variable_length_btree_node. This object abstracts away the packing of nodes
+ *into pages. Afterwards, the node can be directly manipulated via the
  *variable_length_btree_hdr.
  *
  *----------------------------------------------------------------------
@@ -47,8 +47,8 @@ typedef struct variable_length_btree_config {
 typedef struct PACKED variable_length_btree_hdr variable_length_btree_hdr;
 
 typedef struct variable_length_btree_node {
-   uint64             addr;
-   page_handle *      page;
+   uint64                     addr;
+   page_handle *              page;
    variable_length_btree_hdr *hdr;
 } variable_length_btree_node;
 
@@ -66,20 +66,20 @@ typedef struct { // Note: not a union
 } PLATFORM_CACHELINE_ALIGNED variable_length_btree_scratch;
 
 typedef struct variable_length_btree_iterator {
-   iterator              super;
-   cache *               cc;
+   iterator                      super;
+   cache *                       cc;
    variable_length_btree_config *cfg;
-   bool                  do_prefetch;
-   uint32                height;
-   page_type             page_type;
-   slice                 max_key;
+   bool                          do_prefetch;
+   uint32                        height;
+   page_type                     page_type;
+   slice                         max_key;
 
-   uint64             root_addr;
+   uint64                     root_addr;
    variable_length_btree_node curr;
-   uint64             idx;
-   uint64             end_addr;
-   uint64             end_idx;
-   uint64             end_generation;
+   uint64                     idx;
+   uint64                     end_addr;
+   uint64                     end_idx;
+   uint64                     end_generation;
 
    // Variables used for debug only
    debug_code(bool debug_is_packed);
@@ -89,18 +89,18 @@ typedef struct variable_length_btree_iterator {
 
 typedef struct variable_length_btree_pack_req {
    // inputs to the pack
-   cache *               cc;
+   cache *                       cc;
    variable_length_btree_config *cfg;
-   iterator *            itor;       // the itor which is being packed
-   uint64                max_tuples; // max tuples for the tree
-   hash_fn               hash; // hash function used for calculating filter_hash
-   unsigned int          seed; // seed used for calculating filter_hash
+   iterator *                    itor;       // the itor which is being packed
+   uint64                        max_tuples; // max tuples for the tree
+   hash_fn      hash; // hash function used for calculating filter_hash
+   unsigned int seed; // seed used for calculating filter_hash
 
    // internal data
-   uint64             next_extent;
-   uint16             height;
+   uint64                     next_extent;
+   uint16                     height;
    variable_length_btree_node edge[DYNAMIC_BTREE_MAX_HEIGHT];
-   mini_allocator     mini;
+   mini_allocator             mini;
 
    // output of the compaction
    uint64  root_addr;       // root address of the output tree
@@ -111,7 +111,8 @@ typedef struct variable_length_btree_pack_req {
 } variable_length_btree_pack_req;
 
 struct variable_length_btree_async_ctxt;
-typedef void (*variable_length_btree_async_cb)(struct variable_length_btree_async_ctxt *ctxt);
+typedef void (*variable_length_btree_async_cb)(
+   struct variable_length_btree_async_ctxt *ctxt);
 
 // States for the btree async lookup.
 typedef enum {
@@ -131,24 +132,24 @@ typedef struct variable_length_btree_async_ctxt {
     */
    variable_length_btree_async_cb cb;
    // Internal fields
-   cache_async_ctxt *        cache_ctxt; // cache ctxt for async get
+   cache_async_ctxt *                cache_ctxt; // cache ctxt for async get
    variable_length_btree_async_state prev_state; // Previous state
    variable_length_btree_async_state state;      // Current state
-   bool                      was_async;  // Was the last cache_get async ?
-   variable_length_btree_node        node;       // Current node
-   uint64                    child_addr; // Child disk address
+   bool                       was_async;  // Was the last cache_get async ?
+   variable_length_btree_node node;       // Current node
+   uint64                     child_addr; // Child disk address
 } variable_length_btree_async_ctxt;
 
 platform_status
-variable_length_btree_insert(cache *                     cc,         // IN
-                     const variable_length_btree_config *cfg,        // IN
-                     variable_length_btree_scratch *     scratch,    // IN
-                     uint64                      root_addr,  // IN
-                     mini_allocator *            mini,       // IN
-                     slice                       key,        // IN
-                     slice                       data,       // IN
-                     uint64 *                    generation, // OUT
-                     bool *                      was_unique);                      // OUT
+variable_length_btree_insert(cache *                             cc,      // IN
+                             const variable_length_btree_config *cfg,     // IN
+                             variable_length_btree_scratch *     scratch, // IN
+                             uint64          root_addr,                   // IN
+                             mini_allocator *mini,                        // IN
+                             slice           key,                         // IN
+                             slice           data,                        // IN
+                             uint64 *        generation,                  // OUT
+                             bool *          was_unique);                           // OUT
 
 /*
  *-----------------------------------------------------------------------------
@@ -167,9 +168,9 @@ variable_length_btree_insert(cache *                     cc,         // IN
  */
 
 static inline void
-variable_length_btree_ctxt_init(variable_length_btree_async_ctxt *ctxt,       // OUT
-                        cache_async_ctxt *        cache_ctxt, // IN
-                        variable_length_btree_async_cb    cb)            // IN
+variable_length_btree_ctxt_init(variable_length_btree_async_ctxt *ctxt, // OUT
+                                cache_async_ctxt *             cache_ctxt, // IN
+                                variable_length_btree_async_cb cb)         // IN
 {
    ctxt->state      = variable_length_btree_async_state_start;
    ctxt->cb         = cb;
@@ -177,116 +178,118 @@ variable_length_btree_ctxt_init(variable_length_btree_async_ctxt *ctxt,       //
 }
 
 uint64
-variable_length_btree_init(cache *                     cc,
-                   const variable_length_btree_config *cfg,
-                   mini_allocator *            mini,
-                   page_type                   type);
+variable_length_btree_init(cache *                             cc,
+                           const variable_length_btree_config *cfg,
+                           mini_allocator *                    mini,
+                           page_type                           type);
 
 bool
-variable_length_btree_should_zap_dec_ref(cache *                     cc,
-                                 const variable_length_btree_config *cfg,
-                                 uint64                      root_addr,
-                                 page_type                   type);
+variable_length_btree_should_zap_dec_ref(
+   cache *                             cc,
+   const variable_length_btree_config *cfg,
+   uint64                              root_addr,
+   page_type                           type);
 
 void
-variable_length_btree_inc_range(cache *                     cc,
-                        const variable_length_btree_config *cfg,
-                        uint64                      root_addr,
-                        const slice                 start_key,
-                        const slice                 end_key);
+variable_length_btree_inc_range(cache *                             cc,
+                                const variable_length_btree_config *cfg,
+                                uint64                              root_addr,
+                                const slice                         start_key,
+                                const slice                         end_key);
 
 bool
-variable_length_btree_zap_range(cache *                     cc,
-                        const variable_length_btree_config *cfg,
-                        uint64                      root_addr,
-                        const slice                 start_key,
-                        const slice                 end_key,
-                        page_type                   type);
+variable_length_btree_zap_range(cache *                             cc,
+                                const variable_length_btree_config *cfg,
+                                uint64                              root_addr,
+                                const slice                         start_key,
+                                const slice                         end_key,
+                                page_type                           type);
 
 bool
-variable_length_btree_zap(cache *                     cc,
-                  const variable_length_btree_config *cfg,
-                  uint64                      root_addr,
-                  page_type                   type);
+variable_length_btree_zap(cache *                             cc,
+                          const variable_length_btree_config *cfg,
+                          uint64                              root_addr,
+                          page_type                           type);
 
 page_handle *
-variable_length_btree_blind_inc(cache *               cc,
-                        variable_length_btree_config *cfg,
-                        uint64                root_addr,
-                        page_type             type);
+variable_length_btree_blind_inc(cache *                       cc,
+                                variable_length_btree_config *cfg,
+                                uint64                        root_addr,
+                                page_type                     type);
 
 void
-variable_length_btree_blind_zap(cache *                     cc,
-                        const variable_length_btree_config *cfg,
-                        page_handle *               meta_page,
-                        page_type                   type);
+variable_length_btree_blind_zap(cache *                             cc,
+                                const variable_length_btree_config *cfg,
+                                page_handle *                       meta_page,
+                                page_type                           type);
 
 void
-variable_length_btree_lookup_with_ref(cache *               cc,
-                              variable_length_btree_config *cfg,
-                              uint64                root_addr,
-                              page_type             type,
-                              slice                 key,
-                              variable_length_btree_node *  node,
-                              slice *               data,
-                              bool *                found);
+variable_length_btree_lookup_with_ref(cache *                       cc,
+                                      variable_length_btree_config *cfg,
+                                      uint64                        root_addr,
+                                      page_type                     type,
+                                      slice                         key,
+                                      variable_length_btree_node *  node,
+                                      slice *                       data,
+                                      bool *                        found);
 
 cache_async_result
-variable_length_btree_lookup_async_with_ref(cache *                   cc,
-                                    variable_length_btree_config *    cfg,
-                                    uint64                    root_addr,
-                                    slice                     key,
-                                    variable_length_btree_node *      node,
-                                    slice *                   data,
-                                    bool *                    found,
-                                    variable_length_btree_async_ctxt *ctxt);
+variable_length_btree_lookup_async_with_ref(
+   cache *                           cc,
+   variable_length_btree_config *    cfg,
+   uint64                            root_addr,
+   slice                             key,
+   variable_length_btree_node *      node,
+   slice *                           data,
+   bool *                            found,
+   variable_length_btree_async_ctxt *ctxt);
 
 void
-variable_length_btree_node_unget(cache *                     cc,
-                         const variable_length_btree_config *cfg,
-                         variable_length_btree_node *        node);
+variable_length_btree_node_unget(cache *                             cc,
+                                 const variable_length_btree_config *cfg,
+                                 variable_length_btree_node *        node);
 void
-variable_length_btree_lookup(cache *               cc,
-                     variable_length_btree_config *cfg,
-                     uint64                root_addr,
-                     slice                 key,
-                     uint64 *              data_out_len,
-                     void *                data_out,
-                     bool *                found);
+variable_length_btree_lookup(cache *                       cc,
+                             variable_length_btree_config *cfg,
+                             uint64                        root_addr,
+                             slice                         key,
+                             uint64 *                      data_out_len,
+                             void *                        data_out,
+                             bool *                        found);
 
 cache_async_result
-variable_length_btree_lookup_async(cache *                   cc,
-                           variable_length_btree_config *    cfg,
-                           uint64                    root_addr,
-                           slice                     key,
-                           uint64 *                  data_out_len,
-                           void *                    data_out,
-                           bool *                    found,
-                           variable_length_btree_async_ctxt *ctxt);
+variable_length_btree_lookup_async(cache *                       cc,
+                                   variable_length_btree_config *cfg,
+                                   uint64                        root_addr,
+                                   slice                         key,
+                                   uint64 *                      data_out_len,
+                                   void *                        data_out,
+                                   bool *                        found,
+                                   variable_length_btree_async_ctxt *ctxt);
 
 void
-variable_length_btree_iterator_init(cache *                 cc,
-                            variable_length_btree_config *  cfg,
-                            variable_length_btree_iterator *iterator,
-                            uint64                  root_addr,
-                            page_type               page_type,
-                            slice                   min_key,
-                            slice                   max_key,
-                            bool                    do_prefetch,
-                            uint32                  height);
+variable_length_btree_iterator_init(cache *                         cc,
+                                    variable_length_btree_config *  cfg,
+                                    variable_length_btree_iterator *iterator,
+                                    uint64                          root_addr,
+                                    page_type                       page_type,
+                                    slice                           min_key,
+                                    slice                           max_key,
+                                    bool                            do_prefetch,
+                                    uint32                          height);
 
 void
 variable_length_btree_iterator_deinit(variable_length_btree_iterator *itor);
 
 static inline void
 variable_length_btree_pack_req_init(variable_length_btree_pack_req *req,
-                            cache *                 cc,
-                            variable_length_btree_config *  cfg,
-                            iterator *              itor,
-                            uint64                  max_tuples,
-                            hash_fn                 hash,
-                            unsigned int            seed,
-                            platform_heap_id        hid)
+                                    cache *                         cc,
+                                    variable_length_btree_config *  cfg,
+                                    iterator *                      itor,
+                                    uint64                          max_tuples,
+                                    hash_fn                         hash,
+                                    unsigned int                    seed,
+                                    platform_heap_id                hid)
 {
    memset(req, 0, sizeof(*req));
    req->cc         = cc;
@@ -302,7 +305,8 @@ variable_length_btree_pack_req_init(variable_length_btree_pack_req *req,
 }
 
 static inline void
-variable_length_btree_pack_req_deinit(variable_length_btree_pack_req *req, platform_heap_id hid)
+variable_length_btree_pack_req_deinit(variable_length_btree_pack_req *req,
+                                      platform_heap_id                hid)
 {
    if (req->fingerprint_arr) {
       platform_free(hid, req->fingerprint_arr);
@@ -313,86 +317,91 @@ platform_status
 variable_length_btree_pack(variable_length_btree_pack_req *req);
 
 void
-variable_length_btree_count_in_range(cache *               cc,
-                             variable_length_btree_config *cfg,
-                             uint64                root_addr,
-                             const slice           min_key,
-                             const slice           max_key,
-                             uint32 *              kv_rank,
-                             uint32 *              key_bytes_rank,
-                             uint32 *              message_bytes_rank);
+variable_length_btree_count_in_range(cache *                       cc,
+                                     variable_length_btree_config *cfg,
+                                     uint64                        root_addr,
+                                     const slice                   min_key,
+                                     const slice                   max_key,
+                                     uint32 *                      kv_rank,
+                                     uint32 *key_bytes_rank,
+                                     uint32 *message_bytes_rank);
 
 void
-variable_length_btree_count_in_range_by_iterator(cache *               cc,
-                                         variable_length_btree_config *cfg,
-                                         uint64                root_addr,
-                                         const slice           min_key,
-                                         const slice           max_key,
-                                         uint32 *              kv_rank,
-                                         uint32 *              key_bytes_rank,
-                                         uint32 *message_bytes_rank);
+variable_length_btree_count_in_range_by_iterator(
+   cache *                       cc,
+   variable_length_btree_config *cfg,
+   uint64                        root_addr,
+   const slice                   min_key,
+   const slice                   max_key,
+   uint32 *                      kv_rank,
+   uint32 *                      key_bytes_rank,
+   uint32 *                      message_bytes_rank);
 
 uint64
-variable_length_btree_rough_count(cache *               cc,
-                          variable_length_btree_config *cfg,
-                          uint64                root_addr,
-                          slice                 min_key,
-                          slice                 max_key);
+variable_length_btree_rough_count(cache *                       cc,
+                                  variable_length_btree_config *cfg,
+                                  uint64                        root_addr,
+                                  slice                         min_key,
+                                  slice                         max_key);
 
 void
-variable_length_btree_print_tree(cache *cc, variable_length_btree_config *cfg, uint64 addr);
+variable_length_btree_print_tree(cache *                       cc,
+                                 variable_length_btree_config *cfg,
+                                 uint64                        addr);
 
 void
-variable_length_btree_print_locked_node(variable_length_btree_config * cfg,
-                                uint64                 addr,
-                                variable_length_btree_hdr *    hdr,
-                                platform_stream_handle stream);
+variable_length_btree_print_locked_node(variable_length_btree_config *cfg,
+                                        uint64                        addr,
+                                        variable_length_btree_hdr *   hdr,
+                                        platform_stream_handle        stream);
 
 void
-variable_length_btree_print_node(cache *                cc,
-                         variable_length_btree_config * cfg,
-                         variable_length_btree_node *   node,
-                         platform_stream_handle stream);
+variable_length_btree_print_node(cache *                       cc,
+                                 variable_length_btree_config *cfg,
+                                 variable_length_btree_node *  node,
+                                 platform_stream_handle        stream);
 
 void
-variable_length_btree_print_tree_stats(cache *               cc,
-                               variable_length_btree_config *cfg,
-                               uint64                addr);
+variable_length_btree_print_tree_stats(cache *                       cc,
+                                       variable_length_btree_config *cfg,
+                                       uint64                        addr);
 
 void
-variable_length_btree_print_lookup(cache *               cc,
-                           variable_length_btree_config *cfg,
-                           uint64                root_addr,
-                           page_type             type,
-                           slice                 key);
+variable_length_btree_print_lookup(cache *                       cc,
+                                   variable_length_btree_config *cfg,
+                                   uint64                        root_addr,
+                                   page_type                     type,
+                                   slice                         key);
 
 bool
-variable_length_btree_verify_tree(cache *               cc,
-                          variable_length_btree_config *cfg,
-                          uint64                addr,
-                          page_type             type);
+variable_length_btree_verify_tree(cache *                       cc,
+                                  variable_length_btree_config *cfg,
+                                  uint64                        addr,
+                                  page_type                     type);
 
 uint64
-variable_length_btree_extent_count(cache *               cc,
-                           variable_length_btree_config *cfg,
-                           uint64                root_addr);
+variable_length_btree_extent_count(cache *                       cc,
+                                   variable_length_btree_config *cfg,
+                                   uint64                        root_addr);
 
 uint64
-variable_length_btree_space_use_in_range(cache *               cc,
-                                 variable_length_btree_config *cfg,
-                                 uint64                root_addr,
-                                 page_type             type,
-                                 slice                 start_key,
-                                 slice                 end_key);
+variable_length_btree_space_use_in_range(cache *                       cc,
+                                         variable_length_btree_config *cfg,
+                                         uint64    root_addr,
+                                         page_type type,
+                                         slice     start_key,
+                                         slice     end_key);
 
 void
-variable_length_btree_config_init(variable_length_btree_config *variable_length_btree_cfg,
-                          data_config *         data_cfg,
-                          uint64                rough_count_height,
-                          uint64                page_size,
-                          uint64                extent_size);
+variable_length_btree_config_init(
+   variable_length_btree_config *variable_length_btree_cfg,
+   data_config *                 data_cfg,
+   uint64                        rough_count_height,
+   uint64                        page_size,
+   uint64                        extent_size);
 
-// robj: I propose making all the following functions private to variable_length_btree.c
+// robj: I propose making all the following functions private to
+// variable_length_btree.c
 
 static inline char *
 variable_length_btree_min_key(variable_length_btree_config *cfg)
@@ -403,24 +412,24 @@ variable_length_btree_min_key(variable_length_btree_config *cfg)
 
 static inline int
 variable_length_btree_key_compare(const variable_length_btree_config *cfg,
-                          slice                       key1,
-                          slice                       key2)
+                                  slice                               key1,
+                                  slice                               key2)
 {
    return data_key_compare(cfg->data_cfg, key1, key2);
 }
 
 static inline void
 variable_length_btree_key_to_string(variable_length_btree_config *cfg,
-                            slice                 key,
-                            char                  str[static 128])
+                                    slice                         key,
+                                    char str[static 128])
 {
    return data_key_to_string(cfg->data_cfg, key, str, 128);
 }
 
 static inline void
 variable_length_btree_message_to_string(variable_length_btree_config *cfg,
-                                slice                 data,
-                                char                  str[static 128])
+                                        slice                         data,
+                                        char str[static 128])
 {
    return data_message_to_string(cfg->data_cfg, data, str, 128);
 }
