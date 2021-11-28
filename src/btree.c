@@ -2240,19 +2240,27 @@ btree_pack_loop(btree_pack_internal *tree, // IN/OUT
 #endif
       btree_add_tuple_at_pos(
          tree->cfg, &tree->edge[0], key, data, tree->idx[0]);
-      // if (idx[0] != 0) {
-      //   int comp = btree_key_compare(cfg, btree_get_tuple(cfg, &edge[0],
-      //   idx[0] - 1), key); if (comp >= 0) {
-      //      char key_str[128], last_key_str[128];
-      //      btree_key_to_string(cfg, key, key_str);
-      //      btree_key_to_string(cfg, btree_get_tuple(cfg, &edge[0], idx[0] -
-      //      1), last_key_str); platform_log("btree_pack OOO keys: \n%s
-      //      \n%s\n%d\n",
-      //                           last_key_str, key_str, comp);
-      //      iterator_print(req->itor);
-      //      platform_assert(0);
-      //   }
-      //}
+      /* if (tree->idx[0] != 0) { */
+      /*    int comp = btree_key_compare( */
+      /*       tree->cfg, */
+      /*       btree_get_tuple(tree->cfg, &tree->edge[0], tree->idx[0] - 1), */
+      /*       key); */
+      /*    if (comp >= 0) { */
+      /*       char key_str[128], last_key_str[128]; */
+      /*       btree_key_to_string(tree->cfg, key, key_str); */
+      /*       btree_key_to_string( */
+      /*          tree->cfg, */
+      /*          btree_get_tuple(tree->cfg, &tree->edge[0], tree->idx[0] - 1),
+       */
+      /*          last_key_str); */
+      /*       platform_log("btree_pack OOO keys:\n%s\n%s\n%d\n", */
+      /*                    last_key_str, */
+      /*                    key_str, */
+      /*                    comp); */
+      /*       iterator_print(tree->itor); */
+      /*       platform_assert(0); */
+      /*    } */
+      /* } */
 
       tree->idx[0]++;
       if (tree->hash) {

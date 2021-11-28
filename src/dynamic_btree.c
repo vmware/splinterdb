@@ -162,7 +162,7 @@ sizeof_index_entry(const index_entry *entry)
 }
 
 static inline slice
-index_entry_key_slice(index_entry *entry)
+index_entry_key_slice(const index_entry *entry)
 {
    return slice_create(entry->key_size, entry->key);
 }
@@ -260,8 +260,9 @@ dynamic_btree_fill_index_entry(const dynamic_btree_config *cfg,
                                uint32                      key_bytes,
                                uint32                      message_bytes)
 {
-   debug_assert(pointer_byte_offset(entry, index_entry_size(new_pivot_key)) <=
-                pointer_byte_offset(hdr, cfg->page_size));
+   debug_assert((void *)hdr <= (void *)entry);
+   debug_assert(diff_ptr(hdr, entry) + index_entry_size(new_pivot_key) <=
+                cfg->page_size);
    memcpy(entry->key, slice_data(new_pivot_key), slice_length(new_pivot_key));
    entry->key_size              = slice_length(new_pivot_key);
    entry->child_addr            = new_addr;
@@ -285,7 +286,7 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
 
    if (k < hdr->num_entries) {
       index_entry *old_entry = dynamic_btree_get_index_entry(cfg, hdr, k);
-      if (hdr->next_entry == diff_ptr(old_entry, hdr) &&
+      if (hdr->next_entry == diff_ptr(hdr, old_entry) &&
           diff_ptr(hdr, &hdr->offsets[new_num_entries]) +
                 index_entry_size(new_pivot_key) <=
              hdr->next_entry + sizeof_index_entry(old_entry)) {
@@ -321,7 +322,7 @@ dynamic_btree_set_index_entry(const dynamic_btree_config *cfg,
       return FALSE;
    }
 
-   index_entry *new_entry = (index_entry *)pointer_byte_offset(
+   index_entry *new_entry = pointer_byte_offset(
       hdr, hdr->next_entry - index_entry_size(new_pivot_key));
    dynamic_btree_fill_index_entry(cfg,
                                   hdr,
@@ -378,10 +379,10 @@ dynamic_btree_get_leaf_entry(const dynamic_btree_config *cfg,
 {
    /* Ensure that the kth entry's header is after the end of the table and
       before the end of the page. */
-   platform_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
-                   hdr->offsets[k]);
-   platform_assert(hdr->offsets[k] + sizeof(leaf_entry) <=
-                   dynamic_btree_page_size(cfg));
+   debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
+                hdr->offsets[k]);
+   debug_assert(hdr->offsets[k] + sizeof(leaf_entry) <=
+                dynamic_btree_page_size(cfg));
    leaf_entry *entry =
       (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
    debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry) <=
@@ -475,7 +476,7 @@ dynamic_btree_set_leaf_entry(const dynamic_btree_config *cfg,
       return FALSE;
    }
 
-   leaf_entry *new_entry = (leaf_entry *)pointer_byte_offset(
+   leaf_entry *new_entry = pointer_byte_offset(
       hdr, hdr->next_entry - leaf_entry_size(new_key, new_message));
    platform_assert((void *)&hdr->offsets[new_num_entries] <= (void *)new_entry);
    dynamic_btree_fill_leaf_entry(cfg, hdr, new_entry, new_key, new_message);
@@ -819,6 +820,9 @@ typedef struct leaf_splitting_plan {
    bool insertion_goes_left; // does the key to be inserted go to the left child
 } leaf_splitting_plan;
 
+static leaf_splitting_plan initial_plan = {0, FALSE};
+
+
 static bool
 most_of_entry_is_on_left_side(uint64 total_bytes,
                               uint64 left_bytes,
@@ -841,12 +845,12 @@ most_of_entry_is_on_left_side(uint64 total_bytes,
  * then we need to skip over the entry for the existing key.
  */
 static uint64
-accumulate_entries_loop(const dynamic_btree_config *cfg,
-                        const dynamic_btree_hdr *   hdr,
-                        uint64                      max_entries,
-                        uint64                      total_bytes,
-                        uint64                      left_bytes, // IN/OUT
-                        leaf_splitting_plan *       plan)              // IN/OUT
+plan_move_more_entries_to_left(const dynamic_btree_config *cfg,
+                               const dynamic_btree_hdr *   hdr,
+                               uint64                      max_entries,
+                               uint64                      total_bytes,
+                               uint64                      left_bytes,
+                               leaf_splitting_plan *       plan) // IN/OUT
 {
    leaf_entry *entry;
    while (plan->split_idx < max_entries &&
@@ -886,11 +890,11 @@ dynamic_btree_build_leaf_splitting_plan(const dynamic_btree_config *cfg, // IN
    /* Now figure out the number of entries to move, and figure out how
       much free space will be created in the left_hdr by the split. */
    uint64              left_bytes = 0;
-   leaf_splitting_plan plan       = {0, FALSE};
+   leaf_splitting_plan plan       = initial_plan;
 
    /* Figure out how many of the items to the left of spec.idx can be
       put into the left node. */
-   left_bytes = accumulate_entries_loop(
+   left_bytes = plan_move_more_entries_to_left(
       cfg, hdr, spec.idx, total_bytes, left_bytes, &plan);
 
    /* Figure out whether our new entry can go into the left node.  If it
@@ -910,7 +914,7 @@ dynamic_btree_build_leaf_splitting_plan(const dynamic_btree_config *cfg, // IN
 
    /* Figure out how many more entries after spec.idx can go into the
       left node. */
-   accumulate_entries_loop(
+   plan_move_more_entries_to_left(
       cfg, hdr, num_entries, total_bytes, left_bytes, &plan);
 
    return plan;
@@ -2422,7 +2426,33 @@ dynamic_btree_lookup_async(cache *                   cc,           // IN
  * dynamic_btree_iterator_advance --
  * dynamic_btree_iterator_at_end
  *
- *      initializes a dynamic_btree iterator
+ *
+ * This iterator implementation supports an upper bound key ub.  Given
+ * an upper bound, the iterator will return only keys strictly less
+ * than ub.
+ *
+ * In order to avoid comparing every key with ub, it precomputes,
+ * during initialization, the end leaf and end_idx of ub within that
+ * leaf.
+ *
+ * The iterator interacts with concurrent updates to the tree as
+ * follows.  Its guarantees very much depend on the fact that we do
+ * not delete entries in the tree.
+ *
+ * The iterator is guaranteed to see all keys that are between the
+ * lower and upper bounds and that were present in the tree when the
+ * iterator was initialized.
+ *
+ * One issue is splits of the end node that we computed during
+ * initialization.  If the end node splits after initialization but
+ * before the iterator gets to the end node, then some of the keys
+ * that we should visit may have been moved to the right sibling of
+ * the end node.
+ *
+ * So, whenever the iterator reaches the end node, it immediately
+ * checks whether the end node's generation has changed since the
+ * iterator was initialized.  If it has, then the iterator recomputes
+ * the end node and end_idx.
  *
  *-----------------------------------------------------------------------------
  */
@@ -2527,8 +2557,31 @@ dynamic_btree_iterator_advance(iterator *base_itor)
       dynamic_btree_node_get(cc, cfg, &itor->curr, itor->page_type);
       itor->idx = 0;
 
-      if (itor->curr.addr == itor->end_addr &&
-          itor->curr.hdr->generation != itor->end_generation) {
+      while (itor->curr.addr == itor->end_addr &&
+             itor->curr.hdr->generation != itor->end_generation) {
+         /* We need to recompute the end node and end_idx. (see
+            comment at beginning of iterator implementation for
+            high-level description)
+
+            There's a potential for deadlock with concurrent inserters
+            if we hold a read-lock on curr while looking up end, so we
+            temporarily release curr.
+
+            It is safe to relase curr because we are at index 0 of
+            curr.  To see why, observe that, at this point, curr
+            cannot be the first leaf in the tree (since we just
+            followed a next pointer a few lines above).  And, for
+            every leaf except the left-most leaf of the tree, no key
+            can ever be inserted into the leaf that is smaller than
+            the leaf's 0th entry, because its 0th entry is also its
+            pivot in its parent.  Thus we are guaranteed that the
+            first key curr will not change between the unget and the
+            get. Hence we will not "go backwards" i.e. return a key
+            smaller than the previous key) or skip any keys.
+            Furthermore, even if another thread comes along and splits
+            curr while we've released it, we will still want to
+            continue at curr (since we're at the 0th entry).
+         */
          dynamic_btree_node_unget(itor->cc, itor->cfg, &itor->curr);
          dynamic_btree_iterator_find_end(itor);
          dynamic_btree_node_get(
@@ -2635,8 +2688,6 @@ dynamic_btree_iterator_init(cache *                 cc,
    itor->page_type = page_type;
    itor->super.ops = &dynamic_btree_iterator_ops;
 
-   dynamic_btree_iterator_find_end(itor);
-
    dynamic_btree_lookup_node(itor->cc,
                              itor->cfg,
                              itor->root_addr,
@@ -2647,6 +2698,43 @@ dynamic_btree_iterator_init(cache *                 cc,
                              NULL,
                              NULL,
                              NULL);
+   /* We have to claim curr in order to prevent possible deadlocks
+    * with insertion threads while finding the end node.
+    *
+    * Note that we can't lookup end first because, if there's a split
+    * between looking up end and looking up curr, we could end up in a
+    * situation where end comes before curr in the tree!  (We could
+    * prevent this by holding a claim on end while looking up curr,
+    * but that would essentially be the same as the code below.)
+    *
+    * Note that the approach in advance (i.e. releasing and reaquiring
+    * a lock on curr) is not viable here because we are not
+    * necessarily searching for the 0th entry in curr.  Thus a split
+    * of curr while we have released it could mean that we really want
+    * to start at curr's right sibling (after the split).  So we'd
+    * have to redo the search from scratch after releasing curr.
+    *
+    * So we take a claim on curr instead.
+    */
+   while (!dynamic_btree_node_claim(cc, cfg, &itor->curr)) {
+      dynamic_btree_node_unget(cc, cfg, &itor->curr);
+      dynamic_btree_lookup_node(itor->cc,
+                                itor->cfg,
+                                itor->root_addr,
+                                min_key,
+                                itor->height,
+                                itor->page_type,
+                                &itor->curr,
+                                NULL,
+                                NULL,
+                                NULL);
+   }
+
+   dynamic_btree_iterator_find_end(itor);
+
+   /* Once we've found end, we can unclaim curr. */
+   dynamic_btree_node_unclaim(cc, cfg, &itor->curr);
+
    bool  found;
    int64 tmp;
    if (itor->height == 0) {
