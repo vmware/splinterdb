@@ -447,7 +447,7 @@ routing_filter_add(cache *          cc,
    // set up the index pages
    uint64 addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64       index_addr = mini_alloc(&mini, 0, NULL, NULL);
+   uint64       index_addr = mini_alloc(&mini, 0, NULL_SLICE, NULL);
    if (index_addr == 0 || index_addr % extent_size != 0) {
       platform_error_log("Failed to allocate first index page for filter\n");
       rc = STATUS_NO_SPACE;

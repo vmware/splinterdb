@@ -19,7 +19,7 @@
 
 static uint64 shard_log_magic_idx = 0;
 
-int
+platform_status MUST_CHECK_RESULT
 shard_log_write(log_handle *log, slice key, slice data, uint64 generation);
 uint64
 shard_log_addr(log_handle *log);
@@ -110,7 +110,6 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
       shard_log_thread_data *thread_data
          = shard_log_get_thread_data(log, thr_i);
       thread_data->addr   = SHARD_UNMAPPED;
-      thread_data->pos    = 0;
       thread_data->offset = 0;
    }
 
@@ -130,8 +129,7 @@ shard_log_zap(shard_log *log)
    for (threadid i = 0; i < MAX_THREADS; i++) {
       shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
       thread_data->addr = SHARD_UNMAPPED;
-      thread_data->pos = 0;
-      thread_data->offset = 0;
+      thread_data->offset                = 0;
    }
 
    mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
@@ -280,7 +278,7 @@ shard_log_write(log_handle *logh,
    cache_unclaim(cc, page);
    cache_unget(cc, page);
 
-   return 0;
+   return STATUS_OK;
 }
 
 uint64
@@ -365,8 +363,6 @@ shard_log_iterator_init(cache              *cc,
    uint64       num_valid_pages = 0;
    uint64       extent_addr;
    uint64       next_extent_addr;
-   uint64       entry_size;
-   char        *cursor, *temp;
 
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.ops = &shard_log_iterator_ops;
@@ -421,7 +417,6 @@ shard_log_iterator_init(cache              *cc,
       extent_addr = next_extent_addr;
    }
 
-   itor->cursor = itor->contents;
    // sort by generation
    log_entry *tmp;
    platform_sort_slow(itor->entries,

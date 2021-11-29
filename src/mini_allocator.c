@@ -605,6 +605,10 @@ mini_alloc(mini_allocator *mini,
    uint64 new_next_addr = next_addr + cache_page_size(mini->cc);
    mini_unlock_batch_set_next_addr(mini, batch, new_next_addr);
    return next_addr;
+
+extent_allocation_failure:
+   mini_unlock_batch_set_next_addr(mini, batch, next_addr);
+   return 0;
 }
 
 /*

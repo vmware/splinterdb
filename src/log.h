@@ -18,10 +18,10 @@ typedef struct log_handle log_handle;
 typedef struct log_iterator log_iterator;
 typedef struct log_config log_config;
 
-typedef int (*log_write_fn)(log_handle *log,
-                            const slice key,
-                            const slice data,
-                            uint64      generation);
+typedef MUST_CHECK_RESULT platform_status (*log_write_fn)(log_handle *log,
+                                                          const slice key,
+                                                          const slice data,
+                                                          uint64 generation);
 typedef void   (*log_release_fn) (log_handle *log);
 typedef uint64 (*log_addr_fn)    (log_handle *log);
 typedef uint64 (*log_magic_fn)   (log_handle *log);
@@ -39,7 +39,7 @@ struct log_handle {
    const log_ops *ops;
 };
 
-static inline int
+static inline MUST_CHECK_RESULT platform_status
 log_write(log_handle *log, const slice key, const slice data, uint64 generation)
 {
    return log->ops->write(log, key, data, generation);

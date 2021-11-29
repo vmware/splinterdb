@@ -972,8 +972,6 @@ btree_split_root(btree_config *  cfg,   // IN
    }
    root_node->hdr->height++;
    btree_add_pivot_at_pos(cfg, root_node, &left_node, 0, TRUE);
-   btree_node right_node;
-   btree_add_split_pivot(cc, cfg, mini, root_node, &left_node, &right_node);
 
    // release root
    btree_node_unlock(cc, cfg, root_node);
@@ -2176,7 +2174,8 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
    if (!SUCCESS(rc)) {
       char last_key[MAX_KEY_SIZE];
       memmove(last_key, tree->cfg->data_cfg->max_key, MAX_KEY_SIZE);
-      mini_release(&tree->mini, last_key);
+      slice last_slice = slice_create(tree->cfg->data_cfg->key_size, last_key);
+      mini_release(&tree->mini, last_slice);
       btree_zap_range(
          tree->cc, tree->cfg, *(tree->root_addr), NULL, NULL, PAGE_TYPE_BRANCH);
       *(tree->root_addr) = 0;
@@ -2187,7 +2186,7 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
    return STATUS_OK;
 }
 
-static inline MUST_CHECK_RESULT platform_status
+void
 btree_pack_loop(btree_pack_internal *tree, // IN/OUT
                 const char *         key,  // IN
                 const char *         data, // IN

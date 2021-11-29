@@ -101,7 +101,8 @@ typedef struct {
 
 #define UNUSED_PARAM(_parm) _parm  __attribute__((__unused__))
 #define UNUSED_TYPE(_parm) UNUSED_PARAM(_parm)
-#define MUST_CHECK_RESULT   __attribute__((warn_unused_result))
+/* #define MUST_CHECK_RESULT   __attribute__((warn_unused_result)) */
+#define MUST_CHECK_RESULT
 
 #define ROUNDUP(x,y)    (((x) + (y) - 1) / (y) * (y))
 #define ROUNDDOWN(x,y)  ((x) / (y) * (y))

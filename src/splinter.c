@@ -610,9 +610,9 @@ void                               splinter_compact_bundle            (void *arg
 int                                splinter_flush                     (splinter_handle *spl, page_handle *parent, splinter_pivot_data *pdata, bool is_space_rec);
 int                                splinter_flush_fullest             (splinter_handle *spl, page_handle *node);
 static inline bool                 splinter_needs_split               (splinter_handle *spl, page_handle *node);
-int                                splinter_split_index               (splinter_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
-void                               splinter_split_leaf                (splinter_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
-int                                splinter_split_root                (splinter_handle *spl, page_handle     *root);
+MUST_CHECK_RESULT platform_status  splinter_split_index               (splinter_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
+MUST_CHECK_RESULT platform_status  splinter_split_leaf                (splinter_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
+MUST_CHECK_RESULT platform_status  splinter_split_root                (splinter_handle *spl, page_handle     *root);
 void                               splinter_print                     (splinter_handle *spl);
 void                               splinter_print_node                (splinter_handle *spl, uint64 addr, platform_stream_handle stream);
 void                               splinter_print_locked_node         (splinter_handle *spl, page_handle *node, platform_stream_handle stream);
@@ -2952,9 +2952,9 @@ splinter_memtable_insert(splinter_handle *spl, char *key, char *message)
    if (spl->cfg.use_log) {
       slice key_slice     = slice_create(splinter_key_size(spl), key);
       slice message_slice = slice_create(splinter_message_size(spl), message);
-      int   crappy_rc =
+      platform_status crappy_rc =
          log_write(spl->log, key_slice, message_slice, leaf_generation);
-      if (crappy_rc != 0) {
+      if (!SUCCESS(crappy_rc)) {
          goto unlock_insert_lock;
       }
    }
@@ -4869,8 +4869,7 @@ splinter_split_index(splinter_handle *spl,
    }
 
    // add right child to parent
-   platform_status rc =
-      splinter_add_pivot(spl, parent, right_node, pivot_no + 1);
+   rc = splinter_add_pivot(spl, parent, right_node, pivot_no + 1);
    platform_assert(SUCCESS(rc));
    splinter_pivot_recount_num_tuples(spl, parent, pivot_no);
    splinter_pivot_recount_num_tuples(spl, parent, pivot_no + 1);
@@ -5312,6 +5311,8 @@ splinter_split_leaf(splinter_handle *spl,
          spl->stats[tid].leaf_split_max_time_ns = split_time;
       }
    }
+
+   return STATUS_OK;
 }
 
 
@@ -5326,7 +5327,7 @@ splinter_split_root(splinter_handle *spl, page_handle *root)
    if (!child) {
       platform_error_log(
          "Failed to allocate child during splinter root split\n");
-      rc = NO_SPACE;
+      rc = STATUS_NO_SPACE;
       goto child_alloc_failure;
    }
    splinter_trunk_hdr *child_hdr = (splinter_trunk_hdr *)child->data;
@@ -6908,7 +6909,7 @@ set_super_block_failure:
 log_create_failure:
    memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
 memtable_context_create_failure:
-   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_TRUNK);
+   mini_unkeyed_dec_ref(cc, meta_addr, PAGE_TYPE_TRUNK);
 mini_init_failure:
    allocator_dec_ref(spl->al, spl->root_addr, PAGE_TYPE_TRUNK);
 splinter_root_allocation_failure:
@@ -7163,6 +7164,7 @@ splinter_dismount(splinter_handle *spl)
       splinter_destroy_stats(spl);
    }
    platform_free(spl->heap_id, spl);
+   return STATUS_OK;
 }
 
 /*
