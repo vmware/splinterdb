@@ -617,7 +617,7 @@ void                               splinter_print                     (splinter_
 void                               splinter_print_node                (splinter_handle *spl, uint64 addr, platform_stream_handle stream);
 void                               splinter_print_locked_node         (splinter_handle *spl, page_handle *node, platform_stream_handle stream);
 static void                        splinter_btree_skiperator_init     (splinter_handle *spl, splinter_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static SPLINTER_MAX_PIVOTS]);
-void                               splinter_btree_skiperator_get_curr (iterator *itor, char **key, char **data);
+void                               splinter_btree_skiperator_get_curr (iterator *itor, slice *key, slice *data);
 platform_status                    splinter_btree_skiperator_advance  (iterator *itor);
 platform_status                    splinter_btree_skiperator_at_end   (iterator *itor, bool *at_end);
 void                               splinter_btree_skiperator_print    (iterator *itor);
@@ -928,7 +928,7 @@ splinter_node_unlock(splinter_handle *spl,
 page_handle *
 splinter_alloc(splinter_handle *spl, uint64 height)
 {
-   uint64 addr = mini_alloc(&spl->mini, height, NULL, NULL);
+   uint64 addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 
@@ -2739,7 +2739,7 @@ splinter_btree_lookup(splinter_handle *spl,
    if (local_found) {
       *found = TRUE;
       if (needs_merge) {
-         data_merge_tuples(data_cfg, key, data_temp, data);
+         fixed_size_data_merge_tuples(data_cfg, key, data_temp, data);
       } else {
          memmove(data, data_temp, splinter_message_size(spl));
       }
@@ -2796,7 +2796,7 @@ splinter_btree_lookup_async(splinter_handle     *spl,      // IN
    if (res == async_success && local_found) {
       *found = TRUE;
       if (needs_merge) {
-         data_merge_tuples(data_cfg, key, data_temp, data);
+         fixed_size_data_merge_tuples(data_cfg, key, data_temp, data);
       } else {
          memmove(data, data_temp, splinter_message_size(spl));
       }
@@ -2925,9 +2925,7 @@ splinter_memtable_iterator_deinit(splinter_handle *spl,
  *       responsible for flushing it.
  */
 platform_status
-splinter_memtable_insert(splinter_handle *spl,
-                         char            *key,
-                         char            *data)
+splinter_memtable_insert(splinter_handle *spl, char *key, char *message)
 {
    page_handle *lock_page;
    uint64 generation;
@@ -2940,13 +2938,16 @@ splinter_memtable_insert(splinter_handle *spl,
    // this call is safe because we hold the insert lock
    memtable *mt = splinter_get_memtable(spl, generation);
    uint64 leaf_generation; // used for ordering the log
-   rc = memtable_insert(spl->mt_ctxt, mt, key, data, &leaf_generation);
+   rc = memtable_insert(spl->mt_ctxt, mt, key, message, &leaf_generation);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
 
    if (spl->cfg.use_log) {
-      int crappy_rc = log_write(spl->log, key, data, leaf_generation);
+      slice key_slice     = slice_create(splinter_key_size(spl), key);
+      slice message_slice = slice_create(splinter_message_size(spl), message);
+      int   crappy_rc =
+         log_write(spl->log, key_slice, message_slice, leaf_generation);
       if (crappy_rc != 0) {
          goto unlock_insert_lock;
       }
@@ -2972,7 +2973,7 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    memtable *mt = splinter_get_memtable(spl, generation);
 
    memtable_transition(mt, MEMTABLE_STATE_FINALIZED, MEMTABLE_STATE_COMPACTING);
-   mini_release(&mt->mini, NULL);
+   mini_release(&mt->mini, NULL_SLICE);
 
    splinter_compacted_memtable *cmt =
       splinter_get_compacted_memtable(spl, generation);
@@ -3367,12 +3368,12 @@ splinter_memtable_lookup(splinter_handle *spl,
    if (local_found) {
       *found = TRUE;
       if (needs_merge) {
-         data_merge_tuples(data_cfg, key, data_temp, data);
+         fixed_size_data_merge_tuples(data_cfg, key, data_temp, data);
       } else {
          memmove(data, data_temp, splinter_message_size(spl));
       }
       btree_node_unget(cc, cfg, &node);
-      message_type type = data_message_class(data_cfg, data);
+      message_type type = fixed_size_data_message_class(data_cfg, data);
       if (type != MESSAGE_TYPE_UPDATE) {
          return FALSE;
       }
@@ -3773,8 +3774,9 @@ splinter_filter_lookup_async(splinter_handle    *spl,
                              uint64             *found_values,
                              routing_async_ctxt *ctxt)
 {
-   return routing_filter_lookup_async(spl->cc, cfg, filter, key, found_values,
-         ctxt);
+   slice key_slice = slice_create(cfg->data_cfg->key_size, key);
+   return routing_filter_lookup_async(
+      spl->cc, cfg, filter, key_slice, found_values, ctxt);
 }
 
 /*
@@ -4237,7 +4239,7 @@ splinter_btree_skiperator_init(
 }
 
 void
-splinter_btree_skiperator_get_curr(iterator *itor, char **key, char **data)
+splinter_btree_skiperator_get_curr(iterator *itor, slice *key, slice *data)
 {
    debug_assert(itor != NULL);
    splinter_btree_skiperator *skip_itor = (splinter_btree_skiperator *)itor;
@@ -5101,11 +5103,12 @@ splinter_split_leaf(splinter_handle *spl,
          }
 
          if (!at_end) {
-            char *curr_key, *dummy_data;
+            slice curr_key, dummy_data;
             iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
+            debug_assert(slice_length(curr_key) == splinter_key_size(spl));
             // copy new pivot (in parent) of new leaf
             memmove(scratch->pivot[num_leaves + 1],
-                    curr_key,
+                    slice_data(curr_key),
                     splinter_key_size(spl));
          }
       }
@@ -5347,7 +5350,7 @@ splinter_split_root(splinter_handle *spl,
  */
 
 void
-                 splinter_range_iterator_get_curr(iterator *itor, char **key, char **data);
+                 splinter_range_iterator_get_curr(iterator *itor, slice *key, slice *data);
 platform_status  splinter_range_iterator_at_end   (iterator *itor, bool *at_end);
 platform_status  splinter_range_iterator_advance  (iterator *itor);
 void             splinter_range_iterator_deinit   (splinter_range_iterator *range_itor);
@@ -5551,7 +5554,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
 }
 
 void
-splinter_range_iterator_get_curr(iterator *itor, char **key, char **data)
+splinter_range_iterator_get_curr(iterator *itor, slice *key, slice *data)
 {
    debug_assert(itor != NULL);
    splinter_range_iterator *range_itor = (splinter_range_iterator *)itor;
@@ -5826,7 +5829,7 @@ splinter_insert(splinter_handle *spl,
    }
 
    if (spl->cfg.use_stats) {
-      switch(data_message_class(data_cfg, data)) {
+      switch (fixed_size_data_message_class(data_cfg, data)) {
          case MESSAGE_TYPE_INSERT:
             spl->stats[tid].insertions++;
             platform_histo_insert(spl->stats[tid].insert_latency_histo,
@@ -5869,8 +5872,9 @@ splinter_filter_lookup(splinter_handle *spl,
    }
 
    uint64 found_values;
+   slice  key_slice = slice_create(cfg->data_cfg->key_size, (void *)key);
    platform_status rc =
-      routing_filter_lookup(spl->cc, cfg, filter, key, &found_values);
+      routing_filter_lookup(spl->cc, cfg, filter, key_slice, &found_values);
    platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       spl->stats[tid].filter_lookups[height]++;
@@ -5886,7 +5890,8 @@ splinter_filter_lookup(splinter_handle *spl,
          spl->stats[tid].branch_lookups[height]++;
       }
       if (local_found) {
-         if (data_message_class(spl->cfg.data_cfg, data) != MESSAGE_TYPE_UPDATE) {
+         if (fixed_size_data_message_class(spl->cfg.data_cfg, data) !=
+             MESSAGE_TYPE_UPDATE) {
             return FALSE;
          }
       } else if(spl->cfg.use_stats) {
@@ -5923,8 +5928,9 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
       routing_filter *filter =
          splinter_subbundle_filter(spl, node, sb, filter_no);
       debug_assert(filter->addr != 0);
-      platform_status rc = routing_filter_lookup(spl->cc,
-            &spl->cfg.leaf_filter_cfg, filter, key, &found_values);
+      slice key_slice = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
+      platform_status rc = routing_filter_lookup(
+         spl->cc, &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
       platform_assert_status_ok(rc);
       if (found_values) {
          uint16 branch_no = sb->start_branch;
@@ -5935,7 +5941,8 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
             spl->stats[tid].branch_lookups[height]++;
          }
          if (local_found) {
-            if (data_message_class(spl->cfg.data_cfg, data) != MESSAGE_TYPE_UPDATE) {
+            if (fixed_size_data_message_class(spl->cfg.data_cfg, data) !=
+                MESSAGE_TYPE_UPDATE) {
                return FALSE;
             }
          } else if(spl->cfg.use_stats) {
@@ -6035,7 +6042,7 @@ splinter_lookup(splinter_handle *spl,
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       splinter_memtable_lookup(spl, mt_gen, key, data, found);
       if (*found) {
-         type = data_message_class(data_cfg, data);
+         type = fixed_size_data_message_class(data_cfg, data);
          if (type != MESSAGE_TYPE_UPDATE) {
             found_in_memtable = TRUE;
             goto found_final_answer_early;
@@ -6072,12 +6079,13 @@ splinter_lookup(splinter_handle *spl,
       goto found_final_answer_early;
    }
 
-   platform_assert(!*found || data_message_class(data_cfg, data) == MESSAGE_TYPE_UPDATE);
+   platform_assert(!*found || fixed_size_data_message_class(data_cfg, data) ==
+                                 MESSAGE_TYPE_UPDATE);
    if (*found) {
-      data_merge_tuples_final(spl->cfg.data_cfg, key, data);
+      fixed_size_data_merge_tuples_final(spl->cfg.data_cfg, key, data);
 found_final_answer_early:
-      type = data_message_class(data_cfg, data);
-      *found = type != MESSAGE_TYPE_DELETE;
+   type   = fixed_size_data_message_class(data_cfg, data);
+   *found = type != MESSAGE_TYPE_DELETE;
    }
 
    if (found_in_memtable) {
@@ -6250,7 +6258,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
          for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
             splinter_memtable_lookup(spl, mt_gen, key, data, &ctxt->found);
             if (ctxt->found) {
-               ctxt->type = data_message_class(data_cfg, data);
+               ctxt->type = fixed_size_data_message_class(data_cfg, data);
                if (ctxt->type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
                         async_state_found_final_answer_early);
@@ -6467,7 +6475,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
          case async_success:
             // I don't own the cache context, btree does
             if (ctxt->found) {
-               ctxt->type = data_message_class(data_cfg, data);
+               ctxt->type = fixed_size_data_message_class(data_cfg, data);
                if (ctxt->type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
                              async_state_found_final_answer_early);
@@ -6531,8 +6539,8 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
       {
          if (ctxt->height == 0) {
             if (ctxt->found && ctxt->type != MESSAGE_TYPE_INSERT) {
-               data_merge_tuples_final(spl->cfg.data_cfg, key, data);
-               ctxt->type = data_message_class(data_cfg, data);
+               fixed_size_data_merge_tuples_final(spl->cfg.data_cfg, key, data);
+               ctxt->type  = fixed_size_data_message_class(data_cfg, data);
                ctxt->found = ctxt->type != MESSAGE_TYPE_DELETE;
             }
             splinter_async_set_state(ctxt, async_state_end);
@@ -6645,12 +6653,14 @@ splinter_range(splinter_handle *spl,
    iterator_at_end(&range_itor->super, &at_end);
 
    for (*tuples_returned = 0; *tuples_returned < num_tuples && !at_end; (*tuples_returned)++) {
-      char *key, *data;
+      slice key, data;
       iterator_get_curr(&range_itor->super, &key, &data);
+      debug_assert(slice_length(key) == splinter_key_size(spl));
+      debug_assert(slice_length(data) == splinter_message_size(spl));
       char *next_key = out + *tuples_returned * (splinter_key_size(spl) + splinter_message_size(spl));
       char *next_data = next_key + splinter_key_size(spl);
-      memmove(next_key, key, splinter_key_size(spl));
-      memmove(next_data, data, splinter_message_size(spl));
+      memmove(next_key, slice_data(key), splinter_key_size(spl));
+      memmove(next_data, slice_data(data), splinter_message_size(spl));
       iterator_advance(&range_itor->super);
       iterator_at_end(&range_itor->super, &at_end);
    }
@@ -6963,7 +6973,7 @@ splinter_destroy(splinter_handle *spl)
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
-   mini_release(&spl->mini, NULL);
+   mini_release(&spl->mini, NULL_SLICE);
    mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
 
    // clear out this splinter table from the meta page.

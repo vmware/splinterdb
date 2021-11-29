@@ -7,6 +7,8 @@
 
 #include "poison.h"
 
+const slice NULL_SLICE = (slice){0, NULL};
+
 /*
  * Utility function; you should not use this directly
  * negative_limit and positive_limit are absolute values

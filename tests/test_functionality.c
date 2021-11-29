@@ -164,31 +164,29 @@ verify_against_shadow(splinter_handle *spl,
    */
 
 platform_status
-verify_range_against_shadow(splinter_handle            *spl,
+verify_range_against_shadow(splinter_handle *           spl,
                             test_splinter_shadow_array *sharr,
-                            char                       *start_key,
-                            char                       *end_key,
+                            char *                      start_key,
+                            char *                      end_key,
                             platform_heap_id            hid,
                             uint64                      start_index,
                             uint64                      end_index)
 {
-   platform_status status;
-   uint64 *splinter_keybuf;
-   data_handle *splinter_data;
-   uint64 splinter_key;
-   uint64 i;
-   bool at_end;
+   platform_status    status;
+   slice              splinter_keybuf;
+   slice              splinter_message;
+   const data_handle *splinter_data_handle;
+   uint64             splinter_key;
+   uint64             i;
+   bool               at_end;
 
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
 
    splinter_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
-   status = splinter_range_iterator_init(spl,
-         range_itor,
-         start_key,
-         end_key,
-         end_index - start_index);
+   status = splinter_range_iterator_init(
+      spl, range_itor, start_key, end_key, end_index - start_index);
    if (!SUCCESS(status)) {
       platform_error_log("failed to create range itor: %s\n",
                          platform_status_to_string(status));
@@ -196,28 +194,30 @@ verify_range_against_shadow(splinter_handle            *spl,
    }
 
    for (i = start_index; i < end_index; i++) {
-      uint64 shadow_key = sharr->keys[i];
-      int8 shadow_refcount = sharr->ref_counts[i];
+      uint64 shadow_key      = sharr->keys[i];
+      int8   shadow_refcount = sharr->ref_counts[i];
 
       if (shadow_refcount == 0)
          continue;
 
       status = iterator_at_end((iterator *)range_itor, &at_end);
       if (!SUCCESS(status) || at_end) {
-         platform_error_log("ERROR: range itor failed or terminated early (at_end = %d): %s\n",
-                            at_end, platform_status_to_string(status));
+         platform_error_log(
+            "ERROR: range itor failed or terminated early (at_end = %d): %s\n",
+            at_end,
+            platform_status_to_string(status));
          if (SUCCESS(status)) {
             status = STATUS_NO_PERMISSION;
          }
          goto destroy;
       }
 
-      iterator_get_curr((iterator *)range_itor,
-                        (char **)&splinter_keybuf,
-                        (char **)&splinter_data);
-      splinter_key = be64toh(*splinter_keybuf);
+      iterator_get_curr(
+         (iterator *)range_itor, &splinter_keybuf, &splinter_message);
+      splinter_key         = be64toh(*(uint64 *)slice_data(splinter_keybuf));
+      splinter_data_handle = slice_data(splinter_message);
 
-      //platform_log("Range test %d: Shadow: 0x%08lx, Tree: 0x%08lx\n",
+      // platform_log("Range test %d: Shadow: 0x%08lx, Tree: 0x%08lx\n",
       //   i,
       //   be64toh(*(uint64 *)shadow_key),
       //   be64toh(*(uint64 *)key_p));
@@ -225,30 +225,31 @@ verify_range_against_shadow(splinter_handle            *spl,
       if (splinter_key == shadow_key) {
          status = STATUS_OK;
       } else {
-         platform_error_log("ERROR: Key mismatch: "
-               "Shadow Key: 0x%08lx, Shadow Refcount: %3d, "
-               "Tree Key: 0x%08lx, Tree Msg Type: 0x%02x, Tree Refcount: %3d\n",
-               shadow_key,
-               shadow_refcount,
-               splinter_key,
-               splinter_data->message_type,
-               splinter_data->ref_count);
+         platform_error_log(
+            "ERROR: Key mismatch: "
+            "Shadow Key: 0x%08lx, Shadow Refcount: %3d, "
+            "Tree Key: 0x%08lx, Tree Msg Type: 0x%02x, Tree Refcount: %3d\n",
+            shadow_key,
+            shadow_refcount,
+            splinter_key,
+            splinter_data_handle->message_type,
+            splinter_data_handle->ref_count);
          platform_assert(0);
          status = STATUS_INVALID_STATE;
          goto destroy;
       }
 
-      if (shadow_refcount == splinter_data->ref_count) {
+      if (shadow_refcount == splinter_data_handle->ref_count) {
          status = STATUS_OK;
       } else {
          platform_error_log("ERROR: Refcount mismatch: "
-               "key: 0x%08lx, Shadow refcount: %3d, "
-               "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
-               shadow_key,
-               shadow_refcount,
-               splinter_data->message_type,
-               splinter_data->ref_count);
-         splinter_print_lookup(spl, (char *)splinter_keybuf);
+                            "key: 0x%08lx, Shadow refcount: %3d, "
+                            "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
+                            shadow_key,
+                            shadow_refcount,
+                            splinter_data_handle->message_type,
+                            splinter_data_handle->ref_count);
+         splinter_print_lookup(spl, (char *)slice_data(splinter_keybuf));
          platform_assert(0);
          status = STATUS_INVALID_STATE;
          goto destroy;
@@ -263,16 +264,15 @@ verify_range_against_shadow(splinter_handle            *spl,
    while (SUCCESS(iterator_at_end((iterator *)range_itor, &at_end)) &&
           !at_end) {
       status = STATUS_LIMIT_EXCEEDED;
-      iterator_get_curr((iterator *)range_itor,
-                        (char **)&splinter_keybuf,
-                        (char **)&splinter_data);
-      splinter_key = be64toh(*splinter_keybuf);
+      iterator_get_curr(
+         (iterator *)range_itor, &splinter_keybuf, &splinter_message);
+      splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
 
       platform_log("Range iterator EXTRA KEY: %08lx \n"
-            "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
-            splinter_key,
-            splinter_data->message_type,
-            splinter_data->ref_count);
+                   "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
+                   splinter_key,
+                   splinter_data_handle->message_type,
+                   splinter_data_handle->ref_count);
       if (!SUCCESS(iterator_advance((iterator *)range_itor))) {
          goto destroy;
       }

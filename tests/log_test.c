@@ -21,107 +21,27 @@
 #include "poison.h"
 
 int
-test_log_basic(cache            *cc,
-               shard_log_config *cfg,
-               shard_log        *log,
-               uint64            num_entries,
-               platform_heap_id  hid)
-{
-   platform_status     rc;
-   log_handle         *logh;
-   uint64              i;
-   char                key[MAX_KEY_SIZE];
-   char               *data = TYPED_ARRAY_MALLOC(hid, data,
-                                                 cfg->data_cfg->message_size);
-   char               *returned_key;
-   char               *returned_data;
-   char                dummy = 'z';
-   uint64              addr;
-   uint64              magic;
-   shard_log_iterator  itor;
-   iterator           *itorh = (iterator *)&itor;
-   char                key_str[128];
-   char                data_str[128];
-   bool                at_end;
-
-   rc = shard_log_init(log, cc, cfg);
-   platform_assert_status_ok(rc);
-   logh = (log_handle *)log;
-
-   addr = log_addr(logh);
-   magic = log_magic(logh);
-
-   for (i = 0; i < num_entries; i++) {
-      test_key(key, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      log_write(logh, key, data, i);
-   }
-
-   mini_release(&log->mini, NULL);
-
-   rc = shard_log_iterator_init(cc, cfg, hid, addr, magic, &itor);
-   platform_assert_status_ok(rc);
-   itorh = (iterator *)&itor;
-
-   iterator_at_end(itorh, &at_end);
-   //while (!at_end) {
-   //   iterator_get_curr(itorh, &returned_key, &returned_data);
-   //   cfg->data_cfg->key_to_string(returned_key, key_str, 0);
-   //   cfg->data_cfg->data_to_string(returned_data, data_str, 0);
-   //   platform_log("actual: %s -- %s\n", key_str, data_str);
-   //   iterator_advance(itorh);
-   //   iterator_at_end(itorh, &at_end);
-   //}
-
-   for (i = 0; i < num_entries && !at_end; i++) {
-      test_key(key, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      iterator_get_curr(itorh, &returned_key, &returned_data);
-      if (data_key_compare(cfg->data_cfg, key, returned_key) != 0
-            || memcmp(data, returned_data, cfg->data_cfg->message_size) != 0) {
-         platform_log("log_test_basic: key or data mismatch\n");
-         data_key_to_string(cfg->data_cfg, key, key_str, 128);
-         data_message_to_string(cfg->data_cfg, data, data_str, 128);
-         platform_log("expected: %s -- %s\n", key_str, data_str);
-         data_key_to_string(cfg->data_cfg, returned_key, key_str, 128);
-         data_message_to_string(cfg->data_cfg, returned_data, data_str, 128);
-         platform_log("actual: %s -- %s\n", key_str, data_str);
-         platform_assert(0);
-      }
-      iterator_advance(itorh);
-      iterator_at_end(itorh, &at_end);
-   }
-
-   platform_log("log returned %lu of %lu entries\n", i, num_entries);
-
-   shard_log_iterator_deinit(hid, &itor);
-   shard_log_zap(log);
-
-   platform_free(hid, data);
-   return 0;
-}
-
-int
-test_log_crash(clockcache           *cc,
-               clockcache_config    *cache_cfg,
-               io_handle            *io,
-               allocator            *al,
-               shard_log_config     *cfg,
-               shard_log            *log,
-               uint64                num_entries,
-               task_system          *ts,
-               platform_heap_handle  hh,
-               platform_heap_id      hid)
+test_log_crash(clockcache *         cc,
+               clockcache_config *  cache_cfg,
+               io_handle *          io,
+               allocator *          al,
+               shard_log_config *   cfg,
+               shard_log *          log,
+               uint64               num_entries,
+               task_system *        ts,
+               platform_heap_handle hh,
+               platform_heap_id     hid,
+               bool                 crash)
 
 {
    platform_status     rc;
    log_handle         *logh;
    uint64              i;
-   char                key[MAX_KEY_SIZE];
-   char               *data = TYPED_ARRAY_MALLOC(hid, data,
-                                                 cfg->data_cfg->message_size);
-   char               *returned_key;
-   char               *returned_data;
+   char                keybuffer[MAX_KEY_SIZE];
+   char *              databuffer =
+      TYPED_ARRAY_MALLOC(hid, databuffer, cfg->data_cfg->message_size);
+   slice               returned_key;
+   slice               returned_message;
    char                dummy = 'z';
    uint64              addr;
    uint64              magic;
@@ -139,16 +59,34 @@ test_log_crash(clockcache           *cc,
    addr = log_addr(logh);
    magic = log_magic(logh);
 
+
    for (i = 0; i < num_entries; i++) {
-      test_key(key, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      log_write(logh, key, data, i);
+      test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
+      test_insert_data(databuffer,
+                       1,
+                       &dummy,
+                       0,
+                       cfg->data_cfg->message_size,
+                       MESSAGE_TYPE_INSERT);
+      slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
+      slice smessage =
+         slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
+      log_write(logh, skey, smessage, i);
    }
 
-   clockcache_deinit(cc);
-   rc = clockcache_init(cc, cache_cfg, io, al, "crashed", ts, hh, hid,
-                        platform_get_module_id());
-   platform_assert_status_ok(rc);
+   if (crash) {
+      clockcache_deinit(cc);
+      rc = clockcache_init(cc,
+                           cache_cfg,
+                           io,
+                           al,
+                           "crashed",
+                           ts,
+                           hh,
+                           hid,
+                           platform_get_module_id());
+      platform_assert_status_ok(rc);
+   }
 
    rc = shard_log_iterator_init((cache *)cc, cfg, hid, addr, magic, &itor);
    platform_assert_status_ok(rc);
@@ -156,17 +94,25 @@ test_log_crash(clockcache           *cc,
 
    iterator_at_end(itorh, &at_end);
    for (i = 0; i < num_entries && !at_end; i++) {
-      test_key(key, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(data, 1, &dummy, 0, cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      iterator_get_curr(itorh, &returned_key, &returned_data);
-      if (data_key_compare(cfg->data_cfg, key, returned_key) != 0
-            || memcmp(data, returned_data, cfg->data_cfg->message_size) != 0) {
+      test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
+      test_insert_data(databuffer,
+                       1,
+                       &dummy,
+                       0,
+                       cfg->data_cfg->message_size,
+                       MESSAGE_TYPE_INSERT);
+      slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
+      slice smessage =
+         slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
+      iterator_get_curr(itorh, &returned_key, &returned_message);
+      if (slice_lex_cmp(skey, returned_key) ||
+          slice_lex_cmp(smessage, returned_message)) {
          platform_log("log_test_basic: key or data mismatch\n");
-         data_key_to_string(cfg->data_cfg, key, key_str, 0);
-         data_message_to_string(cfg->data_cfg, data, data_str, 0);
+         data_key_to_string(cfg->data_cfg, skey, key_str, 128);
+         data_message_to_string(cfg->data_cfg, smessage, data_str, 128);
          platform_log("expected: %s -- %s\n", key_str, data_str);
-         data_key_to_string(cfg->data_cfg, returned_key, key_str, 0);
-         data_message_to_string(cfg->data_cfg, returned_data, data_str, 0);
+         data_key_to_string(cfg->data_cfg, returned_key, key_str, 128);
+         data_message_to_string(cfg->data_cfg, returned_message, data_str, 128);
          platform_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }
@@ -179,7 +125,7 @@ test_log_crash(clockcache           *cc,
    shard_log_iterator_deinit(hid, &itor);
    shard_log_zap(log);
 
-   platform_free(hid, data);
+   platform_free(hid, databuffer);
    return 0;
 }
 
@@ -205,10 +151,13 @@ test_log_thread(void *arg)
    char *data = TYPED_ARRAY_MALLOC(hid, data, log->cfg->data_cfg->message_size);
    char dummy;
 
+   slice skey     = slice_create(log->cfg->data_cfg->key_size, key);
+   slice smessage = slice_create(log->cfg->data_cfg->message_size, data);
+
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       test_insert_data(data, 1, &dummy, 0, log->cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      log_write(logh, key, data, i);
+      log_write(logh, skey, smessage, i);
    }
 
    platform_free(hid, data);
@@ -373,11 +322,30 @@ log_test(int argc, char *argv[])
       rc = -1;
       platform_assert_status_ok(ret);
    } else if (run_crash_test) {
-      rc = test_log_crash(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                          &log_cfg, log, 500000, ts, hh, hid);
+      rc = test_log_crash(cc,
+                          &cache_cfg,
+                          (io_handle *)io,
+                          (allocator *)&al,
+                          &log_cfg,
+                          log,
+                          500000,
+                          ts,
+                          hh,
+                          hid,
+                          TRUE /* crash */);
       platform_assert(rc == 0);
    } else {
-      rc =  test_log_basic((cache *)cc, &log_cfg, log, 500000, hid);
+      rc = test_log_crash(cc,
+                          &cache_cfg,
+                          (io_handle *)io,
+                          (allocator *)&al,
+                          &log_cfg,
+                          log,
+                          500000,
+                          ts,
+                          hh,
+                          hid,
+                          FALSE /* don't cash */);
       platform_assert(rc == 0);
    }
 

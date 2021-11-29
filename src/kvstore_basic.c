@@ -99,7 +99,9 @@ const static key_comparator_fn default_key_comparator = (&variable_len_compare);
 
 static int
 basic_key_compare(const data_config *cfg,
+                  uint64             key1_raw_len,
                   const void *       key1_raw,
+                  uint64             key2_raw_len,
                   const void *       key2_raw)
 {
    basic_key_encoding *key1 = (basic_key_encoding *)key1_raw;
@@ -118,8 +120,11 @@ basic_key_compare(const data_config *cfg,
 
 static void
 basic_merge_tuples(const data_config *cfg,
+                   uint64             key_len,
                    const void *       key,
+                   uint64             old_raw_data_len,
                    const void *       old_raw_data,
+                   uint64 *           new_raw_data_len,
                    void *             new_raw_data)
 {
    // we don't implement UPDATEs, so this is a no-op:
@@ -128,7 +133,9 @@ basic_merge_tuples(const data_config *cfg,
 
 static void
 basic_merge_tuples_final(const data_config *cfg,
-                         const void *       key,            // IN
+                         uint64             key_len,
+                         const void *       key, // IN
+                         uint64 *           oldest_raw_data_len,
                          void *             oldest_raw_data // IN/OUT
 )
 {
@@ -137,7 +144,9 @@ basic_merge_tuples_final(const data_config *cfg,
 }
 
 static message_type
-basic_message_class(const data_config *cfg, const void *raw_data)
+basic_message_class(const data_config *cfg,
+                    uint64             raw_data_len,
+                    const void *       raw_data)
 {
    const basic_message *msg = raw_data;
    switch (msg->type) {
@@ -178,20 +187,22 @@ encode_value(void *       msg_buffer,
 
 static void
 basic_key_to_string(const data_config *cfg,
+                    uint64             key_len,
                     const void *       key,
                     char *             str,
                     size_t             max_len)
 {
-   debug_hex_encode(str, max_len, key, MAX_KEY_SIZE);
+   debug_hex_encode(str, max_len, key, key_len);
 }
 
 static void
 basic_message_to_string(const data_config *cfg,
+                        uint64             raw_data_len,
                         const void *       raw_data,
                         char *             str,
                         size_t             max_len)
 {
-   debug_hex_encode(str, max_len, raw_data, MAX_MESSAGE_SIZE);
+   debug_hex_encode(str, max_len, raw_data, raw_data_len);
 }
 
 static data_config _template_basic_data_config = {
