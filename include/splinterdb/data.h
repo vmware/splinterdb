@@ -29,30 +29,44 @@ typedef enum message_type {
 typedef struct data_config data_config;
 
 typedef int (*key_compare_fn)(const data_config *cfg,
+                              uint64             key1_len,
                               const void *       key1,
+                              uint64             key2_len,
                               const void *       key2);
 
 typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
 
 typedef message_type (*message_class_fn)(const data_config *cfg,
+                                         uint64             raw_message_len,
                                          const void *       raw_message);
 
 // Given two messages, merge them, based on their types
 // And return the result in new_raw_message
+//
+// guaranteed by caller: new_raw_message has enough space to hold a max-length
+// message
 typedef void (*merge_tuple_fn)(const data_config *cfg,
+                               uint64             key_len,
                                const void *       key,
+                               uint64             old_raw_message_len,
                                const void *       old_raw_message,
-                               void *             new_raw_message);
+                               uint64 *           new_raw_message_len, // IN/OUT
+                               void *             new_raw_message);                 // IN/OUT
 
 // Called for non-MESSAGE_TYPE_INSERT messages
 // when they are determined to be the oldest message
 //
 // Can change data_class or contents.  If necessary, update new_data.
+// guaranteed by caller: oldest_raw_message has enough space to hold a
+// max-length message
 typedef void (*merge_tuple_final_fn)(const data_config *cfg,
+                                     uint64             key_len,
                                      const void *       key,
-                                     void *             oldest_raw_message);
+                                     uint64 *oldest_raw_message_len, // IN/OUT
+                                     void *  oldest_raw_message);      // IN/OUT
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
+                                         uint64             key_or_message_len,
                                          const void *       key_or_message,
                                          char *             str,
                                          size_t             max_len);
@@ -76,61 +90,6 @@ struct data_config {
    // additional context, available to the above callbacks
    void *context;
 };
-
-static inline int
-data_key_compare(const data_config *cfg, const void *key1, const void *key2)
-{
-   return cfg->key_compare(cfg, key1, key2);
-}
-
-static inline message_type
-data_message_class(const data_config *cfg, void *raw_message)
-{
-   return cfg->message_class(cfg, raw_message);
-}
-
-static inline void
-data_merge_tuples(const data_config *cfg,
-                  const void *       key,
-                  const void *       old_raw_message,
-                  void *             new_raw_message)
-{
-   cfg->merge_tuples(cfg, key, old_raw_message, new_raw_message);
-}
-
-static inline void
-data_merge_tuples_final(const data_config *cfg,
-                        const void *       key,
-                        void *             oldest_raw_message)
-{
-   return cfg->merge_tuples_final(cfg, key, oldest_raw_message);
-}
-
-static inline void
-data_key_to_string(const data_config *cfg,
-                   const void *       key,
-                   char *             str,
-                   size_t             size)
-{
-   cfg->key_to_string(cfg, key, str, size);
-}
-
-static inline void
-data_message_to_string(const data_config *cfg,
-                       const void *       message,
-                       char *             str,
-                       size_t             size)
-{
-   cfg->message_to_string(cfg, message, str, size);
-}
-
-// robj: this is really just a convenience function.  Key copying is
-// _not_ an operation that the application can hook into.
-static inline void
-data_key_copy(const data_config *cfg, void *dst, const void *src)
-{
-   memmove(dst, src, cfg->key_size);
-}
 
 static inline bool
 data_validate_config(const data_config *cfg)

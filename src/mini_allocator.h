@@ -14,7 +14,7 @@
 #include "platform.h"
 #include "allocator.h"
 #include "cache.h"
-#include "splinterdb/data.h"
+#include "data_internal.h"
 
 #define MINI_MAX_BATCHES 8
 
@@ -30,8 +30,6 @@ typedef struct mini_allocator {
    uint64          num_batches;
    volatile uint64 next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
-   uint64          last_meta_addr[MINI_MAX_BATCHES];
-   uint64          last_meta_pos[MINI_MAX_BATCHES];
 } mini_allocator;
 
 uint64
@@ -44,12 +42,12 @@ mini_init(mini_allocator *mini,
           page_type       type,
           bool            keyed);
 void
-mini_release(mini_allocator *mini, const char *key);
+mini_release(mini_allocator *mini, const slice key);
 
 uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,
-           const char *    key,
+           const slice     key,
            uint64 *        next_extent);
 
 
@@ -63,15 +61,15 @@ mini_keyed_inc_ref(cache *      cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
-                   const char * start_key,
-                   const char * end_key);
+                   const slice  start_key,
+                   const slice  end_key);
 bool
 mini_keyed_dec_ref(cache *      cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
-                   const char * start_key,
-                   const char * end_key);
+                   const slice  start_key,
+                   const slice  end_key);
 
 void
 mini_block_dec_ref(cache *cc, uint64 meta_head);
@@ -84,8 +82,8 @@ mini_keyed_extent_count(cache *      cc,
                         data_config *data_cfg,
                         page_type    type,
                         uint64       meta_head,
-                        const char * start_key,
-                        const char * end_key);
+                        const slice  start_key,
+                        const slice  end_key);
 void
 mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head);
 

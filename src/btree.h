@@ -10,6 +10,7 @@
 #ifndef __BTREE_H
 #define __BTREE_H
 
+#include "data_internal.h"
 #include "mini_allocator.h"
 #include "iterator.h"
 #include "util.h"
@@ -404,7 +405,7 @@ btree_key_compare(btree_config *cfg,
                   const char   *key1,
                   const char   *key2)
 {
-  return data_key_compare(cfg->data_cfg, key1, key2);
+   return fixed_size_data_key_compare(cfg->data_cfg, key1, key2);
 }
 
 static inline void
@@ -412,15 +413,15 @@ btree_key_to_string(btree_config *cfg,
                     const char *key,
                     char str[static 128])
 {
-  return data_key_to_string(cfg->data_cfg, key, str, 128);
+   return fixed_size_data_key_to_string(cfg->data_cfg, key, str, 128);
 }
 
 static inline void
 btree_message_to_string(btree_config *cfg,
-                     const char *data,
-                     char str[static 128])
+                        const char *  message,
+                        char          str[static 128])
 {
-  return data_message_to_string(cfg->data_cfg, data, str, 128);
+   return fixed_size_data_message_to_string(cfg->data_cfg, message, str, 128);
 }
 
 #endif // __BTREE_H

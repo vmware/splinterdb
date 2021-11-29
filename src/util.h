@@ -17,6 +17,19 @@
 #define SET_ARRAY_INDEX_TO_STRINGIFY(x) \
    [x] = STRINGIFY(x)
 
+
+static inline const void *
+const_pointer_byte_offset(const void *base, int64 offset)
+{
+   return (const uint8 *)base + offset;
+}
+
+static inline void *
+pointer_byte_offset(void *base, int64 offset)
+{
+   return (uint8 *)base + offset;
+}
+
 /*
  *-----------------------------------------------------------------------------
  *
@@ -61,6 +74,66 @@ init_fraction(uint64 numerator, uint64 denominator)
       .numerator = 0,               \
       .denominator = 1,             \
    })
+
+typedef struct slice {
+   uint64      length;
+   const void *data;
+} slice;
+
+extern const slice NULL_SLICE;
+
+static inline bool
+slice_is_null(const slice b)
+{
+   return b.length == 0 && b.data == NULL;
+}
+
+static inline slice
+slice_create(uint64 len, const void *data)
+{
+   return (slice){.length = len, .data = data};
+}
+
+static inline uint64
+slice_length(const slice b)
+{
+   return b.length;
+}
+
+static inline const void *
+slice_data(const slice b)
+{
+   return b.data;
+}
+
+static inline slice
+slice_copy_contents(void *dst, const slice src)
+{
+   memmove(dst, src.data, src.length);
+   return slice_create(src.length, dst);
+}
+
+static inline bool
+slices_equal(const slice a, const slice b)
+{
+   return a.length == b.length && a.data == b.data;
+}
+
+static inline int
+slice_lex_cmp(const slice a, const slice b)
+{
+   uint64 len1   = slice_length(a);
+   uint64 len2   = slice_length(b);
+   uint64 minlen = len1 < len2 ? len1 : len2;
+   int    cmp    = memcmp(slice_data(a), slice_data(b), minlen);
+   if (cmp) {
+      return cmp;
+   } else if (len1 < len2) {
+      return -1;
+   } else {
+      return len1 - len2;
+   }
+}
 
 /*
  * try_string_to_(u)int64

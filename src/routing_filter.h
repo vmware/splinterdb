@@ -90,11 +90,11 @@ routing_filter_add(cache            *cc,
                    uint16            value);
 
 platform_status
-routing_filter_lookup(cache          *cc,
+routing_filter_lookup(cache *         cc,
                       routing_config *cfg,
                       routing_filter *filter,
-                      const char     *key,
-                      uint64         *found_values);
+                      const slice     key,
+                      uint64 *        found_values);
 
 static inline uint16
 routing_filter_get_next_value(uint64 found_values,
@@ -145,11 +145,11 @@ routing_filter_ctxt_init(routing_async_ctxt *ctxt,       // OUT
 }
 
 cache_async_result
-routing_filter_lookup_async(cache              *cc,
-                            routing_config     *cfg,
-                            routing_filter     *filter,
-                            char               *key,
-                            uint64             *found_values,
+routing_filter_lookup_async(cache *             cc,
+                            routing_config *    cfg,
+                            routing_filter *    filter,
+                            const slice         key,
+                            uint64 *            found_values,
                             routing_async_ctxt *ctxt);
 
 void

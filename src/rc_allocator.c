@@ -21,6 +21,19 @@
  */
 
 #define RC_ALLOCATOR_BASE_OFFSET (0)
+
+/* A predicate defining whether to trace allocations/ref-count changes
+ * on a given address.
+ *
+ * Examples:
+ * #define SHOULD_TRACE(addr) (1) // trace all addresses
+ * #define SHOULD_TRACE(addr) ((addr) / (4096 * 32) == 339ULL) // trace extent
+ * 339
+ *
+ */
+#define SHOULD_TRACE(addr) (0) // Do not trace anything
+
+
 /*
  *------------------------------------------------------------------------------
  *
@@ -453,6 +466,12 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 
    uint8 ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != 1 && ref_count != 0);
+   if (SHOULD_TRACE(addr)) {
+      platform_log("rc_allocator_inc_ref(%lu): %d -> %d\n",
+                   addr,
+                   ref_count,
+                   ref_count + 1);
+   }
    return ref_count;
 }
 
@@ -470,6 +489,12 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
       platform_assert(type != PAGE_TYPE_INVALID);
       __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
       __sync_add_and_fetch(&al->stats.extent_deallocs[type], 1);
+   }
+   if (SHOULD_TRACE(addr)) {
+      platform_log("rc_allocator_dec_ref(%lu): %d -> %d\n",
+                   addr,
+                   ref_count,
+                   ref_count - 1);
    }
    return ref_count;
 }
@@ -640,6 +665,9 @@ rc_allocator_alloc(rc_allocator *al,   // IN
    }
    __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
    *addr = hand * al->cfg->extent_size;
+   if (SHOULD_TRACE(*addr)) {
+      platform_log("rc_allocator_alloc_extent(%lu)\n", *addr);
+   }
 
    return STATUS_OK;
 }

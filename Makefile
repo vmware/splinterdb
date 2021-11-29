@@ -11,6 +11,7 @@ PLATFORM = linux
 
 SRCDIR   = src
 TESTSDIR = tests
+UNITDIR  = unit
 OBJDIR   = obj
 BINDIR   = bin
 LIBDIR   = lib
@@ -18,20 +19,25 @@ INCDIR   = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
+UNITSRC := $(shell find $(UNITDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 TESTOBJ= $(TESTSRC:%.c=$(OBJDIR)/%.o)
+UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
 
 # Automatically create directories, based on
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
 .SECONDEXPANSION:
 
-.PRECIOUS: $(OBJDIR)/%/.
+.SECONDARY:
 
 $(OBJDIR)/. $(BINDIR)/. $(LIBDIR)/.:
 	mkdir -p $@
 
-$(OBJDIR)/%/. $(BINDIR)/%/.:
+$(OBJDIR)/%/.:
+	mkdir -p $@
+
+$(BINDIR)/%/.:
 	mkdir -p $@
 
 #*************************************************************#
@@ -70,6 +76,8 @@ DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 DEFAULT_LDFLAGS = -ggdb3 -pthread
+#DEFAULT_LDFLAGS += -fsanitize=memory
+#DEFAULT_LDFLAGS += -fsanitize=address
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
@@ -77,7 +85,7 @@ LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 #*********************************************************#
 # Targets to track whether we have a release or debug build
 #
-all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test
+all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test $(UNITBINS)
 
 release: .release all
 	rm -f .debug
@@ -123,6 +131,9 @@ $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
 	$(AR) -crs $@ $^
 
+$(BINDIR)/unit/%: $(OBJDIR)/unit/%.o | $$(@D)/.
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
 DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
 
 COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
@@ -132,12 +143,22 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
 
+#####################################################
+# Unit test dependencies
+#
+# Each unit test is a self-contained binary.
+# It links only with its needed .o files
+#
+
+obj/unit/variable_length_btree-test.o: src/variable_length_btree.c
+bin/unit/variable_length_btree-test: obj/tests/test_data.o obj/src/util.o obj/src/data_internal.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
+
 #*************************************************************#
 
 .PHONY : clean tags
 clean :
 	rm -rf $(OBJDIR)/*
-	rm -f  $(BINDIR)/*
+	rm -rf $(BINDIR)/*
 	rm -f  $(LIBDIR)/*
 
 tags:

@@ -28,7 +28,6 @@ typedef struct shard_log_config {
 
 typedef struct shard_log_thread_data {
    uint64 addr;
-   uint64 pos;
    uint64 offset;
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
@@ -43,19 +42,22 @@ typedef struct shard_log {
    uint64                 magic;
 } shard_log;
 
+typedef struct log_entry log_entry;
+
 typedef struct shard_log_iterator {
    iterator          super;
    shard_log_config *cfg;
    char             *contents;
-   char             *cursor;
+   log_entry **      entries;
+   uint64            num_entries;
    uint64            pos;
-   uint64            total;
 } shard_log_iterator;
 
 typedef struct shard_log_hdr {
    checksum128   checksum;
    uint64        magic;
    uint64        next_extent_addr;
+   uint16        num_entries;
 } shard_log_hdr;
 
 platform_status

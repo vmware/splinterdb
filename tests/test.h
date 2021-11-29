@@ -167,6 +167,8 @@ test_count_tuples_in_range(cache        *cc,
                            char         *high_key,
                            uint64       *count)     // OUTPUT
 {
+   slice          blow_key  = slice_create(cfg->data_cfg->key_size, low_key);
+   slice          bhigh_key = slice_create(cfg->data_cfg->key_size, high_key);
    btree_iterator itor;
    uint64 i;
    *count = 0;
@@ -179,34 +181,35 @@ test_count_tuples_in_range(cache        *cc,
          cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, FALSE, 0);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
+      slice last_key = NULL_SLICE;
       while (!at_end) {
-         char *key = NULL, *data, *last_key = NULL;
-         last_key = key;
+         slice key, data;
          iterator_get_curr(&itor.super, &key, &data);
-         if (last_key != NULL && btree_key_compare(cfg, last_key, key) > 0) {
+         if (!slice_is_null(last_key) &&
+             data_key_compare(cfg->data_cfg, last_key, key) > 0) {
             char last_key_str[128], key_str[128];
-            btree_key_to_string(cfg, last_key, last_key_str);
-            btree_key_to_string(cfg, key, key_str);
+            data_key_to_string(cfg->data_cfg, last_key, last_key_str, 128);
+            data_key_to_string(cfg->data_cfg, key, key_str, 128);
             btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of order\n");
             platform_log("last %s\nkey %s\n", last_key_str, key_str);
             platform_assert(0);
          }
-         if (btree_key_compare(cfg, low_key, key) > 0) {
+         if (data_key_compare(cfg->data_cfg, blow_key, key) > 0) {
             char low_key_str[128], key_str[128], high_key_str[128];
-            btree_key_to_string(cfg, low_key, low_key_str);
-            btree_key_to_string(cfg, key, key_str);
-            btree_key_to_string(cfg, high_key, high_key_str);
+            data_key_to_string(cfg->data_cfg, blow_key, low_key_str, 128);
+            data_key_to_string(cfg->data_cfg, key, key_str, 128);
+            data_key_to_string(cfg->data_cfg, bhigh_key, high_key_str, 128);
             btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of range\n");
             platform_log("low %s\nkey %s\nmax %s\n", low_key_str, key_str, high_key_str);
             platform_assert(0);
          }
-         if (high_key && btree_key_compare(cfg, key, high_key) > 0) {
+         if (high_key && data_key_compare(cfg->data_cfg, key, bhigh_key) > 0) {
             char low_key_str[128], key_str[128], high_key_str[128];
-            btree_key_to_string(cfg, low_key, low_key_str);
-            btree_key_to_string(cfg, key, key_str);
-            btree_key_to_string(cfg, high_key, high_key_str);
+            data_key_to_string(cfg->data_cfg, blow_key, low_key_str, 128);
+            data_key_to_string(cfg->data_cfg, key, key_str, 128);
+            data_key_to_string(cfg->data_cfg, bhigh_key, high_key_str, 128);
             btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of range\n");
             platform_log("low %s\nkey %s\nmax %s\n", low_key_str, key_str, high_key_str);
@@ -240,10 +243,10 @@ test_btree_print_all_keys(cache        *cc,
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
       while (!at_end) {
-         char *key = NULL, *data;
+         slice key, data;
          iterator_get_curr(&itor.super, &key, &data);
          char key_str[128];
-         btree_key_to_string(cfg, key, key_str);
+         data_key_to_string(cfg->data_cfg, key, key_str, 128);
          platform_log("%s\n", key_str);
          iterator_advance(&itor.super);
          iterator_at_end(&itor.super, &at_end);
@@ -262,7 +265,7 @@ test_config_init(splinter_config     *splinter_cfg,
                  io_config           *io_cfg,
                  master_config       *master_cfg)
 {
-   *data_cfg = *test_data_config;
+   *data_cfg                    = test_data_config;
    data_cfg->key_size           = master_cfg->key_size;
    data_cfg->message_size       = master_cfg->message_size;
 
