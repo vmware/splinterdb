@@ -2146,6 +2146,8 @@ btree_pack_node_init_hdr(btree_node *node,
 static inline MUST_CHECK_RESULT platform_status
 btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
 {
+   platform_status rc;
+
    tree->cc = req->cc;
    tree->cfg = req->cfg;
    tree->itor = req->itor;
@@ -2169,14 +2171,15 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
    tree->height = 0;
 
    // set up the first leaf
-   char first_key[MAX_KEY_SIZE] = { 0 };
-   platform_status rc                      = btree_alloc(cc,
-                                    &tree->mini,
-                                    0,
-                                    first_key,
-                                    &tree->next_extent,
-                                    PAGE_TYPE_BRANCH,
-                                    &tree->edge[0]);
+   char first_key[MAX_KEY_SIZE] = {0};
+
+   rc = btree_alloc(cc,
+                    &tree->mini,
+                    0,
+                    first_key,
+                    &tree->next_extent,
+                    PAGE_TYPE_BRANCH,
+                    &tree->edge[0]);
    if (!SUCCESS(rc)) {
       char last_key[MAX_KEY_SIZE];
       memmove(last_key, tree->cfg->data_cfg->max_key, MAX_KEY_SIZE);
@@ -2192,22 +2195,26 @@ btree_pack_setup(btree_pack_req *req, btree_pack_internal *tree)
    return STATUS_OK;
 }
 
-void
+static MUST_CHECK_RESULT platform_status
 btree_pack_loop(btree_pack_internal *tree, // IN/OUT
                 const char *         key,  // IN
                 const char *         data, // IN
                 bool *               at_end)              // IN/OUT
 {
+   platform_status rc;
    if (tree->idx[0] == tree->cfg->tuples_per_packed_leaf) {
       // the current leaf is full, allocate a new one and add to index
       tree->old_edge = tree->edge[0];
-      btree_alloc(tree->cc,
-                  &tree->mini,
-                  0,
-                  key,
-                  &tree->next_extent,
-                  PAGE_TYPE_BRANCH,
-                  &tree->new_edge);
+      rc             = btree_alloc(tree->cc,
+                       &tree->mini,
+                       0,
+                       key,
+                       &tree->next_extent,
+                       PAGE_TYPE_BRANCH,
+                       &tree->new_edge);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       tree->edge[0].hdr->next_addr = tree->new_edge.addr;
       btree_node_full_unlock(tree->cc, tree->cfg, &tree->edge[0]);
 
@@ -2240,13 +2247,16 @@ btree_pack_loop(btree_pack_internal *tree, // IN/OUT
       // along the way it allocates new index nodes as necessary
       for (i = 1; tree->idx[i] == tree->cfg->pivots_per_packed_index; i++) {
          tree->old_edge = tree->edge[i];
-         btree_alloc(tree->cc,
-                     &tree->mini,
-                     i,
-                     key,
-                     &tree->next_extent,
-                     PAGE_TYPE_BRANCH,
-                     &tree->new_edge);
+         rc             = btree_alloc(tree->cc,
+                          &tree->mini,
+                          i,
+                          key,
+                          &tree->next_extent,
+                          PAGE_TYPE_BRANCH,
+                          &tree->new_edge);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          tree->edge[i].hdr->next_addr = tree->new_edge.addr;
          btree_node_full_unlock(tree->cc, tree->cfg, &tree->edge[i]);
 
@@ -2263,13 +2273,16 @@ btree_pack_loop(btree_pack_internal *tree, // IN/OUT
       if (i > tree->height) {
          // need to add a new root
          char first_key[MAX_KEY_SIZE] = {0};
-         btree_alloc(tree->cc,
-                     &tree->mini,
-                     i,
-                     first_key,
-                     &tree->next_extent,
-                     PAGE_TYPE_BRANCH,
-                     &tree->edge[i]);
+         rc                           = btree_alloc(tree->cc,
+                          &tree->mini,
+                          i,
+                          first_key,
+                          &tree->next_extent,
+                          PAGE_TYPE_BRANCH,
+                          &tree->edge[i]);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          btree_pack_node_init_hdr(&tree->edge[i], tree->next_extent, i, TRUE);
          tree->height++;
 
@@ -2386,13 +2399,17 @@ btree_pack_post_loop(btree_pack_internal *tree)
  *-----------------------------------------------------------------------------
  */
 
-platform_status
+MUST_CHECK_RESULT platform_status
 btree_pack(btree_pack_req *req)
 {
+   platform_status     rc;
    btree_pack_internal tree;
    ZERO_STRUCT(tree);
 
-   btree_pack_setup(req, &tree);
+   rc = btree_pack_setup(req, &tree);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    slice key, message;
    bool at_end;
@@ -2402,12 +2419,17 @@ btree_pack(btree_pack_req *req)
       iterator_get_curr(tree.itor, &key, &message);
       debug_assert(slice_length(key) == req->cfg->data_cfg->key_size);
       debug_assert(slice_length(message) == req->cfg->data_cfg->message_size);
-      btree_pack_loop(&tree, slice_data(key), slice_data(message), &at_end);
+      rc =
+         btree_pack_loop(&tree, slice_data(key), slice_data(message), &at_end);
+      if (!SUCCESS(rc)) {
+         *(tree->num_tuples) = 0;
+         break; // post_loop will cleanup
+      }
    }
 
    btree_pack_post_loop(&tree);
    platform_assert(IMPLIES(req->num_tuples == 0, req->root_addr == 0));
-   return STATUS_OK;
+   return rc;
 }
 
 /*

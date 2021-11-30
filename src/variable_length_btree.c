@@ -1300,7 +1300,7 @@ variable_length_btree_root_to_meta_addr(const variable_length_btree_config *cfg,
  */
 
 
-uint64
+MUST_CHECK_RESULT uint64
 variable_length_btree_init(cache *                             cc,
                            const variable_length_btree_config *cfg,
                            mini_allocator *                    mini,
@@ -1312,7 +1312,23 @@ variable_length_btree_init(cache *                             cc,
    allocator *     al = cache_allocator(cc);
    uint64          base_addr;
    platform_status rc = allocator_alloc(al, &base_addr, type);
-   platform_assert_status_ok(rc);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   // set up the mini allocator
+   uint64 first_address = mini_init(mini,
+                                    cc,
+                                    cfg->data_cfg,
+                                    base_addr + cfg->page_size,
+                                    0,
+                                    VARIABLE_LENGTH_BTREE_MAX_HEIGHT,
+                                    type,
+                                    type == PAGE_TYPE_BRANCH);
+   if (!first_address) {
+      allocator_dec_ref(al.base_addr, type);
+      return 0;
+   }
+
    page_handle *root_page = cache_alloc(cc, base_addr, type);
 
    // set up the root
@@ -1328,16 +1344,6 @@ variable_length_btree_init(cache *                             cc,
    cache_unlock(cc, root_page);
    cache_unclaim(cc, root_page);
    cache_unget(cc, root_page);
-
-   // set up the mini allocator
-   mini_init(mini,
-             cc,
-             cfg->data_cfg,
-             root.addr + cfg->page_size,
-             0,
-             VARIABLE_LENGTH_BTREE_MAX_HEIGHT,
-             type,
-             type == PAGE_TYPE_BRANCH);
 
    return root.addr;
 }
