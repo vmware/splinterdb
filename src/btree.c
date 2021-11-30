@@ -949,13 +949,6 @@ btree_split_root(btree_config *  cfg,   // IN
    if (!SUCCESS(rc)) {
       return rc;
    }
-   btree_node right_node;
-   rc =
-      btree_add_split_pivot(cc, cfg, mini, root_node, &left_node, &right_node);
-   if (!SUCCESS(rc)) {
-      /* FIXME: [robj] we should free left_node */
-      return rc;
-   }
 
    // copy root to left, then split
    memmove(left_node.hdr, root_node->hdr, btree_page_size(cfg));
@@ -972,6 +965,19 @@ btree_split_root(btree_config *  cfg,   // IN
    }
    root_node->hdr->height++;
    btree_add_pivot_at_pos(cfg, root_node, &left_node, 0, TRUE);
+
+   btree_node right_node;
+   rc =
+      btree_add_split_pivot(cc, cfg, mini, root_node, &left_node, &right_node);
+   if (!SUCCESS(rc)) {
+      /* At this point, we've created a new root one level above the old root.
+         The new root has only one child, but the tree is otherwise valid.
+         So we can safely bail out on this failure. */
+      btree_node_unlock(cc, cfg, root_node);
+      btree_node_unclaim(cc, cfg, root_node);
+      btree_node_full_unlock(cc, cfg, &left_node);
+      return rc;
+   }
 
    // release root
    btree_node_unlock(cc, cfg, root_node);
