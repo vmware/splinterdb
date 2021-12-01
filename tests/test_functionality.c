@@ -518,10 +518,9 @@ insert_random_messages(splinter_handle *          spl,
       //if (key == 0x02f90065)
       //   platform_log("Inserting message: %8d OP=%d Key=0x%08lx Value=%8d\n", i, op, key, msg->ref_count);
 
-      rc = splinter_insert(spl, keybuf, (char *)msg);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
+      do {
+         rc = splinter_insert(spl, keybuf, (char *)msg);
+      } while (!SUCCESS(rc));
 
       // Now apply same operation to the shadow
       int8 new_refcount = msg->ref_count;

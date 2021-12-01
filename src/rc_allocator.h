@@ -92,7 +92,7 @@ rc_allocator_config_init(rc_allocator_config *allocator_cfg,
                          uint64               extent_size,
                          uint64               capacity);
 
-platform_status
+MUST_CHECK_RESULT platform_status
 rc_allocator_init(rc_allocator *       al,
                   rc_allocator_config *cfg,
                   io_handle *          io,
@@ -103,7 +103,7 @@ rc_allocator_init(rc_allocator *       al,
 void
 rc_allocator_deinit(rc_allocator *al);
 
-platform_status
+MUST_CHECK_RESULT platform_status
 rc_allocator_mount(rc_allocator *       al,
                    rc_allocator_config *cfg,
                    io_handle *          io,

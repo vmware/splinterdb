@@ -40,7 +40,7 @@ typedef struct allocator allocator;
 
 typedef platform_status (*alloc_fn)(allocator *al,
                                     uint64 *   addr,
-                                    page_type  type);
+                                    page_type  type) MUST_CHECK_RESULT;
 
 typedef uint8 (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
 typedef uint8 (*generic_ref_fn)(allocator *al, uint64 addr);
@@ -50,7 +50,7 @@ typedef platform_status (*get_super_addr_fn)(allocator *       al,
                                              uint64 *          addr);
 typedef platform_status (*alloc_super_addr_fn)(allocator *       al,
                                                allocator_root_id spl_id,
-                                               uint64 *          addr);
+                                               uint64 *addr) MUST_CHECK_RESULT;
 typedef void (*remove_super_addr_fn)(allocator *al, allocator_root_id spl_id);
 typedef uint64 (*get_size_fn)(allocator *al);
 
@@ -85,7 +85,7 @@ struct allocator {
    const allocator_ops *ops;
 };
 
-static inline platform_status
+static inline MUST_CHECK_RESULT platform_status
 allocator_alloc(allocator *al, uint64 *addr, page_type type)
 {
    return al->ops->alloc(al, addr, type);
@@ -109,13 +109,13 @@ allocator_get_ref(allocator *al, uint64 addr)
    return al->ops->get_ref(al, addr);
 }
 
-static inline platform_status
+static inline MUST_CHECK_RESULT platform_status
 allocator_get_super_addr(allocator *al, allocator_root_id spl_id, uint64 *addr)
 {
    return al->ops->get_super_addr(al, spl_id, addr);
 }
 
-static inline platform_status
+static inline MUST_CHECK_RESULT platform_status
 allocator_alloc_super_addr(allocator *       al,
                            allocator_root_id spl_id,
                            uint64 *          addr)

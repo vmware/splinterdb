@@ -916,17 +916,17 @@ usage(const char *argv0) {
 int
 cache_test(int argc, char *argv[])
 {
-   data_config           data_cfg;
-   io_config             io_cfg;
-   rc_allocator_config   al_cfg;
-   clockcache_config     cache_cfg;
-   shard_log_config      log_cfg;
-   int                   config_argc = argc - 1;
-   char                **config_argv = argv + 1;
-   platform_status       rc;
-   task_system          *ts;
-   bool                  benchmark = FALSE, async = FALSE;
-   uint64                seed;
+   data_config         data_cfg;
+   io_config           io_cfg;
+   rc_allocator_config al_cfg;
+   clockcache_config   cache_cfg;
+   shard_log_config    log_cfg;
+   int                 config_argc = argc - 1;
+   char **             config_argv = argv + 1;
+   platform_status     rc;
+   task_system *       ts;
+   bool                benchmark = FALSE, async = FALSE;
+   uint64              seed;
 
    if (argc > 1) {
       if (strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
@@ -940,17 +940,24 @@ cache_test(int argc, char *argv[])
       }
    }
 
-    platform_log("\nStarted cache_test!!\n");
+   platform_log("\nStarted cache_test!!\n");
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
-   platform_heap_id hid;
+   platform_heap_id     hid;
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
    splinter_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
-   rc = test_parse_args(splinter_cfg, &data_cfg, &io_cfg, &al_cfg, &cache_cfg,
-                        &log_cfg, &seed, config_argc, config_argv);
+   rc                            = test_parse_args(splinter_cfg,
+                        &data_cfg,
+                        &io_cfg,
+                        &al_cfg,
+                        &cache_cfg,
+                        &log_cfg,
+                        &seed,
+                        config_argc,
+                        config_argv);
    if (!SUCCESS(rc)) {
       platform_error_log("cache_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));
@@ -976,9 +983,9 @@ cache_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = { 0 }; // no bg threads
-   rc = test_init_splinter(hid, io, &ts, splinter_cfg->use_stats, FALSE,
-         num_bg_threads);
+   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   rc                                   = test_init_splinter(
+      hid, io, &ts, splinter_cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -986,12 +993,24 @@ cache_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(&al, &al_cfg, (io_handle *)io, hh, hid,
-                     platform_get_module_id());
+   rc = rc_allocator_init(
+      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+   if (!SUCCESS(rc)) {
+      platform_error_log("Failed to init allocator: %s\n",
+                         platform_status_to_string(rc));
+      goto deinit_splinter;
+   }
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
-   rc = clockcache_init(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                        "test", ts, hh, hid, platform_get_module_id());
+   rc             = clockcache_init(cc,
+                        &cache_cfg,
+                        (io_handle *)io,
+                        (allocator *)&al,
+                        "test",
+                        ts,
+                        hh,
+                        hid,
+                        platform_get_module_id());
    platform_assert_status_ok(rc);
 
    cache *ccp = (cache *)cc;
@@ -1000,36 +1019,54 @@ cache_test(int argc, char *argv[])
       rc = test_cache_flush(ccp, &cache_cfg, hid, al_cfg.extent_capacity);
    } else if (async) {
       // Single thread, no cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             1,   // num readers
                             0,   // num writers
                             10); // per-thread working set
       // Multi thread, no cache pressure
       platform_assert(SUCCESS(rc));
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num reader
                             0,   // num writers
                             10); // per-thread working set
       // Multi thread, no cache pressure, with writers
       platform_assert(SUCCESS(rc));
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num reader
                             2,   // num writers
                             10); // per-thread working set
       platform_assert(SUCCESS(rc));
       // Single thread, cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             1,   // num readers
                             0,   // num writers
                             80); // per-thread working set
       platform_assert(SUCCESS(rc));
       // Multi  thread, cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num readers
                             0,   // num writers
                             80); // per-thread working set
       // Multi  thread, high cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num readers
                             0,   // num writers
                             96); // per-thread working set
@@ -1042,8 +1079,9 @@ cache_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_splinter(hid, ts);
    rc = STATUS_OK;
+deinit_splinter:
+   test_deinit_splinter(hid, ts);
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:

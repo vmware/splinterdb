@@ -221,11 +221,8 @@ btree_lookup_async(cache *cc,
                    bool *found,
                    btree_async_ctxt *ctxt);
 
-uint64
-btree_init(cache          *cc,
-           btree_config   *cfg,
-           mini_allocator *mini,
-           bool            is_packed);
+MUST_CHECK_RESULT uint64
+btree_init(cache *cc, btree_config *cfg, mini_allocator *mini, bool is_packed);
 
 bool
 btree_zap_range(cache        *cc,
@@ -300,7 +297,7 @@ btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
    }
 }
 
-platform_status
+MUST_CHECK_RESULT platform_status
 btree_pack(btree_pack_req *req);
 
 uint64

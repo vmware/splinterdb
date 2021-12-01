@@ -71,7 +71,8 @@ test_log_crash(clockcache *         cc,
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
       slice smessage =
          slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
-      log_write(logh, skey, smessage, i);
+      rc = log_write(logh, skey, smessage, i);
+      platform_assert_status_ok(rc);
    }
 
    if (crash) {
@@ -157,7 +158,8 @@ test_log_thread(void *arg)
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       test_insert_data(data, 1, &dummy, 0, log->cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
-      log_write(logh, skey, smessage, i);
+      platform_status rc = log_write(logh, skey, smessage, i);
+      platform_assert_status_ok(rc);
    }
 
    platform_free(hid, data);

@@ -32,7 +32,7 @@ typedef struct mini_allocator {
    uint64          next_extent[MINI_MAX_BATCHES];
 } mini_allocator;
 
-uint64
+MUST_CHECK_RESULT uint64
 mini_init(mini_allocator *mini,
           cache *         cc,
           data_config *   cfg,
@@ -44,7 +44,7 @@ mini_init(mini_allocator *mini,
 void
 mini_release(mini_allocator *mini, const slice key);
 
-uint64
+MUST_CHECK_RESULT uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,
            const slice     key,
