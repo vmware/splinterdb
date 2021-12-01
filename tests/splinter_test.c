@@ -14,7 +14,7 @@
 #include "merge.h"
 #include "test.h"
 #include "allocator.h"
-#include "rc_allocator.h"
+#include "fault_injection_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
 #include "splinterdb/data.h"
@@ -2595,17 +2595,26 @@ splinter_test(int argc, char *argv[])
    rc = rc_allocator_init(
       &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
+   fault_injection_allocator fia;
+   rc = fault_injection_allocator_init(&fia, (allocator *)&al, 0, 0, 0);
+   platform_assert_status_ok(rc);
+   allocator *alp = (allocator *)&fia;
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
    clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
    platform_assert(cc != NULL);
    for (uint8 idx = 0; idx < num_caches; idx++) {
-      rc = clockcache_init(&cc[idx], &cache_cfg[idx], (io_handle *)io,
-                           (allocator *)&al, "test", ts, hh, hid,
+      rc = clockcache_init(&cc[idx],
+                           &cache_cfg[idx],
+                           (io_handle *)io,
+                           alp,
+                           "test",
+                           ts,
+                           hh,
+                           hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
    }
-   allocator *alp = (allocator *)&al;
 
    // Allocate an array of cache pointers to pass around.
    cache **caches = TYPED_ARRAY_MALLOC(hid, caches, num_caches);
