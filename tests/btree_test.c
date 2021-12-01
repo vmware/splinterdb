@@ -857,7 +857,8 @@ test_btree_merge_basic(cache             *cc,
       btree_pack_req req;
       btree_pack_req_init(&req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0,
             hid);
-      btree_pack(&req);
+      rc = btree_pack(&req);
+      platform_assert_status_ok(rc);
       output_addr[pivot_no] = req.root_addr;
 
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
@@ -1180,7 +1181,8 @@ test_btree_merge_perf(cache             *cc,
          btree_pack_req req;
          btree_pack_req_init(&req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0,
                hid);
-         btree_pack(&req);
+         rc = btree_pack(&req);
+         platform_assert_status_ok(rc);
          output_addr[merge_no * num_merges + pivot_no] = req.root_addr;
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
             btree_iterator_deinit(&btree_itor_arr[tree_no]);

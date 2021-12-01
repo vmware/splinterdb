@@ -3002,7 +3002,8 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
       spl->stats[tid].root_compactions++;
       pack_start = platform_get_timestamp();
    }
-   btree_pack(&req);
+   platform_status rc = btree_pack(&req);
+   platform_assert_status_ok(rc);
    platform_assert(req.num_tuples <= spl->cfg.max_tuples_per_node);
    debug_assert(req.num_tuples <= spl->cfg.mt_cfg.max_tuples_per_memtable);
    if (spl->cfg.use_stats) {
@@ -3029,9 +3030,14 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    uint32 *dup_fp_arr = TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
    memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
    routing_filter empty_filter = { 0 };
-   platform_status rc = routing_filter_add(spl->cc, &spl->cfg.leaf_filter_cfg,
-         spl->heap_id, &empty_filter, &cmt->filter, cmt->req->fp_arr,
-         req.num_tuples, 0);
+   rc                          = routing_filter_add(spl->cc,
+                           &spl->cfg.leaf_filter_cfg,
+                           spl->heap_id,
+                           &empty_filter,
+                           &cmt->filter,
+                           cmt->req->fp_arr,
+                           req.num_tuples,
+                           0);
    // platform_log("cre filter %lu in %lu (%u)\n",
    //      cmt->filter.addr, spl->root_addr,
    //      allocator_get_ref(spl->al, cmt->filter.addr));
@@ -4578,7 +4584,8 @@ splinter_compact_bundle(void *arg,
    if (spl->cfg.use_stats) {
       pack_start = platform_get_timestamp();
    }
-   btree_pack(&pack_req);
+   rc = btree_pack(&pack_req);
+   platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       spl->stats[tid].compaction_pack_time_ns[height]
          += platform_timestamp_elapsed(pack_start);

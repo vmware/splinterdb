@@ -297,7 +297,7 @@ btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
    }
 }
 
-platform_status
+MUST_CHECK_RESULT platform_status
 btree_pack(btree_pack_req *req);
 
 uint64
