@@ -56,7 +56,7 @@ kvstore_open(const kvstore_config *cfg, kvstore **kvs);
 // Close a kvstore
 //
 // This will flush everything to disk and release all resources
-void
+int
 kvstore_close(kvstore *kvs);
 
 // Register the current thread so that it can be used with the kvstore.

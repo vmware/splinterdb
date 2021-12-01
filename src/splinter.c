@@ -3125,7 +3125,7 @@ unlock_incorp_lock:
  *  --> The memtable should have inserts blocked (can_insert == FALSE)
  */
 
-static void
+static MUST_CHECK_RESULT platform_status
 splinter_memtable_incorporate(splinter_handle *spl,
                               uint64           generation,
                               const threadid   tid)
@@ -3139,7 +3139,9 @@ splinter_memtable_incorporate(splinter_handle *spl,
    // X. Get, claim and lock the root
    page_handle *root = splinter_node_get(spl, spl->root_addr);
    splinter_node_claim(spl, &root);
-   platform_assert(splinter_has_vacancy(spl, root, 1));
+   if (!splinter_has_vacancy(spl, root, 1)) {
+      goto no_vacancy_failure;
+   }
    splinter_node_lock(spl, root);
 
    splinter_open_log_stream();
@@ -3229,9 +3231,15 @@ splinter_memtable_incorporate(splinter_handle *spl,
       }
    }
 
+   platform_status rc = STATUS_OK;
    // X. If necessary, split the root
    if (splinter_needs_split(spl, root)) {
-      splinter_split_root(spl, root);
+      rc = splinter_split_root(spl, root);
+      /* [robj] FIXME: I think we can still execute the rest of the
+         function.  I suspect the error is that we will no longer be
+         guaranteed to have enough room the next time we do an
+         incorporation.
+       */
    }
 
    // X. Unlock the root
@@ -3251,6 +3259,14 @@ splinter_memtable_incorporate(splinter_handle *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+
+   return rc;
+
+no_vacancy_failure:
+   memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
+   splinter_node_unclaim(spl, root);
+   splinter_node_unget(spl, &root);
+   return STATUS_LIMIT_EXCEEDED;
 }
 
 /*
@@ -3261,9 +3277,8 @@ splinter_memtable_incorporate(splinter_handle *spl,
  * function is called in the context of the memtable worker thread.
  */
 
-static void
-splinter_memtable_flush_internal(splinter_handle *spl,
-                                 uint64           generation)
+static MUST_CHECK_RESULT platform_status
+splinter_memtable_flush_internal(splinter_handle *spl, uint64 generation)
 {
    const threadid tid = platform_get_tid();
    // pack and build filter.
@@ -3274,18 +3289,26 @@ splinter_memtable_flush_internal(splinter_handle *spl,
       goto out;
    }
    do {
-      splinter_memtable_incorporate(spl, generation, tid);
+      platform_status rc = splinter_memtable_incorporate(spl, generation, tid);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       generation++;
    } while (splinter_try_continue_incorporate(spl, generation));
 out:
-   return;
+   return STATUS_OK;
 }
 
 static void
 splinter_memtable_flush_internal_virtual(void *arg, void *scratch)
 {
    splinter_memtable_args *mt_args = arg;
-   splinter_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   platform_status         rc =
+      splinter_memtable_flush_internal(mt_args->spl, mt_args->generation);
+   if (!SUCCESS(rc)) {
+      platform_error_log("Could not perform memtable incorporation.\n"
+                         "  Should probably freeze further insertions...\n");
+   }
 }
 
 /*
@@ -4018,12 +4041,18 @@ splinter_flush(splinter_handle     *spl,
       if (splinter_is_leaf(spl, child)) {
          platform_free(spl->heap_id, req);
          uint16 child_idx = splinter_pdata_to_pivot_index(spl, parent, pdata);
-         splinter_split_leaf(spl, parent, child, child_idx);
+         rc               = splinter_split_leaf(spl, parent, child, child_idx);
+         if (!SUCCESS(rc)) {
+            goto split_failure;
+         }
          debug_assert(splinter_verify_node(spl, child));
          return TRUE;
       } else {
          uint64 child_idx = splinter_pdata_to_pivot_index(spl, parent, pdata);
-         splinter_split_index(spl, parent, child, child_idx);
+         rc               = splinter_split_index(spl, parent, child, child_idx);
+         if (!SUCCESS(rc)) {
+            goto split_failure;
+         }
       }
    }
 
@@ -4053,6 +4082,12 @@ splinter_flush(splinter_handle     *spl,
       }
    }
    return TRUE;
+
+split_failure:
+   splinter_node_unlock(spl, child);
+   splinter_node_unclaim(spl, child);
+   splinter_node_unget(spl, &child);
+   return FALSE;
 }
 
 /*
@@ -4735,7 +4770,13 @@ splinter_flush_node(splinter_handle *spl, uint64 addr, void *arg)
          page_handle *leaf = splinter_node_get(spl, pdata->addr);
          splinter_node_claim(spl, &leaf);
          splinter_node_lock(spl, leaf);
-         splinter_split_leaf(spl, node, leaf, pivot_no);
+         platform_status rc = splinter_split_leaf(spl, node, leaf, pivot_no);
+         if (!SUCCESS(rc)) {
+            platform_error_log(
+               "Failed to split leaf as part of splinter_flush_node.\n"
+               "  This is not instantly fatal, but you might want to backup\n"
+               "  soon.\n");
+         }
       }
    }
 
@@ -5327,8 +5368,7 @@ splinter_split_root(splinter_handle *spl, page_handle *root)
    if (!child) {
       platform_error_log(
          "Failed to allocate child during splinter root split\n");
-      rc = STATUS_NO_SPACE;
-      goto child_alloc_failure;
+      return STATUS_NO_SPACE;
    }
    splinter_trunk_hdr *child_hdr = (splinter_trunk_hdr *)child->data;
 
@@ -5350,15 +5390,15 @@ splinter_split_root(splinter_handle *spl, page_handle *root)
 
    splinter_add_pivot_new_root(spl, root, child);
 
-   splinter_split_index(spl, root, child, 0);
+   rc = splinter_split_index(spl, root, child, 0);
+   /* We've grown the tree (i.e. put a new root w/ fanout 1 on top of
+      the tree). So the tree is valid and no allocation is lost.  We
+      just didn't succeed on the split.  So we go on our lives... */
 
    splinter_node_unlock(spl, child);
    splinter_node_unclaim(spl, child);
    splinter_node_unget(spl, &child);
 
-   return STATUS_OK;
-
-child_alloc_failure:
    return rc;
 }
 

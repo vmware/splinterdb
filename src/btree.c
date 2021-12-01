@@ -2334,6 +2334,8 @@ btree_pack_loop(btree_pack_internal *tree, // IN/OUT
       iterator_advance(tree->itor);
       iterator_at_end(tree->itor, at_end);
    }
+
+   return STATUS_OK;
 }
 
 
@@ -2422,7 +2424,7 @@ btree_pack(btree_pack_req *req)
       rc =
          btree_pack_loop(&tree, slice_data(key), slice_data(message), &at_end);
       if (!SUCCESS(rc)) {
-         *(tree->num_tuples) = 0;
+         *(tree.num_tuples) = 0;
          break; // post_loop will cleanup
       }
    }

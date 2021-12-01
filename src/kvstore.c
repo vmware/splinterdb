@@ -309,14 +309,14 @@ kvstore_open(const kvstore_config *cfg, // IN
  *-----------------------------------------------------------------------------
  */
 
-MUST_CHECK_RESULT platform_status
+int
 kvstore_close(kvstore *kvs) // IN
 {
    platform_assert(kvs != NULL);
 
    platform_status rc = splinter_dismount(kvs->spl);
    if (!SUCCESS(rc)) {
-      return rc;
+      return platform_status_to_int(rc);
    }
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_dismount(&kvs->allocator_handle);
@@ -325,7 +325,7 @@ kvstore_close(kvstore *kvs) // IN
 
    platform_free(kvs->heap_id, kvs);
 
-   return STATUS_OK;
+   return platform_status_to_int(STATUS_OK);
 }
 
 

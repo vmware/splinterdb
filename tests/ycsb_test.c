@@ -1292,7 +1292,8 @@ ycsb_test(int argc, char *argv[])
 
    run_all_ycsb_phases(spl, phases, nphases, ts, hid);
 
-   splinter_dismount(spl);
+   rc = splinter_dismount(spl);
+   platform_assert_status_ok(rc);
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_dismount(&al);

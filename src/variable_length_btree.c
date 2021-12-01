@@ -1313,7 +1313,7 @@ variable_length_btree_init(cache *                             cc,
    uint64          base_addr;
    platform_status rc = allocator_alloc(al, &base_addr, type);
    if (!SUCCESS(rc)) {
-      return rc;
+      return 0;
    }
    // set up the mini allocator
    uint64 first_address = mini_init(mini,
@@ -1325,7 +1325,7 @@ variable_length_btree_init(cache *                             cc,
                                     type,
                                     type == PAGE_TYPE_BRANCH);
    if (!first_address) {
-      allocator_dec_ref(al.base_addr, type);
+      allocator_dec_ref(al, base_addr, type);
       return 0;
    }
 

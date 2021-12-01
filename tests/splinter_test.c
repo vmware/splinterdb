@@ -2592,8 +2592,9 @@ splinter_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(&al, &al_cfg, (io_handle *)io, hh, hid,
-                     platform_get_module_id());
+   rc = rc_allocator_init(
+      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+   platform_assert_status_ok(rc);
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
    clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
