@@ -2673,9 +2673,14 @@ btree_verify_node(cache *cc,
          }
          if (child.hdr->height == 0) {
             // child leaf
-            if (idx != btree_num_entries(cfg, &node) - 1
-                  && btree_key_compare(cfg, btree_get_pivot(cfg, &node, idx + 1),
-                     btree_get_tuple(cfg, &child, btree_num_entries(cfg, &child) - 1)) < 0) {
+            if ((idx != btree_num_entries(cfg, &node) - 1)
+                && (btree_key_compare(
+                       cfg,
+                       btree_get_pivot(cfg, &node, idx + 1),
+                       btree_get_tuple(
+                          cfg, &child, btree_num_entries(cfg, &child) - 1))
+                    < 0))
+            {
                platform_log_stream("child tuple larger than parent bound\n");
                platform_log_stream("addr: %lu idx %u\n", node.addr, idx);
                platform_log_stream("child addr: %lu idx %u\n", child.addr, idx);

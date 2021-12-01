@@ -24,15 +24,12 @@ test_data_key_cmp(const data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * data_merge_tuples --
  *
  *      Given two data messages, merges them by decoding the type of messages.
  *      Returns the result in new_data.
- *
  *-----------------------------------------------------------------------------
  */
-
 static void
 test_data_merge_tuples(const data_config *cfg,
                        uint64             key_len,
@@ -69,7 +66,7 @@ test_data_merge_tuples(const data_config *cfg,
             case MESSAGE_TYPE_DELETE:
                if (new_data->ref_count == 0) {
                   new_data->message_type = MESSAGE_TYPE_DELETE;
-               } else  {
+               } else {
                   new_data->message_type = MESSAGE_TYPE_INSERT;
                }
                break;
@@ -100,14 +97,12 @@ test_data_merge_tuples(const data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * data_merge_tuples_final --
  *
  *      Called for non-MESSAGE_TYPE_INSERT messages when they are determined to be the oldest
  *      message in the system.
  *
  *      Can change data_class or contents.  If necessary, update new_data.
- *
  *-----------------------------------------------------------------------------
  */
 static void
@@ -131,14 +126,11 @@ test_data_merge_tuples_final(const data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * data_class --
  *
  *      Given a data message, returns its message class.
- *
  *-----------------------------------------------------------------------------
  */
-
 static message_type
 test_data_message_class(const data_config *cfg,
                         uint64             raw_data_len,

@@ -8,6 +8,8 @@ AlignConsecutiveDeclarations: true
 AlignConsecutiveMacros: true
 AlignEscapedNewlines: Right
 AlignOperands:   true
+# This will align text after operator; available in clang-format-13
+# AlignOperands:   AlignAfterOperator
 AlignTrailingComments: true
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: false
@@ -21,9 +23,13 @@ AlwaysBreakBeforeMultilineStrings: false
 AlwaysBreakTemplateDeclarations: true
 BinPackArguments: false
 BinPackParameters: false
+BreakBeforeBraces: Custom
 BraceWrapping:
+  AfterCaseLabel:  true
   AfterClass:      false
-  AfterControlStatement: false
+  # Multi-line if() and for() control statements will have their
+  # opening { come on a new line, for readability.
+  AfterControlStatement: MultiLine
   AfterEnum:       false
   AfterFunction:   true
   AfterNamespace:  false
@@ -37,8 +43,8 @@ BraceWrapping:
   SplitEmptyFunction: true
   SplitEmptyRecord: false
   SplitEmptyNamespace: false
-BreakBeforeBinaryOperators: None
-BreakBeforeBraces: Custom
+# BreakBeforeBinaryOperators: None
+BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeInheritanceComma: false
 BreakBeforeTernaryOperators: true
 # BreakConstructorInitializersBeforeComma: false
@@ -89,6 +95,8 @@ SortUsingDeclarations: true
 SpaceAfterCStyleCast: false
 SpaceAfterTemplateKeyword: false
 SpaceBeforeAssignmentOperators: true
+# Only supported in clang-format-13 onwards
+# SpaceBeforeCaseColon: false
 SpaceBeforeParens: ControlStatements
 SpaceInEmptyParentheses: false
 SpacesBeforeTrailingComments: 1

@@ -25,7 +25,6 @@
  * 7- (Not actually in this header)
  *       Non-inline platform-specific function implementations belong in
  *       <platform_dir>/<whatever>.c
- *
  */
 
 #define PLATFORM_LINUX

@@ -8,8 +8,8 @@
  *     This file contains the interface for dynamic b-trees/memtables.
  */
 
-#ifndef __VARIABLE_LENGTH_BTREE_H
-#define __VARIABLE_LENGTH_BTREE_H
+#ifndef __VARIABLE_LENGTH_BTREE_H__
+#define __VARIABLE_LENGTH_BTREE_H__
 
 #include "mini_allocator.h"
 #include "iterator.h"
@@ -26,14 +26,12 @@ extern page_handle *trace_page;
 
 /*
  *----------------------------------------------------------------------
- *
- * dynamic btree --
+ * Dynamic btree --
  *
  *       Each node in the btree is initially referred to with a
- *variable_length_btree_node. This object abstracts away the packing of nodes
- *into pages. Afterwards, the node can be directly manipulated via the
- *variable_length_btree_hdr.
- *
+ * variable_length_btree_node. This object abstracts away the packing of nodes
+ * into pages. Afterwards, the node can be directly manipulated via the
+ * variable_length_btree_hdr.
  *----------------------------------------------------------------------
  */
 
@@ -161,7 +159,6 @@ variable_length_btree_insert(cache *                             cc,      // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * btree_ctxt_init --
  *
  *      Initialize the async context used by an async btree lookup request.
@@ -171,10 +168,8 @@ variable_length_btree_insert(cache *                             cc,      // IN
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline void
 variable_length_btree_ctxt_init(variable_length_btree_async_ctxt *ctxt, // OUT
                                 cache_async_ctxt *             cache_ctxt, // IN
@@ -433,4 +428,4 @@ variable_length_btree_message_to_string(variable_length_btree_config *cfg,
    return data_message_to_string(cfg->data_cfg, data, str, 128);
 }
 
-#endif // __VARIABLE_LENGTH_BTREE_H
+#endif // __VARIABLE_LENGTH_BTREE_H__
