@@ -31,13 +31,16 @@ typedef struct test_config {
    uint64        semiseq_freq; // random key every this many keys
    uint64        period;       // if TEST_PERIODIC then repeat sequence after
                                // this many keys
-   uint64        num_periods;  // if TEST_PERIODIC then repeat this many times
+   uint64 num_periods;         // if TEST_PERIODIC then repeat this many times
+   uint64 allocator_failure_log_probability;
+   uint64 allocator_failure_burst_size;
 } test_config;
 
 static inline void
 test_config_set_defaults(test_type test, test_config *cfg)
 {
-   cfg->tree_size = GiB_TO_B(40);
+   cfg->tree_size                         = GiB_TO_B(40);
+   cfg->allocator_failure_log_probability = 63;
    switch (test) {
       case perf:
          cfg->key_type = TEST_RANDOM;
@@ -111,9 +114,21 @@ test_config_parse(test_config  *cfg,
       } config_set_uint64("semiseq-freq", cfg, semiseq_freq) {
          *argc_p -= 2;
          *argv_p += 2;
-      } config_set_else {
-         goto out;
       }
+      config_set_uint64("alloc-failure-log-probability",
+                        cfg,
+                        allocator_failure_log_probability)
+      {
+         *argc_p -= 2;
+         *argv_p += 2;
+      }
+      config_set_uint64(
+         "alloc-failure-burst-size", cfg, allocator_failure_burst_size)
+      {
+         *argc_p -= 2;
+         *argv_p += 2;
+      }
+      config_set_else { goto out; }
    }
 out:
    platform_free(platform_get_heap_id(), temp_cfg);

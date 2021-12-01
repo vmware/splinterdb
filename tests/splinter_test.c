@@ -2596,7 +2596,12 @@ splinter_test(int argc, char *argv[])
       &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
    fault_injection_allocator fia;
-   rc = fault_injection_allocator_init(&fia, (allocator *)&al, 0, 0, 0);
+   rc = fault_injection_allocator_init(
+      &fia,
+      (allocator *)&al,
+      ((uint64)-1) >> test_cfg->allocator_failure_log_probability,
+      test_cfg->allocator_failure_burst_size,
+      seed);
    platform_assert_status_ok(rc);
    allocator *alp = (allocator *)&fia;
 
