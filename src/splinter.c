@@ -734,11 +734,11 @@ splinter_release_super_block(splinter_handle *spl,
  *-----------------------------------------------------------------------------
  */
 
-   static inline uint16 splinter_height(splinter_handle * spl,
-                                        page_handle * node)
-   {
-      splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
-      return hdr->height;
+static inline uint16
+splinter_height(splinter_handle *spl, page_handle *node)
+{
+   splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
+   return hdr->height;
 }
 
 static inline uint16

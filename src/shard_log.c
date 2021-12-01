@@ -14,7 +14,7 @@
 
 #include "poison.h"
 
-#define SHARD_WAIT 1
+#define SHARD_WAIT     1
 #define SHARD_UNMAPPED UINT64_MAX
 
 static uint64 shard_log_magic_idx = 0;
@@ -75,9 +75,9 @@ MUST_CHECK_RESULT platform_status
 shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
 {
    memset(log, 0, sizeof(shard_log));
-   log->cc            = cc;
-   log->cfg           = cfg;
-   log->super.ops     = &shard_log_ops;
+   log->cc        = cc;
+   log->cfg       = cfg;
+   log->super.ops = &shard_log_ops;
 
    allocator *     al = cache_allocator(cc);
    platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
@@ -107,8 +107,8 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
 
 
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data
-         = shard_log_get_thread_data(log, thr_i);
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(log, thr_i);
       thread_data->addr   = SHARD_UNMAPPED;
       thread_data->offset = 0;
    }

@@ -136,10 +136,10 @@ fault_injection_allocator_init(fault_injection_allocator *al,
                                uint64                     burst_size,
                                uint64                     seed)
 {
-   al->super.ops              = &fault_injection_allocator_ops;
-   al->base                   = base;
-   al->failure_probability    = failure_probability;
-   al->burst_size             = burst_size;
+   al->super.ops           = &fault_injection_allocator_ops;
+   al->base                = base;
+   al->failure_probability = failure_probability;
+   al->burst_size          = burst_size;
    random_init(&al->rs, seed, 0);
    al->current_burst_size = 0;
    return STATUS_OK;

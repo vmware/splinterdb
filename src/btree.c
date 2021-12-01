@@ -2650,12 +2650,12 @@ btree_print_tree_stats(cache *cc,
  */
 
 uint64
-btree_space_use_in_range(cache        *cc,
+btree_space_use_in_range(cache *       cc,
                          btree_config *cfg,
                          uint64        root_addr,
                          page_type     type,
-                         const char   *start_key,
-                         const char   *end_key)
+                         const char *  start_key,
+                         const char *  end_key)
 {
    platform_assert(type == PAGE_TYPE_BRANCH);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
