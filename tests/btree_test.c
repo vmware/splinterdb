@@ -1297,7 +1297,7 @@ test_btree_rough_iterator(cache             *cc,
    if (SUCCESS(rc)) {
      platform_log("btree_test: btree rough iterator test succeeded\n");
    } else {
-     platform_log("btree_test: btree rough iterator test failed\n");
+      platform_log("btree_test: btree rough iterator test failed\n");
    }
    return rc;
 }

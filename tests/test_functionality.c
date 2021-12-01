@@ -84,7 +84,6 @@ verify_tuple_callback(splinter_handle *spl,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * verify_against_shadow --
  *
  *      Verify that keys in the shadow with non-zero refcounts are in splinter.
@@ -95,10 +94,8 @@ verify_tuple_callback(splinter_handle *spl,
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 verify_against_shadow(splinter_handle *spl,
                       char *keybuf,
@@ -159,10 +156,9 @@ verify_against_shadow(splinter_handle *spl,
 }
 
 /*
-   Verify that a range query in Splinter matches the corresponding
-   range in the shadow.
-   */
-
+ * Verify that a range query in Splinter matches the corresponding
+ * range in the shadow.
+ */
 platform_status
 verify_range_against_shadow(splinter_handle *           spl,
                             test_splinter_shadow_array *sharr,
@@ -197,8 +193,9 @@ verify_range_against_shadow(splinter_handle *           spl,
       uint64 shadow_key      = sharr->keys[i];
       int8   shadow_refcount = sharr->ref_counts[i];
 
-      if (shadow_refcount == 0)
+      if (shadow_refcount == 0) {
          continue;
+      }
 
       status = iterator_at_end((iterator *)range_itor, &at_end);
       if (!SUCCESS(status) || at_end) {
@@ -331,7 +328,7 @@ choose_key(data_config *               cfg,         // IN
          *index = pos;
          test_int_to_key(keybuf, key, cfg->key_size);
          return keybuf;
-                                       }
+      }
       case VERIFY_RANGE_ENDPOINT_EQUAL:
          platform_assert(!is_start && startkey);
          *index = start_index;
@@ -365,8 +362,14 @@ verify_range_against_shadow_all_types(splinter_handle *           spl,
    int start_index;
    int end_index;
 
-   for (begin_type = VERIFY_RANGE_ENDPOINT_NULL; begin_type <= VERIFY_RANGE_ENDPOINT_RAND; begin_type++)
-      for (end_type = VERIFY_RANGE_ENDPOINT_NULL; end_type <= VERIFY_RANGE_ENDPOINT_RAND; end_type++) {
+   for (begin_type = VERIFY_RANGE_ENDPOINT_NULL;
+        begin_type <= VERIFY_RANGE_ENDPOINT_RAND;
+        begin_type++)
+   {
+      for (end_type = VERIFY_RANGE_ENDPOINT_NULL;
+           end_type <= VERIFY_RANGE_ENDPOINT_RAND;
+           end_type++)
+      {
          start_key = choose_key(spl->cfg.data_cfg, sharr, prg, begin_type,
                                 1, NULL,      0,           &start_index,
                                 startkey_buf);
@@ -381,9 +384,13 @@ verify_range_against_shadow_all_types(splinter_handle *           spl,
             }
          }
       }
+   }
 
    begin_type = VERIFY_RANGE_ENDPOINT_RAND;
-   for (end_type = VERIFY_RANGE_ENDPOINT_EQUAL; end_type <= VERIFY_RANGE_ENDPOINT_LESS; end_type++) {
+   for (end_type = VERIFY_RANGE_ENDPOINT_EQUAL;
+        end_type <= VERIFY_RANGE_ENDPOINT_LESS;
+        end_type++)
+   {
       start_key = choose_key(spl->cfg.data_cfg, sharr, prg, begin_type,
                              1, NULL,      0,           &start_index,
                              startkey_buf);
@@ -454,15 +461,15 @@ validate_tree_against_shadow(splinter_handle *          spl,
    }
 
 cleanup:
-   if (do_it)
+   if (do_it) {
       destroy_test_splinter_shadow_array(&sharr);
+   }
 
    return rc;
 }
 
 /*
  *-----------------------------------------------------------------------------
- *
  * Insert several messages of the given type into the splinter and the shadow --
  *
  * Results:
@@ -471,7 +478,6 @@ cleanup:
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
 static platform_status
@@ -550,7 +556,6 @@ int cmp_ptrs(const void *a, const void *b)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * test_functionality --
  *
  * Randomly performs sequences of operations of the form
@@ -568,7 +573,6 @@ int cmp_ptrs(const void *a, const void *b)
  * in as argument.
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 test_functionality(allocator            *al,
                    io_handle            *io,
@@ -667,19 +671,21 @@ test_functionality(allocator            *al,
       // This is choice from the probability space.
       randop = random_next_uint64(&prg) % 100;
       // Favor inserts
-      if (randop < 80)
+      if (randop < 80) {
          op = MESSAGE_TYPE_INSERT;
-      else if (randop < 90)
+      } else if (randop < 90) {
          op = MESSAGE_TYPE_DELETE;
-      else
+      } else {
          op = MESSAGE_TYPE_UPDATE;
+      }
 
       // Numer of messages geometrically distributed.
       // Make num_messages not always a power of 2.
       num_messages = 1 << (2 * (random_next_uint64(&prg) % 10));
       num_messages = num_messages + (random_next_uint64(&prg) % num_messages);
-      if (num_messages > num_inserts - total_inserts)
+      if (num_messages > num_inserts - total_inserts) {
          num_messages = num_inserts - total_inserts;
+      }
 
       // Size of the deltas geometrically distributed.
       mindelta         = 1 << (random_next_uint64(&prg) % 26);

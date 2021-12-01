@@ -55,12 +55,14 @@ typedef node_offset table_entry;
 typedef uint16      inline_key_size;
 typedef uint16      inline_message_size;
 
-/* Branches keep track of the number of keys and the total size of
-   all keys and messages in their subtrees.  But memtables do not
-   (because it is difficult to maintain this information during
-   insertion).  However, the current implementation uses the same
-   data structure for both memtables and branches.  So memtables
-   store VARIABLE_LENGTH_BTREE_UNKNOWN for these counters. */
+/*
+ * Branches keep track of the number of keys and the total size of
+ * all keys and messages in their subtrees.  But memtables do not
+ * (because it is difficult to maintain this information during
+ * insertion).  However, the current implementation uses the same
+ * data structure for both memtables and branches.  So memtables
+ * store VARIABLE_LENGTH_BTREE_UNKNOWN for these counters.
+ */
 #define VARIABLE_LENGTH_BTREE_UNKNOWN (0x7fffffffUL)
 
 /***********************
@@ -287,24 +289,24 @@ variable_length_btree_set_index_entry(const variable_length_btree_config *cfg,
    if (k < hdr->num_entries) {
       index_entry *old_entry =
          variable_length_btree_get_index_entry(cfg, hdr, k);
-      if (hdr->next_entry == diff_ptr(hdr, old_entry) &&
-          diff_ptr(hdr, &hdr->offsets[new_num_entries]) +
-                index_entry_size(new_pivot_key) <=
-             hdr->next_entry + sizeof_index_entry(old_entry)) {
+      if (hdr->next_entry == diff_ptr(hdr, old_entry)
+          && (diff_ptr(hdr, &hdr->offsets[new_num_entries])
+                 + index_entry_size(new_pivot_key)
+              <= hdr->next_entry + sizeof_index_entry(old_entry)))
+      {
          /* special case to avoid creating fragmentation:
-            the old entry is the physically first entry in the node
-            and the new entry will fit in the space avaiable from the old
-            entry plus the free space preceding the old_entry.
-
-            in this case, just reset next_entry so we can insert the new entry.
-         */
+          * the old entry is the physically first entry in the node
+          * and the new entry will fit in the space avaiable from the old
+          * entry plus the free space preceding the old_entry.
+          * In this case, just reset next_entry so we can insert the new entry.
+          */
          hdr->next_entry += sizeof_index_entry(old_entry);
          /* Fall through */
-
-      } else if (index_entry_size(new_pivot_key) <=
-                 sizeof_index_entry(old_entry)) {
+      } else if (index_entry_size(new_pivot_key)
+                 <= sizeof_index_entry(old_entry)) {
          /* old_entry is not the physically first in the node,
-            but new entry will fit inside it. */
+          * but new entry will fit inside it.
+          */
          variable_length_btree_fill_index_entry(cfg,
                                                 hdr,
                                                 old_entry,
@@ -518,7 +520,6 @@ variable_length_btree_insert_leaf_entry(const variable_length_btree_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_find_pivot --
  *
  *      Returns idx such that
@@ -528,11 +529,8 @@ variable_length_btree_insert_leaf_entry(const variable_length_btree_config *cfg,
  *      Also
  *          - *found == 0 || *found == 1
  *          - *found == 1 <==> (0 <= idx && key_idx == key)
- *
- *
  *-----------------------------------------------------------------------------
  */
-
 /*
  * The C code below is a translation of the following verified dafny
 implementation.
@@ -568,7 +566,6 @@ method bsearch(s: seq<int>, k: int) returns (idx: int, f: bool)
 }
 
 */
-
 static inline int64
 variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
                                  const variable_length_btree_hdr *   hdr,
@@ -602,7 +599,6 @@ variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_find_tuple --
  *
  *      Returns idx such that
@@ -612,15 +608,11 @@ variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
  *      Also
  *          - *found == 0 || *found == 1
  *          - *found == 1 <==> (0 <= idx && key_idx == key)
- *
  *-----------------------------------------------------------------------------
  */
-
 /*
  * The C code below is a translation of the same dafny implementation as above.
- *
  */
-
 static inline int64
 variable_length_btree_find_tuple(const variable_length_btree_config *cfg,
                                  const variable_length_btree_hdr *   hdr,
@@ -667,10 +659,8 @@ variable_length_btree_find_tuple(const variable_length_btree_config *cfg,
  * - perform_incorporate_spec() does what it says.
  *
  * - incorporate_tuple() is a convenience wrapper.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline slice
 variable_length_btree_merge_tuples(
    const variable_length_btree_config *cfg,
@@ -776,11 +766,9 @@ variable_length_btree_leaf_incorporate_tuple(
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_defragment_leaf --
  *
  *      Defragment a node
- *
  *-----------------------------------------------------------------------------
  */
 static inline void
@@ -829,20 +817,20 @@ variable_length_btree_truncate_leaf(
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_split_leaf --
  *
  *      Splits the node at left_addr into a new node at right_addr.
  *
  *      Assumes write lock on both nodes.
- *
  *-----------------------------------------------------------------------------
  */
 
-/* This structure is intended to capture all the decisions in a leaf split.
-   That way, we can have a single function that defines the entire policy,
-   separate from the code that executes the policy (possibly as several steps
-   for concurrency reasons). */
+/*
+ * This structure is intended to capture all the decisions in a leaf split.
+ * That way, we can have a single function that defines the entire policy,
+ * separate from the code that executes the policy (possibly as several steps
+ * for concurrency reasons).
+ */
 typedef struct leaf_splitting_plan {
    uint64 split_idx;         // keys with idx < split_idx go left
    bool insertion_goes_left; // does the key to be inserted go to the left child
@@ -892,10 +880,12 @@ plan_move_more_entries_to_left(const variable_length_btree_config *cfg,
    return left_bytes;
 }
 
-/* Choose a splitting point so that we are guaranteed to be able to
-   insert the given key-message pair into the correct node after the
-   split. Assumes all leaf entries are at most half the total free
-   space in an empty leaf. */
+/*
+ * Choose a splitting point so that we are guaranteed to be able to
+ * insert the given key-message pair into the correct node after the
+ * split. Assumes all leaf entries are at most half the total free
+ * space in an empty leaf.
+ */
 static inline leaf_splitting_plan
 variable_length_btree_build_leaf_splitting_plan(
    const variable_length_btree_config *cfg, // IN
@@ -1015,16 +1005,13 @@ variable_length_btree_split_leaf_cleanup_left_node(
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_split_index --
  *
  *      Splits the node at left_addr into a new node at right_addr.
  *
  *      Assumes write lock on both nodes.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline bool
 variable_length_btree_index_is_full(
    const variable_length_btree_config *cfg, // IN
@@ -1092,11 +1079,9 @@ variable_length_btree_split_index_build_right_node(
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_defragment_index --
  *
  *      Defragment a node
- *
  *-----------------------------------------------------------------------------
  */
 static inline void
@@ -1160,15 +1145,12 @@ variable_length_btree_init_hdr(const variable_length_btree_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_alloc --
  *
  *      Allocates a node from the preallocator. Will refill it if there are no
  *      more nodes available for the given height.
- *
  *-----------------------------------------------------------------------------
  */
-
 bool
 variable_length_btree_alloc(cache *                     cc,
                             mini_allocator *            mini,
@@ -1187,14 +1169,11 @@ variable_length_btree_alloc(cache *                     cc,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_node_[get,release] --
  *
  *      Gets the node with appropriate lock or releases the lock.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline void
 variable_length_btree_node_get(cache *                             cc,
                                const variable_length_btree_config *cfg,
@@ -1280,7 +1259,7 @@ variable_length_btree_addrs_share_extent(
    uint64                              left_addr,
    uint64                              right_addr)
 {
-   return right_addr / cfg->extent_size == left_addr / cfg->extent_size;
+   return (right_addr / cfg->extent_size) == (left_addr / cfg->extent_size);
 }
 
 static inline uint64
@@ -1288,7 +1267,7 @@ variable_length_btree_get_extent_base_addr(
    const variable_length_btree_config *cfg,
    variable_length_btree_node *        node)
 {
-   return node->addr / cfg->extent_size * cfg->extent_size;
+   return (node->addr / cfg->extent_size) * cfg->extent_size;
 }
 
 static inline uint64
@@ -1442,8 +1421,6 @@ variable_length_btree_unblock_dec_ref(cache *                       cc,
  *    Truncate (and optionally defragment) the old child.  This is the
  *    only step that requires a write-lock on the old child.
  *
- *
- *
  * Note: if we wanted to maintain rank information in the parent when
  * splitting one of its children, we could do that by holding the lock
  * on the parent a bit longer.  But we don't need that in the
@@ -1545,7 +1522,6 @@ variable_length_btree_split_child_leaf(cache *                             cc,
    - all nodes fully unlocked
    - insertion is complete
 */
-
 static inline int
 variable_length_btree_defragment_or_split_child_leaf(
    cache *                             cc,
@@ -1789,7 +1765,6 @@ accumulate_node_ranks(const variable_length_btree_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_grow_root --
  *
  *      Adds a new root above the root.
@@ -1798,10 +1773,8 @@ accumulate_node_ranks(const variable_length_btree_config *cfg,
  *
  * Upon return:
  * - root is locked
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline int
 variable_length_btree_grow_root(cache *                             cc,  // IN
                                 const variable_length_btree_config *cfg, // IN
@@ -1848,7 +1821,6 @@ variable_length_btree_grow_root(cache *                             cc,  // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_insert --
  *
  *      Inserts the tuple into the dynamic variable_length_btree.
@@ -1857,10 +1829,8 @@ variable_length_btree_grow_root(cache *                             cc,  // IN
  *      success       -- the tuple has been inserted
  *      locked        -- the insert failed, but the caller didn't fill the tree
  *      lock acquired -- the insert failed, and the caller filled the tree
- *
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 variable_length_btree_insert(cache *                             cc,      // IN
                              const variable_length_btree_config *cfg,     // IN
@@ -1956,10 +1926,10 @@ start_over:
       variable_length_btree_get_index_entry(cfg, root_node.hdr, child_idx);
 
    /* root_node read-locked,
-      root_node is an index,
-      root_node min key is up to date,
-      root_node will not need to split */
-
+    * root_node is an index,
+    * root_node min key is up to date,
+    * root_node will not need to split
+    */
    variable_length_btree_node parent_node = root_node;
    variable_length_btree_node child_node;
    child_node.addr = index_entry_child_addr(parent_entry);
@@ -2043,10 +2013,8 @@ start_over:
                child_entry->pivot_data.message_bytes_in_tree);
             platform_assert(success);
          }
-
          variable_length_btree_node_unlock(cc, cfg, &parent_node);
          variable_length_btree_node_unclaim(cc, cfg, &parent_node);
-
       } else {
          variable_length_btree_node_unget(cc, cfg, &parent_node);
          parent_node = child_node;
@@ -2070,15 +2038,16 @@ start_over:
    }
 
    /*
-      - read lock on parent_node, parent_node is an index, parent node
-        min key is up to date, and parent_node will not need to split.
-      - read lock on child_node
-      - height of parent == 1
-   */
+    * - read lock on parent_node, parent_node is an index, parent node
+    *   min key is up to date, and parent_node will not need to split.
+    * - read lock on child_node
+    * - height of parent == 1
+    */
 
    /* If we don't need to split, then let go of the parent and do the
-      insert.  If we can't get a claim on the child, then start
-      over. */
+    * insert.  If we can't get a claim on the child, then start
+    * over.
+    */
    variable_length_btree_leaf_create_incorporate_spec(
       cfg, child_node.hdr, scratch, key, message, &spec);
    if (variable_length_btree_leaf_can_perform_incorporate_spec(
@@ -2129,7 +2098,6 @@ start_over:
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_lookup_node --
  *
  *      lookup_node finds the node of height stop_at_height with
@@ -2140,11 +2108,9 @@ start_over:
  *      stop_at_height.
  *
  *      If any change is made here, please change
- *variable_length_btree_lookup_async_with_ref too.
- *
+ *      variable_length_btree_lookup_async_with_ref too.
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 variable_length_btree_lookup_node(
    cache *                       cc,        // IN
@@ -2250,9 +2216,7 @@ variable_length_btree_lookup(cache *                       cc,        // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_async_set_state --
- *
  *      Set the state of the async variable_length_btree lookup state machine.
  *
  * Results:
@@ -2260,10 +2224,8 @@ variable_length_btree_lookup(cache *                       cc,        // IN
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline void
 variable_length_btree_async_set_state(
    variable_length_btree_async_ctxt *ctxt,
@@ -2276,7 +2238,6 @@ variable_length_btree_async_set_state(
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_async_callback --
  *
  *      Callback that's called when the async cache get loads a page into
@@ -2289,10 +2250,8 @@ variable_length_btree_async_set_state(
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static void
 variable_length_btree_async_callback(cache_async_ctxt *cache_ctxt)
 {
@@ -2315,7 +2274,6 @@ variable_length_btree_async_callback(cache_async_ctxt *cache_ctxt)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_lookup_async_with_ref --
  *
  *      State machine for the async variable_length_btree point lookup. This
@@ -2332,10 +2290,8 @@ variable_length_btree_async_callback(cache_async_ctxt *cache_ctxt)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 cache_async_result
 variable_length_btree_lookup_async_with_ref(
    cache *                           cc,        // IN
@@ -2353,14 +2309,16 @@ variable_length_btree_lookup_async_with_ref(
 
    do {
       switch (ctxt->state) {
-         case variable_length_btree_async_state_start: {
+         case variable_length_btree_async_state_start:
+         {
             ctxt->child_addr = root_addr;
             node->page       = NULL;
             variable_length_btree_async_set_state(
                ctxt, variable_length_btree_async_state_get_node);
             // fallthrough
          }
-         case variable_length_btree_async_state_get_node: {
+         case variable_length_btree_async_state_get_node:
+         {
             cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
 
             cache_ctxt_init(
@@ -2400,7 +2358,8 @@ variable_length_btree_lookup_async_with_ref(
             }
             break;
          }
-         case variable_length_btree_async_state_get_index_complete: {
+         case variable_length_btree_async_state_get_index_complete:
+         {
             cache_async_ctxt *cache_ctxt = ctxt->cache_ctxt;
 
             if (node->page) {
@@ -2430,7 +2389,8 @@ variable_length_btree_lookup_async_with_ref(
                ctxt, variable_length_btree_async_state_get_node);
             break;
          }
-         case variable_length_btree_async_state_get_leaf_complete: {
+         case variable_length_btree_async_state_get_leaf_complete:
+         {
             int64 idx =
                variable_length_btree_find_tuple(cfg, node->hdr, key, found);
             if (*found) {
@@ -2454,7 +2414,6 @@ variable_length_btree_lookup_async_with_ref(
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_lookup_async --
  *
  *      Async variable_length_btree point lookup. The ctxt should've been
@@ -2476,10 +2435,8 @@ variable_length_btree_lookup_async_with_ref(
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 cache_async_result
 variable_length_btree_lookup_async(cache *                       cc,  // IN
                                    variable_length_btree_config *cfg, // IN
@@ -2507,12 +2464,10 @@ variable_length_btree_lookup_async(cache *                       cc,  // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_iterator_init --
  * variable_length_btree_iterator_get_curr --
  * variable_length_btree_iterator_advance --
  * variable_length_btree_iterator_at_end
- *
  *
  * This iterator implementation supports an upper bound key ub.  Given
  * an upper bound, the iterator will return only keys strictly less
@@ -2540,10 +2495,8 @@ variable_length_btree_lookup_async(cache *                       cc,  // IN
  * checks whether the end node's generation has changed since the
  * iterator was initialized.  If it has, then the iterator recomputes
  * the end node and end_idx.
- *
  *-----------------------------------------------------------------------------
  */
-
 static bool
 variable_length_btree_iterator_is_at_end(variable_length_btree_iterator *itor)
 {
@@ -2758,7 +2711,6 @@ const static iterator_ops variable_length_btree_iterator_ops = {
 
 /*
  *-----------------------------------------------------------------------------
- *
  * Caller must guarantee:
  *    max_key (if not null) needs to be valid until at_end() returns true
  *-----------------------------------------------------------------------------
@@ -3102,7 +3054,8 @@ variable_length_btree_pack_post_loop(variable_length_btree_pack_req *req,
       for (uint64 addr =
               variable_length_btree_get_extent_base_addr(cfg, &req->edge[i]);
            addr != req->edge[i].addr;
-           addr += variable_length_btree_page_size(cfg)) {
+           addr += variable_length_btree_page_size(cfg))
+      {
          variable_length_btree_node node = {.addr = addr};
          variable_length_btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
          success = variable_length_btree_node_claim(cc, cfg, &node);
@@ -3120,15 +3073,12 @@ variable_length_btree_pack_post_loop(variable_length_btree_pack_req *req,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_pack --
  *
  *      Packs a variable_length_btree from an iterator source. Dec_Refs the
- *output tree if it's empty.
- *
+ *      output tree if it's empty.
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 variable_length_btree_pack(variable_length_btree_pack_req *req)
 {
@@ -3199,7 +3149,6 @@ variable_length_btree_get_rank(cache *                       cc,
  * count_in_range returns the exact number of tuples in the given
  * variable_length_btree between min_key (inc) and max_key (excl).
  */
-
 void
 variable_length_btree_count_in_range(cache *                       cc,
                                      variable_length_btree_config *cfg,
@@ -3245,7 +3194,6 @@ variable_length_btree_count_in_range(cache *                       cc,
  * variable_length_btree_count_in_range using an iterator instead of by
  * calculating ranks. Used for debugging purposes.
  */
-
 void
 variable_length_btree_count_in_range_by_iterator(
    cache *                       cc,
@@ -3289,15 +3237,12 @@ variable_length_btree_count_in_range_by_iterator(
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_print_node --
  * variable_length_btree_print_tree --
  *
  *      Prints out the contents of the node/tree.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 variable_length_btree_print_locked_node(variable_length_btree_config *cfg,
                                         uint64                        addr,
@@ -3447,7 +3392,6 @@ variable_length_btree_print_tree_stats(cache *                       cc,
  * returns the space used in bytes by the range [start_key, end_key) in the
  * variable_length_btree
  */
-
 uint64
 variable_length_btree_space_use_in_range(cache *                       cc,
                                          variable_length_btree_config *cfg,
@@ -3647,15 +3591,11 @@ variable_length_btree_print_lookup(cache *                       cc,  // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * variable_length_btree_config_init --
  *
  *      Initialize variable_length_btree config values
- *
  *-----------------------------------------------------------------------------
  */
-
-
 void
 variable_length_btree_config_init(
    variable_length_btree_config *variable_length_btree_cfg,
