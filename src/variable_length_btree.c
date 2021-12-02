@@ -505,10 +505,12 @@ variable_length_btree_insert_leaf_entry(const variable_length_btree_config *cfg,
                                         slice new_key,
                                         slice new_message)
 {
+   debug_assert(k <= hdr->num_entries);
    bool succeeded = variable_length_btree_set_leaf_entry(
       cfg, hdr, hdr->num_entries, new_key, new_message);
    if (succeeded) {
       node_offset this_entry_offset = hdr->offsets[hdr->num_entries - 1];
+      debug_assert(k + 1 <= hdr->num_entries);
       memmove(&hdr->offsets[k + 1],
               &hdr->offsets[k],
               (hdr->num_entries - k - 1) * sizeof(hdr->offsets[0]));
@@ -791,15 +793,18 @@ variable_length_btree_defragment_leaf(
       (variable_length_btree_hdr *)scratch->defragment_node.scratch_node;
    memcpy(scratch_hdr, hdr, variable_length_btree_page_size(cfg));
    variable_length_btree_reset_node_entries(cfg, hdr);
-   for (uint64 i = 0; i < variable_length_btree_num_entries(scratch_hdr); i++) {
+   uint64 dst_idx = 0;
+   for (int64 i = 0; i < variable_length_btree_num_entries(scratch_hdr); i++) {
       if (i != omit_idx) {
          leaf_entry *entry =
             variable_length_btree_get_leaf_entry(cfg, scratch_hdr, i);
-         variable_length_btree_set_leaf_entry(cfg,
-                                              hdr,
-                                              i,
-                                              leaf_entry_key_slice(entry),
-                                              leaf_entry_message_slice(entry));
+         debug_only bool success = variable_length_btree_set_leaf_entry(
+            cfg,
+            hdr,
+            dst_idx++,
+            leaf_entry_key_slice(entry),
+            leaf_entry_message_slice(entry));
+         debug_assert(success);
       }
    }
 }
