@@ -47,12 +47,13 @@ typedef struct splinter_config {
    uint64               reclaim_threshold;       // start reclaming space when free space < threshold
 
    // stats
-   bool                 use_stats;
+   bool use_stats;
 
-   memtable_config      mt_cfg;
-   btree_config         btree_cfg;
-   routing_config       index_filter_cfg;
-   routing_config       leaf_filter_cfg;
+   memtable_config              mt_cfg;
+   btree_config                 btree_cfg;
+   variable_length_btree_config vlbtree_cfg;
+   routing_config               index_filter_cfg;
+   routing_config               leaf_filter_cfg;
 
    data_config *data_cfg;
 

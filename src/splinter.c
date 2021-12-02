@@ -8240,9 +8240,16 @@ splinter_config_init(splinter_config *splinter_cfg,
                      splinter_cfg->data_cfg,
                      btree_rough_count_height,
                      splinter_cfg->page_size, splinter_cfg->extent_size);
+   variable_length_btree_config_init(&splinter_cfg->vlbtree_cfg,
+                                     splinter_cfg->data_cfg,
+                                     btree_rough_count_height,
+                                     splinter_cfg->page_size,
+                                     splinter_cfg->extent_size);
 
-   memtable_config_init(&splinter_cfg->mt_cfg, &splinter_cfg->btree_cfg,
-         SPLINTER_NUM_MEMTABLES, memtable_capacity);
+   memtable_config_init(&splinter_cfg->mt_cfg,
+                        &splinter_cfg->vlbtree_cfg,
+                        SPLINTER_NUM_MEMTABLES,
+                        memtable_capacity);
 
    // Has to be set after btree_config_init is called
    splinter_cfg->max_tuples_per_node

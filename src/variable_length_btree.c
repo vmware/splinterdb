@@ -1764,7 +1764,7 @@ accumulate_node_ranks(const variable_length_btree_config *cfg,
          *message_bytes = add_possibly_unknown(*message_bytes,
                                                leaf_entry_message_size(entry));
       }
-      *num_kvs = to - from;
+      *num_kvs += to - from;
    } else {
       for (int i = from; i < to; i++) {
          index_entry *entry =
@@ -1817,15 +1817,21 @@ variable_length_btree_grow_root(cache *                             cc,  // IN
 
    variable_length_btree_reset_node_entries(cfg, root_node->hdr);
    variable_length_btree_increment_height(root_node->hdr);
-   bool succeeded = variable_length_btree_set_index_entry(
-      cfg,
-      root_node->hdr,
-      0,
-      variable_length_btree_get_pivot(cfg, child.hdr, 0),
-      child.addr,
-      VARIABLE_LENGTH_BTREE_UNKNOWN,
-      VARIABLE_LENGTH_BTREE_UNKNOWN,
-      VARIABLE_LENGTH_BTREE_UNKNOWN);
+   slice new_pivot;
+   if (variable_length_btree_height(child.hdr) == 0) {
+      new_pivot = variable_length_btree_get_tuple_key(cfg, child.hdr, 0);
+   } else {
+      new_pivot = variable_length_btree_get_pivot(cfg, child.hdr, 0);
+   }
+   bool succeeded =
+      variable_length_btree_set_index_entry(cfg,
+                                            root_node->hdr,
+                                            0,
+                                            new_pivot,
+                                            child.addr,
+                                            VARIABLE_LENGTH_BTREE_UNKNOWN,
+                                            VARIABLE_LENGTH_BTREE_UNKNOWN,
+                                            VARIABLE_LENGTH_BTREE_UNKNOWN);
    platform_assert(succeeded);
 
    variable_length_btree_node_unget(cc, cfg, &child);
@@ -2615,6 +2621,7 @@ variable_length_btree_iterator_advance(iterator *base_itor)
    debug_assert(base_itor != NULL);
    variable_length_btree_iterator *itor =
       (variable_length_btree_iterator *)base_itor;
+
    // We should not be calling advance on an empty iterator
    debug_assert(!variable_length_btree_iterator_is_at_end(itor));
 
@@ -2622,10 +2629,9 @@ variable_length_btree_iterator_advance(iterator *base_itor)
    variable_length_btree_config *cfg = itor->cfg;
 
    itor->idx++;
-   debug_assert(itor->idx <= itor->curr.hdr->num_entries);
 
    if (!variable_length_btree_iterator_is_at_end(itor) &&
-       itor->idx == itor->curr.hdr->num_entries) {
+       itor->idx >= itor->curr.hdr->num_entries) {
       // exhausted this node; need to move to next node
       uint64 last_addr = itor->curr.addr;
       uint64 next_addr = itor->curr.hdr->next_addr;
@@ -2679,6 +2685,8 @@ variable_length_btree_iterator_advance(iterator *base_itor)
       }
    }
 
+   debug_assert(variable_length_btree_iterator_is_at_end(itor) ||
+                itor->idx < itor->curr.hdr->num_entries);
    return STATUS_OK;
 }
 
@@ -2817,7 +2825,9 @@ variable_length_btree_iterator_init(cache *                         cc,
 
    bool  found;
    int64 tmp;
-   if (itor->height == 0) {
+   if (slice_is_null(min_key)) {
+      tmp = 0;
+   } else if (itor->height == 0) {
       tmp = variable_length_btree_find_tuple(
          itor->cfg, itor->curr.hdr, min_key, &found);
       if (!found) {
@@ -2831,6 +2841,7 @@ variable_length_btree_iterator_init(cache *                         cc,
       if (!found) {
          tmp++;
       }
+      platform_assert(0 <= tmp);
    }
    itor->idx = tmp;
 
@@ -2845,6 +2856,9 @@ variable_length_btree_iterator_init(cache *                         cc,
       // IO prefetch the next extent
       cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
    }
+
+   debug_assert(variable_length_btree_iterator_is_at_end(itor) ||
+                itor->idx < itor->curr.hdr->num_entries);
 }
 
 void
@@ -2962,7 +2976,9 @@ variable_length_btree_pack_loop(variable_length_btree_pack_req *req, // IN/OUT
 
       if (req->height < i) {
          slice smallest_key =
-            variable_length_btree_get_pivot(req->cfg, old_edge.hdr, 0);
+            variable_length_btree_height(old_edge.hdr)
+               ? variable_length_btree_get_pivot(req->cfg, old_edge.hdr, 0)
+               : variable_length_btree_get_tuple_key(req->cfg, old_edge.hdr, 0);
          // need to add a new root
          variable_length_btree_alloc(req->cc,
                                      &req->mini,
