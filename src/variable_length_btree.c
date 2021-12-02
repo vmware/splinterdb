@@ -590,9 +590,11 @@ variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
       int64 mid = (lo + hi) / 2;
       int   cmp = variable_length_btree_key_compare(
          cfg, variable_length_btree_get_pivot(cfg, hdr, mid), key);
-      if (cmp <= 0) {
+      if (cmp == 0) {
+         *found = 1;
+         return mid;
+      } else if (cmp < 0) {
          lo     = mid + 1;
-         *found = cmp ? 0 : 1;
       } else {
          hi = mid;
       }
@@ -636,9 +638,11 @@ variable_length_btree_find_tuple(const variable_length_btree_config *cfg,
       int64 mid = (lo + hi) / 2;
       int   cmp = variable_length_btree_key_compare(
          cfg, variable_length_btree_get_tuple_key(cfg, hdr, mid), key);
-      if (cmp <= 0) {
+      if (cmp == 0) {
+         *found = 1;
+         return mid;
+      } else if (cmp < 0) {
          lo     = mid + 1;
-         *found = cmp ? 0 : 1;
       } else {
          hi = mid;
       }
