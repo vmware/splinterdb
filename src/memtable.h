@@ -13,7 +13,7 @@
 #include "platform.h"
 #include "task.h"
 #include "cache.h"
-#include "btree.h"
+#include "variable_length_btree.h"
 
 typedef enum memtable_state {
    MEMTABLE_STATE_READY,        // if it's the correct one, go ahead and insert
@@ -27,11 +27,11 @@ typedef enum memtable_state {
 } memtable_state;
 
 typedef struct memtable {
-   volatile memtable_state state;
-   uint64                  generation;
-   uint64                  root_addr;
-   mini_allocator          mini;
-   btree_config *          cfg;
+   volatile memtable_state       state;
+   uint64                        generation;
+   uint64                        root_addr;
+   mini_allocator                mini;
+   variable_length_btree_config *cfg;
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
 static inline bool
@@ -101,9 +101,9 @@ memtable_transition(memtable *mt,
 typedef void (*process_fn)(void *arg, uint64 generation);
 
 typedef struct memtable_config {
-   uint64        max_tuples_per_memtable;
-   uint64        max_memtables;
-   btree_config *btree_cfg;
+   uint64                        max_tuples_per_memtable;
+   uint64                        max_memtables;
+   variable_length_btree_config *btree_cfg;
 } memtable_config;
 
 typedef struct memtable_context {
@@ -148,7 +148,7 @@ typedef struct memtable_context {
    cache_aligned_uint64 thread_num_tuples[MAX_THREADS];
 
    // Effectively thread local, no locking at all:
-   btree_scratch scratch[MAX_THREADS];
+   variable_length_btree_scratch scratch[MAX_THREADS];
 
    memtable mt[];
 } memtable_context;
@@ -164,10 +164,10 @@ memtable_unget_insert_lock(memtable_context *ctxt,
 
 platform_status
 memtable_insert(memtable_context *ctxt,
-                memtable         *mt,
-                const char       *key,
-                const char       *data,
-                uint64           *generation);
+                memtable *        mt,
+                const char *      key,
+                const char *      message,
+                uint64 *          generation);
 
 page_handle *
 memtable_get_lookup_lock(memtable_context *ctxt);
@@ -212,10 +212,10 @@ memtable_context_destroy(platform_heap_id  hid,
                          memtable_context *ctxt);
 
 void
-memtable_config_init(memtable_config *cfg,
-                     btree_config    *btree_cfg,
-                     uint64           max_memtables,
-                     uint64           memtable_capacity);
+memtable_config_init(memtable_config *             cfg,
+                     variable_length_btree_config *btree_cfg,
+                     uint64                        max_memtables,
+                     uint64                        memtable_capacity);
 
 static inline uint64
 memtable_root_addr(memtable *mt)
@@ -281,7 +281,7 @@ static inline void
 memtable_zap(cache    *cc,
              memtable *mt)
 {
-   btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   variable_length_btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
 static inline bool
@@ -305,21 +305,22 @@ static inline bool
 memtable_verify(cache    *cc,
                 memtable *mt)
 {
-   return btree_verify_tree(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   return variable_length_btree_verify_tree(
+      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
 static inline void
 memtable_print(cache    *cc,
                memtable *mt)
 {
-   btree_print_tree(cc, mt->cfg, mt->root_addr);
+   variable_length_btree_print_tree(cc, mt->cfg, mt->root_addr);
 }
 
 static inline void
 memtable_print_stats(cache           *cc,
                      memtable        *mt)
 {
-   btree_print_tree_stats(cc, mt->cfg, mt->root_addr);
+   variable_length_btree_print_tree_stats(cc, mt->cfg, mt->root_addr);
 };
 
 static inline void
@@ -327,7 +328,8 @@ memtable_key_to_string(memtable   *mt,
                        const char *key,
                        char       *key_str)
 {
-   btree_key_to_string(mt->cfg, key, key_str);
+   slice key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
+   variable_length_btree_key_to_string(mt->cfg, key_slice, key_str);
 }
 
 #endif // __MEMTABLE_H
