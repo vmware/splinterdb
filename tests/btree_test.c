@@ -1398,10 +1398,18 @@ test_btree_merge_perf(cache             *cc,
 
 destroy_btrees:
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
-      variable_length_btree_zap(
-         cc, btree_cfg, root_addr[tree_no], PAGE_TYPE_BRANCH);
-      variable_length_btree_zap(
-         cc, btree_cfg, output_addr[tree_no], PAGE_TYPE_BRANCH);
+      variable_length_btree_zap_range(cc,
+                                      btree_cfg,
+                                      root_addr[tree_no],
+                                      NULL_SLICE,
+                                      NULL_SLICE,
+                                      PAGE_TYPE_BRANCH);
+      variable_length_btree_zap_range(cc,
+                                      btree_cfg,
+                                      output_addr[tree_no],
+                                      NULL_SLICE,
+                                      NULL_SLICE,
+                                      PAGE_TYPE_BRANCH);
    }
    if (SUCCESS(rc)) {
       platform_log("btree_test: btree merge perf test succeeded\n");
