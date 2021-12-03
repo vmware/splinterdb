@@ -755,7 +755,7 @@ mini_keyed_for_each(cache *          cc,
    uint64         extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = before_start;
-      extent_addr[i]   = TERMINAL_EXTENT_ADDR;
+      debug_code(extent_addr[i] = TERMINAL_EXTENT_ADDR);
    }
 
    do {
@@ -782,6 +782,7 @@ mini_keyed_for_each(cache *          cc,
    } while (meta_addr != 0);
 
 
+   debug_code(if (!did_work) { mini_keyed_print(cc, cfg, meta_head, type); });
    debug_assert(did_work);
    return should_cleanup;
 }
@@ -814,7 +815,7 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    uint64         extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = before_start;
-      extent_addr[i]   = TERMINAL_EXTENT_ADDR;
+      debug_code(extent_addr[i] = TERMINAL_EXTENT_ADDR);
    }
 
    do {
@@ -846,6 +847,7 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
 
    mini_unget_unclaim_meta_page(cc, meta_page);
 
+   debug_code(if (!did_work) { mini_keyed_print(cc, cfg, meta_head, type); });
    debug_assert(did_work);
    return should_cleanup;
 }

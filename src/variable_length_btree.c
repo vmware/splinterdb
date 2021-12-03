@@ -2904,8 +2904,8 @@ variable_length_btree_pack_setup_start(variable_length_btree_pack_req *req)
 {
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end
-   req->root_addr =
-      variable_length_btree_init(req->cc, req->cfg, &req->mini, TRUE);
+   req->root_addr = variable_length_btree_init(
+      req->cc, req->cfg, &req->mini, PAGE_TYPE_BRANCH);
    req->height = 0;
 }
 
