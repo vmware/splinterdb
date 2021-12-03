@@ -1,4 +1,5 @@
 /* Copyright 2011-2021 Bas van den Berg
+ * Copyright 2018-2021 VMware, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,6 +66,13 @@ union ctest_run_func_union {
 #define CTEST_IMPL_DIAG_POP()
 #endif
 
+/*
+ * ************************************************************************
+ * struct ctest: Main structure defining test suites, test cases to run.
+ * Through a whole bunch of preprocessing macros, an array of these test
+ * suite / test case definitions will be constructed, of this struct type.
+ * ************************************************************************
+ */
 struct ctest {
     const char* ssname;  // suite name
     const char* ttname;  // test name
@@ -163,6 +171,12 @@ void assert_data(const unsigned char* exp, size_t expsize,
 void assert_equal(intmax_t exp, intmax_t real, const char* caller, int line);
 #define ASSERT_EQUAL(exp, real) assert_equal(exp, real, __FILE__, __LINE__)
 
+// strcmp() of 2 null-terminated strings
+#define ASSERT_STREQ(str1, str2) assert_equal(strcmp(str1, str2), 0, __FILE__, __LINE__)
+
+// strncmp() of 2 strings, which may not be null-terminated
+#define ASSERT_STREQN(str1, str2, n) assert_equal(strncmp(str1, str2, n), 0, __FILE__, __LINE__)
+
 void assert_equal_u(uintmax_t exp, uintmax_t real, const char* caller, int line);
 #define ASSERT_EQUAL_U(exp, real) assert_equal_u(exp, real, __FILE__, __LINE__)
 
@@ -216,7 +230,8 @@ static char* ctest_errormsg;
 static char ctest_errorbuffer[MSG_SIZE];
 static jmp_buf ctest_err;
 static int color_output = 1;
-static const char* suite_name;
+static const char* suite_name       = NULL;
+static const char* testcase_name    = NULL;
 
 typedef int (*ctest_filter_func)(struct ctest*);
 
@@ -420,14 +435,58 @@ void assert_fail(const char* caller, int line) {
     CTEST_ERR("%s:%d  shouldn't come here", caller, line);
 }
 
-
+/*
+ * This is a pass-through filter function, selecting all test suites
+ * to run.
+ */
 static int suite_all(struct ctest* t) {
     (void) t; // fix unused parameter warning
     return 1;
 }
 
-static int suite_filter(struct ctest* t) {
-    return strncmp(suite_name, t->ssname, strlen(suite_name)) == 0;
+/*
+ * Function to filter which test case name to run. Currently, we only support
+ * an exact match of the test casee name. (Wild-card matching may be
+ * considered in the future). User can invoke as follows to just run one
+ * test case from a specific suite:
+ *
+ * $ bin/unit_test kvstore_basic test_kvstore_iterator_with_startkey
+ */
+static int
+testcase_filter(struct ctest* t) {
+    if (!testcase_name) {
+        return 1;
+    }
+    return strncmp(testcase_name, t->ttname, strlen(testcase_name)) == 0;
+}
+
+/*
+ * Function to filter suite name to run. Currently, we only support an
+ * exact match of the suite-name. (Wild-card matching may be considered
+ * in the future). Test case name filtering is implicitly subsumed in
+ * this function, so that we need to do only one filter()'ing in outer
+ * iteration of test execution loop.
+ *
+ * User can invoke as follows to just run one suite:
+ *  $ bin/unit_test kvstore_basic
+ *
+ * User can invoke as follows to just run one test case from a suite:
+ *  $ bin/unit_test kvstore_basic test_kvstore_iterator_with_startkey
+ */
+static int
+suite_filter(struct ctest* t) {
+    int rv = (strncmp(suite_name, t->ssname, strlen(suite_name)) == 0);
+
+    // If suite name itself didn't match, we are done.
+    if (!rv)
+        return rv;
+
+    // If user didn't request filtering by test case name, we are done.
+    if (!testcase_name)
+        return rv;
+
+    rv = testcase_filter(t);
+    return rv;
 }
 
 static uint64_t getCurrentTime(void) {
@@ -484,7 +543,8 @@ ctest_main(int argc, const char *argv[])
     signal(SIGSEGV, sighandler);
 #endif
 
-    if (argc == 2) {
+    // Establish test-suite and test-case name filters
+    if (argc >= 2) {
         suite_name = argv[1];
 
         if (strcmp(suite_name, "--help") == 0) {
@@ -493,6 +553,10 @@ ctest_main(int argc, const char *argv[])
         }
         filter = suite_filter;
     }
+
+    if (argc == 3) {
+        testcase_name = argv[2];
+    }
 #ifdef CTEST_NO_COLORS
     color_output = 0;
 #else
@@ -500,8 +564,9 @@ ctest_main(int argc, const char *argv[])
 #endif
     uint64_t t1 = getCurrentTime();
 
-    printf("Running CTests, suite name '%s'.\n",
-           (suite_name ? suite_name : "all"));
+    printf("Running CTests, suite name '%s', test case '%s'.\n",
+           (suite_name ? suite_name : "all"),
+           (testcase_name ? testcase_name : "all"));
 
     struct ctest* ctest_begin = &CTEST_IMPL_TNAME(suite, test);
     struct ctest* ctest_end = &CTEST_IMPL_TNAME(suite, test);
@@ -520,30 +585,48 @@ ctest_main(int argc, const char *argv[])
     ctest_end++;    // end after last one
 
     static struct ctest* test;
+
+    // Establish count of # of test-suites we will run (next).
     for (test = ctest_begin; test != ctest_end; test++) {
-        if (test == &CTEST_IMPL_TNAME(suite, test)) continue;
-        if (filter(test)) total++;
+        if (test == &CTEST_IMPL_TNAME(suite, test)) {
+            continue;
+        }
+        if (filter(test)) {
+            total++;
+        }
     }
 
+    /*
+     * Main driver loop: Plough the list of candidate test suite
+     * names. And execute qualifying test cases in each suite.
+     */
     for (test = ctest_begin; test != ctest_end; test++) {
-        if (test == &CTEST_IMPL_TNAME(suite, test)) continue;
+        if (test == &CTEST_IMPL_TNAME(suite, test)) {
+            continue;
+        }
         if (filter(test)) {
             ctest_errorbuffer[0] = 0;
             ctest_errorsize = MSG_SIZE-1;
             ctest_errormsg = ctest_errorbuffer;
+
             printf("TEST %d/%d %s:%s ", idx, total, test->ssname, test->ttname);
             fflush(stdout);
+
+            // Skip test cases that should be skipped.
             if (test->skip) {
                 color_print(ANSI_BYELLOW, "[SKIPPED]");
                 num_skip++;
             } else {
                 int result = setjmp(ctest_err);
                 if (result == 0) {
-                    if (test->setup && *test->setup) (*test->setup)(test->data);
-                    if (test->data)
+                    if (test->setup && *test->setup) {
+                        (*test->setup)(test->data);
+                    }
+                    if (test->data) {
                         test->run.unary(test->data);
-                    else
+                    } else {
                         test->run.nullary();
+                    }
                     if (test->teardown && *test->teardown) (*test->teardown)(test->data);
                     // if we got here it's ok
 #ifdef CTEST_COLOR_OK
@@ -556,7 +639,9 @@ ctest_main(int argc, const char *argv[])
                     color_print(ANSI_BRED, "[FAIL]");
                     num_fail++;
                 }
-                if (ctest_errorsize != MSG_SIZE-1) printf("%s", ctest_errorbuffer);
+                if (ctest_errorsize != MSG_SIZE-1) {
+                    printf("%s", ctest_errorbuffer);
+                }
             }
             idx++;
         }

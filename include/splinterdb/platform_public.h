@@ -12,6 +12,7 @@
 #define __PLATFORM_PUBLIC_H
 
 #include <stddef.h> // for size_t
+#include <stdio.h>
 
 /*
  * C99 header that provides a set of typedefs that specify exact-width
@@ -66,5 +67,9 @@ static_assert(sizeof(uint64) == 8, "incorrect type");
 typedef int32 bool;
 #endif
 typedef uint8 bool8;
+
+// See platform.c
+extern FILE *platform_stdout_fh; // File handle for stdout
+extern FILE *platform_stderr_fh; // File handle for stderr
 
 #endif // __PLATFORM_PUBLIC_H

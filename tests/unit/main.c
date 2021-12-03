@@ -1,3 +1,7 @@
+/* Copyright 2011-2021 Bas van den Berg
+ * Copyright 2021 VMware, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdio.h>
 
 #define CTEST_MAIN
@@ -20,7 +24,7 @@ main(int argc, const char *argv[])
  * Generate brief usage information to run CTests.
  */
 void
-ctest_usage(const char * progname)
+ctest_usage(const char *progname)
 {
-    printf("%s [ <suite-name> [ <test-case-name> ] ]\n", progname);
+   printf("%s [ <suite-name> [ <test-case-name> ] ]\n", progname);
 }

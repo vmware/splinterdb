@@ -232,10 +232,6 @@ platform_status_to_string(const platform_status status)
 #define PLATFORM_ERR_LOG_HANDLE stderr
 #define PLATFORM_CR "\r"
 
-// See platform.c
-extern FILE *platform_stdout_fh; // File handle for stdout
-extern FILE *platform_stderr_fh; // File handle for stderr
-
 #define platform_open_log_stream()              \
    char *bp;                                    \
    size_t size;                                 \
