@@ -6,14 +6,14 @@
 # ############################################################################
 #
 # Expect that CC env-variable is set externally to either clang or gcc-version
-CCFLAGS=-Wall -Wextra -Wconversion -Wredundant-decls -Wshadow -Wno-unused-parameter -O3
+CCFLAGS=-Wall -Wextra -Wconversion -Wredundant-decls -Wshadow -Wno-unused-parameter
 
 all: test
 
 remake: clean all
 
 %.o: %.c ctest.h
-	$(CC) $(CCFLAGS) -c -o $@ $<
+	$(CC) -g $(CCFLAGS) -c -o $@ $<
 
 test: main.o ctest.h mytests.o
 	$(CC) $(LDFLAGS)            \

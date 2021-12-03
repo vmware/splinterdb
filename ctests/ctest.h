@@ -24,10 +24,6 @@
  */
 // clang-format off
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #ifdef __GNUC__
 #define CTEST_IMPL_FORMAT_PRINTF(a, b) __attribute__ ((format(printf, a, b)))
 #else
@@ -114,34 +110,6 @@ struct ctest {
         CTEST_IMPL_MAGIC, \
     }
 
-#ifdef __cplusplus
-
-#define CTEST_SETUP(sname) \
-    template <> void CTEST_IMPL_SETUP_FNAME(sname)(struct CTEST_IMPL_DATA_SNAME(sname)* data)
-
-#define CTEST_TEARDOWN(sname) \
-    template <> void CTEST_IMPL_TEARDOWN_FNAME(sname)(struct CTEST_IMPL_DATA_SNAME(sname)* data)
-
-#define CTEST_DATA(sname) \
-    template <typename T> void CTEST_IMPL_SETUP_FNAME(sname)(T* data) { } \
-    template <typename T> void CTEST_IMPL_TEARDOWN_FNAME(sname)(T* data) { } \
-    struct CTEST_IMPL_DATA_SNAME(sname)
-
-#define CTEST_IMPL_CTEST(sname, tname, tskip) \
-    static void CTEST_IMPL_FNAME(sname, tname)(void); \
-    CTEST_IMPL_STRUCT(sname, tname, tskip, NULL, NULL, NULL); \
-    static void CTEST_IMPL_FNAME(sname, tname)(void)
-
-#define CTEST_IMPL_CTEST2(sname, tname, tskip) \
-    static struct CTEST_IMPL_DATA_SNAME(sname) CTEST_IMPL_DATA_TNAME(sname, tname); \
-    static void CTEST_IMPL_FNAME(sname, tname)(struct CTEST_IMPL_DATA_SNAME(sname)* data); \
-    static void (*CTEST_IMPL_SETUP_TPNAME(sname, tname))(struct CTEST_IMPL_DATA_SNAME(sname)*) = &CTEST_IMPL_SETUP_FNAME(sname)<struct CTEST_IMPL_DATA_SNAME(sname)>; \
-    static void (*CTEST_IMPL_TEARDOWN_TPNAME(sname, tname))(struct CTEST_IMPL_DATA_SNAME(sname)*) = &CTEST_IMPL_TEARDOWN_FNAME(sname)<struct CTEST_IMPL_DATA_SNAME(sname)>; \
-    CTEST_IMPL_STRUCT(sname, tname, tskip, &CTEST_IMPL_DATA_TNAME(sname, tname), &CTEST_IMPL_SETUP_TPNAME(sname, tname), &CTEST_IMPL_TEARDOWN_TPNAME(sname, tname)); \
-    static void CTEST_IMPL_FNAME(sname, tname)(struct CTEST_IMPL_DATA_SNAME(sname)* data)
-
-#else
-
 #define CTEST_SETUP(sname) \
     static void CTEST_IMPL_SETUP_FNAME(sname)(struct CTEST_IMPL_DATA_SNAME(sname)* data); \
     static void (*CTEST_IMPL_SETUP_FPNAME(sname))(struct CTEST_IMPL_DATA_SNAME(sname)*) = &CTEST_IMPL_SETUP_FNAME(sname); \
@@ -169,7 +137,6 @@ struct ctest {
     CTEST_IMPL_STRUCT(sname, tname, tskip, &CTEST_IMPL_DATA_TNAME(sname, tname), &CTEST_IMPL_SETUP_FPNAME(sname), &CTEST_IMPL_TEARDOWN_FPNAME(sname)); \
     static void CTEST_IMPL_FNAME(sname, tname)(struct CTEST_IMPL_DATA_SNAME(sname)* data)
 
-#endif
 
 void CTEST_LOG(const char* fmt, ...) CTEST_IMPL_FORMAT_PRINTF(1, 2);
 void CTEST_ERR(const char* fmt, ...) CTEST_IMPL_FORMAT_PRINTF(1, 2);  // doesn't return
@@ -501,8 +468,10 @@ static void sighandler(int signum)
 #endif
 
 int ctest_main(int argc, const char *argv[]);
+void ctest_usage(const char * progname);
 
-__attribute__((no_sanitize_address)) int ctest_main(int argc, const char *argv[])
+__attribute__((no_sanitize_address)) int
+ctest_main(int argc, const char *argv[])
 {
     static int total = 0;
     static int num_ok = 0;
@@ -517,6 +486,11 @@ __attribute__((no_sanitize_address)) int ctest_main(int argc, const char *argv[]
 
     if (argc == 2) {
         suite_name = argv[1];
+
+        if (strcmp(suite_name, "--help") == 0) {
+            ctest_usage(argv[0]);
+            return num_fail;
+        }
         filter = suite_filter;
     }
 #ifdef CTEST_NO_COLORS
@@ -526,8 +500,12 @@ __attribute__((no_sanitize_address)) int ctest_main(int argc, const char *argv[]
 #endif
     uint64_t t1 = getCurrentTime();
 
+    printf("Running CTests, suite name '%s'.\n",
+           (suite_name ? suite_name : "all"));
+
     struct ctest* ctest_begin = &CTEST_IMPL_TNAME(suite, test);
     struct ctest* ctest_end = &CTEST_IMPL_TNAME(suite, test);
+
     // find begin and end of section by comparing magics
     while (1) {
         struct ctest* t = ctest_begin-1;
@@ -592,10 +570,6 @@ __attribute__((no_sanitize_address)) int ctest_main(int argc, const char *argv[]
     return num_fail;
 }
 
-#endif
-
-#ifdef __cplusplus
-}
 #endif
 
 // clang-format on
