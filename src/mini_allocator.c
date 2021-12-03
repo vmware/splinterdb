@@ -754,7 +754,7 @@ mini_keyed_for_each(cache *          cc,
    boundary_state current_state[MINI_MAX_BATCHES];
    uint64         extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
-      current_state[i] = -1;
+      current_state[i] = before_start;
       extent_addr[i]   = TERMINAL_EXTENT_ADDR;
    }
 
@@ -813,7 +813,7 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    boundary_state current_state[MINI_MAX_BATCHES];
    uint64         extent_addr[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
-      current_state[i] = -1;
+      current_state[i] = before_start;
       extent_addr[i]   = TERMINAL_EXTENT_ADDR;
    }
 

@@ -65,6 +65,13 @@ typedef struct { // Note: not a union
    scratch_variable_length_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED variable_length_btree_scratch;
 
+typedef struct variable_length_btree_pivot_data {
+   uint64 child_addr;
+   uint64 num_kvs_in_tree;
+   uint64 key_bytes_in_tree;
+   uint64 message_bytes_in_tree;
+} variable_length_btree_pivot_data;
+
 typedef struct variable_length_btree_iterator {
    iterator                      super;
    cache *                       cc;
@@ -72,6 +79,7 @@ typedef struct variable_length_btree_iterator {
    bool                          do_prefetch;
    uint32                        height;
    page_type                     page_type;
+   slice                         min_key;
    slice                         max_key;
 
    uint64                     root_addr;
@@ -80,6 +88,10 @@ typedef struct variable_length_btree_iterator {
    uint64                     end_addr;
    uint64                     end_idx;
    uint64                     end_generation;
+
+   /* Used to return info about the current pivot when the height > 0.
+      A pointer to this field will be returned by calls to get_curr. */
+   variable_length_btree_pivot_data pivot_data;
 
    // Variables used for debug only
    debug_code(bool debug_is_packed);
@@ -222,6 +234,16 @@ variable_length_btree_blind_zap(cache *                             cc,
                                 const variable_length_btree_config *cfg,
                                 page_handle *                       meta_page,
                                 page_type                           type);
+
+void
+variable_length_btree_block_dec_ref(cache *                       cc,
+                                    variable_length_btree_config *cfg,
+                                    uint64                        root_addr);
+
+void
+variable_length_btree_unblock_dec_ref(cache *                       cc,
+                                      variable_length_btree_config *cfg,
+                                      uint64                        root_addr);
 
 void
 variable_length_btree_lookup_with_ref(cache *                       cc,

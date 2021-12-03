@@ -1765,6 +1765,7 @@ accumulate_node_ranks(const variable_length_btree_config *cfg,
                       uint32 *                            key_bytes,
                       uint32 *                            message_bytes)
 {
+   debug_assert(from <= to);
    if (variable_length_btree_height(hdr) == 0) {
       for (int i = from; i < to; i++) {
          leaf_entry *entry = variable_length_btree_get_leaf_entry(cfg, hdr, i);
@@ -2224,6 +2225,8 @@ variable_length_btree_lookup_with_ref(cache *                       cc,  // IN
       leaf_entry *entry =
          variable_length_btree_get_leaf_entry(cfg, node->hdr, idx);
       *data = leaf_entry_message_slice(entry);
+   } else {
+      variable_length_btree_node_unget(cc, cfg, node);
    }
 }
 
@@ -2243,8 +2246,8 @@ variable_length_btree_lookup(cache *                       cc,        // IN
    if (*found) {
       slice_copy_contents(data_out, data);
       *data_out_length = slice_length(data);
+      variable_length_btree_node_unget(cc, cfg, &node);
    }
-   variable_length_btree_node_unget(cc, cfg, &node);
 }
 
 /*
@@ -2573,8 +2576,14 @@ variable_length_btree_iterator_get_curr(iterator *base_itor,
       *data = variable_length_btree_get_tuple_message(
          itor->cfg, itor->curr.hdr, itor->idx);
    } else {
-      *key =
-         variable_length_btree_get_pivot(itor->cfg, itor->curr.hdr, itor->idx);
+      index_entry *entry = variable_length_btree_get_index_entry(
+         itor->cfg, itor->curr.hdr, itor->idx);
+      *key                                   = index_entry_key_slice(entry);
+      itor->pivot_data.child_addr            = index_entry_child_addr(entry);
+      itor->pivot_data.num_kvs_in_tree       = entry->num_kvs_in_tree;
+      itor->pivot_data.key_bytes_in_tree     = entry->key_bytes_in_tree;
+      itor->pivot_data.message_bytes_in_tree = entry->message_bytes_in_tree;
+      *data = slice_create(sizeof(itor->pivot_data), &itor->pivot_data);
    }
 }
 
@@ -2780,10 +2789,10 @@ variable_length_btree_iterator_init(cache *                         cc,
    itor->root_addr   = root_addr;
    itor->do_prefetch = do_prefetch;
    itor->height      = height;
-   // itor->min_key     = min_key;
-   itor->max_key   = max_key;
-   itor->page_type = page_type;
-   itor->super.ops = &variable_length_btree_iterator_ops;
+   itor->min_key     = min_key;
+   itor->max_key     = max_key;
+   itor->page_type   = page_type;
+   itor->super.ops   = &variable_length_btree_iterator_ops;
 
    variable_length_btree_lookup_node(itor->cc,
                                      itor->cfg,
@@ -3167,6 +3176,9 @@ variable_length_btree_get_rank(cache *                       cc,
    bool  found;
    int64 tuple_rank_in_leaf =
       variable_length_btree_find_tuple(cfg, leaf.hdr, key, &found);
+   if (!found) {
+      tuple_rank_in_leaf++;
+   }
    accumulate_node_ranks(cfg,
                          leaf.hdr,
                          0,

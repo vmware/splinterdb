@@ -337,6 +337,7 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
 
    // set the next key/data from the min ritor
    merge_itor->key = merge_itor->ordered_iterators[0]->key;
+   merge_itor->data = merge_itor->ordered_iterators[0]->data;
    if (!merge_itor->has_data) {
       /*
        * We only have keys.  We COULD still merge (skip duplicates) the keys
@@ -345,7 +346,6 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
        */
       return STATUS_OK;
    }
-   merge_itor->data = merge_itor->ordered_iterators[0]->data;
 
    if (merge_itor->ordered_iterators[0]->next_key_equal) {
       platform_status rc = merge_resolve_equal_keys(merge_itor);
@@ -593,7 +593,6 @@ merge_advance(iterator *itor)
    platform_status rc = STATUS_OK;
    merge_iterator *merge_itor = (merge_iterator *)itor;
 
-   debug_assert(!merge_itor->has_data || !slice_is_null(merge_itor->data));
    bool retry;
    do {
       merge_itor->key  = NULL_SLICE;
