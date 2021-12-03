@@ -71,6 +71,12 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          char *             str,
                                          size_t             max_len);
 
+/* struct data_config->dcfg_flags fields */
+typedef enum dcfg_flags_type {
+   DCFG_FL_UNUSED     = 0,
+   DCFG_FL_FOR_CTESTS = (1 << 0)
+} dcfg_flags_type;
+
 struct data_config {
    uint64 key_size;
    uint64 message_size;
@@ -78,6 +84,8 @@ struct data_config {
    // robj: we should get rid of min/max key
    char min_key[MAX_KEY_SIZE];
    char max_key[MAX_KEY_SIZE];
+   dcfg_flags_type dcfg_flags;
+   uint32          dcfg_spare; // For alignment of next fn-ptr field
 
    key_compare_fn           key_compare;
    key_hash_fn              key_hash;

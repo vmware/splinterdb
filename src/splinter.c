@@ -8270,16 +8270,24 @@ splinter_config_init(splinter_config *splinter_cfg,
    leaf_filter_cfg->fingerprint_size = filter_fingerprint_size;
    uint64 max_value = splinter_cfg->max_branches_per_node;
    size_t max_value_size = 64 - __builtin_clzll(max_value);
+
+   bool kvs_for_ctests = (data_cfg->dcfg_flags & DCFG_FL_FOR_CTESTS) != 0;
    if (filter_fingerprint_size > 32 - max_value_size) {
-      platform_error_log("Fingerprint size %lu too large, max value size is %lu, "
-                         "setting to %lu\n",
-                         filter_fingerprint_size, max_value_size,
-                         32 - max_value_size);
+      if (!kvs_for_ctests) {
+         platform_error_log(
+            "Fingerprint size %lu too large, max value size is %lu, "
+            "setting to %lu\n",
+            filter_fingerprint_size,
+            max_value_size,
+            32 - max_value_size);
+      }
       index_filter_cfg->fingerprint_size = 32 - max_value_size;
       leaf_filter_cfg->fingerprint_size = 32 - max_value_size;
    }
 
-   platform_log("fingerprint_size: %u\n", leaf_filter_cfg->fingerprint_size);
+   if (!kvs_for_ctests) {
+      platform_log("fingerprint_size: %u\n", leaf_filter_cfg->fingerprint_size);
+   }
 
    /*
     * Set filter index size
@@ -8309,9 +8317,12 @@ splinter_config_init(splinter_config *splinter_cfg,
       splinter_cfg->page_size;
    while (leaf_filter_cfg->index_size <= splinter_cfg->max_tuples_per_node /
        (addrs_per_page * pages_per_extent)) {
-      platform_error_log("filter-index-size: %u is too small, "
-                         "setting to %u\n",
-                         leaf_filter_cfg->index_size, leaf_filter_cfg->index_size * 2);
+      if (!kvs_for_ctests) {
+         platform_error_log("filter-index-size: %u is too small, "
+                            "setting to %u\n",
+                            leaf_filter_cfg->index_size,
+                            leaf_filter_cfg->index_size * 2);
+      }
       leaf_filter_cfg->index_size *= 2;
       leaf_filter_cfg->log_index_size++;
    }

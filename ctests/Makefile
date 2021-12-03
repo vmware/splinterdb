@@ -15,9 +15,10 @@ remake: clean all
 %.o: %.c ctest.h
 	$(CC) -g $(CCFLAGS) -c -o $@ $<
 
-test: main.o ctest.h mytests.o
+test: main.o ctest.h mytests.o kvstore_basic_test.o
 	$(CC) $(LDFLAGS)            \
     main.o mytests.o            \
+    kvstore_basic_test.o        \
     -o test
 
 clean:

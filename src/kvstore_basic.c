@@ -361,22 +361,26 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
                      const size_t         val_len)
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log("kvstore_basic_insert: key_len, %lu, exceeds"
-                         " max_key_size, %lu bytes; key='%.*s'\n",
-                         key_len,
-                         kvsb->max_app_key_size,
-                         (int)key_len,
-                         key);
+      if (!kvstore_basic_for_ctests(kvsb)) {
+         platform_error_log("kvstore_basic_insert: key_len, %lu, exceeds"
+                            " max_key_size, %lu bytes; key='%.*s'\n",
+                            key_len,
+                            kvsb->max_app_key_size,
+                            (int)key_len,
+                            key);
+      }
       return EINVAL;
    }
 
    if (val_len > kvsb->max_app_val_size) {
-      platform_error_log("kvstore_basic_insert: val_len, %lu, exceeds"
-                         " max_value_size, %lu bytes; value='%.*s ...'\n",
-                         val_len,
-                         kvsb->max_app_val_size,
-                         (int)kvsb->max_app_val_size,
-                         value);
+      if (!kvstore_basic_for_ctests(kvsb)) {
+         platform_error_log("kvstore_basic_insert: val_len, %lu, exceeds"
+                            " max_value_size, %lu bytes; value='%.*s ...'\n",
+                            val_len,
+                            kvsb->max_app_val_size,
+                            (int)kvsb->max_app_val_size,
+                            value);
+      }
       return EINVAL;
    }
 
@@ -409,7 +413,23 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
    return kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
 }
 
-
+/*
+ * kvstore_basic_lookup() - Lookup a key, returning its value.
+ *
+ * Parameters:
+ *  kvsb        - Ptr to KVStore handle
+ *  key         - Ptr to key to lookup
+ *  key_len     - Key's length in bytes
+ *  val         - Output buffer to return value, if key is found
+ *  val_max_len - Max length of value that we can return
+ *  val_bytes   - Length, in bytes, of value returned (found)
+ *  val_truncated Boolean, whether value was truncated on return
+ *  found_out   - Boolean, indicating if key was found.
+ *
+ * Returns:
+ *  == 0, upon success. (Check booleans to see if key is found.)
+ *  != 0, upon any error condition.
+ */
 int
 kvstore_basic_lookup(const kvstore_basic *kvsb,
                      const char *         key,           // IN
@@ -422,12 +442,14 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
 )
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log("kvstore_basic_lookup: key_len, %lu, exceeds"
-                         " max_key_size, %lu bytes; key='%.*s'\n",
-                         key_len,
-                         kvsb->max_app_key_size,
-                         (int)key_len,
-                         key);
+      if (!kvstore_basic_for_ctests(kvsb)) {
+         platform_error_log("kvstore_basic_lookup: key_len, %lu, exceeds"
+                            " max_key_size, %lu bytes; key='%.*s'\n",
+                            key_len,
+                            kvsb->max_app_key_size,
+                            (int)key_len,
+                            key);
+      }
       return EINVAL;
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
@@ -468,6 +490,14 @@ struct kvstore_basic_iterator {
    void *heap_id;
 };
 
+/*
+ * Initialize a KVStore iterator.
+ *
+ * Returns:
+ *  0 - For successful initialization of the iterator.
+ *  != 0 - In case of any errors
+ *  ENOMEM - In case of any memory allocation errors
+ */
 int
 kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
                         kvstore_basic_iterator **iter,         // OUT
@@ -508,6 +538,11 @@ kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp)
    *iterpp = NULL;
 }
 
+/*
+ * Validate if an open iterator is valid.
+ *
+ * Returns: Boolean
+ */
 _Bool
 kvstore_basic_iter_valid(kvstore_basic_iterator *iter)
 {
@@ -543,4 +578,11 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
    *val_len                    = msg->value_length;
    *key                        = (char *)(key_enc->data);
    *value                      = (char *)(msg->value);
+}
+
+/* Is this KVStore implementation being used to run CTests? */
+_Bool
+kvstore_basic_for_ctests(const kvstore_basic *kvsb)
+{
+   return ((kvsb->kvs) ? kvstore_for_ctests(kvsb->kvs) : FALSE);
 }
