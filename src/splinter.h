@@ -11,7 +11,7 @@
 #define __SPLINTER_H
 
 #include "splinterdb/data.h"
-#include "btree.h"
+#include "variable_length_btree.h"
 #include "memtable.h"
 #include "routing_filter.h"
 #include "cache.h"
@@ -50,8 +50,7 @@ typedef struct splinter_config {
    bool use_stats;
 
    memtable_config              mt_cfg;
-   btree_config                 btree_cfg;
-   variable_length_btree_config vlbtree_cfg;
+   variable_length_btree_config                 variable_length_btree_cfg;
    routing_config               index_filter_cfg;
    routing_config               leaf_filter_cfg;
 
@@ -140,9 +139,9 @@ typedef struct splinter_stats {
    uint64 tuples_reclaimed[SPLINTER_MAX_HEIGHT];
 } PLATFORM_CACHELINE_ALIGNED splinter_stats;
 
-// splinter refers to btrees as branches
+// splinter refers to variable_length_btrees as branches
 typedef struct splinter_branch {
-   uint64 root_addr; // root address of point btree
+   uint64 root_addr; // root address of point variable_length_btree
 } splinter_branch;
 
 typedef struct splinter_handle splinter_handle;
@@ -220,7 +219,7 @@ typedef struct splinter_range_iterator {
    char             max_key[MAX_KEY_SIZE];
    char             local_max_key[MAX_KEY_SIZE];
    char             rebuild_key[MAX_KEY_SIZE];
-   btree_iterator   btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
+   variable_length_btree_iterator   variable_length_btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
    splinter_branch  branch[SPLINTER_MAX_TOTAL_DEGREE];
 
    // used for merge iterator construction
@@ -237,8 +236,8 @@ typedef enum {
    async_state_pivot_lookup,
    async_state_filter_lookup_start,
    async_state_filter_lookup_reentrant,
-   async_state_btree_lookup_start,
-   async_state_btree_lookup_reentrant,
+   async_state_variable_length_btree_lookup_start,
+   async_state_variable_length_btree_lookup_reentrant,
    async_state_next_in_node,
    async_state_trunk_node_done,
    async_state_get_child_trunk_node_reentrant,
@@ -290,7 +289,7 @@ typedef struct splinter_async_ctxt {
    splinter_branch             *branch;        // Current branch
    union {
       routing_async_ctxt        filter_ctxt;    // Filter async context
-      btree_async_ctxt          btree_ctxt;    // Btree async context
+      variable_length_btree_async_ctxt          variable_length_btree_ctxt;    // Btree async context
    };
    cache_async_ctxt             cache_ctxt;    // Async cache context
 } splinter_async_ctxt;
@@ -402,10 +401,29 @@ splinter_tuple_size(splinter_handle *spl)
    return splinter_key_size(spl) + splinter_message_size(spl);
 }
 
+static inline slice
+splinter_key_slice(splinter_handle *spl, const char *key)
+{
+   if (key) {
+      return slice_create(splinter_key_size(spl), key);
+   } else {
+      return NULL_SLICE;
+   }
+}
+
+static inline slice
+splinter_message_slice(splinter_handle *spl, const char *message)
+{
+   return slice_create(splinter_message_size(spl), message);
+}
+
 static inline int
 splinter_key_compare(splinter_handle *spl, const char *key1, const char *key2)
 {
-   return btree_key_compare(&spl->cfg.btree_cfg, key1, key2);
+   slice key1_slice = splinter_key_slice(spl, key1);
+   slice key2_slice = splinter_key_slice(spl, key2);
+   return variable_length_btree_key_compare(
+      &spl->cfg.variable_length_btree_cfg, key1_slice, key2_slice);
 }
 
 static inline void
@@ -413,15 +431,19 @@ splinter_key_to_string(splinter_handle *spl,
                        const char *     key,
                        char             str[static 128])
 {
-   btree_key_to_string(&spl->cfg.btree_cfg, key, str);
+   slice key_slice = slice_create(splinter_key_size(spl), key);
+   variable_length_btree_key_to_string(
+      &spl->cfg.variable_length_btree_cfg, key_slice, str);
 }
 
 static inline void
 splinter_message_to_string(splinter_handle *spl,
-                           const char *     data,
+                           const char *     message,
                            char             str[static 128])
 {
-   btree_message_to_string(&spl->cfg.btree_cfg, data, str);
+   slice message_slice = splinter_message_slice(spl, message);
+   variable_length_btree_message_to_string(
+      &spl->cfg.variable_length_btree_cfg, message_slice, str);
 }
 
 static inline void
@@ -448,7 +470,7 @@ splinter_config_init(splinter_config *splinter_cfg,
                      uint64           memtable_capacity,
                      uint64           fanout,
                      uint64           max_branches_per_node,
-                     uint64           btree_rough_count_height,
+                     uint64           variable_length_btree_rough_count_height,
                      uint64           page_size,
                      uint64           extent_size,
                      uint64           filter_remainder_size,

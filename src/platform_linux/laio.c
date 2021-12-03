@@ -272,6 +272,10 @@ laio_cleanup(io_handle *ioh,
    uint64 i;
    int status;
 
+   /* clang memory sanitizer thinks we use this uninitialized for some reason.
+    */
+   debug_only(memset(&event, 0, sizeof(event)));
+
    io = (laio_handle *)ioh;
    for (i = 0; ((count == 0) || (i < count)); i++) {
       status = io_getevents(io->ctx, 0, 1, &event, NULL);
