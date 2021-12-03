@@ -11,6 +11,7 @@ PLATFORM = linux
 
 SRCDIR   = src
 TESTSDIR = tests
+CTESTDIR = ctests
 UNITDIR  = unit
 OBJDIR   = obj
 BINDIR   = bin
@@ -19,10 +20,12 @@ INCDIR   = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
+CTESTSRC := $(shell find $(CTESTDIR) -name "*.c")
 UNITSRC := $(shell find $(UNITDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 TESTOBJ= $(TESTSRC:%.c=$(OBJDIR)/%.o)
+CTESTOBJ= $(CTESTSRC:%.c=$(OBJDIR)/%.o)
 UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
 
 # Automatically create directories, based on
@@ -121,6 +124,9 @@ debug-log: .debug-log all
 #
 
 $(BINDIR)/driver_test : $(TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
+$(BINDIR)/ctests : $(CTESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
