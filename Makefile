@@ -69,7 +69,7 @@ ifeq ($(cpu_arch),x86_64)
   CFLAGS += -march=native
 endif
 #DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
-DEFAULT_CFLAGS += -fsanitize=address
+#DEFAULT_CFLAGS += -fsanitize=address
 #DEFAULT_CFLAGS += -fsanitize=integer
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
@@ -77,7 +77,7 @@ DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 DEFAULT_LDFLAGS = -ggdb3 -pthread
 #DEFAULT_LDFLAGS += -fsanitize=memory
-DEFAULT_LDFLAGS += -fsanitize=address
+#DEFAULT_LDFLAGS += -fsanitize=address
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
