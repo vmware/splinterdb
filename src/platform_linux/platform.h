@@ -404,7 +404,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * but we force it as a statement to match the usage of ZERO_ARRAY/ZERO_POINTER
  *    (v) = (typeof(v)) {}
  *
- * This macro intentionall CANNOT be used during declaration
+ * This macro intentionally CANNOT be used during declaration
  * (see ZERO_STRUCT_AT_DECL).
  */
 #define ZERO_STRUCT(v)       \

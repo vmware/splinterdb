@@ -127,6 +127,9 @@ debug-log: .debug-log all
 $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
+$(BINDIR)/ctests : $(CTESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
+	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
