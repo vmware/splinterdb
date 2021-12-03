@@ -16,6 +16,8 @@
 #ifndef CTEST_H
 #define CTEST_H
 
+// clang-format off
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -589,6 +591,8 @@ __attribute__((no_sanitize_address)) int ctest_main(int argc, const char *argv[]
 #ifdef __cplusplus
 }
 #endif
+
+// clang-format on
 
 #endif
 
