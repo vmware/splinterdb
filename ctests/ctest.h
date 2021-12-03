@@ -16,6 +16,12 @@
 #ifndef CTEST_H
 #define CTEST_H
 
+/* Some of the code inherited from ctest repo has code formatting that
+ * is inconsistent with Splinter's clang-formatting rules. Attempting
+ * to run clang-format on this file will mess up the layout in ways
+ * that makes compilation impossible. Hence, suppress clang-formatting
+ * in this file entirely.
+ */
 // clang-format off
 
 #ifdef __cplusplus
@@ -595,4 +601,3 @@ __attribute__((no_sanitize_address)) int ctest_main(int argc, const char *argv[]
 // clang-format on
 
 #endif
-
