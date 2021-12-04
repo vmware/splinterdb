@@ -214,4 +214,8 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
 int
 kvstore_basic_iter_status(const kvstore_basic_iterator *iter);
 
+// Check if this KVStore implementation is being used to run CTests
+_Bool
+kvstore_basic_for_ctests(const kvstore_basic *kvsb);
+
 #endif // _KVSTORE_BASIC_H_

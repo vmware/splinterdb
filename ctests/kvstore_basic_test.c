@@ -44,7 +44,7 @@
 
 #define Mega (1024UL * 1024UL)
 
-#define TEST_DB_NAME "db"
+#define TEST_DB_NAME "ctestsdb"
 
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7
@@ -375,11 +375,11 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
  */
 CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
 {
-   int                     rc   = 0;
-   kvstore_basic_iterator *it   = NULL;
+   int                     rc = 0;
+   kvstore_basic_iterator *it = NULL;
 
    const int num_inserts = 50;
-   rc = insert_some_keys(num_inserts, data->kvsb);
+   rc                    = insert_some_keys(num_inserts, data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    // start-key > max-key ('key-50')
@@ -398,7 +398,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
    // 1st key inserted. (We do lexicographic comparison, so 'U' sorts
    // before 'key...', which is what key's format is.)
    key = "UnknownKey";
-   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   rc  = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
    /*
@@ -433,6 +433,10 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 
    int rc = kvstore_basic_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
+
+   // Instruct Splinter that we are running CTests, so that we don't get
+   // noisy info messages to stdout. (Clutters up test execution outputs.)
+   kvstore_basic_for_ctests(*kvsb);
    return rc;
 }
 

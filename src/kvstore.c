@@ -104,6 +104,10 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    masterCfg.message_size       = kvs_cfg->data_cfg.message_size;
    kvs->data_cfg                = kvs_cfg->data_cfg;
 
+   if (strcmp(kvs_cfg->filename, "ctestsdb") == 0) {
+      kvstore_set_for_ctests(kvs);
+   }
+
    // check if min_key and max_key are set
    if (0 == memcmp(kvs->data_cfg.min_key,
                    kvs->data_cfg.max_key,
@@ -523,4 +527,20 @@ int
 kvstore_iterator_status(const kvstore_iterator *iter)
 {
    return platform_status_to_int(iter->last_rc);
+}
+
+/* Setup this KVStore as being used to run CTests */
+void
+kvstore_set_for_ctests(kvstore *kvs)
+{
+   if (!kvs)
+      return;
+   kvs->data_cfg.dcfg_flags |= DCFG_FL_FOR_CTESTS;
+}
+
+/* Is this KVStore being used to run CTests? */
+bool
+kvstore_for_ctests(const kvstore *kvs)
+{
+   return ((kvs->data_cfg.dcfg_flags & DCFG_FL_FOR_CTESTS) != 0);
 }

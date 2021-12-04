@@ -434,8 +434,10 @@ rc_allocator_dismount(rc_allocator *al)
 {
    platform_status status;
 
+   /* RESOLVE: Find out how to conditionally print this msg.
    platform_log("Allocated at dismount: %lu MiB\n",
                 B_TO_MiB(al->stats.curr_allocated * al->cfg->extent_size));
+   */
    // persist the ref counts upon dismount.
    uint32 io_size = ROUNDUP(al->cfg->extent_capacity, al->cfg->page_size);
    status = io_write(al->io, al->ref_count, io_size, al->cfg->extent_size);
