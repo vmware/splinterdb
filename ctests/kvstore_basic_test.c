@@ -373,7 +373,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
  *  . If start-key > max-key, we will find no more keys to scan.
  *  . If start-key < min-key, we will start scan from 1st key in set.
  */
-CTEST2_SKIP(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
+CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
 {
    int                     rc = 0;
    kvstore_basic_iterator *it = NULL;
@@ -386,7 +386,6 @@ CTEST2_SKIP(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
    char *key = "unknownKey";
 
    rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
-   printf("rc = %d\n", rc);
 
    // Iterator should be invalid, as lookup key is non-existent.
    _Bool is_valid = kvstore_basic_iter_valid(it);
@@ -401,13 +400,25 @@ CTEST2_SKIP(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
    rc  = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
-   /*
+   int ictr = 0;
    // Iterator should be initialized to 1st key inserted, if the supplied
    // start_key is not found, but below the min-key inserted.
-   int ictr = 0;
    rc = check_current_tuple(it, ictr);
    ASSERT_EQUAL(0, rc);
-   */
+
+   // Just to be sure, run through the set of keys, to cross-check that
+   // we are getting all of them back in the right order.
+   for (; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
+      rc = check_current_tuple(it, ictr);
+      ASSERT_EQUAL(0, rc);
+      ictr++;
+   }
+   // We should have iterated thru all the keys that were inserted
+   ASSERT_EQUAL(num_inserts, ictr);
+
+   if (it) {
+      kvstore_basic_iter_deinit(&it);
+   }
 }
 
 
