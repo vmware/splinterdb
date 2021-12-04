@@ -635,4 +635,10 @@ diff_ptr(const void* base, const void* limit)
 
 #define DEFAULT_THROTTLE_INTERVAL_SEC (60)
 
+static inline int
+platform_backtrace(void **buffer, int size)
+{
+   return backtrace(buffer, size);
+}
+
 #endif
