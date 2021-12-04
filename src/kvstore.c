@@ -104,7 +104,10 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    masterCfg.message_size       = kvs_cfg->data_cfg.message_size;
    kvs->data_cfg                = kvs_cfg->data_cfg;
 
-   if (strcmp(kvs_cfg->filename, "ctestsdb") == 0) {
+   // Track when KVS is being configured for use by CTests. Under this
+   // flag, different code paths will suppress extraneous / info messages.
+   bool kvs_for_ctests = (strcmp(kvs_cfg->filename, "ctestsdb") == 0);
+   if (kvs_for_ctests) {
       kvstore_set_for_ctests(kvs);
    }
 
@@ -132,6 +135,9 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
                             masterCfg.page_size,
                             masterCfg.extent_size,
                             masterCfg.allocator_capacity);
+   if (kvs_for_ctests) {
+      kvs->allocator_cfg.for_ctests = TRUE;
+   }
 
    clockcache_config_init(&kvs->cache_cfg,
                           masterCfg.page_size,

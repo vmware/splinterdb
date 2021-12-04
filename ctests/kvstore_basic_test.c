@@ -442,7 +442,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    const int num_inserts = 50;
    // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
    int minkey = 1;
-   int rc = insert_keys(data->kvsb, minkey, num_inserts, 3);
+   int rc     = insert_keys(data->kvsb, minkey, num_inserts, 3);
    ASSERT_EQUAL(0, rc);
 
    char key[TEST_INSERT_KEY_LENGTH];
@@ -450,7 +450,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    // (a) Test iter_init with a key == the min-key
    snprintf(key, sizeof(key), key_fmt, minkey);
 
-   kvstore_basic_iterator *it   = NULL;
+   kvstore_basic_iterator *it = NULL;
    rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
@@ -460,7 +460,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    // Iterator should be initialized to 1st key inserted, if the supplied
    // start_key is below min-key inserted thus far.
    int ictr = minkey;
-   rc = check_current_tuple(it, ictr);
+   rc       = check_current_tuple(it, ictr);
    ASSERT_EQUAL(0, rc);
 
    kvstore_basic_iter_deinit(&it);
@@ -479,7 +479,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    // Iterator should be initialized to 1st key inserted, if the supplied
    // start_key is below min-key inserted thus far.
    ictr = minkey;
-   rc = check_current_tuple(it, ictr);
+   rc   = check_current_tuple(it, ictr);
    ASSERT_EQUAL(0, rc);
 
    kvstore_basic_iter_deinit(&it);
@@ -496,7 +496,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
 
    // Iterator should be initialized to next key following kctr.
    ictr = 7;
-   rc = check_current_tuple(it, ictr);
+   rc   = check_current_tuple(it, ictr);
    ASSERT_EQUAL(0, rc);
 
    kvstore_basic_iter_deinit(&it);
@@ -513,7 +513,48 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    ASSERT_FALSE(is_valid);
 
    if (it) {
-       kvstore_basic_iter_deinit(&it);
+      kvstore_basic_iter_deinit(&it);
+   }
+}
+
+/*
+ * Test case to verify the interfaces to close() and reopen() a KVS work
+ * as expected. After reopening the KVS, we should be able to retrieve data
+ * that was inserted in the previous open.
+ */
+CTEST2(kvstore_basic, test_close_and_reopen)
+{
+   char * key     = "some-key";
+   size_t key_len = sizeof(key);
+   char * val     = "some-value";
+   size_t val_len = sizeof(val);
+   _Bool  found;
+   _Bool  val_truncated;
+   char * value = calloc(1, data->cfg.max_value_size);
+
+   int rc = kvstore_basic_insert(data->kvsb, key, key_len, val, val_len);
+   ASSERT_EQUAL(0, rc);
+
+   // Exercise & verify close / reopen interfaces
+   kvstore_basic_close(data->kvsb);
+   rc = kvstore_basic_open(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   rc = kvstore_basic_lookup(data->kvsb,
+                             key,
+                             key_len,
+                             value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(found);
+   ASSERT_STREQN(val, value, val_len);
+   ASSERT_FALSE(val_truncated);
+
+   if (value) {
+      free(value);
    }
 }
 
