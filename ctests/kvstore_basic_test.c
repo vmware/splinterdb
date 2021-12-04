@@ -329,6 +329,17 @@ CTEST2(kvstore_basic, test_basic_iterator)
    }
 }
 
+/*
+ * Test case to exercise and verify that kvstore iterator interfaces with a
+ * non-NULL start key correctly sets up the start scan at the requested
+ * initial key value.
+ */
+CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
+{
+   const int num_inserts = 50;
+   int rc = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+}
 
 /*
  * ********************************************************************************

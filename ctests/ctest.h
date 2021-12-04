@@ -432,6 +432,13 @@ static int suite_all(struct ctest* t) {
     return 1;
 }
 
+/*
+ * Function to filter suite name to run. Currently, we only support an
+ * exact match of the suite-name. (Wild-card matching may be considered
+ * in the future). User can invoke as follows to just run one suite:
+ *
+ * $ bin/ctests kvstore_basic
+ */
 static int suite_filter(struct ctest* t) {
     return strncmp(suite_name, t->ssname, strlen(suite_name)) == 0;
 }
@@ -526,30 +533,48 @@ ctest_main(int argc, const char *argv[])
     ctest_end++;    // end after last one
 
     static struct ctest* test;
+
+    // Establish count of # of test-suites we will run (next).
     for (test = ctest_begin; test != ctest_end; test++) {
-        if (test == &CTEST_IMPL_TNAME(suite, test)) continue;
-        if (filter(test)) total++;
+        if (test == &CTEST_IMPL_TNAME(suite, test)) {
+            continue;
+        }
+        if (filter(test)) {
+            total++;
+        }
     }
 
+    /*
+     * Main driver loop: Plough the list of candidate test suite
+     * names. And execute qualifying test cases in each suite.
+     */
     for (test = ctest_begin; test != ctest_end; test++) {
-        if (test == &CTEST_IMPL_TNAME(suite, test)) continue;
+        if (test == &CTEST_IMPL_TNAME(suite, test)) {
+            continue;
+        }
         if (filter(test)) {
             ctest_errorbuffer[0] = 0;
             ctest_errorsize = MSG_SIZE-1;
             ctest_errormsg = ctest_errorbuffer;
+
             printf("TEST %d/%d %s:%s ", idx, total, test->ssname, test->ttname);
             fflush(stdout);
+
+            // Skip test cases that should be skipped.
             if (test->skip) {
                 color_print(ANSI_BYELLOW, "[SKIPPED]");
                 num_skip++;
             } else {
                 int result = setjmp(ctest_err);
                 if (result == 0) {
-                    if (test->setup && *test->setup) (*test->setup)(test->data);
-                    if (test->data)
+                    if (test->setup && *test->setup) {
+                        (*test->setup)(test->data);
+                    }
+                    if (test->data) {
                         test->run.unary(test->data);
-                    else
+                    } else {
                         test->run.nullary();
+                    }
                     if (test->teardown && *test->teardown) (*test->teardown)(test->data);
                     // if we got here it's ok
 #ifdef CTEST_COLOR_OK
@@ -562,7 +587,9 @@ ctest_main(int argc, const char *argv[])
                     color_print(ANSI_BRED, "[FAIL]");
                     num_fail++;
                 }
-                if (ctest_errorsize != MSG_SIZE-1) printf("%s", ctest_errorbuffer);
+                if (ctest_errorsize != MSG_SIZE-1) {
+                    printf("%s", ctest_errorbuffer);
+                }
             }
             idx++;
         }
