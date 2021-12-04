@@ -64,6 +64,9 @@ static int
 insert_some_keys(const int num_inserts, kvstore_basic *kvsb);
 
 static int
+insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr);
+
+static int
 check_current_tuple(kvstore_basic_iterator *it, const int expected_i);
 
 /*
@@ -421,6 +424,98 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
    }
 }
 
+/*
+ * Test case to exercise kvstore iterator with a non-NULL but non-existent
+ * start-key.  The data in this test case is loaded such that we have a
+ * sequence of key values with gaps of 2 (i.e. 1, 4, 7, 10, ...).
+ *
+ * Then, there are basically 4 sub-cases we exercise here:
+ *
+ *  a) start-key exactly == min-key
+ *  b) start-key < min-key
+ *  c) start-key between some existing key values; (Choose 5, which should
+ *      end up starting the scan at 7.)
+ *  d) start-key beyond max-key (Scan should come out as invalid.)
+ */
+CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
+{
+   const int num_inserts = 50;
+   // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
+   int minkey = 1;
+   int rc = insert_keys(data->kvsb, minkey, num_inserts, 3);
+   ASSERT_EQUAL(0, rc);
+
+   char key[TEST_INSERT_KEY_LENGTH];
+
+   // (a) Test iter_init with a key == the min-key
+   snprintf(key, sizeof(key), key_fmt, minkey);
+
+   kvstore_basic_iterator *it   = NULL;
+   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   ASSERT_EQUAL(0, rc);
+
+   bool is_valid = kvstore_basic_iter_valid(it);
+   ASSERT_TRUE(is_valid);
+
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is below min-key inserted thus far.
+   int ictr = minkey;
+   rc = check_current_tuple(it, ictr);
+   ASSERT_EQUAL(0, rc);
+
+   kvstore_basic_iter_deinit(&it);
+
+   // (b) Test iter_init with a value below the min-key-value.
+   int kctr = (minkey - 1);
+
+   snprintf(key, sizeof(key), key_fmt, kctr);
+
+   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   ASSERT_EQUAL(0, rc);
+
+   is_valid = kvstore_basic_iter_valid(it);
+   ASSERT_TRUE(is_valid);
+
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is below min-key inserted thus far.
+   ictr = minkey;
+   rc = check_current_tuple(it, ictr);
+   ASSERT_EQUAL(0, rc);
+
+   kvstore_basic_iter_deinit(&it);
+
+   // (c) Test with a non-existent value between 2 valid key values.
+   kctr = 5;
+   snprintf(key, sizeof(key), key_fmt, kctr);
+
+   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   ASSERT_EQUAL(0, rc);
+
+   is_valid = kvstore_basic_iter_valid(it);
+   ASSERT_TRUE(is_valid);
+
+   // Iterator should be initialized to next key following kctr.
+   ictr = 7;
+   rc = check_current_tuple(it, ictr);
+   ASSERT_EQUAL(0, rc);
+
+   kvstore_basic_iter_deinit(&it);
+
+   // (d) Test with a non-existent value beyond max key value.
+   //     iter_init should end up as being invalid.
+   kctr = -1;
+   snprintf(key, sizeof(key), key_fmt, kctr);
+
+   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   ASSERT_EQUAL(0, rc);
+
+   is_valid = kvstore_basic_iter_valid(it);
+   ASSERT_FALSE(is_valid);
+
+   if (it) {
+       kvstore_basic_iter_deinit(&it);
+   }
+}
 
 /*
  * ********************************************************************************
@@ -473,6 +568,43 @@ insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
       ASSERT_EQUAL(0, rc);
    }
 
+   return rc;
+}
+
+/*
+ * Helper function to insert n-keys (num_inserts), using pre-formatted
+ * key and value strings. Allows user to specify start value and increment
+ * between keys. This can be used to load either fully sequential keys
+ * or some with defined gaps.
+ *
+ * Parameters:
+ *  kvsb    - Ptr to KVStore handle
+ *  minkey  - Start key to insert
+ *  numkeys - # of keys to insert
+ *  incr    - Increment between keys (default is 1)
+ *
+ * Returns: Return code: rc == 0 => success; anything else => failure
+ */
+static int
+insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr)
+{
+   int rc = -1;
+
+   // Minimally, error check input arguments
+   if (!kvsb || (numkeys <= 0) || (incr < 0))
+      return rc;
+
+   // insert keys forwards, starting from minkey value
+   for (int kctr = minkey; numkeys; kctr += incr, numkeys--) {
+      char key[TEST_INSERT_KEY_LENGTH] = {0};
+      char val[TEST_INSERT_VAL_LENGTH] = {0};
+
+      snprintf(key, sizeof(key), key_fmt, kctr);
+      snprintf(val, sizeof(val), val_fmt, kctr);
+
+      rc = kvstore_basic_insert(kvsb, key, sizeof(key), val, sizeof(val));
+      ASSERT_EQUAL(0, rc);
+   }
    return rc;
 }
 
