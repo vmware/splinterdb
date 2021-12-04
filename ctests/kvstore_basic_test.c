@@ -200,6 +200,24 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    ASSERT_FALSE(val_truncated);
    ASSERT_TRUE(found);
 
+   // **** Delete of max-size key should also succeed.
+   rc = kvstore_basic_delete(data->kvsb,
+                             large_key,
+                             data->cfg.max_key_size);
+   ASSERT_EQUAL(0, rc);
+
+   // **** Should not find this large-key once it's deleted
+   rc = kvstore_basic_lookup(data->kvsb,
+                             large_key,
+                             data->cfg.max_key_size,
+                             value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_FALSE(found);
+
    if (large_key)
        free(large_key);
    if (value)
