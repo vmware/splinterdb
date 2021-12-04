@@ -158,7 +158,7 @@ CTEST2(kvstore_basic, test_basic_flow)
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(found);
    if (value)
-       free(value);
+      free(value);
 }
 
 /*
@@ -201,9 +201,7 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    ASSERT_TRUE(found);
 
    // **** Delete of max-size key should also succeed.
-   rc = kvstore_basic_delete(data->kvsb,
-                             large_key,
-                             data->cfg.max_key_size);
+   rc = kvstore_basic_delete(data->kvsb, large_key, data->cfg.max_key_size);
    ASSERT_EQUAL(0, rc);
 
    // **** Should not find this large-key once it's deleted
@@ -219,9 +217,48 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    ASSERT_FALSE(found);
 
    if (large_key)
-       free(large_key);
+      free(large_key);
    if (value)
-       free(value);
+      free(value);
+}
+
+/*
+ * Test case to verify core interfaces when key-size is > max key-size.
+ */
+CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
+{
+   size_t too_large_key_len = data->cfg.max_key_size + 1;
+   char * too_large_key     = calloc(1, too_large_key_len);
+   memset(too_large_key, 'a', too_large_key_len);
+   char *value = calloc(1, data->cfg.max_value_size);
+
+   int rc = 0;
+   rc     = kvstore_basic_insert(data->kvsb,
+                             too_large_key,
+                             too_large_key_len,
+                             "a-value",
+                             sizeof("a-value"));
+   ASSERT_EQUAL(EINVAL, rc);
+
+   _Bool  found;
+   _Bool  val_truncated;
+   size_t val_len;
+   rc = kvstore_basic_lookup(data->kvsb,
+                             too_large_key,
+                             too_large_key_len,
+                             value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(EINVAL, rc);
+
+   if (too_large_key) {
+      free(too_large_key);
+   }
+   if (value) {
+      free(value);
+   }
 }
 
 /*
