@@ -337,7 +337,7 @@ CTEST2(kvstore_basic, test_basic_iterator)
 CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
 {
    const int num_inserts = 50;
-   int rc = insert_some_keys(num_inserts, data->kvsb);
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
    ASSERT_EQUAL(0, rc);
 }
 
