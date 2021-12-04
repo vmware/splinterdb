@@ -560,16 +560,6 @@ static cache_ops clockcache_ops = {
  *-----------------------------------------------------------------------------
  */
 
-//#define RECORD_ACQUISITION_STACKS
-
-#ifdef RECORD_ACQUISITION_STACKS
-typedef struct history_record {
-   uint32 status;
-   int    refcount;
-   void * backtrace[32];
-} history_record;
-#endif
-
 /*
  *-----------------------------------------------------------------------------
  *
@@ -648,7 +638,7 @@ clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
 
    myEntry->history[myhistindex].status   = myEntry->status;
    myEntry->history[myhistindex].refcount = 0;
-   for (threadid i = 0; i < next_i; i++)
+   for (threadid i = 0; i < MAX_THREADS; i++)
       myEntry->history[myhistindex].refcount +=
          cc->refcount[i * cc->cfg->page_capacity + entry_number];
    backtrace(myEntry->history[myhistindex].backtrace, 32);
@@ -920,7 +910,6 @@ static get_rc
 clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool set_access)
 {
    const threadid tid = platform_get_tid();
-   clockcache_record_backtrace(cc, entry_number);
 
    // first check if write lock is held
    uint32 cc_writing = clockcache_test_flag(cc, entry_number, CC_WRITELOCKED);
@@ -1426,6 +1415,7 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
     * 7. release read lock */
 
    /* 1. try to read lock */
+   clockcache_record_backtrace(cc, entry_number);
    if (clockcache_try_get_read(cc, entry_number, FALSE) != GET_RC_SUCCESS) {
       goto out;
    }
@@ -2105,6 +2095,7 @@ clockcache_get_internal(clockcache *cc,              // IN
             return TRUE;
          }
       } else {
+         clockcache_record_backtrace(cc, entry_number);
          switch(clockcache_try_get_read(cc, entry_number, TRUE)) {
             case GET_RC_CONFLICT:
                clockcache_log(addr, entry_number,
@@ -2325,6 +2316,7 @@ clockcache_get_async(clockcache        *cc,        // IN
    ctxt->page = NULL;
    entry_number = clockcache_lookup(cc, addr);
    if (entry_number != CC_UNMAPPED_ENTRY) {
+      clockcache_record_backtrace(cc, entry_number);
       if (clockcache_try_get_read(cc, entry_number, TRUE) != GET_RC_SUCCESS) {
          /*
           * This means we raced with eviction, or there's another
@@ -2868,6 +2860,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
       uint32 entry_no = clockcache_lookup(cc, addr);
       get_rc get_read_rc;
       if (entry_no != CC_UNMAPPED_ENTRY) {
+         clockcache_record_backtrace(cc, entry_no);
          get_read_rc = clockcache_try_get_read(cc, entry_no, TRUE);
       } else {
          get_read_rc = GET_RC_EVICTED;
