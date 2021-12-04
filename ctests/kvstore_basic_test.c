@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ * -----------------------------------------------------------------------------
  * kvstore_basic_test.c --
  *
  *     Exercises the kvstore_basic API, which exposes keys & values
@@ -28,10 +29,11 @@
  *
  *  o Individual test cases [ see below ] in a file are prefaced with a
  *    term naming the test suite, for the module / functionality being tested.
- *    Usually it will just be <something>; i.e. in kvstore_basic_test.c
+ *    Usually it will just be <something>; .e.g., in kvstore_basic_test.c
  *    the suite-name is 'kvstore_basic'.
  *
- *  o Each test case should be named <operation>_test
+ *  o Each test case should be named test_<operation>
+ * -----------------------------------------------------------------------------
  */
 #include <stdlib.h> // Needed for system calls; e.g. free
 #include <stdio.h>  // Needed for system calls; e.g. fprintf
@@ -69,9 +71,9 @@ check_current_tuple(kvstore_basic_iterator *it, const int expected_i);
  * module / functionality you are testing. Here, it is: kvstore_basic
  *
  * This is an individual test case, testing [usually] just one thing.
- * The 2nd term is the test-case name. Here, just: 'empty_test'
+ * The 2nd term is the test-case name. Here, just: 'test_nothing'
  */
-CTEST(kvstore_basic, empty_test) {}
+CTEST(kvstore_basic, test_nothing) {}
 
 /*
  * Global data declaration macro:
@@ -363,6 +365,51 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
       kvstore_basic_iter_deinit(&it);
    }
 }
+
+/*
+ * Test case to exercise kvstore iterator with a non-NULL but non-existent
+ * start-key. The iterator just starts at the first key, if any, after the
+ * specified start-key.
+ *  . If start-key > max-key, we will find no more keys to scan.
+ *  . If start-key < min-key, we will start scan from 1st key in set.
+ */
+CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
+{
+   int                     rc   = 0;
+   kvstore_basic_iterator *it   = NULL;
+
+   const int num_inserts = 50;
+   rc = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   // start-key > max-key ('key-50')
+   char *key = "unknownKey";
+
+   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   printf("rc = %d\n", rc);
+
+   // Iterator should be invalid, as lookup key is non-existent.
+   _Bool is_valid = kvstore_basic_iter_valid(it);
+   ASSERT_FALSE(is_valid);
+
+   kvstore_basic_iter_deinit(&it);
+
+   // If you start with a key before min-key-value, scan will start from
+   // 1st key inserted. (We do lexicographic comparison, so 'U' sorts
+   // before 'key...', which is what key's format is.)
+   key = "UnknownKey";
+   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   ASSERT_EQUAL(0, rc);
+
+   /*
+   // Iterator should be initialized to 1st key inserted, if the supplied
+   // start_key is not found, but below the min-key inserted.
+   int ictr = 0;
+   rc = check_current_tuple(it, ictr);
+   ASSERT_EQUAL(0, rc);
+   */
+}
+
 
 /*
  * ********************************************************************************
