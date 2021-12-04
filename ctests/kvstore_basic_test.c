@@ -108,7 +108,6 @@ CTEST2(kvstore_basic, test_basic_flow)
    _Bool  val_truncated;
    char * value = calloc(1, data->cfg.max_value_size);
    size_t val_len;
-   // char * large_key = calloc(1, data->cfg.max_key_size);
 
    int rc = 0;
    // **** Lookup of a non-existent key should fail.
@@ -138,6 +137,7 @@ CTEST2(kvstore_basic, test_basic_flow)
                              &val_truncated,
                              &found);
    ASSERT_EQUAL(0, rc);
+   ASSERT_STREQN(insval, value, val_len);
    ASSERT_EQUAL(sizeof(insval), val_len);
    ASSERT_FALSE(val_truncated);
    ASSERT_TRUE(found);
@@ -157,6 +157,46 @@ CTEST2(kvstore_basic, test_basic_flow)
                              &found);
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(found);
+}
+
+/*
+ * Basic test case that exercises and validates the basic flow of the
+ * Splinter APIs for key of max-key-length.
+ */
+CTEST2(kvstore_basic, test_apis_for_max_key_length)
+{
+   char *large_key = calloc(1, data->cfg.max_key_size);
+   memset(large_key, 7, data->cfg.max_key_size);
+
+   static char *large_key_value = "a-value";
+   int          rc              = 0;
+   // **** Insert of a max-size key should succeed.
+   rc = kvstore_basic_insert(data->kvsb,
+                             large_key,
+                             data->cfg.max_key_size,
+                             large_key_value,
+                             sizeof(large_key_value));
+   ASSERT_EQUAL(0, rc);
+
+   _Bool  found;
+   _Bool  val_truncated;
+   size_t val_len;
+   char * value = calloc(1, data->cfg.max_value_size);
+
+   // **** Lookup of max-size key should return correct value
+   rc = kvstore_basic_lookup(data->kvsb,
+                             large_key,
+                             data->cfg.max_key_size,
+                             value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_STREQN(large_key_value, value, val_len);
+   ASSERT_EQUAL(sizeof(large_key_value), val_len);
+   ASSERT_FALSE(val_truncated);
+   ASSERT_TRUE(found);
 }
 
 /*

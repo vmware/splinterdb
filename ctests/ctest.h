@@ -163,6 +163,12 @@ void assert_data(const unsigned char* exp, size_t expsize,
 void assert_equal(intmax_t exp, intmax_t real, const char* caller, int line);
 #define ASSERT_EQUAL(exp, real) assert_equal(exp, real, __FILE__, __LINE__)
 
+// strcmp() of 2 null-terminated strings
+#define ASSERT_STREQ(str1, str2) assert_equal(strcmp(str1, str2), 0, __FILE__, __LINE__)
+
+// strncmp() of 2 strings, which may not be null-terminated
+#define ASSERT_STREQN(str1, str2, n) assert_equal(strncmp(str1, str2, n), 0, __FILE__, __LINE__)
+
 void assert_equal_u(uintmax_t exp, uintmax_t real, const char* caller, int line);
 #define ASSERT_EQUAL_U(exp, real) assert_equal_u(exp, real, __FILE__, __LINE__)
 
