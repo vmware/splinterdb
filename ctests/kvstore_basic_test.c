@@ -316,9 +316,113 @@ CTEST2(kvstore_basic, test_value_size_gt_max_value_size)
 }
 
 /*
- * RESOLVE: Need to port test case test_kvstore_basic_variable_length_values()
+ * Test case to exercise APIs for variable-length values; empty value,
+ * short and somewhat longish value. After inserting this data, the lookup
+ * sub-cases exercises different combinations to also trigger truncation
+ * when supplied output buffer is smaller than the datum value.
  */
-CTEST2(kvstore_basic, test_variable_length_values) {}
+CTEST2(kvstore_basic, test_variable_length_values)
+{
+   const char empty_string[0];
+   const char short_string[1] = "v";
+   const char long_string[]   = "some-long-value";
+
+   // **** (a) Insert keys with different value (lengths), and verify insertion.
+   int rc = kvstore_basic_insert(
+      data->kvsb, "empty", sizeof("empty"), empty_string, sizeof(empty_string));
+   ASSERT_EQUAL(0, rc);
+
+   rc = kvstore_basic_insert(
+      data->kvsb, "short", sizeof("short"), short_string, sizeof(short_string));
+   ASSERT_EQUAL(0, rc);
+
+   rc = kvstore_basic_insert(
+      data->kvsb, "long", sizeof("long"), long_string, sizeof(long_string));
+   ASSERT_EQUAL(0, rc);
+
+   // **** (b) Lookup different values, for each key, and verify
+
+   _Bool found;
+   _Bool val_truncated;
+
+   // (c) add extra length so we can check for overflow
+   char found_value[KVSTORE_BASIC_MAX_VALUE_SIZE + 2];
+   memset(found_value, 'x', sizeof(found_value));
+
+   size_t val_len;
+
+   rc = kvstore_basic_lookup(data->kvsb,
+                             "empty",
+                             sizeof("empty"),
+                             found_value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(found);
+   ASSERT_FALSE(val_truncated);
+   ASSERT_EQUAL(0, val_len);
+
+   // (d) lookup tuple with value of length 1, providing sufficient buffer
+   rc = kvstore_basic_lookup(data->kvsb,
+                             "short",
+                             sizeof("short"),
+                             found_value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(found);
+   ASSERT_FALSE(val_truncated);
+   ASSERT_EQUAL(1, val_len);
+
+   // (e) lookup tuple with value of length 1, providing empty buffer
+   rc = kvstore_basic_lookup(data->kvsb,
+                             "short",
+                             sizeof("short"),
+                             found_value,
+                             0, // this is the test case variation
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(found);
+   ASSERT_TRUE(val_truncated);
+   ASSERT_EQUAL(0, val_len);
+
+   // (f) lookup tuple with max-sized-value
+   rc = kvstore_basic_lookup(data->kvsb,
+                             "long",
+                             sizeof("long"),
+                             found_value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(found);
+   ASSERT_FALSE(val_truncated);
+   ASSERT_EQUAL(sizeof(long_string), val_len);
+   ASSERT_STREQN(long_string, found_value, val_len);
+
+   // (g) lookup tuple with max-sized-value, short buffer
+   int forced_max_len = 5;
+   rc                 = kvstore_basic_lookup(data->kvsb,
+                             "long",
+                             sizeof("long"),
+                             found_value,
+                             forced_max_len,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_TRUE(found);
+   ASSERT_TRUE(val_truncated);
+   ASSERT_EQUAL(forced_max_len, val_len);
+   ASSERT_STREQN(long_string, found_value, forced_max_len);
+}
 
 /*
  * Basic KVStore iterator test case.
