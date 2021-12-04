@@ -336,9 +336,32 @@ CTEST2(kvstore_basic, test_basic_iterator)
  */
 CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
 {
-   const int num_inserts = 50;
-   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   const int               num_inserts = 50;
+   kvstore_basic_iterator *it          = NULL;
+   int                     rc = insert_some_keys(num_inserts, data->kvsb);
    ASSERT_EQUAL(0, rc);
+
+   char key[TEST_INSERT_KEY_LENGTH] = {0};
+
+   for (int ictr = 0; ictr < num_inserts; ictr++) {
+
+      // Initialize the i'th key
+      snprintf(key, sizeof(key), key_fmt, ictr);
+      rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+      ASSERT_EQUAL(0, rc);
+
+      _Bool is_valid = kvstore_basic_iter_valid(it);
+      ASSERT_TRUE(is_valid);
+
+      // Scan should have been positioned at the i'th key
+      rc = check_current_tuple(it, ictr);
+      ASSERT_EQUAL(0, rc);
+
+      kvstore_basic_iter_deinit(&it);
+   }
+   if (it != NULL) {
+      kvstore_basic_iter_deinit(&it);
+   }
 }
 
 /*

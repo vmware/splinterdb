@@ -484,6 +484,14 @@ struct kvstore_basic_iterator {
    void *heap_id;
 };
 
+/*
+ * Initialize a KVStore iterator.
+ *
+ * Returns:
+ *  0 - For successful initialization of the iterator.
+ *  != 0 - In case of any errors
+ *  ENOMEM - In case of any memory allocation errors
+ */
 int
 kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
                         kvstore_basic_iterator **iter,         // OUT
@@ -524,6 +532,11 @@ kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp)
    *iterpp = NULL;
 }
 
+/*
+ * Validate if an open iterator is valid.
+ *
+ * Returns: Boolean
+ */
 _Bool
 kvstore_basic_iter_valid(kvstore_basic_iterator *iter)
 {
