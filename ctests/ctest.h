@@ -65,6 +65,13 @@ union ctest_run_func_union {
 #define CTEST_IMPL_DIAG_POP()
 #endif
 
+/*
+ * ************************************************************************
+ * struct ctest: Main structure defining test suites, test cases to run.
+ * Through a whole bunch of preprocessing macros, an array of these test
+ * suite / test case definitions will be constructed, of this struct type.
+ * ************************************************************************
+ */
 struct ctest {
     const char* ssname;  // suite name
     const char* ttname;  // test name
@@ -222,7 +229,8 @@ static char* ctest_errormsg;
 static char ctest_errorbuffer[MSG_SIZE];
 static jmp_buf ctest_err;
 static int color_output = 1;
-static const char* suite_name;
+static const char* suite_name       = NULL;
+static const char* testcase_name    = NULL;
 
 typedef int (*ctest_filter_func)(struct ctest*);
 
@@ -426,21 +434,58 @@ void assert_fail(const char* caller, int line) {
     CTEST_ERR("%s:%d  shouldn't come here", caller, line);
 }
 
-
+/*
+ * This is a pass-through filter function, selecting all test suites
+ * to run.
+ */
 static int suite_all(struct ctest* t) {
     (void) t; // fix unused parameter warning
     return 1;
 }
 
 /*
+ * Function to filter which test case name to run. Currently, we only support
+ * an exact match of the test casee name. (Wild-card matching may be
+ * considered in the future). User can invoke as follows to just run one
+ * test case from a specific suite:
+ *
+ * $ bin/ctests kvstore_basic test_kvstore_iterator_with_startkey
+ */
+static int
+testcase_filter(struct ctest* t) {
+    if (!testcase_name) {
+        return 1;
+    }
+    return strncmp(testcase_name, t->ttname, strlen(testcase_name)) == 0;
+}
+
+/*
  * Function to filter suite name to run. Currently, we only support an
  * exact match of the suite-name. (Wild-card matching may be considered
- * in the future). User can invoke as follows to just run one suite:
+ * in the future). Test case name filtering is implicitly subsumed in
+ * this function, so that we need to do only one filter()'ing in outer
+ * iteration of test execution loop.
  *
- * $ bin/ctests kvstore_basic
+ * User can invoke as follows to just run one suite:
+ *  $ bin/ctests kvstore_basic
+ *
+ * User can invoke as follows to just run one test case from a suite:
+ *  $ bin/ctests kvstore_basic test_kvstore_iterator_with_startkey
  */
-static int suite_filter(struct ctest* t) {
-    return strncmp(suite_name, t->ssname, strlen(suite_name)) == 0;
+static int
+suite_filter(struct ctest* t) {
+    int rv = (strncmp(suite_name, t->ssname, strlen(suite_name)) == 0);
+
+    // If suite name itself didn't match, we are done.
+    if (!rv)
+        return rv;
+
+    // If user didn't request filtering by test case name, we are done.
+    if (!testcase_name)
+        return rv;
+
+    rv = testcase_filter(t);
+    return rv;
 }
 
 static uint64_t getCurrentTime(void) {
@@ -497,7 +542,8 @@ ctest_main(int argc, const char *argv[])
     signal(SIGSEGV, sighandler);
 #endif
 
-    if (argc == 2) {
+    // Establish test-suite and test-case name filters
+    if (argc >= 2) {
         suite_name = argv[1];
 
         if (strcmp(suite_name, "--help") == 0) {
@@ -506,6 +552,10 @@ ctest_main(int argc, const char *argv[])
         }
         filter = suite_filter;
     }
+
+    if (argc == 3) {
+        testcase_name = argv[2];
+    }
 #ifdef CTEST_NO_COLORS
     color_output = 0;
 #else
@@ -513,8 +563,9 @@ ctest_main(int argc, const char *argv[])
 #endif
     uint64_t t1 = getCurrentTime();
 
-    printf("Running CTests, suite name '%s'.\n",
-           (suite_name ? suite_name : "all"));
+    printf("Running CTests, suite name '%s', test case '%s'.\n",
+           (suite_name ? suite_name : "all"),
+           (testcase_name ? testcase_name : "all"));
 
     struct ctest* ctest_begin = &CTEST_IMPL_TNAME(suite, test);
     struct ctest* ctest_end = &CTEST_IMPL_TNAME(suite, test);
