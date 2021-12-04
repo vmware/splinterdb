@@ -44,9 +44,25 @@
 
 #define TEST_DB_NAME "db"
 
+#define TEST_INSERT_KEY_LENGTH 7
+#define TEST_INSERT_VAL_LENGTH 7
+
+// Hard-coded format strings to generate key and values
+static const char key_fmt[] = "key-%02x";
+static const char val_fmt[] = "val-%02x";
+
+// We use only short values while loading data in these test cases
+#define TEST_SHORT_VALUE_SIZE MAX_KEY_SIZE
+
 // Function Prototypes
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg);
+
+static int
+insert_some_keys(const int num_inserts, kvstore_basic *kvsb);
+
+static int
+check_current_tuple(kvstore_basic_iterator *it, const int expected_i);
 
 /*
  * All tests in this file are named with one term, which represents the
@@ -232,12 +248,11 @@ CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
    memset(too_large_key, 'a', too_large_key_len);
    char *value = calloc(1, data->cfg.max_value_size);
 
-   int rc = 0;
-   rc     = kvstore_basic_insert(data->kvsb,
-                             too_large_key,
-                             too_large_key_len,
-                             "a-value",
-                             sizeof("a-value"));
+   int rc = kvstore_basic_insert(data->kvsb,
+                                 too_large_key,
+                                 too_large_key_len,
+                                 "a-value",
+                                 sizeof("a-value"));
    ASSERT_EQUAL(EINVAL, rc);
 
    _Bool  found;
@@ -274,18 +289,46 @@ CTEST2(kvstore_basic, test_value_size_gt_max_value_size)
    static const char short_key[]         = "a_short_key";
 
    memset(too_large_value, 'z', too_large_value_len);
-   int rc = 0;
-   rc = kvstore_basic_insert(data->kvsb,
-                             short_key,
-                             sizeof(short_key),
-                             too_large_value,
-                             too_large_value_len);
+   int rc = kvstore_basic_insert(data->kvsb,
+                                 short_key,
+                                 sizeof(short_key),
+                                 too_large_value,
+                                 too_large_value_len);
 
    ASSERT_EQUAL(EINVAL, rc);
    if (too_large_value) {
       free(too_large_value);
    }
 }
+
+/*
+ * RESOLVE: Need to port test case test_kvstore_basic_variable_length_values()
+ */
+CTEST2(kvstore_basic, test_variable_length_values) {}
+
+/*
+ * Basic KVStore iterator test case.
+ */
+CTEST2(kvstore_basic, test_basic_iterator)
+{
+   const int num_inserts = 50;
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   int i = 0;
+
+   kvstore_basic_iterator *it = NULL;
+
+   rc = kvstore_basic_iter_init(data->kvsb, &it, NULL, 0);
+   ASSERT_EQUAL(0, rc);
+
+   for (; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
+      rc = check_current_tuple(it, i);
+      ASSERT_EQUAL(0, rc);
+      i++;
+   }
+}
+
 
 /*
  * ********************************************************************************
@@ -309,5 +352,67 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 
    int rc = kvstore_basic_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
+   return rc;
+}
+
+/*
+ * Helper function to insert n-keys (num_inserts), using pre-formatted
+ * key and value strings.
+ *
+ * Returns: Return code: rc == 0 => success; anything else => failure
+ */
+static int
+insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
+{
+   int rc = 0;
+   // insert keys backwards, just for kicks
+   for (int i = num_inserts - 1; i >= 0; i--) {
+      char key[TEST_INSERT_KEY_LENGTH] = {0};
+      char val[TEST_INSERT_VAL_LENGTH] = {0};
+
+      ASSERT_EQUAL(6, snprintf(key, sizeof(key), key_fmt, i));
+      ASSERT_EQUAL(6, snprintf(val, sizeof(val), val_fmt, i));
+
+      rc = kvstore_basic_insert(kvsb, key, sizeof(key), val, sizeof(val));
+      ASSERT_EQUAL(0, rc);
+   }
+
+   return rc;
+}
+
+/*
+ * Work horse routine to check if the current tuple pointed to by the
+ * iterator is the expected one, as indicated by its index,
+ * expected_i. We use pre-constructed key / value formats to verify
+ * if the current tuple is of the expected format.
+ *
+ * Returns: Return code: rc == 0 => success; anything else => failure
+ */
+static int
+check_current_tuple(kvstore_basic_iterator *it, const int expected_i)
+{
+   int rc = 0;
+
+   char expected_key[MAX_KEY_SIZE]          = {0};
+   char expected_val[TEST_SHORT_VALUE_SIZE] = {0};
+   ASSERT_EQUAL(
+      6, snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));
+   ASSERT_EQUAL(
+      6, snprintf(expected_val, sizeof(expected_val), val_fmt, expected_i));
+
+   const char *key;
+   const char *val;
+   size_t      key_len, val_len;
+
+   kvstore_basic_iter_get_current(it, &key, &key_len, &val, &val_len);
+
+   ASSERT_EQUAL(TEST_INSERT_KEY_LENGTH, key_len);
+   ASSERT_EQUAL(TEST_INSERT_VAL_LENGTH, val_len);
+
+   int key_cmp = memcmp(expected_key, key, key_len);
+   int val_cmp = memcmp(expected_val, val, val_len);
+   ASSERT_EQUAL(0, key_cmp);
+   ASSERT_EQUAL(0, val_cmp);
+
    return rc;
 }
