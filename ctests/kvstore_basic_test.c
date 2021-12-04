@@ -33,8 +33,20 @@
  *
  *  o Each test case should be named <operation>_test
  */
-#include <stdlib.h>     // Include this if you need system calls; e.g. free
-#include "ctest.h"      // This is required for all test-case files.
+#include <stdlib.h> // Needed for system calls; e.g. free
+#include <stdio.h>  // Needed for system calls; e.g. fprintf
+#include "ctest.h"  // This is required for all test-case files.
+
+#include "platform.h"
+#include "splinterdb/kvstore_basic.h"
+
+#define Mega (1024UL * 1024UL)
+
+#define TEST_DB_NAME "db"
+
+// Function Prototypes
+static int
+setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg);
 
 /*
  * All tests in this file are named with one term, which represents the
@@ -46,38 +58,128 @@
 CTEST(kvstore_basic, empty_test) {}
 
 /*
- * A test suite with a setup/teardown function
- * This is converted into a struct that's automatically passed to all tests
- * in the test suite.
+ * Global data declaration macro:
+ *
+ * This is converted into a struct, with a generated name prefixed by the
+ * suite name. This structure is then automatically passed to all tests in
+ * the test suite. In this function, declare all structures and
+ * variables that you need globally to setup Splinter. This macro essentially
+ * resolves to a bunch of structure declarations, so no code fragments can
+ * be added here.
+ *
+ * NOTE: All data structures will hang off of data->, where 'data' is a
+ * global static variable manufactured by CTEST_SETUP() macro.
  */
 CTEST_DATA(kvstore_basic)
 {
-   // unsigned char *buffer;
+   kvstore_basic *   kvsb;
+   kvstore_basic_cfg cfg;
 };
 
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(kvstore_basic)
 {
-    /*
-   CTEST_LOG(
-      "%s() data=%p buffer=%p", __func__, (void *)data, (void *)data->buffer);
-   data->buffer = (unsigned char *)malloc(1024);
-   */
+   memset(&data->cfg, 0, sizeof(data->cfg));
+   int rc = setup_kvstore_basic(&data->kvsb, &data->cfg);
+   ASSERT_EQUAL(0, rc);
 }
 
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(kvstore_basic)
 {
-   /*
-   CTEST_LOG(
-      "%s() data=%p buffer=%p", __func__, (void *)data, (void *)data->buffer);
-   if (data->buffer)
-      free(data->buffer);
-   */
+   kvstore_basic_close(data->kvsb);
 }
 
-CTEST2(kvstore_basic, test1)
+/*
+ * Basic test case that exercises and validates the basic flow of the
+ * Splinter APIs.  We exercise:
+ *  - kvstore_basic_insert()
+ *  - kvstore_basic_lookup() and
+ *  - kvstore_basic_delete()
+ *
+ * Validate that they behave as expected, including some basic error
+ * condition checking.
+ */
+CTEST2(kvstore_basic, test_basic_flow)
 {
-   (void)data;
-   CTEST_LOG("%s()", __func__);
+   char * key     = "some-key";
+   size_t key_len = sizeof("some-key");
+   _Bool  found;
+   _Bool  val_truncated;
+   char * value = calloc(1, data->cfg.max_value_size);
+   size_t val_len;
+   // char * large_key = calloc(1, data->cfg.max_key_size);
+
+   int rc = 0;
+   // **** Lookup of a non-existent key should fail.
+   rc = kvstore_basic_lookup(data->kvsb,
+                             key,
+                             key_len,
+                             value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_FALSE(found);
+
+   // **** Basic insert of new key should succeed.
+   static char *insval = "some-value";
+   rc = kvstore_basic_insert(data->kvsb, key, key_len, insval, sizeof(insval));
+   ASSERT_EQUAL(0, rc);
+
+   // **** Should be able to lookup key/value just inserted above
+   rc = kvstore_basic_lookup(data->kvsb,
+                             key,
+                             key_len,
+                             value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_EQUAL(sizeof(insval), val_len);
+   ASSERT_FALSE(val_truncated);
+   ASSERT_TRUE(found);
+
+   // **** Basic delete of an existing key should succeed
+   rc = kvstore_basic_delete(data->kvsb, key, key_len);
+   ASSERT_EQUAL(0, rc);
+
+   // **** Lookup of now-deleted key should succeed, but key is not found.
+   rc = kvstore_basic_lookup(data->kvsb,
+                             key,
+                             key_len,
+                             value,
+                             data->cfg.max_value_size,
+                             &val_len,
+                             &val_truncated,
+                             &found);
+   ASSERT_EQUAL(0, rc);
+   ASSERT_FALSE(found);
+}
+
+/*
+ * ********************************************************************************
+ * Define minions and helper functions here, after all test cases are
+ * enumerated.
+ * ********************************************************************************
+ */
+
+static int
+setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
+{
+   *cfg = (kvstore_basic_cfg){
+      .filename       = TEST_DB_NAME,
+      .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
+      .disk_size      = (cfg->disk_size) ? cfg->disk_size : 30 * Mega,
+      .max_key_size   = (cfg->max_key_size) ? cfg->max_key_size : 21,
+      .max_value_size = (cfg->max_value_size) ? cfg->max_value_size : 16,
+      .key_comparator = cfg->key_comparator,
+      .key_comparator_context = cfg->key_comparator_context,
+   };
+
+   int rc = kvstore_basic_create(cfg, kvsb);
+   ASSERT_EQUAL(rc, 0);
+   return rc;
 }

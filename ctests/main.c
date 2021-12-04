@@ -20,7 +20,7 @@ main(int argc, const char *argv[])
  * Generate brief usage information to run CTests.
  */
 void
-ctest_usage(const char * progname)
+ctest_usage(const char *progname)
 {
-    printf("%s [ <suite-name> [ <test-case-name> ] ]\n", progname);
+   printf("%s [ <suite-name> [ <test-case-name> ] ]\n", progname);
 }
