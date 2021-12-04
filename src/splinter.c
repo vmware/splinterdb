@@ -2533,8 +2533,8 @@ splinter_replace_bundle_branches(splinter_handle             *spl,
       new_branch_no = splinter_branch_no(spl, node, new_branch);
 
       // increment the fringes of the new branch along the pivots
-      uint16 num_children = splinter_num_children(spl, node);
-      for (uint16 pivot_no = 1; pivot_no < num_children; pivot_no++) {
+      uint16 num_pivot_keys = splinter_num_pivot_keys(spl, node);
+      for (uint16 pivot_no = 1; pivot_no < num_pivot_keys; pivot_no++) {
          const char *start_key = splinter_get_pivot(spl, node, pivot_no);
          splinter_inc_intersection(spl, new_branch, start_key, FALSE);
       }
@@ -4675,12 +4675,8 @@ splinter_compact_bundle(void *arg,
          if (pack_req.num_tuples != 0) {
             splinter_replace_bundle_branches(spl, node, &new_branch, req);
             num_replacements++;
-            if (addr != req->addr) {
-               const char *min_key = splinter_min_key(spl, node);
-               splinter_inc_intersection(spl, &new_branch, min_key, FALSE);
-            }
-            splinter_log_stream("inserted %lu into %lu\n",
-                                new_branch.root_addr, addr);
+            splinter_log_stream(
+               "inserted %lu into %lu\n", new_branch.root_addr, addr);
          } else {
             splinter_replace_bundle_branches(spl, node, NULL, req);
             splinter_log_stream("compact_bundle empty %lu\n", addr);
@@ -4698,6 +4694,12 @@ splinter_compact_bundle(void *arg,
       splinter_log_node(spl, node);
       debug_assert(splinter_verify_node(spl, node));
 
+      if (num_replacements != 0 && pack_req.num_tuples != 0 &&
+          start_generation == generation) {
+         const char *max_key = splinter_max_key(spl, node);
+         splinter_zap_branch_range(
+            spl, &new_branch, max_key, NULL, PAGE_TYPE_BRANCH);
+      }
 
       splinter_node_unlock(spl, node);
       splinter_node_unclaim(spl, node);

@@ -762,16 +762,26 @@ mini_keyed_for_each(cache *          cc,
       page_handle *     meta_page = cache_get(cc, meta_addr, TRUE, type);
       keyed_meta_entry *entry     = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         uint64         batch           = entry->batch;
-         const slice    entry_start_key = keyed_meta_entry_start_key(entry);
-         boundary_state next_state =
-            state(cfg, start_key, end_key, entry_start_key);
-         if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
-             interval_intersects_range(current_state[batch], next_state)) {
+         uint64         batch = entry->batch;
+         boundary_state next_state;
+         if (extent_addr[batch] == TERMINAL_EXTENT_ADDR) {
+            // Treat the first extent in each batch as if it started at
+            // -infinity
+            next_state = before_start;
+         } else if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
+            // Treat the last extent as going to +infinity
+            next_state = after_end;
+         } else {
+            const slice entry_start_key = keyed_meta_entry_start_key(entry);
+            next_state = state(cfg, start_key, end_key, entry_start_key);
+         }
+
+         if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
+
          extent_addr[batch]   = entry->extent_addr;
          current_state[batch] = next_state;
          entry                = keyed_next_entry(entry);
@@ -821,16 +831,26 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
    do {
       keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
-         uint64         batch           = entry->batch;
-         const slice    entry_start_key = keyed_meta_entry_start_key(entry);
-         boundary_state next_state =
-            state(cfg, start_key, end_key, entry_start_key);
-         if (extent_addr[batch] != TERMINAL_EXTENT_ADDR &&
-             interval_intersects_range(current_state[batch], next_state)) {
+         uint64         batch = entry->batch;
+         boundary_state next_state;
+         if (extent_addr[batch] == TERMINAL_EXTENT_ADDR) {
+            // Treat the first extent in each batch as if it started at
+            // -infinity
+            next_state = before_start;
+         } else if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
+            // Treat the last extent as going to +infinity
+            next_state = after_end;
+         } else {
+            const slice entry_start_key = keyed_meta_entry_start_key(entry);
+            next_state = state(cfg, start_key, end_key, entry_start_key);
+         }
+
+         if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
+
          extent_addr[batch]   = entry->extent_addr;
          current_state[batch] = next_state;
          entry                = keyed_next_entry(entry);
@@ -1237,7 +1257,7 @@ mini_keyed_print(cache *      cc,
       meta_head);
    platform_default_log("|-----------------------------------------------------"
                         "--------------|\n");
-   platform_default_log("| idx | %5s | %12s | %18s | %2s |\n",
+   platform_default_log("| idx | %5s | %14s | %18s | %3s |\n",
                         "batch",
                         "extent_addr",
                         "start_key",
@@ -1260,19 +1280,28 @@ mini_keyed_print(cache *      cc,
       keyed_meta_entry *entry       = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          slice start_key = keyed_meta_entry_start_key(entry);
+         char  extent_str[32];
+         if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
+            snprintf(extent_str, 32, "TERMINAL_ENTRY");
+         } else {
+            snprintf(extent_str, 32, "%14lu", entry->extent_addr);
+         }
          char  start_key_str[MAX_KEY_STR_LEN];
          data_key_to_string(
             data_cfg, start_key, start_key_str, MAX_KEY_STR_LEN);
-         uint8 ref = -1;
-         if (entry->extent_addr != TERMINAL_EXTENT_ADDR) {
-            ref = allocator_get_ref(al, entry->extent_addr);
+         char ref_str[4];
+         if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
+            snprintf(ref_str, 4, "n/a");
+         } else {
+            uint8 ref = allocator_get_ref(al, entry->extent_addr);
+            snprintf(ref_str, 4, "%3u", ref);
          }
-         platform_default_log("| %3lu | %5u | %12lu | %18s | %2u |\n",
+         platform_default_log("| %3lu | %5u | %14s | %18s | %3s |\n",
                               i,
                               entry->batch,
-                              entry->extent_addr,
+                              extent_str,
                               start_key_str,
-                              ref);
+                              ref_str);
          entry = keyed_next_entry(entry);
       }
       platform_default_log("|--------------------------------------------------"
