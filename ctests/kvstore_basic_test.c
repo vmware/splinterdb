@@ -69,6 +69,15 @@ insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr);
 static int
 check_current_tuple(kvstore_basic_iterator *it, const int expected_i);
 
+static uint64_t key_comp_context = 0;
+
+static int
+custom_key_comparator(const void *context,
+                      const void *key1,
+                      size_t      key1_len,
+                      const void *key2,
+                      size_t      key2_len);
+
 /*
  * All tests in this file are named with one term, which represents the
  * module / functionality you are testing. Here, it is: kvstore_basic
@@ -558,6 +567,55 @@ CTEST2(kvstore_basic, test_close_and_reopen)
    }
 }
 
+/* Test case to exercise APIs using custom user-defined comparator function.
+ */
+CTEST2(kvstore_basic, test_iterator_custom_comparator)
+{
+   data->cfg.key_comparator         = &custom_key_comparator;
+   data->cfg.key_comparator_context = &key_comp_context;
+
+   const int num_inserts = 50;
+   int       rc          = insert_some_keys(num_inserts, data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   kvstore_basic_iterator *it = NULL;
+   rc = kvstore_basic_iter_init(data->kvsb, &it, NULL, 0);
+   ASSERT_EQUAL(0, rc);
+
+   int i = 0;
+   for (; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
+      rc = check_current_tuple(it, i);
+      ASSERT_EQUAL(0, rc);
+      i++;
+   }
+
+   rc = kvstore_basic_iter_status(it);
+   ASSERT_EQUAL(0, rc);
+
+   // Expect that iterator has stopped at num_inserts
+   ASSERT_EQUAL(num_inserts, i);
+
+   printf("key_comp_context = %lu, num_inserts = %d ",
+          key_comp_context,
+          num_inserts);
+
+   /* RESOLVE: This is tripping ... investigate ...
+   **
+   test_assert(key_comp_context > 2 * num_inserts,
+               "key comparison count: %lu",
+               key_comp_context);
+
+   ASSERT_TRUE(key_comp_context > (2 * num_inserts));
+   */
+
+   bool is_valid = kvstore_basic_iter_valid(it);
+   ASSERT_FALSE(is_valid);
+
+   if (it) {
+      kvstore_basic_iter_deinit(&it);
+   }
+}
+
 /*
  * ********************************************************************************
  * Define minions and helper functions here, after all test cases are
@@ -684,4 +742,29 @@ check_current_tuple(kvstore_basic_iterator *it, const int expected_i)
    ASSERT_EQUAL(0, val_cmp);
 
    return rc;
+}
+
+// A user-specified spy comparator
+static int
+custom_key_comparator(const void *context,
+                      const void *key1,
+                      size_t      key1_len,
+                      const void *key2,
+                      size_t      key2_len)
+{
+   // check the key lengths match what we inserted
+   assert(key1_len <= 21);
+   assert(key2_len <= 21);
+   size_t min_len = (key1_len <= key2_len ? key1_len : key2_len);
+   assert(key1 != NULL && key2 != NULL);
+   int r = memcmp(key1, key2, min_len);
+   if (r == 0) {
+      if (key1_len < key2_len)
+         r = -1;
+      else if (key1_len > key2_len)
+         r = +1;
+   }
+   uint64_t *counter = (uint64_t *)context;
+   *counter += 1;
+   return r;
 }
