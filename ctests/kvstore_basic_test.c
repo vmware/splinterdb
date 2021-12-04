@@ -157,6 +157,8 @@ CTEST2(kvstore_basic, test_basic_flow)
                              &found);
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(found);
+   if (value)
+       free(value);
 }
 
 /*
@@ -197,6 +199,11 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    ASSERT_EQUAL(sizeof(large_key_value), val_len);
    ASSERT_FALSE(val_truncated);
    ASSERT_TRUE(found);
+
+   if (large_key)
+       free(large_key);
+   if (value)
+       free(value);
 }
 
 /*
