@@ -262,6 +262,32 @@ CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
 }
 
 /*
+ * Test case to verify core interfaces when value-size is > max value-size.
+ * Here, we basically exercise the insert interface, which will trip up
+ * if very large values are supplied. (Once insert fails, there is
+ * no further need to verify the other interfaces for very-large-values.)
+ */
+CTEST2(kvstore_basic, test_value_size_gt_max_value_size)
+{
+   size_t            too_large_value_len = data->cfg.max_value_size + 1;
+   char *            too_large_value     = calloc(1, too_large_value_len);
+   static const char short_key[]         = "a_short_key";
+
+   memset(too_large_value, 'z', too_large_value_len);
+   int rc = 0;
+   rc = kvstore_basic_insert(data->kvsb,
+                             short_key,
+                             sizeof(short_key),
+                             too_large_value,
+                             too_large_value_len);
+
+   ASSERT_EQUAL(EINVAL, rc);
+   if (too_large_value) {
+      free(too_large_value);
+   }
+}
+
+/*
  * ********************************************************************************
  * Define minions and helper functions here, after all test cases are
  * enumerated.
