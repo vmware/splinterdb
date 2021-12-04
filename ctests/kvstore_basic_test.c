@@ -373,7 +373,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
  *  . If start-key > max-key, we will find no more keys to scan.
  *  . If start-key < min-key, we will start scan from 1st key in set.
  */
-CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
+CTEST2_SKIP(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
 {
    int                     rc = 0;
    kvstore_basic_iterator *it = NULL;
