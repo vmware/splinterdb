@@ -474,7 +474,6 @@ test_btree_async_lookup(cache *                       cc,
                         btree_test_async_ctxt *       async_ctxt,
                         btree_test_async_lookup *     async_lookup,
                         uint64                        root_addr,
-                        const char *                  key,
                         bool                          expected_found,
                         bool *                        correct)
 {
@@ -502,7 +501,7 @@ test_btree_async_lookup(cache *                       cc,
          async_ctxt = NULL;
          break;
       case async_success:
-         *correct = found ^ expected_found;
+         *correct = found == expected_found;
          btree_test_put_async_ctxt(async_lookup, async_ctxt);
          async_ctxt = NULL;
          goto out;
@@ -516,19 +515,23 @@ out:
 }
 
 cache_async_result
-test_memtable_async_lookup(test_memtable_context *ctxt,
-                           btree_test_async_ctxt     *async_ctxt,
-                           btree_test_async_lookup   *async_lookup,
-                           uint64                     mt_no,
-                           const char                *key,
-                           bool                       expected_found,
-                           bool                      *correct)
+test_memtable_async_lookup(test_memtable_context *  ctxt,
+                           btree_test_async_ctxt *  async_ctxt,
+                           btree_test_async_lookup *async_lookup,
+                           uint64                   mt_no,
+                           bool                     expected_found,
+                           bool *                   correct)
 {
    memtable *mt = &ctxt->mt_ctxt->mt[mt_no];
    variable_length_btree_config *btree_cfg = mt->cfg;
    cache *cc = ctxt->cc;
-   return test_btree_async_lookup(cc, btree_cfg, async_ctxt, async_lookup,
-         mt->root_addr, key, expected_found, correct);
+   return test_btree_async_lookup(cc,
+                                  btree_cfg,
+                                  async_ctxt,
+                                  async_lookup,
+                                  mt->root_addr,
+                                  expected_found,
+                                  correct);
 }
 
 static platform_status
@@ -597,14 +600,14 @@ test_btree_basic(cache             *cc,
       } else {
          num_async++;
          bool correct;
-         test_btree_tuple(ctxt, key, expected_data, insert_num, 0);
-         cache_async_result res = test_memtable_async_lookup(ctxt, async_ctxt,
-               async_lookup, 0, key, TRUE, &correct);
+         test_btree_tuple(ctxt, async_ctxt->key, expected_data, insert_num, 0);
+         cache_async_result res = test_memtable_async_lookup(
+            ctxt, async_ctxt, async_lookup, 0, TRUE, &correct);
          if (res == async_success) {
             if (!correct) {
                memtable_print(cc, mt);
                char key_string[128];
-               memtable_key_to_string(mt, key, key_string);
+               memtable_key_to_string(mt, async_ctxt->key, key_string);
                platform_log("key number %lu, %s not found\n",
                      insert_num, key_string);
             }
@@ -698,16 +701,21 @@ test_btree_basic(cache             *cc,
       } else {
          num_async++;
          bool correct;
-         test_btree_tuple(ctxt, key, expected_data, insert_num, 0);
-         cache_async_result res = test_btree_async_lookup(cc, btree_cfg,
-               async_ctxt, async_lookup, packed_root_addr, key, TRUE, &correct);
+         test_btree_tuple(ctxt, async_ctxt->key, expected_data, insert_num, 0);
+         cache_async_result res = test_btree_async_lookup(cc,
+                                                          btree_cfg,
+                                                          async_ctxt,
+                                                          async_lookup,
+                                                          packed_root_addr,
+                                                          TRUE,
+                                                          &correct);
          if (res == async_success) {
             if (!correct) {
                variable_length_btree_print_tree(
                   cc, btree_cfg, packed_root_addr);
                char key_string[128];
                slice key_slice =
-                  slice_create(btree_cfg->data_cfg->key_size, key);
+                  slice_create(btree_cfg->data_cfg->key_size, async_ctxt->key);
                variable_length_btree_key_to_string(
                   btree_cfg, key_slice, key_string);
                platform_log("key number %lu, %s not found\n",
@@ -1243,10 +1251,11 @@ test_btree_rough_iterator(cache             *cc,
                       slice_length(curr_key),
                       btree_cfg->data_cfg->key_size);
       }
-      if (slice_length(dummy_data) != 0) {
+      if (slice_length(dummy_data) !=
+          sizeof(variable_length_btree_pivot_data)) {
          platform_log("Weird data length: %lu should be: %lu\n",
                       slice_length(dummy_data),
-                      0UL);
+                      sizeof(variable_length_btree_pivot_data));
       }
       memmove(pivot[pivot_no].k,
               slice_data(curr_key),

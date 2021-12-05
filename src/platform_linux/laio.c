@@ -274,7 +274,11 @@ laio_cleanup(io_handle *ioh,
 
    /* clang memory sanitizer thinks we use this uninitialized for some reason.
     */
-   debug_only(memset(&event, 0, sizeof(event)));
+#if defined(__has_feature)
+#   if __has_feature(memory_sanitizer)
+   memset(&event, 0, sizeof(event));
+#   endif
+#endif
 
    io = (laio_handle *)ioh;
    for (i = 0; ((count == 0) || (i < count)); i++) {

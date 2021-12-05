@@ -78,6 +78,7 @@ CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 DEFAULT_LDFLAGS = -ggdb3 -pthread
 #DEFAULT_LDFLAGS += -fsanitize=memory
 #DEFAULT_LDFLAGS += -fsanitize=address
+#DEFAULT_LDFLAGS += -fsanitize=integer
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
