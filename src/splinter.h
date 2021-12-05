@@ -50,7 +50,7 @@ typedef struct splinter_config {
    bool use_stats;
 
    memtable_config              mt_cfg;
-   variable_length_btree_config                 variable_length_btree_cfg;
+   variable_length_btree_config variable_length_btree_cfg;
    routing_config               index_filter_cfg;
    routing_config               leaf_filter_cfg;
 
@@ -219,7 +219,8 @@ typedef struct splinter_range_iterator {
    char             max_key[MAX_KEY_SIZE];
    char             local_max_key[MAX_KEY_SIZE];
    char             rebuild_key[MAX_KEY_SIZE];
-   variable_length_btree_iterator   variable_length_btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
+   variable_length_btree_iterator
+                    variable_length_btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
    splinter_branch  branch[SPLINTER_MAX_TOTAL_DEGREE];
 
    // used for merge iterator construction
@@ -289,7 +290,8 @@ typedef struct splinter_async_ctxt {
    splinter_branch             *branch;        // Current branch
    union {
       routing_async_ctxt        filter_ctxt;    // Filter async context
-      variable_length_btree_async_ctxt          variable_length_btree_ctxt;    // Btree async context
+      variable_length_btree_async_ctxt
+         variable_length_btree_ctxt; // Btree async context
    };
    cache_async_ctxt             cache_ctxt;    // Async cache context
 } splinter_async_ctxt;

@@ -130,8 +130,8 @@ memtable_insert(memtable_context *ctxt,
                 uint64 *          leaf_generation)
 {
    const threadid tid = platform_get_tid();
-   bool  was_unique;
-   slice key_slice  = slice_create(mt->cfg->data_cfg->key_size, key);
+   bool           was_unique;
+   slice          key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
    slice message_slice = slice_create(mt->cfg->data_cfg->message_size, message);
 
    platform_status rc = variable_length_btree_insert(ctxt->cc,

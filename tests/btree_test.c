@@ -838,7 +838,7 @@ test_count_tuples_in_range(cache *                       cc,
                            uint64 *                      count) // OUTPUT
 {
    variable_length_btree_iterator itor;
-   uint64         i;
+   uint64                         i;
    *count = 0;
    for (i = 0; i < num_trees; i++) {
       if (!variable_length_btree_verify_tree(cc, cfg, root_addr[i], type)) {
@@ -906,7 +906,7 @@ test_btree_print_all_keys(cache *                       cc,
                           slice                         high_key)
 {
    variable_length_btree_iterator itor;
-   uint64         i;
+   uint64                         i;
    for (i = 0; i < num_trees; i++) {
       platform_log("tree number %lu\n", i);
       variable_length_btree_iterator_init(
