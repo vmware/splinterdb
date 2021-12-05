@@ -5062,10 +5062,11 @@ splinter_split_leaf(splinter_handle *spl,
    }
    splinter_compaction_type comp_type = SPLINTER_COMPACTION_TYPE_LEAF_SPLIT;
    uint64 target_num_leaves = estimated_unique_keys / spl->cfg.target_leaf_tuples;
-   if (target_num_leaves == 1) {
+   if (target_num_leaves <= 1) {
       if (estimated_unique_keys > splinter_single_leaf_threshold(spl)) {
          target_num_leaves = 2;
       } else {
+         target_num_leaves = 1;
          comp_type = SPLINTER_COMPACTION_TYPE_SINGLE_LEAF_SPLIT;
          if (spl->cfg.use_stats) {
             spl->stats[tid].single_leaf_splits++;
