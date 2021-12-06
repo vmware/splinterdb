@@ -228,6 +228,9 @@ impl Perf {
         let db = splinterdb_rs::db_create(&path, &db_config).unwrap();
 
         let work_start_time = Instant::now();
+        // spawn several threads within a "scope"
+        // the scope guarantees that all threads have joined before
+        // control leaves the scope
         thread::scope(|s| {
             for i in 0..self.threads {
                 let db = &db;
@@ -235,9 +238,12 @@ impl Perf {
                 let num_writes = self.writes_per_thread;
 
                 s.spawn(move |_| {
+                    // closure, work done on this thread
+                    // on each thread, register it with splinterdb
                     db.register_thread();
                     let mut rng = Pcg64::seed_from_u64(i as u64);
 
+                    // do num_writes into splinterdb
                     for count in 0..num_writes {
                         let mut key = [0u8; Perf::KEY_SIZE as usize];
                         let mut value = [0u8; Perf::VALUE_SIZE as usize];
@@ -252,7 +258,7 @@ impl Perf {
                     db.deregister_thread();
                 });
             }
-        })
+        }) // all threads have joined at this point
         .unwrap();
         drop(db); // flush all caches to disk
 

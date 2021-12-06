@@ -1,5 +1,11 @@
+// Tests of the splinterdb-rs library
+//
+// If you add a new function to the public API of this library, add a test here
+// (or extend an existing test) to demonstrate how to use it.
 #[cfg(test)]
 mod tests {
+
+    // Simple "journey" test to cover single-threaded usage of splinterdb-rs
     #[test]
     fn simple_journey() -> std::io::Result<()> {
         use tempfile::tempdir;
