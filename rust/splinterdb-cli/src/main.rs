@@ -22,7 +22,7 @@ enum SubCommand {
 }
 
 /// Insert a key-value pair into an existing database
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 struct Insert {
     /// Key to insert
     #[clap(short, long)]
@@ -34,7 +34,7 @@ struct Insert {
 }
 
 /// Delete a key and its value from an existing database
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 struct Delete {
     /// Key to delete
     #[clap(short, long)]
@@ -42,7 +42,7 @@ struct Delete {
 }
 
 /// Get the value for a key from an existing database
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 struct Get {
     /// Key to lookup
     #[clap(short, long)]
@@ -50,11 +50,11 @@ struct Get {
 }
 
 /// List all keys and values in an existing database
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 struct List {}
 
 /// Initialize a new database file, using the kvstore_basic interface
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 struct InitDB {
     /// Size of in-memory cache, in MB
     #[clap(short, long, default_value = "30")]
@@ -188,7 +188,7 @@ use crossbeam_utils::thread;
 use std::time::Instant;
 
 /// Test performance.  Will overwrite the target file with random data.
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 pub struct Perf {
     /// Number of insert threads
     #[clap(short, long, default_value = "1")]
