@@ -1,3 +1,6 @@
+// Low level library wrapping the SplinterDB C API
+
+// Allow some lints from the generated code
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -5,8 +8,13 @@
 #![allow(unused)]
 #![allow(deref_nullptr)] // see https://github.com/rust-lang/rust-bindgen/issues/1651
 
+// The real content of this library comes from the generated code
 include!("generated.rs");
 
+// Tests of the generated code can go here.
+// But before adding a test here, consider whether it might belong elsewhere.
+// Perhaps it should be written in C, in the main library?
+// Or maybe it should live in the splinterdb-rs library?
 #[cfg(test)]
 mod tests {
 
@@ -16,6 +24,8 @@ mod tests {
         std::ffi::CString::new(as_str).unwrap()
     }
 
+    // Really basic "smoke" test of the generated code, just to see that the
+    // C library actually links.
     #[test]
     fn invoke_things() {
         use tempfile::tempdir;
