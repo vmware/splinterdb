@@ -47,8 +47,10 @@ CTEST_DATA(btree)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree)
 {
+    /*
    config_set_defaults(&data->master_cfg);
    data->data_cfg = test_data_config;
+   */
     /*
    if (!SUCCESS(config_parse(&master_cfg, 1, argc - 1, argv + 1)) ||
        !init_data_config_from_master_config(&data_cfg, &master_cfg) ||
