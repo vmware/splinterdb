@@ -10,6 +10,19 @@ __thread threadid xxxtid;
 bool platform_use_hugetlb = FALSE;
 bool platform_use_mlock = FALSE;
 
+// By default, currently all platform_log() messages go to stdout, and
+// platform_error_log() messages go to stderr. These can be changed to
+// module- or test-specific log files, by overriding these settings.
+FILE *platform_stdout_fh = NULL; // => Output goes to stdout
+FILE *platform_stderr_fh = NULL; // => Output goes to stderr
+
+// This function is run automatically at library-load time
+void __attribute__((constructor)) platform_init_log_file_handles(void)
+{
+   platform_stdout_fh = stdout;
+   platform_stderr_fh = stderr;
+}
+
 platform_status
 platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
                      uint32 max,
@@ -18,6 +31,7 @@ platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
 {
    *heap_handle = NULL;
    *heap_id = NULL;
+
    return STATUS_OK;
 }
 
