@@ -1,6 +1,8 @@
 // Copyright 2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+/* Dummy change to test out git commit user identity */
+
 /*
  * -----------------------------------------------------------------------------
  * kvstore_basic_test.c --
