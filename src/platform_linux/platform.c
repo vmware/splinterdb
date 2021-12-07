@@ -1,11 +1,18 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <unistd.h>
 #include "platform.h"
 
 #include <sys/mman.h>
 
 __thread threadid xxxtid;
+
+// By default, currently all platform_log() messages go to stderr.
+int Pf_log_fd = PLATFORM_ERR_LOG_FD;
+
+// Will be setup by modules that need to swizzle default log file.
+FILE *Pf_log_fh = NULL;
 
 bool platform_use_hugetlb = FALSE;
 bool platform_use_mlock = FALSE;
