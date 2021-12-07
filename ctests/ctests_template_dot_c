@@ -1,0 +1,52 @@
+// Copyright 2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+/*
+ * -----------------------------------------------------------------------------
+ * variable_length_btree_test.c --
+ *
+ * Exercises the new BTree module that supports variable-length key and value
+ * sizes.
+ * -----------------------------------------------------------------------------
+ */
+#include <stdlib.h> // Needed for system calls; e.g. free
+#include <stdio.h>
+#include <unistd.h>
+#include "ctest.h" // This is required for all test-case files.
+
+#include "platform.h"
+
+#define Mega (1024UL * 1024UL)
+
+#define TEST_DB_NAME "ctestsdb"
+
+// Function Prototypes
+
+/*
+ * Global data declaration macro:
+ */
+CTEST_DATA(btree)
+{
+};
+
+// Setup function for suite, called before every test in suite
+CTEST_SETUP(btree)
+{
+}
+
+// Optional teardown function for suite, called after every test in suite
+CTEST_TEARDOWN(btree)
+{
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Test case that exercises inserts of large volume of data, single-threaded.
+ * We exercise these Splinter APIs:
+ *  - kvstore_basic_insert()
+ *  - kvstore_basic_lookup() and
+ *  - kvstore_basic_delete()
+ */
+CTEST2(btree, test_basic)
+{
+}

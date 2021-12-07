@@ -528,6 +528,9 @@ static void sighandler(int signum)
 int ctest_main(int argc, const char *argv[]);
 void ctest_usage(const char * progname);
 
+/*
+ * ctest_main() - Main driver loop to exercise collection of CTests.
+ */
 __attribute__((no_sanitize_address)) int
 ctest_main(int argc, const char *argv[])
 {
