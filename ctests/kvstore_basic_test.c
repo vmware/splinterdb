@@ -37,10 +37,10 @@
  */
 #include <stdlib.h> // Needed for system calls; e.g. free
 #include <stdio.h>  // Needed for system calls; e.g. fprintf
-#include "ctest.h"  // This is required for all test-case files.
 
 #include "platform.h"
 #include "splinterdb/kvstore_basic.h"
+#include "ctest.h"  // This is required for all test-case files.
 
 #define Mega (1024UL * 1024UL)
 
@@ -743,9 +743,6 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
    int rc = kvstore_basic_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
 
-   // Instruct Splinter that we are running CTests, so that we don't get
-   // noisy info messages to stdout. (Clutters up test execution outputs.)
-   kvstore_basic_for_ctests(*kvsb);
    return rc;
 }
 

@@ -563,6 +563,11 @@ ctest_main(int argc, const char *argv[])
 #endif
     uint64_t t1 = getCurrentTime();
 
+    // For CTests, redirect stdout / stderr to dev/null, so that we
+    // don't get noisy outputs when tests are running.
+    Pf_out_fh = platform_open_log_file("/dev/null", "w");
+    Pf_err_fh = platform_open_log_file("/dev/null", "w");
+
     printf("Running CTests, suite name '%s', test case '%s'.\n",
            (suite_name ? suite_name : "all"),
            (testcase_name ? testcase_name : "all"));

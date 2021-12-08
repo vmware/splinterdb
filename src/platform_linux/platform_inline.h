@@ -232,7 +232,8 @@ platform_status_to_string(const platform_status status)
 #define PLATFORM_ERR_LOG_HANDLE stderr
 #define PLATFORM_CR "\r"
 
-extern FILE *Pf_log_fh;
+extern FILE *Pf_out_fh; // File handle for stdout
+extern FILE *Pf_err_fh; // File handle for stderr
 
 #define platform_open_log_stream()              \
    char *bp;                                    \
@@ -257,7 +258,7 @@ extern FILE *Pf_log_fh;
 
 #define platform_log(...)                                                      \
    do {                                                                        \
-      fprintf(((Pf_log_fh == NULL) ? stderr : Pf_log_fh),             \
+      fprintf(((Pf_out_fh == NULL) ? stderr : Pf_out_fh),             \
               __VA_ARGS__);                                                    \
    } while (0)
 
@@ -272,10 +273,11 @@ extern FILE *Pf_log_fh;
       fflush(stdout);                           \
    } while (0)
 
+
 #define platform_error_log(...)                 \
    do {                                         \
-      fprintf(stderr, __VA_ARGS__);             \
-      fflush(stderr);                           \
+      fprintf(((Pf_err_fh == NULL) ? stderr : Pf_err_fh), __VA_ARGS__); \
+      fflush(((Pf_err_fh == NULL) ? stderr : Pf_err_fh));               \
    } while (0)
 
 #define platform_throttled_error_log(sec, ...)  \

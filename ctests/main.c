@@ -7,6 +7,7 @@
 // #define CTEST_NO_COLORS
 // #define CTEST_COLOR_OK
 
+#include "platform.h"
 #include "ctest.h"
 
 int

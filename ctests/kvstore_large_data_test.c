@@ -185,9 +185,6 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
    int rc = kvstore_basic_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
 
-   // Instruct Splinter that we are running CTests, so that we don't get
-   // noisy info messages to stdout. (Clutters up test execution outputs.)
-   kvstore_basic_for_ctests(*kvsb);
    return rc;
 }
 

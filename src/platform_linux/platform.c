@@ -7,9 +7,13 @@
 
 __thread threadid xxxtid;
 
-// By default, currently all platform_log() messages go to stderr.
+// By default, currently all platform_log() messages go to stdout.
 // May be re-setup by modules that need to swizzle default log file.
-FILE *Pf_log_fh = NULL;
+FILE *Pf_out_fh = NULL;
+
+// By default, currently all platform_error_log() messages go to stderr.
+// May be re-setup by modules that need to swizzle default errlog file.
+FILE *Pf_err_fh = NULL;
 
 bool platform_use_hugetlb = FALSE;
 bool platform_use_mlock = FALSE;
