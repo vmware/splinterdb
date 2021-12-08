@@ -162,14 +162,14 @@ kvstore_test(int argc, char *argv[])
 
    const char *current_key;
    const char *current_msg;
-   int i = 0;
+   int         i = 0;
    for (; kvstore_iterator_valid(it); kvstore_iterator_next(it)) {
       char expected_key[24] = {0};
       char expected_val[24] = {0};
       int  expected_key_len =
          snprintf(expected_key, kvs_cfg.data_cfg.key_size, "key-%04d", i);
-      platform_assert(expected_key_len > 0 &&
-                      expected_key_len < kvs_cfg.data_cfg.key_size);
+      platform_assert(expected_key_len > 0
+                      && expected_key_len < kvs_cfg.data_cfg.key_size);
       int expected_val_len =
          snprintf(expected_val, max_val_size, "val-%04d", i);
       platform_assert(expected_val_len > 0 && expected_val_len < max_val_size);

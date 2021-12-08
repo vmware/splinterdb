@@ -39,7 +39,7 @@ test_async_ctxt *
 async_ctxt_get(test_async_lookup *async_lookup)
 {
    test_async_ctxt *ctxt;
-   platform_status rc;
+   platform_status  rc;
 
    rc = pcq_dequeue(async_lookup->avail_q, (void **)&ctxt);
    if (!SUCCESS(rc)) {
@@ -55,8 +55,7 @@ async_ctxt_get(test_async_lookup *async_lookup)
  * context should not be in-flight. It's returned back to avail_q.
  */
 void
-async_ctxt_unget(test_async_lookup *async_lookup,
-                 test_async_ctxt   *ctxt)
+async_ctxt_unget(test_async_lookup *async_lookup, test_async_ctxt *ctxt)
 {
    pcq_enqueue(async_lookup->avail_q, ctxt);
 }
@@ -65,21 +64,21 @@ async_ctxt_unget(test_async_lookup *async_lookup,
  * Initialize the async ctxt manager.
  */
 void
-async_ctxt_init(platform_heap_id     hid,                  // IN
-                uint32               max_async_inflight,   // IN
-                uint64               data_size,            // IN
-                test_async_lookup  **out)                  // OUT
+async_ctxt_init(platform_heap_id    hid,                // IN
+                uint32              max_async_inflight, // IN
+                uint64              data_size,          // IN
+                test_async_lookup **out)                // OUT
 {
-   char *data;
+   char *             data;
    test_async_lookup *async_lookup;
 
    // max_async_inflight can be zero
    platform_assert(max_async_inflight <= TEST_MAX_ASYNC_INFLIGHT);
-   async_lookup = TYPED_FLEXIBLE_STRUCT_MALLOC(hid, async_lookup,
-                                               ctxt, max_async_inflight);
+   async_lookup =
+      TYPED_FLEXIBLE_STRUCT_MALLOC(hid, async_lookup, ctxt, max_async_inflight);
    platform_assert(async_lookup);
    async_lookup->max_async_inflight = max_async_inflight;
-   async_lookup->avail_q = pcq_alloc(hid, max_async_inflight);
+   async_lookup->avail_q            = pcq_alloc(hid, max_async_inflight);
    platform_assert(async_lookup->avail_q);
    async_lookup->ready_q = pcq_alloc(hid, max_async_inflight);
    platform_assert(async_lookup->ready_q);
@@ -87,7 +86,7 @@ async_ctxt_init(platform_heap_id     hid,                  // IN
       data = TYPED_ARRAY_MALLOC(hid, data, max_async_inflight * data_size);
       platform_assert(data);
    }
-   for (uint64 i=0; i<max_async_inflight; i++) {
+   for (uint64 i = 0; i < max_async_inflight; i++) {
       async_lookup->ctxt[i].data = data;
       data += data_size;
       async_lookup->ctxt[i].ready_q = async_lookup->ready_q;
@@ -101,8 +100,7 @@ async_ctxt_init(platform_heap_id     hid,                  // IN
  * Deinitialize the async ctxt manager.
  */
 void
-async_ctxt_deinit(platform_heap_id   hid,
-                  test_async_lookup *async_lookup)
+async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
 {
    platform_assert(pcq_is_full(async_lookup->avail_q));
    pcq_free(hid, async_lookup->avail_q);
@@ -120,38 +118,37 @@ async_ctxt_deinit(platform_heap_id   hid,
  * and if successful, run process_cb on it.
  */
 void
-async_ctxt_process_one(splinter_handle       *spl,
-                       test_async_lookup     *async_lookup,
-                       test_async_ctxt       *ctxt,
-                       timestamp             *latency_max,
-                       async_ctxt_process_cb  process_cb,
-                       void                  *process_arg)
+async_ctxt_process_one(splinter_handle *     spl,
+                       test_async_lookup *   async_lookup,
+                       test_async_ctxt *     ctxt,
+                       timestamp *           latency_max,
+                       async_ctxt_process_cb process_cb,
+                       void *                process_arg)
 {
-   bool found;
+   bool               found;
    cache_async_result res;
-   timestamp ts;
+   timestamp          ts;
 
-   ts = platform_get_timestamp();
-   res = splinter_lookup_async(spl, ctxt->key, ctxt->data, &found,
-                               &ctxt->ctxt);
-   ts = platform_timestamp_elapsed(ts);
+   ts  = platform_get_timestamp();
+   res = splinter_lookup_async(spl, ctxt->key, ctxt->data, &found, &ctxt->ctxt);
+   ts  = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
       *latency_max = ts;
    }
 
    switch (res) {
-   case async_locked:
-   case async_no_reqs:
-      pcq_enqueue(async_lookup->ready_q, ctxt);
-      break;
-   case async_io_started:
-      break;
-   case async_success:
-      process_cb(spl, ctxt, found, process_arg);
-      async_ctxt_unget(async_lookup, ctxt);
-      break;
-   default:
-      platform_assert(0);
+      case async_locked:
+      case async_no_reqs:
+         pcq_enqueue(async_lookup->ready_q, ctxt);
+         break;
+      case async_io_started:
+         break;
+      case async_success:
+         process_cb(spl, ctxt, found, process_arg);
+         async_ctxt_unget(async_lookup, ctxt);
+         break;
+      default:
+         platform_assert(0);
    }
 }
 
@@ -162,11 +159,11 @@ async_ctxt_process_one(splinter_handle       *spl,
  * Returns: TRUE if no context at all are used.
  */
 bool
-async_ctxt_process_ready(splinter_handle       *spl,
-                         test_async_lookup     *async_lookup,
-                         timestamp             *latency_max,
-                         async_ctxt_process_cb  process_cb,
-                         void                  *process_arg)
+async_ctxt_process_ready(splinter_handle *     spl,
+                         test_async_lookup *   async_lookup,
+                         timestamp *           latency_max,
+                         async_ctxt_process_cb process_cb,
+                         void *                process_arg)
 {
    uint32 count = pcq_count(async_lookup->avail_q);
 
@@ -183,8 +180,8 @@ async_ctxt_process_ready(splinter_handle       *spl,
          // Something is ready, just can't be dequeued yet.
          break;
       }
-      async_ctxt_process_one(spl, async_lookup, ctxt, latency_max,
-                             process_cb, process_arg);
+      async_ctxt_process_one(
+         spl, async_lookup, ctxt, latency_max, process_cb, process_arg);
    }
 
    return TRUE;

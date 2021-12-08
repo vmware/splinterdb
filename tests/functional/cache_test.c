@@ -29,8 +29,8 @@ test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
    platform_assert(cache_count_dirty(cc) == 0);
 
    for (uint64 curr_page = 0; curr_page < page_capacity; curr_page++) {
-      page_handle *page = cache_get(cc, page_arr[curr_page]->disk_addr, TRUE,
-                                    PAGE_TYPE_MISC);
+      page_handle *page =
+         cache_get(cc, page_arr[curr_page]->disk_addr, TRUE, PAGE_TYPE_MISC);
       cache_claim(cc, page);
       cache_lock(cc, page);
       cache_pin(cc, page);
@@ -92,21 +92,19 @@ cache_test_alloc_extents(cache *            cc,
 }
 
 platform_status
-test_cache_basic(cache             *cc,
-                 clockcache_config *cfg,
-                 platform_heap_id   hid)
+test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 {
    platform_log("cache_test: basic test started\n");
-   platform_status rc = STATUS_OK;
-   page_handle **page_arr = NULL;
-   uint64 *addr_arr = NULL;
+   platform_status rc       = STATUS_OK;
+   page_handle **  page_arr = NULL;
+   uint64 *        addr_arr = NULL;
 
    /* allocate twice as many pages as the cache capacity */
-   uint32  extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
-   uint32  extents_to_allocate = 2 * extent_capacity;
-   uint64  pages_to_allocate = extents_to_allocate * cfg->pages_per_extent;
+   uint32 extent_capacity     = cfg->page_capacity / cfg->pages_per_extent;
+   uint32 extents_to_allocate = 2 * extent_capacity;
+   uint64 pages_to_allocate   = extents_to_allocate * cfg->pages_per_extent;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
-   rc = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
+   rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
       /* no need to set status because we got here from an error status */
       goto exit;
@@ -115,7 +113,7 @@ test_cache_basic(cache             *cc,
    uint32 dirty_count = cache_count_dirty(cc);
    if (dirty_count != 0) {
       platform_error_log("Expected no dirty entries but found: %u",
-            dirty_count);
+                         dirty_count);
       rc = STATUS_TEST_FAILED;
       goto exit;
    }
@@ -131,7 +129,7 @@ test_cache_basic(cache             *cc,
       goto exit;
    }
 
-   for (uint32 j = 0; j < pages_allocated && SUCCESS(rc); ) {
+   for (uint32 j = 0; j < pages_allocated && SUCCESS(rc);) {
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
          uint64 page_idx = j + i;
@@ -139,7 +137,7 @@ test_cache_basic(cache             *cc,
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
-                  refcount);
+                               refcount);
             rc = STATUS_TEST_FAILED;
             goto exit;
          }
@@ -149,7 +147,7 @@ test_cache_basic(cache             *cc,
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 0) {
             platform_error_log("Expected zero references, but found %u\n",
-                  refcount);
+                               refcount);
             rc = STATUS_TEST_FAILED;
             goto exit;
          }
@@ -162,7 +160,7 @@ test_cache_basic(cache             *cc,
    dirty_count = cache_count_dirty(cc);
    if (dirty_count != 0) {
       platform_error_log("Expected no dirty entries but found: %u",
-            dirty_count);
+                         dirty_count);
       rc = STATUS_TEST_FAILED;
       goto exit;
    }
@@ -171,7 +169,7 @@ test_cache_basic(cache             *cc,
     * Get all entries for read, upgrade to write, verify ref counts,
     * and release. Verify that there are no dirty entries afterwards.
     */
-   for (uint32 j = 0; j < pages_allocated && SUCCESS(rc); ) {
+   for (uint32 j = 0; j < pages_allocated && SUCCESS(rc);) {
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
          page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
@@ -184,7 +182,7 @@ test_cache_basic(cache             *cc,
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
-                  refcount);
+                               refcount);
             rc = STATUS_TEST_FAILED;
          }
       }
@@ -195,7 +193,7 @@ test_cache_basic(cache             *cc,
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 0) {
             platform_error_log("Expected zero references, but found %u\n",
-                  refcount);
+                               refcount);
             rc = STATUS_TEST_FAILED;
          }
       }
@@ -206,7 +204,7 @@ test_cache_basic(cache             *cc,
    }
    if (dirty_count != 0) {
       platform_error_log("Expected no dirty entries but found: %u",
-            dirty_count);
+                         dirty_count);
       rc = STATUS_TEST_FAILED;
       goto exit;
    }
@@ -216,7 +214,7 @@ test_cache_basic(cache             *cc,
     * flush. Verify that there are no dirty entries afterwards.
     */
 
-   for (uint32 j = 0; j < pages_allocated && SUCCESS(rc); ) {
+   for (uint32 j = 0; j < pages_allocated && SUCCESS(rc);) {
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
          page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
@@ -229,7 +227,7 @@ test_cache_basic(cache             *cc,
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 1) {
             platform_error_log("Expected one reference, but found %u\n",
-                  refcount);
+                               refcount);
             rc = STATUS_TEST_FAILED;
          }
       }
@@ -241,7 +239,7 @@ test_cache_basic(cache             *cc,
          uint32 refcount = cache_get_read_ref(cc, page_arr[i]);
          if (refcount != 0) {
             platform_error_log("Expected zero references, but found %u\n",
-                  refcount);
+                               refcount);
             rc = STATUS_TEST_FAILED;
          }
       }
@@ -254,7 +252,7 @@ test_cache_basic(cache             *cc,
    dirty_count = cache_count_dirty(cc);
    if (dirty_count != 0) {
       platform_error_log("Expected no dirty entries but found: %u",
-            dirty_count);
+                         dirty_count);
       rc = STATUS_TEST_FAILED;
       goto exit;
    }
@@ -315,19 +313,19 @@ typedef struct {
 
 static void
 cache_test_index_itor_mono_init(cache_test_index_itor *itor,
-                                uint32 cur,
-                                int32 incr)
+                                uint32                 cur,
+                                int32                  incr)
 {
-   itor->type = MONO;
-   itor->mono.cur = cur;
+   itor->type      = MONO;
+   itor->mono.cur  = cur;
    itor->mono.incr = incr;
 }
 
 static void
 cache_test_index_itor_rand_init(cache_test_index_itor *itor,
-                                uint32 seed,
-                                uint32 min,
-                                uint32 max)
+                                uint32                 seed,
+                                uint32                 min,
+                                uint32                 max)
 {
    itor->type = RAND;
    random_init(&itor->rand.rs, seed, 0);
@@ -337,14 +335,14 @@ cache_test_index_itor_rand_init(cache_test_index_itor *itor,
 
 static void
 cache_test_index_itor_hop_init(cache_test_index_itor *itor,
-                               uint32 start,
-                               uint32 end,
-                               int32 incr)
+                               uint32                 start,
+                               uint32                 end,
+                               int32                  incr)
 {
-   itor->type = HOP;
+   itor->type      = HOP;
    itor->hop.start = start;
-   itor->hop.end = end;
-   itor->hop.incr = incr;
+   itor->hop.end   = end;
+   itor->hop.incr  = incr;
    itor->hop.arity = 0;
 }
 
@@ -354,40 +352,40 @@ cache_test_index_itor_get(cache_test_index_itor *itor)
    uint32 idx;
 
    switch (itor->type) {
-   case MONO:
-      idx = itor->mono.cur;
-      itor->mono.cur += itor->mono.incr;
-      break;
-   case HOP:
-      if (itor->hop.arity == 0) {
-         idx = itor->hop.start;
-         itor->hop.start += itor->hop.incr;
-      } else {
-         itor->hop.end -= itor->hop.incr;
-         idx = itor->hop.end;
+      case MONO:
+         idx = itor->mono.cur;
+         itor->mono.cur += itor->mono.incr;
+         break;
+      case HOP:
+         if (itor->hop.arity == 0) {
+            idx = itor->hop.start;
+            itor->hop.start += itor->hop.incr;
+         } else {
+            itor->hop.end -= itor->hop.incr;
+            idx = itor->hop.end;
+         }
+         itor->hop.arity = !itor->hop.arity;
+         break;
+      case RAND:
+      {
+         uint32 range = itor->rand.max - itor->rand.min;
+         idx = itor->rand.min + random_next_uint32(&itor->rand.rs) % range;
+         break;
       }
-      itor->hop.arity = !itor->hop.arity;
-      break;
-   case RAND:
-   {
-      uint32 range = itor->rand.max - itor->rand.min;
-      idx = itor->rand.min + random_next_uint32(&itor->rand.rs) % range;
-      break;
-   }
    }
 
    return idx;
 }
 
 static platform_status
-cache_test_dirty_flush(cache *cc,
-                       clockcache_config *cfg,
-                       const char *testname,
-                       const uint64 *addr_arr,
+cache_test_dirty_flush(cache *                cc,
+                       clockcache_config *    cfg,
+                       const char *           testname,
+                       const uint64 *         addr_arr,
                        cache_test_index_itor *itor)
 {
    platform_status rc = STATUS_OK;
-   timestamp t_start;
+   timestamp       t_start;
 
    /*
     * Get all entries for write, mark dirty, release, and
@@ -396,8 +394,8 @@ cache_test_dirty_flush(cache *cc,
 
    for (uint32 i = 0; i < cfg->page_capacity; i++) {
       const uint32 idx = cache_test_index_itor_get(itor);
-      page_handle *ph = cache_get(cc, addr_arr[idx], TRUE, PAGE_TYPE_MISC);
-      bool claim_obtained = cache_claim(cc, ph);
+      page_handle *ph  = cache_get(cc, addr_arr[idx], TRUE, PAGE_TYPE_MISC);
+      bool         claim_obtained = cache_claim(cc, ph);
       if (!claim_obtained) {
          platform_error_log("Expected uncontested claim, but failed\n");
          rc = STATUS_TEST_FAILED;
@@ -405,8 +403,7 @@ cache_test_dirty_flush(cache *cc,
       cache_lock(cc, ph);
       uint32 refcount = cache_get_read_ref(cc, ph);
       if (refcount != 1) {
-         platform_error_log("Expected one reference, but found %u\n",
-                            refcount);
+         platform_error_log("Expected one reference, but found %u\n", refcount);
          rc = STATUS_TEST_FAILED;
          break;
       }
@@ -428,9 +425,11 @@ cache_test_dirty_flush(cache *cc,
    t_start = platform_get_timestamp();
    cache_flush(cc);
    t_start = NSEC_TO_MSEC(platform_timestamp_elapsed(t_start));
-   platform_log("Flush %s took %lu msec (%lu MiB/sec)\n", testname, t_start,
-                (cfg->page_capacity << cfg->log_page_size) / MiB *
-                SEC_TO_MSEC(1) / t_start);
+   platform_log("Flush %s took %lu msec (%lu MiB/sec)\n",
+                testname,
+                t_start,
+                (cfg->page_capacity << cfg->log_page_size) / MiB
+                   * SEC_TO_MSEC(1) / t_start);
    uint32 dirty_count = cache_count_dirty(cc);
    if (dirty_count != 0) {
       platform_error_log("Expected no dirty entries but found: %u",
@@ -443,31 +442,31 @@ done:
 }
 
 platform_status
-test_cache_flush(cache             *cc,
+test_cache_flush(cache *            cc,
                  clockcache_config *cfg,
                  platform_heap_id   hid,
                  uint64             al_extent_capacity)
 {
    platform_log("cache_test: flush test started\n");
-   platform_status rc = STATUS_OK;
-   uint64 *addr_arr = NULL;
-   timestamp t_start;
+   platform_status rc       = STATUS_OK;
+   uint64 *        addr_arr = NULL;
+   timestamp       t_start;
 
-   uint32  extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
+   uint32 extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
    /*
     * Allocator capacity as factor of cache size, accounting for 1 extent
     * as allocator metadata.
     */
-   uint32  factor = al_extent_capacity / extent_capacity - 1;
+   uint32 factor = al_extent_capacity / extent_capacity - 1;
    // Don't allocate >100 times cache size; that's enough span for random IO
    if (factor > 100) {
       factor = 100;
    }
-   uint32  extents_to_allocate = factor * extent_capacity;
-   uint64  pages_to_allocate = extents_to_allocate * cfg->pages_per_extent;
+   uint32 extents_to_allocate = factor * extent_capacity;
+   uint64 pages_to_allocate   = extents_to_allocate * cfg->pages_per_extent;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
-   t_start = platform_get_timestamp();
-   rc = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
+   t_start  = platform_get_timestamp();
+   rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
       /* no need to set status because we got here from an error status */
       goto exit;
@@ -485,25 +484,23 @@ test_cache_flush(cache             *cc,
       goto exit;
    }
    // Second: monotonically decreasing seq addresses
-   cache_test_index_itor_mono_init(&itor,
-                                   cfg->page_capacity * 2, -1);
-   rc = cache_test_dirty_flush(cc, cfg,  "Reverse Seq", addr_arr, &itor);
+   cache_test_index_itor_mono_init(&itor, cfg->page_capacity * 2, -1);
+   rc = cache_test_dirty_flush(cc, cfg, "Reverse Seq", addr_arr, &itor);
    if (!SUCCESS(rc)) {
       platform_error_log("failed test seq dec");
       goto exit;
    }
    // Third: addresses hopping between min and max
-   cache_test_index_itor_hop_init(&itor, cfg->page_capacity * 3,
-                                  cfg->page_capacity * 4, 1);
+   cache_test_index_itor_hop_init(
+      &itor, cfg->page_capacity * 3, cfg->page_capacity * 4, 1);
    rc = cache_test_dirty_flush(cc, cfg, "Hop", addr_arr, &itor);
    if (!SUCCESS(rc)) {
       platform_error_log("failed test seq dec");
       goto exit;
    }
    // Fourth: random addresses
-   cache_test_index_itor_rand_init(&itor, 42,
-                                   cfg->page_capacity * 4,
-                                   cfg->page_capacity * factor);
+   cache_test_index_itor_rand_init(
+      &itor, 42, cfg->page_capacity * 4, cfg->page_capacity * factor);
    rc = cache_test_dirty_flush(cc, cfg, "Random", addr_arr, &itor);
    if (!SUCCESS(rc)) {
       platform_error_log("failed test seq dec");
@@ -547,20 +544,20 @@ typedef struct {
 } test_async_ctxt;
 
 typedef struct {
-   cache                *cc;                    // IN
-   clockcache_config    *cfg;                   // IN
-   task_system          *ts;                 // IN
-   platform_thread      thread;                // IN
-   platform_heap_id     hid;                   // IN
-   bool                 mt_reader;             // IN readers are MT
-   bool                 logger;                // IN logger thread
-   const uint64        *addr_arr;              // IN array of page addrs
-   uint64               num_pages;             // IN #of pages to get
-   uint64               num_pages_ws;          // IN #of pages in working set
-   uint32               sync_probability;      // IN probability of sync get
-   page_handle        **handle_arr;            // page handles
-   test_async_ctxt      ctxt[READER_BATCH_SIZE]; // async_get() contexts
-   platform_semaphore   batch_sema;            // batch semaphore
+   cache *            cc;                      // IN
+   clockcache_config *cfg;                     // IN
+   task_system *      ts;                      // IN
+   platform_thread    thread;                  // IN
+   platform_heap_id   hid;                     // IN
+   bool               mt_reader;               // IN readers are MT
+   bool               logger;                  // IN logger thread
+   const uint64 *     addr_arr;                // IN array of page addrs
+   uint64             num_pages;               // IN #of pages to get
+   uint64             num_pages_ws;            // IN #of pages in working set
+   uint32             sync_probability;        // IN probability of sync get
+   page_handle **     handle_arr;              // page handles
+   test_async_ctxt    ctxt[READER_BATCH_SIZE]; // async_get() contexts
+   platform_semaphore batch_sema;              // batch semaphore
 } test_params;
 
 void
@@ -595,13 +592,13 @@ test_wait_inflight(test_params *params,
 static void
 test_abandon_read_batch(test_params *params,
                         uint64       batch_start,
-                        uint64       batch_end,    // exclusive
+                        uint64       batch_end, // exclusive
                         bool         was_async[])
 {
    page_handle **handle_arr = params->handle_arr;
-   const uint64 *addr_arr = params->addr_arr;
-   cache *cc = params->cc;
-   uint64 j;
+   const uint64 *addr_arr   = params->addr_arr;
+   cache *       cc         = params->cc;
+   uint64        j;
 
    test_wait_inflight(params, batch_end);
    // Unget all pages we have in the batch
@@ -621,16 +618,14 @@ test_abandon_read_batch(test_params *params,
 
 // Do async reads for a batch of addresses, and wait for them to complete
 static bool
-test_do_read_batch(threadid     tid,
-                   test_params *params,
-                   uint64       batch_start)
+test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
 {
    page_handle **handle_arr = &params->handle_arr[batch_start];
-   const uint64 *addr_arr = &params->addr_arr[batch_start];
-   const bool mt_reader = params->mt_reader;
-   cache *cc = params->cc;
-   bool was_async[READER_BATCH_SIZE] = { FALSE };
-   uint64 j;
+   const uint64 *addr_arr   = &params->addr_arr[batch_start];
+   const bool    mt_reader  = params->mt_reader;
+   cache *       cc         = params->cc;
+   bool          was_async[READER_BATCH_SIZE] = {FALSE};
+   uint64        j;
 
    // Prepare to do async gets on current batch
    for (j = 0; j < READER_BATCH_SIZE; j++) {
@@ -640,44 +635,44 @@ test_do_read_batch(threadid     tid,
    }
    for (j = 0; j < READER_BATCH_SIZE; j++) {
       cache_async_result res;
-      cache_async_ctxt *ctxt = &params->ctxt[j].ctxt;
+      cache_async_ctxt * ctxt = &params->ctxt[j].ctxt;
 
       cache_assert_ungot(cc, addr_arr[j]);
       // MT test probabilistically mixes sync and async api to test races
-      if (mt_reader &&
-          params->sync_probability != 0 &&
-          (tid + batch_start + j) % params->sync_probability == 0) {
+      if (mt_reader && params->sync_probability != 0
+          && (tid + batch_start + j) % params->sync_probability == 0)
+      {
          ctxt->page = cache_get(cc, addr_arr[j], TRUE, PAGE_TYPE_MISC);
-         res = async_success;
+         res        = async_success;
       } else {
          res = cache_get_async(cc, addr_arr[j], PAGE_TYPE_MISC, ctxt);
       }
-      //platform_log_stream("batch %lu, %lu: res %u\n", batch_start, j, res);
+      // platform_log_stream("batch %lu, %lu: res %u\n", batch_start, j, res);
       if (mt_reader) {
          switch (res) {
-         case async_locked:
-         case async_no_reqs:
-            cache_assert_ungot(cc, addr_arr[j]);
-            /*
-             * Need to keep lock order. Lock order is lower disk
-             * address to higher disk address. If a writer thread has
-             * the page locked, we cannot take read refs on blocks
-             * with higher addresses, then come back to take read refs
-             * on blocks with lower addresses. This'll be a lock order
-             * violation and cause deadlock. So abandon this batch,
-             * and ask caller to retry.
-             */
-            test_abandon_read_batch(params, batch_start, j, was_async);
-            return TRUE;
-         case async_success:
-            platform_assert(ctxt->page);
-            platform_semaphore_post(&params->batch_sema);
-            continue;
-         case async_io_started:
-            was_async[j] = TRUE;
-            break;
-         default:
-            platform_assert(0);
+            case async_locked:
+            case async_no_reqs:
+               cache_assert_ungot(cc, addr_arr[j]);
+               /*
+                * Need to keep lock order. Lock order is lower disk
+                * address to higher disk address. If a writer thread has
+                * the page locked, we cannot take read refs on blocks
+                * with higher addresses, then come back to take read refs
+                * on blocks with lower addresses. This'll be a lock order
+                * violation and cause deadlock. So abandon this batch,
+                * and ask caller to retry.
+                */
+               test_abandon_read_batch(params, batch_start, j, was_async);
+               return TRUE;
+            case async_success:
+               platform_assert(ctxt->page);
+               platform_semaphore_post(&params->batch_sema);
+               continue;
+            case async_io_started:
+               was_async[j] = TRUE;
+               break;
+            default:
+               platform_assert(0);
          }
       } else {
          platform_assert(res == async_io_started);
@@ -702,19 +697,19 @@ test_do_read_batch(threadid     tid,
 void
 test_reader_thread(void *arg)
 {
-   test_params *params = (test_params *)arg;
-   const uint64 *addr_arr = params->addr_arr;
-   page_handle **handle_arr = params->handle_arr;
-   cache *cc = params->cc;
-   uint64 i, j, k;
-   const uint64 num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
-   const threadid tid = platform_get_tid();
+   test_params *  params     = (test_params *)arg;
+   const uint64 * addr_arr   = params->addr_arr;
+   page_handle ** handle_arr = params->handle_arr;
+   cache *        cc         = params->cc;
+   uint64         i, j, k;
+   const uint64   num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
+   const threadid tid       = platform_get_tid();
 
    platform_semaphore_init(&params->batch_sema, 0, params->hid);
    for (i = k = 0; i < num_pages; i += READER_BATCH_SIZE) {
       if (params->logger) {
          platform_throttled_error_log(DEFAULT_THROTTLE_INTERVAL_SEC,
-                                      PLATFORM_CR"test %3lu%% complete",
+                                      PLATFORM_CR "test %3lu%% complete",
                                       i * 100 / num_pages);
       }
       // Maintain working set by doing ungets on old pages
@@ -742,7 +737,7 @@ test_reader_thread(void *arg)
          cache_assert_ungot(cc, addr_arr[k + j]);
       }
    }
-   for (k = 0; k < num_pages; k ++) {
+   for (k = 0; k < num_pages; k++) {
       cache_assert_ungot(cc, addr_arr[k]);
    }
 }
@@ -750,12 +745,12 @@ test_reader_thread(void *arg)
 void
 test_writer_thread(void *arg)
 {
-   test_params *params = (test_params *)arg;
-   const uint64 *addr_arr = params->addr_arr;
+   test_params * params     = (test_params *)arg;
+   const uint64 *addr_arr   = params->addr_arr;
    page_handle **handle_arr = params->handle_arr;
-   cache *cc = params->cc;
-   uint64 i, k;
-   const uint64 num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
+   cache *       cc         = params->cc;
+   uint64        i, k;
+   const uint64  num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
 
    for (i = k = 0; i < num_pages; i++) {
       // Maintain working set by doing ungets on old pages
@@ -796,26 +791,25 @@ test_writer_thread(void *arg)
  * eviction.
  */
 platform_status
-test_cache_async(cache             *cc,
+test_cache_async(cache *            cc,
                  clockcache_config *cfg,
                  platform_heap_id   hid,
-                 task_system       *ts,
+                 task_system *      ts,
                  uint32             num_reader_threads,
                  uint32             num_writer_threads,
                  uint32             working_set_percent)
 {
    platform_status rc;
-   uint32 total_threads = num_reader_threads + num_writer_threads;
-   test_params *params = TYPED_ARRAY_ZALLOC(hid, params,
-                                            num_reader_threads +
-                                            num_writer_threads);
-   uint32 i;
+   uint32          total_threads = num_reader_threads + num_writer_threads;
+   test_params *   params =
+      TYPED_ARRAY_ZALLOC(hid, params, num_reader_threads + num_writer_threads);
+   uint32  i;
    uint64 *addr_arr = NULL;
 
    /* allocate twice as many pages as the cache capacity */
-   uint32 extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
-   uint32 extents_to_allocate = 2 * extent_capacity;
-   uint64 pages_to_allocate = extents_to_allocate * cfg->pages_per_extent;
+   uint32       extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
+   uint32       extents_to_allocate = 2 * extent_capacity;
+   uint64       pages_to_allocate = extents_to_allocate * cfg->pages_per_extent;
    const uint64 working_set_pages =
       cfg->page_capacity * working_set_percent / 100;
 
@@ -828,9 +822,11 @@ test_cache_async(cache             *cc,
       platform_assert(num_writer_threads == 0);
    }
    platform_log("cache_test: async test started with %u+%u threads (ws=%u%%)\n",
-                num_reader_threads, num_writer_threads, working_set_percent);
+                num_reader_threads,
+                num_writer_threads,
+                working_set_percent);
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
-   rc = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
+   rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -842,11 +838,11 @@ test_cache_async(cache             *cc,
    for (i = 0; i < total_threads; i++) {
       const bool is_reader = i < num_reader_threads ? TRUE : FALSE;
 
-      params[i].cc               = cc;
-      params[i].cfg              = cfg;
-      params[i].addr_arr         = addr_arr;
-      params[i].num_pages        = pages_to_allocate;
-      params[i].num_pages_ws     = is_reader ? working_set_pages : 16;
+      params[i].cc           = cc;
+      params[i].cfg          = cfg;
+      params[i].addr_arr     = addr_arr;
+      params[i].num_pages    = pages_to_allocate;
+      params[i].num_pages_ws = is_reader ? working_set_pages : 16;
       /*
        * Probability of test doing sync gets(). If sum of all threads'
        * working set is > 100%, a sync get() will just lock up the
@@ -857,11 +853,11 @@ test_cache_async(cache             *cc,
       } else {
          params[i].sync_probability = 10;
       }
-      params[i].handle_arr       = TYPED_ARRAY_ZALLOC(hid, params[i].handle_arr,
-                                                      params[i].num_pages);
-      params[i].ts               = ts;
-      params[i].hid              = hid;
-      params[i].logger           = (i == 0) ? TRUE : FALSE;
+      params[i].handle_arr =
+         TYPED_ARRAY_ZALLOC(hid, params[i].handle_arr, params[i].num_pages);
+      params[i].ts     = ts;
+      params[i].hid    = hid;
+      params[i].logger = (i == 0) ? TRUE : FALSE;
       /*
        * With multiple threads doing async_get() to the same page, it's
        * possible that async_get() returns retry. Not so with single
@@ -869,11 +865,21 @@ test_cache_async(cache             *cc,
        */
       params[i].mt_reader = total_threads > 1 ? TRUE : FALSE;
       if (is_reader) {
-         rc = task_thread_create("cache_reader", test_reader_thread,
-                                 &params[i], 0, ts, hid, &params[i].thread);
+         rc = task_thread_create("cache_reader",
+                                 test_reader_thread,
+                                 &params[i],
+                                 0,
+                                 ts,
+                                 hid,
+                                 &params[i].thread);
       } else {
-         rc = task_thread_create("cache_writer", test_writer_thread,
-                                 &params[i], 0, ts, hid, &params[i].thread);
+         rc = task_thread_create("cache_writer",
+                                 test_writer_thread,
+                                 &params[i],
+                                 0,
+                                 ts,
+                                 hid,
+                                 &params[i].thread);
       }
       if (!SUCCESS(rc)) {
          total_threads = i;
@@ -906,7 +912,8 @@ test_cache_async(cache             *cc,
 }
 
 static void
-usage(const char *argv0) {
+usage(const char *argv0)
+{
    platform_error_log("Usage:\n"
                       "\t%s\n",
                       argv0);
@@ -916,17 +923,17 @@ usage(const char *argv0) {
 int
 cache_test(int argc, char *argv[])
 {
-   data_config           data_cfg;
-   io_config             io_cfg;
-   rc_allocator_config   al_cfg;
-   clockcache_config     cache_cfg;
-   shard_log_config      log_cfg;
-   int                   config_argc = argc - 1;
-   char                **config_argv = argv + 1;
-   platform_status       rc;
-   task_system          *ts;
-   bool                  benchmark = FALSE, async = FALSE;
-   uint64                seed;
+   data_config         data_cfg;
+   io_config           io_cfg;
+   rc_allocator_config al_cfg;
+   clockcache_config   cache_cfg;
+   shard_log_config    log_cfg;
+   int                 config_argc = argc - 1;
+   char **             config_argv = argv + 1;
+   platform_status     rc;
+   task_system *       ts;
+   bool                benchmark = FALSE, async = FALSE;
+   uint64              seed;
 
    if (argc > 1) {
       if (strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
@@ -940,17 +947,24 @@ cache_test(int argc, char *argv[])
       }
    }
 
-    platform_log("\nStarted cache_test!!\n");
+   platform_log("\nStarted cache_test!!\n");
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
-   platform_heap_id hid;
+   platform_heap_id     hid;
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
    splinter_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
-   rc = test_parse_args(splinter_cfg, &data_cfg, &io_cfg, &al_cfg, &cache_cfg,
-                        &log_cfg, &seed, config_argc, config_argv);
+   rc                            = test_parse_args(splinter_cfg,
+                        &data_cfg,
+                        &io_cfg,
+                        &al_cfg,
+                        &cache_cfg,
+                        &log_cfg,
+                        &seed,
+                        config_argc,
+                        config_argv);
    if (!SUCCESS(rc)) {
       platform_error_log("cache_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));
@@ -976,9 +990,9 @@ cache_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = { 0 }; // no bg threads
-   rc = test_init_splinter(hid, io, &ts, splinter_cfg->use_stats, FALSE,
-         num_bg_threads);
+   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   rc                                   = test_init_splinter(
+      hid, io, &ts, splinter_cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -986,12 +1000,19 @@ cache_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(&al, &al_cfg, (io_handle *)io, hh, hid,
-                     platform_get_module_id());
+   rc_allocator_init(
+      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
-   rc = clockcache_init(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                        "test", ts, hh, hid, platform_get_module_id());
+   rc             = clockcache_init(cc,
+                        &cache_cfg,
+                        (io_handle *)io,
+                        (allocator *)&al,
+                        "test",
+                        ts,
+                        hh,
+                        hid,
+                        platform_get_module_id());
    platform_assert_status_ok(rc);
 
    cache *ccp = (cache *)cc;
@@ -1000,36 +1021,54 @@ cache_test(int argc, char *argv[])
       rc = test_cache_flush(ccp, &cache_cfg, hid, al_cfg.extent_capacity);
    } else if (async) {
       // Single thread, no cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             1,   // num readers
                             0,   // num writers
                             10); // per-thread working set
       // Multi thread, no cache pressure
       platform_assert(SUCCESS(rc));
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num reader
                             0,   // num writers
                             10); // per-thread working set
       // Multi thread, no cache pressure, with writers
       platform_assert(SUCCESS(rc));
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num reader
                             2,   // num writers
                             10); // per-thread working set
       platform_assert(SUCCESS(rc));
       // Single thread, cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             1,   // num readers
                             0,   // num writers
                             80); // per-thread working set
       platform_assert(SUCCESS(rc));
       // Multi  thread, cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num readers
                             0,   // num writers
                             80); // per-thread working set
       // Multi  thread, high cache pressure
-      rc = test_cache_async(ccp, &cache_cfg, hid, ts,
+      rc = test_cache_async(ccp,
+                            &cache_cfg,
+                            hid,
+                            ts,
                             8,   // num readers
                             0,   // num writers
                             96); // per-thread working set

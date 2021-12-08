@@ -568,7 +568,7 @@ cleanup:
 int
 check_current_tuple(kvstore_basic_iterator *it, const int expected_i)
 {
-   int  rc               = 0;
+   int  rc                                  = 0;
    char expected_key[MAX_KEY_SIZE]          = {0};
    char expected_val[TEST_SHORT_VALUE_SIZE] = {0};
    test_assert(

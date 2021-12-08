@@ -9,20 +9,23 @@ PLATFORM = linux
 # DIRECTORIES, SRC, OBJ, ETC
 #
 
-SRCDIR   = src
-TESTSDIR = tests
-UNITDIR  = unit
-OBJDIR   = obj
-BINDIR   = bin
-LIBDIR   = lib
-INCDIR   = include
+SRCDIR               = src
+FUNCTIONAL_TESTSDIR  = tests/functional
+UNITDIR              = unit
+OBJDIR               = obj
+BINDIR               = bin
+LIBDIR               = lib
+INCDIR               = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
-TESTSRC := $(shell find $(TESTSDIR) -name "*.c")
+FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 UNITSRC := $(shell find $(UNITDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
-TESTOBJ= $(TESTSRC:%.c=$(OBJDIR)/%.o)
+
+# Objects from test sources in tests/functional/ sub-dir
+FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
+
 UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
 
 # Automatically create directories, based on
@@ -121,7 +124,7 @@ debug-log: .debug-log all
 # RECIPES
 #
 
-$(BINDIR)/driver_test : $(TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
+$(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
@@ -152,7 +155,7 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 #
 
 obj/unit/variable_length_btree-test.o: src/variable_length_btree.c
-bin/unit/variable_length_btree-test: obj/tests/test_data.o obj/src/util.o obj/src/data_internal.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
+bin/unit/variable_length_btree-test: obj/tests/functional/test_data.o obj/src/util.o obj/src/data_internal.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
 
 #*************************************************************#
 

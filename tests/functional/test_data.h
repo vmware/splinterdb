@@ -18,22 +18,22 @@ typedef struct PACKED data_handle {
 static inline void
 test_data_set_insert_flag(void *raw_data)
 {
-   data_handle *data = (data_handle *)raw_data;
+   data_handle *data  = (data_handle *)raw_data;
    data->message_type = MESSAGE_TYPE_INSERT;
 }
 
 static inline void
 test_data_set_delete_flag(void *raw_data)
 {
-   data_handle *data = (data_handle *)raw_data;
+   data_handle *data  = (data_handle *)raw_data;
    data->message_type = MESSAGE_TYPE_DELETE;
 }
 
 static inline void
-test_data_set_insert(void  *raw_data,
-                int8   ref_count,
-                char  *val,
-                uint64 data_size)
+test_data_set_insert(void * raw_data,
+                     int8   ref_count,
+                     char * val,
+                     uint64 data_size)
 {
    memset(raw_data, 0, data_size);
    data_handle *data = (data_handle *)raw_data;

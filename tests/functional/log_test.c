@@ -34,29 +34,29 @@ test_log_crash(clockcache *         cc,
                bool                 crash)
 
 {
-   platform_status     rc;
-   log_handle         *logh;
-   uint64              i;
-   char                keybuffer[MAX_KEY_SIZE];
-   char *              databuffer =
+   platform_status rc;
+   log_handle *    logh;
+   uint64          i;
+   char            keybuffer[MAX_KEY_SIZE];
+   char *          databuffer =
       TYPED_ARRAY_MALLOC(hid, databuffer, cfg->data_cfg->message_size);
-   slice               returned_key;
-   slice               returned_message;
-   char                dummy = 'z';
-   uint64              addr;
-   uint64              magic;
-   shard_log_iterator  itor;
-   iterator           *itorh = (iterator *)&itor;
-   char                key_str[128];
-   char                data_str[128];
-   bool                at_end;
+   slice              returned_key;
+   slice              returned_message;
+   char               dummy = 'z';
+   uint64             addr;
+   uint64             magic;
+   shard_log_iterator itor;
+   iterator *         itorh = (iterator *)&itor;
+   char               key_str[128];
+   char               data_str[128];
+   bool               at_end;
 
    platform_assert(cc != NULL);
    rc = shard_log_init(log, (cache *)cc, cfg);
    platform_assert_status_ok(rc);
    logh = (log_handle *)log;
 
-   addr = log_addr(logh);
+   addr  = log_addr(logh);
    magic = log_magic(logh);
 
 
@@ -105,8 +105,9 @@ test_log_crash(clockcache *         cc,
       slice smessage =
          slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
       iterator_get_curr(itorh, &returned_key, &returned_message);
-      if (slice_lex_cmp(skey, returned_key) ||
-          slice_lex_cmp(smessage, returned_message)) {
+      if (slice_lex_cmp(skey, returned_key)
+          || slice_lex_cmp(smessage, returned_message))
+      {
          platform_log("log_test_basic: key or data mismatch\n");
          data_key_to_string(cfg->data_cfg, skey, key_str, 128);
          data_message_to_string(cfg->data_cfg, smessage, data_str, 128);
@@ -130,33 +131,38 @@ test_log_crash(clockcache *         cc,
 }
 
 typedef struct test_log_thread_params {
-   shard_log          *log;
-   platform_thread     thread;
-   int                 thread_id;
-   uint64              num_entries;
+   shard_log *     log;
+   platform_thread thread;
+   int             thread_id;
+   uint64          num_entries;
 } test_log_thread_params;
 
 void
 test_log_thread(void *arg)
 {
-   platform_heap_id hid = platform_get_heap_id();
+   platform_heap_id        hid    = platform_get_heap_id();
    test_log_thread_params *params = (test_log_thread_params *)arg;
 
-   shard_log *log     = params->log;
-   log_handle *logh   = (log_handle *)log;
-   int thread_id      = params->thread_id;
-   uint64 num_entries = params->num_entries;
-   uint64 i;
-   char key[MAX_KEY_SIZE];
+   shard_log * log         = params->log;
+   log_handle *logh        = (log_handle *)log;
+   int         thread_id   = params->thread_id;
+   uint64      num_entries = params->num_entries;
+   uint64      i;
+   char        key[MAX_KEY_SIZE];
    char *data = TYPED_ARRAY_MALLOC(hid, data, log->cfg->data_cfg->message_size);
-   char dummy;
+   char  dummy;
 
    slice skey     = slice_create(log->cfg->data_cfg->key_size, key);
    slice smessage = slice_create(log->cfg->data_cfg->message_size, data);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
-      test_insert_data(data, 1, &dummy, 0, log->cfg->data_cfg->message_size, MESSAGE_TYPE_INSERT);
+      test_insert_data(data,
+                       1,
+                       &dummy,
+                       0,
+                       log->cfg->data_cfg->message_size,
+                       MESSAGE_TYPE_INSERT);
       log_write(logh, skey, smessage, i);
    }
 
@@ -164,19 +170,19 @@ test_log_thread(void *arg)
 }
 
 platform_status
-test_log_perf(cache            *cc,
+test_log_perf(cache *           cc,
               shard_log_config *cfg,
-              shard_log        *log,
+              shard_log *       log,
               uint64            num_entries,
               uint64            num_threads,
-              task_system      *ts,
+              task_system *     ts,
               platform_heap_id  hid)
 
 {
-   test_log_thread_params *params = TYPED_ARRAY_MALLOC(hid,
-                                                       params, num_threads);
+   test_log_thread_params *params =
+      TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
-   uint64 start_time;
+   uint64          start_time;
    platform_status ret;
 
    ret = shard_log_init(log, (cache *)cc, cfg);
@@ -190,8 +196,13 @@ test_log_perf(cache            *cc,
 
    start_time = platform_get_timestamp();
    for (uint64 i = 0; i < num_threads; i++) {
-      ret = task_thread_create("log_thread", test_log_thread, &params[i], 0,
-                               ts, hid, &params[i].thread);
+      ret = task_thread_create("log_thread",
+                               test_log_thread,
+                               &params[i],
+                               0,
+                               ts,
+                               hid,
+                               &params[i].thread);
       if (!SUCCESS(ret)) {
          // Wait for existing threads to quit
          for (uint64 j = 0; j < i; j++) {
@@ -205,8 +216,8 @@ test_log_perf(cache            *cc,
    }
 
    platform_log("log insertion rate: %luM insertions/second\n",
-         SEC_TO_MSEC(num_entries)
-         / platform_timestamp_elapsed(start_time));
+                SEC_TO_MSEC(num_entries)
+                   / platform_timestamp_elapsed(start_time));
 
 cleanup:
    platform_free(hid, params);
@@ -216,7 +227,8 @@ cleanup:
 
 
 static void
-usage(const char *argv0) {
+usage(const char *argv0)
+{
    platform_error_log("Usage:\n"
                       "\t%s\n"
                       "\t%s --perf\n"
@@ -230,50 +242,57 @@ usage(const char *argv0) {
 int
 log_test(int argc, char *argv[])
 {
-   platform_status       status;
-   data_config           data_cfg;
-   io_config             io_cfg;
-   rc_allocator_config   al_cfg;
-   clockcache_config     cache_cfg;
-   shard_log_config      log_cfg;
-   rc_allocator          al;
-   platform_status       ret;
-   int                   config_argc;
-   char                **config_argv;
-   bool                  run_perf_test;
-   bool                  run_crash_test;
-   int                   rc;
-   uint64                seed;
-   task_system          *ts;
+   platform_status     status;
+   data_config         data_cfg;
+   io_config           io_cfg;
+   rc_allocator_config al_cfg;
+   clockcache_config   cache_cfg;
+   shard_log_config    log_cfg;
+   rc_allocator        al;
+   platform_status     ret;
+   int                 config_argc;
+   char **             config_argv;
+   bool                run_perf_test;
+   bool                run_crash_test;
+   int                 rc;
+   uint64              seed;
+   task_system *       ts;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
-      run_perf_test = TRUE;
+      run_perf_test  = TRUE;
       run_crash_test = FALSE;
-      config_argc = argc - 2;
-      config_argv = argv + 2;
+      config_argc    = argc - 2;
+      config_argv    = argv + 2;
    } else if (argc > 1 && strncmp(argv[1], "--crash", sizeof("--crash")) == 0) {
-      run_perf_test = FALSE;
+      run_perf_test  = FALSE;
       run_crash_test = TRUE;
-      config_argc = argc - 2;
-      config_argv = argv + 2;
+      config_argc    = argc - 2;
+      config_argv    = argv + 2;
    } else {
-      run_perf_test = FALSE;
+      run_perf_test  = FALSE;
       run_crash_test = FALSE;
-      config_argc = argc - 1;
-      config_argv = argv + 1;
+      config_argc    = argc - 1;
+      config_argv    = argv + 1;
    }
 
-    platform_log("\nStarted log_test!!\n");
+   platform_log("\nStarted log_test!!\n");
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
-   platform_heap_id hid;
+   platform_heap_id     hid;
    status = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(status);
 
    splinter_config *cfg = TYPED_MALLOC(hid, cfg);
-   status = test_parse_args(cfg, &data_cfg, &io_cfg, &al_cfg, &cache_cfg,
-                            &log_cfg, &seed, config_argc, config_argv);
+   status               = test_parse_args(cfg,
+                            &data_cfg,
+                            &io_cfg,
+                            &al_cfg,
+                            &cache_cfg,
+                            &log_cfg,
+                            &seed,
+                            config_argc,
+                            config_argv);
    if (!SUCCESS(status)) {
       platform_error_log("log_test: failed to parse config: %s\n",
                          platform_status_to_string(status));
@@ -294,9 +313,9 @@ log_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = { 0 }; // no bg threads
-   status = test_init_splinter(hid, io, &ts, cfg->use_stats, FALSE,
-         num_bg_threads);
+   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   status =
+      test_init_splinter(hid, io, &ts, cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));
@@ -304,22 +323,28 @@ log_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   status = rc_allocator_init(&al, &al_cfg, (io_handle *)io, hh, hid,
-                              platform_get_module_id());
+   status = rc_allocator_init(
+      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
    platform_assert_status_ok(status);
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc != NULL);
-   status = clockcache_init(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                            "test", ts, hh, hid, platform_get_module_id());
+   status = clockcache_init(cc,
+                            &cache_cfg,
+                            (io_handle *)io,
+                            (allocator *)&al,
+                            "test",
+                            ts,
+                            hh,
+                            hid,
+                            platform_get_module_id());
    platform_assert_status_ok(status);
 
    shard_log *log = TYPED_MALLOC(hid, log);
    platform_assert(log != NULL);
    if (run_perf_test) {
-      ret = test_log_perf((cache *)cc, &log_cfg, log, 200000000, 16, ts,
-                          hid);
-      rc = -1;
+      ret = test_log_perf((cache *)cc, &log_cfg, log, 200000000, 16, ts, hid);
+      rc  = -1;
       platform_assert_status_ok(ret);
    } else if (run_crash_test) {
       rc = test_log_crash(cc,
