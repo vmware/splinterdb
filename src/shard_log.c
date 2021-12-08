@@ -489,7 +489,7 @@ shard_log_print(shard_log *log)
       cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
       uint64 next_extent_addr = 0;
       for (uint64 i = 0; i < pages_per_extent; i++) {
-         uint64 page_addr = extent_addr + i * cfg->page_size;
+         uint64       page_addr = extent_addr + i * cfg->page_size;
          page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, magic)) {
             next_extent_addr = shard_log_next_extent_addr(cfg, page);

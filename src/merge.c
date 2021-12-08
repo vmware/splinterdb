@@ -421,8 +421,8 @@ merge_iterator_create(platform_heap_id hid,
    merge_itor->finalize_updates = merge_mode == MERGE_FULL;
    merge_itor->emit_deletes     = merge_mode != MERGE_FULL;
 
-   merge_itor->at_end           = FALSE;
-   merge_itor->cfg              = cfg;
+   merge_itor->at_end = FALSE;
+   merge_itor->cfg    = cfg;
 
    // index -1 initializes the pad variable
    for (i = -1; i < num_trees; i++) {
