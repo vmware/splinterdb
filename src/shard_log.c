@@ -476,45 +476,30 @@ void shard_log_config_init(shard_log_config *log_cfg,
 }
 
 void
-shard_log_print(shard_log *log) {
-   uint64 i,j;
-   cache *cc = log->cc;
-   uint64 extent_addr = log->addr;
-   uint64 next_extent_addr;
-   uint64 page_addr;
-   page_handle *page;
-   shard_log_config *cfg = log->cfg;
-   uint64 magic = log->magic;
-   uint64 pages_per_extent = cfg->extent_size / cfg->page_size;
-   char *cursor;
-
-   char *key;
-   char *data;
-   uint64 generation;
-
-   char key_str[128];
-   char data_str[128];
+shard_log_print(shard_log *log)
+{
+   cache *           cc               = log->cc;
+   uint64            extent_addr      = log->addr;
+   shard_log_config *cfg              = log->cfg;
+   uint64            magic            = log->magic;
+   data_config *     dcfg             = cfg->data_cfg;
+   uint64            pages_per_extent = cfg->extent_size / cfg->page_size;
 
    while (extent_addr != 0 && cache_get_ref(cc, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
-      next_extent_addr = 0;
-      for (i = 0; i < pages_per_extent; i++) {
-         page_addr = extent_addr + i * cfg->page_size;
-         page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+      uint64 next_extent_addr = 0;
+      for (uint64 i = 0; i < pages_per_extent; i++) {
+         uint64 page_addr = extent_addr + i * cfg->page_size;
+         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, magic)) {
             next_extent_addr = shard_log_next_extent_addr(cfg, page);
-            cursor = page->data + sizeof(shard_log_hdr);
-            for (j = 0; j < log->cfg->entries_per_page; j++) {
-               generation = *(uint64 *)cursor;
-               cursor += sizeof(uint64);
-               key = cursor;
-               cursor += log->cfg->data_cfg->key_size;
-               data = cursor;
-               cursor += log->cfg->data_cfg->message_size;
-               fixed_size_data_key_to_string(cfg->data_cfg, key, key_str, 128);
-               fixed_size_data_message_to_string(
-                  cfg->data_cfg, data, data_str, 128);
-               platform_log("%s -- %s : %lu\n", key_str, data_str, generation);
+            for (log_entry *le = first_log_entry(page->data);
+                 !terminal_log_entry(cfg, page->data, le);
+                 le = log_entry_next(le)) {
+               platform_log("%s -- %s : %lu\n",
+                            key_string(dcfg, log_entry_key(le)),
+                            message_string(dcfg, log_entry_message(le)),
+                            le->generation);
             }
          }
          cache_unget(cc, page);

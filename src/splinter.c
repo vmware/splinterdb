@@ -119,13 +119,17 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *       B-trees:
  *          SplinterDB makes use of B-trees, which come in two flavors, dynamic
  *          and static.
- *          dynamic: Dynamic B-trees are used in the memtable (see below) and
- *             are mutable B-trees, supporting insertions. The mutable
- *             operations on B-trees must use a
- *variable_length_btree_dynamic_handle. static: Static B-trees are used as
- *branches and are immutable. Static variable_length_btrees are accessed using
- *their root_addr, which is thinly wrapped using their root_addr, which is
- *thinly wrapped using variable_length_btree_static_handle.
+ *
+ *          dynamic: Dynamic B-trees are used in the memtable (see
+ *             below) and are mutable B-trees, supporting
+ *             insertions. The mutable operations on B-trees must use
+ *             a variable_length_btree_dynamic_handle.
+ *
+ *          static: Static B-trees are used as branches and are
+ *             immutable. Static variable_length_btrees are accessed
+ *             using their root_addr, which is thinly wrapped using
+ *             their root_addr, which is thinly wrapped using
+ *             variable_length_btree_static_handle.
  *
  *-----------------------------------------------------------------------------
  */
@@ -136,11 +140,11 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *
  * Insertion Path:
  *
- *       Memtable
- *          Insertions are first inserted into a memtable, which is a dynamic
- *          variable_length_btree. SplinterDB uses multiple memtables so that
- *when one memtable fills, insertions can continue into another memtable while
- *the first is incorporated.
+ *       Memtable Insertions are first inserted into a memtable, which
+ *          is a dynamic variable_length_btree. SplinterDB uses
+ *          multiple memtables so that when one memtable fills,
+ *          insertions can continue into another memtable while the
+ *          first is incorporated.
  *
  *          As part of this process, the generation number of the leaf into
  *          which the new tuple is placed is returned and stored in the log (if
@@ -148,13 +152,14 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          memtable also keeps an list of fingerprints, fp_arr, which are used
  *          to build the filter when the memtable becomes a branch.
  *
- *       Incorporation
- *          When the memtable fills, it is incorporated into the root node. The
- *          memtable locks itself to inserts (but not lookups), splinter
- *          switches the active memtable, then the filter is built from the
- *          fp_arr, and the variable_length_btree in the memtable is inserted
- *into the root as a new (distinct) branch.  Then the memtable is reinitialized
- *with a new (empty) variable_length_btree and unlocked.
+ *       Incorporation When the memtable fills, it is incorporated
+ *          into the root node. The memtable locks itself to inserts
+ *          (but not lookups), splinter switches the active memtable,
+ *          then the filter is built from the fp_arr, and the
+ *          variable_length_btree in the memtable is inserted into the
+ *          root as a new (distinct) branch.  Then the memtable is
+ *          reinitialized with a new (empty) variable_length_btree and
+ *          unlocked.
  *
  *       Flushing
  *          A node is considered full when it has max_tuples_per_node tuples
@@ -294,15 +299,16 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          Subbundles function properly in the current design, but are not
  *          used for anything. They are going to be used for routing filters.
  *       ----------
- *       array of pivots
- *          Each node has a pivot corresponding to each child as well as an
- *          additional last pivot which contains an exclusive upper bound key
- *          for the node. Each pivot has a key which is an inclusive lower
- *          bound for the keys in its child node (as well as the
- *suvariable_length_btree rooted there). This means that the key for the 0th
- *pivot is an inclusive lower bound for all keys in the node.  Each pivot also
- *has its own start_branch, which is used to determine which branches have
- *tuples for that pivot (the range start_branch to end_branch).
+ *       array of pivots Each node has a pivot corresponding to each
+ *          child as well as an additional last pivot which contains
+ *          an exclusive upper bound key for the node. Each pivot has
+ *          a key which is an inclusive lower bound for the keys in
+ *          its child node (as well as the variable_length_btree
+ *          rooted there). This means that the key for the 0th pivot
+ *          is an inclusive lower bound for all keys in the node.
+ *          Each pivot also has its own start_branch, which is used to
+ *          determine which branches have tuples for that pivot (the
+ *          range start_branch to end_branch).
  *
  *          Each pivot's key is accessible via a call to splinter_get_pivot and
  *          the remaining data is accessible via a call to
@@ -2796,8 +2802,9 @@ splinter_variable_length_btree_lookup(splinter_handle *spl,
  *
  * Pre-conditions:
  *    The ctxt should've been initialized using
- *variable_length_btree_ctxt_init(). If *found `data` has the most recent
- *answer. the current memtable is older than the most recent answer
+ *    variable_length_btree_ctxt_init(). If *found `data` has the most
+ *    recent answer. the current memtable is older than the most
+ *    recent answer
  *
  *    The return value can be either of:
  *      async_locked: A page needed by lookup is locked. User should retry
@@ -4568,8 +4575,12 @@ splinter_compact_bundle(void *arg,
     * unless the compaction includes the oldest B-tree in the leaf (the start
     * branch).
     */
-   bool resolve_updates_and_discard_deletes =
-      height == 0 && bundle_start_branch == splinter_start_branch(spl, node);
+   merge_behavior merge_mode;
+   if (height == 0 && bundle_start_branch == splinter_start_branch(spl, node)) {
+      merge_mode = MERGE_FULL;
+   } else {
+      merge_mode = MERGE_INTERMEDIATE;
+   }
 
    splinter_open_log_stream();
    splinter_log_stream("compact_bundle addr %lu bundle %hu\n", req->addr,
@@ -4615,9 +4626,7 @@ splinter_compact_bundle(void *arg,
                               spl->cfg.data_cfg,
                               num_branches,
                               itor_arr,
-                              resolve_updates_and_discard_deletes,
-                              resolve_updates_and_discard_deletes,
-                              TRUE,
+                              merge_mode,
                               &merge_itor);
    platform_assert_status_ok(rc);
    variable_length_btree_pack_req pack_req;
@@ -5170,9 +5179,7 @@ splinter_split_leaf(splinter_handle *spl,
                                                  spl->cfg.data_cfg,
                                                  num_branches,
                                                  rough_itor,
-                                                 FALSE,
-                                                 FALSE,
-                                                 FALSE,
+                                                 MERGE_RAW,
                                                  &rough_merge_itor);
       platform_assert_status_ok(rc);
 
@@ -5625,9 +5632,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
                                               spl->cfg.data_cfg,
                                               range_itor->num_branches,
                                               range_itor->itor,
-                                              TRUE,
-                                              TRUE,
-                                              TRUE,
+                                              MERGE_FULL,
                                               &range_itor->merge_itor);
    if (!SUCCESS(rc)) {
       return rc;
@@ -6289,10 +6294,10 @@ splinter_filter_async_callback(routing_async_ctxt *filter_ctxt)
 /*
  * splinter_variable_length_btree_async_callback
  *
- *      Callback that's called when the async variable_length_btree lookup api
- * has loaded a page into cache. This just requeues the splinter lookup for
- *      dispatch at the same state, so that async variable_length_btree lookup
- * can be called again.
+ *      Callback that's called when the async variable_length_btree
+ *      lookup api has loaded a page into cache. This just requeues
+ *      the splinter lookup for dispatch at the same state, so that
+ *      async variable_length_btree lookup can be called again.
  */
 
 static void

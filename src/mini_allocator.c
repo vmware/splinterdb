@@ -729,6 +729,24 @@ state(data_config *cfg,
    }
 }
 
+/*
+ * Apply func to every exent whose key range intersects [start_key, _end_key].
+ *
+ * Note: if start_key is null, then so must be _end_key, and func is
+ * applied to all extents.
+ *
+ * Note: if _end_key is null, then we apply func to all extents whose
+ * key range contains start_key.
+ *
+ * Note: the first extent in each batch is treated as starting at
+ * -infinity, regardless of what key was specified as its starting
+ * point in the call to mini_alloc.
+ *
+ * Note: the last extent in each batch is treated as ending at
+ * +infinity, regardless of the what key was specified as the ending
+ * point passed to mini_release.
+ *
+ */
 static bool
 mini_keyed_for_each(cache *          cc,
                     data_config *    cfg,
@@ -797,6 +815,24 @@ mini_keyed_for_each(cache *          cc,
    return should_cleanup;
 }
 
+/*
+ * Apply func to every exent whose key range intersects [start_key, _end_key].
+ *
+ * Note: if start_key is null, then so must be _end_key, and func is
+ * applied to all extents.
+ *
+ * Note: if _end_key is null, then we apply func to all extents whose
+ * key range contains start_key.
+ *
+ * Note: the first extent in each batch is treated as starting at
+ * -infinity, regardless of what key was specified as its starting
+ * point in the call to mini_alloc.
+ *
+ * Note: the last extent in each batch is treated as ending at
+ * +infinity, regardless of the what key was specified as the ending
+ * point passed to mini_release.
+ *
+ */
 static bool
 mini_keyed_for_each_self_exclusive(cache *          cc,
                                    data_config *    cfg,
@@ -1286,9 +1322,6 @@ mini_keyed_print(cache *      cc,
          } else {
             snprintf(extent_str, 32, "%14lu", entry->extent_addr);
          }
-         char  start_key_str[MAX_KEY_STR_LEN];
-         data_key_to_string(
-            data_cfg, start_key, start_key_str, MAX_KEY_STR_LEN);
          char ref_str[4];
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
             snprintf(ref_str, 4, "n/a");
@@ -1296,11 +1329,11 @@ mini_keyed_print(cache *      cc,
             uint8 ref = allocator_get_ref(al, entry->extent_addr);
             snprintf(ref_str, 4, "%3u", ref);
          }
-         platform_default_log("| %3lu | %5u | %14s | %18s | %3s |\n",
+         platform_default_log("| %3lu | %5u | %14s | %18.18s | %3s |\n",
                               i,
                               entry->batch,
                               extent_str,
-                              start_key_str,
+                              key_string(data_cfg, start_key),
                               ref_str);
          entry = keyed_next_entry(entry);
       }

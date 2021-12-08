@@ -617,7 +617,7 @@ main(int argc, char **argv)
    int nthreads = 8;
 
    mini_allocator mini;
-   uint64         root_addr = variable_length_btree_init(
+   uint64         root_addr = variable_length_btree_create(
       (cache *)&cc, &dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
    insert_thread_params params[nthreads];

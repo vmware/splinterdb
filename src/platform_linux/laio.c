@@ -268,17 +268,9 @@ laio_cleanup(io_handle *ioh,
              uint64     count)
 {
    laio_handle *io;
-   struct io_event event;
+   struct io_event event = {0};
    uint64 i;
    int status;
-
-   /* clang memory sanitizer thinks we use this uninitialized for some reason.
-    */
-#if defined(__has_feature)
-#   if __has_feature(memory_sanitizer)
-   memset(&event, 0, sizeof(event));
-#   endif
-#endif
 
    io = (laio_handle *)ioh;
    for (i = 0; ((count == 0) || (i < count)); i++) {
