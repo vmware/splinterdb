@@ -3,7 +3,7 @@
 
 /*
  * -----------------------------------------------------------------------------
- * kvstore_large_data_test.c --
+ * kvstore_basic_stress_test.c -- KVStore Basic Stress test
  *
  * Exercises the kvstore_basic API, with larger data volumes, and multiple
  * threads.
@@ -18,8 +18,6 @@
 #include "splinterdb/kvstore_basic.h"
 
 #define Mega (1024UL * 1024UL)
-
-#define TEST_DB_NAME "ctestsdb"
 
 // Function Prototypes
 static int
@@ -40,14 +38,14 @@ typedef struct {
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(kvstore_large_data)
+CTEST_DATA(kvstore_basic_stress)
 {
    kvstore_basic *   kvsb;
    kvstore_basic_cfg cfg;
 };
 
 // Setup function for suite, called before every test in suite
-CTEST_SETUP(kvstore_large_data)
+CTEST_SETUP(kvstore_basic_stress)
 {
    memset(&data->cfg, 0, sizeof(data->cfg));
    data->cfg.cache_size     = 200 * Mega;
@@ -60,7 +58,7 @@ CTEST_SETUP(kvstore_large_data)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(kvstore_large_data)
+CTEST_TEARDOWN(kvstore_basic_stress)
 {
    kvstore_basic_close(data->kvsb);
 }
@@ -73,7 +71,7 @@ CTEST_TEARDOWN(kvstore_large_data)
  *  - kvstore_basic_lookup() and
  *  - kvstore_basic_delete()
  */
-CTEST2(kvstore_large_data, test_random_inserts_serial)
+CTEST2(kvstore_basic_stress, test_random_inserts_serial)
 {
    int random_data = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_data > 0);
@@ -110,7 +108,7 @@ CTEST2(kvstore_large_data, test_random_inserts_serial)
  * multiple threads. This test case verifies that registration of threads
  * to Splinter is working stably.
  */
-CTEST2(kvstore_large_data, test_random_inserts_concurrent)
+CTEST2(kvstore_basic_stress, test_random_inserts_concurrent)
 {
    // We need a configuration larger than the default setup.
    // Teardown the default splinter, and create a new one.
@@ -172,6 +170,9 @@ CTEST2(kvstore_large_data, test_random_inserts_concurrent)
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 {
+   platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
+   platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+
    *cfg = (kvstore_basic_cfg){
       .filename       = TEST_DB_NAME,
       .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
@@ -185,9 +186,6 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
    int rc = kvstore_basic_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
 
-   // Instruct Splinter that we are running CTests, so that we don't get
-   // noisy info messages to stdout. (Clutters up test execution outputs.)
-   kvstore_basic_for_ctests(*kvsb);
    return rc;
 }
 

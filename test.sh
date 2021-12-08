@@ -5,6 +5,10 @@ set -euxo pipefail
 SEED="${SEED:-135}"
 DRIVER="${DRIVER:-"${BINDIR:-bin}/driver_test"}"
 TEST_RUST="${TEST_RUST:-false}"
+UNIT_TEST_DRIVER="${UNIT_TEST_DRIVER:-"${BINDIR:-bin}/unit_test"}"
+
+# Run all the unit-tests first, to get basic coverage
+"$UNIT_TEST_DRIVER"
 
 "$DRIVER" kvstore_test --seed "$SEED"
 

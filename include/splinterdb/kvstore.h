@@ -172,12 +172,4 @@ kvstore_iterator_get_current(kvstore_iterator *iter,   // IN
 int
 kvstore_iterator_status(const kvstore_iterator *iter);
 
-// Specify that this KVStore implementation is being used to run CTests
-void
-kvstore_set_for_ctests(kvstore *kvs);
-
-// Check if this KVStore is being used to run CTests
-bool
-kvstore_for_ctests(const kvstore *kvs);
-
 #endif // _KVSTORE_H_

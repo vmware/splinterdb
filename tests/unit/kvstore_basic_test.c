@@ -44,8 +44,6 @@
 
 #define Mega (1024UL * 1024UL)
 
-#define TEST_DB_NAME "ctestsdb"
-
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7
 
@@ -730,6 +728,9 @@ CTEST2(kvstore_basic, test_iterator_custom_comparator)
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 {
+   platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
+   platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+
    *cfg = (kvstore_basic_cfg){
       .filename       = TEST_DB_NAME,
       .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
@@ -742,10 +743,6 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 
    int rc = kvstore_basic_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
-
-   // Instruct Splinter that we are running CTests, so that we don't get
-   // noisy info messages to stdout. (Clutters up test execution outputs.)
-   kvstore_basic_for_ctests(*kvsb);
    return rc;
 }
 

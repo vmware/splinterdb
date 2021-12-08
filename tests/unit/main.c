@@ -1,3 +1,7 @@
+/* Copyright 2011-2021 Bas van den Berg
+ * Copyright 2018-2021 VMware, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdio.h>
 
 #define CTEST_MAIN
