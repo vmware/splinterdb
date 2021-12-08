@@ -3,20 +3,13 @@
 
 /*
  * -----------------------------------------------------------------------------
- * variable_length_btree_test.c --
+ * suitename_test.c --
  *
  * Exercises the new BTree module that supports variable-length key and value
  * sizes.
  * -----------------------------------------------------------------------------
  */
-#include <stdlib.h> // Needed for system calls; e.g. free
-#include <stdio.h>
-#include <unistd.h>
 #include "ctest.h" // This is required for all test-case files.
-
-#include "platform.h"
-
-#define Mega (1024UL * 1024UL)
 
 #define TEST_DB_NAME "ctestsdb"
 
@@ -25,28 +18,24 @@
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(btree)
+CTEST_DATA(suitename)
 {
 };
 
 // Setup function for suite, called before every test in suite
-CTEST_SETUP(btree)
+CTEST_SETUP(suitename)
 {
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(btree)
+CTEST_TEARDOWN(suitename)
 {
 }
 
 /*
  * ---------------------------------------------------------------------------
- * Test case that exercises inserts of large volume of data, single-threaded.
- * We exercise these Splinter APIs:
- *  - kvstore_basic_insert()
- *  - kvstore_basic_lookup() and
- *  - kvstore_basic_delete()
+ * Test case that exercises some basic test case.
  */
-CTEST2(btree, test_basic)
+CTEST2(suitename, test_basic)
 {
 }

@@ -1,3 +1,7 @@
+// Copyright 2011-2021 Bas van den Berg
+// SPDX-License-Identifier: Apache-2.0
+// Modified from sources at: https://github.com/bvdberg/ctest
+
 #include <stdio.h>
 
 #define CTEST_MAIN

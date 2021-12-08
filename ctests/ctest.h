@@ -1,4 +1,6 @@
 /* Copyright 2011-2021 Bas van den Berg
+ * SPDX-License-Identifier: Apache-2.0
+ * Modified from sources at: https://github.com/bvdberg/ctest
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.

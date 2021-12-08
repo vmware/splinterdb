@@ -579,10 +579,3 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
    *key                        = (char *)(key_enc->data);
    *value                      = (char *)(msg->value);
 }
-
-/* Is this KVStore implementation being used to run CTests? */
-_Bool
-kvstore_basic_for_ctests(const kvstore_basic *kvsb)
-{
-   return ((kvsb->kvs) ? kvstore_for_ctests(kvsb->kvs) : FALSE);
-}

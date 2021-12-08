@@ -2,11 +2,23 @@
 
 ctest is a unit test framework for software written in C/C++.
 
+
+DO NOT include his READM. Write our own, and xref his README.md
+
 ## SplinterDB Adoption Notes
 
 We have adopted the CTest unit test framework to develop unit tests for SplinterDB. 
+This is based on the testing framework from this uril ...
+
 The contents in this README are identical to the one seen [here] (https://github.com/bvdberg/ctest).
 SplinterDB specific adaptation notes are at the bottom.
+
+Keep it tight. Delete the rest ... Do not include png file.
+
+- delete license file LICENSE
+- Delete Makefile, ctest_output.png
+- Pull-in 2 lines to top of main.c and ctest.h, and ascribe ownership to that other guy.
+
 
 ---
 

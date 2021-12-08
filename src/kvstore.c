@@ -541,12 +541,4 @@ kvstore_set_for_ctests(kvstore *kvs)
 {
    if (!kvs)
       return;
-   kvs->data_cfg.dcfg_flags |= DCFG_FL_FOR_CTESTS;
-}
-
-/* Is this KVStore being used to run CTests? */
-bool
-kvstore_for_ctests(const kvstore *kvs)
-{
-   return ((kvs->data_cfg.dcfg_flags & DCFG_FL_FOR_CTESTS) != 0);
 }
