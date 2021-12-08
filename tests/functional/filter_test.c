@@ -21,11 +21,11 @@
 #include "poison.h"
 
 static platform_status
-test_filter_basic(cache            *cc,
-                  routing_config   *cfg,
-                  platform_heap_id  hid,
-                  uint64            num_fingerprints,
-                  uint64            num_values)
+test_filter_basic(cache *          cc,
+                  routing_config * cfg,
+                  platform_heap_id hid,
+                  uint64           num_fingerprints,
+                  uint64           num_values)
 {
    platform_log("filter_test: routing filter basic test started\n");
    platform_status rc = STATUS_OK;
@@ -46,7 +46,7 @@ test_filter_basic(cache            *cc,
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
-   char key[MAX_KEY_SIZE];
+   char  key[MAX_KEY_SIZE];
    slice key_slice = slice_create(key_size, key);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
@@ -59,7 +59,7 @@ test_filter_basic(cache            *cc,
             num_input_keys[i]++;
          }
          *(uint64 *)key = (i + 1) * j;
-         fp_arr[i][j] = cfg->hash(key, key_size, cfg->seed);
+         fp_arr[i][j]   = cfg->hash(key, key_size, cfg->seed);
       }
    }
 
@@ -67,22 +67,31 @@ test_filter_basic(cache            *cc,
 
    routing_filter filter[MAX_FILTERS] = {{0}};
    for (uint64 i = 0; i < num_values; i++) {
-      rc = routing_filter_add(cc, cfg, hid, &filter[i], &filter[i + 1],
-            fp_arr[i], num_fingerprints, i);
-      //platform_log("FILTER %lu\n", i);
-      //routing_filter_print(cc, cfg, &filter);
+      rc = routing_filter_add(cc,
+                              cfg,
+                              hid,
+                              &filter[i],
+                              &filter[i + 1],
+                              fp_arr[i],
+                              num_fingerprints,
+                              i);
+      // platform_log("FILTER %lu\n", i);
+      // routing_filter_print(cc, cfg, &filter);
       uint32 estimated_input_keys =
          routing_filter_estimate_unique_keys(&filter[i + 1], cfg);
 
       platform_log("num input keys %8u estimate %8u num_unique %u\n",
-            num_input_keys[i], estimated_input_keys, filter[i + 1].num_unique);
+                   num_input_keys[i],
+                   estimated_input_keys,
+                   filter[i + 1].num_unique);
    }
 
-   uint32 num_unique = routing_filter_estimate_unique_fp(cc, cfg, hid,
-         filter + 1, num_values);
+   uint32 num_unique =
+      routing_filter_estimate_unique_fp(cc, cfg, hid, filter + 1, num_values);
    num_unique = routing_filter_estimate_unique_keys_from_count(cfg, num_unique);
    platform_log("across filters: num input keys %8u estimate %8u\n",
-         num_input_keys[num_values - 1], num_unique);
+                num_input_keys[num_values - 1],
+                num_unique);
 
    platform_free(hid, num_input_keys);
 
@@ -96,14 +105,15 @@ test_filter_basic(cache            *cc,
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i)) {
             platform_log("key-value pair (%lu, %lu) not found in filter\n",
-                         (i + 1) * j, i);
+                         (i + 1) * j,
+                         i);
             rc = STATUS_NOT_FOUND;
             goto out;
          }
       }
    }
 
-   uint64 unused_key = (num_values + 1) * num_fingerprints;
+   uint64 unused_key      = (num_values + 1) * num_fingerprints;
    uint64 false_positives = 0;
    for (uint64 i = unused_key; i < unused_key + num_fingerprints; i++) {
       ZERO_ARRAY(key);
@@ -116,10 +126,11 @@ test_filter_basic(cache            *cc,
       }
    }
 
-   fraction false_positive_rate = init_fraction(false_positives,
-                                                num_fingerprints);
-   platform_log("routing filter basic test: false positive rate "
-         FRACTION_FMT(1, 4)"\n", FRACTION_ARGS(false_positive_rate));
+   fraction false_positive_rate =
+      init_fraction(false_positives, num_fingerprints);
+   platform_log(
+      "routing filter basic test: false positive rate " FRACTION_FMT(1, 4) "\n",
+      FRACTION_ARGS(false_positive_rate));
 
    for (uint64 i = 0; i < num_values; i++) {
       routing_filter_zap(cc, &filter[i + 1]);
@@ -136,12 +147,12 @@ out:
 }
 
 static platform_status
-test_filter_perf(cache            *cc,
-                 routing_config   *cfg,
-                 platform_heap_id  hid,
-                 uint64            num_fingerprints,
-                 uint64            num_values,
-                 uint64            num_trees)
+test_filter_perf(cache *          cc,
+                 routing_config * cfg,
+                 platform_heap_id hid,
+                 uint64           num_fingerprints,
+                 uint64           num_values,
+                 uint64           num_trees)
 {
    platform_log("filter_test: routing filter perf test started\n");
    platform_status rc = STATUS_OK;
@@ -152,31 +163,37 @@ test_filter_perf(cache            *cc,
       return STATUS_BAD_PARAM;
    }
 
-   uint32 *fp_arr
-      = TYPED_ARRAY_MALLOC(hid, fp_arr, num_trees * num_values * num_fingerprints);
+   uint32 *fp_arr = TYPED_ARRAY_MALLOC(
+      hid, fp_arr, num_trees * num_values * num_fingerprints);
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
    }
-   char key[MAX_KEY_SIZE];
+   char  key[MAX_KEY_SIZE];
    slice key_slice = slice_create(key_size, key);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
          uint64 idx = k * num_values * num_fingerprints + i;
          ZERO_ARRAY(key);
          *(uint64 *)key = idx;
-         fp_arr[idx] = cfg->hash(key, key_size, cfg->seed);
+         fp_arr[idx]    = cfg->hash(key, key_size, cfg->seed);
       }
    }
 
-   uint64 start_time = platform_get_timestamp();
-   routing_filter *filter = TYPED_ARRAY_ZALLOC(hid, filter, num_trees);
+   uint64          start_time = platform_get_timestamp();
+   routing_filter *filter     = TYPED_ARRAY_ZALLOC(hid, filter, num_trees);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values; i++) {
-         routing_filter new_filter = { 0 };
-         uint64 fp_start
-            = k * num_fingerprints * num_values + i * num_fingerprints;
-         platform_status rc = routing_filter_add(cc, cfg, hid, &filter[k],
-               &new_filter, &fp_arr[fp_start], num_fingerprints, i);
+         routing_filter new_filter = {0};
+         uint64         fp_start =
+            k * num_fingerprints * num_values + i * num_fingerprints;
+         platform_status rc = routing_filter_add(cc,
+                                                 cfg,
+                                                 hid,
+                                                 &filter[k],
+                                                 &new_filter,
+                                                 &fp_arr[fp_start],
+                                                 num_fingerprints,
+                                                 i);
          if (!SUCCESS(rc)) {
             goto out;
          }
@@ -185,8 +202,8 @@ test_filter_perf(cache            *cc,
       }
    }
    platform_log("filter insert time per key %lu\n",
-         platform_timestamp_elapsed(start_time)
-         / (num_fingerprints * num_values * num_trees));
+                platform_timestamp_elapsed(start_time)
+                   / (num_fingerprints * num_values * num_trees));
 
    start_time = platform_get_timestamp();
    for (uint64 k = 0; k < num_trees; k++) {
@@ -197,10 +214,14 @@ test_filter_perf(cache            *cc,
          rc = routing_filter_lookup(
             cc, cfg, &filter[k], key_slice, &found_values);
          platform_assert_status_ok(rc);
-         if (!routing_filter_is_value_found(found_values, i / num_fingerprints)) {
-            platform_log("key-value pair (%lu, %lu) not found in filter %lu (%lu)\n",
-                  k * num_values * num_fingerprints + i, i / num_fingerprints,
-                  k, found_values);
+         if (!routing_filter_is_value_found(found_values, i / num_fingerprints))
+         {
+            platform_log(
+               "key-value pair (%lu, %lu) not found in filter %lu (%lu)\n",
+               k * num_values * num_fingerprints + i,
+               i / num_fingerprints,
+               k,
+               found_values);
 
             routing_filter_lookup(
                cc, cfg, &filter[k], key_slice, &found_values);
@@ -211,11 +232,11 @@ test_filter_perf(cache            *cc,
       }
    }
    platform_log("filter positive lookup time per key %lu\n",
-         platform_timestamp_elapsed(start_time)
-         / (num_fingerprints * num_trees * num_values));
+                platform_timestamp_elapsed(start_time)
+                   / (num_fingerprints * num_trees * num_values));
 
-   start_time = platform_get_timestamp();
-   uint64 unused_key = num_values * num_fingerprints * num_trees;
+   start_time             = platform_get_timestamp();
+   uint64 unused_key      = num_values * num_fingerprints * num_trees;
    uint64 false_positives = 0;
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
@@ -232,12 +253,14 @@ test_filter_perf(cache            *cc,
    }
 
    platform_log("filter negative lookup time per key %lu\n",
-         platform_timestamp_elapsed(start_time)
-         / (num_fingerprints * num_trees * num_values));
-   fraction false_positive_rate = init_fraction(false_positives,
-         num_fingerprints * num_trees * num_values);
-   platform_log("filter_basic_test: false positive rate "FRACTION_FMT(1, 4)
-            " for %lu trees\n", FRACTION_ARGS(false_positive_rate), num_trees);
+                platform_timestamp_elapsed(start_time)
+                   / (num_fingerprints * num_trees * num_values));
+   fraction false_positive_rate =
+      init_fraction(false_positives, num_fingerprints * num_trees * num_values);
+   platform_log("filter_basic_test: false positive rate " FRACTION_FMT(
+                   1, 4) " for %lu trees\n",
+                FRACTION_ARGS(false_positive_rate),
+                num_trees);
 
    cache_print_stats(cc);
 
@@ -248,12 +271,13 @@ out:
    if (fp_arr) {
       platform_free(hid, fp_arr);
    }
-   platform_free(hid,filter);
+   platform_free(hid, filter);
    return rc;
 }
 
 static void
-usage(const char *argv0) {
+usage(const char *argv0)
+{
    platform_error_log("Usage:\n"
                       "\t%s\n"
                       "\t%s --perf\n",
@@ -265,41 +289,48 @@ usage(const char *argv0) {
 int
 filter_test(int argc, char *argv[])
 {
-   int                   r;
-   data_config           data_cfg;
-   io_config             io_cfg;
-   rc_allocator_config   allocator_cfg;
-   clockcache_config     cache_cfg;
-   shard_log_config      log_cfg;
-   rc_allocator          al;
-   clockcache           *cc;
-   int                   config_argc;
-   char                **config_argv;
-   bool                  run_perf_test;
-   platform_status       rc;
-   uint64                seed;
-   task_system          *ts;
+   int                 r;
+   data_config         data_cfg;
+   io_config           io_cfg;
+   rc_allocator_config allocator_cfg;
+   clockcache_config   cache_cfg;
+   shard_log_config    log_cfg;
+   rc_allocator        al;
+   clockcache *        cc;
+   int                 config_argc;
+   char **             config_argv;
+   bool                run_perf_test;
+   platform_status     rc;
+   uint64              seed;
+   task_system *       ts;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
-      config_argc = argc - 2;
-      config_argv = argv + 2;
+      config_argc   = argc - 2;
+      config_argv   = argv + 2;
    } else {
       run_perf_test = FALSE;
-      config_argc = argc - 1;
-      config_argv = argv + 1;
+      config_argc   = argc - 1;
+      config_argv   = argv + 1;
    }
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
-   platform_heap_id hid;
+   platform_heap_id     hid;
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
    splinter_config *cfg = TYPED_MALLOC(hid, cfg);
 
-   rc = test_parse_args(cfg, &data_cfg, &io_cfg, &allocator_cfg, &cache_cfg,
-                        &log_cfg, &seed, config_argc, config_argv);
+   rc = test_parse_args(cfg,
+                        &data_cfg,
+                        &io_cfg,
+                        &allocator_cfg,
+                        &cache_cfg,
+                        &log_cfg,
+                        &seed,
+                        config_argc,
+                        config_argv);
    if (!SUCCESS(rc)) {
       platform_error_log("filter_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));
@@ -318,7 +349,7 @@ filter_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = { 0 }; // no bg threads
+   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    rc = test_init_splinter(hid, io, &ts, cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter ts: %s\n",
@@ -326,41 +357,65 @@ filter_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   rc = rc_allocator_init(&al, &allocator_cfg, (io_handle *)io, hh, hid,
-                          platform_get_module_id());
+   rc = rc_allocator_init(
+      &al, &allocator_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
    cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc);
-   rc = clockcache_init(cc, &cache_cfg, (io_handle *)io, (allocator *)&al,
-                        "test", ts, hh, hid, platform_get_module_id());
+   rc = clockcache_init(cc,
+                        &cache_cfg,
+                        (io_handle *)io,
+                        (allocator *)&al,
+                        "test",
+                        ts,
+                        hh,
+                        hid,
+                        platform_get_module_id());
    platform_assert_status_ok(rc);
 
    if (run_perf_test) {
-      rc = test_filter_perf((cache *)cc, &cfg->leaf_filter_cfg, hid,
-            cfg->mt_cfg.max_tuples_per_memtable, cfg->fanout, 100);
+      rc = test_filter_perf((cache *)cc,
+                            &cfg->leaf_filter_cfg,
+                            hid,
+                            cfg->mt_cfg.max_tuples_per_memtable,
+                            cfg->fanout,
+                            100);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_perf((cache *)cc, &cfg->index_filter_cfg, hid,
-            cfg->mt_cfg.max_tuples_per_memtable / 5, cfg->fanout, 100);
+      rc = test_filter_perf((cache *)cc,
+                            &cfg->index_filter_cfg,
+                            hid,
+                            cfg->mt_cfg.max_tuples_per_memtable / 5,
+                            cfg->fanout,
+                            100);
       platform_assert(SUCCESS(rc));
    } else {
-      rc = test_filter_basic((cache *)cc, &cfg->leaf_filter_cfg, hid,
-            cfg->mt_cfg.max_tuples_per_memtable, cfg->fanout);
+      rc = test_filter_basic((cache *)cc,
+                             &cfg->leaf_filter_cfg,
+                             hid,
+                             cfg->mt_cfg.max_tuples_per_memtable,
+                             cfg->fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc, &cfg->index_filter_cfg, hid,
-            cfg->mt_cfg.max_tuples_per_memtable / 5, cfg->fanout);
+      rc = test_filter_basic((cache *)cc,
+                             &cfg->index_filter_cfg,
+                             hid,
+                             cfg->mt_cfg.max_tuples_per_memtable / 5,
+                             cfg->fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc, &cfg->leaf_filter_cfg, hid,
-            100, cfg->fanout);
+      rc = test_filter_basic(
+         (cache *)cc, &cfg->leaf_filter_cfg, hid, 100, cfg->fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc, &cfg->leaf_filter_cfg, hid,
-            50, cfg->max_branches_per_node);
+      rc = test_filter_basic((cache *)cc,
+                             &cfg->leaf_filter_cfg,
+                             hid,
+                             50,
+                             cfg->max_branches_per_node);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc, &cfg->leaf_filter_cfg, hid,
-            1, cfg->fanout);
+      rc = test_filter_basic(
+         (cache *)cc, &cfg->leaf_filter_cfg, hid, 1, cfg->fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc, &cfg->leaf_filter_cfg, hid,
-            1, 2 * cfg->fanout);
+      rc = test_filter_basic(
+         (cache *)cc, &cfg->leaf_filter_cfg, hid, 1, 2 * cfg->fanout);
       platform_assert(SUCCESS(rc));
    }
 

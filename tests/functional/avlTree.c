@@ -6,7 +6,7 @@
  */
 
 #ifndef AVL_TREE_TEST
-#include "platform.h"
+#   include "platform.h"
 #endif
 
 #include "avlTree.h"
@@ -18,22 +18,22 @@ static inline void
 AvlTreeSetNode(AvlTreeLinks *n,
                AvlTreeLinks *left,
                AvlTreeLinks *right,
-               uint32 height)
+               uint32        height)
 {
-    n->left = left;
-    n->right = right;
-    n->height = height;
+   n->left   = left;
+   n->right  = right;
+   n->height = height;
 }
 
 
 static inline uint32
 AvlTreeGetHeight(AvlTreeLinks *n)
 {
-    if (UNLIKELY(n == NULL)) {
-        return 0;
-    }
+   if (UNLIKELY(n == NULL)) {
+      return 0;
+   }
 
-    return n->height;
+   return n->height;
 }
 
 
@@ -54,14 +54,14 @@ AvlTreeGetHeight(AvlTreeLinks *n)
  */
 
 void
-AvlTree_Init(AvlTree *tree,                       // IN/OUT
-             AvlTreeLinks *root,                  // IN
-             AvlTreeNodeComparator nodeCmp,       // IN
-             AvlTreeKeyComparator keyCmp)         // IN
+AvlTree_Init(AvlTree *             tree,    // IN/OUT
+             AvlTreeLinks *        root,    // IN
+             AvlTreeNodeComparator nodeCmp, // IN
+             AvlTreeKeyComparator  keyCmp)   // IN
 {
-    tree->nodeCmp = nodeCmp;
-    tree->keyCmp = keyCmp;
-    tree->root = root;
+   tree->nodeCmp = nodeCmp;
+   tree->keyCmp  = keyCmp;
+   tree->root    = root;
 }
 
 
@@ -81,7 +81,7 @@ AvlTree_Init(AvlTree *tree,                       // IN/OUT
 void
 AvlTree_InitNode(AvlTreeLinks *node)
 {
-    AvlTreeSetNode(node, NULL, NULL, 0);
+   AvlTreeSetNode(node, NULL, NULL, 0);
 }
 
 
@@ -105,7 +105,7 @@ AvlTree_InitNode(AvlTreeLinks *node)
 bool
 AvlTree_IsUnlinked(AvlTreeLinks *node)
 {
-    return node->left == NULL && node->right == NULL && node->height == 0;
+   return node->left == NULL && node->right == NULL && node->height == 0;
 }
 
 
@@ -127,22 +127,22 @@ AvlTree_IsUnlinked(AvlTreeLinks *node)
  */
 
 static void
-AvlTreeUpdateHeight(const AvlTree *tree,      // IN
-                    AvlTreeLinks *n,          // IN/OUT
-                    AvlTreeLinks *l,          // IN
-                    AvlTreeLinks *r)          // IN
+AvlTreeUpdateHeight(const AvlTree *tree, // IN
+                    AvlTreeLinks * n,    // IN/OUT
+                    AvlTreeLinks * l,    // IN
+                    AvlTreeLinks * r)     // IN
 {
-    uint32 lHeight = 0;
-    uint32 rHeight = 0;
+   uint32 lHeight = 0;
+   uint32 rHeight = 0;
 
-    if (l != NULL) {
-        lHeight = AvlTreeGetHeight(l);
-    }
-    if (r != NULL) {
-        rHeight = AvlTreeGetHeight(r);
-    }
+   if (l != NULL) {
+      lHeight = AvlTreeGetHeight(l);
+   }
+   if (r != NULL) {
+      rHeight = AvlTreeGetHeight(r);
+   }
 
-    n->height = (lHeight > rHeight ? lHeight : rHeight) + 1;
+   n->height = (lHeight > rHeight ? lHeight : rHeight) + 1;
 }
 
 
@@ -169,16 +169,16 @@ AvlTreeUpdateHeight(const AvlTree *tree,      // IN
  */
 
 static AvlTreeLinks *
-AvlTreeRotateLeft(const AvlTree *tree,  // IN
-                  AvlTreeLinks *n1,     // IN/OUT
-                  AvlTreeLinks *n2)     // IN/OUT
+AvlTreeRotateLeft(const AvlTree *tree, // IN
+                  AvlTreeLinks * n1,   // IN/OUT
+                  AvlTreeLinks * n2)    // IN/OUT
 {
-    n1->left = n2->right;
-    n2->right = n1;
+   n1->left  = n2->right;
+   n2->right = n1;
 
-    AvlTreeUpdateHeight(tree, n1, n1->left, n1->right);
-    AvlTreeUpdateHeight(tree, n2, n2->left, n1);
-    return n2;
+   AvlTreeUpdateHeight(tree, n1, n1->left, n1->right);
+   AvlTreeUpdateHeight(tree, n2, n2->left, n1);
+   return n2;
 }
 
 
@@ -205,16 +205,16 @@ AvlTreeRotateLeft(const AvlTree *tree,  // IN
  */
 
 static AvlTreeLinks *
-AvlTreeRotateRight(const AvlTree *tree,  // IN
-                   AvlTreeLinks *n2,     // IN/OUT
-                   AvlTreeLinks *n1)     // IN/OUT
+AvlTreeRotateRight(const AvlTree *tree, // IN
+                   AvlTreeLinks * n2,   // IN/OUT
+                   AvlTreeLinks * n1)    // IN/OUT
 {
-    n2->right = n1->left;
-    n1->left = n2;
+   n2->right = n1->left;
+   n1->left  = n2;
 
-    AvlTreeUpdateHeight(tree, n2, n2->left, n2->right);
-    AvlTreeUpdateHeight(tree, n1, n2, n1->right);
-    return n1;
+   AvlTreeUpdateHeight(tree, n2, n2->left, n2->right);
+   AvlTreeUpdateHeight(tree, n1, n2, n1->right);
+   return n1;
 }
 
 
@@ -235,41 +235,41 @@ AvlTreeRotateRight(const AvlTree *tree,  // IN
  */
 
 static AvlTreeLinks *
-AvlTreeRebalanceNode(const AvlTree *tree,  // IN/OUT
-                     AvlTreeLinks *n,      // IN/OUT
-                     AvlTreeLinks *l,      // IN/OUT
-                     AvlTreeLinks *r)      // IN/OUT
+AvlTreeRebalanceNode(const AvlTree *tree, // IN/OUT
+                     AvlTreeLinks * n,    // IN/OUT
+                     AvlTreeLinks * l,    // IN/OUT
+                     AvlTreeLinks * r)     // IN/OUT
 {
-    uint32 lHeight = AvlTreeGetHeight(l);
-    uint32 rHeight = AvlTreeGetHeight(r);
+   uint32 lHeight = AvlTreeGetHeight(l);
+   uint32 rHeight = AvlTreeGetHeight(r);
 
-    if (lHeight > rHeight + 1) {
-        AvlTreeLinks *ll = l->left;
-        AvlTreeLinks *lr = l->right;
+   if (lHeight > rHeight + 1) {
+      AvlTreeLinks *ll = l->left;
+      AvlTreeLinks *lr = l->right;
 
-        if (AvlTreeGetHeight(lr) > AvlTreeGetHeight(ll)) {
-            /* Left child is right-heavy, do a double rotation. */
-            l = AvlTreeRotateRight(tree, l, lr);
-            n->left = l;
-        }
-        n = AvlTreeRotateLeft(tree, n, l);
-    } else if (rHeight > lHeight + 1) {
-        AvlTreeLinks *rl = r->left;
-        AvlTreeLinks *rr = r->right;
+      if (AvlTreeGetHeight(lr) > AvlTreeGetHeight(ll)) {
+         /* Left child is right-heavy, do a double rotation. */
+         l       = AvlTreeRotateRight(tree, l, lr);
+         n->left = l;
+      }
+      n = AvlTreeRotateLeft(tree, n, l);
+   } else if (rHeight > lHeight + 1) {
+      AvlTreeLinks *rl = r->left;
+      AvlTreeLinks *rr = r->right;
 
-        if (AvlTreeGetHeight(rl) > AvlTreeGetHeight(rr)) {
-            /* Right child is left-heavy, do a double rotation. */
-            r = AvlTreeRotateLeft(tree, r, rl);
-            n->right = r;
-        }
-        n = AvlTreeRotateRight(tree, n, r);
-    }
+      if (AvlTreeGetHeight(rl) > AvlTreeGetHeight(rr)) {
+         /* Right child is left-heavy, do a double rotation. */
+         r        = AvlTreeRotateLeft(tree, r, rl);
+         n->right = r;
+      }
+      n = AvlTreeRotateRight(tree, n, r);
+   }
 
-    platform_assert(AvlTreeGetHeight(n->left) <= AvlTreeGetHeight(n->right) + 1);
+   platform_assert(AvlTreeGetHeight(n->left) <= AvlTreeGetHeight(n->right) + 1);
 
-    platform_assert(AvlTreeGetHeight(n->right) <= AvlTreeGetHeight(n->left) + 1);
+   platform_assert(AvlTreeGetHeight(n->right) <= AvlTreeGetHeight(n->left) + 1);
 
-    return n;
+   return n;
 }
 
 
@@ -291,36 +291,36 @@ AvlTreeRebalanceNode(const AvlTree *tree,  // IN/OUT
 
 static AvlTreeLinks *
 AvlTreeInsertInt(const AvlTree *tree,    // IN
-                 AvlTreeLinks *newNode,  // IN/OUT
-                 AvlTreeLinks *n)        // IN/OUT
+                 AvlTreeLinks * newNode, // IN/OUT
+                 AvlTreeLinks * n)        // IN/OUT
 {
-    AvlTreeLinks *l, *r;
-    int cmp;
+   AvlTreeLinks *l, *r;
+   int           cmp;
 
-    if (n == NULL) {
-        AvlTreeSetNode(newNode, NULL, NULL, 1);
-        return newNode;
-    }
+   if (n == NULL) {
+      AvlTreeSetNode(newNode, NULL, NULL, 1);
+      return newNode;
+   }
 
-    cmp = tree->nodeCmp(newNode, n);
-    if (cmp == 0) {
-        platform_assert(0);
-        /* Duplicate node, ignore the insert. */
-        return n;
-    }
+   cmp = tree->nodeCmp(newNode, n);
+   if (cmp == 0) {
+      platform_assert(0);
+      /* Duplicate node, ignore the insert. */
+      return n;
+   }
 
-    l = n->left;
-    r = n->right;
+   l = n->left;
+   r = n->right;
 
-    if (cmp < 0) {
-        l = AvlTreeInsertInt(tree, newNode, l);
-        n->left = l;
-    } else {
-        r = AvlTreeInsertInt(tree, newNode, r);
-        n->right = r;
-    }
-    AvlTreeUpdateHeight(tree, n, l, r);
-    return AvlTreeRebalanceNode(tree, n, l, r);
+   if (cmp < 0) {
+      l       = AvlTreeInsertInt(tree, newNode, l);
+      n->left = l;
+   } else {
+      r        = AvlTreeInsertInt(tree, newNode, r);
+      n->right = r;
+   }
+   AvlTreeUpdateHeight(tree, n, l, r);
+   return AvlTreeRebalanceNode(tree, n, l, r);
 }
 
 
@@ -343,14 +343,14 @@ AvlTreeInsertInt(const AvlTree *tree,    // IN
  */
 
 void
-AvlTree_Insert(AvlTree *tree,       // IN/OUT
-               AvlTreeLinks *node)  // IN/OUT
+AvlTree_Insert(AvlTree *     tree, // IN/OUT
+               AvlTreeLinks *node) // IN/OUT
 {
-    AvlTreeLinks *root = tree->root;
-    platform_assert(node != NULL);
+   AvlTreeLinks *root = tree->root;
+   platform_assert(node != NULL);
 
-    root = AvlTreeInsertInt(tree, node, root);
-    tree->root = root;
+   root       = AvlTreeInsertInt(tree, node, root);
+   tree->root = root;
 }
 
 
@@ -372,54 +372,55 @@ AvlTree_Insert(AvlTree *tree,       // IN/OUT
 
 static AvlTreeLinks *
 AvlTreeDeleteInt(const AvlTree *tree,      // IN
-                 AvlTreeLinks *nodeToDel,  // IN/OUT
-                 AvlTreeLinks *n)          // IN/OUT
+                 AvlTreeLinks * nodeToDel, // IN/OUT
+                 AvlTreeLinks * n)          // IN/OUT
 {
-    AvlTreeLinks *l, *r;
-    int cmp;
+   AvlTreeLinks *l, *r;
+   int           cmp;
 
-    if (n == NULL) {
-        /* We did not find the node. */
-        platform_assert(0);
-        return n;
-    }
+   if (n == NULL) {
+      /* We did not find the node. */
+      platform_assert(0);
+      return n;
+   }
 
-    l = n->left;
-    r = n->right;
-    cmp = tree->nodeCmp(nodeToDel, n);
-    if (cmp == 0) {
-        AvlTreeLinks *succ;
+   l   = n->left;
+   r   = n->right;
+   cmp = tree->nodeCmp(nodeToDel, n);
+   if (cmp == 0) {
+      AvlTreeLinks *succ;
 
-        platform_assert(n == nodeToDel);
-        /* If node has a single child, just replace with the child. */
+      platform_assert(n == nodeToDel);
+      /* If node has a single child, just replace with the child. */
 
-        if (l == NULL || r == NULL) {
-            return l == NULL ? r : l;
-        }
+      if (l == NULL || r == NULL) {
+         return l == NULL ? r : l;
+      }
 
-        /* Find successor in subtree (keep going left from the right child). */
-        succ = r;
-        for (succ = r; succ->left != NULL; succ = succ->left);
+      /* Find successor in subtree (keep going left from the right child). */
+      succ = r;
+      for (succ = r; succ->left != NULL; succ = succ->left)
+         ;
 
-        /*
-         * Delete succ from the right subtree (note: we know that next time we
-         * will end up in the "easy" case above since succ has no left child).
-         */
-        r = AvlTreeDeleteInt(tree, succ, r);
+      /*
+       * Delete succ from the right subtree (note: we know that next time we
+       * will end up in the "easy" case above since succ has no left child).
+       */
+      r = AvlTreeDeleteInt(tree, succ, r);
 
-        /* Now we reuse the succ node as the new root of our subtree. */
-        n = succ;
-        n->left = l;
-        n->right = r;
-    } else if (cmp < 0) {
-        l = AvlTreeDeleteInt(tree, nodeToDel, l);
-        n->left = l;
-    } else {
-        r = AvlTreeDeleteInt(tree, nodeToDel, r);
-        n->right = r;
-    }
-    AvlTreeUpdateHeight(tree, n, l, r);
-    return AvlTreeRebalanceNode(tree, n, l, r);
+      /* Now we reuse the succ node as the new root of our subtree. */
+      n        = succ;
+      n->left  = l;
+      n->right = r;
+   } else if (cmp < 0) {
+      l       = AvlTreeDeleteInt(tree, nodeToDel, l);
+      n->left = l;
+   } else {
+      r        = AvlTreeDeleteInt(tree, nodeToDel, r);
+      n->right = r;
+   }
+   AvlTreeUpdateHeight(tree, n, l, r);
+   return AvlTreeRebalanceNode(tree, n, l, r);
 }
 
 
@@ -440,19 +441,19 @@ AvlTreeDeleteInt(const AvlTree *tree,      // IN
  */
 
 void
-AvlTree_Delete(AvlTree *tree,       // IN/OUT
-               AvlTreeLinks *node)  // IN/OUT
+AvlTree_Delete(AvlTree *     tree, // IN/OUT
+               AvlTreeLinks *node) // IN/OUT
 {
-    AvlTreeLinks *root = tree->root;
+   AvlTreeLinks *root = tree->root;
 
-    root = AvlTreeDeleteInt(tree, node, root);
-    tree->root = root;
+   root       = AvlTreeDeleteInt(tree, node, root);
+   tree->root = root;
 
-    /*
-     * We must reset links to NIL to prevent any loops in concurrent queries,
-     * and for AvlTree_IsUnlinked.
-     */
-    AvlTree_InitNode(node);
+   /*
+    * We must reset links to NIL to prevent any loops in concurrent queries,
+    * and for AvlTree_IsUnlinked.
+    */
+   AvlTree_InitNode(node);
 }
 
 
@@ -473,23 +474,23 @@ AvlTree_Delete(AvlTree *tree,       // IN/OUT
  */
 
 AvlTreeLinks *
-AvlTree_FindNode(const AvlTree *tree,  // IN
-                 AvlTreeKey key)       // IN
+AvlTree_FindNode(const AvlTree *tree, // IN
+                 AvlTreeKey     key)      // IN
 {
-    AvlTreeLinks *n = tree->root;
+   AvlTreeLinks *n = tree->root;
 
-    while (n != NULL) {
-        int cmp = tree->keyCmp(n, key);
-        if (cmp == 0) {
-            return n;
-        }
-        if (cmp > 0) {
-            n = n->left;
-        } else {
-            n = n->right;
-        }
-    }
-    return NULL;
+   while (n != NULL) {
+      int cmp = tree->keyCmp(n, key);
+      if (cmp == 0) {
+         return n;
+      }
+      if (cmp > 0) {
+         n = n->left;
+      } else {
+         n = n->right;
+      }
+   }
+   return NULL;
 }
 
 
@@ -510,25 +511,25 @@ AvlTree_FindNode(const AvlTree *tree,  // IN
  */
 
 AvlTreeLinks *
-AvlTree_FindNodeGeq(const AvlTree *tree,  // IN
-                    AvlTreeKey key)       // IN
+AvlTree_FindNodeGeq(const AvlTree *tree, // IN
+                    AvlTreeKey     key)      // IN
 {
-    AvlTreeLinks *res = NULL;
-    AvlTreeLinks *current = tree->root;
+   AvlTreeLinks *res     = NULL;
+   AvlTreeLinks *current = tree->root;
 
-    while (current != NULL) {
-        int cmp = tree->keyCmp(current, key);
-        if (cmp == 0) {
-            return current;
-        }
-        if (cmp > 0) {
-            res = current;
-            current = current->left;
-        } else {
-            current = current->right;
-        }
-    }
-    return res;
+   while (current != NULL) {
+      int cmp = tree->keyCmp(current, key);
+      if (cmp == 0) {
+         return current;
+      }
+      if (cmp > 0) {
+         res     = current;
+         current = current->left;
+      } else {
+         current = current->right;
+      }
+   }
+   return res;
 }
 
 
@@ -549,25 +550,25 @@ AvlTree_FindNodeGeq(const AvlTree *tree,  // IN
  */
 
 AvlTreeLinks *
-AvlTree_FindNodeLeq(const AvlTree *tree,  // IN
-                    AvlTreeKey key)       // IN
+AvlTree_FindNodeLeq(const AvlTree *tree, // IN
+                    AvlTreeKey     key)      // IN
 {
-    AvlTreeLinks *res = NULL;
-    AvlTreeLinks *current = tree->root;
+   AvlTreeLinks *res     = NULL;
+   AvlTreeLinks *current = tree->root;
 
-    while (current != NULL) {
-        int cmp = tree->keyCmp(current, key);
-        if (cmp == 0) {
-            return current;
-        }
-        if (cmp < 0) {
-            res = current;
-            current = current->right;
-        } else {
-            current = current->left;
-        }
-    }
-    return res;
+   while (current != NULL) {
+      int cmp = tree->keyCmp(current, key);
+      if (cmp == 0) {
+         return current;
+      }
+      if (cmp < 0) {
+         res     = current;
+         current = current->right;
+      } else {
+         current = current->left;
+      }
+   }
+   return res;
 }
 
 
@@ -588,15 +589,15 @@ AvlTree_FindNodeLeq(const AvlTree *tree,  // IN
  */
 
 AvlTreeLinks *
-AvlTree_Min(const AvlTree *tree)  // IN
+AvlTree_Min(const AvlTree *tree) // IN
 {
-    AvlTreeLinks *res = NULL;
-    AvlTreeLinks *n = tree->root;
-    while (n != NULL) {
-        res = n;
-        n = n->left;
-    }
-    return res;
+   AvlTreeLinks *res = NULL;
+   AvlTreeLinks *n   = tree->root;
+   while (n != NULL) {
+      res = n;
+      n   = n->left;
+   }
+   return res;
 }
 
 
@@ -617,15 +618,15 @@ AvlTree_Min(const AvlTree *tree)  // IN
  */
 
 AvlTreeLinks *
-AvlTree_Max(const AvlTree *tree)  // IN
+AvlTree_Max(const AvlTree *tree) // IN
 {
-    AvlTreeLinks *res = NULL;
-    AvlTreeLinks *n = tree->root;
-    while (n != NULL) {
-        res = n;
-        n = n->right;
-    }
-    return res;
+   AvlTreeLinks *res = NULL;
+   AvlTreeLinks *n   = tree->root;
+   while (n != NULL) {
+      res = n;
+      n   = n->right;
+   }
+   return res;
 }
 
 
@@ -646,21 +647,21 @@ AvlTree_Max(const AvlTree *tree)  // IN
  */
 
 AvlTreeLinks *
-AvlTree_Successor(const AvlTree *tree,       // IN
-                  const AvlTreeLinks *node)  // IN
+AvlTree_Successor(const AvlTree *     tree, // IN
+                  const AvlTreeLinks *node) // IN
 {
-    AvlTreeLinks *res = NULL;
-    AvlTreeLinks *current = tree->root;
+   AvlTreeLinks *res     = NULL;
+   AvlTreeLinks *current = tree->root;
 
-    while (current != NULL) {
-        if (tree->nodeCmp(node, current) < 0) {
-            res = current;
-            current = current->left;
-        } else {
-            current = current->right;
-        }
-    }
-    return res;
+   while (current != NULL) {
+      if (tree->nodeCmp(node, current) < 0) {
+         res     = current;
+         current = current->left;
+      } else {
+         current = current->right;
+      }
+   }
+   return res;
 }
 
 
@@ -681,21 +682,21 @@ AvlTree_Successor(const AvlTree *tree,       // IN
  */
 
 AvlTreeLinks *
-AvlTree_Predecessor(const AvlTree *tree,       // IN
-                    const AvlTreeLinks *node)  // IN
+AvlTree_Predecessor(const AvlTree *     tree, // IN
+                    const AvlTreeLinks *node) // IN
 {
-    AvlTreeLinks *res = NULL;
-    AvlTreeLinks *current = tree->root;
+   AvlTreeLinks *res     = NULL;
+   AvlTreeLinks *current = tree->root;
 
-    while (current != NULL) {
-        if (tree->nodeCmp(node, current) > 0) {
-            res = current;
-            current = current->right;
-        } else {
-            current = current->left;
-        }
-    }
-    return res;
+   while (current != NULL) {
+      if (tree->nodeCmp(node, current) > 0) {
+         res     = current;
+         current = current->right;
+      } else {
+         current = current->left;
+      }
+   }
+   return res;
 }
 
 /*
@@ -715,11 +716,10 @@ AvlTree_Predecessor(const AvlTree *tree,       // IN
  */
 
 static void
-AvlTreeStackInit(AvlTreeIter *iter,
-                 unsigned max)
+AvlTreeStackInit(AvlTreeIter *iter, unsigned max)
 {
-    iter->num = 0;
-    iter->max = max;
+   iter->num = 0;
+   iter->max = max;
 }
 
 
@@ -740,11 +740,10 @@ AvlTreeStackInit(AvlTreeIter *iter,
  */
 
 static void
-AvlTreeStackPush(AvlTreeIter *iter,
-                 AvlTreeLinks *cur)
+AvlTreeStackPush(AvlTreeIter *iter, AvlTreeLinks *cur)
 {
-    platform_assert(iter->num < iter->max);
-    iter->stack[iter->num++] = cur;
+   platform_assert(iter->num < iter->max);
+   iter->stack[iter->num++] = cur;
 }
 
 
@@ -767,8 +766,8 @@ AvlTreeStackPush(AvlTreeIter *iter,
 static AvlTreeLinks *
 AvlTreeStackPop(AvlTreeIter *iter)
 {
-    platform_assert(iter->num > 0);
-    return iter->stack[--iter->num];
+   platform_assert(iter->num > 0);
+   return iter->stack[--iter->num];
 }
 
 
@@ -791,7 +790,7 @@ AvlTreeStackPop(AvlTreeIter *iter)
 static bool
 AvlTreeStackIsEmpty(AvlTreeIter *iter)
 {
-    return iter->num == 0;
+   return iter->num == 0;
 }
 
 
@@ -813,18 +812,18 @@ AvlTreeStackIsEmpty(AvlTreeIter *iter)
  */
 
 static void
-AvlTreeIterFindSmallest(AvlTreeIter *iter,      // IN iterator
-                        AvlTreeLinks *cur)      // IN node to start search
+AvlTreeIterFindSmallest(AvlTreeIter * iter, // IN iterator
+                        AvlTreeLinks *cur)  // IN node to start search
 {
-    while (cur != NULL) {
-        AvlTreeStackPush(iter, cur);
-        cur = cur->left;
-    }
-    if (AvlTreeStackIsEmpty(iter)) {
-        iter->cur = NULL;
-    } else {
-        iter->cur = AvlTreeStackPop(iter);
-    }
+   while (cur != NULL) {
+      AvlTreeStackPush(iter, cur);
+      cur = cur->left;
+   }
+   if (AvlTreeStackIsEmpty(iter)) {
+      iter->cur = NULL;
+   } else {
+      iter->cur = AvlTreeStackPop(iter);
+   }
 }
 
 
@@ -845,13 +844,13 @@ AvlTreeIterFindSmallest(AvlTreeIter *iter,      // IN iterator
  */
 
 void
-AvlTreeIter_Init(AvlTreeIter *iter,     // IN iterator
-                 unsigned max,          // IN maximum height of the tree
-                 AvlTree *tree)         // IN tree
+AvlTreeIter_Init(AvlTreeIter *iter, // IN iterator
+                 unsigned     max,  // IN maximum height of the tree
+                 AvlTree *    tree)     // IN tree
 {
-    iter->tree = tree;
-    AvlTreeStackInit(iter, max);
-    AvlTreeIterFindSmallest(iter, tree->root);
+   iter->tree = tree;
+   AvlTreeStackInit(iter, max);
+   AvlTreeIterFindSmallest(iter, tree->root);
 }
 
 
@@ -874,7 +873,7 @@ AvlTreeIter_Init(AvlTreeIter *iter,     // IN iterator
 bool
 AvlTreeIter_IsAtEnd(AvlTreeIter *iter)
 {
-    return iter->cur == NULL;
+   return iter->cur == NULL;
 }
 
 
@@ -902,8 +901,8 @@ AvlTreeIter_IsAtEnd(AvlTreeIter *iter)
 void
 AvlTreeIter_Advance(AvlTreeIter *iter)
 {
-    platform_assert(!AvlTreeIter_IsAtEnd(iter));
-    AvlTreeIterFindSmallest(iter, iter->cur->right);
+   platform_assert(!AvlTreeIter_IsAtEnd(iter));
+   AvlTreeIterFindSmallest(iter, iter->cur->right);
 }
 
 
@@ -923,10 +922,10 @@ AvlTreeIter_Advance(AvlTreeIter *iter)
  *-----------------------------------------------------------------------------
  */
 
-AvlTreeLinks*
+AvlTreeLinks *
 AvlTreeIter_GetCurrent(AvlTreeIter *iter)
 {
-    platform_assert(!AvlTreeIter_IsAtEnd(iter));
+   platform_assert(!AvlTreeIter_IsAtEnd(iter));
 
-    return iter->cur;
+   return iter->cur;
 }
