@@ -68,6 +68,15 @@ data_key_to_string(const data_config *cfg,
    cfg->key_to_string(cfg, slice_length(key), slice_data(key), str, size);
 }
 
+#define key_string(cfg, key)                                                   \
+   (({                                                                         \
+       struct {                                                                \
+          char buffer[128];                                                    \
+       } b;                                                                    \
+       data_key_to_string((cfg), (key), b.buffer, 128);                        \
+       b;                                                                      \
+    }).buffer)
+
 static inline void
 data_message_to_string(const data_config *cfg,
                        const slice        message,
@@ -77,6 +86,15 @@ data_message_to_string(const data_config *cfg,
    cfg->message_to_string(
       cfg, slice_length(message), slice_data(message), str, size);
 }
+
+#define message_string(cfg, key)                                               \
+   (({                                                                         \
+       struct {                                                                \
+          char buffer[128];                                                    \
+       } b;                                                                    \
+       data_message_to_string((cfg), (key), b.buffer, 128);                    \
+       b;                                                                      \
+    }).buffer)
 
 // robj: this is really just a convenience function.  Key copying is
 // _not_ an operation that the application can hook into.

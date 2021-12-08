@@ -1000,14 +1000,8 @@ test_btree_merge_basic(cache             *cc,
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
       merge_iterator *merge_itor;
-      rc = merge_iterator_create(hid,
-                                 btree_cfg->data_cfg,
-                                 arity,
-                                 itor_arr,
-                                 TRUE,
-                                 TRUE,
-                                 TRUE,
-                                 &merge_itor);
+      rc = merge_iterator_create(
+         hid, btree_cfg->data_cfg, arity, itor_arr, MERGE_FULL, &merge_itor);
       if (!SUCCESS(rc)) {
          goto destroy_btrees;
       }
@@ -1231,9 +1225,7 @@ test_btree_rough_iterator(cache             *cc,
                               btree_cfg->data_cfg,
                               num_trees,
                               rough_itor,
-                              TRUE,
-                              TRUE,
-                              FALSE,
+                              MERGE_RAW,
                               &rough_merge_itor);
    platform_assert_status_ok(rc);
    //uint64 target_num_pivots =
@@ -1378,14 +1370,8 @@ test_btree_merge_perf(cache             *cc,
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
          merge_iterator *merge_itor;
-         rc = merge_iterator_create(hid,
-                                    btree_cfg->data_cfg,
-                                    arity,
-                                    itor_arr,
-                                    TRUE,
-                                    TRUE,
-                                    TRUE,
-                                    &merge_itor);
+         rc = merge_iterator_create(
+            hid, btree_cfg->data_cfg, arity, itor_arr, MERGE_FULL, &merge_itor);
          if (!SUCCESS(rc)) {
             goto destroy_btrees;
          }

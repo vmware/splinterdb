@@ -65,11 +65,11 @@ typedef struct { // Note: not a union
    scratch_variable_length_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED variable_length_btree_scratch;
 
-typedef struct variable_length_btree_pivot_data {
+typedef struct PACKED variable_length_btree_pivot_data {
    uint64 child_addr;
-   uint64 num_kvs_in_tree;
-   uint64 key_bytes_in_tree;
-   uint64 message_bytes_in_tree;
+   uint32 num_kvs_in_tree;
+   uint32 key_bytes_in_tree;
+   uint32 message_bytes_in_tree;
 } variable_length_btree_pivot_data;
 
 typedef struct variable_length_btree_iterator {
@@ -88,10 +88,6 @@ typedef struct variable_length_btree_iterator {
    uint64                     end_addr;
    uint64                     end_idx;
    uint64                     end_generation;
-
-   /* Used to return info about the current pivot when the height > 0.
-      A pointer to this field will be returned by calls to get_curr. */
-   variable_length_btree_pivot_data pivot_data;
 
    // Variables used for debug only
    debug_code(bool debug_is_packed);
@@ -190,10 +186,10 @@ variable_length_btree_ctxt_init(variable_length_btree_async_ctxt *ctxt, // OUT
 }
 
 uint64
-variable_length_btree_init(cache *                             cc,
-                           const variable_length_btree_config *cfg,
-                           mini_allocator *                    mini,
-                           page_type                           type);
+variable_length_btree_create(cache *                             cc,
+                             const variable_length_btree_config *cfg,
+                             mini_allocator *                    mini,
+                             page_type                           type);
 
 bool
 variable_length_btree_should_zap_dec_ref(

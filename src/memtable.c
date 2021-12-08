@@ -211,7 +211,7 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
    if (freed) {
       platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
       mt->root_addr =
-         variable_length_btree_init(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+         variable_length_btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
       memtable_lock_incorporation_lock(ctxt);
       mt->generation += ctxt->cfg.max_memtables;
       memtable_unlock_incorporation_lock(ctxt);
@@ -260,7 +260,7 @@ memtable_init(memtable         *mt,
    ZERO_CONTENTS(mt);
    mt->cfg = cfg->btree_cfg;
    mt->root_addr =
-      variable_length_btree_init(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+      variable_length_btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
    mt->state = MEMTABLE_STATE_READY;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;

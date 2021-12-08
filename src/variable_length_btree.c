@@ -123,12 +123,9 @@ variable_length_btree_reset_node_entries(
  ***********************************/
 
 typedef struct PACKED index_entry {
-   uint64          child_addr;
-   uint32          num_kvs_in_tree;
-   uint32          key_bytes_in_tree;
-   uint32          message_bytes_in_tree;
-   inline_key_size key_size;
-   char            key[];
+   variable_length_btree_pivot_data pivot_data;
+   inline_key_size                  key_size;
+   char                             key[];
 } index_entry;
 
 _Static_assert(sizeof(index_entry) ==
@@ -171,7 +168,7 @@ index_entry_key_slice(const index_entry *entry)
 static inline uint64
 index_entry_child_addr(const index_entry *entry)
 {
-   return entry->child_addr;
+   return entry->pivot_data.child_addr;
 }
 
 static inline uint64
@@ -267,11 +264,11 @@ variable_length_btree_fill_index_entry(const variable_length_btree_config *cfg,
    debug_assert(diff_ptr(hdr, entry) + index_entry_size(new_pivot_key) <=
                 cfg->page_size);
    memcpy(entry->key, slice_data(new_pivot_key), slice_length(new_pivot_key));
-   entry->key_size              = slice_length(new_pivot_key);
-   entry->child_addr            = new_addr;
-   entry->num_kvs_in_tree       = kv_pairs;
-   entry->key_bytes_in_tree     = key_bytes;
-   entry->message_bytes_in_tree = message_bytes;
+   entry->key_size                         = slice_length(new_pivot_key);
+   entry->pivot_data.child_addr            = new_addr;
+   entry->pivot_data.num_kvs_in_tree       = kv_pairs;
+   entry->pivot_data.key_bytes_in_tree     = key_bytes;
+   entry->pivot_data.message_bytes_in_tree = message_bytes;
 }
 
 static inline bool
@@ -1080,15 +1077,15 @@ variable_length_btree_split_index_build_right_node(
    for (uint64 i = 0; i < target_right_entries; i++) {
       index_entry *entry = variable_length_btree_get_index_entry(
          cfg, left_hdr, target_left_entries + i);
-      bool succeeded =
-         variable_length_btree_set_index_entry(cfg,
-                                               right_hdr,
-                                               i,
-                                               index_entry_key_slice(entry),
-                                               index_entry_child_addr(entry),
-                                               entry->num_kvs_in_tree,
-                                               entry->key_bytes_in_tree,
-                                               entry->message_bytes_in_tree);
+      bool succeeded = variable_length_btree_set_index_entry(
+         cfg,
+         right_hdr,
+         i,
+         index_entry_key_slice(entry),
+         index_entry_child_addr(entry),
+         entry->pivot_data.num_kvs_in_tree,
+         entry->pivot_data.key_bytes_in_tree,
+         entry->pivot_data.message_bytes_in_tree);
       platform_assert(succeeded);
    }
 }
@@ -1115,15 +1112,15 @@ variable_length_btree_defragment_index(
    for (uint64 i = 0; i < variable_length_btree_num_entries(scratch_hdr); i++) {
       index_entry *entry =
          variable_length_btree_get_index_entry(cfg, scratch_hdr, i);
-      bool succeeded =
-         variable_length_btree_set_index_entry(cfg,
-                                               hdr,
-                                               i,
-                                               index_entry_key_slice(entry),
-                                               index_entry_child_addr(entry),
-                                               entry->num_kvs_in_tree,
-                                               entry->key_bytes_in_tree,
-                                               entry->message_bytes_in_tree);
+      bool succeeded = variable_length_btree_set_index_entry(
+         cfg,
+         hdr,
+         i,
+         index_entry_key_slice(entry),
+         index_entry_child_addr(entry),
+         entry->pivot_data.num_kvs_in_tree,
+         entry->pivot_data.key_bytes_in_tree,
+         entry->pivot_data.message_bytes_in_tree);
       platform_assert(succeeded);
    }
 }
@@ -1310,10 +1307,10 @@ variable_length_btree_root_to_meta_addr(const variable_length_btree_config *cfg,
 
 
 uint64
-variable_length_btree_init(cache *                             cc,
-                           const variable_length_btree_config *cfg,
-                           mini_allocator *                    mini,
-                           page_type                           type)
+variable_length_btree_create(cache *                             cc,
+                             const variable_length_btree_config *cfg,
+                             mini_allocator *                    mini,
+                             page_type                           type)
 {
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
@@ -1780,11 +1777,12 @@ accumulate_node_ranks(const variable_length_btree_config *cfg,
          index_entry *entry =
             variable_length_btree_get_index_entry(cfg, hdr, i);
 
-         *num_kvs = add_possibly_unknown(*num_kvs, entry->num_kvs_in_tree);
-         *key_bytes =
-            add_possibly_unknown(*key_bytes, entry->key_bytes_in_tree);
-         *message_bytes =
-            add_possibly_unknown(*message_bytes, entry->message_bytes_in_tree);
+         *num_kvs =
+            add_possibly_unknown(*num_kvs, entry->pivot_data.num_kvs_in_tree);
+         *key_bytes = add_possibly_unknown(*key_bytes,
+                                           entry->pivot_data.key_bytes_in_tree);
+         *message_bytes = add_possibly_unknown(
+            *message_bytes, entry->pivot_data.message_bytes_in_tree);
       }
    }
 }
@@ -1928,9 +1926,9 @@ start_over:
             0,
             key,
             index_entry_child_addr(parent_entry),
-            parent_entry->num_kvs_in_tree,
-            parent_entry->key_bytes_in_tree,
-            parent_entry->message_bytes_in_tree);
+            parent_entry->pivot_data.num_kvs_in_tree,
+            parent_entry->pivot_data.key_bytes_in_tree,
+            parent_entry->pivot_data.message_bytes_in_tree);
       }
       if (variable_length_btree_index_is_full(cfg, root_node.hdr)) {
          variable_length_btree_grow_root(cc, cfg, mini, &root_node);
@@ -1945,9 +1943,9 @@ start_over:
             0,
             key,
             index_entry_child_addr(parent_entry),
-            parent_entry->num_kvs_in_tree,
-            parent_entry->key_bytes_in_tree,
-            parent_entry->message_bytes_in_tree);
+            parent_entry->pivot_data.num_kvs_in_tree,
+            parent_entry->pivot_data.key_bytes_in_tree,
+            parent_entry->pivot_data.message_bytes_in_tree);
          platform_assert(success);
       }
       variable_length_btree_node_unlock(cc, cfg, &root_node);
@@ -2006,9 +2004,9 @@ start_over:
                0,
                key,
                index_entry_child_addr(child_entry),
-               child_entry->num_kvs_in_tree,
-               child_entry->key_bytes_in_tree,
-               child_entry->message_bytes_in_tree);
+               child_entry->pivot_data.num_kvs_in_tree,
+               child_entry->pivot_data.key_bytes_in_tree,
+               child_entry->pivot_data.message_bytes_in_tree);
          }
 
          if (variable_length_btree_index_is_full(cfg, child_node.hdr)) {
@@ -2040,9 +2038,9 @@ start_over:
                0,
                key,
                index_entry_child_addr(child_entry),
-               child_entry->num_kvs_in_tree,
-               child_entry->key_bytes_in_tree,
-               child_entry->message_bytes_in_tree);
+               child_entry->pivot_data.num_kvs_in_tree,
+               child_entry->pivot_data.key_bytes_in_tree,
+               child_entry->pivot_data.message_bytes_in_tree);
             platform_assert(success);
          }
 
@@ -2059,11 +2057,11 @@ start_over:
       child_idx = next_child_idx;
       parent_entry =
          variable_length_btree_get_index_entry(cfg, parent_node.hdr, child_idx);
-      debug_assert(parent_entry->num_kvs_in_tree ==
+      debug_assert(parent_entry->pivot_data.num_kvs_in_tree ==
                    VARIABLE_LENGTH_BTREE_UNKNOWN);
-      debug_assert(parent_entry->key_bytes_in_tree ==
+      debug_assert(parent_entry->pivot_data.key_bytes_in_tree ==
                    VARIABLE_LENGTH_BTREE_UNKNOWN);
-      debug_assert(parent_entry->message_bytes_in_tree ==
+      debug_assert(parent_entry->pivot_data.message_bytes_in_tree ==
                    VARIABLE_LENGTH_BTREE_UNKNOWN);
       child_node.addr = index_entry_child_addr(parent_entry);
       debug_assert(cache_page_valid(cc, child_node.addr));
@@ -2565,7 +2563,7 @@ variable_length_btree_iterator_get_curr(iterator *base_itor,
    //   variable_length_btree_print_tree(itor->cc, itor->cfg, itor->root_addr);
    //}
    debug_assert(!variable_length_btree_iterator_is_at_end(itor));
-   debug_assert(itor->idx < itor->curr.hdr->num_entries);
+   debug_assert(itor->idx < variable_length_btree_num_entries(itor->curr.hdr));
    debug_assert(itor->curr.page != NULL);
    debug_assert(itor->curr.page->disk_addr == itor->curr.addr);
    debug_assert((char *)itor->curr.hdr == itor->curr.page->data);
@@ -2578,12 +2576,8 @@ variable_length_btree_iterator_get_curr(iterator *base_itor,
    } else {
       index_entry *entry = variable_length_btree_get_index_entry(
          itor->cfg, itor->curr.hdr, itor->idx);
-      *key                                   = index_entry_key_slice(entry);
-      itor->pivot_data.child_addr            = index_entry_child_addr(entry);
-      itor->pivot_data.num_kvs_in_tree       = entry->num_kvs_in_tree;
-      itor->pivot_data.key_bytes_in_tree     = entry->key_bytes_in_tree;
-      itor->pivot_data.message_bytes_in_tree = entry->message_bytes_in_tree;
-      *data = slice_create(sizeof(itor->pivot_data), &itor->pivot_data);
+      *key  = index_entry_key_slice(entry);
+      *data = slice_create(sizeof(entry->pivot_data), &entry->pivot_data);
    }
 }
 
@@ -2633,6 +2627,69 @@ variable_length_btree_iterator_find_end(variable_length_btree_iterator *itor)
    variable_length_btree_node_unget(itor->cc, itor->cfg, &end);
 }
 
+/*
+ * Move to the next leaf when we've reached the end of one leaf but
+ * haven't reached the end of the iterator.
+ */
+static void
+variable_length_btree_iterator_advance_leaf(
+   variable_length_btree_iterator *itor)
+{
+   cache *                       cc  = itor->cc;
+   variable_length_btree_config *cfg = itor->cfg;
+
+   uint64 last_addr = itor->curr.addr;
+   uint64 next_addr = itor->curr.hdr->next_addr;
+   variable_length_btree_node_unget(cc, cfg, &itor->curr);
+   itor->curr.addr = next_addr;
+   variable_length_btree_node_get(cc, cfg, &itor->curr, itor->page_type);
+   itor->idx = 0;
+
+   while (itor->curr.addr == itor->end_addr &&
+          itor->curr.hdr->generation != itor->end_generation) {
+      /* We need to recompute the end node and end_idx. (see
+         comment at beginning of iterator implementation for
+         high-level description)
+
+         There's a potential for deadlock with concurrent inserters
+         if we hold a read-lock on curr while looking up end, so we
+         temporarily release curr.
+
+         It is safe to relase curr because we are at index 0 of
+         curr.  To see why, observe that, at this point, curr
+         cannot be the first leaf in the tree (since we just
+         followed a next pointer a few lines above).  And, for
+         every leaf except the left-most leaf of the tree, no key
+         can ever be inserted into the leaf that is smaller than
+         the leaf's 0th entry, because its 0th entry is also its
+         pivot in its parent.  Thus we are guaranteed that the
+         first key curr will not change between the unget and the
+         get. Hence we will not "go backwards" i.e. return a key
+         smaller than the previous key) or skip any keys.
+         Furthermore, even if another thread comes along and splits
+         curr while we've released it, we will still want to
+         continue at curr (since we're at the 0th entry).
+      */
+      variable_length_btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+      variable_length_btree_iterator_find_end(itor);
+      variable_length_btree_node_get(
+         itor->cc, itor->cfg, &itor->curr, itor->page_type);
+   }
+
+   // To prefetch:
+   // 1. we just moved from one extent to the next
+   // 2. this can't be the last extent
+   if (itor->do_prefetch &&
+       !variable_length_btree_addrs_share_extent(
+          cfg, last_addr, itor->curr.addr) &&
+       itor->curr.hdr->next_extent_addr != 0 &&
+       !variable_length_btree_addrs_share_extent(
+          cfg, itor->curr.addr, itor->end_addr)) {
+      // IO prefetch the next extent
+      cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
+   }
+}
+
 platform_status
 variable_length_btree_iterator_advance(iterator *base_itor)
 {
@@ -2642,69 +2699,18 @@ variable_length_btree_iterator_advance(iterator *base_itor)
 
    // We should not be calling advance on an empty iterator
    debug_assert(!variable_length_btree_iterator_is_at_end(itor));
-
-   cache *                       cc  = itor->cc;
-   variable_length_btree_config *cfg = itor->cfg;
+   debug_assert(itor->idx < variable_length_btree_num_entries(itor->curr.hdr));
 
    itor->idx++;
 
    if (!variable_length_btree_iterator_is_at_end(itor) &&
-       itor->idx >= itor->curr.hdr->num_entries) {
-      // exhausted this node; need to move to next node
-      uint64 last_addr = itor->curr.addr;
-      uint64 next_addr = itor->curr.hdr->next_addr;
-      variable_length_btree_node_unget(cc, cfg, &itor->curr);
-      itor->curr.addr = next_addr;
-      variable_length_btree_node_get(cc, cfg, &itor->curr, itor->page_type);
-      itor->idx = 0;
-
-      while (itor->curr.addr == itor->end_addr &&
-             itor->curr.hdr->generation != itor->end_generation) {
-         /* We need to recompute the end node and end_idx. (see
-            comment at beginning of iterator implementation for
-            high-level description)
-
-            There's a potential for deadlock with concurrent inserters
-            if we hold a read-lock on curr while looking up end, so we
-            temporarily release curr.
-
-            It is safe to relase curr because we are at index 0 of
-            curr.  To see why, observe that, at this point, curr
-            cannot be the first leaf in the tree (since we just
-            followed a next pointer a few lines above).  And, for
-            every leaf except the left-most leaf of the tree, no key
-            can ever be inserted into the leaf that is smaller than
-            the leaf's 0th entry, because its 0th entry is also its
-            pivot in its parent.  Thus we are guaranteed that the
-            first key curr will not change between the unget and the
-            get. Hence we will not "go backwards" i.e. return a key
-            smaller than the previous key) or skip any keys.
-            Furthermore, even if another thread comes along and splits
-            curr while we've released it, we will still want to
-            continue at curr (since we're at the 0th entry).
-         */
-         variable_length_btree_node_unget(itor->cc, itor->cfg, &itor->curr);
-         variable_length_btree_iterator_find_end(itor);
-         variable_length_btree_node_get(
-            itor->cc, itor->cfg, &itor->curr, itor->page_type);
-      }
-
-      // To prefetch:
-      // 1. we just moved from one extent to the next
-      // 2. this can't be the last extent
-      if (itor->do_prefetch &&
-          !variable_length_btree_addrs_share_extent(
-             cfg, last_addr, itor->curr.addr) &&
-          itor->curr.hdr->next_extent_addr != 0 &&
-          !variable_length_btree_addrs_share_extent(
-             cfg, itor->curr.addr, itor->end_addr)) {
-         // IO prefetch the next extent
-         cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
-      }
+       itor->idx == variable_length_btree_num_entries(itor->curr.hdr)) {
+      variable_length_btree_iterator_advance_leaf(itor);
    }
 
    debug_assert(variable_length_btree_iterator_is_at_end(itor) ||
-                itor->idx < itor->curr.hdr->num_entries);
+                itor->idx < variable_length_btree_num_entries(itor->curr.hdr));
+
    return STATUS_OK;
 }
 
@@ -2864,8 +2870,8 @@ variable_length_btree_iterator_init(cache *                         cc,
    itor->idx = tmp;
 
    if (!variable_length_btree_iterator_is_at_end(itor) &&
-       itor->idx == itor->curr.hdr->num_entries) {
-      variable_length_btree_iterator_advance(&itor->super);
+       itor->idx == variable_length_btree_num_entries(itor->curr.hdr)) {
+      variable_length_btree_iterator_advance_leaf(itor);
    }
 
    if (itor->do_prefetch && itor->curr.hdr->next_extent_addr != 0 &&
@@ -2876,7 +2882,7 @@ variable_length_btree_iterator_init(cache *                         cc,
    }
 
    debug_assert(variable_length_btree_iterator_is_at_end(itor) ||
-                itor->idx < itor->curr.hdr->num_entries);
+                itor->idx < variable_length_btree_num_entries(itor->curr.hdr));
 }
 
 void
@@ -2904,7 +2910,7 @@ variable_length_btree_pack_setup_start(variable_length_btree_pack_req *req)
 {
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end
-   req->root_addr = variable_length_btree_init(
+   req->root_addr = variable_length_btree_create(
       req->cc, req->cfg, &req->mini, PAGE_TYPE_BRANCH);
    req->height = 0;
 }
@@ -3041,9 +3047,9 @@ variable_length_btree_pack_loop(variable_length_btree_pack_req *req, // IN/OUT
          req->cfg,
          req->edge[i].hdr,
          variable_length_btree_num_entries(req->edge[i].hdr) - 1);
-      entry->num_kvs_in_tree++;
-      entry->key_bytes_in_tree += slice_length(key);
-      entry->message_bytes_in_tree += slice_length(message);
+      entry->pivot_data.num_kvs_in_tree++;
+      entry->pivot_data.key_bytes_in_tree += slice_length(key);
+      entry->pivot_data.message_bytes_in_tree += slice_length(message);
    }
 
    if (req->hash) {
@@ -3067,7 +3073,7 @@ variable_length_btree_pack_post_loop(variable_length_btree_pack_req *req,
    cache *                       cc  = req->cc;
    variable_length_btree_config *cfg = req->cfg;
    // we want to use the allocation node, so we copy the root created in the
-   // loop into the variable_length_btree_init root
+   // loop into the variable_length_btree_create root
    variable_length_btree_node root;
 
    // if output tree is empty, zap the tree
@@ -3298,8 +3304,8 @@ variable_length_btree_print_locked_node(variable_length_btree_config *cfg,
                                         variable_length_btree_hdr *   hdr,
                                         platform_stream_handle        stream)
 {
-   char key_string[128];
-   char data_string[256];
+   data_config *dcfg = cfg->data_cfg;
+
    platform_log_stream("*******************\n");
    if (variable_length_btree_height(hdr) > 0) {
       platform_log_stream("**  INDEX NODE \n");
@@ -3325,15 +3331,13 @@ variable_length_btree_print_locked_node(variable_length_btree_config *cfg,
       for (uint64 i = 0; i < variable_length_btree_num_entries(hdr); i++) {
          index_entry *entry =
             variable_length_btree_get_index_entry(cfg, hdr, i);
-         variable_length_btree_key_to_string(
-            cfg, index_entry_key_slice(entry), key_string);
          platform_log_stream("%2lu:%s -- %lu (%u, %u, %u)\n",
                              i,
-                             key_string,
-                             entry->child_addr,
-                             entry->num_kvs_in_tree,
-                             entry->key_bytes_in_tree,
-                             entry->message_bytes_in_tree);
+                             key_string(dcfg, index_entry_key_slice(entry)),
+                             entry->pivot_data.child_addr,
+                             entry->pivot_data.num_kvs_in_tree,
+                             entry->pivot_data.key_bytes_in_tree,
+                             entry->pivot_data.message_bytes_in_tree);
       }
       platform_log_stream("\n");
    } else {
@@ -3358,11 +3362,11 @@ variable_length_btree_print_locked_node(variable_length_btree_config *cfg,
       platform_log_stream("-------------------\n");
       for (uint64 i = 0; i < variable_length_btree_num_entries(hdr); i++) {
          leaf_entry *entry = variable_length_btree_get_leaf_entry(cfg, hdr, i);
-         variable_length_btree_key_to_string(
-            cfg, leaf_entry_key_slice(entry), key_string);
-         variable_length_btree_key_to_string(
-            cfg, leaf_entry_message_slice(entry), data_string);
-         platform_log_stream("%2lu:%s -- %s\n", i, key_string, data_string);
+         platform_log_stream(
+            "%2lu:%s -- %s\n",
+            i,
+            key_string(dcfg, leaf_entry_key_slice(entry)),
+            message_string(dcfg, leaf_entry_message_slice(entry)));
       }
       platform_log_stream("-------------------\n");
       platform_log_stream("\n");
