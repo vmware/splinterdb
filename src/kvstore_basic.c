@@ -11,6 +11,7 @@
 
 #include "platform.h"
 
+#include "config.h"
 #include "splinterdb/kvstore.h"
 #include "splinterdb/kvstore_basic.h"
 #include "util.h"
@@ -543,4 +544,10 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
    *val_len                    = msg->value_length;
    *key                        = (char *)(key_enc->data);
    *value                      = (char *)(msg->value);
+}
+
+const char *
+kvstore_basic_get_version()
+{
+   return BUILD_VERSION;
 }

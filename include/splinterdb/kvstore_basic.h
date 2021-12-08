@@ -214,4 +214,8 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
 int
 kvstore_basic_iter_status(const kvstore_basic_iterator *iter);
 
+// Returns a C string with the build version of this library
+const char *
+kvstore_basic_get_version();
+
 #endif // _KVSTORE_BASIC_H_
