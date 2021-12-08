@@ -1,6 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <stdio.h>
 #include "platform.h"
 
 #include <sys/mman.h>
@@ -9,11 +10,11 @@ __thread threadid xxxtid;
 
 // By default, currently all platform_log() messages go to stdout.
 // May be re-setup by modules that need to swizzle default log file.
-FILE *Pf_out_fh = NULL;
+FILE *Pf_out_fh = NULL;    // = stdout;
 
 // By default, currently all platform_error_log() messages go to stderr.
 // May be re-setup by modules that need to swizzle default errlog file.
-FILE *Pf_err_fh = NULL;
+FILE *Pf_err_fh = NULL;    // = stderr;
 
 bool platform_use_hugetlb = FALSE;
 bool platform_use_mlock = FALSE;
@@ -26,6 +27,14 @@ platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
 {
    *heap_handle = NULL;
    *heap_id = NULL;
+
+   if (Pf_out_fh == NULL) {
+       Pf_out_fh = stdout;
+   }
+   if (Pf_err_fh == NULL) {
+       Pf_err_fh = stderr;
+   }
+
    return STATUS_OK;
 }
 

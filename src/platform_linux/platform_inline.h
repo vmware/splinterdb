@@ -258,8 +258,7 @@ extern FILE *Pf_err_fh; // File handle for stderr
 
 #define platform_log(...)                                                      \
    do {                                                                        \
-      fprintf(((Pf_out_fh == NULL) ? stderr : Pf_out_fh),             \
-              __VA_ARGS__);                                                    \
+      fprintf(Pf_out_fh, __VA_ARGS__);     \
    } while (0)
 
 #define platform_throttled_log(sec, ...)        \
@@ -276,8 +275,8 @@ extern FILE *Pf_err_fh; // File handle for stderr
 
 #define platform_error_log(...)                 \
    do {                                         \
-      fprintf(((Pf_err_fh == NULL) ? stderr : Pf_err_fh), __VA_ARGS__); \
-      fflush(((Pf_err_fh == NULL) ? stderr : Pf_err_fh));               \
+      fprintf(Pf_err_fh, __VA_ARGS__); \
+      fflush(Pf_err_fh);               \
    } while (0)
 
 #define platform_throttled_error_log(sec, ...)  \
