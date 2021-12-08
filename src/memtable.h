@@ -281,7 +281,8 @@ static inline void
 memtable_zap(cache    *cc,
              memtable *mt)
 {
-   variable_length_btree_zap(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   variable_length_btree_dec_ref(
+      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
 static inline bool
