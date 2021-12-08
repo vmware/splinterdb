@@ -1779,7 +1779,7 @@ accumulate_node_ranks(const variable_length_btree_config *cfg,
 
          *num_kvs =
             add_possibly_unknown(*num_kvs, entry->pivot_data.num_kvs_in_tree);
-         *key_bytes = add_possibly_unknown(*key_bytes,
+         *key_bytes     = add_possibly_unknown(*key_bytes,
                                            entry->pivot_data.key_bytes_in_tree);
          *message_bytes = add_possibly_unknown(
             *message_bytes, entry->pivot_data.message_bytes_in_tree);
