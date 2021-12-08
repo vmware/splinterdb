@@ -2348,11 +2348,11 @@ splinter_bundle_inc_pivot_rc(splinter_handle *spl,
       splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
       for (uint64 pivot_no = 1; pivot_no < num_children; pivot_no++) {
          const char *key = splinter_get_pivot(spl, node, pivot_no);
-         variable_length_btree_inc_range(cc,
-                                         variable_length_btree_cfg,
-                                         branch->root_addr,
-                                         splinter_key_slice(spl, key),
-                                         NULL_SLICE);
+         variable_length_btree_inc_ref_range(cc,
+                                             variable_length_btree_cfg,
+                                             branch->root_addr,
+                                             splinter_key_slice(spl, key),
+                                             NULL_SLICE);
       }
    }
 }
@@ -2692,11 +2692,11 @@ splinter_inc_branch_range(splinter_handle *spl,
                           const char      *end_key)
 {
    if (branch->root_addr) {
-      variable_length_btree_inc_range(spl->cc,
-                                      &spl->cfg.variable_length_btree_cfg,
-                                      branch->root_addr,
-                                      splinter_key_slice(spl, start_key),
-                                      splinter_key_slice(spl, end_key));
+      variable_length_btree_inc_ref_range(spl->cc,
+                                          &spl->cfg.variable_length_btree_cfg,
+                                          branch->root_addr,
+                                          splinter_key_slice(spl, start_key),
+                                          splinter_key_slice(spl, end_key));
    }
 }
 
@@ -2711,12 +2711,12 @@ splinter_zap_branch_range(splinter_handle *spl,
    platform_assert((start_key == NULL && end_key == NULL) ||
                    (type != PAGE_TYPE_MEMTABLE && start_key != NULL));
    platform_assert(branch->root_addr != 0);
-   variable_length_btree_zap_range(spl->cc,
-                                   &spl->cfg.variable_length_btree_cfg,
-                                   branch->root_addr,
-                                   splinter_key_slice(spl, start_key),
-                                   splinter_key_slice(spl, end_key),
-                                   PAGE_TYPE_BRANCH);
+   variable_length_btree_dec_ref_range(spl->cc,
+                                       &spl->cfg.variable_length_btree_cfg,
+                                       branch->root_addr,
+                                       splinter_key_slice(spl, start_key),
+                                       splinter_key_slice(spl, end_key),
+                                       PAGE_TYPE_BRANCH);
 }
 
 /*
@@ -4214,11 +4214,11 @@ splinter_branch_iterator_init(splinter_handle *               spl,
       &spl->cfg.variable_length_btree_cfg;
    uint64        root_addr = branch->root_addr;
    if (root_addr != 0 && should_inc_ref) {
-      variable_length_btree_inc_range(cc,
-                                      variable_length_btree_cfg,
-                                      root_addr,
-                                      splinter_key_slice(spl, min_key),
-                                      splinter_key_slice(spl, max_key));
+      variable_length_btree_inc_ref_range(cc,
+                                          variable_length_btree_cfg,
+                                          root_addr,
+                                          splinter_key_slice(spl, min_key),
+                                          splinter_key_slice(spl, max_key));
    }
    variable_length_btree_iterator_init(cc,
                                        variable_length_btree_cfg,
@@ -4246,12 +4246,12 @@ splinter_branch_iterator_deinit(splinter_handle *               spl,
    slice max_key = itor->max_key;
    variable_length_btree_iterator_deinit(itor);
    if (should_dec_ref) {
-      variable_length_btree_zap_range(cc,
-                                      variable_length_btree_cfg,
-                                      itor->root_addr,
-                                      min_key,
-                                      max_key,
-                                      PAGE_TYPE_BRANCH);
+      variable_length_btree_dec_ref_range(cc,
+                                          variable_length_btree_cfg,
+                                          itor->root_addr,
+                                          min_key,
+                                          max_key,
+                                          PAGE_TYPE_BRANCH);
    }
 }
 

@@ -1349,11 +1349,11 @@ variable_length_btree_create(cache *                             cc,
 }
 
 void
-variable_length_btree_inc_range(cache *                             cc,
-                                const variable_length_btree_config *cfg,
-                                uint64                              root_addr,
-                                const slice                         start_key,
-                                const slice                         end_key)
+variable_length_btree_inc_ref_range(cache *                             cc,
+                                    const variable_length_btree_config *cfg,
+                                    uint64      root_addr,
+                                    const slice start_key,
+                                    const slice end_key)
 {
    uint64 meta_page_addr =
       variable_length_btree_root_to_meta_addr(cfg, root_addr, 0);
@@ -1366,12 +1366,12 @@ variable_length_btree_inc_range(cache *                             cc,
 }
 
 bool
-variable_length_btree_zap_range(cache *                             cc,
-                                const variable_length_btree_config *cfg,
-                                uint64                              root_addr,
-                                const slice                         start_key,
-                                const slice                         end_key,
-                                page_type                           type)
+variable_length_btree_dec_ref_range(cache *                             cc,
+                                    const variable_length_btree_config *cfg,
+                                    uint64      root_addr,
+                                    const slice start_key,
+                                    const slice end_key,
+                                    page_type   type)
 {
    debug_assert(type == PAGE_TYPE_BRANCH);
 
@@ -1387,10 +1387,10 @@ variable_length_btree_zap_range(cache *                             cc,
 }
 
 bool
-variable_length_btree_zap(cache *                             cc,
-                          const variable_length_btree_config *cfg,
-                          uint64                              root_addr,
-                          page_type                           type)
+variable_length_btree_dec_ref(cache *                             cc,
+                              const variable_length_btree_config *cfg,
+                              uint64                              root_addr,
+                              page_type                           type)
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
    uint64 meta_head =
@@ -3076,7 +3076,7 @@ variable_length_btree_pack_post_loop(variable_length_btree_pack_req *req,
    // loop into the variable_length_btree_create root
    variable_length_btree_node root;
 
-   // if output tree is empty, zap the tree
+   // if output tree is empty, dec_ref the tree
    if (req->num_tuples == 0) {
       req->root_addr = 0;
       return;
@@ -3123,8 +3123,8 @@ variable_length_btree_pack_post_loop(variable_length_btree_pack_req *req,
  *
  * variable_length_btree_pack --
  *
- *      Packs a variable_length_btree from an iterator source. Zaps the output
- *tree if it's empty.
+ *      Packs a variable_length_btree from an iterator source. Dec_Refs the
+ *output tree if it's empty.
  *
  *-----------------------------------------------------------------------------
  */

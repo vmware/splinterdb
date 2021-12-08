@@ -191,45 +191,26 @@ variable_length_btree_create(cache *                             cc,
                              mini_allocator *                    mini,
                              page_type                           type);
 
-bool
-variable_length_btree_should_zap_dec_ref(
-   cache *                             cc,
-   const variable_length_btree_config *cfg,
-   uint64                              root_addr,
-   page_type                           type);
-
 void
-variable_length_btree_inc_range(cache *                             cc,
-                                const variable_length_btree_config *cfg,
-                                uint64                              root_addr,
-                                const slice                         start_key,
-                                const slice                         end_key);
+variable_length_btree_inc_ref_range(cache *                             cc,
+                                    const variable_length_btree_config *cfg,
+                                    uint64      root_addr,
+                                    const slice start_key,
+                                    const slice end_key);
 
 bool
-variable_length_btree_zap_range(cache *                             cc,
-                                const variable_length_btree_config *cfg,
-                                uint64                              root_addr,
-                                const slice                         start_key,
-                                const slice                         end_key,
-                                page_type                           type);
+variable_length_btree_dec_ref_range(cache *                             cc,
+                                    const variable_length_btree_config *cfg,
+                                    uint64      root_addr,
+                                    const slice start_key,
+                                    const slice end_key,
+                                    page_type   type);
 
 bool
-variable_length_btree_zap(cache *                             cc,
-                          const variable_length_btree_config *cfg,
-                          uint64                              root_addr,
-                          page_type                           type);
-
-page_handle *
-variable_length_btree_blind_inc(cache *                       cc,
-                                variable_length_btree_config *cfg,
-                                uint64                        root_addr,
-                                page_type                     type);
-
-void
-variable_length_btree_blind_zap(cache *                             cc,
-                                const variable_length_btree_config *cfg,
-                                page_handle *                       meta_page,
-                                page_type                           type);
+variable_length_btree_dec_ref(cache *                             cc,
+                              const variable_length_btree_config *cfg,
+                              uint64                              root_addr,
+                              page_type                           type);
 
 void
 variable_length_btree_block_dec_ref(cache *                       cc,
