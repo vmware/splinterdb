@@ -8,10 +8,10 @@ PLATFORM = linux
 #*************************************************************#
 # DIRECTORIES, SRC, OBJ, ETC
 #
-
 SRCDIR               = src
 FUNCTIONAL_TESTSDIR  = tests/functional
 UNITDIR              = unit
+UNIT_TESTSDIR        = tests/unit
 OBJDIR               = obj
 BINDIR               = bin
 LIBDIR               = lib
@@ -20,11 +20,15 @@ INCDIR               = include
 SRC := $(shell find $(SRCDIR) -name "*.c")
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 UNITSRC := $(shell find $(UNITDIR) -name "*.c")
+UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from test sources in tests/functional/ sub-dir
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
+
+# Objects from unit-test sources in tests/unit/ sub-dir
+UNIT_TESTOBJ= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
 
@@ -127,7 +131,7 @@ debug-log: .debug-log all
 $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(BINDIR)/ctests : $(CTESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
+$(BINDIR)/unit_test : $(UNIT_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
