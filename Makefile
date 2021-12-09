@@ -65,6 +65,10 @@ include .libconfig.mk
 DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror
 DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 
+# track git ref in the built library
+GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
+DEFAULT_CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+
 cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
   # not supported on ARM64
