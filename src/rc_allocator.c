@@ -423,10 +423,8 @@ rc_allocator_mount(rc_allocator         *al,
          al->stats.curr_allocated++;
       }
    }
-   if (!cfg->for_ctests) {
-      platform_log("Allocated at mount: %lu MiB\n",
-                   B_TO_MiB(al->stats.curr_allocated * cfg->extent_size));
-   }
+  platform_log("Allocated at mount: %lu MiB\n",
+               B_TO_MiB(al->stats.curr_allocated * cfg->extent_size));
    return STATUS_OK;
 }
 
@@ -436,10 +434,8 @@ rc_allocator_dismount(rc_allocator *al)
 {
    platform_status status;
 
-   if (!al->cfg->for_ctests) {
-      platform_log("Allocated at dismount: %lu MiB\n",
-                   B_TO_MiB(al->stats.curr_allocated * al->cfg->extent_size));
-   }
+  platform_log("Allocated at dismount: %lu MiB\n",
+               B_TO_MiB(al->stats.curr_allocated * al->cfg->extent_size));
 
    // persist the ref counts upon dismount.
    uint32 io_size = ROUNDUP(al->cfg->extent_capacity, al->cfg->page_size);

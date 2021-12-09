@@ -22,8 +22,6 @@ typedef struct rc_allocator_config {
    uint64 extent_capacity;
    uint64 page_size;
    uint64 extent_size;
-   bool   for_ctests; // KVS device is being used for CTests.
-   uint32 spare;
 } rc_allocator_config;
 
 /*

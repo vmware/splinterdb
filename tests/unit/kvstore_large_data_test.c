@@ -172,6 +172,8 @@ CTEST2(kvstore_large_data, test_random_inserts_concurrent)
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 {
+   platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
+   platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
    *cfg = (kvstore_basic_cfg){
       .filename       = TEST_DB_NAME,
       .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
@@ -185,9 +187,6 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
    int rc = kvstore_basic_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
 
-   // Instruct Splinter that we are running CTests, so that we don't get
-   // noisy info messages to stdout. (Clutters up test execution outputs.)
-   kvstore_basic_for_ctests(*kvsb);
    return rc;
 }
 
