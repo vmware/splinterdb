@@ -8347,12 +8347,12 @@ splinter_config_init(splinter_config *splinter_cfg,
    size_t max_value_size = 64 - __builtin_clzll(max_value);
 
    if (filter_fingerprint_size > 32 - max_value_size) {
-     platform_error_log(
-        "Fingerprint size %lu too large, max value size is %lu, "
-        "setting to %lu\n",
-        filter_fingerprint_size,
-        max_value_size,
-        32 - max_value_size);
+      platform_error_log(
+         "Fingerprint size %lu too large, max value size is %lu, "
+         "setting to %lu\n",
+         filter_fingerprint_size,
+         max_value_size,
+         32 - max_value_size);
       index_filter_cfg->fingerprint_size = 32 - max_value_size;
       leaf_filter_cfg->fingerprint_size = 32 - max_value_size;
    }

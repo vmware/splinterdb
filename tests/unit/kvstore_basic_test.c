@@ -44,8 +44,6 @@
 
 #define Mega (1024UL * 1024UL)
 
-#define TEST_DB_NAME "ctestsdb"
-
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7
 

@@ -211,6 +211,9 @@ void assert_dbl_far(double exp, double real, double tol, const char* caller, int
 #define ASSERT_DBL_FAR(exp, real) assert_dbl_far(exp, real, 1e-4, __FILE__, __LINE__)
 #define ASSERT_DBL_FAR_TOL(exp, real, tol) assert_dbl_far(exp, real, tol, __FILE__, __LINE__)
 
+/* Name of SplinterDB device created for unit-tests */
+#define TEST_DB_NAME    "unit_tests_db"
+
 #ifdef CTEST_MAIN
 
 #include <setjmp.h>
@@ -449,7 +452,7 @@ static int suite_all(struct ctest* t) {
  * considered in the future). User can invoke as follows to just run one
  * test case from a specific suite:
  *
- * $ bin/ctests kvstore_basic test_kvstore_iterator_with_startkey
+ * $ bin/unit_test kvstore_basic test_kvstore_iterator_with_startkey
  */
 static int
 testcase_filter(struct ctest* t) {
@@ -467,10 +470,10 @@ testcase_filter(struct ctest* t) {
  * iteration of test execution loop.
  *
  * User can invoke as follows to just run one suite:
- *  $ bin/ctests kvstore_basic
+ *  $ bin/unit_test kvstore_basic
  *
  * User can invoke as follows to just run one test case from a suite:
- *  $ bin/ctests kvstore_basic test_kvstore_iterator_with_startkey
+ *  $ bin/unit_test kvstore_basic test_kvstore_iterator_with_startkey
  */
 static int
 suite_filter(struct ctest* t) {

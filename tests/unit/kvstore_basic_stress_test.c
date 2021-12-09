@@ -19,8 +19,6 @@
 
 #define Mega (1024UL * 1024UL)
 
-#define TEST_DB_NAME "ctestsdb"
-
 // Function Prototypes
 static int
 setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg);
@@ -174,6 +172,7 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
 {
    platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+
    *cfg = (kvstore_basic_cfg){
       .filename       = TEST_DB_NAME,
       .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
