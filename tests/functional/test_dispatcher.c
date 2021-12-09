@@ -7,7 +7,9 @@
 
 #include "poison.h"
 
-static void usage(void) {
+static void
+usage(void)
+{
    platform_error_log("List of tests:\n");
    platform_error_log("\tbtree_test\n");
    platform_error_log("\tfilter_test\n");

@@ -1,5 +1,5 @@
-#include "../tests/test.h"
-#include "../tests/test_data.h"
+#include "../tests/functional/test.h"
+#include "../tests/functional/test_data.h"
 #include "variable_length_btree.c"
 
 static int

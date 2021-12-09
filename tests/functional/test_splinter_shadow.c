@@ -115,16 +115,19 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
     */
    shadow->nodes_buffer =
       platform_buffer_create(sizeof(test_splinter_shadow_node) * max_operations,
-                             hh, platform_get_module_id());
+                             hh,
+                             platform_get_module_id());
    if (shadow->nodes_buffer == NULL) {
       platform_log("Failed to pre allocate nodes for shadow tree\n");
       platform_free(hid, shadow);
       return STATUS_NO_MEMORY;
    }
-   shadow->nodes = platform_buffer_getaddr(shadow->nodes_buffer);
+   shadow->nodes                = platform_buffer_getaddr(shadow->nodes_buffer);
    shadow->numPreAllocatedNodes = max_operations;
 
-   AvlTree_Init(&shadow->tree, NULL, test_splinter_shadow_cmp_keys,
+   AvlTree_Init(&shadow->tree,
+                NULL,
+                test_splinter_shadow_cmp_keys,
                 test_splinter_shadow_cmp_node);
    *tree = shadow;
    return STATUS_OK;
@@ -148,18 +151,20 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
  */
 
 bool
-test_splinter_shadow_lookup(test_splinter_shadow_tree *tree, uint64 *key,
-                            uint64 *val)
+test_splinter_shadow_lookup(test_splinter_shadow_tree *tree,
+                            uint64 *                   key,
+                            uint64 *                   val)
 {
    AvlTreeLinks *link = AvlTree_FindNode(&tree->tree, key);
-   if (link  == NULL) {
+   if (link == NULL) {
       return FALSE;
    } else {
-      _Static_assert(offsetof(test_splinter_shadow_node, treeLink) == 0,
+      _Static_assert(
+         offsetof(test_splinter_shadow_node, treeLink) == 0,
          "Code relies on shadow node and treeLink pointer being equal");
 
       test_splinter_shadow_node *node = (test_splinter_shadow_node *)link;
-      *val = node->value;
+      *val                            = node->value;
       return TRUE;
    }
 }
@@ -212,8 +217,9 @@ test_splinter_shadow_get_node(test_splinter_shadow_tree *tree)
  */
 
 platform_status
-test_splinter_shadow_add(test_splinter_shadow_tree *tree, uint64 *key,
-                         uint64 value)
+test_splinter_shadow_add(test_splinter_shadow_tree *tree,
+                         uint64 *                   key,
+                         uint64                     value)
 {
    /*
     * Since the tree doesnt handle duplicates, if the key already exists we
@@ -223,7 +229,7 @@ test_splinter_shadow_add(test_splinter_shadow_tree *tree, uint64 *key,
 
    if (link != NULL) {
       test_splinter_shadow_node *node = (test_splinter_shadow_node *)link;
-      node->value = value;
+      node->value                     = value;
       return STATUS_OK;
    }
 
@@ -233,7 +239,7 @@ test_splinter_shadow_add(test_splinter_shadow_tree *tree, uint64 *key,
       return STATUS_NO_MEMORY;
    }
 
-   node->key = *key;
+   node->key   = *key;
    node->value = value;
    AvlTree_InitNode(&node->treeLink);
 
@@ -259,7 +265,7 @@ test_splinter_shadow_add(test_splinter_shadow_tree *tree, uint64 *key,
  */
 
 void
-test_splinter_shadow_destroy(platform_heap_id hid,
+test_splinter_shadow_destroy(platform_heap_id           hid,
                              test_splinter_shadow_tree *tree)
 {
    platform_buffer_destroy(tree->nodes_buffer);
@@ -285,9 +291,9 @@ test_splinter_shadow_destroy(platform_heap_id hid,
  */
 
 static void
-test_splinter_shadow_iterate_tree(AvlTreeLinks *root,
+test_splinter_shadow_iterate_tree(AvlTreeLinks *              root,
                                   test_splinter_shadow_array *array,
-                                  uint64 *idx)
+                                  uint64 *                    idx)
 {
    if (root == NULL) {
       return;
@@ -295,7 +301,7 @@ test_splinter_shadow_iterate_tree(AvlTreeLinks *root,
    test_splinter_shadow_iterate_tree(root->left, array, idx);
    test_splinter_shadow_node *node = (test_splinter_shadow_node *)root;
    platform_assert(*idx < array->nkeys);
-   array->keys[*idx] = node->key;
+   array->keys[*idx]       = node->key;
    array->ref_counts[*idx] = node->value;
    (*idx)++;
    test_splinter_shadow_iterate_tree(root->right, array, idx);
@@ -319,18 +325,18 @@ test_splinter_shadow_iterate_tree(AvlTreeLinks *root,
  */
 
 platform_status
-test_splinter_build_shadow_array(test_splinter_shadow_tree *tree,
+test_splinter_build_shadow_array(test_splinter_shadow_tree * tree,
                                  test_splinter_shadow_array *shadow_array,
-                                 platform_heap_handle hh)
+                                 platform_heap_handle        hh)
 {
-   uint64 idx = 0;
+   uint64 idx          = 0;
    shadow_array->nkeys = tree->numKeys;
    uint64 totalBufferSize =
-      (sizeof(*shadow_array->keys) + sizeof(*shadow_array->ref_counts)) *
-      tree->numKeys;
+      (sizeof(*shadow_array->keys) + sizeof(*shadow_array->ref_counts))
+      * tree->numKeys;
 
-   shadow_array->buffer = platform_buffer_create(totalBufferSize, hh,
-                                                 platform_get_module_id());
+   shadow_array->buffer =
+      platform_buffer_create(totalBufferSize, hh, platform_get_module_id());
    if (shadow_array->buffer == NULL) {
       platform_log("Failed to allocate memory for shadow array\n");
       return STATUS_NO_MEMORY;
@@ -338,8 +344,8 @@ test_splinter_build_shadow_array(test_splinter_shadow_tree *tree,
    shadow_array->keys = platform_buffer_getaddr(shadow_array->buffer);
    // Memory for ref count array starts at base memory + memory for keys array.
    shadow_array->ref_counts =
-      (void *)((uint64)shadow_array->keys + sizeof(*shadow_array->keys) *
-               tree->numKeys);
+      (void *)((uint64)shadow_array->keys
+               + sizeof(*shadow_array->keys) * tree->numKeys);
 
    test_splinter_shadow_iterate_tree(tree->tree.root, shadow_array, &idx);
    platform_assert(idx == shadow_array->nkeys);

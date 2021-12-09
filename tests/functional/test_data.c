@@ -43,12 +43,13 @@ test_data_merge_tuples(const data_config *cfg,
    assert(sizeof(data_handle) <= *new_raw_data_len);
 
    const data_handle *old_data = old_raw_data;
-   data_handle *new_data = new_raw_data;
+   data_handle *      new_data = new_raw_data;
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
-   //platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d new=%d\n",
-   //         new_data->message_type, old_data->message_type, htobe64(*(uint64 *)key),
-   //         old_data->ref_count, new_data->ref_count);
+   // platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d
+   // new=%d\n",
+   //         new_data->message_type, old_data->message_type, htobe64(*(uint64
+   //         *)key), old_data->ref_count, new_data->ref_count);
 
    switch (new_data->message_type) {
       case MESSAGE_TYPE_INSERT:
@@ -78,11 +79,12 @@ test_data_merge_tuples(const data_config *cfg,
          platform_assert(0);
    }
 
-   //if (new_data->message_type == MESSAGE_TYPE_INSERT) {
+   // if (new_data->message_type == MESSAGE_TYPE_INSERT) {
    //   ;
    //} else if (new_data->message_type == MESSAGE_TYPE_DELETE) {
    //   ;
-   //} else if (old_data == NULL || old_data->message_type == MESSAGE_TYPE_DELETE) {
+   //} else if (old_data == NULL || old_data->message_type ==
+   // MESSAGE_TYPE_DELETE) {
    //   if (new_data->ref_count == 0)
    //      new_data->message_type = MESSAGE_TYPE_DELETE;
    //   else
@@ -99,8 +101,8 @@ test_data_merge_tuples(const data_config *cfg,
  *-----------------------------------------------------------------------------
  * data_merge_tuples_final --
  *
- *      Called for non-MESSAGE_TYPE_INSERT messages when they are determined to be the oldest
- *      message in the system.
+ *      Called for non-MESSAGE_TYPE_INSERT messages when they are determined to
+ *be the oldest message in the system.
  *
  *      Can change data_class or contents.  If necessary, update new_data.
  *-----------------------------------------------------------------------------
@@ -118,9 +120,8 @@ test_data_merge_tuples_final(const data_config *cfg,
    debug_assert(old_data != NULL);
 
    if (old_data->message_type == MESSAGE_TYPE_UPDATE) {
-      old_data->message_type = (old_data->ref_count == 0)
-                               ? MESSAGE_TYPE_DELETE
-                               : MESSAGE_TYPE_INSERT;
+      old_data->message_type =
+         (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
    }
 }
 
@@ -139,9 +140,10 @@ test_data_message_class(const data_config *cfg,
    assert(sizeof(data_handle) <= raw_data_len);
 
    const data_handle *data = raw_data;
-   switch(data->message_type) {
+   switch (data->message_type) {
       case MESSAGE_TYPE_INSERT:
-         return data->ref_count == 0 ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
+         return data->ref_count == 0 ? MESSAGE_TYPE_DELETE
+                                     : MESSAGE_TYPE_INSERT;
       case MESSAGE_TYPE_DELETE:
          return MESSAGE_TYPE_DELETE;
       case MESSAGE_TYPE_UPDATE:
