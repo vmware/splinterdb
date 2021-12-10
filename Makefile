@@ -100,6 +100,9 @@ LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test $(UNITBINS) \
         $(BINDIR)/unit_test
 
+# Any libraries required to link test code will be built, if needed.
+tests: $(BINDIR)/driver_test $(UNITBINS) $(BINDIR)/unit_test
+
 release: .release all
 	rm -f .debug
 	rm -f .debug-log
@@ -166,6 +169,11 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 # It links only with its needed .o files
 # ####################################################
 
+# List the individual unit-tests that can be run standalone and are also
+# rolled-up into a single unit_test binary.
+$(BINDIR)/unit_test: $(BINDIR)/unit/kvstore_basic_test              \
+                     $(BINDIR)/unit/kvstore_basic_stress_test       \
+
 obj/unit/variable_length_btree-test.o: src/variable_length_btree.c
 unit/variable_length_btree-test: obj/tests/functional/test_data.o   \
                                  obj/src/util.o                     \
@@ -181,13 +189,17 @@ unit/variable_length_btree-test: obj/tests/functional/test_data.o   \
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
 
-obj/unit/kvstore_basic_test.o: tests/unit/kvstore_basic_test.c
-unit/kvstore_basic_test: obj/tests/unit/kvstore_basic_test.o       \
+obj/tests/unit/main.o: tests/unit/main.c
+obj/tests/unit/kvstore_basic_test.o: tests/unit/kvstore_basic_test.c
+$(BINDIR)/unit/kvstore_basic_test: unit/kvstore_basic_test
+unit/kvstore_basic_test: obj/tests/unit/kvstore_basic_test.o        \
+                         obj/tests/unit/main.o                      \
                          $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
 
-obj/unit/kvstore_basic_stress_test.o: tests/unit/kvstore_basic_stress_test.c
+obj/tests/unit/kvstore_basic_stress_test.o: tests/unit/kvstore_basic_stress_test.c
+$(BINDIR)/unit/kvstore_basic_stress_test: unit/kvstore_basic_stress_test
 unit/kvstore_basic_stress_test: obj/tests/unit/kvstore_basic_stress_test.o       \
                                 $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
@@ -197,9 +209,7 @@ unit/kvstore_basic_stress_test: obj/tests/unit/kvstore_basic_stress_test.o      
 
 .PHONY : clean tags
 clean :
-	rm -rf $(OBJDIR)/*
-	rm -rf $(BINDIR)/*
-	rm -f  $(LIBDIR)/*
+	rm -rf $(OBJDIR)/* $(BINDIR)/* $(LIBDIR)/*
 
 tags:
 	ctags -R src
