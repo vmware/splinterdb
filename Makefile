@@ -30,7 +30,7 @@ FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 # Objects from unit-test sources in tests/unit/ sub-dir
 UNIT_TESTOBJ= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
-UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
+UNITBINS= $(UNITSRC:%.c=%)
 
 # Automatically create directories, based on
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
@@ -159,15 +159,33 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
 
-#####################################################
+# ####################################################
 # Unit test dependencies
 #
 # Each unit test is a self-contained binary.
 # It links only with its needed .o files
-#
+# ####################################################
 
 obj/unit/variable_length_btree-test.o: src/variable_length_btree.c
-bin/unit/variable_length_btree-test: obj/tests/functional/test_data.o obj/src/util.o obj/src/data_internal.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
+unit/variable_length_btree-test: obj/tests/functional/test_data.o   \
+                                 obj/src/util.o                     \
+                                 obj/src/data_internal.o            \
+                                 obj/src/mini_allocator.o           \
+                                 obj/src/rc_allocator.o             \
+                                 obj/src/config.o                   \
+                                 obj/src/clockcache.o               \
+                                 obj/src/platform_linux/platform.o  \
+                                 obj/src/task.o                     \
+                                 obj/src/platform_linux/laio.o      \
+                                 obj/src/platform_linux/platform.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
+
+obj/unit/kvstore_basic_test.o: tests/unit/kvstore_basic_test.c
+unit/kvstore_basic_test: obj/tests/unit/kvstore_basic_test.o       \
+                         $(LIBDIR)/libsplinterdb.so
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
 
 #*************************************************************#
 
