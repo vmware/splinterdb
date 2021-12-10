@@ -98,10 +98,10 @@ LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 # Targets to track whether we have a release or debug build
 #
 all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test $(UNITBINS) \
-        $(BINDIR)/unit_test
+        unit_test
 
 # Any libraries required to link test code will be built, if needed.
-tests: $(BINDIR)/driver_test $(UNITBINS) $(BINDIR)/unit_test
+tests: $(BINDIR)/driver_test $(UNITBINS) unit_test
 
 release: .release all
 	rm -f .debug
@@ -171,8 +171,16 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 
 # List the individual unit-tests that can be run standalone and are also
 # rolled-up into a single unit_test binary.
-$(BINDIR)/unit_test: $(BINDIR)/unit/kvstore_basic_test              \
-                     $(BINDIR)/unit/kvstore_basic_stress_test       \
+# $(BINDIR)/mk_unit_test: $(BINDIR)/unit/kvstore_basic_test              \
+
+unit_test: $(BINDIR)/unit/kvstore_basic_test                    \
+                     $(BINDIR)/unit/kvstore_basic_stress_test
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@                             \
+                        obj/tests/unit/main.o                           \
+                        obj/tests/unit/kvstore_basic_test.o             \
+                        obj/tests/unit/kvstore_basic_stress_test.o      \
+                        $(LIBDIR)/libsplinterdb.so                      \
+                        $(LIBS)
 
 obj/unit/variable_length_btree-test.o: src/variable_length_btree.c
 unit/variable_length_btree-test: obj/tests/functional/test_data.o   \
