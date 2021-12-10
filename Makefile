@@ -190,20 +190,22 @@ unit/variable_length_btree-test: obj/tests/functional/test_data.o   \
 	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
 
 obj/tests/unit/main.o: tests/unit/main.c
+
 obj/tests/unit/kvstore_basic_test.o: tests/unit/kvstore_basic_test.c
 $(BINDIR)/unit/kvstore_basic_test: unit/kvstore_basic_test
 unit/kvstore_basic_test: obj/tests/unit/kvstore_basic_test.o        \
                          obj/tests/unit/main.o                      \
                          $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
-	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 obj/tests/unit/kvstore_basic_stress_test.o: tests/unit/kvstore_basic_stress_test.c
 $(BINDIR)/unit/kvstore_basic_stress_test: unit/kvstore_basic_stress_test
 unit/kvstore_basic_stress_test: obj/tests/unit/kvstore_basic_stress_test.o       \
+                                obj/tests/unit/main.o                      \
                                 $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
-	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 #*************************************************************#
 

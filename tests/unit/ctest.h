@@ -532,7 +532,6 @@ void ctest_usage(const char * progname);
 __attribute__((no_sanitize_address)) int
 ctest_main(int argc, const char *argv[])
 {
-    static int total = 0;
     static int num_ok = 0;
     static int num_fail = 0;
     static int num_skip = 0;
@@ -564,10 +563,6 @@ ctest_main(int argc, const char *argv[])
 #endif
     uint64_t t1 = getCurrentTime();
 
-    printf("Running CTests, suite name '%s', test case '%s'.\n",
-           (suite_name ? suite_name : "all"),
-           (testcase_name ? testcase_name : "all"));
-
     struct ctest* ctest_begin = &CTEST_IMPL_TNAME(suite, test);
     struct ctest* ctest_end = &CTEST_IMPL_TNAME(suite, test);
 
@@ -586,15 +581,32 @@ ctest_main(int argc, const char *argv[])
 
     static struct ctest* test;
 
-    // Establish count of # of test-suites we will run (next).
+    // Establish count of # of test-suites & test cases we will run (next).
+    static int total = 0;
+    static int num_suites = 0;
+    const char * curr_suite_name = "";
     for (test = ctest_begin; test != ctest_end; test++) {
         if (test == &CTEST_IMPL_TNAME(suite, test)) {
             continue;
         }
+
         if (filter(test)) {
-            total++;
+            if (strcmp(test->ssname, curr_suite_name)) {
+                curr_suite_name = test->ssname;
+                num_suites++;
+            }
+            total++;    // Counts total # of test cases to run.
         }
     }
+
+    // If we are running a standalone unit-test, register suite's name
+    if (!suite_name && (num_suites == 1)) {
+        suite_name = curr_suite_name;
+    }
+    printf("Running %d CTests, suite name '%s', test case '%s'.\n",
+           num_suites,
+           (suite_name ? suite_name : "all"),
+           (testcase_name ? testcase_name : "all"));
 
     /*
      * Main driver loop: Plough the list of candidate test suite
