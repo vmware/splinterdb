@@ -211,7 +211,7 @@ tags:
 
 .PHONY: test install
 
-test: $(BINDIR)/driver_test $(BINDIR)/unit_test
+run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	./test.sh
 
 INSTALL_PATH ?= /usr/local
