@@ -187,6 +187,12 @@ unit/kvstore_basic_test: obj/tests/unit/kvstore_basic_test.o       \
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
 
+obj/unit/kvstore_basic_stress_test.o: tests/unit/kvstore_basic_stress_test.c
+unit/kvstore_basic_stress_test: obj/tests/unit/kvstore_basic_stress_test.o       \
+                                $(LIBDIR)/libsplinterdb.so
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
+
 #*************************************************************#
 
 .PHONY : clean tags
