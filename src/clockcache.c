@@ -1534,7 +1534,7 @@ clockcache_move_hand(clockcache *cc, bool is_urgent)
    if (evict_hand != CC_UNMAPPED_ENTRY) {
       evict_batch_busy = &cc->batch_busy[evict_hand];
       was_busy = __sync_bool_compare_and_swap(evict_batch_busy, TRUE, FALSE);
-      debug_assert(was_busy);
+      debug_assert(was_busy); // Is this thread registered with the task system?
    }
    do {
       evict_hand =
