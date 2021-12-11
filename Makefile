@@ -28,13 +28,13 @@ OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from unit-test sources in tests/unit/ sub-dir
-# Resolves to: obj/tests/unit/a.o obj/tests/unit/b.o ...
+# Resolves to a list: obj/tests/unit/a.o obj/tests/unit/b.o ...
 UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # Binaries from unit-test sources in tests/unit/ sub-dir
 # Although the sources are in, say, tests/unit/kvstore_basic_test.c, and so on ...
 # the binaries are named bin/unit/kvstore_basic_test (Drop the 'tests'.)
-# Resolves to: bin/unit/a bin/unit/b ...
+# Resolves to a list: bin/unit/a bin/unit/b ...
 UNIT_TESTBINS= $(UNIT_TESTSRC:tests/%.c=$(BINDIR)/%)
 
 UNITBINS= $(UNITSRC:%.c=%)
@@ -171,12 +171,12 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
 
-# ####################################################
+# ###########################################################################
 # Unit test dependencies
 #
 # Each unit test is a self-contained binary.
 # It links only with its needed .o files
-# ####################################################
+# ###########################################################################
 
 # List the individual unit-tests that can be run standalone and are also
 # rolled-up into a single unit_test binary.
