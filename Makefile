@@ -28,7 +28,14 @@ OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from unit-test sources in tests/unit/ sub-dir
-UNIT_TESTOBJ= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
+# Resolves to: obj/tests/unit/a.o obj/tests/unit/b.o ...
+UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
+
+# Binaries from unit-test sources in tests/unit/ sub-dir
+# Although the sources are in, say, tests/unit/kvstore_basic_test.c, and so on ...
+# the binaries are named bin/unit/kvstore_basic_test (Drop the 'tests'.)
+# Resolves to: bin/unit/a bin/unit/b ...
+UNIT_TESTBINS= $(UNIT_TESTSRC:tests/%.c=$(BINDIR)/%)
 
 UNITBINS= $(UNITSRC:%.c=%)
 
@@ -139,7 +146,7 @@ debug-log: .debug-log all
 $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(BINDIR)/unit_test : $(UNIT_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
+$(BINDIR)/unit_test : $(UNIT_TESTOBJS) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
@@ -171,46 +178,42 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 
 # List the individual unit-tests that can be run standalone and are also
 # rolled-up into a single unit_test binary.
-# $(BINDIR)/mk_unit_test: $(BINDIR)/unit/kvstore_basic_test              \
 
-unit_test: $(BINDIR)/unit/kvstore_basic_test                    \
-                     $(BINDIR)/unit/kvstore_basic_stress_test
-	$(LD) $(LDFLAGS) -o $(BINDIR)/$@                             \
-                        obj/tests/unit/main.o                           \
-                        obj/tests/unit/kvstore_basic_test.o             \
-                        obj/tests/unit/kvstore_basic_stress_test.o      \
-                        $(LIBDIR)/libsplinterdb.so                      \
-                        $(LIBS)
+# Target will build everything needed to generate bin/unit_test along with all
+# the individual binaries for each unit-test case.
+unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS) $(LIBDIR)/libsplinterdb.so $(LIBS)
 
-obj/unit/variable_length_btree-test.o: src/variable_length_btree.c
-unit/variable_length_btree-test: obj/tests/functional/test_data.o   \
-                                 obj/src/util.o                     \
-                                 obj/src/data_internal.o            \
-                                 obj/src/mini_allocator.o           \
-                                 obj/src/rc_allocator.o             \
-                                 obj/src/config.o                   \
-                                 obj/src/clockcache.o               \
-                                 obj/src/platform_linux/platform.o  \
-                                 obj/src/task.o                     \
-                                 obj/src/platform_linux/laio.o      \
-                                 obj/src/platform_linux/platform.o
+$(OBJDIR)/unit/variable_length_btree-test.o: src/variable_length_btree.c
+unit/variable_length_btree-test: $(OBJDIR)/tests/functional/test_data.o     \
+                                 $(OBJDIR)/src/util.o                       \
+                                 $(OBJDIR)/src/data_internal.o              \
+                                 $(OBJDIR)/src/mini_allocator.o             \
+                                 $(OBJDIR)/src/rc_allocator.o               \
+                                 $(OBJDIR)/src/config.o                     \
+                                 $(OBJDIR)/src/clockcache.o                 \
+                                 $(OBJDIR)/src/platform_linux/platform.o    \
+                                 $(OBJDIR)/src/task.o                       \
+                                 $(OBJDIR)/src/platform_linux/laio.o        \
+                                 $(OBJDIR)/src/platform_linux/platform.o
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
 
-obj/tests/unit/main.o: tests/unit/main.c
+# ---- main() is needed to drive each standalone unit-test binary.
+$(BINDIR)/unit/main: $(OBJDIR)/tests/unit/main.o
+$(OBJDIR)/tests/unit/main.o: tests/unit/main.c
 
-obj/tests/unit/kvstore_basic_test.o: tests/unit/kvstore_basic_test.c
+# ---- Here onwards, list the rules to build each standalone unit-test binary.
 $(BINDIR)/unit/kvstore_basic_test: unit/kvstore_basic_test
-unit/kvstore_basic_test: obj/tests/unit/kvstore_basic_test.o        \
-                         obj/tests/unit/main.o                      \
+unit/kvstore_basic_test: $(OBJDIR)/tests/unit/kvstore_basic_test.o        \
+                         $(OBJDIR)/tests/unit/main.o                      \
                          $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
-obj/tests/unit/kvstore_basic_stress_test.o: tests/unit/kvstore_basic_stress_test.c
 $(BINDIR)/unit/kvstore_basic_stress_test: unit/kvstore_basic_stress_test
-unit/kvstore_basic_stress_test: obj/tests/unit/kvstore_basic_stress_test.o       \
-                                obj/tests/unit/main.o                      \
+unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o       \
+                                $(OBJDIR)/tests/unit/main.o                      \
                                 $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
