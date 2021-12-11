@@ -210,11 +210,29 @@ unit/kvstore_basic_test: $(OBJDIR)/tests/unit/kvstore_basic_test.o        \
 
 # ----
 $(BINDIR)/unit/kvstore_basic_stress_test: unit/kvstore_basic_stress_test
-unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o       \
-                                $(OBJDIR)/tests/unit/main.o                      \
+unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o    \
+                                $(OBJDIR)/tests/unit/main.o                         \
                                 $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+
+# ----
+$(BINDIR)/unit/variable_length_btree_test: unit/variable_length_btree_test
+unit/variable_length_btree_test: $(OBJDIR)/tests/unit/variable_length_btree_test.o  \
+                                 $(OBJDIR)/tests/unit/main.o                        \
+                                 $(OBJDIR)/tests/functional/test_data.o             \
+                                 $(OBJDIR)/src/util.o                               \
+                                 $(OBJDIR)/src/data_internal.o                      \
+                                 $(OBJDIR)/src/mini_allocator.o                     \
+                                 $(OBJDIR)/src/rc_allocator.o                       \
+                                 $(OBJDIR)/src/config.o                             \
+                                 $(OBJDIR)/src/clockcache.o                         \
+                                 $(OBJDIR)/src/platform_linux/platform.o            \
+                                 $(OBJDIR)/src/task.o                               \
+                                 $(OBJDIR)/src/platform_linux/laio.o                \
+                                 $(OBJDIR)/src/platform_linux/platform.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
 
 #*************************************************************#
 
