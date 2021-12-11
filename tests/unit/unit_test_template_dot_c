@@ -1,0 +1,39 @@
+// Copyright 2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+/*
+ * -----------------------------------------------------------------------------
+ * module_name.c --
+ *
+ *  Exercises the interfaces in module_name.c.
+ *  This is just a template file. Fill it out for your specific test suite.
+ * -----------------------------------------------------------------------------
+ */
+#include "splinterdb/platform_public.h"
+#include "unit_tests.h"
+#include "ctest.h" // This is required for all test-case files.
+
+/*
+ * Global data declaration macro:
+ */
+CTEST_DATA(module_name)
+{
+};
+
+// Optional setup function for suite, called before every test in suite
+CTEST_SETUP(module_name)
+{
+}
+
+// Optional teardown function for suite, called after every test in suite
+CTEST_TEARDOWN(module_name)
+{
+}
+
+/*
+ * Basic test case.
+ */
+CTEST2(module_name, test_basic_flow)
+{
+}
+
