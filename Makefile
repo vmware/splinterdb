@@ -146,8 +146,10 @@ debug-log: .debug-log all
 $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(BINDIR)/unit_test : $(UNIT_TESTOBJS) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+# Target will build everything needed to generate bin/unit_test along with all
+# the individual binaries for each unit-test case.
+unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS) $(LIBDIR)/libsplinterdb.so $(LIBS)
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
@@ -178,11 +180,6 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 
 # List the individual unit-tests that can be run standalone and are also
 # rolled-up into a single unit_test binary.
-
-# Target will build everything needed to generate bin/unit_test along with all
-# the individual binaries for each unit-test case.
-unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
-	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS) $(LIBDIR)/libsplinterdb.so $(LIBS)
 
 $(OBJDIR)/unit/variable_length_btree-test.o: src/variable_length_btree.c
 unit/variable_length_btree-test: $(OBJDIR)/tests/functional/test_data.o     \
