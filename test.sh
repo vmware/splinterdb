@@ -10,7 +10,7 @@ UNIT_TEST_DRIVER="${UNIT_TEST_DRIVER:-"${BINDIR:-bin}/unit_test"}"
 # Run all the unit-tests first, to get basic coverage
 echo
 "$UNIT_TEST_DRIVER"
-UNIT_TESTS_DB_DEV="unit_test_db"
+UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then
     rm ${UNIT_TESTS_DB_DEV}
 fi
