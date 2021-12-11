@@ -49,12 +49,6 @@
 char  positive_infinity_buffer;
 slice positive_infinity = {0, &positive_infinity_buffer};
 
-typedef uint16 table_index; //  So we can make this bigger for bigger nodes.
-typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
-typedef node_offset table_entry;
-typedef uint16      inline_key_size;
-typedef uint16      inline_message_size;
-
 /*
  * Branches keep track of the number of keys and the total size of
  * all keys and messages in their subtrees.  But memtables do not
@@ -136,6 +130,7 @@ _Static_assert(sizeof(index_entry) ==
 _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
                "index_entry key has wrong offset");
 
+/* RESOLVE: Delete.
 typedef struct PACKED leaf_entry {
    inline_key_size     key_size;
    inline_message_size message_size;
@@ -147,7 +142,7 @@ _Static_assert(sizeof(leaf_entry) ==
                "leaf_entry has wrong size");
 _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
                "leaf_entry key_and_data has wrong offset");
-
+*/
 
 static inline uint64
 index_entry_size(const slice key)
@@ -185,11 +180,13 @@ leaf_entry_size(const slice key, const slice message)
    return sizeof(leaf_entry) + slice_length(key) + slice_length(message);
 }
 
+/*
 static inline slice
 leaf_entry_key_slice(leaf_entry *entry)
 {
    return slice_create(entry->key_size, entry->key_and_message);
 }
+*/
 
 static inline uint64
 leaf_entry_key_size(const leaf_entry *entry)
@@ -197,12 +194,14 @@ leaf_entry_key_size(const leaf_entry *entry)
    return entry->key_size;
 }
 
+/* RESOLVE: Delete
 static inline slice
 leaf_entry_message_slice(leaf_entry *entry)
 {
    return slice_create(entry->message_size,
                        entry->key_and_message + entry->key_size);
 }
+*/
 
 static inline uint64
 leaf_entry_message_size(const leaf_entry *entry)
@@ -376,7 +375,7 @@ variable_length_btree_insert_index_entry(
  * Basic get/set on leaf nodes
  **************************************/
 
-static inline leaf_entry *
+leaf_entry *
 variable_length_btree_get_leaf_entry(const variable_length_btree_config *cfg,
                                      const variable_length_btree_hdr *   hdr,
                                      table_index                         k)
@@ -394,6 +393,7 @@ variable_length_btree_get_leaf_entry(const variable_length_btree_config *cfg,
    return entry;
 }
 
+/*
 static inline slice
 variable_length_btree_get_tuple_key(const variable_length_btree_config *cfg,
                                     const variable_length_btree_hdr *   hdr,
@@ -402,7 +402,9 @@ variable_length_btree_get_tuple_key(const variable_length_btree_config *cfg,
    return leaf_entry_key_slice(
       variable_length_btree_get_leaf_entry(cfg, hdr, k));
 }
+*/
 
+/* RESOLVE: Delete
 static inline slice
 variable_length_btree_get_tuple_message(const variable_length_btree_config *cfg,
                                         const variable_length_btree_hdr *   hdr,
@@ -411,6 +413,7 @@ variable_length_btree_get_tuple_message(const variable_length_btree_config *cfg,
    return leaf_entry_message_slice(
       variable_length_btree_get_leaf_entry(cfg, hdr, k));
 }
+*/
 
 static inline void
 variable_length_btree_fill_leaf_entry(const variable_length_btree_config *cfg,
@@ -458,7 +461,7 @@ variable_length_btree_can_set_leaf_entry(
    return TRUE;
 }
 
-static inline bool
+bool
 variable_length_btree_set_leaf_entry(const variable_length_btree_config *cfg,
                                      variable_length_btree_hdr *         hdr,
                                      table_index                         k,
@@ -771,7 +774,7 @@ variable_length_btree_leaf_incorporate_tuple(
  *      Defragment a node
  *-----------------------------------------------------------------------------
  */
-static inline void
+void
 variable_length_btree_defragment_leaf(
    const variable_length_btree_config *cfg, // IN
    variable_length_btree_scratch *     scratch,
@@ -1134,7 +1137,7 @@ variable_length_btree_truncate_index(
    }
 }
 
-static inline void
+void
 variable_length_btree_init_hdr(const variable_length_btree_config *cfg,
                                variable_length_btree_hdr *         hdr)
 {

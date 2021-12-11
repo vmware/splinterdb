@@ -227,12 +227,13 @@ unit/variable_length_btree_test: $(OBJDIR)/tests/unit/variable_length_btree_test
                                  $(OBJDIR)/src/rc_allocator.o                       \
                                  $(OBJDIR)/src/config.o                             \
                                  $(OBJDIR)/src/clockcache.o                         \
+                                 $(OBJDIR)/src/variable_length_btree.o              \
                                  $(OBJDIR)/src/platform_linux/platform.o            \
                                  $(OBJDIR)/src/task.o                               \
                                  $(OBJDIR)/src/platform_linux/laio.o                \
                                  $(OBJDIR)/src/platform_linux/platform.o
 	mkdir -p $(BINDIR)/unit;
-	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 #*************************************************************#
 
