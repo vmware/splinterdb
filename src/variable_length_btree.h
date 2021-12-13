@@ -134,6 +134,13 @@ typedef struct variable_length_btree_pack_req {
    uint32 *fingerprint_arr; // hashes of the keys in the tree
 } variable_length_btree_pack_req;
 
+typedef struct leaf_incorporate_spec {
+   slice key;
+   slice message;
+   int64 idx;
+   bool  existed;
+} leaf_incorporate_spec;
+
 struct variable_length_btree_async_ctxt;
 typedef void (*variable_length_btree_async_cb)(
    struct variable_length_btree_async_ctxt *ctxt);
@@ -498,5 +505,16 @@ variable_length_btree_defragment_leaf(
    variable_length_btree_scratch *     scratch,
    variable_length_btree_hdr *         hdr,
    int64                               omit_idx);// IN
+
+bool
+variable_length_btree_leaf_incorporate_tuple(
+   const variable_length_btree_config *cfg,
+   variable_length_btree_scratch *     scratch,
+   variable_length_btree_hdr *         hdr,
+   slice                               key,
+   slice                               message,
+   leaf_incorporate_spec *             spec,
+   uint64 *                            generation);
+
 
 #endif // __VARIABLE_LENGTH_BTREE_H__

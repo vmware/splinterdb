@@ -48,6 +48,10 @@ static int
 leaf_hdr_tests(variable_length_btree_config * cfg,
                variable_length_btree_scratch *scratch);
 
+static int
+leaf_hdr_search_tests(variable_length_btree_config * cfg,
+                      variable_length_btree_scratch *scratch);
+
 /*
  * Global data declaration macro:
  */
@@ -133,12 +137,20 @@ CTEST_TEARDOWN(variable_length_btree)
 }
 
 /*
- *
- * Basic test case.
+ * Test leaf_hdr APIs.
  */
 CTEST2(variable_length_btree, test_leaf_hdr)
 {
     int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+    ASSERT_EQUAL(0, rc);
+}
+
+/*
+ * Test leaf_hdr search APIs.
+ */
+CTEST2(variable_length_btree, test_leaf_hdr_search)
+{
+    int rc = leaf_hdr_search_tests(&data->dbtree_cfg, &data->test_scratch);
     ASSERT_EQUAL(0, rc);
 }
 
@@ -267,6 +279,47 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
       }
       if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message)) {
          platform_log("bad 4-byte message %ld\n", i);
+      }
+   }
+
+   return 0;
+}
+
+static int
+leaf_hdr_search_tests(variable_length_btree_config * cfg,
+                      variable_length_btree_scratch *scratch)
+{
+   char                       leaf_buffer[cfg->page_size];
+   variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)leaf_buffer;
+   int                        nkvs = 256;
+
+   variable_length_btree_init_hdr(cfg, hdr);
+
+   for (int i = 0; i < nkvs; i++) {
+      uint64 generation;
+      uint8  keybuf[1];
+      uint8  messagebuf[8];
+      keybuf[0]     = 17 * i;
+      messagebuf[0] = i;
+
+      slice                 key     = slice_create(1, &keybuf);
+      slice                 message = slice_create(i % 8, messagebuf);
+      leaf_incorporate_spec spec;
+      bool result = variable_length_btree_leaf_incorporate_tuple(
+         cfg, scratch, hdr, key, message, &spec, &generation);
+      if (!result) {
+         platform_log("couldn't incorporate kv pair %d\n", i);
+      }
+      if (generation != i) {
+         platform_log("bad generation %d %lu\n", i, generation);
+      }
+   }
+
+   for (int i = 0; i < nkvs; i++) {
+      slice key = variable_length_btree_get_tuple_key(cfg, hdr, i);
+      uint8 ui  = i;
+      if (slice_lex_cmp(slice_create(1, &ui), key)) {
+         platform_log("bad 4-byte key %d\n", i);
       }
    }
 

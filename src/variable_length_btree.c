@@ -678,12 +678,14 @@ variable_length_btree_merge_tuples(
    return tmp;
 }
 
+/* RESOLVE: Delete this ...
 typedef struct leaf_incorporate_spec {
    slice key;
    slice message;
    int64 idx;
    bool  existed;
 } leaf_incorporate_spec;
+*/
 
 static inline void
 variable_length_btree_leaf_create_incorporate_spec(
@@ -751,7 +753,7 @@ variable_length_btree_leaf_perform_incorporate_spec(
    return success;
 }
 
-static inline bool
+bool
 variable_length_btree_leaf_incorporate_tuple(
    const variable_length_btree_config *cfg,
    variable_length_btree_scratch *     scratch,
