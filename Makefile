@@ -147,9 +147,15 @@ $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Target will build everything needed to generate bin/unit_test along with all
-# the individual binaries for each unit-test case.
+# the individual binaries for each unit-test case. Most unit-tests are fairly
+# well-contained, but variable_length_btree_test needs several objects to be
+# linked with it, which will come from the shared library.
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
-	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS) $(LIBDIR)/libsplinterdb.so $(LIBS)
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS)                   \
+                            $(OBJDIR)/tests/functional/test_data.o      \
+                            $(OBJDIR)/src/platform_linux/platform.o     \
+                            $(LIBDIR)/libsplinterdb.so $(LIBS)
+
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
