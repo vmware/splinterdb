@@ -52,6 +52,10 @@ static int
 leaf_hdr_search_tests(variable_length_btree_config * cfg,
                       variable_length_btree_scratch *scratch);
 
+static int
+index_hdr_tests(variable_length_btree_config * cfg,
+                variable_length_btree_scratch *scratch);
+
 /*
  * Global data declaration macro:
  */
@@ -151,6 +155,15 @@ CTEST2(variable_length_btree, test_leaf_hdr)
 CTEST2(variable_length_btree, test_leaf_hdr_search)
 {
     int rc = leaf_hdr_search_tests(&data->dbtree_cfg, &data->test_scratch);
+    ASSERT_EQUAL(0, rc);
+}
+
+/*
+ * Test index_hdr search APIs.
+ */
+CTEST2(variable_length_btree, test_index_hdr)
+{
+    int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
     ASSERT_EQUAL(0, rc);
 }
 
@@ -325,3 +338,67 @@ leaf_hdr_search_tests(variable_length_btree_config * cfg,
 
    return 0;
 }
+
+static int
+index_hdr_tests(variable_length_btree_config * cfg,
+                variable_length_btree_scratch *scratch)
+{
+   char                       index_buffer[cfg->page_size];
+   variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)index_buffer;
+   int                        nkvs = 100;
+
+   variable_length_btree_init_hdr(cfg, hdr);
+   hdr->height = 1;
+
+   for (uint32 i = 0; i < nkvs; i++) {
+      if (!variable_length_btree_set_index_entry(
+             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
+         platform_log("failed to insert 4-byte %d\n", i);
+      }
+   }
+
+   for (uint32 i = 0; i < nkvs; i++) {
+      slice  key       = variable_length_btree_get_pivot(cfg, hdr, i);
+      uint64 childaddr = variable_length_btree_get_child_addr(cfg, hdr, i);
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
+         platform_log("bad 4-byte key %d\n", i);
+      }
+      if (childaddr != i) {
+         platform_log("bad childaddr %d\n", i);
+      }
+   }
+
+   for (uint64 i = 0; i < nkvs; i++) {
+      if (!variable_length_btree_set_index_entry(
+             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
+         platform_log("failed to insert 8-byte %ld\n", i);
+      }
+   }
+
+   for (uint64 i = 0; i < nkvs; i++) {
+      slice  key       = variable_length_btree_get_pivot(cfg, hdr, i);
+      uint64 childaddr = variable_length_btree_get_child_addr(cfg, hdr, i);
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
+         platform_log("bad 4-byte key %ld\n", i);
+      }
+      if (childaddr != i) {
+         platform_log("bad childaddr %ld\n", i);
+      }
+   }
+
+   variable_length_btree_defragment_index(cfg, scratch, hdr);
+
+   for (uint64 i = 0; i < nkvs; i++) {
+      slice  key       = variable_length_btree_get_pivot(cfg, hdr, i);
+      uint64 childaddr = variable_length_btree_get_child_addr(cfg, hdr, i);
+      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
+         platform_log("bad 4-byte key %ld\n", i);
+      }
+      if (childaddr != i) {
+         platform_log("bad childaddr %ld\n", i);
+      }
+   }
+
+   return 0;
+}
+

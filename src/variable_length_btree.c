@@ -63,6 +63,7 @@ slice positive_infinity = {0, &positive_infinity_buffer};
  * Node headers
  ***********************/
 
+/* RESOLVE: DELETE THIS
 struct PACKED variable_length_btree_hdr {
    uint64      next_addr;
    uint64      next_extent_addr;
@@ -72,6 +73,8 @@ struct PACKED variable_length_btree_hdr {
    table_index num_entries;
    table_entry offsets[];
 };
+*/
+
 
 static inline uint64
 variable_length_btree_page_size(const variable_length_btree_config *cfg)
@@ -118,11 +121,13 @@ variable_length_btree_reset_node_entries(
  * Node entries
  ***********************************/
 
+/* RESOLVE: Delete this ...
 typedef struct PACKED index_entry {
    variable_length_btree_pivot_data pivot_data;
    inline_key_size                  key_size;
    char                             key[];
 } index_entry;
+*/
 
 _Static_assert(sizeof(index_entry) ==
                   sizeof(uint64) + 3 * sizeof(uint32) + sizeof(inline_key_size),
@@ -156,7 +161,7 @@ sizeof_index_entry(const index_entry *entry)
    return sizeof(*entry) + entry->key_size;
 }
 
-static inline slice
+slice
 index_entry_key_slice(const index_entry *entry)
 {
    return slice_create(entry->key_size, entry->key);
@@ -233,7 +238,7 @@ variable_length_btree_get_index_entry(const variable_length_btree_config *cfg,
    return entry;
 }
 
-static inline slice
+slice
 variable_length_btree_get_pivot(const variable_length_btree_config *cfg,
                                 const variable_length_btree_hdr *   hdr,
                                 table_index                         k)
@@ -242,7 +247,7 @@ variable_length_btree_get_pivot(const variable_length_btree_config *cfg,
       variable_length_btree_get_index_entry(cfg, hdr, k));
 }
 
-static inline uint64
+uint64
 variable_length_btree_get_child_addr(const variable_length_btree_config *cfg,
                                      const variable_length_btree_hdr *   hdr,
                                      table_index                         k)
@@ -272,7 +277,7 @@ variable_length_btree_fill_index_entry(const variable_length_btree_config *cfg,
    entry->pivot_data.message_bytes_in_tree = message_bytes;
 }
 
-static inline bool
+bool
 variable_length_btree_set_index_entry(const variable_length_btree_config *cfg,
                                       variable_length_btree_hdr *         hdr,
                                       table_index                         k,
@@ -1089,7 +1094,7 @@ variable_length_btree_split_index_build_right_node(
  *      Defragment a node
  *-----------------------------------------------------------------------------
  */
-static inline void
+void
 variable_length_btree_defragment_index(
    const variable_length_btree_config *cfg, // IN
    variable_length_btree_scratch *     scratch,

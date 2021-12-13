@@ -48,7 +48,18 @@ typedef struct variable_length_btree_config {
    data_config *data_cfg;
 } variable_length_btree_config;
 
-typedef struct PACKED variable_length_btree_hdr variable_length_btree_hdr;
+// RESOLVE: Delete this ...
+// typedef struct PACKED variable_length_btree_hdr variable_length_btree_hdr;
+
+typedef struct PACKED variable_length_btree_hdr {
+   uint64      next_addr;
+   uint64      next_extent_addr;
+   uint64      generation;
+   uint8       height;
+   node_offset next_entry;
+   table_index num_entries;
+   table_entry offsets[];
+} variable_length_btree_hdr;
 
 typedef struct variable_length_btree_node {
    uint64                     addr;
@@ -87,6 +98,12 @@ typedef struct PACKED variable_length_btree_pivot_data {
    uint32 key_bytes_in_tree;
    uint32 message_bytes_in_tree;
 } variable_length_btree_pivot_data;
+
+typedef struct PACKED index_entry {
+   variable_length_btree_pivot_data pivot_data;
+   inline_key_size                  key_size;
+   char                             key[];
+} index_entry;
 
 typedef struct variable_length_btree_iterator {
    iterator                      super;
@@ -516,5 +533,34 @@ variable_length_btree_leaf_incorporate_tuple(
    leaf_incorporate_spec *             spec,
    uint64 *                            generation);
 
+
+bool
+variable_length_btree_set_index_entry(const variable_length_btree_config *cfg,
+                                      variable_length_btree_hdr *         hdr,
+                                      table_index                         k,
+                                      slice  new_pivot_key,
+                                      uint64 new_addr,
+                                      int64  kv_pairs,
+                                      int64  key_bytes,
+                                      int64  message_bytes);
+
+
+slice index_entry_key_slice(const index_entry *entry);
+
+slice
+variable_length_btree_get_pivot(const variable_length_btree_config *cfg,
+                                const variable_length_btree_hdr *   hdr,
+                                table_index                         k);
+
+uint64
+variable_length_btree_get_child_addr(const variable_length_btree_config *cfg,
+                                     const variable_length_btree_hdr *   hdr,
+                                     table_index                         k);
+
+void
+variable_length_btree_defragment_index(
+   const variable_length_btree_config *cfg, // IN
+   variable_length_btree_scratch *     scratch,
+   variable_length_btree_hdr *         hdr);// IN
 
 #endif // __VARIABLE_LENGTH_BTREE_H__
