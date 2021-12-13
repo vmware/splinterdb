@@ -102,12 +102,12 @@ CTEST_SETUP(variable_length_btree)
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
    platform_heap_id     hid;
-   if (!SUCCESS(
-          platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid)))
-   {
+   bool                 rv = FALSE;
+   rv                      = SUCCESS(
+      platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid));
+   if (!rv) {
       platform_log("Failed to init heap\n");
-      // return -3;
-      ASSERT_TRUE(FALSE);
+      ASSERT_TRUE(rv);
    }
 
    platform_io_handle io;
@@ -142,7 +142,6 @@ CTEST_SETUP(variable_length_btree)
    {
       platform_log(
          "Failed to init io or task system or rc_allocator or clockcache\n");
-      // return -2;
       ASSERT_TRUE(FALSE);
    }
 }
@@ -263,6 +262,10 @@ init_variable_length_btree_config_from_master_config(
    return 1;
 }
 
+/*
+ * Returns 0, when all checks pass. Otherwise, will assert with a
+ * message to platform log file.
+ */
 static int
 leaf_hdr_tests(variable_length_btree_config * cfg,
                variable_length_btree_scratch *scratch)
@@ -273,52 +276,66 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
 
    variable_length_btree_init_hdr(cfg, hdr);
 
-   int rc = 0;
+   bool rv = FALSE;
    for (uint32 i = 0; i < nkvs; i++) {
-      rc =  variable_length_btree_set_leaf_entry(
-             cfg,
-             hdr,
-             i,
-             slice_create(i % sizeof(i), &i),
-             slice_create(i % sizeof(i), &i));
-      if (!rc)
-      {
-         platform_log("failed to insert 4-byte %d\n", i);
-         ASSERT_TRUE(rc != 0);
+      rv =
+         variable_length_btree_set_leaf_entry(cfg,
+                                              hdr,
+                                              i,
+                                              slice_create(i % sizeof(i), &i),
+                                              slice_create(i % sizeof(i), &i));
+      if (!rv) {
+         platform_log(
+            "[%s:%d] failed to insert 4-byte %d\n", __FILE__, __LINE__, i);
+         ASSERT_TRUE(rv);
       }
    }
 
+   int cmp_rv = 0;
    for (uint32 i = 0; i < nkvs; i++) {
       slice key     = variable_length_btree_get_tuple_key(cfg, hdr, i);
       slice message = variable_length_btree_get_tuple_message(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
-         platform_log("bad 4-byte key %d\n", i);
+      cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message)) {
-         platform_log("bad 4-byte message %d\n", i);
+      cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte message %d\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
    }
 
+   rv = FALSE;
    for (uint64 i = 0; i < nkvs; i++) {
-      if (!variable_length_btree_set_leaf_entry(
-             cfg,
-             hdr,
-             i,
-             slice_create(i % sizeof(i), &i),
-             slice_create(i % sizeof(i), &i)))
-      {
-         platform_log("failed to insert 8-byte %ld\n", i);
+      rv =
+         variable_length_btree_set_leaf_entry(cfg,
+                                              hdr,
+                                              i,
+                                              slice_create(i % sizeof(i), &i),
+                                              slice_create(i % sizeof(i), &i));
+      if (!rv) {
+         platform_log(
+            "[%s:%d] failed to insert 8-byte %ld\n", __FILE__, __LINE__, i);
+         ASSERT_TRUE(rv);
       }
    }
 
+   cmp_rv = 0;
    for (uint64 i = 0; i < nkvs; i++) {
       slice key     = variable_length_btree_get_tuple_key(cfg, hdr, i);
       slice message = variable_length_btree_get_tuple_message(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
-         platform_log("bad 4-byte key %ld\n", i);
+      cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message)) {
-         platform_log("bad 4-byte message %ld\n", i);
+      cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
+      if (cmp_rv) {
+         platform_log(
+            "[%s:%d] bad 4-byte message %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
    }
 
@@ -327,11 +344,16 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
    for (uint64 i = 0; i < nkvs; i++) {
       slice key     = variable_length_btree_get_tuple_key(cfg, hdr, i);
       slice message = variable_length_btree_get_tuple_message(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
-         platform_log("bad 4-byte key %ld\n", i);
+      cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), message)) {
-         platform_log("bad 4-byte message %ld\n", i);
+      cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
+      if (cmp_rv) {
+         platform_log(
+            "[%s:%d] bad 4-byte message %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
    }
 
