@@ -581,11 +581,12 @@ leaf_split_tests(variable_length_btree_config * cfg,
                       i);
          variable_length_btree_print_locked_node(
             cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
+         ASSERT_FALSE(success);
       }
       leaf_splitting_plan plan =
          variable_length_btree_build_leaf_splitting_plan(cfg, hdr, spec);
-      platform_assert(realnkvs / 2 - 1 <= plan.split_idx);
-      platform_assert(plan.split_idx <= realnkvs / 2 + 1);
+      ASSERT_TRUE((realnkvs / 2 - 1) <= plan.split_idx);
+      ASSERT_TRUE((plan.split_idx) <= (realnkvs / 2 + 1));
    }
 
    return 0;
