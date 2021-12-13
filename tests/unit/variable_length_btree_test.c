@@ -419,44 +419,57 @@ index_hdr_tests(variable_length_btree_config * cfg,
    variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)index_buffer;
    int                        nkvs = 100;
 
+   bool rv     = FALSE;
+   int  cmp_rv = 0;
+
    variable_length_btree_init_hdr(cfg, hdr);
    hdr->height = 1;
 
    for (uint32 i = 0; i < nkvs; i++) {
-      if (!variable_length_btree_set_index_entry(
-             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0))
-      {
-         platform_log("failed to insert 4-byte %d\n", i);
+      rv = variable_length_btree_set_index_entry(
+         cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0);
+      if (!rv) {
+         platform_log(
+            "[%s:%d] failed to insert 4-byte %d\n", __FILE__, __LINE__, i);
+         ASSERT_TRUE(rv);
       }
    }
 
    for (uint32 i = 0; i < nkvs; i++) {
       slice  key       = variable_length_btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = variable_length_btree_get_child_addr(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
-         platform_log("bad 4-byte key %d\n", i);
+      cmp_rv           = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
       if (childaddr != i) {
-         platform_log("bad childaddr %d\n", i);
+         platform_log("[%s:%d] bad childaddr %d\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(i, childaddr);
       }
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
-      if (!variable_length_btree_set_index_entry(
-             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0))
-      {
-         platform_log("failed to insert 8-byte %ld\n", i);
+      rv = variable_length_btree_set_index_entry(
+         cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0);
+      if (!rv) {
+         platform_log(
+            "[%s:%d] failed to insert 8-byte %ld\n", __FILE__, __LINE__, i);
+         ASSERT_TRUE(rv);
       }
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
       slice  key       = variable_length_btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = variable_length_btree_get_child_addr(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
-         platform_log("bad 4-byte key %ld\n", i);
+      cmp_rv           = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
       if (childaddr != i) {
-         platform_log("bad childaddr %ld\n", i);
+         platform_log("[%s:%d] bad childaddr %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(i, childaddr);
       }
    }
 
@@ -465,11 +478,14 @@ index_hdr_tests(variable_length_btree_config * cfg,
    for (uint64 i = 0; i < nkvs; i++) {
       slice  key       = variable_length_btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = variable_length_btree_get_child_addr(cfg, hdr, i);
-      if (slice_lex_cmp(slice_create(i % sizeof(i), &i), key)) {
-         platform_log("bad 4-byte key %ld\n", i);
+      cmp_rv           = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
       if (childaddr != i) {
-         platform_log("bad childaddr %ld\n", i);
+         platform_log("[%s:%d] bad childaddr %ld\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(i, childaddr);
       }
    }
 
