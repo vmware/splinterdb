@@ -58,6 +58,11 @@ index_hdr_tests(variable_length_btree_config * cfg,
 static int
 index_hdr_search_tests(variable_length_btree_config *cfg);
 
+static int
+leaf_split_tests(variable_length_btree_config * cfg,
+                 variable_length_btree_scratch *scratch,
+                 int                            nkvs);
+
 /*
  * Global data declaration macro:
  */
@@ -178,7 +183,22 @@ CTEST2(variable_length_btree, test_index_hdr_search)
     ASSERT_EQUAL(0, rc);
 }
 
+/*
+ * Test leaf-split code
+ */
+CTEST2(variable_length_btree, test_leaf_split)
+{
+    for (int nkvs = 2; nkvs < 100; nkvs++) {
+        int rc = leaf_split_tests(&data->dbtree_cfg, &data->test_scratch,
+                                  nkvs);
+        ASSERT_EQUAL(0, rc);
+    }
+}
 
+
+/*
+** Helper functions, and actual test-case methods.
+*/
 static int
 init_data_config_from_master_config(data_config *  data_cfg,
                                     master_config *master_cfg)
@@ -446,3 +466,58 @@ index_hdr_search_tests(variable_length_btree_config *cfg)
 
    return 0;
 }
+
+static int
+leaf_split_tests(variable_length_btree_config * cfg,
+                 variable_length_btree_scratch *scratch,
+                 int                            nkvs)
+{
+   char leaf_buffer[cfg->page_size];
+   char msg_buffer[cfg->page_size];
+
+   memset(msg_buffer, 0, sizeof(msg_buffer));
+
+   variable_length_btree_hdr *hdr = (variable_length_btree_hdr *)leaf_buffer;
+
+   variable_length_btree_init_hdr(cfg, hdr);
+
+   int   msgsize = cfg->page_size / (nkvs + 1);
+   slice msg     = slice_create(msgsize, msg_buffer);
+   slice bigger_msg =
+      slice_create(msgsize + sizeof(table_entry) + 1, msg_buffer);
+
+   uint8 realnkvs = 0;
+   while (realnkvs < nkvs) {
+      uint8 keybuf[1];
+      keybuf[0] = 2 * realnkvs + 1;
+      if (!variable_length_btree_set_leaf_entry(
+             cfg, hdr, realnkvs, slice_create(1, &keybuf), msg)) {
+         break;
+      }
+      realnkvs++;
+   }
+
+   for (uint8 i = 0; i < 2 * realnkvs + 1; i++) {
+      uint64                generation;
+      leaf_incorporate_spec spec;
+      slice                 key = slice_create(1, &i);
+      bool success              = variable_length_btree_leaf_incorporate_tuple(
+         cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
+      if (success) {
+         platform_log("Weird.  An incorporate that was supposed to fail "
+                      "actually succeeded (nkvs=%d, realnkvs=%d, i=%d).\n",
+                      nkvs,
+                      realnkvs,
+                      i);
+         variable_length_btree_print_locked_node(
+            cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
+      }
+      leaf_splitting_plan plan =
+         variable_length_btree_build_leaf_splitting_plan(cfg, hdr, spec);
+      platform_assert(realnkvs / 2 - 1 <= plan.split_idx);
+      platform_assert(plan.split_idx <= realnkvs / 2 + 1);
+   }
+
+   return 0;
+}
+

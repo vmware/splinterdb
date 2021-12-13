@@ -200,6 +200,17 @@ variable_length_btree_insert(cache *                             cc,      // IN
                              bool *          was_unique);                           // OUT
 
 /*
+ * This structure is intended to capture all the decisions in a leaf split.
+ * That way, we can have a single function that defines the entire policy,
+ * separate from the code that executes the policy (possibly as several steps
+ * for concurrency reasons).
+ */
+typedef struct leaf_splitting_plan {
+   uint64 split_idx;         // keys with idx < split_idx go left
+   bool insertion_goes_left; // does the key to be inserted go to the left child
+} leaf_splitting_plan;
+
+/*
  *-----------------------------------------------------------------------------
  * btree_ctxt_init --
  *
@@ -569,5 +580,11 @@ variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
                                  slice                               key,
                                  bool *                              found);
 
+
+leaf_splitting_plan
+variable_length_btree_build_leaf_splitting_plan(
+   const variable_length_btree_config *cfg, // IN
+   const variable_length_btree_hdr *   hdr,
+   leaf_incorporate_spec               spec);// IN
 
 #endif // __VARIABLE_LENGTH_BTREE_H__

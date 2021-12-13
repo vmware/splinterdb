@@ -841,10 +841,13 @@ variable_length_btree_truncate_leaf(
  * separate from the code that executes the policy (possibly as several steps
  * for concurrency reasons).
  */
+/* RESOLVE: Delete this ...
 typedef struct leaf_splitting_plan {
    uint64 split_idx;         // keys with idx < split_idx go left
    bool insertion_goes_left; // does the key to be inserted go to the left child
 } leaf_splitting_plan;
+
+*/
 
 static leaf_splitting_plan initial_plan = {0, FALSE};
 
@@ -896,7 +899,7 @@ plan_move_more_entries_to_left(const variable_length_btree_config *cfg,
  * split. Assumes all leaf entries are at most half the total free
  * space in an empty leaf.
  */
-static inline leaf_splitting_plan
+leaf_splitting_plan
 variable_length_btree_build_leaf_splitting_plan(
    const variable_length_btree_config *cfg, // IN
    const variable_length_btree_hdr *   hdr,
