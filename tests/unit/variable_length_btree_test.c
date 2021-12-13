@@ -377,24 +377,34 @@ leaf_hdr_search_tests(variable_length_btree_config * cfg,
       keybuf[0]     = 17 * i;
       messagebuf[0] = i;
 
-      slice                 key     = slice_create(1, &keybuf);
-      slice                 message = slice_create(i % 8, messagebuf);
+      slice key     = slice_create(1, &keybuf);
+      slice message = slice_create(i % 8, messagebuf);
+
       leaf_incorporate_spec spec;
       bool result = variable_length_btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, message, &spec, &generation);
       if (!result) {
-         platform_log("couldn't incorporate kv pair %d\n", i);
+         platform_log(
+            "[%s:%d] couldn't incorporate kv pair %d\n", __FILE__, __LINE__, i);
+         ASSERT_TRUE(result);
       }
       if (generation != i) {
-         platform_log("bad generation %d %lu\n", i, generation);
+         platform_log("[%s:%d] bad generation %d %lu\n",
+                      __FILE__,
+                      __LINE__,
+                      i,
+                      generation);
+         ASSERT_EQUAL(i, generation);
       }
    }
 
    for (int i = 0; i < nkvs; i++) {
-      slice key = variable_length_btree_get_tuple_key(cfg, hdr, i);
-      uint8 ui  = i;
-      if (slice_lex_cmp(slice_create(1, &ui), key)) {
-         platform_log("bad 4-byte key %d\n", i);
+      slice key    = variable_length_btree_get_tuple_key(cfg, hdr, i);
+      uint8 ui     = i;
+      int   cmp_rv = slice_lex_cmp(slice_create(1, &ui), key);
+      if (cmp_rv) {
+         platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
+         ASSERT_EQUAL(0, cmp_rv);
       }
    }
 
