@@ -502,13 +502,18 @@ index_hdr_search_tests(variable_length_btree_config *cfg)
    variable_length_btree_init_hdr(cfg, hdr);
    hdr->height = 1;
 
+   bool rv = FALSE;
    for (int i = 0; i < nkvs; i += 2) {
       uint8 keybuf[1];
       keybuf[0] = i;
       slice key = slice_create(1, &keybuf);
-      if (!variable_length_btree_set_index_entry(
-             cfg, hdr, i / 2, key, i, 0, 0, 0)) {
-         platform_log("couldn't insert pivot %d\n", i);
+
+      rv = variable_length_btree_set_index_entry(
+         cfg, hdr, i / 2, key, i, 0, 0, 0);
+      if (!rv) {
+         platform_log(
+            "[%s:%d] couldn't insert pivot %d\n", __FILE__, __LINE__, i);
+         ASSERT_TRUE(rv);
       }
    }
 
@@ -519,7 +524,12 @@ index_hdr_search_tests(variable_length_btree_config *cfg)
       slice key = slice_create(1, &keybuf);
       int64 idx = variable_length_btree_find_pivot(cfg, hdr, key, &found);
       if (idx != i / 2) {
-         platform_log("bad pivot search result %ld for %d\n", idx, i);
+         platform_log("[%s:%d] bad pivot search result %ld for %d\n",
+                      __FILE__,
+                      __LINE__,
+                      idx,
+                      i);
+         ASSERT_EQUAL((i / 2), idx);
       }
    }
 
