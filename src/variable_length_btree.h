@@ -563,4 +563,11 @@ variable_length_btree_defragment_index(
    variable_length_btree_scratch *     scratch,
    variable_length_btree_hdr *         hdr);// IN
 
+int64
+variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
+                                 const variable_length_btree_hdr *   hdr,
+                                 slice                               key,
+                                 bool *                              found);
+
+
 #endif // __VARIABLE_LENGTH_BTREE_H__

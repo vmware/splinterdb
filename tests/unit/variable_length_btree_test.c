@@ -51,10 +51,12 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
 static int
 leaf_hdr_search_tests(variable_length_btree_config * cfg,
                       variable_length_btree_scratch *scratch);
-
 static int
 index_hdr_tests(variable_length_btree_config * cfg,
                 variable_length_btree_scratch *scratch);
+
+static int
+index_hdr_search_tests(variable_length_btree_config *cfg);
 
 /*
  * Global data declaration macro:
@@ -159,11 +161,20 @@ CTEST2(variable_length_btree, test_leaf_hdr_search)
 }
 
 /*
- * Test index_hdr search APIs.
+ * Test index_hdr APIs.
  */
 CTEST2(variable_length_btree, test_index_hdr)
 {
     int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+    ASSERT_EQUAL(0, rc);
+}
+
+/*
+ * Test index_hdr search APIs.
+ */
+CTEST2(variable_length_btree, test_index_hdr_search)
+{
+    int rc = index_hdr_search_tests(&data->dbtree_cfg);
     ASSERT_EQUAL(0, rc);
 }
 
@@ -402,3 +413,36 @@ index_hdr_tests(variable_length_btree_config * cfg,
    return 0;
 }
 
+static int
+index_hdr_search_tests(variable_length_btree_config *cfg)
+{
+   char                       index_buffer[cfg->page_size];
+   variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)index_buffer;
+   int                        nkvs = 100;
+
+   variable_length_btree_init_hdr(cfg, hdr);
+   hdr->height = 1;
+
+   for (int i = 0; i < nkvs; i += 2) {
+      uint8 keybuf[1];
+      keybuf[0] = i;
+      slice key = slice_create(1, &keybuf);
+      if (!variable_length_btree_set_index_entry(
+             cfg, hdr, i / 2, key, i, 0, 0, 0)) {
+         platform_log("couldn't insert pivot %d\n", i);
+      }
+   }
+
+   for (int i = 0; i < nkvs; i++) {
+      bool  found;
+      uint8 keybuf[1];
+      keybuf[0] = i;
+      slice key = slice_create(1, &keybuf);
+      int64 idx = variable_length_btree_find_pivot(cfg, hdr, key, &found);
+      if (idx != i / 2) {
+         platform_log("bad pivot search result %ld for %d\n", idx, i);
+      }
+   }
+
+   return 0;
+}

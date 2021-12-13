@@ -574,7 +574,7 @@ method bsearch(s: seq<int>, k: int) returns (idx: int, f: bool)
 }
 
 */
-static inline int64
+int64
 variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
                                  const variable_length_btree_hdr *   hdr,
                                  slice                               key,
