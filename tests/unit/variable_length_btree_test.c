@@ -199,8 +199,10 @@ CTEST2(variable_length_btree, test_leaf_split)
 
 
 /*
-** Helper functions, and actual test-case methods.
-*/
+ * *****************************************************************
+ * Helper functions, and actual test-case methods.
+ * *****************************************************************
+ */
 static int
 init_data_config_from_master_config(data_config *  data_cfg,
                                     master_config *master_cfg)
@@ -271,15 +273,18 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
 
    variable_length_btree_init_hdr(cfg, hdr);
 
+   int rc = 0;
    for (uint32 i = 0; i < nkvs; i++) {
-      if (!variable_length_btree_set_leaf_entry(
+      rc =  variable_length_btree_set_leaf_entry(
              cfg,
              hdr,
              i,
              slice_create(i % sizeof(i), &i),
-             slice_create(i % sizeof(i), &i)))
+             slice_create(i % sizeof(i), &i));
+      if (!rc)
       {
          platform_log("failed to insert 4-byte %d\n", i);
+         ASSERT_TRUE(rc != 0);
       }
    }
 
