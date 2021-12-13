@@ -22,7 +22,7 @@
 #include "variable_length_btree.h"
 
 // Function Prototypes
-static int 
+static int
 init_data_config_from_master_config(data_config *  data_cfg,
                                     master_config *master_cfg);
 
@@ -84,14 +84,17 @@ CTEST_SETUP(variable_length_btree)
    data->data_cfg = test_data_config;
 
    // if (!SUCCESS(config_parse(&data->master_cfg, 1, argc - 1, argv + 1)) ||
-   if (!SUCCESS(config_parse(&data->master_cfg, 1, 0, (char **) NULL)) ||
-       !init_data_config_from_master_config(&data->data_cfg, &data->master_cfg) ||
-       !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg) ||
-       !init_rc_allocator_config_from_master_config(&data->allocator_cfg,
-                                                    &data->master_cfg) ||
-       !init_clockcache_config_from_master_config(&data->cache_cfg, &data->master_cfg) ||
-       !init_variable_length_btree_config_from_master_config(
-          &data->dbtree_cfg, &data->master_cfg, &data->data_cfg)) {
+   if (!SUCCESS(config_parse(&data->master_cfg, 1, 0, (char **)NULL))
+       || !init_data_config_from_master_config(&data->data_cfg,
+                                               &data->master_cfg)
+       || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
+       || !init_rc_allocator_config_from_master_config(&data->allocator_cfg,
+                                                       &data->master_cfg)
+       || !init_clockcache_config_from_master_config(&data->cache_cfg,
+                                                     &data->master_cfg)
+       || !init_variable_length_btree_config_from_master_config(
+          &data->dbtree_cfg, &data->master_cfg, &data->data_cfg))
+   {
       platform_log("Failed to parse args\n");
       ASSERT_TRUE(FALSE);
    }
@@ -100,7 +103,8 @@ CTEST_SETUP(variable_length_btree)
    platform_heap_handle hh;
    platform_heap_id     hid;
    if (!SUCCESS(
-          platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid))) {
+          platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid)))
+   {
       platform_log("Failed to init heap\n");
       // return -3;
       ASSERT_TRUE(FALSE);
@@ -112,29 +116,30 @@ CTEST_SETUP(variable_length_btree)
    rc_allocator       al;
    clockcache         cc;
 
-   if (!SUCCESS(io_handle_init(&io, &data->io_cfg, hh, hid)) ||
-       !SUCCESS(task_system_create(hid,
-                                   &io,
-                                   &ts,
-                                   data->master_cfg.use_stats,
-                                   FALSE,
-                                   num_bg_threads,
-                                   sizeof(variable_length_btree_scratch))) ||
-       !SUCCESS(rc_allocator_init(&al,
-                                  &data->allocator_cfg,
-                                  (io_handle *)&io,
-                                  hh,
-                                  hid,
-                                  platform_get_module_id())) ||
-       !SUCCESS(clockcache_init(&cc,
-                                &data->cache_cfg,
-                                (io_handle *)&io,
-                                (allocator *)&al,
-                                "test",
-                                ts,
-                                hh,
-                                hid,
-                                platform_get_module_id()))) {
+   if (!SUCCESS(io_handle_init(&io, &data->io_cfg, hh, hid))
+       || !SUCCESS(task_system_create(hid,
+                                      &io,
+                                      &ts,
+                                      data->master_cfg.use_stats,
+                                      FALSE,
+                                      num_bg_threads,
+                                      sizeof(variable_length_btree_scratch)))
+       || !SUCCESS(rc_allocator_init(&al,
+                                     &data->allocator_cfg,
+                                     (io_handle *)&io,
+                                     hh,
+                                     hid,
+                                     platform_get_module_id()))
+       || !SUCCESS(clockcache_init(&cc,
+                                   &data->cache_cfg,
+                                   (io_handle *)&io,
+                                   (allocator *)&al,
+                                   "test",
+                                   ts,
+                                   hh,
+                                   hid,
+                                   platform_get_module_id())))
+   {
       platform_log(
          "Failed to init io or task system or rc_allocator or clockcache\n");
       // return -2;
@@ -143,17 +148,15 @@ CTEST_SETUP(variable_length_btree)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(variable_length_btree)
-{
-}
+CTEST_TEARDOWN(variable_length_btree) {}
 
 /*
  * Test leaf_hdr APIs.
  */
 CTEST2(variable_length_btree, test_leaf_hdr)
 {
-    int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
-    ASSERT_EQUAL(0, rc);
+   int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+   ASSERT_EQUAL(0, rc);
 }
 
 /*
@@ -161,8 +164,8 @@ CTEST2(variable_length_btree, test_leaf_hdr)
  */
 CTEST2(variable_length_btree, test_leaf_hdr_search)
 {
-    int rc = leaf_hdr_search_tests(&data->dbtree_cfg, &data->test_scratch);
-    ASSERT_EQUAL(0, rc);
+   int rc = leaf_hdr_search_tests(&data->dbtree_cfg, &data->test_scratch);
+   ASSERT_EQUAL(0, rc);
 }
 
 /*
@@ -170,8 +173,8 @@ CTEST2(variable_length_btree, test_leaf_hdr_search)
  */
 CTEST2(variable_length_btree, test_index_hdr)
 {
-    int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
-    ASSERT_EQUAL(0, rc);
+   int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+   ASSERT_EQUAL(0, rc);
 }
 
 /*
@@ -179,8 +182,8 @@ CTEST2(variable_length_btree, test_index_hdr)
  */
 CTEST2(variable_length_btree, test_index_hdr_search)
 {
-    int rc = index_hdr_search_tests(&data->dbtree_cfg);
-    ASSERT_EQUAL(0, rc);
+   int rc = index_hdr_search_tests(&data->dbtree_cfg);
+   ASSERT_EQUAL(0, rc);
 }
 
 /*
@@ -188,11 +191,10 @@ CTEST2(variable_length_btree, test_index_hdr_search)
  */
 CTEST2(variable_length_btree, test_leaf_split)
 {
-    for (int nkvs = 2; nkvs < 100; nkvs++) {
-        int rc = leaf_split_tests(&data->dbtree_cfg, &data->test_scratch,
-                                  nkvs);
-        ASSERT_EQUAL(0, rc);
-    }
+   for (int nkvs = 2; nkvs < 100; nkvs++) {
+      int rc = leaf_split_tests(&data->dbtree_cfg, &data->test_scratch, nkvs);
+      ASSERT_EQUAL(0, rc);
+   }
 }
 
 
@@ -275,7 +277,8 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
              hdr,
              i,
              slice_create(i % sizeof(i), &i),
-             slice_create(i % sizeof(i), &i))) {
+             slice_create(i % sizeof(i), &i)))
+      {
          platform_log("failed to insert 4-byte %d\n", i);
       }
    }
@@ -297,7 +300,8 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
              hdr,
              i,
              slice_create(i % sizeof(i), &i),
-             slice_create(i % sizeof(i), &i))) {
+             slice_create(i % sizeof(i), &i)))
+      {
          platform_log("failed to insert 8-byte %ld\n", i);
       }
    }
@@ -383,7 +387,8 @@ index_hdr_tests(variable_length_btree_config * cfg,
 
    for (uint32 i = 0; i < nkvs; i++) {
       if (!variable_length_btree_set_index_entry(
-             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
+             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0))
+      {
          platform_log("failed to insert 4-byte %d\n", i);
       }
    }
@@ -401,7 +406,8 @@ index_hdr_tests(variable_length_btree_config * cfg,
 
    for (uint64 i = 0; i < nkvs; i++) {
       if (!variable_length_btree_set_index_entry(
-             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0)) {
+             cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0))
+      {
          platform_log("failed to insert 8-byte %ld\n", i);
       }
    }
@@ -491,7 +497,8 @@ leaf_split_tests(variable_length_btree_config * cfg,
       uint8 keybuf[1];
       keybuf[0] = 2 * realnkvs + 1;
       if (!variable_length_btree_set_leaf_entry(
-             cfg, hdr, realnkvs, slice_create(1, &keybuf), msg)) {
+             cfg, hdr, realnkvs, slice_create(1, &keybuf), msg))
+      {
          break;
       }
       realnkvs++;
@@ -520,4 +527,3 @@ leaf_split_tests(variable_length_btree_config * cfg,
 
    return 0;
 }
-

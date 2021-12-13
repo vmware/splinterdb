@@ -73,8 +73,8 @@ typedef struct PACKED leaf_entry {
    char                key_and_message[];
 } leaf_entry;
 
-_Static_assert(sizeof(leaf_entry) ==
-                  sizeof(inline_key_size) + sizeof(inline_message_size),
+_Static_assert(sizeof(leaf_entry)
+                  == sizeof(inline_key_size) + sizeof(inline_message_size),
                "leaf_entry has wrong size");
 _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
                "leaf_entry key_and_data has wrong offset");
@@ -532,7 +532,7 @@ variable_length_btree_defragment_leaf(
    const variable_length_btree_config *cfg, // IN
    variable_length_btree_scratch *     scratch,
    variable_length_btree_hdr *         hdr,
-   int64                               omit_idx);// IN
+   int64                               omit_idx); // IN
 
 bool
 variable_length_btree_leaf_incorporate_tuple(
@@ -556,7 +556,8 @@ variable_length_btree_set_index_entry(const variable_length_btree_config *cfg,
                                       int64  message_bytes);
 
 
-slice index_entry_key_slice(const index_entry *entry);
+slice
+index_entry_key_slice(const index_entry *entry);
 
 slice
 variable_length_btree_get_pivot(const variable_length_btree_config *cfg,
@@ -572,7 +573,7 @@ void
 variable_length_btree_defragment_index(
    const variable_length_btree_config *cfg, // IN
    variable_length_btree_scratch *     scratch,
-   variable_length_btree_hdr *         hdr);// IN
+   variable_length_btree_hdr *         hdr); // IN
 
 int64
 variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
@@ -585,6 +586,6 @@ leaf_splitting_plan
 variable_length_btree_build_leaf_splitting_plan(
    const variable_length_btree_config *cfg, // IN
    const variable_length_btree_hdr *   hdr,
-   leaf_incorporate_spec               spec);// IN
+   leaf_incorporate_spec               spec); // IN
 
 #endif // __VARIABLE_LENGTH_BTREE_H__
