@@ -245,6 +245,7 @@ unit/variable_length_btree_test: $(OBJDIR)/tests/unit/variable_length_btree_test
 # ----
 $(BINDIR)/unit/variable_length_btree_stress_test: unit/variable_length_btree_stress_test
 unit/variable_length_btree_stress_test: $(OBJDIR)/tests/unit/variable_length_btree_stress_test.o  \
+                                 $(OBJDIR)/tests/unit/btree_test_common.o    \
                                  $(OBJDIR)/tests/unit/main.o                        \
                                  $(OBJDIR)/tests/functional/test_data.o             \
                                  $(OBJDIR)/src/util.o                               \

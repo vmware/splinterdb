@@ -78,54 +78,6 @@ CTEST_SETUP(variable_length_btree)
       platform_log("Failed to parse args\n");
       ASSERT_TRUE(FALSE);
    }
-
-   // Create a heap for io, allocator, cache and splinter
-   /*
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   bool                 rv = FALSE;
-   rv                      = SUCCESS(
-      platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid));
-   if (!rv) {
-      platform_log("Failed to init heap\n");
-      ASSERT_TRUE(rv);
-   }
-
-   platform_io_handle io;
-   uint8              num_bg_threads[NUM_TASK_TYPES] = {0};
-   task_system *      ts;
-   rc_allocator       al;
-   clockcache         cc;
-
-   if (!SUCCESS(io_handle_init(&io, &data->io_cfg, hh, hid))
-       || !SUCCESS(task_system_create(hid,
-                                      &io,
-                                      &ts,
-                                      data->master_cfg.use_stats,
-                                      FALSE,
-                                      num_bg_threads,
-                                      sizeof(variable_length_btree_scratch)))
-       || !SUCCESS(rc_allocator_init(&al,
-                                     &data->allocator_cfg,
-                                     (io_handle *)&io,
-                                     hh,
-                                     hid,
-                                     platform_get_module_id()))
-       || !SUCCESS(clockcache_init(&cc,
-                                   &data->cache_cfg,
-                                   (io_handle *)&io,
-                                   (allocator *)&al,
-                                   "test",
-                                   ts,
-                                   hh,
-                                   hid,
-                                   platform_get_module_id())))
-   {
-      platform_log(
-         "Failed to init io or task system or rc_allocator or clockcache\n");
-      ASSERT_TRUE(FALSE);
-   }
-   */
 }
 
 // Optional teardown function for suite, called after every test in suite
