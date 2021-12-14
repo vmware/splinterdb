@@ -35,7 +35,7 @@ UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 # Although the sources are in, say, tests/unit/kvstore_basic_test.c, and so on ...
 # the binaries are named bin/unit/kvstore_basic_test (Drop the 'tests'.)
 # Resolves to a list: bin/unit/a bin/unit/b ...
-UNIT_TESTBINS= $(UNIT_TESTSRC:tests/%.c=$(BINDIR)/%)
+UNIT_TESTBINS= $(UNIT_TESTSRC:tests/%_test.c=$(BINDIR)/%_test)
 
 UNITBINS= $(UNITSRC:%.c=%)
 
@@ -225,6 +225,26 @@ unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o
 # ----
 $(BINDIR)/unit/variable_length_btree_test: unit/variable_length_btree_test
 unit/variable_length_btree_test: $(OBJDIR)/tests/unit/variable_length_btree_test.o  \
+                                 $(OBJDIR)/tests/unit/btree_test_common.o    \
+                                 $(OBJDIR)/tests/unit/main.o                        \
+                                 $(OBJDIR)/tests/functional/test_data.o             \
+                                 $(OBJDIR)/src/util.o                               \
+                                 $(OBJDIR)/src/data_internal.o                      \
+                                 $(OBJDIR)/src/mini_allocator.o                     \
+                                 $(OBJDIR)/src/rc_allocator.o                       \
+                                 $(OBJDIR)/src/config.o                             \
+                                 $(OBJDIR)/src/clockcache.o                         \
+                                 $(OBJDIR)/src/variable_length_btree.o              \
+                                 $(OBJDIR)/src/platform_linux/platform.o            \
+                                 $(OBJDIR)/src/task.o                               \
+                                 $(OBJDIR)/src/platform_linux/laio.o                \
+                                 $(OBJDIR)/src/platform_linux/platform.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+
+# ----
+$(BINDIR)/unit/variable_length_btree_stress_test: unit/variable_length_btree_stress_test
+unit/variable_length_btree_stress_test: $(OBJDIR)/tests/unit/variable_length_btree_stress_test.o  \
                                  $(OBJDIR)/tests/unit/main.o                        \
                                  $(OBJDIR)/tests/functional/test_data.o             \
                                  $(OBJDIR)/src/util.o                               \
