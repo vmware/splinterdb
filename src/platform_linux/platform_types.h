@@ -71,6 +71,35 @@ typedef void* List_Links;
  */
 #define platform_assert( expr ) assert(expr)
 
+// #include <stdio.h>
+/*
+#define ASSERT(condition, ...)                      \
+        assert(condition ||                         \
+               (fprintf(stderr,__VA_ARGS__)         \
+                &&fprintf(stderr," at %s:%d\n",     \
+                          __FILE__,__LINE__))       \
+              );
+    // ( (fprintf(stderr,__VA_ARGS__) && fprintf(stderr," at %s:%d\n",__FILE__,__LINE__)) ) \
+    ( (  (assert(condition), 0) || fprintf(stderr, __VA_ARGS__))) \
+*/
+
+#define ASSERT(condition,...) assert( \
+    condition|| \
+    ( (fprintf(stderr, "Assert msg: " __VA_ARGS__) && (assert(condition), 0))) \
+);
+
+    /*
+    ( (fprintf(stderr, "Assertion failed: '" #condition  "', at " __VA_ARGS__ ) , (abort() , 0) )) \
+    ( (fprintf(stderr, "[%s:%d:%s] Assertion failed: '" #condition  "', ", __FILE__, __LINE__, __FUNCTION__, __VA_ARGS__) , (abort() , 0) )) \
+    */
+
+#define ASSERT0(condition, file, line, ...) assert( \
+    condition|| \
+    ( (fprintf(stderr, "Assertion failed at : '" #condition  "', " __VA_ARGS__ ) , (abort() , 0) )) \
+    )
+
+#define ASSERT2(condition, ...) ASSERT0(condition, __FILE__, __LINE__, __VA_ARGS__)
+
 typedef pthread_t platform_thread;
 
 // Mutex

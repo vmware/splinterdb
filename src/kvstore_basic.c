@@ -182,6 +182,13 @@ encode_value(void *       msg_buffer,
    msg->type          = type;
    platform_assert(value_len <= UINT32_MAX &&
                    value_len <= KVSTORE_BASIC_MAX_VALUE_SIZE);
+   /*
+   platform_assert(value_len > UINT32_MAX &&
+                   value_len <= KVSTORE_BASIC_MAX_VALUE_SIZE);
+   ASSERT((value_len > UINT32_MAX &&
+                   value_len <= KVSTORE_BASIC_MAX_VALUE_SIZE),
+          "value_len = %lu, should be <= %u\n", value_len, UINT32_MAX);
+   */
    msg->value_length = value_len;
    memmove(&(msg->value), value, value_len);
 }
