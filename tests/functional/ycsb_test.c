@@ -335,8 +335,9 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               char value[YCSB_DATA_SIZE];
-               rc = splinter_lookup(spl, ops->key, value, &ops->found);
+               writable_buffer value;
+               writable_buffer_create(&value, NULL);
+               rc = splinter_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
@@ -351,7 +352,8 @@ ycsb_thread(void *arg)
             case 'i':
             case 'u':
             {
-               rc = splinter_insert(spl, ops->key, ops->value);
+               slice value_slice = slice_create(YCSB_DATA_SIZE, ops->value);
+               rc                = splinter_insert(spl, ops->key, value_slice);
                platform_assert_status_ok(rc);
                break;
             }

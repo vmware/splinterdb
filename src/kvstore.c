@@ -53,7 +53,12 @@ typedef struct kvstore {
 static inline int
 platform_status_to_int(const platform_status status) // IN
 {
-   return status.r;
+   if (SUCCESS(status)) {
+      return 0;
+   } else {
+      debug_assert(status.r != 0);
+      return -1 + (0 < status.r ? -status.r : status.r);
+   }
 }
 
 
@@ -398,15 +403,16 @@ kvstore_deregister_thread(kvstore *kvs)
  */
 
 int
-kvstore_insert(const kvstore *kvs,    // IN
-               char *         key,    // IN
-               char *         message // IN
+kvstore_insert(const kvstore *kvs,            // IN
+               char *         key,            // IN
+               size_t         message_length, // IN
+               char *         message         // IN
 )
 {
    platform_status status;
-
+   slice           message_slice = slice_create(message_length, message);
    platform_assert(kvs != NULL);
-   status = splinter_insert(kvs->spl, key, message);
+   status = splinter_insert(kvs->spl, key, message_slice);
    return platform_status_to_int(status);
 }
 
@@ -419,7 +425,7 @@ kvstore_insert(const kvstore *kvs,    // IN
  *      Look up a key from splinter
  *
  * Results:
- *      0 on success, otherwise an errno
+ *      size of message on success, otherwise a negative errno
  *
  * Side effects:
  *      None.
@@ -428,17 +434,37 @@ kvstore_insert(const kvstore *kvs,    // IN
  */
 
 int
-kvstore_lookup(const kvstore *kvs,     // IN
-               char *         key,     // IN
-               char *         message, // OUT
-               bool *         found    // OUT
+kvstore_lookup(const kvstore *kvs,          // IN
+               char *         key,          // IN
+               size_t         message_size, // IN
+               char *         message       // OUT
 )
 {
    platform_status status;
 
    platform_assert(kvs != NULL);
-   status = splinter_lookup(kvs->spl, key, message, found);
-   return platform_status_to_int(status);
+   writable_buffer wb;
+   writable_buffer_init(&wb, NULL, message_size, message);
+   status = splinter_lookup(kvs->spl, key, &wb);
+   if (!SUCCESS(status)) {
+      writable_buffer_reset_to_null(&wb);
+      return platform_status_to_int(status);
+   }
+
+   void *result = writable_buffer_data(&wb);
+   if (result == NULL) {
+      writable_buffer_reset_to_null(&wb);
+      return KVSTORE_NOT_FOUND;
+   }
+
+   uint64 result_len = writable_buffer_length(&wb);
+   if (result != message) {
+      size_t copylen = result_len < message_size ? result_len : message_size;
+      memcpy(message, result, copylen);
+   }
+
+   writable_buffer_reset_to_null(&wb);
+   return result_len;
 }
 
 struct kvstore_iterator {
@@ -506,16 +532,18 @@ kvstore_iterator_next(kvstore_iterator *kvi)
 }
 
 void
-kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
-                             const char **     key,    // OUT
-                             const char **     message // OUT
+kvstore_iterator_get_current(kvstore_iterator *kvi,            // IN
+                             const char **     key,            // OUT
+                             size_t *          message_length, // IN
+                             const char **     message         // OUT
 )
 {
    slice     key_slice;
    slice     message_slice;
    iterator *itor = &(kvi->sri.super);
    iterator_get_curr(itor, &key_slice, &message_slice);
-   *key     = slice_data(key_slice);
+   *key            = slice_data(key_slice);
+   *message_length = slice_length(message_slice);
    *message = slice_data(message_slice);
 }
 

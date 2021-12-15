@@ -380,7 +380,7 @@ mini_keyed_append_entry(mini_allocator *mini,
 
    new_entry->extent_addr = extent_addr;
    new_entry->batch       = batch;
-   data_key_copy(new_entry->start_key, start_key);
+   slice_copy_contents(new_entry->start_key, start_key);
    new_entry->start_key_length = slice_length(start_key);
 
    hdr->pos += keyed_meta_entry_size(start_key);

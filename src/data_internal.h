@@ -13,6 +13,116 @@
 #include "splinterdb/data.h"
 #include "util.h"
 
+/* Writable buffers can be in one of four states:
+   - uninitialized
+   - null
+     - data == NULL
+     - allocation_size == length == 0
+   - non-null
+     - data != NULL
+     - length <= allocation_size
+
+   No operation (other than destroy) ever shrinks allocation_size, so
+   writable_buffers can only go down the above list, e.g. once a
+   writable_buffer is out-of-line, it never becomes inline again.
+
+   writable_buffer_create can create any of the initialized,
+   non-user-provided-buffer states, based on the allocation_size
+   specified.
+
+   writable_buffer_destroy returns the writable_buffer to the null state.
+
+   Note that the null state is not isolated.  writable_buffer_realloc
+   can move a null writable_buffer to the inline or the platform_malloced
+   states.  Thus it is possible to, e.g. perform
+   writable_buffer_copy_slice on a null writable_buffer.
+
+   Also note that the user-provided state can move to the
+   platform-malloced state.
+*/
+typedef void *(*realloc_func)(void *realloc_arg, void *oldptr, size_t newsize);
+
+struct writable_buffer {
+   void *           original_pointer;
+   uint64           original_size;
+   platform_heap_id heap_id;
+   uint64           allocation_size;
+   uint64           length;
+   void *           data;
+};
+
+static inline bool
+writable_buffer_is_null(const writable_buffer *wb)
+{
+   return wb->data == NULL && wb->length == 0 && wb->allocation_size == 0;
+}
+
+static inline void
+writable_buffer_init(writable_buffer *wb,
+                     platform_heap_id heap_id,
+                     uint64           allocation_size,
+                     void *           data)
+{
+   wb->original_pointer = data;
+   wb->original_size    = allocation_size;
+   wb->heap_id          = heap_id;
+   wb->allocation_size  = 0;
+   wb->length           = 0;
+   wb->data             = NULL;
+}
+
+/*
+ * Creates a null buffer using the platform memory-allocation system.
+ */
+static inline platform_status
+writable_buffer_create(writable_buffer *wb, platform_heap_id heap_id)
+{
+   writable_buffer_init(wb, heap_id, 0, NULL);
+   return STATUS_OK;
+}
+
+static inline void
+writable_buffer_reset_to_null(writable_buffer *wb)
+{
+   if (wb->data && wb->data != wb->original_pointer) {
+      platform_realloc(wb->heap_id, wb->data, 0);
+   }
+   wb->data            = NULL;
+   wb->allocation_size = 0;
+   wb->length          = 0;
+}
+
+static inline platform_status
+writable_buffer_copy_slice(writable_buffer *wb, slice src)
+{
+   if (!writable_buffer_set_length(wb, slice_length(src))) {
+      return STATUS_NO_MEMORY;
+   }
+   memcpy(wb->data, slice_data(src), slice_length(src));
+   return STATUS_OK;
+}
+
+static inline platform_status
+writable_buffer_create_from_slice(writable_buffer *wb,
+                                  platform_heap_id heap_id,
+                                  slice            contents)
+{
+   platform_status rc = writable_buffer_create(wb, heap_id);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   rc = writable_buffer_copy_slice(wb, contents);
+   debug_assert(SUCCESS(rc));
+   return rc;
+}
+
+static inline slice
+writable_buffer_slice(const writable_buffer *wb)
+{
+   return slice_create(wb->length, wb->data);
+}
+
+
 static inline int
 data_key_compare(const data_config *cfg, const slice key1, const slice key2)
 {
@@ -30,33 +140,27 @@ data_message_class(const data_config *cfg, const slice raw_message)
       cfg, slice_length(raw_message), slice_data(raw_message));
 }
 
-static inline void
+static inline bool
 data_merge_tuples(const data_config *cfg,
                   const slice        key,
                   const slice        old_raw_message,
-                  uint64 *           new_raw_message_length,
-                  void *             new_raw_message)
+                  writable_buffer *  new_message)
 {
    return cfg->merge_tuples(cfg,
                             slice_length(key),
                             slice_data(key),
                             slice_length(old_raw_message),
                             slice_data(old_raw_message),
-                            new_raw_message_length,
-                            new_raw_message);
+                            new_message);
 }
 
-static inline void
+static inline bool
 data_merge_tuples_final(const data_config *cfg,
                         const slice        key,
-                        uint64 *           oldest_raw_message_length,
-                        void *             oldest_raw_message)
+                        writable_buffer *  oldest_message)
 {
-   return cfg->merge_tuples_final(cfg,
-                                  slice_length(key),
-                                  slice_data(key),
-                                  oldest_raw_message_length,
-                                  oldest_raw_message);
+   return cfg->merge_tuples_final(
+      cfg, slice_length(key), slice_data(key), oldest_message);
 }
 
 static inline void
@@ -96,14 +200,6 @@ data_message_to_string(const data_config *cfg,
        b;                                                                      \
     }).buffer)
 
-// robj: this is really just a convenience function.  Key copying is
-// _not_ an operation that the application can hook into.
-static inline void
-data_key_copy(void *dst, const slice src)
-{
-   memmove(dst, slice_data(src), slice_length(src));
-}
-
 /*
  * The fixed-size wrappers are compatibility code while transitioning the
  * rest of the system to use slices.
@@ -126,27 +222,29 @@ fixed_size_data_message_class(const data_config *cfg, const void *raw_message)
 static inline void
 fixed_size_data_merge_tuples(const data_config *cfg,
                              const void *       key,
-                             const void *       old_raw_message,
-                             void *             new_raw_message)
+                             const void *       old_message,
+                             void *             new_message)
 {
-   uint64 msglen = cfg->message_size;
-   cfg->merge_tuples(cfg,
-                     cfg->key_size,
-                     key,
-                     cfg->message_size,
-                     old_raw_message,
-                     &msglen,
-                     new_raw_message);
+   uint64          msglen = cfg->message_size;
+   writable_buffer wb;
+   writable_buffer_init(&wb, NULL, msglen, new_message);
+   writable_buffer_set_length(&wb, msglen);
+
+   cfg->merge_tuples(cfg, cfg->key_size, key, msglen, old_message, &wb);
+   platform_assert(writable_buffer_length(&wb) == msglen);
 }
 
 static inline void
 fixed_size_data_merge_tuples_final(const data_config *cfg,
                                    const void *       key,
-                                   void *             oldest_raw_message)
+                                   void *             oldest_message)
 {
    uint64 msglen = cfg->message_size;
-   return cfg->merge_tuples_final(
-      cfg, cfg->key_size, key, &msglen, oldest_raw_message);
+   writable_buffer wb;
+   writable_buffer_init(&wb, NULL, msglen, oldest_message);
+   writable_buffer_set_length(&wb, msglen);
+   cfg->merge_tuples_final(cfg, cfg->key_size, key, &wb);
+   platform_assert(writable_buffer_length(&wb) == msglen);
 }
 
 static inline void

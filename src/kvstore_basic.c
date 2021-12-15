@@ -62,7 +62,7 @@ typedef struct KVSB_PACK_PTR {
    uint8  type;         // offset 0
    uint8  _reserved1;   // offset 1
    uint16 _reserved2;   // offset 2
-   uint32 value_length; // offset 4
+   uint32 _reserved4;   // offset 4
    uint8  value[0]; // offset 8: 1st byte of value, aligned for 64-bit access
 } basic_message;
 
@@ -119,29 +119,29 @@ basic_key_compare(const data_config *cfg,
                               key2->length);
 }
 
-static void
+static bool
 basic_merge_tuples(const data_config *cfg,
                    uint64             key_len,
                    const void *       key,
                    uint64             old_raw_data_len,
                    const void *       old_raw_data,
-                   uint64 *           new_raw_data_len,
-                   void *             new_raw_data)
+                   writable_buffer *  new_data)
 {
    // we don't implement UPDATEs, so this is a no-op:
    // new is always left intact
+   return TRUE;
 }
 
-static void
+static bool
 basic_merge_tuples_final(const data_config *cfg,
                          uint64             key_len,
-                         const void *       key, // IN
-                         uint64 *           oldest_raw_data_len,
-                         void *             oldest_raw_data // IN/OUT
+                         const void *       key,        // IN
+                         writable_buffer *  oldest_data // IN/OUT
 )
 {
    // we don't implement UPDATEs, so this is a no-op:
    // new is always left intact
+   return TRUE;
 }
 
 static message_type
@@ -172,7 +172,7 @@ encode_key(void *key_buffer, const void *key, size_t key_len)
    memmove(&(key_enc->data), key, key_len);
 }
 
-static void
+static size_t
 encode_value(void *       msg_buffer,
              message_type type,
              const void * value,
@@ -180,10 +180,10 @@ encode_value(void *       msg_buffer,
 {
    basic_message *msg = (basic_message *)msg_buffer;
    msg->type          = type;
-   platform_assert(value_len <= UINT32_MAX &&
-                   value_len <= KVSTORE_BASIC_MAX_VALUE_SIZE);
-   msg->value_length = value_len;
+   platform_assert(value_len <= UINT32_MAX
+                   && value_len <= KVSTORE_BASIC_MAX_VALUE_SIZE);
    memmove(&(msg->value), value, value_len);
+   return sizeof(basic_message) + value_len;
 }
 
 static void
@@ -384,8 +384,9 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
    char key_buffer[MAX_KEY_SIZE]     = {0};
    char msg_buffer[MAX_MESSAGE_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
-   return kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
+   int encoded_len =
+      encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
+   return kvstore_insert(kvsb->kvs, key_buffer, encoded_len, msg_buffer);
 }
 
 int
@@ -406,8 +407,8 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
    char key_buffer[MAX_KEY_SIZE]     = {0};
    char msg_buffer[MAX_MESSAGE_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   encode_value(msg_buffer, MESSAGE_TYPE_DELETE, NULL, 0);
-   return kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
+   size_t encoded_len = encode_value(msg_buffer, MESSAGE_TYPE_DELETE, NULL, 0);
+   return kvstore_insert(kvsb->kvs, key_buffer, encoded_len, msg_buffer);
 }
 
 /*
@@ -432,10 +433,10 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
                      const char *         key,           // IN
                      const size_t         key_len,       // IN
                      char *               val,           // OUT
-                     const size_t         val_max_len,   // IN
+                     size_t               val_max_len,   // IN
                      size_t *             val_bytes,     // OUT
                      _Bool *              val_truncated, // OUT
-                     _Bool *              found_out      // OUT
+                     _Bool *              found          // OUT
 )
 {
    if (key_len > kvsb->max_app_key_size) {
@@ -449,34 +450,36 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-
-   char msg_buffer[MAX_MESSAGE_SIZE] = {0};
-
-   basic_message *msg = (basic_message *)msg_buffer;
+   char msg_buffer[val_max_len + sizeof(basic_message)];
 
    // kvstore_basic.h aims to be public API surface, and so this function
    // exposes the _Bool type rather than  typedef int32 bool
    // which is used elsewhere in the codebase
    // So, we pass in int32 found here, and convert to _Bool below
-   int32 found;
-   int   result = kvstore_lookup(kvsb->kvs, key_buffer, msg_buffer, &found);
-   if (result != 0) {
+   int result = kvstore_lookup(
+      kvsb->kvs, key_buffer, val_max_len + sizeof(basic_message), msg_buffer);
+   if (result < KVSTORE_NOT_FOUND) {
       return result;
    }
-   *found_out     = found ? TRUE : FALSE;
-   size_t n_bytes = KVSTORE_BASIC_MAX_VALUE_SIZE;
-   if (val_max_len < n_bytes) {
-      n_bytes = val_max_len;
+   if (result == KVSTORE_NOT_FOUND) {
+      *found = 0;
+      return 0;
    }
-   if (msg->value_length < n_bytes) {
-      n_bytes = msg->value_length;
+   if (result < sizeof(basic_message)) {
+      return -2; // FIXME: better error code?
    }
-   *val_bytes = n_bytes;
-   memmove(val, msg->value, n_bytes);
 
-   *val_truncated = (msg->value_length > n_bytes);
+   *found = 1;
 
-   return result;
+   // result is the true length of the value associated with key.
+   size_t decoded_len = result - sizeof(basic_message);
+
+   *val_bytes     = decoded_len < val_max_len ? decoded_len : val_max_len;
+   *val_truncated = val_max_len < decoded_len;
+
+   memmove(val, msg_buffer + sizeof(basic_message), *val_bytes);
+
+   return 0;
 }
 
 struct kvstore_basic_iterator {
@@ -566,11 +569,15 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
 {
    const char *msg_buffer;
    const char *key_buffer;
-   kvstore_iterator_get_current(iter->super, &key_buffer, &msg_buffer);
+   size_t      msg_len;
+   kvstore_iterator_get_current(
+      iter->super, &key_buffer, &msg_len, &msg_buffer);
+   platform_assert(sizeof(basic_message) <= msg_len);
+
    basic_message *     msg     = (basic_message *)msg_buffer;
    basic_key_encoding *key_enc = (basic_key_encoding *)key_buffer;
    *key_len                    = key_enc->length;
-   *val_len                    = msg->value_length;
+   *val_len                    = msg_len - sizeof(basic_message);
    *key                        = (char *)(key_enc->data);
    *value                      = (char *)(msg->value);
 }

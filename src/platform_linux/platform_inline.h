@@ -392,6 +392,17 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
    return aligned_alloc(alignment, size + padding);
 }
 
+/* Reallocing to size 0 must be equivalent to freeing.
+   Reallocing from NULL must be equivalent to allocing. */
+static inline void *
+platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
+                 void *                 ptr, // IN
+                 const size_t           size)          // IN
+{
+   /* FIXME: alignment? */
+   return realloc(ptr, size);
+}
+
 static inline platform_status
 platform_condvar_lock(platform_condvar *cv)
 {

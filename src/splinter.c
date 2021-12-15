@@ -593,7 +593,7 @@ static inline void                 splinter_dec_ref                   (splinter_
 static inline void                 splinter_zap_branch_range          (splinter_handle *spl, splinter_branch *branch, const char *start_key, const char *end_key, page_type type);
 static inline void                 splinter_inc_intersection          (splinter_handle *spl, splinter_branch *branch, const char *key, bool is_memtable);
 void                               splinter_memtable_flush_virtual    (void *arg, uint64 generation);
-platform_status                    splinter_memtable_insert           (splinter_handle *spl, char *key, char *data);
+platform_status                    splinter_memtable_insert           (splinter_handle *spl, char *key, slice data);
 void                               splinter_bundle_build_filters  (void *arg, void *scratch);
 static inline void                 splinter_inc_filter                (splinter_handle *spl, routing_filter *filter);
 static inline void                 splinter_dec_filter                (splinter_handle *spl, routing_filter *filter);
@@ -2724,49 +2724,32 @@ splinter_inc_intersection(splinter_handle *spl,
  * splinter_variable_length_btree_lookup performs a lookup for key in branch.
  *
  * Pre-conditions:
- *    If *found
+ *    If *data is not the null write_buffer, then
  *       `data` has the most recent answer.
  *       the current memtable is older than the most recent answer
  *
  * Post-conditions:
- *    if *found, the data can be found in `data`.
+ *    if *local_found, then data can be found in `data`.
  */
-static inline bool
-splinter_variable_length_btree_lookup(splinter_handle *spl,
-                                      splinter_branch *branch,
-                                      const char *     key,
-                                      char *           data,
-                                      bool *           found)
+static inline platform_status
+splinter_variable_length_btree_merge_lookup(splinter_handle *spl,
+                                            splinter_branch *branch,
+                                            const char *     key,
+                                            writable_buffer *data,
+                                            bool *           local_found)
 {
-   bool needs_merge = *found;
-   bool local_found;
-   variable_length_btree_node node;
+   cache *                       cc  = spl->cc;
+   variable_length_btree_config *cfg = &spl->cfg.variable_length_btree_cfg;
+   platform_status               rc;
 
-   slice                               data_temp;
-   cache *const                        cc = spl->cc;
-   variable_length_btree_config *const cfg =
-      &spl->cfg.variable_length_btree_cfg;
-   data_config *data_cfg = spl->cfg.data_cfg;
-   variable_length_btree_lookup_with_ref(cc,
-                                         cfg,
-                                         branch->root_addr,
-                                         PAGE_TYPE_BRANCH,
-                                         splinter_key_slice(spl, key),
-                                         &node,
-                                         &data_temp,
-                                         &local_found);
-   if (local_found) {
-      debug_assert(slice_length(data_temp) == splinter_message_size(spl));
-      *found = TRUE;
-      if (needs_merge) {
-         fixed_size_data_merge_tuples(
-            data_cfg, key, slice_data(data_temp), data);
-      } else {
-         memmove(data, slice_data(data_temp), splinter_message_size(spl));
-      }
-      variable_length_btree_node_unget(cc, cfg, &node);
-   }
-   return local_found;
+   rc = variable_length_btree_merge_lookup(cc,
+                                           cfg,
+                                           branch->root_addr,
+                                           PAGE_TYPE_BRANCH,
+                                           splinter_key_slice(spl, key),
+                                           data,
+                                           local_found);
+   return rc;
 }
 
 
@@ -2795,44 +2778,25 @@ splinter_variable_length_btree_lookup(splinter_handle *spl,
  *-----------------------------------------------------------------------------
  */
 static cache_async_result
-splinter_variable_length_btree_lookup_async(
+splinter_variable_length_btree_merge_lookup_async(
    splinter_handle *                 spl,    // IN
    splinter_branch *                 branch, // IN
    char *                            key,    // IN
-   char *                            data,   // OUT
-   bool *                            found,  // IN/OUT
+   writable_buffer *                 data,   // OUT
    variable_length_btree_async_ctxt *ctxt)   // IN
 {
-   bool needs_merge = *found;
-   bool local_found;
-   variable_length_btree_node node;
+   cache *                       cc  = spl->cc;
+   variable_length_btree_config *cfg = &spl->cfg.variable_length_btree_cfg;
+   cache_async_result            res;
+   bool                          local_found;
 
-   slice                               data_temp;
-   cache *const                        cc = spl->cc;
-   variable_length_btree_config *const cfg =
-      &spl->cfg.variable_length_btree_cfg;
-   data_config *      data_cfg = spl->cfg.data_cfg;
-   cache_async_result res =
-      variable_length_btree_lookup_async_with_ref(cc,
+   res = variable_length_btree_merge_lookup_async(cc,
                                                   cfg,
                                                   branch->root_addr,
                                                   splinter_key_slice(spl, key),
-                                                  &node,
-                                                  &data_temp,
+                                                  data,
                                                   &local_found,
                                                   ctxt);
-   if (res == async_success && local_found) {
-      debug_assert(slice_length(data_temp) == splinter_message_size(spl));
-      *found = TRUE;
-      if (needs_merge) {
-         fixed_size_data_merge_tuples(
-            data_cfg, key, slice_data(data_temp), data);
-      } else {
-         memmove(data, slice_data(data_temp), splinter_message_size(spl));
-      }
-      variable_length_btree_node_unget(cc, cfg, &node);
-   }
-
    return res;
 }
 
@@ -2952,7 +2916,7 @@ splinter_memtable_iterator_deinit(splinter_handle *               spl,
  *       responsible for flushing it.
  */
 platform_status
-splinter_memtable_insert(splinter_handle *spl, char *key, char *message)
+splinter_memtable_insert(splinter_handle *spl, char *key, slice message)
 {
    page_handle *lock_page;
    uint64 generation;
@@ -2965,16 +2929,15 @@ splinter_memtable_insert(splinter_handle *spl, char *key, char *message)
    // this call is safe because we hold the insert lock
    memtable *mt = splinter_get_memtable(spl, generation);
    uint64 leaf_generation; // used for ordering the log
-   rc = memtable_insert(spl->mt_ctxt, mt, key, message, &leaf_generation);
+   rc = memtable_insert(
+      spl->mt_ctxt, mt, spl->heap_id, key, message, &leaf_generation);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
 
    if (spl->cfg.use_log) {
       slice key_slice     = slice_create(splinter_key_size(spl), key);
-      slice message_slice = slice_create(splinter_message_size(spl), message);
-      int   crappy_rc =
-         log_write(spl->log, key_slice, message_slice, leaf_generation);
+      int crappy_rc = log_write(spl->log, key_slice, message, leaf_generation);
       if (crappy_rc != 0) {
          goto unlock_insert_lock;
       }
@@ -3380,51 +3343,29 @@ splinter_memtable_root_addr_for_lookup(splinter_handle *spl,
  * Post-conditions:
  *    if *found, the data can be found in `data`.
  */
-static bool
+static platform_status
 splinter_memtable_lookup(splinter_handle *spl,
                          uint64           generation,
-                         char            *key,
-                         char            *data,
-                         bool            *found)
+                         char *           key,
+                         writable_buffer *data)
 {
-   bool needs_merge = *found;
-   bool local_found;
-   variable_length_btree_node node;
-
-   cache *const cc = spl->cc;
+   cache *const                        cc = spl->cc;
    variable_length_btree_config *const cfg =
       &spl->cfg.variable_length_btree_cfg;
-   data_config *data_cfg = spl->cfg.data_cfg;
-   slice        data_temp;
+   bool   memtable_is_compacted;
+   uint64 root_addr = splinter_memtable_root_addr_for_lookup(
+      spl, generation, &memtable_is_compacted);
+   platform_status rc;
+   bool            local_found;
 
-   bool memtable_is_compacted;
-   uint64 root_addr = splinter_memtable_root_addr_for_lookup(spl, generation,
-         &memtable_is_compacted);
-   variable_length_btree_lookup_with_ref(cc,
-                                         cfg,
-                                         root_addr,
-                                         PAGE_TYPE_MEMTABLE,
-                                         splinter_key_slice(spl, key),
-                                         &node,
-                                         &data_temp,
-                                         &local_found);
-
-   if (local_found) {
-      debug_assert(slice_length(data_temp) == splinter_message_size(spl));
-      *found = TRUE;
-      if (needs_merge) {
-         fixed_size_data_merge_tuples(
-            data_cfg, key, slice_data(data_temp), data);
-      } else {
-         memmove(data, slice_data(data_temp), splinter_message_size(spl));
-      }
-      variable_length_btree_node_unget(cc, cfg, &node);
-      message_type type = fixed_size_data_message_class(data_cfg, data);
-      if (type != MESSAGE_TYPE_UPDATE) {
-         return FALSE;
-      }
-   }
-   return TRUE;
+   rc = variable_length_btree_merge_lookup(cc,
+                                           cfg,
+                                           root_addr,
+                                           PAGE_TYPE_MEMTABLE,
+                                           splinter_key_slice(spl, key),
+                                           data,
+                                           &local_found);
+   return rc;
 }
 
 /*
@@ -5875,9 +5816,7 @@ splinter_maybe_reclaim_space(splinter_handle *spl)
  */
 
 platform_status
-splinter_insert(splinter_handle *spl,
-                char            *key,
-                char            *data)
+splinter_insert(splinter_handle *spl, char *key, slice data)
 {
    timestamp ts;
    __attribute ((unused)) const threadid tid = platform_get_tid();
@@ -5897,7 +5836,7 @@ splinter_insert(splinter_handle *spl,
    }
 
    if (spl->cfg.use_stats) {
-      switch (fixed_size_data_message_class(data_cfg, data)) {
+      switch (data_message_class(data_cfg, data)) {
          case MESSAGE_TYPE_INSERT:
             spl->stats[tid].insertions++;
             platform_histo_insert(spl->stats[tid].insert_latency_histo,
@@ -5924,13 +5863,12 @@ out:
 
 bool
 splinter_filter_lookup(splinter_handle *spl,
-                       page_handle     *node,
-                       routing_filter  *filter,
-                       routing_config  *cfg,
+                       page_handle *    node,
+                       routing_filter * filter,
+                       routing_config * cfg,
                        uint16           start_branch,
-                       const char      *key,
-                       char            *data,
-                       bool            *found)
+                       const char *     key,
+                       writable_buffer *data)
 {
    uint16 height;
    threadid tid;
@@ -5953,17 +5891,21 @@ splinter_filter_lookup(splinter_handle *spl,
       uint16 branch_no =
          splinter_branch_no_add(spl, start_branch, next_value);
       splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
-      bool             local_found =
-         splinter_variable_length_btree_lookup(spl, branch, key, data, found);
+      bool             local_found;
+      platform_status  rc;
+      rc = splinter_variable_length_btree_merge_lookup(
+         spl, branch, key, data, &local_found);
+      platform_assert_status_ok(rc);
       if (spl->cfg.use_stats) {
          spl->stats[tid].branch_lookups[height]++;
       }
       if (local_found) {
-         if (fixed_size_data_message_class(spl->cfg.data_cfg, data) !=
-             MESSAGE_TYPE_UPDATE) {
+         slice message = writable_buffer_slice(data);
+         if (data_message_class(spl->cfg.data_cfg, message)
+             != MESSAGE_TYPE_UPDATE) {
             return FALSE;
          }
-      } else if(spl->cfg.use_stats) {
+      } else if (spl->cfg.use_stats) {
          spl->stats[tid].filter_false_positives[height]++;
       }
       next_value = routing_filter_get_next_value(found_values, next_value);
@@ -5972,12 +5914,11 @@ splinter_filter_lookup(splinter_handle *spl,
 }
 
 bool
-splinter_compacted_subbundle_lookup(splinter_handle    *spl,
-                                    page_handle        *node,
+splinter_compacted_subbundle_lookup(splinter_handle *   spl,
+                                    page_handle *       node,
                                     splinter_subbundle *sb,
-                                    const char         *key,
-                                    char               *data,
-                                    bool               *found)
+                                    const char *        key,
+                                    writable_buffer *   data)
 {
    debug_assert(sb->state == SB_STATE_COMPACTED);
    debug_assert(splinter_subbundle_branch_count(spl, node, sb) == 1);
@@ -6004,17 +5945,21 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
       if (found_values) {
          uint16 branch_no = sb->start_branch;
          splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
-         bool             local_found = splinter_variable_length_btree_lookup(
-            spl, branch, key, data, found);
+         bool             local_found;
+         platform_status  rc;
+         rc = splinter_variable_length_btree_merge_lookup(
+            spl, branch, key, data, &local_found);
+         platform_assert_status_ok(rc);
          if (spl->cfg.use_stats) {
             spl->stats[tid].branch_lookups[height]++;
          }
          if (local_found) {
-            if (fixed_size_data_message_class(spl->cfg.data_cfg, data) !=
-                MESSAGE_TYPE_UPDATE) {
+            slice message = writable_buffer_slice(data);
+            if (data_message_class(spl->cfg.data_cfg, message)
+                != MESSAGE_TYPE_UPDATE) {
                return FALSE;
             }
-         } else if(spl->cfg.use_stats) {
+         } else if (spl->cfg.use_stats) {
             spl->stats[tid].filter_false_positives[height]++;
          }
          return TRUE;
@@ -6025,11 +5970,10 @@ splinter_compacted_subbundle_lookup(splinter_handle    *spl,
 
 bool
 splinter_bundle_lookup(splinter_handle *spl,
-                       page_handle     *node,
+                       page_handle *    node,
                        splinter_bundle *bundle,
-                       char            *key,
-                       char            *data,
-                       bool            *found)
+                       char *           key,
+                       writable_buffer *data)
 {
    uint16 sb_count = splinter_bundle_subbundle_count(spl, node, bundle);
    for (uint16 sb_off = 0; sb_off != sb_count; sb_off++) {
@@ -6038,16 +5982,16 @@ splinter_bundle_lookup(splinter_handle *spl,
       splinter_subbundle *sb = splinter_get_subbundle(spl, node, sb_no);
       bool should_continue;
       if (sb->state == SB_STATE_COMPACTED) {
-         should_continue = splinter_compacted_subbundle_lookup(spl, node, sb,
-               key, data, found);
+         should_continue =
+            splinter_compacted_subbundle_lookup(spl, node, sb, key, data);
       } else {
          routing_filter *filter = splinter_subbundle_filter(spl, node, sb, 0);
          routing_config *cfg = &spl->cfg.leaf_filter_cfg;
          //routing_config *cfg = sb->state == SB_STATE_UNCOMPACTED_LEAF ?
          //   &spl->cfg.leaf_filter_cfg : &spl->cfg.index_filter_cfg;
          debug_assert(filter->addr != 0);
-         should_continue = splinter_filter_lookup(spl, node, filter, cfg,
-               sb->start_branch, key, data, found);
+         should_continue = splinter_filter_lookup(
+            spl, node, filter, cfg, sb->start_branch, key, data);
       }
       if (!should_continue) {
          return should_continue;
@@ -6057,12 +6001,12 @@ splinter_bundle_lookup(splinter_handle *spl,
 }
 
 bool
-splinter_pivot_lookup(splinter_handle     *spl,
-                      page_handle         *node,
+splinter_pivot_lookup(splinter_handle *    spl,
+                      page_handle *        node,
                       splinter_pivot_data *pdata,
-                      char                *key,
-                      char                *data,
-                      bool                *found)
+                      char *               key,
+                      writable_buffer *    data,
+                      bool *               found)
 {
    // first check in bundles
    uint16 num_bundles = splinter_pivot_bundle_count(spl, node, pdata);
@@ -6071,8 +6015,8 @@ splinter_pivot_lookup(splinter_handle     *spl,
             splinter_end_bundle(spl, node), bundle_off + 1);
       debug_assert(splinter_bundle_live(spl, node, bundle_no));
       splinter_bundle *bundle = splinter_get_bundle(spl, node, bundle_no);
-      bool should_continue =
-         splinter_bundle_lookup(spl, node, bundle, key, data, found);
+      bool             should_continue =
+         splinter_bundle_lookup(spl, node, bundle, key, data);
       if (!should_continue) {
          return should_continue;
       }
@@ -6081,21 +6025,16 @@ splinter_pivot_lookup(splinter_handle     *spl,
    routing_config *cfg = &spl->cfg.leaf_filter_cfg;
    //routing_config *cfg = splinter_height(spl, node) == 0 ?
    //                      &spl->cfg.leaf_filter_cfg : &spl->cfg.index_filter_cfg;
-   return splinter_filter_lookup(spl, node, &pdata->filter, cfg,
-         pdata->start_branch, key, data, found);
+   return splinter_filter_lookup(
+      spl, node, &pdata->filter, cfg, pdata->start_branch, key, data);
 }
 
 // If any change is made in here, please make similar change in splinter_lookup_async
 platform_status
-splinter_lookup(splinter_handle *spl,
-                char            *key,
-                char            *data,
-                bool            *found)
+splinter_lookup(splinter_handle *spl, char *key, writable_buffer *data)
 {
    data_config *data_cfg = spl->cfg.data_cfg;
    message_type type;
-
-   *found = FALSE;
 
    // look in memtables
 
@@ -6104,14 +6043,19 @@ splinter_lookup(splinter_handle *spl,
    // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
    //                also handles switch to READY ^^^^^
 
+   writable_buffer_reset_to_null(data);
+
    bool found_in_memtable = FALSE;
    page_handle *mt_lookup_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-      splinter_memtable_lookup(spl, mt_gen, key, data, found);
-      if (*found) {
-         type = fixed_size_data_message_class(data_cfg, data);
+      platform_status rc;
+      rc = splinter_memtable_lookup(spl, mt_gen, key, data);
+      platform_assert_status_ok(rc);
+      if (!writable_buffer_is_null(data)) {
+         slice message = writable_buffer_slice(data);
+         type          = data_message_class(data_cfg, message);
          if (type != MESSAGE_TYPE_UPDATE) {
             found_in_memtable = TRUE;
             goto found_final_answer_early;
@@ -6131,8 +6075,9 @@ splinter_lookup(splinter_handle *spl,
       uint16 pivot_no = splinter_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < splinter_num_children(spl, node));
       splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pivot_no);
-      bool should_continue =
-         splinter_pivot_lookup(spl, node, pdata, key, data, found);
+      bool                 local_found;
+      bool                 should_continue =
+         splinter_pivot_lookup(spl, node, pdata, key, data, &local_found);
       if (!should_continue) {
          goto found_final_answer_early;
       }
@@ -6143,19 +6088,22 @@ splinter_lookup(splinter_handle *spl,
 
    // look in leaf
    splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, 0);
-   bool should_continue = splinter_pivot_lookup(spl, node, pdata, key, data, found);
+   bool                 local_found;
+   bool                 should_continue =
+      splinter_pivot_lookup(spl, node, pdata, key, data, &local_found);
    if (!should_continue) {
       goto found_final_answer_early;
    }
 
-   platform_assert(!*found || fixed_size_data_message_class(data_cfg, data) ==
-                                 MESSAGE_TYPE_UPDATE);
-   if (*found) {
-      fixed_size_data_merge_tuples_final(spl->cfg.data_cfg, key, data);
-found_final_answer_early:
-   type   = fixed_size_data_message_class(data_cfg, data);
-   *found = type != MESSAGE_TYPE_DELETE;
+   slice message = writable_buffer_slice(data);
+   debug_assert(writable_buffer_is_null(data)
+                || data_message_class(data_cfg, message)
+                      == MESSAGE_TYPE_UPDATE);
+   if (!writable_buffer_is_null(data)) {
+      data_merge_tuples_final(
+         spl->cfg.data_cfg, splinter_key_slice(spl, key), data);
    }
+found_final_answer_early:
 
    if (found_in_memtable) {
       // release memtable lookup lock
@@ -6165,10 +6113,19 @@ found_final_answer_early:
    }
    if (spl->cfg.use_stats) {
       threadid tid = platform_get_tid();
-      if (*found) {
+      if (!writable_buffer_is_null(data)) {
          spl->stats[tid].lookups_found++;
       } else {
          spl->stats[tid].lookups_not_found++;
+      }
+   }
+
+   /* Normalize DELETE messages to return a null writable_buffer */
+   message = writable_buffer_slice(data);
+   if (!writable_buffer_is_null(data)) {
+      message_type type = data_message_class(data_cfg, message);
+      if (type == MESSAGE_TYPE_DELETE) {
+         writable_buffer_reset_to_null(data);
       }
    }
 
@@ -6289,11 +6246,10 @@ splinter_variable_length_btree_async_callback(
  *    pointers.
  */
 cache_async_result
-splinter_lookup_async(splinter_handle     *spl,    // IN
-                      char                *key,    // IN
-                      char                *data,   // OUT
-                      bool                *found,  // OUT
-                      splinter_async_ctxt *ctxt)   // IN/OUT
+splinter_lookup_async(splinter_handle *    spl,  // IN
+                      char *               key,  // IN
+                      writable_buffer *    data, // OUT
+                      splinter_async_ctxt *ctxt) // IN/OUT
 {
    cache_async_result res = 0;
    threadid tid;
@@ -6312,7 +6268,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
       switch (ctxt->state) {
       case async_state_start:
       {
-         ctxt->found = FALSE;
+         writable_buffer_reset_to_null(data);
          splinter_async_set_state(ctxt, async_state_lookup_memtable);
          // fallthrough
       }
@@ -6322,10 +6278,13 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
          uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
          uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
          for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
-            splinter_memtable_lookup(spl, mt_gen, key, data, &ctxt->found);
-            if (ctxt->found) {
-               ctxt->type = fixed_size_data_message_class(data_cfg, data);
-               if (ctxt->type != MESSAGE_TYPE_UPDATE) {
+            platform_status rc;
+            rc = splinter_memtable_lookup(spl, mt_gen, key, data);
+            platform_assert_status_ok(rc);
+            if (!writable_buffer_is_null(data)) {
+               slice        message = writable_buffer_slice(data);
+               message_type type    = data_message_class(data_cfg, message);
+               if (type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
                         async_state_found_final_answer_early);
                   break;
@@ -6521,13 +6480,8 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
          break;
       }
       case async_state_variable_length_btree_lookup_reentrant: {
-         res = splinter_variable_length_btree_lookup_async(
-            spl,
-            ctxt->branch,
-            key,
-            data,
-            &ctxt->found,
-            &ctxt->variable_length_btree_ctxt);
+         res = splinter_variable_length_btree_merge_lookup_async(
+            spl, ctxt->branch, key, data, &ctxt->variable_length_btree_ctxt);
          switch (res) {
          case async_locked:
          case async_no_reqs:
@@ -6547,9 +6501,10 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
             break;
          case async_success:
             // I don't own the cache context, variable_length_btree does
-            if (ctxt->found) {
-               ctxt->type = fixed_size_data_message_class(data_cfg, data);
-               if (ctxt->type != MESSAGE_TYPE_UPDATE) {
+            if (!writable_buffer_is_null(data)) {
+               slice        message = writable_buffer_slice(data);
+               message_type type    = data_message_class(data_cfg, message);
+               if (type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
                              async_state_found_final_answer_early);
                   break;
@@ -6611,10 +6566,12 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
       case async_state_trunk_node_done:
       {
          if (ctxt->height == 0) {
-            if (ctxt->found && ctxt->type != MESSAGE_TYPE_INSERT) {
-               fixed_size_data_merge_tuples_final(spl->cfg.data_cfg, key, data);
-               ctxt->type  = fixed_size_data_message_class(data_cfg, data);
-               ctxt->found = ctxt->type != MESSAGE_TYPE_DELETE;
+            slice message = writable_buffer_slice(data);
+            if (!writable_buffer_is_null(data)
+                && data_message_class(data_cfg, message) != MESSAGE_TYPE_INSERT)
+            {
+               data_merge_tuples_final(
+                  spl->cfg.data_cfg, splinter_key_slice(spl, key), data);
             }
             splinter_async_set_state(ctxt, async_state_end);
             break;
@@ -6669,7 +6626,6 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
       }
       case async_state_found_final_answer_early:
       {
-         ctxt->found = ctxt->type != MESSAGE_TYPE_DELETE;
          splinter_async_set_state(ctxt, async_state_end);
          break;
       }
@@ -6684,14 +6640,13 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
          }
          ctxt->trunk_node = NULL;
          if (spl->cfg.use_stats) {
-            if (ctxt->found) {
+            if (!writable_buffer_is_null(data)) {
                spl->stats[tid].lookups_found++;
             } else {
                spl->stats[tid].lookups_not_found++;
             }
          }
-         *found = ctxt->found;
-         res = async_success;
+         res  = async_success;
          done = TRUE;
          break;
       }
@@ -6702,6 +6657,15 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
 #if SPLINTER_DEBUG
    cache_enable_sync_get(spl->cc, TRUE);
 #endif
+
+   slice message = writable_buffer_slice(data);
+   if (!writable_buffer_is_null(data)) {
+      message_type type = data_message_class(data_cfg, message);
+      debug_assert(type == MESSAGE_TYPE_DELETE || type == MESSAGE_TYPE_INSERT);
+      if (type == MESSAGE_TYPE_DELETE) {
+         writable_buffer_reset_to_null(data);
+      }
+   }
 
    return res;
 }
@@ -8049,30 +8013,31 @@ void
 splinter_print_lookup(splinter_handle *spl,
                       char            *key)
 {
-   bool found = FALSE;
-   char data[MAX_MESSAGE_SIZE];
-   uint64 data_len;
+   writable_buffer data;
+   writable_buffer_create(&data, spl->heap_id);
 
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       bool memtable_is_compacted;
-      uint64 root_addr = splinter_memtable_root_addr_for_lookup(spl, mt_gen,
-            &memtable_is_compacted);
+      uint64 root_addr = splinter_memtable_root_addr_for_lookup(
+         spl, mt_gen, &memtable_is_compacted);
+      platform_status rc;
 
-      variable_length_btree_lookup(spl->cc,
-                                   &spl->cfg.variable_length_btree_cfg,
-                                   root_addr,
-                                   splinter_key_slice(spl, key),
-                                   &data_len,
-                                   data,
-                                   &found);
-      if (found) {
+      rc = variable_length_btree_lookup(spl->cc,
+                                        &spl->cfg.variable_length_btree_cfg,
+                                        root_addr,
+                                        PAGE_TYPE_MEMTABLE,
+                                        splinter_key_slice(spl, key),
+                                        &data);
+      platform_assert_status_ok(rc);
+      if (!writable_buffer_is_null(&data)) {
          char key_str[128];
-         char message_str[128];
-         debug_assert(data_len == splinter_message_size(spl));
+         char  message_str[128];
+         slice message = writable_buffer_slice(&data);
+         debug_assert(slice_length(message) == splinter_message_size(spl));
          splinter_key_to_string(spl, key, key_str);
-         splinter_message_to_string(spl, data, message_str);
+         splinter_message_to_string(spl, message, message_str);
          platform_log("Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
                       key_str,
                       root_addr,
@@ -8085,7 +8050,6 @@ splinter_print_lookup(splinter_handle *spl,
                                             PAGE_TYPE_MEMTABLE,
                                             splinter_key_slice(spl, key));
       }
-      found = FALSE;
    }
 
    page_handle *node = splinter_node_get(spl, spl->root_addr);
@@ -8095,27 +8059,38 @@ splinter_print_lookup(splinter_handle *spl,
       uint16 pivot_no = splinter_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < splinter_num_children(spl, node));
       splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pivot_no);
-      splinter_pivot_lookup(spl, node, pdata, key, data, &found);
+      bool                 found;
+      writable_buffer_reset_to_null(&data);
+      splinter_pivot_lookup(spl, node, pdata, key, &data, &found);
       if (found) {
          char key_str[128];
          char message_str[128];
          splinter_key_to_string(spl, key, key_str);
-         splinter_message_to_string(spl, data, message_str);
+         slice message = writable_buffer_slice(&data);
+         splinter_message_to_string(spl, message, message_str);
          platform_log("Key %s found in node %lu pivot %u with data %s\n",
-                      key_str, node->disk_addr, pivot_no, message_str);
+                      key_str,
+                      node->disk_addr,
+                      pivot_no,
+                      message_str);
          found = FALSE;
       } else {
          for (uint16 branch_no = pdata->start_branch;
               branch_no != splinter_end_branch(spl, node);
               branch_no = splinter_branch_no_add(spl, branch_no, 1)) {
             splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
-            splinter_variable_length_btree_lookup(
-               spl, branch, key, data, &found);
-            if (found) {
+            platform_status  rc;
+            bool             local_found;
+            writable_buffer_reset_to_null(&data);
+            rc = splinter_variable_length_btree_merge_lookup(
+               spl, branch, key, &data, &local_found);
+            platform_assert_status_ok(rc);
+            if (local_found) {
                char key_str[128];
                char message_str[128];
                splinter_key_to_string(spl, key, key_str);
-               splinter_message_to_string(spl, data, message_str);
+               slice message = writable_buffer_slice(&data);
+               splinter_message_to_string(spl, message, message_str);
                platform_log("!! Key %s found in branch %u of node %lu pivot %u "
                             "with data %s\n",
                             key_str, branch_no, node->disk_addr, pivot_no,
@@ -8130,14 +8105,17 @@ splinter_print_lookup(splinter_handle *spl,
    }
 
    // look in leaf
+   bool found;
    splinter_print_locked_node(spl, node, PLATFORM_DEFAULT_LOG_HANDLE);
    splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, 0);
-   splinter_pivot_lookup(spl, node, pdata, key, data, &found);
+   writable_buffer_reset_to_null(&data);
+   splinter_pivot_lookup(spl, node, pdata, key, &data, &found);
    if (found) {
       char key_str[128];
       char message_str[128];
       splinter_key_to_string(spl, key, key_str);
-      splinter_message_to_string(spl, data, message_str);
+      slice message = writable_buffer_slice(&data);
+      splinter_message_to_string(spl, message, message_str);
       platform_log("Key %s found in node %lu pivot %u with data %s\n",
                    key_str, node->disk_addr, 0, message_str);
       found = FALSE;
@@ -8146,12 +8124,18 @@ splinter_print_lookup(splinter_handle *spl,
            branch_no != splinter_end_branch(spl, node);
            branch_no = splinter_branch_no_add(spl, branch_no, 1)) {
          splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
-         splinter_variable_length_btree_lookup(spl, branch, key, data, &found);
+         platform_status  rc;
+         bool             local_found;
+         writable_buffer_reset_to_null(&data);
+         rc = splinter_variable_length_btree_merge_lookup(
+            spl, branch, key, &data, &local_found);
+         platform_assert_status_ok(rc);
          if (found) {
             char key_str[128];
             char message_str[128];
             splinter_key_to_string(spl, key, key_str);
-            splinter_message_to_string(spl, data, message_str);
+            slice message = writable_buffer_slice(&data);
+            splinter_message_to_string(spl, message, message_str);
             platform_log("!! Key %s found in branch %u of node %lu pivot %u "
                   "with data %s\n",
                   key_str, branch_no, node->disk_addr, 0, message_str);
@@ -8159,6 +8143,7 @@ splinter_print_lookup(splinter_handle *spl,
       }
    }
    splinter_node_unget(spl, &node);
+   writable_buffer_reset_to_null(&data);
 }
 
 void

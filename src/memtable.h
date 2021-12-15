@@ -165,8 +165,9 @@ memtable_unget_insert_lock(memtable_context *ctxt,
 platform_status
 memtable_insert(memtable_context *ctxt,
                 memtable *        mt,
+                platform_heap_id  heap_id,
                 const char *      key,
-                const char *      message,
+                slice             message,
                 uint64 *          generation);
 
 page_handle *

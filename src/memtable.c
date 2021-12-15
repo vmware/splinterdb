@@ -125,22 +125,23 @@ memtable_add_tuple(memtable_context *ctxt)
 platform_status
 memtable_insert(memtable_context *ctxt,
                 memtable *        mt,
+                platform_heap_id  heap_id,
                 const char *      key,
-                const char *      message,
+                slice             message,
                 uint64 *          leaf_generation)
 {
    const threadid tid = platform_get_tid();
    bool           was_unique;
    slice          key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
-   slice message_slice = slice_create(mt->cfg->data_cfg->message_size, message);
 
    platform_status rc = variable_length_btree_insert(ctxt->cc,
                                                      ctxt->cfg.btree_cfg,
+                                                     heap_id,
                                                      &ctxt->scratch[tid],
                                                      mt->root_addr,
                                                      &mt->mini,
                                                      key_slice,
-                                                     message_slice,
+                                                     message,
                                                      leaf_generation,
                                                      &was_unique);
    if (!SUCCESS(rc)) {

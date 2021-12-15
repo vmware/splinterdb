@@ -40,6 +40,11 @@ typedef struct variable_length_btree_config {
    data_config *data_cfg;
 } variable_length_btree_config;
 
+typedef struct variable_length_btree_lookup_result {
+   bool            found;
+   writable_buffer message;
+} variable_length_btree_lookup_result;
+
 typedef struct PACKED variable_length_btree_hdr variable_length_btree_hdr;
 
 typedef struct variable_length_btree_node {
@@ -147,6 +152,7 @@ typedef struct variable_length_btree_async_ctxt {
 platform_status
 variable_length_btree_insert(cache *                             cc,      // IN
                              const variable_length_btree_config *cfg,     // IN
+                             platform_heap_id                    heap_id, // IN
                              variable_length_btree_scratch *     scratch, // IN
                              uint64          root_addr,                   // IN
                              mini_allocator *mini,                        // IN
@@ -216,48 +222,43 @@ variable_length_btree_unblock_dec_ref(cache *                       cc,
                                       uint64                        root_addr);
 
 void
-variable_length_btree_lookup_with_ref(cache *                       cc,
-                                      variable_length_btree_config *cfg,
-                                      uint64                        root_addr,
-                                      page_type                     type,
-                                      slice                         key,
-                                      variable_length_btree_node *  node,
-                                      slice *                       data,
-                                      bool *                        found);
-
-cache_async_result
-variable_length_btree_lookup_async_with_ref(
-   cache *                           cc,
-   variable_length_btree_config *    cfg,
-   uint64                            root_addr,
-   slice                             key,
-   variable_length_btree_node *      node,
-   slice *                           data,
-   bool *                            found,
-   variable_length_btree_async_ctxt *ctxt);
-
-void
 variable_length_btree_node_unget(cache *                             cc,
                                  const variable_length_btree_config *cfg,
                                  variable_length_btree_node *        node);
-void
+platform_status
 variable_length_btree_lookup(cache *                       cc,
                              variable_length_btree_config *cfg,
                              uint64                        root_addr,
+                             page_type                     type,
                              slice                         key,
-                             uint64 *                      data_out_len,
-                             void *                        data_out,
-                             bool *                        found);
+                             writable_buffer *             result);
 
-cache_async_result
-variable_length_btree_lookup_async(cache *                       cc,
+platform_status
+variable_length_btree_merge_lookup(cache *                       cc,
                                    variable_length_btree_config *cfg,
                                    uint64                        root_addr,
+                                   page_type                     type,
                                    slice                         key,
-                                   uint64 *                      data_out_len,
-                                   void *                        data_out,
-                                   bool *                        found,
+                                   writable_buffer *             data,
+                                   bool *                        local_found);
+
+cache_async_result
+variable_length_btree_lookup_async(cache *                           cc,
+                                   variable_length_btree_config *    cfg,
+                                   uint64                            root_addr,
+                                   slice                             key,
+                                   writable_buffer *                 result,
                                    variable_length_btree_async_ctxt *ctxt);
+
+cache_async_result
+variable_length_btree_merge_lookup_async(
+   cache *                           cc,          // IN
+   variable_length_btree_config *    cfg,         // IN
+   uint64                            root_addr,   // IN
+   const slice                       key,         // IN
+   writable_buffer *                 data,        // OUT
+   bool *                            local_found, // OUT
+   variable_length_btree_async_ctxt *ctxt);       // IN
 
 void
 variable_length_btree_iterator_init(cache *                         cc,

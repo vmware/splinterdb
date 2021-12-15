@@ -84,13 +84,29 @@ void
 kvstore_deregister_thread(kvstore *kvs);
 
 int
-kvstore_insert(const kvstore *kvs, char *key, char *message);
+kvstore_insert(const kvstore *kvs,
+               char *         key,
+               size_t         message_length,
+               char *         message);
 
+#define KVSTORE_NOT_FOUND (-1)
+
+// Return value:
+// - >= 0                : size of message associated with key
+// - == KVSTORE_NOT_FOUND: key not found
+// -  < KVSTORE_NOT_FOUND: error
+//
+// If the message associated with key is larger than message_size
+// bytes, then the first message_size bytes will be returned in
+// message. [robj asks: is this a useful behavior?  Returning the
+// prefix requires a copy, so there is a cost to providing this
+// functionality.  If it's not useful to applications, then we should
+// not do it. ]
 int
-kvstore_lookup(const kvstore *kvs,     // IN
-               char *         key,     // IN
-               char *         message, // OUT
-               bool *         found    // OUT
+kvstore_lookup(const kvstore *kvs,          // IN
+               char *         key,          // IN
+               size_t         message_size, // IN
+               char *         message       // OUT
 );
 
 /*
@@ -161,9 +177,10 @@ kvstore_iterator_next(kvstore_iterator *iter);
 //
 // If valid() == false, then behavior is undefined.
 void
-kvstore_iterator_get_current(kvstore_iterator *iter,   // IN
-                             const char **     key,    // OUT
-                             const char **     message // OUT
+kvstore_iterator_get_current(kvstore_iterator *iter,           // IN
+                             const char **     key,            // OUT
+                             size_t *          message_length, // OUT
+                             const char **     message         // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.

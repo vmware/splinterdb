@@ -28,6 +28,8 @@ typedef enum message_type {
 
 typedef struct data_config data_config;
 
+typedef struct writable_buffer writable_buffer;
+
 typedef int (*key_compare_fn)(const data_config *cfg,
                               uint64             key1_len,
                               const void *       key1,
@@ -40,30 +42,26 @@ typedef message_type (*message_class_fn)(const data_config *cfg,
                                          uint64             raw_message_len,
                                          const void *       raw_message);
 
-// Given two messages, merge them, based on their types
-// And return the result in new_raw_message
+// Given two messages, old_message and new_message, merge them
+// and return the result in new_raw_message.
 //
-// guaranteed by caller: new_raw_message has enough space to hold a max-length
-// message
-typedef void (*merge_tuple_fn)(const data_config *cfg,
+// Returns TRUE on success.  FALSE indicates an internal error.
+typedef bool (*merge_tuple_fn)(const data_config *cfg,
                                uint64             key_len,
                                const void *       key,
-                               uint64             old_raw_message_len,
-                               const void *       old_raw_message,
-                               uint64 *           new_raw_message_len, // IN/OUT
-                               void *             new_raw_message);                 // IN/OUT
+                               uint64             old_message_len,
+                               const void *       old_message,
+                               writable_buffer *  new_message); // IN/OUT
 
-// Called for non-MESSAGE_TYPE_INSERT messages
-// when they are determined to be the oldest message
+// Called for non-MESSAGE_TYPE_INSERT messages when they are
+// determined to be the oldest message Can change data_class or
+// contents.  If necessary, update new_data.
 //
-// Can change data_class or contents.  If necessary, update new_data.
-// guaranteed by caller: oldest_raw_message has enough space to hold a
-// max-length message
-typedef void (*merge_tuple_final_fn)(const data_config *cfg,
+// Returns TRUE on success.  FALSE indicates an internal error.
+typedef bool (*merge_tuple_final_fn)(const data_config *cfg,
                                      uint64             key_len,
                                      const void *       key,
-                                     uint64 *oldest_raw_message_len, // IN/OUT
-                                     void *  oldest_raw_message);      // IN/OUT
+                                     writable_buffer *  oldest_message);
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,
@@ -101,5 +99,15 @@ data_validate_config(const data_config *cfg)
                cfg->message_to_string == NULL);
    return !bad;
 }
+
+uint64
+writable_buffer_length(writable_buffer *wb);
+
+/* Allocates memory as needed. Returns TRUE on success. */
+bool
+writable_buffer_set_length(writable_buffer *wb, uint64 newlength);
+
+void *
+writable_buffer_data(writable_buffer *wb);
 
 #endif // __DATA_H

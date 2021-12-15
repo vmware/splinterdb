@@ -69,7 +69,6 @@ async_ctxt_init(platform_heap_id    hid,                // IN
                 uint64              data_size,          // IN
                 test_async_lookup **out)                // OUT
 {
-   char *             data;
    test_async_lookup *async_lookup;
 
    // max_async_inflight can be zero
@@ -82,13 +81,8 @@ async_ctxt_init(platform_heap_id    hid,                // IN
    platform_assert(async_lookup->avail_q);
    async_lookup->ready_q = pcq_alloc(hid, max_async_inflight);
    platform_assert(async_lookup->ready_q);
-   if (max_async_inflight > 0) {
-      data = TYPED_ARRAY_MALLOC(hid, data, max_async_inflight * data_size);
-      platform_assert(data);
-   }
    for (uint64 i = 0; i < max_async_inflight; i++) {
-      async_lookup->ctxt[i].data = data;
-      data += data_size;
+      writable_buffer_create(&async_lookup->ctxt[i].data, NULL);
       async_lookup->ctxt[i].ready_q = async_lookup->ready_q;
       // All ctxts start out as available
       pcq_enqueue(async_lookup->avail_q, &async_lookup->ctxt[i]);
@@ -106,8 +100,8 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
    pcq_free(hid, async_lookup->avail_q);
    platform_assert(pcq_is_empty(async_lookup->ready_q));
    pcq_free(hid, async_lookup->ready_q);
-   if (async_lookup->max_async_inflight > 0) {
-      platform_free(hid, async_lookup->ctxt[0].data);
+   for (uint64 i = 0; i < async_lookup->max_async_inflight; i++) {
+      writable_buffer_reset_to_null(&async_lookup->ctxt[i].data);
    }
    platform_free(hid, async_lookup);
 }
@@ -125,12 +119,11 @@ async_ctxt_process_one(splinter_handle *     spl,
                        async_ctxt_process_cb process_cb,
                        void *                process_arg)
 {
-   bool               found;
    cache_async_result res;
    timestamp          ts;
 
    ts  = platform_get_timestamp();
-   res = splinter_lookup_async(spl, ctxt->key, ctxt->data, &found, &ctxt->ctxt);
+   res = splinter_lookup_async(spl, ctxt->key, &ctxt->data, &ctxt->ctxt);
    ts  = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
       *latency_max = ts;
@@ -144,7 +137,7 @@ async_ctxt_process_one(splinter_handle *     spl,
       case async_io_started:
          break;
       case async_success:
-         process_cb(spl, ctxt, found, process_arg);
+         process_cb(spl, ctxt, process_arg);
          async_ctxt_unget(async_lookup, ctxt);
          break;
       default:

@@ -27,13 +27,22 @@ destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
 static void
 verify_tuple(splinter_handle *spl,
              char *           keybuf,
-             data_handle *    msg,
+             slice            message,
              int8             refcount,
-             bool             found,
              platform_status *result)
 {
+   const data_handle *msg   = slice_data(message);
+   bool               found = msg != NULL;
+   uint64             key   = be64toh(*(uint64 *)keybuf);
+
+   if (msg && slice_length(message) < sizeof(data_handle)) {
+      platform_error_log("ERROR: Short message of length %ld, key = 0x%08lx, ",
+                         slice_length(message),
+                         key);
+      platform_assert(0);
+   }
+
    if (refcount && !found) {
-      uint64 key = be64toh(*(uint64 *)keybuf);
 
       platform_error_log(
          "ERROR: A key not found in Splinter which is present in shadow tree: "
@@ -45,8 +54,6 @@ verify_tuple(splinter_handle *spl,
       splinter_print_lookup(spl, keybuf);
       platform_assert(0);
    } else if (refcount == 0 && found && msg->ref_count != 0) {
-      uint64 key = be64toh(*(uint64 *)keybuf);
-
       platform_error_log(
          "ERROR: A key found in the Splinter has refcount 0 in shadow tree. "
          "key = 0x%08lx, "
@@ -59,8 +66,6 @@ verify_tuple(splinter_handle *spl,
       splinter_print_lookup(spl, keybuf);
       platform_assert(0);
    } else if (found && msg->ref_count != refcount) {
-      uint64 key = be64toh(*(uint64 *)keybuf);
-
       platform_error_log(
          "ERROR: Refcount mismatch between a key returned by Splinter"
          " (ref: %4d) and shadow tree (ref: %4d) key = 0x%08lx\n",
@@ -74,15 +79,15 @@ verify_tuple(splinter_handle *spl,
 }
 
 static void
-verify_tuple_callback(splinter_handle *spl,
-                      test_async_ctxt *ctxt,
-                      bool             found,
-                      void *           arg)
+verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    platform_status *result = arg;
 
-   verify_tuple(
-      spl, ctxt->key, (data_handle *)ctxt->data, ctxt->refcount, found, result);
+   verify_tuple(spl,
+                ctxt->key,
+                writable_buffer_slice(&ctxt->data),
+                ctxt->refcount,
+                result);
 }
 
 
@@ -103,7 +108,6 @@ verify_tuple_callback(splinter_handle *spl,
 platform_status
 verify_against_shadow(splinter_handle *           spl,
                       char *                      keybuf,
-                      data_handle *               msg,
                       test_splinter_shadow_array *sharr,
                       test_async_lookup *         async_lookup)
 {
@@ -120,9 +124,10 @@ verify_against_shadow(splinter_handle *           spl,
    for (i = 0; i < sharr->nkeys; i++) {
       uint64           key      = sharr->keys[i];
       int8             refcount = sharr->ref_counts[i];
-      bool             found;
       test_async_ctxt *ctxt;
+      writable_buffer  message;
 
+      writable_buffer_create(&message, spl->heap_id);
       if (async_lookup) {
          ctxt = async_ctxt_get(async_lookup);
       } else {
@@ -131,17 +136,19 @@ verify_against_shadow(splinter_handle *           spl,
       if (ctxt == NULL) {
          test_int_to_key(keybuf, key, key_size);
 
-         rc = splinter_lookup(spl, keybuf, (void *)msg, &found);
+         rc = splinter_lookup(spl, keybuf, &message);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         verify_tuple(spl, keybuf, msg, refcount, found, &result);
+         slice message_slice = writable_buffer_slice(&message);
+         verify_tuple(spl, keybuf, message_slice, refcount, &result);
       } else {
          test_int_to_key(ctxt->key, key, key_size);
          ctxt->refcount = refcount;
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
+      writable_buffer_reset_to_null(&message);
    }
    if (async_lookup) {
       // Rough detection of stuck contexts
@@ -441,7 +448,6 @@ static platform_status
 validate_tree_against_shadow(splinter_handle *          spl,
                              random_state *             prg,
                              char *                     keybuf,
-                             data_handle *              msg,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_handle       hh,
                              platform_heap_id           hid,
@@ -470,7 +476,7 @@ validate_tree_against_shadow(splinter_handle *          spl,
       memcpy(&sharr, &dry_run_sharr, sizeof(sharr));
    }
 
-   rc = verify_against_shadow(spl, keybuf, msg, &sharr, async_lookup);
+   rc = verify_against_shadow(spl, keybuf, &sharr, async_lookup);
    if (!SUCCESS(rc)) {
       platform_free(hid, async_lookup);
       platform_error_log("Failed to verify inserted items in Splinter: %s\n",
@@ -551,8 +557,8 @@ insert_random_messages(splinter_handle *          spl,
       // if (key == 0x02f90065)
       //   platform_log("Inserting message: %8d OP=%d Key=0x%08lx Value=%8d\n",
       //   i, op, key, msg->ref_count);
-
-      rc = splinter_insert(spl, keybuf, (char *)msg);
+      slice message = slice_create(data_size, msg);
+      rc            = splinter_insert(spl, keybuf, message);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -673,7 +679,7 @@ test_functionality(allocator *          al,
       splinter_handle *          spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
       status                            = validate_tree_against_shadow(
-         spl, &prg, keybuf, msgbuf, shadow, hh, hid, TRUE, async_lookup);
+         spl, &prg, keybuf, shadow, hh, hid, TRUE, async_lookup);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to validate empty tree against shadow: \
                             %s\n",
@@ -777,7 +783,6 @@ test_functionality(allocator *          al,
             spl,
             &prg,
             keybuf,
-            msgbuf,
             shadow,
             hh,
             hid,
@@ -835,7 +840,6 @@ test_functionality(allocator *          al,
          spl,
          &prg,
          keybuf,
-         msgbuf,
          shadow,
          hh,
          hid,

@@ -284,8 +284,6 @@ typedef struct splinter_async_ctxt {
    uint16                       branch_no;     // branch number (newest)
    uint16                       branch_no_end; // branch number end (oldest,
                                                // exclusive)
-   bool                         found;         // If found the key
-   message_type                 type;          // data_class (if found==TRUE)
    bool                         was_async;     // Did an async IO for trunk ?
    splinter_branch             *branch;        // Current branch
    union {
@@ -317,14 +315,13 @@ typedef struct {
  */
 
 platform_status
-splinter_insert(splinter_handle *spl, char *key, char *data);
+splinter_insert(splinter_handle *spl, char *key, slice data);
 platform_status
-splinter_lookup(splinter_handle *spl, char *key, char *data, bool *found);
+splinter_lookup(splinter_handle *spl, char *key, writable_buffer *data);
 cache_async_result
 splinter_lookup_async(splinter_handle *    spl,
                       char *               key,
-                      char *               data,
-                      bool *               found,
+                      writable_buffer *    data,
                       splinter_async_ctxt *ctxt);
 platform_status
 splinter_range_iterator_init(splinter_handle *        spl,
@@ -440,12 +437,11 @@ splinter_key_to_string(splinter_handle *spl,
 
 static inline void
 splinter_message_to_string(splinter_handle *spl,
-                           const char *     message,
+                           slice            message,
                            char             str[static 128])
 {
-   slice message_slice = splinter_message_slice(spl, message);
    variable_length_btree_message_to_string(
-      &spl->cfg.variable_length_btree_cfg, message_slice, str);
+      &spl->cfg.variable_length_btree_cfg, message, str);
 }
 
 static inline void
