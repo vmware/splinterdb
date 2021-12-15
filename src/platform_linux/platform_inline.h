@@ -256,6 +256,7 @@ platform_status_to_string(const platform_status status)
 #define platform_log(...)                                                      \
    do {                                                                        \
       fprintf(Platform_stdout_fh, __VA_ARGS__);                                \
+      fflush(Platform_stdout_fh);                                 \
    } while (0)
 
 #define platform_throttled_log(sec, ...)        \
@@ -286,6 +287,18 @@ platform_status_to_string(const platform_status status)
       fprintf(lh, __VA_ARGS__);                 \
       fflush(lh);                               \
    } while (0)
+
+/*
+ * Linux understands that you cannot continue after a failed assert already,
+ * so we do not need a workaround for platform_assert in linux
+ */
+#define platform_assertm(expr, ...)                                     \
+        if (!(expr)) {                                                  \
+            platform_error_log("Assertion failed at %s:%d:%s(): \"%s\".",  \
+                    __FILE__, __LINE__, __FUNCTION__, #expr);           \
+            platform_error_log(" " __VA_ARGS__);                           \
+            abort();                                                    \
+        } else  /* ; is missing to avoid dangling-else problem */
 
 #define platform_open_log_file(path, mode) ({   \
    platform_log_handle lh = fopen(path, mode);  \

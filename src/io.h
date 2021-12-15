@@ -162,7 +162,8 @@ io_config_init(io_config *io_cfg,
    io_cfg->extent_size = extent_size;
 
    int rc = snprintf(io_cfg->filename, MAX_STRING_LENGTH, "%s", io_filename);
-   platform_assert(rc < MAX_STRING_LENGTH);
+   // platform_assert(rc < MAX_STRING_LENGTH);
+   assert(rc < MAX_STRING_LENGTH);
 
    io_cfg->flags = flags;
    io_cfg->perms = perms;
