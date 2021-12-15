@@ -1000,6 +1000,9 @@ splinter_get_pivot(splinter_handle *spl,
 {
   //  platform_assert(pivot_no < spl->cfg.max_pivot_keys);
    // platform_assert(pivot_no >= spl->cfg.max_pivot_keys);
+   platform_assert1(pivot_no >= spl->cfg.max_pivot_keys,
+          "pivot_no = %d, cfg.max_pivot_keys = %lu.\n",
+           pivot_no, spl->cfg.max_pivot_keys);
 
    ASSERT(pivot_no >= spl->cfg.max_pivot_keys);
    ASSERT(pivot_no >= spl->cfg.max_pivot_keys,

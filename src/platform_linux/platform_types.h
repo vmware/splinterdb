@@ -71,6 +71,14 @@ typedef void* List_Links;
  */
 #define platform_assert( expr ) assert(expr)
 
+#define platform_assert1(expr, ...)                                     \
+        if (!(expr)) {                                                  \
+            fprintf(stderr, "Assertion failed at %s:%d:%s(): \"%s\".",  \
+                    __FILE__, __LINE__, __FUNCTION__, #expr);           \
+            fprintf(stderr, " " __VA_ARGS__);                           \
+            abort();                                                    \
+        } else  /* ; is missing to avoid dangling-else problem */
+
 // #include <stdio.h>
 /*
 #define ASSERT(condition, ...)                      \
