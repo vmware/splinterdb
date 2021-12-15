@@ -85,7 +85,7 @@ typedef void* List_Links;
 
 #define ASSERT(condition,...) assert( \
     condition|| \
-    ( (fprintf(stderr, "Assert msg: " __VA_ARGS__) && (assert(condition), 0))) \
+    ( (fprintf(stderr, "Assert failed: " __VA_ARGS__) && (assert(condition), 0))) \
 );
 
     /*

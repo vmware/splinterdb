@@ -1004,11 +1004,9 @@ splinter_get_pivot(splinter_handle *spl,
    ASSERT(pivot_no >= spl->cfg.max_pivot_keys,
           "pivot_no = %d, cfg.max_pivot_keys = %lu.\n",
            pivot_no, spl->cfg.max_pivot_keys);
-   /*
    ASSERT2(pivot_no >= spl->cfg.max_pivot_keys,
           "pivot_no = %d, cfg.max_pivot_keys = %lu.\n",
            pivot_no, spl->cfg.max_pivot_keys);
-   */
 
    splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
    return ((char*)hdr) + sizeof(*hdr) + pivot_no * splinter_pivot_size(spl);
