@@ -64,12 +64,50 @@ typedef void* List_Links;
 #define FRACTION_FMT(w, s) "%"STRINGIFY_VALUE(w)"."STRINGIFY_VALUE(s)"f"
 #define FRACTION_ARGS(f) ((double)(f).numerator / (double)(f).denominator)
 
-
 /*
  * Linux understands that you cannot continue after a failed assert already,
  * so we do not need a workaround for platform_assert in linux
  */
-#define platform_assert( expr ) assert(expr)
+void
+platform_assert_impl(platform_stream_handle stream,
+                     const char *           filename,
+                     int                    linenumber,
+                     const char *           functionname,
+                     bool                   do_abort,
+                     const char *           expr,
+                     int                    exprval,
+                     const char *           message,
+                     ...);
+
+void
+platform_assert_msg(platform_stream_handle stream,
+                    const char *           filename,
+                    int                    linenumber,
+                    const char *           functionname,
+                    const char *           expr,
+                    const char *           message,
+                    va_list                args);
+
+/*
+ * Caller-macro to invoke assertion checking.
+ */
+#define platform_assert(expr, ...)                                             \
+   do {                                                                        \
+      platform_assert_impl(NULL,                                               \
+                           __FILE__,                                           \
+                           __LINE__,                                           \
+                           __FUNCTION__,                                       \
+                           TRUE,                                               \
+                           #expr,                                              \
+                           (expr) != 0,                                        \
+                           "" __VA_ARGS__);                                    \
+      /* Provide first line of defense in case user-supplied print-format and  \
+       * argument types do not match.                                          \
+       */                                                                      \
+      if (FALSE) {                                                             \
+         fprintf(stderr, " " __VA_ARGS__);                                     \
+      }                                                                        \
+   } while (0)
 
 typedef pthread_t platform_thread;
 
@@ -111,4 +149,4 @@ typedef struct platform_condvar {
    pthread_cond_t  cond;
 } platform_condvar;
 
-#endif
+#endif /* PLATFORM_LINUX_TYPES_H */

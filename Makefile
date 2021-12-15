@@ -4,6 +4,7 @@
 .DEFAULT_GOAL := release
 
 PLATFORM = linux
+PLATFORM_DIR = platform_$(PLATFORM)
 
 #*************************************************************#
 # DIRECTORIES, SRC, OBJ, ETC
@@ -240,6 +241,14 @@ unit/variable_length_btree_stress_test: $(OBJDIR)/tests/unit/variable_length_btr
                                  $(VARIABLE_LENGTH_BTREE_TEST_OBJS)
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+
+# ----
+$(BINDIR)/unit/misc_test: unit/misc_test
+unit/misc_test: $(OBJDIR)/tests/unit/misc_test.o            \
+                $(OBJDIR)/tests/unit/main.o                 \
+                $(OBJDIR)/src/$(PLATFORM_DIR)/platform.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
 
 #*************************************************************#
 

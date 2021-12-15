@@ -256,6 +256,7 @@ platform_status_to_string(const platform_status status)
 #define platform_log(...)                                                      \
    do {                                                                        \
       fprintf(Platform_stdout_fh, __VA_ARGS__);                                \
+      fflush(Platform_stdout_fh);                                              \
    } while (0)
 
 #define platform_throttled_log(sec, ...)        \
@@ -286,6 +287,7 @@ platform_status_to_string(const platform_status status)
       fprintf(lh, __VA_ARGS__);                 \
       fflush(lh);                               \
    } while (0)
+
 
 #define platform_open_log_file(path, mode) ({   \
    platform_log_handle lh = fopen(path, mode);  \
