@@ -216,6 +216,14 @@ unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
+# ----
+$(BINDIR)/unit/misc_test: unit/misc_test
+unit/misc_test: $(OBJDIR)/tests/unit/misc_test.o            \
+                $(OBJDIR)/tests/unit/main.o                 \
+                $(OBJDIR)/src/platform_linux/platform.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
+
 #*************************************************************#
 
 .PHONY : clean tags

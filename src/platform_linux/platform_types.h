@@ -64,12 +64,62 @@ typedef void* List_Links;
 #define FRACTION_FMT(w, s) "%"STRINGIFY_VALUE(w)"."STRINGIFY_VALUE(s)"f"
 #define FRACTION_ARGS(f) ((double)(f).numerator / (double)(f).denominator)
 
+/*
+ * Testing hook: Special-case message that can be passed to
+ * platform_assert(), to suppress abort()'ing if the assertion fails.
+ * -ONLY- testing code is expected to use this message.
+ */
+#define DO_NOT_ABORT_ON_ASSERT_FAIL "Do-Not-Abort-On-Assert-Fail"
 
 /*
  * Linux understands that you cannot continue after a failed assert already,
  * so we do not need a workaround for platform_assert in linux
  */
-#define platform_assert( expr ) assert(expr)
+void
+platform_assert_impl(const char *outbuf,
+                     int         outbuflen,
+                     const char *filename,
+                     int         linenumber,
+                     const char *functionname,
+                     const char *expr,
+                     int         exprval,
+                     int         hasmessage,
+                     ...);
+
+/*
+ * Caller-macro to invoke assertion checking.
+ */
+#define platform_assert(expr, ...)                                             \
+   platform_assert_impl((const char *)NULL,                                    \
+                        0,                                                     \
+                        __FILE__,                                              \
+                        __LINE__,                                              \
+                        __FUNCTION__,                                          \
+                        #expr,                                                 \
+                        (expr) != 0,                                           \
+                        0 __VA_OPT__(+1, ) __VA_ARGS__);                       \
+    /* Provide first line of defense in case user-supplied print-format and    \
+     * argument types do not match.                                            \
+     */                                                                        \
+    if (FALSE) {                                                               \
+        fprintf(stderr, " " __VA_ARGS__);                                      \
+    } else  /* ; intentionally missing to avoid dangling-else issue */          \                                                                     \
+
+/*
+ * Same as platform_assert() but leverages testing hook provided
+ * by implementation. Test code supplies output buffer in which the assertion
+ * messages will be generated, so that test-code can validate that the right
+ * parameter substitution is occurring.
+ */
+#define test_platform_assert(outbuf, outbuflen, expr, ...)                     \
+   platform_assert_impl((outbuf),                                              \
+                        (outbuflen),                                           \
+                        __FILE__,                                              \
+                        __LINE__,                                              \
+                        __FUNCTION__,                                          \
+                        #expr,                                                 \
+                        (expr) != 0,                                           \
+                        0 __VA_OPT__(+1, ) __VA_ARGS__)
 
 typedef pthread_t platform_thread;
 
@@ -111,4 +161,4 @@ typedef struct platform_condvar {
    pthread_cond_t  cond;
 } platform_condvar;
 
-#endif
+#endif /* PLATFORM_LINUX_TYPES_H */

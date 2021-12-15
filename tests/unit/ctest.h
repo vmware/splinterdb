@@ -175,7 +175,8 @@ void assert_equal(intmax_t exp, intmax_t real, const char* caller, int line);
 #define ASSERT_STREQ(str1, str2) assert_equal(strcmp(str1, str2), 0, __FILE__, __LINE__)
 
 // strncmp() of 2 strings, which may not be null-terminated
-#define ASSERT_STREQN(str1, str2, n) assert_equal(strncmp(str1, str2, n), 0, __FILE__, __LINE__)
+void assert_strnequal(const char *str1, const char *str2, int n, const char* caller, int line);
+#define ASSERT_STREQN(str1, str2, n) assert_strnequal(str1, str2, n, __FILE__, __LINE__)
 
 void assert_equal_u(uintmax_t exp, uintmax_t real, const char* caller, int line);
 #define ASSERT_EQUAL_U(exp, real) assert_equal_u(exp, real, __FILE__, __LINE__)
@@ -375,6 +376,15 @@ void assert_not_equal_u(uintmax_t exp, uintmax_t real, const char* caller, int l
     if ((exp) == (real)) {
         CTEST_ERR("%s:%d  should not be %" PRIuMAX, caller, line, real);
     }
+}
+
+void assert_strnequal(const char *str1, const char *str2, int n, const char* caller, int line) {
+   if (strncmp(str1, str2, n)) {
+      CTEST_ERR("%s:%d\n"
+                "expected: '%.*s'\n"
+                "got     : '%.*s'\n",
+                caller, line, n, str1, n, str2);
+   }
 }
 
 void assert_interval(intmax_t exp1, intmax_t exp2, intmax_t real, const char* caller, int line) {

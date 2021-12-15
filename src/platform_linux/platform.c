@@ -1,6 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <stdarg.h>
 #include "platform.h"
 
 #include <sys/mman.h>
@@ -294,4 +295,82 @@ platform_condvar_broadcast(platform_condvar *cv)
 
    status = pthread_cond_broadcast(&cv->cond);
    return CONST_STATUS(status);
+}
+
+/*
+ * platform_assert_impl() -
+ *
+ * Platform-specific assert implementation, with support to print an optional
+ * message and arguments involved in the assertion failure.
+ *
+ * NOTE: Parameters outbuf & outbuflen are provided as testing hooks. Test code
+ *  can supply these to receive formatted messages in the output buffer, which
+ * is later used to verify that the expected message is being generated.
+ */
+void
+platform_assert_impl(const char *outbuf,
+                     int         outbuflen,
+                     const char *filename,
+                     int         linenumber,
+                     const char *functionname,
+                     const char *expr,
+                     int         exprval,
+                     int         hasmessage,
+                     ...)
+{
+   va_list varargs;
+   if (exprval) {
+      return;
+   }
+
+   va_start(varargs, hasmessage);
+
+   static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";
+   char *      outbufp          = (char *)outbuf;
+   int         nbytes           = 0;
+
+   // Redirect messages to output buffer, if so requested.
+   if (outbuflen > 0) {
+      nbytes = snprintf(outbufp,
+                        outbuflen,
+                        assert_msg_fmt,
+                        filename,
+                        linenumber,
+                        functionname,
+                        expr);
+      outbufp += nbytes;
+      outbuflen -= nbytes;
+   } else {
+      platform_error_log(
+         assert_msg_fmt, filename, linenumber, functionname, expr);
+   }
+
+   bool do_abort = TRUE;
+
+   // Print informational message, with args, if it was provided.
+   if (hasmessage) {
+      char *message = va_arg(varargs, char *);
+
+      // Testing hook: Suppress abort, so tests can run cleanly.
+      if (!strncmp(DO_NOT_ABORT_ON_ASSERT_FAIL,
+                   message,
+                   strlen(DO_NOT_ABORT_ON_ASSERT_FAIL)))
+      {
+         do_abort = FALSE;
+      }
+      if (outbuflen > 0) {
+         nbytes = vsnprintf(outbufp, outbuflen, message, varargs);
+         outbufp += nbytes;
+         outbuflen -= nbytes;
+      } else {
+         vfprintf(Platform_stderr_fh, message, varargs);
+      }
+   }
+
+   if (!outbuflen) {
+      platform_error_log("\n");
+   }
+   if (do_abort) {
+      abort();
+   }
 }
