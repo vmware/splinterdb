@@ -292,7 +292,7 @@ platform_status_to_string(const platform_status status)
  * Linux understands that you cannot continue after a failed assert already,
  * so we do not need a workaround for platform_assert in linux
  */
-#define platform_assertm(expr, ...)                                     \
+#define platform_assert(expr, ...)                                     \
         if (!(expr)) {                                                  \
             platform_error_log("Assertion failed at %s:%d:%s(): \"%s\".",  \
                     __FILE__, __LINE__, __FUNCTION__, #expr);           \
@@ -302,7 +302,7 @@ platform_status_to_string(const platform_status status)
 
 #define platform_open_log_file(path, mode) ({   \
    platform_log_handle lh = fopen(path, mode);  \
-   platform_assert(lh);                         \
+   platform_assert0(lh);                         \
    lh;                                          \
 })
 

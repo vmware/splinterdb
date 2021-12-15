@@ -68,9 +68,9 @@ typedef void* List_Links;
  * Linux understands that you cannot continue after a failed assert already,
  * so we do not need a workaround for platform_assert in linux
  */
-#define platform_assert( expr ) assert(expr)
+#define platform_assert0( expr ) assert(expr)
 
-#define platform_assert0(expr, ...)                                     \
+#define platform_assert_test(expr, ...)                                     \
         if (!(expr)) {                                                  \
             fprintf(stderr, "Assertion failed at %s:%d:%s(): \"%s\".",  \
                     __FILE__, __LINE__, __FUNCTION__, #expr);           \
