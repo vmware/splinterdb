@@ -83,10 +83,25 @@ typedef void* List_Links;
     ( (  (assert(condition), 0) || fprintf(stderr, __VA_ARGS__))) \
 */
 
-#define ASSERT(condition,...) assert( \
-    condition|| \
-    ( (fprintf(stderr, "Assert failed: " __VA_ARGS__) && (assert(condition), 0))) \
-);
+
+/* This works:
+#define ASSERT(condition, ...)                      \
+        assert(condition || (fprintf(stderr, "Assert failed: " __VA_ARGS__) && 0) )
+
+#define ASSERT(condition, ...)                                  \
+        assert(condition                                        \
+                || (fprintf(stderr, "%s:%d Assertion failed: ", \
+                            __FILE__, __LINE__) == 0)           \
+                || (fprintf(stderr, ": " __VA_ARGS__) == 0) )
+*/
+
+#define ASSERT(condition, ...)                                      \
+        if (!(condition)) {                                         \
+            fprintf(stderr, "Assertion failed at %s:%d: \"%s\". ",  \
+                    __FILE__, __LINE__, #condition);                \
+            fprintf(stderr, " " __VA_ARGS__);                       \
+            abort();                                                \
+        } else  /* ; is missing to avoid dangling-else problem */
 
     /*
     ( (fprintf(stderr, "Assertion failed: '" #condition  "', at " __VA_ARGS__ ) , (abort() , 0) )) \
