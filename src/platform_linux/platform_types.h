@@ -90,20 +90,22 @@ platform_assert_impl(const char *outbuf,
  * Caller-macro to invoke assertion checking.
  */
 #define platform_assert(expr, ...)                                             \
-   platform_assert_impl((const char *)NULL,                                    \
-                        0,                                                     \
-                        __FILE__,                                              \
-                        __LINE__,                                              \
-                        __FUNCTION__,                                          \
-                        #expr,                                                 \
-                        (expr) != 0,                                           \
-                        0 __VA_OPT__(+1, ) __VA_ARGS__);                       \
-    /* Provide first line of defense in case user-supplied print-format and    \
-     * argument types do not match.                                            \
-     */                                                                        \
-    if (FALSE) {                                                               \
-        fprintf(stderr, " " __VA_ARGS__);                                      \
-    } else  /* ; intentionally missing to avoid dangling-else issue */          \                                                                     \
+   do {                                                                        \
+      platform_assert_impl((const char *)NULL,                                 \
+                           0,                                                  \
+                           __FILE__,                                           \
+                           __LINE__,                                           \
+                           __FUNCTION__,                                       \
+                           #expr,                                              \
+                           (expr) != 0,                                        \
+                           0 __VA_OPT__(+1, ) __VA_ARGS__);                    \
+      /* Provide first line of defense in case user-supplied print-format and  \
+       * argument types do not match.                                          \
+       */                                                                      \
+      if (FALSE) {                                                             \
+         fprintf(stderr, " " __VA_ARGS__);                                     \
+      }                                                                        \
+   } while (0)
 
 /*
  * Same as platform_assert() but leverages testing hook provided
