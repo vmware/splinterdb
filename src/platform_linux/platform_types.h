@@ -83,7 +83,7 @@ platform_assert_impl(const char *outbuf,
                      const char *functionname,
                      const char *expr,
                      int         exprval,
-                     int         hasmessage,
+                     char *      message,
                      ...);
 
 /*
@@ -98,7 +98,7 @@ platform_assert_impl(const char *outbuf,
                            __FUNCTION__,                                       \
                            #expr,                                              \
                            (expr) != 0,                                        \
-                           0 __VA_OPT__(+1, ) __VA_ARGS__);                    \
+                           "" __VA_ARGS__);                                    \
       /* Provide first line of defense in case user-supplied print-format and  \
        * argument types do not match.                                          \
        */                                                                      \
@@ -121,7 +121,7 @@ platform_assert_impl(const char *outbuf,
                         __FUNCTION__,                                          \
                         #expr,                                                 \
                         (expr) != 0,                                           \
-                        0 __VA_OPT__(+1, ) __VA_ARGS__)
+                        "" __VA_ARGS__)
 
 typedef pthread_t platform_thread;
 

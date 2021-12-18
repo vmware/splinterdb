@@ -68,14 +68,19 @@ CTEST2(misc, test_assert_msg_with_args)
                    DO_NOT_ABORT_ON_ASSERT_FAIL ", with args id=%d, name='%s'",
                    arg_id,
                    arg_name);
+
+   /*
+    * Test code below is carefully constructing an expected assertion message
+    * containing a line number. The value generated for __LINE__ seems to be
+    * different for gcc v/s clang when the test_platform_assert() is expanded.
+    * To get consistent test results, turn off clang-formatting temporarily so
+    * that we can squish the call to test_platform_assert() one one line.
+    */
+   // clang-format off
    int lineno = __LINE__ + 1;
-   test_platform_assert(outbuf,
-                        outbuflen,
-                        1 == 2,
-                        DO_NOT_ABORT_ON_ASSERT_FAIL
-                        ", with args id=%d, name='%s'",
-                        arg_id,
-                        arg_name);
+   test_platform_assert(outbuf, outbuflen, 1 == 2, DO_NOT_ABORT_ON_ASSERT_FAIL ", with args id=%d, name='%s'", arg_id, arg_name);
+
+   // clang-format on
 
    // Construct an expected assertion message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];

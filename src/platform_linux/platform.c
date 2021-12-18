@@ -315,7 +315,7 @@ platform_assert_impl(const char *outbuf,
                      const char *functionname,
                      const char *expr,
                      int         exprval,
-                     int         hasmessage,
+                     char *      message,
                      ...)
 {
    va_list varargs;
@@ -323,7 +323,7 @@ platform_assert_impl(const char *outbuf,
       return;
    }
 
-   va_start(varargs, hasmessage);
+   va_start(varargs, message);
 
    static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";
    char *      outbufp          = (char *)outbuf;
@@ -347,24 +347,20 @@ platform_assert_impl(const char *outbuf,
 
    bool do_abort = TRUE;
 
-   // Print informational message, with args, if it was provided.
-   if (hasmessage) {
-      char *message = va_arg(varargs, char *);
-
-      // Testing hook: Suppress abort, so tests can run cleanly.
-      if (!strncmp(DO_NOT_ABORT_ON_ASSERT_FAIL,
-                   message,
-                   strlen(DO_NOT_ABORT_ON_ASSERT_FAIL)))
-      {
-         do_abort = FALSE;
-      }
-      if (outbuflen > 0) {
-         nbytes = vsnprintf(outbufp, outbuflen, message, varargs);
-         outbufp += nbytes;
-         outbuflen -= nbytes;
-      } else {
-         vfprintf(Platform_stderr_fh, message, varargs);
-      }
+   // Testing hook: Suppress abort, so tests can run cleanly.
+   if (!strncmp(DO_NOT_ABORT_ON_ASSERT_FAIL,
+                message,
+                strlen(DO_NOT_ABORT_ON_ASSERT_FAIL)))
+   {
+      do_abort = FALSE;
+   }
+   // Print, or generate in output buffer, the informational message, with args,
+   if (outbuflen > 0) {
+      nbytes = vsnprintf(outbufp, outbuflen, message, varargs);
+      outbufp += nbytes;
+      outbuflen -= nbytes;
+   } else {
+      vfprintf(Platform_stderr_fh, message, varargs);
    }
 
    if (!outbuflen) {
