@@ -1217,12 +1217,6 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (data_cfg->message_size != YCSB_DATA_SIZE) {
-      rc = STATUS_BAD_PARAM;
-      platform_error_log("ycsb: data size configuration does not match\n");
-      goto cleanup;
-   }
-
    if (data_cfg->key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
       platform_error_log("ycsb: key size configuration does not match\n");
@@ -1280,16 +1274,6 @@ ycsb_test(int argc, char *argv[])
    // int sys_rc = system(resize_hugetlb_command);
    // platform_assert(sys_rc == 0);
    // platform_free(hid, resize_hugetlb_command);
-
-   if (data_cfg->message_size != YCSB_DATA_SIZE) {
-      platform_error_log("ycsb: data size configuration does not match\n");
-      goto cleanup;
-   }
-
-   if (data_cfg->key_size != YCSB_KEY_SIZE) {
-      platform_error_log("ycsb: key size configuration does not match\n");
-      goto cleanup;
-   }
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);

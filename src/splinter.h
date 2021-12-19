@@ -394,12 +394,6 @@ splinter_message_size(splinter_handle *spl)
    return spl->cfg.data_cfg->message_size;
 }
 
-static inline uint64
-splinter_tuple_size(splinter_handle *spl)
-{
-   return splinter_key_size(spl) + splinter_message_size(spl);
-}
-
 static inline slice
 splinter_key_slice(splinter_handle *spl, const char *key)
 {

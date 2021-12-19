@@ -8035,7 +8035,6 @@ splinter_print_lookup(splinter_handle *spl,
          char key_str[128];
          char  message_str[128];
          slice message = writable_buffer_slice(&data);
-         debug_assert(slice_length(message) == splinter_message_size(spl));
          splinter_key_to_string(spl, key, key_str);
          splinter_message_to_string(spl, message, message_str);
          platform_log("Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
