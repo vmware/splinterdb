@@ -10,7 +10,7 @@
 #ifndef __MERGE_H
 #define __MERGE_H
 
-#include "btree.h"
+#include "data_internal.h"
 #include "iterator.h"
 #include "platform.h"
 

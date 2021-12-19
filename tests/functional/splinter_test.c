@@ -10,7 +10,6 @@
 #include "platform.h"
 
 #include "splinter.h"
-#include "btree.h"
 #include "merge.h"
 #include "test.h"
 #include "allocator.h"
