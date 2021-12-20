@@ -1000,7 +1000,7 @@ trunk_alloc(trunk_handle *spl, uint64 height)
  *-----------------------------------------------------------------------------
  * Circular Buffer Arithmetic
  *
- *       X_add and X_sub add or substract the offset in the arithmetic of the
+ *       X_add and X_sub add or subtract the offset in the arithmetic of the
  *       circular buffer for X.
  *
  *       X_in_range returns TRUE if the given index is in the range [start,
@@ -2818,7 +2818,7 @@ trunk_btree_lookup_and_merge(trunk_handle    *spl,
  *      async_locked: A page needed by lookup is locked. User should retry
  *      request.
  *      async_no_reqs: A page needed by lookup is not in cache and the IO
- *      subsytem is out of requests. User should throttle.
+ *      subsystem is out of requests. User should throttle.
  *      async_io_started: Async IO was started to read a page needed by the
  *      lookup into the cache. When the read is done, caller will be notified
  *      using ctxt->cb, that won't run on the thread context. It can be used

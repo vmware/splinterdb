@@ -4,7 +4,7 @@
 /*
  * log.h --
  *
- *     This file contains the abstact interface for a write-ahead log.
+ *     This file contains the abstract interface for a write-ahead log.
  */
 
 #ifndef __LOG_H

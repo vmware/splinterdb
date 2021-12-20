@@ -908,7 +908,7 @@ routing_async_set_state(routing_async_ctxt *ctxt, routing_async_state new_state)
  * routing_filter_async_callback --
  *
  *      Callback that's called when the async cache get loads a page into
- *      the cache. This funciton moves the async filter lookup state machine's
+ *      the cache. This function moves the async filter lookup state machine's
  *      state ahead, and calls the upper layer callback that'll re-enqueue
  *      the filter lookup for dispatch.
  *
@@ -951,7 +951,7 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
  *      async_locked: A page needed by lookup is locked. User should retry
  *                    request.
  *      async_no_reqs: A page needed by lookup is not in cache and the IO
- *                     subsytem is out of requests. User should throttle.
+ *                     subsystem is out of requests. User should throttle.
  *      async_io_started: Async IO was started to read a page needed by the
  *                        lookup into the cache. When the read is done, caller
  *                        will be notified using ctxt->cb, that won't run on
