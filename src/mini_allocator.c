@@ -740,7 +740,7 @@ state(data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- * Apply func to every exent whose key range intersects [start_key, _end_key].
+ * Apply func to every extent whose key range intersects [start_key, _end_key].
  *
  * Note: if start_key is null, then so must be _end_key, and func is
  * applied to all extents.
@@ -826,8 +826,7 @@ mini_keyed_for_each(cache           *cc,
 }
 
 /*
- *-----------------------------------------------------------------------------
- * Apply func to every exent whose key range intersects [start_key, _end_key].
+ * Apply func to every extent whose key range intersects [start_key, _end_key].
  *
  * Note: if start_key is null, then so must be _end_key, and func is
  * applied to all extents.
@@ -924,7 +923,7 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
  * mini_unkeyed_[inc,dec]_ref --
  *
  *      Increments or decrements the ref count of the unkeyed allocator. When
- *      the external ref count reaches 0 (actual ref count reachs
+ *      the external ref count reaches 0 (actual ref count reaches
  *      MINI_NO_REFS), the mini allocator is destroyed.
  *
  * Results:
@@ -1032,7 +1031,7 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *      mini_keyed_dec_ref from deallocating while they are reading,
  *      mini_keyed_dec_ref must see no additional refs (blockers) on the
  *      meta_head before proceeding. After starting, they do not need to check
- *      again, since a range query cannot have gotten a refernce to their range
+ *      again, since a range query cannot have gotten a reference to their range
  *      after the call to dec_ref is made.
  *
  * Results:

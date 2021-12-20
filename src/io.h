@@ -4,7 +4,7 @@
 /*
  * io.h --
  *
- *     This file contains the abstact interface for IO.
+ *     This file contains the abstract interface for IO.
  */
 
 #ifndef __IO_H

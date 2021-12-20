@@ -2311,7 +2311,7 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
  *either of: async_locked: A page needed by lookup is locked. User should retry
  *      request.
  *      async_no_reqs: A page needed by lookup is not in cache and the IO
- *      subsytem is out of requests. User should throttle.
+ *      subsystem is out of requests. User should throttle.
  *      async_io_started: Async IO was started to read a page needed by the
  *      lookup into the cache. When the read is done, caller will be notified
  *      using ctxt->cb, that won't run on the thread context. It can be used
