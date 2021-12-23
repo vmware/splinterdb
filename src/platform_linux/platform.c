@@ -308,7 +308,7 @@ platform_condvar_broadcast(platform_condvar *cv)
  * is later used to verify that the expected message is being generated.
  */
 void
-platform_assert_impl(const char *outbuf,
+platform_assert_impl0(const char *outbuf,
                      int         outbuflen,
                      const char *filename,
                      int         linenumber,
@@ -370,3 +370,90 @@ platform_assert_impl(const char *outbuf,
       abort();
    }
 }
+
+void
+platform_assert_impl(const char *filename,
+                     int         linenumber,
+                     const char *functionname,
+                     const char *expr,
+                     int         exprval,
+                    const char * message,
+                     ...)
+{
+   va_list varargs;
+   if (exprval) {
+      return;
+   }
+
+   va_start(varargs, message);
+
+   platform_stream_handle stream = Platform_stderr_fh;
+   fprintf(stderr, "message: '%s'\n", message);
+   vfprintf(stderr, message, varargs);
+   fprintf(stderr, "\n");
+
+   platform_assert_msg(stream, filename, linenumber, functionname, expr,
+                       message, varargs);
+   platform_log_stream("\n");
+   fflush(stream);
+   va_end(varargs);
+
+  abort();
+}
+
+void
+platform_assert_msg(platform_stream_handle stream,
+                    const char *filename,
+                    int         linenumber,
+                    const char *functionname,
+                    const char *expr,
+                    const char * message,
+                     va_list varargs)
+{
+   static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";
+   fprintf(stderr, assert_msg_fmt, filename, linenumber, functionname, expr);
+   fprintf(stderr, "\n");
+   platform_log_stream(
+         assert_msg_fmt, filename, linenumber, functionname, expr);
+
+   // va_list varargs;
+   // va_start(varargs, message);
+
+   fprintf(stderr, "message: '%s'\n", message);
+
+   vfprintf(stderr, message, varargs);
+   fprintf(stderr, "\n");
+   // platform_log_stream(message, varargs);
+   // va_end(varargs);
+}
+
+/*
+**
+**
+static void exampleV(int b, va_list args);
+
+void exampleA(int a, int b, ...)    // Renamed for consistency
+{
+    va_list args;
+    do_something(a);                // Use argument a somehow
+    va_start(args, b);
+    exampleV(b, args);
+    va_end(args);
+}
+
+void exampleB(int b, ...)
+{
+    va_list args;
+    va_start(args, b);
+    exampleV(b, args);
+    va_end(args);
+}
+
+static void exampleV(int b, va_list args)
+{
+    ...whatever you planned to have exampleB do...
+    ...except it calls neither va_start nor va_end...
+}
+
+
+*/

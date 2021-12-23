@@ -76,24 +76,29 @@ typedef void* List_Links;
  * so we do not need a workaround for platform_assert in linux
  */
 void
-platform_assert_impl(const char *outbuf,
-                     int         outbuflen,
-                     const char *filename,
+platform_assert_impl(const char *filename,
                      int         linenumber,
                      const char *functionname,
                      const char *expr,
                      int         exprval,
-                     char *      message,
+                     const char *      message,
                      ...);
+
+void
+platform_assert_msg(platform_stream_handle stream,
+                    const char *filename,
+                    int         linenumber,
+                    const char *functionname,
+                    const char *expr,
+                    const char *      message,
+                    va_list args);
 
 /*
  * Caller-macro to invoke assertion checking.
  */
 #define platform_assert(expr, ...)                                             \
    do {                                                                        \
-      platform_assert_impl((const char *)NULL,                                 \
-                           0,                                                  \
-                           __FILE__,                                           \
+      platform_assert_impl(__FILE__,                                           \
                            __LINE__,                                           \
                            __FUNCTION__,                                       \
                            #expr,                                              \
@@ -113,14 +118,11 @@ platform_assert_impl(const char *outbuf,
  * messages will be generated, so that test-code can validate that the right
  * parameter substitution is occurring.
  */
-#define test_platform_assert(outbuf, outbuflen, expr, ...)                     \
-   platform_assert_impl((outbuf),                                              \
-                        (outbuflen),                                           \
-                        __FILE__,                                              \
+#define test_platform_assert(expr, ...)                     \
+   platform_assert_msg(stream, __FILE__,                                              \
                         __LINE__,                                              \
                         __FUNCTION__,                                          \
                         #expr,                                                 \
-                        (expr) != 0,                                           \
                         "" __VA_ARGS__)
 
 typedef pthread_t platform_thread;

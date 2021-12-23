@@ -30,13 +30,10 @@ CTEST_TEARDOWN(misc) {}
  */
 CTEST2(misc, test_assert_basic_msg)
 {
-   static char outbuf[ASSERT_OUTBUF_LEN];
-   int         outbuflen = sizeof(outbuf);
-
-   outbuf[0]  = '\0';
-   int lineno = __LINE__ + 2;
-   platform_assert(1 == 2, DO_NOT_ABORT_ON_ASSERT_FAIL);
-   test_platform_assert(outbuf, outbuflen, 1 == 2, DO_NOT_ABORT_ON_ASSERT_FAIL);
+   platform_open_log_stream();
+   int lineno = __LINE__ + 1;
+   // test_platform_assert(1 == 2, DO_NOT_ABORT_ON_ASSERT_FAIL);
+   fflush(stream);
 
    // Construct an expected assertion message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];
@@ -48,7 +45,8 @@ CTEST2(misc, test_assert_basic_msg)
             "ctest_misc_test_assert_basic_msg_run",
             DO_NOT_ABORT_ON_ASSERT_FAIL);
 
-   ASSERT_STREQN(expmsg, outbuf, strlen(expmsg));
+   ASSERT_STREQN(expmsg, bp, strlen(expmsg));
+   platform_close_log_stream(Platform_stderr_fh);
 }
 
 /*
@@ -57,18 +55,10 @@ CTEST2(misc, test_assert_basic_msg)
  */
 CTEST2(misc, test_assert_msg_with_args)
 {
-   static char outbuf[ASSERT_OUTBUF_LEN];
-   int         outbuflen = sizeof(outbuf);
-
    int   arg_id   = 42;
    char *arg_name = "Some-name-string";
 
-   outbuf[0] = '\0';
-   platform_assert(1 == 2,
-                   DO_NOT_ABORT_ON_ASSERT_FAIL ", with args id=%d, name='%s'",
-                   arg_id,
-                   arg_name);
-
+   platform_open_log_stream();
    /*
     * Test code below is carefully constructing an expected assertion message
     * containing a line number. The value generated for __LINE__ seems to be
@@ -78,9 +68,13 @@ CTEST2(misc, test_assert_msg_with_args)
     */
    // clang-format off
    int lineno = __LINE__ + 1;
-   test_platform_assert(outbuf, outbuflen, 1 == 2, DO_NOT_ABORT_ON_ASSERT_FAIL ", with args id=%d, name='%s'", arg_id, arg_name);
-
+   /*
+   test_platform_assert(1 == 2, DO_NOT_ABORT_ON_ASSERT_FAIL ", with args id=%d, name='%s'", arg_id, arg_name);
+   */
    // clang-format on
+
+   fflush(stream);
+   fprintf(stderr, "Msg: '%s'\n", bp);
 
    // Construct an expected assertion message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];
@@ -95,5 +89,6 @@ CTEST2(misc, test_assert_msg_with_args)
       arg_id,
       arg_name);
 
-   ASSERT_STREQN(expmsg, outbuf, strlen(expmsg));
+   ASSERT_STREQN(expmsg, bp, strlen(expmsg));
+   platform_close_log_stream(Platform_stderr_fh);
 }
