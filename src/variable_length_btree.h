@@ -79,8 +79,8 @@ typedef struct variable_length_btree_iterator {
    slice                         max_key;
 
    uint64                     root_addr;
-   variable_length_btree_node curr;
-   uint64                     idx;
+   variable_length_btree_node curr[VARIABLE_LENGTH_BTREE_MAX_HEIGHT];
+   uint64                     idx[VARIABLE_LENGTH_BTREE_MAX_HEIGHT];
    uint64                     end_addr;
    uint64                     end_idx;
    uint64                     end_generation;
