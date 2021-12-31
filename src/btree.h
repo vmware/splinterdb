@@ -239,7 +239,8 @@ bool
 btree_zap(cache        *cc,
           btree_config *cfg,
           uint64        root_addr,
-          page_type     type);
+          page_type     type,
+          bool pinned);
 
 void
 btree_inc_range(cache        *cc,

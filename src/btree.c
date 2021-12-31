@@ -1068,11 +1068,11 @@ btree_zap_range(cache *       cc,
 }
 
 bool
-btree_zap(cache *cc, btree_config *cfg, uint64 root_addr, page_type type)
+btree_zap(cache *cc, btree_config *cfg, uint64 root_addr, page_type type, bool pinned)
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type);
+   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type, pinned);
    return ref == 0;
 }
 

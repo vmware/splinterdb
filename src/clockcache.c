@@ -131,7 +131,7 @@ page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type);
 
 void
-clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type);
+clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type, bool pinned);
 
 uint8
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr);
@@ -260,10 +260,10 @@ clockcache_alloc_virtual(cache *c, uint64 addr, page_type type)
 }
 
 void
-clockcache_hard_evict_extent_virtual(cache *c, uint64 addr, page_type type)
+clockcache_hard_evict_extent_virtual(cache *c, uint64 addr, page_type type, bool pinned)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_hard_evict_extent(cc, addr, type);
+   return clockcache_hard_evict_extent(cc, addr, type, pinned);
 }
 
 uint8
@@ -1923,7 +1923,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
  */
 
 void
-clockcache_try_hard_evict(clockcache *cc, uint64 addr)
+clockcache_try_hard_evict(clockcache *cc, uint64 addr, bool pinned)
 {
    const threadid tid = platform_get_tid();
    while (TRUE) {
@@ -1995,6 +1995,10 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       entry->status = CC_FREE_STATUS;
 
+      if (pinned) {
+         clockcache_unget(cc, &entry->page);
+      }
+
       /* 7. release read lock */
       clockcache_dec_ref(cc, entry_number, tid);
       return;
@@ -2013,7 +2017,7 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
  */
 
 void
-clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
+clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type, bool pinned)
 {
    debug_assert(addr % cc->cfg->extent_size == 0);
    debug_code(allocator *al = cc->al);
@@ -2022,7 +2026,7 @@ clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
       uint64 page_addr = addr + clockcache_multiply_by_page_size(cc, i);
-      clockcache_try_hard_evict(cc, page_addr);
+      clockcache_try_hard_evict(cc, page_addr, pinned);
    }
 }
 

@@ -282,7 +282,7 @@ memtable_zap(cache    *cc,
              memtable *mt)
 {
    variable_length_btree_dec_ref(
-      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE, mt->mini.pinned);
 }
 
 static inline bool

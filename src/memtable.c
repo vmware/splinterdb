@@ -207,7 +207,7 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
    cache *cc = ctxt->cc;
 
    bool freed = variable_length_btree_dec_ref(
-      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE, mt->mini.pinned);
    if (freed) {
       platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
       mt->root_addr = variable_length_btree_create(
@@ -218,6 +218,7 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
       memtable_transition(mt, MEMTABLE_STATE_INCORPORATED,
                               MEMTABLE_STATE_READY);
    }
+   platform_log("%s freed=%d\n", __func__, freed);
    return freed;
 }
 
@@ -272,7 +273,7 @@ memtable_deinit(cache            *cc,
 {
    mini_release(&mt->mini, NULL_SLICE);
    debug_only bool freed = variable_length_btree_dec_ref(
-      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE, mt->mini.pinned);
    debug_assert(freed);
 }
 
@@ -344,7 +345,7 @@ memtable_context_destroy(platform_heap_id  hid,
    uint8      ref =
       allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_NO_REFS);
-   cache_hard_evict_extent(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   cache_hard_evict_extent(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA, FALSE);
    ref = allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_FREE);
 
