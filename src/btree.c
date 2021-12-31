@@ -1011,11 +1011,19 @@ btree_init(cache          *cc,
    uint64 meta_head = root.addr + cfg->page_size;
    if (is_packed) {
       // use keyed mini allocator for branches
-      mini_init(
-         mini, cc, cfg->data_cfg, meta_head, 0, BTREE_MAX_HEIGHT, type, TRUE);
+      mini_init(mini,
+                cc,
+                cfg->data_cfg,
+                meta_head,
+                0,
+                BTREE_MAX_HEIGHT,
+                type,
+                FALSE,
+                TRUE);
    } else {
       // use unkeyed mini allocator for memtables
-      mini_init(mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
+      mini_init(
+         mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, TRUE, FALSE);
    }
 
    return root.addr;
@@ -1072,7 +1080,7 @@ btree_zap(cache *cc, btree_config *cfg, uint64 root_addr, page_type type)
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type);
+   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
    return ref == 0;
 }
 

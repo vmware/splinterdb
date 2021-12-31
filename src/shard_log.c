@@ -103,6 +103,7 @@ shard_log_init(shard_log        *log,
                          0,
                          1,
                          PAGE_TYPE_LOG,
+                         FALSE,
                          FALSE);
    //platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
 
@@ -120,7 +121,7 @@ shard_log_zap(shard_log *log)
       thread_data->offset = 0;
    }
 
-   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
+   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
 }
 
 struct PACKED log_entry {

@@ -247,6 +247,7 @@ mini_init(mini_allocator *mini,
           uint64          meta_tail,
           uint64          num_batches,
           page_type       type,
+          bool            pinned,
           bool            keyed)
 {
    platform_assert(num_batches <= MINI_MAX_BATCHES);
@@ -263,6 +264,7 @@ mini_init(mini_allocator *mini,
    mini->meta_head   = meta_head;
    mini->num_batches = num_batches;
    mini->type        = type;
+   mini->pinned      = pinned;
 
    page_handle *meta_page;
    if (meta_tail == 0) {
@@ -277,7 +279,9 @@ mini_init(mini_allocator *mini,
          uint8  ref       = allocator_inc_ref(mini->al, base_addr);
          platform_assert(ref == MINI_NO_REFS + 1);
       }
-
+      if (mini->pinned) {
+         cache_pin(cc, meta_page);
+      }
       mini_full_unlock_meta_page(mini, meta_page);
    } else {
       // load mini allocator
@@ -530,6 +534,10 @@ mini_append_entry(mini_allocator *mini,
          // unkeyed
          success = mini_unkeyed_append_entry(mini, meta_page, next_addr);
       }
+
+      if (mini->pinned) {
+         cache_pin(mini->cc, meta_page);
+      }
       debug_assert(success);
    }
    mini_full_unlock_meta_page(mini, meta_page);
@@ -566,7 +574,6 @@ mini_alloc(mini_allocator *mini,
 {
    debug_assert(batch < mini->num_batches);
    debug_assert(!mini->keyed || !slice_is_null(key));
-
    uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
 
    if (next_addr % cache_extent_size(mini->cc) == 0) {
@@ -670,13 +677,13 @@ static void
 mini_unkeyed_for_each(cache *          cc,
                       uint64           meta_head,
                       page_type        type,
+                      bool             pinned,
                       mini_for_each_fn func,
                       void *           out)
 {
    uint64 meta_addr = meta_head;
    do {
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, type);
-
       uint64              num_meta_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry            = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_meta_entries; i++) {
@@ -945,7 +952,7 @@ mini_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
 }
 
 void
-mini_deinit(cache *cc, uint64 meta_head, page_type type)
+mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
 {
    allocator *al        = cache_allocator(cc);
    uint64     meta_addr = meta_head;
@@ -979,8 +986,14 @@ mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 }
 
 uint8
-mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type)
+mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
 {
+   if (type == PAGE_TYPE_MEMTABLE) {
+      platform_assert(pinned);
+   } else {
+      platform_assert(!pinned);
+   }
+
    allocator *al        = cache_allocator(cc);
    uint64     base_addr = cache_base_addr(cc, meta_head);
    uint8      ref       = allocator_dec_ref(al, base_addr, type);
@@ -991,8 +1004,8 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type)
    }
 
    // need to deallocate and clean up the mini allocator
-   mini_unkeyed_for_each(cc, meta_head, type, mini_dealloc_extent, NULL);
-   mini_deinit(cc, meta_head, type);
+   mini_unkeyed_for_each(cc, meta_head, type, FALSE, mini_dealloc_extent, NULL);
+   mini_deinit(cc, meta_head, type, pinned);
    return 0;
 }
 
@@ -1112,7 +1125,7 @@ mini_keyed_dec_ref(cache *      cc,
       uint64     base_addr = cache_base_addr(cc, meta_head);
       uint8      ref       = allocator_get_ref(al, base_addr);
       platform_assert(ref == AL_ONE_REF);
-      mini_deinit(cc, meta_head, type);
+      mini_deinit(cc, meta_head, type, FALSE);
    }
    return should_cleanup;
 }
@@ -1223,7 +1236,8 @@ mini_prefetch_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 void
 mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head)
 {
-   mini_unkeyed_for_each(cc, meta_head, type, mini_prefetch_extent, NULL);
+   mini_unkeyed_for_each(
+      cc, meta_head, type, FALSE, mini_prefetch_extent, NULL);
 }
 
 /*

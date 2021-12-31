@@ -6792,6 +6792,7 @@ splinter_create(splinter_config  *cfg,
              0,
              SPLINTER_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
+             FALSE,
              FALSE);
 
    // set up the memtable context
@@ -6912,6 +6913,7 @@ splinter_mount(splinter_config  *cfg,
              meta_tail,
              SPLINTER_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
+             FALSE,
              FALSE);
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
@@ -7044,7 +7046,7 @@ splinter_destroy(splinter_handle *spl)
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
    mini_release(&spl->mini, NULL_SLICE);
-   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
+   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
 
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
