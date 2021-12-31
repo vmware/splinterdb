@@ -1996,7 +1996,7 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr, bool pinned)
       entry->status = CC_FREE_STATUS;
 
       if (pinned) {
-         clockcache_unget(cc, &entry->page);
+         clockcache_unpin(cc, &entry->page);
       }
 
       /* 7. release read lock */

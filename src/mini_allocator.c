@@ -247,13 +247,18 @@ mini_init(mini_allocator *mini,
           uint64          meta_tail,
           uint64          num_batches,
           page_type       type,
-          bool            keyed)
+          bool            keyed,
+          bool            pinned)
 {
    platform_assert(num_batches <= MINI_MAX_BATCHES);
    platform_assert(num_batches != 0);
    platform_assert(mini != NULL);
    platform_assert(cc != NULL);
    platform_assert(!keyed || cfg != NULL);
+
+   if (type == PAGE_TYPE_MEMTABLE) {
+      platform_assert(pinned);
+   }
 
    ZERO_CONTENTS(mini);
    mini->cc          = cc;
@@ -263,7 +268,7 @@ mini_init(mini_allocator *mini,
    mini->meta_head   = meta_head;
    mini->num_batches = num_batches;
    mini->type        = type;
-   mini->pinned      = (type == PAGE_TYPE_MEMTABLE);
+   mini->pinned      = pinned;
 
    page_handle *meta_page;
    if (meta_tail == 0) {
@@ -573,7 +578,6 @@ mini_alloc(mini_allocator *mini,
 {
    debug_assert(batch < mini->num_batches);
    debug_assert(!mini->keyed || !slice_is_null(key));
-
    uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
 
    if (next_addr % cache_extent_size(mini->cc) == 0) {
@@ -989,6 +993,12 @@ mini_dealloc_extent(cache *cc, page_type type, bool pinned, uint64 base_addr, vo
 uint8
 mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
 {
+   if (type == PAGE_TYPE_MEMTABLE) {
+      platform_assert(pinned);
+   } else {
+      platform_assert(!pinned);
+   }
+
    allocator *al        = cache_allocator(cc);
    uint64     base_addr = cache_base_addr(cc, meta_head);
    uint8      ref       = allocator_dec_ref(al, base_addr, type);

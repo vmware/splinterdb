@@ -431,7 +431,7 @@ routing_filter_add(cache            *cc,
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
    mini_allocator mini;
-   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, FALSE);
+   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, FALSE, FALSE);
 
    // set up the index pages
    uint64 addrs_per_page = page_size / sizeof(uint64);

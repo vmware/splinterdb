@@ -205,8 +205,7 @@ bool
 variable_length_btree_dec_ref(cache *                             cc,
                               const variable_length_btree_config *cfg,
                               uint64                              root_addr,
-                              page_type                           type,
-                              bool                                pinned);
+                              page_type                           type);
 
 void
 variable_length_btree_block_dec_ref(cache *                       cc,

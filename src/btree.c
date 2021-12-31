@@ -1012,10 +1012,10 @@ btree_init(cache          *cc,
    if (is_packed) {
       // use keyed mini allocator for branches
       mini_init(
-         mini, cc, cfg->data_cfg, meta_head, 0, BTREE_MAX_HEIGHT, type, TRUE);
+         mini, cc, cfg->data_cfg, meta_head, 0, BTREE_MAX_HEIGHT, type, TRUE, FALSE);
    } else {
       // use unkeyed mini allocator for memtables
-      mini_init(mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
+      mini_init(mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE, FALSE);
    }
 
    return root.addr;

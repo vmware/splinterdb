@@ -11,7 +11,6 @@ UNIT_TEST_DRIVER="${UNIT_TEST_DRIVER:-"${BINDIR:-bin}/unit_test"}"
 echo
 "$DRIVER" splinter_test --functionality 1000000 100 --seed "$SEED"
 
-exit
 
 # Run all the unit-tests first, to get basic coverage
 echo
@@ -21,11 +20,11 @@ if [ -f ${UNIT_TESTS_DB_DEV} ]; then
     rm ${UNIT_TESTS_DB_DEV}
 fi
 
-echo
-"$DRIVER" kvstore_test --seed "$SEED"
+#echo
+#"$DRIVER" kvstore_test --seed "$SEED"
 
-echo
-"$DRIVER" kvstore_basic_test --seed "$SEED"
+#echo
+#"$DRIVER" kvstore_basic_test --seed "$SEED"
 
 echo
 "$DRIVER" splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 0 --tree-size-gib 2 --cache-capacity-mib 512
