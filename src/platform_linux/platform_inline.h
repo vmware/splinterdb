@@ -262,6 +262,7 @@ platform_status_to_string(const platform_status status)
    do {                                         \
       platform_log(__VA_ARGS__);                \
    } while (0)
+
 #define platform_default_log(...)               \
    do {                                         \
       fprintf(stdout, __VA_ARGS__);             \
