@@ -133,8 +133,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type);
 void
 clockcache_hard_evict_extent(clockcache *cc,
                              uint64      addr,
-                             page_type   type,
-                             bool        pinned);
+                             page_type   type);
 
 uint8
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr);
@@ -265,11 +264,10 @@ clockcache_alloc_virtual(cache *c, uint64 addr, page_type type)
 void
 clockcache_hard_evict_extent_virtual(cache *   c,
                                      uint64    addr,
-                                     page_type type,
-                                     bool      pinned)
+                                     page_type type)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_hard_evict_extent(cc, addr, type, pinned);
+   return clockcache_hard_evict_extent(cc, addr, type);
 }
 
 uint8
@@ -835,6 +833,16 @@ clockcache_dec_pin(clockcache *cc, uint32 entry_number)
       __sync_fetch_and_sub(&cc->pincount[rc_number], 1);
    debug_assert(refcount != 0);
 }
+
+static inline void
+clockcache_reset_pin(clockcache *cc, uint32 entry_number)
+{
+   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
+   debug_assert(rc_number < cc->cfg->page_capacity);
+   __attribute__((unused)) uint8 refcount =
+      __sync_lock_test_and_set(&cc->pincount[rc_number], 0);
+}
+
 
 void
 clockcache_assert_no_refs(clockcache *cc)
@@ -1929,7 +1937,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
  */
 
 void
-clockcache_try_hard_evict(clockcache *cc, uint64 addr, bool pinned)
+clockcache_try_hard_evict(clockcache *cc, uint64 addr)
 {
    const threadid tid = platform_get_tid();
    while (TRUE) {
@@ -1951,7 +1959,8 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr, bool pinned)
        * 4. write lock
        * 5. clear lookup, disk_addr
        * 6. set status to CC_FREE_STATUS (clears claim and write lock)
-       * 7. release read lock
+       * 7. reset pincount to zero
+       * 8. release read lock
        */
 
       //platform_assert(clockcache_get_ref(cc, entry_number, tid) == 0);
@@ -2001,11 +2010,10 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr, bool pinned)
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       entry->status = CC_FREE_STATUS;
 
-      if (pinned) {
-         clockcache_unpin(cc, &entry->page);
-      }
+      /* 7. reset pincount */
+      clockcache_reset_pin(cc, entry_number);
 
-      /* 7. release read lock */
+      /* 8. release read lock */
       clockcache_dec_ref(cc, entry_number, tid);
       return;
    }
@@ -2025,8 +2033,7 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr, bool pinned)
 void
 clockcache_hard_evict_extent(clockcache *cc,
                              uint64      addr,
-                             page_type   type,
-                             bool        pinned)
+                             page_type   type)
 {
    debug_assert(addr % cc->cfg->extent_size == 0);
    debug_code(allocator *al = cc->al);
@@ -2035,7 +2042,7 @@ clockcache_hard_evict_extent(clockcache *cc,
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
       uint64 page_addr = addr + clockcache_multiply_by_page_size(cc, i);
-      clockcache_try_hard_evict(cc, page_addr, pinned);
+      clockcache_try_hard_evict(cc, page_addr);
    }
 }
 

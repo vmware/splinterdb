@@ -6788,7 +6788,6 @@ splinter_create(splinter_config  *cfg,
              0,
              SPLINTER_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
-             FALSE,
              FALSE);
 
    // set up the memtable context
@@ -6909,7 +6908,6 @@ splinter_mount(splinter_config  *cfg,
              meta_tail,
              SPLINTER_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
-             FALSE,
              FALSE);
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);

@@ -91,8 +91,7 @@ typedef void (*page_generic_fn)(cache *cc, page_handle *page);
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_hard_evict_fn)(cache *   cc,
                                      uint64    addr,
-                                     page_type type,
-                                     bool      pinned);
+                                     page_type type);
 typedef uint8 (*page_get_ref_fn)(cache *cc, uint64 addr);
 typedef page_handle *(*page_get_fn)(cache *   cc,
                                     uint64    addr,
@@ -177,9 +176,9 @@ cache_alloc(cache *cc, uint64 addr, page_type type)
 }
 
 static inline void
-cache_hard_evict_extent(cache *cc, uint64 addr, page_type type, bool pinned)
+cache_hard_evict_extent(cache *cc, uint64 addr, page_type type)
 {
-   cc->ops->extent_hard_evict(cc, addr, type, pinned);
+   cc->ops->extent_hard_evict(cc, addr, type);
 }
 
 static inline uint8

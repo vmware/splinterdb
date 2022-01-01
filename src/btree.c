@@ -1018,12 +1018,11 @@ btree_init(cache          *cc,
                 0,
                 BTREE_MAX_HEIGHT,
                 type,
-                TRUE,
-                FALSE);
+                TRUE);
    } else {
       // use unkeyed mini allocator for memtables
       mini_init(
-         mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE, FALSE);
+         mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
    }
 
    return root.addr;

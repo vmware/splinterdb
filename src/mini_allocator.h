@@ -41,8 +41,7 @@ mini_init(mini_allocator *mini,
           uint64          meta_tail,
           uint64          num_batches,
           page_type       type,
-          bool            keyed,
-          bool            pinned);
+          int             keyed);
 void
 mini_release(mini_allocator *mini, const slice key);
 

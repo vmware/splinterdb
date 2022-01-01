@@ -247,18 +247,13 @@ mini_init(mini_allocator *mini,
           uint64          meta_tail,
           uint64          num_batches,
           page_type       type,
-          bool            keyed,
-          bool            pinned)
+          bool            keyed)
 {
    platform_assert(num_batches <= MINI_MAX_BATCHES);
    platform_assert(num_batches != 0);
    platform_assert(mini != NULL);
    platform_assert(cc != NULL);
    platform_assert(!keyed || cfg != NULL);
-
-   if (type == PAGE_TYPE_MEMTABLE) {
-      platform_assert(pinned);
-   }
 
    ZERO_CONTENTS(mini);
    mini->cc          = cc;
@@ -268,7 +263,7 @@ mini_init(mini_allocator *mini,
    mini->meta_head   = meta_head;
    mini->num_batches = num_batches;
    mini->type        = type;
-   mini->pinned      = pinned;
+   mini->pinned      = (type == PAGE_TYPE_MEMTABLE);
 
    page_handle *meta_page;
    if (meta_tail == 0) {
@@ -973,7 +968,7 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
          uint64 last_meta_base_addr = cache_base_addr(cc, last_meta_addr);
          uint8  ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_NO_REFS);
-         cache_hard_evict_extent(cc, last_meta_base_addr, type, pinned);
+         cache_hard_evict_extent(cc, last_meta_base_addr, type);
          ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_FREE);
       }
@@ -990,7 +985,7 @@ mini_dealloc_extent(cache *   cc,
    allocator *al  = cache_allocator(cc);
    uint8      ref = allocator_dec_ref(al, base_addr, type);
    platform_assert(ref == AL_NO_REFS);
-   cache_hard_evict_extent(cc, base_addr, type, pinned);
+   cache_hard_evict_extent(cc, base_addr, type);
    ref = allocator_dec_ref(al, base_addr, type);
    platform_assert(ref == AL_FREE);
    return TRUE;
@@ -1096,7 +1091,7 @@ mini_keyed_dec_ref_extent(cache *   cc,
    allocator *al  = cache_allocator(cc);
    uint8      ref = allocator_dec_ref(al, base_addr, type);
    if (ref == AL_NO_REFS) {
-      cache_hard_evict_extent(cc, base_addr, type, FALSE);
+      cache_hard_evict_extent(cc, base_addr, type);
       ref = allocator_dec_ref(al, base_addr, type);
       platform_assert(ref == AL_FREE);
       return TRUE;
