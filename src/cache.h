@@ -89,9 +89,7 @@ typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
 typedef void (*page_generic_fn)(cache *cc, page_handle *page);
 
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
-typedef void (*extent_hard_evict_fn)(cache *   cc,
-                                     uint64    addr,
-                                     page_type type);
+typedef void (*extent_hard_evict_fn)(cache *cc, uint64 addr, page_type type);
 typedef uint8 (*page_get_ref_fn)(cache *cc, uint64 addr);
 typedef page_handle *(*page_get_fn)(cache *   cc,
                                     uint64    addr,

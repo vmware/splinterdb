@@ -1011,18 +1011,11 @@ btree_init(cache          *cc,
    uint64 meta_head = root.addr + cfg->page_size;
    if (is_packed) {
       // use keyed mini allocator for branches
-      mini_init(mini,
-                cc,
-                cfg->data_cfg,
-                meta_head,
-                0,
-                BTREE_MAX_HEIGHT,
-                type,
-                TRUE);
+      mini_init(
+         mini, cc, cfg->data_cfg, meta_head, 0, BTREE_MAX_HEIGHT, type, TRUE);
    } else {
       // use unkeyed mini allocator for memtables
-      mini_init(
-         mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
+      mini_init(mini, cc, NULL, meta_head, 0, BTREE_MAX_HEIGHT, type, FALSE);
    }
 
    return root.addr;

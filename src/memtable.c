@@ -344,8 +344,7 @@ memtable_context_destroy(platform_heap_id  hid,
    uint8      ref =
       allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_NO_REFS);
-   cache_hard_evict_extent(
-      cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   cache_hard_evict_extent(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    ref = allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_FREE);
 
