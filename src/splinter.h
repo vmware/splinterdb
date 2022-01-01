@@ -166,6 +166,9 @@ struct splinter_handle {
    splinter_config    cfg;
    platform_heap_id   heap_id;
 
+   // Trunk root lock for update
+   platform_mutex     trunk_update_lock;
+
    // space reclamation
    uint64             est_tuples_in_compaction;
 
@@ -447,6 +450,18 @@ splinter_async_ctxt_init(splinter_async_ctxt *ctxt, splinter_async_cb cb)
    ZERO_CONTENTS(ctxt);
    ctxt->state = async_state_start;
    ctxt->cb    = cb;
+}
+
+static inline void
+splinter_lock_trunk_update_lock(splinter_handle *spl)
+{
+   platform_mutex_lock(&spl->trunk_update_lock);
+}
+
+static inline void
+splinter_unlock_trunk_update_lock(splinter_handle *spl)
+{
+   platform_mutex_unlock(&spl->trunk_update_lock);
 }
 
 uint64

@@ -75,7 +75,7 @@ include .libconfig.mk
 #######END libconfig
 
 DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror
-DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
+DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC -DCOW_TRUNK
 
 # track git ref in the built library
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"

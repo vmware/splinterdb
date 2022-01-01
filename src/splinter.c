@@ -3114,6 +3114,9 @@ splinter_memtable_incorporate(splinter_handle *spl,
                               uint64           generation,
                               const threadid   tid)
 {
+#ifdef COW_TRUNK
+   splinter_lock_trunk_update_lock(spl);
+#endif
    // X. Get, claim and lock the lookup lock
    page_handle *mt_lookup_lock_page =
       memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
@@ -3122,12 +3125,23 @@ splinter_memtable_incorporate(splinter_handle *spl,
 
    // X. Get, claim and lock the root
    page_handle *root = splinter_node_get(spl, spl->root_addr);
+#ifdef COW_TRUNK
+   page_handle *old_root = root;
+   int height = splinter_height(spl, old_root);
+   // root is updated here
+   root = splinter_alloc(spl, height);
+   memcpy(root->data, old_root->data, spl->cfg.page_size);
+   uint64 new_root_addr = root->disk_addr;
+   // XXX: spl->root_addr is not equal to root->disk_addr.
+   //      after this line. Need to be careful.
+#else
    splinter_node_claim(spl, &root);
    platform_assert(splinter_has_vacancy(spl, root, 1));
+   // in splinter_memtable_incorporate
    splinter_node_lock(spl, root);
-
+#endif
    splinter_open_log_stream();
-   splinter_log_stream("incorporate memtable gen %lu into root %lu\n", generation, spl->root_addr);
+   splinter_log_stream("incorporate memtable gen %lu into root %lu\n", generation, root->disk_addr);
    splinter_log_node(spl, root);
    splinter_log_stream("----------------------------------------\n");
 
@@ -3144,7 +3158,9 @@ splinter_memtable_incorporate(splinter_handle *spl,
    splinter_bundle *bundle = splinter_get_bundle(spl, root, req->bundle_no);
    splinter_subbundle *sb = splinter_get_new_subbundle(spl, root, 1);
    splinter_branch *branch = splinter_get_new_branch(spl, root);
+
    *branch = cmt->branch;
+
    bundle->start_subbundle = splinter_subbundle_no(spl, root, sb);
    bundle->end_subbundle = splinter_end_subbundle(spl, root);
    sb->start_branch = splinter_branch_no(spl, root, branch);
@@ -3153,7 +3169,11 @@ splinter_memtable_incorporate(splinter_handle *spl,
    routing_filter *filter = splinter_subbundle_filter(spl, root, sb, 0);
    *filter = cmt->filter;
    req->spl = spl;
+#ifdef COW_TRUNK
+   req->addr = new_root_addr;
+#else
    req->addr = spl->root_addr;
+#endif
    req->height = splinter_height(spl, root);
    req->generation = splinter_generation(spl, root);
    req->max_pivot_generation = splinter_pivot_generation(spl, root);
@@ -3219,9 +3239,13 @@ splinter_memtable_incorporate(splinter_handle *spl,
    }
 
    // X. Unlock the root
+#ifdef COW_TRUNK
+   splinter_node_unget(spl, &old_root);
+#else
    splinter_node_unlock(spl, root);
    splinter_node_unclaim(spl, root);
    splinter_node_unget(spl, &root);
+#endif
 
    // X. Dec-ref the now-incorporated memtable
    memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
@@ -3235,6 +3259,14 @@ splinter_memtable_incorporate(splinter_handle *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+#ifdef COW_TRUNK
+   spl->root_addr = new_root_addr;
+   splinter_node_unlock(spl, root);
+   splinter_node_unclaim(spl, root);
+   splinter_node_unget(spl, &root);
+
+   splinter_unlock_trunk_update_lock(spl);
+#endif
 }
 
 /*
@@ -3917,6 +3949,7 @@ splinter_room_to_flush(splinter_handle     *spl,
  * is not enough space in the child.
  *
  * NOTE: parent must be write locked
+ * Need to make sure parent is copied 
  */
 bool
 splinter_flush(splinter_handle     *spl,
@@ -3934,8 +3967,11 @@ splinter_flush(splinter_handle     *spl,
    if (spl->cfg.use_stats) {
       tid = platform_get_tid();
    }
+#ifdef  COW_TRUNK
+   /* for COW, the child only acquires the read lock  */
+#else
    splinter_node_claim(spl, &child);
-
+#endif
    if (!splinter_room_to_flush(spl, parent, child, pdata)) {
       platform_error_log("Flush failed: %lu %lu\n",
                          parent->disk_addr, child->disk_addr);
@@ -3946,7 +3982,11 @@ splinter_flush(splinter_handle     *spl,
             spl->stats[tid].failed_flushes[splinter_height(spl, parent)]++;
          }
       }
+#ifdef COW_TRUNK
+   /* for COW, the child only acquires the read lock  */
+#else
       splinter_node_unclaim(spl, child);
+#endif
       splinter_node_unget(spl, &child);
       return FALSE;
    }
@@ -3960,8 +4000,17 @@ splinter_flush(splinter_handle     *spl,
       srq_print(&spl->srq);
       pdata->srq_idx = -1;
    }
+#ifdef COW_TRUNK
+   int child_height = splinter_height(spl, child);
+   page_handle *old_child = child;
+   // child is updated here
+   child = splinter_alloc(spl, child_height);
+   memcpy(child->data, old_child->data, spl->cfg.page_size);
+   // Install the new child in the parent
+   pdata->addr = child->disk_addr;
+#else
    splinter_node_lock(spl, child);
-
+#endif
    if (spl->cfg.use_stats) {
       if (parent->disk_addr == spl->root_addr) {
          spl->stats[tid].root_flush_wait_time_ns
@@ -4000,9 +4049,17 @@ splinter_flush(splinter_handle     *spl,
    }
 
    debug_assert(splinter_verify_node(spl, child));
+#ifdef COW_TRUNK
+   splinter_node_unget(spl, &old_child);
+   // Unlock the new child
    splinter_node_unlock(spl, child);
    splinter_node_unclaim(spl, child);
    splinter_node_unget(spl, &child);
+#else
+   splinter_node_unlock(spl, child);
+   splinter_node_unclaim(spl, child);
+   splinter_node_unget(spl, &child);
+#endif
 
    splinter_default_log("enqueuing compact_bundle %lu-%u\n",
                         req->addr, req->bundle_no);
@@ -4064,6 +4121,7 @@ splinter_flush_fullest(splinter_handle *spl,
             }
          }
       }
+      // get the fullest pivot
       if (pdata->num_tuples > fullest_pivot_data->num_tuples) {
          fullest_pivot_data = pdata;
       }
@@ -4302,6 +4360,42 @@ splinter_btree_pack_req_init(splinter_handle *spl,
                        spl->heap_id);
 }
 
+/* Assume trunk update lock is held */
+static inline void
+splinter_get_cow_path(splinter_handle * spl,  char *key, 
+                      page_handle **node_path, int *path_length)
+{
+   page_handle *node = splinter_node_get(spl, spl->root_addr);
+   //char data[MAX_MESSAGE_SIZE];
+   int index = 0;
+
+   // look in index nodes
+   uint16 height = splinter_height(spl, node);
+   for (uint16 h = height; h > 0; h--) {
+      page_handle *cow_node = splinter_alloc(spl, height);
+      memcpy(cow_node->data, node->data, spl->cfg.page_size);
+      node_path[index++] = cow_node;
+
+      uint16 pivot_no = splinter_find_pivot(spl, node, key, less_than_or_equal);
+      debug_assert(pivot_no < splinter_num_children(spl, node));
+      char *pivot = splinter_get_pivot(spl, node, pivot_no);
+      int cmp = splinter_key_compare(spl, key, pivot);
+      if (0 == cmp) {
+         // We choose the first pivot to search this node
+         // for splinter_compact_bundle
+         debug_assert(pivot_no == 0);
+         break;
+      }
+      splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pivot_no);
+      page_handle *child = splinter_node_get(spl, pdata->addr);
+      splinter_node_unget(spl, &node);
+      node = child;
+      height = splinter_height(spl, node);
+   }
+
+   *path_length = index;
+}
+
 /*
  * compact_bundle compacts a bundle of flushed branches into a single branch
  *
@@ -4355,23 +4449,43 @@ splinter_compact_bundle(void *arg,
    splinter_handle *spl = req->spl;
    __attribute__ ((unused)) threadid tid;
 
+#ifdef COW_TRUNK
+   splinter_lock_trunk_update_lock(spl);
+   page_handle *node_path[SPLINTER_MAX_HEIGHT] = { NULL }; 
+   int path_length;
+   splinter_get_cow_path(spl, req->key, node_path, &path_length);
+#endif
+
+#ifdef COW_TRUNK
+   page_handle *node = node_path[path_length-1];
+   platform_assert(req->addr == node->disk_addr);
+#else
    /*
     * 1. Acquire node read lock
     */
    page_handle *node = splinter_node_get(spl, req->addr);
+#endif
 
    /*
     * 2. Flush if node is full (acquires write lock)
     */
    uint16 height = splinter_height(spl, node);
    if (height != 0 && splinter_node_is_full(spl, node)) {
+#ifdef COW_TRUNK
+      /* node is a cow-ed node */
+#else
       splinter_node_claim(spl, &node);
       splinter_node_lock(spl, node);
+#endif
       bool flush_successful = TRUE;
       while (flush_successful && splinter_node_is_full(spl, node))
          flush_successful = splinter_flush_fullest(spl, node);
+#ifdef COW_TRUNK
+      /* node is a cow-ed node */
+#else
       splinter_node_unlock(spl, node);
       splinter_node_unclaim(spl, node);
+#endif
    }
 
    // timers for stats if enabled
@@ -4664,6 +4778,10 @@ splinter_compact_bundle(void *arg,
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, splinter_bundle_build_filters, req, TRUE);
    }
 out:
+
+#ifdef COW_TRUNK
+   splinter_unlock_trunk_update_lock(spl);
+#endif
    splinter_log_stream("\n");
    splinter_close_log_stream();
 }
@@ -5104,6 +5222,7 @@ splinter_split_leaf(splinter_handle *spl,
    /*
     * 3. Clear old bundles from leaf and put all branches in a new bundle
     */
+   /* in splinter_split_leaf */
    splinter_node_lock(spl, parent);
    splinter_log_node(spl, parent);
    splinter_node_lock(spl, leaf);
@@ -6746,6 +6865,10 @@ splinter_create(splinter_config  *cfg,
    splinter_node_unclaim(spl, root);
    splinter_node_unget(spl, &root);
 
+   // initialize trunk update lock
+   platform_mutex_init(
+      &spl->trunk_update_lock, platform_get_module_id(), spl->heap_id);
+
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
       platform_assert(spl->stats);
@@ -6835,6 +6958,10 @@ splinter_mount(splinter_config  *cfg,
    }
 
    splinter_set_super_block(spl, FALSE, FALSE, FALSE);
+
+   // initialize trunk update lock
+   platform_mutex_init(
+      &spl->trunk_update_lock, platform_get_module_id(), spl->heap_id);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -6968,6 +7095,9 @@ splinter_destroy(splinter_handle *spl)
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
+   // destroy trunk update lock
+   platform_mutex_destroy(&spl->trunk_update_lock);
+
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
@@ -6990,6 +7120,10 @@ splinter_dismount(splinter_handle *spl)
    srq_deinit(&spl->srq);
    splinter_set_super_block(spl, FALSE, TRUE, FALSE);
    splinter_prepare_for_shutdown(spl);
+
+   // destroy trunk update lock
+   platform_mutex_destroy(&spl->trunk_update_lock);
+
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
