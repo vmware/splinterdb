@@ -1164,7 +1164,7 @@ variable_length_btree_alloc(cache *                     cc,
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
    // If this btree is for a memetable
-   // then pin all pages belong to it 
+   // then pin all pages belong to it
    if (type == PAGE_TYPE_MEMTABLE) {
       cache_pin(cc, node->page);
    }
@@ -1304,7 +1304,7 @@ variable_length_btree_create(cache *                             cc,
    platform_status rc = allocator_alloc(al, &base_addr, type);
    platform_assert_status_ok(rc);
    page_handle *root_page = cache_alloc(cc, base_addr, type);
-   bool pinned = (type == PAGE_TYPE_MEMTABLE);
+   bool         pinned    = (type == PAGE_TYPE_MEMTABLE);
 
    // set up the root
    variable_length_btree_node root;
@@ -1317,7 +1317,7 @@ variable_length_btree_create(cache *                             cc,
    cache_mark_dirty(cc, root.page);
 
    // If this btree is for a memetable
-   // then pin all pages belong to it 
+   // then pin all pages belong to it
    if (pinned) {
       cache_pin(cc, root.page);
    }
@@ -1336,8 +1336,7 @@ variable_length_btree_create(cache *                             cc,
              VARIABLE_LENGTH_BTREE_MAX_HEIGHT,
              type,
              type == PAGE_TYPE_BRANCH,
-             pinned
-             );
+             pinned);
 
    return root.addr;
 }

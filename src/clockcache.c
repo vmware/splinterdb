@@ -131,7 +131,10 @@ page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type);
 
 void
-clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type, bool pinned);
+clockcache_hard_evict_extent(clockcache *cc,
+                             uint64      addr,
+                             page_type   type,
+                             bool        pinned);
 
 uint8
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr);
@@ -260,7 +263,10 @@ clockcache_alloc_virtual(cache *c, uint64 addr, page_type type)
 }
 
 void
-clockcache_hard_evict_extent_virtual(cache *c, uint64 addr, page_type type, bool pinned)
+clockcache_hard_evict_extent_virtual(cache *   c,
+                                     uint64    addr,
+                                     page_type type,
+                                     bool      pinned)
 {
    clockcache *cc = (clockcache *)c;
    return clockcache_hard_evict_extent(cc, addr, type, pinned);
@@ -2017,7 +2023,10 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr, bool pinned)
  */
 
 void
-clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type, bool pinned)
+clockcache_hard_evict_extent(clockcache *cc,
+                             uint64      addr,
+                             page_type   type,
+                             bool        pinned)
 {
    debug_assert(addr % cc->cfg->extent_size == 0);
    debug_code(allocator *al = cc->al);
