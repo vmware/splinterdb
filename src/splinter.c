@@ -6825,6 +6825,10 @@ splinter_create(splinter_config  *cfg,
    splinter_node_unclaim(spl, root);
    splinter_node_unget(spl, &root);
 
+   // initialize trunk update lock
+   platform_mutex_init(
+      &spl->trunk_update_lock, platform_get_module_id(), spl->heap_id);
+
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
       platform_assert(spl->stats);
@@ -6914,6 +6918,10 @@ splinter_mount(splinter_config  *cfg,
    }
 
    splinter_set_super_block(spl, FALSE, FALSE, FALSE);
+
+   // initialize trunk update lock
+   platform_mutex_init(
+      &spl->trunk_update_lock, platform_get_module_id(), spl->heap_id);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -7045,6 +7053,9 @@ splinter_destroy(splinter_handle *spl)
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
+   // destroy trunk update lock
+   platform_mutex_destroy(&spl->trunk_update_lock);
+
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
@@ -7067,6 +7078,10 @@ splinter_dismount(splinter_handle *spl)
    srq_deinit(&spl->srq);
    splinter_set_super_block(spl, FALSE, TRUE, FALSE);
    splinter_deinit(spl);
+
+   // destroy trunk update lock
+   platform_mutex_destroy(&spl->trunk_update_lock);
+
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
