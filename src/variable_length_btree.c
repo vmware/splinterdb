@@ -46,6 +46,9 @@
    defrag the left node. */
 #define VARIABLE_LENGTH_BTREE_DEFRAGMENT_THRESHOLD(page_size) ((page_size) / 4)
 
+#define VARIABLE_LENGTH_BTREE_INITIAL_PREFETCHING_DISTANCE(pages_per_extent)   \
+   ((pages_per_extent) / 4)
+
 char  positive_infinity_buffer;
 slice positive_infinity = {0, &positive_infinity_buffer};
 
@@ -2476,13 +2479,13 @@ variable_length_btree_iterator_advance_node(
    variable_length_btree_config *cfg = itor->cfg;
    uint64                        height = itor->height;
 
-   uint64 last_addr = itor->curr[height].addr;
    uint64 next_addr = itor->curr[height].hdr->next_addr;
    variable_length_btree_node_unget(cc, cfg, &itor->curr[height]);
    itor->curr[height].addr = next_addr;
    variable_length_btree_node_get(
       cc, cfg, &itor->curr[height], itor->page_type);
    itor->idx[height] = 0;
+   itor->prefetch_distance[height]--;
 
    while (itor->curr[height].addr == itor->end_addr
           && itor->curr[height].hdr->generation != itor->end_generation)
@@ -2518,15 +2521,17 @@ variable_length_btree_iterator_advance_node(
    // To prefetch:
    // 1. we just moved from one extent to the next
    // 2. this can't be the last extent
-   if (itor->do_prefetch
-       && !variable_length_btree_addrs_share_extent(
-          cfg, last_addr, itor->curr[height].addr)
+   if (itor->prefetch_distance[height] == 0
        && itor->curr[height].hdr->next_extent_addr != 0
        && !variable_length_btree_addrs_share_extent(
           cfg, itor->curr[height].addr, itor->end_addr))
    {
       // IO prefetch the next extent
       cache_prefetch(cc, itor->curr[height].hdr->next_extent_addr, TRUE);
+      uint64 page_size        = itor->cfg->page_size;
+      uint64 extent_pages     = itor->cfg->extent_size / page_size;
+      uint64 offset = (itor->curr[height].addr / page_size) % extent_pages;
+      itor->prefetch_distance[height] = extent_pages - offset;
    }
 }
 
@@ -2552,6 +2557,9 @@ variable_length_btree_iterator_advance_path(
       itor->idx[height]++;
    }
 
+   uint64 page_size    = itor->cfg->page_size;
+   uint64 extent_pages = itor->cfg->extent_size / page_size;
+
    // Walk back down the tree to the desired height of the iterator, issuing
    // prefetches as we go.
    while (itor->height < height) {
@@ -2560,22 +2568,21 @@ variable_length_btree_iterator_advance_path(
 
       height--;
 
-      uint64 last_addr        = itor->curr[height].addr;
       itor->curr[height].addr = child_addr;
       variable_length_btree_node_get(
          itor->cc, itor->cfg, &itor->curr[height], itor->page_type);
       itor->idx[height] = 0;
 
-      if (itor->do_prefetch
-          && !variable_length_btree_addrs_share_extent(
-             itor->cfg, last_addr, child_addr)
+      if (itor->prefetch_distance[height] == 0
           && itor->curr[height].hdr->next_extent_addr != 0
           && !variable_length_btree_addrs_share_extent(
-             itor->cfg, child_addr, itor->end_addr))
+             itor->cfg, itor->curr[height].addr, itor->end_addr))
       {
          // IO prefetch the next extent
          cache_prefetch(
             itor->cc, itor->curr[height].hdr->next_extent_addr, TRUE);
+         uint64 offset = (itor->curr[height].addr / page_size) % extent_pages;
+         itor->prefetch_distance[height] = extent_pages - offset;
       }
    }
 
@@ -2689,6 +2696,7 @@ variable_length_btree_iterator_init(cache *                         cc,
 
    slice max_key;
 
+   /* Handle _max_key == NULL and when _max_key < min_key. */
    if (slice_is_null(_max_key)) {
       max_key = positive_infinity;
    } else if (!slice_is_null(min_key) &&
@@ -2709,6 +2717,9 @@ variable_length_btree_iterator_init(cache *                         cc,
    itor->page_type   = page_type;
    itor->super.ops   = &variable_length_btree_iterator_ops;
 
+   /* Find the starting node. For branches, this also read-locks the
+      entire path to the starting node, and computes the indexes
+      within each node on that path (except for the last). */
    uint64 root_height;
    uint64 lock_height = page_type == PAGE_TYPE_MEMTABLE
                            ? itor->height + 1
@@ -2728,7 +2739,8 @@ variable_length_btree_iterator_init(cache *                         cc,
                                      NULL);
 
    if (root_height < height) {
-      /* Set up the iterator so that at_end() will return true. */
+      /* If the requested height is higher than the tree, then set up the
+         iterator so that at_end() will return true. */
       itor->height           = root_height;
       itor->idx[root_height] = 0;
       itor->end_addr         = itor->curr[root_height].addr;
@@ -2737,47 +2749,7 @@ variable_length_btree_iterator_init(cache *                         cc,
       return;
    }
 
-   if (page_type == PAGE_TYPE_MEMTABLE) {
-      /* We have to claim curr in order to prevent possible deadlocks
-       * with insertion threads while finding the end node.
-       *
-       * Note that we can't lookup end first because, if there's a split
-       * between looking up end and looking up curr, we could end up in a
-       * situation where end comes before curr in the tree!  (We could
-       * prevent this by holding a claim on end while looking up curr,
-       * but that would essentially be the same as the code below.)
-       *
-       * Note that the approach in advance (i.e. releasing and reaquiring
-       * a lock on curr) is not viable here because we are not
-       * necessarily searching for the 0th entry in curr.  Thus a split
-       * of curr while we have released it could mean that we really want
-       * to start at curr's right sibling (after the split).  So we'd
-       * have to redo the search from scratch after releasing curr.
-       *
-       * So we take a claim on curr instead.
-       */
-      while (!variable_length_btree_node_claim(cc, cfg, &itor->curr[height])) {
-         variable_length_btree_node_unget(cc, cfg, &itor->curr[height]);
-         variable_length_btree_lookup_node(itor->cc,
-                                           itor->cfg,
-                                           itor->root_addr,
-                                           min_key,
-                                           itor->height,
-                                           itor->page_type,
-                                           &itor->curr[height],
-                                           NULL,
-                                           NULL,
-                                           NULL);
-      }
-   }
-
-   variable_length_btree_iterator_find_end(itor);
-
-   if (page_type == PAGE_TYPE_MEMTABLE) {
-      /* Once we've found end, we can unclaim curr. */
-      variable_length_btree_node_unclaim(cc, cfg, &itor->curr[height]);
-   }
-
+   /* Find our starting index in curr. */
    bool  found;
    int64 tmp;
    if (slice_is_null(min_key)) {
@@ -2800,24 +2772,79 @@ variable_length_btree_iterator_init(cache *                         cc,
    }
    itor->idx[itor->height] = tmp;
 
+   /* Now we find the ending node and index. */
+
+   if (page_type == PAGE_TYPE_MEMTABLE) {
+      /* Since we might not be locking the root in this case, there
+       * are possible deadlocks with insertion threads while finding
+       * the end node.  We avoid these by claiming curr.
+       *
+       * Note that we can't lookup end first because, if there's a split
+       * between looking up end and looking up curr, we could end up in a
+       * situation where end comes before curr in the tree!  (We could
+       * prevent this by holding a claim on end while looking up curr,
+       * but that would essentially be the same as the code below.)
+       *
+       * Note that the approach in advance (i.e. releasing and reaquiring
+       * a lock on curr) is not viable here because we are not
+       * necessarily searching for the 0th entry in curr.  Thus a split
+       * of curr while we have released it could mean that we really want
+       * to start at curr's right sibling (after the split).  So we'd
+       * have to redo the search from scratch after releasing curr.
+       *
+       * So we take a claim on curr instead.
+       */
+   while (!variable_length_btree_node_claim(cc, cfg, &itor->curr[height])) {
+      variable_length_btree_node_unget(cc, cfg, &itor->curr[height]);
+      variable_length_btree_lookup_node(itor->cc,
+                                        itor->cfg,
+                                        itor->root_addr,
+                                        min_key,
+                                        itor->height,
+                                        itor->page_type,
+                                        &itor->curr[height],
+                                        NULL,
+                                        NULL,
+                                        NULL);
+      }
+   }
+
+   /* Find the end node and index. */
+   variable_length_btree_iterator_find_end(itor);
+
+   if (page_type == PAGE_TYPE_MEMTABLE) {
+      /* Once we've found end, we can unclaim curr. */
+      variable_length_btree_node_unclaim(cc, cfg, &itor->curr[height]);
+   }
+
+   /* Set up prefetching state. */
+   if (itor->do_prefetch) {
+      int    h                = itor->height;
+      uint64 page_size        = itor->cfg->page_size;
+      uint64 pages_per_extent = itor->cfg->extent_size / page_size;
+      while (itor->curr[h].hdr) {
+         itor->prefetch_distance[h] =
+            VARIABLE_LENGTH_BTREE_INITIAL_PREFETCHING_DISTANCE(
+               pages_per_extent);
+         h++;
+      }
+   } else {
+      memset(itor->prefetch_distance, 0xff, sizeof(itor->prefetch_distance));
+   }
+
+   /* If the starting key falls in the range of curr but is larger
+      than any key in curr, then we need to advance to the next
+      node. We can't do this earlier because we needed to set up the
+      prefetching state, and setting up the prefetching state can't be
+      done until we've found the end node. */
    if (!variable_length_btree_iterator_is_at_end(itor)
        && itor->idx[itor->height]
              == variable_length_btree_num_entries(itor->curr[itor->height].hdr))
    {
-      variable_length_btree_iterator_advance_path(itor);
-   }
-
-   if (itor->do_prefetch) {
-      int h = itor->height;
-      while (itor->curr[h].hdr) {
-         if (itor->curr[h].hdr->next_extent_addr != 0
-             && !variable_length_btree_addrs_share_extent(
-                cfg, itor->curr[h].addr, itor->end_addr))
-         {
-            // IO prefetch the next extent
-            cache_prefetch(cc, itor->curr[h].hdr->next_extent_addr, TRUE);
-         }
-         h++;
+      if (itor->page_type == PAGE_TYPE_MEMTABLE) {
+         variable_length_btree_iterator_advance_node(itor);
+      } else {
+         variable_length_btree_iterator_advance_path(itor);
       }
    }
 

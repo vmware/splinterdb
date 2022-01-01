@@ -85,6 +85,9 @@ typedef struct variable_length_btree_iterator {
    uint64                     end_idx;
    uint64                     end_generation;
 
+   // The number of nodes to pass before the next prefetch
+   uint64 prefetch_distance[VARIABLE_LENGTH_BTREE_MAX_HEIGHT];
+
    // Variables used for debug only
    debug_code(bool debug_is_packed);
    debug_code(char debug_prev_key[MAX_KEY_SIZE]);
