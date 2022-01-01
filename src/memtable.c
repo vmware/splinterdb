@@ -298,11 +298,13 @@ memtable_context_create(platform_heap_id  hid,
 
    page_handle *lock_page =
       cache_alloc(cc, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   cache_pin(cc, lock_page);
    cache_unlock(cc, lock_page);
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 
    lock_page = cache_alloc(cc, ctxt->lookup_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
+   cache_pin(cc, lock_page);
    cache_unlock(cc, lock_page);
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
