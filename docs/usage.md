@@ -41,7 +41,7 @@ For example, a C linker would need the flag `-lsplinterdb`.  You may also need t
 
 ## 3. Call SplinterDB APIs from your program
 
-For basic key-value store use cases, [`kvstore_basic.h`](../src/kvstore_basic.h) should suffice.
+For basic key-value store use cases, [`kvstore_basic.h`](../include/splinterdb/kvstore_basic.h) should suffice.
 
 - Set the fields in `kvstore_basic_cfg`
 
@@ -81,4 +81,4 @@ For basic key-value store use cases, [`kvstore_basic.h`](../src/kvstore_basic.h)
   - Note these rules apply to system threads, not [runtime-managed threading](https://en.wikipedia.org/wiki/Green_threads)
     available in higher-level languages.
 
-Look at [`tests/kvstore_basic_test.c`](../tests/kvstore_basic_test.c) for example code.
+Look at [`tests/kvstore_basic_test.c`](../tests/unit/kvstore_basic_test.c) for example code.

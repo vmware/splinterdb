@@ -8,10 +8,10 @@ PLATFORM = linux
 #*************************************************************#
 # DIRECTORIES, SRC, OBJ, ETC
 #
-
 SRCDIR               = src
 FUNCTIONAL_TESTSDIR  = tests/functional
 UNITDIR              = unit
+UNIT_TESTSDIR        = tests/unit
 OBJDIR               = obj
 BINDIR               = bin
 LIBDIR               = lib
@@ -20,13 +20,24 @@ INCDIR               = include
 SRC := $(shell find $(SRCDIR) -name "*.c")
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 UNITSRC := $(shell find $(UNITDIR) -name "*.c")
+UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from test sources in tests/functional/ sub-dir
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 
-UNITBINS= $(UNITSRC:%.c=$(BINDIR)/%)
+# Objects from unit-test sources in tests/unit/ sub-dir
+# Resolves to a list: obj/tests/unit/a.o obj/tests/unit/b.o ...
+UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
+
+# Binaries from unit-test sources in tests/unit/ sub-dir
+# Although the sources are in, say, tests/unit/kvstore_basic_test.c, and so on ...
+# the binaries are named bin/unit/kvstore_basic_test (Drop the 'tests'.)
+# Resolves to a list: bin/unit/a bin/unit/b ...
+UNIT_TESTBINS= $(UNIT_TESTSRC:tests/%.c=$(BINDIR)/%)
+
+UNITBINS= $(UNITSRC:%.c=%)
 
 # Automatically create directories, based on
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
@@ -93,7 +104,11 @@ LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 #*********************************************************#
 # Targets to track whether we have a release or debug build
 #
-all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test $(UNITBINS)
+all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test $(UNITBINS) \
+        unit_test
+
+# Any libraries required to link test code will be built, if needed.
+tests: $(BINDIR)/driver_test $(UNITBINS) unit_test
 
 release: .release all
 	rm -f .debug
@@ -131,6 +146,11 @@ debug-log: .debug-log all
 $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
+# Target will build everything needed to generate bin/unit_test along with all
+# the individual binaries for each unit-test case.
+unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS) $(LIBDIR)/libsplinterdb.so $(LIBS)
+
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
@@ -151,23 +171,56 @@ $(OBJDIR)/%.o: %.c | $$(@D)/.
 
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
 
-#####################################################
+# ###########################################################################
 # Unit test dependencies
 #
 # Each unit test is a self-contained binary.
 # It links only with its needed .o files
-#
+# ###########################################################################
 
-obj/unit/variable_length_btree-test.o: src/variable_length_btree.c
-bin/unit/variable_length_btree-test: obj/tests/functional/test_data.o obj/src/util.o obj/src/data_internal.o obj/src/mini_allocator.o obj/src/rc_allocator.o obj/src/config.o obj/src/clockcache.o obj/src/platform_linux/platform.o obj/src/task.o obj/src/platform_linux/laio.o
+# List the individual unit-tests that can be run standalone and are also
+# rolled-up into a single unit_test binary.
+
+$(OBJDIR)/unit/variable_length_btree-test.o: src/variable_length_btree.c
+unit/variable_length_btree-test: $(OBJDIR)/tests/functional/test_data.o     \
+                                 $(OBJDIR)/src/util.o                       \
+                                 $(OBJDIR)/src/data_internal.o              \
+                                 $(OBJDIR)/src/mini_allocator.o             \
+                                 $(OBJDIR)/src/rc_allocator.o               \
+                                 $(OBJDIR)/src/config.o                     \
+                                 $(OBJDIR)/src/clockcache.o                 \
+                                 $(OBJDIR)/src/platform_linux/platform.o    \
+                                 $(OBJDIR)/src/task.o                       \
+                                 $(OBJDIR)/src/platform_linux/laio.o        \
+                                 $(OBJDIR)/src/platform_linux/platform.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -shared $^ -o $(BINDIR)/$@
+
+# ---- main() is needed to drive each standalone unit-test binary.
+$(BINDIR)/unit/main: $(OBJDIR)/tests/unit/main.o
+$(OBJDIR)/tests/unit/main.o: tests/unit/main.c
+
+# ---- Here onwards, list the rules to build each standalone unit-test binary.
+$(BINDIR)/unit/kvstore_basic_test: unit/kvstore_basic_test
+unit/kvstore_basic_test: $(OBJDIR)/tests/unit/kvstore_basic_test.o        \
+                         $(OBJDIR)/tests/unit/main.o                      \
+                         $(LIBDIR)/libsplinterdb.so
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+
+# ----
+$(BINDIR)/unit/kvstore_basic_stress_test: unit/kvstore_basic_stress_test
+unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o       \
+                                $(OBJDIR)/tests/unit/main.o                      \
+                                $(LIBDIR)/libsplinterdb.so
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 #*************************************************************#
 
 .PHONY : clean tags
 clean :
-	rm -rf $(OBJDIR)/*
-	rm -rf $(BINDIR)/*
-	rm -f  $(LIBDIR)/*
+	rm -rf $(OBJDIR)/* $(BINDIR)/* $(LIBDIR)/*
 
 tags:
 	ctags -R src
@@ -179,8 +232,11 @@ tags:
 
 .PHONY: test install
 
-test: $(BINDIR)/driver_test
+run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	./test.sh
+
+test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
+	(./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 

@@ -410,7 +410,23 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
    return kvstore_insert(kvsb->kvs, key_buffer, msg_buffer);
 }
 
-
+/*
+ * kvstore_basic_lookup() - Lookup a key, returning its value.
+ *
+ * Parameters:
+ *  kvsb        - Ptr to KVStore handle
+ *  key         - Ptr to key to lookup
+ *  key_len     - Key's length in bytes
+ *  val         - Output buffer to return value, if key is found
+ *  val_max_len - Max length of value that we can return
+ *  val_bytes   - Length, in bytes, of value returned (found)
+ *  val_truncated Boolean, whether value was truncated on return
+ *  found_out   - Boolean, indicating if key was found.
+ *
+ * Returns:
+ *  == 0, upon success. (Check booleans to see if key is found.)
+ *  != 0, upon any error condition.
+ */
 int
 kvstore_basic_lookup(const kvstore_basic *kvsb,
                      const char *         key,           // IN
@@ -469,6 +485,14 @@ struct kvstore_basic_iterator {
    void *heap_id;
 };
 
+/*
+ * Initialize a KVStore iterator.
+ *
+ * Returns:
+ *  0 - For successful initialization of the iterator.
+ *  != 0 - In case of any errors
+ *  ENOMEM - In case of any memory allocation errors
+ */
 int
 kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
                         kvstore_basic_iterator **iter,         // OUT
@@ -509,6 +533,11 @@ kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp)
    *iterpp = NULL;
 }
 
+/*
+ * Validate if an open iterator is valid.
+ *
+ * Returns: Boolean
+ */
 _Bool
 kvstore_basic_iter_valid(kvstore_basic_iterator *iter)
 {
