@@ -828,11 +828,10 @@ btree_range_valid(cache        *cc,
  *
  * btree_split_node --
  *
- *      Splits the node at left_addr into a new node at right_addr. Uses
- *      anonymous pages for both and swaps in when complete.
+ *      Splits the node at left_addr into a new node at right_addr.
  *
- *      Assumes claim is held on left_node. Returns with write lock.
- *      Assumes right_node has a free addr, but isn't held
+ *      Assumes write locks are held on both left and right and returns with
+ *      both locks still held.
  *
  *-----------------------------------------------------------------------------
  */
@@ -886,14 +885,8 @@ btree_split_node(cache *cc,              // IN
 
    right_node->hdr->num_entries = target_right_entries;
    right_node->hdr->next_addr = left_node->hdr->next_addr;
-   //btree_node_lock(cc, cfg, left_node);
    left_node->hdr->num_entries = target_left_entries;
    left_node->hdr->next_addr = right_node->addr;
-
-   // unshare
-   cache_unshare(cc, right_node->page);
-   right_node->page = right_node->page;
-   right_node->hdr = right_node->hdr;
 }
 
 /*
@@ -906,12 +899,12 @@ btree_split_node(cache *cc,              // IN
  */
 
 void
-btree_add_shared_pivot(cache          *cc,
-                       btree_config   *cfg,
-                       mini_allocator *mini,
-                       btree_node     *parent,
-                       btree_node     *child,
-                       btree_node     *new_child)
+btree_add_split_pivot(cache          *cc,
+                      btree_config   *cfg,
+                      mini_allocator *mini,
+                      btree_node     *parent,
+                      btree_node     *child,
+                      btree_node     *new_child)
 {
    debug_assert(!btree_is_packed(cfg, parent));
    debug_assert(!btree_is_packed(cfg, child));
@@ -925,8 +918,6 @@ btree_add_shared_pivot(cache          *cc,
    else
       btree_alloc((cc), mini, height, NULL, NULL, PAGE_TYPE_MEMTABLE_INTERNAL, new_child);
 
-
-   cache_share(cc, child->page, new_child->page);
    uint16 child_num_entries = btree_num_entries(cfg, child);
    uint16 new_entry_num = child_num_entries - child_num_entries / 2;
    char *pivot_key;
@@ -986,7 +977,7 @@ int btree_split_root(btree_config   *cfg,       // IN
    root_node->hdr->height++;
    btree_add_pivot_at_pos(cfg, root_node, &left_node, 0, TRUE);
    btree_node right_node;
-   btree_add_shared_pivot(cc, cfg, mini, root_node, &left_node, &right_node);
+   btree_add_split_pivot(cc, cfg, mini, root_node, &left_node, &right_node);
 
    // release root
    btree_node_unlock(cc, cfg, root_node);
@@ -1292,7 +1283,7 @@ start_over:
             btree_node_lock(cc, cfg, &parent_node);
             btree_node_lock(cc, cfg, &child_node);
             btree_node new_child_node;
-            btree_add_shared_pivot(cc, cfg, mini, &parent_node, &child_node,
+            btree_add_split_pivot(cc, cfg, mini, &parent_node, &child_node,
                   &new_child_node);
             btree_node_full_unlock(cc, cfg, &parent_node);
 

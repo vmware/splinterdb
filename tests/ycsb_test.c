@@ -626,8 +626,7 @@ load_ycsb_logs(int          argc,
                bool        *use_existing,
                ycsb_phase **output,
                int         *args_consumed,
-               uint64      *log_size_bytes_out,
-               uint64      *memory_bytes_out)
+               uint64      *log_size_bytes_out)
 {
    uint64 _nphases = 1;
    uint64 num_threads = 0;
@@ -639,32 +638,16 @@ load_ycsb_logs(int          argc,
    platform_status ret;
    platform_heap_id hid = platform_get_heap_id();
 
-   if (argc < 6) {
+   if (argc < 5) {
       usage(argv[0]);
       return STATUS_BAD_PARAM;
    }
 
-   if (argc > 6) {
-      if (strncmp(argv[5], "-c", sizeof("-c")) == 0) {
-         if (argc < 8) {
-            usage(argv[0]);
-            return STATUS_BAD_PARAM;
-         }
-         measurement_command = argv[7];
-         if (argc > 7 && strncmp(argv[8], "-e", sizeof("-e")) == 0) {
-            *use_existing = TRUE;
-            *args_consumed = 9;
-         } else {
-            *args_consumed = 8;
-         }
-      } else if (strncmp(argv[6], "-e", sizeof("-e")) == 0) {
+   if (argc > 5 && strncmp(argv[5], "-e", sizeof("-e")) == 0) {
          *use_existing = TRUE;
-         *args_consumed = 7;
-      } else {
          *args_consumed = 6;
-      }
    } else {
-      *args_consumed = 6;
+      *args_consumed = 5;
    }
 
    name = argv[1];
@@ -679,19 +662,6 @@ load_ycsb_logs(int          argc,
    if (num_lines < num_threads) {
       return STATUS_BAD_PARAM;
    }
-   *memory_bytes_out = MiB_TO_B(strtoull(argv[5], NULL, 0));
-
-   // char *resize_cgroup_command =
-   //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
-   // platform_assert(resize_cgroup_command);
-
-   // uint64 load_bytes = *use_existing ? GiB_TO_B(128UL) : GiB_TO_B(128UL);
-   // snprintf(resize_cgroup_command, 1024,
-   //      "echo %lu > /sys/fs/cgroup/memory/benchmark/memory.limit_in_bytes",
-   //      load_bytes);
-   // int rc = system(resize_cgroup_command);
-   // platform_assert(rc == 0);
-   // platform_free(hid, resize_cgroup_command);
 
    ycsb_phase *phases = TYPED_ARRAY_MALLOC(hid, phases, _nphases);
    log_size_bytes += _nphases * sizeof(ycsb_phase);
@@ -1100,9 +1070,14 @@ ycsb_test(int argc, char *argv[])
    ycsb_phase *phases;
    int args_consumed;
 
-   uint64 log_size_bytes, memory_bytes;
-   rc = load_ycsb_logs(argc, argv, &nphases, &use_existing,
-                       &phases, &args_consumed, &log_size_bytes, &memory_bytes);
+   uint64 log_size_bytes;
+   rc = load_ycsb_logs(argc,
+                       argv,
+                       &nphases,
+                       &use_existing,
+                       &phases,
+                       &args_consumed,
+                       &log_size_bytes);
    if (!SUCCESS(rc) || phases == NULL) {
       platform_log("Failed to load ycsb logs\n");
       return -1;
@@ -1136,66 +1111,6 @@ ycsb_test(int argc, char *argv[])
 
    if (data_cfg->key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
-      platform_error_log("ycsb: key size configuration does not match\n");
-      goto cleanup;
-   }
-
-   uint64 overhead_bytes =
-      memory_bytes / splinter_cfg->page_size * (sizeof(clockcache_entry) + 64) +
-      allocator_cfg.extent_capacity * sizeof(uint8) +
-      allocator_cfg.page_capacity * sizeof(uint32);
-   uint64 buffer_bytes = MiB_TO_B(1024);
-   // if (memory_bytes > GiB_TO_B(40)) {
-   //   buffer_bytes = use_existing ? MiB_TO_B(2048) : MiB_TO_B(1280);
-   //} else {
-   //   buffer_bytes = use_existing ? MiB_TO_B(512) : MiB_TO_B(1280);
-   //}
-   // int64 buffer_bytes = use_existing ? MiB_TO_B(768) : MiB_TO_B(1280);
-   buffer_bytes += overhead_bytes;
-   buffer_bytes = ROUNDUP(buffer_bytes, 2 * MiB);
-   platform_log("overhead %lu MiB buffer %lu MiB\n",
-         B_TO_MiB(overhead_bytes), B_TO_MiB(buffer_bytes));
-   cache_cfg.capacity = memory_bytes - buffer_bytes;
-   cache_cfg.page_capacity = cache_cfg.capacity / cache_cfg.page_size;
-
-   uint64 al_size = allocator_cfg.extent_capacity * sizeof(uint8);
-   al_size = ROUNDUP(al_size, 2 * MiB);
-   platform_assert(cache_cfg.capacity % (2 * MiB) == 0);
-   uint64 huge_tlb_memory_bytes = cache_cfg.capacity + al_size;
-   platform_assert(huge_tlb_memory_bytes % (2 * MiB) == 0);
-   // uint64 huge_tlb_pages = huge_tlb_memory_bytes / (2 * MiB);
-   // uint64 remaining_memory_bytes =
-   //   memory_bytes + log_size_bytes - huge_tlb_memory_bytes;
-   platform_log("memory: %lu MiB hugeTLB: %lu MiB cache: %lu MiB\n",
-         B_TO_MiB(memory_bytes), B_TO_MiB(huge_tlb_memory_bytes),
-         B_TO_MiB(cache_cfg.capacity));
-
-   // char *resize_cgroup_command =
-   //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
-   // platform_assert(resize_cgroup_command);
-   // snprintf(resize_cgroup_command, 1024,
-   //      "echo %lu > /sys/fs/cgroup/memory/benchmark/memory.limit_in_bytes",
-   //      remaining_memory_bytes);
-   // int sys_rc = system(resize_cgroup_command);
-   // platform_assert(sys_rc == 0);
-   // platform_free(hid, resize_cgroup_command);
-
-   // char *resize_hugetlb_command =
-   //   TYPED_ARRAY_MALLOC(hid, resize_hugetlb_command, 1024);
-   // platform_assert(resize_hugetlb_command);
-   // snprintf(resize_hugetlb_command, 1024,
-   //      "echo %lu > /proc/sys/vm/nr_hugepages",
-   //      huge_tlb_pages);
-   // int sys_rc = system(resize_hugetlb_command);
-   // platform_assert(sys_rc == 0);
-   // platform_free(hid, resize_hugetlb_command);
-
-   if (data_cfg->message_size != YCSB_DATA_SIZE) {
-      platform_error_log("ycsb: data size configuration does not match\n");
-      goto cleanup;
-   }
-
-   if (data_cfg->key_size != YCSB_KEY_SIZE) {
       platform_error_log("ycsb: key size configuration does not match\n");
       goto cleanup;
    }
@@ -1252,13 +1167,10 @@ ycsb_test(int argc, char *argv[])
    test_deinit_splinter(hid, ts);
    rc = STATUS_OK;
 
-   // struct rusage usage;
-   // sys_rc = getrusage(RUSAGE_SELF, &usage);
-   // platform_assert(sys_rc == 0);
-   // platform_log("max memory usage:             %8luMiB\n",
-   //      B_TO_MiB(usage.ru_maxrss * KiB));
-   // platform_log("over provision for op buffer: %8luMiB\n",
-   //      B_TO_MiB(usage.ru_maxrss * KiB - log_size_bytes));
+   struct rusage usage;
+   int sys_rc = getrusage(RUSAGE_SELF, &usage);
+   platform_assert(sys_rc == 0);
+   platform_log("max memory usage: %8luMiB\n", B_TO_MiB(usage.ru_maxrss * KiB));
 
    compute_all_report_data(phases, nphases);
    write_all_reports(phases, nphases);

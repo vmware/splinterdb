@@ -134,15 +134,6 @@ typedef void (*page_sync_fn)(cache *      cc,
                              page_handle *page,
                              bool         is_blocking,
                              page_type    type);
-typedef uint64 (*extent_sync_fn)(cache * cc,
-                                 uint64  addr,
-                                 uint64 *pages_outstanding);
-
-typedef void (*share_fn)(cache *      cc_to_share,
-			 cache *      anon_cc,
-                         page_handle *page_to_share,
-                         page_handle *anon_page);
-typedef void (*unshare_fn)(cache *cc, page_handle *anon_page);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*page_mark_dirty_fn)(cache *cc, page_handle *page);
 typedef void (*flush_fn)(cache *cc);
@@ -185,14 +176,11 @@ typedef struct cache_ops {
    page_unclaim_fn      page_unclaim;
    page_lock_fn         page_lock;
    page_unlock_fn       page_unlock;
-   share_fn             share;
-   unshare_fn           unshare;
    page_prefetch_fn     page_prefetch;
    page_mark_dirty_fn   page_mark_dirty;
    page_pin_fn          page_pin;
    page_unpin_fn        page_unpin;
    page_sync_fn         page_sync;
-   extent_sync_fn       extent_sync;
    flush_fn             flush;
    evict_fn             evict;
    cleanup_fn           cleanup;
@@ -281,7 +269,7 @@ cache_dealloc(cache *cc, uint64 addr, page_type type)
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_dealloc(vcc, addr, type);
+      return cc->ops->page_dealloc(vcc, addr, type);
    }
    return cc->ops->page_dealloc(cc, addr, type);
    /*
@@ -296,7 +284,7 @@ cache_get_ref(cache *cc, uint64 addr)
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_get_ref(vcc, addr);
+      return cc->ops->page_get_ref(vcc, addr);
    }
    return cc->ops->page_get_ref(cc, addr);
 }
@@ -307,7 +295,7 @@ cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_get(vcc, addr, blocking, type);
+      return cc->ops->page_get(vcc, addr, blocking, type);
    }
 
    return cc->ops->page_get(cc, addr, blocking, type);
@@ -332,7 +320,7 @@ cache_get_async(cache *cc, uint64 addr, page_type type,
    {
       cache *vcc = cache_get_volatile_cache(cc);
       ctxt->cc = vcc;
-      return vcc->ops->page_get_async(vcc, addr, type, ctxt);
+      return cc->ops->page_get_async(vcc, addr, type, ctxt);
    }
 
    return cc->ops->page_get_async(cc, addr, type, ctxt);
@@ -351,7 +339,7 @@ cache_unget(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_unget(vcc, page);
+      return cc->ops->page_unget(vcc, page);
    }
 
    return cc->ops->page_unget(cc, page);
@@ -363,7 +351,7 @@ cache_claim(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_claim(vcc, page);
+      return cc->ops->page_claim(vcc, page);
    }
 
    return cc->ops->page_claim(cc, page);
@@ -375,7 +363,7 @@ cache_unclaim(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_unclaim(vcc, page);
+      return cc->ops->page_unclaim(vcc, page);
    }
 
    return cc->ops->page_unclaim(cc, page);
@@ -387,7 +375,7 @@ cache_lock(cache *cc, page_handle **page)
    if(cache_if_volatile_page(cc, *page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_lock(vcc, page);
+      return cc->ops->page_lock(vcc, page);
    }
 
    return cc->ops->page_lock(cc, page);
@@ -399,7 +387,7 @@ cache_unlock(cache *cc, page_handle **page)
    if(cache_if_volatile_page(cc, *page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_unlock(vcc, page);
+      return cc->ops->page_unlock(vcc, page);
    }
 
    return cc->ops->page_unlock(cc, page);
@@ -411,38 +399,8 @@ static inline void
 cache_prefetch(cache *cc, uint64 addr, page_type type)
 {
    //cache *vcc = cache_get_volatile_cache(cc);
-   //return vcc->ops->page_prefetch(vcc, addr, type);
+   //return cc->ops->page_prefetch(vcc, addr, type);
    return cc->ops->page_prefetch(cc, addr, type);
-}
-
-static inline void
-cache_share(cache *cc, page_handle *page_to_share, page_handle *anon_page)
-{
-   cache *cc_to_share;
-   cache *anon_cc;
-   if(cache_if_volatile_page(cc, page_to_share))
-      cc_to_share = cache_get_volatile_cache(cc);
-   else
-      cc_to_share = cc;
-
-   if(cache_if_volatile_page(cc, anon_page))
-      anon_cc = cache_get_volatile_cache(cc);
-   else
-      anon_cc = cc;
-
-   return cc->ops->share(cc_to_share, anon_cc, page_to_share, anon_page);
-}
-
-static inline void
-cache_unshare(cache *cc, page_handle *anon_page)
-{
-   if(cache_if_volatile_page(cc, anon_page))
-   {  
-      cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->unshare(vcc, anon_page);
-   }
-
-   return cc->ops->unshare(cc, anon_page);
 }
 
 static inline void
@@ -451,7 +409,7 @@ cache_mark_dirty(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_mark_dirty(vcc, page);
+      return cc->ops->page_mark_dirty(vcc, page);
    }
 
    return cc->ops->page_mark_dirty(cc, page);
@@ -463,7 +421,7 @@ cache_pin(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_pin(vcc, page);
+      return cc->ops->page_pin(vcc, page);
    }
 
    return cc->ops->page_pin(cc, page);
@@ -475,7 +433,7 @@ cache_unpin(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_unpin(vcc, page);
+      return cc->ops->page_unpin(vcc, page);
    }
 
    return cc->ops->page_unpin(cc, page);
@@ -487,29 +445,19 @@ cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_sync(vcc, page, is_blocking, type);
+      return cc->ops->page_sync(vcc, page, is_blocking, type);
    }
 
    return cc->ops->page_sync(cc, page, is_blocking, type);
 }
 
 static inline void
-cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
-{
-   if(cache_if_diskaddr_in_volatile_cache(cc, addr))
-   {
-      cache *vcc = cache_get_volatile_cache(cc);
-      vcc->ops->extent_sync(vcc, addr, pages_outstanding);
-   }
-   else
-      cc->ops->extent_sync(cc, addr, pages_outstanding);
-}
-
-static inline void
 cache_flush(cache *cc)
 {
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->flush(vcc);
+   if (vcc) {
+     cc->ops->flush(vcc);
+   }
 
    cc->ops->flush(cc);
 }
@@ -518,7 +466,9 @@ static inline int
 cache_evict(cache *cc, bool ignore_pinned_pages)
 {
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->evict(vcc, ignore_pinned_pages);
+   if (vcc) {
+     cc->ops->evict(vcc, ignore_pinned_pages);
+   }
 
    return cc->ops->evict(cc, ignore_pinned_pages);
 }
@@ -527,7 +477,9 @@ static inline void
 cache_cleanup(cache *cc)
 {
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->cleanup(vcc);
+   if (vcc) {
+     cc->ops->cleanup(vcc);
+   }
 
    return cc->ops->cleanup(cc);
 }
@@ -551,7 +503,7 @@ cache_assert_ungot(cache *cc, uint64 addr)
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->assert_ungot(vcc, addr);
+      return cc->ops->assert_ungot(vcc, addr);
    }
 
    return cc->ops->assert_ungot(cc, addr);
@@ -561,7 +513,9 @@ static inline void
 cache_assert_free(cache *cc)
 {
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->assert_free(vcc);
+   if (vcc) {
+     cc->ops->assert_free(vcc);
+   }
 
    return cc->ops->assert_free(cc);
 }
@@ -570,7 +524,9 @@ static inline void
 cache_assert_noleaks(cache *cc)
 {
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->assert_noleaks(vcc);
+   if (vcc) {
+     cc->ops->assert_noleaks(vcc);
+   }
 
    return cc->ops->assert_noleaks(cc);
 }
@@ -578,9 +534,11 @@ cache_assert_noleaks(cache *cc)
 static inline void
 cache_print(cache *cc)
 {
-   platform_log("--------------PRINTING VOLATILE CACHE--------------\n");
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->print(vcc);
+   if (vcc) {
+     platform_log("--------------PRINTING VOLATILE CACHE--------------\n");
+     cc->ops->print(vcc);
+   }
    platform_log("--------------PRINTING PERSISTENT CACHE--------------\n");
    return cc->ops->print(cc);
 }
@@ -588,9 +546,11 @@ cache_print(cache *cc)
 static inline void
 cache_print_stats(cache *cc)
 {
-   platform_log("--------------PRINTING VOLATILE STATS--------------\n");
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->print_stats(vcc);
+   if (vcc) {
+     platform_log("--------------PRINTING VOLATILE STATS--------------\n");
+     cc->ops->print_stats(vcc);
+   }
    platform_log("--------------PRINTING PERSISTENT CACHE--------------\n");
    return cc->ops->print_stats(cc);
 }
@@ -599,7 +559,9 @@ static inline void
 cache_reset_stats(cache *cc)
 {
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->reset_stats(vcc);
+   if (vcc) {
+      cc->ops->reset_stats(vcc);
+   }
    return cc->ops->reset_stats(cc);
 }
 
@@ -607,7 +569,9 @@ static inline void
 cache_io_stats(cache *cc, uint64 *read_bytes, uint64 *write_bytes)
 {
    cache *vcc = cache_get_volatile_cache(cc);
-   vcc->ops->io_stats(vcc, read_bytes, write_bytes);
+   if (vcc) {
+      cc->ops->io_stats(vcc, read_bytes, write_bytes);
+   }
    return cc->ops->io_stats(cc, read_bytes, write_bytes);
 }
 
@@ -617,7 +581,7 @@ cache_page_valid(cache *cc, uint64 addr)
    if(cache_if_diskaddr_in_volatile_cache(cc, addr))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_valid(vcc, addr);
+      return cc->ops->page_valid(vcc, addr);
    }
 
    return cc->ops->page_valid(cc, addr);
@@ -630,7 +594,7 @@ cache_validate_page(cache *cc, page_handle *page, uint64 addr)
    if(cache_if_volatile_page(cc, page)){
       assert(cache_if_diskaddr_in_volatile_cache(cc, addr));
       cache *vcc = cache_get_volatile_cache(cc);
-      vcc->ops->validate_page(vcc, page, addr);
+      cc->ops->validate_page(vcc, page, addr);
    }
    else{
       assert(!cache_if_diskaddr_in_volatile_cache(cc, addr));
@@ -653,7 +617,7 @@ cache_get_read_ref(cache *cc, page_handle *page)
    if(cache_if_volatile_page(cc, page))
    {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->page_get_read_ref(vcc, page);
+      return cc->ops->page_get_read_ref(vcc, page);
    }
 
    return cc->ops->page_get_read_ref(cc, page);
@@ -663,9 +627,9 @@ static inline bool
 cache_present(cache *cc, page_handle *page)
 {
    if(cache_if_volatile_page(cc, page))
-   {  
+   {
       cache *vcc = cache_get_volatile_cache(cc);
-      return vcc->ops->cache_present(vcc, page);
+      return cc->ops->cache_present(vcc, page);
    }
 
    return cc->ops->cache_present(cc, page);

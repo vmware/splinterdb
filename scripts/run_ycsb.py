@@ -8,6 +8,7 @@ from datetime import datetime
 import sys
 import time
 import argparse
+import os
 
 def write_version_info(out_dir):
     """write git version info including diff to version file"""
@@ -109,7 +110,7 @@ TRACE_FILENAMES = ARGS.trace_list
 TRACE_DIR = ARGS.trace_dir
 USE_EXISTING = ARGS.use_existing
 THREAD_COUNTS = ARGS.threads
-DRAM_SIZES = [x * GIB for x in ARGS.dram]
+DRAM_SIZES = ARGS.dram
 PMEM_SIZES_GIB = ARGS.pmem
 DB_SIZE = ARGS.db_size
 KEY_SIZE = ARGS.key_size
@@ -122,12 +123,18 @@ assert len(DRAM_SIZES) == len(PMEM_SIZES_GIB)
 # get date/time for labeling
 DATETIME_STRING = datetime.today().strftime('%Y_%m_%d_%H:%M')
 
-for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
+for dram_gib, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
     for thread_count in THREAD_COUNTS:
+        if os.path.exists("/mnt/pmem0/splinter"):
+            os.remove("/mnt/pmem0/splinter")
+        if os.path.exists("/mnt/pmem0/ctxmap"):
+            os.remove("/mnt/pmem0/ctxmap")
+        if os.path.exists("/mnt/pmem0/entry"):
+            os.remove("/mnt/pmem0/entry")
         time.sleep(3)
         # create and open the csv file
         pathlib.Path(SAVE_DIR).mkdir(parents=True, exist_ok=True)
-        ycsb_csv_name = get_ycsb_string(SAVE_DIR, DATETIME_STRING, thread_count, dram, pmem_gib * GIB, MESSAGE_SIZE)
+        ycsb_csv_name = get_ycsb_string(SAVE_DIR, DATETIME_STRING, thread_count, dram_gib, pmem_gib * GIB, MESSAGE_SIZE)
         with open(ycsb_csv_name, "w") as ycsb_csv:
             if DEVICE:
                 ycsb_csv.write(
@@ -138,7 +145,7 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
             for i, trace_filename in enumerate(TRACE_FILENAMES):
                 # create SAVE_DIR for this run's data
                 workload_string = get_workload_string(
-                    trace_filename, thread_count, dram, pmem_gib * GIB, MESSAGE_SIZE)
+                    trace_filename, thread_count, dram_gib, pmem_gib * GIB, MESSAGE_SIZE)
                 results_dir = "{}/{}-{}".format(SAVE_DIR, workload_string, DATETIME_STRING)
                 pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
 
@@ -146,6 +153,8 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
                 write_version_info(results_dir)
 
                 # get trace filename and operation count
+                if "_" in trace_filename:
+                    workload_name = trace_filename.rsplit("_", 1)[1]
                 trace_filename = TRACE_DIR + "/" + trace_filename
                 trace_file = pathlib.Path(trace_filename)
                 print(trace_filename)
@@ -157,14 +166,12 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
                     start_diskstats = get_io_stats(DEVICE)
 
                 # prepare the workload command
-                run_command = ["./bin/driver_test", "ycsb_test"]
+                run_command = ["stdbuf", "-i0", "-o0", "-e0","./bin/driver_test", "ycsb_test"]
                 data_prefix = results_dir + "/data"
                 run_command.append(data_prefix)
                 run_command.append(trace_filename)
                 run_command.append(str(thread_count))
                 run_command.append(str(op_count))
-                dram_mib = int(dram / 1024 / 1024)
-                run_command.append(str(dram_mib))
                 if USE_EXISTING or i != 0:
                     run_command.append("-e")
 
@@ -178,12 +185,16 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
                 run_command.append(str(KEY_SIZE))
                 run_command.append("--data-size")
                 run_command.append(str(MESSAGE_SIZE + 2))
-                run_command.append("--pmem-cache-capacity-gib")
-                run_command.append(str(pmem_gib))
+                if dram_gib != 0:
+                    run_command.append("--dram-cache-capacity-gib")
+                    run_command.append(str(dram_gib))
+                if pmem_gib != 0:
+                    run_command.append("--pmem-cache-capacity-gib")
+                    run_command.append(str(pmem_gib))
 
                 # run the benchmark, print output if it crashes, save it otherwise
                 print("Running benchmark {} with {} threads, {} RAM and {} PMEM".format(
-                    trace_filename, thread_count, bytes_to_str(dram), bytes_to_str(pmem_gib * GIB)))
+                    workload_name, thread_count, bytes_to_str(dram_gib), bytes_to_str(pmem_gib * GIB)))
                 print(" ".join(run_command))
                 try:
                     workload_output = subprocess.check_output(run_command, stderr=subprocess.STDOUT)
@@ -227,7 +238,7 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
                         "throughput:     {:.2f} Kops/sec\n".format(throughput / 1024))
                     summary_file.write("mean_latency:   {} ns\n".format(latency))
                     if DEVICE:
-                        if trace_filename == "e":
+                        if workload_name == "e":
                             logical_data_size = \
                                 (0.95 * 50 + 0.05) * op_count * (KEY_SIZE + MESSAGE_SIZE)
                         else:
@@ -243,7 +254,7 @@ for dram, pmem_gib in zip(DRAM_SIZES, PMEM_SIZES_GIB):
                         bandwidth_used = int(io_mib/clock_time_sec)
                         summary_file.write("bandwidth_used: {} MiB/sec\n".format(bandwidth_used))
 
-                        # write trace_filename data to csv
+                # write trace_filename data to csv
                 workload_name = trace_filename.title()
                 if DEVICE:
                     ycsb_csv.write("{} {} {} {} {} {} {}\n".format(
