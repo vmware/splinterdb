@@ -500,27 +500,6 @@ mini_allocator_zap(cache       *cc,
 }
 
 bool
-mini_allocator_sync_extent(cache     *cc,
-                           page_type  type,
-                           uint64     base_addr,
-                           uint64    *pages_outstanding)
-{
-   cache_extent_sync(cc, base_addr, pages_outstanding);
-   return FALSE;
-}
-
-
-void
-mini_allocator_sync(cache     *cc,
-                    page_type  type,
-                    uint64     meta_head,
-                    uint64    *pages_outstanding)
-{
-   mini_allocator_for_each(cc, NULL, type, meta_head, mini_allocator_sync_extent,
-         NULL, NULL, pages_outstanding);
-}
-
-bool
 mini_allocator_inc_extent(cache     *cc,
                           page_type  type,
                           uint64     base_addr,
