@@ -3159,6 +3159,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
                               uint64           generation,
                               const threadid   tid)
 {
+   splinter_lock_trunk_update_lock(spl);
    // X. Get, claim and lock the lookup lock
    page_handle *mt_lookup_lock_page =
       memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
@@ -3167,9 +3168,14 @@ splinter_memtable_incorporate(splinter_handle *spl,
 
    // X. Get, claim and lock the root
    page_handle *root = splinter_node_get(spl, spl->root_addr);
+#if 0
    splinter_node_claim(spl, &root);
    platform_assert(splinter_has_vacancy(spl, root, 1));
    splinter_node_lock(spl, root);
+#else
+   int height = splinter_height(spl, root);
+   page_handle *new_root = splinter_alloc(spl, height);
+#endif
 
    splinter_open_log_stream();
    splinter_log_stream("incorporate memtable gen %lu into root %lu\n", generation, spl->root_addr);
@@ -3280,6 +3286,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+   splinter_unlock_trunk_update_lock(spl);
 }
 
 /*
