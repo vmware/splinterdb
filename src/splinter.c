@@ -3175,11 +3175,16 @@ splinter_memtable_incorporate(splinter_handle *spl,
 #else
    int height = splinter_height(spl, root);
    page_handle *new_root = splinter_alloc(spl, height);
+   memcpy(new_root->data, root->data, spl->cfg.page_size);
+   uint64 new_root_addr = new_root->disk_addr;
+
+   // XXX: Should not use spl->root_addr and root
+   //      after this line. Need to be careful.
 #endif
 
    splinter_open_log_stream();
-   splinter_log_stream("incorporate memtable gen %lu into root %lu\n", generation, spl->root_addr);
-   splinter_log_node(spl, root);
+   splinter_log_stream("incorporate memtable gen %lu into new root %lu\n", generation, new_root->disk_addr);
+   splinter_log_node(spl, new_root);
    splinter_log_stream("----------------------------------------\n");
 
    // X. Release lookup lock
@@ -3191,35 +3196,38 @@ splinter_memtable_incorporate(splinter_handle *spl,
    splinter_compacted_memtable *cmt =
       splinter_get_compacted_memtable(spl, generation);
    splinter_compact_bundle_req *req = cmt->req;
-   req->bundle_no = splinter_get_new_bundle(spl, root);
-   splinter_bundle *bundle = splinter_get_bundle(spl, root, req->bundle_no);
-   splinter_subbundle *sb = splinter_get_new_subbundle(spl, root, 1);
-   splinter_branch *branch = splinter_get_new_branch(spl, root);
+   req->bundle_no = splinter_get_new_bundle(spl, new_root);
+   splinter_bundle *bundle = splinter_get_bundle(spl, new_root, req->bundle_no);
+   splinter_subbundle *sb = splinter_get_new_subbundle(spl, new_root, 1);
+   splinter_branch *branch = splinter_get_new_branch(spl, new_root);
+
    *branch = cmt->branch;
-   bundle->start_subbundle = splinter_subbundle_no(spl, root, sb);
-   bundle->end_subbundle = splinter_end_subbundle(spl, root);
-   sb->start_branch = splinter_branch_no(spl, root, branch);
-   sb->end_branch = splinter_end_branch(spl, root);
+
+   bundle->start_subbundle = splinter_subbundle_no(spl, new_root, sb);
+   bundle->end_subbundle = splinter_end_subbundle(spl, new_root);
+   sb->start_branch = splinter_branch_no(spl, new_root, branch);
+   sb->end_branch = splinter_end_branch(spl, new_root);
    sb->state = SB_STATE_COMPACTED;
-   routing_filter *filter = splinter_subbundle_filter(spl, root, sb, 0);
+   routing_filter *filter = splinter_subbundle_filter(spl, new_root, sb, 0);
    *filter = cmt->filter;
    req->spl = spl;
-   req->addr = spl->root_addr;
-   req->height = splinter_height(spl, root);
-   req->generation = splinter_generation(spl, root);
-   req->max_pivot_generation = splinter_pivot_generation(spl, root);
-   splinter_tuples_in_bundle(spl, root, bundle, req->output_pivot_count);
-   splinter_pivot_add_bundle_num_tuples(spl, root, bundle, req->output_pivot_count);
-   uint16 num_children = splinter_num_children(spl, root);
+   req->addr = new_root_addr;
+
+   req->height = splinter_height(spl, new_root);
+   req->generation = splinter_generation(spl, new_root);
+   req->max_pivot_generation = splinter_pivot_generation(spl, new_root);
+   splinter_tuples_in_bundle(spl, new_root, bundle, req->output_pivot_count);
+   splinter_pivot_add_bundle_num_tuples(spl, new_root, bundle, req->output_pivot_count);
+   uint16 num_children = splinter_num_children(spl, new_root);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       if (pivot_no != 0) {
-         const char *key = splinter_get_pivot(spl, root, pivot_no);
+         const char *key = splinter_get_pivot(spl, new_root, pivot_no);
          splinter_inc_intersection(spl, branch, key, FALSE);
       }
-      splinter_pivot_data *pdata = splinter_get_pivot_data(spl, root, pivot_no);
+      splinter_pivot_data *pdata = splinter_get_pivot_data(spl, new_root, pivot_no);
       req->pivot_generation[pivot_no] = pdata->generation;
    }
-   debug_assert(splinter_subbundle_branch_count(spl, root, sb) != 0);
+   debug_assert(splinter_subbundle_branch_count(spl, new_root, sb) != 0);
    splinter_log_stream("enqueuing build filter %lu-%u\n",
          req->addr, req->bundle_no);
    task_enqueue(spl->ts, TASK_TYPE_NORMAL, splinter_bundle_build_filters, req,
@@ -3242,7 +3250,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
 
    memtable_transition(
          mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
-   splinter_log_node(spl, root);
+   splinter_log_node(spl, new_root);
    splinter_log_stream("----------------------------------------\n");
    splinter_log_stream("\n");
    splinter_close_log_stream();
@@ -3254,25 +3262,27 @@ splinter_memtable_incorporate(splinter_handle *spl,
    }
    bool did_flush = FALSE;
    uint64 wait = 1;
-   while (!did_flush && splinter_node_is_full(spl, root)) {
-      did_flush = splinter_flush_fullest(spl, root);
+   while (!did_flush && splinter_node_is_full(spl, new_root)) {
+      did_flush = splinter_flush_fullest(spl, new_root);
       if (!did_flush) {
-         splinter_node_unlock(spl, root);
+         splinter_node_unlock(spl, new_root);
          platform_sleep(wait);
          wait = wait > 2048 ? 2048 : 2 * wait;
-         splinter_node_lock(spl, root);
+         splinter_node_lock(spl, new_root);
       }
    }
 
    // X. If necessary, split the root
-   if (splinter_needs_split(spl, root)) {
-      splinter_split_root(spl, root);
+   if (splinter_needs_split(spl, new_root)) {
+      splinter_split_root(spl, new_root);
    }
 
    // X. Unlock the root
+#if 0
    splinter_node_unlock(spl, root);
    splinter_node_unclaim(spl, root);
-   splinter_node_unget(spl, &root);
+#endif
+   splinter_node_unget(spl, &new_root);
 
    // X. Dec-ref the now-incorporated memtable
    memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
@@ -3286,6 +3296,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+   spl->root_addr = new_root_addr;
    splinter_unlock_trunk_update_lock(spl);
 }
 
