@@ -3282,7 +3282,6 @@ splinter_memtable_incorporate(splinter_handle *spl,
    splinter_node_unlock(spl, root);
    splinter_node_unclaim(spl, root);
 #endif
-   splinter_node_unget(spl, &new_root);
 
    // X. Dec-ref the now-incorporated memtable
    memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
@@ -3297,6 +3296,10 @@ splinter_memtable_incorporate(splinter_handle *spl,
       }
    }
    spl->root_addr = new_root_addr;
+   splinter_node_unlock(spl, new_root);
+   splinter_node_unclaim(spl, new_root);
+   splinter_node_unget(spl, &new_root);
+
    splinter_unlock_trunk_update_lock(spl);
 }
 
