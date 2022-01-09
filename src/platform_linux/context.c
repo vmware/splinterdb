@@ -51,17 +51,15 @@ ThreadContext *get_context(ThreadContext *contextMap, threadid idx) {
 
 
 int ctx_lock(ThreadContext *ctx){
-/*
    ctx->locksHeld++;
    if(!ctx->trackTxs){
       return 1;
    }
-   assert(ctx->endTxs == 0);
+   //assert(ctx->endTxs == 0);
    if (ctx->openTxs == 0) {
       //tx_open(ctx);
       ctx->openTxs++;
    }
-*/
    return 0;
 }
 
@@ -80,10 +78,9 @@ int unlockall_or_unlock_delay(ThreadContext *ctx){
 
 
 int ctx_unlock(ThreadContext *ctx){
-/*
     if(ctx->locksHeld > 0)
         ctx->locksHeld--;
-    assert(ctx->locksHeld >= 0);
+    //assert(ctx->locksHeld >= 0);
     if(!ctx->trackTxs)
       return 1;
     if (ctx->openTxs>0){
@@ -94,7 +91,6 @@ int ctx_unlock(ThreadContext *ctx){
         //tx_commit(ctx);
         ctx->endTxs--;
     }
-*/
     return 0;
 }
 
