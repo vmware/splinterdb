@@ -3281,6 +3281,9 @@ splinter_memtable_incorporate(splinter_handle *spl,
 #if 0
    splinter_node_unlock(spl, root);
    splinter_node_unclaim(spl, root);
+   splinter_node_unget(spl, root);
+#else
+   splinter_node_unget(spl, &root);
 #endif
 
    // X. Dec-ref the now-incorporated memtable
@@ -7097,8 +7100,8 @@ void
 splinter_dismount(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
-   splinter_set_super_block(spl, FALSE, TRUE, FALSE);
    splinter_prepare_for_shutdown(spl);
+   splinter_set_super_block(spl, FALSE, TRUE, FALSE);
 
    // destroy trunk update lock
    platform_mutex_destroy(&spl->trunk_update_lock);
