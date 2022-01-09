@@ -6945,7 +6945,7 @@ splinter_mount(splinter_config  *cfg,
  * and all tasks have been complete.
  */
 void
-splinter_deinit(splinter_handle *spl)
+splinter_prepare_for_shutdown(splinter_handle *spl)
 {
    // write current memtable to disk
    // (any others must already be flushing/flushed)
@@ -7035,7 +7035,7 @@ splinter_destroy(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
 
-   splinter_deinit(spl);
+   splinter_prepare_for_shutdown(spl);
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
@@ -7066,7 +7066,7 @@ splinter_dismount(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
    splinter_set_super_block(spl, FALSE, TRUE, FALSE);
-   splinter_deinit(spl);
+   splinter_prepare_for_shutdown(spl);
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
