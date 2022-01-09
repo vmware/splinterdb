@@ -2694,19 +2694,23 @@ clockcache_get_internal(clockcache *cc,                     // IN
 
    size_t entry_table_size = another_cc->cfg->page_capacity * sizeof(*another_cc->entry);
    uint32 another_entry_number = clockcache_lookup(another_cc, addr);
-   if ((another_entry_number <= entry_table_size) && (another_entry_number >= 0)){
-   if(!clockcache_test_shadow(another_cc, another_entry_number, CC_SHADOW)){
-      entry->status = CC_FREE_STATUS;
-      clockcache_dec_ref(cc, entry_number, tid);
-      debug_assert(entry_number < cc->cfg->page_capacity);
-      platform_assert(__sync_bool_compare_and_swap(&cc->lookup[lookup_no],
-            entry_number, CC_UNMAPPED_ENTRY));
+
+   uint32 latest_entry_number = clockcache_lookup(cc, addr);
+
+   if ((latest_entry_number != entry_number)||
+      ((another_entry_number <= entry_table_size) && (another_entry_number >= 0))){
+      if(!clockcache_test_shadow(another_cc, another_entry_number, CC_SHADOW)){
+         entry->status = CC_FREE_STATUS;
+         clockcache_dec_ref(cc, entry_number, tid);
+         debug_assert(entry_number < cc->cfg->page_capacity);
+         platform_assert(__sync_bool_compare_and_swap(&cc->lookup[lookup_no],
+               entry_number, CC_UNMAPPED_ENTRY));
 
 
-      clockcache_get_internal(another_cc, addr, blocking, type, page);
-      assert(*page != NULL);
-      return FALSE;
-   }
+         clockcache_get_internal(another_cc, addr, blocking, type, page);
+         assert(*page != NULL);
+         return FALSE;
+      }
    }
 #endif
 
