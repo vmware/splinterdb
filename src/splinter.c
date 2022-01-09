@@ -6974,7 +6974,7 @@ splinter_mount(splinter_config  *cfg,
  * and all tasks have been complete.
  */
 void
-splinter_deinit(splinter_handle *spl)
+splinter_prepare_for_shutdown(splinter_handle *spl)
 {
    // write current memtable to disk
    // (any others must already be flushing/flushed)
@@ -7064,7 +7064,7 @@ splinter_destroy(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
 
-   splinter_deinit(spl);
+   splinter_prepare_for_shutdown(spl);
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
@@ -7097,8 +7097,8 @@ void
 splinter_dismount(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
-   splinter_deinit(spl);
    splinter_set_super_block(spl, FALSE, TRUE, FALSE);
+   splinter_prepare_for_shutdown(spl);
 
    // destroy trunk update lock
    platform_mutex_destroy(&spl->trunk_update_lock);
