@@ -7097,8 +7097,8 @@ void
 splinter_dismount(splinter_handle *spl)
 {
    srq_deinit(&spl->srq);
-   splinter_set_super_block(spl, FALSE, TRUE, FALSE);
    splinter_deinit(spl);
+   splinter_set_super_block(spl, FALSE, TRUE, FALSE);
 
    // destroy trunk update lock
    platform_mutex_destroy(&spl->trunk_update_lock);
