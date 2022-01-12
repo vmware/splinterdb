@@ -161,9 +161,10 @@ typedef struct memtable_context {
    process_fn       process;
    void            *process_ctxt;
 
+   platform_batch_rwlock *rwlock;
+
    // Protected by insert_lock. Can read without lock. Must get read lock to
    // freeze and write lock to modify.
-   uint64           insert_lock_addr;
    volatile uint64  generation;
 
    // Protected by incorporation_mutex. Must hold to read or modify.
@@ -173,7 +174,6 @@ typedef struct memtable_context {
 
    // Protected by the lookup lock. Must hold read lock to read and write lock
    // to modify.
-   uint64           lookup_lock_addr;
    volatile uint64  generation_retired;
 
    /*
@@ -213,13 +213,23 @@ typedef struct memtable_context {
 } memtable_context;
 
 platform_status
-memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
-                                          uint64            *generation,
-                                          page_handle      **lock_page);
+memtable_maybe_rotate_and_readlock_insert_lock(memtable_context  *ctxt,
+                                               uint64            *generation);
 
 void
-memtable_unget_insert_lock(memtable_context *ctxt,
-                           page_handle      *lock_page);
+memtable_unreadlock_insert_lock(memtable_context *ctxt);
+
+void
+memtable_readlock_lookup_lock(memtable_context *ctxt);
+
+void
+memtable_unreadlock_lookup_lock(memtable_context *ctxt);
+
+void
+memtable_writelock_lookup_lock(memtable_context *ctxt);
+
+void
+memtable_unwritelock_lookup_lock(memtable_context *ctxt);
 
 platform_status
 memtable_insert(memtable_context *ctxt,
@@ -227,20 +237,6 @@ memtable_insert(memtable_context *ctxt,
                 const char       *key,
                 const char       *data,
                 uint64           *generation);
-
-page_handle *
-memtable_get_lookup_lock(memtable_context *ctxt);
-
-void
-memtable_unget_lookup_lock(memtable_context *ctxt,
-                           page_handle      *lock_page);
-
-page_handle *
-memtable_uncontended_get_claim_lock_lookup_lock(memtable_context *ctxt);
-
-void
-memtable_unlock_unclaim_unget_lookup_lock(memtable_context *ctxt,
-                                          page_handle      *lock_page);
 
 bool
 memtable_dec_ref_maybe_recycle(memtable_context *ctxt,

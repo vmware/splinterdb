@@ -2993,10 +2993,9 @@ splinter_memtable_insert(splinter_handle *spl,
                          char            *key,
                          char            *data)
 {
-   page_handle *lock_page;
    uint64 generation;
-   platform_status rc = memtable_maybe_rotate_and_get_insert_lock(spl->mt_ctxt,
-         &generation, &lock_page);
+   platform_status rc =
+      memtable_maybe_rotate_and_readlock_insert_lock(spl->mt_ctxt, &generation);
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -3017,7 +3016,7 @@ splinter_memtable_insert(splinter_handle *spl,
    }
 
 unlock_insert_lock:
-   memtable_unget_insert_lock(spl->mt_ctxt, lock_page);
+   memtable_unreadlock_insert_lock(spl->mt_ctxt);
 out:
    return rc;
 }
@@ -3216,8 +3215,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
    // X. Get, claim and lock the lookup lock
    // FIXME: [aconway 2020-09-01] Should probably first get claims on lookup
    // lock and root, then upgrade to locks
-   page_handle *mt_lookup_lock_page =
-      memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
+   memtable_writelock_lookup_lock(spl->mt_ctxt);
 
    memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
 
@@ -3235,7 +3233,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
    splinter_log_stream("----------------------------------------\n");
 
    // X. Release lookup lock
-   memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
+   memtable_unwritelock_lookup_lock(spl->mt_ctxt);
 
    /*
     * X. Get a new branch in a bundle for the memtable
@@ -4998,14 +4996,12 @@ splinter_force_flush(splinter_handle *spl)
    //       this thread and (already existing thread) are both trying to flush
    //       single memtable same time)
    //       Need to fix that race.
-   page_handle *lock_page;
    uint64 generation;
    platform_status rc =
-      memtable_maybe_rotate_and_get_insert_lock(spl->mt_ctxt, &generation,
-            &lock_page);
+      memtable_maybe_rotate_and_readlock_insert_lock(spl->mt_ctxt, &generation);
    platform_assert_status_ok(rc);
    task_perform_all(spl->ts);
-   memtable_unget_insert_lock(spl->mt_ctxt, lock_page);
+   memtable_unreadlock_insert_lock(spl->mt_ctxt);
    task_perform_all(spl->ts);
    splinter_for_each_node(spl, splinter_flush_node, NULL);
 }
@@ -5659,7 +5655,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
    ZERO_ARRAY(range_itor->meta_page);
 
    // grab the lookup lock
-   page_handle *mt_lookup_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
+   memtable_readlock_lookup_lock(spl->mt_ctxt);
 
    // memtables
    ZERO_ARRAY(range_itor->branch);
@@ -5694,7 +5690,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
    }
 
    page_handle *node = splinter_node_get(spl, spl->root_addr);
-   memtable_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
+   memtable_unreadlock_lookup_lock(spl->mt_ctxt);
 
    // index btrees
    uint16 height = splinter_height(spl, node);
@@ -6300,7 +6296,7 @@ splinter_lookup(splinter_handle *spl,
    //                also handles switch to READY ^^^^^
 
    bool found_in_memtable = FALSE;
-   page_handle *mt_lookup_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
+   memtable_readlock_lookup_lock(spl->mt_ctxt);
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -6319,7 +6315,7 @@ splinter_lookup(splinter_handle *spl,
    page_handle *node = splinter_node_get(spl, spl->root_addr);
 
    // release memtable lookup lock
-   memtable_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
+   memtable_unreadlock_lookup_lock(spl->mt_ctxt);
 
    // look in index nodes
    uint16 height = splinter_height(spl, node);
@@ -6354,7 +6350,7 @@ found_final_answer_early:
 
    if (found_in_memtable) {
       // release memtable lookup lock
-      memtable_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
+      memtable_unreadlock_lookup_lock(spl->mt_ctxt);
    } else {
       splinter_node_unget(spl, &node);
    }
@@ -6523,7 +6519,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
       }
       case async_state_lookup_memtable:
       {
-         ctxt->mt_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
+         memtable_readlock_lookup_lock(spl->mt_ctxt);
          uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
          uint64 mt_gen_end = memtable_generation_retired(spl->mt_ctxt);
          for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -6567,8 +6563,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
             splinter_async_set_state(ctxt, async_state_trunk_node_lookup);
             platform_assert(node == NULL);
             ctxt->trunk_node = node = ctxt->cache_ctxt.page;
-            memtable_unget_lookup_lock(spl->mt_ctxt, ctxt->mt_lock_page);
-            ctxt->mt_lock_page = NULL;
+            memtable_unreadlock_lookup_lock(spl->mt_ctxt);
             break;
          default:
             platform_assert(0);
@@ -6875,7 +6870,7 @@ splinter_lookup_async(splinter_handle     *spl,    // IN
       case async_state_end:
       {
          if (ctxt->mt_lock_page != NULL) {
-            memtable_unget_lookup_lock(spl->mt_ctxt, ctxt->mt_lock_page);
+            memtable_unreadlock_lookup_lock(spl->mt_ctxt);
             ctxt->mt_lock_page = NULL;
             debug_assert(node == NULL);
          } else {

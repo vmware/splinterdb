@@ -75,6 +75,33 @@ typedef pthread_t platform_thread;
 // Mutex
 typedef pthread_mutex_t platform_mutex;
 
+// Spin lock
+typedef pthread_spinlock_t platform_spinlock;
+
+// Distributed Batch RW Lock
+typedef struct {
+   volatile uint8 write_lock[PLATFORM_CACHELINE_SIZE];
+   volatile uint8 read_counter[MAX_THREADS][PLATFORM_CACHELINE_SIZE];
+} PLATFORM_CACHELINE_ALIGNED platform_batch_rwlock;
+
+void
+platform_batch_rwlock_init(platform_batch_rwlock *lock);
+
+void
+platform_batch_rwlock_writelock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+bool
+platform_batch_rwlock_try_writelock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_unwritelock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_readlock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_unreadlock(platform_batch_rwlock *lock, uint64 lock_idx);
+
 // Buffer handle
 typedef struct {
    void              *addr;
