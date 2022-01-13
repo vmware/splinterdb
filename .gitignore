@@ -11,3 +11,4 @@ db
 cache-log
 tags
 unit_tests_db
+rust/target
