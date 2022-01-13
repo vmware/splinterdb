@@ -100,12 +100,15 @@ DEFAULT_LDFLAGS = -ggdb3 -pthread
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
+ifeq ($(WITH_RUST),true)
+  EXTRA_TARGETS += $(BINDIR)/splinterdb-cli
+endif
 
 #*********************************************************#
 # Targets to track whether we have a release or debug build
 #
 all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test $(UNITBINS) \
-        unit_test
+        unit_test $(EXTRA_TARGETS)
 
 # Any libraries required to link test code will be built, if needed.
 tests: $(BINDIR)/driver_test $(UNITBINS) unit_test
@@ -240,6 +243,11 @@ test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	(./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
+
+$(BINDIR)/splinterdb-cli: $(LIBDIR)/libsplinterdb.a $(wildcard rust/**/*)
+	@($(CC) --version | grep clang || (echo "Rust builds require clang.  Set your CC env var." && exit 1))
+	(test -e .debug && (cd rust && cargo build)) || (cd rust && cargo build --release)
+	(test -e .debug && cp -p rust/target/release/splinterdb-cli $@) || (cp -p rust/target/release/splinterdb-cli $@)
 
 install: $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
