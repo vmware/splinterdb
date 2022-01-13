@@ -231,7 +231,7 @@ tags:
 # Testing
 #
 
-.PHONY: test install
+.PHONY: install
 
 run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	./test.sh
