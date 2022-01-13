@@ -62,7 +62,7 @@ DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto -march=native
 DEFAULT_LDFLAGS = -ggdb3 -pthread
 LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
-LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
+LIBS = -lm -lpthread -laio -lxxhash -lpmem $(LIBCONFIG_LIBS)
 
 
 #*********************************************************#

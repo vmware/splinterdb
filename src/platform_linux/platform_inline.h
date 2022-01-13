@@ -9,6 +9,7 @@
 #include <time.h> // for nanosecond sleep api.
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <linux/mman.h>
 
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen)

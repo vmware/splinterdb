@@ -1366,6 +1366,10 @@ set_migration:
 
    *page = &new_entry->page;
 
+   if (write_unlock){
+      pmem_persist(new_entry->page.data, dest_cc->cfg->page_size);
+   }
+
    /* Set the src_cc entry point to the unmapped addr */
    // FIXME: This state need to sync with PMEM when copy back (or
    // if we make only CLEAN pages can be copied to DRAM, then we don't
@@ -3161,6 +3165,8 @@ clockcache_internal_unlock(clockcache  *cc,
 
          new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
       }
+
+      pmem_persist(new_entry->page.data, cc->cfg->page_size);
   }
 
   uint32 flag = CC_WRITELOCKED;
@@ -3216,8 +3222,10 @@ void release_all_locks(clockcache  *cache, page_handle **current_page)
         ctx->write_array[i] = FALSE;
         ctx->claim_array[i] = FALSE;
         ctx->get_array[i] = FALSE;
+	pmem_drain();
     }
     ctx->lock_curr = 0;
+    pmem_drain();
 }
 
 

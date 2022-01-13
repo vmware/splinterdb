@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/uio.h>
 #include <xxhash.h>
+#include <libpmem.h>
 
 // platform status
 typedef typeof(EINVAL) internal_platform_status;
