@@ -3,7 +3,9 @@
 set -euxo pipefail
 
 SEED="${SEED:-135}"
-TEST_RUST="${TEST_RUST:-false}"
+
+WITH_RUST="${WITH_RUST:-false}"
+TEST_CLI="${TEST_CLI:-false}"
 
 # Run all the unit-tests first, to get basic coverage
 bin/unit_test
@@ -30,7 +32,7 @@ bin/driver_test filter_test --seed "$SEED"
 
 bin/driver_test util_test --seed "$SEED"
 
-if [ "$TEST_RUST" = "true" ]; then
+if [ "$WITH_RUST" = "true" ]; then
    pushd rust
       cargo fmt --all -- --check
       cargo build
@@ -39,6 +41,10 @@ if [ "$TEST_RUST" = "true" ]; then
       cargo build --release
       cargo test --release
    popd
+fi
+
+if [ "$TEST_CLI" = "true" ]; then
+   bin/splinterdb-cli -f /tmp/splinterdb-rust-test perf -t 4 -w 10000
 fi
 
 echo ALL PASSED
