@@ -2,6 +2,8 @@
 
 _A rough guide for how to integrate SplinterDB into a program._
 
+(Or just skip to the [Example programs](#example-programs) below.)
+
 ## 1. Get the SplinterDB library and headers
 
 ### Option 1: from source
@@ -81,4 +83,9 @@ For basic key-value store use cases, [`kvstore_basic.h`](../include/splinterdb/k
   - Note these rules apply to system threads, not [runtime-managed threading](https://en.wikipedia.org/wiki/Green_threads)
     available in higher-level languages.
 
-Look at [`tests/kvstore_basic_test.c`](../tests/unit/kvstore_basic_test.c) for example code.
+## Example programs
+Our C unit tests serve as examples for how to call SplinterDB APIs.  For example
+- [`tests/unit/kvstore_basic_test.c`](../tests/unit/kvstore_basic_test.c) covers various basic operations on a single thread
+- [`tests/unit/kvstore_basic_stress_test.c`](../tests/unit/kvstore_basic_stress_test.c) uses multiple threads
+
+In addition, [`splinterdb-cli`](../rust/splinterdb-cli) is a small Rust program that may serve as an example for basic usage, including threading.
