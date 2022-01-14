@@ -83,7 +83,7 @@ params:
 
 ---
 
-#@ def step_build_splinterdb_image(source, compiler, git_sha=False):
+#@ def step_build_splinterdb_image(source, compiler, git_sha=False, with_rust=False):
 task: build
 privileged: true
 #@ if git_sha:
@@ -107,6 +107,7 @@ config:
     IMAGE_ARG_build_env_image: build-env-image-latest/image.tar
     IMAGE_ARG_run_env_image: run-env-image-latest/image.tar
     BUILD_ARG_compiler: #@ compiler
+    BUILD_ARG_with_rust: #@ str(with_rust)
     LABEL_compiler: #@ compiler
     LABEL_source: #@ source
     LABEL_created_by: "SplinterDB Concourse CI"
@@ -118,7 +119,7 @@ config:
 
 ---
 
-#@ def step_test_with_image():
+#@ def step_test_with_image(with_rust=False):
 task: test
 image: image
 config:
@@ -126,6 +127,8 @@ config:
   run:
     path: sh
     args: ["-c", "cd /splinterdb && ./test.sh"]
+    params:
+      TEST_CLI: #@ str(with_rust)
 #@ end
 
 ---
@@ -194,7 +197,7 @@ plan:
 
 ---
 
-#@ def step_debug_build_test(compiler, input_name):
+#@ def step_debug_build_test(compiler, input_name, with_rust=False):
 task: debug-build-test
 image: build-env-image-latest
 config:
@@ -204,6 +207,7 @@ config:
   params:
     CC: #@ compiler
     LD: #@ compiler
+    WITH_RUST: #@ str(with_rust)
   run:
     path: sh
     dir: #@ input_name
@@ -272,7 +276,7 @@ plan:
 
 #! Build plan steps for various PR checks
 
-#@ def steps_pr_build_test(compiler):
+#@ def steps_pr_build_test(compiler, with_rust=False):
 - in_parallel:
     fail_fast: true
     steps:
@@ -282,16 +286,16 @@ plan:
     - get: build-env-image-latest
       passed: [ recreate-build-env ]
       params: { format: oci }
-- #@ step_build_splinterdb_image("github-pull-request", compiler)
-- #@ step_test_with_image()
+- #@ step_build_splinterdb_image("github-pull-request", compiler, with_rust=with_rust)
+- #@ step_test_with_image(with_rust=with_rust)
 #@ end
 
 ---
 
-#@ def steps_pr_debug_build_test(compiler):
+#@ def steps_pr_debug_build_test(compiler, with_rust=False):
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
-- #@ step_debug_build_test(compiler, "github-pull-request")
+- #@ step_debug_build_test(compiler, "github-pull-request", with_rust=with_rust)
 #@ end
 
 ---
