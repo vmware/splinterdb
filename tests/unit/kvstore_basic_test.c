@@ -143,7 +143,7 @@ CTEST2(kvstore_basic, test_basic_flow)
 
    // **** Basic insert of new key should succeed.
    static char *insval = "some-value";
-   rc = kvstore_basic_insert(data->kvsb, key, key_len, insval, sizeof(insval));
+   rc = kvstore_basic_insert(data->kvsb, key, key_len, insval, strlen(insval));
    ASSERT_EQUAL(0, rc);
 
    // **** Should be able to lookup key/value just inserted above
@@ -157,7 +157,7 @@ CTEST2(kvstore_basic, test_basic_flow)
                              &found);
    ASSERT_EQUAL(0, rc);
    ASSERT_STREQN(insval, value, val_len);
-   ASSERT_EQUAL(sizeof(insval), val_len);
+   ASSERT_EQUAL(strlen(insval), val_len);
    ASSERT_FALSE(val_truncated);
    ASSERT_TRUE(found);
 
@@ -196,7 +196,7 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
                              large_key,
                              data->cfg.max_key_size,
                              large_key_value,
-                             sizeof(large_key_value));
+                             strlen(large_key_value));
    ASSERT_EQUAL(0, rc);
 
    _Bool  found;
@@ -215,7 +215,7 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
                              &found);
    ASSERT_EQUAL(0, rc);
    ASSERT_STREQN(large_key_value, value, val_len);
-   ASSERT_EQUAL(sizeof(large_key_value), val_len);
+   ASSERT_EQUAL(strlen(large_key_value), val_len);
    ASSERT_FALSE(val_truncated);
    ASSERT_TRUE(found);
 
@@ -627,9 +627,9 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
 CTEST2(kvstore_basic, test_close_and_reopen)
 {
    char * key     = "some-key";
-   size_t key_len = sizeof(key);
+   size_t key_len = strlen(key);
    char * val     = "some-value";
-   size_t val_len = sizeof(val);
+   size_t val_len = strlen(val);
    _Bool  found;
    _Bool  val_truncated;
    char * value = calloc(1, data->cfg.max_value_size);
