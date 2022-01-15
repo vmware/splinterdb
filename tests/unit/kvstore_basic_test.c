@@ -661,6 +661,30 @@ CTEST2(kvstore_basic, test_close_and_reopen)
 }
 
 /*
+ * Regression test for bug where repeating a cycle of insert-close-reopen
+ * causes a space leak and eventually hits an assertion
+ * (fixed in PR #214 / commit 8b33fd149d33054173790a8a30b99e97f08ffa81)
+ */
+CTEST2(kvstore_basic, test_repeated_insert_close_reopen)
+{
+   char * key     = "some-key";
+   size_t key_len = strlen(key);
+   char * val     = "f";
+   size_t val_len = strlen(val);
+
+   for (int i = 0; i < 20; i++) {
+      int rc = kvstore_basic_insert(data->kvsb, key, key_len, val, val_len);
+      ASSERT_EQUAL(0, rc);
+      printf("insert %d success\n", i);
+
+      kvstore_basic_close(data->kvsb);
+
+      rc = kvstore_basic_open(&data->cfg, &data->kvsb);
+      ASSERT_EQUAL(0, rc);
+   }
+}
+
+/*
  * Test case to exercise APIs using custom user-defined comparator function.
  *
  * NOTE: This test case is expected to be the last one in this suite as it
