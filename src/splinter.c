@@ -3170,11 +3170,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
 
    // X. Get, claim and lock the root
    page_handle *root = splinter_node_get(spl, spl->root_addr);
-#ifndef COW_TRUNK
-   splinter_node_claim(spl, &root);
-   platform_assert(splinter_has_vacancy(spl, root, 1));
-   splinter_node_lock(spl, root);
-#else
+#ifdef COW_TRUNK
    page_handle *old_root = root;
    int height = splinter_height(spl, old_root);
    // root is updated here
@@ -3183,8 +3179,11 @@ splinter_memtable_incorporate(splinter_handle *spl,
    uint64 new_root_addr = root->disk_addr;
    // XXX: spl->root_addr is not equal to root->disk_addr.
    //      after this line. Need to be careful.
+#else
+   splinter_node_claim(spl, &root);
+   platform_assert(splinter_has_vacancy(spl, root, 1));
+   splinter_node_lock(spl, root);
 #endif
-
    splinter_open_log_stream();
    splinter_log_stream("incorporate memtable gen %lu into root %lu\n", generation, root->disk_addr);
    splinter_log_node(spl, root);
@@ -3284,12 +3283,12 @@ splinter_memtable_incorporate(splinter_handle *spl,
    }
 
    // X. Unlock the root
-#ifndef COW_TRUNK
+#ifdef COW_TRUNK
+   splinter_node_unget(spl, &old_root);
+#else
    splinter_node_unlock(spl, root);
    splinter_node_unclaim(spl, root);
    splinter_node_unget(spl, &root);
-#else
-   splinter_node_unget(spl, &old_root);
 #endif
 
    // X. Dec-ref the now-incorporated memtable
@@ -4032,8 +4031,11 @@ splinter_flush(splinter_handle     *spl,
    if (spl->cfg.use_stats) {
       tid = platform_get_tid();
    }
+#ifdef  COW_TRUNK
+   /* for COW, the child only acquires the read lock  */
+#else
    splinter_node_claim(spl, &child);
-
+#endif
    if (!splinter_room_to_flush(spl, parent, child, pdata)) {
       platform_error_log("Flush failed: %lu %lu\n",
                          parent->disk_addr, child->disk_addr);
@@ -4044,7 +4046,11 @@ splinter_flush(splinter_handle     *spl,
             spl->stats[tid].failed_flushes[splinter_height(spl, parent)]++;
          }
       }
+#ifdef COW_TRUNK
+   /* for COW, the child only acquires the read lock  */
+#else
       splinter_node_unclaim(spl, child);
+#endif
       splinter_node_unget(spl, &child);
       return FALSE;
    }
@@ -4058,8 +4064,15 @@ splinter_flush(splinter_handle     *spl,
       srq_print(&spl->srq);
       pdata->srq_idx = -1;
    }
+#ifdef COW_TRUNK
+   int child_height = splinter_height(spl, child);
+   page_handle *old_child = child;
+   // child is updated here
+   child = splinter_alloc(spl, child_height);
+   memcpy(child->data, old_child->data, spl->cfg.page_size);
+#else
    splinter_node_lock(spl, child);
-
+#endif
    if (spl->cfg.use_stats) {
       if (parent->disk_addr == spl->root_addr) {
          spl->stats[tid].root_flush_wait_time_ns
@@ -4098,9 +4111,20 @@ splinter_flush(splinter_handle     *spl,
    }
 
    debug_assert(splinter_verify_node(spl, child));
+#ifdef COW_TRUNK
+   // Install the new child in the parent before
+   // old_child's read lock is  released
+   pdata->addr = child->disk_addr;
+   splinter_node_unget(spl, &old_child);
+   // Unlock the new child
    splinter_node_unlock(spl, child);
    splinter_node_unclaim(spl, child);
    splinter_node_unget(spl, &child);
+#else
+   splinter_node_unlock(spl, child);
+   splinter_node_unclaim(spl, child);
+   splinter_node_unget(spl, &child);
+#endif
 
    splinter_default_log("enqueuing compact_bundle %lu-%u\n",
                         req->addr, req->bundle_no);
@@ -4162,6 +4186,7 @@ splinter_flush_fullest(splinter_handle *spl,
             }
          }
       }
+      // get the fullest pivot
       if (pdata->num_tuples > fullest_pivot_data->num_tuples) {
          fullest_pivot_data = pdata;
       }
