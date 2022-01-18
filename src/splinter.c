@@ -4070,6 +4070,8 @@ splinter_flush(splinter_handle     *spl,
    // child is updated here
    child = splinter_alloc(spl, child_height);
    memcpy(child->data, old_child->data, spl->cfg.page_size);
+   // Install the new child in the parent
+   pdata->addr = child->disk_addr;
 #else
    splinter_node_lock(spl, child);
 #endif
@@ -4112,9 +4114,6 @@ splinter_flush(splinter_handle     *spl,
 
    debug_assert(splinter_verify_node(spl, child));
 #ifdef COW_TRUNK
-   // Install the new child in the parent before
-   // old_child's read lock is  released
-   pdata->addr = child->disk_addr;
    splinter_node_unget(spl, &old_child);
    // Unlock the new child
    splinter_node_unlock(spl, child);
