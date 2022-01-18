@@ -128,7 +128,7 @@ config:
     path: sh
     args: ["-c", "cd /splinterdb && ./test.sh"]
   params:
-    TEST_CLI: #@ str(with_rust).lower()
+    TEST_RUST_CLI: #@ str(with_rust).lower()
 #@ end
 
 ---
