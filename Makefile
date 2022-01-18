@@ -247,7 +247,7 @@ INSTALL_PATH ?= /usr/local
 $(BINDIR)/splinterdb-cli: $(LIBDIR)/libsplinterdb.a $(wildcard rust/**/*)
 	@($(CC) --version | grep clang || (echo "Rust builds require clang.  Set your CC env var." && exit 1))
 	(test -e .debug && (cd rust && cargo build)) || (cd rust && cargo build --release)
-	(test -e .debug && cp -p rust/target/release/splinterdb-cli $@) || (cp -p rust/target/release/splinterdb-cli $@)
+	(test -e .debug && cp -p rust/target/debug/splinterdb-cli $@) || (cp -p rust/target/release/splinterdb-cli $@)
 
 install: $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
