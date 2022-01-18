@@ -107,7 +107,7 @@ config:
     IMAGE_ARG_build_env_image: build-env-image-latest/image.tar
     IMAGE_ARG_run_env_image: run-env-image-latest/image.tar
     BUILD_ARG_compiler: #@ compiler
-    BUILD_ARG_with_rust: #@ str(with_rust)
+    BUILD_ARG_with_rust: #@ str(with_rust).lower()
     LABEL_compiler: #@ compiler
     LABEL_source: #@ source
     LABEL_created_by: "SplinterDB Concourse CI"
@@ -128,7 +128,7 @@ config:
     path: sh
     args: ["-c", "cd /splinterdb && ./test.sh"]
     params:
-      TEST_CLI: #@ str(with_rust)
+      TEST_CLI: #@ str(with_rust).lower()
 #@ end
 
 ---
@@ -207,7 +207,7 @@ config:
   params:
     CC: #@ compiler
     LD: #@ compiler
-    WITH_RUST: #@ str(with_rust)
+    WITH_RUST: #@ str(with_rust).lower()
   run:
     path: sh
     dir: #@ input_name
