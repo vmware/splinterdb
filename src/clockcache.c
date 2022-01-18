@@ -835,8 +835,10 @@ clockcache_reset_pin(clockcache *cc, uint32 entry_number)
 {
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
-   __attribute__((unused)) uint8 refcount =
-      __sync_lock_test_and_set(&cc->pincount[rc_number], 0);
+   if (cc->pincount[rc_number] != 0) {
+      __attribute__((unused)) uint8 refcount =
+         __sync_lock_test_and_set(&cc->pincount[rc_number], 0);
+   }
 }
 
 

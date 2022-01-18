@@ -1335,6 +1335,7 @@ variable_length_btree_create(cache *                             cc,
              0,
              VARIABLE_LENGTH_BTREE_MAX_HEIGHT,
              type,
+             pinned,
              type == PAGE_TYPE_BRANCH);
 
    return root.addr;

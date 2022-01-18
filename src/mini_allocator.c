@@ -247,6 +247,7 @@ mini_init(mini_allocator *mini,
           uint64          meta_tail,
           uint64          num_batches,
           page_type       type,
+          bool            pinned,
           bool            keyed)
 {
    platform_assert(num_batches <= MINI_MAX_BATCHES);
@@ -263,7 +264,7 @@ mini_init(mini_allocator *mini,
    mini->meta_head   = meta_head;
    mini->num_batches = num_batches;
    mini->type        = type;
-   mini->pinned      = (type == PAGE_TYPE_MEMTABLE);
+   mini->pinned      = pinned;
 
    page_handle *meta_page;
    if (meta_tail == 0) {
@@ -669,7 +670,6 @@ mini_release(mini_allocator *mini, const slice key)
 
 typedef bool (*mini_for_each_fn)(cache *   cc,
                                  page_type type,
-                                 bool      pinned,
                                  uint64    base_addr,
                                  void *    out);
 
@@ -687,7 +687,7 @@ mini_unkeyed_for_each(cache *          cc,
       uint64              num_meta_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry            = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_meta_entries; i++) {
-         func(cc, type, pinned, entry->extent_addr, out);
+         func(cc, type, entry->extent_addr, out);
          entry = unkeyed_next_entry(entry);
       }
       meta_addr = mini_get_next_meta_addr(meta_page);
@@ -803,8 +803,7 @@ mini_keyed_for_each(cache *          cc,
 
          if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
-            bool entry_should_cleanup =
-               func(cc, type, FALSE, extent_addr[batch], out);
+            bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
 
@@ -891,8 +890,7 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
 
          if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
-            bool entry_should_cleanup =
-               func(cc, type, FALSE, extent_addr[batch], out);
+            bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
             should_cleanup            = should_cleanup && entry_should_cleanup;
          }
 
@@ -976,11 +974,7 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
 }
 
 static bool
-mini_dealloc_extent(cache *   cc,
-                    page_type type,
-                    bool      pinned,
-                    uint64    base_addr,
-                    void *    out)
+mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    allocator *al  = cache_allocator(cc);
    uint8      ref = allocator_dec_ref(al, base_addr, type);
@@ -1010,8 +1004,7 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
    }
 
    // need to deallocate and clean up the mini allocator
-   mini_unkeyed_for_each(
-      cc, meta_head, type, pinned, mini_dealloc_extent, NULL);
+   mini_unkeyed_for_each(cc, meta_head, type, FALSE, mini_dealloc_extent, NULL);
    mini_deinit(cc, meta_head, type, pinned);
    return 0;
 }
@@ -1054,7 +1047,6 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
 static bool
 mini_keyed_inc_ref_extent(cache *   cc,
                           page_type type,
-                          bool      pinned,
                           uint64    base_addr,
                           void *    out)
 {
@@ -1084,7 +1076,6 @@ mini_keyed_inc_ref(cache *      cc,
 static bool
 mini_keyed_dec_ref_extent(cache *   cc,
                           page_type type,
-                          bool      pinned,
                           uint64    base_addr,
                           void *    out)
 {
@@ -1192,11 +1183,7 @@ mini_unblock_dec_ref(cache *cc, uint64 meta_head)
  */
 
 static bool
-mini_keyed_count_extents(cache *   cc,
-                         page_type type,
-                         bool      pinned,
-                         uint64    base_addr,
-                         void *    out)
+mini_keyed_count_extents(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    uint64 *count = (uint64 *)out;
    (*count)++;
@@ -1240,11 +1227,7 @@ mini_keyed_extent_count(cache *      cc,
  */
 
 static bool
-mini_prefetch_extent(cache *   cc,
-                     page_type type,
-                     bool      pinned,
-                     uint64    base_addr,
-                     void *    out)
+mini_prefetch_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    cache_prefetch(cc, base_addr, type);
    return FALSE;

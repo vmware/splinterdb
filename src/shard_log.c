@@ -103,6 +103,7 @@ shard_log_init(shard_log        *log,
                          0,
                          1,
                          PAGE_TYPE_LOG,
+                         FALSE,
                          FALSE);
    //platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
 
