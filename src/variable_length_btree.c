@@ -522,7 +522,7 @@ static slice
 spec_message(const leaf_incorporate_spec *spec)
 {
    if (spec->existed) {
-      return writable_buffer_slice(&spec->msg.merged);
+      return writable_buffer_to_slice(&spec->msg.merged);
    } else {
       return spec->msg.message;
    }
@@ -586,7 +586,7 @@ variable_length_btree_can_perform_leaf_incorporate_spec(
          spec->key,
          spec->msg.message);
    } else {
-      slice merged = writable_buffer_slice(&spec->msg.merged);
+      slice merged = writable_buffer_to_slice(&spec->msg.merged);
       return variable_length_btree_can_set_leaf_entry(
          cfg, hdr, spec->idx, spec->key, merged);
    }
@@ -604,7 +604,7 @@ variable_length_btree_perform_leaf_incorporate_spec(
       success = variable_length_btree_insert_leaf_entry(
          cfg, hdr, spec->idx, spec->key, spec->msg.message);
    } else {
-      slice merged = writable_buffer_slice(&spec->msg.merged);
+      slice merged = writable_buffer_to_slice(&spec->msg.merged);
       success      = variable_length_btree_set_leaf_entry(
          cfg, hdr, spec->idx, spec->key, merged);
    }

@@ -85,7 +85,7 @@ verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
 
    verify_tuple(spl,
                 ctxt->key,
-                writable_buffer_slice(&ctxt->data),
+                writable_buffer_to_slice(&ctxt->data),
                 ctxt->refcount,
                 result);
 }
@@ -140,7 +140,7 @@ verify_against_shadow(splinter_handle *           spl,
          if (!SUCCESS(rc)) {
             return rc;
          }
-         slice message_slice = writable_buffer_slice(&message);
+         slice message_slice = writable_buffer_to_slice(&message);
          verify_tuple(spl, keybuf, message_slice, refcount, &result);
       } else {
          test_int_to_key(ctxt->key, key, key_size);

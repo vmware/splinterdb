@@ -177,10 +177,12 @@ test_kvstore_basic_flow()
 
 cleanup:
    kvstore_basic_close(kvsb);
-   if (value)
+   if (value) {
       free(value);
-   if (large_key)
+   }
+   if (large_key) {
       free(large_key);
+   }
    if (rc) {
       fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
       rc = -1;

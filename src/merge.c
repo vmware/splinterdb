@@ -282,7 +282,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 #endif
    } while (merge_itor->ordered_iterators[0]->next_key_equal);
 
-   merge_itor->data = writable_buffer_slice(&merge_itor->merge_buffer);
+   merge_itor->data = writable_buffer_to_slice(&merge_itor->merge_buffer);
 
    // Dealt with all duplicates, now pointing to last copy.
    debug_assert(!merge_itor->ordered_iterators[0]->next_key_equal);
@@ -325,7 +325,7 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
              cfg, merge_itor->key, &merge_itor->merge_buffer)) {
          return STATUS_NO_MEMORY;
       }
-      merge_itor->data = writable_buffer_slice(&merge_itor->merge_buffer);
+      merge_itor->data = writable_buffer_to_slice(&merge_itor->merge_buffer);
       class = data_message_class(cfg, merge_itor->data);
    }
    if (class == MESSAGE_TYPE_DELETE && !merge_itor->emit_deletes) {

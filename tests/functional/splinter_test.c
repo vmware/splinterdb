@@ -267,7 +267,7 @@ verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
    verify_tuple(spl,
                 ctxt->lookup_num,
                 ctxt->key,
-                writable_buffer_slice(&ctxt->data),
+                writable_buffer_to_slice(&ctxt->data),
                 vta->data_size,
                 vta->expected_found);
 }
@@ -388,7 +388,7 @@ test_splinter_lookup_thread(void *arg)
                verify_tuple(spl,
                             lookup_num,
                             key,
-                            writable_buffer_slice(&data),
+                            writable_buffer_to_slice(&data),
                             splinter_message_size(spl),
                             expected_found);
                writable_buffer_reset_to_null(&data);
@@ -1958,7 +1958,7 @@ test_splinter_delete(splinter_config *cfg,
       TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
 
-   memset(params, 0, sizeof(*params));
+   ZERO_STRUCT(params);
    for (uint64 i = 0; i < num_threads; i++) {
       params[i].spl            = spl_tables;
       params[i].test_cfg       = test_cfg;
@@ -2278,7 +2278,7 @@ test_splinter_basic(allocator *      al,
          verify_tuple(spl,
                       insert_num,
                       key,
-                      writable_buffer_slice(&qdata),
+                      writable_buffer_to_slice(&qdata),
                       data_size,
                       TRUE);
       } else {
@@ -2311,14 +2311,14 @@ test_splinter_basic(allocator *      al,
             (insert_num - num_inserts) / (num_inserts / 100));
       if (max_async_inflight == 0) {
          test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         memset(data, 0, data_size);
+         ZERO_CONTENTS_N(data, data_size);
          rc = splinter_lookup(spl, key, &qdata);
          if (!SUCCESS(rc)) {
             platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
             goto destroy_splinter;
          }
          verify_tuple(
-            spl, insert_num, key, writable_buffer_slice(&qdata), 0, FALSE);
+            spl, insert_num, key, writable_buffer_to_slice(&qdata), 0, FALSE);
       } else {
          ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_false);
          test_key(ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);

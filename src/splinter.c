@@ -5900,7 +5900,7 @@ splinter_filter_lookup(splinter_handle *spl,
          spl->stats[tid].branch_lookups[height]++;
       }
       if (local_found) {
-         slice message = writable_buffer_slice(data);
+         slice message = writable_buffer_to_slice(data);
          if (data_message_class(spl->cfg.data_cfg, message)
              != MESSAGE_TYPE_UPDATE) {
             return FALSE;
@@ -5954,7 +5954,7 @@ splinter_compacted_subbundle_lookup(splinter_handle *   spl,
             spl->stats[tid].branch_lookups[height]++;
          }
          if (local_found) {
-            slice message = writable_buffer_slice(data);
+            slice message = writable_buffer_to_slice(data);
             if (data_message_class(spl->cfg.data_cfg, message)
                 != MESSAGE_TYPE_UPDATE) {
                return FALSE;
@@ -6054,7 +6054,7 @@ splinter_lookup(splinter_handle *spl, char *key, writable_buffer *data)
       rc = splinter_memtable_lookup(spl, mt_gen, key, data);
       platform_assert_status_ok(rc);
       if (!writable_buffer_is_null(data)) {
-         slice message = writable_buffer_slice(data);
+         slice message = writable_buffer_to_slice(data);
          type          = data_message_class(data_cfg, message);
          if (type != MESSAGE_TYPE_UPDATE) {
             found_in_memtable = TRUE;
@@ -6095,7 +6095,7 @@ splinter_lookup(splinter_handle *spl, char *key, writable_buffer *data)
       goto found_final_answer_early;
    }
 
-   slice message = writable_buffer_slice(data);
+   slice message = writable_buffer_to_slice(data);
    debug_assert(writable_buffer_is_null(data)
                 || data_message_class(data_cfg, message)
                       == MESSAGE_TYPE_UPDATE);
@@ -6121,7 +6121,7 @@ found_final_answer_early:
    }
 
    /* Normalize DELETE messages to return a null writable_buffer */
-   message = writable_buffer_slice(data);
+   message = writable_buffer_to_slice(data);
    if (!writable_buffer_is_null(data)) {
       message_type type = data_message_class(data_cfg, message);
       if (type == MESSAGE_TYPE_DELETE) {
@@ -6282,7 +6282,7 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
             rc = splinter_memtable_lookup(spl, mt_gen, key, data);
             platform_assert_status_ok(rc);
             if (!writable_buffer_is_null(data)) {
-               slice        message = writable_buffer_slice(data);
+               slice        message = writable_buffer_to_slice(data);
                message_type type    = data_message_class(data_cfg, message);
                if (type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
@@ -6502,7 +6502,7 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
          case async_success:
             // I don't own the cache context, variable_length_btree does
             if (!writable_buffer_is_null(data)) {
-               slice        message = writable_buffer_slice(data);
+               slice        message = writable_buffer_to_slice(data);
                message_type type    = data_message_class(data_cfg, message);
                if (type != MESSAGE_TYPE_UPDATE) {
                   splinter_async_set_state(ctxt,
@@ -6566,7 +6566,7 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
       case async_state_trunk_node_done:
       {
          if (ctxt->height == 0) {
-            slice message = writable_buffer_slice(data);
+            slice message = writable_buffer_to_slice(data);
             if (!writable_buffer_is_null(data)
                 && data_message_class(data_cfg, message) != MESSAGE_TYPE_INSERT)
             {
@@ -6658,7 +6658,7 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
    cache_enable_sync_get(spl->cc, TRUE);
 #endif
 
-   slice message = writable_buffer_slice(data);
+   slice message = writable_buffer_to_slice(data);
    if (!writable_buffer_is_null(data)) {
       message_type type = data_message_class(data_cfg, message);
       debug_assert(type == MESSAGE_TYPE_DELETE || type == MESSAGE_TYPE_INSERT);
@@ -8034,7 +8034,7 @@ splinter_print_lookup(splinter_handle *spl,
       if (!writable_buffer_is_null(&data)) {
          char key_str[128];
          char  message_str[128];
-         slice message = writable_buffer_slice(&data);
+         slice message = writable_buffer_to_slice(&data);
          splinter_key_to_string(spl, key, key_str);
          splinter_message_to_string(spl, message, message_str);
          platform_log("Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
@@ -8065,7 +8065,7 @@ splinter_print_lookup(splinter_handle *spl,
          char key_str[128];
          char message_str[128];
          splinter_key_to_string(spl, key, key_str);
-         slice message = writable_buffer_slice(&data);
+         slice message = writable_buffer_to_slice(&data);
          splinter_message_to_string(spl, message, message_str);
          platform_log("Key %s found in node %lu pivot %u with data %s\n",
                       key_str,
@@ -8088,7 +8088,7 @@ splinter_print_lookup(splinter_handle *spl,
                char key_str[128];
                char message_str[128];
                splinter_key_to_string(spl, key, key_str);
-               slice message = writable_buffer_slice(&data);
+               slice message = writable_buffer_to_slice(&data);
                splinter_message_to_string(spl, message, message_str);
                platform_log("!! Key %s found in branch %u of node %lu pivot %u "
                             "with data %s\n",
@@ -8113,7 +8113,7 @@ splinter_print_lookup(splinter_handle *spl,
       char key_str[128];
       char message_str[128];
       splinter_key_to_string(spl, key, key_str);
-      slice message = writable_buffer_slice(&data);
+      slice message = writable_buffer_to_slice(&data);
       splinter_message_to_string(spl, message, message_str);
       platform_log("Key %s found in node %lu pivot %u with data %s\n",
                    key_str, node->disk_addr, 0, message_str);
@@ -8133,7 +8133,7 @@ splinter_print_lookup(splinter_handle *spl,
             char key_str[128];
             char message_str[128];
             splinter_key_to_string(spl, key, key_str);
-            slice message = writable_buffer_slice(&data);
+            slice message = writable_buffer_to_slice(&data);
             splinter_message_to_string(spl, message, message_str);
             platform_log("!! Key %s found in branch %u of node %lu pivot %u "
                   "with data %s\n",

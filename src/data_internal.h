@@ -117,7 +117,7 @@ writable_buffer_create_from_slice(writable_buffer *wb,
 }
 
 static inline slice
-writable_buffer_slice(const writable_buffer *wb)
+writable_buffer_to_slice(const writable_buffer *wb)
 {
    return slice_create(wb->length, wb->data);
 }
