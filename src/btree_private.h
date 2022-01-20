@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * btree_pvt.h --
+ * btree_private.h --
  *
  * This file contains the private interfaces for dynamic b-trees/memtables.
  * These definitions are provided here so that they can be shared by the
  * source and test modules.
  */
-#ifndef __VARIABLE_LENGTH_BTREE_PRIVATE_H__
-#define __VARIABLE_LENGTH_BTREE_PRIVATE_H__
+#ifndef __BTREE_PRIVATE_H__
+#define __BTREE_PRIVATE_H__
 
 #include "splinterdb/platform_public.h"
 #include "splinterdb/data.h"
@@ -281,4 +281,4 @@ btree_get_child_addr(const btree_config *cfg,
    return index_entry_child_addr(btree_get_index_entry(cfg, hdr, k));
 }
 
-#endif // __VARIABLE_LENGTH_BTREE_PRIVATE_H__
+#endif // __BTREE_PRIVATE_H__

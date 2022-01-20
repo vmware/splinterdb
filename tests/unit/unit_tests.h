@@ -9,3 +9,4 @@
 #define TEST_DB_NAME "unit_tests_db"
 
 #define Mega (1024UL * 1024UL)
+#define Giga (1024UL * Mega)

@@ -10,6 +10,7 @@ PLATFORM_DIR = platform_$(PLATFORM)
 # DIRECTORIES, SRC, OBJ, ETC
 #
 SRCDIR               = src
+TESTS_DIR            = tests
 FUNCTIONAL_TESTSDIR  = tests/functional
 UNITDIR              = unit
 UNIT_TESTSDIR        = tests/unit
@@ -19,10 +20,18 @@ LIBDIR               = lib
 INCDIR               = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
+
+# Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
+# These objects are shared between functional/ and unit/ test binaries.
+COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
+
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
+
+# Objects from test sources in tests/ that are shared by functional/ and unit/ tests
+COMMON_TESTOBJ= $(COMMON_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from test sources in tests/functional/ sub-dir
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
@@ -147,7 +156,7 @@ debug-log: .debug-log all
 # RECIPES
 #
 
-$(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
+$(BINDIR)/driver_test : $(COMMON_TESTOBJ) $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Target will build everything needed to generate bin/unit_test along with all
@@ -157,7 +166,7 @@ $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D
 $(BINDIR)/unit_test: unit_test
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS)                   \
-                            $(OBJDIR)/tests/functional/test_data.o      \
+                            $(OBJDIR)/tests/test_data.o                 \
                             $(OBJDIR)/src/platform_linux/platform.o     \
                             $(LIBDIR)/libsplinterdb.so $(LIBS)
 
@@ -213,34 +222,52 @@ unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
+$(BINDIR)/unit/kvstore_test: unit/kvstore_test
+unit/kvstore_test: $(OBJDIR)/tests/unit/kvstore_test.o      \
+                   $(OBJDIR)/tests/test_data.o              \
+                   $(OBJDIR)/tests/unit/main.o              \
+                   $(LIBDIR)/libsplinterdb.so
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+
+# ----
 # String together all objects needed to link btree test binaries
-VARIABLE_LENGTH_BTREE_TEST_OBJS = $(OBJDIR)/tests/unit/btree_test_common.o      \
-                                  $(OBJDIR)/tests/functional/test_data.o        \
-                                  $(OBJDIR)/src/util.o                          \
-                                  $(OBJDIR)/src/data_internal.o                 \
-                                  $(OBJDIR)/src/mini_allocator.o                \
-                                  $(OBJDIR)/src/rc_allocator.o                  \
-                                  $(OBJDIR)/src/config.o                        \
-                                  $(OBJDIR)/src/clockcache.o                    \
-                                  $(OBJDIR)/src/btree.o         \
-                                  $(OBJDIR)/src/platform_linux/platform.o       \
-                                  $(OBJDIR)/src/task.o                          \
-                                  $(OBJDIR)/src/platform_linux/laio.o
+BTREE_TEST_OBJS = $(OBJDIR)/tests/unit/btree_test_common.o      \
+                  $(OBJDIR)/tests/test_data.o                   \
+                  $(OBJDIR)/src/util.o                          \
+                  $(OBJDIR)/src/data_internal.o                 \
+                  $(OBJDIR)/src/mini_allocator.o                \
+                  $(OBJDIR)/src/rc_allocator.o                  \
+                  $(OBJDIR)/src/config.o                        \
+                  $(OBJDIR)/src/clockcache.o                    \
+                  $(OBJDIR)/src/btree.o                         \
+                  $(OBJDIR)/src/platform_linux/platform.o       \
+                  $(OBJDIR)/src/task.o                          \
+                  $(OBJDIR)/src/platform_linux/laio.o
 
 $(BINDIR)/unit/btree_test: unit/btree_test
-unit/btree_test: $(OBJDIR)/tests/unit/btree_test.o  \
-                                 $(OBJDIR)/tests/unit/main.o                        \
-                                 $(VARIABLE_LENGTH_BTREE_TEST_OBJS)
+unit/btree_test: $(OBJDIR)/tests/unit/btree_test.o              \
+                                 $(OBJDIR)/tests/unit/main.o    \
+                                 $(BTREE_TEST_OBJS)
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
 $(BINDIR)/unit/btree_stress_test: unit/btree_stress_test
-unit/btree_stress_test: $(OBJDIR)/tests/unit/btree_stress_test.o  \
-                                 $(OBJDIR)/tests/unit/main.o                        \
-                                 $(VARIABLE_LENGTH_BTREE_TEST_OBJS)
+unit/btree_stress_test: $(OBJDIR)/tests/unit/btree_stress_test.o    \
+                                 $(OBJDIR)/tests/unit/main.o        \
+                                 $(BTREE_TEST_OBJS)
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+
+# ----
+$(BINDIR)/unit/util_test: unit/util_test
+unit/util_test: $(OBJDIR)/tests/unit/util_test.o            \
+                $(OBJDIR)/src/util.o                        \
+                $(OBJDIR)/src/platform_linux/platform.o     \
+                $(OBJDIR)/tests/unit/main.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
 
 # ----
 $(BINDIR)/unit/misc_test: unit/misc_test
