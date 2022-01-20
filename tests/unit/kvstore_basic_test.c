@@ -681,8 +681,7 @@ CTEST2(kvstore_basic, test_repeated_insert_close_reopen)
 
    for (int i = 0; i < 20; i++) {
       int rc = kvstore_basic_insert(data->kvsb, key, key_len, val, val_len);
-      ASSERT_EQUAL(0, rc);
-      printf("insert %d success\n", i);
+      ASSERT_EQUAL(0, rc, "Insert is expected to pass, iter=%d.", i);
 
       kvstore_basic_close(data->kvsb);
 
