@@ -84,8 +84,7 @@ CTEST_SETUP(btree)
        || !init_btree_config_from_master_config(
           &data->dbtree_cfg, &data->master_cfg, &data->data_cfg))
    {
-      platform_log("Failed to parse args\n");
-      ASSERT_TRUE(FALSE);
+      ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
 }
 
@@ -164,11 +163,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
                                 i,
                                 slice_create(i % sizeof(i), &i),
                                 slice_create(i % sizeof(i), &i));
-      if (!rv) {
-         platform_log(
-            "[%s:%d] failed to insert 4-byte %d\n", __FILE__, __LINE__, i);
-         ASSERT_TRUE(rv);
-      }
+      ASSERT_TRUE(rv, "Failed to insert 4-byte %d\n", i);
    }
 
    int cmp_rv = 0;
@@ -176,15 +171,10 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
       slice key     = btree_get_tuple_key(cfg, hdr, i);
       slice message = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
+
       cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte message %d\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
    rv = FALSE;
@@ -194,11 +184,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
                                 i,
                                 slice_create(i % sizeof(i), &i),
                                 slice_create(i % sizeof(i), &i));
-      if (!rv) {
-         platform_log(
-            "[%s:%d] failed to insert 8-byte %ld\n", __FILE__, __LINE__, i);
-         ASSERT_TRUE(rv);
-      }
+      ASSERT_TRUE(rv, "Failed to insert 8-byte %ld\n", i);
    }
 
    cmp_rv = 0;
@@ -206,16 +192,10 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
       slice key     = btree_get_tuple_key(cfg, hdr, i);
       slice message = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
+
       cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
-      if (cmp_rv) {
-         platform_log(
-            "[%s:%d] bad 4-byte message %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
    btree_defragment_leaf(cfg, scratch, hdr, -1);
@@ -224,16 +204,10 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
       slice key     = btree_get_tuple_key(cfg, hdr, i);
       slice message = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
+
       cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
-      if (cmp_rv) {
-         platform_log(
-            "[%s:%d] bad 4-byte message %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
    return 0;
@@ -261,30 +235,16 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       leaf_incorporate_spec spec;
       bool                  result = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, key, message, &spec, &generation);
-      if (!result) {
-         platform_log(
-            "[%s:%d] couldn't incorporate kv pair %d\n", __FILE__, __LINE__, i);
-         ASSERT_TRUE(result);
-      }
-      if (generation != i) {
-         platform_log("[%s:%d] bad generation %d %lu\n",
-                      __FILE__,
-                      __LINE__,
-                      i,
-                      generation);
-         ASSERT_EQUAL(i, generation);
-      }
+      ASSERT_TRUE(result, "Could not incorporate kv pair %d\n", i);
+
+      ASSERT_EQUAL(generation, i, "Bad generation=%lu, i=%d\n", generation, i);
    }
 
    for (int i = 0; i < nkvs; i++) {
       slice key    = btree_get_tuple_key(cfg, hdr, i);
       uint8 ui     = i;
       int   cmp_rv = slice_lex_cmp(slice_create(1, &ui), key);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
-         btree_print_locked_node(cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
    }
 
    return 0;
@@ -306,49 +266,31 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
    for (uint32 i = 0; i < nkvs; i++) {
       rv = btree_set_index_entry(
          cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0);
-      if (!rv) {
-         platform_log(
-            "[%s:%d] failed to insert 4-byte %d\n", __FILE__, __LINE__, i);
-         ASSERT_TRUE(rv);
-      }
+      ASSERT_TRUE(rv, "Failed to insert 4-byte %d\n", i);
    }
 
    for (uint32 i = 0; i < nkvs; i++) {
       slice  key       = btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = btree_get_child_addr(cfg, hdr, i);
       cmp_rv           = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
-      if (childaddr != i) {
-         platform_log("[%s:%d] bad childaddr %d\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(i, childaddr);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
+
+      ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
       rv = btree_set_index_entry(
          cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0);
-      if (!rv) {
-         platform_log(
-            "[%s:%d] failed to insert 8-byte %ld\n", __FILE__, __LINE__, i);
-         ASSERT_TRUE(rv);
-      }
+      ASSERT_TRUE(rv, "Failed to insert 8-byte %ld\n", i);
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
       slice  key       = btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = btree_get_child_addr(cfg, hdr, i);
       cmp_rv           = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
-      if (childaddr != i) {
-         platform_log("[%s:%d] bad childaddr %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(i, childaddr);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
+
+      ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
    }
 
    btree_defragment_index(cfg, scratch, hdr);
@@ -357,14 +299,9 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
       slice  key       = btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = btree_get_child_addr(cfg, hdr, i);
       cmp_rv           = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
-      if (cmp_rv) {
-         platform_log("[%s:%d] bad 4-byte key %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(0, cmp_rv);
-      }
-      if (childaddr != i) {
-         platform_log("[%s:%d] bad childaddr %ld\n", __FILE__, __LINE__, i);
-         ASSERT_EQUAL(i, childaddr);
-      }
+      ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
+
+      ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
    }
 
    return 0;
@@ -387,11 +324,7 @@ index_hdr_search_tests(btree_config *cfg)
       slice key = slice_create(1, &keybuf);
 
       rv = btree_set_index_entry(cfg, hdr, i / 2, key, i, 0, 0, 0);
-      if (!rv) {
-         platform_log(
-            "[%s:%d] couldn't insert pivot %d\n", __FILE__, __LINE__, i);
-         ASSERT_TRUE(rv);
-      }
+      ASSERT_TRUE(rv, "Could not insert pivot %d\n", i);
    }
 
    for (int i = 0; i < nkvs; i++) {
@@ -400,14 +333,8 @@ index_hdr_search_tests(btree_config *cfg)
       keybuf[0] = i;
       slice key = slice_create(1, &keybuf);
       int64 idx = btree_find_pivot(cfg, hdr, key, &found);
-      if (idx != i / 2) {
-         platform_log("[%s:%d] bad pivot search result %ld for %d\n",
-                      __FILE__,
-                      __LINE__,
-                      idx,
-                      i);
-         ASSERT_EQUAL((i / 2), idx);
-      }
+      ASSERT_EQUAL(
+         (i / 2), idx, "Bad pivot search result idx=%ld for i=%d\n", idx, i);
    }
 
    return 0;
@@ -448,7 +375,9 @@ leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
       bool                  success = btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
       if (success) {
-         platform_log("Weird.  An incorporate that was supposed to fail "
+         btree_print_locked_node(cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
+         ASSERT_FALSE(success,
+                      "Weird.  An incorporate that was supposed to fail "
                       "actually succeeded (nkvs=%d, realnkvs=%d, i=%d).\n",
                       nkvs,
                       realnkvs,
@@ -458,8 +387,14 @@ leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
       }
       leaf_splitting_plan plan =
          btree_build_leaf_splitting_plan(cfg, hdr, &spec);
-      ASSERT_TRUE((realnkvs / 2 - 1) <= plan.split_idx);
-      ASSERT_TRUE((plan.split_idx) <= (realnkvs / 2 + 1));
+      ASSERT_TRUE((realnkvs / 2 - 1) <= plan.split_idx,
+                  "realnkvs = %d, plan.split_idx = %d",
+                  realnkvs,
+                  plan.split_idx);
+      ASSERT_TRUE((plan.split_idx) <= (realnkvs / 2 + 1),
+                  "realnkvs = %d, plan.split_idx = %d",
+                  realnkvs,
+                  plan.split_idx);
    }
 
    return 0;

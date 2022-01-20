@@ -214,7 +214,10 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
                              &val_truncated,
                              &found);
    ASSERT_EQUAL(0, rc);
-   ASSERT_STREQN(large_key_value, value, val_len);
+   ASSERT_STREQN(large_key_value,
+                 value,
+                 val_len,
+                 "Large key-value did not match as expected.");
    ASSERT_EQUAL(strlen(large_key_value), val_len);
    ASSERT_FALSE(val_truncated);
    ASSERT_TRUE(found);
@@ -652,7 +655,11 @@ CTEST2(kvstore_basic, test_close_and_reopen)
                              &found);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(found);
-   ASSERT_STREQN(val, value, val_len);
+   ASSERT_STREQN(val,
+                 value,
+                 val_len,
+                 "value found did not match expected 'val' up to %d bytes\n",
+                 val_len);
    ASSERT_FALSE(val_truncated);
 
    if (value) {
