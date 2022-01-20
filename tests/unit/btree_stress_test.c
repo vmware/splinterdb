@@ -126,16 +126,14 @@ CTEST_SETUP(btree_stress)
        || !init_btree_config_from_master_config(
           &data->dbtree_cfg, &data->master_cfg, &data->data_cfg))
    {
-      platform_log("Failed to parse args\n");
-      ASSERT_TRUE(FALSE);
+      ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
 
    // Create a heap for io, allocator, cache and splinter
    if (!SUCCESS(platform_heap_create(
           platform_get_module_id(), 1 * GiB, &data->hh, &data->hid)))
    {
-      platform_log("Failed to init heap\n");
-      ASSERT_TRUE(FALSE);
+      ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
    // Setup execution of concurrent threads
    ZERO_ARRAY(data->num_bg_threads);
@@ -163,9 +161,9 @@ CTEST_SETUP(btree_stress)
                                    data->hid,
                                    platform_get_module_id())))
    {
-      platform_log(
+      ASSERT_TRUE(
+         FALSE,
          "Failed to init io or task system or rc_allocator or clockcache\n");
-      ASSERT_TRUE(FALSE);
    }
 }
 
@@ -225,10 +223,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                         PAGE_TYPE_MEMTABLE,
                         root_addr,
                         nkvs);
-   if (!rc) {
-      platform_log("invalid tree\n");
-      ASSERT_NOT_EQUAL(0, rc);
-   }
+   ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
    if (!iterator_tests((cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs))
    {
@@ -241,8 +236,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 packed_root_addr = pack_tests(
       (cache *)&data->cc, &data->dbtree_cfg, data->hid, root_addr, nkvs);
    if (0 < nkvs && !packed_root_addr) {
-      platform_log("[%s:%d] Pack failed\n", __FILE__, __LINE__);
-      ASSERT_TRUE(FALSE);
+      ASSERT_TRUE(FALSE, "Pack failed.\n");
    }
 
    /* platform_log("\n\n\n"); */
@@ -256,17 +250,11 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                     PAGE_TYPE_BRANCH,
                     packed_root_addr,
                     nkvs);
-   if (!rc) {
-      platform_log("invalid tree\n");
-      ASSERT_NOT_EQUAL(0, rc);
-   }
+   ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
    rc = iterator_tests(
       (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs);
-   if (!rc) {
-      platform_log("invalid ranges in packed tree\n");
-      ASSERT_NOT_EQUAL(0, rc);
-   }
+   ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
 }
 
 /*
@@ -315,9 +303,7 @@ insert_tests(cache *          cc,
                                 &generation,
                                 &was_unique)))
       {
-         platform_log(
-            "[%s:%d] Failed to insert 4-byte %ld\n", __FILE__, __LINE__, i);
-         ASSERT_TRUE(FALSE);
+         ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
 }
@@ -378,9 +364,7 @@ query_tests(cache *          cc,
           || slice_lex_cmp(writable_buffer_to_slice(&result),
                            gen_msg(cfg, i, msgbuf)))
       {
-         platform_log("[%s:%d] Failure on lookup %lu\n", __FILE__, __LINE__, i);
-         btree_print_tree(cc, cfg, root_addr);
-         ASSERT_TRUE(FALSE);
+         ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
    }
 
@@ -469,8 +453,7 @@ pack_tests(cache *          cc,
    btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
 
    if (!SUCCESS(btree_pack(&req))) {
-      platform_log("[%s:%d] Pack failed!\n", __FILE__, __LINE__);
-      ASSERT_TRUE(FALSE);
+      ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);
    } else {
       platform_log("Packed %lu items ", req.num_tuples);
    }

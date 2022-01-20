@@ -168,21 +168,22 @@ void assert_data(const unsigned char* exp, size_t expsize,
 #define ASSERT_DATA(exp, expsize, real, realsize) \
     assert_data(exp, expsize, real, realsize, __FILE__, __LINE__)
 
-void assert_equal(intmax_t exp, intmax_t real, const char* caller, int line);
-#define ASSERT_EQUAL(exp, real) assert_equal(exp, real, __FILE__, __LINE__)
+void assert_equal(intmax_t exp, intmax_t real, const char* caller, int line,
+                  const char * message, ...);
+#define ASSERT_EQUAL(exp, real, ...) assert_equal(exp, real, __FILE__, __LINE__, "" __VA_ARGS__)
 
 // strcmp() of 2 null-terminated strings
-#define ASSERT_STREQ(str1, str2) assert_equal(strcmp(str1, str2), 0, __FILE__, __LINE__)
+#define ASSERT_STREQ(str1, str2, ...) assert_equal(strcmp(str1, str2), 0, __FILE__, __LINE__, "" __VA_ARGS__)
 
 // strncmp() of 2 strings, which may not be null-terminated
 void assert_strnequal(const char *str1, const char *str2, int n, const char* caller, int line);
-#define ASSERT_STREQN(str1, str2, n) assert_strnequal(str1, str2, n, __FILE__, __LINE__)
+#define ASSERT_STREQN(str1, str2, n, ...) assert_equal(strncmp(str1, str2, n), 0, __FILE__, __LINE__, "" __VA_ARGS__)
 
 void assert_equal_u(uintmax_t exp, uintmax_t real, const char* caller, int line);
 #define ASSERT_EQUAL_U(exp, real) assert_equal_u(exp, real, __FILE__, __LINE__)
 
-void assert_not_equal(intmax_t exp, intmax_t real, const char* caller, int line);
-#define ASSERT_NOT_EQUAL(exp, real) assert_not_equal(exp, real, __FILE__, __LINE__)
+void assert_not_equal(intmax_t exp, intmax_t real, const char* caller, int line, const char * message, ...);
+#define ASSERT_NOT_EQUAL(exp, real, ...) assert_not_equal(exp, real, __FILE__, __LINE__, "" __VA_ARGS__)
 
 void assert_not_equal_u(uintmax_t exp, uintmax_t real, const char* caller, int line);
 #define ASSERT_NOT_EQUAL_U(exp, real) assert_not_equal_u(exp, real, __FILE__, __LINE__)
@@ -196,11 +197,11 @@ void assert_null(void* real, const char* caller, int line);
 void assert_not_null(const void* real, const char* caller, int line);
 #define ASSERT_NOT_NULL(real) assert_not_null(real, __FILE__, __LINE__)
 
-void assert_true(int real, const char* caller, int line);
-#define ASSERT_TRUE(real) assert_true(real, __FILE__, __LINE__)
+void assert_true(int real, const char* caller, int line, const char * message, ...);
+#define ASSERT_TRUE(real, ...) assert_true(real, __FILE__, __LINE__, "" __VA_ARGS__)
 
-void assert_false(int real, const char* caller, int line);
-#define ASSERT_FALSE(real) assert_false(real, __FILE__, __LINE__)
+void assert_false(int real, const char* caller, int line, const char * message, ...);
+#define ASSERT_FALSE(real, ...) assert_false(real, __FILE__, __LINE__, "" __VA_ARGS__)
 
 void assert_fail(const char* caller, int line);
 #define ASSERT_FAIL() assert_fail(__FILE__, __LINE__)
@@ -212,6 +213,18 @@ void assert_dbl_near(double exp, double real, double tol, const char* caller, in
 void assert_dbl_far(double exp, double real, double tol, const char* caller, int line);
 #define ASSERT_DBL_FAR(exp, real) assert_dbl_far(exp, real, 1e-4, __FILE__, __LINE__)
 #define ASSERT_DBL_FAR_TOL(exp, real, tol) assert_dbl_far(exp, real, tol, __FILE__, __LINE__)
+
+/*
+ * Extract out common code to print, when an assertion fails, a user-supplied
+ * message with args.
+ */
+#define VFPRINTF_USERMSG(fh, message)               \
+    do {                                            \
+        va_list varargs;                            \
+        va_start(varargs, (message));               \
+        vfprintf((fh), (message), varargs);         \
+        va_end(varargs);                            \
+    } while (0)
 
 #ifdef CTEST_MAIN
 
@@ -354,8 +367,13 @@ void assert_data(const unsigned char* exp, size_t expsize,
     }
 }
 
-void assert_equal(intmax_t exp, intmax_t real, const char* caller, int line) {
+/*
+ * Implements equality assertion check.
+ */
+void assert_equal(intmax_t exp, intmax_t real, const char* caller, int line,
+                  const char * message, ...) {
     if (exp != real) {
+        VFPRINTF_USERMSG(stderr, message);
         CTEST_ERR("%s:%d  expected %" PRIdMAX ", got %" PRIdMAX, caller, line, exp, real);
     }
 }
@@ -366,9 +384,11 @@ void assert_equal_u(uintmax_t exp, uintmax_t real, const char* caller, int line)
     }
 }
 
-void assert_not_equal(intmax_t exp, intmax_t real, const char* caller, int line) {
+void assert_not_equal(intmax_t exp, intmax_t real, const char* caller, int line,
+                      const char * message, ...) {
     if ((exp) == (real)) {
-        CTEST_ERR("%s:%d  should not be %" PRIdMAX, caller, line, real);
+        VFPRINTF_USERMSG(stderr, message);
+        CTEST_ERR("%s:%d  Value should not be %" PRIdMAX, caller, line, real);
     }
 }
 
@@ -429,14 +449,18 @@ void assert_not_null(const void* real, const char* caller, int line) {
     }
 }
 
-void assert_true(int real, const char* caller, int line) {
+void assert_true(int real, const char* caller, int line,
+                 const char * message, ...) {
     if ((real) == 0) {
+        VFPRINTF_USERMSG(stderr, message);
         CTEST_ERR("%s:%d  should be true", caller, line);
     }
 }
 
-void assert_false(int real, const char* caller, int line) {
+void assert_false(int real, const char* caller, int line,
+                 const char * message, ...) {
     if ((real) != 0) {
+        VFPRINTF_USERMSG(stderr, message);
         CTEST_ERR("%s:%d  should be false", caller, line);
     }
 }
@@ -677,7 +701,7 @@ ctest_main(int argc, const char *argv[])
     return num_fail;
 }
 
-#endif
+#endif  /* CTEST_MAIN */
 
 // clang-format on
 

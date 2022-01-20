@@ -20,7 +20,7 @@
 #define MISC_MSG_WITH_ARGS                                                     \
    "Test assertion msg with arguments id = %d, name = '%s'."
 
-/* Function prototype */
+/* Function prototypes and caller-macros to invoke testing interfaces */
 void
 test_platform_assert_msg(platform_stream_handle stream,
                          const char *           filename,
@@ -38,6 +38,18 @@ test_platform_assert_msg(platform_stream_handle stream,
 #define test_platform_assert(expr, ...)                                        \
    test_platform_assert_msg(                                                   \
       stream, __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__)
+
+void
+test_vfprintf_usermsg(platform_stream_handle stream, const char *message, ...);
+
+/*
+ * Caller macro to exercise and validate the message printed by
+ * vfprintf_usermsg(). That interface is what gets exercised, to print a
+ * user-supplied message with parameters, when a CTest ASSERT_*() check were to
+ * fail.
+ */
+#define test_assert_usermsg(stream, ...)                                       \
+   test_vfprintf_usermsg(stream, "" __VA_ARGS__)
 
 /*
  * Global data declaration macro:
@@ -106,6 +118,44 @@ CTEST2(misc, test_assert_msg_with_args)
 }
 
 /*
+ * Test case to exercise testing-variant of ASSERT_EQUAL() to demonstrate that
+ * the user-supplied message with parameters gets printed correctly.
+ */
+CTEST2(misc, test_ctest_assert_prints_user_msg_with_params)
+{
+   int   value       = 42;
+   char *some_string = "This is an expected failure message string.";
+
+   platform_open_log_stream();
+
+   test_assert_usermsg(
+      stream, "Unexpected failure, value=%d, msg='%s'", value, some_string);
+   fflush(stream);
+
+   // Construct an expected user message, using parts we know about.
+   char expmsg[ASSERT_OUTBUF_LEN];
+   snprintf(expmsg,
+            sizeof(expmsg),
+            "Unexpected failure, value=%d, msg='%s'",
+            value,
+            some_string);
+
+   const int expmsg_len = strlen(expmsg);
+   ASSERT_STREQN(expmsg,
+                 bp,
+                 expmsg_len,
+                 "\nExpected: %.*s\n"
+                 "Received: %.*s\n",
+                 expmsg_len,
+                 expmsg,
+                 expmsg_len,
+                 bp);
+   platform_close_log_stream(Platform_stderr_fh);
+}
+
+/* Helper functions follow all test case methods */
+
+/*
  * Wrapper function to exercise platform_assert_msg() into an output
  * buffer. Used to test that the message is generated as expected.
  */
@@ -123,4 +173,15 @@ test_platform_assert_msg(platform_stream_handle stream,
    platform_assert_msg(
       stream, filename, linenumber, functionname, expr, message, varargs);
    va_end(varargs);
+}
+
+/*
+ * Wrapper function to exercise the message-printing logic of vfprintf_usermsg()
+ * into an output buffer. Used to test that the message is generated as
+ * expected.
+ */
+void
+test_vfprintf_usermsg(platform_stream_handle stream, const char *message, ...)
+{
+   VFPRINTF_USERMSG(stream, message);
 }
