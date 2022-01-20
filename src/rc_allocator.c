@@ -667,7 +667,8 @@ rc_allocator_alloc(rc_allocator *al,   // IN
    __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
    *addr = hand * al->cfg->extent_size;
    if (SHOULD_TRACE(*addr)) {
-      platform_log("rc_allocator_alloc_extent(%lu)\n", *addr);
+      platform_log(
+         "rc_allocator_alloc_extent %12lu (%s)\n", *addr, page_type_str[type]);
    }
 
    return STATUS_OK;

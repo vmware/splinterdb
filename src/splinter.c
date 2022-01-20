@@ -6975,6 +6975,9 @@ splinter_prepare_for_shutdown(splinter_handle *spl)
       platform_free(spl->heap_id, spl->log);
    }
 
+   // release the trunk mini allocator
+   mini_release(&spl->mini, NULL_SLICE);
+
    // flush all dirty pages in the cache
    cache_flush(spl->cc);
 }
@@ -7043,7 +7046,6 @@ splinter_destroy(splinter_handle *spl)
 
    splinter_for_each_node(spl, splinter_node_destroy, NULL);
 
-   mini_release(&spl->mini, NULL_SLICE);
    mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
 
    // clear out this splinter table from the meta page.
