@@ -40,8 +40,6 @@
    Also note that the user-provided state can move to the
    platform-malloced state.
 */
-typedef void *(*realloc_func)(void *realloc_arg, void *oldptr, size_t newsize);
-
 struct writable_buffer {
    void *           original_pointer;
    uint64           original_size;

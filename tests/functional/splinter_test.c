@@ -1958,7 +1958,7 @@ test_splinter_delete(splinter_config *cfg,
       TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
 
-   ZERO_STRUCT(params);
+   ZERO_CONTENTS_N(params, num_threads);
    for (uint64 i = 0; i < num_threads; i++) {
       params[i].spl            = spl_tables;
       params[i].test_cfg       = test_cfg;

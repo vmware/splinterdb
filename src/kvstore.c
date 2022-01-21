@@ -53,12 +53,7 @@ typedef struct kvstore {
 static inline int
 platform_status_to_int(const platform_status status) // IN
 {
-   if (SUCCESS(status)) {
-      return 0;
-   } else {
-      debug_assert(status.r != 0);
-      return -1 + (0 < status.r ? -status.r : status.r);
-   }
+   return status.r;
 }
 
 
@@ -420,6 +415,59 @@ kvstore_insert(const kvstore *kvs,            // IN
 /*
  *-----------------------------------------------------------------------------
  *
+ * _kvstore_lookup_result structure --
+ *
+ *-----------------------------------------------------------------------------
+ */
+typedef struct _kvstore_lookup_result {
+   writable_buffer value;
+} _kvstore_lookup_result;
+
+_Static_assert(sizeof(_kvstore_lookup_result) <= sizeof(kvstore_lookup_result),
+               "sizeof(kvstore_lookup_result) is too small");
+
+void
+kvstore_lookup_result_init(const kvstore *        kvs,        // IN
+                           kvstore_lookup_result *result,     // IN/OUT
+                           size_t                 buffer_len, // IN
+                           char *                 buffer      // IN
+)
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   writable_buffer_init(&_result->value, NULL, buffer_len, buffer);
+}
+
+void
+kvstore_lookup_result_deinit(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   writable_buffer_reset_to_null(&_result->value);
+}
+
+_Bool
+kvstore_lookup_result_found(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   return !writable_buffer_is_null(&_result->value);
+}
+
+size_t
+kvstore_lookup_result_size(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   return writable_buffer_length(&_result->value);
+}
+
+void *
+kvstore_lookup_result_data(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   return writable_buffer_data(&_result->value);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
  * kvstore_lookup --
  *
  *      Look up a key from splinter
@@ -434,37 +482,16 @@ kvstore_insert(const kvstore *kvs,            // IN
  */
 
 int
-kvstore_lookup(const kvstore *kvs,          // IN
-               char *         key,          // IN
-               size_t         message_size, // IN
-               char *         message       // OUT
-)
+kvstore_lookup(const kvstore *        kvs,    // IN
+               char *                 key,    // IN
+               kvstore_lookup_result *result) // OUT
 {
    platform_status status;
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
 
    platform_assert(kvs != NULL);
-   writable_buffer wb;
-   writable_buffer_init(&wb, NULL, message_size, message);
-   status = splinter_lookup(kvs->spl, key, &wb);
-   if (!SUCCESS(status)) {
-      writable_buffer_reset_to_null(&wb);
-      return platform_status_to_int(status);
-   }
-
-   void *result = writable_buffer_data(&wb);
-   if (result == NULL) {
-      writable_buffer_reset_to_null(&wb);
-      return KVSTORE_NOT_FOUND;
-   }
-
-   uint64 result_len = writable_buffer_length(&wb);
-   if (result != message) {
-      size_t copylen = result_len < message_size ? result_len : message_size;
-      memcpy(message, result, copylen);
-   }
-
-   writable_buffer_reset_to_null(&wb);
-   return result_len;
+   status = splinter_lookup(kvs->spl, key, &_result->value);
+   return platform_status_to_int(status);
 }
 
 struct kvstore_iterator {

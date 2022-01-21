@@ -89,24 +89,48 @@ kvstore_insert(const kvstore *kvs,
                size_t         message_length,
                char *         message);
 
-#define KVSTORE_NOT_FOUND (-1)
+/**************
+ * Lookups
+ **************/
 
-// Return value:
-// - >= 0                : size of message associated with key
-// - == KVSTORE_NOT_FOUND: key not found
-// -  < KVSTORE_NOT_FOUND: error
-//
-// If the message associated with key is larger than message_size
-// bytes, then the first message_size bytes will be returned in
-// message. [robj asks: is this a useful behavior?  Returning the
-// prefix requires a copy, so there is a cost to providing this
-// functionality.  If it's not useful to applications, then we should
-// not do it. ]
+/* Lookup results are stored in a kvstore_lookup_result.
+ */
+typedef struct kvstore_lookup_result {
+   char opaque[48];
+} kvstore_lookup_result;
+
+/* Initialize a lookup result.  If buffer is provided, then the result
+   of a query will be stored in buffer if it fits.  Otherwise, it will
+   be stored in an allocated buffer.
+
+   A kvstore_lookup_result can be used for multiple queries after
+   being initialized once.
+*/
+void
+kvstore_lookup_result_init(const kvstore *        kvs,        // IN
+                           kvstore_lookup_result *result,     // IN/OUT
+                           size_t                 buffer_len, // IN
+                           char *                 buffer      // IN
+);
+
+/* Release any resources used by result.  Note that this does _not_ deallocate
+   the buffer provided to kvstore_lookup_result_init. */
+void
+kvstore_lookup_result_deinit(kvstore_lookup_result *result); // IN
+
+_Bool
+kvstore_lookup_result_found(kvstore_lookup_result *result); // IN
+
+size_t
+kvstore_lookup_result_size(kvstore_lookup_result *result); // IN
+
+void *
+kvstore_lookup_result_data(kvstore_lookup_result *result); // IN
+
 int
-kvstore_lookup(const kvstore *kvs,          // IN
-               char *         key,          // IN
-               size_t         message_size, // IN
-               char *         message       // OUT
+kvstore_lookup(const kvstore *        kvs,   // IN
+               char *                 key,   // IN
+               kvstore_lookup_result *result // OUT
 );
 
 /*

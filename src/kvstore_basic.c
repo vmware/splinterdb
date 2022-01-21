@@ -451,34 +451,42 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
    char msg_buffer[val_max_len + sizeof(basic_message)];
+   kvstore_lookup_result result;
+   kvstore_lookup_result_init(
+      kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);
 
    // kvstore_basic.h aims to be public API surface, and so this function
    // exposes the _Bool type rather than  typedef int32 bool
    // which is used elsewhere in the codebase
    // So, we pass in int32 found here, and convert to _Bool below
-   int result = kvstore_lookup(
-      kvsb->kvs, key_buffer, val_max_len + sizeof(basic_message), msg_buffer);
-   if (result < KVSTORE_NOT_FOUND) {
-      return result;
+   int rc = kvstore_lookup(kvsb->kvs, key_buffer, &result);
+   if (rc) {
+      kvstore_lookup_result_deinit(&result);
+      return rc;
    }
-   if (result == KVSTORE_NOT_FOUND) {
+   if (!kvstore_lookup_result_found(&result)) {
+      kvstore_lookup_result_deinit(&result);
       *found = 0;
       return 0;
    }
-   if (result < sizeof(basic_message)) {
+   if (kvstore_lookup_result_size(&result) < sizeof(basic_message)) {
+      kvstore_lookup_result_deinit(&result);
       return -2; // FIXME: better error code?
    }
 
    *found = 1;
 
    // result is the true length of the value associated with key.
-   size_t decoded_len = result - sizeof(basic_message);
+   size_t decoded_len =
+      kvstore_lookup_result_size(&result) - sizeof(basic_message);
 
    *val_bytes     = decoded_len < val_max_len ? decoded_len : val_max_len;
    *val_truncated = val_max_len < decoded_len;
 
-   memmove(val, msg_buffer + sizeof(basic_message), *val_bytes);
+   basic_message *msg = kvstore_lookup_result_data(&result);
+   memmove(val, msg->value, *val_bytes);
 
+   kvstore_lookup_result_deinit(&result);
    return 0;
 }
 

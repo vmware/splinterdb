@@ -38,21 +38,25 @@ kvstore_test(int argc, char *argv[])
    fprintf(stderr, "kvstore_test: initializing test data\n");
    char *key        = calloc(1, kvs_cfg.data_cfg.key_size);
    char *msg_buffer = calloc(1, kvs_cfg.data_cfg.message_size);
-   if (msg_buffer == NULL) {
-      fprintf(stderr, "calloc message buffer\n");
-      goto cleanup;
+   if (key == NULL || msg_buffer == NULL) {
+      fprintf(stderr, "calloc key or message buffer\n");
+      goto cleanup0;
    }
+
+   kvstore_lookup_result result;
+   kvstore_lookup_result_init(
+      kvs, &result, kvs_cfg.data_cfg.message_size, msg_buffer);
 
    memcpy(key, "foo", 3);
 
    fprintf(stderr, "kvstore_test: lookup non-existent key...");
-   rc = kvstore_lookup(kvs, key, kvs_cfg.data_cfg.message_size, msg_buffer);
-   if (rc < KVSTORE_NOT_FOUND) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   fprintf(stderr, "found=%d\n", 0 <= rc);
-   if (0 <= rc) {
+   fprintf(stderr, "found=%d\n", kvstore_lookup_result_found(&result));
+   if (kvstore_lookup_result_found(&result)) {
       rc = -1;
       fprintf(stderr, "unexpectedly found a key we haven't set\n");
       goto cleanup;
@@ -82,21 +86,24 @@ kvstore_test(int argc, char *argv[])
       (char *)(msg->data));
 
    fprintf(stderr, "kvstore_test: lookup #2...");
-   rc = kvstore_lookup(kvs, key, kvs_cfg.data_cfg.message_size, msg_buffer);
-   if (rc < KVSTORE_NOT_FOUND) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   fprintf(stderr, "found=%d\n", 0 <= rc);
-   if (rc == KVSTORE_NOT_FOUND) {
+   fprintf(stderr, "found=%d\n", kvstore_lookup_result_found(&result));
+   if (!kvstore_lookup_result_found(&result)) {
       rc = -1;
       fprintf(stderr, "unexpectedly 'found' is false\n");
       goto cleanup;
    }
-   if (rc != kvs_cfg.data_cfg.message_size) {
+   if (kvstore_lookup_result_size(&result) != kvs_cfg.data_cfg.message_size) {
       rc = -1;
       fprintf(stderr, "unexpectedly, lookup value is short\n");
       goto cleanup;
+   }
+   if (kvstore_lookup_result_data(&result) != msg_buffer) {
+      msg = kvstore_lookup_result_data(&result);
    }
    if (memcmp(msg->data, "bar", 3) != 0) {
       rc = -1;
@@ -105,6 +112,7 @@ kvstore_test(int argc, char *argv[])
               3,
               (char *)(msg->data));
    }
+   msg = (data_handle *)msg_buffer;
 
    fprintf(stderr, "kvstore_test: delete key\n");
    msg->message_type = MESSAGE_TYPE_DELETE;
@@ -115,13 +123,13 @@ kvstore_test(int argc, char *argv[])
    }
 
    fprintf(stderr, "kvstore_test: lookup #3, for now-deleted key...");
-   rc = kvstore_lookup(kvs, key, kvs_cfg.data_cfg.message_size, msg_buffer);
-   if (rc < KVSTORE_NOT_FOUND) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   fprintf(stderr, "found=%d\n", 0 <= rc);
-   if (0 <= rc) {
+   fprintf(stderr, "found=%d\n", kvstore_lookup_result_found(&result));
+   if (kvstore_lookup_result_found(&result)) {
       rc = -1;
       fprintf(stderr, "unexpectedly 'found' is true\n");
       goto cleanup;
@@ -238,23 +246,31 @@ iter_cleanup:
       return -1;
    }
    fprintf(stderr, "lookup for key %s after closing and re-opening...", key);
-   rc = kvstore_lookup(kvs, key, kvs_cfg.data_cfg.message_size, msg_buffer);
-   if (rc < KVSTORE_NOT_FOUND) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   if (rc == KVSTORE_NOT_FOUND) {
+   if (!kvstore_lookup_result_found(&result)) {
       fprintf(stderr, "after db close and re-open: failed to find key\n");
       rc = -1;
       goto cleanup;
    }
    rc = 0;
-   fprintf(stderr, "found=%d, db close and re-open test OK\n", 0 <= rc);
+   fprintf(stderr,
+           "found=%d, db close and re-open test OK\n",
+           kvstore_lookup_result_found(&result));
 
 cleanup:
+   kvstore_lookup_result_deinit(&result);
+cleanup0:
+   if (msg_buffer) {
+      free(msg_buffer);
+   }
+   if (key) {
+      free(key);
+   }
    kvstore_close(kvs);
-   free(msg_buffer);
-   free(key);
 
    if (rc == 0) {
       fprintf(stderr, "kvstore_test: succeeded\n");
