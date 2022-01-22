@@ -386,7 +386,7 @@ query_tests(cache *                       cc,
    for (uint64 i = 0; i < nkvs; i++) {
       variable_length_btree_lookup(
          cc, cfg, root_addr, type, gen_key(cfg, i, keybuf), &result);
-      if (writable_buffer_is_null(&result)
+      if (!variable_length_btree_found(&result)
           || slice_lex_cmp(writable_buffer_to_slice(&result),
                            gen_msg(cfg, i, msgbuf)))
       {
@@ -396,7 +396,7 @@ query_tests(cache *                       cc,
       }
    }
 
-   writable_buffer_reset_to_null(&result);
+   writable_buffer_reinit(&result);
    return 1;
 }
 

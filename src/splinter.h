@@ -316,8 +316,16 @@ typedef struct {
 
 platform_status
 splinter_insert(splinter_handle *spl, char *key, slice data);
+
 platform_status
-splinter_lookup(splinter_handle *spl, char *key, writable_buffer *data);
+splinter_lookup(splinter_handle *spl, char *key, writable_buffer *result);
+
+static inline bool
+splinter_lookup_found(writable_buffer *result)
+{
+   return !writable_buffer_is_null(result);
+}
+
 cache_async_result
 splinter_lookup_async(splinter_handle *    spl,
                       char *               key,

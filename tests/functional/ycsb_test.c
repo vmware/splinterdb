@@ -336,7 +336,7 @@ ycsb_thread(void *arg)
             case 'r':
             {
                writable_buffer value;
-               writable_buffer_create(&value, NULL);
+               writable_buffer_init_null(&value, NULL);
                rc = splinter_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {

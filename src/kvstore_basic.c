@@ -384,7 +384,7 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
    char key_buffer[MAX_KEY_SIZE]     = {0};
    char msg_buffer[MAX_MESSAGE_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   int encoded_len =
+   size_t encoded_len =
       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
    return kvstore_insert(kvsb->kvs, key_buffer, encoded_len, msg_buffer);
 }

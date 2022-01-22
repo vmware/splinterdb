@@ -40,11 +40,6 @@ typedef struct variable_length_btree_config {
    data_config *data_cfg;
 } variable_length_btree_config;
 
-typedef struct variable_length_btree_lookup_result {
-   bool            found;
-   writable_buffer message;
-} variable_length_btree_lookup_result;
-
 typedef struct PACKED variable_length_btree_hdr variable_length_btree_hdr;
 
 typedef struct variable_length_btree_node {
@@ -233,14 +228,20 @@ variable_length_btree_lookup(cache *                       cc,
                              slice                         key,
                              writable_buffer *             result);
 
+static inline bool
+variable_length_btree_found(writable_buffer *result)
+{
+   return !writable_buffer_is_null(result);
+}
+
 platform_status
-variable_length_btree_merge_lookup(cache *                       cc,
-                                   variable_length_btree_config *cfg,
-                                   uint64                        root_addr,
-                                   page_type                     type,
-                                   slice                         key,
-                                   writable_buffer *             data,
-                                   bool *                        local_found);
+variable_length_btree_lookup_and_merge(cache *                       cc,
+                                       variable_length_btree_config *cfg,
+                                       uint64                        root_addr,
+                                       page_type                     type,
+                                       slice                         key,
+                                       writable_buffer *             data,
+                                       bool *local_found);
 
 cache_async_result
 variable_length_btree_lookup_async(cache *                           cc,
@@ -251,7 +252,7 @@ variable_length_btree_lookup_async(cache *                           cc,
                                    variable_length_btree_async_ctxt *ctxt);
 
 cache_async_result
-variable_length_btree_merge_lookup_async(
+variable_length_btree_lookup_and_merge_async(
    cache *                           cc,          // IN
    variable_length_btree_config *    cfg,         // IN
    uint64                            root_addr,   // IN

@@ -314,7 +314,6 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
       if (slice_data(merge_itor->data)
           != writable_buffer_data(&merge_itor->merge_buffer))
       {
-         // We might already be in merge_buffer if we did some merging.
          rc = writable_buffer_copy_slice(&merge_itor->merge_buffer,
                                          merge_itor->data);
          if (!SUCCESS(rc)) {
@@ -340,8 +339,7 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
 static platform_status
 advance_one_loop(merge_iterator *merge_itor, bool *retry)
 {
-   platform_status rc;
-   *retry= FALSE;
+   *retry = FALSE;
    // Determine whether we're at the end.
    if (merge_itor->num_remaining == 0) {
       merge_itor->at_end = TRUE;
@@ -360,6 +358,7 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
       return STATUS_OK;
    }
 
+   platform_status rc;
    if (merge_itor->ordered_iterators[0]->next_key_equal) {
       rc = merge_resolve_equal_keys(merge_itor);
       if (!SUCCESS(rc)) {
@@ -428,11 +427,7 @@ merge_iterator_create(platform_heap_id hid,
    if (merge_itor == NULL) {
       return STATUS_NO_MEMORY;
    }
-   rc = writable_buffer_create(&merge_itor->merge_buffer, hid);
-   if (!SUCCESS(rc)) {
-      platform_free(hid, merge_itor);
-      return rc;
-   }
+   writable_buffer_init_null(&merge_itor->merge_buffer, hid);
 
    merge_itor->super.ops = &merge_ops;
    merge_itor->num_trees = num_trees;
@@ -541,7 +536,7 @@ out:
 platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 {
-   writable_buffer_reset_to_null(&(*merge_itor)->merge_buffer);
+   writable_buffer_reinit(&(*merge_itor)->merge_buffer);
    platform_free(hid, *merge_itor);
    *merge_itor = NULL;
 

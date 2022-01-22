@@ -18,6 +18,7 @@
 #include <string.h> // for memmove
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
+#include "splinterdb/util.h"
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
@@ -27,8 +28,6 @@ typedef enum message_type {
 } message_type;
 
 typedef struct data_config data_config;
-
-typedef struct writable_buffer writable_buffer;
 
 typedef int (*key_compare_fn)(const data_config *cfg,
                               uint64             key1_len,
@@ -99,15 +98,5 @@ data_validate_config(const data_config *cfg)
                cfg->message_to_string == NULL);
    return !bad;
 }
-
-uint64
-writable_buffer_length(writable_buffer *wb);
-
-/* Allocates memory as needed. Returns TRUE on success. */
-bool
-writable_buffer_set_length(writable_buffer *wb, uint64 newlength);
-
-void *
-writable_buffer_data(writable_buffer *wb);
 
 #endif // __DATA_H

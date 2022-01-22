@@ -5,7 +5,7 @@
 #define _SPLINTER_UTIL_H_
 
 #include "platform.h"
-
+#include "splinterdb/util.h"
 
 // Macros
 #ifdef IMPLIES
@@ -133,6 +133,104 @@ slice_lex_cmp(const slice a, const slice b)
    } else {
       return len1 - len2;
    }
+}
+
+/* Writable buffers can be in one of four states:
+   - uninitialized
+   - null
+     - data == NULL
+     - allocation_size == length == 0
+   - non-null
+     - data != NULL
+     - length <= allocation_size
+
+   No operation (other than destroy) ever shrinks allocation_size, so
+   writable_buffers can only go down the above list, e.g. once a
+   writable_buffer is out-of-line, it never becomes inline again.
+
+   writable_buffer_init can create any of the initialized,
+   non-user-provided-buffer states, based on the allocation_size
+   specified.
+
+   writable_buffer_destroy returns the writable_buffer to the null state.
+
+   Note that the null state is not isolated.  writable_buffer_realloc
+   can move a null writable_buffer to the inline or the platform_malloced
+   states.  Thus it is possible to, e.g. perform
+   writable_buffer_copy_slice on a null writable_buffer.
+
+   Also note that the user-provided state can move to the
+   platform-malloced state.
+*/
+struct writable_buffer {
+   void *           original_pointer;
+   uint64           original_size;
+   platform_heap_id heap_id;
+   uint64           allocation_size;
+   uint64           length;
+   void *           data;
+};
+
+static inline bool
+writable_buffer_is_null(const writable_buffer *wb)
+{
+   return wb->data == NULL && wb->length == 0 && wb->allocation_size == 0;
+}
+
+static inline void
+writable_buffer_init(writable_buffer *wb,
+                     platform_heap_id heap_id,
+                     uint64           allocation_size,
+                     void *           data)
+{
+   wb->original_pointer = data;
+   wb->original_size    = allocation_size;
+   wb->heap_id          = heap_id;
+   wb->allocation_size  = 0;
+   wb->length           = 0;
+   wb->data             = NULL;
+}
+
+static inline void
+writable_buffer_init_null(writable_buffer *wb, platform_heap_id heap_id)
+{
+   writable_buffer_init(wb, heap_id, 0, NULL);
+}
+
+static inline void
+writable_buffer_reinit(writable_buffer *wb)
+{
+   if (wb->data && wb->data != wb->original_pointer) {
+      platform_free(wb->heap_id, wb->data);
+   }
+   wb->data            = NULL;
+   wb->allocation_size = 0;
+   wb->length          = 0;
+}
+
+static inline platform_status
+writable_buffer_copy_slice(writable_buffer *wb, slice src)
+{
+   if (!writable_buffer_set_length(wb, slice_length(src))) {
+      return STATUS_NO_MEMORY;
+   }
+   memcpy(wb->data, slice_data(src), slice_length(src));
+   return STATUS_OK;
+}
+
+static inline platform_status
+writable_buffer_init_from_slice(writable_buffer *wb,
+                                platform_heap_id heap_id,
+                                slice            contents)
+{
+   writable_buffer_init_null(wb, heap_id);
+   return writable_buffer_copy_slice(wb, contents);
+}
+
+static inline slice
+writable_buffer_to_slice(const writable_buffer *wb)
+{
+   return slice_create(wb->length, wb->data);
 }
 
 /*

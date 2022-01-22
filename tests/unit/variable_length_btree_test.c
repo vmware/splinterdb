@@ -52,10 +52,10 @@ variable_length_btree_leaf_incorporate_tuple(
    leaf_incorporate_spec *             spec,
    uint64 *                            generation)
 {
-   bool r = variable_length_btree_create_leaf_incorporate_spec(
-      cfg, hdr, hid, key, message, spec);
-   ASSERT_TRUE(r);
-   return variable_length_btree_perform_leaf_incorporate_spec(
+   platform_status rc = variable_length_btree_create_leaf_incorporate_spec(
+      cfg, hid, hdr, key, message, spec);
+   ASSERT_TRUE(SUCCESS(rc));
+   return variable_length_btree_try_perform_leaf_incorporate_spec(
       cfg, hdr, spec, generation);
 }
 
@@ -291,6 +291,8 @@ leaf_hdr_search_tests(variable_length_btree_config *cfg, platform_heap_id hid)
       int   cmp_rv = slice_lex_cmp(slice_create(1, &ui), key);
       if (cmp_rv) {
          platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
+         variable_length_btree_print_locked_node(
+            cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
          ASSERT_EQUAL(0, cmp_rv);
       }
    }

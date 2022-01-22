@@ -115,7 +115,7 @@ test_btree_lookup(cache *                       cc,
    writable_buffer result;
    bool            ret;
 
-   writable_buffer_create(&result, NULL);
+   writable_buffer_init_null(&result, NULL);
 
    rc = variable_length_btree_lookup(
       cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, key, &result);
@@ -129,7 +129,7 @@ test_btree_lookup(cache *                       cc,
       ret = slice_lex_cmp(data, expected_data) == 0;
    }
 
-   writable_buffer_reset_to_null(&result);
+   writable_buffer_reinit(&result);
    return ret;
 }
 
@@ -197,8 +197,8 @@ test_btree_insert_thread(void *arg)
    writable_buffer key;
    writable_buffer data;
 
-   writable_buffer_create(&key, NULL);
-   writable_buffer_create(&data, NULL);
+   writable_buffer_init_null(&key, NULL);
+   writable_buffer_init_null(&data, NULL);
 
    uint64 start_num = thread_id * num_inserts;
    uint64 end_num   = (thread_id + 1) * num_inserts;
@@ -214,8 +214,8 @@ test_btree_insert_thread(void *arg)
 
 out:
    params->time_elapsed = platform_timestamp_elapsed(start_time);
-   writable_buffer_reset_to_null(&key);
-   writable_buffer_reset_to_null(&data);
+   writable_buffer_reinit(&key);
+   writable_buffer_reinit(&data);
 }
 
 static platform_status
@@ -363,8 +363,8 @@ btree_test_get_async_ctxt(variable_length_btree_config *cfg,
    variable_length_btree_ctxt_init(
       &ctxt->ctxt, &ctxt->cache_ctxt, btree_test_async_callback);
    ctxt->ready = FALSE;
-   writable_buffer_create(&ctxt->key, NULL);
-   writable_buffer_create(&ctxt->result, NULL);
+   writable_buffer_init_null(&ctxt->key, NULL);
+   writable_buffer_init_null(&ctxt->result, NULL);
 
    return ctxt;
 }
@@ -376,8 +376,8 @@ btree_test_put_async_ctxt(btree_test_async_lookup *async_lookup,
    int idx = ctxt - async_lookup->ctxt;
 
    debug_assert(idx >= 0 && idx < max_async_inflight);
-   writable_buffer_reset_to_null(&ctxt->key);
-   writable_buffer_reset_to_null(&ctxt->result);
+   writable_buffer_reinit(&ctxt->key);
+   writable_buffer_reinit(&ctxt->result);
    async_lookup->ctxt_bitmap |= (1UL << idx);
 }
 
@@ -433,7 +433,7 @@ btree_test_run_pending(cache *                       cc,
       slice key_slice = writable_buffer_to_slice(&ctxt->key);
       res             = variable_length_btree_lookup_async(
          cc, cfg, root_addr, key_slice, &ctxt->result, &ctxt->ctxt);
-      bool local_found = !writable_buffer_is_null(&ctxt->result);
+      bool local_found = variable_length_btree_found(&ctxt->result);
       switch (res) {
          case async_locked:
          case async_no_reqs:
@@ -509,7 +509,7 @@ test_btree_async_lookup(cache *                       cc,
          break;
       case async_success:
          *correct =
-            writable_buffer_is_null(&async_ctxt->result) != expected_found;
+            variable_length_btree_found(&async_ctxt->result) == expected_found;
          btree_test_put_async_ctxt(async_lookup, async_ctxt);
          async_ctxt = NULL;
          goto out;
@@ -560,8 +560,8 @@ test_btree_basic(cache *            cc,
    uint64 start_time = platform_get_timestamp();
    writable_buffer key;
    writable_buffer expected_data;
-   writable_buffer_create(&key, NULL);
-   writable_buffer_create(&expected_data, NULL);
+   writable_buffer_init_null(&key, NULL);
+   writable_buffer_init_null(&expected_data, NULL);
 
    platform_status rc = STATUS_OK;
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
@@ -790,8 +790,8 @@ destroy_btree:
    platform_log("\n");
    test_memtable_context_destroy(ctxt, hid);
    platform_free(hid, async_lookup);
-   writable_buffer_reset_to_null(&key);
-   writable_buffer_reset_to_null(&expected_data);
+   writable_buffer_reinit(&key);
+   writable_buffer_reinit(&expected_data);
    return rc;
 }
 
@@ -808,8 +808,8 @@ test_btree_create_packed_trees(cache *            cc,
    // fill the memtables
    writable_buffer key;
    writable_buffer data;
-   writable_buffer_create(&key, NULL);
-   writable_buffer_create(&data, NULL);
+   writable_buffer_init_null(&key, NULL);
+   writable_buffer_init_null(&data, NULL);
 
    uint64          insert_no;
    platform_status rc = STATUS_OK;
@@ -847,8 +847,8 @@ test_btree_create_packed_trees(cache *            cc,
       root_addr[tree_no] = req.root_addr;
    }
 
-   writable_buffer_reset_to_null(&key);
-   writable_buffer_reset_to_null(&data);
+   writable_buffer_reinit(&key);
+   writable_buffer_reinit(&data);
    test_memtable_context_destroy(ctxt, hid);
    return num_tuples;
 }

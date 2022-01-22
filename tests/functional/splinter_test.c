@@ -251,7 +251,7 @@ static void
 verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    verify_tuple_arg *vta = arg;
-   bool              found = !writable_buffer_is_null(&ctxt->data);
+   bool              found = splinter_lookup_found(&ctxt->data);
 
    if (vta->stats != NULL) {
       if (found) {
@@ -369,7 +369,7 @@ test_splinter_lookup_thread(void *arg)
                platform_status rc;
                char            key[MAX_KEY_SIZE];
                writable_buffer data;
-               writable_buffer_create(&data, NULL);
+               writable_buffer_init_null(&data, NULL);
 
                test_key(key,
                         test_cfg[spl_idx].key_type,
@@ -391,7 +391,7 @@ test_splinter_lookup_thread(void *arg)
                             writable_buffer_to_slice(&data),
                             splinter_message_size(spl),
                             expected_found);
-               writable_buffer_reset_to_null(&data);
+               writable_buffer_reinit(&data);
             } else {
                ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg);
                test_key(ctxt->key,
@@ -657,7 +657,7 @@ do_operation(test_splinter_thread_params *params,
             test_async_lookup *async_lookup = params->async_lookup[spl_idx];
             test_async_ctxt *  ctxt;
             writable_buffer    data;
-            writable_buffer_create(&data, NULL);
+            writable_buffer_init_null(&data, NULL);
 
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
@@ -677,7 +677,7 @@ do_operation(test_splinter_thread_params *params,
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
-               found = !writable_buffer_is_null(&data);
+               found = splinter_lookup_found(&data);
                if (found) {
                   params->lookup_stats[SYNC_LU].num_found++;
                } else {
@@ -701,7 +701,7 @@ do_operation(test_splinter_thread_params *params,
                   verify_tuple_callback,
                   &vtarg);
             }
-            writable_buffer_reset_to_null(&data);
+            writable_buffer_reinit(&data);
          }
       }
    }
@@ -2258,7 +2258,7 @@ test_splinter_basic(allocator *      al,
                                   .data_size      = data_size,
                                   .expected_found = TRUE};
    writable_buffer  qdata;
-   writable_buffer_create(&qdata, NULL);
+   writable_buffer_init_null(&qdata, NULL);
    start_time = platform_get_timestamp();
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
       test_async_ctxt *ctxt;
@@ -2269,7 +2269,7 @@ test_splinter_basic(allocator *      al,
                                       insert_num / (num_inserts / 100));
       if (max_async_inflight == 0) {
          test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         writable_buffer_reset_to_null(&qdata);
+         writable_buffer_reinit(&qdata);
          rc = splinter_lookup(spl, key, &qdata);
          if (!SUCCESS(rc)) {
             platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));

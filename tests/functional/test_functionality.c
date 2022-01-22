@@ -127,7 +127,7 @@ verify_against_shadow(splinter_handle *           spl,
       test_async_ctxt *ctxt;
       writable_buffer  message;
 
-      writable_buffer_create(&message, spl->heap_id);
+      writable_buffer_init_null(&message, spl->heap_id);
       if (async_lookup) {
          ctxt = async_ctxt_get(async_lookup);
       } else {
@@ -148,7 +148,7 @@ verify_against_shadow(splinter_handle *           spl,
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
-      writable_buffer_reset_to_null(&message);
+      writable_buffer_reinit(&message);
    }
    if (async_lookup) {
       // Rough detection of stuck contexts

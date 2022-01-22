@@ -441,14 +441,14 @@ void
 kvstore_lookup_result_deinit(kvstore_lookup_result *result) // IN
 {
    _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
-   writable_buffer_reset_to_null(&_result->value);
+   writable_buffer_reinit(&_result->value);
 }
 
 _Bool
 kvstore_lookup_result_found(kvstore_lookup_result *result) // IN
 {
    _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
-   return !writable_buffer_is_null(&_result->value);
+   return splinter_lookup_found(&_result->value);
 }
 
 size_t

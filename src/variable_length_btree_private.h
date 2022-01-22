@@ -68,15 +68,15 @@ _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
 typedef struct leaf_incorporate_spec {
    slice key;
    int64 idx;
-   bool  existed;
+   bool  was_found;
    union {
       /* "existed" is the tag on this union. */
-      slice           message; /* existed == FALSE */
-      writable_buffer merged;  /* existed == TRUE */
+      slice           new_message;     /* existed == FALSE */
+      writable_buffer merged_message;  /* existed == TRUE */
    } msg;
 } leaf_incorporate_spec;
 
-bool
+platform_status
 variable_length_btree_create_leaf_incorporate_spec(
    const variable_length_btree_config *cfg,
    platform_heap_id                    heap_id,
@@ -86,7 +86,7 @@ variable_length_btree_create_leaf_incorporate_spec(
    leaf_incorporate_spec *             spec);
 
 bool
-variable_length_btree_perform_leaf_incorporate_spec(
+variable_length_btree_try_perform_leaf_incorporate_spec(
    const variable_length_btree_config *cfg,
    variable_length_btree_hdr *         hdr,
    const leaf_incorporate_spec *       spec,
