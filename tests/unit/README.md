@@ -30,6 +30,12 @@ $ make clean; make [debug]
 
 # Build the unit-test binary
 $ make bin/unit_test
+
+# Build all the test sources and binaries, which will also build all unit-test binaries.
+# bin/unit_test and a collection of stand-alone module-specific unit-test binaries will
+# be generated in the bin/unit sub-directory.
+#
+$ make clean; make tests
 ```
 
 * How To Run unit-tests:
@@ -44,4 +50,18 @@ $ bin/unit_test
 
 # Run a specific suite, optionally filtering on a specific test case
 $ bin/unit_test suite-name [ <test-case-name> ]
+
+Example: Run all test cases named 'test_leaf_hdr%' from the 'btree' test suite
+
+$ bin/unit_test btree test_leaf_hdr
+
+# Run a specific unit-test binary
+$ bin/unit/kvstore_basic_test
+
+# Run all test cases named with a prefix from specific unit-test binary.
+# E.g., run all test cases named 'test_kvstore_iterator%' from kvstore_basic_test
+#
+$ bin/unit/<unit-test-binary-name> <test-case-name>
+$ bin/unit/kvstore_basic_test test_kvstore_iterator
+
 ```

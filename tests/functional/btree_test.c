@@ -1506,7 +1506,8 @@ btree_test(int argc, char *argv[])
 
    data_config *    data_cfg  = TYPED_MALLOC(hid, data_cfg);
    splinter_config *cfg       = TYPED_MALLOC(hid, cfg);
-   rc                         = test_parse_args(cfg,
+
+   rc = test_parse_args(cfg,
                         data_cfg,
                         &io_cfg,
                         &al_cfg,
@@ -1515,6 +1516,7 @@ btree_test(int argc, char *argv[])
                         &seed,
                         config_argc,
                         config_argv);
+
    memtable_config *mt_cfg    = &cfg->mt_cfg;
    mt_cfg->max_memtables      = 128;
    test_btree_config test_cfg = {

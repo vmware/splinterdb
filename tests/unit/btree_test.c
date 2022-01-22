@@ -73,7 +73,8 @@ CTEST_SETUP(btree)
    config_set_defaults(&data->master_cfg);
    data->data_cfg = test_data_config;
 
-   if (!SUCCESS(config_parse(&data->master_cfg, 1, 0, (char **)NULL))
+   if (!SUCCESS(
+          config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
        || !init_data_config_from_master_config(&data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)

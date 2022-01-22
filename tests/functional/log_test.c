@@ -284,7 +284,8 @@ log_test(int argc, char *argv[])
    platform_assert_status_ok(status);
 
    splinter_config *cfg = TYPED_MALLOC(hid, cfg);
-   status               = test_parse_args(cfg,
+
+   status = test_parse_args(cfg,
                             &data_cfg,
                             &io_cfg,
                             &al_cfg,
