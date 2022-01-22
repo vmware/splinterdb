@@ -67,10 +67,30 @@ _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
 
 typedef struct leaf_incorporate_spec {
    slice key;
-   slice message;
    int64 idx;
    bool  existed;
+   union {
+      /* "existed" is the tag on this union. */
+      slice           message; /* existed == FALSE */
+      writable_buffer merged;  /* existed == TRUE */
+   } msg;
 } leaf_incorporate_spec;
+
+bool
+variable_length_btree_create_leaf_incorporate_spec(
+   const variable_length_btree_config *cfg,
+   platform_heap_id                    heap_id,
+   variable_length_btree_hdr *         hdr,
+   slice                               key,
+   slice                               message,
+   leaf_incorporate_spec *             spec);
+
+bool
+variable_length_btree_perform_leaf_incorporate_spec(
+   const variable_length_btree_config *cfg,
+   variable_length_btree_hdr *         hdr,
+   const leaf_incorporate_spec *       spec,
+   uint64 *                            generation);
 
 /*
  * This structure is intended to capture all the decisions in a leaf split.
@@ -113,16 +133,6 @@ variable_length_btree_defragment_leaf(
    variable_length_btree_hdr *         hdr,
    int64                               omit_idx); // IN
 
-bool
-variable_length_btree_leaf_incorporate_tuple(
-   const variable_length_btree_config *cfg,
-   variable_length_btree_scratch *     scratch,
-   variable_length_btree_hdr *         hdr,
-   slice                               key,
-   slice                               message,
-   leaf_incorporate_spec *             spec,
-   uint64 *                            generation);
-
 void
 variable_length_btree_defragment_index(
    const variable_length_btree_config *cfg, // IN
@@ -139,7 +149,7 @@ leaf_splitting_plan
 variable_length_btree_build_leaf_splitting_plan(
    const variable_length_btree_config *cfg, // IN
    const variable_length_btree_hdr *   hdr,
-   leaf_incorporate_spec               spec); // IN
+   const leaf_incorporate_spec *       spec); // IN
 
 /*
  * ***********************************************************

@@ -507,17 +507,6 @@ variable_length_btree_merge_tuples(const variable_length_btree_config *cfg,
    return data_merge_tuples(cfg->data_cfg, key, old_data, new_data);
 }
 
-typedef struct leaf_incorporate_spec {
-   slice key;
-   int64 idx;
-   bool  existed;
-   union {
-      /* "existed" is the tag on this union. */
-      slice           message; /* existed == FALSE */
-      writable_buffer merged;  /* existed == TRUE */
-   } msg;
-} leaf_incorporate_spec;
-
 static slice
 spec_message(const leaf_incorporate_spec *spec)
 {
@@ -528,7 +517,7 @@ spec_message(const leaf_incorporate_spec *spec)
    }
 }
 
-static inline bool
+bool
 variable_length_btree_create_leaf_incorporate_spec(
    const variable_length_btree_config *cfg,
    platform_heap_id                    heap_id,
@@ -592,7 +581,7 @@ variable_length_btree_can_perform_leaf_incorporate_spec(
    }
 }
 
-static inline bool
+bool
 variable_length_btree_perform_leaf_incorporate_spec(
    const variable_length_btree_config *cfg,
    variable_length_btree_hdr *         hdr,

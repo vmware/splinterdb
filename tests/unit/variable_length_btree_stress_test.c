@@ -29,6 +29,7 @@
 typedef struct insert_thread_params {
    cache *                        cc;
    variable_length_btree_config * cfg;
+   platform_heap_id               heap_id;
    variable_length_btree_scratch *scratch;
    mini_allocator *               mini;
    uint64                         root_addr;
@@ -43,6 +44,7 @@ insert_thread(void *arg);
 static void
 insert_tests(cache *                        cc,
              variable_length_btree_config * cfg,
+             platform_heap_id               heap_id,
              variable_length_btree_scratch *scratch,
              mini_allocator *               mini,
              uint64                         root_addr,
@@ -52,6 +54,8 @@ insert_tests(cache *                        cc,
 static int
 query_tests(cache *                       cc,
             variable_length_btree_config *cfg,
+            platform_heap_id              hid,
+            page_type                     type,
             uint64                        root_addr,
             int                           nkvs);
 
@@ -197,6 +201,7 @@ CTEST2(variable_length_btree_stress, test_random_inserts_concurrent)
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
+      params[i].heap_id   = data->hid;
       params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
@@ -221,7 +226,12 @@ CTEST2(variable_length_btree_stress, test_random_inserts_concurrent)
       platform_thread_join(threads[thread_no]);
    }
 
-   int rc = query_tests((cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs);
+   int rc = query_tests((cache *)&data->cc,
+                        &data->dbtree_cfg,
+                        data->hid,
+                        PAGE_TYPE_MEMTABLE,
+                        root_addr,
+                        nkvs);
    if (!rc) {
       platform_log("invalid tree\n");
       ASSERT_NOT_EQUAL(0, rc);
@@ -247,8 +257,12 @@ CTEST2(variable_length_btree_stress, test_random_inserts_concurrent)
     * packed_root_addr); */
    /* platform_log("\n\n\n"); */
 
-   rc = query_tests(
-      (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs);
+   rc = query_tests((cache *)&data->cc,
+                    &data->dbtree_cfg,
+                    data->hid,
+                    PAGE_TYPE_BRANCH,
+                    packed_root_addr,
+                    nkvs);
    if (!rc) {
       platform_log("invalid tree\n");
       ASSERT_NOT_EQUAL(0, rc);
@@ -273,6 +287,7 @@ insert_thread(void *arg)
    insert_thread_params *params = (insert_thread_params *)arg;
    insert_tests(params->cc,
                 params->cfg,
+                params->heap_id,
                 params->scratch,
                 params->mini,
                 params->root_addr,
@@ -283,6 +298,7 @@ insert_thread(void *arg)
 static void
 insert_tests(cache *                        cc,
              variable_length_btree_config * cfg,
+             platform_heap_id               heap_id,
              variable_length_btree_scratch *scratch,
              mini_allocator *               mini,
              uint64                         root_addr,
@@ -297,6 +313,7 @@ insert_tests(cache *                        cc,
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(variable_length_btree_insert(cc,
                                                 cfg,
+                                                heap_id,
                                                 scratch,
                                                 root_addr,
                                                 mini,
@@ -354,6 +371,8 @@ gen_msg(variable_length_btree_config *cfg,
 static int
 query_tests(cache *                       cc,
             variable_length_btree_config *cfg,
+            platform_heap_id              hid,
+            page_type                     type,
             uint64                        root_addr,
             int                           nkvs)
 {
@@ -361,25 +380,23 @@ query_tests(cache *                       cc,
    uint8 msgbuf[cfg->page_size];
 
    memset(keybuf, 0, sizeof(keybuf));
-   memset(msgbuf, 0, sizeof(msgbuf));
+   writable_buffer result;
+   writable_buffer_init(&result, hid, 0, NULL);
 
-   slice msg = slice_create(0, msgbuf);
    for (uint64 i = 0; i < nkvs; i++) {
-      bool found;
-      variable_length_btree_lookup(cc,
-                                   cfg,
-                                   root_addr,
-                                   gen_key(cfg, i, keybuf),
-                                   &msg.length,
-                                   msgbuf,
-                                   &found);
-      if (!found || slice_lex_cmp(msg, gen_msg(cfg, i, msgbuf))) {
+      variable_length_btree_lookup(
+         cc, cfg, root_addr, type, gen_key(cfg, i, keybuf), &result);
+      if (writable_buffer_is_null(&result)
+          || slice_lex_cmp(writable_buffer_to_slice(&result),
+                           gen_msg(cfg, i, msgbuf)))
+      {
          platform_log("[%s:%d] Failure on lookup %lu\n", __FILE__, __LINE__, i);
          variable_length_btree_print_tree(cc, cfg, root_addr);
          ASSERT_TRUE(FALSE);
       }
    }
 
+   writable_buffer_reset_to_null(&result);
    return 1;
 }
 

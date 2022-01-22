@@ -29,8 +29,7 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
                variable_length_btree_scratch *scratch);
 
 static int
-leaf_hdr_search_tests(variable_length_btree_config * cfg,
-                      variable_length_btree_scratch *scratch);
+leaf_hdr_search_tests(variable_length_btree_config *cfg, platform_heap_id hid);
 static int
 index_hdr_tests(variable_length_btree_config * cfg,
                 variable_length_btree_scratch *scratch);
@@ -42,6 +41,23 @@ static int
 leaf_split_tests(variable_length_btree_config * cfg,
                  variable_length_btree_scratch *scratch,
                  int                            nkvs);
+
+static bool
+variable_length_btree_leaf_incorporate_tuple(
+   const variable_length_btree_config *cfg,
+   platform_heap_id                    hid,
+   variable_length_btree_hdr *         hdr,
+   slice                               key,
+   slice                               message,
+   leaf_incorporate_spec *             spec,
+   uint64 *                            generation)
+{
+   bool r = variable_length_btree_create_leaf_incorporate_spec(
+      cfg, hdr, hid, key, message, spec);
+   ASSERT_TRUE(r);
+   return variable_length_btree_perform_leaf_incorporate_spec(
+      cfg, hdr, spec, generation);
+}
 
 /*
  * Global data declaration macro:
@@ -233,8 +249,7 @@ leaf_hdr_tests(variable_length_btree_config * cfg,
 }
 
 static int
-leaf_hdr_search_tests(variable_length_btree_config * cfg,
-                      variable_length_btree_scratch *scratch)
+leaf_hdr_search_tests(variable_length_btree_config *cfg, platform_heap_id hid)
 {
    char                       leaf_buffer[cfg->page_size];
    variable_length_btree_hdr *hdr  = (variable_length_btree_hdr *)leaf_buffer;
@@ -254,7 +269,7 @@ leaf_hdr_search_tests(variable_length_btree_config * cfg,
 
       leaf_incorporate_spec spec;
       bool result = variable_length_btree_leaf_incorporate_tuple(
-         cfg, scratch, hdr, key, message, &spec, &generation);
+         cfg, hid, hdr, key, message, &spec, &generation);
       if (!result) {
          platform_log(
             "[%s:%d] couldn't incorporate kv pair %d\n", __FILE__, __LINE__, i);
@@ -456,7 +471,7 @@ leaf_split_tests(variable_length_btree_config * cfg,
          ASSERT_FALSE(success);
       }
       leaf_splitting_plan plan =
-         variable_length_btree_build_leaf_splitting_plan(cfg, hdr, spec);
+         variable_length_btree_build_leaf_splitting_plan(cfg, hdr, &spec);
       ASSERT_TRUE((realnkvs / 2 - 1) <= plan.split_idx);
       ASSERT_TRUE((plan.split_idx) <= (realnkvs / 2 + 1));
    }
