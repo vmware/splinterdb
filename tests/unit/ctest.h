@@ -87,6 +87,13 @@ struct ctest {
     unsigned int magic;
 };
 
+/*
+ * Global handles to command-line args are provided so that we can access
+ * argc/argv indirectly thru these global variables inside setup methods.
+ */
+extern int Ctest_argc;
+extern const char **Ctest_argv;
+
 #define CTEST_IMPL_NAME(name) ctest_##name
 #define CTEST_IMPL_FNAME(sname, tname) CTEST_IMPL_NAME(sname##_##tname##_run)
 #define CTEST_IMPL_TNAME(sname, tname) CTEST_IMPL_NAME(sname##_##tname)
@@ -248,6 +255,13 @@ static const char* suite_name       = NULL;
 static const char* testcase_name    = NULL;
 
 typedef int (*ctest_filter_func)(struct ctest*);
+
+/*
+ * Global handles to command-line args are provided so that we can access
+ * argc/argv indirectly thru these global variables inside setup methods.
+ */
+int Ctest_argc = 0;
+const char **Ctest_argv = NULL;
 
 #define ANSI_BLACK    "\033[0;30m"
 #define ANSI_RED      "\033[0;31m"
@@ -561,7 +575,10 @@ static void sighandler(int signum)
 #endif
 
 int ctest_main(int argc, const char *argv[]);
-void ctest_usage(const char * progname);
+void ctest_usage(const char * progname, int program_is_unit_test);
+int  ctest_process_args(const int argc, const char *argv[], int program_is_unit_test,
+                        const char ** suite_name, const char ** testcase_name);
+int ctest_is_unit_test(const char * argv0);
 
 __attribute__((no_sanitize_address)) int
 ctest_main(int argc, const char *argv[])
@@ -576,20 +593,41 @@ ctest_main(int argc, const char *argv[])
     signal(SIGSEGV, sighandler);
 #endif
 
+    int program_is_unit_test = ctest_is_unit_test(argv[0]);
+
+    // Process --help arg up-front, before processing other variations.
+    if ((argc >= 2) && (strcmp(argv[1], "--help") == 0)) {
+        ctest_usage(argv[0], program_is_unit_test);
+        return num_fail;
+    }
+
     // Establish test-suite and test-case name filters
-    if (argc >= 2) {
-        suite_name = argv[1];
+    int num_filter_args = ctest_process_args(argc, argv, program_is_unit_test,
+                                             &suite_name, &testcase_name);
 
-        if (strcmp(suite_name, "--help") == 0) {
-            ctest_usage(argv[0]);
-            return num_fail;
+    if (num_filter_args < 0) {
+        fprintf(stderr, "Incorrect usage. ");
+        ctest_usage(argv[0], program_is_unit_test);
+        return num_fail;
+    }
+
+    // Reset global argument related variables. These will be used in some
+    // unit-tests to extract any --<config params> provided on the command-line,
+    // using the config_parse() interface. Here, we want argv to point to just
+    // the --<config params> args, if any.
+    // NOTE: "-1", "+1" below is to move past argv[0], the binary name.
+    Ctest_argc = (argc - num_filter_args - 1);
+    Ctest_argv = (argv + 1);
+
+    // Setup filter function depending on the way the program is being invoked
+    if (program_is_unit_test) {
+        if (suite_name != NULL) {
+            filter = suite_filter;
         }
-        filter = suite_filter;
+    } else if (testcase_name != NULL) {
+        filter = testcase_filter;
     }
 
-    if (argc == 3) {
-        testcase_name = argv[2];
-    }
 #ifdef CTEST_NO_COLORS
     color_output = 0;
 #else
