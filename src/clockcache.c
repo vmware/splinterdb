@@ -830,6 +830,17 @@ clockcache_dec_pin(clockcache *cc, uint32 entry_number)
    debug_assert(refcount != 0);
 }
 
+static inline void
+clockcache_reset_pin(clockcache *cc, uint32 entry_number)
+{
+   uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
+   debug_assert(rc_number < cc->cfg->page_capacity);
+   if (cc->pincount[rc_number] != 0) {
+      __attribute__((unused)) uint8 refcount =
+         __sync_lock_test_and_set(&cc->pincount[rc_number], 0);
+   }
+}
+
 void
 clockcache_assert_no_refs(clockcache *cc)
 {
@@ -1945,7 +1956,8 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
        * 4. write lock
        * 5. clear lookup, disk_addr
        * 6. set status to CC_FREE_STATUS (clears claim and write lock)
-       * 7. release read lock
+       * 7. reset pincount to zero
+       * 8. release read lock
        */
 
       //platform_assert(clockcache_get_ref(cc, entry_number, tid) == 0);
@@ -1995,7 +2007,10 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
       /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
       entry->status = CC_FREE_STATUS;
 
-      /* 7. release read lock */
+      /* 7. reset pincount */
+      clockcache_reset_pin(cc, entry_number);
+
+      /* 8. release read lock */
       clockcache_dec_ref(cc, entry_number, tid);
       return;
    }

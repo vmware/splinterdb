@@ -23,6 +23,7 @@ typedef struct mini_allocator {
    cache *         cc;
    data_config *   data_cfg;
    bool            keyed;
+   bool            pinned;
    uint64          meta_head;
    volatile uint64 meta_tail;
    page_type       type;
@@ -54,7 +55,7 @@ mini_alloc(mini_allocator *mini,
 uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
 uint8
-mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type);
+mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned);
 
 void
 mini_keyed_inc_ref(cache *      cc,

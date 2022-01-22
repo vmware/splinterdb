@@ -1147,7 +1147,7 @@ routing_filter_zap(cache          *cc,
    }
 
    uint64 meta_head = filter->meta_head;
-   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_FILTER);
+   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_FILTER, FALSE);
 }
 
 /*

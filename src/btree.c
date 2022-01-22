@@ -1072,7 +1072,7 @@ btree_zap(cache *cc, btree_config *cfg, uint64 root_addr, page_type type)
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
    uint64 meta_head = btree_root_to_meta_addr(cc, cfg, root_addr, 0);
-   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type);
+   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
    return ref == 0;
 }
 
