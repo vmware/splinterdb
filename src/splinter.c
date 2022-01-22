@@ -3182,6 +3182,7 @@ splinter_memtable_incorporate(splinter_handle *spl,
 #else
    splinter_node_claim(spl, &root);
    platform_assert(splinter_has_vacancy(spl, root, 1));
+   // in splinter_memtable_incorporate
    splinter_node_lock(spl, root);
 #endif
    splinter_open_log_stream();
@@ -4014,6 +4015,7 @@ splinter_room_to_flush(splinter_handle     *spl,
  * is not enough space in the child.
  *
  * NOTE: parent must be write locked
+ * Need to make sure parent is copied 
  */
 bool
 splinter_flush(splinter_handle     *spl,
@@ -4440,6 +4442,42 @@ splinter_variable_length_btree_pack_req_init(
                                        spl->heap_id);
 }
 
+/* Assume trunk update lock is held */
+static inline void
+splinter_get_cow_path(splinter_handle * spl,  char *key, 
+                      page_handle *node_path, int *path_length)
+{
+   page_handle *node = splinter_node_get(spl, spl->root_addr);
+   char data[MAX_MESSAGE_SIZE];
+   int index = 0;
+
+   // look in index nodes
+   uint16 height = splinter_height(spl, node);
+   for (uint16 h = height; h > 0; h--) {
+      page_handle *cow_node = splinter_alloc(spl, node->height);
+      memcpy(cow_node->data, node->data, spl->cfg.page_size);
+      node_path[index++] = cow_node;
+
+      uint16 pivot_no = splinter_find_pivot(spl, node, key, less_than_or_equal);
+      debug_assert(pivot_no < splinter_num_children(spl, node));
+      char *pivot = splinter_get_pivot(spl, node, pivot_no);
+      int cmp = splinter_key_compare(spl, key, pivot);
+      if (0 == cmp) {
+         // We choose the first pivot to search this node
+         // for splinter_compact_bundle
+         debug_assert(pivot_no == 0);
+         goto found_final_answer_early;
+      }
+      splinter_pivot_data *pdata = splinter_get_pivot(spl, node, pivot_no);
+      page_handle *child = splinter_node_get(spl, pdata->addr);
+      splinter_node_unget(spl, &node);
+      node = child;
+   }
+
+afound_final_answer_early:
+   *path_length = index;
+}
+
 /*
  * compact_bundle compacts a bundle of flushed branches into a single branch
  *
@@ -4493,23 +4531,43 @@ splinter_compact_bundle(void *arg,
    splinter_handle *spl = req->spl;
    __attribute__ ((unused)) threadid tid;
 
+#ifdef COW_TRUNK
+   splinter_lock_trunk_update_lock(spl);
+   page_handle *node_path[SPLINTER_MAX_HEIGHT] = { NULL }; 
+   int path_length;
+   splinter_get_cow_path(spl, req->key, node_path, &path_length);
+#endif
+
+#ifdef COW_TRUNK
+   page_handle *node = node_path[path_length-1];
+   platform_assert(req->addr == node->disk_addr);
+#else
    /*
     * 1. Acquire node read lock
     */
    page_handle *node = splinter_node_get(spl, req->addr);
+#endif
 
    /*
     * 2. Flush if node is full (acquires write lock)
     */
    uint16 height = splinter_height(spl, node);
    if (height != 0 && splinter_node_is_full(spl, node)) {
+#ifdef COW_TRUNK
+      /* node is a cow-ed node */
+#else
       splinter_node_claim(spl, &node);
       splinter_node_lock(spl, node);
+#endif
       bool flush_successful = TRUE;
       while (flush_successful && splinter_node_is_full(spl, node))
          flush_successful = splinter_flush_fullest(spl, node);
+#ifdef COW_TRUNK
+      /* node is a cow-ed node */
+#else
       splinter_node_unlock(spl, node);
       splinter_node_unclaim(spl, node);
+#endif
    }
 
    // timers for stats if enabled
@@ -4805,6 +4863,10 @@ splinter_compact_bundle(void *arg,
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, splinter_bundle_build_filters, req, TRUE);
    }
 out:
+
+#ifdef COW_TRUNK
+   splinter_unlock_trunk_update_lock(spl);
+#endif
    splinter_log_stream("\n");
    splinter_close_log_stream();
 }
@@ -5251,6 +5313,7 @@ splinter_split_leaf(splinter_handle *spl,
    /*
     * 3. Clear old bundles from leaf and put all branches in a new bundle
     */
+   /* in splinter_split_leaf */
    splinter_node_lock(spl, parent);
    splinter_log_node(spl, parent);
    splinter_node_lock(spl, leaf);
