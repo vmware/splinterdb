@@ -70,9 +70,9 @@ typedef struct leaf_incorporate_spec {
    int64 idx;
    bool  was_found;
    union {
-      /* "existed" is the tag on this union. */
-      slice           new_message;     /* existed == FALSE */
-      writable_buffer merged_message;  /* existed == TRUE */
+      /* "was_found" is the tag on this union. */
+      slice           new_message;    /* was_found == FALSE */
+      writable_buffer merged_message; /* was_found == TRUE */
    } msg;
 } leaf_incorporate_spec;
 

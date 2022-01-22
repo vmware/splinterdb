@@ -640,8 +640,8 @@ test_btree_basic(cache *            cc,
    uint64 end_num   = 2 * num_inserts;
    for (uint64 insert_num = start_num; insert_num < end_num; insert_num++) {
       test_btree_tuple(ctxt, &key, &expected_data, insert_num, 0);
-      bool correct =
-         test_memtable_lookup(ctxt, 0, writable_buffer_to_slice(&key), NULL_SLICE);
+      bool correct = test_memtable_lookup(
+         ctxt, 0, writable_buffer_to_slice(&key), NULL_SLICE);
       if (!correct) {
          memtable_print(cc, mt);
          char key_string[128];
