@@ -1,11 +1,10 @@
-/* **********************************************************
- * Copyright 2018-2020 VMware, Inc.  All rights reserved. -- VMware Confidential
- * **********************************************************/
+// Copyright 2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
 
 /*
  * variable_length_btree.h --
  *
- *     This file contains the interface for dynamic b-trees/memtables.
+ *     This file contains the public interfaces for dynamic b-trees/memtables.
  */
 
 #ifndef __VARIABLE_LENGTH_BTREE_H__
@@ -34,7 +33,6 @@ extern page_handle *trace_page;
  * variable_length_btree_hdr.
  *----------------------------------------------------------------------
  */
-
 typedef struct variable_length_btree_config {
    uint64       page_size;   // must match the cache/fs page_size
    uint64       extent_size; // same

@@ -2,7 +2,7 @@
  * Copyright 2018-2020 VMware, Inc.  All rights reserved. -- VMware Confidential
  * **********************************************************/
 
-#include "variable_length_btree.h"
+#include "variable_length_btree_private.h"
 #include "poison.h"
 
 /******************************************************************
@@ -49,12 +49,6 @@
 char  positive_infinity_buffer;
 slice positive_infinity = {0, &positive_infinity_buffer};
 
-typedef uint16 table_index; //  So we can make this bigger for bigger nodes.
-typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
-typedef node_offset table_entry;
-typedef uint16      inline_key_size;
-typedef uint16      inline_message_size;
-
 /*
  * Branches keep track of the number of keys and the total size of
  * all keys and messages in their subtrees.  But memtables do not
@@ -65,25 +59,6 @@ typedef uint16      inline_message_size;
  */
 #define VARIABLE_LENGTH_BTREE_UNKNOWN (0x7fffffffUL)
 
-/***********************
- * Node headers
- ***********************/
-
-struct PACKED variable_length_btree_hdr {
-   uint64      next_addr;
-   uint64      next_extent_addr;
-   uint64      generation;
-   uint8       height;
-   node_offset next_entry;
-   table_index num_entries;
-   table_entry offsets[];
-};
-
-static inline uint64
-variable_length_btree_page_size(const variable_length_btree_config *cfg)
-{
-   return cfg->page_size;
-}
 
 static inline uint8
 variable_length_btree_height(const variable_length_btree_hdr *hdr)
@@ -120,63 +95,10 @@ variable_length_btree_reset_node_entries(
 }
 
 
-/***********************************
- * Node entries
- ***********************************/
-
-typedef struct PACKED index_entry {
-   variable_length_btree_pivot_data pivot_data;
-   inline_key_size                  key_size;
-   char                             key[];
-} index_entry;
-
-_Static_assert(sizeof(index_entry) ==
-                  sizeof(uint64) + 3 * sizeof(uint32) + sizeof(inline_key_size),
-               "index_entry has wrong size");
-_Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
-               "index_entry key has wrong offset");
-
-typedef struct PACKED leaf_entry {
-   inline_key_size     key_size;
-   inline_message_size message_size;
-   char                key_and_message[];
-} leaf_entry;
-
-_Static_assert(sizeof(leaf_entry) ==
-                  sizeof(inline_key_size) + sizeof(inline_message_size),
-               "leaf_entry has wrong size");
-_Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
-               "leaf_entry key_and_data has wrong offset");
-
-
 static inline uint64
 index_entry_size(const slice key)
 {
    return sizeof(index_entry) + slice_length(key);
-}
-
-static inline uint64
-sizeof_index_entry(const index_entry *entry)
-{
-   return sizeof(*entry) + entry->key_size;
-}
-
-static inline slice
-index_entry_key_slice(const index_entry *entry)
-{
-   return slice_create(entry->key_size, entry->key);
-}
-
-static inline uint64
-index_entry_child_addr(const index_entry *entry)
-{
-   return entry->pivot_data.child_addr;
-}
-
-static inline uint64
-sizeof_leaf_entry(const leaf_entry *entry)
-{
-   return sizeof(*entry) + entry->key_size + entry->message_size;
 }
 
 static inline uint64
@@ -185,24 +107,12 @@ leaf_entry_size(const slice key, const slice message)
    return sizeof(leaf_entry) + slice_length(key) + slice_length(message);
 }
 
-static inline slice
-leaf_entry_key_slice(leaf_entry *entry)
-{
-   return slice_create(entry->key_size, entry->key_and_message);
-}
-
 static inline uint64
 leaf_entry_key_size(const leaf_entry *entry)
 {
    return entry->key_size;
 }
 
-static inline slice
-leaf_entry_message_slice(leaf_entry *entry)
-{
-   return slice_create(entry->message_size,
-                       entry->key_and_message + entry->key_size);
-}
 
 static inline uint64
 leaf_entry_message_size(const leaf_entry *entry)
@@ -214,43 +124,6 @@ leaf_entry_message_size(const leaf_entry *entry)
 /**************************************
  * Basic get/set on index nodes
  **************************************/
-
-static inline index_entry *
-variable_length_btree_get_index_entry(const variable_length_btree_config *cfg,
-                                      const variable_length_btree_hdr *   hdr,
-                                      table_index                         k)
-{
-   /* Ensure that the kth entry's header is after the end of the table and
-      before the end of the page. */
-   debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
-                hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(index_entry) <=
-                variable_length_btree_page_size(cfg));
-   index_entry *entry =
-      (index_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
-   /* Now ensure that the entire entry fits in the page. */
-   debug_assert(hdr->offsets[k] + sizeof_index_entry(entry) <=
-                variable_length_btree_page_size(cfg));
-   return entry;
-}
-
-static inline slice
-variable_length_btree_get_pivot(const variable_length_btree_config *cfg,
-                                const variable_length_btree_hdr *   hdr,
-                                table_index                         k)
-{
-   return index_entry_key_slice(
-      variable_length_btree_get_index_entry(cfg, hdr, k));
-}
-
-static inline uint64
-variable_length_btree_get_child_addr(const variable_length_btree_config *cfg,
-                                     const variable_length_btree_hdr *   hdr,
-                                     table_index                         k)
-{
-   return index_entry_child_addr(
-      variable_length_btree_get_index_entry(cfg, hdr, k));
-}
 
 static inline void
 variable_length_btree_fill_index_entry(const variable_length_btree_config *cfg,
@@ -273,7 +146,7 @@ variable_length_btree_fill_index_entry(const variable_length_btree_config *cfg,
    entry->pivot_data.message_bytes_in_tree = message_bytes;
 }
 
-static inline bool
+bool
 variable_length_btree_set_index_entry(const variable_length_btree_config *cfg,
                                       variable_length_btree_hdr *         hdr,
                                       table_index                         k,
@@ -376,42 +249,6 @@ variable_length_btree_insert_index_entry(
  * Basic get/set on leaf nodes
  **************************************/
 
-static inline leaf_entry *
-variable_length_btree_get_leaf_entry(const variable_length_btree_config *cfg,
-                                     const variable_length_btree_hdr *   hdr,
-                                     table_index                         k)
-{
-   /* Ensure that the kth entry's header is after the end of the table and
-      before the end of the page. */
-   debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries]) <=
-                hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(leaf_entry) <=
-                variable_length_btree_page_size(cfg));
-   leaf_entry *entry =
-      (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry) <=
-                variable_length_btree_page_size(cfg));
-   return entry;
-}
-
-static inline slice
-variable_length_btree_get_tuple_key(const variable_length_btree_config *cfg,
-                                    const variable_length_btree_hdr *   hdr,
-                                    table_index                         k)
-{
-   return leaf_entry_key_slice(
-      variable_length_btree_get_leaf_entry(cfg, hdr, k));
-}
-
-static inline slice
-variable_length_btree_get_tuple_message(const variable_length_btree_config *cfg,
-                                        const variable_length_btree_hdr *   hdr,
-                                        table_index                         k)
-{
-   return leaf_entry_message_slice(
-      variable_length_btree_get_leaf_entry(cfg, hdr, k));
-}
-
 static inline void
 variable_length_btree_fill_leaf_entry(const variable_length_btree_config *cfg,
                                       variable_length_btree_hdr *         hdr,
@@ -458,7 +295,7 @@ variable_length_btree_can_set_leaf_entry(
    return TRUE;
 }
 
-static inline bool
+bool
 variable_length_btree_set_leaf_entry(const variable_length_btree_config *cfg,
                                      variable_length_btree_hdr *         hdr,
                                      table_index                         k,
@@ -566,7 +403,7 @@ method bsearch(s: seq<int>, k: int) returns (idx: int, f: bool)
 }
 
 */
-static inline int64
+int64
 variable_length_btree_find_pivot(const variable_length_btree_config *cfg,
                                  const variable_length_btree_hdr *   hdr,
                                  slice                               key,
@@ -675,13 +512,6 @@ variable_length_btree_merge_tuples(
    return tmp;
 }
 
-typedef struct leaf_incorporate_spec {
-   slice key;
-   slice message;
-   int64 idx;
-   bool  existed;
-} leaf_incorporate_spec;
-
 static inline void
 variable_length_btree_leaf_create_incorporate_spec(
    const variable_length_btree_config *cfg,
@@ -748,7 +578,7 @@ variable_length_btree_leaf_perform_incorporate_spec(
    return success;
 }
 
-static inline bool
+bool
 variable_length_btree_leaf_incorporate_tuple(
    const variable_length_btree_config *cfg,
    variable_length_btree_scratch *     scratch,
@@ -771,7 +601,7 @@ variable_length_btree_leaf_incorporate_tuple(
  *      Defragment a node
  *-----------------------------------------------------------------------------
  */
-static inline void
+void
 variable_length_btree_defragment_leaf(
    const variable_length_btree_config *cfg, // IN
    variable_length_btree_scratch *     scratch,
@@ -825,17 +655,6 @@ variable_length_btree_truncate_leaf(
  *-----------------------------------------------------------------------------
  */
 
-/*
- * This structure is intended to capture all the decisions in a leaf split.
- * That way, we can have a single function that defines the entire policy,
- * separate from the code that executes the policy (possibly as several steps
- * for concurrency reasons).
- */
-typedef struct leaf_splitting_plan {
-   uint64 split_idx;         // keys with idx < split_idx go left
-   bool insertion_goes_left; // does the key to be inserted go to the left child
-} leaf_splitting_plan;
-
 static leaf_splitting_plan initial_plan = {0, FALSE};
 
 
@@ -886,7 +705,7 @@ plan_move_more_entries_to_left(const variable_length_btree_config *cfg,
  * split. Assumes all leaf entries are at most half the total free
  * space in an empty leaf.
  */
-static inline leaf_splitting_plan
+leaf_splitting_plan
 variable_length_btree_build_leaf_splitting_plan(
    const variable_length_btree_config *cfg, // IN
    const variable_length_btree_hdr *   hdr,
@@ -1084,7 +903,7 @@ variable_length_btree_split_index_build_right_node(
  *      Defragment a node
  *-----------------------------------------------------------------------------
  */
-static inline void
+void
 variable_length_btree_defragment_index(
    const variable_length_btree_config *cfg, // IN
    variable_length_btree_scratch *     scratch,
@@ -1133,15 +952,6 @@ variable_length_btree_truncate_index(
       variable_length_btree_defragment_index(cfg, scratch, hdr);
    }
 }
-
-static inline void
-variable_length_btree_init_hdr(const variable_length_btree_config *cfg,
-                               variable_length_btree_hdr *         hdr)
-{
-   ZERO_CONTENTS(hdr);
-   hdr->next_entry = cfg->page_size;
-}
-
 
 /*
  *-----------------------------------------------------------------------------

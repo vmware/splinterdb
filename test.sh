@@ -5,7 +5,7 @@ set -euxo pipefail
 SEED="${SEED:-135}"
 
 WITH_RUST="${WITH_RUST:-false}"
-TEST_CLI="${TEST_CLI:-false}"
+TEST_RUST_CLI="${TEST_RUST_CLI:-${WITH_RUST}}"
 
 # Run all the unit-tests first, to get basic coverage
 bin/unit_test
@@ -43,7 +43,7 @@ if [ "$WITH_RUST" = "true" ]; then
    popd
 fi
 
-if [ "$TEST_CLI" = "true" ]; then
+if [ "$TEST_RUST_CLI" = "true" ]; then
    bin/splinterdb-cli -f /tmp/splinterdb-rust-test perf -t 4 -w 10000
 fi
 

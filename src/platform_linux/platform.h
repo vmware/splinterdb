@@ -557,7 +557,6 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
 #include <platform_inline.h>
 
 
-
 /*
  * Section 6:
  * Non-platform-specific inline implementations

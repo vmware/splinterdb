@@ -1,6 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <stdarg.h>
 #include "platform.h"
 
 #include <sys/mman.h>
@@ -294,4 +295,66 @@ platform_condvar_broadcast(platform_condvar *cv)
 
    status = pthread_cond_broadcast(&cv->cond);
    return CONST_STATUS(status);
+}
+
+/*
+ * platform_assert_impl() -
+ *
+ * Platform-specific assert implementation, with support to print an optional
+ * message and arguments involved in the assertion failure.
+ *
+ * NOTE: Parameters 'stream' & 'do_abort' are provided as testing hooks.
+ *  Test code supplies these to verify that an expected formatted message is
+ *  correctly generated for a failing assertion.
+ */
+void
+platform_assert_impl(platform_stream_handle stream,
+                     const char *           filename,
+                     int                    linenumber,
+                     const char *           functionname,
+                     bool                   do_abort,
+                     const char *           expr,
+                     int                    exprval,
+                     const char *           message,
+                     ...)
+{
+   va_list varargs;
+   if (LIKELY(exprval)) {
+      return;
+   }
+
+   va_start(varargs, message);
+
+   // Run-time assertion messages go to stderr. Test-code supplies its own
+   // output buffer to capture the generated message, for validation.
+   if (!stream) {
+      stream = Platform_stderr_fh;
+   }
+   platform_assert_msg(
+      stream, filename, linenumber, functionname, expr, message, varargs);
+   va_end(varargs);
+   platform_log_stream("\n");
+   fflush(stream);
+
+   if (do_abort) {
+      abort();
+   }
+}
+
+/*
+ * Lower-level function to generate the assertion message, alone.
+ */
+void
+platform_assert_msg(platform_stream_handle stream,
+                    const char *           filename,
+                    int                    linenumber,
+                    const char *           functionname,
+                    const char *           expr,
+                    const char *           message,
+                    va_list                varargs)
+{
+   static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";
+   platform_log_stream(
+      assert_msg_fmt, filename, linenumber, functionname, expr);
+   vfprintf(stream, message, varargs);
 }
