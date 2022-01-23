@@ -113,6 +113,7 @@ CTEST_DATA(variable_length_btree_stress)
 CTEST_SETUP(variable_length_btree_stress)
 {
    config_set_defaults(&data->master_cfg);
+   data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg = test_data_config;
 
    // RESOLVE: Sort this out with RobJ about cmd line args support
