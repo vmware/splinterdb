@@ -299,47 +299,34 @@ platform_condvar_broadcast(platform_condvar *cv)
 }
 
 /*
- * platform_assert_impl() -
+ * platform_assert_false() -
  *
  * Platform-specific assert implementation, with support to print an optional
- * message and arguments involved in the assertion failure.
- *
- * NOTE: Parameters 'stream' & 'do_abort' are provided as testing hooks.
- *  Test code supplies these to verify that an expected formatted message is
- *  correctly generated for a failing assertion.
+ * message and arguments involved in the assertion failure. The caller-macro
+ * ensures that this function will only be called when the 'exprval' is FALSE;
+ * i.e. the assertion is failing.
  */
-void
-platform_assert_impl(platform_stream_handle stream,
-                     const char *           filename,
-                     int                    linenumber,
-                     const char *           functionname,
-                     bool                   do_abort,
-                     const char *           expr,
-                     int                    exprval,
-                     const char *           message,
-                     ...)
+__attribute__((noreturn)) void
+platform_assert_false(platform_stream_handle stream,
+                      const char *           filename,
+                      int                    linenumber,
+                      const char *           functionname,
+                      const char *           expr,
+                      const char *           message,
+                      ...)
 {
    va_list varargs;
-   if (LIKELY(exprval)) {
-      return;
-   }
-
    va_start(varargs, message);
 
-   // Run-time assertion messages go to stderr. Test-code supplies its own
-   // output buffer to capture the generated message, for validation.
-   if (!stream) {
-      stream = Platform_stderr_fh;
-   }
+   // Run-time assertion messages go to stderr.
+   stream = Platform_stderr_fh;
    platform_assert_msg(
       stream, filename, linenumber, functionname, expr, message, varargs);
    va_end(varargs);
    platform_log_stream("\n");
    fflush(stream);
 
-   if (do_abort) {
-      abort();
-   }
+   abort();
 }
 
 /*
