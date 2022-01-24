@@ -154,7 +154,8 @@ btree_set_index_entry(const btree_config *cfg,
                       int64               key_bytes,
                       int64               message_bytes)
 {
-   platform_assert(k <= hdr->num_entries);
+   platform_assert(
+      k <= hdr->num_entries, "k=%d, num_entries=%d\n", k, hdr->num_entries);
    uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k + 1;
 
    if (k < hdr->num_entries) {
@@ -319,7 +320,13 @@ btree_set_leaf_entry(const btree_config *cfg,
 
    leaf_entry *new_entry = pointer_byte_offset(
       hdr, hdr->next_entry - leaf_entry_size(new_key, new_message));
-   platform_assert((void *)&hdr->offsets[new_num_entries] <= (void *)new_entry);
+   platform_assert(
+      (void *)&hdr->offsets[new_num_entries] <= (void *)new_entry,
+      "Offset addr 0x%p for index, new_num_entries=%lu is incorrect."
+      " It should be <= new_entry=0x%p\n",
+      &hdr->offsets[new_num_entries],
+      new_num_entries,
+      new_entry);
    btree_fill_leaf_entry(cfg, hdr, new_entry, new_key, new_message);
 
    hdr->offsets[k]  = diff_ptr(hdr, new_entry);

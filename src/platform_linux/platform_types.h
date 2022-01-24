@@ -68,16 +68,14 @@ typedef void* List_Links;
  * Linux understands that you cannot continue after a failed assert already,
  * so we do not need a workaround for platform_assert in linux
  */
-void
-platform_assert_impl(platform_stream_handle stream,
-                     const char *           filename,
-                     int                    linenumber,
-                     const char *           functionname,
-                     bool                   do_abort,
-                     const char *           expr,
-                     int                    exprval,
-                     const char *           message,
-                     ...);
+__attribute__((noreturn)) void
+platform_assert_false(platform_stream_handle stream,
+                      const char *           filename,
+                      int                    linenumber,
+                      const char *           functionname,
+                      const char *           expr,
+                      const char *           message,
+                      ...);
 
 void
 platform_assert_msg(platform_stream_handle stream,
@@ -89,25 +87,20 @@ platform_assert_msg(platform_stream_handle stream,
                     va_list                args);
 
 /*
- * Caller-macro to invoke assertion checking.
+ * Caller-macro to invoke assertion checking. Avoids a function call for
+ * most cases when the assertion will succeed.
+ *
+ * Note: The dangling fprintf() is really dead-code, as it executes after the
+ * "noreturn" function implementing the assertion check executes, and fails.
+ * -BUT- The fprintf() is solely there as a small compile-time check to ensure
+ * that the arguments match the print-formats in any user-supplied message.
  */
 #define platform_assert(expr, ...)                                             \
-   do {                                                                        \
-      platform_assert_impl(NULL,                                               \
-                           __FILE__,                                           \
-                           __LINE__,                                           \
-                           __FUNCTION__,                                       \
-                           TRUE,                                               \
-                           #expr,                                              \
-                           (expr) != 0,                                        \
-                           "" __VA_ARGS__);                                    \
-      /* Provide first line of defense in case user-supplied print-format and  \
-       * argument types do not match.                                          \
-       */                                                                      \
-      if (FALSE) {                                                             \
-         fprintf(stderr, " " __VA_ARGS__);                                     \
-      }                                                                        \
-   } while (0)
+   ((expr)                                                                     \
+       ? (void)0                                                               \
+       : (platform_assert_false(                                               \
+             NULL, __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__),   \
+          (void)fprintf(stderr, " " __VA_ARGS__)))
 
 typedef pthread_t platform_thread;
 

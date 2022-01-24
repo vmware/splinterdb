@@ -20,22 +20,24 @@
 #define MISC_MSG_WITH_ARGS                                                     \
    "Test assertion msg with arguments id = %d, name = '%s'."
 
+/* Function prototype */
+void
+test_platform_assert_msg(platform_stream_handle stream,
+                         const char *           filename,
+                         int                    linenumber,
+                         const char *           functionname,
+                         const char *           expr,
+                         const char *           message,
+                         ...);
+
 /*
- * Same as platform_assert() but leverages testing hook provided
- * by implementation, to -not- raise an abort() in case an assert fails.
- * Test code supplies output stream in which the assertion messages will be
- * generated, so that test-code can validate that the right parameter
- * substitution is occurring.
+ * Same as platform_assert() but simply exercises the message-raising
+ * aspect of platform_assert_impl(). All we really test here is that the
+ * user-supplied message with arguments is being printed as expected.
  */
 #define test_platform_assert(expr, ...)                                        \
-   platform_assert_impl(stream,                                                \
-                        __FILE__,                                              \
-                        __LINE__,                                              \
-                        __FUNCTION__,                                          \
-                        FALSE,                                                 \
-                        #expr,                                                 \
-                        (expr) != 0,                                           \
-                        "" __VA_ARGS__)
+   test_platform_assert_msg(                                                   \
+      stream, __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__)
 
 /*
  * Global data declaration macro:
@@ -101,4 +103,24 @@ CTEST2(misc, test_assert_msg_with_args)
 
    ASSERT_STREQN(expmsg, bp, strlen(expmsg));
    platform_close_log_stream(Platform_stderr_fh);
+}
+
+/*
+ * Wrapper function to exercise platform_assert_msg() into an output
+ * buffer. Used to test that the message is generated as expected.
+ */
+void
+test_platform_assert_msg(platform_stream_handle stream,
+                         const char *           filename,
+                         int                    linenumber,
+                         const char *           functionname,
+                         const char *           expr,
+                         const char *           message,
+                         ...)
+{
+   va_list varargs;
+   va_start(varargs, message);
+   platform_assert_msg(
+      stream, filename, linenumber, functionname, expr, message, varargs);
+   va_end(varargs);
 }
