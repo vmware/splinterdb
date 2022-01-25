@@ -134,7 +134,7 @@ memtable_insert(memtable_context *ctxt,
    bool           was_unique;
    slice          key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
 
-   platform_status rc = variable_length_btree_insert(ctxt->cc,
+   platform_status rc = btree_insert(ctxt->cc,
                                                      ctxt->cfg.btree_cfg,
                                                      heap_id,
                                                      &ctxt->scratch[tid],
@@ -207,11 +207,11 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
 {
    cache *cc = ctxt->cc;
 
-   bool freed = variable_length_btree_dec_ref(
+   bool freed = btree_dec_ref(
       cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    if (freed) {
       platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
-      mt->root_addr = variable_length_btree_create(
+      mt->root_addr = btree_create(
          cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
       memtable_lock_incorporation_lock(ctxt);
       mt->generation += ctxt->cfg.max_memtables;
@@ -261,7 +261,7 @@ memtable_init(memtable         *mt,
    ZERO_CONTENTS(mt);
    mt->cfg = cfg->btree_cfg;
    mt->root_addr =
-      variable_length_btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+      btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
    mt->state = MEMTABLE_STATE_READY;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;
@@ -272,7 +272,7 @@ memtable_deinit(cache            *cc,
                 memtable         *mt)
 {
    mini_release(&mt->mini, NULL_SLICE);
-   debug_only bool freed = variable_length_btree_dec_ref(
+   debug_only bool freed = btree_dec_ref(
       cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);
 }
@@ -356,7 +356,7 @@ memtable_context_destroy(platform_heap_id  hid,
 
 void
 memtable_config_init(memtable_config *             cfg,
-                     variable_length_btree_config *btree_cfg,
+                     btree_config *btree_cfg,
                      uint64                        max_memtables,
                      uint64                        memtable_capacity)
 {

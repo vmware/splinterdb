@@ -152,7 +152,7 @@ $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D
 
 # Target will build everything needed to generate bin/unit_test along with all
 # the individual binaries for each unit-test case. Most unit-tests are fairly
-# well-contained, but variable_length_btree_test needs several objects to be
+# well-contained, but btree_test needs several objects to be
 # linked with it, which will be produced while building the shared library.
 $(BINDIR)/unit_test: unit_test
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
@@ -213,7 +213,7 @@ unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
-# String together all objects needed to link variable_length_btree test binaries
+# String together all objects needed to link btree test binaries
 VARIABLE_LENGTH_BTREE_TEST_OBJS = $(OBJDIR)/tests/unit/btree_test_common.o      \
                                   $(OBJDIR)/tests/functional/test_data.o        \
                                   $(OBJDIR)/src/util.o                          \
@@ -222,21 +222,21 @@ VARIABLE_LENGTH_BTREE_TEST_OBJS = $(OBJDIR)/tests/unit/btree_test_common.o      
                                   $(OBJDIR)/src/rc_allocator.o                  \
                                   $(OBJDIR)/src/config.o                        \
                                   $(OBJDIR)/src/clockcache.o                    \
-                                  $(OBJDIR)/src/variable_length_btree.o         \
+                                  $(OBJDIR)/src/btree.o         \
                                   $(OBJDIR)/src/platform_linux/platform.o       \
                                   $(OBJDIR)/src/task.o                          \
                                   $(OBJDIR)/src/platform_linux/laio.o
 
-$(BINDIR)/unit/variable_length_btree_test: unit/variable_length_btree_test
-unit/variable_length_btree_test: $(OBJDIR)/tests/unit/variable_length_btree_test.o  \
+$(BINDIR)/unit/btree_test: unit/btree_test
+unit/btree_test: $(OBJDIR)/tests/unit/btree_test.o  \
                                  $(OBJDIR)/tests/unit/main.o                        \
                                  $(VARIABLE_LENGTH_BTREE_TEST_OBJS)
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
-$(BINDIR)/unit/variable_length_btree_stress_test: unit/variable_length_btree_stress_test
-unit/variable_length_btree_stress_test: $(OBJDIR)/tests/unit/variable_length_btree_stress_test.o  \
+$(BINDIR)/unit/btree_stress_test: unit/btree_stress_test
+unit/btree_stress_test: $(OBJDIR)/tests/unit/btree_stress_test.o  \
                                  $(OBJDIR)/tests/unit/main.o                        \
                                  $(VARIABLE_LENGTH_BTREE_TEST_OBJS)
 	mkdir -p $(BINDIR)/unit;

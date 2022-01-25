@@ -53,12 +53,12 @@ init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
 }
 
 int
-init_variable_length_btree_config_from_master_config(
-   variable_length_btree_config *dbtree_cfg,
+init_btree_config_from_master_config(
+   btree_config *dbtree_cfg,
    master_config *               master_cfg,
    data_config *                 data_cfg)
 {
-   variable_length_btree_config_init(dbtree_cfg,
+   btree_config_init(dbtree_cfg,
                                      data_cfg,
                                      master_cfg->btree_rough_count_height,
                                      master_cfg->page_size,
