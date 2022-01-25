@@ -2,6 +2,9 @@
 #! SPDX-License-Identifier: Apache-2.0
 
 #@ load("@ytt:template", "template")
+#@ def default_timeout():
+#@   return "25m"
+#@ end
 
 ---
 
@@ -28,6 +31,7 @@ plan:
   file: #@ resource_name + "-source/.git/ref"
   reveal: true
 - task: create-image
+  timeout: #@ default_timeout()
   privileged: true
   params:
     LABEL_git_sha: ((.:git-commit-sha))
@@ -85,6 +89,7 @@ params:
 
 #@ def step_build_splinterdb_image(source, compiler, git_sha=False, with_rust=False):
 task: build
+timeout: #@ default_timeout()
 privileged: true
 #@ if git_sha:
 params:
@@ -121,6 +126,7 @@ config:
 
 #@ def step_test_with_image(with_rust=False):
 task: test
+timeout: #@ default_timeout()
 image: image
 config:
   platform: linux
@@ -134,6 +140,7 @@ config:
 ---
 #@ def step_collect_tags(compiler):
 task: collect-tags
+timeout: #@ default_timeout()
 config:
   platform: linux
   image_resource:
@@ -199,6 +206,7 @@ plan:
 
 #@ def step_debug_build_test(compiler, input_name, with_rust=False):
 task: debug-build-test
+timeout: #@ default_timeout()
 image: build-env-image-latest
 config:
   platform: linux
@@ -307,6 +315,7 @@ plan:
   file: github-pull-request/.git/resource/base_sha
   reveal: true
 - task: format-check
+  timeout: #@ default_timeout()
   image: build-env-image-latest
   config:
     platform: linux
@@ -324,6 +333,7 @@ plan:
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
 - task: check-shell-scripts
+  timeout: #@ default_timeout()
   image: build-env-image-latest
   config:
     platform: linux
