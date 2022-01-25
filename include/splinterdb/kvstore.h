@@ -130,7 +130,7 @@ kvstore_lookup_result_data(kvstore_lookup_result *result); // IN
 int
 kvstore_lookup(const kvstore *        kvs,   // IN
                char *                 key,   // IN
-               kvstore_lookup_result *result // OUT
+               kvstore_lookup_result *result // IN/OUT
 );
 
 /*

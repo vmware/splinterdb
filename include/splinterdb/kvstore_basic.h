@@ -176,8 +176,8 @@ Sample application code:
       printf("key=%.*s val=%.*s", (int)(key_len), key, (int)(val_len), val);
    }
 
-   // loop exit may mean error, or just that we've reached the end of the
-   range rc = kvstore_iter_status(it); if (rc != 0) { ... handle error ... }
+   // loop exit may mean error, or just that we've reached the end of the range
+   rc = kvstore_iter_status(it); if (rc != 0) { ... handle error ... }
 */
 
 typedef struct kvstore_basic_iterator kvstore_basic_iterator;
