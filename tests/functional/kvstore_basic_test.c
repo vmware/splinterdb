@@ -177,8 +177,12 @@ test_kvstore_basic_flow()
 
 cleanup:
    kvstore_basic_close(kvsb);
-   if (large_key)
+   if (value) {
+      free(value);
+   }
+   if (large_key) {
       free(large_key);
+   }
    if (rc) {
       fprintf(stderr, "%s: FAILED\n", __FUNCTION__);
       rc = -1;
@@ -982,6 +986,11 @@ test_kvstore_basic_close_and_reopen()
    kvstore_basic *   kvsb = NULL;
    kvstore_basic_cfg cfg  = {0};
    int               rc   = 0;
+   char *            key     = "some-key";
+   size_t            key_len = sizeof("some-key");
+   bool              found, val_truncated;
+   char *            value = NULL;
+   size_t            val_len;
 
    fprintf(stderr, "remove old db...");
    test_assert(remove(TEST_DB_NAME) == 0, "removing old db");
@@ -989,11 +998,7 @@ test_kvstore_basic_close_and_reopen()
    fprintf(stderr, "creating new db...");
    test_assert_rc(setup_kvstore_basic(&kvsb, &cfg), "setup");
 
-   char * key     = "some-key";
-   size_t key_len = sizeof("some-key");
-   bool   found, val_truncated;
-   char * value = calloc(1, cfg.max_value_size);
-   size_t val_len;
+   value = calloc(1, cfg.max_value_size);
 
    fprintf(stderr, "insert...");
    test_assert_rc(kvstore_basic_insert(
@@ -1022,6 +1027,9 @@ cleanup:
    if (kvsb != NULL) {
       fprintf(stderr, "deinit kvstore_basic...");
       kvstore_basic_close(kvsb);
+   }
+   if (value) {
+      free(value);
    }
    if (rc) {
       fprintf(stderr, "%s: FAILED\n", __FUNCTION__);

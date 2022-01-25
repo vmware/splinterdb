@@ -10,7 +10,6 @@
 #ifndef __TEST_H
 #define __TEST_H
 
-#include "btree.h"
 #include "cache.h"
 #include "clockcache.h"
 #include "config.h"

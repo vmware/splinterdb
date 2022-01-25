@@ -28,7 +28,7 @@ typedef struct {
       uint64 lookup_num; // Used by rest
    };
    char  key[MAX_KEY_SIZE];
-   char *data;
+   writable_buffer data;
 } test_async_ctxt;
 
 /*
@@ -44,7 +44,6 @@ typedef struct {
 
 typedef void (*async_ctxt_process_cb)(splinter_handle *spl,
                                       test_async_ctxt *ctxt,
-                                      bool             found,
                                       void *           arg);
 
 void

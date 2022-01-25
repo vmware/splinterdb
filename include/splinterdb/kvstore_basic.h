@@ -132,12 +132,21 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
 
 // Lookup a given key
 //
-// Set val_max_len to the size of the val buffer
-// If found, val_bytes will hold the size of the value
+// Callers:
+// - Set val_max_len to the size of the val buffer
+//
+// Upon return:
+// - *found will be TRUE iff the key is present in the database.
+//
+// - If *found, then val will contain the first *val_bytes of the
+//   value associated with key.
+//
+// - *val_truncated will be true if the size of the value associated
+//   with key is larger than *val_bytes.
 int
 kvstore_basic_lookup(const kvstore_basic *kvsb,
                      const char *         key,           // IN
-                     size_t               key_len,       // IN
+                     const size_t         key_len,       // IN
                      char *               val,           // OUT
                      size_t               val_max_len,   // IN
                      size_t *             val_bytes,     // OUT
@@ -167,9 +176,8 @@ Sample application code:
       printf("key=%.*s val=%.*s", (int)(key_len), key, (int)(val_len), val);
    }
 
-   // loop exit may mean error, or just that we've reached the end of the range
-   rc = kvstore_iter_status(it);
-   if (rc != 0) { ... handle error ... }
+   // loop exit may mean error, or just that we've reached the end of the
+   range rc = kvstore_iter_status(it); if (rc != 0) { ... handle error ... }
 */
 
 typedef struct kvstore_basic_iterator kvstore_basic_iterator;

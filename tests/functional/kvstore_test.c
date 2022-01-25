@@ -38,21 +38,25 @@ kvstore_test(int argc, char *argv[])
    fprintf(stderr, "kvstore_test: initializing test data\n");
    char *key        = calloc(1, kvs_cfg.data_cfg.key_size);
    char *msg_buffer = calloc(1, kvs_cfg.data_cfg.message_size);
-   if (msg_buffer == NULL) {
-      fprintf(stderr, "calloc message buffer\n");
-      goto cleanup;
+   if (key == NULL || msg_buffer == NULL) {
+      fprintf(stderr, "calloc key or message buffer\n");
+      goto cleanup0;
    }
-   bool found;
+
+   kvstore_lookup_result result;
+   kvstore_lookup_result_init(
+      kvs, &result, kvs_cfg.data_cfg.message_size, msg_buffer);
+
    memcpy(key, "foo", 3);
 
    fprintf(stderr, "kvstore_test: lookup non-existent key...");
-   rc = kvstore_lookup(kvs, key, msg_buffer, &found);
-   if (rc != 0) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   fprintf(stderr, "found=%d\n", found);
-   if (found) {
+   fprintf(stderr, "found=%d\n", kvstore_lookup_result_found(&result));
+   if (kvstore_lookup_result_found(&result)) {
       rc = -1;
       fprintf(stderr, "unexpectedly found a key we haven't set\n");
       goto cleanup;
@@ -64,7 +68,7 @@ kvstore_test(int argc, char *argv[])
    memcpy((void *)(msg->data), "bar", 3);
 
    fprintf(stderr, "inserting key with data = %.*s\n", 3, (char *)(msg->data));
-   rc = kvstore_insert(kvs, key, msg_buffer);
+   rc = kvstore_insert(kvs, key, kvs_cfg.data_cfg.message_size, msg_buffer);
    if (rc != 0) {
       fprintf(stderr, "kvstore_insert: %d\n", rc);
       goto cleanup;
@@ -82,16 +86,24 @@ kvstore_test(int argc, char *argv[])
       (char *)(msg->data));
 
    fprintf(stderr, "kvstore_test: lookup #2...");
-   rc = kvstore_lookup(kvs, key, msg_buffer, &found);
-   if (rc != 0) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   fprintf(stderr, "found=%d\n", found);
-   if (!found) {
+   fprintf(stderr, "found=%d\n", kvstore_lookup_result_found(&result));
+   if (!kvstore_lookup_result_found(&result)) {
       rc = -1;
       fprintf(stderr, "unexpectedly 'found' is false\n");
       goto cleanup;
+   }
+   if (kvstore_lookup_result_size(&result) != kvs_cfg.data_cfg.message_size) {
+      rc = -1;
+      fprintf(stderr, "unexpectedly, lookup value is short\n");
+      goto cleanup;
+   }
+   if (kvstore_lookup_result_data(&result) != msg_buffer) {
+      msg = kvstore_lookup_result_data(&result);
    }
    if (memcmp(msg->data, "bar", 3) != 0) {
       rc = -1;
@@ -100,23 +112,24 @@ kvstore_test(int argc, char *argv[])
               3,
               (char *)(msg->data));
    }
+   msg = (data_handle *)msg_buffer;
 
    fprintf(stderr, "kvstore_test: delete key\n");
    msg->message_type = MESSAGE_TYPE_DELETE;
-   rc                = kvstore_insert(kvs, key, msg_buffer);
+   rc = kvstore_insert(kvs, key, kvs_cfg.data_cfg.message_size, msg_buffer);
    if (rc != 0) {
       fprintf(stderr, "kvstore_insert (for delete): %d\n", rc);
       goto cleanup;
    }
 
    fprintf(stderr, "kvstore_test: lookup #3, for now-deleted key...");
-   rc = kvstore_lookup(kvs, key, msg_buffer, &found);
-   if (rc != 0) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   fprintf(stderr, "found=%d\n", found);
-   if (found) {
+   fprintf(stderr, "found=%d\n", kvstore_lookup_result_found(&result));
+   if (kvstore_lookup_result_found(&result)) {
       rc = -1;
       fprintf(stderr, "unexpectedly 'found' is true\n");
       goto cleanup;
@@ -144,7 +157,7 @@ kvstore_test(int argc, char *argv[])
          goto cleanup;
       }
 
-      rc = kvstore_insert(kvs, key, msg_buffer);
+      rc = kvstore_insert(kvs, key, kvs_cfg.data_cfg.message_size, msg_buffer);
       if (rc != 0) {
          fprintf(stderr, "insert failed\n");
          rc = -1;
@@ -162,6 +175,7 @@ kvstore_test(int argc, char *argv[])
 
    const char *current_key;
    const char *current_msg;
+   size_t      current_msg_len;
    int         i = 0;
    for (; kvstore_iterator_valid(it); kvstore_iterator_next(it)) {
       char expected_key[24] = {0};
@@ -174,7 +188,8 @@ kvstore_test(int argc, char *argv[])
          snprintf(expected_val, max_val_size, "val-%04d", i);
       platform_assert(expected_val_len > 0 && expected_val_len < max_val_size);
 
-      kvstore_iterator_get_current(it, &current_key, &current_msg);
+      kvstore_iterator_get_current(
+         it, &current_key, &current_msg_len, &current_msg);
       const char *current_val =
          (const char *)(((const data_handle *)current_msg)->data);
 
@@ -184,6 +199,11 @@ kvstore_test(int argc, char *argv[])
          goto iter_cleanup;
       }
 
+      if (current_msg_len != kvs_cfg.data_cfg.message_size) {
+         fprintf(stderr, "iteration %d: mismatched value length\n", i);
+         rc = -1;
+         goto iter_cleanup;
+      }
       if (memcmp(current_val, expected_val, max_val_size) != 0) {
          fprintf(stderr, "iteration %d: mismatched value\n", i);
          rc = -1;
@@ -226,20 +246,32 @@ iter_cleanup:
       return -1;
    }
    fprintf(stderr, "lookup for key %s after closing and re-opening...", key);
-   rc = kvstore_lookup(kvs, key, msg_buffer, &found);
-   if (rc != 0) {
+   rc = kvstore_lookup(kvs, key, &result);
+   if (rc) {
       fprintf(stderr, "kvstore_lookup: %d\n", rc);
       goto cleanup;
    }
-   if (!found) {
+   if (!kvstore_lookup_result_found(&result)) {
       fprintf(stderr, "after db close and re-open: failed to find key\n");
       rc = -1;
       goto cleanup;
    }
-   fprintf(stderr, "found=%d, db close and re-open test OK\n", found);
+   rc = 0;
+   fprintf(stderr,
+           "found=%d, db close and re-open test OK\n",
+           kvstore_lookup_result_found(&result));
 
 cleanup:
+   kvstore_lookup_result_deinit(&result);
+cleanup0:
+   if (msg_buffer) {
+      free(msg_buffer);
+   }
+   if (key) {
+      free(key);
+   }
    kvstore_close(kvs);
+
    if (rc == 0) {
       fprintf(stderr, "kvstore_test: succeeded\n");
       return 0;

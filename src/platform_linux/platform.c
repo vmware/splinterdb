@@ -91,12 +91,13 @@ platform_buffer_destroy(buffer_handle *bh)
 {
    int ret;
    ret = munmap(bh->addr, bh->length);
-
-   if (ret != 0) {
-      platform_free(platform_get_heap_id(), bh);
+   if (ret) {
+      return CONST_STATUS(errno);
    }
 
-   return CONST_STATUS(ret);
+   platform_free(platform_get_heap_id(), bh);
+
+   return STATUS_OK;
 }
 
 platform_status

@@ -84,13 +84,53 @@ void
 kvstore_deregister_thread(kvstore *kvs);
 
 int
-kvstore_insert(const kvstore *kvs, char *key, char *message);
+kvstore_insert(const kvstore *kvs,
+               char *         key,
+               size_t         message_length,
+               char *         message);
+
+/**************
+ * Lookups
+ **************/
+
+/* Lookup results are stored in a kvstore_lookup_result.
+ */
+typedef struct kvstore_lookup_result {
+   char opaque[48];
+} kvstore_lookup_result;
+
+/* Initialize a lookup result.  If buffer is provided, then the result
+   of a query will be stored in buffer if it fits.  Otherwise, it will
+   be stored in an allocated buffer.
+
+   A kvstore_lookup_result can be used for multiple queries after
+   being initialized once.
+*/
+void
+kvstore_lookup_result_init(const kvstore *        kvs,        // IN
+                           kvstore_lookup_result *result,     // IN/OUT
+                           size_t                 buffer_len, // IN
+                           char *                 buffer      // IN
+);
+
+/* Release any resources used by result.  Note that this does _not_ deallocate
+   the buffer provided to kvstore_lookup_result_init. */
+void
+kvstore_lookup_result_deinit(kvstore_lookup_result *result); // IN
+
+_Bool
+kvstore_lookup_result_found(kvstore_lookup_result *result); // IN
+
+size_t
+kvstore_lookup_result_size(kvstore_lookup_result *result); // IN
+
+void *
+kvstore_lookup_result_data(kvstore_lookup_result *result); // IN
 
 int
-kvstore_lookup(const kvstore *kvs,     // IN
-               char *         key,     // IN
-               char *         message, // OUT
-               bool *         found    // OUT
+kvstore_lookup(const kvstore *        kvs,   // IN
+               char *                 key,   // IN
+               kvstore_lookup_result *result // OUT
 );
 
 /*
@@ -161,9 +201,10 @@ kvstore_iterator_next(kvstore_iterator *iter);
 //
 // If valid() == false, then behavior is undefined.
 void
-kvstore_iterator_get_current(kvstore_iterator *iter,   // IN
-                             const char **     key,    // OUT
-                             const char **     message // OUT
+kvstore_iterator_get_current(kvstore_iterator *iter,           // IN
+                             const char **     key,            // OUT
+                             size_t *          message_length, // OUT
+                             const char **     message         // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.

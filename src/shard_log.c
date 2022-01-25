@@ -460,18 +460,12 @@ void shard_log_config_init(shard_log_config *log_cfg,
                            uint64            page_size,
                            uint64            extent_size)
 {
-   uint64 log_entry_size;
-
    ZERO_CONTENTS(log_cfg);
 
    log_cfg->page_size = page_size;
    log_cfg->extent_size = extent_size;
 
-   log_entry_size
-      = data_cfg->key_size + data_cfg->message_size + sizeof(uint64);
-   log_cfg->entries_per_page
-      = (log_cfg->page_size - sizeof(shard_log_hdr)) / log_entry_size;
-   log_cfg->seed = HASH_SEED;
+   log_cfg->seed     = HASH_SEED;
    log_cfg->data_cfg = data_cfg;
 }
 

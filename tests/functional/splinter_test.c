@@ -10,7 +10,6 @@
 #include "platform.h"
 
 #include "splinter.h"
-#include "btree.h"
 #include "merge.h"
 #include "test.h"
 #include "allocator.h"
@@ -165,7 +164,8 @@ test_splinter_insert_thread(void *arg)
                              8,
                              splinter_message_size(spl),
                              type);
-            platform_status rc = splinter_insert(spl, key, data);
+            platform_status rc =
+               splinter_insert(spl, key, splinter_message_slice(spl, data));
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
                ts = platform_timestamp_elapsed(ts);
@@ -204,25 +204,24 @@ static void
 verify_tuple(splinter_handle *spl,
              uint64           lookup_num,
              char *           key,
-             const char *     data,
-             char *           expected_data,
-             size_t           data_size,
-             bool             expected_found,
-             bool             found)
+             slice            data,
+             uint64           data_size,
+             bool             expected_found)
 {
-   if (found != expected_found) {
+   if (slice_is_null(data) != !expected_found) {
       char key_str[128];
       splinter_key_to_string(spl, key, key_str);
       platform_default_log("(%2lu) key %lu (%s): found %d (expected:%d)\n",
                            platform_get_tid(),
                            lookup_num,
                            key_str,
-                           found,
+                           !slice_is_null(data),
                            expected_found);
       splinter_print_lookup(spl, key);
       platform_assert(0);
    }
-   if (found && expected_data) {
+   if (!slice_is_null(data) && expected_found) {
+      char expected_data[MAX_MESSAGE_SIZE];
       char data_str[128];
       test_insert_data((data_handle *)expected_data,
                        1,
@@ -230,7 +229,9 @@ verify_tuple(splinter_handle *spl,
                        sizeof(lookup_num),
                        data_size,
                        MESSAGE_TYPE_INSERT);
-      if (memcmp(expected_data, data, data_size) != 0) {
+      if (slice_length(data) != data_size
+          || memcmp(expected_data, slice_data(data), data_size) != 0)
+      {
          splinter_message_to_string(spl, data, data_str);
          platform_log("key found with data: %s\n", data_str);
          platform_assert(0);
@@ -247,12 +248,10 @@ typedef struct {
 } verify_tuple_arg;
 
 static void
-verify_tuple_callback(splinter_handle *spl,
-                      test_async_ctxt *ctxt,
-                      bool             found,
-                      void *           arg)
+verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    verify_tuple_arg *vta = arg;
+   bool              found = splinter_lookup_found(&ctxt->data);
 
    if (vta->stats != NULL) {
       if (found) {
@@ -268,11 +267,9 @@ verify_tuple_callback(splinter_handle *spl,
    verify_tuple(spl,
                 ctxt->lookup_num,
                 ctxt->key,
-                ctxt->data,
-                vta->expected_data,
+                writable_buffer_to_slice(&ctxt->data),
                 vta->data_size,
-                vta->expected_found,
-                found);
+                vta->expected_found);
 }
 
 static void
@@ -370,8 +367,9 @@ test_splinter_lookup_thread(void *arg)
 
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
-               char            key[MAX_KEY_SIZE], data[MAX_MESSAGE_SIZE];
-               bool            found;
+               char            key[MAX_KEY_SIZE];
+               writable_buffer data;
+               writable_buffer_init_null(&data, NULL);
 
                test_key(key,
                         test_cfg[spl_idx].key_type,
@@ -381,14 +379,19 @@ test_splinter_lookup_thread(void *arg)
                         splinter_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = splinter_lookup(spl, key, data, &found);
+               rc = splinter_lookup(spl, key, &data);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
                platform_assert(SUCCESS(rc));
-               verify_tuple(
-                  spl, lookup_num, key, data, NULL, 0, expected_found, found);
+               verify_tuple(spl,
+                            lookup_num,
+                            key,
+                            writable_buffer_to_slice(&data),
+                            splinter_message_size(spl),
+                            expected_found);
+               writable_buffer_reinit(&data);
             } else {
                ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg);
                test_key(ctxt->key,
@@ -622,11 +625,12 @@ do_operation(test_splinter_thread_params *params,
             continue;
          }
          splinter_handle *spl = spl_tables[spl_idx];
-         char             key[MAX_KEY_SIZE], data[MAX_MESSAGE_SIZE];
+         char             key[MAX_KEY_SIZE];
          uint64           op_num = base[spl_idx] + op_idx;
          timestamp        ts;
 
          if (is_insert) {
+            char data[MAX_MESSAGE_SIZE];
             test_key(key,
                      test_cfg[spl_idx].key_type,
                      op_num,
@@ -641,7 +645,8 @@ do_operation(test_splinter_thread_params *params,
                              splinter_message_size(spl),
                              type);
             ts                 = platform_get_timestamp();
-            platform_status rc = splinter_insert(spl, key, data);
+            platform_status rc =
+               splinter_insert(spl, key, splinter_message_slice(spl, data));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
             params->insert_stats.duration += ts;
@@ -651,6 +656,8 @@ do_operation(test_splinter_thread_params *params,
          } else {
             test_async_lookup *async_lookup = params->async_lookup[spl_idx];
             test_async_ctxt *  ctxt;
+            writable_buffer    data;
+            writable_buffer_init_null(&data, NULL);
 
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
@@ -664,13 +671,13 @@ do_operation(test_splinter_thread_params *params,
                         splinter_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = splinter_lookup(spl, key, data, &found);
+               rc = splinter_lookup(spl, key, &data);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
-
+               found = splinter_lookup_found(&data);
                if (found) {
                   params->lookup_stats[SYNC_LU].num_found++;
                } else {
@@ -694,6 +701,7 @@ do_operation(test_splinter_thread_params *params,
                   verify_tuple_callback,
                   &vtarg);
             }
+            writable_buffer_reinit(&data);
          }
       }
    }
@@ -1950,7 +1958,7 @@ test_splinter_delete(splinter_config *cfg,
       TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
 
-   memset(params, 0, sizeof(*params));
+   ZERO_CONTENTS_N(params, num_threads);
    for (uint64 i = 0; i < num_threads; i++) {
       params[i].spl            = spl_tables;
       params[i].test_cfg       = test_cfg;
@@ -2230,7 +2238,7 @@ test_splinter_basic(allocator *      al,
                        sizeof(uint64),
                        data_size,
                        MESSAGE_TYPE_INSERT);
-      rc = splinter_insert(spl, key, data);
+      rc = splinter_insert(spl, key, splinter_message_slice(spl, data));
       if (!SUCCESS(rc)) {
          platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
          goto destroy_splinter;
@@ -2249,7 +2257,8 @@ test_splinter_basic(allocator *      al,
    verify_tuple_arg vtarg_true = {.expected_data  = expected_data,
                                   .data_size      = data_size,
                                   .expected_found = TRUE};
-   bool             found;
+   writable_buffer  qdata;
+   writable_buffer_init_null(&qdata, NULL);
    start_time = platform_get_timestamp();
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
       test_async_ctxt *ctxt;
@@ -2260,18 +2269,22 @@ test_splinter_basic(allocator *      al,
                                       insert_num / (num_inserts / 100));
       if (max_async_inflight == 0) {
          test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         memset(data, 0, data_size);
-         rc = splinter_lookup(spl, key, data, &found);
+         writable_buffer_reinit(&qdata);
+         rc = splinter_lookup(spl, key, &qdata);
          if (!SUCCESS(rc)) {
             platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
             goto destroy_splinter;
          }
-         verify_tuple(
-            spl, insert_num, key, data, expected_data, data_size, TRUE, found);
+         verify_tuple(spl,
+                      insert_num,
+                      key,
+                      writable_buffer_to_slice(&qdata),
+                      data_size,
+                      TRUE);
       } else {
          ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_true);
          test_key(ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         memset(ctxt->data, 0, data_size);
+         // memset(ctxt->data, 0, data_size);
          ctxt->lookup_num = insert_num;
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_true);
@@ -2298,17 +2311,18 @@ test_splinter_basic(allocator *      al,
             (insert_num - num_inserts) / (num_inserts / 100));
       if (max_async_inflight == 0) {
          test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         memset(data, 0, data_size);
-         rc = splinter_lookup(spl, key, data, &found);
+         ZERO_CONTENTS_N(data, data_size);
+         rc = splinter_lookup(spl, key, &qdata);
          if (!SUCCESS(rc)) {
             platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
             goto destroy_splinter;
          }
-         verify_tuple(spl, insert_num, key, data, NULL, 0, FALSE, found);
+         verify_tuple(
+            spl, insert_num, key, writable_buffer_to_slice(&qdata), 0, FALSE);
       } else {
          ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_false);
          test_key(ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         memset(ctxt->data, 0, data_size);
+         // memset(ctxt->data, 0, data_size);
          ctxt->lookup_num = insert_num;
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_false);
@@ -2375,8 +2389,13 @@ test_splinter_basic(allocator *      al,
             char actual_data[128];
             offset += key_size;
             splinter_message_to_string(
-               spl, shadow_start + offset, expected_data);
-            splinter_message_to_string(spl, range_output + offset, actual_data);
+               spl,
+               splinter_message_slice(spl, shadow_start + offset),
+               expected_data);
+            splinter_message_to_string(
+               spl,
+               splinter_message_slice(spl, range_output + offset),
+               actual_data);
             if (i < returned_tuples) {
                platform_log("expected %s | %s\n", expected, expected_data);
                platform_log("actual   %s | %s\n", actual, actual_data);

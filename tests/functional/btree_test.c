@@ -9,7 +9,7 @@
 #include "platform.h"
 
 #include "splinterdb/data.h"
-#include "variable_length_btree.h"
+#include "btree.h"
 #include "merge.h"
 #include "test.h"
 #include "io.h"
@@ -33,11 +33,12 @@ typedef struct test_btree_config {
 typedef struct test_memtable_context {
    cache *            cc;
    test_btree_config *cfg;
+   platform_heap_id   heap_id;
    memtable_context * mt_ctxt;
    uint64             max_generation;
 } test_memtable_context;
 
-variable_length_btree_config *
+btree_config *
 test_memtable_context_btree_config(test_memtable_context *ctxt)
 {
    return ctxt->cfg->mt_cfg->btree_cfg;
@@ -59,6 +60,7 @@ test_memtable_context_create(cache *            cc,
    platform_assert(ctxt);
    ctxt->cc      = cc;
    ctxt->cfg     = cfg;
+   ctxt->heap_id = hid;
    ctxt->mt_ctxt = memtable_context_create(
       hid, cc, cfg->mt_cfg, test_btree_process_noop, NULL);
    ctxt->max_generation = num_mt;
@@ -69,12 +71,11 @@ void
 test_memtable_context_destroy(test_memtable_context *ctxt, platform_heap_id hid)
 {
    memtable_context_destroy(hid, ctxt->mt_ctxt);
+   platform_free(hid, ctxt);
 }
 
 platform_status
-test_btree_insert(test_memtable_context *ctxt,
-                  const char *           key,
-                  const char *           data)
+test_btree_insert(test_memtable_context *ctxt, slice key, slice data)
 {
    uint64          generation;
    page_handle *   lock_page = NULL;
@@ -93,7 +94,8 @@ test_btree_insert(test_memtable_context *ctxt,
    uint64 dummy_leaf_generation;
    rc = memtable_insert(ctxt->mt_ctxt,
                         &ctxt->mt_ctxt->mt[generation],
-                        key,
+                        ctxt->heap_id,
+                        slice_data(key),
                         data,
                         &dummy_leaf_generation);
 
@@ -103,73 +105,66 @@ out:
 }
 
 bool
-test_btree_data_equal(variable_length_btree_config *cfg,
-                      const char *                  data1,
-                      const char *                  data2)
+test_btree_lookup(cache *       cc,
+                  btree_config *cfg,
+                  uint64        root_addr,
+                  slice         key,
+                  slice         expected_data)
 {
-   return memcmp(data1, data2, cfg->data_cfg->message_size) == 0;
-}
+   platform_status rc;
+   writable_buffer result;
+   bool            ret;
 
-bool
-test_btree_lookup(cache *                       cc,
-                  variable_length_btree_config *cfg,
-                  uint64                        root_addr,
-                  const char *                  key,
-                  char *                        data,
-                  bool                          expected_found,
-                  const char *                  expected_data)
-{
-   bool   found;
-   uint64 data_len;
-   slice  key_slice = slice_create(cfg->data_cfg->key_size, key);
-   variable_length_btree_lookup(
-      cc, cfg, root_addr, key_slice, &data_len, data, &found);
+   writable_buffer_init_null(&result, NULL);
 
-   if (!found || !expected_found) {
-      return !(found ^ expected_found);
+   rc = btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, key, &result);
+   platform_assert_status_ok(rc);
+
+   slice data = writable_buffer_to_slice(&result);
+
+   if (slice_is_null(data) || slice_is_null(expected_data)) {
+      ret = slice_is_null(data) == slice_is_null(expected_data);
+   } else {
+      ret = slice_lex_cmp(data, expected_data) == 0;
    }
-   if (data_len != cfg->data_cfg->message_size) {
-      return FALSE;
-   }
-   if (!test_btree_data_equal(cfg, data, expected_data)) {
-      return FALSE;
-   }
-   return TRUE;
+
+   writable_buffer_reinit(&result);
+   return ret;
 }
 
 bool
 test_memtable_lookup(test_memtable_context *ctxt,
                      uint64                 mt_no,
-                     const char *           key,
-                     char *                 data,
-                     bool                   expected_found,
-                     const char *           expected_data)
+                     slice                  key,
+                     slice                  expected_data)
 {
-   variable_length_btree_config *btree_cfg =
-      test_memtable_context_btree_config(ctxt);
+   btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
    uint64 root_addr = ctxt->mt_ctxt->mt[mt_no].root_addr;
    cache *cc        = ctxt->cc;
-   return test_btree_lookup(
-      cc, btree_cfg, root_addr, key, data, expected_found, expected_data);
+   return test_btree_lookup(cc, btree_cfg, root_addr, key, expected_data);
 }
 
 void
 test_btree_tuple(test_memtable_context *ctxt,
-                 char *                 key,
-                 char *                 data,
+                 writable_buffer *      key,
+                 writable_buffer *      data,
                  uint64                 seq,
                  uint64                 thread_id)
 {
    test_btree_config *cfg = ctxt->cfg;
-   test_key(key,
+   writable_buffer_set_length(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
+   test_key(writable_buffer_data(key),
             cfg->type,
             seq,
             thread_id,
             cfg->semiseq_freq,
             cfg->mt_cfg->btree_cfg->data_cfg->key_size,
             cfg->period);
+
    if (data != NULL) {
-      test_insert_data((data_handle *)data,
+      writable_buffer_set_length(
+         data, cfg->mt_cfg->btree_cfg->data_cfg->message_size);
+      test_insert_data(writable_buffer_data(data),
                        1,
                        (char *)&seq,
                        8,
@@ -197,13 +192,18 @@ test_btree_insert_thread(void *arg)
    uint64                    num_inserts = params->num_ops;
 
    uint64 start_time = platform_get_timestamp();
-   char   key[MAX_KEY_SIZE], data[MAX_MESSAGE_SIZE];
+   writable_buffer key;
+   writable_buffer data;
+
+   writable_buffer_init_null(&key, NULL);
+   writable_buffer_init_null(&data, NULL);
 
    uint64 start_num = thread_id * num_inserts;
    uint64 end_num   = (thread_id + 1) * num_inserts;
    for (uint64 insert_num = start_num; insert_num < end_num; insert_num++) {
-      test_btree_tuple(ctxt, key, data, insert_num, thread_id);
-      platform_status rc = test_btree_insert(ctxt, key, data);
+      test_btree_tuple(ctxt, &key, &data, insert_num, thread_id);
+      platform_status rc = test_btree_insert(
+         ctxt, writable_buffer_to_slice(&key), writable_buffer_to_slice(&data));
       if (!SUCCESS(rc)) {
          params->rc = rc;
          goto out;
@@ -212,6 +212,8 @@ test_btree_insert_thread(void *arg)
 
 out:
    params->time_elapsed = platform_timestamp_elapsed(start_time);
+   writable_buffer_reinit(&key);
+   writable_buffer_reinit(&data);
 }
 
 static platform_status
@@ -310,12 +312,11 @@ destroy_btrees:
 
 // A single async context
 typedef struct {
-   variable_length_btree_async_ctxt ctxt;
+   btree_async_ctxt                 ctxt;
    cache_async_ctxt                 cache_ctxt;
    bool                             ready;
-   char                             key[MAX_KEY_SIZE];
-   uint64                           data_len;
-   char                             data[MAX_MESSAGE_SIZE];
+   writable_buffer                  key;
+   writable_buffer                  result;
 } btree_test_async_ctxt;
 
 // Per-table array of async contexts
@@ -326,7 +327,7 @@ typedef struct {
 } btree_test_async_lookup;
 
 static void
-btree_test_async_callback(variable_length_btree_async_ctxt *btree_ctxt)
+btree_test_async_callback(btree_async_ctxt *btree_ctxt)
 {
    btree_test_async_ctxt *ctxt =
       container_of(btree_ctxt, btree_test_async_ctxt, ctxt);
@@ -343,7 +344,8 @@ btree_test_async_callback(variable_length_btree_async_ctxt *btree_ctxt)
 }
 
 static btree_test_async_ctxt *
-btree_test_get_async_ctxt(btree_test_async_lookup *async_lookup)
+btree_test_get_async_ctxt(btree_config *           cfg,
+                          btree_test_async_lookup *async_lookup)
 {
    btree_test_async_ctxt *ctxt;
    int                    idx;
@@ -356,9 +358,10 @@ btree_test_get_async_ctxt(btree_test_async_lookup *async_lookup)
    idx                       = idx - 1;
    async_lookup->ctxt_bitmap = old & ~(1UL << idx);
    ctxt                      = &async_lookup->ctxt[idx];
-   variable_length_btree_ctxt_init(
-      &ctxt->ctxt, &ctxt->cache_ctxt, btree_test_async_callback);
+   btree_ctxt_init(&ctxt->ctxt, &ctxt->cache_ctxt, btree_test_async_callback);
    ctxt->ready = FALSE;
+   writable_buffer_init_null(&ctxt->key, NULL);
+   writable_buffer_init_null(&ctxt->result, NULL);
 
    return ctxt;
 }
@@ -370,6 +373,8 @@ btree_test_put_async_ctxt(btree_test_async_lookup *async_lookup,
    int idx = ctxt - async_lookup->ctxt;
 
    debug_assert(idx >= 0 && idx < max_async_inflight);
+   writable_buffer_reinit(&ctxt->key);
+   writable_buffer_reinit(&ctxt->result);
    async_lookup->ctxt_bitmap |= (1UL << idx);
 }
 
@@ -399,12 +404,12 @@ btree_test_async_ctxt_any_used(const btree_test_async_lookup *async_lookup)
 }
 
 static bool
-btree_test_run_pending(cache *                       cc,
-                       variable_length_btree_config *cfg,
-                       uint64                        root_addr,
-                       btree_test_async_lookup *     async_lookup,
-                       btree_test_async_ctxt *       skip_ctxt,
-                       bool                          expected_found)
+btree_test_run_pending(cache *                  cc,
+                       btree_config *           cfg,
+                       uint64                   root_addr,
+                       btree_test_async_lookup *async_lookup,
+                       btree_test_async_ctxt *  skip_ctxt,
+                       bool                     expected_found)
 {
    int i;
 
@@ -415,7 +420,6 @@ btree_test_run_pending(cache *                       cc,
       if (!btree_test_async_ctxt_is_used(async_lookup, i)) {
          continue;
       }
-      bool                   found;
       cache_async_result     res;
       btree_test_async_ctxt *ctxt = &async_lookup->ctxt[i];
       // We skip skip_ctxt, because that it just asked us to retry.
@@ -423,15 +427,10 @@ btree_test_run_pending(cache *                       cc,
          continue;
       }
       ctxt->ready     = FALSE;
-      slice key_slice = slice_create(cfg->data_cfg->key_size, ctxt->key);
-      res             = variable_length_btree_lookup_async(cc,
-                                               cfg,
-                                               root_addr,
-                                               key_slice,
-                                               &ctxt->data_len,
-                                               ctxt->data,
-                                               &found,
-                                               &ctxt->ctxt);
+      slice key_slice = writable_buffer_to_slice(&ctxt->key);
+      res             = btree_lookup_async(
+         cc, cfg, root_addr, key_slice, &ctxt->result, &ctxt->ctxt);
+      bool local_found = btree_found(&ctxt->result);
       switch (res) {
          case async_locked:
          case async_no_reqs:
@@ -440,15 +439,17 @@ btree_test_run_pending(cache *                       cc,
          case async_io_started:
             break;
          case async_success:
-            if (found ^ expected_found) {
-               variable_length_btree_print_tree(cc, cfg, root_addr);
+            if (local_found ^ expected_found) {
+               btree_print_tree(cc, cfg, root_addr);
                char key_string[128];
-               fixed_size_data_key_to_string(
-                  cfg->data_cfg, ctxt->key, key_string, 128);
+               data_key_to_string(cfg->data_cfg,
+                                  writable_buffer_to_slice(&ctxt->key),
+                                  key_string,
+                                  128);
                platform_log("key %s expect %u found %u\n",
                             key_string,
                             expected_found,
-                            found);
+                            local_found);
                platform_assert(0);
             }
             btree_test_put_async_ctxt(async_lookup, ctxt);
@@ -463,11 +464,11 @@ btree_test_run_pending(cache *                       cc,
 
 
 static void
-btree_test_wait_pending(cache *                       cc,
-                        variable_length_btree_config *cfg,
-                        uint64                        root_addr,
-                        btree_test_async_lookup *     async_lookup,
-                        bool                          expected_found)
+btree_test_wait_pending(cache *                  cc,
+                        btree_config *           cfg,
+                        uint64                   root_addr,
+                        btree_test_async_lookup *async_lookup,
+                        bool                     expected_found)
 {
    // Rough detection of stuck contexts
    const timestamp ts = platform_get_timestamp();
@@ -479,28 +480,21 @@ btree_test_wait_pending(cache *                       cc,
 }
 
 cache_async_result
-test_btree_async_lookup(cache *                       cc,
-                        variable_length_btree_config *cfg,
-                        btree_test_async_ctxt *       async_ctxt,
-                        btree_test_async_lookup *     async_lookup,
-                        uint64                        root_addr,
-                        bool                          expected_found,
-                        bool *                        correct)
+test_btree_async_lookup(cache *                  cc,
+                        btree_config *           cfg,
+                        btree_test_async_ctxt *  async_ctxt,
+                        btree_test_async_lookup *async_lookup,
+                        uint64                   root_addr,
+                        bool                     expected_found,
+                        bool *                   correct)
 {
-   bool               found;
    cache_async_result res;
-   variable_length_btree_ctxt_init(
+   btree_ctxt_init(
       &async_ctxt->ctxt, &async_ctxt->cache_ctxt, btree_test_async_callback);
-   memset(async_ctxt->data, 0, MAX_MESSAGE_SIZE);
-   slice key_slice = slice_create(cfg->data_cfg->key_size, async_ctxt->key);
-   res             = variable_length_btree_lookup_async(cc,
-                                            cfg,
-                                            root_addr,
-                                            key_slice,
-                                            &async_ctxt->data_len,
-                                            async_ctxt->data,
-                                            &found,
-                                            &async_ctxt->ctxt);
+   slice key_slice = writable_buffer_to_slice(&async_ctxt->key);
+
+   res = btree_lookup_async(
+      cc, cfg, root_addr, key_slice, &async_ctxt->result, &async_ctxt->ctxt);
 
    switch (res) {
       case async_locked:
@@ -511,7 +505,7 @@ test_btree_async_lookup(cache *                       cc,
          async_ctxt = NULL;
          break;
       case async_success:
-         *correct = found == expected_found;
+         *correct = btree_found(&async_ctxt->result) == expected_found;
          btree_test_put_async_ctxt(async_lookup, async_ctxt);
          async_ctxt = NULL;
          goto out;
@@ -533,7 +527,7 @@ test_memtable_async_lookup(test_memtable_context *  ctxt,
                            bool *                   correct)
 {
    memtable *                    mt        = &ctxt->mt_ctxt->mt[mt_no];
-   variable_length_btree_config *btree_cfg = mt->cfg;
+   btree_config *                btree_cfg = mt->cfg;
    cache *                       cc        = ctxt->cc;
    return test_btree_async_lookup(cc,
                                   btree_cfg,
@@ -560,14 +554,17 @@ test_btree_basic(cache *            cc,
    btree_test_async_ctxt_init(async_lookup);
 
    uint64 start_time = platform_get_timestamp();
-   char   key[MAX_KEY_SIZE];
-   char * data = TYPED_ARRAY_MALLOC(hid, data, MAX_MESSAGE_SIZE);
-   platform_assert(data != NULL);
+   writable_buffer key;
+   writable_buffer expected_data;
+   writable_buffer_init_null(&key, NULL);
+   writable_buffer_init_null(&expected_data, NULL);
 
    platform_status rc = STATUS_OK;
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
-      test_btree_tuple(ctxt, key, data, insert_num, 0);
-      rc = test_btree_insert(ctxt, key, data);
+      test_btree_tuple(ctxt, &key, &expected_data, insert_num, 0);
+      rc = test_btree_insert(ctxt,
+                             writable_buffer_to_slice(&key),
+                             writable_buffer_to_slice(&expected_data));
       if (!SUCCESS(rc)) {
          goto destroy_btree;
       }
@@ -586,24 +583,23 @@ test_btree_basic(cache *            cc,
    cache_assert_free(cc);
 
    uint64 num_async = 0;
-   char * expected_data =
-      TYPED_ARRAY_MALLOC(hid, expected_data, MAX_MESSAGE_SIZE);
-   platform_assert(data != NULL);
 
    start_time = platform_get_timestamp();
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
-      btree_test_async_ctxt *async_ctxt =
-         btree_test_get_async_ctxt(async_lookup);
+      btree_test_async_ctxt *async_ctxt = btree_test_get_async_ctxt(
+         test_memtable_context_btree_config(ctxt), async_lookup);
 
       if (async_ctxt == NULL) {
-         test_btree_tuple(ctxt, key, expected_data, insert_num, 0);
-         ZERO_CONTENTS(data);
+         test_btree_tuple(ctxt, &key, &expected_data, insert_num, 0);
          bool correct =
-            test_memtable_lookup(ctxt, 0, key, data, TRUE, expected_data);
+            test_memtable_lookup(ctxt,
+                                 0,
+                                 writable_buffer_to_slice(&key),
+                                 writable_buffer_to_slice(&expected_data));
          if (!correct) {
             memtable_print(cc, mt);
             char key_string[128];
-            memtable_key_to_string(mt, key, key_string);
+            memtable_key_to_string(mt, writable_buffer_data(&key), key_string);
             platform_log(
                "key number %lu, %s not found\n", insert_num, key_string);
          }
@@ -611,14 +607,16 @@ test_btree_basic(cache *            cc,
       } else {
          num_async++;
          bool correct;
-         test_btree_tuple(ctxt, async_ctxt->key, expected_data, insert_num, 0);
+         test_btree_tuple(
+            ctxt, &async_ctxt->key, &expected_data, insert_num, 0);
          cache_async_result res = test_memtable_async_lookup(
             ctxt, async_ctxt, async_lookup, 0, TRUE, &correct);
          if (res == async_success) {
             if (!correct) {
                memtable_print(cc, mt);
                char key_string[128];
-               memtable_key_to_string(mt, async_ctxt->key, key_string);
+               memtable_key_to_string(
+                  mt, writable_buffer_data(&async_ctxt->key), key_string);
                platform_log(
                   "key number %lu, %s not found\n", insert_num, key_string);
             }
@@ -637,13 +635,13 @@ test_btree_basic(cache *            cc,
    uint64 start_num = num_inserts;
    uint64 end_num   = 2 * num_inserts;
    for (uint64 insert_num = start_num; insert_num < end_num; insert_num++) {
-      test_btree_tuple(ctxt, key, expected_data, insert_num, 0);
-      ZERO_CONTENTS(data);
-      bool correct = test_memtable_lookup(ctxt, 0, key, data, FALSE, NULL);
+      test_btree_tuple(ctxt, &key, &expected_data, insert_num, 0);
+      bool correct = test_memtable_lookup(
+         ctxt, 0, writable_buffer_to_slice(&key), NULL_SLICE);
       if (!correct) {
          memtable_print(cc, mt);
          char key_string[128];
-         memtable_key_to_string(mt, key, key_string);
+         memtable_key_to_string(mt, writable_buffer_data(&key), key_string);
          platform_log(
             "key number %lu, %s found (negative)\n", insert_num, key_string);
          platform_assert(0);
@@ -655,35 +653,34 @@ test_btree_basic(cache *            cc,
    cache_assert_free(cc);
    memtable_verify(cc, mt);
 
-   variable_length_btree_config *btree_cfg =
-      test_memtable_context_btree_config(ctxt);
+   btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
    uint64                         root_addr = memtable_root_addr(mt);
-   variable_length_btree_iterator itor;
+   btree_iterator                 itor;
    start_time = platform_get_timestamp();
-   variable_length_btree_iterator_init(cc,
-                                       btree_cfg,
-                                       &itor,
-                                       root_addr,
-                                       PAGE_TYPE_MEMTABLE,
-                                       NULL_SLICE,
-                                       NULL_SLICE,
-                                       FALSE,
-                                       0);
+   btree_iterator_init(cc,
+                       btree_cfg,
+                       &itor,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       NULL_SLICE,
+                       NULL_SLICE,
+                       FALSE,
+                       0);
    platform_log("btree iterator init time %luns\n",
                 platform_timestamp_elapsed(start_time));
-   variable_length_btree_pack_req req;
+   btree_pack_req req;
    memset(&req, 0, sizeof(req));
    req.cc   = cc;
    req.cfg  = btree_cfg;
    req.itor = (iterator *)&itor;
 
-   variable_length_btree_print_tree_stats(cc, btree_cfg, root_addr);
+   btree_print_tree_stats(cc, btree_cfg, root_addr);
 
    start_time = platform_get_timestamp();
-   rc         = variable_length_btree_pack(&req);
+   rc         = btree_pack(&req);
    platform_assert_status_ok(rc);
 
-   variable_length_btree_iterator_deinit(&itor);
+   btree_iterator_deinit(&itor);
    uint64 packed_root_addr = req.root_addr;
    platform_log("btree itor/pack time per tuple %luns\n",
                 platform_timestamp_elapsed(start_time) / num_inserts);
@@ -692,20 +689,22 @@ test_btree_basic(cache *            cc,
    num_async  = 0;
    start_time = platform_get_timestamp();
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
-      btree_test_async_ctxt *async_ctxt =
-         btree_test_get_async_ctxt(async_lookup);
+      btree_test_async_ctxt *async_ctxt = btree_test_get_async_ctxt(
+         test_memtable_context_btree_config(ctxt), async_lookup);
 
       if (async_ctxt == NULL) {
-         test_btree_tuple(ctxt, key, expected_data, insert_num, 0);
-         ZERO_CONTENTS(data);
-         bool correct = test_btree_lookup(
-            cc, btree_cfg, packed_root_addr, key, data, TRUE, expected_data);
+         test_btree_tuple(ctxt, &key, &expected_data, insert_num, 0);
+         bool correct =
+            test_btree_lookup(cc,
+                              btree_cfg,
+                              packed_root_addr,
+                              writable_buffer_to_slice(&key),
+                              writable_buffer_to_slice(&expected_data));
          if (!correct) {
-            variable_length_btree_print_tree(cc, btree_cfg, packed_root_addr);
+            btree_print_tree(cc, btree_cfg, packed_root_addr);
             char  key_string[128];
-            slice key_slice = slice_create(btree_cfg->data_cfg->key_size, key);
-            variable_length_btree_key_to_string(
-               btree_cfg, key_slice, key_string);
+            slice key_slice = writable_buffer_to_slice(&key);
+            btree_key_to_string(btree_cfg, key_slice, key_string);
             platform_log(
                "key number %lu, %s not found\n", insert_num, key_string);
          }
@@ -713,7 +712,8 @@ test_btree_basic(cache *            cc,
       } else {
          num_async++;
          bool correct;
-         test_btree_tuple(ctxt, async_ctxt->key, expected_data, insert_num, 0);
+         test_btree_tuple(
+            ctxt, &async_ctxt->key, &expected_data, insert_num, 0);
          cache_async_result res = test_btree_async_lookup(cc,
                                                           btree_cfg,
                                                           async_ctxt,
@@ -723,13 +723,10 @@ test_btree_basic(cache *            cc,
                                                           &correct);
          if (res == async_success) {
             if (!correct) {
-               variable_length_btree_print_tree(
-                  cc, btree_cfg, packed_root_addr);
+               btree_print_tree(cc, btree_cfg, packed_root_addr);
                char  key_string[128];
-               slice key_slice =
-                  slice_create(btree_cfg->data_cfg->key_size, async_ctxt->key);
-               variable_length_btree_key_to_string(
-                  btree_cfg, key_slice, key_string);
+               slice key_slice = writable_buffer_to_slice(&async_ctxt->key);
+               btree_key_to_string(btree_cfg, key_slice, key_string);
                platform_log(
                   "key number %lu, %s not found\n", insert_num, key_string);
             }
@@ -748,15 +745,17 @@ test_btree_basic(cache *            cc,
    start_num  = num_inserts;
    end_num    = 2 * num_inserts;
    for (uint64 insert_num = start_num; insert_num < end_num; insert_num++) {
-      test_btree_tuple(ctxt, key, expected_data, insert_num, 0);
-      ZERO_CONTENTS(data);
-      bool correct = test_btree_lookup(
-         cc, btree_cfg, packed_root_addr, key, data, FALSE, NULL);
+      test_btree_tuple(ctxt, &key, &expected_data, insert_num, 0);
+      bool correct = test_btree_lookup(cc,
+                                       btree_cfg,
+                                       packed_root_addr,
+                                       writable_buffer_to_slice(&key),
+                                       NULL_SLICE);
       if (!correct) {
-         variable_length_btree_print_tree(cc, btree_cfg, packed_root_addr);
+         btree_print_tree(cc, btree_cfg, packed_root_addr);
          char  key_string[128];
-         slice key_slice = slice_create(btree_cfg->data_cfg->key_size, key);
-         variable_length_btree_key_to_string(btree_cfg, key_slice, key_string);
+         slice key_slice = writable_buffer_to_slice(&key);
+         btree_key_to_string(btree_cfg, key_slice, key_string);
          platform_log(
             "key number %lu, %s found (negative)\n", insert_num, key_string);
          platform_assert(0);
@@ -766,14 +765,14 @@ test_btree_basic(cache *            cc,
                 platform_timestamp_elapsed(start_time) / num_inserts);
    cache_assert_free(cc);
 
-   variable_length_btree_print_tree_stats(cc, btree_cfg, packed_root_addr);
+   btree_print_tree_stats(cc, btree_cfg, packed_root_addr);
 
-   variable_length_btree_dec_ref_range(cc,
-                                       btree_cfg,
-                                       packed_root_addr,
-                                       NULL_SLICE,
-                                       NULL_SLICE,
-                                       PAGE_TYPE_BRANCH);
+   btree_dec_ref_range(cc,
+                       btree_cfg,
+                       packed_root_addr,
+                       NULL_SLICE,
+                       NULL_SLICE,
+                       PAGE_TYPE_BRANCH);
 
 destroy_btree:
    if (SUCCESS(rc))
@@ -782,8 +781,9 @@ destroy_btree:
       platform_log("btree_test: btree basic test failed\n");
    platform_log("\n");
    test_memtable_context_destroy(ctxt, hid);
-   platform_free(hid, data);
    platform_free(hid, async_lookup);
+   writable_buffer_reinit(&key);
+   writable_buffer_reinit(&expected_data);
    return rc;
 }
 
@@ -798,66 +798,71 @@ test_btree_create_packed_trees(cache *            cc,
       test_memtable_context_create(cc, cfg, num_trees, hid);
 
    // fill the memtables
-   char            key[MAX_KEY_SIZE], data[MAX_MESSAGE_SIZE];
+   writable_buffer key;
+   writable_buffer data;
+   writable_buffer_init_null(&key, NULL);
+   writable_buffer_init_null(&data, NULL);
+
    uint64          insert_no;
    platform_status rc = STATUS_OK;
    for (insert_no = 0; SUCCESS(rc); insert_no++) {
-      test_btree_tuple(ctxt, key, data, insert_no, 0);
-      rc = test_btree_insert(ctxt, key, data);
+      test_btree_tuple(ctxt, &key, &data, insert_no, 0);
+      rc = test_btree_insert(
+         ctxt, writable_buffer_to_slice(&key), writable_buffer_to_slice(&data));
    }
 
    platform_assert(STATUS_IS_EQ(rc, STATUS_NO_SPACE));
    rc                = STATUS_OK;
    uint64 num_tuples = insert_no;
 
-   variable_length_btree_config *btree_cfg =
-      test_memtable_context_btree_config(ctxt);
+   btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
       memtable *                     mt = &ctxt->mt_ctxt->mt[tree_no];
-      variable_length_btree_iterator itor;
-      variable_length_btree_iterator_init(cc,
-                                          btree_cfg,
-                                          &itor,
-                                          memtable_root_addr(mt),
-                                          PAGE_TYPE_MEMTABLE,
-                                          NULL_SLICE,
-                                          NULL_SLICE,
-                                          FALSE,
-                                          0);
+      btree_iterator                 itor;
+      btree_iterator_init(cc,
+                          btree_cfg,
+                          &itor,
+                          memtable_root_addr(mt),
+                          PAGE_TYPE_MEMTABLE,
+                          NULL_SLICE,
+                          NULL_SLICE,
+                          FALSE,
+                          0);
 
-      variable_length_btree_pack_req req;
-      variable_length_btree_pack_req_init(
-         &req, cc, btree_cfg, &itor.super, 0, NULL, 0, hid);
-      platform_status rc = variable_length_btree_pack(&req);
+      btree_pack_req req;
+      btree_pack_req_init(&req, cc, btree_cfg, &itor.super, 0, NULL, 0, hid);
+      platform_status rc = btree_pack(&req);
       platform_assert_status_ok(rc);
-      variable_length_btree_iterator_deinit(&itor);
+      btree_iterator_deinit(&itor);
       root_addr[tree_no] = req.root_addr;
    }
 
+   writable_buffer_reinit(&key);
+   writable_buffer_reinit(&data);
    test_memtable_context_destroy(ctxt, hid);
    return num_tuples;
 }
 
 
 static inline platform_status
-test_count_tuples_in_range(cache *                       cc,
-                           variable_length_btree_config *cfg,
-                           uint64 *                      root_addr,
-                           page_type                     type,
-                           uint64                        num_trees,
-                           slice                         low_key,
-                           slice                         high_key,
-                           uint64 *                      count) // OUTPUT
+test_count_tuples_in_range(cache *       cc,
+                           btree_config *cfg,
+                           uint64 *      root_addr,
+                           page_type     type,
+                           uint64        num_trees,
+                           slice         low_key,
+                           slice         high_key,
+                           uint64 *      count) // OUTPUT
 {
-   variable_length_btree_iterator itor;
+   btree_iterator                 itor;
    uint64                         i;
    *count = 0;
    for (i = 0; i < num_trees; i++) {
-      if (!variable_length_btree_verify_tree(cc, cfg, root_addr[i], type)) {
-         variable_length_btree_print_tree(cc, cfg, root_addr[i]);
+      if (!btree_verify_tree(cc, cfg, root_addr[i], type)) {
+         btree_print_tree(cc, cfg, root_addr[i]);
          platform_assert(0);
       }
-      variable_length_btree_iterator_init(
+      btree_iterator_init(
          cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, 0);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
@@ -871,7 +876,7 @@ test_count_tuples_in_range(cache *                       cc,
             char last_key_str[128], key_str[128];
             data_key_to_string(cfg->data_cfg, last_key, last_key_str, 128);
             data_key_to_string(cfg->data_cfg, key, key_str, 128);
-            variable_length_btree_print_tree(cc, cfg, root_addr[i]);
+            btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of order\n");
             platform_log("last %s\nkey %s\n", last_key_str, key_str);
             platform_assert(0);
@@ -881,7 +886,7 @@ test_count_tuples_in_range(cache *                       cc,
             data_key_to_string(cfg->data_cfg, low_key, low_key_str, 128);
             data_key_to_string(cfg->data_cfg, key, key_str, 128);
             data_key_to_string(cfg->data_cfg, high_key, high_key_str, 128);
-            variable_length_btree_print_tree(cc, cfg, root_addr[i]);
+            btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of range\n");
             platform_log(
                "low %s\nkey %s\nmax %s\n", low_key_str, key_str, high_key_str);
@@ -894,7 +899,7 @@ test_count_tuples_in_range(cache *                       cc,
             data_key_to_string(cfg->data_cfg, low_key, low_key_str, 128);
             data_key_to_string(cfg->data_cfg, key, key_str, 128);
             data_key_to_string(cfg->data_cfg, high_key, high_key_str, 128);
-            variable_length_btree_print_tree(cc, cfg, root_addr[i]);
+            btree_print_tree(cc, cfg, root_addr[i]);
             platform_log("test_count_tuples_in_range: key out of range\n");
             platform_log(
                "low %s\nkey %s\nmax %s\n", low_key_str, key_str, high_key_str);
@@ -904,26 +909,26 @@ test_count_tuples_in_range(cache *                       cc,
          iterator_advance(&itor.super);
          iterator_at_end(&itor.super, &at_end);
       }
-      variable_length_btree_iterator_deinit(&itor);
+      btree_iterator_deinit(&itor);
    }
 
    return STATUS_OK;
 }
 
 static inline int
-test_btree_print_all_keys(cache *                       cc,
-                          variable_length_btree_config *cfg,
-                          uint64 *                      root_addr,
-                          page_type                     type,
-                          uint64                        num_trees,
-                          slice                         low_key,
-                          slice                         high_key)
+test_btree_print_all_keys(cache *       cc,
+                          btree_config *cfg,
+                          uint64 *      root_addr,
+                          page_type     type,
+                          uint64        num_trees,
+                          slice         low_key,
+                          slice         high_key)
 {
-   variable_length_btree_iterator itor;
+   btree_iterator                 itor;
    uint64                         i;
    for (i = 0; i < num_trees; i++) {
       platform_log("tree number %lu\n", i);
-      variable_length_btree_iterator_init(
+      btree_iterator_init(
          cc, cfg, &itor, root_addr[i], type, low_key, high_key, TRUE, 0);
       bool at_end;
       iterator_at_end(&itor.super, &at_end);
@@ -936,7 +941,7 @@ test_btree_print_all_keys(cache *                       cc,
          iterator_advance(&itor.super);
          iterator_at_end(&itor.super, &at_end);
       }
-      variable_length_btree_iterator_deinit(&itor);
+      btree_iterator_deinit(&itor);
    }
    return 0;
 }
@@ -961,7 +966,7 @@ test_btree_merge_basic(cache *            cc,
 {
    platform_log("btree_test: btree merge test started\n");
 
-   variable_length_btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
+   btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
 
    uint64 *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, arity);
    platform_assert(root_addr);
@@ -987,7 +992,7 @@ test_btree_merge_basic(cache *            cc,
          pivot_key[pivot_no].k, pivot[pivot_no], btree_cfg->data_cfg->key_size);
    }
 
-   variable_length_btree_iterator *btree_itor_arr =
+   btree_iterator *btree_itor_arr =
       TYPED_ARRAY_MALLOC(hid, btree_itor_arr, arity);
    platform_assert(btree_itor_arr);
 
@@ -1002,15 +1007,15 @@ test_btree_merge_basic(cache *            cc,
                     : slice_create(btree_cfg->data_cfg->key_size,
                                    pivot_key[pivot_no + 1].k);
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-         variable_length_btree_iterator_init(cc,
-                                             btree_cfg,
-                                             &btree_itor_arr[tree_no],
-                                             root_addr[tree_no],
-                                             PAGE_TYPE_BRANCH,
-                                             lo,
-                                             hi,
-                                             TRUE,
-                                             0);
+         btree_iterator_init(cc,
+                             btree_cfg,
+                             &btree_itor_arr[tree_no],
+                             root_addr[tree_no],
+                             PAGE_TYPE_BRANCH,
+                             lo,
+                             hi,
+                             TRUE,
+                             0);
          itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
       }
       merge_iterator *merge_itor;
@@ -1020,14 +1025,14 @@ test_btree_merge_basic(cache *            cc,
          goto destroy_btrees;
       }
 
-      variable_length_btree_pack_req req;
-      variable_length_btree_pack_req_init(
+      btree_pack_req req;
+      btree_pack_req_init(
          &req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0, hid);
-      variable_length_btree_pack(&req);
+      btree_pack(&req);
       output_addr[pivot_no] = req.root_addr;
 
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-         variable_length_btree_iterator_deinit(&btree_itor_arr[tree_no]);
+         btree_iterator_deinit(&btree_itor_arr[tree_no]);
       }
 
       uint64 input_count = 0;
@@ -1076,18 +1081,18 @@ test_btree_merge_basic(cache *            cc,
 
 destroy_btrees:
    for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-      variable_length_btree_dec_ref_range(cc,
-                                          btree_cfg,
-                                          root_addr[tree_no],
-                                          NULL_SLICE,
-                                          NULL_SLICE,
-                                          PAGE_TYPE_BRANCH);
-      variable_length_btree_dec_ref_range(cc,
-                                          btree_cfg,
-                                          output_addr[tree_no],
-                                          NULL_SLICE,
-                                          NULL_SLICE,
-                                          PAGE_TYPE_BRANCH);
+      btree_dec_ref_range(cc,
+                          btree_cfg,
+                          root_addr[tree_no],
+                          NULL_SLICE,
+                          NULL_SLICE,
+                          PAGE_TYPE_BRANCH);
+      btree_dec_ref_range(cc,
+                          btree_cfg,
+                          output_addr[tree_no],
+                          NULL_SLICE,
+                          NULL_SLICE,
+                          PAGE_TYPE_BRANCH);
    }
    if (SUCCESS(rc)) {
       platform_log("btree_test: btree merge test succeeded\n");
@@ -1115,7 +1120,7 @@ test_btree_count_in_range(cache *            cc,
 
    uint64 root_addr;
    test_btree_create_packed_trees(cc, cfg, hid, 1, &root_addr);
-   variable_length_btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
+   btree_config * btree_cfg = cfg->mt_cfg->btree_cfg;
    max_pivot_key *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
    platform_assert(bound_key);
    slice min_key =
@@ -1143,15 +1148,15 @@ test_btree_count_in_range(cache *            cc,
       uint32 count;
       uint32 key_bytes;
       uint32 message_bytes;
-      variable_length_btree_count_in_range(cc,
-                                           btree_cfg,
-                                           root_addr,
-                                           min_key,
-                                           max_key,
-                                           &count,
-                                           &key_bytes,
-                                           &message_bytes);
-      if (variable_length_btree_key_compare(btree_cfg, min_key, max_key) > 0) {
+      btree_count_in_range(cc,
+                           btree_cfg,
+                           root_addr,
+                           min_key,
+                           max_key,
+                           &count,
+                           &key_bytes,
+                           &message_bytes);
+      if (btree_key_compare(btree_cfg, min_key, max_key) > 0) {
          if (count != 0) {
             rc = STATUS_TEST_FAILED;
             goto destroy_btree;
@@ -1177,7 +1182,7 @@ test_btree_count_in_range(cache *            cc,
    }
 
 destroy_btree:
-   variable_length_btree_dec_ref_range(
+   btree_dec_ref_range(
       cc, btree_cfg, root_addr, NULL_SLICE, NULL_SLICE, PAGE_TYPE_BRANCH);
 
    platform_free(hid, bound_key);
@@ -1201,7 +1206,7 @@ test_btree_rough_iterator(cache *            cc,
    platform_assert(root_addr);
 
    test_btree_create_packed_trees(cc, cfg, hid, num_trees, root_addr);
-   variable_length_btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
+   btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
 
    platform_status rc = STATUS_OK;
 
@@ -1214,7 +1219,7 @@ test_btree_rough_iterator(cache *            cc,
    key_buffer *pivot = TYPED_ARRAY_MALLOC(hid, pivot, num_pivots + 1);
    platform_assert(pivot);
 
-   variable_length_btree_iterator *rough_btree_itor =
+   btree_iterator *rough_btree_itor =
       TYPED_ARRAY_MALLOC(hid, rough_btree_itor, num_trees);
    platform_assert(rough_btree_itor);
 
@@ -1223,15 +1228,15 @@ test_btree_rough_iterator(cache *            cc,
 
    bool at_end;
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
-      variable_length_btree_iterator_init(cc,
-                                          btree_cfg,
-                                          &rough_btree_itor[tree_no],
-                                          root_addr[tree_no],
-                                          PAGE_TYPE_BRANCH,
-                                          NULL_SLICE,
-                                          NULL_SLICE,
-                                          TRUE,
-                                          1);
+      btree_iterator_init(cc,
+                          btree_cfg,
+                          &rough_btree_itor[tree_no],
+                          root_addr[tree_no],
+                          PAGE_TYPE_BRANCH,
+                          NULL_SLICE,
+                          NULL_SLICE,
+                          TRUE,
+                          1);
       if (SUCCESS(iterator_at_end(&rough_btree_itor[tree_no].super, &at_end))
           && !at_end)
       {
@@ -1266,11 +1271,10 @@ test_btree_rough_iterator(cache *            cc,
                       slice_length(curr_key),
                       btree_cfg->data_cfg->key_size);
       }
-      if (slice_length(dummy_data) != sizeof(variable_length_btree_pivot_data))
-      {
+      if (slice_length(dummy_data) != sizeof(btree_pivot_data)) {
          platform_log("Weird data length: %lu should be: %lu\n",
                       slice_length(dummy_data),
-                      sizeof(variable_length_btree_pivot_data));
+                      sizeof(btree_pivot_data));
       }
       memmove(pivot[pivot_no].k,
               slice_data(curr_key),
@@ -1290,8 +1294,8 @@ test_btree_rough_iterator(cache *            cc,
    ////memmove(pivot[0].k, min_key, btree_key_size(btree_cfg));
    // memmove(pivot[num_pivots].k, max_key, btree_key_size(btree_cfg));
 
-   // rc = merge_iterator_destroy(hid, &rough_merge_itor);
-   // platform_assert_status_ok(rc);
+   rc = merge_iterator_destroy(hid, &rough_merge_itor);
+   platform_assert_status_ok(rc);
    // for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
    //   btree_iterator_deinit(&rough_btree_itor[tree_no]);
    //}
@@ -1312,10 +1316,10 @@ test_btree_rough_iterator(cache *            cc,
    // for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
    //   btree_zap(cc, btree_cfg, root_addr[tree_no], PAGE_TYPE_BRANCH);
    //}
-   // platform_free(hid, root_addr);
-   // platform_free(hid, pivot);
-   // platform_free(hid, rough_btree_itor);
-   // platform_free(hid, rough_itor);
+   platform_free(hid, root_addr);
+   platform_free(hid, pivot);
+   platform_free(hid, rough_btree_itor);
+   platform_free(hid, rough_itor);
 
    if (SUCCESS(rc)) {
       platform_log("btree_test: btree rough iterator test succeeded\n");
@@ -1334,7 +1338,7 @@ test_btree_merge_perf(cache *            cc,
 {
    platform_log("btree_test: btree merge perf test started\n");
 
-   variable_length_btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
+   btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
 
    uint64  num_trees = arity * num_merges;
    uint64 *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, num_trees);
@@ -1364,7 +1368,7 @@ test_btree_merge_perf(cache *            cc,
          pivot_key[pivot_no].k, pivot[pivot_no], btree_cfg->data_cfg->key_size);
    }
 
-   variable_length_btree_iterator *btree_itor_arr =
+   btree_iterator *btree_itor_arr =
       TYPED_ARRAY_MALLOC(hid, btree_itor_arr, arity);
    platform_assert(btree_itor_arr);
 
@@ -1381,15 +1385,15 @@ test_btree_merge_perf(cache *            cc,
                                            pivot_key[pivot_no + 1].k);
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
             uint64 global_tree_no = merge_no * num_merges + tree_no;
-            variable_length_btree_iterator_init(cc,
-                                                btree_cfg,
-                                                &btree_itor_arr[tree_no],
-                                                root_addr[global_tree_no],
-                                                PAGE_TYPE_BRANCH,
-                                                min_key,
-                                                max_key,
-                                                TRUE,
-                                                0);
+            btree_iterator_init(cc,
+                                btree_cfg,
+                                &btree_itor_arr[tree_no],
+                                root_addr[global_tree_no],
+                                PAGE_TYPE_BRANCH,
+                                min_key,
+                                max_key,
+                                TRUE,
+                                0);
             itor_arr[tree_no] = &btree_itor_arr[tree_no].super;
          }
          merge_iterator *merge_itor;
@@ -1399,13 +1403,13 @@ test_btree_merge_perf(cache *            cc,
             goto destroy_btrees;
          }
 
-         variable_length_btree_pack_req req;
-         variable_length_btree_pack_req_init(
+         btree_pack_req req;
+         btree_pack_req_init(
             &req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0, hid);
-         variable_length_btree_pack(&req);
+         btree_pack(&req);
          output_addr[merge_no * num_merges + pivot_no] = req.root_addr;
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
-            variable_length_btree_iterator_deinit(&btree_itor_arr[tree_no]);
+            btree_iterator_deinit(&btree_itor_arr[tree_no]);
          }
          merge_iterator_destroy(hid, &merge_itor);
       }
@@ -1416,18 +1420,18 @@ test_btree_merge_perf(cache *            cc,
 
 destroy_btrees:
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
-      variable_length_btree_dec_ref_range(cc,
-                                          btree_cfg,
-                                          root_addr[tree_no],
-                                          NULL_SLICE,
-                                          NULL_SLICE,
-                                          PAGE_TYPE_BRANCH);
-      variable_length_btree_dec_ref_range(cc,
-                                          btree_cfg,
-                                          output_addr[tree_no],
-                                          NULL_SLICE,
-                                          NULL_SLICE,
-                                          PAGE_TYPE_BRANCH);
+      btree_dec_ref_range(cc,
+                          btree_cfg,
+                          root_addr[tree_no],
+                          NULL_SLICE,
+                          NULL_SLICE,
+                          PAGE_TYPE_BRANCH);
+      btree_dec_ref_range(cc,
+                          btree_cfg,
+                          output_addr[tree_no],
+                          NULL_SLICE,
+                          NULL_SLICE,
+                          PAGE_TYPE_BRANCH);
    }
    if (SUCCESS(rc)) {
       platform_log("btree_test: btree merge perf test succeeded\n");

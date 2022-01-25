@@ -1889,6 +1889,9 @@ clockcache_deinit(clockcache *cc) // IN/OUT
    }
    cc->data = NULL;
    platform_free_volatile(cc->heap_id, cc->batch_busy);
+   if (cc->pincount) {
+      platform_free_volatile(cc->heap_id, cc->pincount);
+   }
 }
 
 /*
@@ -2834,8 +2837,8 @@ clockcache_prefetch_callback(void *          metadata,
 
       debug_code(int64 addr = entry->page.disk_addr);
       debug_assert(addr != CC_UNMAPPED_ADDR);
-      debug_assert(addr == last_addr + cc->cfg->page_size ||
-                   last_addr == CC_UNMAPPED_ADDR);
+      debug_assert(last_addr == CC_UNMAPPED_ADDR
+                   || addr == last_addr + cc->cfg->page_size);
       debug_code(last_addr = addr);
       debug_assert(entry_no == clockcache_lookup(cc, addr));
    }

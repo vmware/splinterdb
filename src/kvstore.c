@@ -398,18 +398,72 @@ kvstore_deregister_thread(kvstore *kvs)
  */
 
 int
-kvstore_insert(const kvstore *kvs,    // IN
-               char *         key,    // IN
-               char *         message // IN
+kvstore_insert(const kvstore *kvs,            // IN
+               char *         key,            // IN
+               size_t         message_length, // IN
+               char *         message         // IN
 )
 {
    platform_status status;
-
+   slice           message_slice = slice_create(message_length, message);
    platform_assert(kvs != NULL);
-   status = splinter_insert(kvs->spl, key, message);
+   status = splinter_insert(kvs->spl, key, message_slice);
    return platform_status_to_int(status);
 }
 
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * _kvstore_lookup_result structure --
+ *
+ *-----------------------------------------------------------------------------
+ */
+typedef struct _kvstore_lookup_result {
+   writable_buffer value;
+} _kvstore_lookup_result;
+
+_Static_assert(sizeof(_kvstore_lookup_result) <= sizeof(kvstore_lookup_result),
+               "sizeof(kvstore_lookup_result) is too small");
+
+void
+kvstore_lookup_result_init(const kvstore *        kvs,        // IN
+                           kvstore_lookup_result *result,     // IN/OUT
+                           size_t                 buffer_len, // IN
+                           char *                 buffer      // IN
+)
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   writable_buffer_init(&_result->value, NULL, buffer_len, buffer);
+}
+
+void
+kvstore_lookup_result_deinit(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   writable_buffer_reinit(&_result->value);
+}
+
+_Bool
+kvstore_lookup_result_found(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   return splinter_lookup_found(&_result->value);
+}
+
+size_t
+kvstore_lookup_result_size(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   return writable_buffer_length(&_result->value);
+}
+
+void *
+kvstore_lookup_result_data(kvstore_lookup_result *result) // IN
+{
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
+   return writable_buffer_data(&_result->value);
+}
 
 /*
  *-----------------------------------------------------------------------------
@@ -419,7 +473,7 @@ kvstore_insert(const kvstore *kvs,    // IN
  *      Look up a key from splinter
  *
  * Results:
- *      0 on success, otherwise an errno
+ *      0 on success, otherwise and error number
  *
  * Side effects:
  *      None.
@@ -428,16 +482,15 @@ kvstore_insert(const kvstore *kvs,    // IN
  */
 
 int
-kvstore_lookup(const kvstore *kvs,     // IN
-               char *         key,     // IN
-               char *         message, // OUT
-               bool *         found    // OUT
-)
+kvstore_lookup(const kvstore *        kvs,    // IN
+               char *                 key,    // IN
+               kvstore_lookup_result *result) // OUT
 {
    platform_status status;
+   _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
 
    platform_assert(kvs != NULL);
-   status = splinter_lookup(kvs->spl, key, message, found);
+   status = splinter_lookup(kvs->spl, key, &_result->value);
    return platform_status_to_int(status);
 }
 
@@ -506,16 +559,18 @@ kvstore_iterator_next(kvstore_iterator *kvi)
 }
 
 void
-kvstore_iterator_get_current(kvstore_iterator *kvi,    // IN
-                             const char **     key,    // OUT
-                             const char **     message // OUT
+kvstore_iterator_get_current(kvstore_iterator *kvi,            // IN
+                             const char **     key,            // OUT
+                             size_t *          message_length, // IN
+                             const char **     message         // OUT
 )
 {
    slice     key_slice;
    slice     message_slice;
    iterator *itor = &(kvi->sri.super);
    iterator_get_curr(itor, &key_slice, &message_slice);
-   *key     = slice_data(key_slice);
+   *key            = slice_data(key_slice);
+   *message_length = slice_length(message_slice);
    *message = slice_data(message_slice);
 }
 

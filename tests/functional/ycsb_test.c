@@ -335,8 +335,9 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               char value[YCSB_DATA_SIZE];
-               rc = splinter_lookup(spl, ops->key, value, &ops->found);
+               writable_buffer value;
+               writable_buffer_init_null(&value, NULL);
+               rc = splinter_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
@@ -351,7 +352,8 @@ ycsb_thread(void *arg)
             case 'i':
             case 'u':
             {
-               rc = splinter_insert(spl, ops->key, ops->value);
+               slice value_slice = slice_create(YCSB_DATA_SIZE, ops->value);
+               rc                = splinter_insert(spl, ops->key, value_slice);
                platform_assert_status_ok(rc);
                break;
             }
@@ -1215,12 +1217,6 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (data_cfg->message_size != YCSB_DATA_SIZE) {
-      rc = STATUS_BAD_PARAM;
-      platform_error_log("ycsb: data size configuration does not match\n");
-      goto cleanup;
-   }
-
    if (data_cfg->key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
       platform_error_log("ycsb: key size configuration does not match\n");
@@ -1278,16 +1274,6 @@ ycsb_test(int argc, char *argv[])
    // int sys_rc = system(resize_hugetlb_command);
    // platform_assert(sys_rc == 0);
    // platform_free(hid, resize_hugetlb_command);
-
-   if (data_cfg->message_size != YCSB_DATA_SIZE) {
-      platform_error_log("ycsb: data size configuration does not match\n");
-      goto cleanup;
-   }
-
-   if (data_cfg->key_size != YCSB_KEY_SIZE) {
-      platform_error_log("ycsb: key size configuration does not match\n");
-      goto cleanup;
-   }
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);

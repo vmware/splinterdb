@@ -10,7 +10,7 @@
 #ifndef __MERGE_H
 #define __MERGE_H
 
-#include "btree.h"
+#include "data_internal.h"
 #include "iterator.h"
 #include "platform.h"
 
@@ -81,7 +81,7 @@ typedef struct merge_iterator {
    uint64                 discarded_deletes;
 
    // space for merging data together
-   char                   merge_buffer[MAX_MESSAGE_SIZE];
+   writable_buffer merge_buffer;
 } merge_iterator;
 
 // Statically enforce that the padding variables act as index -1 for both arrays

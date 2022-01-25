@@ -30,20 +30,19 @@ test_data_key_cmp(const data_config *cfg,
  *      Returns the result in new_data.
  *-----------------------------------------------------------------------------
  */
-static void
+static int
 test_data_merge_tuples(const data_config *cfg,
                        uint64             key_len,
                        const void *       key,
                        uint64             old_raw_data_len,
                        const void *       old_raw_data,
-                       uint64 *           new_raw_data_len,
-                       void *             new_raw_data)
+                       writable_buffer *  new_raw_data)
 {
    assert(sizeof(data_handle) <= old_raw_data_len);
-   assert(sizeof(data_handle) <= *new_raw_data_len);
+   assert(sizeof(data_handle) <= writable_buffer_length(new_raw_data));
 
    const data_handle *old_data = old_raw_data;
-   data_handle *      new_data = new_raw_data;
+   data_handle *      new_data = writable_buffer_data(new_raw_data);
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
    // platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d
@@ -78,7 +77,7 @@ test_data_merge_tuples(const data_config *cfg,
       default:
          platform_assert(0);
    }
-
+   return 0;
    // if (new_data->message_type == MESSAGE_TYPE_INSERT) {
    //   ;
    //} else if (new_data->message_type == MESSAGE_TYPE_DELETE) {
@@ -107,22 +106,22 @@ test_data_merge_tuples(const data_config *cfg,
  *      Can change data_class or contents.  If necessary, update new_data.
  *-----------------------------------------------------------------------------
  */
-static void
+static int
 test_data_merge_tuples_final(const data_config *cfg,
                              uint64             key_len,
-                             const void *       key, // IN
-                             uint64 *           oldest_raw_data_len,
-                             void *             oldest_raw_data) // IN/OUT
+                             const void *       key,           // IN
+                             writable_buffer *  oldest_raw_data) // IN/OUT
 {
-   assert(sizeof(data_handle) <= *oldest_raw_data_len);
+   assert(sizeof(data_handle) <= writable_buffer_length(oldest_raw_data));
 
-   data_handle *old_data = oldest_raw_data;
+   data_handle *old_data = writable_buffer_data(oldest_raw_data);
    debug_assert(old_data != NULL);
 
    if (old_data->message_type == MESSAGE_TYPE_UPDATE) {
       old_data->message_type =
          (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
    }
+   return 0;
 }
 
 /*

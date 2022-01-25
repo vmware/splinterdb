@@ -18,6 +18,7 @@
 #include <string.h> // for memmove
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
+#include "splinterdb/util.h"
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
@@ -40,30 +41,26 @@ typedef message_type (*message_class_fn)(const data_config *cfg,
                                          uint64             raw_message_len,
                                          const void *       raw_message);
 
-// Given two messages, merge them, based on their types
-// And return the result in new_raw_message
+// Given two messages, old_message and new_message, merge them
+// and return the result in new_raw_message.
 //
-// guaranteed by caller: new_raw_message has enough space to hold a max-length
-// message
-typedef void (*merge_tuple_fn)(const data_config *cfg,
-                               uint64             key_len,
-                               const void *       key,
-                               uint64             old_raw_message_len,
-                               const void *       old_raw_message,
-                               uint64 *           new_raw_message_len, // IN/OUT
-                               void *             new_raw_message);                 // IN/OUT
+// Returns 0 on success.  non-zero indicates an internal error.
+typedef int (*merge_tuple_fn)(const data_config *cfg,
+                              uint64             key_len,
+                              const void *       key,
+                              uint64             old_message_len,
+                              const void *       old_message,
+                              writable_buffer *  new_message); // IN/OUT
 
-// Called for non-MESSAGE_TYPE_INSERT messages
-// when they are determined to be the oldest message
+// Called for non-MESSAGE_TYPE_INSERT messages when they are
+// determined to be the oldest message Can change data_class or
+// contents.  If necessary, update new_data.
 //
-// Can change data_class or contents.  If necessary, update new_data.
-// guaranteed by caller: oldest_raw_message has enough space to hold a
-// max-length message
-typedef void (*merge_tuple_final_fn)(const data_config *cfg,
-                                     uint64             key_len,
-                                     const void *       key,
-                                     uint64 *oldest_raw_message_len, // IN/OUT
-                                     void *  oldest_raw_message);      // IN/OUT
+// Returns 0 on success.  non-zero indicates an internal error.
+typedef int (*merge_tuple_final_fn)(const data_config *cfg,
+                                    uint64             key_len,
+                                    const void *       key,
+                                    writable_buffer *  oldest_message);
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,

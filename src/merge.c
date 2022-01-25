@@ -153,8 +153,6 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
 
    debug_assert(
       !slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
-   debug_assert(
-      !slices_equal(merge_itor->data, merge_itor->ordered_iterators[0]->data));
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
    merge_itor->ordered_iterators[0]->key            = NULL_SLICE;
@@ -234,7 +232,8 @@ static platform_status
 merge_resolve_equal_keys(merge_iterator *merge_itor)
 {
    debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
-   debug_assert(slice_data(merge_itor->data) != merge_itor->merge_buffer);
+   debug_assert(slice_data(merge_itor->data)
+                != writable_buffer_data(&merge_itor->merge_buffer));
    debug_assert(
       slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
@@ -245,23 +244,26 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 #endif
 
    // there is more than one copy of the current key
-   memmove(merge_itor->merge_buffer,
-           slice_data(merge_itor->data),
-           slice_length(merge_itor->data));
-   merge_itor->data.data = merge_itor->merge_buffer;
+   platform_status rc;
+   rc = writable_buffer_copy_slice(&merge_itor->merge_buffer, merge_itor->data);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    do {
       // Verify we don't fall off the end
       debug_assert(merge_itor->num_remaining >= 2);
       // Verify keys match
       debug_assert(!data_key_compare(
          cfg, merge_itor->key, merge_itor->ordered_iterators[1]->key));
-      debug_assert(slice_data(merge_itor->data) == merge_itor->merge_buffer);
 
-      data_merge_tuples(cfg,
-                        merge_itor->key,
-                        merge_itor->ordered_iterators[1]->data,
-                        &merge_itor->data.length,
-                        merge_itor->merge_buffer);
+      if (data_merge_tuples(cfg,
+                            merge_itor->key,
+                            merge_itor->ordered_iterators[1]->data,
+                            &merge_itor->merge_buffer))
+      {
+         return STATUS_NO_MEMORY;
+      }
 
       /*
        * Need to maintain invariant that merge_itor->key points to a valid
@@ -269,9 +271,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
        * iterator is advanced
        */
       merge_itor->key = merge_itor->ordered_iterators[1]->key;
-      debug_assert(!slices_equal(merge_itor->data,
-                                 merge_itor->ordered_iterators[0]->data));
-      platform_status rc = advance_and_resort_min_ritor(merge_itor);
+      rc              = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -280,6 +280,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
       expected_itor = merge_itor->ordered_iterators[1];
 #endif
    } while (merge_itor->ordered_iterators[0]->next_key_equal);
+
+   merge_itor->data = writable_buffer_to_slice(&merge_itor->merge_buffer);
 
    // Dealt with all duplicates, now pointing to last copy.
    debug_assert(!merge_itor->ordered_iterators[0]->next_key_equal);
@@ -300,36 +302,43 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
  *
  *-----------------------------------------------------------------------------
  */
-static inline bool
-merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor)
+static inline platform_status
+merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
+                                           bool *          discarded)
 {
+   platform_status rc;
    data_config *cfg   = merge_itor->cfg;
    message_type class = data_message_class(cfg, merge_itor->data);
    if (class != MESSAGE_TYPE_INSERT && merge_itor->finalize_updates) {
-      if (merge_itor->data.data != merge_itor->merge_buffer) {
-         // We might already be in merge_buffer if we did some merging.
-         memmove(merge_itor->merge_buffer,
-                 slice_data(merge_itor->data),
-                 slice_length(merge_itor->data));
-         merge_itor->data.data = merge_itor->merge_buffer;
+      if (slice_data(merge_itor->data)
+          != writable_buffer_data(&merge_itor->merge_buffer))
+      {
+         rc = writable_buffer_copy_slice(&merge_itor->merge_buffer,
+                                         merge_itor->data);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
       }
-      data_merge_tuples_final(cfg,
-                              merge_itor->key,
-                              &merge_itor->data.length,
-                              merge_itor->merge_buffer);
+      if (data_merge_tuples_final(
+             cfg, merge_itor->key, &merge_itor->merge_buffer)) {
+         return STATUS_NO_MEMORY;
+      }
+      merge_itor->data = writable_buffer_to_slice(&merge_itor->merge_buffer);
       class = data_message_class(cfg, merge_itor->data);
    }
    if (class == MESSAGE_TYPE_DELETE && !merge_itor->emit_deletes) {
       merge_itor->discarded_deletes++;
-      return TRUE;
+      *discarded = TRUE;
+   } else {
+      *discarded = FALSE;
    }
-   return FALSE;
+   return STATUS_OK;
 }
 
 static platform_status
 advance_one_loop(merge_iterator *merge_itor, bool *retry)
 {
-   *retry= FALSE;
+   *retry = FALSE;
    // Determine whether we're at the end.
    if (merge_itor->num_remaining == 0) {
       merge_itor->at_end = TRUE;
@@ -348,14 +357,20 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
       return STATUS_OK;
    }
 
+   platform_status rc;
    if (merge_itor->ordered_iterators[0]->next_key_equal) {
-      platform_status rc = merge_resolve_equal_keys(merge_itor);
+      rc = merge_resolve_equal_keys(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
       }
    }
 
-   if (merge_finalize_updates_and_discard_deletes(merge_itor)) {
+   bool discarded;
+   rc = merge_finalize_updates_and_discard_deletes(merge_itor, &discarded);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (discarded) {
       *retry = TRUE;
       return STATUS_OK;
    }
@@ -411,6 +426,7 @@ merge_iterator_create(platform_heap_id hid,
    if (merge_itor == NULL) {
       return STATUS_NO_MEMORY;
    }
+   writable_buffer_init_null(&merge_itor->merge_buffer, hid);
 
    merge_itor->super.ops = &merge_ops;
    merge_itor->num_trees = num_trees;
@@ -519,6 +535,7 @@ out:
 platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 {
+   writable_buffer_reinit(&(*merge_itor)->merge_buffer);
    platform_free(hid, *merge_itor);
    *merge_itor = NULL;
 
