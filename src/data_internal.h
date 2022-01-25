@@ -30,7 +30,7 @@ data_message_class(const data_config *cfg, const slice raw_message)
       cfg, slice_length(raw_message), slice_data(raw_message));
 }
 
-static inline bool
+static inline int
 data_merge_tuples(const data_config *cfg,
                   const slice        key,
                   const slice        old_raw_message,
@@ -44,7 +44,7 @@ data_merge_tuples(const data_config *cfg,
                             new_message);
 }
 
-static inline bool
+static inline int
 data_merge_tuples_final(const data_config *cfg,
                         const slice        key,
                         writable_buffer *  oldest_message)

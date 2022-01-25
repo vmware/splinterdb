@@ -44,23 +44,23 @@ typedef message_type (*message_class_fn)(const data_config *cfg,
 // Given two messages, old_message and new_message, merge them
 // and return the result in new_raw_message.
 //
-// Returns TRUE on success.  FALSE indicates an internal error.
-typedef bool (*merge_tuple_fn)(const data_config *cfg,
-                               uint64             key_len,
-                               const void *       key,
-                               uint64             old_message_len,
-                               const void *       old_message,
-                               writable_buffer *  new_message); // IN/OUT
+// Returns 0 on success.  non-zero indicates an internal error.
+typedef int (*merge_tuple_fn)(const data_config *cfg,
+                              uint64             key_len,
+                              const void *       key,
+                              uint64             old_message_len,
+                              const void *       old_message,
+                              writable_buffer *  new_message); // IN/OUT
 
 // Called for non-MESSAGE_TYPE_INSERT messages when they are
 // determined to be the oldest message Can change data_class or
 // contents.  If necessary, update new_data.
 //
-// Returns TRUE on success.  FALSE indicates an internal error.
-typedef bool (*merge_tuple_final_fn)(const data_config *cfg,
-                                     uint64             key_len,
-                                     const void *       key,
-                                     writable_buffer *  oldest_message);
+// Returns 0 on success.  non-zero indicates an internal error.
+typedef int (*merge_tuple_final_fn)(const data_config *cfg,
+                                    uint64             key_len,
+                                    const void *       key,
+                                    writable_buffer *  oldest_message);
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,

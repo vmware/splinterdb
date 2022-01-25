@@ -473,7 +473,7 @@ kvstore_lookup_result_data(kvstore_lookup_result *result) // IN
  *      Look up a key from splinter
  *
  * Results:
- *      size of message on success, otherwise a negative errno
+ *      0 on success, otherwise and error number
  *
  * Side effects:
  *      None.

@@ -498,7 +498,7 @@ variable_length_btree_find_tuple(const variable_length_btree_config *cfg,
  * - incorporate_tuple() is a convenience wrapper.
  *-----------------------------------------------------------------------------
  */
-static inline bool
+static inline int
 variable_length_btree_merge_tuples(const variable_length_btree_config *cfg,
                                    slice                               key,
                                    slice                               old_data,
@@ -543,7 +543,7 @@ variable_length_btree_create_leaf_incorporate_spec(
       if (!SUCCESS(rc)) {
          return STATUS_NO_MEMORY;
       }
-      if (!variable_length_btree_merge_tuples(
+      if (variable_length_btree_merge_tuples(
              cfg, key, oldmessage, &spec->msg.merged_message))
       {
          writable_buffer_reinit(&spec->msg.merged_message);
@@ -2107,8 +2107,8 @@ variable_length_btree_lookup_and_merge(cache *                       cc,  // IN
    if (*local_found) {
       if (writable_buffer_is_null(data)) {
          rc = writable_buffer_copy_slice(data, local_data);
-      } else if (!variable_length_btree_merge_tuples(
-                    cfg, key, local_data, data)) {
+      } else if (variable_length_btree_merge_tuples(cfg, key, local_data, data))
+      {
          rc = STATUS_NO_MEMORY;
       }
       variable_length_btree_node_unget(cc, cfg, &node);
@@ -2383,9 +2383,9 @@ variable_length_btree_lookup_and_merge_async(
          platform_status rc = writable_buffer_copy_slice(data, local_data);
          platform_assert_status_ok(rc);
       } else {
-         bool success =
+         int rc =
             variable_length_btree_merge_tuples(cfg, key, local_data, data);
-         platform_assert(success);
+         platform_assert(rc == 0);
       }
       variable_length_btree_node_unget(cc, cfg, &node);
    }

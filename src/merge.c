@@ -244,7 +244,6 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 #endif
 
    // there is more than one copy of the current key
-
    platform_status rc;
    rc = writable_buffer_copy_slice(&merge_itor->merge_buffer, merge_itor->data);
    if (!SUCCESS(rc)) {
@@ -258,10 +257,10 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
       debug_assert(!data_key_compare(
          cfg, merge_itor->key, merge_itor->ordered_iterators[1]->key));
 
-      if (!data_merge_tuples(cfg,
-                             merge_itor->key,
-                             merge_itor->ordered_iterators[1]->data,
-                             &merge_itor->merge_buffer))
+      if (data_merge_tuples(cfg,
+                            merge_itor->key,
+                            merge_itor->ordered_iterators[1]->data,
+                            &merge_itor->merge_buffer))
       {
          return STATUS_NO_MEMORY;
       }
@@ -320,7 +319,7 @@ merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
             return rc;
          }
       }
-      if (!data_merge_tuples_final(
+      if (data_merge_tuples_final(
              cfg, merge_itor->key, &merge_itor->merge_buffer)) {
          return STATUS_NO_MEMORY;
       }

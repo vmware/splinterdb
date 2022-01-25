@@ -30,7 +30,7 @@ test_data_key_cmp(const data_config *cfg,
  *      Returns the result in new_data.
  *-----------------------------------------------------------------------------
  */
-static bool
+static int
 test_data_merge_tuples(const data_config *cfg,
                        uint64             key_len,
                        const void *       key,
@@ -77,7 +77,7 @@ test_data_merge_tuples(const data_config *cfg,
       default:
          platform_assert(0);
    }
-   return TRUE;
+   return 0;
    // if (new_data->message_type == MESSAGE_TYPE_INSERT) {
    //   ;
    //} else if (new_data->message_type == MESSAGE_TYPE_DELETE) {
@@ -106,7 +106,7 @@ test_data_merge_tuples(const data_config *cfg,
  *      Can change data_class or contents.  If necessary, update new_data.
  *-----------------------------------------------------------------------------
  */
-static bool
+static int
 test_data_merge_tuples_final(const data_config *cfg,
                              uint64             key_len,
                              const void *       key,           // IN
@@ -121,7 +121,7 @@ test_data_merge_tuples_final(const data_config *cfg,
       old_data->message_type =
          (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
    }
-   return TRUE;
+   return 0;
 }
 
 /*

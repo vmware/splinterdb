@@ -119,7 +119,7 @@ basic_key_compare(const data_config *cfg,
                               key2->length);
 }
 
-static bool
+static int
 basic_merge_tuples(const data_config *cfg,
                    uint64             key_len,
                    const void *       key,
@@ -129,10 +129,10 @@ basic_merge_tuples(const data_config *cfg,
 {
    // we don't implement UPDATEs, so this is a no-op:
    // new is always left intact
-   return TRUE;
+   return 0;
 }
 
-static bool
+static int
 basic_merge_tuples_final(const data_config *cfg,
                          uint64             key_len,
                          const void *       key,        // IN
@@ -141,7 +141,7 @@ basic_merge_tuples_final(const data_config *cfg,
 {
    // we don't implement UPDATEs, so this is a no-op:
    // new is always left intact
-   return TRUE;
+   return 0;
 }
 
 static message_type
