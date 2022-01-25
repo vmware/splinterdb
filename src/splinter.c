@@ -487,7 +487,7 @@ typedef struct splinter_btree_skiperator {
    uint64          curr;
    uint64          end;
    splinter_branch branch;
-   btree_iterator itor[SPLINTER_MAX_PIVOTS];
+   btree_iterator  itor[SPLINTER_MAX_PIVOTS];
 } splinter_btree_skiperator;
 
 // for find_pivot
@@ -505,8 +505,7 @@ typedef bool (*node_fn)(splinter_handle *spl,
 
 // Used by splinter_compact_bundle()
 typedef struct {
-   splinter_btree_skiperator
-                             skip_itor[SPLINTER_MAX_TOTAL_DEGREE];
+   splinter_btree_skiperator skip_itor[SPLINTER_MAX_TOTAL_DEGREE];
    iterator*                 itor_arr[SPLINTER_MAX_TOTAL_DEGREE];
    key_buffer                saved_pivot_keys[SPLINTER_MAX_PIVOTS];
 } compact_bundle_scratch;
@@ -514,8 +513,7 @@ typedef struct {
 // Used by splinter_split_leaf()
 typedef struct {
    char           pivot[SPLINTER_MAX_PIVOTS][MAX_KEY_SIZE];
-   btree_iterator
-                  btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
+   btree_iterator btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
    iterator*      rough_itor[SPLINTER_MAX_TOTAL_DEGREE];
 } split_leaf_scratch;
 
@@ -1538,24 +1536,23 @@ splinter_pivot_branch_count(splinter_handle     *spl,
 
 static inline uint64
 splinter_pivot_tuples_in_btree(splinter_handle *spl,
-                                               page_handle *    node,
-                                               uint16           pivot_no,
-                                               uint64           root_addr)
+                               page_handle *    node,
+                               uint16           pivot_no,
+                               uint64           root_addr)
 {
    char *min_key = splinter_get_pivot(spl, node, pivot_no);
    char * max_key = splinter_get_pivot(spl, node, pivot_no + 1);
    uint32 num_tuples;
    uint32 key_bytes;
    uint32 message_bytes;
-   btree_count_in_range(
-      spl->cc,
-      splinter_btree_config(spl),
-      root_addr,
-      splinter_key_slice(spl, min_key),
-      splinter_key_slice(spl, max_key),
-      &num_tuples,
-      &key_bytes,
-      &message_bytes);
+   btree_count_in_range(spl->cc,
+                        splinter_btree_config(spl),
+                        root_addr,
+                        splinter_key_slice(spl, min_key),
+                        splinter_key_slice(spl, max_key),
+                        &num_tuples,
+                        &key_bytes,
+                        &message_bytes);
    return num_tuples;
 }
 
@@ -1584,15 +1581,14 @@ splinter_pivot_tuples_in_branch_slow(splinter_handle *spl,
    uint32           num_tuples;
    uint32           key_bytes;
    uint32           message_bytes;
-   btree_count_in_range_by_iterator(
-      spl->cc,
-      splinter_btree_config(spl),
-      branch->root_addr,
-      splinter_key_slice(spl, min_key),
-      splinter_key_slice(spl, max_key),
-      &num_tuples,
-      &key_bytes,
-      &message_bytes);
+   btree_count_in_range_by_iterator(spl->cc,
+                                    splinter_btree_config(spl),
+                                    branch->root_addr,
+                                    splinter_key_slice(spl, min_key),
+                                    splinter_key_slice(spl, max_key),
+                                    &num_tuples,
+                                    &key_bytes,
+                                    &message_bytes);
    return num_tuples;
 }
 
@@ -2312,8 +2308,7 @@ splinter_bundle_inc_pivot_rc(splinter_handle *spl,
 {
    uint16 num_children = splinter_num_children(spl, node);
    cache *cc = spl->cc;
-   btree_config *btree_cfg =
-      &spl->cfg.btree_cfg;
+   btree_config *btree_cfg    = &spl->cfg.btree_cfg;
    // Skip the first pivot, because that has been inc'd in the parent
    for (uint16 branch_no = splinter_bundle_start_branch(spl, node, bundle);
         branch_no != splinter_bundle_end_branch(spl, node, bundle);
@@ -2322,10 +2317,10 @@ splinter_bundle_inc_pivot_rc(splinter_handle *spl,
       for (uint64 pivot_no = 1; pivot_no < num_children; pivot_no++) {
          const char *key = splinter_get_pivot(spl, node, pivot_no);
          btree_inc_ref_range(cc,
-                                             btree_cfg,
-                                             branch->root_addr,
-                                             splinter_key_slice(spl, key),
-                                             NULL_SLICE);
+                             btree_cfg,
+                             branch->root_addr,
+                             splinter_key_slice(spl, key),
+                             NULL_SLICE);
       }
    }
 }
@@ -2668,10 +2663,10 @@ splinter_inc_branch_range(splinter_handle *spl,
 {
    if (branch->root_addr) {
       btree_inc_ref_range(spl->cc,
-                                          &spl->cfg.btree_cfg,
-                                          branch->root_addr,
-                                          splinter_key_slice(spl, start_key),
-                                          splinter_key_slice(spl, end_key));
+                          &spl->cfg.btree_cfg,
+                          branch->root_addr,
+                          splinter_key_slice(spl, start_key),
+                          splinter_key_slice(spl, end_key));
    }
 }
 
@@ -2687,11 +2682,11 @@ splinter_zap_branch_range(splinter_handle *spl,
                    (type != PAGE_TYPE_MEMTABLE && start_key != NULL));
    platform_assert(branch->root_addr != 0);
    btree_dec_ref_range(spl->cc,
-                                       &spl->cfg.btree_cfg,
-                                       branch->root_addr,
-                                       splinter_key_slice(spl, start_key),
-                                       splinter_key_slice(spl, end_key),
-                                       PAGE_TYPE_BRANCH);
+                       &spl->cfg.btree_cfg,
+                       branch->root_addr,
+                       splinter_key_slice(spl, start_key),
+                       splinter_key_slice(spl, end_key),
+                       PAGE_TYPE_BRANCH);
 }
 
 /*
@@ -2733,22 +2728,22 @@ splinter_inc_intersection(splinter_handle *spl,
  */
 static inline platform_status
 splinter_btree_lookup_and_merge(splinter_handle *spl,
-                                                splinter_branch *branch,
-                                                const char *     key,
-                                                writable_buffer *data,
-                                                bool *           local_found)
+                                splinter_branch *branch,
+                                const char *     key,
+                                writable_buffer *data,
+                                bool *           local_found)
 {
-   cache *                       cc  = spl->cc;
-   btree_config *cfg = &spl->cfg.btree_cfg;
-   platform_status               rc;
+   cache *         cc  = spl->cc;
+   btree_config *  cfg = &spl->cfg.btree_cfg;
+   platform_status rc;
 
    rc = btree_lookup_and_merge(cc,
-                                               cfg,
-                                               branch->root_addr,
-                                               PAGE_TYPE_BRANCH,
-                                               splinter_key_slice(spl, key),
-                                               data,
-                                               local_found);
+                               cfg,
+                               branch->root_addr,
+                               PAGE_TYPE_BRANCH,
+                               splinter_key_slice(spl, key),
+                               data,
+                               local_found);
    return rc;
 }
 
@@ -2778,26 +2773,24 @@ splinter_btree_lookup_and_merge(splinter_handle *spl,
  *-----------------------------------------------------------------------------
  */
 static cache_async_result
-splinter_btree_lookup_and_merge_async(
-   splinter_handle *                 spl,    // IN
-   splinter_branch *                 branch, // IN
-   char *                            key,    // IN
-   writable_buffer *                 data,   // OUT
-   btree_async_ctxt *ctxt)   // IN
+splinter_btree_lookup_and_merge_async(splinter_handle * spl,    // IN
+                                      splinter_branch * branch, // IN
+                                      char *            key,    // IN
+                                      writable_buffer * data,   // OUT
+                                      btree_async_ctxt *ctxt)   // IN
 {
-   cache *                       cc  = spl->cc;
-   btree_config *cfg = &spl->cfg.btree_cfg;
-   cache_async_result            res;
-   bool                          local_found;
+   cache *            cc  = spl->cc;
+   btree_config *     cfg = &spl->cfg.btree_cfg;
+   cache_async_result res;
+   bool               local_found;
 
-   res =
-      btree_lookup_and_merge_async(cc,
-                                                   cfg,
-                                                   branch->root_addr,
-                                                   splinter_key_slice(spl, key),
-                                                   data,
-                                                   &local_found,
-                                                   ctxt);
+   res = btree_lookup_and_merge_async(cc,
+                                      cfg,
+                                      branch->root_addr,
+                                      splinter_key_slice(spl, key),
+                                      data,
+                                      &local_found,
+                                      ctxt);
    return res;
 }
 
@@ -2873,33 +2866,33 @@ splinter_memtable_dec_ref(splinter_handle *spl,
  * the memtable ref count and cleans up if ref count == 0
  */
 static void
-splinter_memtable_iterator_init(splinter_handle *               spl,
-                                btree_iterator *itor,
-                                uint64                          root_addr,
-                                const char *                    min_key,
-                                const char *                    max_key,
-                                bool                            is_live,
-                                bool                            inc_ref)
+splinter_memtable_iterator_init(splinter_handle *spl,
+                                btree_iterator * itor,
+                                uint64           root_addr,
+                                const char *     min_key,
+                                const char *     max_key,
+                                bool             is_live,
+                                bool             inc_ref)
 {
    if (inc_ref) {
       allocator_inc_ref(spl->al, root_addr);
    }
    btree_iterator_init(spl->cc,
-                                       &spl->cfg.btree_cfg,
-                                       itor,
-                                       root_addr,
-                                       PAGE_TYPE_MEMTABLE,
-                                       splinter_key_slice(spl, min_key),
-                                       splinter_key_slice(spl, max_key),
-                                       FALSE,
-                                       0);
+                       &spl->cfg.btree_cfg,
+                       itor,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       splinter_key_slice(spl, min_key),
+                       splinter_key_slice(spl, max_key),
+                       FALSE,
+                       0);
 }
 
 static void
-splinter_memtable_iterator_deinit(splinter_handle *               spl,
-                                  btree_iterator *itor,
-                                  uint64                          mt_gen,
-                                  bool                            dec_ref)
+splinter_memtable_iterator_deinit(splinter_handle *spl,
+                                  btree_iterator * itor,
+                                  uint64           mt_gen,
+                                  bool             dec_ref)
 {
    btree_iterator_deinit(itor);
    if (dec_ref) {
@@ -2972,26 +2965,21 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
    ZERO_CONTENTS(new_branch);
 
    uint64          memtable_root_addr = mt->root_addr;
-   btree_iterator btree_itor;
-   iterator *                     itor    = &btree_itor.super;
+   btree_iterator  btree_itor;
+   iterator *      itor    = &btree_itor.super;
    const char     *min_key = spl->cfg.data_cfg->min_key;
 
-   splinter_memtable_iterator_init(spl,
-                                   &btree_itor,
-                                   memtable_root_addr,
-                                   min_key,
-                                   NULL,
-                                   FALSE,
-                                   FALSE);
+   splinter_memtable_iterator_init(
+      spl, &btree_itor, memtable_root_addr, min_key, NULL, FALSE, FALSE);
    btree_pack_req req;
    btree_pack_req_init(&req,
-                                       spl->cc,
-                                       &spl->cfg.btree_cfg,
-                                       itor,
-                                       spl->cfg.max_tuples_per_node,
-                                       spl->cfg.leaf_filter_cfg.hash,
-                                       spl->cfg.leaf_filter_cfg.seed,
-                                       spl->heap_id);
+                       spl->cc,
+                       &spl->cfg.btree_cfg,
+                       itor,
+                       spl->cfg.max_tuples_per_node,
+                       spl->cfg.leaf_filter_cfg.hash,
+                       spl->cfg.leaf_filter_cfg.seed,
+                       spl->heap_id);
    uint64 pack_start;
    if (spl->cfg.use_stats) {
       spl->stats[tid].root_compactions++;
@@ -3008,8 +2996,7 @@ splinter_memtable_compact_and_build_filter(splinter_handle *spl,
          spl->stats[tid].root_compaction_max_tuples = req.num_tuples;
       }
    }
-   splinter_memtable_iterator_deinit(
-      spl, &btree_itor, FALSE, FALSE);
+   splinter_memtable_iterator_deinit(spl, &btree_itor, FALSE, FALSE);
 
    new_branch->root_addr = req.root_addr;
 
@@ -3350,11 +3337,10 @@ splinter_memtable_lookup(splinter_handle *spl,
                          char *           key,
                          writable_buffer *data)
 {
-   cache *const                        cc = spl->cc;
-   btree_config *const cfg =
-      &spl->cfg.btree_cfg;
-   bool   memtable_is_compacted;
-   uint64 root_addr = splinter_memtable_root_addr_for_lookup(
+   cache *const        cc  = spl->cc;
+   btree_config *const cfg = &spl->cfg.btree_cfg;
+   bool                memtable_is_compacted;
+   uint64              root_addr = splinter_memtable_root_addr_for_lookup(
       spl, generation, &memtable_is_compacted);
    page_type type =
       memtable_is_compacted ? PAGE_TYPE_BRANCH : PAGE_TYPE_MEMTABLE;
@@ -3362,12 +3348,12 @@ splinter_memtable_lookup(splinter_handle *spl,
    bool            local_found;
 
    rc = btree_lookup_and_merge(cc,
-                                               cfg,
-                                               root_addr,
-                                               type,
-                                               splinter_key_slice(spl, key),
-                                               data,
-                                               &local_found);
+                               cfg,
+                               root_addr,
+                               type,
+                               splinter_key_slice(spl, key),
+                               data,
+                               &local_found);
    return rc;
 }
 
@@ -4119,57 +4105,51 @@ save_pivots_to_compact_bundle_scratch(splinter_handle        *spl,     // IN
  */
 
 void
-splinter_branch_iterator_init(splinter_handle *               spl,
-                              btree_iterator *itor,
-                              splinter_branch *               branch,
-                              const char *                    min_key,
-                              const char *                    max_key,
-                              bool                            do_prefetch,
-                              bool                            should_inc_ref)
+splinter_branch_iterator_init(splinter_handle *spl,
+                              btree_iterator * itor,
+                              splinter_branch *branch,
+                              const char *     min_key,
+                              const char *     max_key,
+                              bool             do_prefetch,
+                              bool             should_inc_ref)
 {
    cache *cc = spl->cc;
-   btree_config *btree_cfg =
-      &spl->cfg.btree_cfg;
+   btree_config *btree_cfg = &spl->cfg.btree_cfg;
    uint64        root_addr = branch->root_addr;
    if (root_addr != 0 && should_inc_ref) {
       btree_inc_ref_range(cc,
-                                          btree_cfg,
-                                          root_addr,
-                                          splinter_key_slice(spl, min_key),
-                                          splinter_key_slice(spl, max_key));
+                          btree_cfg,
+                          root_addr,
+                          splinter_key_slice(spl, min_key),
+                          splinter_key_slice(spl, max_key));
    }
    btree_iterator_init(cc,
-                                       btree_cfg,
-                                       itor,
-                                       root_addr,
-                                       PAGE_TYPE_BRANCH,
-                                       splinter_key_slice(spl, min_key),
-                                       splinter_key_slice(spl, max_key),
-                                       do_prefetch,
-                                       0);
+                       btree_cfg,
+                       itor,
+                       root_addr,
+                       PAGE_TYPE_BRANCH,
+                       splinter_key_slice(spl, min_key),
+                       splinter_key_slice(spl, max_key),
+                       do_prefetch,
+                       0);
 }
 
 void
-splinter_branch_iterator_deinit(splinter_handle *               spl,
-                                btree_iterator *itor,
-                                bool                            should_dec_ref)
+splinter_branch_iterator_deinit(splinter_handle *spl,
+                                btree_iterator * itor,
+                                bool             should_dec_ref)
 {
    if (itor->root_addr == 0) {
       return;
    }
    cache *cc = spl->cc;
-   btree_config *btree_cfg =
-      &spl->cfg.btree_cfg;
+   btree_config *btree_cfg = &spl->cfg.btree_cfg;
    slice min_key = itor->min_key;
    slice max_key = itor->max_key;
    btree_iterator_deinit(itor);
    if (should_dec_ref) {
-      btree_dec_ref_range(cc,
-                                          btree_cfg,
-                                          itor->root_addr,
-                                          min_key,
-                                          max_key,
-                                          PAGE_TYPE_BRANCH);
+      btree_dec_ref_range(
+         cc, btree_cfg, itor->root_addr, min_key, max_key, PAGE_TYPE_BRANCH);
    }
 }
 
@@ -4181,12 +4161,11 @@ splinter_branch_iterator_deinit(splinter_handle *               spl,
  *-----------------------------------------------------------------------------
  */
 static void
-splinter_btree_skiperator_init(
-   splinter_handle *                          spl,
-   splinter_btree_skiperator *skip_itor,
-   page_handle *                              node,
-   uint16                                     branch_idx,
-   key_buffer pivots[static SPLINTER_MAX_PIVOTS])
+splinter_btree_skiperator_init(splinter_handle *          spl,
+                               splinter_btree_skiperator *skip_itor,
+                               page_handle *              node,
+                               uint16                     branch_idx,
+                               key_buffer pivots[static SPLINTER_MAX_PIVOTS])
 {
    ZERO_CONTENTS(skip_itor);
    skip_itor->super.ops = &splinter_btree_skiperator_ops;
@@ -4213,8 +4192,7 @@ splinter_btree_skiperator_init(
          char *pivot_min_key = first_pivot == min_pivot_no ?
             min_key : pivots[first_pivot].k;
          char *pivot_max_key = i == max_pivot_no ? max_key : pivots[i].k;
-         btree_iterator *btree_itor =
-            &skip_itor->itor[skip_itor->end++];
+         btree_iterator *btree_itor    = &skip_itor->itor[skip_itor->end++];
          splinter_branch_iterator_init(spl,
                                        btree_itor,
                                        &skip_itor->branch,
@@ -4241,13 +4219,10 @@ splinter_btree_skiperator_init(
 }
 
 void
-splinter_btree_skiperator_get_curr(iterator *itor,
-                                                   slice *   key,
-                                                   slice *   data)
+splinter_btree_skiperator_get_curr(iterator *itor, slice *key, slice *data)
 {
    debug_assert(itor != NULL);
-   splinter_btree_skiperator *skip_itor =
-      (splinter_btree_skiperator *)itor;
+   splinter_btree_skiperator *skip_itor = (splinter_btree_skiperator *)itor;
    iterator_get_curr(&skip_itor->itor[skip_itor->curr].super, key, data);
 }
 
@@ -4255,8 +4230,7 @@ platform_status
 splinter_btree_skiperator_advance(iterator *itor)
 {
    debug_assert(itor != NULL);
-   splinter_btree_skiperator *skip_itor =
-      (splinter_btree_skiperator *)itor;
+   splinter_btree_skiperator *skip_itor = (splinter_btree_skiperator *)itor;
    platform_status rc =
       iterator_advance(&skip_itor->itor[skip_itor->curr].super);
    if (!SUCCESS(rc)) {
@@ -4278,8 +4252,7 @@ splinter_btree_skiperator_advance(iterator *itor)
 platform_status
 splinter_btree_skiperator_at_end(iterator *itor, bool *at_end)
 {
-   splinter_btree_skiperator *skip_itor =
-      (splinter_btree_skiperator *)itor;
+   splinter_btree_skiperator *skip_itor = (splinter_btree_skiperator *)itor;
    if (skip_itor->curr == skip_itor->end) {
       *at_end = TRUE;
       return STATUS_OK;
@@ -4292,8 +4265,7 @@ splinter_btree_skiperator_at_end(iterator *itor, bool *at_end)
 void
 splinter_btree_skiperator_print(iterator *itor)
 {
-   splinter_btree_skiperator *skip_itor =
-      (splinter_btree_skiperator *)itor;
+   splinter_btree_skiperator *skip_itor = (splinter_btree_skiperator *)itor;
    platform_log("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n");
    platform_log("$$ skiperator: %p\n", skip_itor);
    platform_log("$$ curr: %lu\n", skip_itor->curr);
@@ -4301,9 +4273,8 @@ splinter_btree_skiperator_print(iterator *itor)
 }
 
 void
-splinter_btree_skiperator_deinit(
-   splinter_handle *                          spl,
-   splinter_btree_skiperator *skip_itor)
+splinter_btree_skiperator_deinit(splinter_handle *          spl,
+                                 splinter_btree_skiperator *skip_itor)
 {
    for (uint64 i = 0; i < skip_itor->end; i++) {
       splinter_branch_iterator_deinit(spl, &skip_itor->itor[i], TRUE);
@@ -4317,19 +4288,18 @@ splinter_btree_skiperator_deinit(
  */
 
 static inline void
-splinter_btree_pack_req_init(
-   splinter_handle *               spl,
-   iterator *                      itor,
-   btree_pack_req *req)
+splinter_btree_pack_req_init(splinter_handle *spl,
+                             iterator *       itor,
+                             btree_pack_req * req)
 {
    btree_pack_req_init(req,
-                                       spl->cc,
-                                       &spl->cfg.btree_cfg,
-                                       itor,
-                                       spl->cfg.max_tuples_per_node,
-                                       spl->cfg.leaf_filter_cfg.hash,
-                                       spl->cfg.leaf_filter_cfg.seed,
-                                       spl->heap_id);
+                       spl->cc,
+                       &spl->cfg.btree_cfg,
+                       itor,
+                       spl->cfg.max_tuples_per_node,
+                       spl->cfg.leaf_filter_cfg.hash,
+                       spl->cfg.leaf_filter_cfg.seed,
+                       spl->heap_id);
 }
 
 /*
@@ -4500,8 +4470,7 @@ splinter_compact_bundle(void *arg,
     * 6. Build iterators
     */
    platform_assert(num_branches <= ARRAY_SIZE(scratch->skip_itor));
-   splinter_btree_skiperator *skip_itor_arr =
-      scratch->skip_itor;
+   splinter_btree_skiperator *skip_itor_arr = scratch->skip_itor;
    iterator **itor_arr = scratch->itor_arr;
 
    save_pivots_to_compact_bundle_scratch(spl, node, scratch);
@@ -4513,12 +4482,11 @@ splinter_compact_bundle(void *arg,
       /*
        * We are iterating from oldest to newest branch
        */
-      splinter_btree_skiperator_init(
-         spl,
-         &skip_itor_arr[tree_offset],
-         node,
-         branch_no,
-         scratch->saved_pivot_keys);
+      splinter_btree_skiperator_init(spl,
+                                     &skip_itor_arr[tree_offset],
+                                     node,
+                                     branch_no,
+                                     scratch->saved_pivot_keys);
       itor_arr[tree_offset] = &skip_itor_arr[tree_offset].super;
       tree_offset++;
    }
@@ -4541,8 +4509,7 @@ splinter_compact_bundle(void *arg,
                               &merge_itor);
    platform_assert_status_ok(rc);
    btree_pack_req pack_req;
-   splinter_btree_pack_req_init(
-      spl, &merge_itor->super, &pack_req);
+   splinter_btree_pack_req_init(spl, &merge_itor->super, &pack_req);
    req->fp_arr = pack_req.fingerprint_arr;
    if (spl->cfg.use_stats) {
       pack_start = platform_get_timestamp();
@@ -5046,10 +5013,8 @@ splinter_split_leaf(splinter_handle *spl,
        *       -- updates and deletes may be resolved resulting in fewer output
        *          tuples
        */
-      platform_assert(num_branches <=
-                      ARRAY_SIZE(scratch->btree_itor));
-      btree_iterator *rough_btree_itor =
-         scratch->btree_itor;
+      platform_assert(num_branches <= ARRAY_SIZE(scratch->btree_itor));
+      btree_iterator *rough_btree_itor = scratch->btree_itor;
       iterator **     rough_itor       = scratch->rough_itor;
       char            min_key[MAX_KEY_SIZE];
       char            max_key[MAX_KEY_SIZE];
@@ -5064,18 +5029,16 @@ splinter_split_leaf(splinter_handle *spl,
             splinter_branch_no_add(spl, start_branch, branch_offset);
          debug_assert(branch_no != splinter_end_branch(spl, leaf));
          splinter_branch *branch = splinter_get_branch(spl, leaf, branch_no);
-         btree_iterator_init(
-            spl->cc,
-            &spl->cfg.btree_cfg,
-            &rough_btree_itor[branch_offset],
-            branch->root_addr,
-            PAGE_TYPE_BRANCH,
-            splinter_key_slice(spl, min_key),
-            splinter_key_slice(spl, max_key),
-            TRUE,
-            1);
-         rough_itor[branch_offset] =
-            &rough_btree_itor[branch_offset].super;
+         btree_iterator_init(spl->cc,
+                             &spl->cfg.btree_cfg,
+                             &rough_btree_itor[branch_offset],
+                             branch->root_addr,
+                             PAGE_TYPE_BRANCH,
+                             splinter_key_slice(spl, min_key),
+                             splinter_key_slice(spl, max_key),
+                             TRUE,
+                             1);
+         rough_itor[branch_offset] = &rough_btree_itor[branch_offset].super;
       }
 
       merge_iterator *rough_merge_itor;
@@ -5103,8 +5066,7 @@ splinter_split_leaf(splinter_handle *spl,
             slice curr_key, pivot_data_slice;
             iterator_get_curr(
                &rough_merge_itor->super, &curr_key, &pivot_data_slice);
-            const btree_pivot_data *pivot_data =
-               slice_data(pivot_data_slice);
+            const btree_pivot_data *pivot_data = slice_data(pivot_data_slice);
             rough_count_tuples += pivot_data->num_kvs_in_tree;
             iterator_advance(&rough_merge_itor->super);
             iterator_at_end(&rough_merge_itor->super, &at_end);
@@ -5125,8 +5087,7 @@ splinter_split_leaf(splinter_handle *spl,
       rc = merge_iterator_destroy(spl->heap_id, &rough_merge_itor);
       platform_assert_status_ok(rc);
       for (uint64 i = 0; i < num_branches; i++) {
-         btree_iterator_deinit(
-            &rough_btree_itor[i]);
+         btree_iterator_deinit(&rough_btree_itor[i]);
       }
    } else {
       num_leaves = 1;
@@ -5426,8 +5387,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
          splinter_memtable_root_addr_for_lookup(spl, mt_gen, &compacted);
       range_itor->compacted[range_itor->num_branches] = compacted;
       if (compacted) {
-         btree_block_dec_ref(
-            spl->cc, &spl->cfg.btree_cfg, root_addr);
+         btree_block_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
       } else {
          splinter_memtable_inc_ref(spl, mt_gen);
       }
@@ -5459,8 +5419,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
             *splinter_get_branch(spl, node, branch_no);
          range_itor->compacted[range_itor->num_branches] = TRUE;
          uint64 root_addr = range_itor->branch[range_itor->num_branches].root_addr;
-         btree_block_dec_ref(
-            spl->cc, &spl->cfg.btree_cfg, root_addr);
+         btree_block_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
          range_itor->num_branches++;
       }
 
@@ -5478,8 +5437,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
       range_itor->branch[range_itor->num_branches] =
          *splinter_get_branch(spl, node, branch_no);
       uint64 root_addr = range_itor->branch[range_itor->num_branches].root_addr;
-      btree_block_dec_ref(
-         spl->cc, &spl->cfg.btree_cfg, root_addr);
+      btree_block_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
       range_itor->compacted[range_itor->num_branches] = TRUE;
       range_itor->num_branches++;
    }
@@ -5501,8 +5459,7 @@ splinter_range_iterator_init(splinter_handle         *spl,
 
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
       uint64 branch_no = range_itor->num_branches - i - 1;
-      btree_iterator *btree_itor =
-         &range_itor->btree_itor[branch_no];
+      btree_iterator * btree_itor = &range_itor->btree_itor[branch_no];
       splinter_branch *branch = &range_itor->branch[branch_no];
       if (range_itor->compacted[branch_no]) {
          bool do_prefetch = range_itor->compacted[branch_no] &&
@@ -5627,18 +5584,14 @@ splinter_range_iterator_deinit(splinter_range_iterator *range_itor)
    splinter_handle *spl = range_itor->spl;
    merge_iterator_destroy(range_itor->spl->heap_id, &range_itor->merge_itor);
    for (uint64 i = 0; i < range_itor->num_branches; i++) {
-      btree_iterator *btree_itor =
-         &range_itor->btree_itor[i];
+      btree_iterator *btree_itor = &range_itor->btree_itor[i];
       if (range_itor->compacted[i]) {
          uint64 root_addr = btree_itor->root_addr;
-         splinter_branch_iterator_deinit(
-            spl, btree_itor, FALSE);
-         btree_unblock_dec_ref(
-            spl->cc, &spl->cfg.btree_cfg, root_addr);
+         splinter_branch_iterator_deinit(spl, btree_itor, FALSE);
+         btree_unblock_dec_ref(spl->cc, &spl->cfg.btree_cfg, root_addr);
       } else {
          uint64 mt_gen = range_itor->memtable_start_gen - i;
-         splinter_memtable_iterator_deinit(
-            spl, btree_itor, mt_gen, FALSE);
+         splinter_memtable_iterator_deinit(spl, btree_itor, mt_gen, FALSE);
          splinter_memtable_dec_ref(spl, mt_gen);
       }
    }
@@ -5896,8 +5849,8 @@ splinter_filter_lookup(splinter_handle *spl,
       splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
       bool             local_found;
       platform_status  rc;
-      rc = splinter_btree_lookup_and_merge(
-         spl, branch, key, data, &local_found);
+      rc =
+         splinter_btree_lookup_and_merge(spl, branch, key, data, &local_found);
       platform_assert_status_ok(rc);
       if (spl->cfg.use_stats) {
          spl->stats[tid].branch_lookups[height]++;
@@ -6208,12 +6161,10 @@ splinter_filter_async_callback(routing_async_ctxt *filter_ctxt)
  *      async btree lookup can be called again.
  */
 static void
-splinter_btree_async_callback(
-   btree_async_ctxt *btree_ctxt)
+splinter_btree_async_callback(btree_async_ctxt *btree_ctxt)
 {
-   splinter_async_ctxt *ctxt = container_of(btree_ctxt,
-                                            splinter_async_ctxt,
-                                            btree_ctxt);
+   splinter_async_ctxt *ctxt =
+      container_of(btree_ctxt, splinter_async_ctxt, btree_ctxt);
    //   platform_log("%s:%d tid %2lu: ctxt %p is callback\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt);
    // Requeue for dispatch
@@ -6429,15 +6380,15 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
             break;
          case async_success:
             // I don't own the cache context, filter does
-            splinter_async_set_state(
-               ctxt, async_state_btree_lookup_start);
+            splinter_async_set_state(ctxt, async_state_btree_lookup_start);
             break;
          default:
             platform_assert(0);
          }
          break;
       }
-      case async_state_btree_lookup_start: {
+      case async_state_btree_lookup_start:
+      {
          uint16 branch_no;
          switch (ctxt->lookup_state) {
             case async_lookup_state_pivot:
@@ -6474,15 +6425,14 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
                break;
          }
          ctxt->branch = splinter_get_branch(spl, node, branch_no);
-         btree_ctxt_init(
-            &ctxt->btree_ctxt,
-            &ctxt->cache_ctxt,
-            splinter_btree_async_callback);
-         splinter_async_set_state(
-            ctxt, async_state_btree_lookup_reentrant);
+         btree_ctxt_init(&ctxt->btree_ctxt,
+                         &ctxt->cache_ctxt,
+                         splinter_btree_async_callback);
+         splinter_async_set_state(ctxt, async_state_btree_lookup_reentrant);
          break;
       }
-      case async_state_btree_lookup_reentrant: {
+      case async_state_btree_lookup_reentrant:
+      {
          res = splinter_btree_lookup_and_merge_async(
             spl, ctxt->branch, key, data, &ctxt->btree_ctxt);
          switch (res) {
@@ -6531,8 +6481,8 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
                if (ctxt->value == ROUTING_NOT_FOUND) {
                   splinter_async_set_state(ctxt, async_state_trunk_node_done);
                } else {
-                  splinter_async_set_state(
-                     ctxt, async_state_btree_lookup_start);
+                  splinter_async_set_state(ctxt,
+                                           async_state_btree_lookup_start);
                }
                continue;
             case async_lookup_state_subbundle:
@@ -6542,8 +6492,8 @@ splinter_lookup_async(splinter_handle *    spl,  // IN
                   splinter_async_set_state(ctxt, async_state_subbundle_lookup);
                   break;
                } else {
-                  splinter_async_set_state(
-                     ctxt, async_state_btree_lookup_start);
+                  splinter_async_set_state(ctxt,
+                                           async_state_btree_lookup_start);
                }
                continue;
             case async_lookup_state_compacted_subbundle:
@@ -7408,13 +7358,12 @@ splinter_node_space_use(splinter_handle *spl,
             if (start_key != NULL) {
                end_key = splinter_get_pivot(spl, node, pivot_no);
                uint64 bytes_used_in_branch_range =
-                  btree_space_use_in_range(
-                     spl->cc,
-                     &spl->cfg.btree_cfg,
-                     branch->root_addr,
-                     PAGE_TYPE_BRANCH,
-                     splinter_key_slice(spl, start_key),
-                     splinter_key_slice(spl, end_key));
+                  btree_space_use_in_range(spl->cc,
+                                           &spl->cfg.btree_cfg,
+                                           branch->root_addr,
+                                           PAGE_TYPE_BRANCH,
+                                           splinter_key_slice(spl, start_key),
+                                           splinter_key_slice(spl, end_key));
                bytes_used_in_node += bytes_used_in_branch_range;
             }
             start_key = NULL;
@@ -7560,8 +7509,8 @@ splinter_print_node(splinter_handle       *spl,
 
 void
 splinter_print_subtree(splinter_handle *      spl,
-                                       uint64                 addr,
-                                       platform_stream_handle stream)
+                       uint64                 addr,
+                       platform_stream_handle stream)
 {
    splinter_print_node(spl, addr, stream);
    page_handle *node = splinter_node_get(spl, addr);
@@ -8028,11 +7977,11 @@ splinter_print_lookup(splinter_handle *spl,
       platform_status rc;
 
       rc = btree_lookup(spl->cc,
-                                        &spl->cfg.btree_cfg,
-                                        root_addr,
-                                        PAGE_TYPE_MEMTABLE,
-                                        splinter_key_slice(spl, key),
-                                        &data);
+                        &spl->cfg.btree_cfg,
+                        root_addr,
+                        PAGE_TYPE_MEMTABLE,
+                        splinter_key_slice(spl, key),
+                        &data);
       platform_assert_status_ok(rc);
       if (!writable_buffer_is_null(&data)) {
          char key_str[128];
@@ -8047,10 +7996,10 @@ splinter_print_lookup(splinter_handle *spl,
                       memtable_is_compacted,
                       message_str);
          btree_print_lookup(spl->cc,
-                                            &spl->cfg.btree_cfg,
-                                            root_addr,
-                                            PAGE_TYPE_MEMTABLE,
-                                            splinter_key_slice(spl, key));
+                            &spl->cfg.btree_cfg,
+                            root_addr,
+                            PAGE_TYPE_MEMTABLE,
+                            splinter_key_slice(spl, key));
       }
    }
 
@@ -8303,10 +8252,10 @@ splinter_config_init(splinter_config *splinter_cfg,
 
    // Initialize point message btree
    btree_config_init(&splinter_cfg->btree_cfg,
-                                     splinter_cfg->data_cfg,
-                                     btree_rough_count_height,
-                                     splinter_cfg->page_size,
-                                     splinter_cfg->extent_size);
+                     splinter_cfg->data_cfg,
+                     btree_rough_count_height,
+                     splinter_cfg->page_size,
+                     splinter_cfg->extent_size);
 
    memtable_config_init(&splinter_cfg->mt_cfg,
                         &splinter_cfg->btree_cfg,

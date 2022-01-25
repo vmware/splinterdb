@@ -27,14 +27,14 @@
 #include "btree_test_common.h"
 
 typedef struct insert_thread_params {
-   cache *                        cc;
-   btree_config * cfg;
-   platform_heap_id               heap_id;
-   btree_scratch *scratch;
-   mini_allocator *               mini;
-   uint64                         root_addr;
-   int                            start;
-   int                            end;
+   cache *          cc;
+   btree_config *   cfg;
+   platform_heap_id heap_id;
+   btree_scratch *  scratch;
+   mini_allocator * mini;
+   uint64           root_addr;
+   int              start;
+   int              end;
 } insert_thread_params;
 
 // Function Prototypes
@@ -42,48 +42,41 @@ static void
 insert_thread(void *arg);
 
 static void
-insert_tests(cache *                        cc,
-             btree_config * cfg,
-             platform_heap_id               heap_id,
-             btree_scratch *scratch,
-             mini_allocator *               mini,
-             uint64                         root_addr,
-             int                            start,
-             int                            end);
+insert_tests(cache *          cc,
+             btree_config *   cfg,
+             platform_heap_id heap_id,
+             btree_scratch *  scratch,
+             mini_allocator * mini,
+             uint64           root_addr,
+             int              start,
+             int              end);
 
 static int
-query_tests(cache *                       cc,
-            btree_config *cfg,
-            platform_heap_id              hid,
-            page_type                     type,
-            uint64                        root_addr,
-            int                           nkvs);
+query_tests(cache *          cc,
+            btree_config *   cfg,
+            platform_heap_id hid,
+            page_type        type,
+            uint64           root_addr,
+            int              nkvs);
 
 static int
-iterator_tests(cache *                       cc,
-               btree_config *cfg,
-               uint64                        root_addr,
-               int                           nkvs);
+iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs);
 
 static uint64
-pack_tests(cache *                       cc,
-           btree_config *cfg,
-           platform_heap_id              hid,
-           uint64                        root_addr,
-           uint64                        nkvs);
+pack_tests(cache *          cc,
+           btree_config *   cfg,
+           platform_heap_id hid,
+           uint64           root_addr,
+           uint64           nkvs);
 
 static slice
-gen_key(btree_config *cfg,
-        uint64                        i,
-        uint8                         buffer[static cfg->page_size]);
+gen_key(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size]);
 
 static uint64
 ungen_key(slice key);
 
 static slice
-gen_msg(btree_config *cfg,
-        uint64                        i,
-        uint8                         buffer[static cfg->page_size]);
+gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size]);
 
 /*
  * Global data declaration macro:
@@ -93,13 +86,13 @@ CTEST_DATA(btree_stress)
    // This part of the data structures is common to what we need
    // to set up a Splinter instance, as is done in
    // btree_test.c
-   master_config                 master_cfg;
-   data_config                   data_cfg;
-   io_config                     io_cfg;
-   rc_allocator_config           allocator_cfg;
-   clockcache_config             cache_cfg;
-   btree_scratch test_scratch;
-   btree_config  dbtree_cfg;
+   master_config       master_cfg;
+   data_config         data_cfg;
+   io_config           io_cfg;
+   rc_allocator_config allocator_cfg;
+   clockcache_config   cache_cfg;
+   btree_scratch       test_scratch;
+   btree_config        dbtree_cfg;
 
    // To create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
@@ -118,7 +111,7 @@ CTEST_SETUP(btree_stress)
 {
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
-   data->data_cfg = test_data_config;
+   data->data_cfg                  = test_data_config;
 
    // RESOLVE: Sort this out with RobJ about cmd line args support
    // if (!SUCCESS(config_parse(&data->master_cfg, 1, argc - 1, argv + 1)) ||
@@ -296,14 +289,14 @@ insert_thread(void *arg)
 }
 
 static void
-insert_tests(cache *                        cc,
-             btree_config * cfg,
-             platform_heap_id               heap_id,
-             btree_scratch *scratch,
-             mini_allocator *               mini,
-             uint64                         root_addr,
-             int                            start,
-             int                            end)
+insert_tests(cache *          cc,
+             btree_config *   cfg,
+             platform_heap_id heap_id,
+             btree_scratch *  scratch,
+             mini_allocator * mini,
+             uint64           root_addr,
+             int              start,
+             int              end)
 {
    uint64 generation;
    bool   was_unique;
@@ -312,15 +305,15 @@ insert_tests(cache *                        cc,
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
-                                                cfg,
-                                                heap_id,
-                                                scratch,
-                                                root_addr,
-                                                mini,
-                                                gen_key(cfg, i, keybuf),
-                                                gen_msg(cfg, i, msgbuf),
-                                                &generation,
-                                                &was_unique)))
+                                cfg,
+                                heap_id,
+                                scratch,
+                                root_addr,
+                                mini,
+                                gen_key(cfg, i, keybuf),
+                                gen_msg(cfg, i, msgbuf),
+                                &generation,
+                                &was_unique)))
       {
          platform_log(
             "[%s:%d] Failed to insert 4-byte %ld\n", __FILE__, __LINE__, i);
@@ -330,9 +323,7 @@ insert_tests(cache *                        cc,
 }
 
 static slice
-gen_key(btree_config *cfg,
-        uint64                        i,
-        uint8                         buffer[static cfg->page_size])
+gen_key(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size])
 {
    uint64 keylen = sizeof(i) + (i % 100);
    memset(buffer, 0, keylen);
@@ -354,9 +345,7 @@ ungen_key(slice key)
 }
 
 static slice
-gen_msg(btree_config *cfg,
-        uint64                        i,
-        uint8                         buffer[static cfg->page_size])
+gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size])
 {
    data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (cfg->page_size / 3));
@@ -369,12 +358,12 @@ gen_msg(btree_config *cfg,
 }
 
 static int
-query_tests(cache *                       cc,
-            btree_config *cfg,
-            platform_heap_id              hid,
-            page_type                     type,
-            uint64                        root_addr,
-            int                           nkvs)
+query_tests(cache *          cc,
+            btree_config *   cfg,
+            platform_heap_id hid,
+            page_type        type,
+            uint64           root_addr,
+            int              nkvs)
 {
    uint8 keybuf[cfg->page_size];
    uint8 msgbuf[cfg->page_size];
@@ -384,8 +373,7 @@ query_tests(cache *                       cc,
    writable_buffer_init(&result, hid, 0, NULL);
 
    for (uint64 i = 0; i < nkvs; i++) {
-      btree_lookup(
-         cc, cfg, root_addr, type, gen_key(cfg, i, keybuf), &result);
+      btree_lookup(cc, cfg, root_addr, type, gen_key(cfg, i, keybuf), &result);
       if (!btree_found(&result)
           || slice_lex_cmp(writable_buffer_to_slice(&result),
                            gen_msg(cfg, i, msgbuf)))
@@ -401,22 +389,19 @@ query_tests(cache *                       cc,
 }
 
 static int
-iterator_tests(cache *                       cc,
-               btree_config *cfg,
-               uint64                        root_addr,
-               int                           nkvs)
+iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
 {
    btree_iterator dbiter;
 
    btree_iterator_init(cc,
-                                       cfg,
-                                       &dbiter,
-                                       root_addr,
-                                       PAGE_TYPE_MEMTABLE,
-                                       NULL_SLICE,
-                                       NULL_SLICE,
-                                       FALSE,
-                                       0);
+                       cfg,
+                       &dbiter,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       NULL_SLICE,
+                       NULL_SLICE,
+                       FALSE,
+                       0);
 
    iterator *iter = (iterator *)&dbiter;
 
@@ -461,24 +446,24 @@ iterator_tests(cache *                       cc,
 }
 
 static uint64
-pack_tests(cache *                       cc,
-           btree_config *cfg,
-           platform_heap_id              hid,
-           uint64                        root_addr,
-           uint64                        nkvs)
+pack_tests(cache *          cc,
+           btree_config *   cfg,
+           platform_heap_id hid,
+           uint64           root_addr,
+           uint64           nkvs)
 {
    btree_iterator dbiter;
-   iterator *                     iter = (iterator *)&dbiter;
+   iterator *     iter = (iterator *)&dbiter;
 
    btree_iterator_init(cc,
-                                       cfg,
-                                       &dbiter,
-                                       root_addr,
-                                       PAGE_TYPE_MEMTABLE,
-                                       NULL_SLICE,
-                                       NULL_SLICE,
-                                       FALSE,
-                                       0);
+                       cfg,
+                       &dbiter,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       NULL_SLICE,
+                       NULL_SLICE,
+                       FALSE,
+                       0);
 
    btree_pack_req req;
    btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);

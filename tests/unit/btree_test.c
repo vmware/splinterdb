@@ -25,38 +25,32 @@
 // Function Prototypes
 
 static int
-leaf_hdr_tests(btree_config * cfg,
-               btree_scratch *scratch);
+leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch);
 
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid);
 static int
-index_hdr_tests(btree_config * cfg,
-                btree_scratch *scratch);
+index_hdr_tests(btree_config *cfg, btree_scratch *scratch);
 
 static int
 index_hdr_search_tests(btree_config *cfg);
 
 static int
-leaf_split_tests(btree_config * cfg,
-                 btree_scratch *scratch,
-                 int                            nkvs);
+leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs);
 
 static bool
-btree_leaf_incorporate_tuple(
-   const btree_config *cfg,
-   platform_heap_id                    hid,
-   btree_hdr *         hdr,
-   slice                               key,
-   slice                               message,
-   leaf_incorporate_spec *             spec,
-   uint64 *                            generation)
+btree_leaf_incorporate_tuple(const btree_config *   cfg,
+                             platform_heap_id       hid,
+                             btree_hdr *            hdr,
+                             slice                  key,
+                             slice                  message,
+                             leaf_incorporate_spec *spec,
+                             uint64 *               generation)
 {
-   platform_status rc = btree_create_leaf_incorporate_spec(
-      cfg, hid, hdr, key, message, spec);
+   platform_status rc =
+      btree_create_leaf_incorporate_spec(cfg, hid, hdr, key, message, spec);
    ASSERT_TRUE(SUCCESS(rc));
-   return btree_try_perform_leaf_incorporate_spec(
-      cfg, hdr, spec, generation);
+   return btree_try_perform_leaf_incorporate_spec(cfg, hdr, spec, generation);
 }
 
 /*
@@ -64,13 +58,13 @@ btree_leaf_incorporate_tuple(
  */
 CTEST_DATA(btree)
 {
-   master_config                 master_cfg;
-   data_config                   data_cfg;
-   io_config                     io_cfg;
-   rc_allocator_config           allocator_cfg;
-   clockcache_config             cache_cfg;
-   btree_scratch test_scratch;
-   btree_config  dbtree_cfg;
+   master_config       master_cfg;
+   data_config         data_cfg;
+   io_config           io_cfg;
+   rc_allocator_config allocator_cfg;
+   clockcache_config   cache_cfg;
+   btree_scratch       test_scratch;
+   btree_config        dbtree_cfg;
 };
 
 // Optional setup function for suite, called before every test in suite
@@ -155,23 +149,21 @@ CTEST2(btree, test_leaf_split)
  * message to platform log file.
  */
 static int
-leaf_hdr_tests(btree_config * cfg,
-               btree_scratch *scratch)
+leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 {
-   char                       leaf_buffer[cfg->page_size];
+   char       leaf_buffer[cfg->page_size];
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int                        nkvs = 240;
+   int        nkvs = 240;
 
    btree_init_hdr(cfg, hdr);
 
    bool rv = FALSE;
    for (uint32 i = 0; i < nkvs; i++) {
-      rv =
-         btree_set_leaf_entry(cfg,
-                                              hdr,
-                                              i,
-                                              slice_create(i % sizeof(i), &i),
-                                              slice_create(i % sizeof(i), &i));
+      rv = btree_set_leaf_entry(cfg,
+                                hdr,
+                                i,
+                                slice_create(i % sizeof(i), &i),
+                                slice_create(i % sizeof(i), &i));
       if (!rv) {
          platform_log(
             "[%s:%d] failed to insert 4-byte %d\n", __FILE__, __LINE__, i);
@@ -197,12 +189,11 @@ leaf_hdr_tests(btree_config * cfg,
 
    rv = FALSE;
    for (uint64 i = 0; i < nkvs; i++) {
-      rv =
-         btree_set_leaf_entry(cfg,
-                                              hdr,
-                                              i,
-                                              slice_create(i % sizeof(i), &i),
-                                              slice_create(i % sizeof(i), &i));
+      rv = btree_set_leaf_entry(cfg,
+                                hdr,
+                                i,
+                                slice_create(i % sizeof(i), &i),
+                                slice_create(i % sizeof(i), &i));
       if (!rv) {
          platform_log(
             "[%s:%d] failed to insert 8-byte %ld\n", __FILE__, __LINE__, i);
@@ -251,9 +242,9 @@ leaf_hdr_tests(btree_config * cfg,
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char                       leaf_buffer[cfg->page_size];
+   char       leaf_buffer[cfg->page_size];
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int                        nkvs = 256;
+   int        nkvs = 256;
 
    btree_init_hdr(cfg, hdr);
 
@@ -268,7 +259,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       slice message = slice_create(i % 8, messagebuf);
 
       leaf_incorporate_spec spec;
-      bool result = btree_leaf_incorporate_tuple(
+      bool                  result = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, key, message, &spec, &generation);
       if (!result) {
          platform_log(
@@ -291,8 +282,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       int   cmp_rv = slice_lex_cmp(slice_create(1, &ui), key);
       if (cmp_rv) {
          platform_log("[%s:%d] bad 4-byte key %d\n", __FILE__, __LINE__, i);
-         btree_print_locked_node(
-            cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
+         btree_print_locked_node(cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
          ASSERT_EQUAL(0, cmp_rv);
       }
    }
@@ -301,12 +291,11 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 }
 
 static int
-index_hdr_tests(btree_config * cfg,
-                btree_scratch *scratch)
+index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 {
-   char                       index_buffer[cfg->page_size];
+   char       index_buffer[cfg->page_size];
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int                        nkvs = 100;
+   int        nkvs = 100;
 
    bool rv     = FALSE;
    int  cmp_rv = 0;
@@ -384,9 +373,9 @@ index_hdr_tests(btree_config * cfg,
 static int
 index_hdr_search_tests(btree_config *cfg)
 {
-   char                       index_buffer[cfg->page_size];
+   char       index_buffer[cfg->page_size];
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int                        nkvs = 100;
+   int        nkvs = 100;
 
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -397,8 +386,7 @@ index_hdr_search_tests(btree_config *cfg)
       keybuf[0] = i;
       slice key = slice_create(1, &keybuf);
 
-      rv = btree_set_index_entry(
-         cfg, hdr, i / 2, key, i, 0, 0, 0);
+      rv = btree_set_index_entry(cfg, hdr, i / 2, key, i, 0, 0, 0);
       if (!rv) {
          platform_log(
             "[%s:%d] couldn't insert pivot %d\n", __FILE__, __LINE__, i);
@@ -426,9 +414,7 @@ index_hdr_search_tests(btree_config *cfg)
 }
 
 static int
-leaf_split_tests(btree_config * cfg,
-                 btree_scratch *scratch,
-                 int                            nkvs)
+leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
 {
    char leaf_buffer[cfg->page_size];
    char msg_buffer[cfg->page_size];
@@ -449,8 +435,7 @@ leaf_split_tests(btree_config * cfg,
       uint8 keybuf[1];
       keybuf[0] = 2 * realnkvs + 1;
       if (!btree_set_leaf_entry(
-             cfg, hdr, realnkvs, slice_create(1, &keybuf), msg))
-      {
+             cfg, hdr, realnkvs, slice_create(1, &keybuf), msg)) {
          break;
       }
       realnkvs++;
@@ -459,8 +444,8 @@ leaf_split_tests(btree_config * cfg,
    for (uint8 i = 0; i < 2 * realnkvs + 1; i++) {
       uint64                generation;
       leaf_incorporate_spec spec;
-      slice                 key = slice_create(1, &i);
-      bool success              = btree_leaf_incorporate_tuple(
+      slice                 key     = slice_create(1, &i);
+      bool                  success = btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
       if (success) {
          platform_log("Weird.  An incorporate that was supposed to fail "
@@ -468,8 +453,7 @@ leaf_split_tests(btree_config * cfg,
                       nkvs,
                       realnkvs,
                       i);
-         btree_print_locked_node(
-            cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
+         btree_print_locked_node(cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
          ASSERT_FALSE(success);
       }
       leaf_splitting_plan plan =

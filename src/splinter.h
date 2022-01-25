@@ -50,7 +50,7 @@ typedef struct splinter_config {
    bool use_stats;
 
    memtable_config              mt_cfg;
-   btree_config btree_cfg;
+   btree_config                 btree_cfg;
    routing_config               index_filter_cfg;
    routing_config               leaf_filter_cfg;
 
@@ -219,8 +219,7 @@ typedef struct splinter_range_iterator {
    char             max_key[MAX_KEY_SIZE];
    char             local_max_key[MAX_KEY_SIZE];
    char             rebuild_key[MAX_KEY_SIZE];
-   btree_iterator
-                    btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
+   btree_iterator   btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
    splinter_branch  branch[SPLINTER_MAX_TOTAL_DEGREE];
 
    // used for merge iterator construction
@@ -288,8 +287,7 @@ typedef struct splinter_async_ctxt {
    splinter_branch             *branch;        // Current branch
    union {
       routing_async_ctxt        filter_ctxt;    // Filter async context
-      btree_async_ctxt
-         btree_ctxt; // Btree async context
+      btree_async_ctxt          btree_ctxt;     // Btree async context
    };
    cache_async_ctxt             cache_ctxt;    // Async cache context
 } splinter_async_ctxt;
@@ -423,8 +421,7 @@ splinter_key_compare(splinter_handle *spl, const char *key1, const char *key2)
 {
    slice key1_slice = splinter_key_slice(spl, key1);
    slice key2_slice = splinter_key_slice(spl, key2);
-   return btree_key_compare(
-      &spl->cfg.btree_cfg, key1_slice, key2_slice);
+   return btree_key_compare(&spl->cfg.btree_cfg, key1_slice, key2_slice);
 }
 
 static inline void
@@ -433,8 +430,7 @@ splinter_key_to_string(splinter_handle *spl,
                        char             str[static 128])
 {
    slice key_slice = slice_create(splinter_key_size(spl), key);
-   btree_key_to_string(
-      &spl->cfg.btree_cfg, key_slice, str);
+   btree_key_to_string(&spl->cfg.btree_cfg, key_slice, str);
 }
 
 static inline void
@@ -442,8 +438,7 @@ splinter_message_to_string(splinter_handle *spl,
                            slice            message,
                            char             str[static 128])
 {
-   btree_message_to_string(
-      &spl->cfg.btree_cfg, message, str);
+   btree_message_to_string(&spl->cfg.btree_cfg, message, str);
 }
 
 static inline void

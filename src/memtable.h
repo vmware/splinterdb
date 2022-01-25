@@ -31,7 +31,7 @@ typedef struct memtable {
    uint64                        generation;
    uint64                        root_addr;
    mini_allocator                mini;
-   btree_config *cfg;
+   btree_config *                cfg;
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
 static inline bool
@@ -103,7 +103,7 @@ typedef void (*process_fn)(void *arg, uint64 generation);
 typedef struct memtable_config {
    uint64                        max_tuples_per_memtable;
    uint64                        max_memtables;
-   btree_config *btree_cfg;
+   btree_config *                btree_cfg;
 } memtable_config;
 
 typedef struct memtable_context {
@@ -213,10 +213,10 @@ memtable_context_destroy(platform_heap_id  hid,
                          memtable_context *ctxt);
 
 void
-memtable_config_init(memtable_config *             cfg,
-                     btree_config *btree_cfg,
-                     uint64                        max_memtables,
-                     uint64                        memtable_capacity);
+memtable_config_init(memtable_config *cfg,
+                     btree_config *   btree_cfg,
+                     uint64           max_memtables,
+                     uint64           memtable_capacity);
 
 static inline uint64
 memtable_root_addr(memtable *mt)
@@ -282,8 +282,7 @@ static inline void
 memtable_zap(cache    *cc,
              memtable *mt)
 {
-   btree_dec_ref(
-      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
 static inline bool
@@ -307,8 +306,7 @@ static inline bool
 memtable_verify(cache    *cc,
                 memtable *mt)
 {
-   return btree_verify_tree(
-      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   return btree_verify_tree(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
 static inline void

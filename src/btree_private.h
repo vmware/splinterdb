@@ -42,8 +42,8 @@ struct PACKED btree_hdr {
  */
 typedef struct PACKED index_entry {
    btree_pivot_data pivot_data;
-   inline_key_size                  key_size;
-   char                             key[];
+   inline_key_size  key_size;
+   char             key[];
 } index_entry;
 
 _Static_assert(sizeof(index_entry)
@@ -77,20 +77,18 @@ typedef struct leaf_incorporate_spec {
 } leaf_incorporate_spec;
 
 platform_status
-btree_create_leaf_incorporate_spec(
-   const btree_config *cfg,
-   platform_heap_id                    heap_id,
-   btree_hdr *         hdr,
-   slice                               key,
-   slice                               message,
-   leaf_incorporate_spec *             spec);
+btree_create_leaf_incorporate_spec(const btree_config *   cfg,
+                                   platform_heap_id       heap_id,
+                                   btree_hdr *            hdr,
+                                   slice                  key,
+                                   slice                  message,
+                                   leaf_incorporate_spec *spec);
 
 bool
-btree_try_perform_leaf_incorporate_spec(
-   const btree_config *cfg,
-   btree_hdr *         hdr,
-   const leaf_incorporate_spec *       spec,
-   uint64 *                            generation);
+btree_try_perform_leaf_incorporate_spec(const btree_config *         cfg,
+                                        btree_hdr *                  hdr,
+                                        const leaf_incorporate_spec *spec,
+                                        uint64 *generation);
 
 /*
  * This structure is intended to capture all the decisions in a leaf split.
@@ -111,45 +109,42 @@ typedef struct leaf_splitting_plan {
  */
 bool
 btree_set_index_entry(const btree_config *cfg,
-                                      btree_hdr *         hdr,
-                                      table_index                         k,
-                                      slice  new_pivot_key,
-                                      uint64 new_addr,
-                                      int64  kv_pairs,
-                                      int64  key_bytes,
-                                      int64  message_bytes);
+                      btree_hdr *         hdr,
+                      table_index         k,
+                      slice               new_pivot_key,
+                      uint64              new_addr,
+                      int64               kv_pairs,
+                      int64               key_bytes,
+                      int64               message_bytes);
 
 bool
 btree_set_leaf_entry(const btree_config *cfg,
-                                     btree_hdr *         hdr,
-                                     table_index                         k,
-                                     slice new_key,
-                                     slice new_message);
+                     btree_hdr *         hdr,
+                     table_index         k,
+                     slice               new_key,
+                     slice               new_message);
 
 void
-btree_defragment_leaf(
-   const btree_config *cfg, // IN
-   btree_scratch *     scratch,
-   btree_hdr *         hdr,
-   int64                               omit_idx); // IN
+btree_defragment_leaf(const btree_config *cfg, // IN
+                      btree_scratch *     scratch,
+                      btree_hdr *         hdr,
+                      int64               omit_idx); // IN
 
 void
-btree_defragment_index(
-   const btree_config *cfg, // IN
-   btree_scratch *     scratch,
-   btree_hdr *         hdr); // IN
+btree_defragment_index(const btree_config *cfg, // IN
+                       btree_scratch *     scratch,
+                       btree_hdr *         hdr); // IN
 
 int64
 btree_find_pivot(const btree_config *cfg,
-                                 const btree_hdr *   hdr,
-                                 slice                               key,
-                                 bool *                              found);
+                 const btree_hdr *   hdr,
+                 slice               key,
+                 bool *              found);
 
 leaf_splitting_plan
-btree_build_leaf_splitting_plan(
-   const btree_config *cfg, // IN
-   const btree_hdr *   hdr,
-   const leaf_incorporate_spec *       spec); // IN
+btree_build_leaf_splitting_plan(const btree_config *         cfg, // IN
+                                const btree_hdr *            hdr,
+                                const leaf_incorporate_spec *spec); // IN
 
 /*
  * ***********************************************************
@@ -157,8 +152,7 @@ btree_build_leaf_splitting_plan(
  * ***********************************************************
  */
 static inline void
-btree_init_hdr(const btree_config *cfg,
-                               btree_hdr *         hdr)
+btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 {
    ZERO_CONTENTS(hdr);
    hdr->next_entry = cfg->page_size;
@@ -209,15 +203,14 @@ leaf_entry_message_slice(leaf_entry *entry)
 
 static inline leaf_entry *
 btree_get_leaf_entry(const btree_config *cfg,
-                                     const btree_hdr *   hdr,
-                                     table_index                         k)
+                     const btree_hdr *   hdr,
+                     table_index         k)
 {
    /* Ensure that the kth entry's header is after the end of the table and
       before the end of the page. */
    debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
                 <= hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(leaf_entry)
-                <= btree_page_size(cfg));
+   debug_assert(hdr->offsets[k] + sizeof(leaf_entry) <= btree_page_size(cfg));
    leaf_entry *entry =
       (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
    debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
@@ -227,33 +220,30 @@ btree_get_leaf_entry(const btree_config *cfg,
 
 static inline slice
 btree_get_tuple_key(const btree_config *cfg,
-                                    const btree_hdr *   hdr,
-                                    table_index                         k)
+                    const btree_hdr *   hdr,
+                    table_index         k)
 {
-   return leaf_entry_key_slice(
-      btree_get_leaf_entry(cfg, hdr, k));
+   return leaf_entry_key_slice(btree_get_leaf_entry(cfg, hdr, k));
 }
 
 static inline slice
 btree_get_tuple_message(const btree_config *cfg,
-                                        const btree_hdr *   hdr,
-                                        table_index                         k)
+                        const btree_hdr *   hdr,
+                        table_index         k)
 {
-   return leaf_entry_message_slice(
-      btree_get_leaf_entry(cfg, hdr, k));
+   return leaf_entry_message_slice(btree_get_leaf_entry(cfg, hdr, k));
 }
 
 static inline index_entry *
 btree_get_index_entry(const btree_config *cfg,
-                                      const btree_hdr *   hdr,
-                                      table_index                         k)
+                      const btree_hdr *   hdr,
+                      table_index         k)
 {
    /* Ensure that the kth entry's header is after the end of the table and
       before the end of the page. */
    debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
                 <= hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(index_entry)
-                <= btree_page_size(cfg));
+   debug_assert(hdr->offsets[k] + sizeof(index_entry) <= btree_page_size(cfg));
    index_entry *entry =
       (index_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
    /* Now ensure that the entire entry fits in the page. */
@@ -263,21 +253,17 @@ btree_get_index_entry(const btree_config *cfg,
 }
 
 static inline slice
-btree_get_pivot(const btree_config *cfg,
-                                const btree_hdr *   hdr,
-                                table_index                         k)
+btree_get_pivot(const btree_config *cfg, const btree_hdr *hdr, table_index k)
 {
-   return index_entry_key_slice(
-      btree_get_index_entry(cfg, hdr, k));
+   return index_entry_key_slice(btree_get_index_entry(cfg, hdr, k));
 }
 
 static inline uint64
 btree_get_child_addr(const btree_config *cfg,
-                                     const btree_hdr *   hdr,
-                                     table_index                         k)
+                     const btree_hdr *   hdr,
+                     table_index         k)
 {
-   return index_entry_child_addr(
-      btree_get_index_entry(cfg, hdr, k));
+   return index_entry_child_addr(btree_get_index_entry(cfg, hdr, k));
 }
 
 #endif // __VARIABLE_LENGTH_BTREE_PRIVATE_H__

@@ -135,15 +135,15 @@ memtable_insert(memtable_context *ctxt,
    slice          key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
 
    platform_status rc = btree_insert(ctxt->cc,
-                                                     ctxt->cfg.btree_cfg,
-                                                     heap_id,
-                                                     &ctxt->scratch[tid],
-                                                     mt->root_addr,
-                                                     &mt->mini,
-                                                     key_slice,
-                                                     message,
-                                                     leaf_generation,
-                                                     &was_unique);
+                                     ctxt->cfg.btree_cfg,
+                                     heap_id,
+                                     &ctxt->scratch[tid],
+                                     mt->root_addr,
+                                     &mt->mini,
+                                     key_slice,
+                                     message,
+                                     leaf_generation,
+                                     &was_unique);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -207,12 +207,10 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
 {
    cache *cc = ctxt->cc;
 
-   bool freed = btree_dec_ref(
-      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   bool freed = btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    if (freed) {
       platform_assert(mt->state == MEMTABLE_STATE_INCORPORATED);
-      mt->root_addr = btree_create(
-         cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+      mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
       memtable_lock_incorporation_lock(ctxt);
       mt->generation += ctxt->cfg.max_memtables;
       memtable_unlock_incorporation_lock(ctxt);
@@ -260,8 +258,7 @@ memtable_init(memtable         *mt,
 {
    ZERO_CONTENTS(mt);
    mt->cfg = cfg->btree_cfg;
-   mt->root_addr =
-      btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
+   mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
    mt->state = MEMTABLE_STATE_READY;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;
@@ -272,8 +269,8 @@ memtable_deinit(cache            *cc,
                 memtable         *mt)
 {
    mini_release(&mt->mini, NULL_SLICE);
-   debug_only bool freed = btree_dec_ref(
-      cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
+   debug_only bool freed =
+      btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);
 }
 
@@ -355,10 +352,10 @@ memtable_context_destroy(platform_heap_id  hid,
 }
 
 void
-memtable_config_init(memtable_config *             cfg,
-                     btree_config *btree_cfg,
-                     uint64                        max_memtables,
-                     uint64                        memtable_capacity)
+memtable_config_init(memtable_config *cfg,
+                     btree_config *   btree_cfg,
+                     uint64           max_memtables,
+                     uint64           memtable_capacity)
 {
    ZERO_CONTENTS(cfg);
    cfg->btree_cfg = btree_cfg;

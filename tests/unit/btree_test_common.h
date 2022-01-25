@@ -31,9 +31,8 @@ init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
                                           master_config *    master_cfg);
 
 int
-init_btree_config_from_master_config(
-   btree_config *dbtree_cfg,
-   master_config *               master_cfg,
-   data_config *                 data_cfg);
+init_btree_config_from_master_config(btree_config * dbtree_cfg,
+                                     master_config *master_cfg,
+                                     data_config *  data_cfg);
 
 #endif /* __BTREE_TEST_COMMON_H__ */
