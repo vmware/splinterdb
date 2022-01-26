@@ -22,13 +22,13 @@
 #include "util.h"
 #include "splinter_test.h"
 #include "test_async.h"
+#include "test_common.h"
 
 #include "random.h"
 #include "poison.h"
 
 #define TEST_INSERT_GRANULARITY 4096
 #define TEST_RANGE_GRANULARITY  512
-#define TEST_VERIFY_GRANULARITY 100000
 
 // operaton types supported in parallel test
 typedef enum test_splinter_pthread_op_type {
@@ -44,12 +44,6 @@ typedef enum lookup_type {
 
    NUM_LOOKUP_TYPES
 } lookup_type;
-
-typedef struct stats_lookup {
-   uint64 num_found;
-   uint64 num_not_found;
-   uint64 latency_max;
-} stats_lookup;
 
 typedef struct stats_insert {
    uint64 latency_max;
@@ -198,121 +192,6 @@ out:
       trunk_handle *spl = spl_tables[i];
       trunk_perform_tasks(spl);
    }
-}
-
-static void
-verify_tuple(trunk_handle *spl,
-             uint64        lookup_num,
-             char         *key,
-             slice         data,
-             uint64        data_size,
-             bool          expected_found)
-{
-   if (slice_is_null(data) != !expected_found) {
-      char key_str[128];
-      trunk_key_to_string(spl, key, key_str);
-      platform_default_log("(%2lu) key %lu (%s): found %d (expected:%d)\n",
-                           platform_get_tid(),
-                           lookup_num,
-                           key_str,
-                           !slice_is_null(data),
-                           expected_found);
-      trunk_print_lookup(spl, key);
-      platform_assert(0);
-   }
-   if (!slice_is_null(data) && expected_found) {
-      char expected_data[MAX_MESSAGE_SIZE];
-      char data_str[128];
-      test_insert_data((data_handle *)expected_data,
-                       1,
-                       (char *)&lookup_num,
-                       sizeof(lookup_num),
-                       data_size,
-                       MESSAGE_TYPE_INSERT);
-      if (slice_length(data) != data_size
-          || memcmp(expected_data, slice_data(data), data_size) != 0)
-      {
-         trunk_message_to_string(spl, data, data_str);
-         platform_log("key found with data: %s\n", data_str);
-         platform_assert(0);
-      }
-   }
-}
-
-typedef struct {
-   char         *expected_data;
-   size_t        data_size;
-   bool          expected_found;
-   bool          stats_only; // update statistic only
-   stats_lookup *stats;
-} verify_tuple_arg;
-
-static void
-verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
-{
-   verify_tuple_arg *vta   = arg;
-   bool              found = trunk_lookup_found(&ctxt->data);
-
-   if (vta->stats != NULL) {
-      if (found) {
-         vta->stats->num_found++;
-      } else {
-         vta->stats->num_not_found++;
-      }
-      if (vta->stats_only) {
-         return;
-      }
-   }
-
-   verify_tuple(spl,
-                ctxt->lookup_num,
-                ctxt->key,
-                writable_buffer_to_slice(&ctxt->data),
-                vta->data_size,
-                vta->expected_found);
-}
-
-static void
-test_wait_for_inflight(trunk_handle      *spl,
-                       test_async_lookup *async_lookup,
-                       verify_tuple_arg  *vtarg)
-{
-   const timestamp ts          = platform_get_timestamp();
-   uint64         *latency_max = NULL;
-   if (vtarg->stats != NULL) {
-      latency_max = &vtarg->stats->latency_max;
-   }
-
-   // Rough detection of stuck contexts
-   while (async_ctxt_process_ready(
-      spl, async_lookup, latency_max, verify_tuple_callback, vtarg))
-   {
-      cache_cleanup(spl->cc);
-      platform_assert(platform_timestamp_elapsed(ts) < TEST_STUCK_IO_TIMEOUT);
-   }
-}
-
-static test_async_ctxt *
-test_async_ctxt_get(trunk_handle      *spl,
-                    test_async_lookup *async_lookup,
-                    verify_tuple_arg  *vtarg)
-{
-   test_async_ctxt *ctxt;
-
-   ctxt = async_ctxt_get(async_lookup);
-   if (LIKELY(ctxt != NULL)) {
-      return ctxt;
-   }
-   // Out of async contexts; process all inflight ones.
-   test_wait_for_inflight(spl, async_lookup, vtarg);
-   /*
-    * Guaranteed to get a context because this thread doesn't issue while
-    * it drains inflight ones.
-    */
-   ctxt = async_ctxt_get(async_lookup);
-   platform_assert(ctxt);
-
-   return ctxt;
 }
 
 void
@@ -2139,303 +2018,11 @@ destroy_splinter:
    return rc;
 }
 
-void
-test_splinter_shadow_insert(trunk_handle *spl,
-                            char         *shadow,
-                            char         *key,
-                            char         *data,
-                            uint64        idx)
-{
-   uint64 byte_pos = idx * (trunk_key_size(spl) + trunk_message_size(spl));
-   memmove(&shadow[byte_pos], key, trunk_key_size(spl));
-   byte_pos += trunk_key_size(spl);
-   memmove(&shadow[byte_pos], data, trunk_message_size(spl));
-}
-
-int
-test_trunk_key_compare(const void *left, const void *right, void *spl)
-{
-   return trunk_key_compare(
-      (trunk_handle *)spl, (const char *)left, (const char *)right);
-}
-
-void *
-test_splinter_bsearch(register const void *key,
-                      void                *base0,
-                      size_t               nmemb,
-                      register size_t      size,
-                      register int (*compar)(const void *,
-                                             const void *,
-                                             void *),
-                      void *ctxt)
-{
-   register char *base = (char *)base0;
-   register int   lim, cmp;
-   register void *p;
-
-   platform_assert(nmemb != 0);
-   for (lim = nmemb; lim != 0; lim >>= 1) {
-      p   = base + (lim >> 1) * size;
-      cmp = (*compar)(key, p, ctxt);
-      if (cmp >= 0) { /* key > p: move right */
-         base = (char *)p + size;
-         lim--;
-      } /* else move left */
-   }
-   if (cmp < 0) {
-      return (void *)p;
-   }
-   return (void *)p + size;
-}
-
-static platform_status
-test_splinter_basic(allocator       *al,
-                    cache           *cc,
-                    trunk_config    *cfg,
-                    uint64           num_inserts,
-                    uint32           max_async_inflight,
-                    task_system     *ts,
-                    platform_heap_id hid)
-{
-   platform_log("splinter_test: splinter basic test started\n");
-   trunk_handle *spl =
-      trunk_create(cfg, al, cc, ts, test_generate_allocator_root_id(), hid);
-   platform_status rc;
-
-   uint64       start_time = platform_get_timestamp();
-   uint64       insert_num;
-   char         key[MAX_KEY_SIZE];
-   const size_t key_size  = trunk_key_size(spl);
-   const size_t data_size = trunk_message_size(spl);
-   char        *data      = TYPED_ARRAY_MALLOC(hid, data, data_size);
-   platform_assert(data != NULL);
-   test_async_lookup *async_lookup;
-   if (max_async_inflight > 0) {
-      async_ctxt_init(hid, max_async_inflight, data_size, &async_lookup);
-   } else {
-      async_lookup = NULL;
-   }
-   // 1 extra for temp argument to sort
-   uint64 tuple_size  = key_size + data_size;
-   uint64 shadow_size = num_inserts * tuple_size;
-   char  *shadow      = TYPED_ARRAY_ZALLOC(hid, shadow, shadow_size);
-   char  *temp        = TYPED_ARRAY_ZALLOC(hid, temp, tuple_size);
-
-   for (insert_num = 0; insert_num < num_inserts; insert_num++) {
-      if (insert_num % (num_inserts / 100) == 0) {
-         platform_throttled_error_log(DEFAULT_THROTTLE_INTERVAL_SEC,
-                                      PLATFORM_CR "inserting %3lu%% complete",
-                                      insert_num / (num_inserts / 100));
-      }
-      if (insert_num != 0 && insert_num % TEST_VERIFY_GRANULARITY == 0) {
-         platform_assert(trunk_verify_tree(spl));
-      }
-      test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-      test_insert_data((data_handle *)data,
-                       1,
-                       (char *)&insert_num,
-                       sizeof(uint64),
-                       data_size,
-                       MESSAGE_TYPE_INSERT);
-      rc = trunk_insert(spl, key, trunk_message_slice(spl, data));
-      if (!SUCCESS(rc)) {
-         platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
-         goto destroy_splinter;
-      }
-      test_splinter_shadow_insert(spl, shadow, key, data, insert_num);
-   }
-
-   platform_log("\nsplinter insert time per tuple %lu ns\n",
-                platform_timestamp_elapsed(start_time) / num_inserts);
-
-   platform_assert(trunk_verify_tree(spl));
-   cache_assert_free(cc);
-
-   char *expected_data = TYPED_ARRAY_MALLOC(hid, expected_data, data_size);
-   platform_assert(expected_data != NULL);
-   verify_tuple_arg vtarg_true = {.expected_data  = expected_data,
-                                  .data_size      = data_size,
-                                  .expected_found = TRUE};
-   writable_buffer  qdata;
-   writable_buffer_init_null(&qdata, NULL);
-   start_time = platform_get_timestamp();
-   for (insert_num = 0; insert_num < num_inserts; insert_num++) {
-      test_async_ctxt *ctxt;
-      if (insert_num % (num_inserts / 100) == 0)
-         platform_throttled_error_log(DEFAULT_THROTTLE_INTERVAL_SEC,
-                                      PLATFORM_CR
-                                      "positive lookups %3lu%% complete",
-                                      insert_num / (num_inserts / 100));
-      if (max_async_inflight == 0) {
-         test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         writable_buffer_reinit(&qdata);
-         rc = trunk_lookup(spl, key, &qdata);
-         if (!SUCCESS(rc)) {
-            platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
-            goto destroy_splinter;
-         }
-         verify_tuple(spl,
-                      insert_num,
-                      key,
-                      writable_buffer_to_slice(&qdata),
-                      data_size,
-                      TRUE);
-      } else {
-         ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_true);
-         test_key(ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         // memset(ctxt->data, 0, data_size);
-         ctxt->lookup_num = insert_num;
-         async_ctxt_process_one(
-            spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_true);
-      }
-   }
-   if (max_async_inflight != 0) {
-      test_wait_for_inflight(spl, async_lookup, &vtarg_true);
-   }
-   cache_assert_free(cc);
-   platform_free(hid, expected_data);
-   platform_log("\nsplinter positive lookup time per tuple %lu ns\n",
-                platform_timestamp_elapsed(start_time) / num_inserts);
-   platform_log("\n");
-
-   verify_tuple_arg vtarg_false = {
-      .expected_data = NULL, .data_size = 0, .expected_found = FALSE};
-   start_time = platform_get_timestamp();
-   for (insert_num = num_inserts; insert_num < 2 * num_inserts; insert_num++) {
-      test_async_ctxt *ctxt;
-      if (insert_num % (num_inserts / 100) == 0)
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "negative lookups %3lu%% complete",
-            (insert_num - num_inserts) / (num_inserts / 100));
-      if (max_async_inflight == 0) {
-         test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         ZERO_CONTENTS_N(data, data_size);
-         rc = trunk_lookup(spl, key, &qdata);
-         if (!SUCCESS(rc)) {
-            platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
-            goto destroy_splinter;
-         }
-         verify_tuple(
-            spl, insert_num, key, writable_buffer_to_slice(&qdata), 0, FALSE);
-      } else {
-         ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg_false);
-         test_key(ctxt->key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-         // memset(ctxt->data, 0, data_size);
-         ctxt->lookup_num = insert_num;
-         async_ctxt_process_one(
-            spl, async_lookup, ctxt, NULL, verify_tuple_callback, &vtarg_false);
-      }
-   }
-   if (max_async_inflight != 0) {
-      test_wait_for_inflight(spl, async_lookup, &vtarg_false);
-   }
-   cache_assert_free(cc);
-   platform_log("\nsplinter negative lookup time per tuple %lu ns\n",
-                platform_timestamp_elapsed(start_time) / num_inserts);
-   platform_log("\n");
-
-   platform_sort_slow(
-      shadow, num_inserts, tuple_size, test_trunk_key_compare, spl, temp);
-
-   uint64 num_ranges = num_inserts / 128;
-   start_time        = platform_get_timestamp();
-
-   char *range_output = TYPED_ARRAY_MALLOC(hid, range_output, 100 * tuple_size);
-
-   for (uint64 range_num = 0; range_num != num_ranges; range_num++) {
-      if (range_num % (num_ranges / 100) == 0)
-         platform_throttled_error_log(DEFAULT_THROTTLE_INTERVAL_SEC,
-                                      PLATFORM_CR
-                                      "range lookups %3lu%% complete",
-                                      range_num / (num_ranges / 100));
-      char start_key[MAX_KEY_SIZE];
-      test_key(
-         start_key, TEST_RANDOM, num_inserts + range_num, 0, 0, key_size, 0);
-      uint64 range_tuples    = test_range(range_num, 1, 100);
-      uint64 returned_tuples = 0;
-      rc                     = trunk_range(
-         spl, start_key, range_tuples, &returned_tuples, range_output);
-      platform_assert_status_ok(rc);
-      char  *shadow_start             = test_splinter_bsearch(start_key,
-                                                 shadow,
-                                                 num_inserts,
-                                                 tuple_size,
-                                                 test_trunk_key_compare,
-                                                 spl);
-      uint64 start_idx                = (shadow_start - shadow) / tuple_size;
-      uint64 expected_returned_tuples = num_inserts - start_idx > range_tuples
-                                           ? range_tuples
-                                           : num_inserts - start_idx;
-      if (returned_tuples != expected_returned_tuples
-          || memcmp(shadow_start, range_output, returned_tuples * tuple_size)
-                != 0)
-      {
-         platform_log("range lookup: incorrect return\n");
-         char start[128];
-         trunk_key_to_string(spl, start_key, start);
-         platform_log("start_key: %s\n", start);
-         platform_log("tuples returned: expected %lu actual %lu\n",
-                      expected_returned_tuples,
-                      returned_tuples);
-         for (uint64 i = 0; i < expected_returned_tuples; i++) {
-            char   expected[128];
-            char   actual[128];
-            uint64 offset = i * tuple_size;
-            trunk_key_to_string(spl, shadow_start + offset, expected);
-            trunk_key_to_string(spl, range_output + offset, actual);
-            char expected_data[128];
-            char actual_data[128];
-            offset += key_size;
-            trunk_message_to_string(
-               spl,
-               trunk_message_slice(spl, shadow_start + offset),
-               expected_data);
-            trunk_message_to_string(
-               spl,
-               trunk_message_slice(spl, range_output + offset),
-               actual_data);
-            if (i < returned_tuples) {
-               platform_log("expected %s | %s\n", expected, expected_data);
-               platform_log("actual   %s | %s\n", actual, actual_data);
-            } else {
-               platform_log("expected %s | %s\n", expected, expected_data);
-            }
-         }
-         platform_assert(0);
-      }
-   }
-   platform_log("\nsplinter range time per operation %lu ns\n",
-                platform_timestamp_elapsed(start_time) / num_ranges);
-   platform_log("\n");
-
-   cache_assert_free(cc);
-   platform_free(hid, range_output);
-
-destroy_splinter:
-   if (async_lookup) {
-      async_ctxt_deinit(hid, async_lookup);
-   }
-   platform_free(hid, temp);
-   platform_free(hid, shadow);
-   trunk_destroy(spl);
-   if (SUCCESS(rc)) {
-      platform_log("splinter_test: splinter basic test succeeded\n");
-   } else {
-      platform_log("splinter_test: splinter basic test failed\n");
-   }
-   platform_log("\n");
-   platform_free(hid, data);
-   return rc;
-}
-
-
 static void
 usage(const char *argv0)
 {
    platform_error_log(
       "Usage:\n"
-      "\t%s\n"
       "\t%s --perf --max-async-inflight [num] --num-insert-threads [num]\n"
       "\t   --num-lookup-threads [num] --num-range-lookup-threads [num]\n"
       "\t%s --delete --max-async-inflight [num] --num-insert-threads [num]\n"
@@ -2462,8 +2049,9 @@ usage(const char *argv0)
       argv0,
       argv0,
       argv0,
-      argv0,
       argv0);
+   platform_error_log("\nNOTE: splinter_basic basic has been refactored"
+                      " to run as a stand-alone unit-test.\n");
    test_config_usage();
    config_usage();
 }
@@ -2837,7 +2425,7 @@ splinter_test(int argc, char *argv[])
 
    bool use_bg_threads = num_bg_threads[TASK_TYPE_NORMAL] != 0;
 
-   rc = test_init_splinter(
+   rc = test_init_task_system(
       hid, io, &ts, splinter_cfg->use_stats, use_bg_threads, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
@@ -2991,19 +2579,15 @@ splinter_test(int argc, char *argv[])
                                  max_async_inflight);
          platform_assert_status_ok(rc);
          break;
+
       case basic:
-         platform_assert(num_caches == 1);
-         test_ops =
-            splinter_cfg[0].max_tuples_per_node * splinter_cfg[0].fanout;
-         rc = test_splinter_basic(alp,
-                                  (cache *)cc,
-                                  splinter_cfg,
-                                  test_ops,
-                                  max_async_inflight,
-                                  ts,
-                                  hid);
-         platform_assert_status_ok(rc);
+         platform_assert(
+            FALSE,
+            "Error in argument processing."
+            "splinter_test:'basic' test case has been refactored to"
+            " run as a unit-test.");
          break;
+
       default:
          platform_assert(0);
    }
@@ -3015,7 +2599,7 @@ splinter_test(int argc, char *argv[])
    platform_free(hid, cc);
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
-   test_deinit_splinter(hid, ts);
+   test_deinit_task_system(hid, ts);
 handle_deinit:
    io_handle_deinit(io);
 io_free:
