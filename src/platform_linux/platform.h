@@ -88,6 +88,7 @@
 #define MiB_TO_B(x) ((x)*MiB)
 #define GiB_TO_B(x) ((x)*GiB)
 #define B_TO_MiB(x) ((x) / MiB)
+#define B_TO_GiB(x) ((x) / GiB)
 
 // Time unit constants
 #define THOUSAND (1000UL)
