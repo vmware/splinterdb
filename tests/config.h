@@ -18,6 +18,15 @@
 #include "trunk.h"
 #include "util.h"
 
+extern const char *BUILD_VERSION;
+
+/*
+ * --------------------------------------------------------------------------
+ * Convenience structure to hold configuration options for all sub-systems.
+ * Command-line parsing routines parse config params into these structs.
+ * Mostly needed for testing interfaces.
+ * --------------------------------------------------------------------------
+ */
 typedef struct master_config {
    uint64 page_size;
    uint64 extent_size;
@@ -39,7 +48,7 @@ typedef struct master_config {
    // btree
    uint64 btree_rough_count_height;
 
-   // filter
+   // routing filter
    uint64 filter_remainder_size;
    uint64 filter_index_size;
 

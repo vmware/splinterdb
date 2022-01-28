@@ -21,6 +21,11 @@ typedef struct page_handle {
 
 typedef struct cache cache;
 
+/*
+ * Cache usage statistics structure, for different page types in the cache.
+ * An array of this structure, one for each thread configured, is stored in
+ * the global clockcache structure.
+ */
 typedef struct cache_stats {
    uint64 cache_hits[NUM_PAGE_TYPES];
    uint64 cache_misses[NUM_PAGE_TYPES];
@@ -70,7 +75,10 @@ typedef enum {
 struct cache_async_ctxt;
 typedef void (*cache_async_cb)(struct cache_async_ctxt *ctxt);
 
-// User can embed this within an user-specific context
+/*
+ * Context structure to manage async access through the cache.
+ * User can embed this within a user-specific context
+ */
 typedef struct cache_async_ctxt {
    cache          *cc;     // IN cache
    cache_async_cb  cb;     // IN callback for async_io_started
@@ -123,6 +131,11 @@ typedef void (*enable_sync_get_fn)(cache *cc, bool enabled);
 typedef allocator *(*cache_allocator_fn)(cache *cc);
 typedef uint64 (*base_addr_fn)(cache *cc, uint64 addr);
 
+/*
+ * Cache Operations structure:
+ * Defines an abstract collection of "cache operation"-function pointers
+ * for a caching system.
+ */
 typedef struct cache_ops {
    page_alloc_fn           page_alloc;
    extent_hard_evict_fn    extent_hard_evict;

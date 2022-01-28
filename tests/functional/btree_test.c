@@ -1272,7 +1272,8 @@ test_btree_rough_iterator(cache             *cc,
                       btree_cfg->data_cfg->key_size);
       }
       if (slice_length(dummy_data) != sizeof(btree_pivot_data)) {
-         platform_log("Weird data length: %lu should be: %lu\n",
+         platform_log("Weird data length: %lu should be == "
+                      "sizeof(btree_pivot_data), %lu\n",
                       slice_length(dummy_data),
                       sizeof(btree_pivot_data));
       }

@@ -17,6 +17,9 @@
 #include "mini_allocator.h"
 #include "task.h"
 
+/*
+ * Configuration structure to set up the sharded log sub-system.
+ */
 typedef struct shard_log_config {
    uint64 page_size;
    uint64 extent_size;
@@ -30,8 +33,11 @@ typedef struct shard_log_thread_data {
    uint64 offset;
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
+/*
+ * Sharded log context structure.
+ */
 typedef struct shard_log {
-   log_handle            super;
+   log_handle            super; // handle to log I/O ops abstraction.
    cache                *cc;
    shard_log_config     *cfg;
    shard_log_thread_data thread_data[MAX_THREADS];
@@ -52,7 +58,13 @@ typedef struct shard_log_iterator {
    uint64            pos;
 } shard_log_iterator;
 
-typedef struct shard_log_hdr {
+/*
+ * ---------------------------------------------------------------
+ * Sharded log page header stucture: Disk-resident structure.
+ * Page Type == PAGE_TYPE_LOG
+ * ---------------------------------------------------------------
+ */
+typedef struct ONDISK shard_log_hdr {
    checksum128 checksum;
    uint64      magic;
    uint64      next_extent_addr;

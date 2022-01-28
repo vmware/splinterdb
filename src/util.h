@@ -5,7 +5,7 @@
 #define _SPLINTER_UTIL_H_
 
 #include "platform.h"
-#include "splinterdb/util.h"
+#include "splinterdb/public_util.h"
 
 // Macros
 #ifdef IMPLIES
@@ -70,6 +70,10 @@ init_fraction(uint64 numerator, uint64 denominator)
       .denominator = 1,                                                        \
    })
 
+/*
+ * Non-disk resident descriptor for a [<length>, <value ptr>] pair handle.
+ * Used to pass-around references to keys and values of different lengths.
+ */
 typedef struct slice {
    uint64      length;
    const void *data;
@@ -296,7 +300,11 @@ try_string_to_int8(const char *nptr, // IN
 #define STRING_EQUALS_LITERAL(arg, str)                                        \
    (strncmp(arg, str, SIZEOF_STRING_LITERAL(str)) == 0)
 
+/* In-memory structures that should be packed are tagged with this. */
 #define PACKED __attribute__((__packed__))
+
+/* Disk-resident structures that should be packed are tagged with this. */
+#define ONDISK __attribute__((__packed__))
 
 // Hex-encode arbitrary bytes to a destination buffer
 //    e.g. 0xc0de4f00de
@@ -312,4 +320,4 @@ try_string_to_int8(const char *nptr, // IN
 void
 debug_hex_encode(char *dst, size_t dst_len, const char *data, size_t data_len);
 
-#endif
+#endif // _SPLINTER_UTIL_H_
