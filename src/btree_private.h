@@ -243,12 +243,27 @@ btree_get_index_entry(const btree_config *cfg,
       before the end of the page. */
    debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
                 <= hdr->offsets[k]);
-   debug_assert(hdr->offsets[k] + sizeof(index_entry) <= btree_page_size(cfg));
+   debug_assert(hdr->offsets[k] + sizeof(index_entry) <= btree_page_size(cfg),
+                "k=%d, offsets[k]=%d, sizeof(index_entry)=%lu"
+                ", btree_page_size=%lu.",
+                k,
+                hdr->offsets[k],
+                sizeof(index_entry),
+                btree_page_size(cfg));
+
    index_entry *entry =
       (index_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
+
    /* Now ensure that the entire entry fits in the page. */
    debug_assert(hdr->offsets[k] + sizeof_index_entry(entry)
-                <= btree_page_size(cfg));
+                   <= btree_page_size(cfg),
+                "Offsets entry at index k=%d does not fit in the page."
+                " offsets[k]=%d, sizeof_index_entry()=%lu"
+                ", btree_page_size=%lu.",
+                k,
+                hdr->offsets[k],
+                sizeof_index_entry(entry),
+                btree_page_size(cfg));
    return entry;
 }
 
