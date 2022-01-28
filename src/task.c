@@ -577,12 +577,13 @@ task_perform_one(task_system *ts)
 }
 
 /*
+ * -----------------------------------------------------------------------------
  * Task system initializer. Makes sure that the initial thread has an
  * adequately sized scratch.
  * Needs to be called at the beginning of the main thread that uses splinter,
  * similar to how __attribute__((constructor)) works.
+ * -----------------------------------------------------------------------------
  */
-
 platform_status
 task_system_create(platform_heap_id     hid,
                    platform_io_handle  *ioh,

@@ -62,8 +62,10 @@ writable_buffer_data(writable_buffer *wb)
 }
 
 /*
+ *----------------------------------------------------------------------
  * Utility function; you should not use this directly
  * negative_limit and positive_limit are absolute values
+ *----------------------------------------------------------------------
  */
 static inline bool
 try_string_to_uint64_limit(const char *nptr,            // IN
@@ -186,6 +188,7 @@ multiple_strings:
 
 
 /*
+ *----------------------------------------------------------------------
  * try_string_to_(u)int64
  *
  * Convert a string to a (u)int64.
@@ -205,6 +208,7 @@ multiple_strings:
  * - asking for uint64 and you provide a negative number
  *
  * Base is automatically detected based on the regular expressions above
+ *----------------------------------------------------------------------
  */
 bool
 try_string_to_uint64(const char *nptr, // IN

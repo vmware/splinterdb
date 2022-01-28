@@ -43,28 +43,27 @@ typedef int (*key_comparator_fn)(const void *context,
 // Configuration that the application must provide
 typedef struct {
 
-   // path to file on disk to store data in
+   // Path to file on disk to store data in
    const char *filename;
 
-   // size of in-memory cache, in bytes
+   // Size of in-memory cache, in bytes
    size_t cache_size;
 
-   // size of file to use on disk, in bytes
+   // Size of file to use on disk, in bytes
    size_t disk_size;
 
-   // maximum length of keys, in bytes.
-   // must be <= MAX_KEY_SIZE
+   // Maximum length of keys, in bytes. Must be <= MAX_KEY_SIZE
    size_t max_key_size;
 
-   // maximum length of values, in bytes.
-   // must be <= MAX_MESSAGE_SIZE - sizeof(basic_message)
+   // Maximum length of values, in bytes.
+   // Must be <= ( MAX_MESSAGE_SIZE - sizeof(basic_message) )
    size_t max_value_size;
 
-   // optional custom comparator for keys
-   // if NULL, the default comparator (memcmp-based) will be used
+   // Optional custom comparator for keys.
+   // If NULL, the default comparator (memcmp-based) will be used
    key_comparator_fn key_comparator;
 
-   // optional context to pass to key_comparator
+   // Optional context to pass to key_comparator
    void *key_comparator_context;
 
    // Reserved, set them to NULL
@@ -192,15 +191,15 @@ kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
 void
 kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp);
 
-// checks that the iterator status is OK (no errors) and that get_current will
-// succeed If false, there are two possibilities:
-// 1. Iterator has passed the final item.  In this case, status() == 0
-// 2. Iterator has encountered an error.  In this case, status() != 0
+// Checks that the iterator status is OK (no errors) and that get_current()
+// will succeed. If false, there are two possibilities:
+// 1. Iterator has passed the final item. In this case, status() == 0
+// 2. Iterator has encountered an error. In this case, status() != 0
 _Bool
 kvstore_basic_iter_valid(kvstore_basic_iterator *iter);
 
-// attempts to advance the iterator to the next item
-// any error will cause valid() == false and be visible with status()
+// Attempts to advance the iterator to the next item.
+// Any error will cause valid() == false and be visible with status()
 void
 kvstore_basic_iter_next(kvstore_basic_iterator *iter);
 

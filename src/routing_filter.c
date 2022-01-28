@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *----------------------------------------------------------------------
  * routing_filter.c --
  *
  *     This file contains the implementation for a routing filter
+ *----------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -23,15 +25,12 @@
 
 /*
  *----------------------------------------------------------------------
- *
- * routing_hdr
+ * routing_hdr:
  *
  *       This header encodes the bucket counts for all buckets covered by a
  *       single index.
- *
  *----------------------------------------------------------------------
  */
-
 typedef struct routing_hdr {
    uint16 num_remainders;
    char   encoding[];
@@ -39,11 +38,9 @@ typedef struct routing_hdr {
 
 /*
  *----------------------------------------------------------------------
- *
  * RadixSort --
  *
  *      A fast integer sort based on https://stackoverflow.com/a/44792724
- *
  *----------------------------------------------------------------------
  */
 
@@ -211,15 +208,12 @@ routing_unlock_and_unget_page(cache       *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * routing_get_bucket_bounds
  *
  *      parses the encoding to return the start and end indices for the
  *      bucket_offset
- *
  *----------------------------------------------------------------------
  */
-
 static inline void
 routing_get_bucket_bounds(char   *encoding,
                           uint64  len,
@@ -318,7 +312,6 @@ routing_get_bucket_counts(routing_config *cfg,
 
 /*
  *----------------------------------------------------------------------
- *
  * routing_filter_add
  *
  *      Adds the fingerprints in fp_arr with value value to the
@@ -326,10 +319,8 @@ routing_get_bucket_counts(routing_config *cfg,
  *      filter_addr.
  *
  *      meta_head should be passed to routing_filter_zap
- *
  *----------------------------------------------------------------------
  */
-
 platform_status
 routing_filter_add(cache            *cc,
                    routing_config   *cfg,
@@ -792,7 +783,6 @@ routing_filter_estimate_unique_fp(cache            *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * routing_filter_lookup
  *
  *      looks for key in the filter and returns whether it was found, it's
@@ -800,10 +790,8 @@ routing_filter_estimate_unique_fp(cache            *cc,
  *
  *      IMPORTANT: If there are multiple matching values, this function returns
  *      them in the reverse order.
- *
  *----------------------------------------------------------------------
  */
-
 platform_status
 routing_filter_lookup(cache *         cc,
                       routing_config *cfg,
@@ -883,7 +871,6 @@ routing_filter_lookup(cache *         cc,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * routing_async_set_state --
  *
  *      Set the state of the async filter lookup state machine.
@@ -893,10 +880,8 @@ routing_filter_lookup(cache *         cc,
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline void
 routing_async_set_state(routing_async_ctxt  *ctxt,
                         routing_async_state  new_state)
@@ -908,7 +893,6 @@ routing_async_set_state(routing_async_ctxt  *ctxt,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * routing_filter_async_callback --
  *
  *      Callback that's called when the async cache get loads a page into
@@ -921,10 +905,8 @@ routing_async_set_state(routing_async_ctxt  *ctxt,
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static void
 routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
 {
@@ -949,7 +931,6 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * routing_filter_lookup_async --
  *
  *      Async filter lookup api. Returns if lookup found a key in *found.  The
@@ -973,10 +954,8 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 cache_async_result
 routing_filter_lookup_async(cache *             cc,
                             routing_config *    cfg,
@@ -1130,14 +1109,11 @@ routing_filter_lookup_async(cache *             cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * routing_filter_zap
  *
  *      decs the ref count of the filter and destroys it if it reaches 0
- *
  *----------------------------------------------------------------------
  */
-
 void
 routing_filter_zap(cache          *cc,
                    routing_filter *filter)
@@ -1152,15 +1128,12 @@ routing_filter_zap(cache          *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * routing_filter_estimate_unique_keys
  *
  *      returns the expected number of unique input keys given the number of
  *      unique fingerprints in the filter.
- *
  *----------------------------------------------------------------------
  */
-
 uint32
 routing_filter_estimate_unique_keys_from_count(routing_config *cfg,
                                                uint64          num_unique)

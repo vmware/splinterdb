@@ -120,7 +120,6 @@ routing_filter_is_value_found(uint64 found_values,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * routing_filter_ctxt_init --
  *
  *      Initialized the async context used by an async filter request.
@@ -130,10 +129,8 @@ routing_filter_is_value_found(uint64 found_values,
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline void
 routing_filter_ctxt_init(routing_async_ctxt *ctxt,       // OUT
                          cache_async_ctxt   *cache_ctxt, // IN

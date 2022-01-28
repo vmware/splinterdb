@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *-----------------------------------------------------------------------------
  * clockcache.c --
  *
  *     This file contains the implementation for a concurrent clock cache.
+ *-----------------------------------------------------------------------------
  */
 #include "platform.h"
 
@@ -27,7 +29,8 @@
  */
 
 /* invalid "pointers" used to indicate that the given page or lookup is
- * unmapped */
+ * unmapped
+ */
 #define CC_UNMAPPED_ENTRY UINT32_MAX
 #define CC_UNMAPPED_ADDR  UINT64_MAX
 
@@ -42,7 +45,6 @@
 
 /*
  *-----------------------------------------------------------------------------
- *
  * Clockcache Operations Logging and Address Tracing
  *
  *      clockcache_log, etc. are used to write an output of cache operations to
@@ -56,7 +58,6 @@
  *
  *      Note: these are debug functions, so calling platform_get_tid()
  *      potentially repeatedly is ok.
- *
  *-----------------------------------------------------------------------------
  */
 
@@ -581,34 +582,40 @@ typedef uint32 entry_status;
 /* Common status flag combinations */
 // free entry
 #define CC_FREE_STATUS (0 | CC_FREE)
+
 // evictable unlocked page
 #define CC_EVICTABLE_STATUS (0 | CC_CLEAN)
+
 // evictable locked page
 #define CC_LOCKED_EVICTABLE_STATUS (0 | CC_CLEAN | CC_CLAIMED | CC_WRITELOCKED)
+
 // accessed, but otherwise evictable page
 #define CC_ACCESSED_STATUS (0 | CC_ACCESSED | CC_CLEAN)
+
 // newly allocated page (dirty, writelocked)
 #define CC_ALLOC_STATUS (0 | CC_WRITELOCKED | CC_CLAIMED)
+
 // eligible for writeback (unaccessed)
 #define CC_CLEANABLE1_STATUS /* dirty */ (0)
+
 // eligible for writeback (accessed)
 #define CC_CLEANABLE2_STATUS /* dirty */ (0 | CC_ACCESSED)
+
 // actively in writeback (unaccessed)
 #define CC_WRITEBACK1_STATUS (0 | CC_WRITEBACK)
+
 // actively in writeback (accessed)
 #define CC_WRITEBACK2_STATUS (0 | CC_ACCESSED | CC_WRITEBACK)
+
 // loading for read
 #define CC_READ_LOADING_STATUS (0 | CC_ACCESSED | CC_CLEAN | CC_LOADING)
 
 /*-----------------------------------------------------------------------------
- *
  * clockcache_{set/clear/test}_flag --
  *
  *      Atomically sets, clears or tests the given flag in the entry.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline entry_status
 clockcache_set_flag(clockcache *cc, entry_status entry_number, uint32 flag)
 {
@@ -650,7 +657,7 @@ clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
 /*
  *----------------------------------------------------------------------
  *
- * utility functions
+ * Utility functions
  *
  *----------------------------------------------------------------------
  */
@@ -727,7 +734,6 @@ clockcache_get_extent_size(const clockcache *cc)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_wait --
  *
  *      Does some work while waiting. Currently just polls for async IO
@@ -735,10 +741,8 @@ clockcache_get_extent_size(const clockcache *cc)
  *
  *      This function needs to poll for async IO callback completion to avoid
  *      deadlock.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 clockcache_wait(clockcache *cc)
 {
@@ -748,7 +752,6 @@ clockcache_wait(clockcache *cc)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * ref counts
  *
  *      Each entry has a distributed ref count. This ref count is striped
@@ -758,7 +761,6 @@ clockcache_wait(clockcache *cc)
  *
  *      get_ref_internal converts an entry_number and tid to the index in
  *      cc->refcount where the ref count is stored.
- *
  *-----------------------------------------------------------------------------
  */
 
@@ -904,8 +906,7 @@ typedef enum {
 
 /*
  *----------------------------------------------------------------------
- *
- *      clockcache_try_get_read
+ * clockcache_try_get_read
  *
  *      returns:
  *      - GET_RC_SUCCESS if a read lock was obtained
@@ -913,10 +914,8 @@ typedef enum {
  *      - GET_RC_CONFLICT if another thread holds a write lock
  *
  *      does not block
- *
  *----------------------------------------------------------------------
  */
-
 static get_rc
 clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool set_access)
 {
@@ -957,18 +956,15 @@ clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool set_access)
 
 /*
  *----------------------------------------------------------------------
- *
- *      clockcache_get_read
+ * clockcache_get_read
  *
  *      returns:
  *      - GET_RC_SUCCESS if a read lock was obtained
  *      - GET_RC_EVICTED if the entry was evicted
  *
  *      blocks if another thread holds a write lock
- *
  *----------------------------------------------------------------------
  */
-
 static get_rc
 clockcache_get_read(clockcache *cc, uint32 entry_number)
 {
@@ -987,8 +983,7 @@ clockcache_get_read(clockcache *cc, uint32 entry_number)
 
 /*
  *----------------------------------------------------------------------
- *
- *      clockcache_try_get_claim
+ * clockcache_try_get_claim
  *
  *      Attempts to upgrade a read lock to claim.
  *
@@ -1000,10 +995,8 @@ clockcache_get_read(clockcache *cc, uint32 entry_number)
  *      - GET_RC_CONFLICT if another thread holds a claim (or write lock)
  *
  *      does not block
- *
  *----------------------------------------------------------------------
  */
-
 static get_rc
 clockcache_try_get_claim(clockcache *cc, uint32 entry_number)
 {
@@ -1025,8 +1018,7 @@ clockcache_try_get_claim(clockcache *cc, uint32 entry_number)
 
 /*
  *----------------------------------------------------------------------
- *
- *      clockcache_get_write
+ * clockcache_get_write
  *
  *      Upgrades a claim to a write lock.
  *
@@ -1039,10 +1031,8 @@ clockcache_try_get_claim(clockcache *cc, uint32 entry_number)
  *      Note: does not wait on CC_LOADING. Caller must either ensure that
  *      CC_LOADING is not set prior to calling (e.g. via a prior call to
  *      clockcache_get).
- *
  *----------------------------------------------------------------------
  */
-
 static void
 clockcache_get_write(clockcache *cc, uint32 entry_number)
 {
@@ -1090,8 +1080,7 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
 
 /*
  *----------------------------------------------------------------------
- *
- *      clockcache_try_get_write
+ * clockcache_try_get_write
  *
  *      Attempts to upgrade a claim to a write lock.
  *
@@ -1104,10 +1093,8 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
  *      Note: does not wait on CC_LOADING. Caller must either ensure that
  *      CC_LOADING is not set prior to calling (e.g. via a prior call to
  *      clockcache_get).
- *
  *----------------------------------------------------------------------
  */
-
 static get_rc
 clockcache_try_get_write(clockcache *cc, uint32 entry_number)
 {
@@ -1165,15 +1152,12 @@ failed:
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_ok_to_writeback
  *
  *      Tests the entry to see if write back is possible. Used for test and
  *      test and set.
- *
  *----------------------------------------------------------------------
  */
-
 static inline bool
 clockcache_ok_to_writeback(clockcache *cc,
                            uint32      entry_number,
@@ -1186,17 +1170,14 @@ clockcache_ok_to_writeback(clockcache *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_try_set_writeback
  *
  *      Atomically sets the CC_WRITEBACK flag if the status permits; current
  *      status must be:
  *         -- CC_CLEANABLE1_STATUS (= 0)                  // dirty
  *         -- CC_CLEANABLE2_STATUS (= 0 | CC_ACCESSED)    // dirty
- *
  *----------------------------------------------------------------------
  */
-
 static inline bool
 clockcache_try_set_writeback(clockcache *cc,
                              uint32      entry_number,
@@ -1216,15 +1197,12 @@ clockcache_try_set_writeback(clockcache *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_write_callback --
  *
  *      Internal callback function to clean up after writing out a vector of
  *      blocks to disk.
- *
  *----------------------------------------------------------------------
  */
-
 #if defined(__has_feature)
 #   if __has_feature(memory_sanitizer)
 __attribute__((no_sanitize("memory")))
@@ -1269,7 +1247,6 @@ clockcache_write_callback(void *          metadata,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_batch_start_writeback --
  *
  *      Iterates through all pages in the batch and issues writeback for any
@@ -1280,10 +1257,8 @@ clockcache_write_callback(void *          metadata,
  *
  *      If is_urgent is set, pages with CC_ACCESSED are written back, otherwise
  *      they are not.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
 {
@@ -1382,14 +1357,11 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_try_evict
  *
  *      Attempts to evict the page if it is evictable
- *
  *----------------------------------------------------------------------
  */
-
 static void
 clockcache_try_evict(clockcache *cc, uint32 entry_number)
 {
@@ -1490,14 +1462,11 @@ out:
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_evict_batch --
  *
  *      Evicts all evictable pages in the batch.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_evict_batch(clockcache *cc, uint32 batch)
 {
@@ -1521,16 +1490,13 @@ clockcache_evict_batch(clockcache *cc, uint32 batch)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_move_hand --
  *
  *      Moves the clock hand forward cleaning and evicting a batch. Cleans
  *      "accessed" pages if is_urgent is set, for example when get_free_page
  *      has cycled through the cache already.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_move_hand(clockcache *cc, bool is_urgent)
 {
@@ -1568,14 +1534,11 @@ clockcache_move_hand(clockcache *cc, bool is_urgent)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_get_free_page --
  *
  *      returns a free page with given status and ref count.
- *
  *----------------------------------------------------------------------
  */
-
 uint32
 clockcache_get_free_page(clockcache *cc,
                          uint32      status,
@@ -1648,16 +1611,13 @@ clockcache_get_free_page(clockcache *cc,
 }
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_flush --
  *
  *      Issues writeback for all page in the cache.
  *
  *      Asserts that there are no pins, read locks, claims or write locks.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 clockcache_flush(clockcache *cc)
 {
@@ -1681,14 +1641,11 @@ clockcache_flush(clockcache *cc)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_evict_all --
  *
  *      evicts all the pages.
- *
  *-----------------------------------------------------------------------------
  */
-
 int
 clockcache_evict_all(clockcache *cc, bool ignore_pinned_pages)
 {
@@ -1720,14 +1677,11 @@ clockcache_evict_all(clockcache *cc, bool ignore_pinned_pages)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_config_init --
  *
  *      Initialize clockcache config values
- *
  *-----------------------------------------------------------------------------
  */
-
 void clockcache_config_init(clockcache_config *cache_cfg,
                             uint64             page_size,
                             uint64             extent_size,
@@ -1896,15 +1850,12 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_alloc --
  *
  *      Given a disk_addr, allocate entry in the cache and return its page with
  *      a write lock.
- *
  *----------------------------------------------------------------------
  */
-
 page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 {
@@ -1928,14 +1879,11 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_try_hard_evict --
  *
  *      Evicts the page with address addr if it is in cache.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_try_hard_evict(clockcache *cc, uint64 addr)
 {
@@ -2021,15 +1969,12 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_hard_evict_extent --
  *
  *      Attempts to evict all the pages in the extent. Will wait for writeback,
  *      but will evict and discard dirty pages.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 {
@@ -2046,14 +1991,11 @@ clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_get_allocator_ref --
  *
  *      Returns the allocator ref count of the addr.
- *
  *----------------------------------------------------------------------
  */
-
 uint8
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr)
 {
@@ -2062,7 +2004,6 @@ clockcache_get_allocator_ref(clockcache *cc, uint64 addr)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_get_internal --
  *
  *      Attempts to get a pointer to the page_handle for the page with
@@ -2074,10 +2015,8 @@ clockcache_get_allocator_ref(clockcache *cc, uint64 addr)
  *      we have to evict an entry and race with someone else loading the
  *      entry.
  *      Blocks while the page is loaded into cache if necessary.
- *
  *----------------------------------------------------------------------
  */
-
 static bool
 clockcache_get_internal(clockcache *cc,              // IN
                         uint64      addr,            // IN
@@ -2203,7 +2142,6 @@ clockcache_get_internal(clockcache *cc,              // IN
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_get --
  *
  *      Returns a pointer to the page_handle for the page with address addr.
@@ -2212,10 +2150,8 @@ clockcache_get_internal(clockcache *cc,              // IN
  *      If blocking is set, then it blocks until the page is unlocked as well.
  *
  *      Returns with a read lock held.
- *
  *----------------------------------------------------------------------
  */
-
 page_handle *
 clockcache_get(clockcache *cc,
                uint64     addr,
@@ -2237,11 +2173,9 @@ clockcache_get(clockcache *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_read_async_callback --
  *
  *    Async callback called after async read IO completes.
- *
  *----------------------------------------------------------------------
  */
 static void
@@ -2287,7 +2221,6 @@ clockcache_read_async_callback(void            *metadata,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_get_async --
  *
  *      Async version of clockcache_get(). This can return one of the
@@ -2301,10 +2234,8 @@ clockcache_read_async_callback(void            *metadata,
  *        The callback is not called on a thread context. It's the user's
  *        responsibility to call cache_async_done() on the thread context
  *        after the callback is done.
- *
  *----------------------------------------------------------------------
  */
-
 cache_async_result
 clockcache_get_async(clockcache        *cc,        // IN
                      uint64             addr,      // IN
@@ -2434,12 +2365,10 @@ clockcache_get_async(clockcache        *cc,        // IN
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_async_done --
  *
  *    Called from thread context after the async callback has been invoked.
  *    Currently, it just updates cache miss stats.
- *
  *----------------------------------------------------------------------
  */
 void
@@ -2480,7 +2409,6 @@ clockcache_unget(clockcache *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_claim --
  *
  *      Upgrades a read lock to a claim. This function does not block and
@@ -2490,10 +2418,8 @@ clockcache_unget(clockcache *cc,
  *
  *      NOTE: When a call to claim fails, the caller must drop and reobtain the
  *      readlock before trying to claim again to avoid deadlock.
- *
  *----------------------------------------------------------------------
  */
-
 bool
 clockcache_claim(clockcache *cc,
                  page_handle *page)
@@ -2526,17 +2452,14 @@ clockcache_unclaim(clockcache *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_lock --
  *
  *     Write locks a claimed page and blocks while any read locks are released.
  *
  *     The write lock is indicated by having the CC_WRITELOCKED flag set in
  *     addition to the CC_CLAIMED flag.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_lock(clockcache  *cc,
                 page_handle *page)
@@ -2567,14 +2490,11 @@ clockcache_unlock(clockcache  *cc,
 
 
 /*----------------------------------------------------------------------
- *
  * clockcache_mark_dirty --
  *
  *      Marks the entry dirty.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_mark_dirty(clockcache *cc,
                       page_handle *page)
@@ -2592,17 +2512,14 @@ clockcache_mark_dirty(clockcache *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_pin --
  *
  *      Functionally equivalent to an anonymous read lock. Implemented using a
  *      special ref count.
  *
  *      A write lock must be held while pinning to avoid a race with eviction.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_pin(clockcache *cc,
                page_handle *page)
@@ -2634,15 +2551,12 @@ clockcache_unpin(clockcache *cc,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_page_sync --
  *
  *      Asynchronously syncs the page. Currently there is no way to check when
  *      the writeback has completed.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 clockcache_page_sync(clockcache  *cc,
                      page_handle *page,
@@ -2693,12 +2607,10 @@ clockcache_page_sync(clockcache  *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_sync_callback --
  *
  *      internal callback for clockcache_extent_sync which decrements the pages
  *      outstanding counter
- *
  *----------------------------------------------------------------------
  */
 
@@ -2727,7 +2639,6 @@ clockcache_sync_callback(void            *arg,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_extent_sync --
  *
  *      Asynchronously syncs the extent.
@@ -2737,10 +2648,8 @@ clockcache_sync_callback(void            *arg,
  *      them off, so that the caller may track how many pages are in writeback.
  *
  *      Assumes all pages in the extent are clean or cleanable
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 clockcache_extent_sync(clockcache *cc,
                        uint64      addr,
@@ -2794,15 +2703,12 @@ clockcache_extent_sync(clockcache *cc,
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_prefetch_callback --
  *
  *      Internal callback function to clean up after prefetching a collection
  *      of pages from the device.
- *
  *----------------------------------------------------------------------
  */
-
 #if defined(__has_feature)
 #   if __has_feature(memory_sanitizer)
 __attribute__((no_sanitize("memory")))
@@ -2852,15 +2758,11 @@ clockcache_prefetch_callback(void *          metadata,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_prefetch --
  *
  *      prefetch asynchronously loads the extent with given base address
- *
  *-----------------------------------------------------------------------------
  */
-
-
 void
 clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 {
@@ -2963,14 +2865,11 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 
 /*
  *----------------------------------------------------------------------
- *
  * clockcache_print --
  *
  *      Prints a bitmap representation of the cache.
- *
  *----------------------------------------------------------------------
  */
-
 void
 clockcache_print(clockcache *cc)
 {

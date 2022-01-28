@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *-----------------------------------------------------------------------------
  * kvstore.c --
  *
  *     This file contains the implementation of external kvstore interfaces
@@ -15,6 +16,7 @@
  *
  *     For simple use cases, start with kvstore_basic, which provides
  *     a key-value abstraction.
+ *-----------------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -59,7 +61,6 @@ platform_status_to_int(const platform_status status) // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * kvstore_init_config --
  *
  *      Translate kvstore_config to configs for individual subsystems.
@@ -69,10 +70,8 @@ platform_status_to_int(const platform_status status) // IN
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static platform_status
 kvstore_init_config(const kvstore_config *kvs_cfg, // IN
                     kvstore *             kvs      // OUT
@@ -154,7 +153,9 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
 }
 
 
-// internal function for create or open
+/*
+ * Internal function for create or open
+ */
 int
 kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                        kvstore **            kvs_out,      // OUT
@@ -295,7 +296,6 @@ kvstore_open(const kvstore_config *cfg, // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * kvstore_close --
  *
  *      Close a kvstore, flushing to disk and releasing resources
@@ -305,10 +305,8 @@ kvstore_open(const kvstore_config *cfg, // IN
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 kvstore_close(kvstore *kvs) // IN
 {
@@ -326,7 +324,6 @@ kvstore_close(kvstore *kvs) // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * kvstore_register_thread --
  *
  *      Allocate scratch space and register the current thread.
@@ -342,10 +339,8 @@ kvstore_close(kvstore *kvs) // IN
  *
  * Side effects:
  *      Allocates memory
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 kvstore_register_thread(kvstore *kvs) // IN
 {
@@ -357,7 +352,6 @@ kvstore_register_thread(kvstore *kvs) // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * kvstore_deregister_thread --
  *
  *      Free scratch space.
@@ -369,7 +363,6 @@ kvstore_register_thread(kvstore *kvs) // IN
  *
  * Side effects:
  *      Frees memory
- *
  *-----------------------------------------------------------------------------
  */
 void
@@ -383,7 +376,6 @@ kvstore_deregister_thread(kvstore *kvs)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * kvstore_insert --
  *
  *      Insert a tuple into splinter
@@ -393,10 +385,8 @@ kvstore_deregister_thread(kvstore *kvs)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 int
 kvstore_insert(const kvstore *kvs,            // IN
                char *         key,            // IN
@@ -411,12 +401,9 @@ kvstore_insert(const kvstore *kvs,            // IN
    return platform_status_to_int(status);
 }
 
-
 /*
  *-----------------------------------------------------------------------------
- *
  * _kvstore_lookup_result structure --
- *
  *-----------------------------------------------------------------------------
  */
 typedef struct _kvstore_lookup_result {
@@ -467,7 +454,6 @@ kvstore_lookup_result_data(kvstore_lookup_result *result) // IN
 
 /*
  *-----------------------------------------------------------------------------
- *
  * kvstore_lookup --
  *
  *      Look up a key from splinter
@@ -477,10 +463,8 @@ kvstore_lookup_result_data(kvstore_lookup_result *result) // IN
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 int
 kvstore_lookup(const kvstore *        kvs,    // IN
                char *                 key,    // IN

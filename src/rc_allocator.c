@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *------------------------------------------------------------------------------
  * rc_allocator.c --
  *
  *     This file contains the implementation of the ref count allocator.
+ *------------------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -36,9 +38,7 @@
 
 /*
  *------------------------------------------------------------------------------
- *
- * function declarations
- *
+ * Function declarations
  *------------------------------------------------------------------------------
  */
 
@@ -242,14 +242,11 @@ rc_allocator_init_meta_page(rc_allocator *al)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * rc_allocator_config_init --
  *
  *      Initialize rc_allocator config values
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 rc_allocator_config_init(rc_allocator_config *allocator_cfg,
                          uint64              page_size,
@@ -267,14 +264,11 @@ rc_allocator_config_init(rc_allocator_config *allocator_cfg,
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_[de]init --
  *
  *      [de]initialize an allocator
- *
  *----------------------------------------------------------------------
  */
-
 platform_status
 rc_allocator_init(rc_allocator         *al,
                   rc_allocator_config  *cfg,
@@ -352,15 +346,12 @@ void rc_allocator_deinit(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_[dis]mount --
  *
  *      Loads the file system from disk
  *      Write the file system to disk
- *
  *----------------------------------------------------------------------
  */
-
 platform_status
 rc_allocator_mount(rc_allocator         *al,
                    rc_allocator_config  *cfg,
@@ -447,16 +438,13 @@ rc_allocator_dismount(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_[inc,dec,get]_ref --
  *
  *      Increments/decrements/fetches the ref count of the given address and
  *      returns the new one. If the ref_count goes to 0, then the extent is
  *      freed.
- *
  *----------------------------------------------------------------------
  */
-
 uint8
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
@@ -514,14 +502,11 @@ rc_allocator_get_ref(rc_allocator *al, uint64 addr)
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_get_[capacity,super_addr] --
  *
  *      returns the struct/parameter
- *
  *----------------------------------------------------------------------
  */
-
 uint64
 rc_allocator_get_capacity(rc_allocator *al)
 {
@@ -629,14 +614,11 @@ rc_allocator_page_size(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_alloc--
  *
  *      Allocate an extent
- *
  *----------------------------------------------------------------------
  */
-
 platform_status
 rc_allocator_alloc(rc_allocator *al,   // IN
                    uint64 *      addr, // OUT
@@ -676,14 +658,11 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_in_use --
  *
  *      Returns the number of extents currently allocated
- *
  *----------------------------------------------------------------------
  */
-
 uint64
 rc_allocator_in_use(rc_allocator *al)
 {
@@ -692,15 +671,12 @@ rc_allocator_in_use(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_assert_noleaks --
  *
  *      Asserts that the allocations of each type are completely matched by
  *      deallocations.
- *
  *----------------------------------------------------------------------
  */
-
 void
 rc_allocator_assert_noleaks(rc_allocator *al)
 {
@@ -718,19 +694,15 @@ rc_allocator_assert_noleaks(rc_allocator *al)
    }
 }
 
-
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_print_stats --
  *
  *      Prints basic statistics about the allocator state.
  *
  *      Max allocations, and page type stats are since last mount.
- *
  *----------------------------------------------------------------------
  */
-
 void
 rc_allocator_print_stats(rc_allocator *al)
 {
@@ -776,14 +748,11 @@ rc_allocator_print_stats(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_debug_print --
  *
  *      Prints the base addrs of all allocated extents.
- *
  *----------------------------------------------------------------------
  */
-
 void
 rc_allocator_debug_print(rc_allocator *al)
 {

@@ -32,7 +32,6 @@ pointer_byte_offset(void *base, int64 offset)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * int64abs --
  *
  *    This function takes an int64 value and it returns the abolute value.
@@ -44,10 +43,8 @@ pointer_byte_offset(void *base, int64 offset)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline uint64
 int64abs(int64 j)
 {
@@ -135,33 +132,35 @@ slice_lex_cmp(const slice a, const slice b)
    }
 }
 
-/* Writable buffers can be in one of four states:
-   - uninitialized
-   - null
-     - data == NULL
-     - allocation_size == length == 0
-   - non-null
-     - data != NULL
-     - length <= allocation_size
-
-   No operation (other than destroy) ever shrinks allocation_size, so
-   writable_buffers can only go down the above list, e.g. once a
-   writable_buffer is out-of-line, it never becomes inline again.
-
-   writable_buffer_init can create any of the initialized,
-   non-user-provided-buffer states, based on the allocation_size
-   specified.
-
-   writable_buffer_destroy returns the writable_buffer to the null state.
-
-   Note that the null state is not isolated.  writable_buffer_realloc
-   can move a null writable_buffer to the inline or the platform_malloced
-   states.  Thus it is possible to, e.g. perform
-   writable_buffer_copy_slice on a null writable_buffer.
-
-   Also note that the user-provided state can move to the
-   platform-malloced state.
-*/
+/*
+ * ----------------------------------------------------------------------
+ * Writable buffers can be in one of four states:
+ * - uninitialized
+ * - null
+ *   - data == NULL
+ *   - allocation_size == length == 0
+ * - non-null
+ *   - data != NULL
+ *   - length <= allocation_size
+ *
+ * No operation (other than destroy) ever shrinks allocation_size, so
+ * writable_buffers can only go down the above list, e.g. once a
+ * writable_buffer is out-of-line, it never becomes inline again.
+ *
+ * writable_buffer_init can create any of the initialized,
+ * non-user-provided-buffer states, based on the allocation_size
+ * specified.
+ *
+ * writable_buffer_destroy returns the writable_buffer to the null state.
+ *
+ * Note that the null state is not isolated.  writable_buffer_realloc
+ * can move a null writable_buffer to the inline or the platform_malloced
+ * states.  Thus it is possible to, e.g. perform
+ * writable_buffer_copy_slice on a null writable_buffer.
+ *
+ * Also note that the user-provided state can move to the
+ * platform-malloced state.
+ */
 struct writable_buffer {
    void *           original_pointer;
    uint64           original_size;

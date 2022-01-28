@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *-----------------------------------------------------------------------------
  * memtable.c --
  *
  *     This file contains the implementation for the splinter memtable.
+ *-----------------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -97,6 +99,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
 }
 
 /*
+ *-----------------------------------------------------------------------------
  * Increments the distributed tuple counter.  Must hold a read lock on
  * insert_lock.
  *
@@ -111,6 +114,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
  * adds a tuple which takes its local count to
  * k * MEMTABLE_COUNT_GRANULARITY + 1. Therefore, num_tuples is an upper
  * bound except that each thread may still add 1 more tuple.
+ *-----------------------------------------------------------------------------
  */
 static inline void
 memtable_add_tuple(memtable_context *ctxt)

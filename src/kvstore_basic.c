@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *-----------------------------------------------------------------------------
  * kvstore_basic.c --
  *
  *     Implementation for a simplified key-value store interface.
  *
  *     API deals with keys/values rather than keys/messages.
+ *-----------------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -260,7 +262,11 @@ new_basic_data_config(const size_t max_key_size,   // IN
    return 0;
 }
 
-// Implementation of public API begins here...
+/*
+ *-----------------------------------------------------------------------------
+ * Implementation of public API begins here...
+ *-----------------------------------------------------------------------------
+ */
 
 int
 kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
@@ -412,6 +418,7 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
 }
 
 /*
+ *-----------------------------------------------------------------------------
  * kvstore_basic_lookup() - Lookup a key, returning its value.
  *
  * Parameters:
@@ -427,6 +434,7 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
  * Returns:
  *  == 0, upon success. (Check booleans to see if key is found.)
  *  != 0, upon any error condition.
+ *-----------------------------------------------------------------------------
  */
 int
 kvstore_basic_lookup(const kvstore_basic *kvsb,
@@ -497,12 +505,14 @@ struct kvstore_basic_iterator {
 };
 
 /*
+ *-----------------------------------------------------------------------------
  * Initialize a KVStore iterator.
  *
  * Returns:
  *  0 - For successful initialization of the iterator.
  *  != 0 - In case of any errors
  *  ENOMEM - In case of any memory allocation errors
+ *-----------------------------------------------------------------------------
  */
 int
 kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
