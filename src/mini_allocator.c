@@ -1,4 +1,4 @@
-// Copyright 2018-2021 VMware, Inc.MINI_NO_REFS on the meta_head before
+// Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 /*
@@ -28,13 +28,13 @@
 
 /*
  *-----------------------------------------------------------------------------
- * mini_meta_hdr --
+ * mini_meta_hdr -- Disk-resident structure
  *
  *      The header of a meta_page in a mini_allocator. Keyed mini_allocators
  *      use entry_buffer and unkeyed ones use entry.
  *-----------------------------------------------------------------------------
  */
-typedef struct PACKED mini_meta_hdr {
+typedef struct ONDISK mini_meta_hdr {
    uint64 next_meta_addr;
    uint64 pos;
    uint32 num_entries;
@@ -43,12 +43,34 @@ typedef struct PACKED mini_meta_hdr {
 
 #define TERMINAL_EXTENT_ADDR ((uint64)-1)
 
-typedef struct PACKED keyed_meta_entry {
+/*
+ *-----------------------------------------------------------------------------
+ * keyed_meta_entry -- Disk-resident structure
+ *
+ *      Metadata for each extent stored in the extent list for a keyed
+ *      mini_allocator. The key range for each extent goes from start_key to
+ *      the start_key of its successor (the next keyed_meta_entry from the same
+        batch).
+ *-----------------------------------------------------------------------------
+ */
+typedef struct ONDISK keyed_meta_entry {
    uint64 extent_addr;
    uint16 start_key_length;
    uint8  batch;
    char   start_key[];
 } keyed_meta_entry;
+
+/*
+ *-----------------------------------------------------------------------------
+ * unkeyed_meta_entry -- Disk-resident structure
+ *
+ *      Metadata for each extent stored in the extent list for an unkeyed
+ *      mini_allocator. Currently, this is just the extent address itself.
+ *-----------------------------------------------------------------------------
+ */
+typedef struct ONDISK unkeyed_meta_entry {
+   uint64 extent_addr;
+} unkeyed_meta_entry;
 
 static uint64
 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
@@ -79,10 +101,6 @@ keyed_next_entry(keyed_meta_entry *entry)
 {
    return (keyed_meta_entry *)((char *)entry + sizeof_keyed_meta_entry(entry));
 }
-
-typedef struct PACKED unkeyed_meta_entry {
-   uint64 extent_addr;
-} unkeyed_meta_entry;
 
 static unkeyed_meta_entry *
 unkeyed_first_entry(page_handle *meta_page)
@@ -289,18 +307,10 @@ mini_init(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- *
- * mini_meta_page_is_full --
- *
- * Results:
- *      TRUE is meta_page is full, FALSE otherwise
- *
- * Side effects:
- *      None.
- *
+ * mini_num_entries --
+ *      Return the number of entries in the meta_page.
  *-----------------------------------------------------------------------------
  */
-
 static uint64
 mini_num_entries(page_handle *meta_page)
 {
@@ -1292,9 +1302,10 @@ mini_keyed_print(cache       *cc,
          slice start_key = keyed_meta_entry_start_key(entry);
          char  extent_str[32];
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
-            snprintf(extent_str, 32, "TERMINAL_ENTRY");
+            snprintf(extent_str, sizeof(extent_str), "TERMINAL_ENTRY");
          } else {
-            snprintf(extent_str, 32, "%14lu", entry->extent_addr);
+            snprintf(
+               extent_str, sizeof(extent_str), "%14lu", entry->extent_addr);
          }
          char ref_str[4];
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
