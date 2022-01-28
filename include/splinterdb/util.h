@@ -13,6 +13,7 @@ writable_buffer_length(writable_buffer *wb);
 bool
 writable_buffer_set_length(writable_buffer *wb, uint64 newlength);
 
+/* Returns a ptr to the data region held by this writable_buffer */
 void *
 writable_buffer_data(writable_buffer *wb);
 

@@ -28,7 +28,7 @@
 
 /*
  *-----------------------------------------------------------------------------
- * mini_meta_hdr --
+ * mini_meta_hdr -- Disk-resident structure
  *
  *      The header of a meta_page in a mini_allocator. Keyed mini_allocators
  *      use entry_buffer and unkeyed ones use entry.
@@ -43,12 +43,18 @@ typedef struct PACKED mini_meta_hdr {
 
 #define TERMINAL_EXTENT_ADDR ((uint64)-1)
 
+/* Disk-resident structure */
 typedef struct PACKED keyed_meta_entry {
    uint64 extent_addr;
    uint16 start_key_length;
    uint8  batch;
    char   start_key[];
 } keyed_meta_entry;
+
+/* Disk-resident structure */
+typedef struct PACKED unkeyed_meta_entry {
+   uint64 extent_addr;
+} unkeyed_meta_entry;
 
 static uint64
 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
@@ -79,10 +85,6 @@ keyed_next_entry(keyed_meta_entry *entry)
 {
    return (keyed_meta_entry *)((char *)entry + sizeof_keyed_meta_entry(entry));
 }
-
-typedef struct PACKED unkeyed_meta_entry {
-   uint64 extent_addr;
-} unkeyed_meta_entry;
 
 static unkeyed_meta_entry *
 unkeyed_first_entry(page_handle *meta_page)
@@ -289,18 +291,10 @@ mini_init(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- *
- * mini_meta_page_is_full --
- *
- * Results:
- *      TRUE is meta_page is full, FALSE otherwise
- *
- * Side effects:
- *      None.
- *
+ * mini_num_entries --
+ *      Return the number of entries in the meta_page.
  *-----------------------------------------------------------------------------
  */
-
 static uint64
 mini_num_entries(page_handle *meta_page)
 {

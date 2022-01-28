@@ -22,23 +22,24 @@ typedef node_offset table_entry;
 typedef uint16      inline_key_size;
 typedef uint16      inline_message_size;
 
-/* **********************
- * Node headers
- * *********************
+/* ****************************************************
+ * BTree Node headers: Disk-resident structure:
+ * Page Type == PAGE_TYPE_MEMTABLE, PAGE_TYPE_BRANCH
+ * ****************************************************
  */
 struct PACKED btree_hdr {
    uint64      next_addr;
    uint64      next_extent_addr;
    uint64      generation;
    uint8       height;
-   node_offset next_entry;
-   table_index num_entries;
+   node_offset next_entry;  // RESOLVE: Unaligned access to all these
+   table_index num_entries; // 2-byte fields here onwards ...
    table_entry offsets[];
 };
 
-/* **********************************
- * Node entries
- * *********************************
+/* ***************************************
+ * Node entries: Disk-resident structure
+ * ***************************************
  */
 typedef struct PACKED index_entry {
    btree_pivot_data pivot_data;
@@ -53,6 +54,10 @@ _Static_assert(sizeof(index_entry)
 _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
                "index_entry key has wrong offset");
 
+/* ***************************************
+ * Leaf entry: Disk-resident structure
+ * ***************************************
+ */
 typedef struct PACKED leaf_entry {
    inline_key_size     key_size;
    inline_message_size message_size;
@@ -102,10 +107,10 @@ typedef struct leaf_splitting_plan {
 } leaf_splitting_plan;
 
 /*
- * ************************************************************************
- * External function prototypes: Declare these first, as some inine static
+ * *************************************************************************
+ * External function prototypes: Declare these first, as some inline static
  * functions defined below may call these extern functions.
- * ************************************************************************
+ * *************************************************************************
  */
 bool
 btree_set_index_entry(const btree_config *cfg,

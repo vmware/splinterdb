@@ -93,10 +93,15 @@ kvstore_insert(const kvstore *kvs,
  * Lookups
  **************/
 
+/*
+ * Lookup result buffer is sized by 6 8-byte fields, defined elsewhere.
+ */
+#define KVSTORE_LOOKUP_BUFSIZE (6 * sizeof(void *))
+
 /* Lookup results are stored in a kvstore_lookup_result.
  */
 typedef struct kvstore_lookup_result {
-   char opaque[48];
+   char opaque[KVSTORE_LOOKUP_BUFSIZE];
 } kvstore_lookup_result;
 
 /*

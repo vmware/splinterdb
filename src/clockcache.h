@@ -24,6 +24,9 @@
 /* how distributed the rw locks are */
 #define CC_RC_WIDTH 4
 
+/*
+ * Configuration struct to setup the clock cache sub-system.
+ */
 typedef struct clockcache_config {
    uint64 page_size;
    uint64 log_page_size;
@@ -39,16 +42,17 @@ typedef struct clockcache_config {
    uint64 pages_per_extent;
 } clockcache_config;
 
-typedef struct clockcache       clockcache;
-typedef struct clockcache_entry clockcache_entry;
-
 #ifdef RECORD_ACQUISITION_STACKS
+
+// Provide a small number of backtrace history records.
+#   define NUM_HISTORY_RECORDS 32
+
 typedef struct history_record {
    uint32 status;
    int    refcount;
-   void  *backtrace[32];
+   void * backtrace[NUM_HISTORY_RECORDS];
 } history_record;
-#endif
+#endif // RECORD_ACQUISITION_STACKS
 
 
 /*
@@ -59,15 +63,15 @@ typedef struct history_record {
  *     page_handle together with some flags.
  *-----------------------------------------------------------------------------
  */
-struct clockcache_entry {
+typedef struct clockcache_entry {
    page_handle     page;
    volatile uint32 status;
    page_type       type;
 #ifdef RECORD_ACQUISITION_STACKS
    int            next_history_record;
-   history_record history[32];
+   history_record history[NUM_HISTORY_RECORDS];
 #endif
-};
+} clockcache_entry;
 
 /*
  *----------------------------------------------------------------------
@@ -100,7 +104,7 @@ struct clockcache_entry {
  *      eviction use cc->batch_busy to avoid conflicts and contention.
  *----------------------------------------------------------------------
  */
-struct clockcache {
+typedef struct clockcache {
    cache              super;
    clockcache_config *cfg;
    allocator         *al;
@@ -134,7 +138,7 @@ struct clockcache {
    cache_stats stats[MAX_THREADS];
 
    task_system *ts;
-};
+} clockcache;
 
 
 /*

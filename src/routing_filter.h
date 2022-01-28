@@ -37,6 +37,10 @@ typedef struct routing_config {
    data_config *data_cfg;
 } routing_config;
 
+/*
+ * Routing Filter: Disk-resident structure.
+ * Stored in trunk nodes, and is a pointer to a routing filter.
+ */
 typedef struct PACKED routing_filter {
    uint64 addr;
    uint64 meta_head;

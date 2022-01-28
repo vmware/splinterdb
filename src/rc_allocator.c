@@ -31,7 +31,6 @@
  * #define SHOULD_TRACE(addr) (1) // trace all addresses
  * #define SHOULD_TRACE(addr) ((addr) / (4096 * 32) == 339ULL) // trace extent
  * 339
- *
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything
 
@@ -685,7 +684,8 @@ rc_allocator_in_use(rc_allocator *al)
 void
 rc_allocator_assert_noleaks(rc_allocator *al)
 {
-   for (page_type type = PAGE_TYPE_TRUNK; type != NUM_PAGE_TYPES; type++) {
+   for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
+      /* RESOLVE: Give reason why we skip these page types */
       if (type == PAGE_TYPE_LOG || type == PAGE_TYPE_MISC) {
          continue;
       }
@@ -734,7 +734,7 @@ rc_allocator_print_stats(rc_allocator *al)
       "| Page Type | Allocations | Deallocations | Footprint (bytes)  |\n");
    platform_default_log(
       "|--------------------------------------------------------------|\n");
-   for (page_type type = PAGE_TYPE_TRUNK; type != NUM_PAGE_TYPES; type++) {
+   for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
       const char *str           = page_type_str[type];
       int64       allocs        = al->stats.extent_allocs[type];
       int64       deallocs      = al->stats.extent_deallocs[type];

@@ -41,7 +41,9 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
    10000000000 // 10  s
 };
 
+/* Max # of Memtables that can be active at one time. */
 #define SPLINTER_NUM_MEMTABLES             (4)
+
 #define SPLINTER_HARD_MAX_NUM_TREES        (128)
 #define SPLINTER_MAX_PIVOTS                (20)
 #define SPLINTER_MAX_BUNDLES               (12)
@@ -50,6 +52,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 #define SPLINTER_PREFETCH_MIN              (16384)
 #define SPLINTER_MIN_SPACE_RECL            (2048)
 #define SPLINTER_SUPER_CSUM_SEED           (42)
+
 #define SPLINTER_SINGLE_LEAF_THRESHOLD_PCT (75)
 
 //#define SPLINTER_LOG
@@ -271,7 +274,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 
 /*
  *-----------------------------------------------------------------------------
- * Trunk Nodes:
+ * Trunk Nodes: splinter_trunk_hdr{}
  *
  *       A trunk node consists of the following:
  *
@@ -294,7 +297,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          Subbundles function properly in the current design, but are not
  *          used for anything. They are going to be used for routing filters.
  *       ----------
- *       array of pivots Each node has a pivot corresponding to each
+ *       array of pivots: Each node has a pivot corresponding to each
  *          child as well as an additional last pivot which contains
  *          an exclusive upper bound key for the node. Each pivot has
  *          a key which is an inclusive lower bound for the keys in
@@ -353,9 +356,13 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *-----------------------------------------------------------------------------
  */
 
-// A super block
-typedef struct splinter_super_block {
-   uint64      root_addr;
+/*
+ *-----------------------------------------------------------------------------
+ * Splinter Super Block: Disk-resident structure.
+ *-----------------------------------------------------------------------------
+ */
+typedef struct PACKED splinter_super_block {
+   uint64      root_addr; // Disk offset where super-block page resides
    uint64      meta_tail;
    uint64      log_addr;
    uint64      log_meta_addr;
@@ -404,7 +411,7 @@ typedef struct PACKED splinter_bundle {
 } splinter_bundle;
 
 /*
- * Trunk headers:
+ * Trunk headers: Page Type == PAGE_TYPE_TRUNK
  *
  * Contains metadata for trunk nodes. See below for comments on fields.
  *
@@ -794,6 +801,13 @@ splinter_set_next_addr(splinter_handle *spl, page_handle *node, uint64 addr)
    hdr->next_addr          = addr;
 }
 
+/*
+ * splinter_for_each_node() is an iterator driver function to walk through all
+ * nodes in a Splinter tree, and to execute the work-horse 'func' function on
+ * each node.
+ *
+ * Returns: TRUE, if 'func' was successful on all nodes. FALSE, otherwise.
+ */
 bool
 splinter_for_each_node(splinter_handle *spl, node_fn func, void *arg)
 {
@@ -1850,6 +1864,7 @@ splinter_get_sb_filter(splinter_handle *spl,
                        uint16           filter_no)
 {
    splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
+   // RESOLVE: assert that (0 <= filter_no < SPLINTER_MAX_FILTERS)
    return &hdr->sb_filter[filter_no];
 }
 

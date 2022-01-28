@@ -569,8 +569,12 @@ static cache_ops clockcache_ops = {
  *-----------------------------------------------------------------------------
  */
 
+/* RESOLVE: Why is this not defined in clockcache.h, before definition of
+ * struct clockcache_entry{}, and used inside of that?
+ */
 typedef uint32 entry_status;
 
+/* RESOLVE - Why not move these definitions to .h file? */
 #define CC_FREE        (1u << 0) // entry is free
 #define CC_ACCESSED    (1u << 1) // access bit prevents eviction for one cycle
 #define CC_CLEAN       (1u << 2) // page has no new changes
@@ -616,6 +620,12 @@ typedef uint32 entry_status;
  *      Atomically sets, clears or tests the given flag in the entry.
  *-----------------------------------------------------------------------------
  */
+
+/* RESOLVE: Many direct accesses to cc->enrtry[] with entry_number.
+ * How are we safe-guarding against out-of-bounds access? Is there
+ * already a validation of "valid" entry_number before using it as an array
+ * index?
+ */
 static inline entry_status
 clockcache_set_flag(clockcache *cc, entry_status entry_number, uint32 flag)
 {
@@ -640,7 +650,7 @@ clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
 {
    int myhistindex =
       __sync_fetch_and_add(&cc->entry[entry_number].next_history_record, 1);
-   myhistindex               = myhistindex % 32;
+   myhistindex               = myhistindex % NUM_HISTORY_RECORDS;
    clockcache_entry *myEntry = &cc->entry[entry_number];
 
    myEntry->history[myhistindex].status   = myEntry->status;
@@ -648,7 +658,7 @@ clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
    for (threadid i = 0; i < MAX_THREADS; i++)
       myEntry->history[myhistindex].refcount +=
          cc->refcount[i * cc->cfg->page_capacity + entry_number];
-   backtrace(myEntry->history[myhistindex].backtrace, 32);
+   backtrace(myEntry->history[myhistindex].backtrace, NUM_HISTORY_RECORDS);
 }
 #else
 #   define clockcache_record_backtrace(a, b)
@@ -693,7 +703,8 @@ clockcache_pages_share_extent(clockcache *cc,
                               uint64      left_addr,
                               uint64      right_addr)
 {
-   return left_addr / cc->cfg->extent_size == right_addr / cc->cfg->extent_size;
+   return (left_addr / cc->cfg->extent_size)
+          == (right_addr / cc->cfg->extent_size);
 }
 
 static inline clockcache_entry *
@@ -875,8 +886,9 @@ clockcache_assert_no_locks_held(clockcache *cc)
 {
    uint64 i;
    clockcache_assert_no_refs_and_pins(cc);
-   for (i = 0; i < cc->cfg->page_capacity; i++)
+   for (i = 0; i < cc->cfg->page_capacity; i++) {
       debug_assert(!clockcache_test_flag(cc, i, CC_WRITELOCKED));
+   }
 }
 
 void
@@ -884,9 +896,10 @@ clockcache_assert_clean(clockcache *cc)
 {
    uint64 i;
 
-   for (i = 0; i < cc->cfg->page_capacity; i++)
-      debug_assert(clockcache_test_flag(cc, i, CC_FREE)
-                   || clockcache_test_flag(cc, i, CC_CLEAN));
+   for (i = 0; i < cc->cfg->page_capacity; i++) {
+      debug_assert(clockcache_test_flag(cc, i, CC_FREE) ||
+                   clockcache_test_flag(cc, i, CC_CLEAN));
+   }
 }
 
 /*
@@ -2654,20 +2667,19 @@ clockcache_page_sync(clockcache  *cc,
 }
 
 
+typedef struct clockcache_sync_callback_req {
+   clockcache *cc;
+   uint64 *    pages_outstanding;
+} clockcache_sync_callback_req;
+
 /*
  *----------------------------------------------------------------------
  * clockcache_sync_callback --
  *
- *      internal callback for clockcache_extent_sync which decrements the pages
- *      outstanding counter
+ *      Internal callback for clockcache_extent_sync which decrements
+ *      the pages-outstanding counter.
  *----------------------------------------------------------------------
  */
-
-typedef struct clockcache_sync_callback_req {
-   clockcache *cc;
-   uint64     *pages_outstanding;
-} clockcache_sync_callback_req;
-
 #if defined(__has_feature)
 #   if __has_feature(memory_sanitizer)
 __attribute__((no_sanitize("memory")))

@@ -14,8 +14,12 @@
 #include "platform.h"
 #include "util.h"
 
+/* RESOLVE: Describe this constant */
 #define RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS (30)
 
+/*
+ * Configuration structure to set up the Ref Count Allocation sub-system.
+ */
 typedef struct rc_allocator_config {
    uint64 capacity;
    uint64 page_capacity;
@@ -26,10 +30,10 @@ typedef struct rc_allocator_config {
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_meta_page --
+ * rc_allocator_meta_page -- Disk-resident structure.
  *
  *  An on disk structure to hold the super block information about all the
- *  splinter tables using this allocator. This is persisted at
+ *  Splinter tables using this allocator. This is persisted at
  *  offset 0 of the device.
  *----------------------------------------------------------------------
  */
@@ -52,7 +56,7 @@ typedef struct rc_allocator_stats {
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator --
+ * rc_allocator -- Ref Count allocator context structure.
  *----------------------------------------------------------------------
  */
 typedef struct rc_allocator {

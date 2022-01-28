@@ -68,11 +68,51 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          char              *str,
                                          size_t             max_len);
 
+/*
+ * RESOLVE: Leave as a reference for reviewers; delete eventually.
+ *
+ * data_config: Is a user-/application-defined set of configurtaions that
+ * SplinterDB will use to manage data ij messages. This includes flags for
+ * each type of message (INS, UPD, DELETE), which is usually an application
+ * defined "thing" that Splkinter does not really 'know' about.
+
+ * This is an interface / contract that an applicagtion must implement to
+ * in order to use Splinter. We provide kvstore_basic as a "batteries included"
+ * implementation, but if an application wants to do something different, they
+ * have to provide the following required interfaces.
+ *
+ * data_config: Applications need to tell Splinter 3 things about Keys
+ *  1. Sorting order on teh key - defined t
+ *  2. How to hash keys
+ *  3. How to merge update messages
+ *
+ *  This struct also incloudes a few de uggin aids on how-to print and diagnost
+ *  messages.
+ * RESOLVE: Wordsmith about info ...
+ */
+
+/*
+ * ----------------------------------------------------------------------------
+ * data_config: This structure defines the handshake between a
+ * Key-Value Store application built using Splinter primitives. In order to
+ * build this integration, the application needs to tell Splinter few different
+ * things about keys and values:
+ *
+ *  1. The sorting order of keys - defined by the key_compare function
+ *  2. How to hash keys - defined by the key_hash function
+ *  3. How to merge update messages - defined by the pair of merge_tuples* fns.
+ *  4. Few other debugging aids on how-to print & diagnose messages.
+ *
+ * kvstore_basic.c is a reference implementation of this integration provided
+ * as a "batteries included" implementation. If any other application wishes
+ * to do something differently, it has to provide these implementations.
+ * ----------------------------------------------------------------------------
+ */
 struct data_config {
    uint64 key_size;
    uint64 message_size;
 
-   // robj: we should get rid of min/max key
+   // FIXME: Planned for deprecation.
    char min_key[MAX_KEY_SIZE];
    char max_key[MAX_KEY_SIZE];
 

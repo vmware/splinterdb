@@ -20,6 +20,9 @@ typedef struct task {
    timestamp    enqueue_time;
 } task;
 
+/*
+ * Run-time task-specific execution metrics structure.
+ */
 typedef struct {
    timestamp max_runtime_ns;
    void     *max_runtime_func;
@@ -44,9 +47,13 @@ typedef struct task_fg_thread_group {
    platform_mutex mutex;
 } task_fg_thread_group;
 
+/*
+ * Tasks are grouped into NUM_TASK_TYPES groups. Each group is described
+ * by a structure of this type.
+ */
 typedef struct task_group {
    task_system *ts;
-   task_queue   tq;
+   task_queue   tq; // Queue of tasks in this group, of a task type
 
    volatile uint64 current_outstanding_tasks;
    volatile uint64 max_outstanding_tasks;
@@ -64,7 +71,8 @@ typedef struct task_group {
 } task_group;
 
 typedef enum task_type {
-   TASK_TYPE_MEMTABLE,
+   TASK_TYPE_FIRST    = 0,
+   TASK_TYPE_MEMTABLE = TASK_TYPE_FIRST,
    TASK_TYPE_NORMAL,
    NUM_TASK_TYPES,
 } task_type;

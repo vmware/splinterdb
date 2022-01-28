@@ -13,7 +13,8 @@
 
 #include "platform.h"
 
-#define SRQ_MAX_ENTRIES     8192
+/* RESOLVE: Does this have an impact on disk-resident structures anywhere? */
+#define SRQ_MAX_ENTRIES 8192
 #define SRQ_INDEX_AVAILABLE -1
 
 typedef struct srq_data {

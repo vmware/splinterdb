@@ -16,8 +16,12 @@
 #include "cache.h"
 #include "data_internal.h"
 
-#define MINI_MAX_BATCHES 8
+#define MINI_MAX_BATCHES 8 // RESOLVE: Where is this limit coming from?
 
+/*
+ * mini_allocator: Mini-allocator context structure. To allocate individual
+ *  pages from an allocated extent.
+ */
 typedef struct mini_allocator {
    allocator      *al;
    cache          *cc;

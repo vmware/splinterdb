@@ -5,6 +5,10 @@
  * splinter.h --
  *
  *     This file contains the interface for SplinterDB.
+ *
+ * RESOLVE: As this is a key .h file, let's try to doc all structs and
+ *  definitions in this file, especially calling out if any strucure is
+ *  disk-resident.
  */
 
 #ifndef __SPLINTER_H
@@ -21,13 +25,24 @@
 #include "log.h"
 #include "srq.h"
 
-#define SPLINTER_MAX_HEIGHT 8
+#define SPLINTER_MAX_HEIGHT 8 /* RESOLVE: Doc? */
 
-#define SPLINTER_MAX_TOTAL_DEGREE 256
+/*
+ * Splinter max-height limit cannot exceed the max # of mini-batches that the
+ * mini-allocator can track.
+ */
+_Static_assert(SPLINTER_MAX_HEIGHT <= MINI_MAX_BATCHES,
+               "SPLINTER_MAX_HEIGHT has to be <= MINI_MAX_BATCHES");
+
+#define SPLINTER_MAX_TOTAL_DEGREE 256 /* RESOLVE: Doc? */
 
 /*
  *----------------------------------------------------------------------
- * Splinter Configuration structure
+ * Splinter Configuration structure --
+ *
+ * Holds key configuration parameters plus configuration descriptor
+ * structures for other sub-systems like Memtable, BTree, routing
+ * filters, log configuration etc.
  *----------------------------------------------------------------------
  */
 typedef struct splinter_config {
@@ -54,6 +69,10 @@ typedef struct splinter_config {
    log_config     *log_cfg;
 } splinter_config;
 
+/*
+ * Run-time structure to monitor and track execution of different things in
+ * a Splinter instance.
+ */
 typedef struct splinter_stats {
    uint64 insertions;
    uint64 updates;
@@ -133,7 +152,7 @@ typedef struct splinter_stats {
    uint64 tuples_reclaimed[SPLINTER_MAX_HEIGHT];
 } PLATFORM_CACHELINE_ALIGNED splinter_stats;
 
-// splinter refers to btrees as branches
+// Splinter refers to btrees as branches
 typedef struct splinter_branch {
    uint64 root_addr; // root address of point btree
 } splinter_branch;
@@ -154,6 +173,13 @@ typedef struct splinter_compacted_memtable {
    splinter_compact_bundle_req *req;
 } splinter_compacted_memtable;
 
+/*
+ * ----------------------------------------------------------------------------
+ * Splinter Handle: Global data structure to a running Splinter instance,
+ * with access to handles to other sub-systems, such as the allocator, cache,
+ * log and the task system.
+ * ----------------------------------------------------------------------------
+ */
 struct splinter_handle {
    uint64           root_addr;
    uint64           super_block_idx;
@@ -186,7 +212,6 @@ struct splinter_handle {
     * Per thread task and per splinter table task counter. Used to decide when
     * to run tasks.
     */
-
    struct {
       uint64 counter;
    } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
@@ -197,6 +222,7 @@ struct splinter_handle {
    splinter_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
 
+/* Range iterator context structure */
 typedef struct splinter_range_iterator {
    iterator         super;
    splinter_handle *spl;
@@ -252,6 +278,7 @@ struct splinter_subbundle;
 
 typedef void (*splinter_async_cb)(struct splinter_async_ctxt *ctxt);
 
+/* Context structure for Splinter async lookups */
 typedef struct splinter_async_ctxt {
    splinter_async_cb cb; // IN: callback (requeues ctxt
                          // for dispatch)

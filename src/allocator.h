@@ -21,13 +21,19 @@ typedef uint64 allocator_root_id;
 #define AL_NO_REFS 1
 #define AL_FREE    0
 
+/*
+ * Different types of pages managed by SplinterDB:
+ * This is currently not a Disk-resident value, but different modules that
+ * access a type of a page "know" to expect a page of a specific type / format.
+ */
 typedef enum page_type {
-   PAGE_TYPE_TRUNK,
+   PAGE_TYPE_FIRST = 0,
+   PAGE_TYPE_TRUNK = PAGE_TYPE_FIRST,
    PAGE_TYPE_BRANCH,
    PAGE_TYPE_MEMTABLE,
    PAGE_TYPE_FILTER,
    PAGE_TYPE_LOG,
-   PAGE_TYPE_MISC,
+   PAGE_TYPE_MISC, // Catch-all, currently only the super-block is of this type
    PAGE_TYPE_LOCK_NO_DATA,
    NUM_PAGE_TYPES,
    PAGE_TYPE_INVALID,
@@ -35,6 +41,11 @@ typedef enum page_type {
 
 static const char *const page_type_str[NUM_PAGE_TYPES] =
    {"trunk", "branch", "memtable", "filter", "log", "misc", "lock"};
+
+// Ensure that the page-type lookup array is adequately sized.
+_Static_assert(
+   ARRAY_SIZE(page_type_str) == NUM_PAGE_TYPES,
+   "Lookup array page_type_str[] is incorrectly sized for NUM_PAGE_TYPES");
 
 typedef struct allocator allocator;
 

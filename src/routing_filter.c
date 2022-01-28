@@ -25,7 +25,7 @@
 
 /*
  *----------------------------------------------------------------------
- * routing_hdr:
+ * routing_hdr: Disk-resident structure [ RESOLVE ? ]
  *
  *       This header encodes the bucket counts for all buckets covered by a
  *       single index.

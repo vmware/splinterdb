@@ -20,6 +20,8 @@
 
 extern const char *BUILD_VERSION;
 
+/* RESOLVE - Describe this. Is this disk-resident structure ?
+ */
 typedef struct master_config {
    uint64 page_size;
    uint64 extent_size;

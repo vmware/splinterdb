@@ -14,10 +14,21 @@
 #include "iterator.h"
 #include "util.h"
 
-#define VARIABLE_LENGTH_BTREE_MAX_HEIGHT (8)
-#define MAX_INLINE_KEY_SIZE              (512)
-#define MAX_INLINE_MESSAGE_SIZE          (2048)
-#define MAX_NODE_SIZE                    (1ULL << 16)
+#define BTREE_MAX_HEIGHT (8) // RESOLVE: Doc, why 8? Artifical limit?
+
+/*
+ * The max-height of a BTree is used to initialize mini-allocation context.
+ * So it cannot be higher than the max # of mini-batches that the
+ * mini-allocator can track.
+ */
+_Static_assert(BTREE_MAX_HEIGHT <= MINI_MAX_BATCHES,
+               "BTREE_MAX_HEIGHT has to be <= MINI_MAX_BATCHES");
+
+/* RESOLVE - ??? Are these limits still needed? */
+#define MAX_INLINE_KEY_SIZE     (512)  // Bytes
+#define MAX_INLINE_MESSAGE_SIZE (2048) // Bytes
+
+#define MAX_NODE_SIZE (1ULL << 16) // Bytes
 
 extern char         trace_key[24];
 extern page_handle *trace_page;
@@ -61,6 +72,10 @@ typedef struct { // Note: not a union
    scratch_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED btree_scratch;
 
+/* *******************************************
+ * BTree pivot data: Disk-resident structure
+ * *******************************************
+ */
 typedef struct PACKED btree_pivot_data {
    uint64 child_addr;
    uint32 num_kvs_in_tree;
@@ -103,7 +118,7 @@ typedef struct btree_pack_req {
    // internal data
    uint64         next_extent;
    uint16         height;
-   btree_node     edge[VARIABLE_LENGTH_BTREE_MAX_HEIGHT];
+   btree_node     edge[BTREE_MAX_HEIGHT];
    mini_allocator mini;
 
    // output of the compaction

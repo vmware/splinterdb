@@ -5,7 +5,7 @@
 #include "poison.h"
 
 /******************************************************************
- * Structure of a BTree node:
+ * Structure of a BTree node: Disk-resident structure:
  *
  *                                 hdr->next_entry
  *                                               |
@@ -1123,7 +1123,7 @@ btree_create(cache              *cc,
              cfg->data_cfg,
              root.addr + cfg->page_size,
              0,
-             VARIABLE_LENGTH_BTREE_MAX_HEIGHT,
+             BTREE_MAX_HEIGHT,
              type,
              type == PAGE_TYPE_BRANCH);
 
