@@ -185,14 +185,14 @@ extern bool platform_use_mlock;
  *   (These may be candidates to move outside of platform.h entirely)
  */
 #if SPLINTER_DEBUG
-#  define debug_assert( expr ) platform_assert(expr)
-#  define debug_only
-#  define debug_code(...) __VA_ARGS__
+#   define debug_assert(expr, ...) platform_assert(expr, __VA_ARGS__)
+#   define debug_only
+#   define debug_code(...) __VA_ARGS__
 #else
-#  define debug_assert( expr )
-#  define debug_only __attribute__((__unused__))
-#  define debug_code(...)
-#endif
+#   define debug_assert(expr, ...)
+#   define debug_only __attribute__((__unused__))
+#   define debug_code(...)
+#endif // SPLINTER_DEBUG
 
 #define platform_assert_status_ok(_s) platform_assert(SUCCESS(_s));
 
