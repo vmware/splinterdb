@@ -205,4 +205,4 @@ platform_status config_parse(master_config *cfg,
 #define config_set_else } else
 
 
-#endif
+#endif // __CONFIG_H

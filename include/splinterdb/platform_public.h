@@ -4,8 +4,8 @@
 /*
  * platform_public.h --
  *
- *     Minimal common header for both external users (e.g. kvstore) and internal
- * use
+ *     Minimal common header for both external users (e.g. kvstore) and
+ *     for internal use.
  */
 
 #ifndef __PLATFORM_PUBLIC_H
@@ -26,7 +26,7 @@
  * Additionally stdint.h defines limits of integer types capable
  * of holding object pointers such as UINTPTR_MAX, the value of
  * which depends on the processor and its address range.
- * The typ and ranges are only included if they exist for the specific
+ * The type and ranges are only included if they exist for the specific
  * compiler/processor.
  */
 #include <stdint.h>

@@ -22,16 +22,14 @@
 #include "srq.h"
 
 #define SPLINTER_MAX_HEIGHT 8
+
 #define SPLINTER_MAX_TOTAL_DEGREE 256
 
 /*
  *----------------------------------------------------------------------
- *
- * splinter --
- *
+ * Splinter Configuration structure
  *----------------------------------------------------------------------
  */
-
 typedef struct splinter_config {
    // robj: if these are redundant, maybe delete them?
    uint64               page_size;               // must match the cache/fs page_size
@@ -44,20 +42,16 @@ typedef struct splinter_config {
    uint64               max_branches_per_node;
    uint64               hard_max_branches_per_node;
    uint64               target_leaf_tuples;      // make leaves this big when splitting
-   uint64               reclaim_threshold;       // start reclaming space when free space < threshold
-
-   // stats
-   bool use_stats;
-
-   memtable_config              mt_cfg;
-   btree_config                 btree_cfg;
-   routing_config               index_filter_cfg;
-   routing_config               leaf_filter_cfg;
-
-   data_config *data_cfg;
-
+   uint64               reclaim_threshold;       // start reclaming space when
+                                                 // free space < threshold
+   bool                 use_stats;               // stats
+   memtable_config      mt_cfg;
+   btree_config         btree_cfg;
+   routing_config       index_filter_cfg;
+   routing_config       leaf_filter_cfg;
+   data_config *        data_cfg;
    bool                 use_log;
-   log_config          *log_cfg;
+   log_config *         log_cfg;
 } splinter_config;
 
 typedef struct splinter_stats {
@@ -257,6 +251,7 @@ struct splinter_pivot_data;
 struct splinter_subbundle;
 
 typedef void (*splinter_async_cb)(struct splinter_async_ctxt *ctxt);
+
 typedef struct splinter_async_ctxt {
    splinter_async_cb            cb;            // IN: callback (requeues ctxt
                                               // for dispatch)
@@ -307,7 +302,7 @@ typedef struct {
 /*
  *----------------------------------------------------------------------
  *
- * splinter API
+ * Splinter API
  *
  *----------------------------------------------------------------------
  */
@@ -475,6 +470,5 @@ splinter_config_init(splinter_config *splinter_cfg,
                      uint64           use_stats);
 size_t
 splinter_get_scratch_size();
-
 
 #endif // __SPLINTER_H

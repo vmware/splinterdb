@@ -70,6 +70,7 @@ typedef enum task_type {
 } task_type;
 
 /*
+ * ----------------------------------------------------------------------
  * Splinter specific state that gets created during initialization in
  * splinter_system_init(). Contains global state for splinter such as the
  * init thread, init thread's scratch memory, thread_id counter and an array
@@ -79,8 +80,8 @@ typedef enum task_type {
  * This structure is passed around like an opaque structure to all the
  * entities that need to access it. Some of them are task creation and
  * execution, task queue and clockcache.
+ * ----------------------------------------------------------------------
  */
-
 struct task_system {
    // array of scratch space pointers for this system.
    void *thread_scratch[MAX_THREADS];

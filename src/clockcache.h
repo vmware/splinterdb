@@ -51,6 +51,14 @@ typedef struct history_record {
 #endif
 
 
+/*
+ *-----------------------------------------------------------------------------
+ * clockcache_entry --
+ *
+ *     The meta data entry in the cache. Each entry has the underlying
+ *     page_handle together with some flags.
+ *-----------------------------------------------------------------------------
+ */
 struct clockcache_entry {
    page_handle     page;
    volatile uint32 status;
@@ -63,10 +71,7 @@ struct clockcache_entry {
 
 /*
  *----------------------------------------------------------------------
- *
- * clockcache --
- *
- *      clockcache is a multiheaded cache using a clock algorithm for eviction
+ * clockcache -- A multi-threaded cache using a clock algorithm for eviction
  *
  *      Pages are indexed by a direct mapping, cc->lookup, which is an array.
  *      For a given address, cc->lookup[addr / page_size] returns an
@@ -93,10 +98,8 @@ struct clockcache_entry {
  *      cc->cleaner_gap batches ahead of the current evictor head, so that
  *      cleaned pages have time to flush before eviction. Both cleaning and
  *      eviction use cc->batch_busy to avoid conflicts and contention.
- *
  *----------------------------------------------------------------------
  */
-
 struct clockcache {
    cache              super;
    clockcache_config *cfg;
@@ -136,9 +139,7 @@ struct clockcache {
 
 /*
  *-----------------------------------------------------------------------------
- *
  * Function declarations
- *
  *-----------------------------------------------------------------------------
  */
 

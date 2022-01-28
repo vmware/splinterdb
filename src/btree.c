@@ -1,12 +1,12 @@
-/* **********************************************************
- * Copyright 2018-2020 VMware, Inc.  All rights reserved. -- VMware Confidential
- * **********************************************************/
+// Copyright 2018-2021 VMware, Inc. All rights reserved. -- VMware Confidential
+// SPDX-License-Identifier: Apache-2.0
 
 #include "btree_private.h"
 #include "poison.h"
 
 /******************************************************************
- * Structure of a node:
+ * Structure of a BTree node:
+ *
  *                                 hdr->next_entry
  *                                               |
  *   0                                           v     page_size
@@ -31,19 +31,21 @@
 
  * A node may have free space fragmentation after some entries have
  * been replaced.  Defragmenting the node rebuilds it with no
- * free-space fragmentation.  When a node runs out of free space, we
- * measure its dead space.  If it below a threshold, we split the
- * node.  If it is above the threshhold, then we defragment the node
- * instead of splitting it.
+ * free-space fragmentation.
  *
+ * When a node runs out of free space, we measure its dead space.
+ * If dead space is:
+ *  - below a threshold, we split the node.
+ *  - above the threshold, then we defragment the node instead of splitting it.
  *******************************************************************/
 
 /* Threshold for splitting instead of defragmenting. */
 #define VARIABLE_LENGTH_BTREE_SPLIT_THRESHOLD(page_size) ((page_size) / 2)
 
 /* After a split, the free space in the left node may be fragmented.
-   If there's less than this much contiguous free space, then we also
-   defrag the left node. */
+ * If there's less than this much contiguous free space, then we also
+ * defrag the left node.
+ */
 #define VARIABLE_LENGTH_BTREE_DEFRAGMENT_THRESHOLD(page_size) ((page_size) / 4)
 
 char  positive_infinity_buffer;

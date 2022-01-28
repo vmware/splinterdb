@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *-----------------------------------------------------------------------------
  * shard_log.c --
  *
  *     This file contains the implementation for a sharded write-ahead log.
+ *-----------------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -447,14 +449,11 @@ shard_log_iterator_advance(iterator *itorh)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * shard_log_config_init --
  *
  *      Initialize shard_log config values
- *
  *-----------------------------------------------------------------------------
  */
-
 void shard_log_config_init(shard_log_config *log_cfg,
                            data_config      *data_cfg,
                            uint64            page_size,

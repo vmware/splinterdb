@@ -4,7 +4,7 @@
 /*
  * data.h --
  *
- *     This file contains constants and functions the pertain to
+ *     This file contains constants and functions that pertain to
  *     keys and messages
  *
  *     A message encodes a value and an operation,

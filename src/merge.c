@@ -227,7 +227,6 @@ out:
  * In the case where the two minimum iterators of the merge iterator have equal
  * keys, resolve_equal_keys will merge the data as necessary
  */
-
 static platform_status
 merge_resolve_equal_keys(merge_iterator *merge_itor)
 {
@@ -292,14 +291,12 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * if merge_itor->finalize_updates:
  *    resolves MESSAGE_TYPE_UPDATE messages into
  *       MESSAGE_TYPE_INSERT or MESSAGE_TYPE_DELETE messages
  * if merge_itor->delete_mode == dont_emit_deletes:
  *    discards MESSAGE_TYPE_DELETE messages
  * return True if it discarded a MESSAGE_TYPE_DELETE message
- *
  *-----------------------------------------------------------------------------
  */
 static inline platform_status
@@ -380,7 +377,6 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * merge_iterator_create --
  *
  *      Initialize a merge iterator for a forest of B-trees.
@@ -390,10 +386,8 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
  *
  * Results:
  *      0 if successful, error otherwise
- *
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 merge_iterator_create(platform_heap_id hid,
                       data_config *    cfg,
@@ -524,14 +518,11 @@ out:
 
 /*
  *-----------------------------------------------------------------------------
- *
  * merge_iterator_destroy --
  *
  *      Destroys a merge iterator.
- *
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 {
@@ -545,7 +536,6 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * merge_at_end --
  *
  *      Checks if more values are left in the merge itor.
@@ -555,10 +545,8 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 merge_at_end(iterator *itor,   // IN
              bool     *at_end) // OUT
@@ -570,10 +558,8 @@ merge_at_end(iterator *itor,   // IN
    return STATUS_OK;
 }
 
-
 /*
  *-----------------------------------------------------------------------------
- *
  * merge_get_curr --
  *
  *      Returns current key and data from the merge itor.
@@ -583,10 +569,8 @@ merge_at_end(iterator *itor,   // IN
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 merge_get_curr(iterator *itor, slice *key, slice *data)
 {
@@ -598,14 +582,12 @@ merge_get_curr(iterator *itor, slice *key, slice *data)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * merge_advance --
  *
  *      Merges the next key from the array of input iterators.
  *
  * Results:
  *      0 if successful, error otherwise
- *
  *-----------------------------------------------------------------------------
  */
 platform_status

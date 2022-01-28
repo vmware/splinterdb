@@ -174,7 +174,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          the pivot into a bundle in the child. A bundle is a contiguous
  *          range of branches in a trunk node, see trunk node documentation
  *          below. A flush to a given pivot makes all branches and bundles in
- *          the parent no longer live for that pivot.
+ *          the parent no longer "live" for that pivot.
  *
  *       Compaction (after flush)
  *          After a flush completes, a compact_bundle job is issued for the
@@ -194,13 +194,13 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          locks going up the tree.
  *
  *          An internal node split is a logical split: the trunk node is
- *          copied, except the first fanout/2 pivots become the pivots of the
- *          left node and the remaining pivots become the right node. No
+ *          copied, except the first (fanout/2) pivots become the pivots of
+ *          the left node and the remaining pivots become the right node. No
  *          compaction is initiated, and the branches and bundles of the node
  *          pre-split are shared between the new left and right nodes.
  *
  *       Split (leaf)
- *          When a leaf has more than cfg->max_tuples_per_leaf (fanout *
+ *          When a leaf has more than cfg->max_tuples_per_node (fanout *
  *          memtable_capacity), it is considered full.
  *
  *          When a leaf is full, it is split logically: new pivots are
@@ -224,7 +224,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *       node. The ways in which these processes can interact are detailed
  *       here.
  *
- *       Flushes and compactions:
+ *  o Flushes and compactions:
+ *
  *       1. While a compaction has been scheduled or is in process, a flush may
  *          occur. This will flush the bundle being compacted to the child and
  *          the in-progress compaction will continue as usual. Note that the
@@ -238,11 +239,13 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          to all children, when it completes, it will detect that the bundle
  *          is no longer live and it will discard the output.
  *
- *       Flushes and internal/leaf splits:
+ *  o Flushes and internal/leaf splits:
+ *
  *          Flushes and internal/leaf splits are synchronous and do not
  *          interact.
  *
- *       Internal splits and compaction:
+ *  o Internal splits and compaction:
+ *
  *       4. If an internal split occurs in a node which has a scheduled
  *          compaction, when the compact_bundle job initiates it will detect
  *          the node split using the node's generation number
@@ -256,7 +259,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          sibling as well. Note that the output of the compaction will
  *          contain tuples for both the node and its new sibling.
  *
- *       Leaf splits and compaction:
+ *  o Leaf splits and compaction:
+ *
  *       6. If a compaction is scheduled or in progress when a leaf split
  *          triggers, the leaf split will start its own compaction job on the
  *          bundle being compacted. When the compaction job initiates or
@@ -349,7 +353,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *-----------------------------------------------------------------------------
  */
 
-// a super block
+// A super block
 typedef struct splinter_super_block {
    uint64      root_addr;
    uint64      meta_tail;
@@ -400,7 +404,7 @@ typedef struct PACKED splinter_bundle {
 } splinter_bundle;
 
 /*
- * Trunk headers
+ * Trunk headers:
  *
  * Contains metadata for trunk nodes. See below for comments on fields.
  *
@@ -436,10 +440,10 @@ typedef struct PACKED splinter_trunk_hdr {
 } splinter_trunk_hdr;
 
 /*
- * a pivot consists of the pivot key (of size cfg.key_size) followed by a
+ * A pivot consists of the pivot key (of size cfg.key_size) followed by a
  * splinter_pivot_data
  *
- * the generation is used by asynchronous processes to determine when a pivot
+ * The generation is used by asynchronous processes to determine when a pivot
  * has split
  */
 typedef struct splinter_pivot_data {
@@ -5763,7 +5767,7 @@ splinter_maybe_reclaim_space(splinter_handle *spl)
 
 /*
  *-----------------------------------------------------------------------------
- * Main API functions
+ * Main Splinter API functions
  *
  *      insert
  *      lookup
@@ -6092,7 +6096,6 @@ found_final_answer_early:
  * splinter_async_set_state sets the state of the async splinter
  * lookup state machine.
  */
-
 static inline void
 splinter_async_set_state(splinter_async_ctxt *ctxt,
                          splinter_async_state new_state)
@@ -6772,7 +6775,9 @@ splinter_create(splinter_config  *cfg,
    return spl;
 }
 
-// open (mount) an existing splinter database
+/*
+ * Open (mount) an existing splinter database
+ */
 splinter_handle *
 splinter_mount(splinter_config  *cfg,
                allocator        *al,
@@ -6821,7 +6826,7 @@ splinter_mount(splinter_config  *cfg,
    spl->mt_ctxt = memtable_context_create(spl->heap_id, cc, mt_cfg,
          splinter_memtable_flush_virtual, spl);
 
-   // the trunk uses un unkeyed mini allocato
+   // The trunk uses an unkeyed mini allocator
    mini_init(&spl->mini,
              cc,
              spl->cfg.data_cfg,
@@ -6953,7 +6958,9 @@ splinter_node_destroy(splinter_handle *spl,
    return TRUE;
 }
 
-// destroy a database such that it cannot be re-opened later
+/*
+ * Destroy a database such that it cannot be re-opened later
+ */
 void
 splinter_destroy(splinter_handle *spl)
 {
@@ -6982,8 +6989,10 @@ splinter_destroy(splinter_handle *spl)
    platform_free(spl->heap_id, spl);
 }
 
-// close (dismount) a database without destroying it
-// it can be re-opened later with splinter_mount
+/*
+ * Close (dismount) a database without destroying it.
+ * It can be re-opened later with splinter_mount().
+ */
 void
 splinter_dismount(splinter_handle *spl)
 {
@@ -7223,7 +7232,6 @@ out:
  * 1. coherent max key with successor's min key
  * 2. coherent pivots with children's min/max keys
  */
-
 bool
 splinter_verify_node_with_neighbors(splinter_handle *spl,
                                     page_handle     *node)
@@ -7296,9 +7304,8 @@ out:
 }
 
 /*
- * wrapper for splinter_for_each_node
+ * Wrapper for splinter_for_each_node
  */
-
 bool
 splinter_verify_node_and_neighbors(splinter_handle *spl,
                                    uint64           addr,
@@ -7319,7 +7326,6 @@ out:
 /*
  * verify_tree verifies each node with itself and its neighbors
  */
-
 bool
 splinter_verify_tree(splinter_handle *spl)
 {
@@ -7329,7 +7335,6 @@ splinter_verify_tree(splinter_handle *spl)
 /*
  * Returns the amount of space used by each level of the tree
  */
-
 bool
 splinter_node_space_use(splinter_handle *spl,
                         uint64           addr,

@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *-----------------------------------------------------------------------------
  * mini_allocator.c --
  *
  *     This file contains the implementation for an allocator which
  *     allocates individual pages from extents.
+ *-----------------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -26,15 +28,12 @@
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_meta_hdr --
  *
  *      The header of a meta_page in a mini_allocator. Keyed mini_allocators
  *      use entry_buffer and unkeyed ones use entry.
- *
  *-----------------------------------------------------------------------------
  */
-
 typedef struct PACKED mini_meta_hdr {
    uint64 next_meta_addr;
    uint64 pos;
@@ -98,10 +97,8 @@ unkeyed_next_entry(unkeyed_meta_entry *entry)
    return entry + 1;
 }
 
-
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_init_meta_page --
  *
  *      Initializes the header of the given meta_page.
@@ -111,10 +108,8 @@ unkeyed_next_entry(unkeyed_meta_entry *entry)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static void
 mini_init_meta_page(mini_allocator *mini, page_handle *meta_page)
 {
@@ -126,7 +121,6 @@ mini_init_meta_page(mini_allocator *mini, page_handle *meta_page)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_full_[lock,unlock]_meta_tail --
  *
  *      Convenience functions to write lock/unlock the given meta_page or
@@ -138,10 +132,8 @@ mini_init_meta_page(mini_allocator *mini, page_handle *meta_page)
  *
  * Side effects:
  *      Disk allocation, standard cache side effects.
- *
  *-----------------------------------------------------------------------------
  */
-
 static page_handle *
 mini_full_lock_meta_tail(mini_allocator *mini)
 {
@@ -178,7 +170,6 @@ mini_full_unlock_meta_page(mini_allocator *mini, page_handle *meta_page)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_(un)get_(un)claim_meta_page --
  *
  *      Convenience functions to read lock and claim the given meta_page.
@@ -189,10 +180,8 @@ mini_full_unlock_meta_page(mini_allocator *mini, page_handle *meta_page)
  *
  * Side effects:
  *      Disk allocation, standard cache side effects.
- *
  *-----------------------------------------------------------------------------
  */
-
 static page_handle *
 mini_get_claim_meta_page(cache *cc, uint64 meta_addr, page_type type)
 {
@@ -219,26 +208,25 @@ mini_unget_unclaim_meta_page(cache *cc, page_handle *meta_page)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_init --
  *
  *      Initialize a new mini allocator.
  *
- *      There are two types of mini allocator, keyed and unkeyed. A keyed
- *      allocator stores a key range for each extent and allows incrementing
- *      and decrementing key ranges. An unkeyed allocator has a single ref
- *      for the whole allocator which is overloaded onto the meta_head
- *      disk-allocator ref count.
+ *      There are two types of mini allocator: keyed and unkeyed.
+ *
+ *      - A keyed allocator stores a key range for each extent and allows
+ *        incrementing and decrementing key ranges.
+ *
+ *      - An unkeyed allocator has a single ref for the whole allocator which
+ *        is overloaded onto the meta_head disk-allocator ref count.
  *
  * Results:
  *      The 0th batch next address to be allocated.
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 uint64
 mini_init(mini_allocator *mini,
           cache *         cc,
@@ -322,7 +310,6 @@ mini_num_entries(page_handle *meta_page)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_keyed_[get,set]_entry --
  * mini_keyed_set_last_end_key --
  * mini_unkeyed_[get,set]_entry --
@@ -343,11 +330,8 @@ mini_num_entries(page_handle *meta_page)
  *      set: None.
  *
  * Side effects:
- *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static bool
 entry_fits_in_page(uint64 page_size, uint64 start, uint64 entry_size)
 {
@@ -414,7 +398,6 @@ mini_unkeyed_append_entry(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_[lock,unlock]_batch_[get,set]next_addr --
  *
  *      Lock locks allocation on the given batch by replacing its next_addr
@@ -429,10 +412,8 @@ mini_unkeyed_append_entry(mini_allocator *mini,
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static uint64
 mini_lock_batch_get_next_addr(mini_allocator *mini, uint64 batch)
 {
@@ -461,7 +442,6 @@ mini_unlock_batch_set_next_addr(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_[get,set]_next_meta_addr --
  *
  *      Sets the next_meta_addr on meta_page to next_meta_addr. This links
@@ -473,10 +453,8 @@ mini_unlock_batch_set_next_addr(mini_allocator *mini,
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static uint64
 mini_get_next_meta_addr(page_handle *meta_page)
 {
@@ -546,7 +524,6 @@ mini_append_entry(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_alloc --
  *
  *      Allocate a next disk address from the mini_allocator.
@@ -563,7 +540,6 @@ mini_append_entry(mini_allocator *mini,
  *
  * Side effects:
  *      Disk allocation, standard cache side effects.
- *
  *-----------------------------------------------------------------------------
  */
 uint64
@@ -601,7 +577,6 @@ mini_alloc(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_release --
  *
  *      Called to finalize the mini_allocator. After calling, no more
@@ -616,10 +591,8 @@ mini_alloc(mini_allocator *mini,
  *
  * Side effects:
  *      Disk deallocation, standard cache side effects.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 mini_release(mini_allocator *mini, const slice key)
 {
@@ -643,7 +616,6 @@ mini_release(mini_allocator *mini, const slice key)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_[keyed,unkeyed]_for_each(_self_exclusive) --
  *
  *      Calls func on each extent_addr in the mini_allocator.
@@ -664,10 +636,8 @@ mini_release(mini_allocator *mini, const slice key)
  *
  * Side effects:
  *      func may store output in out.
- *
  *-----------------------------------------------------------------------------
  */
-
 
 typedef bool (*mini_for_each_fn)(cache *   cc,
                                  page_type type,
@@ -697,9 +667,10 @@ mini_unkeyed_for_each(cache *          cc,
    } while (meta_addr != 0);
 }
 
-/* The exact values of these enums is important to
-   interval_intersects_range(). See its implementation and
-   comments. */
+/*
+ * NOTE: The exact values of these enums is *** important *** to
+ * interval_intersects_range(). See its implementation and comments.
+ */
 typedef enum boundary_state {
    before_start = 1,
    in_range     = 0,
@@ -709,14 +680,15 @@ typedef enum boundary_state {
 static bool
 interval_intersects_range(boundary_state left_state, boundary_state right_state)
 {
-   /* The interval [left, right] intersects the interval [begin, end]
-      if left_state != right_state or if left_state == right_state ==
-      in_range = 0.
-
-      The predicate below works as long as
-      - in_range == 0, and
-      - before_start & after_end == 0.
- */
+   /*
+    * The interval [left, right] intersects the interval [begin, end]
+    * if left_state != right_state or if left_state == right_state ==
+    * in_range = 0.
+    *
+    * The predicate below works as long as
+    * - in_range == 0, and
+    * - before_start & after_end == 0.
+    */
    return (left_state & right_state) == 0;
 }
 
@@ -739,6 +711,7 @@ state(data_config *cfg,
 }
 
 /*
+ *-----------------------------------------------------------------------------
  * Apply func to every exent whose key range intersects [start_key, _end_key].
  *
  * Note: if start_key is null, then so must be _end_key, and func is
@@ -754,7 +727,7 @@ state(data_config *cfg,
  * Note: the last extent in each batch is treated as ending at
  * +infinity, regardless of the what key was specified as the ending
  * point passed to mini_release.
- *
+ *-----------------------------------------------------------------------------
  */
 static bool
 mini_keyed_for_each(cache *          cc,
@@ -825,6 +798,7 @@ mini_keyed_for_each(cache *          cc,
 }
 
 /*
+ *-----------------------------------------------------------------------------
  * Apply func to every exent whose key range intersects [start_key, _end_key].
  *
  * Note: if start_key is null, then so must be _end_key, and func is
@@ -840,7 +814,7 @@ mini_keyed_for_each(cache *          cc,
  * Note: the last extent in each batch is treated as ending at
  * +infinity, regardless of the what key was specified as the ending
  * point passed to mini_release.
- *
+ *-----------------------------------------------------------------------------
  */
 static bool
 mini_keyed_for_each_self_exclusive(cache *          cc,
@@ -919,7 +893,6 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_unkeyed_[inc,dec]_ref --
  *
  *      Increments or decrements the ref count of the unkeyed allocator. When
@@ -931,11 +904,8 @@ mini_keyed_for_each_self_exclusive(cache *          cc,
  *
  * Side effects:
  *      Deallocation/cache side effects when external ref count hits 0
- *
  *-----------------------------------------------------------------------------
  */
-
-
 uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head)
 {
@@ -1013,7 +983,6 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_keyed_[inc,dec]_ref --
  *
  *      In keyed mini allocators, ref counts are kept on a per-extent basis,
@@ -1042,10 +1011,8 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *
  * Side effects:
  *      Deallocation/cache side effects.
- *
  *-----------------------------------------------------------------------------
  */
-
 static bool
 mini_keyed_inc_ref_extent(cache *   cc,
                           page_type type,
@@ -1134,21 +1101,18 @@ mini_keyed_dec_ref(cache *      cc,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_keyed_(un)block_dec_ref --
  *
  *      Block/unblock dec_ref callers. See note in mini_keyed_dec_ref for
- *details.
+ *      details.
  *
  * Results:
  *      None
  *
  * Side effects:
  *      None
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 mini_block_dec_ref(cache *cc, uint64 meta_head)
 {
@@ -1169,7 +1133,6 @@ mini_unblock_dec_ref(cache *cc, uint64 meta_head)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_keyed_count_extents --
  *
  *      Returns the number of extents in the mini allocator intersecting the
@@ -1180,10 +1143,8 @@ mini_unblock_dec_ref(cache *cc, uint64 meta_head)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 static bool
 mini_keyed_count_extents(cache *cc, page_type type, uint64 base_addr, void *out)
 {
@@ -1214,7 +1175,6 @@ mini_keyed_extent_count(cache *      cc,
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_unkeyed_prefetch --
  *
  *      Prefetches all extents in the (unkeyed) mini allocator.
@@ -1224,10 +1184,8 @@ mini_keyed_extent_count(cache *      cc,
  *
  * Side effects:
  *      Standard cache side effects.
- *
  *-----------------------------------------------------------------------------
  */
-
 static bool
 mini_prefetch_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
@@ -1244,7 +1202,6 @@ mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * mini_[keyed,unkeyed]_print --
  *
  *      Prints each meta_page together with all its entries to
@@ -1258,10 +1215,8 @@ mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head)
  *
  * Side effects:
  *      None.
- *
  *-----------------------------------------------------------------------------
  */
-
 void
 mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
 {

@@ -38,7 +38,7 @@ typedef struct kvstore kvstore;
 // Create a new kvstore from a given config
 //
 // The library will allocate and own the memory for kvstore
-// and will free it on kvstore_close
+// and will free it on kvstore_close().
 //
 // It is ok for the caller to stack-allocate cfg, since it is not retained
 int
@@ -47,7 +47,7 @@ kvstore_create(const kvstore_config *cfg, kvstore **kvs);
 // Open an existing kvstore, using the provided config
 //
 // The library will allocate and own the memory for kvstore
-// and will free it on kvstore_close
+// and will free it on kvstore_close().
 //
 // It is ok for the caller to stack-allocate cfg, since it is not retained
 int
@@ -99,13 +99,14 @@ typedef struct kvstore_lookup_result {
    char opaque[48];
 } kvstore_lookup_result;
 
-/* Initialize a lookup result.  If buffer is provided, then the result
-   of a query will be stored in buffer if it fits.  Otherwise, it will
-   be stored in an allocated buffer.
-
-   A kvstore_lookup_result can be used for multiple queries after
-   being initialized once.
-*/
+/*
+ * Initialize a lookup result. If buffer is provided, then the result
+ * of a query will be stored in buffer if it fits. Otherwise, it will
+ * be stored in an allocated buffer.
+ *
+ * A kvstore_lookup_result can be used for multiple queries after
+ * being initialized once.
+ */
 void
 kvstore_lookup_result_init(const kvstore *        kvs,        // IN
                            kvstore_lookup_result *result,     // IN/OUT
@@ -113,8 +114,10 @@ kvstore_lookup_result_init(const kvstore *        kvs,        // IN
                            char *                 buffer      // IN
 );
 
-/* Release any resources used by result.  Note that this does _not_ deallocate
-   the buffer provided to kvstore_lookup_result_init. */
+/*
+ * Release any resources used by result. Note that this does _not_ deallocate
+ * the buffer provided to kvstore_lookup_result_init().
+ */
 void
 kvstore_lookup_result_deinit(kvstore_lookup_result *result); // IN
 
@@ -184,19 +187,19 @@ kvstore_iterator_init(const kvstore *    kvs,      // IN
 void
 kvstore_iterator_deinit(kvstore_iterator *iter);
 
-// checks that the iterator status is OK (no errors) and that get_current will
-// succeed If false, there are two possibilities:
+// Checks that the iterator status is OK (no errors) and that get_current()
+// will succeed. If false, there are two possibilities:
 // 1. Iterator has passed the final item.  In this case, status() == 0
 // 2. Iterator has encountered an error.  In this case, status() != 0
 bool
 kvstore_iterator_valid(kvstore_iterator *iter);
 
-// attempts to advance the iterator to the next item
-// any error will cause valid() == false and be visible with status()
+// Attempts to advance the iterator to the next item.
+// Any error will cause valid() == false and be visible with status()
 void
 kvstore_iterator_next(kvstore_iterator *iter);
 
-// Sets *key and *message to the locations of the current item
+// Sets *key and *message to the locations of the current item.
 // Callers must not modify that memory
 //
 // If valid() == false, then behavior is undefined.

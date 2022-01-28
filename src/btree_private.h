@@ -207,7 +207,8 @@ btree_get_leaf_entry(const btree_config *cfg,
                      table_index         k)
 {
    /* Ensure that the kth entry's header is after the end of the table and
-      before the end of the page. */
+    * before the end of the page.
+    */
    debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
                 <= hdr->offsets[k]);
    debug_assert(hdr->offsets[k] + sizeof(leaf_entry) <= btree_page_size(cfg));
@@ -240,7 +241,8 @@ btree_get_index_entry(const btree_config *cfg,
                       table_index         k)
 {
    /* Ensure that the kth entry's header is after the end of the table and
-      before the end of the page. */
+    * before the end of the page.
+    */
    debug_assert(diff_ptr(hdr, &hdr->offsets[hdr->num_entries])
                 <= hdr->offsets[k]);
    debug_assert(hdr->offsets[k] + sizeof(index_entry) <= btree_page_size(cfg),
