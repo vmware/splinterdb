@@ -18,6 +18,7 @@
 #include "task.h"
 #include "util.h"
 #include "srq.h"
+#include "stack.h"
 
 #include "poison.h"
 
