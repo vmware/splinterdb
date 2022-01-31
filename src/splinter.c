@@ -415,7 +415,9 @@ typedef struct PACKED splinter_bundle {
  */
 typedef struct PACKED splinter_trunk_hdr {
    uint16 num_pivot_keys;    // number of used pivot keys (== num_children + 1)
-   uint16 height;            // height of the node
+   uint8  height;            // height of the node
+   uint8  pos;               // position of the node under the parent
+                             // only used in splinter_for_each_node
    uint64 next_addr;         // PBN of the node's successor (0 if no successor)
    uint64 generation;        // counter incremented on a node split
    uint64 pivot_generation;  // counter incremented when new pivots are added
