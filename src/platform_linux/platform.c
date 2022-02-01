@@ -25,8 +25,7 @@ void __attribute__((constructor)) platform_init_log_file_handles(void)
 }
 
 platform_status
-platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
-                     uint32 max,
+platform_heap_create(uint32 max,
                      platform_heap_handle *heap_handle,
                      platform_heap_id *heap_id)
 {
@@ -41,8 +40,7 @@ platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle)) {}
 
 buffer_handle *
 platform_buffer_create(size_t length,
-                       platform_heap_handle UNUSED_PARAM(heap_handle),
-                       platform_module_id UNUSED_PARAM(module_id))
+                       platform_heap_handle UNUSED_PARAM(heap_handle))
 {
    buffer_handle *bh = TYPED_MALLOC(platform_get_heap_id(), bh);
 
@@ -137,7 +135,6 @@ platform_thread_join(platform_thread thread)
 
 platform_status
 platform_mutex_init(platform_mutex *mu,
-                    platform_module_id UNUSED_PARAM(module_id),
                     platform_heap_id UNUSED_PARAM(heap_id))
 {
    int ret;
@@ -159,7 +156,6 @@ platform_mutex_destroy(platform_mutex *mu)
 
 platform_status
 platform_spinlock_init(platform_spinlock *lock,
-                       platform_module_id UNUSED_PARAM(module_id),
                        platform_heap_id   UNUSED_PARAM(heap_id))
 {
    int ret;
@@ -258,7 +254,7 @@ platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
 {
    platform_status status;
 
-   status = platform_mutex_init(&cv->lock, platform_get_module_id(), heap_id);
+   status = platform_mutex_init(&cv->lock, heap_id);
    if (!SUCCESS(status)) {
       return status;
    }

@@ -280,8 +280,7 @@ rc_allocator_init(rc_allocator         *al,
                   rc_allocator_config  *cfg,
                   io_handle            *io,
                   platform_heap_handle  hh,
-                  platform_heap_id      hid,
-                  platform_module_id    mid)
+                  platform_heap_id      hid)
 {
    uint64 rc_extent_count;
    uint64 addr;
@@ -298,7 +297,7 @@ rc_allocator_init(rc_allocator         *al,
    platform_assert(cfg->capacity == cfg->extent_size * cfg->extent_capacity);
    platform_assert(cfg->capacity == cfg->page_size * cfg->page_capacity);
 
-   rc = platform_mutex_init(&al->lock, mid, al->heap_id);
+   rc = platform_mutex_init(&al->lock, al->heap_id);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init mutex for the allocator\n");
       return rc;
@@ -312,7 +311,7 @@ rc_allocator_init(rc_allocator         *al,
    // To ensure alignment always allocate in multiples of page size.
    uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size = ROUNDUP(buffer_size, cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
+   al->bh = platform_buffer_create(buffer_size, al->heap_handle);
    if (al->bh == NULL) {
       platform_error_log("Failed to create buffer for ref counts\n");
       platform_mutex_destroy(&al->lock);
@@ -366,8 +365,7 @@ rc_allocator_mount(rc_allocator         *al,
                    rc_allocator_config  *cfg,
                    io_handle            *io,
                    platform_heap_handle  hh,
-                   platform_heap_id      hid,
-                   platform_module_id    mid)
+                   platform_heap_id      hid)
 {
    platform_status status;
 
@@ -379,7 +377,7 @@ rc_allocator_mount(rc_allocator         *al,
    al->heap_handle = hh;
    al->heap_id = hid;
 
-   status = platform_mutex_init(&al->lock, mid, al->heap_id);
+   status = platform_mutex_init(&al->lock, al->heap_id);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init mutex for the allocator\n");
       return status;
@@ -398,7 +396,7 @@ rc_allocator_mount(rc_allocator         *al,
 
    uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size = ROUNDUP(buffer_size, cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
+   al->bh = platform_buffer_create(buffer_size, al->heap_handle);
    platform_assert(al->bh != NULL);
    al->ref_count = platform_buffer_getaddr(al->bh);
 

@@ -1755,10 +1755,9 @@ clockcache_init(clockcache           *cc,     // OUT
                 io_handle            *io,     // IN
                 allocator            *al,     // IN
                 char                 *name,   // IN
-                task_system          *ts,  // IN
+                task_system          *ts,     // IN
                 platform_heap_handle  hh,     // IN
-                platform_heap_id      hid,    // IN
-                platform_module_id    mid)    // IN
+                platform_heap_id      hid)
 {
    int i;
    threadid thr_i;
@@ -1815,7 +1814,7 @@ clockcache_init(clockcache           *cc,     // OUT
    }
 
    /* data must be aligned because of O_DIRECT */
-   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid);
+   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle);
    if (!cc->bh) {
       goto alloc_error;
    }
@@ -1831,7 +1830,7 @@ clockcache_init(clockcache           *cc,     // OUT
 
    /* Entry per-thread ref counts */
    size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
-   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_handle, mid);
+   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_handle);
    if (!cc->rc_bh) {
       goto alloc_error;
    }

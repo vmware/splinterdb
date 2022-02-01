@@ -158,8 +158,7 @@ clockcache_init(clockcache *         cc,   // OUT
                 char *               name, // IN
                 task_system *        ts,   // IN
                 platform_heap_handle hh,   // IN
-                platform_heap_id     hid,  // IN
-                platform_module_id   mid);   // IN
+                platform_heap_id     hid); // IN
 
 void
 clockcache_deinit(clockcache *cc); // IN

@@ -97,8 +97,7 @@ rc_allocator_init(rc_allocator *       al,
                   rc_allocator_config *cfg,
                   io_handle *          io,
                   platform_heap_handle hh,
-                  platform_heap_id     hid,
-                  platform_module_id   mid);
+                  platform_heap_id     hid);
 
 void
 rc_allocator_deinit(rc_allocator *al);
@@ -108,8 +107,7 @@ rc_allocator_mount(rc_allocator *       al,
                    rc_allocator_config *cfg,
                    io_handle *          io,
                    platform_heap_handle hh,
-                   platform_heap_id     hid,
-                   platform_module_id   mid);
+                   platform_heap_id     hid);
 
 void
 rc_allocator_dismount(rc_allocator *al);

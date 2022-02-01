@@ -952,7 +952,7 @@ cache_test(int argc, char *argv[])
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
    platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   rc = platform_heap_create(1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
    splinter_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
@@ -1001,8 +1001,7 @@ cache_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+   rc_allocator_init(&al, &al_cfg, (io_handle *)io, hh, hid);
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,
@@ -1012,8 +1011,7 @@ cache_test(int argc, char *argv[])
                         "test",
                         ts,
                         hh,
-                        hid,
-                        platform_get_module_id());
+                        hid);
    platform_assert_status_ok(rc);
 
    cache *ccp = (cache *)cc;

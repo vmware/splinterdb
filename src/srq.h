@@ -33,11 +33,10 @@ typedef struct srq {
 
 static inline void
 srq_init(srq                *queue,
-         platform_module_id  UNUSED_PARAM(module_id),
          platform_heap_id    UNUSED_PARAM(heap_id))
 {
    ZERO_CONTENTS(queue);
-   platform_mutex_init(&queue->mutex, module_id, heap_id);
+   platform_mutex_init(&queue->mutex, heap_id);
    for (uint64 i = 0; i < SRQ_MAX_ENTRIES; i++) {
       queue->index[i] = SRQ_INDEX_AVAILABLE;
    }

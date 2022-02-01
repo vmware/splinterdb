@@ -6686,7 +6686,7 @@ splinter_create(splinter_config  *cfg,
    spl->heap_id = hid;
    spl->ts = ts;
 
-   srq_init(&spl->srq, platform_get_module_id(), hid);
+   srq_init(&spl->srq, hid);
 
    // get a free node for the root
    //    we don't use the mini allocator for this, since the root doesn't
@@ -6791,7 +6791,7 @@ splinter_mount(splinter_config  *cfg,
    spl->heap_id = hid;
    spl->ts = ts;
 
-   srq_init(&spl->srq, platform_get_module_id(), hid);
+   srq_init(&spl->srq, hid);
 
    // find the dismounted super block
    spl->root_addr = 0;

@@ -317,7 +317,7 @@ filter_test(int argc, char *argv[])
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
    platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   rc = platform_heap_create(1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
    splinter_config *cfg = TYPED_MALLOC(hid, cfg);
@@ -357,8 +357,7 @@ filter_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   rc = rc_allocator_init(
-      &al, &allocator_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+   rc = rc_allocator_init(&al, &allocator_cfg, (io_handle *)io, hh, hid);
    platform_assert_status_ok(rc);
 
    cc = TYPED_MALLOC(hid, cc);
@@ -370,8 +369,7 @@ filter_test(int argc, char *argv[])
                         "test",
                         ts,
                         hh,
-                        hid,
-                        platform_get_module_id());
+                        hid);
    platform_assert_status_ok(rc);
 
    if (run_perf_test) {

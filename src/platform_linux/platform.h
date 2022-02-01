@@ -498,8 +498,7 @@ static inline size_t
 platform_strnlen(const char *s, size_t maxlen);
 
 platform_status
-platform_heap_create(platform_module_id module_id,
-                     uint32 max,
+platform_heap_create(uint32 max,
                      platform_heap_handle *heap_handle,
                      platform_heap_id *heap_id);
 
@@ -508,8 +507,7 @@ platform_heap_destroy(platform_heap_handle *heap_handle);
 
 buffer_handle *
 platform_buffer_create(size_t length,
-                       platform_heap_handle heap_handle,
-                       platform_module_id module_id);
+                       platform_heap_handle heap_handle);
 
 void *
 platform_buffer_getaddr(const buffer_handle *bh);
@@ -519,7 +517,6 @@ platform_buffer_destroy(buffer_handle *bh);
 
 platform_status
 platform_mutex_init(platform_mutex *mu,
-                    platform_module_id module_id,
                     platform_heap_id heap_id);
 
 platform_status
@@ -527,7 +524,6 @@ platform_mutex_destroy(platform_mutex *mu);
 
 platform_status
 platform_spinlock_init(platform_spinlock *lock,
-                       platform_module_id module_id,
                        platform_heap_id   heap_id);
 
 platform_status

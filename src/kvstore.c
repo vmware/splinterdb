@@ -206,15 +206,13 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                                   &kvs->allocator_cfg,
                                   (io_handle *)&kvs->io_handle,
                                   kvs->heap_handle,
-                                  kvs->heap_id,
-                                  platform_get_module_id());
+                                  kvs->heap_id);
    } else {
       status = rc_allocator_init(&kvs->allocator_handle,
                                  &kvs->allocator_cfg,
                                  (io_handle *)&kvs->io_handle,
                                  kvs->heap_handle,
-                                 kvs->heap_id,
-                                 platform_get_module_id());
+                                 kvs->heap_id);
    }
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init allocator: %s\n",
@@ -229,8 +227,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                             "kvStore",
                             kvs->task_sys,
                             kvs->heap_handle,
-                            kvs->heap_id,
-                            platform_get_module_id());
+                            kvs->heap_id);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init cache: %s\n",
                          platform_status_to_string(status));

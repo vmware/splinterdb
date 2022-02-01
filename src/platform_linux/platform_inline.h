@@ -366,13 +366,6 @@ platform_get_heap_id(void)
    return NULL;
 }
 
-static inline platform_module_id
-platform_get_module_id()
-{
-   // void* NULL since we don't actually need a module id
-   return NULL;
-}
-
 static inline void *
 platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
                         const size_t alignment, // IN

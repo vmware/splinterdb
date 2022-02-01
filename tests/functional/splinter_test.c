@@ -2745,7 +2745,7 @@ splinter_test(int argc, char *argv[])
    platform_heap_handle hh;
    platform_heap_id     hid;
    rc =
-      platform_heap_create(platform_get_module_id(), heap_capacity, &hh, &hid);
+      platform_heap_create(heap_capacity, &hh, &hid);
    platform_assert_status_ok(rc);
 
    /*
@@ -2847,8 +2847,7 @@ splinter_test(int argc, char *argv[])
    }
 
    rc_allocator al;
-   rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+   rc_allocator_init(&al, &al_cfg, (io_handle *)io, hh, hid);
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
    clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
@@ -2861,8 +2860,7 @@ splinter_test(int argc, char *argv[])
                            "test",
                            ts,
                            hh,
-                           hid,
-                           platform_get_module_id());
+                           hid);
       platform_assert_status_ok(rc);
    }
    allocator *alp = (allocator *)&al;

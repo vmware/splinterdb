@@ -377,7 +377,7 @@ task_group_init(task_group *group,
          }
       }
    } else {
-      rc = platform_mutex_init(&group->fg.mutex, 0, hid);
+      rc = platform_mutex_init(&group->fg.mutex, hid);
       if (!SUCCESS(rc)) {
          goto out;
       }

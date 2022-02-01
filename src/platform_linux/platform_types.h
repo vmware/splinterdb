@@ -119,7 +119,6 @@ typedef struct {
 // iohandle for laio
 typedef struct laio_handle platform_io_handle;
 
-typedef void* platform_module_id;
 typedef void* platform_heap_handle;
 typedef void* platform_heap_id;
 

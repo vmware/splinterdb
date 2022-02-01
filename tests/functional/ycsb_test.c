@@ -1196,7 +1196,7 @@ ycsb_test(int argc, char *argv[])
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
    platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   rc = platform_heap_create(1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
    data_config *data_cfg = TYPED_MALLOC(hid, data_cfg);
@@ -1303,8 +1303,7 @@ ycsb_test(int argc, char *argv[])
                          &allocator_cfg,
                          (io_handle *)io,
                          hh,
-                         hid,
-                         platform_get_module_id());
+                         hid);
       rc = clockcache_init(cc,
                            &cache_cfg,
                            (io_handle *)io,
@@ -1312,8 +1311,7 @@ ycsb_test(int argc, char *argv[])
                            "test",
                            ts,
                            hh,
-                           hid,
-                           platform_get_module_id());
+                           hid);
       platform_assert_status_ok(rc);
       spl = splinter_mount(splinter_cfg,
                            (allocator *)&al,
@@ -1327,8 +1325,7 @@ ycsb_test(int argc, char *argv[])
                         &allocator_cfg,
                         (io_handle *)io,
                         hh,
-                        hid,
-                        platform_get_module_id());
+                        hid);
       rc = clockcache_init(cc,
                            &cache_cfg,
                            (io_handle *)io,
@@ -1336,8 +1333,7 @@ ycsb_test(int argc, char *argv[])
                            "test",
                            ts,
                            hh,
-                           hid,
-                           platform_get_module_id());
+                           hid);
       platform_assert_status_ok(rc);
       spl = splinter_create(splinter_cfg,
                             (allocator *)&al,
