@@ -2,8 +2,12 @@
 #! SPDX-License-Identifier: Apache-2.0
 
 #@ load("@ytt:template", "template")
-#@ def default_timeout():
-#@   return "25m"
+#@ def get_task_timeout(quick=False):
+#@   if quick:
+#@     return "5m"
+#@   else:
+#@     return "55m"
+#@   end
 #@ end
 
 ---
@@ -31,7 +35,7 @@ plan:
   file: #@ resource_name + "-source/.git/ref"
   reveal: true
 - task: create-image
-  timeout: #@ default_timeout()
+  timeout: #@ get_task_timeout()
   privileged: true
   params:
     LABEL_git_sha: ((.:git-commit-sha))
@@ -89,7 +93,7 @@ params:
 
 #@ def step_build_splinterdb_image(source, compiler, git_sha=False, with_rust=False):
 task: build
-timeout: #@ default_timeout()
+timeout: #@ get_task_timeout()
 privileged: true
 #@ if git_sha:
 params:
@@ -126,7 +130,7 @@ config:
 
 #@ def step_test_with_image(with_rust=False):
 task: test
-timeout: #@ default_timeout()
+timeout: #@ get_task_timeout()
 image: image
 config:
   platform: linux
@@ -135,12 +139,13 @@ config:
     args: ["-c", "cd /splinterdb && ./test.sh"]
   params:
     TEST_RUST_CLI: #@ str(with_rust).lower()
+    INCLUDE_SLOW_TESTS: "true"
 #@ end
 
 ---
 #@ def step_collect_tags(compiler):
 task: collect-tags
-timeout: #@ default_timeout()
+timeout: #@ get_task_timeout()
 config:
   platform: linux
   image_resource:
@@ -204,9 +209,9 @@ plan:
 
 ---
 
-#@ def step_debug_build_test(compiler, input_name, with_rust=False):
+#@ def step_debug_build_test(compiler, input_name, with_rust=False, quick=False):
 task: debug-build-test
-timeout: #@ default_timeout()
+timeout: #@ get_task_timeout(quick=quick)
 image: build-env-image-latest
 config:
   platform: linux
@@ -216,6 +221,7 @@ config:
     CC: #@ compiler
     LD: #@ compiler
     WITH_RUST: #@ str(with_rust).lower()
+    INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
   run:
     path: sh
     dir: #@ input_name
@@ -264,7 +270,7 @@ get_params: {skip_download: true}
 ---
 
 #! Job to run against every PR
-#@ def job_pr_check(job_name, steps, description=""):
+#@ def job_pr_check(job_name, steps, depends_on=[], description=""):
 name: #@ "pr-" + job_name
 public: true
 on_success: #@ set_pr_status(job_name, "success", description)
@@ -273,7 +279,11 @@ on_error: #@ set_pr_status(job_name, "error", description)
 plan:
 - get: github-pull-request
   trigger: true
+  #@ if depends_on:
+  passed: #@ depends_on
+  #@ else:
   version: every
+  #@ end
   params:
     list_changed_files: true
 - #@ set_pr_status(job_name, "pending", description)
@@ -300,10 +310,10 @@ plan:
 
 ---
 
-#@ def steps_pr_debug_build_test(compiler, with_rust=False):
+#@ def steps_pr_debug_build_test(compiler, with_rust=False, quick=False):
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
-- #@ step_debug_build_test(compiler, "github-pull-request", with_rust=with_rust)
+- #@ step_debug_build_test(compiler, "github-pull-request", with_rust=with_rust, quick=quick)
 #@ end
 
 ---
@@ -315,7 +325,7 @@ plan:
   file: github-pull-request/.git/resource/base_sha
   reveal: true
 - task: format-check
-  timeout: #@ default_timeout()
+  timeout: #@ get_task_timeout()
   image: build-env-image-latest
   config:
     platform: linux
@@ -333,7 +343,7 @@ plan:
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
 - task: check-shell-scripts
-  timeout: #@ default_timeout()
+  timeout: #@ get_task_timeout()
   image: build-env-image-latest
   config:
     platform: linux

@@ -90,17 +90,18 @@ jobs:
 - #@ job_debug_main_build_test("clang")
 - #@ job_debug_main_build_test("gcc")
 
-- #@ job_pr_check("clang", steps_pr_build_test("clang"), description="build and test")
-- #@ job_pr_check("gcc", steps_pr_build_test("gcc"), description="build and test")
-
 - #@ job_pr_check("clang-format", steps_pr_clang_format(), description="check C source formatting")
 - #@ job_pr_check("shell-scripts", steps_pr_shell_scripts(), description="lint and format any shell scripts")
+- #@ job_pr_check("quick-check", steps_pr_debug_build_test("clang", quick=True), description="build and run fast unit tests")
 
-- #@ job_pr_check("debug-clang", steps_pr_debug_build_test("clang"), description="debug build and test")
-- #@ job_pr_check("debug-gcc", steps_pr_debug_build_test("gcc"), description="debug build and test")
+- #@ job_pr_check("clang", steps_pr_build_test("clang"), depends_on=["pr-quick-check"], description="build and test")
+- #@ job_pr_check("gcc", steps_pr_build_test("gcc"), depends_on=["pr-quick-check"], description="build and test")
 
-- #@ job_pr_check("rust", steps_pr_build_test("clang", with_rust=True), description="rust build and test")
-- #@ job_pr_check("rust-debug", steps_pr_debug_build_test("clang", with_rust=True), description="rust debug build and test")
+- #@ job_pr_check("debug-clang", steps_pr_debug_build_test("clang"), depends_on=["pr-quick-check"], description="debug build and test")
+- #@ job_pr_check("debug-gcc", steps_pr_debug_build_test("gcc"), depends_on=["pr-quick-check"], description="debug build and test")
+
+- #@ job_pr_check("rust", steps_pr_build_test("clang", with_rust=True), depends_on=["pr-quick-check"], description="rust build and test")
+- #@ job_pr_check("rust-debug", steps_pr_debug_build_test("clang", with_rust=True), depends_on=["pr-quick-check"], description="rust debug build and test")
 
 groups:
 - name: main_branch
@@ -112,6 +113,7 @@ groups:
 
 - name: pull_requests
   jobs:
+  - pr-quick-check
   - pr-clang
   - pr-debug-clang
   - pr-gcc

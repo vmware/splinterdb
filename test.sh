@@ -4,8 +4,21 @@ set -euxo pipefail
 
 SEED="${SEED:-135}"
 
+INCLUDE_SLOW_TESTS="${INCLUDE_SLOW_TESTS:-false}"
 WITH_RUST="${WITH_RUST:-false}"
 TEST_RUST_CLI="${TEST_RUST_CLI:-${WITH_RUST}}"
+
+if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
+   echo "Only running fast unit tests"
+   echo "(To run all tests, set the env var INCLUDE_SLOW_TESTS=true)"
+   bin/unit/kvstore_basic_test
+   bin/unit/kvstore_test
+   bin/unit/btree_test
+   bin/unit/util_test
+   bin/unit/misc_test
+   echo "Fast tests passed"
+   exit 0
+fi
 
 # Run all the unit-tests first, to get basic coverage
 bin/unit_test
