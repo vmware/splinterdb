@@ -831,43 +831,44 @@ function * iterate(node) {
    page_handle *root = splinter_node_get(spl, spl->root_addr);
    splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)root->data;
    hdr->pos = 0;
-   //uint16 height = splinter_height(spl, root);
    splinter_node_unget(spl, &root);
+   stack_push(node_stack, (void*)spl->root_addr, NULL);
 
-   stack_push(node_stack, spl->root_addr, NULL);
    while (stack_size(node_stack) > 0) {
-      uint64 addr = stack_pop(node_stack);
+      uint64 addr = (uint64)stack_peek(node_stack);
       page_handle *node = splinter_node_get(spl, addr);
       splinter_trunk_hdr *node_hdr = (splinter_trunk_hdr *)node->data;
       int num_children = splinter_num_children(spl, node);
+      uint16 height = splinter_height(spl, node);
       int pos =  node_hdr->pos; 
-      if (splinter_height(spl, node) == 0) {
+      platform_log("height=%d, pos=%d, addr=%ld, root=%ld, num_children=%d\n", height, pos, addr, spl->root_addr, num_children);
+      if (height == 0) {
          splinter_node_unget(spl, &node);
+         stack_pop(node_stack);
          bool rc = func(spl, addr, arg);
          if (rc != TRUE) {
             return rc;
          }
-      } else if (pos < num_children) {
-         if (pos == num_children - 1) {
+      } else if (pos <= num_children) {
+         if (pos == num_children) {
             splinter_node_unget(spl, &node);
+            stack_pop(node_stack);
             bool rc = func(spl, addr, arg);
             if (rc != TRUE) {
                return rc;
             }
+         } else {
+            node_hdr->pos++;
+            splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pos);
+            page_handle *next_node = splinter_node_get(spl, pdata->addr);
+            splinter_trunk_hdr *next_node_hdr = (splinter_trunk_hdr *)next_node->data;
+            next_node_hdr->pos = 0;
+            splinter_node_unget(spl, &next_node);
+            splinter_node_unget(spl, &node);
+            stack_push(node_stack, (void*)pdata->addr, NULL);
          }
-
-         node_hdr->pos++;
-
-         splinter_pivot_data *pdata = splinter_get_pivot_data(spl, node, pos+1);
-         page_handle *next_node = splinter_node_get(spl, pdata->addr);
-         splinter_trunk_hdr *next_node_hdr = (splinter_trunk_hdr *)next_node->data;
-         next_node_hdr->pos = pos + 1;         
-         splinter_node_unget(spl, &next_node);
-         splinter_node_unget(spl, &node);
-
-         stack_push(node_stack, addr, NULL);
-         stack_push(node_stack, pdata->addr, NULL);
       }
+      platform_log("stack_size=%ld\n", stack_size(node_stack));
    }
 
    stack_free(node_stack);
