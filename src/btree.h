@@ -72,17 +72,12 @@ typedef struct { // Note: not a union
    scratch_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED btree_scratch;
 
-/* *******************************************
- * BTree pivot data: Disk-resident structure
- * *******************************************
- */
-typedef struct PACKED btree_pivot_data {
-   uint64 child_addr;
-   uint32 num_kvs_in_tree;
-   uint32 key_bytes_in_tree;
-   uint32 message_bytes_in_tree;
-} btree_pivot_data;
+/* Expose the size of BTree pivot data structure, for use by test code. */
+#define BTREE_PIVOT_DATA_SIZE (sizeof(uint64) + (3 * sizeof(uint32)))
 
+/*
+ * BTree iterator scan context structure.
+ */
 typedef struct btree_iterator {
    iterator      super;
    cache        *cc;

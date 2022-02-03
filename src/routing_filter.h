@@ -16,13 +16,16 @@
 #include "util.h"
 #include "platform.h"
 
-#define MAX_FILTERS       32
-#define ROUTING_NOT_FOUND (UINT16_MAX)
-
 // In splinter, there is an strict max number of compacted tuples in a node, so
 // we used routing filters designed for that many keys. This allows us not to
 // worry about how many bits to store etc.
+#define MAX_FILTERS       32
+#define ROUTING_NOT_FOUND (UINT16_MAX)
 
+
+/*
+ * Routing Filters Configuration structure - used to setup routing filters.
+ */
 typedef struct routing_config {
    uint32 fingerprint_size;
    uint32 index_size;
@@ -38,8 +41,10 @@ typedef struct routing_config {
 } routing_config;
 
 /*
+ * -----------------------------------------------------------------------------
  * Routing Filter: Disk-resident structure.
  * Stored in trunk nodes, and is a pointer to a routing filter.
+ * -----------------------------------------------------------------------------
  */
 typedef struct PACKED routing_filter {
    uint64 addr;

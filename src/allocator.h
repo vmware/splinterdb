@@ -68,6 +68,10 @@ typedef uint64 (*get_size_fn)(allocator *al);
 typedef void (*print_fn)(allocator *al);
 typedef void (*assert_fn)(allocator *al);
 
+/*
+ * Define an abstract allocator interface, holding different allocation-related
+ * function pointers.
+ */
 typedef struct allocator_ops {
    alloc_fn alloc;
 

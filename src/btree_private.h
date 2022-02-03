@@ -16,16 +16,22 @@
 #include "util.h"
 #include "btree.h"
 
+/*
+ * Disk-resident length-specifiers to describe pieces of BTree row formats.
+ * These appear in other disk-resident structures defined below.
+ */
 typedef uint16 table_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
 typedef node_offset table_entry;
 typedef uint16      inline_key_size;
 typedef uint16      inline_message_size;
 
-/* ****************************************************
+/*
+ * *************************************************************************
  * BTree Node headers: Disk-resident structure:
- * Page Type == PAGE_TYPE_MEMTABLE, PAGE_TYPE_BRANCH
- * ****************************************************
+ * Stored on pages of Page Type == PAGE_TYPE_MEMTABLE, PAGE_TYPE_BRANCH
+ * See btree.c for a description of the layout of this page format.
+ * *************************************************************************
  */
 struct PACKED btree_hdr {
    uint64      next_addr;
@@ -37,9 +43,25 @@ struct PACKED btree_hdr {
    table_entry offsets[];
 };
 
-/* ***************************************
- * Node entries: Disk-resident structure
- * ***************************************
+/*
+ * *************************************************************************
+ * BTree pivot data: Disk-resident structure
+ * *************************************************************************
+ */
+typedef struct PACKED btree_pivot_data {
+   uint64 child_addr;
+   uint32 num_kvs_in_tree;
+   uint32 key_bytes_in_tree;
+   uint32 message_bytes_in_tree;
+} btree_pivot_data;
+
+_Static_assert(sizeof(btree_pivot_data) == BTREE_PIVOT_DATA_SIZE,
+               "btree_pivot_data has wrong size");
+
+/*
+ * *************************************************************************
+ * BTree Node index entries: Disk-resident structure
+ * *************************************************************************
  */
 typedef struct PACKED index_entry {
    btree_pivot_data pivot_data;
@@ -54,9 +76,15 @@ _Static_assert(sizeof(index_entry)
 _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
                "index_entry key has wrong offset");
 
-/* ***************************************
- * Leaf entry: Disk-resident structure
- * ***************************************
+/*
+ * *************************************************************************
+ * BTree Leaf entry: Disk-resident structure
+ *
+ * The key and message datum are laid out abutting each other on the BTree
+ * leaf node. This structure describes that layout in terms of the length
+ * of the key-portion and the message-portion, following which appears
+ * the concatenated [<key>, <message> ] datum.
+ * *************************************************************************
  */
 typedef struct PACKED leaf_entry {
    inline_key_size     key_size;

@@ -21,14 +21,20 @@
 
 #include "poison.h"
 
+/* RESOLVE: Doc it ... is this limit arbitrary or is there a physical
+ * limit for 4096.
+ * Also, this #define is used in conjunction with magic number '32'
+ * which makes an appearance in multiple places in this file.
+ * Can we give a semantic #define for 32?
+ */
 #define ROUTING_FPS_PER_PAGE 4096
 
 /*
  *----------------------------------------------------------------------
- * routing_hdr: Disk-resident structure [ RESOLVE ? ]
+ * routing_hdr: Disk-resident structure [ RESOLVE : PACKED ? ]
  *
  *       This header encodes the bucket counts for all buckets covered by a
- *       single index.
+ *       single index. Appears on pages of page type == PAGE_TYPE_FILTER.
  *----------------------------------------------------------------------
  */
 typedef struct routing_hdr {
@@ -789,8 +795,8 @@ routing_filter_estimate_unique_fp(cache           *cc,
  *----------------------------------------------------------------------
  * routing_filter_lookup
  *
- *      looks for key in the filter and returns whether it was found, it's
- *      value goes in value.
+ *      Looks for key in the filter and returns whether it was found, it's
+ *      value goes in found_values.
  *
  *      IMPORTANT: If there are multiple matching values, this function returns
  *      them in the reverse order.
@@ -938,9 +944,9 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
  *-----------------------------------------------------------------------------
  * routing_filter_lookup_async --
  *
- *      Async filter lookup api. Returns if lookup found a key in *found.  The
- *      ctxt should've been initialized using routing_filter_ctxt_init().  The
- *      return value can be either of:
+ *      Async filter lookup api. Returns if lookup found a key in *found_values.
+ *      The ctxt should've been initialized using routing_filter_ctxt_init().
+ *      The return value can be either of:
  *      async_locked: A page needed by lookup is locked. User should retry
  *                    request.
  *      async_no_reqs: A page needed by lookup is not in cache and the IO
@@ -952,7 +958,7 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
  *                        async lookup request for dispatch in thread context.
  *                        When it's requeued, it must use the same function
  *                        params except found.
- *      success: Results are in *found
+ *      success: Results are in *found_values
  *
  * Results:
  *      Async result.

@@ -10,7 +10,7 @@
 #include "platform.h"
 
 #include "splinter.h"
-#include "btree.h"
+#include "btree_private.h"
 #include "memtable.h"
 #include "routing_filter.h"
 #include "shard_log.h"
@@ -359,6 +359,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 /*
  *-----------------------------------------------------------------------------
  * Splinter Super Block: Disk-resident structure.
+ * Super block lives on page of page type == PAGE_TYPE_MISC.
  *-----------------------------------------------------------------------------
  */
 typedef struct PACKED splinter_super_block {
@@ -384,6 +385,11 @@ typedef enum splinter_subbundle_state {
    SB_STATE_COMPACTED, // compacted subbundles are always index
 } splinter_subbundle_state;
 
+/*
+ *-----------------------------------------------------------------------------
+ * Splinter Sub-bundle: Disk-resident structure.
+ *-----------------------------------------------------------------------------
+ */
 typedef struct PACKED splinter_subbundle {
    splinter_subbundle_state state;
    uint16                   start_branch;
@@ -393,6 +399,9 @@ typedef struct PACKED splinter_subbundle {
 } splinter_subbundle;
 
 /*
+ *-----------------------------------------------------------------------------
+ * Splinter Bundle: Disk-resident structure.
+ *
  * A flush moves branches from the parent to a bundle in the child. The bundle
  * is then compacted with a compact_bundle job.
  *
@@ -403,6 +412,7 @@ typedef struct PACKED splinter_subbundle {
  * compacted. If there is not an earlier uncompacted bundle, the bundle can be
  * released and the compacted branch can become a whole branch. This is
  * maintain the invariant that the outstanding bundles form a contiguous range.
+ *-----------------------------------------------------------------------------
  */
 typedef struct PACKED splinter_bundle {
    uint16 start_subbundle;
@@ -411,9 +421,11 @@ typedef struct PACKED splinter_bundle {
 } splinter_bundle;
 
 /*
- * Trunk headers: Page Type == PAGE_TYPE_TRUNK
+ *-----------------------------------------------------------------------------
+ * Trunk headers: Disk-resident structure
  *
  * Contains metadata for trunk nodes. See below for comments on fields.
+ * Found on pages of page type == PAGE_TYPE_TRUNK
  *
  * Generation numbers are used by asynchronous processes to detect node splits.
  *    internal nodes: Splits increment the generation number of the left node.
@@ -423,6 +435,7 @@ typedef struct PACKED splinter_bundle {
  *    leaves: Splits increment the generation numbers of all the resulting
  *       leaves. This is because there are no processes which need to revisit
  *       all the created leaves.
+ *-----------------------------------------------------------------------------
  */
 typedef struct PACKED splinter_trunk_hdr {
    uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
@@ -447,11 +460,15 @@ typedef struct PACKED splinter_trunk_hdr {
 } splinter_trunk_hdr;
 
 /*
+ *-----------------------------------------------------------------------------
+ * Splinter Pivot Data: RESOLVE: Is this disk-resident?
+ *
  * A pivot consists of the pivot key (of size cfg.key_size) followed by a
  * splinter_pivot_data
  *
  * The generation is used by asynchronous processes to determine when a pivot
  * has split
+ *-----------------------------------------------------------------------------
  */
 typedef struct splinter_pivot_data {
    uint64         addr;         // PBN of the child

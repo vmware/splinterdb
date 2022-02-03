@@ -1286,9 +1286,10 @@ mini_keyed_print(cache       *cc,
          slice start_key = keyed_meta_entry_start_key(entry);
          char  extent_str[32];
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
-            snprintf(extent_str, 32, "TERMINAL_ENTRY");
+            snprintf(extent_str, sizeof(extent_str), "TERMINAL_ENTRY");
          } else {
-            snprintf(extent_str, 32, "%14lu", entry->extent_addr);
+            snprintf(
+               extent_str, sizeof(extent_str), "%14lu", entry->extent_addr);
          }
          char ref_str[4];
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {

@@ -1271,10 +1271,10 @@ test_btree_rough_iterator(cache             *cc,
                       slice_length(curr_key),
                       btree_cfg->data_cfg->key_size);
       }
-      if (slice_length(dummy_data) != sizeof(btree_pivot_data)) {
+      if (slice_length(dummy_data) != BTREE_PIVOT_DATA_SIZE) {
          platform_log("Weird data length: %lu should be: %lu\n",
                       slice_length(dummy_data),
-                      sizeof(btree_pivot_data));
+                      BTREE_PIVOT_DATA_SIZE);
       }
       memmove(pivot[pivot_no].k,
               slice_data(curr_key),
