@@ -18,7 +18,7 @@
 #include <string.h> // for memmove
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
-#include "splinterdb/util.h"
+#include "splinterdb/public_util.h"
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
@@ -67,29 +67,6 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          const void        *key_or_message,
                                          char              *str,
                                          size_t             max_len);
-
-/*
- * RESOLVE: Leave as a reference for reviewers; delete eventually.
- *
- * data_config: Is a user-/application-defined set of configurtaions that
- * SplinterDB will use to manage data ij messages. This includes flags for
- * each type of message (INS, UPD, DELETE), which is usually an application
- * defined "thing" that Splkinter does not really 'know' about.
-
- * This is an interface / contract that an applicagtion must implement to
- * in order to use Splinter. We provide kvstore_basic as a "batteries included"
- * implementation, but if an application wants to do something different, they
- * have to provide the following required interfaces.
- *
- * data_config: Applications need to tell Splinter 3 things about Keys
- *  1. Sorting order on teh key - defined t
- *  2. How to hash keys
- *  3. How to merge update messages
- *
- *  This struct also incloudes a few de uggin aids on how-to print and diagnost
- *  messages.
- * RESOLVE: Wordsmith about info ...
- */
 
 /*
  * ----------------------------------------------------------------------------

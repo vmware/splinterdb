@@ -15,7 +15,7 @@
 #include "util.h"
 
 /* RESOLVE: Describe this constant */
-#define RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS (30)
+#define RC_ALLOCATOR_MAX_ROOT_IDS (30)
 
 /*
  * Configuration structure to set up the Ref Count Allocation sub-system.
@@ -37,10 +37,13 @@ typedef struct rc_allocator_config {
  *  offset 0 of the device.
  *----------------------------------------------------------------------
  */
-typedef struct PACKED rc_allocator_meta_page {
-   allocator_root_id splinters[RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS];
+typedef struct ONDISK rc_allocator_meta_page {
+   allocator_root_id splinters[RC_ALLOCATOR_MAX_ROOT_IDS];
    checksum128       checksum;
 } rc_allocator_meta_page;
+
+_Static_assert(offsetof(rc_allocator_meta_page, splinters) == 0,
+               "splinters array should be first field in meta_page struct");
 
 /*
  *----------------------------------------------------------------------

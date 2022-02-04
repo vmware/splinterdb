@@ -669,7 +669,7 @@ test_functionality(allocator           *al,
          &cfg[idx], al, cache_to_use, state, splinters[idx], hid);
       if (spl_tables[idx] == NULL) {
          status = STATUS_NO_MEMORY;
-         platform_error_log("Sumpin failed.\n");
+         platform_error_log("splinter_create() failed for index=%d.\n", idx);
          goto cleanup;
       }
    }

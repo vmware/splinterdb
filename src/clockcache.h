@@ -73,6 +73,53 @@ typedef struct clockcache_entry {
 #endif
 } clockcache_entry;
 
+typedef uint32 entry_status; // Saved in clockcache_entry->status
+
+_Static_assert(sizeof(entry_status) == FSIZEOF(clockcache_entry, status),
+               "Size of clockcache_entry->status is incorrect");
+
+/*
+ * Definitions for entry_status (clockcache_entry->status)
+ */
+#define CC_FREE        (1u << 0) // entry is free
+#define CC_ACCESSED    (1u << 1) // access bit prevents eviction for one cycle
+#define CC_CLEAN       (1u << 2) // page has no new changes
+#define CC_WRITEBACK   (1u << 3) // page is actively in writeback
+#define CC_LOADING     (1u << 4) // page is actively being read from disk
+#define CC_WRITELOCKED (1u << 5) // write lock is held
+#define CC_CLAIMED     (1u << 6) // claim is held
+
+/* Common status flag combinations */
+// free entry
+#define CC_FREE_STATUS (0 | CC_FREE)
+
+// evictable unlocked page
+#define CC_EVICTABLE_STATUS (0 | CC_CLEAN)
+
+// evictable locked page
+#define CC_LOCKED_EVICTABLE_STATUS (0 | CC_CLEAN | CC_CLAIMED | CC_WRITELOCKED)
+
+// accessed, but otherwise evictable page
+#define CC_ACCESSED_STATUS (0 | CC_ACCESSED | CC_CLEAN)
+
+// newly allocated page (dirty, writelocked)
+#define CC_ALLOC_STATUS (0 | CC_WRITELOCKED | CC_CLAIMED)
+
+// eligible for writeback (unaccessed)
+#define CC_CLEANABLE1_STATUS /* dirty */ (0)
+
+// eligible for writeback (accessed)
+#define CC_CLEANABLE2_STATUS /* dirty */ (0 | CC_ACCESSED)
+
+// actively in writeback (unaccessed)
+#define CC_WRITEBACK1_STATUS (0 | CC_WRITEBACK)
+
+// actively in writeback (accessed)
+#define CC_WRITEBACK2_STATUS (0 | CC_ACCESSED | CC_WRITEBACK)
+
+// loading for read
+#define CC_READ_LOADING_STATUS (0 | CC_ACCESSED | CC_CLEAN | CC_LOADING)
+
 /*
  *----------------------------------------------------------------------
  * clockcache -- A multi-threaded cache using a clock algorithm for eviction

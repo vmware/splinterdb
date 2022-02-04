@@ -61,6 +61,9 @@
  */
 #define ARRAY_SIZE(x) ASSERT_EXPR(IS_ARRAY(x), (sizeof(x) / sizeof((x)[0])))
 
+/* Evaluates to sizeof() a field, f, in a C-structure, s */
+#define FSIZEOF(s, f) sizeof(((typeof(s) *)NULL)->f)
+
 #define MAX_THREADS (64)
 
 #define HASH_SEED         (42)

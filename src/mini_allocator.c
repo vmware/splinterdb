@@ -34,7 +34,7 @@
  *      use entry_buffer and unkeyed ones use entry.
  *-----------------------------------------------------------------------------
  */
-typedef struct PACKED mini_meta_hdr {
+typedef struct ONDISK mini_meta_hdr {
    uint64 next_meta_addr;
    uint64 pos;
    uint32 num_entries;
@@ -44,7 +44,7 @@ typedef struct PACKED mini_meta_hdr {
 #define TERMINAL_EXTENT_ADDR ((uint64)-1)
 
 /* Disk-resident structure */
-typedef struct PACKED keyed_meta_entry {
+typedef struct ONDISK keyed_meta_entry {
    uint64 extent_addr;
    uint16 start_key_length;
    uint8  batch;
@@ -52,7 +52,7 @@ typedef struct PACKED keyed_meta_entry {
 } keyed_meta_entry;
 
 /* Disk-resident structure */
-typedef struct PACKED unkeyed_meta_entry {
+typedef struct ONDISK unkeyed_meta_entry {
    uint64 extent_addr;
 } unkeyed_meta_entry;
 

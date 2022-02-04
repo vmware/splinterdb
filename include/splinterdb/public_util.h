@@ -1,8 +1,8 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __UTIL_H
-#define __UTIL_H
+#ifndef __PUBLIC_UTIL_H__
+#define __PUBLIC_UTIL_H__
 
 typedef struct writable_buffer writable_buffer;
 
@@ -17,4 +17,4 @@ writable_buffer_set_length(writable_buffer *wb, uint64 newlength);
 void *
 writable_buffer_data(writable_buffer *wb);
 
-#endif /* __UTIL_H */
+#endif /* __PUBLIC_UTIL_H__ */

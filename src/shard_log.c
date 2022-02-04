@@ -121,10 +121,12 @@ shard_log_zap(shard_log *log)
 }
 
 /*
+ * -------------------------------------------------------------------------
  * Header for a key/message pair stored in the sharded log: Disk-resident
  * structure. Appears on pages of page type == PAGE_TYPE_LOG
+ * -------------------------------------------------------------------------
  */
-struct PACKED log_entry {
+struct ONDISK log_entry {
    uint64 generation;
    uint16 keylen;
    uint16 messagelen;

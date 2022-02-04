@@ -16,7 +16,13 @@
 #include "cache.h"
 #include "data_internal.h"
 
-#define MINI_MAX_BATCHES 8 // RESOLVE: Where is this limit coming from?
+/*
+ * Mini-allocator breaks extents into pages, so they feed out (allocates) pages
+ * to consumers. Batch ensures that it feeds it out of contiguous sets of pages,
+ * to facilitate packing back to extents / contiguous pages. This batch-size
+ * is somewhat of an artificial limit to manage this contiguity.
+ */
+#define MINI_MAX_BATCHES 8
 
 /*
  * mini_allocator: Mini-allocator context structure. To allocate individual

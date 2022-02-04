@@ -33,37 +33,40 @@ typedef uint16      inline_message_size;
  * See btree.c for a description of the layout of this page format.
  * *************************************************************************
  */
-struct PACKED btree_hdr {
+struct ONDISK btree_hdr {
    uint64      next_addr;
    uint64      next_extent_addr;
    uint64      generation;
    uint8       height;
-   node_offset next_entry;  // RESOLVE: Unaligned access to all these
-   table_index num_entries; // 2-byte fields here onwards ...
+   node_offset next_entry;
+   table_index num_entries;
    table_entry offsets[];
 };
 
 /*
  * *************************************************************************
  * BTree pivot data: Disk-resident structure
+ *
+ * Metadata for a pivot of an internal BTree node. Returned from an iterator
+ * of height > 0 in order to track amount of data stored in sub-trees, given
+ * by stuff like # of key/value pairs, # of bytes stored in the tree.
+ *
+ * Iterators at (height > 0) return this struct as a value for each pivot.
  * *************************************************************************
  */
-typedef struct PACKED btree_pivot_data {
+typedef struct ONDISK btree_pivot_data {
    uint64 child_addr;
-   uint32 num_kvs_in_tree;
-   uint32 key_bytes_in_tree;
-   uint32 message_bytes_in_tree;
+   uint32 num_kvs_in_subtree;
+   uint32 key_bytes_in_subtree;
+   uint32 message_bytes_in_subtree;
 } btree_pivot_data;
-
-_Static_assert(sizeof(btree_pivot_data) == BTREE_PIVOT_DATA_SIZE,
-               "btree_pivot_data has wrong size");
 
 /*
  * *************************************************************************
  * BTree Node index entries: Disk-resident structure
  * *************************************************************************
  */
-typedef struct PACKED index_entry {
+typedef struct ONDISK index_entry {
    btree_pivot_data pivot_data;
    inline_key_size  key_size;
    char             key[];
@@ -86,7 +89,7 @@ _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
  * the concatenated [<key>, <message> ] datum.
  * *************************************************************************
  */
-typedef struct PACKED leaf_entry {
+typedef struct ONDISK leaf_entry {
    inline_key_size     key_size;
    inline_message_size message_size;
    char                key_and_message[];

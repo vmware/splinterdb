@@ -209,8 +209,6 @@ const static allocator_ops rc_allocator_ops = {
 static platform_status
 rc_allocator_init_meta_page(rc_allocator *al)
 {
-   _Static_assert(offsetof(rc_allocator_meta_page, splinters) == 0,
-                  "splinter array should be first field in meta_page struct");
    /*
     * To make it easier to do aligned i/o's we allocate the meta page to
     * always be page size. In the future we can use the remaining space
@@ -222,8 +220,7 @@ rc_allocator_init_meta_page(rc_allocator *al)
     * Ensure that the meta page and  all the super blocks will fit in one
     * extent.
     */
-   platform_assert((1 + RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS)
-                      * al->cfg->page_size
+   platform_assert((1 + RC_ALLOCATOR_MAX_ROOT_IDS) * al->cfg->page_size
                    <= al->cfg->extent_size);
 
    al->meta_page = platform_aligned_malloc(
@@ -318,7 +315,7 @@ rc_allocator_init(rc_allocator        *al,
    memset(al->ref_count, 0, buffer_size);
 
    // allocate the super block
-   allocator_alloc(&al->super, &addr, PAGE_TYPE_MISC);
+   allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
    // super block extent should always start from address 0.
    platform_assert(addr == RC_ALLOCATOR_BASE_OFFSET);
 
@@ -329,7 +326,7 @@ rc_allocator_init(rc_allocator        *al,
    rc_extent_count =
       (buffer_size + al->cfg->extent_size - 1) / al->cfg->extent_size;
    for (uint64 i = 0; i < rc_extent_count; i++) {
-      allocator_alloc(&al->super, &addr, PAGE_TYPE_MISC);
+      allocator_alloc(&al->super, &addr, PAGE_TYPE_SUPERBLOCK);
       platform_assert(addr == cfg->extent_size * (i + 1));
    }
 
@@ -404,7 +401,7 @@ rc_allocator_mount(rc_allocator        *al,
                            sizeof(al->meta_page->splinters),
                            RC_ALLOCATOR_META_PAGE_CSUM_SEED);
    if (!platform_checksum_is_equal(al->meta_page->checksum, currChecksum)) {
-      platform_assert(0 == "Corrupt Meta Page upon mount");
+      platform_assert(0, "Corrupt Meta Page upon mount");
    }
 
    // load the ref counts from disk.
@@ -524,7 +521,7 @@ rc_allocator_get_super_addr(rc_allocator     *al,
    platform_status status = STATUS_NOT_FOUND;
 
    platform_mutex_lock(&al->lock);
-   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS; idx++) {
+   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ROOT_IDS; idx++) {
       if (al->meta_page->splinters[idx] == allocator_root_id) {
          // have already seen this table before, return existing addr.
          *addr  = (1 + idx) * al->cfg->page_size;
@@ -545,7 +542,7 @@ rc_allocator_alloc_super_addr(rc_allocator     *al,
    platform_status status = STATUS_NOT_FOUND;
 
    platform_mutex_lock(&al->lock);
-   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS; idx++) {
+   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ROOT_IDS; idx++) {
       if (al->meta_page->splinters[idx] == INVALID_ALLOCATOR_ROOT_ID) {
          // assign the first available slot and update the on disk metadata.
          al->meta_page->splinters[idx] = allocator_root_id;
@@ -568,14 +565,13 @@ rc_allocator_alloc_super_addr(rc_allocator     *al,
    return status;
 }
 
-
 void
 rc_allocator_remove_super_addr(rc_allocator     *al,
                                allocator_root_id allocator_root_id)
 {
    platform_mutex_lock(&al->lock);
 
-   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS; idx++) {
+   for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ROOT_IDS; idx++) {
       /*
        * clear out the mapping for this splinter table and update on disk
        * metadata.
@@ -598,9 +594,8 @@ rc_allocator_remove_super_addr(rc_allocator     *al,
 
    platform_mutex_unlock(&al->lock);
    // Couldnt find the splinter id in the meta page.
-   platform_assert(0 == "Couldnt find existing splinter table in meta page");
+   platform_assert(0, "Couldn't find existing splinter table in meta page");
 }
-
 
 uint64
 rc_allocator_extent_size(rc_allocator *al)
@@ -678,15 +673,17 @@ rc_allocator_in_use(rc_allocator *al)
  * rc_allocator_assert_noleaks --
  *
  *      Asserts that the allocations of each type are completely matched by
- *      deallocations.
+ *      deallocations by operations that do something like create / destroy
+ *      of objects. Primitive function to do some basic cross-checking of
+ *      these operations.
  *----------------------------------------------------------------------
  */
 void
 rc_allocator_assert_noleaks(rc_allocator *al)
 {
    for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
-      /* RESOLVE: Give reason why we skip these page types */
-      if (type == PAGE_TYPE_LOG || type == PAGE_TYPE_MISC) {
+      // Log pages and super-block page are never deallocated.
+      if (type == PAGE_TYPE_LOG || type == PAGE_TYPE_SUPERBLOCK) {
          continue;
       }
       if (al->stats.extent_allocs[type] != al->stats.extent_deallocs[type]) {

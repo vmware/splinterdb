@@ -42,11 +42,11 @@ typedef struct routing_config {
 
 /*
  * -----------------------------------------------------------------------------
- * Routing Filter: Disk-resident structure.
+ * Routing Filter: Disk-resident structure, on pages of type PAGE_TYPE_FILTER.
  * Stored in trunk nodes, and is a pointer to a routing filter.
  * -----------------------------------------------------------------------------
  */
-typedef struct PACKED routing_filter {
+typedef struct ONDISK routing_filter {
    uint64 addr;
    uint64 meta_head;
    uint32 num_fingerprints;

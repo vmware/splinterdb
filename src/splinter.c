@@ -10,7 +10,7 @@
 #include "platform.h"
 
 #include "splinter.h"
-#include "btree_private.h"
+#include "btree.h"
 #include "memtable.h"
 #include "routing_filter.h"
 #include "shard_log.h"
@@ -41,18 +41,55 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
    10000000000 // 10  s
 };
 
-/* Max # of Memtables that can be active at one time. */
-#define SPLINTER_NUM_MEMTABLES             (4)
+/*
+ * At any time, one Memtable is "active" for inserts / updates.
+ * At any time, the most # of Memtables that can be in one of
+ * other states, such as, compaction, incorporation, reclamation,
+ * is given by this limit.
+ */
+#define SPLINTER_NUM_MEMTABLES (4)
 
 #define SPLINTER_HARD_MAX_NUM_TREES        (128)
-#define SPLINTER_MAX_PIVOTS                (20)
-#define SPLINTER_MAX_BUNDLES               (12)
-#define SPLINTER_MAX_SUBBUNDLES            (24)
-#define SPLINTER_MAX_FILTERS               (24)
-#define SPLINTER_PREFETCH_MIN              (16384)
-#define SPLINTER_MIN_SPACE_RECL            (2048)
-#define SPLINTER_SUPER_CSUM_SEED           (42)
 
+/*
+ * These are hard-coded to values so that statically allocated
+ * structures sized by these limits can fit within 4K byte pages.
+ *
+ * NOTE: The bundle and sub-bundle related limits below are used to size arrays
+ * of structures in splinter_trunk_hdr{}; i.e. Splinter pages of type
+ * PAGE_TYPE_TRUNK. So these constants do affect disk-resident structures.
+ */
+#define SPLINTER_MAX_PIVOTS (20)
+#define SPLINTER_MAX_BUNDLES (12)
+#define SPLINTER_MAX_SUBBUNDLES (24)
+#define SPLINTER_MAX_SUBBUNDLE_FILTERS (24)
+
+/*
+ * For a "small" range query, you don't want to prefetch pages.
+ * This is the minimal # of items requested before we turn ON prefetching.
+ * (Empirically established through past experiments, for small key-value
+ * pairs. So, _may_ be less efficient in general cases. Needs a revisit.)
+ */
+#define SPLINTER_PREFETCH_MIN (16384)
+
+/*
+ * If space reclamation had been configured when Splinter was instantiated.
+ * Splinter can perform extra compactions to reclaim space.
+ * Compactions are added to the space reclamation queue if the "estimated"
+ * amount of space that can be reclaimed is > this limit.
+ */
+#define SPLINTER_MIN_SPACE_RECL (2048)
+
+/* Some randomly chosen Splinter super-block checksum seed. */
+#define SPLINTER_SUPER_CSUM_SEED (42)
+
+/*
+ * When a leaf becomes full, Splinter estimates the amount of data in the leaf.
+ * If the 'estimated' amount of data is > this threshold, Splinter will split
+ * the leaf. Otherwise, the leaf page will be compacted.
+ * (This limit has also been empirically established thru in-house experiments.)
+ */
+>>>>>>> Apply review comments from discussion. Tighten definitions.
 #define SPLINTER_SINGLE_LEAF_THRESHOLD_PCT (75)
 
 //#define SPLINTER_LOG
@@ -147,17 +184,16 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          As part of this process, the generation number of the leaf into
  *          which the new tuple is placed is returned and stored in the log (if
  *          used) in order to establish a per-key temporal ordering.  The
- *          memtable also keeps an list of fingerprints, fp_arr, which are used
+ *          memtable also keeps a list of fingerprints, fp_arr, which are used
  *          to build the filter when the memtable becomes a branch.
  *
  *       Incorporation When the memtable fills, it is incorporated
  *          into the root node. The memtable locks itself to inserts
- *          (but not lookups), splinter switches the active memtable,
+ *          (but not lookups), Splinter switches the active memtable,
  *          then the filter is built from the fp_arr, and the
  *          btree in the memtable is inserted into the
  *          root as a new (distinct) branch.  Then the memtable is
- *          reinitialized with a new (empty) btree and
- *          unlocked.
+ *          reinitialized with a new (empty) btree and unlocked.
  *
  *       Flushing
  *          A node is considered full when it has max_tuples_per_node tuples
@@ -274,9 +310,9 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 
 /*
  *-----------------------------------------------------------------------------
- * Trunk Nodes: splinter_trunk_hdr{}
+ * Trunk Nodes: splinter_trunk_hdr{}: Disk-resident structure
  *
- *       A trunk node consists of the following:
+ *   A trunk node, on pages of PAGE_TYPE_TRUNK type, consists of the following:
  *
  *       header
  *          meta data
@@ -359,10 +395,10 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 /*
  *-----------------------------------------------------------------------------
  * Splinter Super Block: Disk-resident structure.
- * Super block lives on page of page type == PAGE_TYPE_MISC.
+ * Super block lives on page of page type == PAGE_TYPE_SUPERBLOCK.
  *-----------------------------------------------------------------------------
  */
-typedef struct PACKED splinter_super_block {
+typedef struct ONDISK splinter_super_block {
    uint64      root_addr; // Disk offset where super-block page resides
    uint64      meta_tail;
    uint64      log_addr;
@@ -378,20 +414,23 @@ typedef struct PACKED splinter_super_block {
  * It is used to organize branches with their routing filters when they are
  * flushed or otherwise moved or reorganized.  A query to the node uses the
  * routing filter to filter the branches in the subbundle.
+ * Disk-resident artifact.
  */
+typedef uint16 splinter_subbundle_t;
 typedef enum splinter_subbundle_state {
-   SB_STATE_UNCOMPACTED_INDEX,
+   SB_STATE_UNCOMPACTED_INDEX = 0,
    SB_STATE_UNCOMPACTED_LEAF,
    SB_STATE_COMPACTED, // compacted subbundles are always index
 } splinter_subbundle_state;
 
+
 /*
  *-----------------------------------------------------------------------------
- * Splinter Sub-bundle: Disk-resident structure.
+ * Splinter Sub-bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
  *-----------------------------------------------------------------------------
  */
-typedef struct PACKED splinter_subbundle {
-   splinter_subbundle_state state;
+typedef struct ONDISK splinter_subbundle {
+   splinter_subbundle_t     state;
    uint16                   start_branch;
    uint16                   end_branch;
    uint16                   start_filter;
@@ -400,7 +439,7 @@ typedef struct PACKED splinter_subbundle {
 
 /*
  *-----------------------------------------------------------------------------
- * Splinter Bundle: Disk-resident structure.
+ * Splinter Bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
  *
  * A flush moves branches from the parent to a bundle in the child. The bundle
  * is then compacted with a compact_bundle job.
@@ -410,11 +449,11 @@ typedef struct PACKED splinter_subbundle {
  * When a compact_bundle job completes, the branches in the bundle are replaced
  * with the outputted branch of the compaction and the bundle is marked
  * compacted. If there is not an earlier uncompacted bundle, the bundle can be
- * released and the compacted branch can become a whole branch. This is
+ * released and the compacted branch can become a whole branch. This is to
  * maintain the invariant that the outstanding bundles form a contiguous range.
  *-----------------------------------------------------------------------------
  */
-typedef struct PACKED splinter_bundle {
+typedef struct ONDISK splinter_bundle {
    uint16 start_subbundle;
    uint16 end_subbundle;
    uint64 num_tuples;
@@ -437,12 +476,12 @@ typedef struct PACKED splinter_bundle {
  *       all the created leaves.
  *-----------------------------------------------------------------------------
  */
-typedef struct PACKED splinter_trunk_hdr {
-   uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
-   uint16 height;           // height of the node
-   uint64 next_addr;        // PBN of the node's successor (0 if no successor)
-   uint64 generation;       // counter incremented on a node split
-   uint64 pivot_generation; // counter incremented when new pivots are added
+typedef struct ONDISK splinter_trunk_hdr {
+   uint16 num_pivot_keys;    // number of used pivot keys (== num_children + 1)
+   uint16 height;            // height of the node
+   uint64 next_addr;         // PBN of the node's successor (0 if no successor)
+   uint64 generation;        // counter incremented on a node split
+   uint64 pivot_generation;  // counter incremented when new pivots are added
 
    uint16 start_branch;      // first live branch
    uint16 start_frac_branch; // first fractional branch (branch in a bundle)
@@ -456,12 +495,12 @@ typedef struct PACKED splinter_trunk_hdr {
 
    splinter_bundle    bundle[SPLINTER_MAX_BUNDLES];
    splinter_subbundle subbundle[SPLINTER_MAX_SUBBUNDLES];
-   routing_filter     sb_filter[SPLINTER_MAX_FILTERS];
+   routing_filter     sb_filter[SPLINTER_MAX_SUBBUNDLE_FILTERS];
 } splinter_trunk_hdr;
 
 /*
  *-----------------------------------------------------------------------------
- * Splinter Pivot Data: RESOLVE: Is this disk-resident?
+ * Splinter Pivot Data: Disk-resident structure on Trunk pages
  *
  * A pivot consists of the pivot key (of size cfg.key_size) followed by a
  * splinter_pivot_data
@@ -470,7 +509,7 @@ typedef struct PACKED splinter_trunk_hdr {
  * has split
  *-----------------------------------------------------------------------------
  */
-typedef struct splinter_pivot_data {
+typedef struct ONDISK splinter_pivot_data {
    uint64         addr;         // PBN of the child
    uint64         num_tuples;   // estimate of the # of tuples for this pivot
    uint64         generation;   // receives new higher number when pivot splits
@@ -480,6 +519,10 @@ typedef struct splinter_pivot_data {
    int64          srq_idx;      // index in the space rec queue
 } splinter_pivot_data;
 
+/*
+ * Used to specify compaction bundle "task" request. These enums specify
+ * the compaction bundle request type. (Not disk-resident.)
+ */
 typedef enum splinter_compaction_type {
    SPLINTER_COMPACTION_TYPE_FLUSH,
    SPLINTER_COMPACTION_TYPE_LEAF_SPLIT,
@@ -531,16 +574,16 @@ typedef bool (*node_fn)(splinter_handle *spl, uint64 addr, void *arg);
 
 // Used by splinter_compact_bundle()
 typedef struct {
-   splinter_btree_skiperator skip_itor[SPLINTER_MAX_TOTAL_DEGREE];
-   iterator                 *itor_arr[SPLINTER_MAX_TOTAL_DEGREE];
+   splinter_btree_skiperator skip_itor[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
+   iterator *                itor_arr[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
    key_buffer                saved_pivot_keys[SPLINTER_MAX_PIVOTS];
 } compact_bundle_scratch;
 
 // Used by splinter_split_leaf()
 typedef struct {
    char           pivot[SPLINTER_MAX_PIVOTS][MAX_KEY_SIZE];
-   btree_iterator btree_itor[SPLINTER_MAX_TOTAL_DEGREE];
-   iterator      *rough_itor[SPLINTER_MAX_TOTAL_DEGREE];
+   btree_iterator btree_itor[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
+   iterator *     rough_itor[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
 } split_leaf_scratch;
 
 /*
@@ -671,7 +714,7 @@ splinter_set_super_block(splinter_handle *spl,
       rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    }
    platform_assert_status_ok(rc);
-   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_MISC);
+   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    while (!cache_claim(spl->cc, super_page)) {
       platform_sleep(wait);
       wait *= 2;
@@ -698,7 +741,7 @@ splinter_set_super_block(splinter_handle *spl,
    cache_unlock(spl->cc, super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
-   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_MISC);
+   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
 }
 
 splinter_super_block *
@@ -710,16 +753,13 @@ splinter_get_super_block_if_valid(splinter_handle *spl,
 
    platform_status rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    platform_assert_status_ok(rc);
-   *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_MISC);
-   super       = (splinter_super_block *)(*super_page)->data;
+   *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
+   super      = (splinter_super_block *)(*super_page)->data;
 
-   if (!platform_checksum_is_equal(
-          super->checksum,
-          platform_checksum128(super,
-                               sizeof(splinter_super_block)
-                                  - sizeof(checksum128),
-                               SPLINTER_SUPER_CSUM_SEED)))
-   {
+   if (!platform_checksum_is_equal(super->checksum,
+            platform_checksum128(super,
+               sizeof(splinter_super_block) - sizeof(checksum128),
+               SPLINTER_SUPER_CSUM_SEED))) {
       cache_unget(spl->cc, *super_page);
       *super_page = NULL;
       return NULL;
@@ -1881,7 +1921,11 @@ splinter_get_sb_filter(splinter_handle *spl,
                        uint16           filter_no)
 {
    splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
-   // RESOLVE: assert that (0 <= filter_no < SPLINTER_MAX_FILTERS)
+   debug_assert(filter_no < SPLINTER_MAX_SUBBUNDLE_FILTERS,
+                "filter_no=%d should be < SPLINTER_MAX_SUBBUNDLE_FILTERS (%d)",
+                filter_no,
+                SPLINTER_MAX_SUBBUNDLE_FILTERS);
+
    return &hdr->sb_filter[filter_no];
 }
 
@@ -2409,8 +2453,9 @@ splinter_process_generation_to_pos(splinter_handle             *spl,
                                    uint64                       generation)
 {
    uint64 pos = 0;
-   while (pos != SPLINTER_MAX_PIVOTS
-          && req->pivot_generation[pos] != generation) {
+   while ((pos != SPLINTER_MAX_PIVOTS)
+          && (req->pivot_generation[pos] != generation))
+   {
       pos++;
    }
    return pos;
@@ -3595,14 +3640,14 @@ splinter_replace_routing_filter(splinter_handle             *spl,
          //    node->disk_addr, pdata->generation, num_tuples_to_reclaim);
          srq_update(&spl->srq, pdata->srq_idx, num_tuples_to_reclaim);
          srq_print(&spl->srq);
-      } else if (num_tuples_to_reclaim > SPLINTER_MIN_SPACE_RECL
-                 && spl->cfg.reclaim_threshold != UINT64_MAX)
+      } else if ((num_tuples_to_reclaim > SPLINTER_MIN_SPACE_RECL)
+                 && (spl->cfg.reclaim_threshold != UINT64_MAX))
       {
-         srq_data data = {.addr             = node->disk_addr,
-                          .pivot_generation = pdata->generation,
-                          .priority         = num_tuples_to_reclaim};
-         // platform_log("Inserting %12lu-%lu:%8lu into SRQ\n",
-         //       data.addr, data.pivot_generation, data.priority);
+         srq_data data = { .addr             = node->disk_addr,
+                           .pivot_generation = pdata->generation,
+                           .priority         = num_tuples_to_reclaim };
+         //platform_log("Inserting %12lu-%lu:%8lu into SRQ\n",
+         //      data.addr, data.pivot_generation, data.priority);
          pdata->srq_idx = srq_insert(&spl->srq, data);
          srq_print(&spl->srq);
       }
@@ -4145,9 +4190,10 @@ splinter_btree_skiperator_init(splinter_handle           *spl,
 {
    ZERO_CONTENTS(skip_itor);
    skip_itor->super.ops = &splinter_btree_skiperator_ops;
-   uint16 min_pivot_no  = 0;
-   uint16 max_pivot_no  = splinter_num_children(spl, node);
-   debug_assert(max_pivot_no < SPLINTER_MAX_PIVOTS);
+   uint16 min_pivot_no = 0;
+   uint16 max_pivot_no = splinter_num_children(spl, node);
+   debug_assert(
+      max_pivot_no < SPLINTER_MAX_PIVOTS, "max_pivot_no = %d", max_pivot_no);
 
    char *min_key     = pivots[min_pivot_no].k;
    char *max_key     = pivots[max_pivot_no].k;
@@ -4900,6 +4946,7 @@ splinter_single_leaf_threshold(splinter_handle *spl)
 }
 
 /*
+ *----------------------------------------------------------------------
  * split_leaf splits a trunk leaf logically. It determines pivots to split
  * on, uses them to split the leaf and adds them to its parent. It then
  * issues compact_bundle jobs on each leaf to perform the actual compaction.
@@ -4924,6 +4971,7 @@ splinter_single_leaf_threshold(splinter_handle *spl)
  * 6. Issue compact_bundle for last_leaf and release
  * 7. Repeat 4-6 on new leaf
  * 8. Clean up
+ *----------------------------------------------------------------------
  */
 void
 splinter_split_leaf(splinter_handle *spl,
@@ -5049,8 +5097,9 @@ splinter_split_leaf(splinter_handle *spl,
             slice curr_key, pivot_data_slice;
             iterator_get_curr(
                &rough_merge_itor->super, &curr_key, &pivot_data_slice);
-            const btree_pivot_data *pivot_data = slice_data(pivot_data_slice);
-            rough_count_tuples += pivot_data->num_kvs_in_tree;
+
+            rough_count_tuples +=
+               btree_pivot_num_kvs_in_subtree(slice_data(pivot_data_slice));
             iterator_advance(&rough_merge_itor->super);
             iterator_at_end(&rough_merge_itor->super, &at_end);
          }
@@ -5364,7 +5413,12 @@ splinter_range_iterator_init(splinter_handle         *spl,
         mt_gen != range_itor->memtable_end_gen;
         mt_gen--)
    {
-      platform_assert(range_itor->num_branches < SPLINTER_MAX_TOTAL_DEGREE);
+      platform_assert(range_itor->num_branches
+                         < SPLINTER_RANGE_ITOR_MAX_BRANCHES,
+                      "range_itor->num_branches=%lu should be < "
+                      " SPLINTER_RANGE_ITOR_MAX_BRANCHES (%d).",
+                      range_itor->num_branches,
+                      SPLINTER_RANGE_ITOR_MAX_BRANCHES);
       debug_assert(range_itor->num_branches < ARRAY_SIZE(range_itor->branch));
 
       bool   compacted;
@@ -5397,11 +5451,16 @@ splinter_range_iterator_init(splinter_handle         *spl,
            branch_offset != splinter_pivot_branch_count(spl, node, pdata);
            branch_offset++)
       {
-         platform_assert(range_itor->num_branches < SPLINTER_MAX_TOTAL_DEGREE);
-         debug_assert(range_itor->num_branches
-                      < ARRAY_SIZE(range_itor->branch));
-         uint16 branch_no = splinter_branch_no_sub(
-            spl, splinter_end_branch(spl, node), branch_offset + 1);
+         platform_assert(range_itor->num_branches
+                            < SPLINTER_RANGE_ITOR_MAX_BRANCHES,
+                         "range_itor->num_branches=%lu should be < "
+                         " SPLINTER_RANGE_ITOR_MAX_BRANCHES (%d).",
+                         range_itor->num_branches,
+                         SPLINTER_RANGE_ITOR_MAX_BRANCHES);
+
+         debug_assert(range_itor->num_branches < ARRAY_SIZE(range_itor->branch));
+         uint16 branch_no = splinter_branch_no_sub(spl,
+               splinter_end_branch(spl, node), branch_offset + 1);
          range_itor->branch[range_itor->num_branches] =
             *splinter_get_branch(spl, node, branch_no);
          range_itor->compacted[range_itor->num_branches] = TRUE;

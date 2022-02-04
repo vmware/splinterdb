@@ -123,6 +123,16 @@ leaf_entry_message_size(const leaf_entry *entry)
    return entry->message_size;
 }
 
+/*
+ * Accessor used in context of an iterator that has an opaque
+ * handle as a ptr to a btree_pivot_data struct.
+ * Returns # of key-values in sub-tree field.
+ */
+uint32
+btree_pivot_num_kvs_in_subtree(const void *datap)
+{
+   return ((btree_pivot_data *)datap)->num_kvs_in_subtree;
+}
 
 /**************************************
  * Basic get/set on index nodes
@@ -144,9 +154,9 @@ btree_fill_index_entry(const btree_config *cfg,
    memcpy(entry->key, slice_data(new_pivot_key), slice_length(new_pivot_key));
    entry->key_size                         = slice_length(new_pivot_key);
    entry->pivot_data.child_addr            = new_addr;
-   entry->pivot_data.num_kvs_in_tree       = kv_pairs;
-   entry->pivot_data.key_bytes_in_tree     = key_bytes;
-   entry->pivot_data.message_bytes_in_tree = message_bytes;
+   entry->pivot_data.num_kvs_in_subtree       = kv_pairs;
+   entry->pivot_data.key_bytes_in_subtree     = key_bytes;
+   entry->pivot_data.message_bytes_in_subtree = message_bytes;
 }
 
 bool
@@ -880,9 +890,9 @@ btree_split_index_build_right_node(const btree_config *cfg,        // IN
                                i,
                                index_entry_key_slice(entry),
                                index_entry_child_addr(entry),
-                               entry->pivot_data.num_kvs_in_tree,
-                               entry->pivot_data.key_bytes_in_tree,
-                               entry->pivot_data.message_bytes_in_tree);
+                               entry->pivot_data.num_kvs_in_subtree,
+                               entry->pivot_data.key_bytes_in_subtree,
+                               entry->pivot_data.message_bytes_in_subtree);
       platform_assert(succeeded);
    }
 }
@@ -910,9 +920,9 @@ btree_defragment_index(const btree_config *cfg, // IN
                                i,
                                index_entry_key_slice(entry),
                                index_entry_child_addr(entry),
-                               entry->pivot_data.num_kvs_in_tree,
-                               entry->pivot_data.key_bytes_in_tree,
-                               entry->pivot_data.message_bytes_in_tree);
+                               entry->pivot_data.num_kvs_in_subtree,
+                               entry->pivot_data.key_bytes_in_subtree,
+                               entry->pivot_data.message_bytes_in_subtree);
       platform_assert(succeeded);
    }
 }
@@ -1533,12 +1543,12 @@ accumulate_node_ranks(const btree_config *cfg,
       for (int i = from; i < to; i++) {
          index_entry *entry = btree_get_index_entry(cfg, hdr, i);
 
-         *num_kvs =
-            add_possibly_unknown(*num_kvs, entry->pivot_data.num_kvs_in_tree);
-         *key_bytes     = add_possibly_unknown(*key_bytes,
-                                           entry->pivot_data.key_bytes_in_tree);
+         *num_kvs   = add_possibly_unknown(*num_kvs,
+                                         entry->pivot_data.num_kvs_in_subtree);
+         *key_bytes = add_possibly_unknown(
+            *key_bytes, entry->pivot_data.key_bytes_in_subtree);
          *message_bytes = add_possibly_unknown(
-            *message_bytes, entry->pivot_data.message_bytes_in_tree);
+            *message_bytes, entry->pivot_data.message_bytes_in_subtree);
       }
    }
 }
@@ -1684,9 +1694,9 @@ start_over:
             0,
             key,
             index_entry_child_addr(parent_entry),
-            parent_entry->pivot_data.num_kvs_in_tree,
-            parent_entry->pivot_data.key_bytes_in_tree,
-            parent_entry->pivot_data.message_bytes_in_tree);
+            parent_entry->pivot_data.num_kvs_in_subtree,
+            parent_entry->pivot_data.key_bytes_in_subtree,
+            parent_entry->pivot_data.message_bytes_in_subtree);
       }
       if (btree_index_is_full(cfg, root_node.hdr)) {
          btree_grow_root(cc, cfg, mini, &root_node);
@@ -1700,9 +1710,9 @@ start_over:
             0,
             key,
             index_entry_child_addr(parent_entry),
-            parent_entry->pivot_data.num_kvs_in_tree,
-            parent_entry->pivot_data.key_bytes_in_tree,
-            parent_entry->pivot_data.message_bytes_in_tree);
+            parent_entry->pivot_data.num_kvs_in_subtree,
+            parent_entry->pivot_data.key_bytes_in_subtree,
+            parent_entry->pivot_data.message_bytes_in_subtree);
          platform_assert(success);
       }
       btree_node_unlock(cc, cfg, &root_node);
@@ -1725,11 +1735,11 @@ start_over:
    uint64 height = btree_height(parent_node.hdr);
    while (height > 1) {
       /* loop invariant:
-         - read lock on parent_node, parent_node is an index, parent_node min
-         key is up to date, and parent_node will not need to split.
-         - read lock on child_node
-         - height >= 1
-      */
+       * - read lock on parent_node, parent_node is an index, parent_node min
+       * key is up to date, and parent_node will not need to split.
+       * - read lock on child_node
+       * - height >= 1
+       */
       int64 next_child_idx = btree_find_pivot(cfg, child_node.hdr, key, &found);
       if (next_child_idx < 0 || btree_index_is_full(cfg, child_node.hdr)) {
          if (!btree_node_claim(cc, cfg, &parent_node)) {
@@ -1758,9 +1768,9 @@ start_over:
                0,
                key,
                index_entry_child_addr(child_entry),
-               child_entry->pivot_data.num_kvs_in_tree,
-               child_entry->pivot_data.key_bytes_in_tree,
-               child_entry->pivot_data.message_bytes_in_tree);
+               child_entry->pivot_data.num_kvs_in_subtree,
+               child_entry->pivot_data.key_bytes_in_subtree,
+               child_entry->pivot_data.message_bytes_in_subtree);
          }
 
          if (btree_index_is_full(cfg, child_node.hdr)) {
@@ -1791,9 +1801,9 @@ start_over:
                0,
                key,
                index_entry_child_addr(child_entry),
-               child_entry->pivot_data.num_kvs_in_tree,
-               child_entry->pivot_data.key_bytes_in_tree,
-               child_entry->pivot_data.message_bytes_in_tree);
+               child_entry->pivot_data.num_kvs_in_subtree,
+               child_entry->pivot_data.key_bytes_in_subtree,
+               child_entry->pivot_data.message_bytes_in_subtree);
             platform_assert(success);
          }
          btree_node_unlock(cc, cfg, &parent_node);
@@ -1807,11 +1817,11 @@ start_over:
 
       child_idx    = next_child_idx;
       parent_entry = btree_get_index_entry(cfg, parent_node.hdr, child_idx);
-      debug_assert(parent_entry->pivot_data.num_kvs_in_tree
+      debug_assert(parent_entry->pivot_data.num_kvs_in_subtree
                    == BTREE_UNKNOWN_COUNTER);
-      debug_assert(parent_entry->pivot_data.key_bytes_in_tree
+      debug_assert(parent_entry->pivot_data.key_bytes_in_subtree
                    == BTREE_UNKNOWN_COUNTER);
-      debug_assert(parent_entry->pivot_data.message_bytes_in_tree
+      debug_assert(parent_entry->pivot_data.message_bytes_in_subtree
                    == BTREE_UNKNOWN_COUNTER);
       child_node.addr = index_entry_child_addr(parent_entry);
       debug_assert(cache_page_valid(cc, child_node.addr));
@@ -2816,9 +2826,9 @@ btree_pack_loop(btree_pack_req *req,     // IN/OUT
    for (uint16 i = 1; i <= req->height; i++) {
       index_entry *entry = btree_get_index_entry(
          req->cfg, req->edge[i].hdr, btree_num_entries(req->edge[i].hdr) - 1);
-      entry->pivot_data.num_kvs_in_tree++;
-      entry->pivot_data.key_bytes_in_tree += slice_length(key);
-      entry->pivot_data.message_bytes_in_tree += slice_length(message);
+      entry->pivot_data.num_kvs_in_subtree++;
+      entry->pivot_data.key_bytes_in_subtree += slice_length(key);
+      entry->pivot_data.message_bytes_in_subtree += slice_length(message);
    }
 
    if (req->hash) {
@@ -3085,9 +3095,9 @@ btree_print_locked_node(btree_config          *cfg,
                              i,
                              key_string(dcfg, index_entry_key_slice(entry)),
                              entry->pivot_data.child_addr,
-                             entry->pivot_data.num_kvs_in_tree,
-                             entry->pivot_data.key_bytes_in_tree,
-                             entry->pivot_data.message_bytes_in_tree);
+                             entry->pivot_data.num_kvs_in_subtree,
+                             entry->pivot_data.key_bytes_in_subtree,
+                             entry->pivot_data.message_bytes_in_subtree);
       }
       platform_log_stream("\n");
    } else {

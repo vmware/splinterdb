@@ -14,7 +14,19 @@
 #include "iterator.h"
 #include "util.h"
 
-#define BTREE_MAX_HEIGHT (8) // RESOLVE: Doc, why 8? Artifical limit?
+/*
+ * Max height of the BTree. This is somewhat of an arbitrary limit to size
+ * the maximum storage that can be tracked by a BTree. This constant affects
+ * the size of the BTree depending on the key-size, fanout etc. For default
+ * 4 KiB pages, with an avg row-size of ~512 bytes, we can store roughly
+ * 6-7 rows / page; round it off to 8. With max of 8 levels, that's about
+ * ( 8 ** 8) * 4KiB of storage ~= 64 GiB. This is expected to be plenty big.
+ *
+ * This limit is also related to the batching done by the mini-allocator.
+ * Finally, this is limited for convenience to allow for static allocation
+ * of some nested arrays sized by this value.
+ */
+#define BTREE_MAX_HEIGHT (8)
 
 /*
  * The max-height of a BTree is used to initialize mini-allocation context.
@@ -24,10 +36,35 @@
 _Static_assert(BTREE_MAX_HEIGHT <= MINI_MAX_BATCHES,
                "BTREE_MAX_HEIGHT has to be <= MINI_MAX_BATCHES");
 
-/* RESOLVE - ??? Are these limits still needed? */
-#define MAX_INLINE_KEY_SIZE     (512)  // Bytes
+/*
+ * Acceptable upper-bound on amount of space to waste when deciding whether
+ * to do pre-emptive splits. Pre-emptive splitting is when we may split a
+ * BTree child node in anticipation that a subsequent split of a grand-child
+ * node may cause this child node to have to split. In such a case, we are
+ * willing to 'waste' this much of space on the child node when splitting it.
+ *
+ * In other words, this limit anticpates that a split of a grand-child node
+ * may result in an insertion of a key of this size to the child node. We,
+ * therefore, may pre-emptively split the child to provision for this much of
+ * available space to absorb inserts from the split of a grand-child.
+ *
+ * (This limit is indirectly 'disk-resident' as it affects the node's layout.
+ *  In future, this may need be made a function of the configured page size.)
+ */
+#define MAX_INLINE_KEY_SIZE (512) // Bytes
+
+/*
+ * Size of messaes are limited so that a single split will always enable an
+ * index insertion to succeed. Defined currently to serve for default 4K page
+ * sizes. (This limit does not factor in the choice of pre-emptive splitting.
+ * In future, this may need be made a function of the configured page size.)
+ */
 #define MAX_INLINE_MESSAGE_SIZE (2048) // Bytes
 
+/*
+ * Used in-memory to allocate scratch buffer space for BTree splits &
+ * defragmentation.
+ */
 #define MAX_NODE_SIZE (1ULL << 16) // Bytes
 
 extern char         trace_key[24];
@@ -51,7 +88,7 @@ typedef struct btree_config {
    data_config *data_cfg;
 } btree_config;
 
-typedef struct PACKED btree_hdr btree_hdr;
+typedef struct ONDISK btree_hdr btree_hdr;
 
 typedef struct btree_node {
    uint64       addr;
@@ -383,6 +420,9 @@ btree_config_init(btree_config *btree_cfg,
                   uint64        rough_count_height,
                   uint64        page_size,
                   uint64        extent_size);
+
+uint32
+btree_pivot_num_kvs_in_subtree(const void *datap);
 
 // robj: I propose making all the following functions private to
 // btree.c

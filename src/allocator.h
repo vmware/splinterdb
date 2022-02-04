@@ -33,14 +33,21 @@ typedef enum page_type {
    PAGE_TYPE_MEMTABLE,
    PAGE_TYPE_FILTER,
    PAGE_TYPE_LOG,
-   PAGE_TYPE_MISC, // Catch-all, currently only the super-block is of this type
+   PAGE_TYPE_SUPERBLOCK,
+   PAGE_TYPE_MISC, // Used mainly as a testing hook, for cache access testing.
    PAGE_TYPE_LOCK_NO_DATA,
    NUM_PAGE_TYPES,
    PAGE_TYPE_INVALID,
 } page_type;
 
-static const char *const page_type_str[NUM_PAGE_TYPES] =
-   {"trunk", "branch", "memtable", "filter", "log", "misc", "lock"};
+static const char *const page_type_str[NUM_PAGE_TYPES] = {"trunk",
+                                                          "branch",
+                                                          "memtable",
+                                                          "filter",
+                                                          "log",
+                                                          "superblock",
+                                                          "misc",
+                                                          "lock"};
 
 // Ensure that the page-type lookup array is adequately sized.
 _Static_assert(

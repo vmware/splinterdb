@@ -21,23 +21,17 @@
 
 #include "poison.h"
 
-/* RESOLVE: Doc it ... is this limit arbitrary or is there a physical
- * limit for 4096.
- * Also, this #define is used in conjunction with magic number '32'
- * which makes an appearance in multiple places in this file.
- * Can we give a semantic #define for 32?
- */
 #define ROUTING_FPS_PER_PAGE 4096
 
 /*
  *----------------------------------------------------------------------
- * routing_hdr: Disk-resident structure [ RESOLVE : PACKED ? ]
+ * routing_hdr: Disk-resident structure.
  *
  *       This header encodes the bucket counts for all buckets covered by a
  *       single index. Appears on pages of page type == PAGE_TYPE_FILTER.
  *----------------------------------------------------------------------
  */
-typedef struct routing_hdr {
+typedef struct ONDISK routing_hdr {
    uint16 num_remainders;
    char   encoding[];
 } routing_hdr;
