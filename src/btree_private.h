@@ -61,6 +61,9 @@ typedef struct ONDISK btree_pivot_data {
    uint32 message_bytes_in_subtree;
 } btree_pivot_data;
 
+_Static_assert(sizeof(btree_pivot_data) == BTREE_PIVOT_DATA_SIZE,
+               "btree_pivot_data has wrong size");
+
 /*
  * *************************************************************************
  * BTree Node index entries: Disk-resident structure
