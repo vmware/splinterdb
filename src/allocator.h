@@ -40,19 +40,8 @@ typedef enum page_type {
    PAGE_TYPE_INVALID,
 } page_type;
 
-static const char *const page_type_str[NUM_PAGE_TYPES] = {"trunk",
-                                                          "branch",
-                                                          "memtable",
-                                                          "filter",
-                                                          "log",
-                                                          "superblock",
-                                                          "misc",
-                                                          "lock"};
-
-// Ensure that the page-type lookup array is adequately sized.
-_Static_assert(
-   ARRAY_SIZE(page_type_str) == NUM_PAGE_TYPES,
-   "Lookup array page_type_str[] is incorrectly sized for NUM_PAGE_TYPES");
+/* Reference to lookup array for page type names */
+extern const char * const page_type_str[];
 
 typedef struct allocator allocator;
 

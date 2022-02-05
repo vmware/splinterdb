@@ -93,15 +93,9 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
    }
 
    // the log uses an unkeyed mini allocator
-   log->addr = mini_init(&log->mini,
-                         cc,
-                         log->cfg->data_cfg,
-                         log->meta_head,
-                         0,
-                         1,
-                         PAGE_TYPE_LOG,
-                         FALSE);
-   // platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
+   log->addr =
+      mini_init_unkeyed(&log->mini, cc, log->meta_head, 0, 1, PAGE_TYPE_LOG);
+   //platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
 
    return STATUS_OK;
 }

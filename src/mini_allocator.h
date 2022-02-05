@@ -24,6 +24,8 @@
  */
 #define MINI_MAX_BATCHES 8
 
+extern const char * const page_type_str[];
+
 /*
  * mini_allocator: Mini-allocator context structure. To allocate individual
  *  pages from an allocated extent.
@@ -42,6 +44,28 @@ typedef struct mini_allocator {
    volatile uint64 next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
 } mini_allocator;
+
+// Provide two pass-thru caller interface for readability
+#define mini_init_unkeyed(mini, cc, meta_head, meta_tail, num_batches, type)   \
+   mini_init((mini),                                                           \
+             (cc),                                                             \
+             (data_config *)NULL,                                              \
+             (meta_head),                                                      \
+             (meta_tail),                                                      \
+             (num_batches),                                                    \
+             (type),                                                           \
+             FALSE)
+
+#define mini_init_keyed(                                                       \
+   mini, cc, data_cfg, meta_head, meta_tail, num_batches, type)                \
+   mini_init((mini),                                                           \
+             (cc),                                                             \
+             (data_cfg),                                                       \
+             (meta_head),                                                      \
+             (meta_tail),                                                      \
+             (num_batches),                                                    \
+             (type),                                                           \
+             TRUE)
 
 uint64
 mini_init(mini_allocator *mini,

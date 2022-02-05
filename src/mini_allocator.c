@@ -26,6 +26,21 @@
 // refs
 #define MINI_NO_REFS 2
 
+/* Define a string lookup array for page type names */
+const char *const page_type_str[] = {"trunk",
+                                     "branch",
+                                     "memtable",
+                                     "filter",
+                                     "log",
+                                     "superblock",
+                                     "misc",
+                                     "lock"};
+
+// Ensure that the page-type lookup array is adequately sized.
+_Static_assert(
+   ARRAY_SIZE(page_type_str) == NUM_PAGE_TYPES,
+   "Lookup array page_type_str[] is incorrectly sized for NUM_PAGE_TYPES");
+
 /*
  *-----------------------------------------------------------------------------
  * mini_meta_hdr -- Disk-resident structure

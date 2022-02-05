@@ -1096,6 +1096,12 @@ btree_create(cache              *cc,
              mini_allocator     *mini,
              page_type           type)
 {
+   // Can only be called for these page types
+   platform_assert(((type == PAGE_TYPE_BRANCH) || (type == PAGE_TYPE_MEMTABLE)),
+                   "page type=%d (%s) is invalid",
+                   type,
+                   page_type_str[type]);
+
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
    // maintain constant height

@@ -6800,14 +6800,12 @@ splinter_create(splinter_config  *cfg,
    //    we use the root extent as the initial mini_allocator head
    uint64 meta_addr = spl->root_addr + cfg->page_size;
    // The trunk uses an unkeyed mini allocator
-   mini_init(&spl->mini,
+   mini_init_unkeyed(&spl->mini,
              cc,
-             spl->cfg.data_cfg,
              meta_addr,
              0,
              SPLINTER_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK,
-             FALSE);
+             PAGE_TYPE_TRUNK);
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
@@ -6922,14 +6920,13 @@ splinter_mount(splinter_config  *cfg,
       spl->heap_id, cc, mt_cfg, splinter_memtable_flush_virtual, spl);
 
    // The trunk uses an unkeyed mini allocator
-   mini_init(&spl->mini,
+   mini_init_unkeyed(&spl->mini,
              cc,
-             spl->cfg.data_cfg,
              meta_head,
              meta_tail,
              SPLINTER_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK,
-             FALSE);
+             PAGE_TYPE_TRUNK);
+
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
    }

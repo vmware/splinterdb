@@ -334,6 +334,83 @@ CTEST2(kvstore, test_close_open_key_access)
 }
 
 /*
+ * Verify that keys are still accessible after a quiesced reboot; i.e.
+ * shutdown [close] and reopen of Splinter. The idea here is that user will
+ * setup KVstore once, which is done in this test flow by the
+ * CTEST_SETUP() -> setup_kvstore() method.
+ *
+ * Once having setup a KVStore, application should be able to re-use the
+ * kvstore * kvs handle to repeatedly shutdown / reopen Splinter.
+ *
+ * This test case verifies that any required basic configuration that was
+ * specified at the time of initial setup of KVStore / Splinter is made durable
+ * in the super-block, and can be safely retrieved and used to restart a new
+ * Splinter process.
+ *
+ * RESOLVE:
+ *  - Disk / device-level lock to ensure that 2 processes cannot
+ *    concurrently use the same device to start a Splinter process.
+ */
+CTEST2(kvstore, test_quiesced_reboot)
+{
+   // Exercise INSERT of new key / value pair.
+   memcpy(data->key, "foo", 3);
+   data_handle *msg  = (data_handle *)data->msg_buffer;
+   msg->message_type = MESSAGE_TYPE_INSERT;
+   msg->ref_count    = 1;
+   memcpy((void *)(msg->data), "bar", 3);
+
+   int rc = kvstore_insert(data->kvs,
+                           data->key,
+                           data->kvs_cfg.data_cfg.message_size,
+                           data->msg_buffer);
+
+   ASSERT_EQUAL(
+      0, rc, "kvstore_insert() of new key '%s' failed, rc=%d\n", data->key, rc);
+
+   kvstore_lookup_result result;
+   kvstore_lookup_result_init(data->kvs,
+                              &result,
+                              data->kvs_cfg.data_cfg.message_size,
+                              data->msg_buffer);
+
+   rc = kvstore_lookup(data->kvs, data->key, &result);
+
+   ASSERT_EQUAL(
+      0, rc, "kvstore_lookup() for key '%s' failed. rc=%d.", data->key, rc);
+
+   bool found = kvstore_lookup_result_found(&result);
+   ASSERT_TRUE(found,
+               "kvstore_lookup() for key '%s' failed. found=%d.",
+               data->key,
+               found);
+
+   kvstore_lookup_result_deinit(&result);
+
+   kvstore_close(data->kvs);
+
+   rc = kvstore_open(&data->kvs_cfg, &data->kvs);
+   ASSERT_EQUAL(0, rc, "kvstore_open() failed, rc=%d ", rc);
+
+   kvstore_lookup_result_init(data->kvs,
+                              &result,
+                              data->kvs_cfg.data_cfg.message_size,
+                              data->msg_buffer);
+
+   rc = kvstore_lookup(data->kvs, data->key, &result);
+
+   ASSERT_EQUAL(
+      0, rc, "kvstore_lookup() failed after close/re-open; rc=%d ", rc);
+
+   found = kvstore_lookup_result_found(&result);
+   ASSERT_TRUE(found,
+               "Did not find expected key '%s' after re-opening store. ",
+               data->key);
+
+   kvstore_lookup_result_deinit(&result);
+}
+
+/*
  * Minions and helper functions defined here.
  */
 static int
