@@ -419,7 +419,11 @@ typedef struct PACKED splinter_trunk_hdr {
    uint8  height;            // height of the node
    uint8  pos;               // position of the node under the parent
                              // only used in splinter_for_each_node
+#if 0
    uint64 next_addr;         // PBN of the node's successor (0 if no successor)
+#else
+   char   next_key[MAX_KEY_SIZE];
+#endif
    uint64 generation;        // counter incremented on a node split
    uint64 pivot_generation;  // counter incremented when new pivots are added
 
@@ -467,6 +471,7 @@ typedef enum splinter_compaction_type {
 struct splinter_compact_bundle_req {
    splinter_handle *        spl;
    uint64                   addr;
+   char                     key[MAX_KEY_SIZE];
    uint16                   height;
    uint16                   bundle_no;
    splinter_compaction_type type;
@@ -539,7 +544,11 @@ typedef union {
 
 // clang-format off
 static inline bool                 splinter_is_leaf                   (splinter_handle *spl, page_handle *node);
+#if 0
 static inline uint64               splinter_next_addr                 (splinter_handle *spl, page_handle *node);
+#else
+static inline char *               splinter_next_key                  (splinter_handle *spl, page_handle *node);
+#endif
 static inline int                  splinter_key_compare               (splinter_handle *spl, const char *key1, const char *key2);
 static inline page_handle *        splinter_node_get                  (splinter_handle *spl, uint64 addr);
 static inline void                 splinter_node_unget                (splinter_handle *spl, page_handle **node);
@@ -783,6 +792,7 @@ splinter_node_is_full(splinter_handle *spl,
    return num_tuples > spl->cfg.max_tuples_per_node;
 }
 
+#if 0
 static inline uint64
 splinter_next_addr(splinter_handle *spl,
                    page_handle     *node)
@@ -799,6 +809,15 @@ splinter_set_next_addr(splinter_handle *spl,
    splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
    hdr->next_addr = addr;
 }
+#else
+static inline char*
+splinter_next_key(splinter_handle *spl,
+                   page_handle     *node)
+{
+   splinter_trunk_hdr *hdr = (splinter_trunk_hdr *)node->data;
+   return hdr->next_key;
+}
+#endif
 
 #if 1
 bool
@@ -3781,7 +3800,12 @@ splinter_bundle_build_filters(void *arg,
          }
          splinter_node_unlock(spl, node);
          splinter_node_unclaim(spl, node);
+#if 0
          req->addr = splinter_next_addr(spl, node);
+#else
+         req->addr = 0;
+         memcpy(req->key, splinter_next_key(spl, node), MAX_KEY_SIZE);
+#endif
          generation = splinter_generation(spl, node);
          debug_assert(splinter_verify_node(spl, node));
          if (generation != req->filter_generation) {
@@ -3797,7 +3821,12 @@ splinter_bundle_build_filters(void *arg,
       splinter_log_stream("\n");
 
 next_node:
+#if 0
       req->addr = splinter_next_addr(spl, node);
+#else
+      req->addr = 0;
+      memcpy(req->key, splinter_next_key(spl, node), MAX_KEY_SIZE);
+#endif
       generation = splinter_generation(spl, node);
       debug_assert(splinter_verify_node(spl, node));
       splinter_node_unget(spl, &node);
@@ -4473,7 +4502,12 @@ splinter_compact_bundle(void *arg,
          splinter_compact_bundle_req *next_req =
             TYPED_MALLOC(spl->heap_id, next_req);
          memmove(next_req, req, sizeof(splinter_compact_bundle_req));
+#if 0
          next_req->addr = splinter_next_addr(spl, node);
+#else
+         next_req->addr = 0;
+         memcpy(next_req,  splinter_next_key(spl, node), MAX_KEY_SIZE);
+#endif
          debug_assert(next_req->addr != 0);
 
          req->generation = splinter_generation(spl, node);
@@ -4687,8 +4721,11 @@ splinter_compact_bundle(void *arg,
          platform_assert(height != 0);
          splinter_log_stream("compact_bundle discarded flushed %lu\n", addr);
       }
-
+#if 0
       addr = splinter_next_addr(spl, node);
+#else
+      platform_assert(0);
+#endif
       generation = splinter_generation(spl, node);
       splinter_log_node(spl, node);
       debug_assert(splinter_verify_node(spl, node));
@@ -4885,10 +4922,16 @@ splinter_split_index(splinter_handle *spl,
 
    right_hdr->num_pivot_keys = left_hdr->num_pivot_keys - target_num_children;
    left_hdr->num_pivot_keys  = target_num_children + 1;
-
+#if 0
    right_hdr->next_addr = left_hdr->next_addr;
    left_hdr->next_addr  = right_addr;
+#else
+   memset(right_hdr->next_key, 0, MAX_KEY_SIZE);
+   memcpy(right_hdr->next_key, left_hdr->next_key, MAX_KEY_SIZE);
 
+   memset(left_hdr->next_key, 0, MAX_KEY_SIZE);
+   memcpy(left_hdr->next_key, right_start_pivot, MAX_KEY_SIZE);
+#endif
    left_hdr->generation++;
    splinter_reset_start_branch(spl, right_node);
    splinter_reset_start_branch(spl, left_node);
@@ -5191,7 +5234,13 @@ splinter_split_leaf(splinter_handle *spl,
    uint16 bundle_no =
       splinter_leaf_rebundle_all_branches(spl, leaf, target_leaf_tuples, FALSE);
    splinter_inc_generation(spl, leaf);
+#if 0
    uint64 last_next_addr = splinter_next_addr(spl, leaf);
+#else
+   char saved_next_key_in_leaf[MAX_KEY_SIZE];
+   splinter_trunk_hdr *leaf_hdr = (splinter_trunk_hdr *)leaf->data;
+   memcpy(saved_next_key_in_leaf, leaf_hdr->next_key , MAX_KEY_SIZE);
+#endif
 
    for (uint16 leaf_no = 0; leaf_no < num_leaves; leaf_no++) {
       /*
@@ -5237,8 +5286,14 @@ splinter_split_leaf(splinter_handle *spl,
 
       if (leaf_no != 0) {
          // set next_addr of leaf
+#if 0
          splinter_set_next_addr(spl, leaf, new_leaf->disk_addr);
-
+#else
+         splinter_trunk_hdr *leaf_hdr = (splinter_trunk_hdr *)leaf->data;
+         memset(leaf_hdr->next_key, 0, MAX_KEY_SIZE);
+         const char *first_pivot_in_new_leaf = splinter_get_pivot(spl, new_leaf, 0);
+         memcpy(leaf_hdr->next_key, first_pivot_in_new_leaf, MAX_KEY_SIZE);
+#endif
          // inc the refs of all the branches
          for (uint16 branch_no = splinter_start_branch(spl, new_leaf);
               branch_no != splinter_end_branch(spl, new_leaf);
@@ -5303,9 +5358,14 @@ splinter_split_leaf(splinter_handle *spl,
 
       leaf = new_leaf;
    }
-
+#if 0
    // set next_addr of leaf (from last iteration)
    splinter_set_next_addr(spl, leaf, last_next_addr);
+#else
+   leaf_hdr = (splinter_trunk_hdr *)leaf->data;
+   memset(leaf_hdr->next_key, 0, MAX_KEY_SIZE);
+   memcpy(leaf_hdr->next_key, saved_next_key_in_leaf, MAX_KEY_SIZE);
+#endif
    splinter_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
    req->spl = spl;
    req->addr = leaf->disk_addr;
@@ -7311,7 +7371,12 @@ splinter_verify_node_with_neighbors(splinter_handle *spl,
    uint64 addr = node->disk_addr;
 
    // check node and successor have coherent pivots
+#if 0
    uint64 succ_addr = splinter_next_addr(spl, node);
+#else
+   platform_assert(0);
+   uint64 succ_addr = 0;
+#endif
    if (succ_addr != 0) {
       page_handle *succ = splinter_node_get(spl, succ_addr);
       const char *ube = splinter_max_key(spl, node);
@@ -7480,7 +7545,7 @@ splinter_print_locked_node(splinter_handle        *spl,
    platform_log_stream("|          |     addr      |   next addr  | height |   gen   | pvt gen |              |\n");
    platform_log_stream("|  HEADER  |---------------|--------------|--------|---------|---------|--------------|\n");
    platform_log_stream("|          | %12lu^ | %12lu | %6u | %7lu | %7lu |              |\n",
-         node->disk_addr, splinter_next_addr(spl, node), height, splinter_generation(spl, node), splinter_pivot_generation(spl, node));
+         node->disk_addr, 0xdeadbeefL, height, splinter_generation(spl, node), splinter_pivot_generation(spl, node));
    platform_log_stream("|-------------------------------------------------------------------------------------|\n");
    platform_log_stream("|                                       PIVOTS                                        |\n");
    platform_log_stream("|-------------------------------------------------------------------------------------|\n");
