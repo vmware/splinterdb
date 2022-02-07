@@ -4,12 +4,8 @@
 /*
  * data.h --
  *
- *     This file contains constants and functions that pertain to
- *     keys and messages
- *
- *     A message encodes a value and an operation,
- *     like insert, delete or update.
- *
+ * This file contains constants and functions that pertain to keys and messages.
+ * A message encodes a value and an operation, like insert, delete or update.
  */
 
 #ifndef __DATA_H
@@ -19,6 +15,7 @@
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
 #include "splinterdb/public_util.h"
+#include "util.h"   // For definition of PACKED attribute
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
@@ -29,6 +26,15 @@ typedef enum message_type {
 
 typedef struct data_config data_config;
 
+typedef struct PACKED data_handle {
+   uint8 message_type;
+   int8  ref_count;
+   uint8 data[0];
+} data_handle;
+
+/*
+ * Function signatures for function pointers defined in data_config struct.
+ */
 typedef int (*key_compare_fn)(const data_config *cfg,
                               uint64             key1_len,
                               const void        *key1,
@@ -80,6 +86,9 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
  *  3. How to merge update messages - defined by the pair of merge_tuples* fns.
  *  4. Few other debugging aids on how-to print & diagnose messages.
  *
+ * The data_config{} structure is the way application conveys these things to
+ * Splinter.
+ *
  * kvstore_basic.c is a reference implementation of this integration provided
  * as a "batteries included" implementation. If any other application wishes
  * to do something differently, it has to provide these implementations.
@@ -105,6 +114,9 @@ struct data_config {
    void *context;
 };
 
+/*
+ * Rudimentary validation to check for data_config consistency & validity.
+ */
 static inline bool
 data_validate_config(const data_config *cfg)
 {

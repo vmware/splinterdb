@@ -7,6 +7,11 @@
 #include "platform.h"
 #include "splinterdb/public_util.h"
 
+/*
+ * Useful Constants.
+ */
+#define Mega (1024UL * 1024UL)
+#define Giga (1024UL * Mega)
 // Macros
 #ifdef IMPLIES
 // Replace any existing implementation if it exists (for consistency)

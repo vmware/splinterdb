@@ -53,11 +53,22 @@ kvstore_create(const kvstore_config *cfg, kvstore **kvs);
 int
 kvstore_open(const kvstore_config *cfg, kvstore **kvs);
 
+// Open an existing kvstore, using the provided device / file-name
+// The configuration required to re-open an existing kvstore will be sourced
+// from the super-block of the device being reopened.
+//
+// The library will allocate and own the memory for kvstore
+// and will free it on kvstore_close().
+//
+int
+kvstore_reopen(kvstore **kvs, const char * filename);
+
 // Close a kvstore
 //
-// This will flush everything to disk and release all resources
+// This will flush everything to disk, release all resources. And initialize
+// kvs to NULL, to prevent caller dereferencing a now invalid kvs handle.
 void
-kvstore_close(kvstore *kvs);
+kvstore_close(kvstore **kvs);
 
 // Register the current thread so that it can be used with the kvstore.
 // This causes scratch space to be allocated for the thread.

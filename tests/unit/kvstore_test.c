@@ -62,7 +62,7 @@ CTEST_TEARDOWN(kvstore)
       free(data->msg_buffer);
       data->msg_buffer = NULL;
    }
-   kvstore_close(data->kvs);
+   kvstore_close(&data->kvs);
 }
 
 /*
@@ -310,7 +310,7 @@ CTEST2(kvstore, test_close_open_key_access)
 
    kvstore_lookup_result_deinit(&result);
 
-   kvstore_close(data->kvs);
+   kvstore_close(&data->kvs);
 
    rc = kvstore_open(&data->kvs_cfg, &data->kvs);
    ASSERT_EQUAL(0, rc, "kvstore_open() failed, rc=%d ", rc);
@@ -339,7 +339,7 @@ CTEST2(kvstore, test_close_open_key_access)
  * setup KVstore once, which is done in this test flow by the
  * CTEST_SETUP() -> setup_kvstore() method.
  *
- * Once having setup a KVStore, application should be able to re-use the
+ * Having once setup a KVStore, an application should be able to re-use the
  * kvstore * kvs handle to repeatedly shutdown / reopen Splinter.
  *
  * This test case verifies that any required basic configuration that was
@@ -387,10 +387,13 @@ CTEST2(kvstore, test_quiesced_reboot)
 
    kvstore_lookup_result_deinit(&result);
 
-   kvstore_close(data->kvs);
+   // Close will NULL out the kvs handle.
+   kvstore_close(&data->kvs);
 
-   rc = kvstore_open(&data->kvs_cfg, &data->kvs);
-   ASSERT_EQUAL(0, rc, "kvstore_open() failed, rc=%d ", rc);
+   // Reopening requires just the filename. It will re-setup the kvs handle.
+   rc = kvstore_reopen(&data->kvs, data->kvs_cfg.filename);
+   ASSERT_EQUAL(0, rc, "kvstore_reopen() failed, filename='%s', rc=%d ",
+                data->kvs_cfg.filename, rc);
 
    kvstore_lookup_result_init(data->kvs,
                               &result,
@@ -412,6 +415,16 @@ CTEST2(kvstore, test_quiesced_reboot)
 
 /*
  * Minions and helper functions defined here.
+ */
+
+/*
+ * setup_kvstore(): Setup kvstore_config with default KVStore configuration,
+ * such as device name, cache-/disk-size, and a sample test data configuration.
+ * Create a new KVStore, and return its handle.
+ *
+ * Parameters:
+ *  kvs     - Return handle to new kvstore created by this function
+ *  kvs_cfg - Empty KVStore config struct that will be filled-out here.
  */
 static int
 setup_kvstore(kvstore **kvs, kvstore_config *kvs_cfg)

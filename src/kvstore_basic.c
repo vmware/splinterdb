@@ -342,7 +342,7 @@ kvstore_basic_open(const kvstore_basic_cfg *cfg,     // IN
 void
 kvstore_basic_close(kvstore_basic *kvsb)
 {
-   kvstore_close(kvsb->kvs);
+   kvstore_close(&kvsb->kvs);
    if (kvsb->data_config_context != NULL) {
       platform_free(kvsb->heap_id, kvsb->data_config_context);
    }

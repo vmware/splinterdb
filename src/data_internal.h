@@ -10,9 +10,58 @@
 #ifndef __DATA_INTERNAL_H
 #define __DATA_INTERNAL_H
 
-#include "splinterdb/data.h"
+#include "splinterdb/data.h"    // Required to access data_config{} definition
 #include "util.h"
 
+/*
+ * Function prototypes for data_config->{key, message fn ptrs}
+ */
+int
+default_data_key_cmp(const data_config *cfg,
+                  uint64             key1_len,
+                  const void *       key1,
+                  uint64             key2_len,
+                  const void *       key2);
+
+int
+default_data_merge_tuples(const data_config *cfg,
+                       uint64             key_len,
+                       const void *       key,
+                       uint64             old_raw_data_len,
+                       const void *       old_raw_data,
+                       writable_buffer *  new_raw_data);
+
+message_type
+default_data_message_class(const data_config *cfg,
+                        uint64             raw_data_len,
+                        const void *       raw_data);
+int
+default_data_merge_tuples_final(const data_config *cfg,
+                             uint64             key_len,
+                             const void *       key,           // IN
+                             writable_buffer *  oldest_raw_data); // IN/OUT
+
+void
+default_data_key_to_string(const data_config *cfg,
+                        uint64             key_len,
+                        const void *       key,
+                        char *             str,
+                        size_t             len);
+
+void
+default_data_message_to_string(const data_config *cfg,
+                            uint64             raw_data_len,
+                            const void *       raw_data,
+                            char *             str,
+                            size_t             len);
+
+/*
+ * --------------------------------------------------------------------------------
+ * A collection of static inline functions to invoke the key / message /tuple
+ * handling user-defined functions that are specified via the data_config * cfg
+ * parameter.
+ * --------------------------------------------------------------------------------
+ */
 static inline int
 data_key_compare(const data_config *cfg, const slice key1, const slice key2)
 {

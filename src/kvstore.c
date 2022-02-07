@@ -26,6 +26,7 @@
 #include "splinterdb/kvstore.h"
 #include "rc_allocator.h"
 #include "splinter.h"
+#include "data_internal.h"
 
 #include "poison.h"
 
@@ -45,6 +46,25 @@ typedef struct kvstore {
    platform_heap_id     heap_id;
 } kvstore;
 
+/*
+ * Provide a copy of default_data_config, just to get builds working.
+ * This config data will have to be retrieved from the super-block eventually.
+ */
+static data_config default_data_config = {
+   .key_size           = 24,
+   .message_size       = 24,
+   .min_key            = {0},
+   .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+   .key_compare        = default_data_key_cmp,
+   .key_hash           = platform_hash32,
+   .key_to_string      = default_data_key_to_string,
+   .message_to_string  = default_data_message_to_string,
+   .merge_tuples       = default_data_merge_tuples,
+   .merge_tuples_final = default_data_merge_tuples_final,
+   .message_class      = default_data_message_class,
+};
 
 /*
  * Extract errno.h -style status int from a platform_status
@@ -56,6 +76,46 @@ static inline int
 platform_status_to_int(const platform_status status) // IN
 {
    return status.r;
+}
+
+/* Function prototypes */
+static int
+kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
+                       kvstore **            kvs_out,      // OUT
+                       bool                  open_existing // IN
+);
+
+/* **** External Interfaces **** */
+
+int
+kvstore_create(const kvstore_config *cfg, // IN
+               kvstore **            kvs  // OUT
+)
+{
+   return kvstore_create_or_open(cfg, kvs, FALSE);
+}
+
+int
+kvstore_open(const kvstore_config *cfg, // IN
+             kvstore **            kvs  // OUT
+)
+{
+   return kvstore_create_or_open(cfg, kvs, TRUE);
+}
+
+int
+kvstore_reopen(kvstore **            kvs, // OUT
+               const char * filename)
+{
+   kvstore_config ZERO_STRUCT_AT_DECL(kvs_cfg);
+
+   // Init the kvstore config that was used to create the device previously
+   kvs_cfg.filename   = filename;
+   kvs_cfg.cache_size = Giga;      // see config.c: cache_capacity
+   kvs_cfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
+   kvs_cfg.data_cfg = default_data_config;
+
+   return kvstore_create_or_open(&kvs_cfg, kvs, TRUE);
 }
 
 
@@ -159,7 +219,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
 /*
  * Internal function for create or open
  */
-int
+static int
 kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                        kvstore             **kvs_out,      // OUT
                        bool                  open_existing // IN
@@ -280,28 +340,13 @@ deinit_kvhandle:
    return platform_status_to_int(status);
 }
 
-int
-kvstore_create(const kvstore_config *cfg, // IN
-               kvstore             **kvs  // OUT
-)
-{
-   return kvstore_create_or_open(cfg, kvs, FALSE);
-}
-
-int
-kvstore_open(const kvstore_config *cfg, // IN
-             kvstore             **kvs  // OUT
-)
-{
-   return kvstore_create_or_open(cfg, kvs, TRUE);
-}
-
-
 /*
  *-----------------------------------------------------------------------------
  * kvstore_close --
  *
  *      Close a kvstore, flushing to disk and releasing resources
+ *      Initialize kvstore handle to NULL, to prevent caller dereferencing
+ *      a now invalid kvstore handle.
  *
  * Results:
  *      None.
@@ -311,8 +356,9 @@ kvstore_open(const kvstore_config *cfg, // IN
  *-----------------------------------------------------------------------------
  */
 void
-kvstore_close(kvstore *kvs) // IN
+kvstore_close(kvstore **kvspp) // IN
 {
+   kvstore *kvs = *kvspp;
    platform_assert(kvs != NULL);
 
    splinter_dismount(kvs->spl);
@@ -322,6 +368,7 @@ kvstore_close(kvstore *kvs) // IN
    task_system_destroy(kvs->heap_id, kvs->task_sys);
 
    platform_free(kvs->heap_id, kvs);
+   *kvspp = (kvstore *) NULL;
 }
 
 
