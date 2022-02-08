@@ -167,7 +167,6 @@ $(BINDIR)/unit_test: unit_test
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS)                   \
                             $(OBJDIR)/tests/test_data.o                 \
-                            $(OBJDIR)/src/platform_linux/platform.o     \
                             $(LIBDIR)/libsplinterdb.so $(LIBS)
 
 
