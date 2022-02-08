@@ -2822,6 +2822,7 @@ btree_pack_loop(btree_pack_req *req,     // IN/OUT
    }
 
    if (req->hash) {
+      platform_assert(req->num_tuples < req->max_tuples);
       req->fingerprint_arr[req->num_tuples] =
          req->hash(slice_data(key), slice_length(key), req->seed);
    }
