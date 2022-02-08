@@ -387,16 +387,64 @@ CTEST2(kvstore, test_quiesced_reboot)
 
    kvstore_lookup_result_deinit(&result);
 
+   // Before closing out the kvstore, store its configuration. We will
+   // cross-check these when the kvstore is reopened, bootstrapping these config
+   // params from the super-block.
+   uint64 page_size   = kvstore_page_size(data->kvs);
+   uint64 extent_size = kvstore_extent_size(data->kvs);
+   uint64 disk_size   = kvstore_disk_size(data->kvs);
+   uint64 cache_size  = kvstore_cache_size(data->kvs);
+
    // Close will NULL out the kvs handle.
    kvstore_close(&data->kvs);
+   ASSERT_NULL(data->kvs);
 
-   // Reopening requires just the filename. It will re-setup the kvs handle.
+   // Reopening requires just the filename. It will bootstrap required config
+   // info off the super-block of this device, and will re-setup the kvstore.
    rc = kvstore_reopen(&data->kvs, data->kvs_cfg.filename);
    ASSERT_EQUAL(0,
                 rc,
                 "kvstore_reopen() failed, filename='%s', rc=%d ",
                 data->kvs_cfg.filename,
                 rc);
+
+   platform_default_log("Reopened kvstore with device '%s'"
+                        ", disk size=%lu (%.2f GiB)"
+                        ", cache size=%lu (%.2f GiB)"
+                        ", page size=%lu bytes, extent size=%lu (%.2f KiB)\n",
+                        data->kvs_cfg.filename,
+                        kvstore_disk_size(data->kvs),
+                        B_TO_GiBF(kvstore_disk_size(data->kvs)),
+                        kvstore_cache_size(data->kvs),
+                        B_TO_GiBF(kvstore_cache_size(data->kvs)),
+                        kvstore_page_size(data->kvs),
+                        kvstore_extent_size(data->kvs),
+                        B_TO_KiBF(kvstore_extent_size(data->kvs)));
+
+   // Cross-check that we reopened kvstore with the previous configuration.
+   ASSERT_EQUAL(page_size,
+                kvstore_page_size(data->kvs),
+                "Kvstore page size is %lu bytes, expected to be %lu bytes. ",
+                kvstore_page_size(data->kvs),
+                page_size);
+
+   ASSERT_EQUAL(extent_size,
+                kvstore_extent_size(data->kvs),
+                "Kvstore extent size is %lu bytes, expected to be %lu bytes. ",
+                kvstore_extent_size(data->kvs),
+                extent_size);
+
+   ASSERT_EQUAL(disk_size,
+                kvstore_disk_size(data->kvs),
+                "Kvstore disk size is %lu bytes, expected to be %lu bytes. ",
+                kvstore_disk_size(data->kvs),
+                disk_size);
+
+   ASSERT_EQUAL(cache_size,
+                kvstore_cache_size(data->kvs),
+                "Kvstore cache size is %lu bytes, expected to be %lu bytes. ",
+                kvstore_cache_size(data->kvs),
+                cache_size);
 
    kvstore_lookup_result_init(data->kvs,
                               &result,

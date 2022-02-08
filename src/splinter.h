@@ -390,8 +390,18 @@ splinter_mount(splinter_config  *cfg,
                task_system      *ts,
                allocator_root_id id,
                platform_heap_id  hid);
+
 void
-splinter_dismount(splinter_handle *spl);
+splinter_bootstrap(splinter_config * cfg,
+                   allocator *       al,
+                   cache *           cc,
+                   platform_heap_id  hid,
+                   allocator_root_id id,
+                   uint64 *          disk_size,
+                   uint64 *          cache_size);
+
+void
+splinter_dismount(splinter_handle **splpp);
 
 void
 splinter_perform_tasks(splinter_handle *spl);

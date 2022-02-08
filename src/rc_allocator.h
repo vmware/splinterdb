@@ -21,11 +21,11 @@
  * Configuration structure to set up the Ref Count Allocation sub-system.
  */
 typedef struct rc_allocator_config {
-   uint64 capacity;
-   uint64 page_capacity;
-   uint64 extent_capacity;
-   uint64 page_size;
-   uint64 extent_size;
+   uint64 page_size;       // In bytes
+   uint64 extent_size;     // In bytes
+   uint64 capacity;        // Size of disk device, bytes
+   uint64 page_capacity;   // # of pages @ page_size
+   uint64 extent_capacity; // # of extents @ extent_size
 } rc_allocator_config;
 
 /*

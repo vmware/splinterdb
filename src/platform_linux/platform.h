@@ -92,6 +92,11 @@
 #define GiB_TO_B(x) ((x)*GiB)
 #define B_TO_MiB(x) ((x) / MiB)
 
+/* Return converted value as a float */
+#define B_TO_KiBF(x) (((x)*1.0) / KiB)
+#define B_TO_MiBF(x) (((x)*1.0) / MiB)
+#define B_TO_GiBF(x) (((x)*1.0) / GiB)
+
 // Time unit constants
 #define THOUSAND (1000UL)
 #define MILLION  (THOUSAND * THOUSAND)

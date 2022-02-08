@@ -33,10 +33,10 @@ default_data_key_cmp(const data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- * data_merge_tuples --
+ * data_merge_tuples() --
  *
- *      Given two data messages, merges them by decoding the type of messages.
- *      Returns the result in new_data.
+ * Given two data messages, merges them by decoding the type of messages.
+ * Returns the result in new_data.
  *-----------------------------------------------------------------------------
  */
 int
@@ -107,12 +107,12 @@ default_data_merge_tuples(const data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- * data_merge_tuples_final --
+ * data_merge_tuples_final() --
  *
- *      Called for non-MESSAGE_TYPE_INSERT messages when they are determined to
- *be the oldest message in the system.
+ * Called for non-MESSAGE_TYPE_INSERT messages when they are determined to
+ * be the oldest message in the system.
  *
- *      Can change data_class or contents.  If necessary, update new_data.
+ * Can change data_class or contents.  If necessary, update new_data.
  *-----------------------------------------------------------------------------
  */
 int
@@ -135,9 +135,9 @@ default_data_merge_tuples_final(const data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- * data_class --
+ * data_message_class() --
  *
- *      Given a data message, returns its message class.
+ * Given a data message, returns its message class.
  *-----------------------------------------------------------------------------
  */
 message_type

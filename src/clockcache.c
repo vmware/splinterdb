@@ -200,6 +200,9 @@ clockcache_get_page_size(const clockcache *cc);
 uint64
 clockcache_get_extent_size(const clockcache *cc);
 
+uint64
+clockcache_get_cache_size(const clockcache *cc);
+
 void
 clockcache_assert_ungot(clockcache *cc, uint64 addr);
 
@@ -413,6 +416,13 @@ clockcache_get_extent_size_virtual(cache *c)
    return clockcache_get_extent_size(cc);
 }
 
+uint64
+clockcache_get_cache_size_virtual(cache *c)
+{
+   clockcache *cc = (clockcache *)c;
+   return clockcache_get_cache_size(cc);
+}
+
 void
 clockcache_assert_ungot_virtual(cache *c, uint64 addr)
 {
@@ -534,6 +544,7 @@ static cache_ops clockcache_ops = {
    .cleanup           = clockcache_wait_virtual,
    .get_page_size     = clockcache_get_page_size_virtual,
    .get_extent_size   = clockcache_get_extent_size_virtual,
+   .get_cache_size    = clockcache_get_cache_size_virtual,
    .assert_ungot      = clockcache_assert_ungot_virtual,
    .assert_free       = clockcache_assert_no_locks_held_virtual,
    .print             = clockcache_print_virtual,
@@ -710,6 +721,12 @@ uint64
 clockcache_get_extent_size(const clockcache *cc)
 {
    return cc->cfg->extent_size;
+}
+
+uint64
+clockcache_get_cache_size(const clockcache *cc)
+{
+   return cc->cfg->capacity;
 }
 
 /*

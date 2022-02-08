@@ -172,6 +172,7 @@ typedef struct cache_ops {
    cache_allocator_fn      cache_allocator;
    cache_generic_uint64_fn get_page_size;
    cache_generic_uint64_fn get_extent_size;
+   cache_generic_uint64_fn get_cache_size;
    base_addr_fn            base_addr;
 } cache_ops;
 
@@ -322,6 +323,13 @@ static inline uint64
 cache_extent_size(cache *cc)
 {
    return cc->ops->get_extent_size(cc);
+}
+
+/* Returns the configured cache capacity (aka cache size) */
+static inline uint64
+cache_size(cache *cc)
+{
+   return cc->ops->get_cache_size(cc);
 }
 
 static inline void

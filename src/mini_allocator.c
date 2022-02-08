@@ -22,8 +22,8 @@
 
 // MINI_WAIT is a lock token used to lock a batch
 #define MINI_WAIT 1
-// MINI_NO_REFS is the ref count of an unkeyed mini allocator with no external
-// refs
+
+// Reference count of an unkeyed mini allocator with no external references
 #define MINI_NO_REFS 2
 
 /* Define a string lookup array for page type names */
@@ -258,6 +258,8 @@ mini_init(mini_allocator *mini,
    platform_assert(num_batches != 0);
    platform_assert(mini != NULL);
    platform_assert(cc != NULL);
+
+   // For keyed mini-allocation, we need a valid data_config for key info.
    platform_assert(!keyed || cfg != NULL);
 
    ZERO_CONTENTS(mini);

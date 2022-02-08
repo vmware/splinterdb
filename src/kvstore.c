@@ -85,6 +85,14 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                        bool                  open_existing // IN
 );
 
+// kvstore_bootstrap_configs(kvstore_config *kvs_cfg, kvstore ** kvs);
+static int
+kvstore_bootstrap_configs(kvstore_config *kvs_cfg);
+
+static platform_status
+kvstore_bootstrap_init_config(kvstore_config *kvs_cfg, // IN, OUT
+                              kvstore *       kvs);           // OUT
+
 /* **** External Interfaces **** */
 
 int
@@ -112,12 +120,20 @@ kvstore_reopen(kvstore **  kvs, // OUT
    // Init the kvstore config that was used to create the device previously
    kvs_cfg.filename = filename;
 
-   /* We pretend that the kvstore_config struct will be initialized
-    * like this by reading config info from the super-block.
+   /*
+    * Provide some default data_config, just so that basic key / message
+    * param lengths [etc.] are initialized while Splinter configuration
+    * is done during bootstrapping. In this phase, it really does not
+    * matter what the key/message function pointers are specified in this
+    * default data_config, as we will really not be trying to access any
+    * key / message values.
     */
-   kvs_cfg.cache_size = Giga;      // see config.c: cache_capacity
-   kvs_cfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
-   kvs_cfg.data_cfg   = default_data_config;
+   kvs_cfg.data_cfg = default_data_config;
+
+   // This will crack open the Splinter device specified by filename, and
+   // will extract required config options from the super block.
+   // The target configuration is returned via kvs_cfg.
+   kvstore_bootstrap_configs(&kvs_cfg);
 
    return kvstore_create_or_open(&kvs_cfg, kvs, TRUE);
 }
@@ -162,6 +178,13 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
             kvs_cfg->filename);
    masterCfg.allocator_capacity = kvs_cfg->disk_size;
    masterCfg.cache_capacity     = kvs_cfg->cache_size;
+   if (kvs_cfg->page_size) {
+      // Both are either 0, or non-zero, together
+      debug_assert(kvs_cfg->extent_size > 0);
+
+      masterCfg.page_size   = kvs_cfg->page_size;
+      masterCfg.extent_size = kvs_cfg->extent_size;
+   }
    masterCfg.use_log            = FALSE;
    masterCfg.use_stats          = TRUE;
    masterCfg.key_size           = kvs_cfg->data_cfg.key_size;
@@ -346,6 +369,198 @@ deinit_kvhandle:
 
 /*
  *-----------------------------------------------------------------------------
+ * kvstore_boostrap_configs()
+ *
+ * Given a basic kvstore_config which names just the Splinter device, do minimal
+ * setup of required sub-systems. Crack open the [existing] Splinter device and
+ * extract out cardinal configs that are (should have been) written to the
+ * super-block.
+ *
+ * This function is a synthesis of the work done under kvstore_create_or_open()
+ * and kvstore_init_config(), adjusted to do only minimal work that is
+ * necessary to get bootstrapping the super-block to succeed.
+ *
+ *-----------------------------------------------------------------------------
+ */
+static int
+kvstore_bootstrap_configs(kvstore_config *kvs_cfg)
+{
+   platform_status status;
+
+   kvstore *kvs;
+   kvs = TYPED_ZALLOC(kvs_cfg->heap_id, kvs);
+   if (kvs == NULL) {
+      status = STATUS_NO_MEMORY;
+      return platform_status_to_int(status);
+   }
+
+   status = kvstore_bootstrap_init_config(kvs_cfg, kvs);
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to bootstrap init config: %s\n",
+                         platform_status_to_string(status));
+      goto deinit_kvhandle;
+   }
+
+   status = io_handle_init(
+      &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to init io handle: %s\n",
+                         platform_status_to_string(status));
+      goto deinit_kvhandle;
+   }
+
+   status = rc_allocator_mount(&kvs->allocator_handle,
+                               &kvs->allocator_cfg,
+                               (io_handle *)&kvs->io_handle,
+                               kvs->heap_handle,
+                               kvs->heap_id,
+                               platform_get_module_id());
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to init allocator: %s\n",
+                         platform_status_to_string(status));
+      goto deinit_kvhandle;
+   }
+
+   status = clockcache_init(&kvs->cache_handle,
+                            &kvs->cache_cfg,
+                            (io_handle *)&kvs->io_handle,
+                            (allocator *)&kvs->allocator_handle,
+                            "kvStore",
+                            kvs->task_sys,
+                            kvs->heap_handle,
+                            kvs->heap_id,
+                            platform_get_module_id());
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to init cache: %s\n",
+                         platform_status_to_string(status));
+      goto deinit_allocator;
+   }
+
+   kvs->splinter_id = 1;
+   splinter_bootstrap(&kvs->splinter_cfg,
+                      (allocator *)&kvs->allocator_handle,
+                      (cache *)&kvs->cache_handle,
+                      kvs->heap_id,
+                      kvs->splinter_id,
+                      &kvs_cfg->disk_size,
+                      &kvs_cfg->cache_size);
+
+   kvs_cfg->page_size   = kvs->splinter_cfg.page_size;
+   kvs_cfg->extent_size = kvs->splinter_cfg.extent_size;
+
+   // Before exiting, free the kvs struct allocated locally
+   platform_free(kvs_cfg->heap_id, kvs);
+   return platform_status_to_int(status);
+
+   clockcache_deinit(&kvs->cache_handle);
+deinit_allocator:
+   rc_allocator_dismount(&kvs->allocator_handle);
+deinit_kvhandle:
+   platform_free(kvs_cfg->heap_id, kvs);
+
+   // Before exiting, free the kvs struct allocated locally
+   platform_free(kvs_cfg->heap_id, kvs);
+   return platform_status_to_int(status);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * kvstore_bootstrap_init_config() --
+ *
+ * Initialize the configuration for different sub-systems enough to get Splinter
+ * through a bootstrapping process.
+ *
+ * NOTE: This is heavily derived from kvstore_init_config() and could
+ * possibly be folded back into that, parametrizing under 'bootstrap'
+ * flag.
+ *-----------------------------------------------------------------------------
+ */
+static platform_status
+kvstore_bootstrap_init_config(kvstore_config *kvs_cfg, // IN, OUT
+                              kvstore *       kvs)            // OUT
+{
+   // Even though we are boostrapping, we expect the caller / application
+   // to provide us a valid data config, giving key/value specs and
+   // providing key/message fn-ptr handles.
+   if (!data_validate_config(&kvs_cfg->data_cfg)) {
+      platform_error_log("data_validate_config error\n");
+      return STATUS_BAD_PARAM;
+   }
+
+   if (kvs_cfg->filename == NULL) {
+      platform_error_log("Expect filename to be set.\n");
+      return STATUS_BAD_PARAM;
+   }
+
+   // These two should not be set, as bootstrapping means finding out
+   // these values from the super-block ( and setting them in the cfg )
+   if ((kvs_cfg->cache_size != 0) || (kvs_cfg->disk_size != 0)) {
+      platform_error_log(
+         "Expect cache_size (%lu) and disk_size (%lu) to be clear\n",
+         kvs_cfg->cache_size,
+         kvs_cfg->disk_size);
+      return STATUS_BAD_PARAM;
+   }
+
+   // Setup a master config struct w/ defaults, used to init configs for
+   // other sub-systems. These defaults specify stuff about filters, key sizes
+   // etc., but those really should not come into play while bootstrapping
+   // the super-block. So ... we skate on thin ice ...
+   master_config masterCfg;
+   config_set_defaults(&masterCfg);
+   snprintf(masterCfg.io_filename,
+            sizeof(masterCfg.io_filename),
+            "%s",
+            kvs_cfg->filename);
+
+   // RESOLVE: This one is tricky. Bootstrapping code path uses a default
+   // data_config struct, which is good enough for tests. But for the real
+   // usage scenario, the application will need to provide this struct.
+   // And we don't quite have a way to validate that that's the correct one.
+   kvs->data_cfg = kvs_cfg->data_cfg;
+
+   kvs->heap_handle = kvs_cfg->heap_handle;
+   kvs->heap_id     = kvs_cfg->heap_id;
+
+   io_config_init(&kvs->io_cfg,
+                  masterCfg.page_size,
+                  masterCfg.extent_size,
+                  masterCfg.io_flags,
+                  masterCfg.io_perms,
+                  masterCfg.io_async_queue_depth,
+                  masterCfg.io_filename);
+
+   rc_allocator_config_init(&kvs->allocator_cfg,
+                            masterCfg.page_size,
+                            masterCfg.extent_size,
+                            masterCfg.allocator_capacity);
+
+   clockcache_config_init(&kvs->cache_cfg,
+                          masterCfg.page_size,
+                          masterCfg.extent_size,
+                          masterCfg.cache_capacity,
+                          masterCfg.cache_logfile,
+                          masterCfg.use_stats);
+
+   splinter_config_init(&kvs->splinter_cfg,
+                        &kvs->data_cfg,
+                        NULL,
+                        masterCfg.memtable_capacity,
+                        masterCfg.fanout,
+                        masterCfg.max_branches_per_node,
+                        masterCfg.btree_rough_count_height,
+                        masterCfg.page_size,
+                        masterCfg.extent_size,
+                        masterCfg.filter_remainder_size,
+                        masterCfg.filter_index_size,
+                        masterCfg.reclaim_threshold,
+                        masterCfg.use_log,
+                        masterCfg.use_stats);
+   return STATUS_OK;
+}
+
+/*
+ *-----------------------------------------------------------------------------
  * kvstore_close --
  *
  *      Close a kvstore, flushing to disk and releasing resources
@@ -365,7 +580,7 @@ kvstore_close(kvstore **kvspp) // IN
    kvstore *kvs = *kvspp;
    platform_assert(kvs != NULL);
 
-   splinter_dismount(kvs->spl);
+   splinter_dismount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_dismount(&kvs->allocator_handle);
    io_handle_deinit(&kvs->io_handle);
@@ -616,4 +831,31 @@ int
 kvstore_iterator_status(const kvstore_iterator *iter)
 {
    return platform_status_to_int(iter->last_rc);
+}
+
+/*
+ * Lookup routines, to return KVStore configuration settings.
+ */
+uint64
+kvstore_page_size(kvstore *kvs)
+{
+   return kvs->allocator_cfg.page_size;
+}
+
+uint64
+kvstore_extent_size(kvstore *kvs)
+{
+   return kvs->allocator_cfg.extent_size;
+}
+
+uint64
+kvstore_disk_size(kvstore *kvs)
+{
+   return kvs->allocator_cfg.capacity;
+}
+
+uint64
+kvstore_cache_size(kvstore *kvs)
+{
+   return kvs->cache_cfg.capacity;
 }

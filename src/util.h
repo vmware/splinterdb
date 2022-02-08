@@ -10,8 +10,13 @@
 /*
  * Useful Constants.
  */
+#define Kilo (1024UL)
 #define Mega (1024UL * 1024UL)
 #define Giga (1024UL * Mega)
+
+/* We expect configured page size to be multiple of 4 KiB */
+#define DEFAULT_PAGE_SIZE (4 * Kilo)
+
 // Macros
 #ifdef IMPLIES
 // Replace any existing implementation if it exists (for consistency)

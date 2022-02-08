@@ -404,10 +404,18 @@ typedef struct ONDISK splinter_super_block {
    uint64      log_addr;
    uint64      log_meta_addr;
    uint64      timestamp;
+   uint32      page_size;
+   uint32      extent_size;
+   uint64      disk_size;
+   uint64      cache_size; // configured cache size on last boot
    bool        checkpointed;
    bool        dismounted;
    checksum128 checksum;
 } splinter_super_block;
+
+/* Length of super block used for checksum computation. */
+#define SUPER_BLOCK_CHECKSUM_LENGTH                                            \
+   (sizeof(splinter_super_block) - FSIZEOF(splinter_super_block, checksum))
 
 /*
  * A subbundle is a collection of branches which originated in the same node.
@@ -729,21 +737,40 @@ splinter_set_super_block(splinter_handle *spl,
       super->log_addr      = log_addr(spl->log);
       super->log_meta_addr = log_meta_addr(spl->log);
    }
-   super->timestamp    = platform_get_real_time();
-   super->checkpointed = is_checkpoint;
-   super->dismounted   = is_dismount;
-   super->checksum =
-      platform_checksum128(super,
-                           sizeof(splinter_super_block) - sizeof(checksum128),
-                           SPLINTER_SUPER_CSUM_SEED);
 
+   // Record configured sizes, so we can use those on next boot.
+   super->page_size   = allocator_page_size(spl->al);
+   super->extent_size = allocator_extent_size(spl->al);
+   super->disk_size   = allocator_get_capacity(spl->al);
+   super->cache_size  = cache_size(spl->cc);
+
+   super->checkpointed  = is_checkpoint;
+   super->dismounted    = is_dismount;
+   super->checksum      = platform_checksum128(
+      super, SUPER_BLOCK_CHECKSUM_LENGTH, SPLINTER_SUPER_CSUM_SEED);
    cache_mark_dirty(spl->cc, super_page);
    cache_unlock(spl->cc, super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
    cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+
+   platform_log("disk size=%lu (%.2f GiB)"
+                ", page size=%lu, extent size=%lu (%lu KiB)"
+                ", cache size=%lu (%.2f GiB)\n",
+                allocator_get_capacity(spl->al),
+                (allocator_get_capacity(spl->al) * 1.0 / Giga),
+                allocator_page_size(spl->al),
+                allocator_extent_size(spl->al),
+                (allocator_extent_size(spl->al) / Kilo),
+                cache_size(spl->cc),
+                (cache_size(spl->cc) * 1.0 / Giga));
 }
 
+/*
+ * splinter_get_super_block_if_valid() --
+ *
+ * Bootstrapping routine to access a super block, and return its handle.
+ */
 splinter_super_block *
 splinter_get_super_block_if_valid(splinter_handle *spl,
                                   page_handle    **super_page)
@@ -756,10 +783,10 @@ splinter_get_super_block_if_valid(splinter_handle *spl,
    *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    super      = (splinter_super_block *)(*super_page)->data;
 
-   if (!platform_checksum_is_equal(super->checksum,
-            platform_checksum128(super,
-               sizeof(splinter_super_block) - sizeof(checksum128),
-               SPLINTER_SUPER_CSUM_SEED))) {
+   size_t      length = SUPER_BLOCK_CHECKSUM_LENGTH;
+   checksum128 exp =
+      platform_checksum128(super, length, SPLINTER_SUPER_CSUM_SEED);
+   if (!platform_checksum_is_equal(super->checksum, exp)) {
       cache_unget(spl->cc, *super_page);
       *super_page = NULL;
       return NULL;
@@ -6800,12 +6827,8 @@ splinter_create(splinter_config  *cfg,
    //    we use the root extent as the initial mini_allocator head
    uint64 meta_addr = spl->root_addr + cfg->page_size;
    // The trunk uses an unkeyed mini allocator
-   mini_init_unkeyed(&spl->mini,
-             cc,
-             meta_addr,
-             0,
-             SPLINTER_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK);
+   mini_init_unkeyed(
+      &spl->mini, cc, meta_addr, 0, SPLINTER_MAX_HEIGHT, PAGE_TYPE_TRUNK);
 
    // set up the memtable context
    memtable_config *mt_cfg = &spl->cfg.mt_cfg;
@@ -6879,8 +6902,8 @@ splinter_mount(splinter_config  *cfg,
                allocator_root_id id,
                platform_heap_id  hid)
 {
-   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, SPLINTER_NUM_MEMTABLES);
+   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, spl,
+         compacted_memtable, SPLINTER_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
    spl->al = al;
    spl->cc = cc;
@@ -6921,11 +6944,11 @@ splinter_mount(splinter_config  *cfg,
 
    // The trunk uses an unkeyed mini allocator
    mini_init_unkeyed(&spl->mini,
-             cc,
-             meta_head,
-             meta_tail,
-             SPLINTER_MAX_HEIGHT,
-             PAGE_TYPE_TRUNK);
+                     cc,
+                     meta_head,
+                     meta_tail,
+                     SPLINTER_MAX_HEIGHT,
+                     PAGE_TYPE_TRUNK);
 
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
@@ -6956,6 +6979,62 @@ splinter_mount(splinter_config  *cfg,
       }
    }
    return spl;
+}
+
+/*
+ * splinter_bootstrap() -- Bootstrap a previously created Splinter device, and
+ * return key configuration information off of the super block.
+ *
+ * This routine is called in very early stages of the process of mounting an
+ * existing Splinter instance. So, we have only done very minimal setup of basic
+ * sub-systems, just enough to allow us to do I/O on the super-block's root
+ * page.
+ */
+void
+splinter_bootstrap(splinter_config * cfg,
+                   allocator *       al,
+                   cache *           cc,
+                   platform_heap_id  hid,
+                   allocator_root_id id,
+                   uint64 *          disk_size,
+                   uint64 *          cache_size)
+{
+   // As we are doing basic bootstrapping, do not need more than 1 memtable
+   splinter_handle *spl =
+      TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, spl, compacted_memtable, 1);
+
+   ZERO_STRUCT(*spl);
+   memmove(&spl->cfg, cfg, sizeof(*cfg));
+   spl->al      = al;
+   spl->cc      = cc;
+   spl->id      = id;
+   spl->heap_id = hid;
+
+   // find the dismounted super block
+   spl->root_addr                         = 0;
+   uint64                latest_timestamp = 0;
+   page_handle *         super_page;
+   splinter_super_block *super =
+      splinter_get_super_block_if_valid(spl, &super_page);
+   if (super != NULL) {
+      if (super->dismounted && super->timestamp > latest_timestamp) {
+         spl->root_addr   = super->root_addr;
+         latest_timestamp = super->timestamp;
+      }
+
+      // Grab key config params from super-block and return as output params
+      cfg->page_size   = super->page_size;
+      cfg->extent_size = super->extent_size;
+      *disk_size       = super->disk_size;
+      *cache_size      = super->cache_size;
+
+      splinter_release_super_block(spl, super_page);
+   }
+   // RESOLVE: Add an assert here.
+   // if (spl->root_addr == 0) { return; }
+
+   // splinter_dismount(&spl);
+   platform_free(hid, spl);
 }
 
 /*
@@ -7085,8 +7164,10 @@ splinter_destroy(splinter_handle *spl)
  * It can be re-opened later with splinter_mount().
  */
 void
-splinter_dismount(splinter_handle *spl)
+splinter_dismount(splinter_handle **splpp)
 {
+   splinter_handle *spl = *splpp;
+
    srq_deinit(&spl->srq);
    splinter_set_super_block(spl, FALSE, TRUE, FALSE);
    splinter_prepare_for_shutdown(spl);
@@ -7102,6 +7183,10 @@ splinter_dismount(splinter_handle *spl)
       platform_free(spl->heap_id, spl->stats);
    }
    platform_free(spl->heap_id, spl);
+
+   // Having dismounted successfully, NULL out the callers handle to splinter
+   // to avoid de-referencing a now-stale handle.
+   *splpp = (splinter_handle *)NULL;
 }
 
 /*

@@ -26,6 +26,8 @@ typedef struct {
    const char *filename;
    uint64      cache_size;
    uint64      disk_size;
+   uint32      page_size;
+   uint32      extent_size;
 
    data_config data_cfg;
 
@@ -231,5 +233,20 @@ kvstore_iterator_get_current(kvstore_iterator *iter,           // IN
 // End-of-range is not an error
 int
 kvstore_iterator_status(const kvstore_iterator *iter);
+
+/*
+ * Lookup routines, to return KVStore configuration settings.
+ */
+uint64
+kvstore_page_size(kvstore *kvs);
+
+uint64
+kvstore_extent_size(kvstore *kvs);
+
+uint64
+kvstore_disk_size(kvstore *kvs);
+
+uint64
+kvstore_cache_size(kvstore *kvs);
 
 #endif // _KVSTORE_H_

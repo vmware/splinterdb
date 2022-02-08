@@ -285,7 +285,7 @@ rc_allocator_init(rc_allocator        *al,
    al->heap_handle = hh;
    al->heap_id     = hid;
 
-   platform_assert(cfg->page_size % 4096 == 0);
+   platform_assert(cfg->page_size % DEFAULT_PAGE_SIZE == 0);
    platform_assert(cfg->capacity == cfg->extent_size * cfg->extent_capacity);
    platform_assert(cfg->capacity == cfg->page_size * cfg->page_capacity);
 
@@ -381,7 +381,7 @@ rc_allocator_mount(rc_allocator        *al,
       return status;
    }
 
-   platform_assert(cfg->page_size % 4096 == 0);
+   platform_assert(cfg->page_size % DEFAULT_PAGE_SIZE == 0);
    platform_assert(cfg->capacity == cfg->extent_size * cfg->extent_capacity);
    platform_assert(cfg->capacity == cfg->page_size * cfg->page_capacity);
 
