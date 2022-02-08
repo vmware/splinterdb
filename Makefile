@@ -103,7 +103,7 @@ DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
 
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
-DEFAULT_LDFLAGS = -ggdb3 -pthread
+DEFAULT_LDFLAGS += -ggdb3 -pthread
 #DEFAULT_LDFLAGS += -fsanitize=memory
 #DEFAULT_LDFLAGS += -fsanitize=address
 #DEFAULT_LDFLAGS += -fsanitize=integer
