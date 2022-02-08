@@ -392,8 +392,11 @@ CTEST2(kvstore, test_quiesced_reboot)
 
    // Reopening requires just the filename. It will re-setup the kvs handle.
    rc = kvstore_reopen(&data->kvs, data->kvs_cfg.filename);
-   ASSERT_EQUAL(0, rc, "kvstore_reopen() failed, filename='%s', rc=%d ",
-                data->kvs_cfg.filename, rc);
+   ASSERT_EQUAL(0,
+                rc,
+                "kvstore_reopen() failed, filename='%s', rc=%d ",
+                data->kvs_cfg.filename,
+                rc);
 
    kvstore_lookup_result_init(data->kvs,
                               &result,

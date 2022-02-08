@@ -10,50 +10,51 @@
 #ifndef __DATA_INTERNAL_H
 #define __DATA_INTERNAL_H
 
-#include "splinterdb/data.h"    // Required to access data_config{} definition
-#include "util.h"
+#include "splinterdb/data.h" // Required to access data_config{} definition
 
 /*
  * Function prototypes for data_config->{key, message fn ptrs}
+ * If the user / application has not provided these function pointer handles via
+ * data_config{} struct, these default handlers will be invoked.
  */
 int
 default_data_key_cmp(const data_config *cfg,
-                  uint64             key1_len,
-                  const void *       key1,
-                  uint64             key2_len,
-                  const void *       key2);
+                     uint64             key1_len,
+                     const void *       key1,
+                     uint64             key2_len,
+                     const void *       key2);
 
 int
 default_data_merge_tuples(const data_config *cfg,
-                       uint64             key_len,
-                       const void *       key,
-                       uint64             old_raw_data_len,
-                       const void *       old_raw_data,
-                       writable_buffer *  new_raw_data);
+                          uint64             key_len,
+                          const void *       key,
+                          uint64             old_raw_data_len,
+                          const void *       old_raw_data,
+                          writable_buffer *  new_raw_data);
 
 message_type
 default_data_message_class(const data_config *cfg,
-                        uint64             raw_data_len,
-                        const void *       raw_data);
+                           uint64             raw_data_len,
+                           const void *       raw_data);
 int
 default_data_merge_tuples_final(const data_config *cfg,
-                             uint64             key_len,
-                             const void *       key,           // IN
-                             writable_buffer *  oldest_raw_data); // IN/OUT
+                                uint64             key_len,
+                                const void *       key,            // IN
+                                writable_buffer *  oldest_raw_data); // IN/OUT
 
 void
 default_data_key_to_string(const data_config *cfg,
-                        uint64             key_len,
-                        const void *       key,
-                        char *             str,
-                        size_t             len);
+                           uint64             key_len,
+                           const void *       key,
+                           char *             str,
+                           size_t             len);
 
 void
 default_data_message_to_string(const data_config *cfg,
-                            uint64             raw_data_len,
-                            const void *       raw_data,
-                            char *             str,
-                            size_t             len);
+                               uint64             raw_data_len,
+                               const void *       raw_data,
+                               char *             str,
+                               size_t             len);
 
 /*
  * --------------------------------------------------------------------------------

@@ -18,6 +18,7 @@
 #include "splinterdb/kvstore_basic.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "util.h"
 
 // Function Prototypes
 static int

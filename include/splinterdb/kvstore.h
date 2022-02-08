@@ -61,7 +61,7 @@ kvstore_open(const kvstore_config *cfg, kvstore **kvs);
 // and will free it on kvstore_close().
 //
 int
-kvstore_reopen(kvstore **kvs, const char * filename);
+kvstore_reopen(kvstore **kvs, const char *filename);
 
 // Close a kvstore
 //

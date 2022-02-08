@@ -104,16 +104,20 @@ kvstore_open(const kvstore_config *cfg, // IN
 }
 
 int
-kvstore_reopen(kvstore **            kvs, // OUT
-               const char * filename)
+kvstore_reopen(kvstore **  kvs, // OUT
+               const char *filename)
 {
    kvstore_config ZERO_STRUCT_AT_DECL(kvs_cfg);
 
    // Init the kvstore config that was used to create the device previously
-   kvs_cfg.filename   = filename;
+   kvs_cfg.filename = filename;
+
+   /* We pretend that the kvstore_config struct will be initialized
+    * like this by reading config info from the super-block.
+    */
    kvs_cfg.cache_size = Giga;      // see config.c: cache_capacity
    kvs_cfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
-   kvs_cfg.data_cfg = default_data_config;
+   kvs_cfg.data_cfg   = default_data_config;
 
    return kvstore_create_or_open(&kvs_cfg, kvs, TRUE);
 }
@@ -368,7 +372,7 @@ kvstore_close(kvstore **kvspp) // IN
    task_system_destroy(kvs->heap_id, kvs->task_sys);
 
    platform_free(kvs->heap_id, kvs);
-   *kvspp = (kvstore *) NULL;
+   *kvspp = (kvstore *)NULL;
 }
 
 

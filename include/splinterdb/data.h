@@ -15,7 +15,7 @@
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
 #include "splinterdb/public_util.h"
-#include "util.h"   // For definition of PACKED attribute
+#include "util.h" // For definition of PACKED attribute
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
@@ -87,7 +87,7 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
  *  4. Few other debugging aids on how-to print & diagnose messages.
  *
  * The data_config{} structure is the way application conveys these things to
- * Splinter.
+ * Splinter through the set of function pointers defined below.
  *
  * kvstore_basic.c is a reference implementation of this integration provided
  * as a "batteries included" implementation. If any other application wishes

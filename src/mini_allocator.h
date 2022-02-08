@@ -24,7 +24,7 @@
  */
 #define MINI_MAX_BATCHES 8
 
-extern const char * const page_type_str[];
+extern const char *const page_type_str[];
 
 /*
  * mini_allocator: Mini-allocator context structure. To allocate individual

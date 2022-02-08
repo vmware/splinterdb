@@ -33,6 +33,7 @@
 #include "splinterdb/kvstore_basic.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "util.h"
 
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7

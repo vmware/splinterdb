@@ -1,12 +1,23 @@
+// Copyright 2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+/*
+ *-----------------------------------------------------------------------------
+ * data_internal.c --
+ *
+ *  This file contains the implementation of default key / message handling
+ *  methods.
+ *-----------------------------------------------------------------------------
+ */
 
 #include "data_internal.h"
 
 int
 default_data_key_cmp(const data_config *cfg,
-                  uint64             key1_len,
-                  const void *       key1,
-                  uint64             key2_len,
-                  const void *       key2)
+                     uint64             key1_len,
+                     const void *       key1,
+                     uint64             key2_len,
+                     const void *       key2)
 {
    uint64 mlen = key1_len < key2_len ? key1_len : key2_len;
    int    r    = memcmp(key1, key2, mlen);
@@ -30,11 +41,11 @@ default_data_key_cmp(const data_config *cfg,
  */
 int
 default_data_merge_tuples(const data_config *cfg,
-                       uint64             key_len,
-                       const void *       key,
-                       uint64             old_raw_data_len,
-                       const void *       old_raw_data,
-                       writable_buffer *  new_raw_data)
+                          uint64             key_len,
+                          const void *       key,
+                          uint64             old_raw_data_len,
+                          const void *       old_raw_data,
+                          writable_buffer *  new_raw_data)
 {
    assert(sizeof(data_handle) <= old_raw_data_len);
    assert(sizeof(data_handle) <= writable_buffer_length(new_raw_data));
@@ -106,9 +117,9 @@ default_data_merge_tuples(const data_config *cfg,
  */
 int
 default_data_merge_tuples_final(const data_config *cfg,
-                             uint64             key_len,
-                             const void *       key,           // IN
-                             writable_buffer *  oldest_raw_data) // IN/OUT
+                                uint64             key_len,
+                                const void *       key,           // IN
+                                writable_buffer *  oldest_raw_data) // IN/OUT
 {
    assert(sizeof(data_handle) <= writable_buffer_length(oldest_raw_data));
 
@@ -131,8 +142,8 @@ default_data_merge_tuples_final(const data_config *cfg,
  */
 message_type
 default_data_message_class(const data_config *cfg,
-                        uint64             raw_data_len,
-                        const void *       raw_data)
+                           uint64             raw_data_len,
+                           const void *       raw_data)
 {
    assert(sizeof(data_handle) <= raw_data_len);
 
@@ -154,21 +165,20 @@ default_data_message_class(const data_config *cfg,
 
 void
 default_data_key_to_string(const data_config *cfg,
-                        uint64             key_len,
-                        const void *       key,
-                        char *             str,
-                        size_t             len)
+                           uint64             key_len,
+                           const void *       key,
+                           char *             str,
+                           size_t             len)
 {
    debug_hex_encode(str, len, key, key_len);
 }
 
 void
 default_data_message_to_string(const data_config *cfg,
-                            uint64             raw_data_len,
-                            const void *       raw_data,
-                            char *             str,
-                            size_t             len)
+                               uint64             raw_data_len,
+                               const void *       raw_data,
+                               char *             str,
+                               size_t             len)
 {
    debug_hex_encode(str, len, raw_data, raw_data_len);
 }
-

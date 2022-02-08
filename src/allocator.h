@@ -41,7 +41,7 @@ typedef enum page_type {
 } page_type;
 
 /* Reference to lookup array for page type names */
-extern const char * const page_type_str[];
+extern const char *const page_type_str[];
 
 typedef struct allocator allocator;
 
