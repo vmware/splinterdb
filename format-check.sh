@@ -17,9 +17,9 @@ set -eu -o pipefail
 # Redirect output to stderr
 exec 1>&2
 
-TOOL="git-clang-format-10"
+TOOL="clang-format"
 
-# Check if git-clang-format exists
+# Check if TOOL exists
 if ! command -v "$TOOL" &> /dev/null; then
    echo "Error: missing required tool $TOOL
 
@@ -30,9 +30,8 @@ fi
 
 # What to compare against?
 # positional argument, or just the main branch
-BASE_REF="${1:-main}"
 
-diff="$("$TOOL" "$BASE_REF" --diff --quiet)"
+diff="$("$TOOL"  --Werror --dry-run `find . -name "*.[ch]"`)"
 
 if [ -z "${diff-unset}" ]; then
    echo Format OK
