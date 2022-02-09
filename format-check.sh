@@ -28,10 +28,7 @@ This tool is typically provided by the clang-format package
    exit 1
 fi
 
-# What to compare against?
-# positional argument, or just the main branch
-
-diff="$("$TOOL"  --Werror --dry-run `find . -name "*.[ch]"`)"
+diff="$("$TOOL"  --Werror --dry-run $(find . -name "*.[ch]"))"
 
 if [ -z "${diff-unset}" ]; then
    echo Format OK
