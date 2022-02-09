@@ -17,7 +17,7 @@ set -eu -o pipefail
 # Redirect output to stderr
 exec 1>&2
 
-TOOL="clang-format"
+TOOL="clang-format-10"
 
 # Check if TOOL exists
 if ! command -v "$TOOL" &> /dev/null; then
