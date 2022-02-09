@@ -5828,9 +5828,12 @@ splinter_filter_lookup(splinter_handle *spl,
 {
    uint16 height;
    threadid tid;
+   timestamp filter_start;
+   timestamp branch_start;
    if (spl->cfg.use_stats) {
       tid = platform_get_tid();
       height = splinter_height(spl, node);
+      filter_start = platform_get_timestamp();
    }
 
    uint64 found_values;
@@ -5840,6 +5843,7 @@ splinter_filter_lookup(splinter_handle *spl,
    platform_assert_status_ok(rc);
    if (spl->cfg.use_stats) {
       spl->stats[tid].filter_lookups[height]++;
+      spl->stats[tid].lookup_filter_ns += platform_timestamp_elapsed(filter_start);
    }
    uint16 next_value =
       routing_filter_get_next_value(found_values, ROUTING_NOT_FOUND);
@@ -5848,13 +5852,16 @@ splinter_filter_lookup(splinter_handle *spl,
          splinter_branch_no_add(spl, start_branch, next_value);
       splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
       bool             local_found;
-      platform_status  rc;
-      rc =
+      if (spl->cfg.use_stats) {
+         branch_start = platform_get_timestamp();
+      }
+      platform_status rc =
          splinter_btree_lookup_and_merge(spl, branch, key, data, &local_found);
-      platform_assert_status_ok(rc);
       if (spl->cfg.use_stats) {
          spl->stats[tid].branch_lookups[height]++;
+         spl->stats[tid].lookup_branch_ns += platform_timestamp_elapsed(branch_start);
       }
+      platform_assert_status_ok(rc);
       if (local_found) {
          slice message = writable_buffer_to_slice(data);
          if (data_message_class(spl->cfg.data_cfg, message)
@@ -5880,6 +5887,8 @@ splinter_compacted_subbundle_lookup(splinter_handle *   spl,
    debug_assert(splinter_subbundle_branch_count(spl, node, sb) == 1);
    uint16 height;
    threadid tid;
+   timestamp filter_start;
+   timestamp branch_start;
    if (spl->cfg.use_stats) {
       tid = platform_get_tid();
       height = splinter_height(spl, node);
@@ -5887,27 +5896,34 @@ splinter_compacted_subbundle_lookup(splinter_handle *   spl,
 
    uint16 filter_count = splinter_subbundle_filter_count(spl, node, sb);
    for (uint16 filter_no = 0; filter_no != filter_count; filter_no++) {
-      if (spl->cfg.use_stats) {
-         spl->stats[tid].filter_lookups[height]++;
-      }
       uint64 found_values;
       routing_filter *filter =
          splinter_subbundle_filter(spl, node, sb, filter_no);
       debug_assert(filter->addr != 0);
       slice key_slice = slice_create(spl->cfg.data_cfg->key_size, (void *)key);
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].filter_lookups[height]++;
+         filter_start = platform_get_timestamp();
+      }
       platform_status rc = routing_filter_lookup(
          spl->cc, &spl->cfg.leaf_filter_cfg, filter, key_slice, &found_values);
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].lookup_filter_ns += platform_timestamp_elapsed(filter_start);
+      }
       platform_assert_status_ok(rc);
       if (found_values) {
          uint16 branch_no = sb->start_branch;
          splinter_branch *branch = splinter_get_branch(spl, node, branch_no);
          bool             local_found;
-         platform_status  rc;
-         rc = splinter_btree_lookup_and_merge(
+         if (spl->cfg.use_stats) {
+            branch_start = platform_get_timestamp();
+         }
+         platform_status rc = splinter_btree_lookup_and_merge(
             spl, branch, key, data, &local_found);
          platform_assert_status_ok(rc);
          if (spl->cfg.use_stats) {
             spl->stats[tid].branch_lookups[height]++;
+            spl->stats[tid].lookup_branch_ns += platform_timestamp_elapsed(branch_start);
          }
          if (local_found) {
             slice message = writable_buffer_to_slice(data);
@@ -6001,6 +6017,12 @@ splinter_lookup(splinter_handle *spl, char *key, writable_buffer *data)
 
    writable_buffer_reinit(data);
 
+   threadid tid;
+   timestamp memtable_start;
+   if (spl->cfg.use_stats) {
+      tid = platform_get_tid();
+      memtable_start = platform_get_timestamp();
+   }
    bool found_in_memtable = FALSE;
    page_handle *mt_lookup_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
@@ -6017,6 +6039,9 @@ splinter_lookup(splinter_handle *spl, char *key, writable_buffer *data)
             goto found_final_answer_early;
          }
       }
+   }
+   if (spl->cfg.use_stats) {
+      spl->stats[tid].lookup_memtable_ns += platform_timestamp_elapsed(memtable_start);
    }
 
    // hold root read lock to prevent memtable flush
@@ -7904,10 +7929,19 @@ splinter_print_lookup_stats(splinter_handle *spl)
          global->filter_false_positives[h] += spl->stats[thr_i].filter_false_positives[h];
          global->filter_negatives[h]       += spl->stats[thr_i].filter_negatives[h];
       }
+
       global->lookups_found     += spl->stats[thr_i].lookups_found;
       global->lookups_not_found += spl->stats[thr_i].lookups_not_found;
+
+      global->lookup_memtable_ns += spl->stats[thr_i].lookup_memtable_ns;
+      global->lookup_filter_ns += spl->stats[thr_i].lookup_filter_ns;
+      global->lookup_branch_ns += spl->stats[thr_i].lookup_branch_ns;
    }
    lookups = global->lookups_found + global->lookups_not_found;
+
+   if (lookups == 0) {
+      return;
+   }
 
    platform_log("Overall Statistics\n");
    platform_log("-----------------------------------------------------------------------------------\n");
@@ -7955,6 +7989,16 @@ splinter_print_lookup_stats(splinter_handle *spl)
                    FRACTION_ARGS(avg_branch_lookups));
    }
    platform_log("------------------------------------------------------------------------------------|\n");
+   platform_default_log("\n");
+
+   uint64 per_lookup_memtable_ns = global->lookup_memtable_ns / lookups;
+   uint64 per_lookup_filter_ns = global->lookup_filter_ns / lookups;
+   uint64 per_lookup_branch_ns = global->lookup_branch_ns / lookups;
+
+   platform_log("Average memtable latency per lookup: %5luns\n", per_lookup_memtable_ns);
+   platform_log("Average filter latency per lookup:   %5luns\n", per_lookup_filter_ns);
+   platform_log("Average branch latency per lookup:   %5luns\n", per_lookup_branch_ns);
+
    platform_default_log("\n");
    platform_free(spl->heap_id, global);
 }
@@ -8101,7 +8145,30 @@ void
 splinter_reset_stats(splinter_handle *spl)
 {
    if (spl->cfg.use_stats) {
-      memset(spl->stats, 0, MAX_THREADS * sizeof(splinter_stats));
+      for (uint64 i = 0; i < MAX_THREADS; i++) {
+         platform_histo_destroy(spl->heap_id, spl->stats[i].insert_latency_histo);
+         platform_histo_destroy(spl->heap_id, spl->stats[i].update_latency_histo);
+         platform_histo_destroy(spl->heap_id, spl->stats[i].delete_latency_histo);
+      }
+      ZERO_CONTENTS_N(spl->stats, MAX_THREADS);
+      for (uint64 i = 0; i < MAX_THREADS; i++) {
+         platform_status rc;
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[i].insert_latency_histo);
+         platform_assert_status_ok(rc);
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[i].update_latency_histo);
+         platform_assert_status_ok(rc);
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[i].delete_latency_histo);
+         platform_assert_status_ok(rc);
+      }
    }
 }
 

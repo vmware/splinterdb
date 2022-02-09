@@ -239,7 +239,7 @@ write_latency_cdf(char *filename, latency_table table)
    fclose(stream);
 }
 
-typedef struct ycsb_op {
+typedef struct PACKED ycsb_op {
    char   cmd;
    char   key[YCSB_KEY_SIZE];
    char   value[YCSB_DATA_SIZE];
@@ -300,8 +300,112 @@ typedef struct ycsb_phase {
    uint64_t         total_ops;
    running_times    times;
    latency_tables   tables;
-   char *           measurement_command;
+   bool             use_warm_cache;
 } ycsb_phase;
+
+static void
+ycsb_warmup_thread(void *arg)
+{
+   platform_status  rc;
+   platform_heap_id hid = platform_get_heap_id();
+   uint64           i;
+   ycsb_log_params *params     = (ycsb_log_params *)arg;
+   splinter_handle *spl        = params->spl;
+   uint64           num_ops    = params->total_ops;
+   uint64           batch_size = params->batch_size;
+   uint64           my_batch;
+
+   char * range_buffer      = NULL;
+   size_t range_buffer_size = 0;
+   writable_buffer value;
+   writable_buffer_init_null(&value, NULL);
+
+   uint64 first_op = params->next_op;
+   my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
+   while (my_batch < num_ops) {
+      if (num_ops < my_batch + batch_size)
+         batch_size = num_ops - my_batch;
+
+      ycsb_op *ops = &params->ycsb_ops[my_batch];
+      for (i = 0; i < batch_size; i++) {
+         switch (ops->cmd) {
+            case 'r':
+            {
+               rc = splinter_lookup(spl, ops->key, &value);
+               platform_assert_status_ok(rc);
+               // if (!ops->found) {
+               //   char key_str[128];
+               //   splinter_key_to_string(spl, ops->key, key_str);
+               //   platform_log("Key %s not found\n", key_str);
+               //   splinter_print_lookup(spl, ops->key);
+               //   platform_assert(0);
+               //}
+               break;
+            }
+            case 'd':
+            case 'i':
+            case 'u':
+            {
+               slice value_slice = slice_create(YCSB_DATA_SIZE, ops->value);
+               rc                = splinter_insert(spl, ops->key, value_slice);
+               platform_assert_status_ok(rc);
+               break;
+            }
+            case 's':
+            {
+               uint64       tuples_returned;
+               const size_t size_needed =
+                  ops->range_len * (MAX_KEY_SIZE + MAX_MESSAGE_SIZE);
+               if (range_buffer_size < size_needed) {
+                  if (range_buffer) {
+                     platform_free(hid, range_buffer);
+                  }
+                  range_buffer_size = range_buffer_size * 2 < size_needed
+                                         ? size_needed
+                                         : range_buffer_size * 2;
+                  range_buffer =
+                     TYPED_ARRAY_MALLOC(hid, range_buffer, range_buffer_size);
+                  platform_assert(range_buffer);
+               }
+               rc = splinter_range(spl,
+                                   ops->key,
+                                   ops->range_len,
+                                   &tuples_returned,
+                                   range_buffer);
+               platform_assert_status_ok(rc);
+               break;
+            }
+            default:
+            {
+               platform_error_log("Unknown YCSB command %c, skipping command\n",
+                                  ops->cmd);
+               break;
+            }
+         }
+         ops++;
+      }
+      my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
+   }
+   writable_buffer_reinit(&value);
+   params->next_op = first_op;
+
+   if (range_buffer) {
+      platform_free(hid, range_buffer);
+   }
+
+   __sync_fetch_and_add(params->threads_complete, 1);
+
+   while (*params->threads_complete != params->total_threads) {
+      splinter_perform_tasks(spl);
+      platform_sleep(2000);
+   }
+
+   if (__sync_fetch_and_add(params->threads_work_complete, 1)
+       == params->total_threads - 1)
+   {
+      cache_flush(spl->cc);
+   }
+}
 
 static void
 ycsb_thread(void *arg)
@@ -324,6 +428,8 @@ ycsb_thread(void *arg)
 
    char * range_buffer      = NULL;
    size_t range_buffer_size = 0;
+   writable_buffer value;
+   writable_buffer_init_null(&value, NULL);
    my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
    while (my_batch < num_ops) {
       if (num_ops < my_batch + batch_size)
@@ -335,8 +441,6 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               writable_buffer value;
-               writable_buffer_init_null(&value, NULL);
                rc = splinter_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
@@ -393,6 +497,8 @@ ycsb_thread(void *arg)
       }
       my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
    }
+   writable_buffer_reinit(&value);
+
    if (range_buffer) {
       platform_free(hid, range_buffer);
    }
@@ -447,6 +553,52 @@ run_ycsb_phase(splinter_handle *spl,
    uint64 threads_work_complete = 0;
 
    uint64_t cur_thread = 0;
+
+   if (phase->use_warm_cache) {
+      platform_log("Running warm cache phase\n");
+      for (i = 0; i < phase->nlogs; i++) {
+         phase->params[i].spl                   = spl;
+         phase->params[i].threads_complete      = &threads_complete;
+         phase->params[i].threads_work_complete = &threads_work_complete;
+         phase->params[i].total_threads         = nthreads;
+         phase->params[i].ts                    = ts;
+         int j;
+         for (j = 0; j < phase->params[i].nthreads; j++) {
+            platform_assert(cur_thread < nthreads);
+            ret = task_thread_create("ycsb_warmup_thread",
+                                     ycsb_warmup_thread,
+                                     &phase->params[i],
+                                     splinter_get_scratch_size(),
+                                     ts,
+                                     hid,
+                                     &threads[cur_thread]);
+            if (!SUCCESS(ret)) {
+               success = -1;
+               goto shutdown;
+            }
+            cur_thread++;
+         }
+      }
+
+      uint64 max_nthreads = nthreads;
+      while (0 < nthreads) {
+         platform_status result = platform_thread_join(threads[nthreads - 1]);
+         if (!SUCCESS(result)) {
+            success = -1;
+            break;
+         }
+         nthreads--;
+      }
+
+      splinter_reset_stats(spl);
+
+      threads_complete      = 0;
+      threads_work_complete = 0;
+
+      cur_thread = 0;
+      nthreads = max_nthreads;
+   }
+
    for (i = 0; i < phase->nlogs; i++) {
       phase->params[i].spl                   = spl;
       phase->params[i].threads_complete      = &threads_complete;
@@ -481,36 +633,6 @@ shutdown:
       nthreads--;
    }
    platform_free(hid, threads);
-
-   if (phase->measurement_command) {
-      const size_t bufsize  = 1024;
-      char *       filename = TYPED_ARRAY_MALLOC(hid, filename, bufsize);
-      platform_assert(filename);
-      snprintf(filename, bufsize, "%s.measurement", phase->name);
-      FILE *measurement_output = fopen(filename, "wb");
-      platform_assert(measurement_output != NULL);
-      FILE *measurement_cmd = popen(phase->measurement_command, "r");
-      platform_assert(measurement_cmd != NULL);
-
-      char * buffer = TYPED_ARRAY_MALLOC(hid, buffer, bufsize);
-      size_t num_read;
-      size_t num_written;
-      do {
-         num_read    = fread(buffer, 1, bufsize, measurement_cmd);
-         num_written = fwrite(buffer, 1, num_read, measurement_output);
-         if (num_written != num_read) {
-            platform_error_log(
-               "Could not write to measurement output file %s\n", filename);
-            platform_free(hid, filename);
-            platform_free(hid, buffer);
-            exit(1);
-         }
-      } while (!feof(measurement_cmd));
-      fclose(measurement_output);
-      pclose(measurement_cmd);
-      platform_free(hid, filename);
-      platform_free(hid, buffer);
-   }
 
    return success;
 }
@@ -575,6 +697,7 @@ parse_ycsb_log_file(void *arg)
    uint64 num_lines = req->end_line - req->start_line;
 
    ycsb_op *result = TYPED_ARRAY_MALLOC(hid, result, num_lines);
+   platform_log("Size of trace: %lu\n:", num_lines * sizeof(ycsb_op));
    if (result == NULL) {
       platform_error_log("Failed to allocate memory for log\n");
       goto close_file;
@@ -645,7 +768,7 @@ usage(const char *argv0)
 {
    platform_error_log(
       "Usage:\n"
-      "\t%s $name $trace_prefix $threads (-c $measurement_command) (-e)\n",
+      "\t%s $name $trace_prefix $threads (-w) (-e)\n",
       argv0);
    config_usage();
 }
@@ -663,12 +786,13 @@ load_ycsb_logs(int          argc,
    uint64 _nphases            = 1;
    uint64 num_threads         = 0;
    bool   mlock_log           = TRUE;
-   char * measurement_command = NULL;
    uint64 log_size_bytes      = 0;
    *use_existing              = FALSE;
    char *           name;
    platform_status  ret;
    platform_heap_id hid = platform_get_heap_id();
+
+   bool use_warm_cache = FALSE;
 
    if (argc < 6) {
       usage(argv[0]);
@@ -676,17 +800,13 @@ load_ycsb_logs(int          argc,
    }
 
    if (argc > 6) {
-      if (strncmp(argv[5], "-c", sizeof("-c")) == 0) {
-         if (argc < 8) {
-            usage(argv[0]);
-            return STATUS_BAD_PARAM;
-         }
-         measurement_command = argv[7];
-         if (argc > 7 && strncmp(argv[8], "-e", sizeof("-e")) == 0) {
+      if (strncmp(argv[6], "-w", sizeof("-w")) == 0) {
+         use_warm_cache = TRUE;
+         if (argc > 7 && strncmp(argv[7], "-e", sizeof("-e")) == 0) {
             *use_existing  = TRUE;
-            *args_consumed = 9;
-         } else {
             *args_consumed = 8;
+         } else {
+            *args_consumed = 7;
          }
       } else if (strncmp(argv[6], "-e", sizeof("-e")) == 0) {
          *use_existing  = TRUE;
@@ -738,9 +858,9 @@ load_ycsb_logs(int          argc,
    uint64 lognum     = 0;
    uint64 batch_size = 100;
 
-   phases[0].name                = name;
-   phases[0].params              = &params[0];
-   phases[0].measurement_command = measurement_command;
+   phases[0].name           = name;
+   phases[0].params         = &params[0];
+   phases[0].use_warm_cache = use_warm_cache;
 
    uint64 start_line    = 0;
    uint64 max_range_len = 0;
@@ -1227,7 +1347,8 @@ ycsb_test(int argc, char *argv[])
       memory_bytes / splinter_cfg->page_size * (sizeof(clockcache_entry) + 64)
       + allocator_cfg.extent_capacity * sizeof(uint8)
       + allocator_cfg.page_capacity * sizeof(uint32);
-   uint64 buffer_bytes = MiB_TO_B(1024);
+   uint64 buffer_bytes = MiB_TO_B(512);
+   //uint64 buffer_bytes = MiB_TO_B(1024);
    // if (memory_bytes > GiB_TO_B(40)) {
    //   buffer_bytes = use_existing ? MiB_TO_B(2048) : MiB_TO_B(1280);
    //} else {

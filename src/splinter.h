@@ -137,6 +137,10 @@ typedef struct splinter_stats {
    uint64 space_rec_time_ns[SPLINTER_MAX_HEIGHT];
    uint64 space_rec_tuples_reclaimed[SPLINTER_MAX_HEIGHT];
    uint64 tuples_reclaimed[SPLINTER_MAX_HEIGHT];
+
+   uint64 lookup_memtable_ns;
+   uint64 lookup_filter_ns;
+   uint64 lookup_branch_ns;
 } PLATFORM_CACHELINE_ALIGNED splinter_stats;
 
 // splinter refers to btrees as branches

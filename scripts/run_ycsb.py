@@ -99,6 +99,8 @@ CL_PARSER.add_argument('--config', type=str, default="",
                        help="Config options to pass to SplinterDB")
 CL_PARSER.add_argument('--device', type=str, default="",
                        help="Optional name of DEVICE that the db is located on for IO stats")
+WARM_CACHE_HELP = "Run trace twice, first time warms the cache"
+CL_PARSER.add_argument('--warm_cache', action="store_true", help=WARM_CACHE_HELP);
 ARGS = CL_PARSER.parse_args()
 
 GIB = 1024 * 1024 * 1024
@@ -115,6 +117,7 @@ KEY_SIZE = ARGS.key_size
 MESSAGE_SIZE = ARGS.message_size
 CONFIG_OPTIONS = ARGS.config
 DEVICE = ARGS.device
+WARM_CACHE = ARGS.warm_cache
 
 # get date/time for labeling
 DATETIME_STRING = datetime.today().strftime('%Y_%m_%d_%H:%M')
@@ -154,7 +157,8 @@ for mem in MEM_SIZES:
                     start_diskstats = get_io_stats(DEVICE)
 
                 # prepare the workload command
-                run_command = ["./bin/driver_test", "ycsb_test"]
+                run_command = ["cgexec", "-g", "memory:benchmark", "stdbuf", "-i0", "-o0", "-e0", "./bin/driver_test", "ycsb_test"]
+                #run_command = ["stdbuf", "-i0", "-o0", "-e0", "./bin/driver_test", "ycsb_test"]
                 data_prefix = results_dir + "/data"
                 run_command.append(data_prefix)
                 run_command.append(trace_filename)
@@ -162,6 +166,8 @@ for mem in MEM_SIZES:
                 run_command.append(str(op_count))
                 memory_mib = int(mem / 1024 / 1024)
                 run_command.append(str(memory_mib))
+                if WARM_CACHE:
+                    run_command.append("-w")
                 if USE_EXISTING or i != 0:
                     run_command.append("-e")
 
