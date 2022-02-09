@@ -40,7 +40,7 @@ typedef struct {
  */
 CTEST_DATA(kvstore_basic_stress)
 {
-   kvstore_basic *   kvsb;
+   kvstore_basic    *kvsb;
    kvstore_basic_cfg cfg;
 };
 

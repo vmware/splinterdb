@@ -34,7 +34,7 @@ static inline int
 data_merge_tuples(const data_config *cfg,
                   const slice        key,
                   const slice        old_raw_message,
-                  writable_buffer *  new_message)
+                  writable_buffer   *new_message)
 {
    return cfg->merge_tuples(cfg,
                             slice_length(key),
@@ -47,7 +47,7 @@ data_merge_tuples(const data_config *cfg,
 static inline int
 data_merge_tuples_final(const data_config *cfg,
                         const slice        key,
-                        writable_buffer *  oldest_message)
+                        writable_buffer   *oldest_message)
 {
    return cfg->merge_tuples_final(
       cfg, slice_length(key), slice_data(key), oldest_message);
@@ -56,7 +56,7 @@ data_merge_tuples_final(const data_config *cfg,
 static inline void
 data_key_to_string(const data_config *cfg,
                    const slice        key,
-                   char *             str,
+                   char              *str,
                    size_t             size)
 {
    cfg->key_to_string(cfg, slice_length(key), slice_data(key), str, size);
@@ -74,7 +74,7 @@ data_key_to_string(const data_config *cfg,
 static inline void
 data_message_to_string(const data_config *cfg,
                        const slice        message,
-                       char *             str,
+                       char              *str,
                        size_t             size)
 {
    cfg->message_to_string(

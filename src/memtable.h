@@ -16,7 +16,7 @@
 #include "btree.h"
 
 typedef enum memtable_state {
-   MEMTABLE_STATE_READY,        // if it's the correct one, go ahead and insert
+   MEMTABLE_STATE_READY, // if it's the correct one, go ahead and insert
    MEMTABLE_STATE_FINALIZED,
    MEMTABLE_STATE_COMPACTED,
    MEMTABLE_STATE_COMPACTING,
@@ -27,18 +27,17 @@ typedef enum memtable_state {
 } memtable_state;
 
 typedef struct memtable {
-   volatile memtable_state       state;
-   uint64                        generation;
-   uint64                        root_addr;
-   mini_allocator                mini;
-   btree_config *                cfg;
+   volatile memtable_state state;
+   uint64                  generation;
+   uint64                  root_addr;
+   mini_allocator          mini;
+   btree_config           *cfg;
 } PLATFORM_CACHELINE_ALIGNED memtable;
 
 static inline bool
-memtable_try_transition(
-   memtable *mt,
-   memtable_state old_state,
-   memtable_state new_state)
+memtable_try_transition(memtable      *mt,
+                        memtable_state old_state,
+                        memtable_state new_state)
 {
    switch (old_state) {
       case MEMTABLE_STATE_READY:
@@ -78,19 +77,19 @@ memtable_try_transition(
    if (actual_old_state != old_state) {
       switch (old_state) {
          case MEMTABLE_STATE_COMPACTED:
-            debug_assert(
-                  actual_old_state != MEMTABLE_STATE_INCORPORATION_ASSIGNED);
+            debug_assert(actual_old_state
+                         != MEMTABLE_STATE_INCORPORATION_ASSIGNED);
             debug_assert(actual_old_state != MEMTABLE_STATE_INCORPORATING);
             break;
          default:
-         platform_assert(0);
+            platform_assert(0);
       }
    }
    return actual_old_state == old_state;
 }
 
 static inline void
-memtable_transition(memtable *mt,
+memtable_transition(memtable      *mt,
                     memtable_state old_state,
                     memtable_state new_state)
 {
@@ -101,32 +100,32 @@ memtable_transition(memtable *mt,
 typedef void (*process_fn)(void *arg, uint64 generation);
 
 typedef struct memtable_config {
-   uint64                        max_tuples_per_memtable;
-   uint64                        max_memtables;
-   btree_config *                btree_cfg;
+   uint64        max_tuples_per_memtable;
+   uint64        max_memtables;
+   btree_config *btree_cfg;
 } memtable_config;
 
 typedef struct memtable_context {
-   cache           *cc;
-   memtable_config  cfg;
-   task_system     *ts;
+   cache          *cc;
+   memtable_config cfg;
+   task_system    *ts;
 
-   process_fn       process;
-   void            *process_ctxt;
+   process_fn process;
+   void      *process_ctxt;
 
    // Protected by insert_lock. Can read without lock. Must get read lock to
    // freeze and write lock to modify.
-   uint64           insert_lock_addr;
-   volatile uint64  generation;
+   uint64          insert_lock_addr;
+   volatile uint64 generation;
 
    // Protected by incorporation_lock. Must hold to read or modify.
    platform_spinlock incorporation_lock;
-   volatile uint64  generation_to_incorporate;
+   volatile uint64   generation_to_incorporate;
 
    // Protected by the lookup lock. Must hold read lock to read and write lock
    // to modify.
-   uint64           lookup_lock_addr;
-   volatile uint64  generation_retired;
+   uint64          lookup_lock_addr;
+   volatile uint64 generation_retired;
 
    /*
     * num_tuples is the sum of per-thread inserted tuples, each up to the last
@@ -154,28 +153,26 @@ typedef struct memtable_context {
 } memtable_context;
 
 platform_status
-memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
-                                          uint64            *generation,
-                                          page_handle      **lock_page);
+memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
+                                          uint64           *generation,
+                                          page_handle     **lock_page);
 
 void
-memtable_unget_insert_lock(memtable_context *ctxt,
-                           page_handle      *lock_page);
+memtable_unget_insert_lock(memtable_context *ctxt, page_handle *lock_page);
 
 platform_status
 memtable_insert(memtable_context *ctxt,
-                memtable *        mt,
+                memtable         *mt,
                 platform_heap_id  heap_id,
-                const char *      key,
+                const char       *key,
                 slice             message,
-                uint64 *          generation);
+                uint64           *generation);
 
 page_handle *
 memtable_get_lookup_lock(memtable_context *ctxt);
 
 void
-memtable_unget_lookup_lock(memtable_context *ctxt,
-                           page_handle      *lock_page);
+memtable_unget_lookup_lock(memtable_context *ctxt, page_handle *lock_page);
 
 page_handle *
 memtable_uncontended_get_claim_lock_lookup_lock(memtable_context *ctxt);
@@ -185,36 +182,30 @@ memtable_unlock_unclaim_unget_lookup_lock(memtable_context *ctxt,
                                           page_handle      *lock_page);
 
 bool
-memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
-                               memtable         *mt);
+memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt);
 
 uint64
 memtable_force_finalize(memtable_context *ctxt);
 
 void
-memtable_init(memtable         *mt,
-              cache            *cc,
-              memtable_config  *cfg,
-              uint64            generation);
+memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation);
 
 void
-memtable_deinit(cache            *cc,
-                memtable         *mt);
+memtable_deinit(cache *cc, memtable *mt);
 
 memtable_context *
-memtable_context_create(platform_heap_id  hid,
-                        cache            *cc,
-                        memtable_config  *cfg,
-                        process_fn        process,
-                        void             *process_ctxt);
+memtable_context_create(platform_heap_id hid,
+                        cache           *cc,
+                        memtable_config *cfg,
+                        process_fn       process,
+                        void            *process_ctxt);
 
 void
-memtable_context_destroy(platform_heap_id  hid,
-                         memtable_context *ctxt);
+memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt);
 
 void
 memtable_config_init(memtable_config *cfg,
-                     btree_config *   btree_cfg,
+                     btree_config    *btree_cfg,
                      uint64           max_memtables,
                      uint64           memtable_capacity);
 
@@ -279,8 +270,7 @@ memtable_unlock_incorporation_lock(memtable_context *ctxt)
 }
 
 static inline void
-memtable_zap(cache    *cc,
-             memtable *mt)
+memtable_zap(cache *cc, memtable *mt)
 {
    btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
@@ -288,45 +278,40 @@ memtable_zap(cache    *cc,
 static inline bool
 memtable_ok_to_lookup(memtable *mt)
 {
-   return mt->state != MEMTABLE_STATE_INCORPORATING &&
-          mt->state != MEMTABLE_STATE_INCORPORATED;
+   return mt->state != MEMTABLE_STATE_INCORPORATING
+          && mt->state != MEMTABLE_STATE_INCORPORATED;
 }
 
 static inline bool
 memtable_ok_to_lookup_compacted(memtable *mt)
 {
-   return mt->state == MEMTABLE_STATE_COMPACTED ||
-          mt->state == MEMTABLE_STATE_INCORPORATION_ASSIGNED;
+   return mt->state == MEMTABLE_STATE_COMPACTED
+          || mt->state == MEMTABLE_STATE_INCORPORATION_ASSIGNED;
 }
 
 bool
 memtable_is_empty(memtable_context *mt_ctxt);
 
 static inline bool
-memtable_verify(cache    *cc,
-                memtable *mt)
+memtable_verify(cache *cc, memtable *mt)
 {
    return btree_verify_tree(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
 }
 
 static inline void
-memtable_print(cache    *cc,
-               memtable *mt)
+memtable_print(cache *cc, memtable *mt)
 {
    btree_print_tree(cc, mt->cfg, mt->root_addr);
 }
 
 static inline void
-memtable_print_stats(cache           *cc,
-                     memtable        *mt)
+memtable_print_stats(cache *cc, memtable *mt)
 {
    btree_print_tree_stats(cc, mt->cfg, mt->root_addr);
 };
 
 static inline void
-memtable_key_to_string(memtable   *mt,
-                       const char *key,
-                       char       *key_str)
+memtable_key_to_string(memtable *mt, const char *key, char *key_str)
 {
    slice key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
    btree_key_to_string(mt->cfg, key_slice, key_str);

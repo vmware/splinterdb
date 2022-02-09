@@ -112,12 +112,12 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
  * and if successful, run process_cb on it.
  */
 void
-async_ctxt_process_one(splinter_handle *     spl,
-                       test_async_lookup *   async_lookup,
-                       test_async_ctxt *     ctxt,
-                       timestamp *           latency_max,
+async_ctxt_process_one(splinter_handle      *spl,
+                       test_async_lookup    *async_lookup,
+                       test_async_ctxt      *ctxt,
+                       timestamp            *latency_max,
                        async_ctxt_process_cb process_cb,
-                       void *                process_arg)
+                       void                 *process_arg)
 {
    cache_async_result res;
    timestamp          ts;
@@ -152,11 +152,11 @@ async_ctxt_process_one(splinter_handle *     spl,
  * Returns: TRUE if no context at all are used.
  */
 bool
-async_ctxt_process_ready(splinter_handle *     spl,
-                         test_async_lookup *   async_lookup,
-                         timestamp *           latency_max,
+async_ctxt_process_ready(splinter_handle      *spl,
+                         test_async_lookup    *async_lookup,
+                         timestamp            *latency_max,
                          async_ctxt_process_cb process_cb,
-                         void *                process_arg)
+                         void                 *process_arg)
 {
    uint32 count = pcq_count(async_lookup->avail_q);
 

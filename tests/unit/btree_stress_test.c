@@ -27,11 +27,11 @@
 #include "btree_test_common.h"
 
 typedef struct insert_thread_params {
-   cache *          cc;
-   btree_config *   cfg;
+   cache           *cc;
+   btree_config    *cfg;
    platform_heap_id heap_id;
-   btree_scratch *  scratch;
-   mini_allocator * mini;
+   btree_scratch   *scratch;
+   mini_allocator  *mini;
    uint64           root_addr;
    int              start;
    int              end;
@@ -42,18 +42,18 @@ static void
 insert_thread(void *arg);
 
 static void
-insert_tests(cache *          cc,
-             btree_config *   cfg,
+insert_tests(cache           *cc,
+             btree_config    *cfg,
              platform_heap_id heap_id,
-             btree_scratch *  scratch,
-             mini_allocator * mini,
+             btree_scratch   *scratch,
+             mini_allocator  *mini,
              uint64           root_addr,
              int              start,
              int              end);
 
 static int
-query_tests(cache *          cc,
-            btree_config *   cfg,
+query_tests(cache           *cc,
+            btree_config    *cfg,
             platform_heap_id hid,
             page_type        type,
             uint64           root_addr,
@@ -63,8 +63,8 @@ static int
 iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs);
 
 static uint64
-pack_tests(cache *          cc,
-           btree_config *   cfg,
+pack_tests(cache           *cc,
+           btree_config    *cfg,
            platform_heap_id hid,
            uint64           root_addr,
            uint64           nkvs);
@@ -101,7 +101,7 @@ CTEST_DATA(btree_stress)
    // Stuff needed to setup and exercise multiple threads.
    platform_io_handle io;
    uint8              num_bg_threads[NUM_TASK_TYPES];
-   task_system *      ts;
+   task_system       *ts;
    rc_allocator       al;
    clockcache         cc;
 };
@@ -277,11 +277,11 @@ insert_thread(void *arg)
 }
 
 static void
-insert_tests(cache *          cc,
-             btree_config *   cfg,
+insert_tests(cache           *cc,
+             btree_config    *cfg,
              platform_heap_id heap_id,
-             btree_scratch *  scratch,
-             mini_allocator * mini,
+             btree_scratch   *scratch,
+             mini_allocator  *mini,
              uint64           root_addr,
              int              start,
              int              end)
@@ -344,8 +344,8 @@ gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size])
 }
 
 static int
-query_tests(cache *          cc,
-            btree_config *   cfg,
+query_tests(cache           *cc,
+            btree_config    *cfg,
             platform_heap_id hid,
             page_type        type,
             uint64           root_addr,
@@ -430,14 +430,14 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
 }
 
 static uint64
-pack_tests(cache *          cc,
-           btree_config *   cfg,
+pack_tests(cache           *cc,
+           btree_config    *cfg,
            platform_heap_id hid,
            uint64           root_addr,
            uint64           nkvs)
 {
    btree_iterator dbiter;
-   iterator *     iter = (iterator *)&dbiter;
+   iterator      *iter = (iterator *)&dbiter;
 
    btree_iterator_init(cc,
                        cfg,

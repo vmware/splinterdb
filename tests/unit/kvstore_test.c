@@ -20,10 +20,10 @@ setup_kvstore(kvstore **kvs, kvstore_config *kvs_cfg);
 
 static int
 do_inserts(const int       num_inserts,
-           kvstore *       kvs,
+           kvstore        *kvs,
            kvstore_config *kvs_cfg,
-           char *          key,
-           char *          msg_buffer);
+           char           *key,
+           char           *msg_buffer);
 
 /*
  * Global data declaration macro:
@@ -31,9 +31,9 @@ do_inserts(const int       num_inserts,
 CTEST_DATA(kvstore)
 {
    kvstore_config kvs_cfg;
-   kvstore *      kvs;
-   char *         key;
-   char *         msg_buffer;
+   kvstore       *kvs;
+   char          *key;
+   char          *msg_buffer;
 };
 
 // Setup function for suite, called before every test in suite
@@ -357,10 +357,10 @@ setup_kvstore(kvstore **kvs, kvstore_config *kvs_cfg)
 /* Helper routine to insert n-number of keys to KVStore */
 static int
 do_inserts(const int       num_inserts,
-           kvstore *       kvs,
+           kvstore        *kvs,
            kvstore_config *kvs_cfg,
-           char *          key,
-           char *          msg_buffer)
+           char           *key,
+           char           *msg_buffer)
 {
    data_handle *msg  = (data_handle *)msg_buffer;
    msg->message_type = MESSAGE_TYPE_INSERT;

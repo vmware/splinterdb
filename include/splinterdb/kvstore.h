@@ -85,9 +85,9 @@ kvstore_deregister_thread(kvstore *kvs);
 
 int
 kvstore_insert(const kvstore *kvs,
-               char *         key,
+               char          *key,
                size_t         message_length,
-               char *         message);
+               char          *message);
 
 /**************
  * Lookups
@@ -108,10 +108,10 @@ typedef struct kvstore_lookup_result {
  * being initialized once.
  */
 void
-kvstore_lookup_result_init(const kvstore *        kvs,        // IN
+kvstore_lookup_result_init(const kvstore         *kvs,        // IN
                            kvstore_lookup_result *result,     // IN/OUT
                            size_t                 buffer_len, // IN
-                           char *                 buffer      // IN
+                           char                  *buffer      // IN
 );
 
 /*
@@ -131,8 +131,8 @@ void *
 kvstore_lookup_result_data(kvstore_lookup_result *result); // IN
 
 int
-kvstore_lookup(const kvstore *        kvs,   // IN
-               char *                 key,   // IN
+kvstore_lookup(const kvstore         *kvs,   // IN
+               char                  *key,   // IN
                kvstore_lookup_result *result // IN/OUT
 );
 
@@ -179,9 +179,9 @@ Sample application code:
 typedef struct kvstore_iterator kvstore_iterator;
 
 int
-kvstore_iterator_init(const kvstore *    kvs,      // IN
+kvstore_iterator_init(const kvstore     *kvs,      // IN
                       kvstore_iterator **iter,     // OUT
-                      char *             start_key // IN
+                      char              *start_key // IN
 );
 
 void
@@ -205,9 +205,9 @@ kvstore_iterator_next(kvstore_iterator *iter);
 // If valid() == false, then behavior is undefined.
 void
 kvstore_iterator_get_current(kvstore_iterator *iter,           // IN
-                             const char **     key,            // OUT
-                             size_t *          message_length, // OUT
-                             const char **     message         // OUT
+                             const char      **key,            // OUT
+                             size_t           *message_length, // OUT
+                             const char      **message         // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.

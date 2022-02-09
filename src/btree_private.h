@@ -77,16 +77,16 @@ typedef struct leaf_incorporate_spec {
 } leaf_incorporate_spec;
 
 platform_status
-btree_create_leaf_incorporate_spec(const btree_config *   cfg,
+btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    platform_heap_id       heap_id,
-                                   btree_hdr *            hdr,
+                                   btree_hdr             *hdr,
                                    slice                  key,
                                    slice                  message,
                                    leaf_incorporate_spec *spec);
 
 bool
-btree_try_perform_leaf_incorporate_spec(const btree_config *         cfg,
-                                        btree_hdr *                  hdr,
+btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
+                                        btree_hdr                   *hdr,
                                         const leaf_incorporate_spec *spec,
                                         uint64 *generation);
 
@@ -109,7 +109,7 @@ typedef struct leaf_splitting_plan {
  */
 bool
 btree_set_index_entry(const btree_config *cfg,
-                      btree_hdr *         hdr,
+                      btree_hdr          *hdr,
                       table_index         k,
                       slice               new_pivot_key,
                       uint64              new_addr,
@@ -119,31 +119,31 @@ btree_set_index_entry(const btree_config *cfg,
 
 bool
 btree_set_leaf_entry(const btree_config *cfg,
-                     btree_hdr *         hdr,
+                     btree_hdr          *hdr,
                      table_index         k,
                      slice               new_key,
                      slice               new_message);
 
 void
 btree_defragment_leaf(const btree_config *cfg, // IN
-                      btree_scratch *     scratch,
-                      btree_hdr *         hdr,
+                      btree_scratch      *scratch,
+                      btree_hdr          *hdr,
                       int64               omit_idx); // IN
 
 void
 btree_defragment_index(const btree_config *cfg, // IN
-                       btree_scratch *     scratch,
-                       btree_hdr *         hdr); // IN
+                       btree_scratch      *scratch,
+                       btree_hdr          *hdr); // IN
 
 int64
 btree_find_pivot(const btree_config *cfg,
-                 const btree_hdr *   hdr,
+                 const btree_hdr    *hdr,
                  slice               key,
-                 bool *              found);
+                 bool               *found);
 
 leaf_splitting_plan
-btree_build_leaf_splitting_plan(const btree_config *         cfg, // IN
-                                const btree_hdr *            hdr,
+btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
+                                const btree_hdr             *hdr,
                                 const leaf_incorporate_spec *spec); // IN
 
 /*
@@ -203,7 +203,7 @@ leaf_entry_message_slice(leaf_entry *entry)
 
 static inline leaf_entry *
 btree_get_leaf_entry(const btree_config *cfg,
-                     const btree_hdr *   hdr,
+                     const btree_hdr    *hdr,
                      table_index         k)
 {
    /* Ensure that the kth entry's header is after the end of the table and
@@ -221,7 +221,7 @@ btree_get_leaf_entry(const btree_config *cfg,
 
 static inline slice
 btree_get_tuple_key(const btree_config *cfg,
-                    const btree_hdr *   hdr,
+                    const btree_hdr    *hdr,
                     table_index         k)
 {
    return leaf_entry_key_slice(btree_get_leaf_entry(cfg, hdr, k));
@@ -229,7 +229,7 @@ btree_get_tuple_key(const btree_config *cfg,
 
 static inline slice
 btree_get_tuple_message(const btree_config *cfg,
-                        const btree_hdr *   hdr,
+                        const btree_hdr    *hdr,
                         table_index         k)
 {
    return leaf_entry_message_slice(btree_get_leaf_entry(cfg, hdr, k));
@@ -237,7 +237,7 @@ btree_get_tuple_message(const btree_config *cfg,
 
 static inline index_entry *
 btree_get_index_entry(const btree_config *cfg,
-                      const btree_hdr *   hdr,
+                      const btree_hdr    *hdr,
                       table_index         k)
 {
    /* Ensure that the kth entry's header is after the end of the table and
@@ -277,7 +277,7 @@ btree_get_pivot(const btree_config *cfg, const btree_hdr *hdr, table_index k)
 
 static inline uint64
 btree_get_child_addr(const btree_config *cfg,
-                     const btree_hdr *   hdr,
+                     const btree_hdr    *hdr,
                      table_index         k)
 {
    return index_entry_child_addr(btree_get_index_entry(cfg, hdr, k));

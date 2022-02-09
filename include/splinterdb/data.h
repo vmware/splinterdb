@@ -31,15 +31,15 @@ typedef struct data_config data_config;
 
 typedef int (*key_compare_fn)(const data_config *cfg,
                               uint64             key1_len,
-                              const void *       key1,
+                              const void        *key1,
                               uint64             key2_len,
-                              const void *       key2);
+                              const void        *key2);
 
 typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
 
 typedef message_type (*message_class_fn)(const data_config *cfg,
                                          uint64             raw_message_len,
-                                         const void *       raw_message);
+                                         const void        *raw_message);
 
 // Given two messages, old_message and new_message, merge them
 // and return the result in new_raw_message.
@@ -47,10 +47,10 @@ typedef message_type (*message_class_fn)(const data_config *cfg,
 // Returns 0 on success.  non-zero indicates an internal error.
 typedef int (*merge_tuple_fn)(const data_config *cfg,
                               uint64             key_len,
-                              const void *       key,
+                              const void        *key,
                               uint64             old_message_len,
-                              const void *       old_message,
-                              writable_buffer *  new_message); // IN/OUT
+                              const void        *old_message,
+                              writable_buffer   *new_message); // IN/OUT
 
 // Called for non-MESSAGE_TYPE_INSERT messages when they are
 // determined to be the oldest message Can change data_class or
@@ -59,13 +59,13 @@ typedef int (*merge_tuple_fn)(const data_config *cfg,
 // Returns 0 on success.  non-zero indicates an internal error.
 typedef int (*merge_tuple_final_fn)(const data_config *cfg,
                                     uint64             key_len,
-                                    const void *       key,
-                                    writable_buffer *  oldest_message);
+                                    const void        *key,
+                                    writable_buffer   *oldest_message);
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,
-                                         const void *       key_or_message,
-                                         char *             str,
+                                         const void        *key_or_message,
+                                         char              *str,
                                          size_t             max_len);
 
 struct data_config {
@@ -91,11 +91,11 @@ struct data_config {
 static inline bool
 data_validate_config(const data_config *cfg)
 {
-   bool bad = (cfg->key_size == 0 || cfg->message_size == 0 ||
-               cfg->key_compare == NULL || cfg->key_hash == NULL ||
-               cfg->merge_tuples == NULL || cfg->merge_tuples_final == NULL ||
-               cfg->message_class == NULL || cfg->key_to_string == NULL ||
-               cfg->message_to_string == NULL);
+   bool bad =
+      (cfg->key_size == 0 || cfg->message_size == 0 || cfg->key_compare == NULL
+       || cfg->key_hash == NULL || cfg->merge_tuples == NULL
+       || cfg->merge_tuples_final == NULL || cfg->message_class == NULL
+       || cfg->key_to_string == NULL || cfg->message_to_string == NULL);
    return !bad;
 }
 

@@ -81,7 +81,7 @@ custom_key_comparator(const void *context,
  */
 CTEST_DATA(kvstore_basic)
 {
-   kvstore_basic *   kvsb;
+   kvstore_basic    *kvsb;
    kvstore_basic_cfg cfg;
 };
 
@@ -121,11 +121,11 @@ CTEST_TEARDOWN(kvstore_basic)
  */
 CTEST2(kvstore_basic, test_basic_flow)
 {
-   char * key     = "some-key";
+   char  *key     = "some-key";
    size_t key_len = sizeof("some-key");
    _Bool  found;
    _Bool  val_truncated;
-   char * value = calloc(1, data->cfg.max_value_size);
+   char  *value = calloc(1, data->cfg.max_value_size);
    size_t val_len;
 
    int rc = 0;
@@ -202,7 +202,7 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    _Bool  found;
    _Bool  val_truncated;
    size_t val_len;
-   char * value = calloc(1, data->cfg.max_value_size);
+   char  *value = calloc(1, data->cfg.max_value_size);
 
    // **** Lookup of max-size key should return correct value
    rc = kvstore_basic_lookup(data->kvsb,
@@ -250,7 +250,7 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
 CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
 {
    size_t too_large_key_len = data->cfg.max_key_size + 1;
-   char * too_large_key     = calloc(1, too_large_key_len);
+   char  *too_large_key     = calloc(1, too_large_key_len);
    memset(too_large_key, 'a', too_large_key_len);
    char *value = calloc(1, data->cfg.max_value_size);
 
@@ -291,7 +291,7 @@ CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
 CTEST2(kvstore_basic, test_value_size_gt_max_value_size)
 {
    size_t            too_large_value_len = data->cfg.max_value_size + 1;
-   char *            too_large_value     = calloc(1, too_large_value_len);
+   char             *too_large_value     = calloc(1, too_large_value_len);
    static const char short_key[]         = "a_short_key";
 
    memset(too_large_value, 'z', too_large_value_len);
@@ -629,13 +629,13 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
  */
 CTEST2(kvstore_basic, test_close_and_reopen)
 {
-   char * key     = "some-key";
+   char  *key     = "some-key";
    size_t key_len = strlen(key);
-   char * val     = "some-value";
+   char  *val     = "some-value";
    size_t val_len = strlen(val);
    _Bool  found;
    _Bool  val_truncated;
-   char * value = calloc(1, data->cfg.max_value_size);
+   char  *value = calloc(1, data->cfg.max_value_size);
 
    int rc = kvstore_basic_insert(data->kvsb, key, key_len, val, val_len);
    ASSERT_EQUAL(0, rc);
@@ -674,9 +674,9 @@ CTEST2(kvstore_basic, test_close_and_reopen)
  */
 CTEST2(kvstore_basic, test_repeated_insert_close_reopen)
 {
-   char * key     = "some-key";
+   char  *key     = "some-key";
    size_t key_len = strlen(key);
-   char * val     = "f";
+   char  *val     = "f";
    size_t val_len = strlen(val);
 
    for (int i = 0; i < 20; i++) {
