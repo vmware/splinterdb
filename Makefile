@@ -96,18 +96,20 @@ ifeq ($(cpu_arch),x86_64)
   DEFAULT_CFLAGS += -msse4.2 -mpopcnt
   CFLAGS += -march=native
 endif
+
+# use += here, so that extra flags can be provided via the environment
+DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 #DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 #DEFAULT_CFLAGS += -fsanitize=address
 #DEFAULT_CFLAGS += -fsanitize=integer
-DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
-
-
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
-DEFAULT_LDFLAGS = -ggdb3 -pthread
+
+# use += here, so that extra flags can be provided via the environment
+DEFAULT_LDFLAGS += -ggdb3 -pthread
 #DEFAULT_LDFLAGS += -fsanitize=memory
 #DEFAULT_LDFLAGS += -fsanitize=address
 #DEFAULT_LDFLAGS += -fsanitize=integer
-LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
+LDFLAGS += $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
 ifeq ($(WITH_RUST),true)
@@ -167,7 +169,6 @@ $(BINDIR)/unit_test: unit_test
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS)                   \
                             $(OBJDIR)/tests/test_data.o                 \
-                            $(OBJDIR)/src/platform_linux/platform.o     \
                             $(LIBDIR)/libsplinterdb.so $(LIBS)
 
 
@@ -272,8 +273,8 @@ unit/util_test: $(OBJDIR)/tests/unit/util_test.o            \
 # ----
 $(BINDIR)/unit/misc_test: unit/misc_test
 unit/misc_test: $(OBJDIR)/tests/unit/misc_test.o            \
-                $(OBJDIR)/tests/unit/main.o                 \
-                $(OBJDIR)/src/$(PLATFORM_DIR)/platform.o
+                $(OBJDIR)/src/$(PLATFORM_DIR)/platform.o    \
+                $(OBJDIR)/tests/unit/main.o
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
 
@@ -309,6 +310,6 @@ $(BINDIR)/splinterdb-cli: $(LIBDIR)/libsplinterdb.a $(wildcard rust/**/*)
 install: $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
 
-	# -p retains the timestamp of the file being copied over$
+	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
 	cp -p $(INCDIR)/splinterdb/*.h $(INSTALL_PATH)/include/splinterdb/
