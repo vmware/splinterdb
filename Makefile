@@ -42,8 +42,8 @@ UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # ----
 # Binaries from unit-test sources in tests/unit/ sub-dir
-# Although the sources are in, say, tests/unit/kvstore_basic_test.c, and so on ...
-# the binaries are named bin/unit/kvstore_basic_test (Drop the 'tests'.)
+# Although the sources are in, say, tests/unit/splinterdb_kv_test.c, and so on
+# the binaries are named bin/unit/splinterdb_kv_test.
 # Also, there may be other shared .c files that don't yield a standalone
 # binary. Hence, only build a list from files named *_test.c
 # Resolves to a list: bin/unit/a_test bin/unit/b_test bin/unit/c_test ...
@@ -207,27 +207,28 @@ $(BINDIR)/unit/main: $(OBJDIR)/tests/unit/main.o
 $(OBJDIR)/tests/unit/main.o: tests/unit/main.c
 
 # ---- Here onwards, list the rules to build each standalone unit-test binary.
-$(BINDIR)/unit/kvstore_basic_test: unit/kvstore_basic_test
-unit/kvstore_basic_test: $(OBJDIR)/tests/unit/kvstore_basic_test.o        \
-                         $(OBJDIR)/tests/unit/main.o                      \
-                         $(LIBDIR)/libsplinterdb.so
+$(BINDIR)/unit/splinterdb_kv_test: unit/splinterdb_kv_test
+unit/splinterdb_kv_test: $(OBJDIR)/tests/unit/splinterdb_kv_test.o      \
+                   $(OBJDIR)/tests/test_data.o                          \
+                   $(OBJDIR)/tests/unit/main.o                          \
+                   $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
-$(BINDIR)/unit/kvstore_basic_stress_test: unit/kvstore_basic_stress_test
-unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o    \
+$(BINDIR)/unit/splinterdb_kv_stress_test: unit/splinterdb_kv_stress_test
+unit/splinterdb_kv_stress_test: $(OBJDIR)/tests/unit/splinterdb_kv_stress_test.o    \
                                 $(OBJDIR)/tests/unit/main.o                         \
                                 $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
-$(BINDIR)/unit/kvstore_test: unit/kvstore_test
-unit/kvstore_test: $(OBJDIR)/tests/unit/kvstore_test.o      \
-                   $(OBJDIR)/tests/test_data.o              \
-                   $(OBJDIR)/tests/unit/main.o              \
-                   $(LIBDIR)/libsplinterdb.so
+$(BINDIR)/unit/splinterdb_test: unit/splinterdb_test
+unit/splinterdb_test: $(OBJDIR)/tests/unit/splinterdb_test.o        \
+                      $(OBJDIR)/tests/test_data.o                   \
+                      $(OBJDIR)/tests/unit/main.o                   \
+                      $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 

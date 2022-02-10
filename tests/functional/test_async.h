@@ -12,7 +12,7 @@
 
 #include "platform.h"
 
-#include "splinter.h"
+#include "trunk.h"
 #include "cache.h"
 #include "pcq.h"
 
@@ -21,8 +21,8 @@
 
 // A single async context
 typedef struct {
-   splinter_async_ctxt ctxt;
-   pcq                *ready_q;
+   trunk_async_ctxt ctxt;
+   pcq             *ready_q;
    union {
       int8   refcount;   // Used by functionality test
       uint64 lookup_num; // Used by rest
@@ -42,7 +42,7 @@ typedef struct {
    test_async_ctxt ctxt[];
 } test_async_lookup;
 
-typedef void (*async_ctxt_process_cb)(splinter_handle *spl,
+typedef void (*async_ctxt_process_cb)(trunk_handle    *spl,
                                       test_async_ctxt *ctxt,
                                       void            *arg);
 
@@ -58,14 +58,14 @@ async_ctxt_get(test_async_lookup *async_lookup);
 void
 async_ctxt_unget(test_async_lookup *async_lookup, test_async_ctxt *ctxt);
 void
-async_ctxt_process_one(splinter_handle      *spl,
+async_ctxt_process_one(trunk_handle         *spl,
                        test_async_lookup    *async_lookup,
                        test_async_ctxt      *ctxt,
                        timestamp            *latency_max,
                        async_ctxt_process_cb process_cb,
                        void                 *process_arg);
 bool
-async_ctxt_process_ready(splinter_handle      *spl,
+async_ctxt_process_ready(trunk_handle         *spl,
                          test_async_lookup    *async_lookup,
                          timestamp            *latency_max,
                          async_ctxt_process_cb process_cb,

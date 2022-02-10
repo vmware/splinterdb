@@ -8,10 +8,10 @@ the [Rust build tool `cargo`](https://doc.rust-lang.org/book/ch01-03-hello-cargo
 ## Overview
 Rust may be suitable for developing applications that use SplinterDB, and for writing certain types of tests of SplinterDB.
 
-This directory contains Rust libraries that wrap the `kvstore_basic` API for SplinterDB, and an example program.
+This directory contains Rust libraries that wrap the `splinterdb_kv` API for SplinterDB, and an example program.
 - `splinterdb-sys`: Lowest level, unsafe Rust declarations for a subset of the SplinterDB public API.
 - `splinterdb-rs`: A safe and ergonomic Rust wrapper, intended for use by other Rust libraries and Rust applications.
-- `splinterdb-cli`: A simple command line utility for the `kvstore_basic` API of SplinterDB.
+- `splinterdb-cli`: A simple command line utility for the `splinterdb_kv` API of SplinterDB.
    It serves as an example of how to build a Rust application that uses SplinterDB as a library, and can be used for basic performance testing.
 
 ## Usage

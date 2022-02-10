@@ -3,9 +3,9 @@
 
 /*
  * -----------------------------------------------------------------------------
- * kvstore_basic_test.c --
+ * splinterdb_kv_test.c --
  *
- *     Exercises the kvstore_basic API, which exposes keys & values
+ *     Exercises the splinterdb_kv API, which exposes keys & values
  *     instead of the keys & messages of the lower layers.
  *
  * NOTE: This test case file also serves as an example for how-to build
@@ -19,8 +19,8 @@
  *
  *  o Individual test cases [ see below ] in a file are prefaced with a
  *    term naming the test suite, for the module / functionality being tested.
- *    Usually it will just be <something>; .e.g., in kvstore_basic_test.c
- *    the suite-name is 'kvstore_basic'.
+ *    Usually it will just be <something>; .e.g., in splinterdb_kv_test.c
+ *    the suite-name is 'splinterdb_kv'.
  *
  *  o Each test case should be named test_<operation>
  * -----------------------------------------------------------------------------
@@ -30,7 +30,7 @@
 #include <errno.h>
 
 #include "splinterdb/platform_public.h"
-#include "splinterdb/kvstore_basic.h"
+#include "splinterdb/splinterdb_kv.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -46,16 +46,16 @@ static const char val_fmt[] = "val-%02x";
 
 // Function Prototypes
 static int
-setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg);
+setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg);
 
 static int
-insert_some_keys(const int num_inserts, kvstore_basic *kvsb);
+insert_some_keys(const int num_inserts, splinterdb_kv *kvsb);
 
 static int
-insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr);
+insert_keys(splinterdb_kv *kvsb, const int minkey, int numkeys, const int incr);
 
 static int
-check_current_tuple(kvstore_basic_iterator *it, const int expected_i);
+check_current_tuple(splinterdb_kv_iterator *it, const int expected_i);
 
 static uint64_t key_comp_context = 0;
 
@@ -79,30 +79,30 @@ custom_key_comparator(const void *context,
  * NOTE: All data structures will hang off of data->, where 'data' is a
  * global static variable manufactured by CTEST_SETUP() macro.
  */
-CTEST_DATA(kvstore_basic)
+CTEST_DATA(splinterdb_kv)
 {
-   kvstore_basic    *kvsb;
-   kvstore_basic_cfg cfg;
+   splinterdb_kv    *kvsb;
+   splinterdb_kv_cfg cfg;
 };
 
 // Optional setup function for suite, called before every test in suite
-CTEST_SETUP(kvstore_basic)
+CTEST_SETUP(splinterdb_kv)
 {
    memset(&data->cfg, 0, sizeof(data->cfg));
-   int rc = setup_kvstore_basic(&data->kvsb, &data->cfg);
+   int rc = setup_splinterdb_kv(&data->kvsb, &data->cfg);
    ASSERT_EQUAL(0, rc);
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(kvstore_basic)
+CTEST_TEARDOWN(splinterdb_kv)
 {
-   kvstore_basic_close(data->kvsb);
+   splinterdb_kv_close(data->kvsb);
 }
 
 /*
  * ***********************************************************************
  * All tests in each file are named with one term, which represents the
- * module / functionality you are testing. Here, it is: kvstore_basic
+ * module / functionality you are testing. Here, it is: splinterdb_kv
  *
  * This is an individual test case, testing [usually] just one thing.
  * The 2nd term is the test-case name, e.g., 'test_basic_flow'.
@@ -112,14 +112,14 @@ CTEST_TEARDOWN(kvstore_basic)
  *
  * Basic test case that exercises and validates the basic flow of the
  * Splinter APIs.  We exercise:
- *  - kvstore_basic_insert()
- *  - kvstore_basic_lookup() and
- *  - kvstore_basic_delete()
+ *  - splinterdb_kv_insert()
+ *  - splinterdb_kv_lookup() and
+ *  - splinterdb_kv_delete()
  *
  * Validate that they behave as expected, including some basic error
  * condition checking.
  */
-CTEST2(kvstore_basic, test_basic_flow)
+CTEST2(splinterdb_kv, test_basic_flow)
 {
    char  *key     = "some-key";
    size_t key_len = sizeof("some-key");
@@ -130,7 +130,7 @@ CTEST2(kvstore_basic, test_basic_flow)
 
    int rc = 0;
    // **** Lookup of a non-existent key should fail.
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              key,
                              key_len,
                              value,
@@ -143,11 +143,11 @@ CTEST2(kvstore_basic, test_basic_flow)
 
    // **** Basic insert of new key should succeed.
    static char *insval = "some-value";
-   rc = kvstore_basic_insert(data->kvsb, key, key_len, insval, strlen(insval));
+   rc = splinterdb_kv_insert(data->kvsb, key, key_len, insval, strlen(insval));
    ASSERT_EQUAL(0, rc);
 
    // **** Should be able to lookup key/value just inserted above
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              key,
                              key_len,
                              value,
@@ -162,11 +162,11 @@ CTEST2(kvstore_basic, test_basic_flow)
    ASSERT_TRUE(found);
 
    // **** Basic delete of an existing key should succeed
-   rc = kvstore_basic_delete(data->kvsb, key, key_len);
+   rc = splinterdb_kv_delete(data->kvsb, key, key_len);
    ASSERT_EQUAL(0, rc);
 
    // **** Lookup of now-deleted key should succeed, but key is not found.
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              key,
                              key_len,
                              value,
@@ -184,7 +184,7 @@ CTEST2(kvstore_basic, test_basic_flow)
  * Basic test case that exercises and validates the basic flow of the
  * Splinter APIs for key of max-key-length.
  */
-CTEST2(kvstore_basic, test_apis_for_max_key_length)
+CTEST2(splinterdb_kv, test_apis_for_max_key_length)
 {
    char *large_key = calloc(1, data->cfg.max_key_size);
    memset(large_key, 7, data->cfg.max_key_size);
@@ -192,7 +192,7 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    static char *large_key_value = "a-value";
    int          rc              = 0;
    // **** Insert of a max-size key should succeed.
-   rc = kvstore_basic_insert(data->kvsb,
+   rc = splinterdb_kv_insert(data->kvsb,
                              large_key,
                              data->cfg.max_key_size,
                              large_key_value,
@@ -205,7 +205,7 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    char  *value = calloc(1, data->cfg.max_value_size);
 
    // **** Lookup of max-size key should return correct value
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              large_key,
                              data->cfg.max_key_size,
                              value,
@@ -223,11 +223,11 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
    ASSERT_TRUE(found);
 
    // **** Delete of max-size key should also succeed.
-   rc = kvstore_basic_delete(data->kvsb, large_key, data->cfg.max_key_size);
+   rc = splinterdb_kv_delete(data->kvsb, large_key, data->cfg.max_key_size);
    ASSERT_EQUAL(0, rc);
 
    // **** Should not find this large-key once it's deleted
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              large_key,
                              data->cfg.max_key_size,
                              value,
@@ -247,14 +247,14 @@ CTEST2(kvstore_basic, test_apis_for_max_key_length)
 /*
  * Test case to verify core interfaces when key-size is > max key-size.
  */
-CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
+CTEST2(splinterdb_kv, test_key_size_gt_max_key_size)
 {
    size_t too_large_key_len = data->cfg.max_key_size + 1;
    char  *too_large_key     = calloc(1, too_large_key_len);
    memset(too_large_key, 'a', too_large_key_len);
    char *value = calloc(1, data->cfg.max_value_size);
 
-   int rc = kvstore_basic_insert(data->kvsb,
+   int rc = splinterdb_kv_insert(data->kvsb,
                                  too_large_key,
                                  too_large_key_len,
                                  "a-value",
@@ -264,7 +264,7 @@ CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
    _Bool  found;
    _Bool  val_truncated;
    size_t val_len;
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              too_large_key,
                              too_large_key_len,
                              value,
@@ -288,14 +288,14 @@ CTEST2(kvstore_basic, test_key_size_gt_max_key_size)
  * if very large values are supplied. (Once insert fails, there is
  * no further need to verify the other interfaces for very-large-values.)
  */
-CTEST2(kvstore_basic, test_value_size_gt_max_value_size)
+CTEST2(splinterdb_kv, test_value_size_gt_max_value_size)
 {
    size_t            too_large_value_len = data->cfg.max_value_size + 1;
    char             *too_large_value     = calloc(1, too_large_value_len);
    static const char short_key[]         = "a_short_key";
 
    memset(too_large_value, 'z', too_large_value_len);
-   int rc = kvstore_basic_insert(data->kvsb,
+   int rc = splinterdb_kv_insert(data->kvsb,
                                  short_key,
                                  sizeof(short_key),
                                  too_large_value,
@@ -313,22 +313,22 @@ CTEST2(kvstore_basic, test_value_size_gt_max_value_size)
  * sub-cases exercises different combinations to also trigger truncation
  * when supplied output buffer is smaller than the datum value.
  */
-CTEST2(kvstore_basic, test_variable_length_values)
+CTEST2(splinterdb_kv, test_variable_length_values)
 {
    const char empty_string[0];
    const char short_string[1] = "v";
    const char long_string[]   = "some-long-value";
 
    // **** (a) Insert keys with different value (lengths), and verify insertion.
-   int rc = kvstore_basic_insert(
+   int rc = splinterdb_kv_insert(
       data->kvsb, "empty", sizeof("empty"), empty_string, sizeof(empty_string));
    ASSERT_EQUAL(0, rc);
 
-   rc = kvstore_basic_insert(
+   rc = splinterdb_kv_insert(
       data->kvsb, "short", sizeof("short"), short_string, sizeof(short_string));
    ASSERT_EQUAL(0, rc);
 
-   rc = kvstore_basic_insert(
+   rc = splinterdb_kv_insert(
       data->kvsb, "long", sizeof("long"), long_string, sizeof(long_string));
    ASSERT_EQUAL(0, rc);
 
@@ -338,12 +338,12 @@ CTEST2(kvstore_basic, test_variable_length_values)
    _Bool val_truncated;
 
    // (c) add extra length so we can check for overflow
-   char found_value[KVSTORE_BASIC_MAX_VALUE_SIZE + 2];
+   char found_value[SPLINTERDB_KV_MAX_VALUE_SIZE + 2];
    memset(found_value, 'x', sizeof(found_value));
 
    size_t val_len;
 
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              "empty",
                              sizeof("empty"),
                              found_value,
@@ -357,7 +357,7 @@ CTEST2(kvstore_basic, test_variable_length_values)
    ASSERT_EQUAL(0, val_len);
 
    // (d) lookup tuple with value of length 1, providing sufficient buffer
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              "short",
                              sizeof("short"),
                              found_value,
@@ -371,7 +371,7 @@ CTEST2(kvstore_basic, test_variable_length_values)
    ASSERT_EQUAL(1, val_len);
 
    // (e) lookup tuple with value of length 1, providing empty buffer
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              "short",
                              sizeof("short"),
                              found_value,
@@ -385,7 +385,7 @@ CTEST2(kvstore_basic, test_variable_length_values)
    ASSERT_EQUAL(0, val_len);
 
    // (f) lookup tuple with max-sized-value
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              "long",
                              sizeof("long"),
                              found_value,
@@ -401,7 +401,7 @@ CTEST2(kvstore_basic, test_variable_length_values)
 
    // (g) lookup tuple with max-sized-value, short buffer
    int forced_max_len = 5;
-   rc                 = kvstore_basic_lookup(data->kvsb,
+   rc                 = splinterdb_kv_lookup(data->kvsb,
                              "long",
                              sizeof("long"),
                              found_value,
@@ -417,9 +417,9 @@ CTEST2(kvstore_basic, test_variable_length_values)
 }
 
 /*
- * Basic KVStore iterator test case.
+ * SplinterDB_KV iterator test case.
  */
-CTEST2(kvstore_basic, test_basic_iterator)
+CTEST2(splinterdb_kv, test_basic_iterator)
 {
    const int num_inserts = 50;
    int       rc          = insert_some_keys(num_inserts, data->kvsb);
@@ -427,12 +427,12 @@ CTEST2(kvstore_basic, test_basic_iterator)
 
    int i = 0;
 
-   kvstore_basic_iterator *it = NULL;
+   splinterdb_kv_iterator *it = NULL;
 
-   rc = kvstore_basic_iter_init(data->kvsb, &it, NULL, 0);
+   rc = splinterdb_kv_iter_init(data->kvsb, &it, NULL, 0);
    ASSERT_EQUAL(0, rc);
 
-   for (; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
+   for (; splinterdb_kv_iter_valid(it); splinterdb_kv_iter_next(it)) {
       rc = check_current_tuple(it, i);
       ASSERT_EQUAL(0, rc);
       i++;
@@ -440,14 +440,14 @@ CTEST2(kvstore_basic, test_basic_iterator)
 }
 
 /*
- * Test case to exercise and verify that kvstore iterator interfaces with a
+ * Test case to exercise and verify that splinterdb iterator interfaces with a
  * non-NULL start key correctly sets up the start scan at the requested
  * initial key value.
  */
-CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
+CTEST2(splinterdb_kv, test_splinterdb_iterator_with_startkey)
 {
    const int               num_inserts = 50;
-   kvstore_basic_iterator *it          = NULL;
+   splinterdb_kv_iterator *it          = NULL;
    int                     rc = insert_some_keys(num_inserts, data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -457,34 +457,34 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_startkey)
 
       // Initialize the i'th key
       snprintf(key, sizeof(key), key_fmt, ictr);
-      rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+      rc = splinterdb_kv_iter_init(data->kvsb, &it, key, strlen(key));
       ASSERT_EQUAL(0, rc);
 
-      _Bool is_valid = kvstore_basic_iter_valid(it);
+      _Bool is_valid = splinterdb_kv_iter_valid(it);
       ASSERT_TRUE(is_valid);
 
       // Scan should have been positioned at the i'th key
       rc = check_current_tuple(it, ictr);
       ASSERT_EQUAL(0, rc);
 
-      kvstore_basic_iter_deinit(&it);
+      splinterdb_kv_iter_deinit(&it);
    }
    if (it != NULL) {
-      kvstore_basic_iter_deinit(&it);
+      splinterdb_kv_iter_deinit(&it);
    }
 }
 
 /*
- * Test case to exercise kvstore iterator with a non-NULL but non-existent
+ * Test case to exercise splinterdb iterator with a non-NULL but non-existent
  * start-key. The iterator just starts at the first key, if any, after the
  * specified start-key.
  *  . If start-key > max-key, we will find no more keys to scan.
  *  . If start-key < min-key, we will start scan from 1st key in set.
  */
-CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
+CTEST2(splinterdb_kv, test_splinterdb_iterator_with_non_existent_startkey)
 {
    int                     rc = 0;
-   kvstore_basic_iterator *it = NULL;
+   splinterdb_kv_iterator *it = NULL;
 
    const int num_inserts = 50;
    rc                    = insert_some_keys(num_inserts, data->kvsb);
@@ -493,19 +493,19 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
    // start-key > max-key ('key-50')
    char *key = "unknownKey";
 
-   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   rc = splinterdb_kv_iter_init(data->kvsb, &it, key, strlen(key));
 
    // Iterator should be invalid, as lookup key is non-existent.
-   _Bool is_valid = kvstore_basic_iter_valid(it);
+   _Bool is_valid = splinterdb_kv_iter_valid(it);
    ASSERT_FALSE(is_valid);
 
-   kvstore_basic_iter_deinit(&it);
+   splinterdb_kv_iter_deinit(&it);
 
    // If you start with a key before min-key-value, scan will start from
    // 1st key inserted. (We do lexicographic comparison, so 'U' sorts
    // before 'key...', which is what key's format is.)
    key = "UnknownKey";
-   rc  = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   rc  = splinterdb_kv_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
    int ictr = 0;
@@ -516,7 +516,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
 
    // Just to be sure, run through the set of keys, to cross-check that
    // we are getting all of them back in the right order.
-   for (; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
+   for (; splinterdb_kv_iter_valid(it); splinterdb_kv_iter_next(it)) {
       rc = check_current_tuple(it, ictr);
       ASSERT_EQUAL(0, rc);
       ictr++;
@@ -525,12 +525,12 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
    ASSERT_EQUAL(num_inserts, ictr);
 
    if (it) {
-      kvstore_basic_iter_deinit(&it);
+      splinterdb_kv_iter_deinit(&it);
    }
 }
 
 /*
- * Test case to exercise kvstore iterator with a non-NULL but non-existent
+ * Test case to exercise splinterdb iterator with a non-NULL but non-existent
  * start-key.  The data in this test case is loaded such that we have a
  * sequence of key values with gaps of 2 (i.e. 1, 4, 7, 10, ...).
  *
@@ -542,7 +542,8 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_non_existent_startkey)
  *      end up starting the scan at 7.)
  *  d) start-key beyond max-key (Scan should come out as invalid.)
  */
-CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
+CTEST2(splinterdb_kv,
+       test_splinterdb_iterator_with_missing_startkey_in_sequence)
 {
    const int num_inserts = 50;
    // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
@@ -555,11 +556,11 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    // (a) Test iter_init with a key == the min-key
    snprintf(key, sizeof(key), key_fmt, minkey);
 
-   kvstore_basic_iterator *it = NULL;
-   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   splinterdb_kv_iterator *it = NULL;
+   rc = splinterdb_kv_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
-   _Bool is_valid = kvstore_basic_iter_valid(it);
+   _Bool is_valid = splinterdb_kv_iter_valid(it);
    ASSERT_TRUE(is_valid);
 
    // Iterator should be initialized to 1st key inserted, if the supplied
@@ -568,17 +569,17 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    rc       = check_current_tuple(it, ictr);
    ASSERT_EQUAL(0, rc);
 
-   kvstore_basic_iter_deinit(&it);
+   splinterdb_kv_iter_deinit(&it);
 
    // (b) Test iter_init with a value below the min-key-value.
    int kctr = (minkey - 1);
 
    snprintf(key, sizeof(key), key_fmt, kctr);
 
-   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   rc = splinterdb_kv_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
-   is_valid = kvstore_basic_iter_valid(it);
+   is_valid = splinterdb_kv_iter_valid(it);
    ASSERT_TRUE(is_valid);
 
    // Iterator should be initialized to 1st key inserted, if the supplied
@@ -587,16 +588,16 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    rc   = check_current_tuple(it, ictr);
    ASSERT_EQUAL(0, rc);
 
-   kvstore_basic_iter_deinit(&it);
+   splinterdb_kv_iter_deinit(&it);
 
    // (c) Test with a non-existent value between 2 valid key values.
    kctr = 5;
    snprintf(key, sizeof(key), key_fmt, kctr);
 
-   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   rc = splinterdb_kv_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
-   is_valid = kvstore_basic_iter_valid(it);
+   is_valid = splinterdb_kv_iter_valid(it);
    ASSERT_TRUE(is_valid);
 
    // Iterator should be initialized to next key following kctr.
@@ -604,21 +605,21 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
    rc   = check_current_tuple(it, ictr);
    ASSERT_EQUAL(0, rc);
 
-   kvstore_basic_iter_deinit(&it);
+   splinterdb_kv_iter_deinit(&it);
 
    // (d) Test with a non-existent value beyond max key value.
    //     iter_init should end up as being invalid.
    kctr = -1;
    snprintf(key, sizeof(key), key_fmt, kctr);
 
-   rc = kvstore_basic_iter_init(data->kvsb, &it, key, strlen(key));
+   rc = splinterdb_kv_iter_init(data->kvsb, &it, key, strlen(key));
    ASSERT_EQUAL(0, rc);
 
-   is_valid = kvstore_basic_iter_valid(it);
+   is_valid = splinterdb_kv_iter_valid(it);
    ASSERT_FALSE(is_valid);
 
    if (it) {
-      kvstore_basic_iter_deinit(&it);
+      splinterdb_kv_iter_deinit(&it);
    }
 }
 
@@ -627,7 +628,7 @@ CTEST2(kvstore_basic, test_kvstore_iterator_with_missing_startkey_in_sequence)
  * as expected. After reopening the KVS, we should be able to retrieve data
  * that was inserted in the previous open.
  */
-CTEST2(kvstore_basic, test_close_and_reopen)
+CTEST2(splinterdb_kv, test_close_and_reopen)
 {
    char  *key     = "some-key";
    size_t key_len = strlen(key);
@@ -637,15 +638,15 @@ CTEST2(kvstore_basic, test_close_and_reopen)
    _Bool  val_truncated;
    char  *value = calloc(1, data->cfg.max_value_size);
 
-   int rc = kvstore_basic_insert(data->kvsb, key, key_len, val, val_len);
+   int rc = splinterdb_kv_insert(data->kvsb, key, key_len, val, val_len);
    ASSERT_EQUAL(0, rc);
 
    // Exercise & verify close / reopen interfaces
-   kvstore_basic_close(data->kvsb);
-   rc = kvstore_basic_open(&data->cfg, &data->kvsb);
+   splinterdb_kv_close(data->kvsb);
+   rc = splinterdb_kv_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   rc = kvstore_basic_lookup(data->kvsb,
+   rc = splinterdb_kv_lookup(data->kvsb,
                              key,
                              key_len,
                              value,
@@ -672,7 +673,7 @@ CTEST2(kvstore_basic, test_close_and_reopen)
  * causes a space leak and eventually hits an assertion
  * (fixed in PR #214 / commit 8b33fd149d33054173790a8a30b99e97f08ffa81)
  */
-CTEST2(kvstore_basic, test_repeated_insert_close_reopen)
+CTEST2(splinterdb_kv, test_repeated_insert_close_reopen)
 {
    char  *key     = "some-key";
    size_t key_len = strlen(key);
@@ -680,12 +681,12 @@ CTEST2(kvstore_basic, test_repeated_insert_close_reopen)
    size_t val_len = strlen(val);
 
    for (int i = 0; i < 20; i++) {
-      int rc = kvstore_basic_insert(data->kvsb, key, key_len, val, val_len);
+      int rc = splinterdb_kv_insert(data->kvsb, key, key_len, val, val_len);
       ASSERT_EQUAL(0, rc, "Insert is expected to pass, iter=%d.", i);
 
-      kvstore_basic_close(data->kvsb);
+      splinterdb_kv_close(data->kvsb);
 
-      rc = kvstore_basic_open(&data->cfg, &data->kvsb);
+      rc = splinterdb_kv_open(&data->cfg, &data->kvsb);
       ASSERT_EQUAL(0, rc);
    }
 }
@@ -697,45 +698,45 @@ CTEST2(kvstore_basic, test_repeated_insert_close_reopen)
  *  reconfigures SplinterDB. All other cases that exercise the default
  *  configuration should precede this one.
  */
-CTEST2(kvstore_basic, test_iterator_custom_comparator)
+CTEST2(splinterdb_kv, test_iterator_custom_comparator)
 {
    // We need to reconfigure Splinter with user-specified key comparator fn.
    // Tear down default instance, and create a new one.
-   kvstore_basic_close(data->kvsb);
+   splinterdb_kv_close(data->kvsb);
 
    data->cfg.key_comparator         = &custom_key_comparator;
    data->cfg.key_comparator_context = &key_comp_context;
 
-   int rc = setup_kvstore_basic(&data->kvsb, &data->cfg);
+   int rc = setup_splinterdb_kv(&data->kvsb, &data->cfg);
    ASSERT_EQUAL(0, rc);
 
    const int num_inserts = 50;
    rc                    = insert_some_keys(num_inserts, data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   kvstore_basic_iterator *it = NULL;
-   rc = kvstore_basic_iter_init(data->kvsb, &it, NULL, 0);
+   splinterdb_kv_iterator *it = NULL;
+   rc = splinterdb_kv_iter_init(data->kvsb, &it, NULL, 0);
    ASSERT_EQUAL(0, rc);
 
    int i = 0;
-   for (; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
+   for (; splinterdb_kv_iter_valid(it); splinterdb_kv_iter_next(it)) {
       rc = check_current_tuple(it, i);
       ASSERT_EQUAL(0, rc);
       i++;
    }
 
-   rc = kvstore_basic_iter_status(it);
+   rc = splinterdb_kv_iter_status(it);
    ASSERT_EQUAL(0, rc);
 
    // Expect that iterator has stopped at num_inserts
    ASSERT_EQUAL(num_inserts, i);
    ASSERT_TRUE(key_comp_context > (2 * num_inserts));
 
-   _Bool is_valid = kvstore_basic_iter_valid(it);
+   _Bool is_valid = splinterdb_kv_iter_valid(it);
    ASSERT_FALSE(is_valid);
 
    if (it) {
-      kvstore_basic_iter_deinit(&it);
+      splinterdb_kv_iter_deinit(&it);
    }
 }
 
@@ -747,12 +748,12 @@ CTEST2(kvstore_basic, test_iterator_custom_comparator)
  */
 
 static int
-setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
+setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg)
 {
    Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
 
-   *cfg = (kvstore_basic_cfg){
+   *cfg = (splinterdb_kv_cfg){
       .filename       = TEST_DB_NAME,
       .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
       .disk_size      = (cfg->disk_size) ? cfg->disk_size : 30 * Mega,
@@ -762,7 +763,7 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
       .key_comparator_context = cfg->key_comparator_context,
    };
 
-   int rc = kvstore_basic_create(cfg, kvsb);
+   int rc = splinterdb_kv_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
    return rc;
 }
@@ -774,7 +775,7 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
  * Returns: Return code: rc == 0 => success; anything else => failure
  */
 static int
-insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
+insert_some_keys(const int num_inserts, splinterdb_kv *kvsb)
 {
    int rc = 0;
    // insert keys backwards, just for kicks
@@ -785,7 +786,7 @@ insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
       ASSERT_EQUAL(6, snprintf(key, sizeof(key), key_fmt, i));
       ASSERT_EQUAL(6, snprintf(val, sizeof(val), val_fmt, i));
 
-      rc = kvstore_basic_insert(kvsb, key, sizeof(key), val, sizeof(val));
+      rc = splinterdb_kv_insert(kvsb, key, sizeof(key), val, sizeof(val));
       ASSERT_EQUAL(0, rc);
    }
 
@@ -799,7 +800,7 @@ insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
  * or some with defined gaps.
  *
  * Parameters:
- *  kvsb    - Ptr to KVStore handle
+ *  kvsb    - Ptr to SplinterDB_KV handle
  *  minkey  - Start key to insert
  *  numkeys - # of keys to insert
  *  incr    - Increment between keys (default is 1)
@@ -807,7 +808,7 @@ insert_some_keys(const int num_inserts, kvstore_basic *kvsb)
  * Returns: Return code: rc == 0 => success; anything else => failure
  */
 static int
-insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr)
+insert_keys(splinterdb_kv *kvsb, const int minkey, int numkeys, const int incr)
 {
    int rc = -1;
 
@@ -823,7 +824,7 @@ insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr)
       snprintf(key, sizeof(key), key_fmt, kctr);
       snprintf(val, sizeof(val), val_fmt, kctr);
 
-      rc = kvstore_basic_insert(kvsb, key, sizeof(key), val, sizeof(val));
+      rc = splinterdb_kv_insert(kvsb, key, sizeof(key), val, sizeof(val));
       ASSERT_EQUAL(0, rc);
    }
    return rc;
@@ -838,7 +839,7 @@ insert_keys(kvstore_basic *kvsb, const int minkey, int numkeys, const int incr)
  * Returns: Return code: rc == 0 => success; anything else => failure
  */
 static int
-check_current_tuple(kvstore_basic_iterator *it, const int expected_i)
+check_current_tuple(splinterdb_kv_iterator *it, const int expected_i)
 {
    int rc = 0;
 
@@ -853,7 +854,7 @@ check_current_tuple(kvstore_basic_iterator *it, const int expected_i)
    const char *val;
    size_t      key_len, val_len;
 
-   kvstore_basic_iter_get_current(it, &key, &key_len, &val, &val_len);
+   splinterdb_kv_iter_get_current(it, &key, &key_len, &val, &val_len);
 
    ASSERT_EQUAL(TEST_INSERT_KEY_LENGTH, key_len);
    ASSERT_EQUAL(TEST_INSERT_VAL_LENGTH, val_len);

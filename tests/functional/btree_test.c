@@ -1504,8 +1504,8 @@ btree_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config     *data_cfg = TYPED_MALLOC(hid, data_cfg);
-   splinter_config *cfg      = TYPED_MALLOC(hid, cfg);
+   data_config  *data_cfg = TYPED_MALLOC(hid, data_cfg);
+   trunk_config *cfg      = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
                         data_cfg,

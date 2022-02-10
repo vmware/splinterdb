@@ -15,7 +15,7 @@
 #include "rc_allocator.h"
 #include "cache.h"
 #include "clockcache.h"
-#include "splinter.h"
+#include "trunk.h"
 #include "test.h"
 
 #include "poison.h"
@@ -283,7 +283,7 @@ log_test(int argc, char *argv[])
    status = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(status);
 
-   splinter_config *cfg = TYPED_MALLOC(hid, cfg);
+   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
    status = test_parse_args(cfg,
                             &data_cfg,

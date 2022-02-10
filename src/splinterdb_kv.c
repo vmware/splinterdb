@@ -3,9 +3,9 @@
 
 /*
  *-----------------------------------------------------------------------------
- * kvstore_basic.c --
+ * splinterdb_kv.c --
  *
- *     Implementation for a simplified key-value store interface.
+ *     Implementation for a simplified key-value store interface to SplinterDB
  *
  *     API deals with keys/values rather than keys/messages.
  *-----------------------------------------------------------------------------
@@ -14,8 +14,8 @@
 #include "platform.h"
 
 #include "config.h"
-#include "splinterdb/kvstore.h"
-#include "splinterdb/kvstore_basic.h"
+#include "splinterdb/splinterdb.h"
+#include "splinterdb/splinterdb_kv.h"
 #include "util.h"
 
 #include "poison.h"
@@ -25,7 +25,7 @@ typedef struct {
    void             *key_comparator_context;
 } kvsb_data_config_context;
 
-struct kvstore_basic {
+struct splinterdb_kv {
    size_t max_app_key_size; // size of keys provided by app
    size_t max_app_val_size; // size of values provided by app
 
@@ -34,7 +34,7 @@ struct kvstore_basic {
 
    kvsb_data_config_context *data_config_context;
 
-   kvstore *kvs;
+   splinterdb *kvs;
 };
 
 // Length-prefix encoding of a variable-sized key
@@ -44,15 +44,15 @@ typedef struct PACKED {
    uint8 data[0]; // offset 1: 1st byte of value, aligned for 64-bit access
 } basic_key_encoding;
 
-static_assert((sizeof(basic_key_encoding) == KVSTORE_BASIC_KEY_HDR_SIZE),
+static_assert((sizeof(basic_key_encoding) == SPLINTERDB_KV_KEY_HDR_SIZE),
               "basic_key_encoding header should have length 1");
 
 static_assert(offsetof(basic_key_encoding, data[0]) == sizeof(uint8),
               "start of data should equal header size");
 
 static_assert((MAX_KEY_SIZE
-               == (KVSTORE_BASIC_MAX_KEY_SIZE + KVSTORE_BASIC_KEY_HDR_SIZE)),
-              "KVSTORE_BASIC_MAX_KEY_SIZE should be updated when "
+               == (SPLINTERDB_KV_MAX_KEY_SIZE + SPLINTERDB_KV_KEY_HDR_SIZE)),
+              "SPLINTERDB_KV_MAX_KEY_SIZE should be updated when "
               "MAX_KEY_SIZE changes");
 
 #define KVSB_PACK_PTR __attribute__((packed, aligned(__alignof__(void *))))
@@ -68,7 +68,7 @@ typedef struct KVSB_PACK_PTR {
    uint8  value[0];   // offset 8: 1st byte of value, aligned for 64-bit access
 } basic_message;
 
-static_assert(sizeof(basic_message) == KVSTORE_BASIC_MSG_HDR_SIZE,
+static_assert(sizeof(basic_message) == SPLINTERDB_KV_MSG_HDR_SIZE,
               "basic_message header should have the same size as a pointer");
 
 static_assert(offsetof(basic_message, value[0]) == sizeof(void *),
@@ -85,8 +85,8 @@ variable_len_compare(const void *context,
    // https://github.com/facebook/rocksdb/blob/2e062b222720d45d5a4f99b8de1824a2aae7b0c1/include/rocksdb/slice.h#L247-L258
    assert(key1 != NULL);
    assert(key2 != NULL);
-   assert(key1_len <= KVSTORE_BASIC_MAX_KEY_SIZE);
-   assert(key2_len <= KVSTORE_BASIC_MAX_KEY_SIZE);
+   assert(key1_len <= SPLINTERDB_KV_MAX_KEY_SIZE);
+   assert(key2_len <= SPLINTERDB_KV_MAX_KEY_SIZE);
    size_t min_len = (key1_len <= key2_len ? key1_len : key2_len);
    int    r       = memcmp(key1, key2, min_len);
    if (r == 0) {
@@ -110,8 +110,8 @@ basic_key_compare(const data_config *cfg,
    basic_key_encoding *key1 = (basic_key_encoding *)key1_raw;
    basic_key_encoding *key2 = (basic_key_encoding *)key2_raw;
 
-   assert(key1->length <= KVSTORE_BASIC_MAX_KEY_SIZE);
-   assert(key2->length <= KVSTORE_BASIC_MAX_KEY_SIZE);
+   assert(key1->length <= SPLINTERDB_KV_MAX_KEY_SIZE);
+   assert(key2->length <= SPLINTERDB_KV_MAX_KEY_SIZE);
 
    kvsb_data_config_context *ctx = (kvsb_data_config_context *)(cfg->context);
    return ctx->key_comparator(ctx->key_comparator_context,
@@ -169,7 +169,7 @@ encode_key(void *key_buffer, const void *key, size_t key_len)
 {
    basic_key_encoding *key_enc = (basic_key_encoding *)key_buffer;
    platform_assert(key_len <= UINT8_MAX
-                   && key_len <= KVSTORE_BASIC_MAX_KEY_SIZE);
+                   && key_len <= SPLINTERDB_KV_MAX_KEY_SIZE);
    key_enc->length = key_len;
    memmove(&(key_enc->data), key, key_len);
 }
@@ -183,7 +183,7 @@ encode_value(void        *msg_buffer,
    basic_message *msg = (basic_message *)msg_buffer;
    msg->type          = type;
    platform_assert(value_len <= UINT32_MAX
-                   && value_len <= KVSTORE_BASIC_MAX_VALUE_SIZE);
+                   && value_len <= SPLINTERDB_KV_MAX_VALUE_SIZE);
    memmove(&(msg->value), value, value_len);
    return sizeof(basic_message) + value_len;
 }
@@ -212,7 +212,7 @@ static data_config _template_basic_data_config = {
    .key_size           = 0,
    .message_size       = 0,
    .min_key            = {0},
-   .max_key            = {0}, // kvstore_init_config sets this, we can ignore
+   .max_key            = {0}, // splinterdb_init_config sets this, we can ignore
    .key_compare        = basic_key_compare,
    .key_hash           = platform_hash32,
    .merge_tuples       = basic_merge_tuples,
@@ -228,31 +228,31 @@ new_basic_data_config(const size_t max_key_size,   // IN
                       data_config *out_cfg         // OUT
 )
 {
-   if (max_key_size > KVSTORE_BASIC_MAX_KEY_SIZE
-       || max_key_size < KVSTORE_BASIC_MIN_KEY_SIZE)
+   if (max_key_size > SPLINTERDB_KV_MAX_KEY_SIZE
+       || max_key_size < SPLINTERDB_KV_MIN_KEY_SIZE)
    {
       platform_error_log("max key size %lu must be <= %lu and >= %lu\n",
                          max_key_size,
-                         (size_t)(KVSTORE_BASIC_MAX_KEY_SIZE),
-                         (size_t)(KVSTORE_BASIC_MIN_KEY_SIZE));
+                         (size_t)(SPLINTERDB_KV_MAX_KEY_SIZE),
+                         (size_t)(SPLINTERDB_KV_MIN_KEY_SIZE));
       return EINVAL;
    }
-   if (max_value_size > KVSTORE_BASIC_MAX_VALUE_SIZE) {
+   if (max_value_size > SPLINTERDB_KV_MAX_VALUE_SIZE) {
       platform_error_log("max value size %lu must be <= %lu\n",
                          max_value_size,
-                         (size_t)(KVSTORE_BASIC_MAX_VALUE_SIZE));
+                         (size_t)(SPLINTERDB_KV_MAX_VALUE_SIZE));
       return EINVAL;
    }
    // compute sizes for data_config, which are larger than the sizes the
    // application sees
-   const size_t key_size = max_key_size + KVSTORE_BASIC_KEY_HDR_SIZE;
-   const size_t msg_size = max_value_size + KVSTORE_BASIC_MSG_HDR_SIZE;
+   const size_t key_size = max_key_size + SPLINTERDB_KV_KEY_HDR_SIZE;
+   const size_t msg_size = max_value_size + SPLINTERDB_KV_MSG_HDR_SIZE;
    *out_cfg              = _template_basic_data_config;
    out_cfg->key_size     = key_size;
    out_cfg->message_size = msg_size;
 
    // set max_key
-   char max_app_key[KVSTORE_BASIC_MAX_KEY_SIZE];
+   char max_app_key[SPLINTERDB_KV_MAX_KEY_SIZE];
    memset(max_app_key, 0xFF, sizeof(max_app_key));
    encode_key(out_cfg->max_key, max_app_key, max_key_size);
 
@@ -270,8 +270,8 @@ new_basic_data_config(const size_t max_key_size,   // IN
  */
 
 int
-kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
-                             kvstore_basic          **kvsb_out, // OUT
+splinterdb_kv_create_or_open(const splinterdb_kv_cfg *cfg,      // IN
+                             splinterdb_kv          **kvsb_out, // OUT
                              bool                     open_existing)
 {
    data_config data_cfg = {0};
@@ -281,12 +281,12 @@ kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
       return res; // new_basic_data_config already logs on error
    }
 
-   kvstore_basic *kvsb = TYPED_ZALLOC(cfg->heap_id, kvsb);
+   splinterdb_kv *kvsb = TYPED_ZALLOC(cfg->heap_id, kvsb);
    if (kvsb == NULL) {
       platform_error_log("zalloc error\n");
       return ENOMEM;
    }
-   *kvsb = (kvstore_basic){
+   *kvsb = (splinterdb_kv){
       .max_app_key_size = cfg->max_key_size,
       .max_app_val_size = cfg->max_value_size,
       .heap_id          = cfg->heap_id,
@@ -300,8 +300,8 @@ kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
    kvsb->data_config_context = ctxt; // store, so we can free it later
    data_cfg.context          = ctxt; // make it usable from the callbacks
 
-   // this can be stack-allocated since kvstore_create does a shallow-copy
-   kvstore_config kvs_config = {
+   // this can be stack-allocated since splinterdb_create does a shallow-copy
+   splinterdb_config kvs_config = {
       .filename    = cfg->filename,
       .cache_size  = cfg->cache_size,
       .disk_size   = cfg->disk_size,
@@ -311,12 +311,12 @@ kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
    };
 
    if (open_existing) {
-      res = kvstore_open(&kvs_config, &(kvsb->kvs));
+      res = splinterdb_open(&kvs_config, &(kvsb->kvs));
    } else {
-      res = kvstore_create(&kvs_config, &(kvsb->kvs));
+      res = splinterdb_create(&kvs_config, &(kvsb->kvs));
    }
    if (res != 0) {
-      platform_error_log("kvstore_create error\n");
+      platform_error_log("splinterdb_create error\n");
       return res;
    }
    *kvsb_out = kvsb;
@@ -324,25 +324,25 @@ kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
 }
 
 int
-kvstore_basic_create(const kvstore_basic_cfg *cfg,     // IN
-                     kvstore_basic          **kvsb_out // OUT
+splinterdb_kv_create(const splinterdb_kv_cfg *cfg,     // IN
+                     splinterdb_kv          **kvsb_out // OUT
 )
 {
-   return kvstore_basic_create_or_open(cfg, kvsb_out, FALSE);
+   return splinterdb_kv_create_or_open(cfg, kvsb_out, FALSE);
 }
 
 int
-kvstore_basic_open(const kvstore_basic_cfg *cfg,     // IN
-                   kvstore_basic          **kvsb_out // OUT
+splinterdb_kv_open(const splinterdb_kv_cfg *cfg,     // IN
+                   splinterdb_kv          **kvsb_out // OUT
 )
 {
-   return kvstore_basic_create_or_open(cfg, kvsb_out, TRUE);
+   return splinterdb_kv_create_or_open(cfg, kvsb_out, TRUE);
 }
 
 void
-kvstore_basic_close(kvstore_basic *kvsb)
+splinterdb_kv_close(splinterdb_kv *kvsb)
 {
-   kvstore_close(kvsb->kvs);
+   splinterdb_close(kvsb->kvs);
    if (kvsb->data_config_context != NULL) {
       platform_free(kvsb->heap_id, kvsb->data_config_context);
    }
@@ -350,26 +350,26 @@ kvstore_basic_close(kvstore_basic *kvsb)
 }
 
 void
-kvstore_basic_register_thread(const kvstore_basic *kvsb)
+splinterdb_kv_register_thread(const splinterdb_kv *kvsb)
 {
-   kvstore_register_thread(kvsb->kvs);
+   splinterdb_register_thread(kvsb->kvs);
 }
 
 void
-kvstore_basic_deregister_thread(const kvstore_basic *kvsb)
+splinterdb_kv_deregister_thread(const splinterdb_kv *kvsb)
 {
-   kvstore_deregister_thread(kvsb->kvs);
+   splinterdb_deregister_thread(kvsb->kvs);
 }
 
 int
-kvstore_basic_insert(const kvstore_basic *kvsb,
+splinterdb_kv_insert(const splinterdb_kv *kvsb,
                      const char          *key,
                      const size_t         key_len,
                      const char          *value,
                      const size_t         val_len)
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log("kvstore_basic_insert: key_len, %lu, exceeds"
+      platform_error_log("splinterdb_kv_insert: key_len, %lu, exceeds"
                          " max_key_size, %lu bytes; key='%.*s'\n",
                          key_len,
                          kvsb->max_app_key_size,
@@ -379,7 +379,7 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
    }
 
    if (val_len > kvsb->max_app_val_size) {
-      platform_error_log("kvstore_basic_insert: val_len, %lu, exceeds"
+      platform_error_log("splinterdb_kv_insert: val_len, %lu, exceeds"
                          " max_value_size, %lu bytes; value='%.*s ...'\n",
                          val_len,
                          kvsb->max_app_val_size,
@@ -393,16 +393,16 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
    encode_key(key_buffer, key, key_len);
    size_t encoded_len =
       encode_value(msg_buffer, MESSAGE_TYPE_INSERT, value, val_len);
-   return kvstore_insert(kvsb->kvs, key_buffer, encoded_len, msg_buffer);
+   return splinterdb_insert(kvsb->kvs, key_buffer, encoded_len, msg_buffer);
 }
 
 int
-kvstore_basic_delete(const kvstore_basic *kvsb,
+splinterdb_kv_delete(const splinterdb_kv *kvsb,
                      const char          *key,
                      const size_t         key_len)
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log("kvstore_basic_delete: key_len, %lu, exceeds"
+      platform_error_log("splinterdb_kv_delete: key_len, %lu, exceeds"
                          " max_key_size, %lu bytes; key='%.*s'\n",
                          key_len,
                          kvsb->max_app_key_size,
@@ -415,15 +415,15 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
    char msg_buffer[MAX_MESSAGE_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
    size_t encoded_len = encode_value(msg_buffer, MESSAGE_TYPE_DELETE, NULL, 0);
-   return kvstore_insert(kvsb->kvs, key_buffer, encoded_len, msg_buffer);
+   return splinterdb_insert(kvsb->kvs, key_buffer, encoded_len, msg_buffer);
 }
 
 /*
  *-----------------------------------------------------------------------------
- * kvstore_basic_lookup() - Lookup a key, returning its value.
+ * splinterdb_kv_lookup() - Lookup a key, returning its value.
  *
  * Parameters:
- *  kvsb        - Ptr to KVStore handle
+ *  kvsb        - Ptr to splinterdb_kv handle
  *  key         - Ptr to key to lookup
  *  key_len     - Key's length in bytes
  *  val         - Output buffer to return value, if key is found
@@ -438,7 +438,7 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
  *-----------------------------------------------------------------------------
  */
 int
-kvstore_basic_lookup(const kvstore_basic *kvsb,
+splinterdb_kv_lookup(const splinterdb_kv *kvsb,
                      const char          *key,           // IN
                      const size_t         key_len,       // IN
                      char                *val,           // OUT
@@ -449,7 +449,7 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
 )
 {
    if (key_len > kvsb->max_app_key_size) {
-      platform_error_log("kvstore_basic_lookup: key_len, %lu, exceeds"
+      platform_error_log("splinterdb_kv_lookup: key_len, %lu, exceeds"
                          " max_key_size, %lu bytes; key='%.*s'\n",
                          key_len,
                          kvsb->max_app_key_size,
@@ -459,27 +459,27 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   char                  msg_buffer[val_max_len + sizeof(basic_message)];
-   kvstore_lookup_result result;
-   kvstore_lookup_result_init(
+   char                     msg_buffer[val_max_len + sizeof(basic_message)];
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(
       kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);
 
-   // kvstore_basic.h aims to be public API surface, and so this function
+   // splinterdb_kv.h aims to be public API surface, and so this function
    // exposes the _Bool type rather than  typedef int32 bool
    // which is used elsewhere in the codebase
    // So, we pass in int32 found here, and convert to _Bool below
-   int rc = kvstore_lookup(kvsb->kvs, key_buffer, &result);
+   int rc = splinterdb_lookup(kvsb->kvs, key_buffer, &result);
    if (rc) {
-      kvstore_lookup_result_deinit(&result);
+      splinterdb_lookup_result_deinit(&result);
       return rc;
    }
-   if (!kvstore_lookup_result_found(&result)) {
-      kvstore_lookup_result_deinit(&result);
+   if (!splinterdb_lookup_result_found(&result)) {
+      splinterdb_lookup_result_deinit(&result);
       *found = 0;
       return 0;
    }
-   if (kvstore_lookup_result_size(&result) < sizeof(basic_message)) {
-      kvstore_lookup_result_deinit(&result);
+   if (splinterdb_lookup_result_size(&result) < sizeof(basic_message)) {
+      splinterdb_lookup_result_deinit(&result);
       return -2; // FIXME: better error code?
    }
 
@@ -487,27 +487,27 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
 
    // result is the true length of the value associated with key.
    size_t decoded_len =
-      kvstore_lookup_result_size(&result) - sizeof(basic_message);
+      splinterdb_lookup_result_size(&result) - sizeof(basic_message);
 
    *val_bytes     = decoded_len < val_max_len ? decoded_len : val_max_len;
    *val_truncated = val_max_len < decoded_len;
 
-   basic_message *msg = kvstore_lookup_result_data(&result);
+   basic_message *msg = splinterdb_lookup_result_data(&result);
    memmove(val, msg->value, *val_bytes);
 
-   kvstore_lookup_result_deinit(&result);
+   splinterdb_lookup_result_deinit(&result);
    return 0;
 }
 
-struct kvstore_basic_iterator {
-   kvstore_iterator *super;
+struct splinterdb_kv_iterator {
+   splinterdb_iterator *super;
 
    void *heap_id;
 };
 
 /*
  *-----------------------------------------------------------------------------
- * Initialize a KVStore iterator.
+ * Initialize a SplinterDB_KV iterator.
  *
  * Returns:
  *  0 - For successful initialization of the iterator.
@@ -516,13 +516,13 @@ struct kvstore_basic_iterator {
  *-----------------------------------------------------------------------------
  */
 int
-kvstore_basic_iter_init(const kvstore_basic     *kvsb,         // IN
-                        kvstore_basic_iterator **iter,         // OUT
+splinterdb_kv_iter_init(const splinterdb_kv     *kvsb,         // IN
+                        splinterdb_kv_iterator **iter,         // OUT
                         const char              *start_key,    // IN
                         const size_t             start_key_len // IN
 )
 {
-   kvstore_basic_iterator *it = TYPED_ZALLOC(kvsb->heap_id, it);
+   splinterdb_kv_iterator *it = TYPED_ZALLOC(kvsb->heap_id, it);
    if (it == NULL) {
       platform_error_log("zalloc error\n");
       return ENOMEM;
@@ -534,7 +534,7 @@ kvstore_basic_iter_init(const kvstore_basic     *kvsb,         // IN
       encode_key(start_key_buffer, start_key, start_key_len);
    }
 
-   int rc = kvstore_iterator_init(
+   int rc = splinterdb_iterator_init(
       kvsb->kvs, &(it->super), start_key ? start_key_buffer : NULL);
    if (rc != 0) {
       platform_error_log("iterator init: %d\n", rc);
@@ -547,10 +547,10 @@ kvstore_basic_iter_init(const kvstore_basic     *kvsb,         // IN
 }
 
 void
-kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp)
+splinterdb_kv_iter_deinit(splinterdb_kv_iterator **iterpp)
 {
-   kvstore_basic_iterator *iter = *iterpp;
-   kvstore_iterator_deinit(iter->super);
+   splinterdb_kv_iterator *iter = *iterpp;
+   splinterdb_iterator_deinit(iter->super);
    platform_free(iter->heap_id, iter);
    *iterpp = NULL;
 }
@@ -561,25 +561,25 @@ kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp)
  * Returns: Boolean
  */
 _Bool
-kvstore_basic_iter_valid(kvstore_basic_iterator *iter)
+splinterdb_kv_iter_valid(splinterdb_kv_iterator *iter)
 {
-   return kvstore_iterator_valid(iter->super);
+   return splinterdb_iterator_valid(iter->super);
 }
 
 void
-kvstore_basic_iter_next(kvstore_basic_iterator *iter)
+splinterdb_kv_iter_next(splinterdb_kv_iterator *iter)
 {
-   kvstore_iterator_next(iter->super);
+   splinterdb_iterator_next(iter->super);
 }
 
 int
-kvstore_basic_iter_status(const kvstore_basic_iterator *iter)
+splinterdb_kv_iter_status(const splinterdb_kv_iterator *iter)
 {
-   return kvstore_iterator_status(iter->super);
+   return splinterdb_iterator_status(iter->super);
 }
 
 void
-kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
+splinterdb_kv_iter_get_current(splinterdb_kv_iterator *iter,    // IN
                                const char            **key,     // OUT
                                size_t                 *key_len, // OUT
                                const char            **value,   // OUT
@@ -589,7 +589,7 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
    const char *msg_buffer;
    const char *key_buffer;
    size_t      msg_len;
-   kvstore_iterator_get_current(
+   splinterdb_iterator_get_current(
       iter->super, &key_buffer, &msg_len, &msg_buffer);
    platform_assert(sizeof(basic_message) <= msg_len);
 
@@ -602,7 +602,7 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
 }
 
 const char *
-kvstore_basic_get_version()
+splinterdb_kv_get_version()
 {
    return BUILD_VERSION;
 }
