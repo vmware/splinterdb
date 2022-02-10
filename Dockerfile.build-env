@@ -7,14 +7,14 @@
 # This contains the build-time dependencies for SplinterDB.
 #
 # To build this image locally:
-# $ docker build -t build-env < Dockerfile.build-env
+# $ docker build -t build-env - < Dockerfile.build-env
 # To then build SplinterDB itself from souce:
 # $ docker run -it --rm --mount type=bind,source="$PWD",target=/splinterdb build-env /bin/bash
 #
 # This file is maintained separately from the other Dockerfiles
 # to reduce build times when the SplinterDB source changes
 
-ARG base_image=library/ubuntu:20.04
+ARG base_image=library/ubuntu:22.04
 FROM $base_image
 RUN /bin/bash -c ' \
 set -euo pipefail; \
