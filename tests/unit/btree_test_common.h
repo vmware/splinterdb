@@ -15,7 +15,7 @@
 
 // Function Prototypes
 int
-init_data_config_from_master_config(data_config *  data_cfg,
+init_data_config_from_master_config(data_config   *data_cfg,
                                     master_config *master_cfg);
 
 int
@@ -24,15 +24,15 @@ init_io_config_from_master_config(io_config *io_cfg, master_config *master_cfg);
 
 int
 init_rc_allocator_config_from_master_config(rc_allocator_config *allocator_cfg,
-                                            master_config *      master_cfg);
+                                            master_config       *master_cfg);
 
 int
 init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
-                                          master_config *    master_cfg);
+                                          master_config     *master_cfg);
 
 int
-init_btree_config_from_master_config(btree_config * dbtree_cfg,
+init_btree_config_from_master_config(btree_config  *dbtree_cfg,
                                      master_config *master_cfg,
-                                     data_config *  data_cfg);
+                                     data_config   *data_cfg);
 
 #endif /* __BTREE_TEST_COMMON_H__ */

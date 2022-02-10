@@ -68,13 +68,13 @@ writable_buffer_data(writable_buffer *wb)
  *----------------------------------------------------------------------
  */
 static inline bool
-try_string_to_uint64_limit(const char *nptr,            // IN
+try_string_to_uint64_limit(const char  *nptr,           // IN
                            const uint64 negative_limit, // IN
                            const uint64 positive_limit, // IN
-                           uint64 *n)                   // OUT
+                           uint64      *n)                   // OUT
 {
    unsigned char c;
-   const char *s = nptr;
+   const char   *s = nptr;
 
    // Skip leading spaces
    do {
@@ -88,7 +88,7 @@ try_string_to_uint64_limit(const char *nptr,            // IN
          goto negative_disallowed;
       }
       negative = TRUE;
-      c = *s++;
+      c        = *s++;
    } else if (c == '+') {
       c = *s++;
    }
@@ -121,10 +121,10 @@ try_string_to_uint64_limit(const char *nptr,            // IN
     * past cutlim, we will overflow.
     */
    const uint64 cutoff = limit / (uint64)base;
-   const int cutlim = limit % (uint64)base;
+   const int    cutlim = limit % (uint64)base;
 
    uint64 value;
-   bool converted_any = FALSE;
+   bool   converted_any = FALSE;
    for (value = 0; c != '\0'; c = *s++) {
       if (isspace(c)) {
          break;
@@ -212,28 +212,22 @@ multiple_strings:
  */
 bool
 try_string_to_uint64(const char *nptr, // IN
-                     uint64 *n)        // OUT
+                     uint64     *n)        // OUT
 {
    const uint64 negative_limit = 0;
    const uint64 positive_limit = UINT64_MAX;
-   return try_string_to_uint64_limit(nptr,
-                                     negative_limit,
-                                     positive_limit,
-                                     n);
+   return try_string_to_uint64_limit(nptr, negative_limit, positive_limit, n);
 }
 
 bool
 try_string_to_int64(const char *nptr, // IN
-                    int64 *n)         // OUT
+                    int64      *n)         // OUT
 {
-   _Static_assert(((-INT64_MAX)-1) == INT64_MIN, "algorithm mistake");
+   _Static_assert(((-INT64_MAX) - 1) == INT64_MIN, "algorithm mistake");
    const uint64 negative_limit = ((uint64)INT64_MAX) + 1;
    const uint64 positive_limit = (uint64)INT64_MAX;
-   uint64 u64;
-   if (!try_string_to_uint64_limit(nptr,
-                                   negative_limit,
-                                   positive_limit,
-                                   &u64))
+   uint64       u64;
+   if (!try_string_to_uint64_limit(nptr, negative_limit, positive_limit, &u64))
    {
       return FALSE;
    }
@@ -243,12 +237,10 @@ try_string_to_int64(const char *nptr, // IN
 
 bool
 try_string_to_uint32(const char *nptr, // IN
-                     uint32 *n)        // OUT
+                     uint32     *n)        // OUT
 {
    uint64 tmp;
-   if (!try_string_to_uint64(nptr, &tmp)
-       || tmp > UINT32_MAX)
-   {
+   if (!try_string_to_uint64(nptr, &tmp) || tmp > UINT32_MAX) {
       return FALSE;
    }
    *n = tmp;
@@ -257,12 +249,10 @@ try_string_to_uint32(const char *nptr, // IN
 
 bool
 try_string_to_uint16(const char *nptr, // IN
-                     uint16 *n)        // OUT
+                     uint16     *n)        // OUT
 {
    uint64 tmp;
-   if (!try_string_to_uint64(nptr, &tmp)
-       || tmp > UINT16_MAX)
-   {
+   if (!try_string_to_uint64(nptr, &tmp) || tmp > UINT16_MAX) {
       return FALSE;
    }
    *n = tmp;
@@ -271,12 +261,10 @@ try_string_to_uint16(const char *nptr, // IN
 
 bool
 try_string_to_uint8(const char *nptr, // IN
-                    uint8 *n)         // OUT
+                    uint8      *n)         // OUT
 {
    uint64 tmp;
-   if (!try_string_to_uint64(nptr, &tmp)
-       || tmp > UINT8_MAX)
-   {
+   if (!try_string_to_uint64(nptr, &tmp) || tmp > UINT8_MAX) {
       return FALSE;
    }
    *n = tmp;
@@ -285,13 +273,10 @@ try_string_to_uint8(const char *nptr, // IN
 
 bool
 try_string_to_int32(const char *nptr, // IN
-                    int32 *n)         // OUT
+                    int32      *n)         // OUT
 {
    int64 tmp;
-   if (!try_string_to_int64(nptr, &tmp)
-       || tmp > INT32_MAX
-       || tmp < INT32_MIN)
-   {
+   if (!try_string_to_int64(nptr, &tmp) || tmp > INT32_MAX || tmp < INT32_MIN) {
       return FALSE;
    }
    *n = tmp;
@@ -300,13 +285,10 @@ try_string_to_int32(const char *nptr, // IN
 
 bool
 try_string_to_int16(const char *nptr, // IN
-                    int16 *n)         // OUT
+                    int16      *n)         // OUT
 {
    int64 tmp;
-   if (!try_string_to_int64(nptr, &tmp)
-       || tmp > INT16_MAX
-       || tmp < INT16_MIN)
-   {
+   if (!try_string_to_int64(nptr, &tmp) || tmp > INT16_MAX || tmp < INT16_MIN) {
       return FALSE;
    }
    *n = tmp;
@@ -315,13 +297,10 @@ try_string_to_int16(const char *nptr, // IN
 
 bool
 try_string_to_int8(const char *nptr, // IN
-                   int8 *n)          // OUT
+                   int8       *n)          // OUT
 {
    int64 tmp;
-   if (!try_string_to_int64(nptr, &tmp)
-       || tmp > INT8_MAX
-       || tmp < INT8_MIN)
-   {
+   if (!try_string_to_int64(nptr, &tmp) || tmp > INT8_MAX || tmp < INT8_MIN) {
       return FALSE;
    }
    *n = tmp;
@@ -346,9 +325,9 @@ static const char table[16] = {'0',
                                'f'};
 
 void
-debug_hex_encode(char *       dst,
+debug_hex_encode(char        *dst,
                  const size_t dst_len,
-                 const char * data,
+                 const char  *data,
                  const size_t data_len)
 {
    if (dst_len == 0) {

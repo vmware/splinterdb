@@ -16,24 +16,15 @@
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(module_name)
-{
-};
+CTEST_DATA(module_name){};
 
 // Optional setup function for suite, called before every test in suite
-CTEST_SETUP(module_name)
-{
-}
+CTEST_SETUP(module_name) {}
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(module_name)
-{
-}
+CTEST_TEARDOWN(module_name) {}
 
 /*
  * Basic test case.
  */
-CTEST2(module_name, test_basic_flow)
-{
-}
-
+CTEST2(module_name, test_basic_flow) {}

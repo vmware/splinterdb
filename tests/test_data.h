@@ -30,9 +30,9 @@ test_data_set_delete_flag(void *raw_data)
 }
 
 static inline void
-test_data_set_insert(void * raw_data,
+test_data_set_insert(void  *raw_data,
                      int8   ref_count,
-                     char * val,
+                     char  *val,
                      uint64 data_size)
 {
    memset(raw_data, 0, data_size);

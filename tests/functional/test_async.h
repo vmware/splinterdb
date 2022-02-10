@@ -22,12 +22,12 @@
 // A single async context
 typedef struct {
    splinter_async_ctxt ctxt;
-   pcq *               ready_q;
+   pcq                *ready_q;
    union {
       int8   refcount;   // Used by functionality test
       uint64 lookup_num; // Used by rest
    };
-   char  key[MAX_KEY_SIZE];
+   char            key[MAX_KEY_SIZE];
    writable_buffer data;
 } test_async_ctxt;
 
@@ -37,14 +37,14 @@ typedef struct {
  */
 typedef struct {
    uint32          max_async_inflight;
-   pcq *           ready_q;
-   pcq *           avail_q;
+   pcq            *ready_q;
+   pcq            *avail_q;
    test_async_ctxt ctxt[];
 } test_async_lookup;
 
 typedef void (*async_ctxt_process_cb)(splinter_handle *spl,
                                       test_async_ctxt *ctxt,
-                                      void *           arg);
+                                      void            *arg);
 
 void
 async_ctxt_init(platform_heap_id    hid,
@@ -58,17 +58,17 @@ async_ctxt_get(test_async_lookup *async_lookup);
 void
 async_ctxt_unget(test_async_lookup *async_lookup, test_async_ctxt *ctxt);
 void
-async_ctxt_process_one(splinter_handle *     spl,
-                       test_async_lookup *   async_lookup,
-                       test_async_ctxt *     ctxt,
-                       timestamp *           latency_max,
+async_ctxt_process_one(splinter_handle      *spl,
+                       test_async_lookup    *async_lookup,
+                       test_async_ctxt      *ctxt,
+                       timestamp            *latency_max,
                        async_ctxt_process_cb process_cb,
-                       void *                process_arg);
+                       void                 *process_arg);
 bool
-async_ctxt_process_ready(splinter_handle *     spl,
-                         test_async_lookup *   async_lookup,
-                         timestamp *           latency_max,
+async_ctxt_process_ready(splinter_handle      *spl,
+                         test_async_lookup    *async_lookup,
+                         timestamp            *latency_max,
                          async_ctxt_process_cb process_cb,
-                         void *                process_arg);
+                         void                 *process_arg);
 
 #endif // __TEST_ASYNC_H_

@@ -26,7 +26,7 @@ destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
 
 static void
 verify_tuple(splinter_handle *spl,
-             char *           keybuf,
+             char            *keybuf,
              slice            message,
              int8             refcount,
              platform_status *result)
@@ -106,10 +106,10 @@ verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
  *-----------------------------------------------------------------------------
  */
 platform_status
-verify_against_shadow(splinter_handle *           spl,
-                      char *                      keybuf,
+verify_against_shadow(splinter_handle            *spl,
+                      char                       *keybuf,
                       test_splinter_shadow_array *sharr,
-                      test_async_lookup *         async_lookup)
+                      test_async_lookup          *async_lookup)
 {
    uint64 key_size  = spl->cfg.data_cfg->key_size;
    uint64 data_size = spl->cfg.data_cfg->message_size;
@@ -170,10 +170,10 @@ verify_against_shadow(splinter_handle *           spl,
  * range in the shadow.
  */
 platform_status
-verify_range_against_shadow(splinter_handle *           spl,
+verify_range_against_shadow(splinter_handle            *spl,
                             test_splinter_shadow_array *sharr,
-                            char *                      start_key,
-                            char *                      end_key,
+                            char                       *start_key,
+                            char                       *end_key,
                             platform_heap_id            hid,
                             uint64                      start_index,
                             uint64                      end_index)
@@ -302,15 +302,15 @@ out:
 #define VERIFY_RANGE_ENDPOINT_LESS  (6)
 
 static void *
-choose_key(data_config *               cfg,         // IN
+choose_key(data_config                *cfg,         // IN
            test_splinter_shadow_array *sharr,       // IN
-           random_state *              prg,         // IN/OUT
+           random_state               *prg,         // IN/OUT
            int                         type,        // IN
            bool                        is_start,    // IN
-           void *                      startkey,    // IN
+           void                       *startkey,    // IN
            int                         start_index, // IN
-           int *                       index,       // OUT
-           void *                      keybuf)                            // OUT
+           int                        *index,       // OUT
+           void                       *keybuf)                            // OUT
 {
    uint64 num_keys = sharr->nkeys;
 
@@ -357,8 +357,8 @@ choose_key(data_config *               cfg,         // IN
 }
 
 platform_status
-verify_range_against_shadow_all_types(splinter_handle *           spl,
-                                      random_state *              prg,
+verify_range_against_shadow_all_types(splinter_handle            *spl,
+                                      random_state               *prg,
                                       test_splinter_shadow_array *sharr,
                                       platform_heap_id            hid,
                                       bool                        do_it)
@@ -368,8 +368,8 @@ verify_range_against_shadow_all_types(splinter_handle *           spl,
    platform_status rc, result = STATUS_OK;
    char            startkey_buf[MAX_KEY_SIZE];
    char            endkey_buf[MAX_KEY_SIZE];
-   char *          start_key;
-   char *          end_key;
+   char           *start_key;
+   char           *end_key;
    int             start_index;
    int             end_index;
 
@@ -445,14 +445,14 @@ verify_range_against_shadow_all_types(splinter_handle *           spl,
 }
 
 static platform_status
-validate_tree_against_shadow(splinter_handle *          spl,
-                             random_state *             prg,
-                             char *                     keybuf,
+validate_tree_against_shadow(splinter_handle           *spl,
+                             random_state              *prg,
+                             char                      *keybuf,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_handle       hh,
                              platform_heap_id           hid,
                              bool                       do_it,
-                             test_async_lookup *        async_lookup)
+                             test_async_lookup         *async_lookup)
 {
    test_splinter_shadow_array dry_run_sharr = {
       .nkeys = 1, .keys = (uint64[]){0}, .ref_counts = (int8[]){0}};
@@ -513,11 +513,11 @@ cleanup:
  *-----------------------------------------------------------------------------
  */
 static platform_status
-insert_random_messages(splinter_handle *          spl,
+insert_random_messages(splinter_handle           *spl,
                        test_splinter_shadow_tree *shadow,
-                       random_state *             prg,
-                       char *                     keybuf,
-                       data_handle *              msg,
+                       random_state              *prg,
+                       char                      *keybuf,
+                       data_handle               *msg,
                        int                        num_messages,
                        message_type               op,
                        uint64                     minkey,
@@ -609,14 +609,14 @@ cmp_ptrs(const void *a, const void *b)
  *-----------------------------------------------------------------------------
  */
 platform_status
-test_functionality(allocator *          al,
-                   io_handle *          io,
-                   cache *              cc[],
-                   splinter_config *    cfg,
+test_functionality(allocator           *al,
+                   io_handle           *io,
+                   cache               *cc[],
+                   splinter_config     *cfg,
                    uint64               seed,
                    uint64               num_inserts,
                    uint64               correctness_check_frequency,
-                   task_system *        state,
+                   task_system         *state,
                    platform_heap_handle hh,
                    platform_heap_id     hid,
                    uint8                num_tables,
@@ -649,8 +649,8 @@ test_functionality(allocator *          al,
 
    random_state    prg;
    platform_status status;
-   char *          keybuf = NULL;
-   data_handle *   msgbuf = NULL;
+   char           *keybuf = NULL;
+   data_handle    *msgbuf = NULL;
 
    random_init(&prg, seed, 0);
 
@@ -676,7 +676,7 @@ test_functionality(allocator *          al,
 
    // Validate each tree against an empty shadow.
    for (uint8 idx = 0; idx < num_tables; idx++) {
-      splinter_handle *          spl    = spl_tables[idx];
+      splinter_handle           *spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
       status                            = validate_tree_against_shadow(
          spl, &prg, keybuf, shadow, hh, hid, TRUE, async_lookup);
@@ -752,7 +752,7 @@ test_functionality(allocator *          al,
       // Run the main test loop for each table.
       for (uint8 idx = 0; idx < num_tables; idx++) {
          // cache *cache_to_use = num_caches > 1 ? cc[idx] : *cc;
-         splinter_handle *          spl    = spl_tables[idx];
+         splinter_handle           *spl    = spl_tables[idx];
          test_splinter_shadow_tree *shadow = shadows[idx];
          // allocator_root_id spl_id = splinters[idx];
 
@@ -828,7 +828,7 @@ test_functionality(allocator *          al,
 
    // Validate each tree against the shadow one last time.
    for (uint8 idx = 0; idx < num_tables; idx++) {
-      splinter_handle *          spl    = spl_tables[idx];
+      splinter_handle           *spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
       keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, spl->cfg.data_cfg->key_size);
       platform_assert(keybuf);

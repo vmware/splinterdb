@@ -21,24 +21,24 @@
 #include "poison.h"
 
 int
-test_log_crash(clockcache *         cc,
-               clockcache_config *  cache_cfg,
-               io_handle *          io,
-               allocator *          al,
-               shard_log_config *   cfg,
-               shard_log *          log,
+test_log_crash(clockcache          *cc,
+               clockcache_config   *cache_cfg,
+               io_handle           *io,
+               allocator           *al,
+               shard_log_config    *cfg,
+               shard_log           *log,
                uint64               num_entries,
-               task_system *        ts,
+               task_system         *ts,
                platform_heap_handle hh,
                platform_heap_id     hid,
                bool                 crash)
 
 {
    platform_status rc;
-   log_handle *    logh;
+   log_handle     *logh;
    uint64          i;
    char            keybuffer[MAX_KEY_SIZE];
-   char *          databuffer =
+   char           *databuffer =
       TYPED_ARRAY_MALLOC(hid, databuffer, cfg->data_cfg->message_size);
    slice              returned_key;
    slice              returned_message;
@@ -46,7 +46,7 @@ test_log_crash(clockcache *         cc,
    uint64             addr;
    uint64             magic;
    shard_log_iterator itor;
-   iterator *         itorh = (iterator *)&itor;
+   iterator          *itorh = (iterator *)&itor;
    char               key_str[128];
    char               data_str[128];
    bool               at_end;
@@ -131,7 +131,7 @@ test_log_crash(clockcache *         cc,
 }
 
 typedef struct test_log_thread_params {
-   shard_log *     log;
+   shard_log      *log;
    platform_thread thread;
    int             thread_id;
    uint64          num_entries;
@@ -143,7 +143,7 @@ test_log_thread(void *arg)
    platform_heap_id        hid    = platform_get_heap_id();
    test_log_thread_params *params = (test_log_thread_params *)arg;
 
-   shard_log * log         = params->log;
+   shard_log  *log         = params->log;
    log_handle *logh        = (log_handle *)log;
    int         thread_id   = params->thread_id;
    uint64      num_entries = params->num_entries;
@@ -170,12 +170,12 @@ test_log_thread(void *arg)
 }
 
 platform_status
-test_log_perf(cache *           cc,
+test_log_perf(cache            *cc,
               shard_log_config *cfg,
-              shard_log *       log,
+              shard_log        *log,
               uint64            num_entries,
               uint64            num_threads,
-              task_system *     ts,
+              task_system      *ts,
               platform_heap_id  hid)
 
 {
@@ -251,12 +251,12 @@ log_test(int argc, char *argv[])
    rc_allocator        al;
    platform_status     ret;
    int                 config_argc;
-   char **             config_argv;
+   char              **config_argv;
    bool                run_perf_test;
    bool                run_crash_test;
    int                 rc;
    uint64              seed;
-   task_system *       ts;
+   task_system        *ts;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test  = TRUE;

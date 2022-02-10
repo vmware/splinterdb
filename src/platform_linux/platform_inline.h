@@ -6,7 +6,7 @@
 
 #include <laio.h>
 #include <string.h> // for memcpy, strerror
-#include <time.h> // for nanosecond sleep api.
+#include <time.h>   // for nanosecond sleep api.
 
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen)
@@ -15,26 +15,27 @@ platform_strnlen(const char *s, size_t maxlen)
 }
 
 static inline uint32
-platform_popcount(uint32 x) { return __builtin_popcount(x); }
+platform_popcount(uint32 x)
+{
+   return __builtin_popcount(x);
+}
 
 #define platform_checksum32  XXH32
 #define platform_checksum64  XXH64
 #define platform_checksum128 XXH128
 
-#define platform_hash32      XXH32
-#define platform_hash64      XXH64
-#define platform_hash128     XXH128
+#define platform_hash32  XXH32
+#define platform_hash64  XXH64
+#define platform_hash128 XXH128
 
 static inline bool
-platform_checksum_is_equal(checksum128 left,
-                           checksum128 right)
+platform_checksum_is_equal(checksum128 left, checksum128 right)
 {
    return XXH128_isEqual(left, right);
 }
 
 static inline void
-platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
-                        void *ptr)
+platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id), void *ptr)
 {
    free(ptr);
 }
@@ -56,8 +57,7 @@ platform_timestamp_elapsed(timestamp tv)
 }
 
 static inline timestamp
-platform_timestamp_diff(timestamp start,
-                        timestamp end)
+platform_timestamp_diff(timestamp start, timestamp end)
 {
    return end - start;
 }
@@ -93,40 +93,39 @@ platform_sleep(uint64 ns)
       }
    } else {
       struct timespec res;
-      res.tv_sec = ns / SEC_TO_NSEC(1);
+      res.tv_sec  = ns / SEC_TO_NSEC(1);
       res.tv_nsec = (ns - (res.tv_sec * SEC_TO_NSEC(1)));
       clock_nanosleep(CLOCK_MONOTONIC, 0, &res, NULL);
    }
-
 }
 
 static inline void
 platform_semaphore_destroy(platform_semaphore *sema)
 {
-   __attribute__ ((unused)) int err = sem_destroy(sema);
+   __attribute__((unused)) int err = sem_destroy(sema);
    debug_assert(!err);
 }
 
 static inline void
 platform_semaphore_init(platform_semaphore *sema,
-                        int value,
-                        platform_heap_id UNUSED_PARAM(heap_id))
+                        int                 value,
+                        platform_heap_id    UNUSED_PARAM(heap_id))
 {
-   __attribute__ ((unused)) int err = sem_init(sema, 0, value);
+   __attribute__((unused)) int err = sem_init(sema, 0, value);
    debug_assert(!err);
 }
 
 static inline void
 platform_semaphore_post(platform_semaphore *sema)
 {
-   __attribute__ ((unused)) int err = sem_post(sema);
+   __attribute__((unused)) int err = sem_post(sema);
    debug_assert(!err);
 }
 
 static inline void
 platform_semaphore_wait(platform_semaphore *sema)
 {
-   __attribute__ ((unused)) int err = sem_wait(sema);
+   __attribute__((unused)) int err = sem_wait(sema);
    debug_assert(!err);
 }
 
@@ -204,19 +203,19 @@ platform_set_tid(threadid t)
    xxxtid = t;
 }
 
-static inline void platform_yield() {}
+static inline void
+platform_yield()
+{}
 
 // platform predicates
 static inline bool
-STATUS_IS_EQ(const platform_status s1,
-             const platform_status s2)
+STATUS_IS_EQ(const platform_status s1, const platform_status s2)
 {
    return s1.r == s2.r;
 }
 
 static inline bool
-STATUS_IS_NE(const platform_status s1,
-             const platform_status s2)
+STATUS_IS_NE(const platform_status s1, const platform_status s2)
 {
    return s1.r != s2.r;
 }
@@ -229,28 +228,28 @@ platform_status_to_string(const platform_status status)
 
 /* Default output file handles for different logging interfaces */
 #define PLATFORM_DEFAULT_LOG_HANDLE stdout
-#define PLATFORM_ERR_LOG_HANDLE stderr
-#define PLATFORM_CR "\r"
+#define PLATFORM_ERR_LOG_HANDLE     stderr
+#define PLATFORM_CR                 "\r"
 
-#define platform_open_log_stream()              \
-   char *bp;                                    \
-   size_t size;                                 \
-   platform_stream_handle stream;               \
+#define platform_open_log_stream()                                             \
+   char                  *bp;                                                  \
+   size_t                 size;                                                \
+   platform_stream_handle stream;                                              \
    stream = open_memstream(&bp, &size);
 
-#define platform_close_log_stream(h)            \
-   fclose(stream);                              \
-   fputs(bp, h);                                \
-   fflush(h);                                   \
+#define platform_close_log_stream(h)                                           \
+   fclose(stream);                                                             \
+   fputs(bp, h);                                                               \
+   fflush(h);                                                                  \
    platform_free(NULL, bp);
 
 /*
  * platform_log_stream should be called between platform_open_log_stream and
  * platform_close_log_stream.
  */
-#define platform_log_stream(...)                \
-   do {                                         \
-      fprintf(stream, __VA_ARGS__);             \
+#define platform_log_stream(...)                                               \
+   do {                                                                        \
+      fprintf(stream, __VA_ARGS__);                                            \
    } while (0)
 
 #define platform_log(...)                                                      \
@@ -259,15 +258,15 @@ platform_status_to_string(const platform_status status)
       fflush(Platform_stdout_fh);                                              \
    } while (0)
 
-#define platform_throttled_log(sec, ...)        \
-   do {                                         \
-      platform_log(__VA_ARGS__);                \
+#define platform_throttled_log(sec, ...)                                       \
+   do {                                                                        \
+      platform_log(__VA_ARGS__);                                               \
    } while (0)
 
-#define platform_default_log(...)               \
-   do {                                         \
-      fprintf(stdout, __VA_ARGS__);             \
-      fflush(stdout);                           \
+#define platform_default_log(...)                                              \
+   do {                                                                        \
+      fprintf(stdout, __VA_ARGS__);                                            \
+      fflush(stdout);                                                          \
    } while (0)
 
 
@@ -277,34 +276,34 @@ platform_status_to_string(const platform_status status)
       fflush(Platform_stderr_fh);                                              \
    } while (0)
 
-#define platform_throttled_error_log(sec, ...)  \
-   do {                                         \
-      platform_error_log(__VA_ARGS__);          \
+#define platform_throttled_error_log(sec, ...)                                 \
+   do {                                                                        \
+      platform_error_log(__VA_ARGS__);                                         \
    } while (0)
 
-#define platform_handle_log(lh, ...)            \
-   do {                                         \
-      fprintf(lh, __VA_ARGS__);                 \
-      fflush(lh);                               \
+#define platform_handle_log(lh, ...)                                           \
+   do {                                                                        \
+      fprintf(lh, __VA_ARGS__);                                                \
+      fflush(lh);                                                              \
    } while (0)
 
 
-#define platform_open_log_file(path, mode) ({   \
-   platform_log_handle lh = fopen(path, mode);  \
-   platform_assert(lh);                         \
-   lh;                                          \
-})
+#define platform_open_log_file(path, mode)                                     \
+   ({                                                                          \
+      platform_log_handle lh = fopen(path, mode);                              \
+      platform_assert(lh);                                                     \
+      lh;                                                                      \
+   })
 
-#define platform_close_log_file(path)           \
-   do {                                         \
-      fclose(path);                             \
+#define platform_close_log_file(path)                                          \
+   do {                                                                        \
+      fclose(path);                                                            \
    } while (0)
 
-#define platform_thread_cleanup_push(func, arg) \
+#define platform_thread_cleanup_push(func, arg)                                \
    pthread_cleanup_push((func), (arg))
 
-#define platform_thread_cleanup_pop(exec) \
-   pthread_cleanup_pop((exec))
+#define platform_thread_cleanup_pop(exec) pthread_cleanup_pop((exec))
 
 static inline void
 platform_histo_insert(platform_histo_handle histo, int64 datum)
@@ -343,7 +342,8 @@ platform_histo_merge_in(platform_histo_handle dest_histo,
 
    platform_assert(dest_histo->num_buckets == src_histo->num_buckets);
    for (i = 0; i < dest_histo->num_buckets - 1; i++) {
-      platform_assert(dest_histo->bucket_limits[i] == src_histo->bucket_limits[i]);
+      platform_assert(dest_histo->bucket_limits[i]
+                      == src_histo->bucket_limits[i]);
    }
    if (src_histo->min < dest_histo->min || dest_histo->num == 0) {
       dest_histo->min = src_histo->min;
@@ -375,8 +375,8 @@ platform_get_module_id()
 
 static inline void *
 platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
-                        const size_t alignment, // IN
-                        const size_t size)      // IN
+                        const size_t           alignment, // IN
+                        const size_t           size)                // IN
 {
    // Requirement for aligned_alloc
    platform_assert(IS_POWER_OF_2(alignment));
@@ -396,7 +396,7 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
    Reallocing from NULL must be equivalent to allocing. */
 static inline void *
 platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
-                 void *                 ptr, // IN
+                 void                  *ptr, // IN
                  const size_t           size)          // IN
 {
    /* FIXME: alignment? */

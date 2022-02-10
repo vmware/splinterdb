@@ -14,17 +14,17 @@
 #include "cache.h"
 #include "util.h"
 
-typedef struct log_handle log_handle;
+typedef struct log_handle   log_handle;
 typedef struct log_iterator log_iterator;
-typedef struct log_config log_config;
+typedef struct log_config   log_config;
 
 typedef int (*log_write_fn)(log_handle *log,
                             const slice key,
                             const slice data,
                             uint64      generation);
-typedef void   (*log_release_fn) (log_handle *log);
-typedef uint64 (*log_addr_fn)    (log_handle *log);
-typedef uint64 (*log_magic_fn)   (log_handle *log);
+typedef void (*log_release_fn)(log_handle *log);
+typedef uint64 (*log_addr_fn)(log_handle *log);
+typedef uint64 (*log_magic_fn)(log_handle *log);
 
 typedef struct log_ops {
    log_write_fn   write;
@@ -70,8 +70,6 @@ log_magic(log_handle *log)
 }
 
 log_handle *
-log_create(cache      *cc,
-           log_config *cfg,
-           platform_heap_id hid);
+log_create(cache *cc, log_config *cfg, platform_heap_id hid);
 
 #endif //__LOG_H

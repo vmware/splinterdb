@@ -9,13 +9,12 @@
 
 // Macros
 #ifdef IMPLIES
-   // Replace any existing implementation if it exists (for consistency)
-#  undef IMPLIES
+// Replace any existing implementation if it exists (for consistency)
+#   undef IMPLIES
 #endif
-#define IMPLIES(p, q)  (!(p) || !!(q))
+#define IMPLIES(p, q) (!(p) || !!(q))
 
-#define SET_ARRAY_INDEX_TO_STRINGIFY(x) \
-   [x] = STRINGIFY(x)
+#define SET_ARRAY_INDEX_TO_STRINGIFY(x) [x] = STRINGIFY(x)
 
 
 static inline const void *
@@ -48,28 +47,27 @@ pointer_byte_offset(void *base, int64 offset)
 static inline uint64
 int64abs(int64 j)
 {
-   return (j >= 0)
-          ? (uint64) j
-          : ((uint64) -(j+1)) + 1;
+   return (j >= 0) ? (uint64)j : ((uint64) - (j + 1)) + 1;
 }
 
 typedef struct fraction {
-  uint64 numerator;
-  uint64 denominator;
+   uint64 numerator;
+   uint64 denominator;
 } fraction;
 
 static inline fraction
 init_fraction(uint64 numerator, uint64 denominator)
 {
-   return (fraction) {
-      .numerator = numerator,
+   return (fraction){
+      .numerator   = numerator,
       .denominator = denominator,
    };
 }
 
-#define zero_fraction ((fraction) { \
-      .numerator = 0,               \
-      .denominator = 1,             \
+#define zero_fraction                                                          \
+   ((fraction){                                                                \
+      .numerator   = 0,                                                        \
+      .denominator = 1,                                                        \
    })
 
 typedef struct slice {
@@ -162,12 +160,12 @@ slice_lex_cmp(const slice a, const slice b)
  * platform-malloced state.
  */
 struct writable_buffer {
-   void *           original_pointer;
+   void            *original_pointer;
    uint64           original_size;
    platform_heap_id heap_id;
    uint64           allocation_size;
    uint64           length;
-   void *           data;
+   void            *data;
 };
 
 static inline bool
@@ -180,7 +178,7 @@ static inline void
 writable_buffer_init(writable_buffer *wb,
                      platform_heap_id heap_id,
                      uint64           allocation_size,
-                     void *           data)
+                     void            *data)
 {
    wb->original_pointer = data;
    wb->original_size    = allocation_size;
@@ -255,35 +253,35 @@ writable_buffer_to_slice(const writable_buffer *wb)
  */
 bool
 try_string_to_uint64(const char *nptr, // IN
-                     uint64 *n);       // OUT
+                     uint64     *n);       // OUT
 
 bool
 try_string_to_int64(const char *nptr, // IN
-                    int64 *n);        // OUT
+                    int64      *n);        // OUT
 
 bool
 try_string_to_uint32(const char *nptr, // IN
-                     uint32 *n);       // OUT
+                     uint32     *n);       // OUT
 
 bool
 try_string_to_int32(const char *nptr, // IN
-                    int32 *n);        // OUT
+                    int32      *n);        // OUT
 
 bool
 try_string_to_uint16(const char *nptr, // IN
-                     uint16 *n);       // OUT
+                     uint16     *n);       // OUT
 
 bool
 try_string_to_int16(const char *nptr, // IN
-                    int16 *n);        // OUT
+                    int16      *n);        // OUT
 
 bool
 try_string_to_uint8(const char *nptr, // IN
-                    uint8 *n);        // OUT
+                    uint8      *n);        // OUT
 
 bool
 try_string_to_int8(const char *nptr, // IN
-                   int8 *n);         // OUT
+                   int8       *n);         // OUT
 
 
 /*
@@ -291,14 +289,14 @@ try_string_to_int8(const char *nptr, // IN
  * between a const char * and a string literal.
  */
 
-#define REQUIRE_STRING_LITERAL(x) (x"")
+#define REQUIRE_STRING_LITERAL(x) (x "")
 
 #define SIZEOF_STRING_LITERAL(s) (sizeof(REQUIRE_STRING_LITERAL(s)))
 
-#define STRING_EQUALS_LITERAL(arg, str) \
+#define STRING_EQUALS_LITERAL(arg, str)                                        \
    (strncmp(arg, str, SIZEOF_STRING_LITERAL(str)) == 0)
 
-#define PACKED  __attribute__((__packed__))
+#define PACKED __attribute__((__packed__))
 
 // Hex-encode arbitrary bytes to a destination buffer
 //    e.g. 0xc0de4f00de
@@ -311,9 +309,7 @@ try_string_to_int8(const char *nptr, // IN
 // because the data may be truncated when dst_len is too small.
 //
 // To avoid truncation, ensure dst_len >= 3 + 2 * data_len.
-void debug_hex_encode(char *      dst,
-                      size_t      dst_len,
-                      const char *data,
-                      size_t      data_len);
+void
+debug_hex_encode(char *dst, size_t dst_len, const char *data, size_t data_len);
 
 #endif

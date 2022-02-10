@@ -26,7 +26,7 @@
 #define MSG_SIZE 4096
 
 static size_t      ctest_errorsize;
-static char *      ctest_errormsg;
+static char       *ctest_errormsg;
 static char        ctest_errorbuffer[MSG_SIZE];
 static jmp_buf     ctest_err;
 static int         color_output  = 1;
@@ -80,7 +80,7 @@ ctest_usage(const char *progname, int program_is_unit_test);
 
 int
 ctest_process_args(const int    argc,
-                   const char * argv[],
+                   const char  *argv[],
                    int          program_is_unit_test,
                    const char **suite_name,
                    const char **testcase_name);
@@ -382,7 +382,7 @@ ctest_is_unit_test(const char *argv0)
  */
 int
 ctest_process_args(const int    argc,
-                   const char * argv[],
+                   const char  *argv[],
                    int          program_is_unit_test,
                    const char **suite_name,
                    const char **testcase_name)
@@ -613,7 +613,7 @@ assert_str(const char *exp, const char *real, const char *caller, int line)
 void
 assert_wstr(const wchar_t *exp,
             const wchar_t *real,
-            const char *   caller,
+            const char    *caller,
             int            line)
 {
    if ((exp == NULL && real != NULL) || (exp != NULL && real == NULL)
@@ -628,7 +628,7 @@ assert_data(const unsigned char *exp,
             size_t               expsize,
             const unsigned char *real,
             size_t               realsize,
-            const char *         caller,
+            const char          *caller,
             int                  line)
 {
    size_t i;

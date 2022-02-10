@@ -84,28 +84,28 @@ rc_allocator_get_ref_virtual(allocator *a, uint64 addr)
 }
 
 platform_status
-rc_allocator_get_super_addr(rc_allocator *    al,
+rc_allocator_get_super_addr(rc_allocator     *al,
                             allocator_root_id spl_id,
-                            uint64 *          addr);
+                            uint64           *addr);
 
 platform_status
-rc_allocator_get_super_addr_virtual(allocator *       a,
+rc_allocator_get_super_addr_virtual(allocator        *a,
                                     allocator_root_id spl_id,
-                                    uint64 *          addr)
+                                    uint64           *addr)
 {
    rc_allocator *al = (rc_allocator *)a;
    return rc_allocator_get_super_addr(al, spl_id, addr);
 }
 
 platform_status
-rc_allocator_alloc_super_addr(rc_allocator *    al,
+rc_allocator_alloc_super_addr(rc_allocator     *al,
                               allocator_root_id spl_id,
-                              uint64 *          addr);
+                              uint64           *addr);
 
 platform_status
-rc_allocator_alloc_super_addr_virtual(allocator *       a,
+rc_allocator_alloc_super_addr_virtual(allocator        *a,
                                       allocator_root_id spl_id,
-                                      uint64 *          addr)
+                                      uint64           *addr)
 {
    rc_allocator *al = (rc_allocator *)a;
    return rc_allocator_alloc_super_addr(al, spl_id, addr);
@@ -223,18 +223,19 @@ rc_allocator_init_meta_page(rc_allocator *al)
     * Ensure that the meta page and  all the super blocks will fit in one
     * extent.
     */
-   platform_assert((1 + RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS) * al->cfg->page_size
-                    <= al->cfg->extent_size);
+   platform_assert((1 + RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS)
+                      * al->cfg->page_size
+                   <= al->cfg->extent_size);
 
-   al->meta_page =
-      platform_aligned_malloc(al->heap_id, al->cfg->page_size,
-                              al->cfg->page_size);
+   al->meta_page = platform_aligned_malloc(
+      al->heap_id, al->cfg->page_size, al->cfg->page_size);
    if (al->meta_page == NULL) {
       return STATUS_NO_MEMORY;
    }
 
    memset(al->meta_page, 0, al->cfg->page_size);
-   memset(al->meta_page->splinters, INVALID_ALLOCATOR_ROOT_ID,
+   memset(al->meta_page->splinters,
+          INVALID_ALLOCATOR_ROOT_ID,
           sizeof(al->meta_page->splinters));
 
    return STATUS_OK;
@@ -249,16 +250,16 @@ rc_allocator_init_meta_page(rc_allocator *al)
  */
 void
 rc_allocator_config_init(rc_allocator_config *allocator_cfg,
-                         uint64              page_size,
-                         uint64              extent_size,
-                         uint64              capacity)
+                         uint64               page_size,
+                         uint64               extent_size,
+                         uint64               capacity)
 {
    ZERO_CONTENTS(allocator_cfg);
 
-   allocator_cfg->page_size   = page_size;
-   allocator_cfg->extent_size = extent_size;
-   allocator_cfg->capacity    = capacity;
-   allocator_cfg->page_capacity = capacity / page_size;
+   allocator_cfg->page_size       = page_size;
+   allocator_cfg->extent_size     = extent_size;
+   allocator_cfg->capacity        = capacity;
+   allocator_cfg->page_capacity   = capacity / page_size;
    allocator_cfg->extent_capacity = capacity / extent_size;
 }
 
@@ -270,23 +271,23 @@ rc_allocator_config_init(rc_allocator_config *allocator_cfg,
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_init(rc_allocator         *al,
-                  rc_allocator_config  *cfg,
-                  io_handle            *io,
-                  platform_heap_handle  hh,
-                  platform_heap_id      hid,
-                  platform_module_id    mid)
+rc_allocator_init(rc_allocator        *al,
+                  rc_allocator_config *cfg,
+                  io_handle           *io,
+                  platform_heap_handle hh,
+                  platform_heap_id     hid,
+                  platform_module_id   mid)
 {
-   uint64 rc_extent_count;
-   uint64 addr;
+   uint64          rc_extent_count;
+   uint64          addr;
    platform_status rc;
    platform_assert(al != NULL);
    ZERO_CONTENTS(al);
-   al->super.ops = &rc_allocator_ops;
-   al->cfg = cfg;
-   al->io = io;
+   al->super.ops   = &rc_allocator_ops;
+   al->cfg         = cfg;
+   al->io          = io;
    al->heap_handle = hh;
-   al->heap_id = hid;
+   al->heap_id     = hid;
 
    platform_assert(cfg->page_size % 4096 == 0);
    platform_assert(cfg->capacity == cfg->extent_size * cfg->extent_capacity);
@@ -305,7 +306,7 @@ rc_allocator_init(rc_allocator         *al,
    }
    // To ensure alignment always allocate in multiples of page size.
    uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
-   buffer_size = ROUNDUP(buffer_size, cfg->page_size);
+   buffer_size        = ROUNDUP(buffer_size, cfg->page_size);
    al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
    if (al->bh == NULL) {
       platform_error_log("Failed to create buffer for ref counts\n");
@@ -326,8 +327,8 @@ rc_allocator_init(rc_allocator         *al,
     * Allocate room for the ref counts, use same rounded up size used in buffer
     * creation.
     */
-   rc_extent_count = (buffer_size + al->cfg->extent_size - 1)
-      / al->cfg->extent_size;
+   rc_extent_count =
+      (buffer_size + al->cfg->extent_size - 1) / al->cfg->extent_size;
    for (uint64 i = 0; i < rc_extent_count; i++) {
       allocator_alloc(&al->super, &addr, PAGE_TYPE_MISC);
       platform_assert(addr == cfg->extent_size * (i + 1));
@@ -336,7 +337,8 @@ rc_allocator_init(rc_allocator         *al,
    return STATUS_OK;
 }
 
-void rc_allocator_deinit(rc_allocator *al)
+void
+rc_allocator_deinit(rc_allocator *al)
 {
    platform_buffer_destroy(al->bh);
    al->ref_count = NULL;
@@ -353,22 +355,22 @@ void rc_allocator_deinit(rc_allocator *al)
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_mount(rc_allocator         *al,
-                   rc_allocator_config  *cfg,
-                   io_handle            *io,
-                   platform_heap_handle  hh,
-                   platform_heap_id      hid,
-                   platform_module_id    mid)
+rc_allocator_mount(rc_allocator        *al,
+                   rc_allocator_config *cfg,
+                   io_handle           *io,
+                   platform_heap_handle hh,
+                   platform_heap_id     hid,
+                   platform_module_id   mid)
 {
    platform_status status;
 
    platform_assert(al != NULL);
    ZERO_CONTENTS(al);
-   al->super.ops = &rc_allocator_ops;
-   al->cfg = cfg;
-   al->io = io;
+   al->super.ops   = &rc_allocator_ops;
+   al->cfg         = cfg;
+   al->io          = io;
    al->heap_handle = hh;
-   al->heap_id = hid;
+   al->heap_id     = hid;
 
    status = platform_mutex_init(&al->lock, mid, al->heap_id);
    if (!SUCCESS(status)) {
@@ -388,18 +390,19 @@ rc_allocator_mount(rc_allocator         *al,
    platform_assert(cfg->capacity == cfg->page_size * cfg->page_capacity);
 
    uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
-   buffer_size = ROUNDUP(buffer_size, cfg->page_size);
+   buffer_size        = ROUNDUP(buffer_size, cfg->page_size);
    al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
    platform_assert(al->bh != NULL);
    al->ref_count = platform_buffer_getaddr(al->bh);
 
    // load the meta page from disk.
-   status = io_read(io, al->meta_page, al->cfg->page_size,
-                    RC_ALLOCATOR_BASE_OFFSET);
+   status =
+      io_read(io, al->meta_page, al->cfg->page_size, RC_ALLOCATOR_BASE_OFFSET);
    platform_assert_status_ok(status);
    // validate the checksum of the meta page.
    checksum128 currChecksum =
-      platform_checksum128(al->meta_page, sizeof(al->meta_page->splinters),
+      platform_checksum128(al->meta_page,
+                           sizeof(al->meta_page->splinters),
                            RC_ALLOCATOR_META_PAGE_CSUM_SEED);
    if (!platform_checksum_is_equal(al->meta_page->checksum, currChecksum)) {
       platform_assert(0 == "Corrupt Meta Page upon mount");
@@ -407,7 +410,7 @@ rc_allocator_mount(rc_allocator         *al,
 
    // load the ref counts from disk.
    uint32 io_size = ROUNDUP(al->cfg->extent_capacity, al->cfg->page_size);
-   status = io_read(io, al->ref_count, io_size, cfg->extent_size);
+   status         = io_read(io, al->ref_count, io_size, cfg->extent_size);
    platform_assert_status_ok(status);
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
       if (al->ref_count[i] != 0) {
@@ -515,9 +518,9 @@ rc_allocator_get_capacity(rc_allocator *al)
 
 
 platform_status
-rc_allocator_get_super_addr(rc_allocator *al,
-                            allocator_root_id  allocator_root_id,
-                            uint64       *addr)
+rc_allocator_get_super_addr(rc_allocator     *al,
+                            allocator_root_id allocator_root_id,
+                            uint64           *addr)
 {
    platform_status status = STATUS_NOT_FOUND;
 
@@ -525,21 +528,20 @@ rc_allocator_get_super_addr(rc_allocator *al,
    for (uint8 idx = 0; idx < RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS; idx++) {
       if (al->meta_page->splinters[idx] == allocator_root_id) {
          // have already seen this table before, return existing addr.
-         *addr =  (1 + idx) * al->cfg->page_size;
-         status =  STATUS_OK;
+         *addr  = (1 + idx) * al->cfg->page_size;
+         status = STATUS_OK;
          break;
       }
    }
 
    platform_mutex_unlock(&al->lock);
    return status;
-
 }
 
 platform_status
-rc_allocator_alloc_super_addr(rc_allocator *al,
+rc_allocator_alloc_super_addr(rc_allocator     *al,
                               allocator_root_id allocator_root_id,
-                              uint64 *addr)
+                              uint64           *addr)
 {
    platform_status status = STATUS_NOT_FOUND;
 
@@ -548,14 +550,15 @@ rc_allocator_alloc_super_addr(rc_allocator *al,
       if (al->meta_page->splinters[idx] == INVALID_ALLOCATOR_ROOT_ID) {
          // assign the first available slot and update the on disk metadata.
          al->meta_page->splinters[idx] = allocator_root_id;
-         *addr = (1 + idx) * al->cfg->page_size;
+         *addr                         = (1 + idx) * al->cfg->page_size;
          al->meta_page->checksum =
             platform_checksum128(al->meta_page,
                                  sizeof(al->meta_page->splinters),
                                  RC_ALLOCATOR_META_PAGE_CSUM_SEED);
-         platform_status io_status =
-            io_write(al->io, al->meta_page, al->cfg->page_size,
-                     RC_ALLOCATOR_BASE_OFFSET);
+         platform_status io_status = io_write(al->io,
+                                              al->meta_page,
+                                              al->cfg->page_size,
+                                              RC_ALLOCATOR_BASE_OFFSET);
          platform_assert_status_ok(io_status);
          status = STATUS_OK;
          break;
@@ -568,7 +571,7 @@ rc_allocator_alloc_super_addr(rc_allocator *al,
 
 
 void
-rc_allocator_remove_super_addr(rc_allocator *al,
+rc_allocator_remove_super_addr(rc_allocator     *al,
                                allocator_root_id allocator_root_id)
 {
    platform_mutex_lock(&al->lock);
@@ -584,9 +587,10 @@ rc_allocator_remove_super_addr(rc_allocator *al,
             platform_checksum128(al->meta_page,
                                  sizeof(al->meta_page->splinters),
                                  RC_ALLOCATOR_META_PAGE_CSUM_SEED);
-         platform_status status =
-            io_write(al->io, al->meta_page, al->cfg->page_size,
-                     RC_ALLOCATOR_BASE_OFFSET);
+         platform_status status = io_write(al->io,
+                                           al->meta_page,
+                                           al->cfg->page_size,
+                                           RC_ALLOCATOR_BASE_OFFSET);
          platform_assert_status_ok(status);
          platform_mutex_unlock(&al->lock);
          return;
@@ -596,7 +600,6 @@ rc_allocator_remove_super_addr(rc_allocator *al,
    platform_mutex_unlock(&al->lock);
    // Couldnt find the splinter id in the meta page.
    platform_assert(0 == "Couldnt find existing splinter table in meta page");
-
 }
 
 
@@ -621,18 +624,20 @@ rc_allocator_page_size(rc_allocator *al)
  */
 platform_status
 rc_allocator_alloc(rc_allocator *al,   // IN
-                   uint64 *      addr, // OUT
+                   uint64       *addr, // OUT
                    page_type     type)     // IN
 {
    uint64 first_hand = al->hand % al->cfg->extent_capacity;
    uint64 hand;
-   bool extent_is_free = FALSE;
+   bool   extent_is_free = FALSE;
 
    do {
       hand = __sync_fetch_and_add(&al->hand, 1) % al->cfg->extent_capacity;
       if (al->ref_count[hand] == 0)
-         extent_is_free = __sync_bool_compare_and_swap(&al->ref_count[hand], 0, 2);
-   } while (!extent_is_free && (hand + 1) % al->cfg->extent_capacity != first_hand);
+         extent_is_free =
+            __sync_bool_compare_and_swap(&al->ref_count[hand], 0, 2);
+   } while (!extent_is_free
+            && (hand + 1) % al->cfg->extent_capacity != first_hand);
    if (!extent_is_free) {
       platform_log("Out of Space: allocated %lu out of %lu addrs.\n",
                    al->stats.curr_allocated,

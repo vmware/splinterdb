@@ -6,9 +6,9 @@
 static int
 test_data_key_cmp(const data_config *cfg,
                   uint64             key1_len,
-                  const void *       key1,
+                  const void        *key1,
                   uint64             key2_len,
-                  const void *       key2)
+                  const void        *key2)
 {
    uint64 mlen = key1_len < key2_len ? key1_len : key2_len;
    int    r    = memcmp(key1, key2, mlen);
@@ -33,16 +33,16 @@ test_data_key_cmp(const data_config *cfg,
 static int
 test_data_merge_tuples(const data_config *cfg,
                        uint64             key_len,
-                       const void *       key,
+                       const void        *key,
                        uint64             old_raw_data_len,
-                       const void *       old_raw_data,
-                       writable_buffer *  new_raw_data)
+                       const void        *old_raw_data,
+                       writable_buffer   *new_raw_data)
 {
    assert(sizeof(data_handle) <= old_raw_data_len);
    assert(sizeof(data_handle) <= writable_buffer_length(new_raw_data));
 
    const data_handle *old_data = old_raw_data;
-   data_handle *      new_data = writable_buffer_data(new_raw_data);
+   data_handle       *new_data = writable_buffer_data(new_raw_data);
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
    // platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d
@@ -109,8 +109,8 @@ test_data_merge_tuples(const data_config *cfg,
 static int
 test_data_merge_tuples_final(const data_config *cfg,
                              uint64             key_len,
-                             const void *       key,           // IN
-                             writable_buffer *  oldest_raw_data) // IN/OUT
+                             const void        *key,           // IN
+                             writable_buffer   *oldest_raw_data) // IN/OUT
 {
    assert(sizeof(data_handle) <= writable_buffer_length(oldest_raw_data));
 
@@ -134,7 +134,7 @@ test_data_merge_tuples_final(const data_config *cfg,
 static message_type
 test_data_message_class(const data_config *cfg,
                         uint64             raw_data_len,
-                        const void *       raw_data)
+                        const void        *raw_data)
 {
    assert(sizeof(data_handle) <= raw_data_len);
 
@@ -157,8 +157,8 @@ test_data_message_class(const data_config *cfg,
 static void
 test_data_key_to_string(const data_config *cfg,
                         uint64             key_len,
-                        const void *       key,
-                        char *             str,
+                        const void        *key,
+                        char              *str,
                         size_t             len)
 {
    debug_hex_encode(str, len, key, key_len);
@@ -167,8 +167,8 @@ test_data_key_to_string(const data_config *cfg,
 static void
 test_data_message_to_string(const data_config *cfg,
                             uint64             raw_data_len,
-                            const void *       raw_data,
-                            char *             str,
+                            const void        *raw_data,
+                            char              *str,
                             size_t             len)
 {
    debug_hex_encode(str, len, raw_data, raw_data_len);

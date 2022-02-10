@@ -30,7 +30,7 @@
 #include "poison.h"
 
 typedef struct kvstore {
-   task_system *        task_sys;
+   task_system         *task_sys;
    data_config          data_cfg;
    io_config            io_cfg;
    platform_io_handle   io_handle;
@@ -40,7 +40,7 @@ typedef struct kvstore {
    clockcache           cache_handle;
    allocator_root_id    splinter_id;
    splinter_config      splinter_cfg;
-   splinter_handle *    spl;
+   splinter_handle     *spl;
    platform_heap_handle heap_handle; // for platform_buffer_create
    platform_heap_id     heap_id;
 } kvstore;
@@ -74,7 +74,7 @@ platform_status_to_int(const platform_status status) // IN
  */
 static platform_status
 kvstore_init_config(const kvstore_config *kvs_cfg, // IN
-                    kvstore *             kvs      // OUT
+                    kvstore              *kvs      // OUT
 )
 {
    if (!data_validate_config(&kvs_cfg->data_cfg)) {
@@ -82,8 +82,9 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
       return STATUS_BAD_PARAM;
    }
 
-   if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0 ||
-       kvs_cfg->disk_size == 0) {
+   if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0
+       || kvs_cfg->disk_size == 0)
+   {
       platform_error_log(
          "expect filename, cache_size and disk_size to be set\n");
       return STATUS_BAD_PARAM;
@@ -104,9 +105,11 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    kvs->data_cfg                = kvs_cfg->data_cfg;
 
    // check if min_key and max_key are set
-   if (0 == memcmp(kvs->data_cfg.min_key,
-                   kvs->data_cfg.max_key,
-                   sizeof(kvs->data_cfg.min_key))) {
+   if (0
+       == memcmp(kvs->data_cfg.min_key,
+                 kvs->data_cfg.max_key,
+                 sizeof(kvs->data_cfg.min_key)))
+   {
       // application hasn't set them, so provide defaults
       memset(kvs->data_cfg.min_key, 0, kvs->data_cfg.key_size);
       memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
@@ -158,11 +161,11 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
  */
 int
 kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
-                       kvstore **            kvs_out,      // OUT
+                       kvstore             **kvs_out,      // OUT
                        bool                  open_existing // IN
 )
 {
-   kvstore *       kvs;
+   kvstore        *kvs;
    platform_status status;
 
    platform_assert(kvs_out != NULL);
@@ -189,7 +192,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
    }
 
    uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   status = task_system_create(kvs->heap_id,
+   status                               = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
                                TRUE,
@@ -279,7 +282,7 @@ deinit_kvhandle:
 
 int
 kvstore_create(const kvstore_config *cfg, // IN
-               kvstore **            kvs  // OUT
+               kvstore             **kvs  // OUT
 )
 {
    return kvstore_create_or_open(cfg, kvs, FALSE);
@@ -287,7 +290,7 @@ kvstore_create(const kvstore_config *cfg, // IN
 
 int
 kvstore_open(const kvstore_config *cfg, // IN
-             kvstore **            kvs  // OUT
+             kvstore             **kvs  // OUT
 )
 {
    return kvstore_create_or_open(cfg, kvs, TRUE);
@@ -389,9 +392,9 @@ kvstore_deregister_thread(kvstore *kvs)
  */
 int
 kvstore_insert(const kvstore *kvs,            // IN
-               char *         key,            // IN
+               char          *key,            // IN
                size_t         message_length, // IN
-               char *         message         // IN
+               char          *message         // IN
 )
 {
    platform_status status;
@@ -414,10 +417,10 @@ _Static_assert(sizeof(_kvstore_lookup_result) <= sizeof(kvstore_lookup_result),
                "sizeof(kvstore_lookup_result) is too small");
 
 void
-kvstore_lookup_result_init(const kvstore *        kvs,        // IN
+kvstore_lookup_result_init(const kvstore         *kvs,        // IN
                            kvstore_lookup_result *result,     // IN/OUT
                            size_t                 buffer_len, // IN
-                           char *                 buffer      // IN
+                           char                  *buffer      // IN
 )
 {
    _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
@@ -466,11 +469,11 @@ kvstore_lookup_result_data(kvstore_lookup_result *result) // IN
  *-----------------------------------------------------------------------------
  */
 int
-kvstore_lookup(const kvstore *        kvs,    // IN
-               char *                 key,    // IN
+kvstore_lookup(const kvstore         *kvs,    // IN
+               char                  *key,    // IN
                kvstore_lookup_result *result) // OUT
 {
-   platform_status status;
+   platform_status         status;
    _kvstore_lookup_result *_result = (_kvstore_lookup_result *)result;
 
    platform_assert(kvs != NULL);
@@ -484,9 +487,9 @@ struct kvstore_iterator {
 };
 
 int
-kvstore_iterator_init(const kvstore *    kvs,      // IN
+kvstore_iterator_init(const kvstore     *kvs,      // IN
                       kvstore_iterator **iter,     // OUT
-                      char *             start_key // IN
+                      char              *start_key // IN
 )
 {
    kvstore_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);
@@ -544,9 +547,9 @@ kvstore_iterator_next(kvstore_iterator *kvi)
 
 void
 kvstore_iterator_get_current(kvstore_iterator *kvi,            // IN
-                             const char **     key,            // OUT
-                             size_t *          message_length, // IN
-                             const char **     message         // OUT
+                             const char      **key,            // OUT
+                             size_t           *message_length, // IN
+                             const char      **message         // OUT
 )
 {
    slice     key_slice;
@@ -555,7 +558,7 @@ kvstore_iterator_get_current(kvstore_iterator *kvi,            // IN
    iterator_get_curr(itor, &key_slice, &message_slice);
    *key            = slice_data(key_slice);
    *message_length = slice_length(message_slice);
-   *message = slice_data(message_slice);
+   *message        = slice_data(message_slice);
 }
 
 int

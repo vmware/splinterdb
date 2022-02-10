@@ -66,12 +66,12 @@ union ctest_run_func_union {
  * ************************************************************************
  */
 struct ctest {
-   const char *               ssname; // suite name
-   const char *               ttname; // test name
+   const char                *ssname; // suite name
+   const char                *ttname; // test name
    union ctest_run_func_union run;
 
-   void *               data;
-   ctest_setup_func *   setup;
+   void                *data;
+   ctest_setup_func    *setup;
    ctest_teardown_func *teardown;
 
    int skip;
@@ -187,7 +187,7 @@ assert_str(const char *exp, const char *real, const char *caller, int line);
 void
 assert_wstr(const wchar_t *exp,
             const wchar_t *real,
-            const char *   caller,
+            const char    *caller,
             int            line);
 #define ASSERT_WSTR(exp, real) assert_wstr(exp, real, __FILE__, __LINE__)
 
@@ -196,7 +196,7 @@ assert_data(const unsigned char *exp,
             size_t               expsize,
             const unsigned char *real,
             size_t               realsize,
-            const char *         caller,
+            const char          *caller,
             int                  line);
 #define ASSERT_DATA(exp, expsize, real, realsize)                              \
    assert_data(exp, expsize, real, realsize, __FILE__, __LINE__)

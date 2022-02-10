@@ -8,8 +8,8 @@
 
 #define MAX_HOOKS (2048)
 
-int hook_init_done = 0;
-static int num_hooks = 0;
+int              hook_init_done = 0;
+static int       num_hooks      = 0;
 static task_hook hooks[MAX_HOOKS];
 
 // forward declarations that aren't part of the public API of the task system
@@ -40,15 +40,14 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
    for (int i = 0; i < MAX_THREADS; i++) {
       *tid_bitmask |= (1ULL << i);
    }
-
 }
 
 static void
 init_threadid(task_system *ts)
 {
-   threadid tid = INVALID_TID;
-   uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
-   threadid *max_tid = task_system_get_max_tid(ts);
+   threadid  tid         = INVALID_TID;
+   uint64   *tid_bitmask = task_system_get_tid_bitmask(ts);
+   threadid *max_tid     = task_system_get_max_tid(ts);
 
    while (1) {
       uint64 tmp_bitmask = *tid_bitmask;
@@ -83,7 +82,7 @@ task_get_max_tid(task_system *ts)
     * We have assigned threads till max_tid, hence return plus
     * one to ensure that the last thread is covered in the iteration.
     */
-   return *max_tid+ 1;
+   return *max_tid + 1;
 }
 
 /*
@@ -117,7 +116,7 @@ task_clear_threadid(task_system *ts, threadid tid)
    // set bit back to 1 to indicate a free slot.
    while (1) {
       uint64 tmp_bitmask = *tid_bitmask;
-      uint64 new_value = tmp_bitmask | (1ULL << tid);
+      uint64 new_value   = tmp_bitmask | (1ULL << tid);
       if (__sync_bool_compare_and_swap(tid_bitmask, tmp_bitmask, new_value)) {
          return;
       }
@@ -164,9 +163,9 @@ task_deregister_this_thread(task_system *ts)
 
 typedef struct {
    platform_thread_worker func;
-   void *                 arg;
+   void                  *arg;
 
-   task_system *    ts;
+   task_system     *ts;
    uint64           scratch_size;
    platform_heap_id heap_id;
 } thread_invoke;
@@ -174,9 +173,9 @@ typedef struct {
 static void
 task_invoke_with_hooks(void *func_and_args)
 {
-   thread_invoke *        thread_to_start = (thread_invoke *)func_and_args;
-   platform_thread_worker func = thread_to_start->func;
-   void *arg = thread_to_start->arg;
+   thread_invoke         *thread_to_start = (thread_invoke *)func_and_args;
+   platform_thread_worker func            = thread_to_start->func;
+   void                  *arg             = thread_to_start->arg;
 
    task_register_this_thread(thread_to_start->ts,
                              thread_to_start->scratch_size);
@@ -189,25 +188,25 @@ task_invoke_with_hooks(void *func_and_args)
 }
 
 platform_status
-task_create_thread_with_hooks(platform_thread        *thread,
-                              bool                    detached,
-                              platform_thread_worker  func,
-                              void                   *arg,
-                              size_t                  scratch_size,
-                              task_system            *ts,
-                              platform_heap_id        hid)
+task_create_thread_with_hooks(platform_thread       *thread,
+                              bool                   detached,
+                              platform_thread_worker func,
+                              void                  *arg,
+                              size_t                 scratch_size,
+                              task_system           *ts,
+                              platform_heap_id       hid)
 {
    platform_status ret;
-   thread_invoke * thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
+   thread_invoke  *thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
    if (thread_to_create == NULL) {
       return STATUS_NO_MEMORY;
    }
 
-   thread_to_create->func = func;
-   thread_to_create->arg = arg;
-   thread_to_create->heap_id = hid;
+   thread_to_create->func         = func;
+   thread_to_create->arg          = arg;
+   thread_to_create->heap_id      = hid;
    thread_to_create->scratch_size = scratch_size;
-   thread_to_create->ts = ts;
+   thread_to_create->ts           = ts;
 
    ret = platform_thread_create(
       thread, detached, task_invoke_with_hooks, thread_to_create, hid);
@@ -219,42 +218,42 @@ task_create_thread_with_hooks(platform_thread        *thread,
 }
 
 platform_status
-task_thread_create(const char             *name,
-                   platform_thread_worker  func,
-                   void                   *arg,
-                   size_t                  scratch_size,
-                   task_system            *ts,
-                   platform_heap_id        hid,
-                   platform_thread        *thread)
+task_thread_create(const char            *name,
+                   platform_thread_worker func,
+                   void                  *arg,
+                   size_t                 scratch_size,
+                   task_system           *ts,
+                   platform_heap_id       hid,
+                   platform_thread       *thread)
 {
-    platform_thread thr;
-    platform_status ret;
+   platform_thread thr;
+   platform_status ret;
 
-    ret = task_create_thread_with_hooks(&thr, FALSE, func, arg, scratch_size,
-          ts, hid);
-    if (!SUCCESS(ret)) {
-        platform_error_log("could not create a thread");
-        return ret;
-    }
+   ret = task_create_thread_with_hooks(
+      &thr, FALSE, func, arg, scratch_size, ts, hid);
+   if (!SUCCESS(ret)) {
+      platform_error_log("could not create a thread");
+      return ret;
+   }
 
-    if (thread != NULL) {
-       *thread = thr;
-    }
-    return STATUS_OK;
+   if (thread != NULL) {
+      *thread = thr;
+   }
+   return STATUS_OK;
 }
 
 /* Worker function for the background task pool. */
 void
 task_worker_thread(void *arg)
 {
-   task_group *group = (task_group *)arg;
-   const threadid tid = platform_get_tid();
-   task_queue *tq = &group->tq;
-   task_system *ts = group->ts;
+   task_group    *group = (task_group *)arg;
+   const threadid tid   = platform_get_tid();
+   task_queue    *tq    = &group->tq;
+   task_system   *ts    = group->ts;
 
    while (TRUE) {
-      task *task_to_run = NULL;
-      platform_status rc = platform_condvar_lock(&group->bg.cv);
+      task           *task_to_run = NULL;
+      platform_status rc          = platform_condvar_lock(&group->bg.cv);
       platform_assert(SUCCESS(rc));
       if (tq->head == NULL) {
          // Queue is empty.
@@ -270,7 +269,7 @@ task_worker_thread(void *arg)
 
       if (tq->head != NULL) {
          task_to_run = tq->head;
-         tq->head = tq->head->next;
+         tq->head    = tq->head->next;
          if (tq->head == NULL) {
             platform_assert(tq->tail == task_to_run);
             tq->tail = NULL;
@@ -279,8 +278,8 @@ task_worker_thread(void *arg)
       platform_condvar_unlock(&group->bg.cv);
 
       if (task_to_run != NULL) {
-         task_stats *stats = &group->stats[tid];
-         timestamp current = platform_get_timestamp();
+         task_stats *stats   = &group->stats[tid];
+         timestamp   current = platform_get_timestamp();
          if (stats != NULL) {
             timestamp latency = current - task_to_run->enqueue_time;
             stats[tid].total_latency_ns += latency;
@@ -292,13 +291,13 @@ task_worker_thread(void *arg)
 
          // Run the task.
          task_to_run->func(task_to_run->arg,
-               task_system_get_thread_scratch(ts, tid));
+                           task_system_get_thread_scratch(ts, tid));
 
          __sync_fetch_and_sub(&group->current_outstanding_tasks, 1);
          if (group->use_stats) {
             timestamp task_run_time = platform_timestamp_elapsed(current);
             if (task_run_time > stats[tid].max_runtime_ns) {
-               stats[tid].max_runtime_ns = task_run_time;
+               stats[tid].max_runtime_ns   = task_run_time;
                stats[tid].max_runtime_func = task_to_run->func;
             }
          }
@@ -348,18 +347,18 @@ task_group_deinit(task_group *group)
 }
 
 static platform_status
-task_group_init(task_group *group,
+task_group_init(task_group  *group,
                 task_system *ts,
-                bool use_stats,
-                bool use_bg_threads,
-                uint8 num_bg_threads,
-                uint64 scratch_size)
+                bool         use_stats,
+                bool         use_bg_threads,
+                uint8        num_bg_threads,
+                uint64       scratch_size)
 {
    ZERO_CONTENTS(group);
-   group->ts = ts;
-   group->use_stats = use_stats;
+   group->ts            = ts;
+   group->use_stats     = use_stats;
    platform_heap_id hid = group->ts->heap_id;
-   platform_status rc;
+   platform_status  rc;
    if (use_bg_threads) {
       group->bg.num_threads = num_bg_threads;
 
@@ -369,8 +368,13 @@ task_group_init(task_group *group,
       }
 
       for (uint8 i = 0; i < num_bg_threads; i++) {
-         rc = task_thread_create("splinter-bg-thread", task_worker_thread,
-               (void *)group, scratch_size, ts, hid, &group->bg.threads[i]);
+         rc = task_thread_create("splinter-bg-thread",
+                                 task_worker_thread,
+                                 (void *)group,
+                                 scratch_size,
+                                 ts,
+                                 hid,
+                                 &group->bg.threads[i]);
          if (!SUCCESS(rc)) {
             task_group_stop_and_wait_for_threads(group);
             goto out;
@@ -396,9 +400,9 @@ static inline platform_status
 task_lock_task_queue(task_group *group)
 {
    task_system *ts = group->ts;
-   return task_system_use_bg_threads(ts) ?
-      platform_condvar_lock(&group->bg.cv) :
-      platform_mutex_lock(&group->fg.mutex);
+   return task_system_use_bg_threads(ts)
+             ? platform_condvar_lock(&group->bg.cv)
+             : platform_mutex_lock(&group->fg.mutex);
 }
 
 static inline platform_status
@@ -427,11 +431,11 @@ task_enqueue(task_system *ts,
       return STATUS_NO_MEMORY;
    }
    new_task->func = func;
-   new_task->arg = arg;
-   new_task->ts = ts;
+   new_task->arg  = arg;
+   new_task->ts   = ts;
 
-   task_group *group = &ts->group[type];
-   task_queue *tq = &group->tq;
+   task_group     *group = &ts->group[type];
+   task_queue     *tq    = &group->tq;
    platform_status rc;
 
    rc = task_lock_task_queue(group);
@@ -444,18 +448,18 @@ task_enqueue(task_system *ts,
       if (at_head) {
          tq->head->prev = new_task;
          new_task->next = tq->head;
-         tq->head = new_task;
+         tq->head       = new_task;
       } else {
          tq->tail->next = new_task;
          new_task->prev = tq->tail;
-         tq->tail = new_task;
+         tq->tail       = new_task;
       }
    } else {
       platform_assert(tq->head == NULL);
       tq->head = tq->tail = new_task;
    }
 
-    __sync_fetch_and_add(&group->current_outstanding_tasks, 1);
+   __sync_fetch_and_add(&group->current_outstanding_tasks, 1);
 
    if (group->use_stats) {
       new_task->enqueue_time = platform_get_timestamp();
@@ -488,7 +492,8 @@ task_perform_all(task_system *ts)
    }
 }
 
-static void task_queue_unlock(void *arg)
+static void
+task_queue_unlock(void *arg)
 {
    task_group *group = (task_group *)arg;
    platform_assert(!task_system_use_bg_threads(group->ts));
@@ -500,8 +505,8 @@ task_group_perform_one(task_group *group)
 {
    platform_assert(!task_system_use_bg_threads(group->ts));
    platform_status rc;
-   task *assigned_task = NULL;
-   task_queue *tq = &group->tq;
+   task           *assigned_task = NULL;
+   task_queue     *tq            = &group->tq;
    if (group->current_outstanding_tasks == 0) {
       return STATUS_TIMEDOUT;
    }
@@ -520,12 +525,12 @@ task_group_perform_one(task_group *group)
    platform_assert(tq->head != NULL);
    platform_assert(tq->tail != NULL);
 
-   __attribute__ ((unused)) uint64 outstanding_tasks =
+   __attribute__((unused)) uint64 outstanding_tasks =
       __sync_fetch_and_sub(&group->current_outstanding_tasks, 1);
    platform_assert(outstanding_tasks != 0);
 
    assigned_task = tq->head;
-   tq->head = tq->head->next;
+   tq->head      = tq->head->next;
    if (tq->head == NULL) {
       platform_assert(tq->tail == assigned_task);
       tq->tail = NULL;
@@ -536,19 +541,19 @@ out:
    platform_mutex_unlock(&group->fg.mutex);
    platform_thread_cleanup_pop(0);
 
-   if (assigned_task){
+   if (assigned_task) {
       const threadid tid = platform_get_tid();
-      timestamp current;
+      timestamp      current;
 
       if (group->use_stats) {
          current = platform_get_timestamp();
       }
       assigned_task->func(assigned_task->arg,
-            task_system_get_thread_scratch(group->ts, tid));
+                          task_system_get_thread_scratch(group->ts, tid));
       if (group->use_stats) {
          current = platform_timestamp_elapsed(current);
          if (current > group->stats[tid].max_runtime_ns) {
-            group->stats[tid].max_runtime_ns = current;
+            group->stats[tid].max_runtime_ns   = current;
             group->stats[tid].max_runtime_func = assigned_task->func;
          }
       }
@@ -585,16 +590,16 @@ task_perform_one(task_system *ts)
  * -----------------------------------------------------------------------------
  */
 platform_status
-task_system_create(platform_heap_id     hid,
-                   platform_io_handle  *ioh,
-                   task_system        **system,
-                   bool                 use_stats,
-                   bool                 use_bg_threads,
-                   uint8                num_bg_threads[NUM_TASK_TYPES],
-                   uint64               scratch_size)
+task_system_create(platform_heap_id    hid,
+                   platform_io_handle *ioh,
+                   task_system       **system,
+                   bool                use_stats,
+                   bool                use_bg_threads,
+                   uint8               num_bg_threads[NUM_TASK_TYPES],
+                   uint64              scratch_size)
 {
-   task_system *ts = TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ts, init_task_scratch,
-         scratch_size);
+   task_system *ts =
+      TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ts, init_task_scratch, scratch_size);
 
    if (ts == NULL) {
       *system = NULL;
@@ -611,8 +616,12 @@ task_system_create(platform_heap_id     hid,
    ts->init_tid       = INVALID_TID;
 
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
-      platform_status rc = task_group_init(&ts->group[type], ts,
-            use_stats, use_bg_threads, num_bg_threads[type], scratch_size);
+      platform_status rc = task_group_init(&ts->group[type],
+                                           ts,
+                                           use_stats,
+                                           use_bg_threads,
+                                           num_bg_threads[type],
+                                           scratch_size);
       if (!SUCCESS(rc)) {
          platform_free(hid, ts);
          *system = NULL;
@@ -662,8 +671,7 @@ task_system_get_max_tid(task_system *ts)
 }
 
 void *
-task_system_get_thread_scratch(task_system    *ts,
-                               const threadid  tid)
+task_system_get_thread_scratch(task_system *ts, const threadid tid)
 {
    return ts->thread_scratch[tid];
 }
@@ -672,12 +680,13 @@ void
 task_wait_for_completion(task_system *ts)
 {
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
-      task_group *group = &ts->group[type];
-      uint64 outstanding_tasks = 0;
+      task_group *group             = &ts->group[type];
+      uint64      outstanding_tasks = 0;
       while (group->current_outstanding_tasks != 0) {
          if (group->current_outstanding_tasks != outstanding_tasks) {
             platform_log("waiting for %lu tasks of type %d\n",
-                  group->current_outstanding_tasks, type);
+                         group->current_outstanding_tasks,
+                         type);
             outstanding_tasks = group->current_outstanding_tasks;
          }
          platform_sleep(1000);
@@ -686,7 +695,8 @@ task_wait_for_completion(task_system *ts)
 }
 
 static void
-task_group_print_stats(task_group *group, task_type type) {
+task_group_print_stats(task_group *group, task_type type)
+{
    if (!group->use_stats) {
       platform_log("no stats\n");
       return;
@@ -695,17 +705,17 @@ task_group_print_stats(task_group *group, task_type type) {
    task_stats global = {0};
 
    for (threadid i = 0; i < MAX_THREADS; i++) {
-         global.total_tasks += group->stats[i].total_tasks;
-         global.total_latency_ns += group->stats[i].total_latency_ns;
+      global.total_tasks += group->stats[i].total_tasks;
+      global.total_latency_ns += group->stats[i].total_latency_ns;
       if (group->stats[i].max_runtime_ns > global.max_runtime_ns) {
-         global.max_runtime_ns = group->stats[i].max_runtime_ns;
+         global.max_runtime_ns   = group->stats[i].max_runtime_ns;
          global.max_runtime_func = group->stats[i].max_runtime_func;
       }
       if (group->stats[i].max_latency_ns > global.max_latency_ns)
-      global.max_latency_ns = group->stats[i].max_latency_ns;
+         global.max_latency_ns = group->stats[i].max_latency_ns;
    }
 
-   switch(type) {
+   switch (type) {
       case TASK_TYPE_NORMAL:
          platform_log("\nMain Task Group Statistics\n");
          break;
@@ -724,7 +734,8 @@ task_group_print_stats(task_group *group, task_type type) {
    platform_log("| total tasks run      : %10lu\n", global.total_tasks);
    platform_log("| current outstanding tasks : %lu\n",
                 group->current_outstanding_tasks);
-   platform_log("| max outstanding tasks : %lu\n", group->max_outstanding_tasks);
+   platform_log("| max outstanding tasks : %lu\n",
+                group->max_outstanding_tasks);
    platform_log("\n");
 }
 

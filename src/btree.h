@@ -45,7 +45,7 @@ typedef struct PACKED btree_hdr btree_hdr;
 typedef struct btree_node {
    uint64       addr;
    page_handle *page;
-   btree_hdr *hdr;
+   btree_hdr   *hdr;
 } btree_node;
 
 typedef struct {
@@ -70,7 +70,7 @@ typedef struct PACKED btree_pivot_data {
 
 typedef struct btree_iterator {
    iterator      super;
-   cache *       cc;
+   cache        *cc;
    btree_config *cfg;
    bool          do_prefetch;
    uint32        height;
@@ -93,9 +93,9 @@ typedef struct btree_iterator {
 
 typedef struct btree_pack_req {
    // inputs to the pack
-   cache *       cc;
+   cache        *cc;
    btree_config *cfg;
-   iterator *    itor;       // the itor which is being packed
+   iterator     *itor;       // the itor which is being packed
    uint64        max_tuples; // max tuples for the tree
    hash_fn       hash;       // hash function used for calculating filter_hash
    unsigned int  seed;       // seed used for calculating filter_hash
@@ -144,16 +144,16 @@ typedef struct btree_async_ctxt {
 } btree_async_ctxt;
 
 platform_status
-btree_insert(cache *             cc,         // IN
+btree_insert(cache              *cc,         // IN
              const btree_config *cfg,        // IN
              platform_heap_id    heap_id,    // IN
-             btree_scratch *     scratch,    // IN
+             btree_scratch      *scratch,    // IN
              uint64              root_addr,  // IN
-             mini_allocator *    mini,       // IN
+             mini_allocator     *mini,       // IN
              slice               key,        // IN
              slice               data,       // IN
-             uint64 *            generation, // OUT
-             bool *              was_unique);              // OUT
+             uint64             *generation, // OUT
+             bool               *was_unique);              // OUT
 
 /*
  *-----------------------------------------------------------------------------
@@ -179,20 +179,20 @@ btree_ctxt_init(btree_async_ctxt *ctxt,       // OUT
 }
 
 uint64
-btree_create(cache *             cc,
+btree_create(cache              *cc,
              const btree_config *cfg,
-             mini_allocator *    mini,
+             mini_allocator     *mini,
              page_type           type);
 
 void
-btree_inc_ref_range(cache *             cc,
+btree_inc_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
                     const slice         start_key,
                     const slice         end_key);
 
 bool
-btree_dec_ref_range(cache *             cc,
+btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
                     const slice         start_key,
@@ -200,7 +200,7 @@ btree_dec_ref_range(cache *             cc,
                     page_type           type);
 
 bool
-btree_dec_ref(cache *             cc,
+btree_dec_ref(cache              *cc,
               const btree_config *cfg,
               uint64              root_addr,
               page_type           type);
@@ -214,8 +214,8 @@ btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
 void
 btree_node_unget(cache *cc, const btree_config *cfg, btree_node *node);
 platform_status
-btree_lookup(cache *          cc,
-             btree_config *   cfg,
+btree_lookup(cache           *cc,
+             btree_config    *cfg,
              uint64           root_addr,
              page_type        type,
              slice            key,
@@ -228,34 +228,34 @@ btree_found(writable_buffer *result)
 }
 
 platform_status
-btree_lookup_and_merge(cache *          cc,
-                       btree_config *   cfg,
+btree_lookup_and_merge(cache           *cc,
+                       btree_config    *cfg,
                        uint64           root_addr,
                        page_type        type,
                        slice            key,
                        writable_buffer *data,
-                       bool *           local_found);
+                       bool            *local_found);
 
 cache_async_result
-btree_lookup_async(cache *           cc,
-                   btree_config *    cfg,
+btree_lookup_async(cache            *cc,
+                   btree_config     *cfg,
                    uint64            root_addr,
                    slice             key,
-                   writable_buffer * result,
+                   writable_buffer  *result,
                    btree_async_ctxt *ctxt);
 
 cache_async_result
-btree_lookup_and_merge_async(cache *           cc,          // IN
-                             btree_config *    cfg,         // IN
+btree_lookup_and_merge_async(cache            *cc,          // IN
+                             btree_config     *cfg,         // IN
                              uint64            root_addr,   // IN
                              const slice       key,         // IN
-                             writable_buffer * data,        // OUT
-                             bool *            local_found, // OUT
+                             writable_buffer  *data,        // OUT
+                             bool             *local_found, // OUT
                              btree_async_ctxt *ctxt);       // IN
 
 void
-btree_iterator_init(cache *         cc,
-                    btree_config *  cfg,
+btree_iterator_init(cache          *cc,
+                    btree_config   *cfg,
                     btree_iterator *iterator,
                     uint64          root_addr,
                     page_type       page_type,
@@ -268,10 +268,10 @@ void
 btree_iterator_deinit(btree_iterator *itor);
 
 static inline void
-btree_pack_req_init(btree_pack_req * req,
-                    cache *          cc,
-                    btree_config *   cfg,
-                    iterator *       itor,
+btree_pack_req_init(btree_pack_req  *req,
+                    cache           *cc,
+                    btree_config    *cfg,
+                    iterator        *itor,
                     uint64           max_tuples,
                     hash_fn          hash,
                     unsigned int     seed,
@@ -302,27 +302,27 @@ platform_status
 btree_pack(btree_pack_req *req);
 
 void
-btree_count_in_range(cache *       cc,
+btree_count_in_range(cache        *cc,
                      btree_config *cfg,
                      uint64        root_addr,
                      const slice   min_key,
                      const slice   max_key,
-                     uint32 *      kv_rank,
-                     uint32 *      key_bytes_rank,
-                     uint32 *      message_bytes_rank);
+                     uint32       *kv_rank,
+                     uint32       *key_bytes_rank,
+                     uint32       *message_bytes_rank);
 
 void
-btree_count_in_range_by_iterator(cache *       cc,
+btree_count_in_range_by_iterator(cache        *cc,
                                  btree_config *cfg,
                                  uint64        root_addr,
                                  const slice   min_key,
                                  const slice   max_key,
-                                 uint32 *      kv_rank,
-                                 uint32 *      key_bytes_rank,
-                                 uint32 *      message_bytes_rank);
+                                 uint32       *kv_rank,
+                                 uint32       *key_bytes_rank,
+                                 uint32       *message_bytes_rank);
 
 uint64
-btree_rough_count(cache *       cc,
+btree_rough_count(cache        *cc,
                   btree_config *cfg,
                   uint64        root_addr,
                   slice         min_key,
@@ -332,22 +332,22 @@ void
 btree_print_tree(cache *cc, btree_config *cfg, uint64 addr);
 
 void
-btree_print_locked_node(btree_config *         cfg,
+btree_print_locked_node(btree_config          *cfg,
                         uint64                 addr,
-                        btree_hdr *            hdr,
+                        btree_hdr             *hdr,
                         platform_stream_handle stream);
 
 void
-btree_print_node(cache *                cc,
-                 btree_config *         cfg,
-                 btree_node *           node,
+btree_print_node(cache                 *cc,
+                 btree_config          *cfg,
+                 btree_node            *node,
                  platform_stream_handle stream);
 
 void
 btree_print_tree_stats(cache *cc, btree_config *cfg, uint64 addr);
 
 void
-btree_print_lookup(cache *       cc,
+btree_print_lookup(cache        *cc,
                    btree_config *cfg,
                    uint64        root_addr,
                    page_type     type,
@@ -360,7 +360,7 @@ uint64
 btree_extent_count(cache *cc, btree_config *cfg, uint64 root_addr);
 
 uint64
-btree_space_use_in_range(cache *       cc,
+btree_space_use_in_range(cache        *cc,
                          btree_config *cfg,
                          uint64        root_addr,
                          page_type     type,
@@ -369,7 +369,7 @@ btree_space_use_in_range(cache *       cc,
 
 void
 btree_config_init(btree_config *btree_cfg,
-                  data_config * data_cfg,
+                  data_config  *data_cfg,
                   uint64        rough_count_height,
                   uint64        page_size,
                   uint64        extent_size);

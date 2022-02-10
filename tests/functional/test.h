@@ -56,7 +56,7 @@ ycsb_test(int argc, char *argv[]);
 static inline platform_status
 test_init_splinter(platform_heap_id    hid,
                    platform_io_handle *ioh,
-                   task_system **      system,
+                   task_system       **system,
                    bool                use_stats,
                    bool                use_bg_threads,
                    uint8               num_bg_threads[NUM_TASK_TYPES])
@@ -78,7 +78,7 @@ test_deinit_splinter(platform_heap_id hid, task_system *ts)
 }
 
 static inline void
-test_key(char *        key,
+test_key(char         *key,
          test_key_type key_type,
          uint64        idx,
          uint64        thread_id,
@@ -133,9 +133,9 @@ test_int_to_key(char *key, uint64 idx, uint64 key_size)
 }
 
 static inline void
-test_insert_data(void *       raw_data,
+test_insert_data(void        *raw_data,
                  int8         ref_count,
-                 char *       val,
+                 char        *val,
                  uint64       input_size,
                  uint64       data_size,
                  message_type type)
@@ -148,13 +148,13 @@ test_insert_data(void *       raw_data,
 }
 
 static inline void
-test_config_init(splinter_config *    splinter_cfg,
-                 data_config *        data_cfg,
-                 shard_log_config *   log_cfg,
-                 clockcache_config *  cache_cfg,
+test_config_init(splinter_config     *splinter_cfg,
+                 data_config         *data_cfg,
+                 shard_log_config    *log_cfg,
+                 clockcache_config   *cache_cfg,
                  rc_allocator_config *allocator_cfg,
-                 io_config *          io_cfg,
-                 master_config *      master_cfg)
+                 io_config           *io_cfg,
+                 master_config       *master_cfg)
 {
    *data_cfg              = test_data_config;
    data_cfg->key_size     = master_cfg->key_size;
@@ -200,16 +200,16 @@ test_config_init(splinter_config *    splinter_cfg,
 }
 
 static inline platform_status
-test_parse_args_n(splinter_config *    splinter_cfg,
-                  data_config *        data_cfg,
-                  io_config *          io_cfg,
+test_parse_args_n(splinter_config     *splinter_cfg,
+                  data_config         *data_cfg,
+                  io_config           *io_cfg,
                   rc_allocator_config *allocator_cfg,
-                  clockcache_config *  cache_cfg,
-                  shard_log_config *   log_cfg,
-                  uint64 *             seed,
+                  clockcache_config   *cache_cfg,
+                  shard_log_config    *log_cfg,
+                  uint64              *seed,
                   uint8                num_config,
                   int                  argc,
-                  char *               argv[])
+                  char                *argv[])
 {
    platform_status rc;
    uint8           i;
@@ -241,15 +241,15 @@ test_parse_args_n(splinter_config *    splinter_cfg,
 }
 
 static inline platform_status
-test_parse_args(splinter_config *    splinter_cfg,
-                data_config *        data_cfg,
-                io_config *          io_cfg,
+test_parse_args(splinter_config     *splinter_cfg,
+                data_config         *data_cfg,
+                io_config           *io_cfg,
                 rc_allocator_config *allocator_cfg,
-                clockcache_config *  cache_cfg,
-                shard_log_config *   log_cfg,
-                uint64 *             seed,
+                clockcache_config   *cache_cfg,
+                shard_log_config    *log_cfg,
+                uint64              *seed,
                 int                  argc,
-                char *               argv[])
+                char                *argv[])
 {
    return test_parse_args_n(splinter_cfg,
                             data_cfg,

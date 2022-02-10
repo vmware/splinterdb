@@ -39,13 +39,13 @@ static int
 leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs);
 
 static bool
-btree_leaf_incorporate_tuple(const btree_config *   cfg,
+btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              platform_heap_id       hid,
-                             btree_hdr *            hdr,
+                             btree_hdr             *hdr,
                              slice                  key,
                              slice                  message,
                              leaf_incorporate_spec *spec,
-                             uint64 *               generation)
+                             uint64                *generation)
 {
    platform_status rc =
       btree_create_leaf_incorporate_spec(cfg, hid, hdr, key, message, spec);

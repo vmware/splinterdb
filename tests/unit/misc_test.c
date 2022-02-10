@@ -23,11 +23,11 @@
 /* Function prototypes and caller-macros to invoke testing interfaces */
 void
 test_platform_assert_msg(platform_stream_handle stream,
-                         const char *           filename,
+                         const char            *filename,
                          int                    linenumber,
-                         const char *           functionname,
-                         const char *           expr,
-                         const char *           message,
+                         const char            *functionname,
+                         const char            *expr,
+                         const char            *message,
                          ...);
 
 /*
@@ -161,11 +161,11 @@ CTEST2(misc, test_ctest_assert_prints_user_msg_with_params)
  */
 void
 test_platform_assert_msg(platform_stream_handle stream,
-                         const char *           filename,
+                         const char            *filename,
                          int                    linenumber,
-                         const char *           functionname,
-                         const char *           expr,
-                         const char *           message,
+                         const char            *functionname,
+                         const char            *expr,
+                         const char            *message,
                          ...)
 {
    va_list varargs;
