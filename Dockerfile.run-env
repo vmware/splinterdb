@@ -9,7 +9,7 @@
 # It is maintained separately from the main Dockerfile
 # to reduce build-times when the splinterdb source changes
 
-ARG base_image=library/ubuntu:20.04
+ARG base_image=library/ubuntu:22.04
 FROM $base_image AS runner
 RUN /bin/bash -c ' \
 set -euo pipefail; \

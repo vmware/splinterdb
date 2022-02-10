@@ -5,17 +5,17 @@ To integrate SplinterDB into another application, see [Usage](usage.md).
 ## On Linux
 Builds are known to work on Ubuntu using recent versions of GCC and Clang.
 
-In CI, we test against the versions that Ubuntu "focal" 20.04 provides by
-default, currently GCC 9 and Clang 10.
+In CI, we test against the versions that Ubuntu "jammy" 22.04 provides by
+default, currently GCC 11 and Clang 13.
 
 ```shell
-$ export COMPILER=gcc-9
+$ export COMPILER=gcc-11
 $ sudo apt update -y
 $ sudo apt install -y libaio-dev libconfig-dev libxxhash-dev $COMPILER
 $ export CC=$COMPILER
 $ export LD=$COMPILER
 $ make
-$ make test
+$ make run-tests
 $ sudo make install
 ```
 
