@@ -307,7 +307,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
 deinit_cache:
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_dismount(&kvs->allocator_handle);
-   task_system_destroy(kvs->heap_id, kvs->task_sys);
+   task_system_destroy(kvs->heap_id, &kvs->task_sys);
    io_handle_deinit(&kvs->io_handle);
 
 deinit_kvhandle:
@@ -409,7 +409,7 @@ deinit_rc_allocator:
    rc_allocator_dismount(&kvs->allocator_handle);
 
 deinit_task_system:
-   task_system_destroy(kvs->heap_id, kvs->task_sys);
+   task_system_destroy(kvs->heap_id, &kvs->task_sys);
 
 deinit_io_handle:
    io_handle_deinit(&kvs->io_handle);
@@ -483,7 +483,7 @@ kvstore_bootstrap_configs(kvstore_config *kvs_cfg)
    // Dead code, only to indicate that task-system is not expected to have
    // been initialized in bootstrap mode. So, there is nothing to deinit.
    if (!is_bootstrap) {
-      task_system_destroy(kvs->heap_id, kvs->task_sys);
+      task_system_destroy(kvs->heap_id, &kvs->task_sys);
    }
    io_handle_deinit(&kvs->io_handle);
 
@@ -614,7 +614,7 @@ kvstore_close(kvstore **kvspp) // IN
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_dismount(&kvs->allocator_handle);
    io_handle_deinit(&kvs->io_handle);
-   task_system_destroy(kvs->heap_id, kvs->task_sys);
+   task_system_destroy(kvs->heap_id, &kvs->task_sys);
 
    platform_free(kvs->heap_id, kvs);
    *kvspp = (kvstore *)NULL;

@@ -74,7 +74,7 @@ test_init_splinter(platform_heap_id    hid,
 static inline void
 test_deinit_splinter(platform_heap_id hid, task_system *ts)
 {
-   task_system_destroy(hid, ts);
+   task_system_destroy(hid, &ts);
 }
 
 static inline void
