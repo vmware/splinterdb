@@ -85,7 +85,9 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
                        bool                  open_existing // IN
 );
 
-// kvstore_bootstrap_configs(kvstore_config *kvs_cfg, kvstore ** kvs);
+static platform_status
+kvstore_init_subsystems(kvstore *kvs, bool open_existing, bool is_bootstrap);
+
 static int
 kvstore_bootstrap_configs(kvstore_config *kvs_cfg);
 
@@ -263,6 +265,7 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
       return platform_status_to_int(status);
    }
 
+   // Initialize the configuration for various sub-systems.
    status = kvstore_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init config: %s\n",
@@ -270,62 +273,10 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
-   status = io_handle_init(
-      &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
+   // Allocate memory and initialize configured sub-systems.
+   status = kvstore_init_subsystems(kvs, open_existing, FALSE);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init io handle: %s\n",
-                         platform_status_to_string(status));
-      goto deinit_kvhandle;
-   }
-
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   status                               = task_system_create(kvs->heap_id,
-                               &kvs->io_handle,
-                               &kvs->task_sys,
-                               TRUE,
-                               FALSE,
-                               num_bg_threads,
-                               splinter_get_scratch_size());
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to init splinter state: %s\n",
-                         platform_status_to_string(status));
-      goto deinit_iohandle;
-   }
-
-   if (open_existing) {
-      status = rc_allocator_mount(&kvs->allocator_handle,
-                                  &kvs->allocator_cfg,
-                                  (io_handle *)&kvs->io_handle,
-                                  kvs->heap_handle,
-                                  kvs->heap_id,
-                                  platform_get_module_id());
-   } else {
-      status = rc_allocator_init(&kvs->allocator_handle,
-                                 &kvs->allocator_cfg,
-                                 (io_handle *)&kvs->io_handle,
-                                 kvs->heap_handle,
-                                 kvs->heap_id,
-                                 platform_get_module_id());
-   }
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to init allocator: %s\n",
-                         platform_status_to_string(status));
-      goto deinit_system;
-   }
-
-   status = clockcache_init(&kvs->cache_handle,
-                            &kvs->cache_cfg,
-                            (io_handle *)&kvs->io_handle,
-                            (allocator *)&kvs->allocator_handle,
-                            "kvStore",
-                            kvs->task_sys,
-                            kvs->heap_handle,
-                            kvs->heap_id,
-                            platform_get_module_id());
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to init cache: %s\n",
-                         platform_status_to_string(status));
-      goto deinit_allocator;
+      return platform_status_to_int(status);
    }
 
    kvs->splinter_id = 1;
@@ -355,16 +306,118 @@ kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
 
 deinit_cache:
    clockcache_deinit(&kvs->cache_handle);
-deinit_allocator:
    rc_allocator_dismount(&kvs->allocator_handle);
-deinit_system:
    task_system_destroy(kvs->heap_id, kvs->task_sys);
-deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
+
 deinit_kvhandle:
    platform_free(kvs_cfg->heap_id, kvs);
 
    return platform_status_to_int(status);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * kvstore_init_subsystems() --
+ *
+ * Having setup the configuration for various sub-systems in a kvstore
+ * handle, initialize each sub-system. This step is needed before we can
+ * create or mount a Splinter device to start using the KVStore.
+ *
+ * Parameters:
+ *  kvs
+ *  open_existing   - We are opening an existing Splinter instance
+ *                    RC allocator is mounted v/s created.
+ *  is_bootstrap    - We are bootstrapping a Splinter instance
+ *                    Task system is not initialized, as we don't need
+ *                    it while peeking into the super block.
+ *-----------------------------------------------------------------------------
+ */
+static platform_status
+kvstore_init_subsystems(kvstore *kvs, bool open_existing, bool is_bootstrap)
+{
+   platform_status status;
+
+   status = io_handle_init(
+      &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
+
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to init io handle: %s\n",
+                         platform_status_to_string(status));
+      goto deinit_kvhandle;
+   }
+
+   if (!is_bootstrap) {
+      uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+
+      status = task_system_create(kvs->heap_id,
+                                  &kvs->io_handle,
+                                  &kvs->task_sys,
+                                  TRUE,
+                                  FALSE,
+                                  num_bg_threads,
+                                  splinter_get_scratch_size());
+      if (!SUCCESS(status)) {
+         platform_error_log("Failed to init splinter task system: %s\n",
+                            platform_status_to_string(status));
+         goto deinit_io_handle;
+      }
+   }
+
+   if (open_existing) {
+      status = rc_allocator_mount(&kvs->allocator_handle,
+                                  &kvs->allocator_cfg,
+                                  (io_handle *)&kvs->io_handle,
+                                  kvs->heap_handle,
+                                  kvs->heap_id,
+                                  platform_get_module_id());
+   } else {
+      status = rc_allocator_init(&kvs->allocator_handle,
+                                 &kvs->allocator_cfg,
+                                 (io_handle *)&kvs->io_handle,
+                                 kvs->heap_handle,
+                                 kvs->heap_id,
+                                 platform_get_module_id());
+   }
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to init allocator: %s\n",
+                         platform_status_to_string(status));
+      goto deinit_task_system;
+   }
+
+   status = clockcache_init(&kvs->cache_handle,
+                            &kvs->cache_cfg,
+                            (io_handle *)&kvs->io_handle,
+                            (allocator *)&kvs->allocator_handle,
+                            "kvStore",
+                            kvs->task_sys,
+                            kvs->heap_handle,
+                            kvs->heap_id,
+                            platform_get_module_id());
+   if (!SUCCESS(status)) {
+      platform_error_log("Failed to init cache: %s\n",
+                         platform_status_to_string(status));
+      goto deinit_rc_allocator;
+   }
+
+   // All sub-systems are up-and-running.
+   return status;
+
+   // In case of some errors, cleanup as you backout
+
+deinit_rc_allocator:
+   rc_allocator_dismount(&kvs->allocator_handle);
+
+deinit_task_system:
+   task_system_destroy(kvs->heap_id, kvs->task_sys);
+
+deinit_io_handle:
+   io_handle_deinit(&kvs->io_handle);
+
+deinit_kvhandle:
+   platform_free(kvs->heap_id, kvs);
+
+   return status;
 }
 
 /*
@@ -401,39 +454,13 @@ kvstore_bootstrap_configs(kvstore_config *kvs_cfg)
       goto deinit_kvhandle;
    }
 
-   status = io_handle_init(
-      &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
+   bool is_bootstrap = TRUE;
+   // Allocate memory and initialize various configured sub-systems.
+   // TRUE => We are bootstrapping an existing Splinter device, just enough
+   // to read the super-block.
+   status = kvstore_init_subsystems(kvs, TRUE, is_bootstrap);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init io handle: %s\n",
-                         platform_status_to_string(status));
-      goto deinit_kvhandle;
-   }
-
-   status = rc_allocator_mount(&kvs->allocator_handle,
-                               &kvs->allocator_cfg,
-                               (io_handle *)&kvs->io_handle,
-                               kvs->heap_handle,
-                               kvs->heap_id,
-                               platform_get_module_id());
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to init allocator: %s\n",
-                         platform_status_to_string(status));
-      goto deinit_kvhandle;
-   }
-
-   status = clockcache_init(&kvs->cache_handle,
-                            &kvs->cache_cfg,
-                            (io_handle *)&kvs->io_handle,
-                            (allocator *)&kvs->allocator_handle,
-                            "kvStore",
-                            kvs->task_sys,
-                            kvs->heap_handle,
-                            kvs->heap_id,
-                            platform_get_module_id());
-   if (!SUCCESS(status)) {
-      platform_error_log("Failed to init cache: %s\n",
-                         platform_status_to_string(status));
-      goto deinit_allocator;
+      return platform_status_to_int(status);
    }
 
    kvs->splinter_id = 1;
@@ -448,16 +475,19 @@ kvstore_bootstrap_configs(kvstore_config *kvs_cfg)
    kvs_cfg->page_size   = kvs->splinter_cfg.page_size;
    kvs_cfg->extent_size = kvs->splinter_cfg.extent_size;
 
-   // Before exiting, free the kvs struct allocated locally
-   platform_free(kvs_cfg->heap_id, kvs);
-   return platform_status_to_int(status);
-
+   // We are done with bootstrapping. Before exiting, deinit various
+   // sub-systems, and free the kvs struct allocated locally.
    clockcache_deinit(&kvs->cache_handle);
-deinit_allocator:
    rc_allocator_dismount(&kvs->allocator_handle);
-deinit_kvhandle:
-   platform_free(kvs_cfg->heap_id, kvs);
 
+   // Dead code, only to indicate that task-system is not expected to have
+   // been initialized in bootstrap mode. So, there is nothing to deinit.
+   if (!is_bootstrap) {
+      task_system_destroy(kvs->heap_id, kvs->task_sys);
+   }
+   io_handle_deinit(&kvs->io_handle);
+
+deinit_kvhandle:
    // Before exiting, free the kvs struct allocated locally
    platform_free(kvs_cfg->heap_id, kvs);
    return platform_status_to_int(status);
