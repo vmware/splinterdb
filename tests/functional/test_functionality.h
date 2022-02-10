@@ -3,14 +3,14 @@
 
 #include "allocator.h"
 #include "cache.h"
-#include "splinter.h"
+#include "trunk.h"
 #include "platform.h"
 
 platform_status
 test_functionality(allocator           *al,
                    io_handle           *io,
                    cache               *cc[],
-                   splinter_config     *cfg,
+                   trunk_config        *cfg,
                    uint64               seed,
                    uint64               num_inserts,
                    uint64               correctness_check_frequency,

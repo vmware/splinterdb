@@ -53,7 +53,7 @@ struct Get {
 #[derive(Parser)]
 struct List {}
 
-/// Initialize a new database file, using the kvstore_basic interface
+/// Initialize a new database file
 #[derive(Parser)]
 struct InitDB {
     /// Size of in-memory cache, in MB

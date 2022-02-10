@@ -2,36 +2,36 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * kvstore_basic.h --
+ * splinterdb_kv.h --
  *
- *     Simplified key-value store interface
+ *     Simple, high-level key/value API for SplinterDB
  *
  */
 
-#ifndef _KVSTORE_BASIC_H_
-#define _KVSTORE_BASIC_H_
+#ifndef _SPLINTERDB_KV_H_
+#define _SPLINTERDB_KV_H_
 
 #include <stddef.h> // for size_t
 #include "splinterdb/limits.h"
 
 // Length-prefix encoding of a variable-sized key
 // Should be == sizeof(basic_key_encoding), which is enforced elsewhere
-#define KVSTORE_BASIC_KEY_HDR_SIZE ((int)sizeof(uint8_t))
+#define SPLINTERDB_KV_KEY_HDR_SIZE ((int)sizeof(uint8_t))
 
 // Minimum size of a key, in bytes
-#define KVSTORE_BASIC_MIN_KEY_SIZE 2
+#define SPLINTERDB_KV_MIN_KEY_SIZE 2
 
 // Max size of a key, in bytes
 // Must always be = ( MAX_KEY_SIZE - sizeof(basic_key_encoding) )
-#define KVSTORE_BASIC_MAX_KEY_SIZE (MAX_KEY_SIZE - KVSTORE_BASIC_KEY_HDR_SIZE)
+#define SPLINTERDB_KV_MAX_KEY_SIZE (MAX_KEY_SIZE - SPLINTERDB_KV_KEY_HDR_SIZE)
 
 // Should be == sizeof(basic_message), which is enforced elsewhere
-#define KVSTORE_BASIC_MSG_HDR_SIZE ((int)sizeof(void *))
+#define SPLINTERDB_KV_MSG_HDR_SIZE ((int)sizeof(void *))
 
 // Maximum size of a value, in bytes
 // Must always == ( MAX_MESSAGE_SIZE - sizeof(basic_message) )
-#define KVSTORE_BASIC_MAX_VALUE_SIZE                                           \
-   (MAX_MESSAGE_SIZE - KVSTORE_BASIC_MSG_HDR_SIZE)
+#define SPLINTERDB_KV_MAX_VALUE_SIZE                                           \
+   (MAX_MESSAGE_SIZE - SPLINTERDB_KV_MSG_HDR_SIZE)
 
 typedef int (*key_comparator_fn)(const void *context,
                                  const void *key1,
@@ -69,54 +69,54 @@ typedef struct {
    // Reserved, set them to NULL
    void *heap_handle;
    void *heap_id;
-} kvstore_basic_cfg;
+} splinterdb_kv_cfg;
 
 // Handle to a live instance of splinterdb
-typedef struct kvstore_basic kvstore_basic;
+typedef struct splinterdb_kv splinterdb_kv;
 
-// Create a new kvstore_basic from the provided config
+// Create a new splinterdb_kv from the provided config
 int
-kvstore_basic_create(const kvstore_basic_cfg *cfg, // IN
-                     kvstore_basic          **kvsb // OUT
+splinterdb_kv_create(const splinterdb_kv_cfg *cfg, // IN
+                     splinterdb_kv          **kvsb // OUT
 );
 
-// Open an existing kvstore_basic using the provided config
+// Open an existing splinterdb_kv using the provided config
 int
-kvstore_basic_open(const kvstore_basic_cfg *cfg, // IN
-                   kvstore_basic          **kvsb // OUT
+splinterdb_kv_open(const splinterdb_kv_cfg *cfg, // IN
+                   splinterdb_kv          **kvsb // OUT
 );
 
 // De-init a handle and associated in-memory resources
 void
-kvstore_basic_close(kvstore_basic *kvsb);
+splinterdb_kv_close(splinterdb_kv *kvsb);
 
-// Register the current thread so that it can be used with the kvstore_basic.
+// Register the current thread so that it can be used with the splinterdb_kv.
 // This causes scratch space to be allocated for the thread.
 //
-// Any thread that uses a kvstore_basic must first be registered with it.
+// Any thread that uses a splinterdb_kv must first be registered with it.
 //
 // The only exception is the initial thread which called create or open,
 // as that thread is implicitly registered.  Re-registering it will leak memory.
 //
 // A thread should not be registered more than once; that would leak memory.
 //
-// kvstore_basic_close will use scratch space, so the thread that calls it must
+// splinterdb_kv_close will use scratch space, so the thread that calls it must
 // have been registered (or implicitly registered by being the initial thread).
 //
 // Note: There is currently a limit of MAX_THREADS registered at a given time
 void
-kvstore_basic_register_thread(const kvstore_basic *kvsb);
+splinterdb_kv_register_thread(const splinterdb_kv *kvsb);
 
 // Deregister the current thread and free its scratch space.
 //
 // Call this function before exiting a registered thread.
 // Otherwise, you'll leak memory.
 void
-kvstore_basic_deregister_thread(const kvstore_basic *kvsb);
+splinterdb_kv_deregister_thread(const splinterdb_kv *kvsb);
 
 // Insert a key:value pair
 int
-kvstore_basic_insert(const kvstore_basic *kvsb,
+splinterdb_kv_insert(const splinterdb_kv *kvsb,
                      const char          *key,
                      size_t               key_len,
                      const char          *value,
@@ -124,7 +124,7 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
 
 // Delete a given key and associated value
 int
-kvstore_basic_delete(const kvstore_basic *kvsb,
+splinterdb_kv_delete(const splinterdb_kv *kvsb,
                      const char          *key,
                      size_t               key_len);
 
@@ -143,7 +143,7 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
 // - *val_truncated will be true if the size of the value associated
 //   with key is larger than *val_bytes.
 int
-kvstore_basic_lookup(const kvstore_basic *kvsb,
+splinterdb_kv_lookup(const splinterdb_kv *kvsb,
                      const char          *key,           // IN
                      const size_t         key_len,       // IN
                      char                *val,           // OUT
@@ -154,61 +154,61 @@ kvstore_basic_lookup(const kvstore_basic *kvsb,
 );
 
 /*
-KVStore Basic Iterator API
+SplinterDB Key/Value Iterator API
 
-See the doc comments in kvstore.h for details.
+See the doc comments in splinterdb.h for details.
 
 Sample application code:
 
-   kvstore_basic_iterator* it;
+   splinterdb_kv_iterator* it;
    const char* start_key = NULL;
-   int rc = kvstore_basic_iter_init(kvsb, &it, start_key);
+   int rc = splinterdb_kv_iter_init(kvsb, &it, start_key);
    if (rc != 0) { ... handle error ... }
 
    const char* key;
    const char* val;
    size_t key_len, val_len;
-   for(; kvstore_basic_iter_valid(it); kvstore_basic_iter_next(it)) {
-      kvstore_basic_iter_get_current(it, &key, &key_len, &val, &val_len);
+   for(; splinterdb_kv_iter_valid(it); splinterdb_kv_iter_next(it)) {
+      splinterdb_kv_iter_get_current(it, &key, &key_len, &val, &val_len);
 
       // read key and val, but do not modify them
       printf("key=%.*s val=%.*s", (int)(key_len), key, (int)(val_len), val);
    }
 
    // loop exit may mean error, or just that we've reached the end of the range
-   rc = kvstore_iter_status(it); if (rc != 0) { ... handle error ... }
+   rc = splinterdb_iter_status(it); if (rc != 0) { ... handle error ... }
 */
 
-typedef struct kvstore_basic_iterator kvstore_basic_iterator;
+typedef struct splinterdb_kv_iterator splinterdb_kv_iterator;
 
 int
-kvstore_basic_iter_init(const kvstore_basic     *kvsb,         // IN
-                        kvstore_basic_iterator **iter,         // OUT
+splinterdb_kv_iter_init(const splinterdb_kv     *kvsb,         // IN
+                        splinterdb_kv_iterator **iter,         // OUT
                         const char              *start_key,    // IN
                         size_t                   start_key_len // IN
 );
 
 void
-kvstore_basic_iter_deinit(kvstore_basic_iterator **iterpp);
+splinterdb_kv_iter_deinit(splinterdb_kv_iterator **iterpp);
 
 // Checks that the iterator status is OK (no errors) and that get_current()
 // will succeed. If false, there are two possibilities:
 // 1. Iterator has passed the final item. In this case, status() == 0
 // 2. Iterator has encountered an error. In this case, status() != 0
 _Bool
-kvstore_basic_iter_valid(kvstore_basic_iterator *iter);
+splinterdb_kv_iter_valid(splinterdb_kv_iterator *iter);
 
 // Attempts to advance the iterator to the next item.
 // Any error will cause valid() == false and be visible with status()
 void
-kvstore_basic_iter_next(kvstore_basic_iterator *iter);
+splinterdb_kv_iter_next(splinterdb_kv_iterator *iter);
 
 // Sets *key and *message to the locations of the current item
 // Callers must not modify that memory
 //
 // If valid() == false, then behavior is undefined.
 void
-kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
+splinterdb_kv_iter_get_current(splinterdb_kv_iterator *iter,    // IN
                                const char            **key,     // OUT
                                size_t                 *key_len, // OUT
                                const char            **value,   // OUT
@@ -219,10 +219,10 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
 //
 // End-of-range is not an error
 int
-kvstore_basic_iter_status(const kvstore_basic_iterator *iter);
+splinterdb_kv_iter_status(const splinterdb_kv_iterator *iter);
 
 // Returns a C string with the build version of this library
 const char *
-kvstore_basic_get_version();
+splinterdb_kv_get_version();
 
-#endif // _KVSTORE_BASIC_H_
+#endif // _SPLINTERDB_KV_H_

@@ -56,12 +56,12 @@ Example: Run all test cases named 'test_leaf_hdr%' from the 'btree' test suite
 $ bin/unit_test btree test_leaf_hdr
 
 # Run a specific unit-test binary
-$ bin/unit/kvstore_basic_test
+$ bin/unit/splinterdb_kv_test
 
 # Run all test cases named with a prefix from specific unit-test binary.
-# E.g., run all test cases named 'test_kvstore_iterator%' from kvstore_basic_test
+# E.g., run all test cases named 'test_splinterdb_iterator%' from splinterdb_kv_test
 #
 $ bin/unit/<unit-test-binary-name> <test-case-name>
-$ bin/unit/kvstore_basic_test test_kvstore_iterator
+$ bin/unit/splinterdb_kv_test test_splinterdb_iterator
 
 ```

@@ -3,7 +3,7 @@
 
 #include "platform.h"
 
-#include "splinter.h"
+#include "trunk.h"
 #include "task.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
@@ -279,8 +279,8 @@ typedef struct ycsb_log_params {
    platform_thread thread;
 
    // State
-   uint64           next_op;
-   splinter_handle *spl;
+   uint64        next_op;
+   trunk_handle *spl;
 
    // Coordination
    uint64 *threads_complete;
@@ -310,7 +310,7 @@ ycsb_thread(void *arg)
    platform_heap_id hid = platform_get_heap_id();
    uint64           i;
    ycsb_log_params *params     = (ycsb_log_params *)arg;
-   splinter_handle *spl        = params->spl;
+   trunk_handle    *spl        = params->spl;
    uint64           num_ops    = params->total_ops;
    uint64           batch_size = params->batch_size;
    uint64           my_batch;
@@ -337,13 +337,13 @@ ycsb_thread(void *arg)
             {
                writable_buffer value;
                writable_buffer_init_null(&value, NULL);
-               rc = splinter_lookup(spl, ops->key, &value);
+               rc = trunk_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
-               //   splinter_key_to_string(spl, ops->key, key_str);
+               //   trunk_key_to_string(spl, ops->key, key_str);
                //   platform_log("Key %s not found\n", key_str);
-               //   splinter_print_lookup(spl, ops->key);
+               //   trunk_print_lookup(spl, ops->key);
                //   platform_assert(0);
                //}
                break;
@@ -353,7 +353,7 @@ ycsb_thread(void *arg)
             case 'u':
             {
                slice value_slice = slice_create(YCSB_DATA_SIZE, ops->value);
-               rc                = splinter_insert(spl, ops->key, value_slice);
+               rc                = trunk_insert(spl, ops->key, value_slice);
                platform_assert_status_ok(rc);
                break;
             }
@@ -373,11 +373,11 @@ ycsb_thread(void *arg)
                      TYPED_ARRAY_MALLOC(hid, range_buffer, range_buffer_size);
                   platform_assert(range_buffer);
                }
-               rc = splinter_range(spl,
-                                   ops->key,
-                                   ops->range_len,
-                                   &tuples_returned,
-                                   range_buffer);
+               rc = trunk_range(spl,
+                                ops->key,
+                                ops->range_len,
+                                &tuples_returned,
+                                range_buffer);
                platform_assert_status_ok(rc);
                break;
             }
@@ -400,7 +400,7 @@ ycsb_thread(void *arg)
    __sync_fetch_and_add(params->threads_complete, 1);
 
    while (*params->threads_complete != params->total_threads) {
-      splinter_perform_tasks(spl);
+      trunk_perform_tasks(spl);
       platform_sleep(2000);
    }
 
@@ -424,7 +424,7 @@ ycsb_thread(void *arg)
 }
 
 static int
-run_ycsb_phase(splinter_handle *spl,
+run_ycsb_phase(trunk_handle    *spl,
                ycsb_phase      *phase,
                task_system     *ts,
                platform_heap_id hid)
@@ -459,7 +459,7 @@ run_ycsb_phase(splinter_handle *spl,
          ret = task_thread_create("ycsb_thread",
                                   ycsb_thread,
                                   &phase->params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &threads[cur_thread]);
@@ -516,7 +516,7 @@ shutdown:
 }
 
 static int
-run_all_ycsb_phases(splinter_handle *spl,
+run_all_ycsb_phases(trunk_handle    *spl,
                     ycsb_phase      *phase,
                     uint64           nphases,
                     task_system     *ts,
@@ -527,10 +527,10 @@ run_all_ycsb_phases(splinter_handle *spl,
       platform_log("Beginning phase %lu\n", i);
       if (run_ycsb_phase(spl, &phase[i], ts, hid) < 0)
          return -1;
-      splinter_print_insertion_stats(spl);
-      splinter_print_lookup_stats(spl);
+      trunk_print_insertion_stats(spl);
+      trunk_print_lookup_stats(spl);
       cache_print_stats(spl->cc);
-      // splinter_reset_stats(spl);
+      // trunk_reset_stats(spl);
       cache_reset_stats(spl->cc);
       platform_log("Phase %s complete\n", phase[i].name);
    }
@@ -1199,8 +1199,8 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config     *data_cfg     = TYPED_MALLOC(hid, data_cfg);
-   splinter_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   data_config  *data_cfg     = TYPED_MALLOC(hid, data_cfg);
+   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
                         data_cfg,
@@ -1294,9 +1294,9 @@ ycsb_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   rc_allocator     al;
-   clockcache      *cc = TYPED_MALLOC(hid, cc);
-   splinter_handle *spl;
+   rc_allocator  al;
+   clockcache   *cc = TYPED_MALLOC(hid, cc);
+   trunk_handle *spl;
 
    if (use_existing) {
       rc_allocator_mount(&al,
@@ -1315,12 +1315,12 @@ ycsb_test(int argc, char *argv[])
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = splinter_mount(splinter_cfg,
-                           (allocator *)&al,
-                           (cache *)cc,
-                           ts,
-                           test_generate_allocator_root_id(),
-                           hid);
+      spl = trunk_mount(splinter_cfg,
+                        (allocator *)&al,
+                        (cache *)cc,
+                        ts,
+                        test_generate_allocator_root_id(),
+                        hid);
       platform_assert(spl);
    } else {
       rc_allocator_init(&al,
@@ -1339,18 +1339,18 @@ ycsb_test(int argc, char *argv[])
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
-      spl = splinter_create(splinter_cfg,
-                            (allocator *)&al,
-                            (cache *)cc,
-                            ts,
-                            test_generate_allocator_root_id(),
-                            hid);
+      spl = trunk_create(splinter_cfg,
+                         (allocator *)&al,
+                         (cache *)cc,
+                         ts,
+                         test_generate_allocator_root_id(),
+                         hid);
       platform_assert(spl);
    }
 
    run_all_ycsb_phases(spl, phases, nphases, ts, hid);
 
-   splinter_dismount(spl);
+   trunk_dismount(spl);
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_dismount(&al);

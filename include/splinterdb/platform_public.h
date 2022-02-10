@@ -4,7 +4,7 @@
 /*
  * platform_public.h --
  *
- *     Minimal common header for both external users (e.g. kvstore) and
+ *     Minimal common header for both external users (e.g. splinterdb) and
  *     for internal use.
  */
 

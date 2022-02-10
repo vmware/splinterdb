@@ -34,7 +34,7 @@ mod tests {
         let data_file = data_dir.path().join("db.splinterdb");
         let path = path_as_cstring(data_file); // don't drop until init is done
 
-        let cfg = super::kvstore_basic_cfg {
+        let cfg = super::splinterdb_kv_cfg {
             filename: path.as_ptr(),
             cache_size: 200 * 1024 * 1024,
             disk_size: 400 * 1024 * 1024,
@@ -45,12 +45,12 @@ mod tests {
             heap_handle: std::ptr::null_mut(),
             heap_id: std::ptr::null_mut(),
         };
-        let cfg_ptr = &cfg as *const super::kvstore_basic_cfg;
-        let mut kvsb: *mut super::kvstore_basic = std::ptr::null_mut();
+        let cfg_ptr = &cfg as *const super::splinterdb_kv_cfg;
+        let mut splinterdb: *mut super::splinterdb_kv = std::ptr::null_mut();
 
-        let rc = unsafe { super::kvstore_basic_create(cfg_ptr, &mut kvsb) };
+        let rc = unsafe { super::splinterdb_kv_create(cfg_ptr, &mut splinterdb) };
         assert_eq!(rc, 0);
 
-        unsafe { super::kvstore_basic_close(kvsb) };
+        unsafe { super::splinterdb_kv_close(splinterdb) };
     }
 }

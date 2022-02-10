@@ -3,44 +3,44 @@
 
 /*
  * -----------------------------------------------------------------------------
- * kvstore_test.c --
+ * splinterdb_test.c --
  *
- *  Tests for the simplified KVStore API.
+ *  Tests for the key/message API to SplinterDB
  * -----------------------------------------------------------------------------
  */
 #include "splinterdb/platform_public.h"
-#include "splinterdb/kvstore.h"
+#include "splinterdb/splinterdb.h"
 #include "../test_data.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
 // Function Prototypes
 static int
-setup_kvstore(kvstore **kvs, kvstore_config *kvs_cfg);
+setup_splinterdb(splinterdb **kvs, splinterdb_config *kvs_cfg);
 
 static int
-do_inserts(const int       num_inserts,
-           kvstore        *kvs,
-           kvstore_config *kvs_cfg,
-           char           *key,
-           char           *msg_buffer);
+do_inserts(const int          num_inserts,
+           splinterdb        *kvs,
+           splinterdb_config *kvs_cfg,
+           char              *key,
+           char              *msg_buffer);
 
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(kvstore)
+CTEST_DATA(splinterdb)
 {
-   kvstore_config kvs_cfg;
-   kvstore       *kvs;
-   char          *key;
-   char          *msg_buffer;
+   splinterdb_config kvs_cfg;
+   splinterdb       *kvs;
+   char             *key;
+   char             *msg_buffer;
 };
 
 // Setup function for suite, called before every test in suite
-CTEST_SETUP(kvstore)
+CTEST_SETUP(splinterdb)
 {
    memset(&data->kvs_cfg, 0, sizeof(data->kvs_cfg));
-   int rc = setup_kvstore(&data->kvs, &data->kvs_cfg);
+   int rc = setup_splinterdb(&data->kvs, &data->kvs_cfg);
    ASSERT_EQUAL(0, rc);
 
    data->key        = calloc(1, data->kvs_cfg.data_cfg.key_size);
@@ -52,7 +52,7 @@ CTEST_SETUP(kvstore)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(kvstore)
+CTEST_TEARDOWN(splinterdb)
 {
    if (data->key) {
       free(data->key);
@@ -62,36 +62,36 @@ CTEST_TEARDOWN(kvstore)
       free(data->msg_buffer);
       data->msg_buffer = NULL;
    }
-   kvstore_close(data->kvs);
+   splinterdb_close(data->kvs);
 }
 
 /*
  * Basic test case: Lookup a non-existent key should not find key.
  */
-CTEST2(kvstore, test_lookup_non_existent_key)
+CTEST2(splinterdb, test_lookup_non_existent_key)
 {
    memcpy(data->key, "foo", 3);
 
-   kvstore_lookup_result result;
-   kvstore_lookup_result_init(data->kvs,
-                              &result,
-                              data->kvs_cfg.data_cfg.message_size,
-                              data->msg_buffer);
-   int rc = kvstore_lookup(data->kvs, data->key, &result);
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(data->kvs,
+                                 &result,
+                                 data->kvs_cfg.data_cfg.message_size,
+                                 data->msg_buffer);
+   int rc = splinterdb_lookup(data->kvs, data->key, &result);
    ASSERT_EQUAL(
-      0, rc, "kvstore_lookup() of non-existent key failed, rc=%d\n", rc);
+      0, rc, "splinterdb_lookup() of non-existent key failed, rc=%d\n", rc);
 
-   bool found = kvstore_lookup_result_found(&result);
+   bool found = splinterdb_lookup_result_found(&result);
    ASSERT_FALSE(
       found, "found=%d, Unexpectedly found a key we haven't set\n", found);
 
-   kvstore_lookup_result_deinit(&result);
+   splinterdb_lookup_result_deinit(&result);
 }
 
 /*
  * Verify INSERT, LOOKUP, DELETE APIs
  */
-CTEST2(kvstore, test_insert_lookup_delete)
+CTEST2(splinterdb, test_insert_lookup_delete)
 {
    // Exercise INSERT of new key / value pair.
    memcpy(data->key, "foo", 3);
@@ -103,12 +103,15 @@ CTEST2(kvstore, test_insert_lookup_delete)
    int         exp_len = strlen(exp_val);
    memcpy((void *)(msg->data), exp_val, exp_len);
 
-   int rc = kvstore_insert(data->kvs,
-                           data->key,
-                           data->kvs_cfg.data_cfg.message_size,
-                           data->msg_buffer);
-   ASSERT_EQUAL(
-      0, rc, "kvstore_insert() of new key '%s' failed, rc=%d\n", data->key, rc);
+   int rc = splinterdb_insert(data->kvs,
+                              data->key,
+                              data->kvs_cfg.data_cfg.message_size,
+                              data->msg_buffer);
+   ASSERT_EQUAL(0,
+                rc,
+                "splinterdb_insert() of new key '%s' failed, rc=%d\n",
+                data->key,
+                rc);
 
    // Exercise lookup: It should successfully retrieve the value for given key
    // Muck with the value, just to see that it gets reset
@@ -117,29 +120,29 @@ CTEST2(kvstore, test_insert_lookup_delete)
             data->kvs_cfg.data_cfg.message_size - offsetof(data_handle, data),
             "zzz");
 
-   kvstore_lookup_result result;
-   kvstore_lookup_result_init(data->kvs,
-                              &result,
-                              data->kvs_cfg.data_cfg.message_size,
-                              data->msg_buffer);
-   rc = kvstore_lookup(data->kvs, data->key, &result);
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(data->kvs,
+                                 &result,
+                                 data->kvs_cfg.data_cfg.message_size,
+                                 data->msg_buffer);
+   rc = splinterdb_lookup(data->kvs, data->key, &result);
    ASSERT_EQUAL(
-      0, rc, "kvstore_lookup() for key '%s' failed. rc=%d.", data->key, rc);
+      0, rc, "splinterdb_lookup() for key '%s' failed. rc=%d.", data->key, rc);
 
-   bool found = kvstore_lookup_result_found(&result);
+   bool found = splinterdb_lookup_result_found(&result);
    ASSERT_TRUE(found,
-               "kvstore_lookup() for key '%s' failed. found=%d.",
+               "splinterdb_lookup() for key '%s' failed. found=%d.",
                data->key,
                found);
 
-   size_t result_size = kvstore_lookup_result_size(&result);
+   size_t result_size = splinterdb_lookup_result_size(&result);
    ASSERT_EQUAL(data->kvs_cfg.data_cfg.message_size,
                 result_size,
                 "Unexpectedly, lookup value is short, message_size = %lu. ",
                 result_size);
 
-   if (kvstore_lookup_result_data(&result) != data->msg_buffer) {
-      msg = kvstore_lookup_result_data(&result);
+   if (splinterdb_lookup_result_data(&result) != data->msg_buffer) {
+      msg = splinterdb_lookup_result_data(&result);
    }
 
    ASSERT_STREQN(exp_val,
@@ -154,33 +157,33 @@ CTEST2(kvstore, test_insert_lookup_delete)
 
    // Exercise DELETE of existing key should succeed.
    msg->message_type = MESSAGE_TYPE_DELETE;
-   rc                = kvstore_insert(data->kvs,
-                       data->key,
-                       data->kvs_cfg.data_cfg.message_size,
-                       data->msg_buffer);
-   ASSERT_EQUAL(0, rc, "kvstore_insert (for delete) failed, rc=%d. ", rc);
+   rc                = splinterdb_insert(data->kvs,
+                          data->key,
+                          data->kvs_cfg.data_cfg.message_size,
+                          data->msg_buffer);
+   ASSERT_EQUAL(0, rc, "splinterdb_insert (for delete) failed, rc=%d. ", rc);
 
    // Lookup of now-deleted key should succeed, but not find the key
-   rc = kvstore_lookup(data->kvs, data->key, &result);
+   rc = splinterdb_lookup(data->kvs, data->key, &result);
    ASSERT_EQUAL(0,
                 rc,
-                "kvstore_lookup() for now-deleted key '%s' failed, rc=%d. ",
+                "splinterdb_lookup() for now-deleted key '%s' failed, rc=%d. ",
                 data->key,
                 rc);
 
-   found = kvstore_lookup_result_found(&result);
+   found = splinterdb_lookup_result_found(&result);
    ASSERT_FALSE(found,
                 "Unexpectedly found now-deleted key '%s', found=%d. ",
                 data->key,
                 found);
 
-   kvstore_lookup_result_deinit(&result);
+   splinterdb_lookup_result_deinit(&result);
 }
 
 /*
  * Insert a bunch of key / value pairs. Exercise and validate the iterator APIs.
  */
-CTEST2(kvstore, test_iterator)
+CTEST2(splinterdb, test_iterator)
 {
    // Load a bunch of rows to the store
    const int num_inserts = 50;
@@ -190,8 +193,8 @@ CTEST2(kvstore, test_iterator)
    ASSERT_EQUAL(0, rc);
 
    // Start exercising iterator interfaces.
-   kvstore_iterator *it = NULL;
-   rc = kvstore_iterator_init(data->kvs, &it, NULL /* start key */);
+   splinterdb_iterator *it = NULL;
+   rc = splinterdb_iterator_init(data->kvs, &it, NULL /* start key */);
    ASSERT_EQUAL(0, rc, "Initializing iterator failed with rc=%d. ", rc);
 
    const char *current_key;
@@ -201,7 +204,7 @@ CTEST2(kvstore, test_iterator)
    const int   max_val_size =
       data->kvs_cfg.data_cfg.message_size - sizeof(data_handle);
 
-   for (; kvstore_iterator_valid(it); kvstore_iterator_next(it), i++) {
+   for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it), i++) {
       char expected_key[24] = {0};
       char expected_val[24] = {0};
 
@@ -222,7 +225,7 @@ CTEST2(kvstore, test_iterator)
          expected_key_len,
          data->kvs_cfg.data_cfg.key_size);
 
-      kvstore_iterator_get_current(
+      splinterdb_iterator_get_current(
          it, &current_key, &current_msg_len, &current_msg);
       const char *current_val =
          (const char *)(((const data_handle *)current_msg)->data);
@@ -258,23 +261,24 @@ CTEST2(kvstore, test_iterator)
                    current_val);
    }
 
-   rc = kvstore_iterator_status(it);
+   rc = splinterdb_iterator_status(it);
    ASSERT_EQUAL(0, rc, "Iterator stopped with error status: %d. ", rc);
 
    ASSERT_EQUAL(
       num_inserts, i, "Iterator stopped at i=%d, expected %d ", i, num_inserts);
 
-   bool is_valid = kvstore_iterator_valid(it);
+   bool is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid, "Iterator is still valid, while it should not be. ");
 
-   // Must deinit iterator before kvstore_close() is called as part of teardown
-   kvstore_iterator_deinit(it);
+   // Must deinit iterator before splinterdb_close() is called as part of
+   // teardown
+   splinterdb_iterator_deinit(it);
 }
 
 /*
- * Verify that keys are still accessible after closing and reopening KVStore.
+ * Verify that keys are still accessible after closing and reopening the db.
  */
-CTEST2(kvstore, test_close_open_key_access)
+CTEST2(splinterdb, test_close_open_key_access)
 {
    // Exercise INSERT of new key / value pair.
    memcpy(data->key, "foo", 3);
@@ -283,61 +287,64 @@ CTEST2(kvstore, test_close_open_key_access)
    msg->ref_count    = 1;
    memcpy((void *)(msg->data), "bar", 3);
 
-   int rc = kvstore_insert(data->kvs,
-                           data->key,
-                           data->kvs_cfg.data_cfg.message_size,
-                           data->msg_buffer);
-
-   ASSERT_EQUAL(
-      0, rc, "kvstore_insert() of new key '%s' failed, rc=%d\n", data->key, rc);
-
-   kvstore_lookup_result result;
-   kvstore_lookup_result_init(data->kvs,
-                              &result,
+   int rc = splinterdb_insert(data->kvs,
+                              data->key,
                               data->kvs_cfg.data_cfg.message_size,
                               data->msg_buffer);
 
-   rc = kvstore_lookup(data->kvs, data->key, &result);
+   ASSERT_EQUAL(0,
+                rc,
+                "splinterdb_insert() of new key '%s' failed, rc=%d\n",
+                data->key,
+                rc);
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(data->kvs,
+                                 &result,
+                                 data->kvs_cfg.data_cfg.message_size,
+                                 data->msg_buffer);
+
+   rc = splinterdb_lookup(data->kvs, data->key, &result);
 
    ASSERT_EQUAL(
-      0, rc, "kvstore_lookup() for key '%s' failed. rc=%d.", data->key, rc);
+      0, rc, "splinterdb_lookup() for key '%s' failed. rc=%d.", data->key, rc);
 
-   bool found = kvstore_lookup_result_found(&result);
+   bool found = splinterdb_lookup_result_found(&result);
    ASSERT_TRUE(found,
-               "kvstore_lookup() for key '%s' failed. found=%d.",
+               "splinterdb_lookup() for key '%s' failed. found=%d.",
                data->key,
                found);
 
-   kvstore_lookup_result_deinit(&result);
+   splinterdb_lookup_result_deinit(&result);
 
-   kvstore_close(data->kvs);
+   splinterdb_close(data->kvs);
 
-   rc = kvstore_open(&data->kvs_cfg, &data->kvs);
-   ASSERT_EQUAL(0, rc, "kvstore_open() failed, rc=%d ", rc);
+   rc = splinterdb_open(&data->kvs_cfg, &data->kvs);
+   ASSERT_EQUAL(0, rc, "splinterdb_open() failed, rc=%d ", rc);
 
-   kvstore_lookup_result_init(data->kvs,
-                              &result,
-                              data->kvs_cfg.data_cfg.message_size,
-                              data->msg_buffer);
+   splinterdb_lookup_result_init(data->kvs,
+                                 &result,
+                                 data->kvs_cfg.data_cfg.message_size,
+                                 data->msg_buffer);
 
-   rc = kvstore_lookup(data->kvs, data->key, &result);
+   rc = splinterdb_lookup(data->kvs, data->key, &result);
 
    ASSERT_EQUAL(
-      0, rc, "kvstore_lookup() failed after close/re-open; rc=%d ", rc);
+      0, rc, "splinterdb_lookup() failed after close/re-open; rc=%d ", rc);
 
-   found = kvstore_lookup_result_found(&result);
+   found = splinterdb_lookup_result_found(&result);
    ASSERT_TRUE(found,
                "Did not find expected key '%s' after re-opening store. ",
                data->key);
 
-   kvstore_lookup_result_deinit(&result);
+   splinterdb_lookup_result_deinit(&result);
 }
 
 /*
  * Minions and helper functions defined here.
  */
 static int
-setup_kvstore(kvstore **kvs, kvstore_config *kvs_cfg)
+setup_splinterdb(splinterdb **kvs, splinterdb_config *kvs_cfg)
 {
    Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
@@ -349,18 +356,18 @@ setup_kvstore(kvstore **kvs, kvstore_config *kvs_cfg)
 
    kvs_cfg->data_cfg = test_data_config;
 
-   rc = kvstore_create(kvs_cfg, kvs);
-   ASSERT_EQUAL(0, rc, "kvstore_create() failed, rc=%d. ", rc);
+   rc = splinterdb_create(kvs_cfg, kvs);
+   ASSERT_EQUAL(0, rc, "splinterdb_create() failed, rc=%d. ", rc);
    return rc;
 }
 
-/* Helper routine to insert n-number of keys to KVStore */
+/* Helper routine to insert n-number of keys to db */
 static int
-do_inserts(const int       num_inserts,
-           kvstore        *kvs,
-           kvstore_config *kvs_cfg,
-           char           *key,
-           char           *msg_buffer)
+do_inserts(const int          num_inserts,
+           splinterdb        *kvs,
+           splinterdb_config *kvs_cfg,
+           char              *key,
+           char              *msg_buffer)
 {
    data_handle *msg  = (data_handle *)msg_buffer;
    msg->message_type = MESSAGE_TYPE_INSERT;
@@ -393,7 +400,8 @@ do_inserts(const int       num_inserts,
          val_len,
          max_val_size);
 
-      rc = kvstore_insert(kvs, key, kvs_cfg->data_cfg.message_size, msg_buffer);
+      rc = splinterdb_insert(
+         kvs, key, kvs_cfg->data_cfg.message_size, msg_buffer);
       ASSERT_EQUAL(0, rc, "Insert failed for i=%d, rc=%d. ", i, rc);
    }
    return rc;

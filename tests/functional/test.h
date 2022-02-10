@@ -16,7 +16,7 @@
 #include "splinterdb/data.h"
 #include "rc_allocator.h"
 #include "shard_log.h"
-#include "splinter.h"
+#include "trunk.h"
 #include "../test_data.h"
 
 typedef enum test_key_type {
@@ -68,7 +68,7 @@ test_init_splinter(platform_heap_id    hid,
                              use_stats,
                              use_bg_threads,
                              num_bg_threads,
-                             splinter_get_scratch_size());
+                             trunk_get_scratch_size());
 }
 
 static inline void
@@ -148,7 +148,7 @@ test_insert_data(void        *raw_data,
 }
 
 static inline void
-test_config_init(splinter_config     *splinter_cfg,
+test_config_init(trunk_config        *splinter_cfg,
                  data_config         *data_cfg,
                  shard_log_config    *log_cfg,
                  clockcache_config   *cache_cfg,
@@ -183,24 +183,24 @@ test_config_init(splinter_config     *splinter_cfg,
    shard_log_config_init(
       log_cfg, data_cfg, master_cfg->page_size, master_cfg->extent_size);
 
-   splinter_config_init(splinter_cfg,
-                        data_cfg,
-                        (log_config *)log_cfg,
-                        master_cfg->memtable_capacity,
-                        master_cfg->fanout,
-                        master_cfg->max_branches_per_node,
-                        master_cfg->btree_rough_count_height,
-                        master_cfg->page_size,
-                        master_cfg->extent_size,
-                        master_cfg->filter_remainder_size,
-                        master_cfg->filter_index_size,
-                        master_cfg->reclaim_threshold,
-                        master_cfg->use_log,
-                        master_cfg->use_stats);
+   trunk_config_init(splinter_cfg,
+                     data_cfg,
+                     (log_config *)log_cfg,
+                     master_cfg->memtable_capacity,
+                     master_cfg->fanout,
+                     master_cfg->max_branches_per_node,
+                     master_cfg->btree_rough_count_height,
+                     master_cfg->page_size,
+                     master_cfg->extent_size,
+                     master_cfg->filter_remainder_size,
+                     master_cfg->filter_index_size,
+                     master_cfg->reclaim_threshold,
+                     master_cfg->use_log,
+                     master_cfg->use_stats);
 }
 
 static inline platform_status
-test_parse_args_n(splinter_config     *splinter_cfg,
+test_parse_args_n(trunk_config        *splinter_cfg,
                   data_config         *data_cfg,
                   io_config           *io_cfg,
                   rc_allocator_config *allocator_cfg,
@@ -241,7 +241,7 @@ test_parse_args_n(splinter_config     *splinter_cfg,
 }
 
 static inline platform_status
-test_parse_args(splinter_config     *splinter_cfg,
+test_parse_args(trunk_config        *splinter_cfg,
                 data_config         *data_cfg,
                 io_config           *io_cfg,
                 rc_allocator_config *allocator_cfg,
