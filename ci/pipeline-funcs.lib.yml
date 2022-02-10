@@ -212,6 +212,10 @@ plan:
 #@ def step_debug_build_test(compiler, input_name, with_rust=False, quick=False):
 task: debug-build-test
 timeout: #@ get_task_timeout(quick=quick)
+#@ if with_rust:
+#! workaround for buggy interaction of newer git/coreutils with older kernel on Runway
+privileged: true
+#@ end
 image: build-env-image-latest
 config:
   platform: linux
