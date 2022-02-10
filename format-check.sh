@@ -19,15 +19,21 @@ This tool is typically provided by the clang-format package"
    exit 1
 fi
 
+if [ "${1:-""}" = "fixall" ]; then
+   # shellcheck disable=SC2046
+   "$TOOL" -i $(find . -name "*.[ch]")
+   exit 0
+fi
+
 # shellcheck disable=SC2046
 if "$TOOL"  --Werror --dry-run $(find . -name "*.[ch]"); then
    echo Format OK
    exit 0
 else
-   echo "Source files must be formatted.  Try doing
+   echo "Source files must be formatted.  Try running
 
-   $TOOL" '-i $(find . -name "*.[ch]")
+   ${0} fixall
+"
 
-'
    exit 1
 fi
