@@ -77,13 +77,13 @@ typedef struct kvstore_basic kvstore_basic;
 // Create a new kvstore_basic from the provided config
 int
 kvstore_basic_create(const kvstore_basic_cfg *cfg, // IN
-                     kvstore_basic **         kvsb // OUT
+                     kvstore_basic          **kvsb // OUT
 );
 
 // Open an existing kvstore_basic using the provided config
 int
 kvstore_basic_open(const kvstore_basic_cfg *cfg, // IN
-                   kvstore_basic **         kvsb // OUT
+                   kvstore_basic          **kvsb // OUT
 );
 
 // De-init a handle and associated in-memory resources
@@ -117,15 +117,15 @@ kvstore_basic_deregister_thread(const kvstore_basic *kvsb);
 // Insert a key:value pair
 int
 kvstore_basic_insert(const kvstore_basic *kvsb,
-                     const char *         key,
+                     const char          *key,
                      size_t               key_len,
-                     const char *         value,
+                     const char          *value,
                      size_t               val_len);
 
 // Delete a given key and associated value
 int
 kvstore_basic_delete(const kvstore_basic *kvsb,
-                     const char *         key,
+                     const char          *key,
                      size_t               key_len);
 
 
@@ -144,13 +144,13 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
 //   with key is larger than *val_bytes.
 int
 kvstore_basic_lookup(const kvstore_basic *kvsb,
-                     const char *         key,           // IN
+                     const char          *key,           // IN
                      const size_t         key_len,       // IN
-                     char *               val,           // OUT
+                     char                *val,           // OUT
                      size_t               val_max_len,   // IN
-                     size_t *             val_bytes,     // OUT
-                     _Bool *              val_truncated, // OUT
-                     _Bool *              found          // OUT
+                     size_t              *val_bytes,     // OUT
+                     _Bool               *val_truncated, // OUT
+                     _Bool               *found          // OUT
 );
 
 /*
@@ -182,9 +182,9 @@ Sample application code:
 typedef struct kvstore_basic_iterator kvstore_basic_iterator;
 
 int
-kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
+kvstore_basic_iter_init(const kvstore_basic     *kvsb,         // IN
                         kvstore_basic_iterator **iter,         // OUT
-                        const char *             start_key,    // IN
+                        const char              *start_key,    // IN
                         size_t                   start_key_len // IN
 );
 
@@ -209,10 +209,10 @@ kvstore_basic_iter_next(kvstore_basic_iterator *iter);
 // If valid() == false, then behavior is undefined.
 void
 kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
-                               const char **           key,     // OUT
-                               size_t *                key_len, // OUT
-                               const char **           value,   // OUT
-                               size_t *                val_len  // OUT
+                               const char            **key,     // OUT
+                               size_t                 *key_len, // OUT
+                               const char            **value,   // OUT
+                               size_t                 *val_len  // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.

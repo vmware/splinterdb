@@ -1,52 +1,39 @@
 #!/bin/bash
 
-# Copyright 2018-2021 VMware, Inc.
+# Copyright 2018-2022 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-# Asserts that git-clang-format returns an empty diff
-#
-# See git-clang-format -h for details
-#
-# To compare based on a particular commit, provide an argument
-#   ./format-check.sh [<commit>]
-# This is useful to check the combined effect of several commits.
+# Checks that C source files follow our formatting conventions
 
-# Safer bash
 set -eu -o pipefail
 
-# Redirect output to stderr
-exec 1>&2
+# different tool versions yield different results
+# so we standardize on this version
+TOOL="clang-format-13"
 
-TOOL="git-clang-format-10"
-
-# Check if git-clang-format exists
+# Check if TOOL exists
 if ! command -v "$TOOL" &> /dev/null; then
    echo "Error: missing required tool $TOOL
 
-This tool is typically provided by the clang-format package
-"
+This tool is typically provided by the clang-format package"
    exit 1
 fi
 
-# What to compare against?
-# positional argument, or just the main branch
-BASE_REF="${1:-main}"
+if [ "${1:-""}" = "fixall" ]; then
+   # shellcheck disable=SC2046
+   "$TOOL" -i $(find . -name "*.[ch]")
+   exit 0
+fi
 
-diff="$("$TOOL" "$BASE_REF" --diff --quiet)"
-
-if [ -z "${diff-unset}" ]; then
+# shellcheck disable=SC2046
+if "$TOOL"  --Werror --dry-run $(find . -name "*.[ch]"); then
    echo Format OK
    exit 0
-elif [[ ${diff} == *"no modified files to format"* ]]; then
-   echo No modified files to format
-   exit 0
 else
-   echo "Error: Code formatting
-To fix, run
+   echo "Source files must be formatted.  Try running
 
-   $TOOL ${BASE_REF:-}
-
+   ${0} fixall
 "
-   echo "${diff}"
+
    exit 1
 fi

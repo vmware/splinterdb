@@ -22,7 +22,7 @@
 
 typedef struct {
    key_comparator_fn key_comparator;
-   void *            key_comparator_context;
+   void             *key_comparator_context;
 } kvsb_data_config_context;
 
 struct kvstore_basic {
@@ -50,8 +50,8 @@ static_assert((sizeof(basic_key_encoding) == KVSTORE_BASIC_KEY_HDR_SIZE),
 static_assert(offsetof(basic_key_encoding, data[0]) == sizeof(uint8),
               "start of data should equal header size");
 
-static_assert((MAX_KEY_SIZE ==
-               (KVSTORE_BASIC_MAX_KEY_SIZE + KVSTORE_BASIC_KEY_HDR_SIZE)),
+static_assert((MAX_KEY_SIZE
+               == (KVSTORE_BASIC_MAX_KEY_SIZE + KVSTORE_BASIC_KEY_HDR_SIZE)),
               "KVSTORE_BASIC_MAX_KEY_SIZE should be updated when "
               "MAX_KEY_SIZE changes");
 
@@ -61,11 +61,11 @@ static_assert((MAX_KEY_SIZE ==
 // uses a pointer-sized header to hold the message type (insert vs delete)
 // and the size of the value in bytes
 typedef struct KVSB_PACK_PTR {
-   uint8  type;         // offset 0
-   uint8  _reserved1;   // offset 1
-   uint16 _reserved2;   // offset 2
-   uint32 _reserved4;   // offset 4
-   uint8  value[0]; // offset 8: 1st byte of value, aligned for 64-bit access
+   uint8  type;       // offset 0
+   uint8  _reserved1; // offset 1
+   uint16 _reserved2; // offset 2
+   uint32 _reserved4; // offset 4
+   uint8  value[0];   // offset 8: 1st byte of value, aligned for 64-bit access
 } basic_message;
 
 static_assert(sizeof(basic_message) == KVSTORE_BASIC_MSG_HDR_SIZE,
@@ -103,9 +103,9 @@ const static key_comparator_fn default_key_comparator = (&variable_len_compare);
 static int
 basic_key_compare(const data_config *cfg,
                   uint64             key1_raw_len,
-                  const void *       key1_raw,
+                  const void        *key1_raw,
                   uint64             key2_raw_len,
-                  const void *       key2_raw)
+                  const void        *key2_raw)
 {
    basic_key_encoding *key1 = (basic_key_encoding *)key1_raw;
    basic_key_encoding *key2 = (basic_key_encoding *)key2_raw;
@@ -124,10 +124,10 @@ basic_key_compare(const data_config *cfg,
 static int
 basic_merge_tuples(const data_config *cfg,
                    uint64             key_len,
-                   const void *       key,
+                   const void        *key,
                    uint64             old_raw_data_len,
-                   const void *       old_raw_data,
-                   writable_buffer *  new_data)
+                   const void        *old_raw_data,
+                   writable_buffer   *new_data)
 {
    // we don't implement UPDATEs, so this is a no-op:
    // new is always left intact
@@ -137,8 +137,8 @@ basic_merge_tuples(const data_config *cfg,
 static int
 basic_merge_tuples_final(const data_config *cfg,
                          uint64             key_len,
-                         const void *       key,        // IN
-                         writable_buffer *  oldest_data // IN/OUT
+                         const void        *key,        // IN
+                         writable_buffer   *oldest_data // IN/OUT
 )
 {
    // we don't implement UPDATEs, so this is a no-op:
@@ -149,7 +149,7 @@ basic_merge_tuples_final(const data_config *cfg,
 static message_type
 basic_message_class(const data_config *cfg,
                     uint64             raw_data_len,
-                    const void *       raw_data)
+                    const void        *raw_data)
 {
    const basic_message *msg = raw_data;
    switch (msg->type) {
@@ -168,16 +168,16 @@ static void
 encode_key(void *key_buffer, const void *key, size_t key_len)
 {
    basic_key_encoding *key_enc = (basic_key_encoding *)key_buffer;
-   platform_assert(key_len <= UINT8_MAX &&
-                   key_len <= KVSTORE_BASIC_MAX_KEY_SIZE);
+   platform_assert(key_len <= UINT8_MAX
+                   && key_len <= KVSTORE_BASIC_MAX_KEY_SIZE);
    key_enc->length = key_len;
    memmove(&(key_enc->data), key, key_len);
 }
 
 static size_t
-encode_value(void *       msg_buffer,
+encode_value(void        *msg_buffer,
              message_type type,
-             const void * value,
+             const void  *value,
              size_t       value_len)
 {
    basic_message *msg = (basic_message *)msg_buffer;
@@ -191,8 +191,8 @@ encode_value(void *       msg_buffer,
 static void
 basic_key_to_string(const data_config *cfg,
                     uint64             key_len,
-                    const void *       key,
-                    char *             str,
+                    const void        *key,
+                    char              *str,
                     size_t             max_len)
 {
    debug_hex_encode(str, max_len, key, key_len);
@@ -201,8 +201,8 @@ basic_key_to_string(const data_config *cfg,
 static void
 basic_message_to_string(const data_config *cfg,
                         uint64             raw_data_len,
-                        const void *       raw_data,
-                        char *             str,
+                        const void        *raw_data,
+                        char              *str,
                         size_t             max_len)
 {
    debug_hex_encode(str, max_len, raw_data, raw_data_len);
@@ -228,8 +228,9 @@ new_basic_data_config(const size_t max_key_size,   // IN
                       data_config *out_cfg         // OUT
 )
 {
-   if (max_key_size > KVSTORE_BASIC_MAX_KEY_SIZE ||
-       max_key_size < KVSTORE_BASIC_MIN_KEY_SIZE) {
+   if (max_key_size > KVSTORE_BASIC_MAX_KEY_SIZE
+       || max_key_size < KVSTORE_BASIC_MIN_KEY_SIZE)
+   {
       platform_error_log("max key size %lu must be <= %lu and >= %lu\n",
                          max_key_size,
                          (size_t)(KVSTORE_BASIC_MAX_KEY_SIZE),
@@ -270,7 +271,7 @@ new_basic_data_config(const size_t max_key_size,   // IN
 
 int
 kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
-                             kvstore_basic **         kvsb_out, // OUT
+                             kvstore_basic          **kvsb_out, // OUT
                              bool                     open_existing)
 {
    data_config data_cfg = {0};
@@ -324,7 +325,7 @@ kvstore_basic_create_or_open(const kvstore_basic_cfg *cfg,      // IN
 
 int
 kvstore_basic_create(const kvstore_basic_cfg *cfg,     // IN
-                     kvstore_basic **         kvsb_out // OUT
+                     kvstore_basic          **kvsb_out // OUT
 )
 {
    return kvstore_basic_create_or_open(cfg, kvsb_out, FALSE);
@@ -332,7 +333,7 @@ kvstore_basic_create(const kvstore_basic_cfg *cfg,     // IN
 
 int
 kvstore_basic_open(const kvstore_basic_cfg *cfg,     // IN
-                   kvstore_basic **         kvsb_out // OUT
+                   kvstore_basic          **kvsb_out // OUT
 )
 {
    return kvstore_basic_create_or_open(cfg, kvsb_out, TRUE);
@@ -362,9 +363,9 @@ kvstore_basic_deregister_thread(const kvstore_basic *kvsb)
 
 int
 kvstore_basic_insert(const kvstore_basic *kvsb,
-                     const char *         key,
+                     const char          *key,
                      const size_t         key_len,
-                     const char *         value,
+                     const char          *value,
                      const size_t         val_len)
 {
    if (key_len > kvsb->max_app_key_size) {
@@ -397,7 +398,7 @@ kvstore_basic_insert(const kvstore_basic *kvsb,
 
 int
 kvstore_basic_delete(const kvstore_basic *kvsb,
-                     const char *         key,
+                     const char          *key,
                      const size_t         key_len)
 {
    if (key_len > kvsb->max_app_key_size) {
@@ -438,13 +439,13 @@ kvstore_basic_delete(const kvstore_basic *kvsb,
  */
 int
 kvstore_basic_lookup(const kvstore_basic *kvsb,
-                     const char *         key,           // IN
+                     const char          *key,           // IN
                      const size_t         key_len,       // IN
-                     char *               val,           // OUT
+                     char                *val,           // OUT
                      size_t               val_max_len,   // IN
-                     size_t *             val_bytes,     // OUT
-                     _Bool *              val_truncated, // OUT
-                     _Bool *              found          // OUT
+                     size_t              *val_bytes,     // OUT
+                     _Bool               *val_truncated, // OUT
+                     _Bool               *found          // OUT
 )
 {
    if (key_len > kvsb->max_app_key_size) {
@@ -515,9 +516,9 @@ struct kvstore_basic_iterator {
  *-----------------------------------------------------------------------------
  */
 int
-kvstore_basic_iter_init(const kvstore_basic *    kvsb,         // IN
+kvstore_basic_iter_init(const kvstore_basic     *kvsb,         // IN
                         kvstore_basic_iterator **iter,         // OUT
-                        const char *             start_key,    // IN
+                        const char              *start_key,    // IN
                         const size_t             start_key_len // IN
 )
 {
@@ -579,10 +580,10 @@ kvstore_basic_iter_status(const kvstore_basic_iterator *iter)
 
 void
 kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
-                               const char **           key,     // OUT
-                               size_t *                key_len, // OUT
-                               const char **           value,   // OUT
-                               size_t *                val_len  // OUT
+                               const char            **key,     // OUT
+                               size_t                 *key_len, // OUT
+                               const char            **value,   // OUT
+                               size_t                 *val_len  // OUT
 )
 {
    const char *msg_buffer;
@@ -592,7 +593,7 @@ kvstore_basic_iter_get_current(kvstore_basic_iterator *iter,    // IN
       iter->super, &key_buffer, &msg_len, &msg_buffer);
    platform_assert(sizeof(basic_message) <= msg_len);
 
-   basic_message *     msg     = (basic_message *)msg_buffer;
+   basic_message      *msg     = (basic_message *)msg_buffer;
    basic_key_encoding *key_enc = (basic_key_encoding *)key_buffer;
    *key_len                    = key_enc->length;
    *val_len                    = msg_len - sizeof(basic_message);

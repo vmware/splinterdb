@@ -229,8 +229,8 @@ mini_unget_unclaim_meta_page(cache *cc, page_handle *meta_page)
  */
 uint64
 mini_init(mini_allocator *mini,
-          cache *         cc,
-          data_config *   cfg,
+          cache          *cc,
+          data_config    *cfg,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,
@@ -341,7 +341,7 @@ entry_fits_in_page(uint64 page_size, uint64 start, uint64 entry_size)
 static bool
 mini_keyed_append_entry(mini_allocator *mini,
                         uint64          batch,
-                        page_handle *   meta_page,
+                        page_handle    *meta_page,
                         uint64          extent_addr,
                         const slice     start_key)
 {
@@ -349,14 +349,15 @@ mini_keyed_append_entry(mini_allocator *mini,
    debug_assert(batch < mini->num_batches);
    debug_assert(!slice_is_null(start_key));
    debug_assert(extent_addr != 0);
-   debug_assert(extent_addr == TERMINAL_EXTENT_ADDR ||
-                extent_addr % cache_page_size(mini->cc) == 0);
+   debug_assert(extent_addr == TERMINAL_EXTENT_ADDR
+                || extent_addr % cache_page_size(mini->cc) == 0);
 
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
    if (!entry_fits_in_page(cache_page_size(mini->cc),
                            hdr->pos,
-                           keyed_meta_entry_size(start_key))) {
+                           keyed_meta_entry_size(start_key)))
+   {
       return FALSE;
    }
 
@@ -374,7 +375,7 @@ mini_keyed_append_entry(mini_allocator *mini,
 
 static bool
 mini_unkeyed_append_entry(mini_allocator *mini,
-                          page_handle *   meta_page,
+                          page_handle    *meta_page,
                           uint64          extent_addr)
 {
    debug_assert(!mini->keyed);
@@ -384,7 +385,8 @@ mini_unkeyed_append_entry(mini_allocator *mini,
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
 
    if (!entry_fits_in_page(
-          cache_page_size(mini->cc), hdr->pos, sizeof(unkeyed_meta_entry))) {
+          cache_page_size(mini->cc), hdr->pos, sizeof(unkeyed_meta_entry)))
+   {
       return FALSE;
    }
 
@@ -419,9 +421,10 @@ mini_lock_batch_get_next_addr(mini_allocator *mini, uint64 batch)
 {
    uint64 next_addr = mini->next_addr[batch];
    uint64 wait      = 1;
-   while (next_addr == MINI_WAIT ||
-          !__sync_bool_compare_and_swap(
-             &mini->next_addr[batch], next_addr, MINI_WAIT)) {
+   while (next_addr == MINI_WAIT
+          || !__sync_bool_compare_and_swap(
+             &mini->next_addr[batch], next_addr, MINI_WAIT))
+   {
       platform_sleep(wait);
       wait      = wait > 1024 ? wait : 2 * wait;
       next_addr = mini->next_addr[batch];
@@ -465,7 +468,7 @@ mini_get_next_meta_addr(page_handle *meta_page)
 
 static void
 mini_set_next_meta_addr(mini_allocator *mini,
-                        page_handle *   meta_page,
+                        page_handle    *meta_page,
                         uint64          next_meta_addr)
 {
    // works for keyed and unkeyed
@@ -546,7 +549,7 @@ uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,
            const slice     key,
-           uint64 *        next_extent)
+           uint64         *next_extent)
 {
    debug_assert(batch < mini->num_batches);
    debug_assert(!mini->keyed || !slice_is_null(key));
@@ -639,18 +642,18 @@ mini_release(mini_allocator *mini, const slice key)
  *-----------------------------------------------------------------------------
  */
 
-typedef bool (*mini_for_each_fn)(cache *   cc,
+typedef bool (*mini_for_each_fn)(cache    *cc,
                                  page_type type,
                                  uint64    base_addr,
-                                 void *    out);
+                                 void     *out);
 
 static void
-mini_unkeyed_for_each(cache *          cc,
+mini_unkeyed_for_each(cache           *cc,
                       uint64           meta_head,
                       page_type        type,
                       bool             pinned,
                       mini_for_each_fn func,
-                      void *           out)
+                      void            *out)
 {
    uint64 meta_addr = meta_head;
    do {
@@ -730,14 +733,14 @@ state(data_config *cfg,
  *-----------------------------------------------------------------------------
  */
 static bool
-mini_keyed_for_each(cache *          cc,
-                    data_config *    cfg,
+mini_keyed_for_each(cache           *cc,
+                    data_config     *cfg,
                     uint64           meta_head,
                     page_type        type,
                     const slice      start_key,
                     const slice      _end_key,
                     mini_for_each_fn func,
-                    void *           out)
+                    void            *out)
 {
    slice end_key = _end_key;
    if (slice_is_null(end_key))
@@ -759,7 +762,7 @@ mini_keyed_for_each(cache *          cc,
    }
 
    do {
-      page_handle *     meta_page = cache_get(cc, meta_addr, TRUE, type);
+      page_handle      *meta_page = cache_get(cc, meta_addr, TRUE, type);
       keyed_meta_entry *entry     = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
          uint64         batch = entry->batch;
@@ -817,14 +820,14 @@ mini_keyed_for_each(cache *          cc,
  *-----------------------------------------------------------------------------
  */
 static bool
-mini_keyed_for_each_self_exclusive(cache *          cc,
-                                   data_config *    cfg,
+mini_keyed_for_each_self_exclusive(cache           *cc,
+                                   data_config     *cfg,
                                    uint64           meta_head,
                                    page_type        type,
                                    const slice      start_key,
                                    const slice      _end_key,
                                    mini_for_each_fn func,
-                                   void *           out)
+                                   void            *out)
 {
    slice end_key = _end_key;
    if (slice_is_null(end_key)) {
@@ -1014,10 +1017,10 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *-----------------------------------------------------------------------------
  */
 static bool
-mini_keyed_inc_ref_extent(cache *   cc,
+mini_keyed_inc_ref_extent(cache    *cc,
                           page_type type,
                           uint64    base_addr,
-                          void *    out)
+                          void     *out)
 {
    allocator *al = cache_allocator(cc);
    allocator_inc_ref(al, base_addr);
@@ -1025,7 +1028,7 @@ mini_keyed_inc_ref_extent(cache *   cc,
 }
 
 void
-mini_keyed_inc_ref(cache *      cc,
+mini_keyed_inc_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
@@ -1043,10 +1046,10 @@ mini_keyed_inc_ref(cache *      cc,
 }
 
 static bool
-mini_keyed_dec_ref_extent(cache *   cc,
+mini_keyed_dec_ref_extent(cache    *cc,
                           page_type type,
                           uint64    base_addr,
-                          void *    out)
+                          void     *out)
 {
    allocator *al  = cache_allocator(cc);
    uint8      ref = allocator_dec_ref(al, base_addr, type);
@@ -1072,7 +1075,7 @@ mini_wait_for_blockers(cache *cc, uint64 meta_head)
 }
 
 bool
-mini_keyed_dec_ref(cache *      cc,
+mini_keyed_dec_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
@@ -1154,7 +1157,7 @@ mini_keyed_count_extents(cache *cc, page_type type, uint64 base_addr, void *out)
 }
 
 uint64
-mini_keyed_extent_count(cache *      cc,
+mini_keyed_extent_count(cache       *cc,
                         data_config *data_cfg,
                         page_type    type,
                         uint64       meta_head,
@@ -1249,7 +1252,7 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
 }
 
 void
-mini_keyed_print(cache *      cc,
+mini_keyed_print(cache       *cc,
                  data_config *data_cfg,
                  uint64       meta_head,
                  page_type    type)

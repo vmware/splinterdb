@@ -32,26 +32,26 @@
  */
 typedef struct splinter_config {
    // robj: if these are redundant, maybe delete them?
-   uint64               page_size;               // must match the cache/fs page_size
-   uint64               extent_size;             // same
+   uint64 page_size;   // must match the cache/fs page_size
+   uint64 extent_size; // same
 
    // parameters
-   uint64               fanout;                  // children to trigger split
-   uint64               max_pivot_keys;          // hard limit on number of pivot keys
-   uint64               max_tuples_per_node;
-   uint64               max_branches_per_node;
-   uint64               hard_max_branches_per_node;
-   uint64               target_leaf_tuples;      // make leaves this big when splitting
-   uint64               reclaim_threshold;       // start reclaming space when
-                                                 // free space < threshold
-   bool                 use_stats;               // stats
-   memtable_config      mt_cfg;
-   btree_config         btree_cfg;
-   routing_config       index_filter_cfg;
-   routing_config       leaf_filter_cfg;
-   data_config *        data_cfg;
-   bool                 use_log;
-   log_config *         log_cfg;
+   uint64 fanout;         // children to trigger split
+   uint64 max_pivot_keys; // hard limit on number of pivot keys
+   uint64 max_tuples_per_node;
+   uint64 max_branches_per_node;
+   uint64 hard_max_branches_per_node;
+   uint64 target_leaf_tuples; // make leaves this big when splitting
+   uint64 reclaim_threshold;  // start reclaming space when
+                              // free space < threshold
+   bool            use_stats; // stats
+   memtable_config mt_cfg;
+   btree_config    btree_cfg;
+   routing_config  index_filter_cfg;
+   routing_config  leaf_filter_cfg;
+   data_config    *data_cfg;
+   bool            use_log;
+   log_config     *log_cfg;
 } splinter_config;
 
 typedef struct splinter_stats {
@@ -138,7 +138,7 @@ typedef struct splinter_branch {
    uint64 root_addr; // root address of point btree
 } splinter_branch;
 
-typedef struct splinter_handle splinter_handle;
+typedef struct splinter_handle             splinter_handle;
 typedef struct splinter_compact_bundle_req splinter_compact_bundle_req;
 
 typedef struct splinter_memtable_args {
@@ -155,32 +155,32 @@ typedef struct splinter_compacted_memtable {
 } splinter_compacted_memtable;
 
 struct splinter_handle {
-   uint64             root_addr;
-   uint64             super_block_idx;
-   splinter_config    cfg;
-   platform_heap_id   heap_id;
+   uint64           root_addr;
+   uint64           super_block_idx;
+   splinter_config  cfg;
+   platform_heap_id heap_id;
 
    // space reclamation
-   uint64             est_tuples_in_compaction;
+   uint64 est_tuples_in_compaction;
 
    // allocator/cache/log
-   allocator         *al;
-   cache             *cc;
-   log_handle        *log;
-   mini_allocator     mini;
+   allocator     *al;
+   cache         *cc;
+   log_handle    *log;
+   mini_allocator mini;
 
    // memtables
-   allocator_root_id        id;
-   memtable_context  *mt_ctxt;
+   allocator_root_id id;
+   memtable_context *mt_ctxt;
 
    // task system
-   task_system       *ts;  // ALEX: currently not durable
+   task_system *ts; // ALEX: currently not durable
 
    // stats
-   splinter_stats    *stats;
+   splinter_stats *stats;
 
    // Link inside the splinter list
-   List_Links         links;
+   List_Links links;
 
    /*
     * Per thread task and per splinter table task counter. Used to decide when
@@ -192,7 +192,7 @@ struct splinter_handle {
    } PLATFORM_CACHELINE_ALIGNED task_countup[MAX_THREADS];
 
    // space rec queue
-   srq                srq;
+   srq srq;
 
    splinter_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
@@ -217,7 +217,7 @@ typedef struct splinter_range_iterator {
    splinter_branch  branch[SPLINTER_MAX_TOTAL_DEGREE];
 
    // used for merge iterator construction
-   iterator        *itor[SPLINTER_MAX_TOTAL_DEGREE];
+   iterator *itor[SPLINTER_MAX_TOTAL_DEGREE];
 } splinter_range_iterator;
 
 
@@ -253,38 +253,38 @@ struct splinter_subbundle;
 typedef void (*splinter_async_cb)(struct splinter_async_ctxt *ctxt);
 
 typedef struct splinter_async_ctxt {
-   splinter_async_cb            cb;            // IN: callback (requeues ctxt
-                                              // for dispatch)
+   splinter_async_cb cb; // IN: callback (requeues ctxt
+                         // for dispatch)
    // These fields are internal
-   splinter_async_state         prev_state;    // state machine's previous state
-   splinter_async_state         state;         // state machine's current state
-   page_handle                 *mt_lock_page;  // Memtable lock page
-   page_handle                 *trunk_node;    // Current trunk node
-   uint16                       height;        // height of trunk_node
+   splinter_async_state prev_state;   // state machine's previous state
+   splinter_async_state state;        // state machine's current state
+   page_handle         *mt_lock_page; // Memtable lock page
+   page_handle         *trunk_node;   // Current trunk node
+   uint16               height;       // height of trunk_node
 
-   uint16                       sb_no;         // subbundle number (newest)
-   uint16                       end_sb_no;     // subbundle number (oldest,
-                                               // exclusive
-   uint16                       filter_no;     // sb filter no
+   uint16 sb_no;     // subbundle number (newest)
+   uint16 end_sb_no; // subbundle number (oldest,
+                     // exclusive
+   uint16 filter_no; // sb filter no
 
-   splinter_async_lookup_state  lookup_state;  // Can be pivot or
-                                               // [compacted] subbundle
-   struct splinter_subbundle   *sb;            // Subbundle
-   struct splinter_pivot_data  *pdata;         // Pivot data for next trunk node
-   routing_filter              *filter;        // Filter for subbundle or pivot
-   uint64                       found_values;  // values found in filter
-   uint16                       value;         // Current value found in filter
+   splinter_async_lookup_state lookup_state; // Can be pivot or
+                                             // [compacted] subbundle
+   struct splinter_subbundle  *sb;           // Subbundle
+   struct splinter_pivot_data *pdata;        // Pivot data for next trunk node
+   routing_filter             *filter;       // Filter for subbundle or pivot
+   uint64                      found_values; // values found in filter
+   uint16                      value;        // Current value found in filter
 
-   uint16                       branch_no;     // branch number (newest)
-   uint16                       branch_no_end; // branch number end (oldest,
-                                               // exclusive)
-   bool                         was_async;     // Did an async IO for trunk ?
-   splinter_branch             *branch;        // Current branch
+   uint16 branch_no;           // branch number (newest)
+   uint16 branch_no_end;       // branch number end (oldest,
+                               // exclusive)
+   bool             was_async; // Did an async IO for trunk ?
+   splinter_branch *branch;    // Current branch
    union {
-      routing_async_ctxt        filter_ctxt;    // Filter async context
-      btree_async_ctxt          btree_ctxt;     // Btree async context
+      routing_async_ctxt filter_ctxt; // Filter async context
+      btree_async_ctxt   btree_ctxt;  // Btree async context
    };
-   cache_async_ctxt             cache_ctxt;    // Async cache context
+   cache_async_ctxt cache_ctxt; // Async cache context
 } splinter_async_ctxt;
 
 /*
@@ -320,39 +320,39 @@ splinter_lookup_found(writable_buffer *result)
 }
 
 cache_async_result
-splinter_lookup_async(splinter_handle *    spl,
-                      char *               key,
-                      writable_buffer *    data,
+splinter_lookup_async(splinter_handle     *spl,
+                      char                *key,
+                      writable_buffer     *data,
                       splinter_async_ctxt *ctxt);
 platform_status
-splinter_range_iterator_init(splinter_handle *        spl,
+splinter_range_iterator_init(splinter_handle         *spl,
                              splinter_range_iterator *range_itor,
-                             char *                   min_key,
-                             char *                   max_key,
+                             char                    *min_key,
+                             char                    *max_key,
                              uint64                   num_tuples);
 void
 splinter_range_iterator_deinit(splinter_range_iterator *range_itor);
 platform_status
 splinter_range(splinter_handle *spl,
-               char *           start_key,
+               char            *start_key,
                uint64           num_tuples,
-               uint64 *         tuples_returned,
-               char *           out);
+               uint64          *tuples_returned,
+               char            *out);
 
 splinter_handle *
-splinter_create(splinter_config * cfg,
-                allocator *       al,
-                cache *           cc,
-                task_system *     ts,
+splinter_create(splinter_config  *cfg,
+                allocator        *al,
+                cache            *cc,
+                task_system      *ts,
                 allocator_root_id id,
                 platform_heap_id  hid);
 void
 splinter_destroy(splinter_handle *spl);
 splinter_handle *
-splinter_mount(splinter_config * cfg,
-               allocator *       al,
-               cache *           cc,
-               task_system *     ts,
+splinter_mount(splinter_config  *cfg,
+               allocator        *al,
+               cache            *cc,
+               task_system      *ts,
                allocator_root_id id,
                platform_heap_id  hid);
 void
@@ -421,7 +421,7 @@ splinter_key_compare(splinter_handle *spl, const char *key1, const char *key2)
 
 static inline void
 splinter_key_to_string(splinter_handle *spl,
-                       const char *     key,
+                       const char      *key,
                        char             str[static 128])
 {
    slice key_slice = slice_create(splinter_key_size(spl), key);
@@ -455,8 +455,8 @@ splinter_trunk_hdr_size();
 
 void
 splinter_config_init(splinter_config *splinter_cfg,
-                     data_config *    data_cfg,
-                     log_config *     log_cfg,
+                     data_config     *data_cfg,
+                     log_config      *log_cfg,
                      uint64           memtable_capacity,
                      uint64           fanout,
                      uint64           max_branches_per_node,

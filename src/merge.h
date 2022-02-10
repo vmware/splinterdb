@@ -19,10 +19,10 @@
 
 typedef struct ordered_iterator {
    iterator *itor;
-   int seq;
+   int       seq;
    slice     key;
    slice     data;
-   bool next_key_equal;
+   bool      next_key_equal;
 } ordered_iterator;
 
 /*
@@ -70,31 +70,33 @@ typedef struct merge_iterator {
    slice        data;          // next data
 
    // Padding so ordered_iterators[-1] is valid
-   ordered_iterator       ordered_iterator_stored_pad;
-   ordered_iterator       ordered_iterator_stored[MAX_MERGE_ARITY];
+   ordered_iterator ordered_iterator_stored_pad;
+   ordered_iterator ordered_iterator_stored[MAX_MERGE_ARITY];
    // Padding so ordered_iterator_ptr_arr[-1] is valid
    // Must be immediately before ordered_iterator_ptr_arr
-   ordered_iterator      *ordered_iterators_pad;
-   ordered_iterator      *ordered_iterators[MAX_MERGE_ARITY];
+   ordered_iterator *ordered_iterators_pad;
+   ordered_iterator *ordered_iterators[MAX_MERGE_ARITY];
 
    // Stats
-   uint64                 discarded_deletes;
+   uint64 discarded_deletes;
 
    // space for merging data together
    writable_buffer merge_buffer;
 } merge_iterator;
 
 // Statically enforce that the padding variables act as index -1 for both arrays
-_Static_assert(offsetof(merge_iterator, ordered_iterator_stored_pad) ==
-               offsetof(merge_iterator, ordered_iterator_stored[-1]), "");
-_Static_assert(offsetof(merge_iterator, ordered_iterators_pad) ==
-               offsetof(merge_iterator, ordered_iterators[-1]), "");
+_Static_assert(offsetof(merge_iterator, ordered_iterator_stored_pad)
+                  == offsetof(merge_iterator, ordered_iterator_stored[-1]),
+               "");
+_Static_assert(offsetof(merge_iterator, ordered_iterators_pad)
+                  == offsetof(merge_iterator, ordered_iterators[-1]),
+               "");
 
 platform_status
 merge_iterator_create(platform_heap_id hid,
-                      data_config *    cfg,
+                      data_config     *cfg,
                       int              num_trees,
-                      iterator **      itor_arr,
+                      iterator       **itor_arr,
                       merge_behavior   merge_mode,
                       merge_iterator **out_itor);
 

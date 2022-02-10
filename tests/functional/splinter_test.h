@@ -70,13 +70,13 @@ test_config_set_defaults(test_type test, test_config *cfg)
 static inline platform_status
 test_config_parse(test_config *cfg,
                   const uint8  num_config,
-                  int *        argc_p,
-                  char **      argv_p[])
+                  int         *argc_p,
+                  char       **argv_p[])
 {
    platform_status rc = STATUS_OK;
    uint64          i;
    int             argc = *argc_p;
-   char **         argv = *argv_p;
+   char          **argv = *argv_p;
    // temp config for parsing key-type
    typedef struct temp_config {
       char key_type[MAX_STRING_LENGTH];

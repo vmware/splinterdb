@@ -60,12 +60,12 @@ out:
 }
 
 static platform_status
-cache_test_alloc_extents(cache *            cc,
+cache_test_alloc_extents(cache             *cc,
                          clockcache_config *cfg,
                          uint64             addr_arr[],
                          uint32             extents_to_allocate)
 {
-   allocator *     al = cache_allocator(cc);
+   allocator      *al = cache_allocator(cc);
    platform_status rc;
    for (uint32 j = 0; j < extents_to_allocate; j++) {
       uint64 base_addr;
@@ -96,8 +96,8 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 {
    platform_log("cache_test: basic test started\n");
    platform_status rc       = STATUS_OK;
-   page_handle **  page_arr = NULL;
-   uint64 *        addr_arr = NULL;
+   page_handle   **page_arr = NULL;
+   uint64         *addr_arr = NULL;
 
    /* allocate twice as many pages as the cache capacity */
    uint32 extent_capacity     = cfg->page_capacity / cfg->pages_per_extent;
@@ -378,10 +378,10 @@ cache_test_index_itor_get(cache_test_index_itor *itor)
 }
 
 static platform_status
-cache_test_dirty_flush(cache *                cc,
-                       clockcache_config *    cfg,
-                       const char *           testname,
-                       const uint64 *         addr_arr,
+cache_test_dirty_flush(cache                 *cc,
+                       clockcache_config     *cfg,
+                       const char            *testname,
+                       const uint64          *addr_arr,
                        cache_test_index_itor *itor)
 {
    platform_status rc = STATUS_OK;
@@ -442,14 +442,14 @@ done:
 }
 
 platform_status
-test_cache_flush(cache *            cc,
+test_cache_flush(cache             *cc,
                  clockcache_config *cfg,
                  platform_heap_id   hid,
                  uint64             al_extent_capacity)
 {
    platform_log("cache_test: flush test started\n");
    platform_status rc       = STATUS_OK;
-   uint64 *        addr_arr = NULL;
+   uint64         *addr_arr = NULL;
    timestamp       t_start;
 
    uint32 extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
@@ -544,18 +544,18 @@ typedef struct {
 } test_async_ctxt;
 
 typedef struct {
-   cache *            cc;                      // IN
+   cache             *cc;                      // IN
    clockcache_config *cfg;                     // IN
-   task_system *      ts;                      // IN
+   task_system       *ts;                      // IN
    platform_thread    thread;                  // IN
    platform_heap_id   hid;                     // IN
    bool               mt_reader;               // IN readers are MT
    bool               logger;                  // IN logger thread
-   const uint64 *     addr_arr;                // IN array of page addrs
+   const uint64      *addr_arr;                // IN array of page addrs
    uint64             num_pages;               // IN #of pages to get
    uint64             num_pages_ws;            // IN #of pages in working set
    uint32             sync_probability;        // IN probability of sync get
-   page_handle **     handle_arr;              // page handles
+   page_handle      **handle_arr;              // page handles
    test_async_ctxt    ctxt[READER_BATCH_SIZE]; // async_get() contexts
    platform_semaphore batch_sema;              // batch semaphore
 } test_params;
@@ -597,7 +597,7 @@ test_abandon_read_batch(test_params *params,
 {
    page_handle **handle_arr = params->handle_arr;
    const uint64 *addr_arr   = params->addr_arr;
-   cache *       cc         = params->cc;
+   cache        *cc         = params->cc;
    uint64        j;
 
    test_wait_inflight(params, batch_end);
@@ -623,7 +623,7 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
    page_handle **handle_arr = &params->handle_arr[batch_start];
    const uint64 *addr_arr   = &params->addr_arr[batch_start];
    const bool    mt_reader  = params->mt_reader;
-   cache *       cc         = params->cc;
+   cache        *cc         = params->cc;
    bool          was_async[READER_BATCH_SIZE] = {FALSE};
    uint64        j;
 
@@ -635,7 +635,7 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
    }
    for (j = 0; j < READER_BATCH_SIZE; j++) {
       cache_async_result res;
-      cache_async_ctxt * ctxt = &params->ctxt[j].ctxt;
+      cache_async_ctxt  *ctxt = &params->ctxt[j].ctxt;
 
       cache_assert_ungot(cc, addr_arr[j]);
       // MT test probabilistically mixes sync and async api to test races
@@ -697,10 +697,10 @@ test_do_read_batch(threadid tid, test_params *params, uint64 batch_start)
 void
 test_reader_thread(void *arg)
 {
-   test_params *  params     = (test_params *)arg;
-   const uint64 * addr_arr   = params->addr_arr;
-   page_handle ** handle_arr = params->handle_arr;
-   cache *        cc         = params->cc;
+   test_params   *params     = (test_params *)arg;
+   const uint64  *addr_arr   = params->addr_arr;
+   page_handle  **handle_arr = params->handle_arr;
+   cache         *cc         = params->cc;
    uint64         i, j, k;
    const uint64   num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
    const threadid tid       = platform_get_tid();
@@ -745,10 +745,10 @@ test_reader_thread(void *arg)
 void
 test_writer_thread(void *arg)
 {
-   test_params * params     = (test_params *)arg;
+   test_params  *params     = (test_params *)arg;
    const uint64 *addr_arr   = params->addr_arr;
    page_handle **handle_arr = params->handle_arr;
-   cache *       cc         = params->cc;
+   cache        *cc         = params->cc;
    uint64        i, k;
    const uint64  num_pages = ROUNDDOWN(params->num_pages, READER_BATCH_SIZE);
 
@@ -791,17 +791,17 @@ test_writer_thread(void *arg)
  * eviction.
  */
 platform_status
-test_cache_async(cache *            cc,
+test_cache_async(cache             *cc,
                  clockcache_config *cfg,
                  platform_heap_id   hid,
-                 task_system *      ts,
+                 task_system       *ts,
                  uint32             num_reader_threads,
                  uint32             num_writer_threads,
                  uint32             working_set_percent)
 {
    platform_status rc;
    uint32          total_threads = num_reader_threads + num_writer_threads;
-   test_params *   params =
+   test_params    *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_reader_threads + num_writer_threads);
    uint32  i;
    uint64 *addr_arr = NULL;
@@ -929,9 +929,9 @@ cache_test(int argc, char *argv[])
    clockcache_config   cache_cfg;
    shard_log_config    log_cfg;
    int                 config_argc = argc - 1;
-   char **             config_argv = argv + 1;
+   char              **config_argv = argv + 1;
    platform_status     rc;
-   task_system *       ts;
+   task_system        *ts;
    bool                benchmark = FALSE, async = FALSE;
    uint64              seed;
 

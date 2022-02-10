@@ -8,7 +8,7 @@
 
 typedef struct task_system task_system;
 
-typedef void (*task_hook) (task_system *arg);
+typedef void (*task_hook)(task_system *arg);
 typedef void (*task_fn)(void *arg, void *scratch);
 
 typedef struct task {
@@ -21,11 +21,11 @@ typedef struct task {
 } task;
 
 typedef struct {
-   timestamp  max_runtime_ns;
-   void      *max_runtime_func;
-   uint64     total_latency_ns;
-   uint64     total_tasks;
-   uint64     max_latency_ns;
+   timestamp max_runtime_ns;
+   void     *max_runtime_func;
+   uint64    total_latency_ns;
+   uint64    total_tasks;
+   uint64    max_latency_ns;
 } PLATFORM_CACHELINE_ALIGNED task_stats;
 
 typedef struct task_queue {
@@ -59,8 +59,8 @@ typedef struct task_group {
    };
 
    // Per thread stats.
-   bool         use_stats;
-   task_stats   stats[MAX_THREADS];
+   bool       use_stats;
+   task_stats stats[MAX_THREADS];
 } task_group;
 
 typedef enum task_type {
@@ -93,29 +93,29 @@ struct task_system {
     * particular position, 1 means it is unset and that thread id is available
     * for use.
     */
-   uint64             tid_bitmask;
+   uint64 tid_bitmask;
    // max thread id so far.
-   threadid           max_tid;
+   threadid max_tid;
    // task groups
-   task_group         group[NUM_TASK_TYPES];
-   bool               use_bg_threads;
-   platform_heap_id   heap_id;
+   task_group       group[NUM_TASK_TYPES];
+   bool             use_bg_threads;
+   platform_heap_id heap_id;
 
    // scratch memory for the init thread.
-   uint64             scratch_size;
-   void *             init_scratch;
-   threadid           init_tid;
-   char               init_task_scratch[];
+   uint64   scratch_size;
+   void    *init_scratch;
+   threadid init_tid;
+   char     init_task_scratch[];
 };
 
 platform_status
-task_thread_create(const char             *name,
-                   platform_thread_worker  func,
-                   void                   *arg,
-                   size_t                  scratch_size,
-                   task_system            *ts,
-                   platform_heap_id        hid,
-                   platform_thread        *thread);
+task_thread_create(const char            *name,
+                   platform_thread_worker func,
+                   void                  *arg,
+                   size_t                 scratch_size,
+                   task_system           *ts,
+                   platform_heap_id       hid,
+                   platform_thread       *thread);
 
 // Register the calling thread, allocating scratch space for it
 void
@@ -127,31 +127,30 @@ task_deregister_this_thread(task_system *ts);
 
 
 platform_status
-task_system_create(platform_heap_id     hid,
-                   platform_io_handle  *ioh,
-                   task_system        **system,
-                   bool                 use_stats,
-                   bool                 use_bg_threads,
-                   uint8                num_bg_threads[NUM_TASK_TYPES],
-                   uint64               scratch_size);
+task_system_create(platform_heap_id    hid,
+                   platform_io_handle *ioh,
+                   task_system       **system,
+                   bool                use_stats,
+                   bool                use_bg_threads,
+                   uint8               num_bg_threads[NUM_TASK_TYPES],
+                   uint64              scratch_size);
 
 void
 task_system_destroy(platform_heap_id hid, task_system *ts);
 
 
 void *
-task_system_get_thread_scratch(task_system *ts,
-                               threadid     tid);
+task_system_get_thread_scratch(task_system *ts, threadid tid);
 
 bool
 task_system_use_bg_threads(task_system *ts);
 
 platform_status
 task_enqueue(task_system *ts,
-             task_type type,
-             task_fn func,
-             void *arg,
-             bool at_head);
+             task_type    type,
+             task_fn      func,
+             void        *arg,
+             bool         at_head);
 
 platform_status
 task_perform_one(task_system *ts);

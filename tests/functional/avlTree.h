@@ -64,14 +64,14 @@ typedef int (*AvlTreeKeyComparator)(const AvlTreeLinks *node, AvlTreeKey key);
  * AvlTreeLinks pointer to the enclosing node structure.
  */
 typedef struct AvlTree {
-   AvlTreeLinks *        root;
+   AvlTreeLinks         *root;
    AvlTreeNodeComparator nodeCmp;
    AvlTreeKeyComparator  keyCmp;
 } AvlTree;
 
 void
-AvlTree_Init(AvlTree *             tree,
-             AvlTreeLinks *        root,
+AvlTree_Init(AvlTree              *tree,
+             AvlTreeLinks         *root,
              AvlTreeNodeComparator nodeCmp,
              AvlTreeKeyComparator  keyCmp);
 
@@ -120,7 +120,7 @@ AvlTree_Predecessor(const AvlTree *tree, const AvlTreeLinks *node);
  */
 
 typedef struct {
-   AvlTree *     tree;
+   AvlTree      *tree;
    unsigned      num;
    unsigned      max;
    AvlTreeLinks *cur;

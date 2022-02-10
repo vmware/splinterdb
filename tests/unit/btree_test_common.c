@@ -7,7 +7,7 @@
 #include "btree_test_common.h"
 
 int
-init_data_config_from_master_config(data_config *  data_cfg,
+init_data_config_from_master_config(data_config   *data_cfg,
                                     master_config *master_cfg)
 {
    data_cfg->key_size     = master_cfg->key_size;
@@ -30,7 +30,7 @@ init_io_config_from_master_config(io_config *io_cfg, master_config *master_cfg)
 
 int
 init_rc_allocator_config_from_master_config(rc_allocator_config *allocator_cfg,
-                                            master_config *      master_cfg)
+                                            master_config       *master_cfg)
 {
    rc_allocator_config_init(allocator_cfg,
                             master_cfg->page_size,
@@ -41,7 +41,7 @@ init_rc_allocator_config_from_master_config(rc_allocator_config *allocator_cfg,
 
 int
 init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
-                                          master_config *    master_cfg)
+                                          master_config     *master_cfg)
 {
    clockcache_config_init(cache_cfg,
                           master_cfg->page_size,
@@ -53,9 +53,9 @@ init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
 }
 
 int
-init_btree_config_from_master_config(btree_config * dbtree_cfg,
+init_btree_config_from_master_config(btree_config  *dbtree_cfg,
                                      master_config *master_cfg,
-                                     data_config *  data_cfg)
+                                     data_config   *data_cfg)
 {
    btree_config_init(dbtree_cfg,
                      data_cfg,

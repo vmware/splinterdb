@@ -39,18 +39,18 @@ static const char *const page_type_str[NUM_PAGE_TYPES] =
 typedef struct allocator allocator;
 
 typedef platform_status (*alloc_fn)(allocator *al,
-                                    uint64 *   addr,
+                                    uint64    *addr,
                                     page_type  type);
 
 typedef uint8 (*dec_ref_fn)(allocator *al, uint64 addr, page_type type);
 typedef uint8 (*generic_ref_fn)(allocator *al, uint64 addr);
 
-typedef platform_status (*get_super_addr_fn)(allocator *       al,
+typedef platform_status (*get_super_addr_fn)(allocator        *al,
                                              allocator_root_id spl_id,
-                                             uint64 *          addr);
-typedef platform_status (*alloc_super_addr_fn)(allocator *       al,
+                                             uint64           *addr);
+typedef platform_status (*alloc_super_addr_fn)(allocator        *al,
                                                allocator_root_id spl_id,
-                                               uint64 *          addr);
+                                               uint64           *addr);
 typedef void (*remove_super_addr_fn)(allocator *al, allocator_root_id spl_id);
 typedef uint64 (*get_size_fn)(allocator *al);
 
@@ -116,9 +116,9 @@ allocator_get_super_addr(allocator *al, allocator_root_id spl_id, uint64 *addr)
 }
 
 static inline platform_status
-allocator_alloc_super_addr(allocator *       al,
+allocator_alloc_super_addr(allocator        *al,
                            allocator_root_id spl_id,
-                           uint64 *          addr)
+                           uint64           *addr)
 {
    return al->ops->alloc_super_addr(al, spl_id, addr);
 }

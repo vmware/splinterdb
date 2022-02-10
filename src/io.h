@@ -12,33 +12,50 @@
 
 #include "platform.h"
 
-typedef struct io_handle io_handle;
+typedef struct io_handle    io_handle;
 typedef struct io_async_req io_async_req;
 
 typedef struct io_config {
-   uint64  async_queue_size;
-   uint64  kernel_queue_size;
-   uint64  async_max_pages;
-   uint64  page_size;
-   uint64  extent_size;
-   char    filename[MAX_STRING_LENGTH];
-   int     flags;
-   uint32  perms;
+   uint64 async_queue_size;
+   uint64 kernel_queue_size;
+   uint64 async_max_pages;
+   uint64 page_size;
+   uint64 extent_size;
+   char   filename[MAX_STRING_LENGTH];
+   int    flags;
+   uint32 perms;
 } io_config;
 
-typedef void (*io_callback_fn) (void *metadata, struct iovec *iovec, uint64 count, platform_status status);
+typedef void (*io_callback_fn)(void           *metadata,
+                               struct iovec   *iovec,
+                               uint64          count,
+                               platform_status status);
 
-typedef platform_status (*io_read_fn)          (io_handle *io, void *buf, uint64 bytes, uint64 addr);
-typedef platform_status (*io_write_fn)         (io_handle *io, void *buf, uint64 bytes, uint64 addr);
-typedef io_async_req *  (*io_get_async_req_fn) (io_handle *io, bool blocking);
-typedef struct iovec *  (*io_get_iovec_fn)     (io_handle *io, io_async_req *req);
-typedef void *          (*io_get_metadata_fn)  (io_handle *io, io_async_req *req);
-typedef platform_status (*io_read_async_fn)    (io_handle *io, io_async_req *req, io_callback_fn callback, uint64 count, uint64 addr);
-typedef platform_status (*io_write_async_fn)   (io_handle *io, io_async_req *req, io_callback_fn callback, uint64 count, uint64 addr);
-typedef void            (*io_cleanup_fn)       (io_handle *io, uint64 count);
-typedef void            (*io_cleanup_all_fn)   (io_handle *io);
-typedef void            (*io_thread_register_fn) (io_handle *io);
-typedef bool            (*io_max_latency_elapsed_fn) (io_handle *io, timestamp ts);
+typedef platform_status (*io_read_fn)(io_handle *io,
+                                      void      *buf,
+                                      uint64     bytes,
+                                      uint64     addr);
+typedef platform_status (*io_write_fn)(io_handle *io,
+                                       void      *buf,
+                                       uint64     bytes,
+                                       uint64     addr);
+typedef io_async_req *(*io_get_async_req_fn)(io_handle *io, bool blocking);
+typedef struct iovec *(*io_get_iovec_fn)(io_handle *io, io_async_req *req);
+typedef void *(*io_get_metadata_fn)(io_handle *io, io_async_req *req);
+typedef platform_status (*io_read_async_fn)(io_handle     *io,
+                                            io_async_req  *req,
+                                            io_callback_fn callback,
+                                            uint64         count,
+                                            uint64         addr);
+typedef platform_status (*io_write_async_fn)(io_handle     *io,
+                                             io_async_req  *req,
+                                             io_callback_fn callback,
+                                             uint64         count,
+                                             uint64         addr);
+typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
+typedef void (*io_cleanup_all_fn)(io_handle *io);
+typedef void (*io_thread_register_fn)(io_handle *io);
+typedef bool (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
 
 typedef struct io_ops {
    io_read_fn                read;
@@ -60,9 +77,13 @@ struct io_handle {
 };
 
 platform_status
-io_handle_init(platform_io_handle *ioh, io_config *cfg, platform_heap_handle hh, platform_heap_id hid);
+io_handle_init(platform_io_handle  *ioh,
+               io_config           *cfg,
+               platform_heap_handle hh,
+               platform_heap_id     hid);
 
-void io_handle_deinit(platform_io_handle *ioh);
+void
+io_handle_deinit(platform_io_handle *ioh);
 
 static inline platform_status
 io_read(io_handle *io, void *buf, uint64 bytes, uint64 addr)
@@ -95,13 +116,21 @@ io_get_metadata(io_handle *io, io_async_req *req)
 }
 
 static inline platform_status
-io_read_async(io_handle *io, io_async_req *req, io_callback_fn callback, uint64 count, uint64 addr)
+io_read_async(io_handle     *io,
+              io_async_req  *req,
+              io_callback_fn callback,
+              uint64         count,
+              uint64         addr)
 {
    return io->ops->read_async(io, req, callback, count, addr);
 }
 
 static inline platform_status
-io_write_async(io_handle *io, io_async_req *req, io_callback_fn callback, uint64 count, uint64 addr)
+io_write_async(io_handle     *io,
+               io_async_req  *req,
+               io_callback_fn callback,
+               uint64         count,
+               uint64         addr)
 {
    return io->ops->write_async(io, req, callback, count, addr);
 }
@@ -134,7 +163,6 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
       return io->ops->max_latency_elapsed(io, ts);
    }
    return TRUE;
-
 }
 
 /*
@@ -158,17 +186,17 @@ io_config_init(io_config *io_cfg,
 {
    ZERO_CONTENTS(io_cfg);
 
-   io_cfg->page_size = page_size;
+   io_cfg->page_size   = page_size;
    io_cfg->extent_size = extent_size;
 
    int rc = snprintf(io_cfg->filename, MAX_STRING_LENGTH, "%s", io_filename);
    platform_assert(rc < MAX_STRING_LENGTH);
 
-   io_cfg->flags = flags;
-   io_cfg->perms = perms;
-   io_cfg->async_queue_size = async_queue_depth;
+   io_cfg->flags             = flags;
+   io_cfg->perms             = perms;
+   io_cfg->async_queue_size  = async_queue_depth;
    io_cfg->kernel_queue_size = async_queue_depth;
-   io_cfg->async_max_pages = extent_size / page_size;
+   io_cfg->async_max_pages   = extent_size / page_size;
 }
 
 #endif //__IO_H

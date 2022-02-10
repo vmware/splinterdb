@@ -70,29 +70,29 @@
  * prama GCC poison does not allow poisoning existing macros.
  */
 #if 0 // Cannot poison existing macros
-#  pragma GCC poison alloca
-#  pragma GCC poison assert
-#  pragma GCC poison EINVAL ENOMEM EINVAL ENOSPC ETIMEDOUT
-#  pragma GCC poison pthread_cleanup_pop
-#  pragma GCC poison pthread_cleanup_push
+#   pragma GCC poison                             alloca
+#   pragma GCC poison                             assert
+#   pragma GCC poison EINVAL ENOMEM EINVAL ENOSPC ETIMEDOUT
+#   pragma GCC poison                             pthread_cleanup_pop
+#   pragma GCC poison                             pthread_cleanup_push
 
 // macros on some systems.
-#pragma GCC poison strncat
-#pragma GCC poison strcmp
+#   pragma GCC poison                             strncat
+#   pragma GCC poison                             strcmp
 #endif // Cannot poison existing macros
 
-#  pragma GCC poison __thread
-#  pragma GCC poison laio_handle
-#  pragma GCC poison mmap
-#  pragma GCC poison pthread_attr_destroy
-#  pragma GCC poison pthread_attr_init
-#  pragma GCC poison pthread_attr_setdetachstate
-#  pragma GCC poison pthread_attr_t
-#  pragma GCC poison pthread_create
-#  pragma GCC poison pthread_join
-#  pragma GCC poison pthread_mutex_destroy
-#  pragma GCC poison pthread_mutex_init
-#  pragma GCC poison pthread_mutex_lock
-#  pragma GCC poison pthread_mutex_t
-#  pragma GCC poison pthread_mutex_unlock
-#  pragma GCC poison strerror
+#pragma GCC        poison __thread
+#pragma GCC poison laio_handle
+#pragma GCC poison mmap
+#pragma GCC poison pthread_attr_destroy
+#pragma GCC poison pthread_attr_init
+#pragma GCC poison pthread_attr_setdetachstate
+#pragma GCC poison pthread_attr_t
+#pragma GCC poison pthread_create
+#pragma GCC poison pthread_join
+#pragma GCC poison pthread_mutex_destroy
+#pragma GCC poison pthread_mutex_init
+#pragma GCC poison pthread_mutex_lock
+#pragma GCC poison pthread_mutex_t
+#pragma GCC poison pthread_mutex_unlock
+#pragma GCC poison strerror
