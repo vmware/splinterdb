@@ -883,8 +883,8 @@ clockcache_assert_clean(clockcache *cc)
    uint64 i;
 
    for (i = 0; i < cc->cfg->page_capacity; i++) {
-      debug_assert(clockcache_test_flag(cc, i, CC_FREE) ||
-                   clockcache_test_flag(cc, i, CC_CLEAN));
+      debug_assert(clockcache_test_flag(cc, i, CC_FREE)
+                   || clockcache_test_flag(cc, i, CC_CLEAN));
    }
 }
 
@@ -1163,8 +1163,8 @@ clockcache_ok_to_writeback(clockcache *cc,
                            bool        with_access)
 {
    uint32 status = cc_entryp(cc, entry_number)->status;
-   return status == CC_CLEANABLE1_STATUS ||
-          (with_access && status == CC_CLEANABLE2_STATUS);
+   return status == CC_CLEANABLE1_STATUS
+          || (with_access && status == CC_CLEANABLE2_STATUS);
 }
 
 /*
@@ -1198,8 +1198,10 @@ clockcache_try_set_writeback(clockcache *cc,
    if (with_access
        && __sync_bool_compare_and_swap(
           status, CC_CLEANABLE2_STATUS, CC_WRITEBACK2_STATUS))
+   {
       return TRUE;
    }
+
    return FALSE;
 }
 
@@ -2227,10 +2229,10 @@ clockcache_read_async_callback(void           *metadata,
    platform_assert_status_ok(status);
    debug_assert(count == 1);
 
-   uint32 entry_number
-      = clockcache_data_to_entry_number(cc, (char *)iovec[0].iov_base);
+   uint32 entry_number =
+      clockcache_data_to_entry_number(cc, (char *)iovec[0].iov_base);
    clockcache_entry *entry = cc_entryp(cc, entry_number);
-   uint64 addr = entry->page.disk_addr;
+   uint64            addr  = entry->page.disk_addr;
    debug_assert(addr != CC_UNMAPPED_ADDR);
 
    if (cc->cfg->use_stats) {
@@ -2668,7 +2670,7 @@ clockcache_page_sync(clockcache  *cc,
 
 typedef struct clockcache_sync_callback_req {
    clockcache *cc;
-   uint64 *    pages_outstanding;
+   uint64     *pages_outstanding;
 } clockcache_sync_callback_req;
 
 /*
@@ -2950,7 +2952,7 @@ clockcache_print(clockcache *cc)
                              i,
                              i + 63);
       }
-      status = cc->entry[i].status;
+      status   = cc->entry[i].status;
       refcount = 0;
       for (thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
          refcount += clockcache_get_ref(cc, i, thr_i);

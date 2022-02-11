@@ -7,4 +7,3 @@
 
 /* Name of SplinterDB device created for unit-tests */
 #define TEST_DB_NAME "unit_tests_db"
-

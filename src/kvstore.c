@@ -51,19 +51,20 @@ typedef struct kvstore {
  * This config data will have to be retrieved from the super-block eventually.
  */
 static data_config default_data_config = {
-   .key_size           = 24,
-   .message_size       = 24,
-   .min_key            = {0},
-   .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+   .key_size     = DEFAULT_KEY_SIZE,
+   .message_size = DEFAULT_KEY_SIZE,
+   .min_key      = {0},
+   .max_key      = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+
    .key_compare        = default_data_key_cmp,
    .key_hash           = platform_hash32,
-   .key_to_string      = default_data_key_to_string,
-   .message_to_string  = default_data_message_to_string,
+   .message_class      = default_data_message_class,
    .merge_tuples       = default_data_merge_tuples,
    .merge_tuples_final = default_data_merge_tuples_final,
-   .message_class      = default_data_message_class,
+   .key_to_string      = default_data_key_to_string,
+   .message_to_string  = default_data_message_to_string,
 };
 
 /*
@@ -81,7 +82,7 @@ platform_status_to_int(const platform_status status) // IN
 /* Function prototypes */
 static int
 kvstore_create_or_open(const kvstore_config *kvs_cfg,      // IN
-                       kvstore **            kvs_out,      // OUT
+                       kvstore             **kvs_out,      // OUT
                        bool                  open_existing // IN
 );
 
@@ -93,13 +94,13 @@ kvstore_bootstrap_configs(kvstore_config *kvs_cfg);
 
 static platform_status
 kvstore_bootstrap_init_config(kvstore_config *kvs_cfg, // IN, OUT
-                              kvstore *       kvs);           // OUT
+                              kvstore        *kvs);           // OUT
 
 /* **** External Interfaces **** */
 
 int
 kvstore_create(const kvstore_config *cfg, // IN
-               kvstore **            kvs  // OUT
+               kvstore             **kvs  // OUT
 )
 {
    return kvstore_create_or_open(cfg, kvs, FALSE);
@@ -107,14 +108,14 @@ kvstore_create(const kvstore_config *cfg, // IN
 
 int
 kvstore_open(const kvstore_config *cfg, // IN
-             kvstore **            kvs  // OUT
+             kvstore             **kvs  // OUT
 )
 {
    return kvstore_create_or_open(cfg, kvs, TRUE);
 }
 
 int
-kvstore_reopen(kvstore **  kvs, // OUT
+kvstore_reopen(kvstore   **kvs, // OUT
                const char *filename)
 {
    kvstore_config ZERO_STRUCT_AT_DECL(kvs_cfg);
@@ -187,11 +188,11 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
       masterCfg.page_size   = kvs_cfg->page_size;
       masterCfg.extent_size = kvs_cfg->extent_size;
    }
-   masterCfg.use_log            = FALSE;
-   masterCfg.use_stats          = TRUE;
-   masterCfg.key_size           = kvs_cfg->data_cfg.key_size;
-   masterCfg.message_size       = kvs_cfg->data_cfg.message_size;
-   kvs->data_cfg                = kvs_cfg->data_cfg;
+   masterCfg.use_log      = FALSE;
+   masterCfg.use_stats    = TRUE;
+   masterCfg.key_size     = kvs_cfg->data_cfg.key_size;
+   masterCfg.message_size = kvs_cfg->data_cfg.message_size;
+   kvs->data_cfg          = kvs_cfg->data_cfg;
 
    // check if min_key and max_key are set
    if (0
@@ -507,7 +508,7 @@ deinit_kvhandle:
  */
 static platform_status
 kvstore_bootstrap_init_config(kvstore_config *kvs_cfg, // IN, OUT
-                              kvstore *       kvs)            // OUT
+                              kvstore        *kvs)            // OUT
 {
    // Even though we are boostrapping, we expect the caller / application
    // to provide us a valid data config, giving key/value specs and

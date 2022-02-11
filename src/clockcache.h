@@ -50,7 +50,7 @@ typedef struct clockcache_config {
 typedef struct history_record {
    uint32 status;
    int    refcount;
-   void * backtrace[NUM_HISTORY_RECORDS];
+   void  *backtrace[NUM_HISTORY_RECORDS];
 } history_record;
 #endif // RECORD_ACQUISITION_STACKS
 

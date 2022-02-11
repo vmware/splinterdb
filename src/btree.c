@@ -152,8 +152,8 @@ btree_fill_index_entry(const btree_config *cfg,
    debug_assert(diff_ptr(hdr, entry) + index_entry_size(new_pivot_key)
                 <= cfg->page_size);
    memcpy(entry->key, slice_data(new_pivot_key), slice_length(new_pivot_key));
-   entry->key_size                         = slice_length(new_pivot_key);
-   entry->pivot_data.child_addr            = new_addr;
+   entry->key_size                            = slice_length(new_pivot_key);
+   entry->pivot_data.child_addr               = new_addr;
    entry->pivot_data.num_kvs_in_subtree       = kv_pairs;
    entry->pivot_data.key_bytes_in_subtree     = key_bytes;
    entry->pivot_data.message_bytes_in_subtree = message_bytes;

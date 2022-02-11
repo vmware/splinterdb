@@ -202,8 +202,8 @@ CTEST2(kvstore, test_iterator)
       data->kvs_cfg.data_cfg.message_size - sizeof(data_handle);
 
    for (; kvstore_iterator_valid(it); kvstore_iterator_next(it), i++) {
-      char expected_key[24] = {0};
-      char expected_val[24] = {0};
+      char expected_key[DEFAULT_KEY_SIZE] = {0};
+      char expected_val[DEFAULT_KEY_SIZE] = {0};
 
       int expected_key_len =
          snprintf(expected_key, data->kvs_cfg.data_cfg.key_size, "key-%04d", i);

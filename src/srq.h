@@ -14,7 +14,7 @@
 #include "platform.h"
 
 // Max size of space reclamation queue (For static allocation now)
-#define SRQ_MAX_ENTRIES 8192
+#define SRQ_MAX_ENTRIES     8192
 #define SRQ_INDEX_AVAILABLE -1
 
 typedef struct srq_data {
@@ -125,12 +125,9 @@ static inline void
 srq_rebalance_up(srq *queue, int64 pos)
 {
    debug_assert(pos >= 0, "pos=%ld", pos);
-   debug_assert(0 || (1 && queue->num_entries == 0
-                        && pos == 0)
-                  || pos < queue->num_entries);
-   while (1 && pos != 0
-            && srq_has_priority(queue, pos, srq_parent(pos)))
-   {
+   debug_assert(0 || (1 && queue->num_entries == 0 && pos == 0)
+                || pos < queue->num_entries);
+   while (1 && pos != 0 && srq_has_priority(queue, pos, srq_parent(pos))) {
       srq_swap(queue, srq_parent(pos), pos);
       pos = srq_parent(pos);
    }
@@ -140,13 +137,13 @@ static inline void
 srq_rebalance_down(srq *queue, uint64 pos)
 {
    debug_assert(pos >= 0, "pos=%ld", pos);
-   debug_assert(0 || (1 && queue->num_entries == 0
-                        && pos == 0)
-                  || pos < queue->num_entries);
-   while (0 || (1 && srq_lchild(pos) < queue->num_entries
-                  && srq_has_priority(queue, srq_lchild(pos), pos))
-            || (1 && srq_rchild(pos) < queue->num_entries
-                  && srq_has_priority(queue, srq_rchild(pos), pos)))
+   debug_assert(0 || (1 && queue->num_entries == 0 && pos == 0)
+                || pos < queue->num_entries);
+   while (0
+          || (1 && srq_lchild(pos) < queue->num_entries
+              && srq_has_priority(queue, srq_lchild(pos), pos))
+          || (1 && srq_rchild(pos) < queue->num_entries
+              && srq_has_priority(queue, srq_rchild(pos), pos)))
    {
       if (0 || srq_rchild(pos) >= queue->num_entries
           || srq_has_priority(queue, srq_lchild(pos), srq_rchild(pos)))

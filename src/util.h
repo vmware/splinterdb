@@ -311,7 +311,7 @@ try_string_to_int8(const char *nptr, // IN
    (strncmp(arg, str, SIZEOF_STRING_LITERAL(str)) == 0)
 
 /* In-memory structures that should be packed are tagged with this. */
-#define PACKED  __attribute__((__packed__))
+#define PACKED __attribute__((__packed__))
 
 /* Disk-resident structures that should be packed are tagged with this. */
 #define ONDISK __attribute__((__packed__))

@@ -652,11 +652,11 @@ task_system_io_register_thread(task_system *ts)
 void
 task_system_destroy(platform_heap_id hid, task_system **tspp)
 {
-   task_system * ts = *tspp;
+   task_system *ts = *tspp;
 
    // Be defensive in backout; make this destroy idempotent
-   if (ts == (task_system *) NULL) {
-       return;
+   if (ts == (task_system *)NULL) {
+      return;
    }
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
       task_group_deinit(&ts->group[type]);
@@ -665,7 +665,7 @@ task_system_destroy(platform_heap_id hid, task_system **tspp)
 
    // NULL-out handle so caller does not accidentally dereference a
    // now-invalid task system structure.
-   *tspp = (task_system *) NULL;
+   *tspp = (task_system *)NULL;
 }
 
 uint64 *

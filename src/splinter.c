@@ -49,7 +49,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  */
 #define SPLINTER_NUM_MEMTABLES (4)
 
-#define SPLINTER_HARD_MAX_NUM_TREES        (128)
+#define SPLINTER_HARD_MAX_NUM_TREES (128)
 
 /*
  * These are hard-coded to values so that statically allocated
@@ -59,9 +59,9 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * of structures in splinter_trunk_hdr{}; i.e. Splinter pages of type
  * PAGE_TYPE_TRUNK. So these constants do affect disk-resident structures.
  */
-#define SPLINTER_MAX_PIVOTS (20)
-#define SPLINTER_MAX_BUNDLES (12)
-#define SPLINTER_MAX_SUBBUNDLES (24)
+#define SPLINTER_MAX_PIVOTS            (20)
+#define SPLINTER_MAX_BUNDLES           (12)
+#define SPLINTER_MAX_SUBBUNDLES        (24)
 #define SPLINTER_MAX_SUBBUNDLE_FILTERS (24)
 
 /*
@@ -89,7 +89,6 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * the leaf. Otherwise, the leaf page will be compacted.
  * (This limit has also been empirically established thru in-house experiments.)
  */
->>>>>>> Apply review comments from discussion. Tighten definitions.
 #define SPLINTER_SINGLE_LEAF_THRESHOLD_PCT (75)
 
 //#define SPLINTER_LOG
@@ -143,8 +142,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *
  *       SplinterDB is a size-tiered Be-tree. It has a superstructure called
  *       the trunk tree, which consists of trunk nodes. Each trunk node
- *       contains pointers to a collection of branches. Each branch is a B-tree
- *       which stores key-value pairs (tuples). All the actual data is stored
+ *       contains pointers to a collection of branches. Each branch is a
+ *B-tree  which stores key-value pairs (tuples). All the actual data is stored
  *       in the branches, and the trunk indexes and organizes the data.
  *-----------------------------------------------------------------------------
  */
@@ -154,8 +153,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * Substructures:
  *
  *       B-trees:
- *          SplinterDB makes use of B-trees, which come in two flavors, dynamic
- *          and static.
+ *          SplinterDB makes use of B-trees, which come in two flavors,
+ *dynamic and static.
  *
  *          dynamic: Dynamic B-trees are used in the memtable (see
  *             below) and are mutable B-trees, supporting
@@ -182,10 +181,10 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          first is incorporated.
  *
  *          As part of this process, the generation number of the leaf into
- *          which the new tuple is placed is returned and stored in the log (if
- *          used) in order to establish a per-key temporal ordering.  The
- *          memtable also keeps a list of fingerprints, fp_arr, which are used
- *          to build the filter when the memtable becomes a branch.
+ *          which the new tuple is placed is returned and stored in the log
+ *(if used) in order to establish a per-key temporal ordering.  The memtable
+ *also keeps a list of fingerprints, fp_arr, which are used to build the
+ *filter when the memtable becomes a branch.
  *
  *       Incorporation When the memtable fills, it is incorporated
  *          into the root node. The memtable locks itself to inserts
@@ -200,14 +199,14 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          (set to be fanout * memtable_capacity) or when it has
  *          max_branches_per_node branches. The first condition ensures that
  *          data moves down the tree and the second limits the number of
- *          branches on a root-to-leaf path and therefore the worst-case lookup
- *          cost.
+ *          branches on a root-to-leaf path and therefore the worst-case
+ *lookup cost.
  *
  *          When a node fills, a flush is initiated to each pivot (child) of
- *          the node which has at least max_branches_per_node live branches. If
- *          the node is still full, it picks the pivot which has the most
- *          tuples and flushes to that child and repeats this process until the
- *          node is no longer full.
+ *          the node which has at least max_branches_per_node live branches.
+ *If the node is still full, it picks the pivot which has the most tuples and
+ *flushes to that child and repeats this process until the node is no longer
+ *full.
  *
  *          A flush consists of flushing all the branches which are live for
  *          the pivot into a bundle in the child. A bundle is a contiguous
@@ -217,20 +216,19 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *
  *       Compaction (after flush)
  *          After a flush completes, a compact_bundle job is issued for the
- *          bundle which was created. This job first checks if the node is full
- *          and if so flushes until it is no longer full. Then it compacts all
- *          the tuples in the bundle which are live for the node (are within
- *          the node's key range and have not been flushed), and replaces the
- *          bundle with the resulting compacted branch.
+ *          bundle which was created. This job first checks if the node is
+ *full and if so flushes until it is no longer full. Then it compacts all the
+ *tuples in the bundle which are live for the node (are within the node's key
+ *range and have not been flushed), and replaces the bundle with the
+ *resulting compacted branch.
  *
  *       Split (internal)
  *          During a flush, if the child has more pivots than the configured
- *          fanout, it is split. Note that pivots are added at other times (to
- *          the parent of an internal or leaf split), so nodes may
- *          temporarily exceed the fanout. Splits are not initiated then,
- *          because the hand-over-hand locking protocol means that the lock of
- *          the grandparent is not held and it is awkward for try to acquire
- *          locks going up the tree.
+ *          fanout, it is split. Note that pivots are added at other times
+ *(to the parent of an internal or leaf split), so nodes may temporarily
+ *exceed the fanout. Splits are not initiated then, because the
+ *hand-over-hand locking protocol means that the lock of the grandparent is
+ *not held and it is awkward for try to acquire locks going up the tree.
  *
  *          An internal node split is a logical split: the trunk node is
  *          copied, except the first (fanout/2) pivots become the pivots of
@@ -244,13 +242,13 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *
  *          When a leaf is full, it is split logically: new pivots are
  *          calculated, new leaves are created with those pivots as min/max
- *          keys, and all the branches in the leaf at the time of the split are
- *          shared between them temporarily as a single bundle in each.  This
- *          split happens synchronously with the flush.
+ *          keys, and all the branches in the leaf at the time of the split
+ *are shared between them temporarily as a single bundle in each.  This split
+ *happens synchronously with the flush.
  *
  *          A compact_bundle job is issued for each new leaf, which
- *          asynchronously compacts the shared branches into a single unshared
- *          branch with the tuples from each new leaf's range.
+ *          asynchronously compacts the shared branches into a single
+ *unshared branch with the tuples from each new leaf's range.
  *-----------------------------------------------------------------------------
  */
 
@@ -265,18 +263,18 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *
  *  o Flushes and compactions:
  *
- *       1. While a compaction has been scheduled or is in process, a flush may
- *          occur. This will flush the bundle being compacted to the child and
- *          the in-progress compaction will continue as usual. Note that the
- *          tuples which are flushed will still be compacted if the compaction
- *          is in progress, which results in some wasted work.
+ *       1. While a compaction has been scheduled or is in process, a flush
+ *may occur. This will flush the bundle being compacted to the child and the
+ *in-progress compaction will continue as usual. Note that the tuples which
+ *are flushed will still be compacted if the compaction is in progress, which
+ *results in some wasted work.
  *       2. As a result of 1., while a compaction has been scheduled, its
  *          bundle may be flushed to all children, so that it is no longer
  *          live. In this case, when the compact_bundle job initiates, it
  *          detects that the bundle is not live and aborts before compaction.
  *       3. Similarly, if the bundle for an in-progress compaction is flushed
- *          to all children, when it completes, it will detect that the bundle
- *          is no longer live and it will discard the output.
+ *          to all children, when it completes, it will detect that the
+ *bundle is no longer live and it will discard the output.
  *
  *  o Flushes and internal/leaf splits:
  *
@@ -288,13 +286,13 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *       4. If an internal split occurs in a node which has a scheduled
  *          compaction, when the compact_bundle job initiates it will detect
  *          the node split using the node's generation number
- *          (hdr->generation). It then creates a separate compact_bundle job on
- *          the new sibling.
+ *          (hdr->generation). It then creates a separate compact_bundle job
+ *on the new sibling.
  *       5. If an internal split occurs in a node with an in-progress
  *          compaction, the bundle being compacted is copied to the new
  *          sibling.  When the compact_bundle job finishes compaction and
- *          fetches the node to replace the bundle, the node split is detected
- *          using the generation number, and the bundle is replaced in the new
+ *          fetches the node to replace the bundle, the node split is
+ *detected using the generation number, and the bundle is replaced in the new
  *          sibling as well. Note that the output of the compaction will
  *          contain tuples for both the node and its new sibling.
  *
@@ -303,8 +301,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *       6. If a compaction is scheduled or in progress when a leaf split
  *          triggers, the leaf split will start its own compaction job on the
  *          bundle being compacted. When the compaction job initiates or
- *          finishes, it will detect the leaf split using the generation number
- *          of the leaf, and abort.
+ *          finishes, it will detect the leaf split using the generation
+ *number of the leaf, and abort.
  *-----------------------------------------------------------------------------
  */
 
@@ -312,7 +310,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *-----------------------------------------------------------------------------
  * Trunk Nodes: splinter_trunk_hdr{}: Disk-resident structure
  *
- *   A trunk node, on pages of PAGE_TYPE_TRUNK type, consists of the following:
+ *   A trunk node, on pages of PAGE_TYPE_TRUNK type, consists of the
+ *following:
  *
  *       header
  *          meta data
@@ -325,8 +324,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          range of branches.
  *       ----------
  *       array of subbundles
- *          A subbundle consists of the branches from a single ancestor (really
- *          that ancestor's pivot). During a flush, all the whole branches in
+ *          A subbundle consists of the branches from a single ancestor
+ *(really that ancestor's pivot). During a flush, all the whole branches in
  *          the parent are collected into a subbundle in the child and any
  *          subbundles in the parent are copied to the child.
  *
@@ -344,21 +343,19 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          determine which branches have tuples for that pivot (the
  *          range start_branch to end_branch).
  *
- *          Each pivot's key is accessible via a call to splinter_get_pivot and
- *          the remaining data is accessible via a call to
- *          splinter_get_pivot_data.
+ *          Each pivot's key is accessible via a call to splinter_get_pivot
+ *and the remaining data is accessible via a call to splinter_get_pivot_data.
  *
  *          The number of pivots has two different limits: a soft limit
- *          (fanout) and a hard limit (max_pivot_keys). When the soft limit is
- *          reached, it will cause the node to split the next time it is
- *          flushed into (see internal node splits above). Note that multiple
- *          pivots can be added to the parent of a leaf during a split and
- *          multiple splits could theoretically occur before the node is
- *          flushed into again, so the fanout limit may temporarily be exceeded
- *          by multiple pivots. The hard limit is the amount of physical space
- *          in the node which can be used for pivots and cannot be exceeded. By
- *          default the fanout is 8 and the hard limit is 3x the fanout. Note
- *          that the additional last pivot (containing the exclusive upper
+ *          (fanout) and a hard limit (max_pivot_keys). When the soft limit
+ *is reached, it will cause the node to split the next time it is flushed
+ *into (see internal node splits above). Note that multiple pivots can be
+ *added to the parent of a leaf during a split and multiple splits could
+ *theoretically occur before the node is flushed into again, so the fanout
+ *limit may temporarily be exceeded by multiple pivots. The hard limit is the
+ *amount of physical space in the node which can be used for pivots and
+ *cannot be exceeded. By default the fanout is 8 and the hard limit is 3x the
+ *fanout. Note that the additional last pivot (containing the exclusive upper
  *          bound to the node) counts towards the hard limit (because it uses
  *          physical space), but not the soft limit.
  *       ----------
@@ -366,22 +363,22 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          whole branches: the branches from hdr->start_branch to
  *             hdr->start_frac_branch are "whole" branches, each of which is
  *             the output of a compaction or incorporation.
- *          fractional branches: from hdr->start_frac_branch to hdr->end_branch
- *             are "fractional" branches that are part of bundles and are in
- *             the process of being compacted into whole branches.
- *          Logically, each whole branch and each bundle counts toward the
- *          number of branches in the node (or pivot), since each bundle
- *          represents a single branch after compaction.
+ *          fractional branches: from hdr->start_frac_branch to
+ *hdr->end_branch are "fractional" branches that are part of bundles and are
+ *in the process of being compacted into whole branches. Logically, each
+ *whole branch and each bundle counts toward the number of branches in the
+ *node (or pivot), since each bundle represents a single branch after
+ *compaction.
  *
- *          There are two limits on the number of branches in a node. The soft
- *          limit (max_branches_per_node) refers to logical branches (each
- *          whole branch and each bundle counts as a logical branch), and when
- *          there are more logical branches than the soft limit, the node is
- *          considered full and flushed until there are fewer branches than the
- *          soft limit. The hard limit (hard_max_branches_per_node) is the
- *          number of branches (whole and fractional) for which there is
- *          physical room in the node, and as a result cannot be exceeded. An
- *          attempt to flush into a node which is at the hard limit will fail.
+ *          There are two limits on the number of branches in a node. The
+ *soft limit (max_branches_per_node) refers to logical branches (each whole
+ *branch and each bundle counts as a logical branch), and when there are more
+ *logical branches than the soft limit, the node is considered full and
+ *flushed until there are fewer branches than the soft limit. The hard limit
+ *(hard_max_branches_per_node) is the number of branches (whole and
+ *fractional) for which there is physical room in the node, and as a result
+ *cannot be exceeded. An attempt to flush into a node which is at the hard
+ *limit will fail.
  *-----------------------------------------------------------------------------
  */
 
@@ -438,11 +435,11 @@ typedef enum splinter_subbundle_state {
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK splinter_subbundle {
-   splinter_subbundle_t     state;
-   uint16                   start_branch;
-   uint16                   end_branch;
-   uint16                   start_filter;
-   uint16                   end_filter;
+   splinter_subbundle_t state;
+   uint16               start_branch;
+   uint16               end_branch;
+   uint16               start_filter;
+   uint16               end_filter;
 } splinter_subbundle;
 
 /*
@@ -485,11 +482,11 @@ typedef struct ONDISK splinter_bundle {
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK splinter_trunk_hdr {
-   uint16 num_pivot_keys;    // number of used pivot keys (== num_children + 1)
-   uint16 height;            // height of the node
-   uint64 next_addr;         // PBN of the node's successor (0 if no successor)
-   uint64 generation;        // counter incremented on a node split
-   uint64 pivot_generation;  // counter incremented when new pivots are added
+   uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
+   uint16 height;           // height of the node
+   uint64 next_addr;        // PBN of the node's successor (0 if no successor)
+   uint64 generation;       // counter incremented on a node split
+   uint64 pivot_generation; // counter incremented when new pivots are added
 
    uint16 start_branch;      // first live branch
    uint16 start_frac_branch; // first fractional branch (branch in a bundle)
@@ -583,7 +580,7 @@ typedef bool (*node_fn)(splinter_handle *spl, uint64 addr, void *arg);
 // Used by splinter_compact_bundle()
 typedef struct {
    splinter_btree_skiperator skip_itor[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
-   iterator *                itor_arr[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
+   iterator                 *itor_arr[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
    key_buffer                saved_pivot_keys[SPLINTER_MAX_PIVOTS];
 } compact_bundle_scratch;
 
@@ -591,7 +588,7 @@ typedef struct {
 typedef struct {
    char           pivot[SPLINTER_MAX_PIVOTS][MAX_KEY_SIZE];
    btree_iterator btree_itor[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
-   iterator *     rough_itor[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
+   iterator      *rough_itor[SPLINTER_RANGE_ITOR_MAX_BRANCHES];
 } split_leaf_scratch;
 
 /*
@@ -744,9 +741,10 @@ splinter_set_super_block(splinter_handle *spl,
    super->disk_size   = allocator_get_capacity(spl->al);
    super->cache_size  = cache_size(spl->cc);
 
-   super->checkpointed  = is_checkpoint;
-   super->dismounted    = is_dismount;
-   super->checksum      = platform_checksum128(
+   super->timestamp    = platform_get_real_time();
+   super->checkpointed = is_checkpoint;
+   super->dismounted   = is_dismount;
+   super->checksum     = platform_checksum128(
       super, SUPER_BLOCK_CHECKSUM_LENGTH, SPLINTER_SUPER_CSUM_SEED);
    cache_mark_dirty(spl->cc, super_page);
    cache_unlock(spl->cc, super_page);
@@ -781,7 +779,7 @@ splinter_get_super_block_if_valid(splinter_handle *spl,
    platform_status rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    platform_assert_status_ok(rc);
    *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   super      = (splinter_super_block *)(*super_page)->data;
+   super       = (splinter_super_block *)(*super_page)->data;
 
    size_t      length = SUPER_BLOCK_CHECKSUM_LENGTH;
    checksum128 exp =
@@ -3670,11 +3668,11 @@ splinter_replace_routing_filter(splinter_handle             *spl,
       } else if ((num_tuples_to_reclaim > SPLINTER_MIN_SPACE_RECL)
                  && (spl->cfg.reclaim_threshold != UINT64_MAX))
       {
-         srq_data data = { .addr             = node->disk_addr,
-                           .pivot_generation = pdata->generation,
-                           .priority         = num_tuples_to_reclaim };
-         //platform_log("Inserting %12lu-%lu:%8lu into SRQ\n",
-         //      data.addr, data.pivot_generation, data.priority);
+         srq_data data = {.addr             = node->disk_addr,
+                          .pivot_generation = pdata->generation,
+                          .priority         = num_tuples_to_reclaim};
+         // platform_log("Inserting %12lu-%lu:%8lu into SRQ\n",
+         //       data.addr, data.pivot_generation, data.priority);
          pdata->srq_idx = srq_insert(&spl->srq, data);
          srq_print(&spl->srq);
       }
@@ -4217,8 +4215,8 @@ splinter_btree_skiperator_init(splinter_handle           *spl,
 {
    ZERO_CONTENTS(skip_itor);
    skip_itor->super.ops = &splinter_btree_skiperator_ops;
-   uint16 min_pivot_no = 0;
-   uint16 max_pivot_no = splinter_num_children(spl, node);
+   uint16 min_pivot_no  = 0;
+   uint16 max_pivot_no  = splinter_num_children(spl, node);
    debug_assert(
       max_pivot_no < SPLINTER_MAX_PIVOTS, "max_pivot_no = %d", max_pivot_no);
 
@@ -5485,9 +5483,10 @@ splinter_range_iterator_init(splinter_handle         *spl,
                          range_itor->num_branches,
                          SPLINTER_RANGE_ITOR_MAX_BRANCHES);
 
-         debug_assert(range_itor->num_branches < ARRAY_SIZE(range_itor->branch));
-         uint16 branch_no = splinter_branch_no_sub(spl,
-               splinter_end_branch(spl, node), branch_offset + 1);
+         debug_assert(range_itor->num_branches
+                      < ARRAY_SIZE(range_itor->branch));
+         uint16 branch_no = splinter_branch_no_sub(
+            spl, splinter_end_branch(spl, node), branch_offset + 1);
          range_itor->branch[range_itor->num_branches] =
             *splinter_get_branch(spl, node, branch_no);
          range_itor->compacted[range_itor->num_branches] = TRUE;
@@ -6902,8 +6901,8 @@ splinter_mount(splinter_config  *cfg,
                allocator_root_id id,
                platform_heap_id  hid)
 {
-   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, spl,
-         compacted_memtable, SPLINTER_NUM_MEMTABLES);
+   splinter_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, spl, compacted_memtable, SPLINTER_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
    spl->al = al;
    spl->cc = cc;
@@ -6991,13 +6990,13 @@ splinter_mount(splinter_config  *cfg,
  * page.
  */
 void
-splinter_bootstrap(splinter_config * cfg,
-                   allocator *       al,
-                   cache *           cc,
+splinter_bootstrap(splinter_config  *cfg,
+                   allocator        *al,
+                   cache            *cc,
                    platform_heap_id  hid,
                    allocator_root_id id,
-                   uint64 *          disk_size,
-                   uint64 *          cache_size)
+                   uint64           *disk_size,
+                   uint64           *cache_size)
 {
    // As we are doing basic bootstrapping, do not need more than 1 memtable
    splinter_handle *spl =
@@ -7013,7 +7012,7 @@ splinter_bootstrap(splinter_config * cfg,
    // find the dismounted super block
    spl->root_addr                         = 0;
    uint64                latest_timestamp = 0;
-   page_handle *         super_page;
+   page_handle          *super_page;
    splinter_super_block *super =
       splinter_get_super_block_if_valid(spl, &super_page);
    if (super != NULL) {
