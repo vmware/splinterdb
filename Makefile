@@ -99,16 +99,12 @@ endif
 
 # use += here, so that extra flags can be provided via the environment
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
-#DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
-#DEFAULT_CFLAGS += -fsanitize=address
-#DEFAULT_CFLAGS += -fsanitize=integer
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
-
-# use += here, so that extra flags can be provided via the environment
 DEFAULT_LDFLAGS += -ggdb3 -pthread
-#DEFAULT_LDFLAGS += -fsanitize=memory
-#DEFAULT_LDFLAGS += -fsanitize=address
-#DEFAULT_LDFLAGS += -fsanitize=integer
+
+# to set sanitiziers, use environment variables, e.g.
+#   DEFAULT_CFLAGS="-fsanitize=address" DEFAULT_LDFLAGS="-fsanitize=address" make debug
+
+CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 LDFLAGS += $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 

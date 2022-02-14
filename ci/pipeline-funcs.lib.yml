@@ -2,8 +2,10 @@
 #! SPDX-License-Identifier: Apache-2.0
 
 #@ load("@ytt:template", "template")
-#@ def get_task_timeout(quick=False):
-#@   if quick:
+#@ def get_task_timeout(quick=False, sanitize=""):
+#@   if sanitize:
+#@     return "2h"
+#@   elif quick:
 #@     return "5m"
 #@   else:
 #@     return "55m"
@@ -209,9 +211,9 @@ plan:
 
 ---
 
-#@ def step_debug_build_test(compiler, input_name, with_rust=False, quick=False):
+#@ def step_debug_build_test(compiler, input_name, with_rust=False, quick=False, sanitize=""):
 task: debug-build-test
-timeout: #@ get_task_timeout(quick=quick)
+timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize)
 #@ if with_rust:
 #! workaround for buggy interaction of newer git/coreutils with older kernel on Runway
 privileged: true
@@ -226,6 +228,15 @@ config:
     LD: #@ compiler
     WITH_RUST: #@ str(with_rust).lower()
     INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
+    #@ if sanitize == "asan":
+    DEFAULT_CFLAGS: "-fsanitize=address"
+    DEFAULT_LDFLAGS: "-fsanitize=address"
+    #! work around issue "LeakSanitizer has encountered a fatal error", may be kernel-dependent
+    ASAN_OPTIONS: "detect_leaks=0"
+    #@ elif sanitize == "msan":
+    DEFAULT_CFLAGS: "-fsanitize=memory"
+    DEFAULT_LDFLAGS: "-fsanitize=memory"
+    #@ end
   run:
     path: sh
     dir: #@ input_name
@@ -314,10 +325,10 @@ plan:
 
 ---
 
-#@ def steps_pr_debug_build_test(compiler, with_rust=False, quick=False):
+#@ def steps_pr_debug_build_test(compiler, with_rust=False, quick=False, sanitize=None):
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
-- #@ step_debug_build_test(compiler, "github-pull-request", with_rust=with_rust, quick=quick)
+- #@ step_debug_build_test(compiler, "github-pull-request", with_rust=with_rust, quick=quick, sanitize=sanitize)
 #@ end
 
 ---
