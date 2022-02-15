@@ -19,7 +19,7 @@
 
 #include "../functional/test.h"
 #include "splinterdb/data.h"
-#include "config.h"
+#include "../config.h"
 #include "io.h"
 #include "rc_allocator.h"
 #include "clockcache.h"

@@ -7,11 +7,12 @@
  */
 
 #ifndef __BTREE_TEST_COMMON_H__
+#define __BTREE_TEST_COMMON_H__
 
-#   include "config.h"
-#   include "io.h"
-#   include "rc_allocator.h"
-#   include "clockcache.h"
+#include "../config.h"
+#include "io.h"
+#include "rc_allocator.h"
+#include "clockcache.h"
 
 // Function Prototypes
 int

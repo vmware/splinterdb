@@ -18,8 +18,6 @@
 #include "trunk.h"
 #include "util.h"
 
-extern const char *BUILD_VERSION;
-
 typedef struct master_config {
    uint64 page_size;
    uint64 extent_size;

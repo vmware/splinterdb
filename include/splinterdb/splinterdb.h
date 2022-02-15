@@ -18,6 +18,8 @@
 
 #include "splinterdb/data.h"
 
+extern const char *BUILD_VERSION;
+
 typedef struct {
    const char *filename;
    uint64      cache_size;
@@ -27,6 +29,37 @@ typedef struct {
 
    void *heap_handle;
    void *heap_id;
+
+   // advanced config
+   // if unset, defaults will be used
+   uint64 page_size;
+   uint64 extent_size;
+
+   // io
+   int    io_flags;
+   uint32 io_perms;
+   uint64 io_async_queue_depth;
+
+   // cache
+   bool   cache_use_stats;
+   const char*   cache_logfile;
+
+   // btree
+   uint64 btree_rough_count_height;
+
+   // filter
+   uint64 filter_remainder_size;
+   uint64 filter_index_size;
+
+   // log
+   bool use_log;
+
+   // splinter
+   uint64 memtable_capacity;
+   uint64 fanout;
+   uint64 max_branches_per_node;
+   uint64 use_stats;
+   uint64 reclaim_threshold;
 } splinterdb_config;
 
 typedef struct splinterdb splinterdb;

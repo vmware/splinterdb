@@ -17,12 +17,13 @@
 #include "platform.h"
 
 #include "clockcache.h"
-#include "config.h"
 #include "splinterdb/splinterdb.h"
 #include "rc_allocator.h"
 #include "trunk.h"
 
 #include "poison.h"
+
+const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
 
 typedef struct splinterdb {
    task_system         *task_sys;
@@ -52,6 +53,52 @@ platform_status_to_int(const platform_status status) // IN
 {
    return status.r;
 }
+
+
+static void splinterdb_config_set_defaults(splinterdb_config* cfg) {
+   if (!cfg->page_size) {
+      cfg->page_size = 4096;
+   }
+   if (!cfg->extent_size) {
+      cfg->extent_size = 128 * 1024;
+   }
+   if (!cfg->io_flags) {
+      cfg->io_flags =  O_RDWR | O_CREAT;
+   }
+   if (!cfg->io_perms) {
+      cfg->io_perms =  0755;
+   }
+
+   if (!cfg->io_async_queue_depth) {
+      cfg-> io_async_queue_depth=  256;
+   }
+
+   if (!cfg->btree_rough_count_height) {
+      cfg-> btree_rough_count_height=  1;
+   }
+
+   if (!cfg->filter_index_size) {
+      cfg-> filter_index_size=  256;
+   }
+   if (!cfg->filter_remainder_size) {
+      cfg-> filter_remainder_size=  6;
+   }
+
+   if (!cfg->memtable_capacity) {
+      cfg-> memtable_capacity=  MiB_TO_B(24) ;
+   }
+   if (!cfg->fanout) {
+      cfg-> fanout=  8;
+   }
+   if (!cfg->max_branches_per_node) {
+      cfg-> max_branches_per_node=  24;
+   }
+   if (!cfg->reclaim_threshold) {
+      cfg-> reclaim_threshold=  UINT64_MAX;
+   }
+}
+
+
 
 
 /*
@@ -85,20 +132,12 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return STATUS_BAD_PARAM;
    }
 
-   master_config masterCfg;
-   config_set_defaults(&masterCfg);
-   snprintf(masterCfg.io_filename,
-            sizeof(masterCfg.io_filename),
-            "%s",
-            kvs_cfg->filename);
-   masterCfg.allocator_capacity = kvs_cfg->disk_size;
-   masterCfg.cache_capacity     = kvs_cfg->cache_size;
-   masterCfg.use_log            = FALSE;
-   masterCfg.use_stats          = TRUE;
-   masterCfg.key_size           = kvs_cfg->data_cfg.key_size;
-   masterCfg.message_size       = kvs_cfg->data_cfg.message_size;
-   kvs->data_cfg                = kvs_cfg->data_cfg;
+   // mutable local config block, where we can set defaults
+   splinterdb_config cfg = {0};
+   memcpy(&cfg, kvs_cfg, sizeof(cfg));
+   splinterdb_config_set_defaults(&cfg);
 
+   kvs->data_cfg = cfg.data_cfg;
    // check if min_key and max_key are set
    if (0
        == memcmp(kvs->data_cfg.min_key,
@@ -110,43 +149,43 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
    }
 
-   kvs->heap_handle = kvs_cfg->heap_handle;
-   kvs->heap_id     = kvs_cfg->heap_id;
+   kvs->heap_handle = cfg.heap_handle;
+   kvs->heap_id     = cfg.heap_id;
 
    io_config_init(&kvs->io_cfg,
-                  masterCfg.page_size,
-                  masterCfg.extent_size,
-                  masterCfg.io_flags,
-                  masterCfg.io_perms,
-                  masterCfg.io_async_queue_depth,
-                  masterCfg.io_filename);
+                  cfg.page_size,
+                  cfg.extent_size,
+                  cfg.io_flags,
+                  cfg.io_perms,
+                  cfg.io_async_queue_depth,
+                  cfg.filename);
 
    rc_allocator_config_init(&kvs->allocator_cfg,
-                            masterCfg.page_size,
-                            masterCfg.extent_size,
-                            masterCfg.allocator_capacity);
+                            cfg.page_size,
+                            cfg.extent_size,
+                            cfg.disk_size);
 
    clockcache_config_init(&kvs->cache_cfg,
-                          masterCfg.page_size,
-                          masterCfg.extent_size,
-                          masterCfg.cache_capacity,
-                          masterCfg.cache_logfile,
-                          masterCfg.use_stats);
+                          cfg.page_size,
+                          cfg.extent_size,
+                          cfg.cache_size,
+                          cfg.cache_logfile,
+                          cfg.use_stats);
 
    trunk_config_init(&kvs->trunk_cfg,
                      &kvs->data_cfg,
                      NULL,
-                     masterCfg.memtable_capacity,
-                     masterCfg.fanout,
-                     masterCfg.max_branches_per_node,
-                     masterCfg.btree_rough_count_height,
-                     masterCfg.page_size,
-                     masterCfg.extent_size,
-                     masterCfg.filter_remainder_size,
-                     masterCfg.filter_index_size,
-                     masterCfg.reclaim_threshold,
-                     masterCfg.use_log,
-                     masterCfg.use_stats);
+                     cfg.memtable_capacity,
+                     cfg.fanout,
+                     cfg.max_branches_per_node,
+                     cfg.btree_rough_count_height,
+                     cfg.page_size,
+                     cfg.extent_size,
+                     cfg.filter_remainder_size,
+                     cfg.filter_index_size,
+                     cfg.reclaim_threshold,
+                     cfg.use_log,
+                     cfg.use_stats);
    return STATUS_OK;
 }
 

@@ -148,7 +148,7 @@ clockcache_config_init(clockcache_config *cache_config,
                        uint64             page_size,
                        uint64             extent_size,
                        uint64             capacity,
-                       char              *cache_logfile,
+                       const char              *cache_logfile,
                        uint64             use_stats);
 
 platform_status
