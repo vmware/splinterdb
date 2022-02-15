@@ -15,8 +15,8 @@
 #include "io.h"
 
 typedef struct page_handle {
-   char   *data;
-   uint64  disk_addr;
+   char  *data;
+   uint64 disk_addr;
 } page_handle;
 
 typedef struct cache cache;
@@ -47,7 +47,7 @@ typedef struct cache_stats {
  * have. The sum of all threads' ref counts is MAX_THREADS times this.
  * See cache_get_read_ref() below.
  */
-#define MAX_READ_REFCOUNT    UINT16_MAX
+#define MAX_READ_REFCOUNT UINT16_MAX
 
 // This is probably necessary:
 _Static_assert(IS_POWER_OF_2(MAX_PAGES_PER_EXTENT),
@@ -72,15 +72,15 @@ typedef void (*cache_async_cb)(struct cache_async_ctxt *ctxt);
 
 // User can embed this within an user-specific context
 typedef struct cache_async_ctxt {
-   cache               *cc;           // IN cache
-   cache_async_cb       cb;           // IN callback for async_io_started
-   void                *cbdata;       // IN opaque callback data
-   platform_status      status;       // IN status of async IO
-   page_handle         *page;         // OUT page handle
+   cache          *cc;     // IN cache
+   cache_async_cb  cb;     // IN callback for async_io_started
+   void           *cbdata; // IN opaque callback data
+   platform_status status; // IN status of async IO
+   page_handle    *page;   // OUT page handle
    // Internal stats
    struct {
-      timestamp         issue_ts;     // issue time
-      timestamp         compl_ts;     // completion time
+      timestamp issue_ts; // issue time
+      timestamp compl_ts; // completion time
    } stats;
 } cache_async_ctxt;
 
@@ -91,23 +91,23 @@ typedef void (*page_generic_fn)(cache *cc, page_handle *page);
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_hard_evict_fn)(cache *cc, uint64 addr, page_type type);
 typedef uint8 (*page_get_ref_fn)(cache *cc, uint64 addr);
-typedef page_handle *(*page_get_fn)(cache *   cc,
+typedef page_handle *(*page_get_fn)(cache    *cc,
                                     uint64    addr,
                                     bool      blocking,
                                     page_type type);
-typedef cache_async_result (*page_get_async_fn)(cache *           cc,
+typedef cache_async_result (*page_get_async_fn)(cache            *cc,
                                                 uint64            addr,
                                                 page_type         type,
                                                 cache_async_ctxt *ctxt);
-typedef void (*page_async_done_fn)(cache *           cc,
+typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
 typedef bool (*page_claim_fn)(cache *cc, page_handle *page);
-typedef void (*page_sync_fn)(cache *      cc,
+typedef void (*page_sync_fn)(cache       *cc,
                              page_handle *page,
                              bool         is_blocking,
                              page_type    type);
-typedef void (*extent_sync_fn)(cache * cc,
+typedef void (*extent_sync_fn)(cache  *cc,
                                uint64  addr,
                                uint64 *pages_outstanding);
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
@@ -192,17 +192,19 @@ cache_get(cache *cc, uint64 addr, bool blocking, page_type type)
 }
 
 static inline void
-cache_ctxt_init(cache * cc, cache_async_cb cb, void *cbdata, cache_async_ctxt * ctxt)
+cache_ctxt_init(cache            *cc,
+                cache_async_cb    cb,
+                void             *cbdata,
+                cache_async_ctxt *ctxt)
 {
-   ctxt->cc = cc;
-   ctxt->cb = cb;
+   ctxt->cc     = cc;
+   ctxt->cb     = cb;
    ctxt->cbdata = cbdata;
-   ctxt->page = NULL;
+   ctxt->page   = NULL;
 }
 
 static inline cache_async_result
-cache_get_async(cache *cc, uint64 addr, page_type type,
-                cache_async_ctxt *ctxt)
+cache_get_async(cache *cc, uint64 addr, page_type type, cache_async_ctxt *ctxt)
 {
    return cc->ops->page_get_async(cc, addr, type, ctxt);
 }

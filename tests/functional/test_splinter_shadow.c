@@ -151,8 +151,8 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
 
 bool
 test_splinter_shadow_lookup(test_splinter_shadow_tree *tree,
-                            uint64 *                   key,
-                            uint64 *                   val)
+                            uint64                    *key,
+                            uint64                    *val)
 {
    AvlTreeLinks *link = AvlTree_FindNode(&tree->tree, key);
    if (link == NULL) {
@@ -217,7 +217,7 @@ test_splinter_shadow_get_node(test_splinter_shadow_tree *tree)
 
 platform_status
 test_splinter_shadow_add(test_splinter_shadow_tree *tree,
-                         uint64 *                   key,
+                         uint64                    *key,
                          uint64                     value)
 {
    /*
@@ -290,9 +290,9 @@ test_splinter_shadow_destroy(platform_heap_id           hid,
  */
 
 static void
-test_splinter_shadow_iterate_tree(AvlTreeLinks *              root,
+test_splinter_shadow_iterate_tree(AvlTreeLinks               *root,
                                   test_splinter_shadow_array *array,
-                                  uint64 *                    idx)
+                                  uint64                     *idx)
 {
    if (root == NULL) {
       return;
@@ -324,7 +324,7 @@ test_splinter_shadow_iterate_tree(AvlTreeLinks *              root,
  */
 
 platform_status
-test_splinter_build_shadow_array(test_splinter_shadow_tree * tree,
+test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
                                  test_splinter_shadow_array *shadow_array,
                                  platform_heap_handle        hh)
 {

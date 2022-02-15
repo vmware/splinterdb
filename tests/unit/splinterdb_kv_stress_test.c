@@ -3,9 +3,9 @@
 
 /*
  * -----------------------------------------------------------------------------
- * kvstore_basic_stress_test.c -- KVStore Basic Stress test
+ * splinterdb_kv_stress_test.c -- SplinterDB_KV Stress test
  *
- * Exercises the kvstore_basic API, with larger data volumes, and multiple
+ * Exercises the SplinterDB KV API, with larger data volumes, and multiple
  * threads.
  * -----------------------------------------------------------------------------
  */
@@ -15,13 +15,13 @@
 #include <pthread.h>
 
 #include "splinterdb/platform_public.h"
-#include "splinterdb/kvstore_basic.h"
+#include "splinterdb/splinterdb_kv.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
 // Function Prototypes
 static int
-setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg);
+setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg);
 
 static void *
 exec_worker_thread(void *w);
@@ -30,7 +30,7 @@ exec_worker_thread(void *w);
 typedef struct {
    uint32_t       num_inserts;
    int            random_data;
-   kvstore_basic *kvsb;
+   splinterdb_kv *kvsb;
    uint16_t       max_key_size;
    uint16_t       max_value_size;
 } worker_config;
@@ -38,14 +38,14 @@ typedef struct {
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(kvstore_basic_stress)
+CTEST_DATA(splinterdb_kv_stress)
 {
-   kvstore_basic *   kvsb;
-   kvstore_basic_cfg cfg;
+   splinterdb_kv    *kvsb;
+   splinterdb_kv_cfg cfg;
 };
 
 // Setup function for suite, called before every test in suite
-CTEST_SETUP(kvstore_basic_stress)
+CTEST_SETUP(splinterdb_kv_stress)
 {
    memset(&data->cfg, 0, sizeof(data->cfg));
    data->cfg.cache_size     = 200 * Mega;
@@ -53,31 +53,31 @@ CTEST_SETUP(kvstore_basic_stress)
    data->cfg.max_key_size   = 22;
    data->cfg.max_value_size = 116;
 
-   int rc = setup_kvstore_basic(&data->kvsb, &data->cfg);
+   int rc = setup_splinterdb_kv(&data->kvsb, &data->cfg);
    ASSERT_EQUAL(0, rc);
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(kvstore_basic_stress)
+CTEST_TEARDOWN(splinterdb_kv_stress)
 {
-   kvstore_basic_close(data->kvsb);
+   splinterdb_kv_close(data->kvsb);
 }
 
 /*
  * ---------------------------------------------------------------------------
  * Test case that exercises inserts of large volume of data, single-threaded.
  * We exercise these Splinter APIs:
- *  - kvstore_basic_insert()
- *  - kvstore_basic_lookup() and
- *  - kvstore_basic_delete()
+ *  - splinterdb_kv_insert()
+ *  - splinterdb_kv_lookup() and
+ *  - splinterdb_kv_delete()
  */
-CTEST2(kvstore_basic_stress, test_random_inserts_serial)
+CTEST2(splinterdb_kv_stress, test_random_inserts_serial)
 {
    int random_data = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_data > 0);
 
-   char key_buf[KVSTORE_BASIC_MAX_KEY_SIZE]     = {0};
-   char value_buf[KVSTORE_BASIC_MAX_VALUE_SIZE] = {0};
+   char key_buf[SPLINTERDB_KV_MAX_KEY_SIZE]     = {0};
+   char value_buf[SPLINTERDB_KV_MAX_VALUE_SIZE] = {0};
 
    int rc = 0;
 
@@ -93,7 +93,7 @@ CTEST2(kvstore_basic_stress, test_random_inserts_serial)
       result = read(random_data, value_buf, sizeof key_buf);
       ASSERT_TRUE(result >= 0);
 
-      rc = kvstore_basic_insert(data->kvsb,
+      rc = splinterdb_kv_insert(data->kvsb,
                                 key_buf,
                                 data->cfg.max_key_size,
                                 value_buf,
@@ -108,18 +108,18 @@ CTEST2(kvstore_basic_stress, test_random_inserts_serial)
  * multiple threads. This test case verifies that registration of threads
  * to Splinter is working stably.
  */
-CTEST2(kvstore_basic_stress, test_random_inserts_concurrent)
+CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
 {
    // We need a configuration larger than the default setup.
    // Teardown the default splinter, and create a new one.
-   kvstore_basic_close(data->kvsb);
+   splinterdb_kv_close(data->kvsb);
 
    data->cfg.cache_size     = 1000 * Mega;
    data->cfg.disk_size      = 9000 * Mega;
    data->cfg.max_key_size   = 20;
    data->cfg.max_value_size = 116;
 
-   int rc = setup_kvstore_basic(&data->kvsb, &data->cfg);
+   int rc = setup_splinterdb_kv(&data->kvsb, &data->cfg);
    ASSERT_EQUAL(0, rc);
 
    int random_data = open("/dev/urandom", O_RDONLY);
@@ -168,12 +168,12 @@ CTEST2(kvstore_basic_stress, test_random_inserts_concurrent)
  */
 
 static int
-setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
+setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg)
 {
    Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
 
-   *cfg = (kvstore_basic_cfg){
+   *cfg = (splinterdb_kv_cfg){
       .filename       = TEST_DB_NAME,
       .cache_size     = (cfg->cache_size) ? cfg->cache_size : Mega,
       .disk_size      = (cfg->disk_size) ? cfg->disk_size : 30 * Mega,
@@ -183,7 +183,7 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
       .key_comparator_context = cfg->key_comparator_context,
    };
 
-   int rc = kvstore_basic_create(cfg, kvsb);
+   int rc = splinterdb_kv_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
 
    return rc;
@@ -194,24 +194,24 @@ setup_kvstore_basic(kvstore_basic **kvsb, kvstore_basic_cfg *cfg)
  * Work-horse function to drive the execution of inserts for one thread.
  *
  * This exercises the threading interfaces of SplinterDB:
- *  - kvstore_basic_register_thread()
- *  - (Perform some work on this thread; here, kvstore_basic_insert() ]
- *  - kvstore_basic_deregister_thread()
+ *  - splinterdb_kv_register_thread()
+ *  - (Perform some work on this thread; here, splinterdb_kv_insert() ]
+ *  - splinterdb_kv_deregister_thread()
  */
 static void *
 exec_worker_thread(void *w)
 {
-   char key_buf[KVSTORE_BASIC_MAX_KEY_SIZE]     = {0};
-   char value_buf[KVSTORE_BASIC_MAX_VALUE_SIZE] = {0};
+   char key_buf[SPLINTERDB_KV_MAX_KEY_SIZE]     = {0};
+   char value_buf[SPLINTERDB_KV_MAX_VALUE_SIZE] = {0};
 
    worker_config *wcfg           = (worker_config *)w;
    uint32_t       num_inserts    = wcfg->num_inserts;
    int            random_data    = wcfg->random_data;
-   kvstore_basic *kvsb           = wcfg->kvsb;
+   splinterdb_kv *kvsb           = wcfg->kvsb;
    uint16_t       max_key_size   = wcfg->max_key_size;
    uint16_t       max_value_size = wcfg->max_value_size;
 
-   kvstore_basic_register_thread(kvsb);
+   splinterdb_kv_register_thread(kvsb);
 
    pthread_t thread_id = pthread_self();
 
@@ -224,7 +224,7 @@ exec_worker_thread(void *w)
       result = read(random_data, value_buf, sizeof value_buf);
       ASSERT_TRUE(result >= 0);
 
-      rc = kvstore_basic_insert(
+      rc = splinterdb_kv_insert(
          kvsb, key_buf, max_key_size, value_buf, max_value_size);
       ASSERT_EQUAL(0, rc);
 
@@ -233,6 +233,6 @@ exec_worker_thread(void *w)
       }
    }
 
-   kvstore_basic_deregister_thread(kvsb);
+   splinterdb_kv_deregister_thread(kvsb);
    return 0;
 }

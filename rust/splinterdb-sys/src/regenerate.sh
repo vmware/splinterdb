@@ -10,10 +10,10 @@ include_dir="${splinter_src}/include"
 
 bindgen include.h -o generated.rs \
     --size_t-is-usize \
-    --no-copy 'kvstore_basic.*' \
-    --allowlist-type 'kvstore_basic.*' \
+    --no-copy 'splinterdb_kv.*' \
+    --allowlist-type 'splinterdb_kv.*' \
     --allowlist-type key_comparator_fn \
-    --allowlist-function 'kvstore_basic.*' \
-    --allowlist-var 'KVSTORE_BASIC.*' \
+    --allowlist-function 'splinterdb_kv.*' \
+    --allowlist-var 'SPLINTERDB_KV.*' \
     --allowlist-var '.*_SIZE' \
     -- -I "${include_dir}"

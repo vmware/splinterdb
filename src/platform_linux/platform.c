@@ -9,7 +9,7 @@
 __thread threadid xxxtid;
 
 bool platform_use_hugetlb = FALSE;
-bool platform_use_mlock = FALSE;
+bool platform_use_mlock   = FALSE;
 
 // By default, currently all platform_log() messages go to stdout, and
 // platform_error_log() messages go to stderr. These can be changed to
@@ -25,44 +25,45 @@ void __attribute__((constructor)) platform_init_log_file_handles(void)
 }
 
 platform_status
-platform_heap_create(uint32 max,
+platform_heap_create(uint32                max,
                      platform_heap_handle *heap_handle,
-                     platform_heap_id *heap_id)
+                     platform_heap_id     *heap_id)
 {
    *heap_handle = NULL;
-   *heap_id = NULL;
+   *heap_id     = NULL;
 
    return STATUS_OK;
 }
 
 void
-platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle)) {}
+platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle))
+{}
 
 buffer_handle *
-platform_buffer_create(size_t length,
+platform_buffer_create(size_t               length,
                        platform_heap_handle UNUSED_PARAM(heap_handle))
 {
    buffer_handle *bh = TYPED_MALLOC(platform_get_heap_id(), bh);
 
    if (bh != NULL) {
-      int prot= PROT_READ | PROT_WRITE;
+      int prot  = PROT_READ | PROT_WRITE;
       int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
       if (platform_use_hugetlb) {
-        flags |= MAP_HUGETLB;
+         flags |= MAP_HUGETLB;
       }
 
       bh->addr = mmap(NULL, length, prot, flags, -1, 0);
       if (bh->addr == MAP_FAILED) {
-         platform_error_log("mmap (%lu) failed with error: %s\n", length,
-                            strerror(errno));
+         platform_error_log(
+            "mmap (%lu) failed with error: %s\n", length, strerror(errno));
          goto error;
       }
 
       if (platform_use_mlock) {
          int rc = mlock(bh->addr, length);
          if (rc != 0) {
-            platform_error_log("mlock (%lu) failed with error: %s\n", length,
-                               strerror(errno));
+            platform_error_log(
+               "mlock (%lu) failed with error: %s\n", length, strerror(errno));
             munmap(bh->addr, length);
             goto error;
          }
@@ -116,16 +117,16 @@ platform_thread_create(platform_thread       *thread,
       ret = pthread_create(thread, &attr, (void *(*)(void *))worker, arg);
       pthread_attr_destroy(&attr);
    } else {
-      ret = pthread_create(thread, NULL,  (void *(*)(void *))worker, arg);
+      ret = pthread_create(thread, NULL, (void *(*)(void *))worker, arg);
    }
 
-  return CONST_STATUS(ret);
+   return CONST_STATUS(ret);
 }
 
 platform_status
 platform_thread_join(platform_thread thread)
 {
-   int ret;
+   int   ret;
    void *retval;
 
    ret = pthread_join(thread, &retval);
@@ -134,8 +135,7 @@ platform_thread_join(platform_thread thread)
 }
 
 platform_status
-platform_mutex_init(platform_mutex *mu,
-                    platform_heap_id UNUSED_PARAM(heap_id))
+platform_mutex_init(platform_mutex *mu, platform_heap_id UNUSED_PARAM(heap_id))
 {
    int ret;
 
@@ -176,23 +176,23 @@ platform_spinlock_destroy(platform_spinlock *lock)
 }
 
 platform_status
-platform_histo_create(platform_heap_id heap_id,
-                      uint32 num_buckets,
-                      const int64* const bucket_limits,
+platform_histo_create(platform_heap_id       heap_id,
+                      uint32                 num_buckets,
+                      const int64 *const     bucket_limits,
                       platform_histo_handle *histo)
 {
    platform_histo_handle hh;
-   hh = TYPED_MALLOC_MANUAL(heap_id, hh, sizeof(hh) +
-                            num_buckets * sizeof(hh->count[0]));
+   hh = TYPED_MALLOC_MANUAL(
+      heap_id, hh, sizeof(hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
       return STATUS_NO_MEMORY;
    }
-   hh->num_buckets = num_buckets;
+   hh->num_buckets   = num_buckets;
    hh->bucket_limits = bucket_limits;
-   hh->total = 0;
-   hh->min = INT64_MAX;
-   hh->max = INT64_MIN;
-   hh->num = 0;
+   hh->total         = 0;
+   hh->min           = INT64_MAX;
+   hh->max           = INT64_MIN;
+   hh->num           = 0;
    memset(hh->count, 0, hh->num_buckets * sizeof(hh->count[0]));
 
    *histo = hh;
@@ -200,8 +200,7 @@ platform_histo_create(platform_heap_id heap_id,
 }
 
 void
-platform_histo_destroy(platform_heap_id heap_id,
-                       platform_histo_handle histo)
+platform_histo_destroy(platform_heap_id heap_id, platform_histo_handle histo)
 {
    platform_assert(histo);
    platform_free(heap_id, histo);
@@ -217,16 +216,15 @@ platform_histo_print(platform_histo_handle histo, const char *name)
    platform_log("%s\n", name);
    platform_log("min: %ld\n", histo->min);
    platform_log("max: %ld\n", histo->max);
-   platform_log("mean: %ld\n", histo->num == 0 ? 0 :
-                histo->total / histo->num);
+   platform_log("mean: %ld\n", histo->num == 0 ? 0 : histo->total / histo->num);
    platform_log("count: %ld\n", histo->num);
    for (uint32 i = 0; i < histo->num_buckets; i++) {
       if (i == histo->num_buckets - 1) {
-         platform_log("%-12ld  > %12ld\n", histo->count[i],
-                      histo->bucket_limits[i - 1]);
+         platform_log(
+            "%-12ld  > %12ld\n", histo->count[i], histo->bucket_limits[i - 1]);
       } else {
-         platform_log("%-12ld <= %12ld\n", histo->count[i],
-                      histo->bucket_limits[i]);
+         platform_log(
+            "%-12ld <= %12ld\n", histo->count[i], histo->bucket_limits[i]);
       }
    }
    platform_log("\n");
@@ -239,12 +237,12 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx)
 }
 
 void
-platform_sort_slow(void *base,
-                   size_t nmemb,
-                   size_t size,
+platform_sort_slow(void               *base,
+                   size_t              nmemb,
+                   size_t              size,
                    platform_sort_cmpfn cmpfn,
-                   void *cmparg,
-                   void *temp)
+                   void               *cmparg,
+                   void               *temp)
 {
    return qsort_r(base, nmemb, size, cmpfn, cmparg);
 }
@@ -304,11 +302,11 @@ platform_condvar_broadcast(platform_condvar *cv)
  */
 __attribute__((noreturn)) void
 platform_assert_false(platform_stream_handle stream,
-                      const char *           filename,
+                      const char            *filename,
                       int                    linenumber,
-                      const char *           functionname,
-                      const char *           expr,
-                      const char *           message,
+                      const char            *functionname,
+                      const char            *expr,
+                      const char            *message,
                       ...)
 {
    va_list varargs;
@@ -330,11 +328,11 @@ platform_assert_false(platform_stream_handle stream,
  */
 void
 platform_assert_msg(platform_stream_handle stream,
-                    const char *           filename,
+                    const char            *filename,
                     int                    linenumber,
-                    const char *           functionname,
-                    const char *           expr,
-                    const char *           message,
+                    const char            *functionname,
+                    const char            *expr,
+                    const char            *message,
                     va_list                varargs)
 {
    static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";

@@ -25,7 +25,7 @@ typedef struct test_splinter_shadow_tree {
    AvlTree                    tree;
    uint64                     numPreAllocatedNodes;
    uint64                     currentAllocIdx;
-   buffer_handle *            nodes_buffer;
+   buffer_handle             *nodes_buffer;
    test_splinter_shadow_node *nodes;
 } test_splinter_shadow_tree;
 
@@ -33,8 +33,8 @@ typedef struct test_splinter_shadow_tree {
 typedef struct test_splinter_shadow_array {
    uint64         nkeys;
    buffer_handle *buffer;
-   uint64 *       keys;
-   int8 *         ref_counts;
+   uint64        *keys;
+   int8          *ref_counts;
 } test_splinter_shadow_array;
 
 
@@ -68,19 +68,19 @@ test_splinter_shadow_count(test_splinter_shadow_tree *tree)
 
 bool
 test_splinter_shadow_lookup(test_splinter_shadow_tree *tree,
-                            uint64 *                   key,
-                            uint64 *                   val);
+                            uint64                    *key,
+                            uint64                    *val);
 
 platform_status
 test_splinter_shadow_add(test_splinter_shadow_tree *tree,
-                         uint64 *                   key,
+                         uint64                    *key,
                          uint64                     value);
 void
 test_splinter_shadow_destroy(platform_heap_id           hid,
                              test_splinter_shadow_tree *tree);
 
 platform_status
-test_splinter_build_shadow_array(test_splinter_shadow_tree * tree,
+test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
                                  test_splinter_shadow_array *shadow_array,
                                  platform_heap_handle        hh);
 

@@ -11,16 +11,16 @@ pub struct DBConfig {
 }
 
 #[derive(Debug)]
-pub struct KvsbDB {
-    _inner: *mut splinterdb_sys::kvstore_basic,
+pub struct SplinterDB {
+    _inner: *mut splinterdb_sys::splinterdb_kv,
 }
 
-unsafe impl Sync for KvsbDB {}
-unsafe impl Send for KvsbDB {}
+unsafe impl Sync for SplinterDB {}
+unsafe impl Send for SplinterDB {}
 
-impl Drop for KvsbDB {
+impl Drop for SplinterDB {
     fn drop(&mut self) {
-        unsafe { splinterdb_sys::kvstore_basic_close(self._inner) };
+        unsafe { splinterdb_sys::splinterdb_kv_close(self._inner) };
     }
 }
 
@@ -47,20 +47,20 @@ pub struct IteratorResult<'a> {
 
 #[derive(Debug)]
 pub struct RangeIterator<'a> {
-    _inner: *mut splinterdb_sys::kvstore_basic_iterator,
-    _marker: ::std::marker::PhantomData<splinterdb_sys::kvstore_basic_iterator>,
-    _parent_marker: ::std::marker::PhantomData<&'a splinterdb_sys::kvstore_basic>,
+    _inner: *mut splinterdb_sys::splinterdb_kv_iterator,
+    _marker: ::std::marker::PhantomData<splinterdb_sys::splinterdb_kv_iterator>,
+    _parent_marker: ::std::marker::PhantomData<&'a splinterdb_sys::splinterdb_kv>,
     state: Option<IteratorResult<'a>>,
 }
 
 impl<'a> Drop for RangeIterator<'a> {
     fn drop(&mut self) {
-        unsafe { splinterdb_sys::kvstore_basic_iter_deinit(&mut self._inner) }
+        unsafe { splinterdb_sys::splinterdb_kv_iter_deinit(&mut self._inner) }
     }
 }
 
 impl<'a> RangeIterator<'a> {
-    pub fn new(iter: *mut splinterdb_sys::kvstore_basic_iterator) -> RangeIterator<'a> {
+    pub fn new(iter: *mut splinterdb_sys::splinterdb_kv_iterator) -> RangeIterator<'a> {
         RangeIterator {
             _inner: iter,
             _marker: ::std::marker::PhantomData,
@@ -77,7 +77,7 @@ impl<'a> RangeIterator<'a> {
         let mut val_bytes_out: usize = 0;
 
         let (key, value): (&[u8], &[u8]) = unsafe {
-            splinterdb_sys::kvstore_basic_iter_get_current(
+            splinterdb_sys::splinterdb_kv_iter_get_current(
                 self._inner,
                 &mut key_out,
                 &mut key_bytes_out,
@@ -94,7 +94,7 @@ impl<'a> RangeIterator<'a> {
     }
 
     fn _inner_advance(&mut self) {
-        unsafe { splinterdb_sys::kvstore_basic_iter_next(self._inner) };
+        unsafe { splinterdb_sys::splinterdb_kv_iter_next(self._inner) };
     }
 
     // almost an iterator, but we need to be able to return errors
@@ -108,9 +108,9 @@ impl<'a> RangeIterator<'a> {
             self._inner_advance();
         }
 
-        let valid = unsafe { splinterdb_sys::kvstore_basic_iter_valid(self._inner) };
+        let valid = unsafe { splinterdb_sys::splinterdb_kv_iter_valid(self._inner) };
         if !valid {
-            let rc = unsafe { splinterdb_sys::kvstore_basic_iter_status(self._inner) };
+            let rc = unsafe { splinterdb_sys::splinterdb_kv_iter_status(self._inner) };
             as_result(rc)?;
             return Ok(None);
         }
@@ -123,18 +123,18 @@ impl<'a> RangeIterator<'a> {
     }
 }
 
-impl KvsbDB {
+impl SplinterDB {
     pub fn register_thread(&self) {
-        unsafe { splinterdb_sys::kvstore_basic_register_thread(self._inner) };
+        unsafe { splinterdb_sys::splinterdb_kv_register_thread(self._inner) };
     }
 
     pub fn deregister_thread(&self) {
-        unsafe { splinterdb_sys::kvstore_basic_deregister_thread(self._inner) };
+        unsafe { splinterdb_sys::splinterdb_kv_deregister_thread(self._inner) };
     }
 
     pub fn insert(&self, key: &[u8], value: &[u8]) -> Result<()> {
         let rc = unsafe {
-            splinterdb_sys::kvstore_basic_insert(
+            splinterdb_sys::splinterdb_kv_insert(
                 self._inner,
                 ::std::mem::transmute(key.as_ptr()),
                 key.len(),
@@ -147,7 +147,7 @@ impl KvsbDB {
 
     pub fn delete(&self, key: &[u8]) -> Result<()> {
         let rc = unsafe {
-            splinterdb_sys::kvstore_basic_delete(
+            splinterdb_sys::splinterdb_kv_delete(
                 self._inner,
                 ::std::mem::transmute(key.as_ptr()),
                 key.len(),
@@ -162,7 +162,7 @@ impl KvsbDB {
         let mut val_truncated_out: bool = false;
         let mut val_found_out: bool = false;
         let rc = unsafe {
-            splinterdb_sys::kvstore_basic_lookup(
+            splinterdb_sys::splinterdb_kv_lookup(
                 self._inner,
                 ::std::mem::transmute(key.as_ptr()),
                 key.len(),
@@ -185,14 +185,14 @@ impl KvsbDB {
     }
 
     pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator> {
-        let mut iter: *mut splinterdb_sys::kvstore_basic_iterator = std::ptr::null_mut();
+        let mut iter: *mut splinterdb_sys::splinterdb_kv_iterator = std::ptr::null_mut();
 
         let rc = unsafe {
             let (start_ptr, start_ptr_len) = match start_key {
                 Some(s) => (::std::mem::transmute(s.as_ptr()), s.len()),
                 None => (::std::ptr::null(), 0),
             };
-            splinterdb_sys::kvstore_basic_iter_init(
+            splinterdb_sys::splinterdb_kv_iter_init(
                 self._inner,
                 &mut iter,
                 start_ptr,
@@ -214,9 +214,9 @@ fn db_create_or_open<P: AsRef<Path>>(
     path: &P,
     cfg: &DBConfig,
     open_existing: bool,
-) -> Result<KvsbDB> {
+) -> Result<SplinterDB> {
     let path = path_as_cstring(path); // don't drop until init is done
-    let cfg = splinterdb_sys::kvstore_basic_cfg {
+    let cfg = splinterdb_sys::splinterdb_kv_cfg {
         filename: path.as_ptr(),
         cache_size: cfg.cache_size_bytes,
         disk_size: cfg.disk_size_bytes,
@@ -227,24 +227,24 @@ fn db_create_or_open<P: AsRef<Path>>(
         heap_handle: std::ptr::null_mut(),
         heap_id: std::ptr::null_mut(),
     };
-    let cfg_ptr = &cfg as *const splinterdb_sys::kvstore_basic_cfg;
-    let mut kvsb: *mut splinterdb_sys::kvstore_basic = std::ptr::null_mut();
+    let cfg_ptr = &cfg as *const splinterdb_sys::splinterdb_kv_cfg;
+    let mut splinterdb: *mut splinterdb_sys::splinterdb_kv = std::ptr::null_mut();
 
     let rc = if open_existing {
-        unsafe { splinterdb_sys::kvstore_basic_open(cfg_ptr, &mut kvsb) }
+        unsafe { splinterdb_sys::splinterdb_kv_open(cfg_ptr, &mut splinterdb) }
     } else {
-        unsafe { splinterdb_sys::kvstore_basic_create(cfg_ptr, &mut kvsb) }
+        unsafe { splinterdb_sys::splinterdb_kv_create(cfg_ptr, &mut splinterdb) }
     };
     as_result(rc)?;
 
-    Ok(KvsbDB { _inner: kvsb })
+    Ok(SplinterDB { _inner: splinterdb })
 }
 
-pub fn db_create<P: AsRef<Path>>(path: &P, cfg: &DBConfig) -> Result<KvsbDB> {
+pub fn db_create<P: AsRef<Path>>(path: &P, cfg: &DBConfig) -> Result<SplinterDB> {
     db_create_or_open(path, cfg, false)
 }
 
-pub fn db_open<P: AsRef<Path>>(path: &P, cfg: &DBConfig) -> Result<KvsbDB> {
+pub fn db_open<P: AsRef<Path>>(path: &P, cfg: &DBConfig) -> Result<SplinterDB> {
     db_create_or_open(path, cfg, true)
 }
 

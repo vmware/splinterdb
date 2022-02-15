@@ -19,9 +19,9 @@
 #define MINI_MAX_BATCHES 8
 
 typedef struct mini_allocator {
-   allocator *     al;
-   cache *         cc;
-   data_config *   data_cfg;
+   allocator      *al;
+   cache          *cc;
+   data_config    *data_cfg;
    bool            keyed;
    bool            pinned;
    uint64          meta_head;
@@ -35,8 +35,8 @@ typedef struct mini_allocator {
 
 uint64
 mini_init(mini_allocator *mini,
-          cache *         cc,
-          data_config *   cfg,
+          cache          *cc,
+          data_config    *cfg,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,
@@ -49,7 +49,7 @@ uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,
            const slice     key,
-           uint64 *        next_extent);
+           uint64         *next_extent);
 
 
 uint8
@@ -58,14 +58,14 @@ uint8
 mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned);
 
 void
-mini_keyed_inc_ref(cache *      cc,
+mini_keyed_inc_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
                    const slice  start_key,
                    const slice  end_key);
 bool
-mini_keyed_dec_ref(cache *      cc,
+mini_keyed_dec_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
@@ -79,7 +79,7 @@ void
 mini_unblock_dec_ref(cache *cc, uint64 meta_head);
 
 uint64
-mini_keyed_extent_count(cache *      cc,
+mini_keyed_extent_count(cache       *cc,
                         data_config *data_cfg,
                         page_type    type,
                         uint64       meta_head,
@@ -91,7 +91,7 @@ mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head);
 void
 mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type);
 void
-mini_keyed_print(cache *      cc,
+mini_keyed_print(cache       *cc,
                  data_config *data_cfg,
                  uint64       meta_head,
                  page_type    type);

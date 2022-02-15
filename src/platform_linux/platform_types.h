@@ -34,35 +34,35 @@ typedef typeof(EINVAL) internal_platform_status;
 #define STATUS_TEST_FAILED    CONST_STATUS(-1)
 
 // checksums
-typedef XXH32_hash_t       checksum32;
-typedef XXH64_hash_t       checksum64;
-typedef XXH128_hash_t      checksum128;
+typedef XXH32_hash_t  checksum32;
+typedef XXH64_hash_t  checksum64;
+typedef XXH128_hash_t checksum128;
 
 #define PLATFORM_CACHELINE_SIZE 64
-#define PLATFORM_CACHELINE_ALIGNED \
+#define PLATFORM_CACHELINE_ALIGNED                                             \
    __attribute__((__aligned__(PLATFORM_CACHELINE_SIZE)))
 
- /*
-  *   Helper macro that causes branch prediction to favour the likely
-  *   side of a jump instruction. If the prediction is correct,
-  *   the jump instruction takes zero cycles. If it's wrong, the
-  *   processor pipeline needs to be flushed and it can cost
-  *   several cycles.
-  */
-#define LIKELY(_exp)     __builtin_expect(!!(_exp), 1)
-#define UNLIKELY(_exp)   __builtin_expect(!!(_exp), 0)
+/*
+ *   Helper macro that causes branch prediction to favour the likely
+ *   side of a jump instruction. If the prediction is correct,
+ *   the jump instruction takes zero cycles. If it's wrong, the
+ *   processor pipeline needs to be flushed and it can cost
+ *   several cycles.
+ */
+#define LIKELY(_exp)   __builtin_expect(!!(_exp), 1)
+#define UNLIKELY(_exp) __builtin_expect(!!(_exp), 0)
 
-typedef FILE* platform_log_handle;
-typedef FILE* platform_stream_handle;
+typedef FILE *platform_log_handle;
+typedef FILE *platform_stream_handle;
 
 typedef sem_t platform_semaphore;
 
-typedef void* List_Links;
+typedef void *List_Links;
 
-#define STRINGIFY(x) #x
+#define STRINGIFY(x)       #x
 #define STRINGIFY_VALUE(s) STRINGIFY(s)
-#define FRACTION_FMT(w, s) "%"STRINGIFY_VALUE(w)"."STRINGIFY_VALUE(s)"f"
-#define FRACTION_ARGS(f) ((double)(f).numerator / (double)(f).denominator)
+#define FRACTION_FMT(w, s) "%" STRINGIFY_VALUE(w) "." STRINGIFY_VALUE(s) "f"
+#define FRACTION_ARGS(f)   ((double)(f).numerator / (double)(f).denominator)
 
 /*
  * Linux understands that you cannot continue after a failed assert already,
@@ -70,20 +70,20 @@ typedef void* List_Links;
  */
 __attribute__((noreturn)) void
 platform_assert_false(platform_stream_handle stream,
-                      const char *           filename,
+                      const char            *filename,
                       int                    linenumber,
-                      const char *           functionname,
-                      const char *           expr,
-                      const char *           message,
+                      const char            *functionname,
+                      const char            *expr,
+                      const char            *message,
                       ...);
 
 void
 platform_assert_msg(platform_stream_handle stream,
-                    const char *           filename,
+                    const char            *filename,
                     int                    linenumber,
-                    const char *           functionname,
-                    const char *           expr,
-                    const char *           message,
+                    const char            *functionname,
+                    const char            *expr,
+                    const char            *message,
                     va_list                args);
 
 /*
@@ -112,29 +112,30 @@ typedef pthread_spinlock_t platform_spinlock;
 
 // Buffer handle
 typedef struct {
-   void              *addr;
-   size_t             length;
+   void  *addr;
+   size_t length;
 } buffer_handle;
 
 // iohandle for laio
 typedef struct laio_handle platform_io_handle;
 
-typedef void* platform_heap_handle;
-typedef void* platform_heap_id;
+
+typedef void *platform_heap_handle;
+typedef void *platform_heap_id;
 
 typedef struct {
-   unsigned int num_buckets;
-   const long* bucket_limits;
-   long min, max, total;
+   unsigned int  num_buckets;
+   const long   *bucket_limits;
+   long          min, max, total;
    unsigned long num; // no. of elements
    unsigned long count[];
-} *platform_histo_handle;
+} * platform_histo_handle;
 
-#define UNUSED_PARAM(_parm) _parm  __attribute__((__unused__))
-#define UNUSED_TYPE(_parm) UNUSED_PARAM(_parm)
+#define UNUSED_PARAM(_parm) _parm __attribute__((__unused__))
+#define UNUSED_TYPE(_parm)  UNUSED_PARAM(_parm)
 
-#define ROUNDUP(x,y)    (((x) + (y) - 1) / (y) * (y))
-#define ROUNDDOWN(x,y)  ((x) / (y) * (y))
+#define ROUNDUP(x, y)   (((x) + (y)-1) / (y) * (y))
+#define ROUNDDOWN(x, y) ((x) / (y) * (y))
 
 typedef struct platform_condvar {
    pthread_mutex_t lock;

@@ -90,17 +90,24 @@ jobs:
 - #@ job_debug_main_build_test("clang")
 - #@ job_debug_main_build_test("gcc")
 
-- #@ job_pr_check("clang", steps_pr_build_test("clang"), description="build and test")
-- #@ job_pr_check("gcc", steps_pr_build_test("gcc"), description="build and test")
-
+#! first stage of pipeline, runs a few quick jobs
+#@ stage_one = ["pr-quick-check", "pr-clang-format", "pr-shell-scripts"]
 - #@ job_pr_check("clang-format", steps_pr_clang_format(), description="check C source formatting")
 - #@ job_pr_check("shell-scripts", steps_pr_shell_scripts(), description="lint and format any shell scripts")
+- #@ job_pr_check("quick-check", steps_pr_debug_build_test("clang", quick=True), description="build and run fast unit tests")
 
-- #@ job_pr_check("debug-clang", steps_pr_debug_build_test("clang"), description="debug build and test")
-- #@ job_pr_check("debug-gcc", steps_pr_debug_build_test("gcc"), description="debug build and test")
+#! second stage of pipeline, only triggers if all of the first-stage passes
+- #@ job_pr_check("clang", steps_pr_build_test("clang"), depends_on=stage_one, description="build and test")
+- #@ job_pr_check("gcc", steps_pr_build_test("gcc"), depends_on=stage_one, description="build and test")
 
-- #@ job_pr_check("rust", steps_pr_build_test("clang", with_rust=True), description="rust build and test")
-- #@ job_pr_check("rust-debug", steps_pr_debug_build_test("clang", with_rust=True), description="rust debug build and test")
+- #@ job_pr_check("debug-clang", steps_pr_debug_build_test("clang"), depends_on=stage_one, description="debug build and test")
+- #@ job_pr_check("debug-gcc", steps_pr_debug_build_test("gcc"), depends_on=stage_one, description="debug build and test")
+
+- #@ job_pr_check("asan", steps_pr_debug_build_test("clang", sanitize="asan"), depends_on=stage_one, description="address sanitizer")
+- #@ job_pr_check("msan", steps_pr_debug_build_test("clang", sanitize="msan"), depends_on=stage_one, description="memory sanitizer")
+
+- #@ job_pr_check("rust", steps_pr_build_test("clang", with_rust=True), depends_on=stage_one, description="rust build and test")
+- #@ job_pr_check("rust-debug", steps_pr_debug_build_test("clang", with_rust=True), depends_on=stage_one, description="rust debug build and test")
 
 groups:
 - name: main_branch
@@ -112,6 +119,7 @@ groups:
 
 - name: pull_requests
   jobs:
+  - pr-quick-check
   - pr-clang
   - pr-debug-clang
   - pr-gcc
@@ -120,6 +128,8 @@ groups:
   - pr-shell-scripts
   - pr-rust
   - pr-rust-debug
+  - pr-asan
+  - pr-msan
 
 - name: env_images
   jobs:

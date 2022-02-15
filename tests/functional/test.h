@@ -16,8 +16,8 @@
 #include "splinterdb/data.h"
 #include "rc_allocator.h"
 #include "shard_log.h"
-#include "splinter.h"
-#include "test_data.h"
+#include "trunk.h"
+#include "../test_data.h"
 
 typedef enum test_key_type {
    TEST_RANDOM,
@@ -47,15 +47,6 @@ int
 cache_test(int argc, char *argv[]);
 
 int
-kvstore_test(int argc, char *argv[]);
-
-int
-kvstore_basic_test(int argc, char *argv[]);
-
-int
-util_test(int argc, char *argv[]);
-
-int
 ycsb_test(int argc, char *argv[]);
 
 /*
@@ -65,7 +56,7 @@ ycsb_test(int argc, char *argv[]);
 static inline platform_status
 test_init_splinter(platform_heap_id    hid,
                    platform_io_handle *ioh,
-                   task_system **      system,
+                   task_system       **system,
                    bool                use_stats,
                    bool                use_bg_threads,
                    uint8               num_bg_threads[NUM_TASK_TYPES])
@@ -77,7 +68,7 @@ test_init_splinter(platform_heap_id    hid,
                              use_stats,
                              use_bg_threads,
                              num_bg_threads,
-                             splinter_get_scratch_size());
+                             trunk_get_scratch_size());
 }
 
 static inline void
@@ -87,7 +78,7 @@ test_deinit_splinter(platform_heap_id hid, task_system *ts)
 }
 
 static inline void
-test_key(char *        key,
+test_key(char         *key,
          test_key_type key_type,
          uint64        idx,
          uint64        thread_id,
@@ -142,9 +133,9 @@ test_int_to_key(char *key, uint64 idx, uint64 key_size)
 }
 
 static inline void
-test_insert_data(void *       raw_data,
+test_insert_data(void        *raw_data,
                  int8         ref_count,
-                 char *       val,
+                 char        *val,
                  uint64       input_size,
                  uint64       data_size,
                  message_type type)
@@ -157,13 +148,13 @@ test_insert_data(void *       raw_data,
 }
 
 static inline void
-test_config_init(splinter_config *    splinter_cfg,
-                 data_config *        data_cfg,
-                 shard_log_config *   log_cfg,
-                 clockcache_config *  cache_cfg,
+test_config_init(trunk_config        *splinter_cfg,
+                 data_config         *data_cfg,
+                 shard_log_config    *log_cfg,
+                 clockcache_config   *cache_cfg,
                  rc_allocator_config *allocator_cfg,
-                 io_config *          io_cfg,
-                 master_config *      master_cfg)
+                 io_config           *io_cfg,
+                 master_config       *master_cfg)
 {
    *data_cfg              = test_data_config;
    data_cfg->key_size     = master_cfg->key_size;
@@ -192,33 +183,33 @@ test_config_init(splinter_config *    splinter_cfg,
    shard_log_config_init(
       log_cfg, data_cfg, master_cfg->page_size, master_cfg->extent_size);
 
-   splinter_config_init(splinter_cfg,
-                        data_cfg,
-                        (log_config *)log_cfg,
-                        master_cfg->memtable_capacity,
-                        master_cfg->fanout,
-                        master_cfg->max_branches_per_node,
-                        master_cfg->btree_rough_count_height,
-                        master_cfg->page_size,
-                        master_cfg->extent_size,
-                        master_cfg->filter_remainder_size,
-                        master_cfg->filter_index_size,
-                        master_cfg->reclaim_threshold,
-                        master_cfg->use_log,
-                        master_cfg->use_stats);
+   trunk_config_init(splinter_cfg,
+                     data_cfg,
+                     (log_config *)log_cfg,
+                     master_cfg->memtable_capacity,
+                     master_cfg->fanout,
+                     master_cfg->max_branches_per_node,
+                     master_cfg->btree_rough_count_height,
+                     master_cfg->page_size,
+                     master_cfg->extent_size,
+                     master_cfg->filter_remainder_size,
+                     master_cfg->filter_index_size,
+                     master_cfg->reclaim_threshold,
+                     master_cfg->use_log,
+                     master_cfg->use_stats);
 }
 
 static inline platform_status
-test_parse_args_n(splinter_config *    splinter_cfg,
-                  data_config *        data_cfg,
-                  io_config *          io_cfg,
+test_parse_args_n(trunk_config        *splinter_cfg,
+                  data_config         *data_cfg,
+                  io_config           *io_cfg,
                   rc_allocator_config *allocator_cfg,
-                  clockcache_config *  cache_cfg,
-                  shard_log_config *   log_cfg,
-                  uint64 *             seed,
+                  clockcache_config   *cache_cfg,
+                  shard_log_config    *log_cfg,
+                  uint64              *seed,
                   uint8                num_config,
                   int                  argc,
-                  char *               argv[])
+                  char                *argv[])
 {
    platform_status rc;
    uint8           i;
@@ -250,15 +241,15 @@ test_parse_args_n(splinter_config *    splinter_cfg,
 }
 
 static inline platform_status
-test_parse_args(splinter_config *    splinter_cfg,
-                data_config *        data_cfg,
-                io_config *          io_cfg,
+test_parse_args(trunk_config        *splinter_cfg,
+                data_config         *data_cfg,
+                io_config           *io_cfg,
                 rc_allocator_config *allocator_cfg,
-                clockcache_config *  cache_cfg,
-                shard_log_config *   log_cfg,
-                uint64 *             seed,
+                clockcache_config   *cache_cfg,
+                shard_log_config    *log_cfg,
+                uint64              *seed,
                 int                  argc,
-                char *               argv[])
+                char                *argv[])
 {
    return test_parse_args_n(splinter_cfg,
                             data_cfg,

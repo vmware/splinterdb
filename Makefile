@@ -10,6 +10,7 @@ PLATFORM_DIR = platform_$(PLATFORM)
 # DIRECTORIES, SRC, OBJ, ETC
 #
 SRCDIR               = src
+TESTS_DIR            = tests
 FUNCTIONAL_TESTSDIR  = tests/functional
 UNITDIR              = unit
 UNIT_TESTSDIR        = tests/unit
@@ -19,10 +20,18 @@ LIBDIR               = lib
 INCDIR               = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
+
+# Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
+# These objects are shared between functional/ and unit/ test binaries.
+COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
+
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
+
+# Objects from test sources in tests/ that are shared by functional/ and unit/ tests
+COMMON_TESTOBJ= $(COMMON_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from test sources in tests/functional/ sub-dir
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
@@ -33,8 +42,8 @@ UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # ----
 # Binaries from unit-test sources in tests/unit/ sub-dir
-# Although the sources are in, say, tests/unit/kvstore_basic_test.c, and so on ...
-# the binaries are named bin/unit/kvstore_basic_test (Drop the 'tests'.)
+# Although the sources are in, say, tests/unit/splinterdb_kv_test.c, and so on
+# the binaries are named bin/unit/splinterdb_kv_test.
 # Also, there may be other shared .c files that don't yield a standalone
 # binary. Hence, only build a list from files named *_test.c
 # Resolves to a list: bin/unit/a_test bin/unit/b_test bin/unit/c_test ...
@@ -87,18 +96,16 @@ ifeq ($(cpu_arch),x86_64)
   DEFAULT_CFLAGS += -msse4.2 -mpopcnt
   CFLAGS += -march=native
 endif
-#DEFAULT_CFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
-#DEFAULT_CFLAGS += -fsanitize=address
-#DEFAULT_CFLAGS += -fsanitize=integer
-DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 
+# use += here, so that extra flags can be provided via the environment
+DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
+DEFAULT_LDFLAGS += -ggdb3 -pthread
+
+# to set sanitiziers, use environment variables, e.g.
+#   DEFAULT_CFLAGS="-fsanitize=address" DEFAULT_LDFLAGS="-fsanitize=address" make debug
 
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
-DEFAULT_LDFLAGS = -ggdb3 -pthread
-#DEFAULT_LDFLAGS += -fsanitize=memory
-#DEFAULT_LDFLAGS += -fsanitize=address
-#DEFAULT_LDFLAGS += -fsanitize=integer
-LDFLAGS = $(DEFAULT_LDFLAGS) -Ofast -flto
+LDFLAGS += $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 
 ifeq ($(WITH_RUST),true)
@@ -147,7 +154,7 @@ debug-log: .debug-log all
 # RECIPES
 #
 
-$(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
+$(BINDIR)/driver_test : $(COMMON_TESTOBJ) $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D)/.
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Target will build everything needed to generate bin/unit_test along with all
@@ -157,8 +164,7 @@ $(BINDIR)/driver_test : $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libsplinterdb.so | $$(@D
 $(BINDIR)/unit_test: unit_test
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS)                   \
-                            $(OBJDIR)/tests/functional/test_data.o      \
-                            $(OBJDIR)/src/platform_linux/platform.o     \
+                            $(OBJDIR)/tests/test_data.o                 \
                             $(LIBDIR)/libsplinterdb.so $(LIBS)
 
 
@@ -197,56 +203,75 @@ $(BINDIR)/unit/main: $(OBJDIR)/tests/unit/main.o
 $(OBJDIR)/tests/unit/main.o: tests/unit/main.c
 
 # ---- Here onwards, list the rules to build each standalone unit-test binary.
-$(BINDIR)/unit/kvstore_basic_test: unit/kvstore_basic_test
-unit/kvstore_basic_test: $(OBJDIR)/tests/unit/kvstore_basic_test.o        \
-                         $(OBJDIR)/tests/unit/main.o                      \
-                         $(LIBDIR)/libsplinterdb.so
+$(BINDIR)/unit/splinterdb_kv_test: unit/splinterdb_kv_test
+unit/splinterdb_kv_test: $(OBJDIR)/tests/unit/splinterdb_kv_test.o      \
+                   $(OBJDIR)/tests/test_data.o                          \
+                   $(OBJDIR)/tests/unit/main.o                          \
+                   $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
-$(BINDIR)/unit/kvstore_basic_stress_test: unit/kvstore_basic_stress_test
-unit/kvstore_basic_stress_test: $(OBJDIR)/tests/unit/kvstore_basic_stress_test.o    \
+$(BINDIR)/unit/splinterdb_kv_stress_test: unit/splinterdb_kv_stress_test
+unit/splinterdb_kv_stress_test: $(OBJDIR)/tests/unit/splinterdb_kv_stress_test.o    \
                                 $(OBJDIR)/tests/unit/main.o                         \
                                 $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
+$(BINDIR)/unit/splinterdb_test: unit/splinterdb_test
+unit/splinterdb_test: $(OBJDIR)/tests/unit/splinterdb_test.o        \
+                      $(OBJDIR)/tests/test_data.o                   \
+                      $(OBJDIR)/tests/unit/main.o                   \
+                      $(LIBDIR)/libsplinterdb.so
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+
+# ----
 # String together all objects needed to link btree test binaries
-VARIABLE_LENGTH_BTREE_TEST_OBJS = $(OBJDIR)/tests/unit/btree_test_common.o      \
-                                  $(OBJDIR)/tests/functional/test_data.o        \
-                                  $(OBJDIR)/src/util.o                          \
-                                  $(OBJDIR)/src/data_internal.o                 \
-                                  $(OBJDIR)/src/mini_allocator.o                \
-                                  $(OBJDIR)/src/rc_allocator.o                  \
-                                  $(OBJDIR)/src/config.o                        \
-                                  $(OBJDIR)/src/clockcache.o                    \
-                                  $(OBJDIR)/src/btree.o         \
-                                  $(OBJDIR)/src/platform_linux/platform.o       \
-                                  $(OBJDIR)/src/task.o                          \
-                                  $(OBJDIR)/src/platform_linux/laio.o
+BTREE_TEST_OBJS = $(OBJDIR)/tests/unit/btree_test_common.o      \
+                  $(OBJDIR)/tests/test_data.o                   \
+                  $(OBJDIR)/src/util.o                          \
+                  $(OBJDIR)/src/data_internal.o                 \
+                  $(OBJDIR)/src/mini_allocator.o                \
+                  $(OBJDIR)/src/rc_allocator.o                  \
+                  $(OBJDIR)/src/config.o                        \
+                  $(OBJDIR)/src/clockcache.o                    \
+                  $(OBJDIR)/src/btree.o                         \
+                  $(OBJDIR)/src/platform_linux/platform.o       \
+                  $(OBJDIR)/src/task.o                          \
+                  $(OBJDIR)/src/platform_linux/laio.o
 
 $(BINDIR)/unit/btree_test: unit/btree_test
-unit/btree_test: $(OBJDIR)/tests/unit/btree_test.o  \
-                                 $(OBJDIR)/tests/unit/main.o                        \
-                                 $(VARIABLE_LENGTH_BTREE_TEST_OBJS)
+unit/btree_test: $(OBJDIR)/tests/unit/btree_test.o              \
+                                 $(OBJDIR)/tests/unit/main.o    \
+                                 $(BTREE_TEST_OBJS)
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
 $(BINDIR)/unit/btree_stress_test: unit/btree_stress_test
-unit/btree_stress_test: $(OBJDIR)/tests/unit/btree_stress_test.o  \
-                                 $(OBJDIR)/tests/unit/main.o                        \
-                                 $(VARIABLE_LENGTH_BTREE_TEST_OBJS)
+unit/btree_stress_test: $(OBJDIR)/tests/unit/btree_stress_test.o    \
+                                 $(OBJDIR)/tests/unit/main.o        \
+                                 $(BTREE_TEST_OBJS)
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 
 # ----
+$(BINDIR)/unit/util_test: unit/util_test
+unit/util_test: $(OBJDIR)/tests/unit/util_test.o            \
+                $(OBJDIR)/src/util.o                        \
+                $(OBJDIR)/src/platform_linux/platform.o     \
+                $(OBJDIR)/tests/unit/main.o
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
+
+# ----
 $(BINDIR)/unit/misc_test: unit/misc_test
 unit/misc_test: $(OBJDIR)/tests/unit/misc_test.o            \
-                $(OBJDIR)/tests/unit/main.o                 \
-                $(OBJDIR)/src/$(PLATFORM_DIR)/platform.o
+                $(OBJDIR)/src/$(PLATFORM_DIR)/platform.o    \
+                $(OBJDIR)/tests/unit/main.o
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^
 
@@ -282,6 +307,6 @@ $(BINDIR)/splinterdb-cli: $(LIBDIR)/libsplinterdb.a $(wildcard rust/**/*)
 install: $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
 
-	# -p retains the timestamp of the file being copied over$
+	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
 	cp -p $(INCDIR)/splinterdb/*.h $(INSTALL_PATH)/include/splinterdb/

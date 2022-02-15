@@ -3,7 +3,7 @@
 
 #include "platform.h"
 
-#include "splinter.h"
+#include "trunk.h"
 #include "task.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
@@ -269,7 +269,7 @@ typedef struct latency_tables {
 
 typedef struct ycsb_log_params {
    // Inputs
-   char *   filename;
+   char    *filename;
    uint64   nthreads;
    uint64   batch_size;
    uint64   total_ops;
@@ -279,8 +279,8 @@ typedef struct ycsb_log_params {
    platform_thread thread;
 
    // State
-   uint64           next_op;
-   splinter_handle *spl;
+   uint64        next_op;
+   trunk_handle *spl;
 
    // Coordination
    uint64 *threads_complete;
@@ -294,13 +294,13 @@ typedef struct ycsb_log_params {
 } ycsb_log_params;
 
 typedef struct ycsb_phase {
-   char *           name;
+   char            *name;
    uint64           nlogs;
    ycsb_log_params *params;
    uint64_t         total_ops;
    running_times    times;
    latency_tables   tables;
-   char *           measurement_command;
+   char            *measurement_command;
 } ycsb_phase;
 
 static void
@@ -310,7 +310,7 @@ ycsb_thread(void *arg)
    platform_heap_id hid = platform_get_heap_id();
    uint64           i;
    ycsb_log_params *params     = (ycsb_log_params *)arg;
-   splinter_handle *spl        = params->spl;
+   trunk_handle    *spl        = params->spl;
    uint64           num_ops    = params->total_ops;
    uint64           batch_size = params->batch_size;
    uint64           my_batch;
@@ -322,7 +322,7 @@ ycsb_thread(void *arg)
    struct timespec start_thread_cputime;
    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start_thread_cputime);
 
-   char * range_buffer      = NULL;
+   char  *range_buffer      = NULL;
    size_t range_buffer_size = 0;
    my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
    while (my_batch < num_ops) {
@@ -337,13 +337,13 @@ ycsb_thread(void *arg)
             {
                writable_buffer value;
                writable_buffer_init_null(&value, NULL);
-               rc = splinter_lookup(spl, ops->key, &value);
+               rc = trunk_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
-               //   splinter_key_to_string(spl, ops->key, key_str);
+               //   trunk_key_to_string(spl, ops->key, key_str);
                //   platform_log("Key %s not found\n", key_str);
-               //   splinter_print_lookup(spl, ops->key);
+               //   trunk_print_lookup(spl, ops->key);
                //   platform_assert(0);
                //}
                break;
@@ -353,7 +353,7 @@ ycsb_thread(void *arg)
             case 'u':
             {
                slice value_slice = slice_create(YCSB_DATA_SIZE, ops->value);
-               rc                = splinter_insert(spl, ops->key, value_slice);
+               rc                = trunk_insert(spl, ops->key, value_slice);
                platform_assert_status_ok(rc);
                break;
             }
@@ -373,11 +373,11 @@ ycsb_thread(void *arg)
                      TYPED_ARRAY_MALLOC(hid, range_buffer, range_buffer_size);
                   platform_assert(range_buffer);
                }
-               rc = splinter_range(spl,
-                                   ops->key,
-                                   ops->range_len,
-                                   &tuples_returned,
-                                   range_buffer);
+               rc = trunk_range(spl,
+                                ops->key,
+                                ops->range_len,
+                                &tuples_returned,
+                                range_buffer);
                platform_assert_status_ok(rc);
                break;
             }
@@ -400,7 +400,7 @@ ycsb_thread(void *arg)
    __sync_fetch_and_add(params->threads_complete, 1);
 
    while (*params->threads_complete != params->total_threads) {
-      splinter_perform_tasks(spl);
+      trunk_perform_tasks(spl);
       platform_sleep(2000);
    }
 
@@ -424,9 +424,9 @@ ycsb_thread(void *arg)
 }
 
 static int
-run_ycsb_phase(splinter_handle *spl,
-               ycsb_phase *     phase,
-               task_system *    ts,
+run_ycsb_phase(trunk_handle    *spl,
+               ycsb_phase      *phase,
+               task_system     *ts,
                platform_heap_id hid)
 {
    int              success = 0;
@@ -459,7 +459,7 @@ run_ycsb_phase(splinter_handle *spl,
          ret = task_thread_create("ycsb_thread",
                                   ycsb_thread,
                                   &phase->params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &threads[cur_thread]);
@@ -484,7 +484,7 @@ shutdown:
 
    if (phase->measurement_command) {
       const size_t bufsize  = 1024;
-      char *       filename = TYPED_ARRAY_MALLOC(hid, filename, bufsize);
+      char        *filename = TYPED_ARRAY_MALLOC(hid, filename, bufsize);
       platform_assert(filename);
       snprintf(filename, bufsize, "%s.measurement", phase->name);
       FILE *measurement_output = fopen(filename, "wb");
@@ -492,7 +492,7 @@ shutdown:
       FILE *measurement_cmd = popen(phase->measurement_command, "r");
       platform_assert(measurement_cmd != NULL);
 
-      char * buffer = TYPED_ARRAY_MALLOC(hid, buffer, bufsize);
+      char  *buffer = TYPED_ARRAY_MALLOC(hid, buffer, bufsize);
       size_t num_read;
       size_t num_written;
       do {
@@ -516,10 +516,10 @@ shutdown:
 }
 
 static int
-run_all_ycsb_phases(splinter_handle *spl,
-                    ycsb_phase *     phase,
+run_all_ycsb_phases(trunk_handle    *spl,
+                    ycsb_phase      *phase,
                     uint64           nphases,
-                    task_system *    ts,
+                    task_system     *ts,
                     platform_heap_id hid)
 {
    uint64 i;
@@ -527,10 +527,10 @@ run_all_ycsb_phases(splinter_handle *spl,
       platform_log("Beginning phase %lu\n", i);
       if (run_ycsb_phase(spl, &phase[i], ts, hid) < 0)
          return -1;
-      splinter_print_insertion_stats(spl);
-      splinter_print_lookup_stats(spl);
+      trunk_print_insertion_stats(spl);
+      trunk_print_lookup_stats(spl);
       cache_print_stats(spl->cc);
-      // splinter_reset_stats(spl);
+      // trunk_reset_stats(spl);
       cache_reset_stats(spl->cc);
       platform_log("Phase %s complete\n", phase[i].name);
    }
@@ -538,13 +538,13 @@ run_all_ycsb_phases(splinter_handle *spl,
 }
 
 typedef struct parse_ycsb_log_req {
-   char *    filename;
+   char     *filename;
    bool      lock;
    uint64    start_line;
    uint64    end_line;
-   uint64 *  num_ops;
+   uint64   *num_ops;
    ycsb_op **ycsb_ops;
-   uint64 *  max_range_len;
+   uint64   *max_range_len;
 } parse_ycsb_log_req;
 
 static void
@@ -553,7 +553,7 @@ parse_ycsb_log_file(void *arg)
    parse_ycsb_log_req *req     = (parse_ycsb_log_req *)arg;
    platform_heap_id    hid     = platform_get_heap_id();
    bool                lock    = req->lock;
-   uint64 *            num_ops = req->num_ops;
+   uint64             *num_ops = req->num_ops;
 
    random_state rs;
    random_init(&rs, req->start_line, 0);
@@ -566,7 +566,7 @@ parse_ycsb_log_file(void *arg)
       return;
    }
 
-   char * buffer  = NULL;
+   char  *buffer  = NULL;
    size_t bufsize = 0;
    for (uint64 i = 0; i < req->start_line; i++) {
       int ret = getline(&buffer, &bufsize, fp);
@@ -652,21 +652,21 @@ usage(const char *argv0)
 
 static platform_status
 load_ycsb_logs(int          argc,
-               char *       argv[],
-               uint64 *     nphases,
-               bool *       use_existing,
+               char        *argv[],
+               uint64      *nphases,
+               bool        *use_existing,
                ycsb_phase **output,
-               int *        args_consumed,
-               uint64 *     log_size_bytes_out,
-               uint64 *     memory_bytes_out)
+               int         *args_consumed,
+               uint64      *log_size_bytes_out,
+               uint64      *memory_bytes_out)
 {
    uint64 _nphases            = 1;
    uint64 num_threads         = 0;
    bool   mlock_log           = TRUE;
-   char * measurement_command = NULL;
+   char  *measurement_command = NULL;
    uint64 log_size_bytes      = 0;
    *use_existing              = FALSE;
-   char *           name;
+   char            *name;
    platform_status  ret;
    platform_heap_id hid = platform_get_heap_id();
 
@@ -917,9 +917,9 @@ compute_all_report_data(ycsb_phase *phases, int num_phases)
 }
 
 void
-write_log_latency_table(char *        phase_name,
+write_log_latency_table(char         *phase_name,
                         uint64_t      lognum,
-                        char *        operation_name,
+                        char         *operation_name,
                         latency_table table)
 {
    char filename[1024];
@@ -933,9 +933,9 @@ write_log_latency_table(char *        phase_name,
 }
 
 void
-write_log_latency_cdf(char *        phase_name,
+write_log_latency_cdf(char         *phase_name,
                       uint64_t      lognum,
-                      char *        operation_name,
+                      char         *operation_name,
                       latency_table table)
 {
    char filename[1024];
@@ -949,8 +949,8 @@ write_log_latency_cdf(char *        phase_name,
 }
 
 void
-write_phase_latency_table(char *        phase_name,
-                          char *        operation_name,
+write_phase_latency_table(char         *phase_name,
+                          char         *operation_name,
                           latency_table table)
 {
    char filename[1024];
@@ -963,8 +963,8 @@ write_phase_latency_table(char *        phase_name,
 }
 
 void
-write_phase_latency_cdf(char *        phase_name,
-                        char *        operation_name,
+write_phase_latency_cdf(char         *phase_name,
+                        char         *operation_name,
                         latency_table table)
 {
    char filename[1024];
@@ -1036,7 +1036,7 @@ write_phase_latency_tables(ycsb_phase *phase)
 
 void
 print_operation_statistics(platform_log_handle output,
-                           char *              operation_name,
+                           char               *operation_name,
                            latency_table       table)
 {
    platform_handle_log(
@@ -1083,8 +1083,8 @@ print_operation_statistics(platform_log_handle output,
 void
 print_statistics_file(platform_log_handle output,
                       uint64_t            total_ops,
-                      running_times *     times,
-                      latency_tables *    tables)
+                      running_times      *times,
+                      latency_tables     *tables)
 {
    uint64_t wall_clock_time =
       times->last_thread_finish_time - times->earliest_thread_start_time;
@@ -1113,7 +1113,7 @@ print_statistics_file(platform_log_handle output,
 }
 
 void
-write_log_statistics_file(char *           phase_name,
+write_log_statistics_file(char            *phase_name,
                           uint64_t         lognum,
                           ycsb_log_params *params)
 {
@@ -1165,10 +1165,10 @@ ycsb_test(int argc, char *argv[])
    clockcache_config   cache_cfg;
    shard_log_config    log_cfg;
    int                 config_argc;
-   char **             config_argv;
+   char              **config_argv;
    platform_status     rc;
    uint64              seed;
-   task_system *       ts;
+   task_system        *ts;
 
    uint64      nphases;
    bool        use_existing = 0;
@@ -1199,8 +1199,8 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config *data_cfg = TYPED_MALLOC(hid, data_cfg);
-   splinter_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   data_config  *data_cfg     = TYPED_MALLOC(hid, data_cfg);
+   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
                         data_cfg,
@@ -1294,9 +1294,9 @@ ycsb_test(int argc, char *argv[])
       goto deinit_iohandle;
    }
 
-   rc_allocator     al;
-   clockcache *     cc = TYPED_MALLOC(hid, cc);
-   splinter_handle *spl;
+   rc_allocator  al;
+   clockcache   *cc = TYPED_MALLOC(hid, cc);
+   trunk_handle *spl;
 
    if (use_existing) {
       rc_allocator_mount(&al,
@@ -1313,12 +1313,12 @@ ycsb_test(int argc, char *argv[])
                            hh,
                            hid);
       platform_assert_status_ok(rc);
-      spl = splinter_mount(splinter_cfg,
-                           (allocator *)&al,
-                           (cache *)cc,
-                           ts,
-                           test_generate_allocator_root_id(),
-                           hid);
+      spl = trunk_mount(splinter_cfg,
+                        (allocator *)&al,
+                        (cache *)cc,
+                        ts,
+                        test_generate_allocator_root_id(),
+                        hid);
       platform_assert(spl);
    } else {
       rc_allocator_init(&al,
@@ -1335,18 +1335,18 @@ ycsb_test(int argc, char *argv[])
                            hh,
                            hid);
       platform_assert_status_ok(rc);
-      spl = splinter_create(splinter_cfg,
-                            (allocator *)&al,
-                            (cache *)cc,
-                            ts,
-                            test_generate_allocator_root_id(),
-                            hid);
+      spl = trunk_create(splinter_cfg,
+                         (allocator *)&al,
+                         (cache *)cc,
+                         ts,
+                         test_generate_allocator_root_id(),
+                         hid);
       platform_assert(spl);
    }
 
    run_all_ycsb_phases(spl, phases, nphases, ts, hid);
 
-   splinter_dismount(spl);
+   trunk_dismount(spl);
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_dismount(&al);

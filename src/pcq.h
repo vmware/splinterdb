@@ -15,8 +15,8 @@
 
 typedef struct {
    uint32               num_elems;
-   cache_aligned_uint32 tail;          // Producers enqueue to here
-   cache_aligned_uint32 head;          // Consumer dequeues from here
+   cache_aligned_uint32 tail; // Producers enqueue to here
+   cache_aligned_uint32 head; // Consumer dequeues from here
    void                *elems[];
 } pcq;
 
@@ -25,8 +25,7 @@ typedef struct {
  * Allocate a PCQ. Returns NULL on out of memory.
  */
 static inline pcq *
-pcq_alloc(platform_heap_id hid,
-          size_t           num_elems)
+pcq_alloc(platform_heap_id hid, size_t num_elems)
 {
    pcq *q;
 
@@ -65,16 +64,14 @@ pcq_is_full(const pcq *q)
 
 // Deallocate a PCQ
 static inline void
-pcq_free(platform_heap_id  hid,
-         pcq              *q)
+pcq_free(platform_heap_id hid, pcq *q)
 {
    platform_free(hid, q);
 }
 
 // Enqueue an elem to a PCQ. Element must not be NULL
 static inline void
-pcq_enqueue(pcq  *q,
-            void *elem)
+pcq_enqueue(pcq *q, void *elem)
 {
    // NULL element is used to detect empty elements. Can't enqueue them.
    debug_assert(elem != NULL);
@@ -100,13 +97,14 @@ pcq_enqueue(pcq  *q,
  * not done here.
  */
 static inline platform_status
-pcq_dequeue(pcq  *q,     // IN
+pcq_dequeue(pcq   *q,    // IN
             void **elem) // OUT
 {
    if (pcq_is_empty(q)) {
       return STATUS_NOT_FOUND;
    }
-   uint32 head = q->head.v % q->num_elems;;
+   uint32 head = q->head.v % q->num_elems;
+   ;
    /*
     * Enqueue has advanced the tail, but not filled in the element
     * yet. There might other elements up in the queue that are ready

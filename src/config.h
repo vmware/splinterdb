@@ -15,7 +15,7 @@
 #include "io.h"
 #include "rc_allocator.h"
 #include "shard_log.h"
-#include "splinter.h"
+#include "trunk.h"
 #include "util.h"
 
 extern const char *BUILD_VERSION;
@@ -64,14 +64,17 @@ typedef struct master_config {
 } master_config;
 
 
-void config_set_defaults(master_config *cfg);
+void
+config_set_defaults(master_config *cfg);
 
-void config_usage();
+void
+config_usage();
 
-platform_status config_parse(master_config *cfg,
-                             const uint8    num_config,
-                             int            argc,
-                             char          *argv[]);
+platform_status
+config_parse(master_config *cfg,
+             const uint8    num_config,
+             int            argc,
+             char          *argv[]);
 
 
 /*
@@ -97,112 +100,115 @@ platform_status config_parse(master_config *cfg,
  * will print error msg and fail.
  */
 
-#define config_has_option(str) \
-   } else if (STRING_EQUALS_LITERAL(argv[i], "--"str)) {
+#define config_has_option(str)                                                 \
+   }                                                                           \
+   else if (STRING_EQUALS_LITERAL(argv[i], "--" str)) {
 
-#define config_set_string(name, var, field)                                \
-   config_has_option(name)                                                 \
-   if (i + 1 == argc) {                                                    \
-      platform_error_log("config: failed to parse %s\n", name);            \
-      return STATUS_BAD_PARAM;                                             \
-   }                                                                       \
-   uint8 _idx;                                                             \
-   platform_strtok_ctx _ctx = { .token_str = NULL,                         \
-                                .last_token = NULL,                        \
-                                .last_token_len = 0 };                     \
-                                                                           \
-   if (strchr(argv[++i], ',')) {                                           \
-      char *_token = platform_strtok_r(argv[i], ",", &_ctx);               \
-      for (_idx = 0; _token != NULL; _idx++) {                             \
-         if (_idx > num_config - 1) {                                      \
-            platform_error_log("config: more %s than num_tables\n", name); \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-         int _rc = snprintf(var[_idx].field, MAX_STRING_LENGTH, "%s",      \
-                            _token);                                       \
-         if (_rc >= MAX_STRING_LENGTH) {                                   \
-            platform_error_log("config: %s too long\n", name);             \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-                                                                           \
-         _token = platform_strtok_r(NULL, ",", &_ctx);                     \
-      }                                                                    \
-      if (_idx < num_config) {                                             \
-         platform_error_log("config: less %s than num_tables\n", name);    \
-         return STATUS_BAD_PARAM;                                          \
-      }                                                                    \
-   } else {                                                                \
-      for (_idx = 0; _idx < num_config; _idx++) {                          \
-         int _rc = snprintf(var[_idx].field, MAX_STRING_LENGTH, "%s",      \
-                            argv[i]);                                      \
-         if (_rc >= MAX_STRING_LENGTH) {                                   \
-            platform_error_log("config: %s too long\n", name);             \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-      }                                                                    \
+#define config_set_string(name, var, field)                                    \
+   config_has_option(name) if (i + 1 == argc)                                  \
+   {                                                                           \
+      platform_error_log("config: failed to parse %s\n", name);                \
+      return STATUS_BAD_PARAM;                                                 \
+   }                                                                           \
+   uint8               _idx;                                                   \
+   platform_strtok_ctx _ctx = {                                                \
+      .token_str = NULL, .last_token = NULL, .last_token_len = 0};             \
+                                                                               \
+   if (strchr(argv[++i], ',')) {                                               \
+      char *_token = platform_strtok_r(argv[i], ",", &_ctx);                   \
+      for (_idx = 0; _token != NULL; _idx++) {                                 \
+         if (_idx > num_config - 1) {                                          \
+            platform_error_log("config: more %s than num_tables\n", name);     \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+         int _rc = snprintf(var[_idx].field, MAX_STRING_LENGTH, "%s", _token); \
+         if (_rc >= MAX_STRING_LENGTH) {                                       \
+            platform_error_log("config: %s too long\n", name);                 \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+                                                                               \
+         _token = platform_strtok_r(NULL, ",", &_ctx);                         \
+      }                                                                        \
+      if (_idx < num_config) {                                                 \
+         platform_error_log("config: less %s than num_tables\n", name);        \
+         return STATUS_BAD_PARAM;                                              \
+      }                                                                        \
+   } else {                                                                    \
+      for (_idx = 0; _idx < num_config; _idx++) {                              \
+         int _rc =                                                             \
+            snprintf(var[_idx].field, MAX_STRING_LENGTH, "%s", argv[i]);       \
+         if (_rc >= MAX_STRING_LENGTH) {                                       \
+            platform_error_log("config: %s too long\n", name);                 \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+      }                                                                        \
    }
 
-#define _config_set_numerical(name, var, field, type)                      \
-   config_has_option(name)                                                 \
-   if (i + 1 == argc) {                                                    \
-      platform_error_log("config: failed to parse %s\n", name);            \
-      return STATUS_BAD_PARAM;                                             \
-   }                                                                       \
-   uint8 _idx;                                                             \
-   platform_strtok_ctx _ctx = { .token_str = NULL, .last_token = NULL,     \
-                                .last_token_len = 0 };                     \
-                                                                           \
-   if (strchr(argv[++i], ',')) {                                           \
-      char *_token = platform_strtok_r(argv[i], ",", &_ctx);               \
-      for (_idx = 0; _token != NULL; _idx++) {                             \
-         if (_idx > num_config - 1) {                                      \
-            platform_error_log("config: more %s than num_tables\n", name); \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-         if (!try_string_to_##type(_token, &var[_idx].field)) {            \
-            platform_error_log("config: failed to parse %s\n", name);      \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-                                                                           \
-         _token = platform_strtok_r(NULL, ",", &_ctx);                     \
-      }                                                                    \
-      if (_idx < num_config) {                                             \
-         platform_error_log("config: less %s than num_tables\n", name);    \
-         return STATUS_BAD_PARAM;                                          \
-      }                                                                    \
-   } else {                                                                \
-      for (_idx = 0; _idx < num_config; _idx++) {                          \
-         if (!try_string_to_##type(argv[i], &var[_idx].field)) {           \
-            platform_error_log("config: failed to parse %s\n", name);      \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-      }                                                                    \
+#define _config_set_numerical(name, var, field, type)                          \
+   config_has_option(name) if (i + 1 == argc)                                  \
+   {                                                                           \
+      platform_error_log("config: failed to parse %s\n", name);                \
+      return STATUS_BAD_PARAM;                                                 \
+   }                                                                           \
+   uint8               _idx;                                                   \
+   platform_strtok_ctx _ctx = {                                                \
+      .token_str = NULL, .last_token = NULL, .last_token_len = 0};             \
+                                                                               \
+   if (strchr(argv[++i], ',')) {                                               \
+      char *_token = platform_strtok_r(argv[i], ",", &_ctx);                   \
+      for (_idx = 0; _token != NULL; _idx++) {                                 \
+         if (_idx > num_config - 1) {                                          \
+            platform_error_log("config: more %s than num_tables\n", name);     \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+         if (!try_string_to_##type(_token, &var[_idx].field)) {                \
+            platform_error_log("config: failed to parse %s\n", name);          \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+                                                                               \
+         _token = platform_strtok_r(NULL, ",", &_ctx);                         \
+      }                                                                        \
+      if (_idx < num_config) {                                                 \
+         platform_error_log("config: less %s than num_tables\n", name);        \
+         return STATUS_BAD_PARAM;                                              \
+      }                                                                        \
+   } else {                                                                    \
+      for (_idx = 0; _idx < num_config; _idx++) {                              \
+         if (!try_string_to_##type(argv[i], &var[_idx].field)) {               \
+            platform_error_log("config: failed to parse %s\n", name);          \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+      }                                                                        \
    }
 
-#define config_set_uint8(name, var, field) \
+#define config_set_uint8(name, var, field)                                     \
    _config_set_numerical(name, var, field, uint8)
 
-#define config_set_uint32(name, var, field) \
+#define config_set_uint32(name, var, field)                                    \
    _config_set_numerical(name, var, field, uint32)
 
-#define config_set_uint64(name, var, field) \
+#define config_set_uint64(name, var, field)                                    \
    _config_set_numerical(name, var, field, uint64)
 
-#define config_set_mib(name, var, field)          \
-   config_set_uint64(name"-mib", var, field) {    \
-      for (uint8 _i = 0; _i < num_config; _i++) { \
-         var[_i].field = MiB_TO_B(var[_i].field); \
-      }                                           \
+#define config_set_mib(name, var, field)                                       \
+   config_set_uint64(name "-mib", var, field)                                  \
+   {                                                                           \
+      for (uint8 _i = 0; _i < num_config; _i++) {                              \
+         var[_i].field = MiB_TO_B(var[_i].field);                              \
+      }                                                                        \
    }
 
-#define config_set_gib(name, var, field)          \
-   config_set_uint64(name"-gib", var, field) {    \
-      for (uint8 _i = 0; _i < num_config; _i++) { \
-         var[_i].field = GiB_TO_B(var[_i].field); \
-      }                                           \
+#define config_set_gib(name, var, field)                                       \
+   config_set_uint64(name "-gib", var, field)                                  \
+   {                                                                           \
+      for (uint8 _i = 0; _i < num_config; _i++) {                              \
+         var[_i].field = GiB_TO_B(var[_i].field);                              \
+      }                                                                        \
    }
 
-#define config_set_else } else
+#define config_set_else                                                        \
+   }                                                                           \
+   else
 
 
-#endif
+#endif // __CONFIG_H

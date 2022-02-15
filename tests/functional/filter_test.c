@@ -21,8 +21,8 @@
 #include "poison.h"
 
 static platform_status
-test_filter_basic(cache *          cc,
-                  routing_config * cfg,
+test_filter_basic(cache           *cc,
+                  routing_config  *cfg,
                   platform_heap_id hid,
                   uint64           num_fingerprints,
                   uint64           num_values)
@@ -147,8 +147,8 @@ out:
 }
 
 static platform_status
-test_filter_perf(cache *          cc,
-                 routing_config * cfg,
+test_filter_perf(cache           *cc,
+                 routing_config  *cfg,
                  platform_heap_id hid,
                  uint64           num_fingerprints,
                  uint64           num_values,
@@ -296,13 +296,13 @@ filter_test(int argc, char *argv[])
    clockcache_config   cache_cfg;
    shard_log_config    log_cfg;
    rc_allocator        al;
-   clockcache *        cc;
+   clockcache         *cc;
    int                 config_argc;
-   char **             config_argv;
+   char              **config_argv;
    bool                run_perf_test;
    platform_status     rc;
    uint64              seed;
-   task_system *       ts;
+   task_system        *ts;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
@@ -320,7 +320,7 @@ filter_test(int argc, char *argv[])
    rc = platform_heap_create(1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   splinter_config *cfg = TYPED_MALLOC(hid, cfg);
+   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
                         &data_cfg,

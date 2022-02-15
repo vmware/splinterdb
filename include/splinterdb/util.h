@@ -1,3 +1,6 @@
+// Copyright 2018-2021 VMware, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef __UTIL_H
 #define __UTIL_H
 

@@ -26,16 +26,13 @@ typedef struct rc_allocator_config {
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_meta_page --
  *
  *  An on disk structure to hold the super block information about all the
  *  splinter tables using this allocator. This is persisted at
  *  offset 0 of the device.
- *
  *----------------------------------------------------------------------
  */
-
 typedef struct PACKED rc_allocator_meta_page {
    allocator_root_id splinters[RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS];
    checksum128       checksum;
@@ -43,12 +40,9 @@ typedef struct PACKED rc_allocator_meta_page {
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator_stats --
- *
  *----------------------------------------------------------------------
  */
-
 typedef struct rc_allocator_stats {
    int64 curr_allocated;
    int64 max_allocated;
@@ -58,12 +52,9 @@ typedef struct rc_allocator_stats {
 
 /*
  *----------------------------------------------------------------------
- *
  * rc_allocator --
- *
  *----------------------------------------------------------------------
  */
-
 typedef struct rc_allocator {
    allocator               super;
    rc_allocator_config    *cfg;
@@ -93,9 +84,9 @@ rc_allocator_config_init(rc_allocator_config *allocator_cfg,
                          uint64               capacity);
 
 platform_status
-rc_allocator_init(rc_allocator *       al,
+rc_allocator_init(rc_allocator        *al,
                   rc_allocator_config *cfg,
-                  io_handle *          io,
+                  io_handle           *io,
                   platform_heap_handle hh,
                   platform_heap_id     hid);
 
@@ -103,9 +94,9 @@ void
 rc_allocator_deinit(rc_allocator *al);
 
 platform_status
-rc_allocator_mount(rc_allocator *       al,
+rc_allocator_mount(rc_allocator        *al,
                    rc_allocator_config *cfg,
-                   io_handle *          io,
+                   io_handle           *io,
                    platform_heap_handle hh,
                    platform_heap_id     hid);
 

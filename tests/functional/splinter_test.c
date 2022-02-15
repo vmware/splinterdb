@@ -9,7 +9,7 @@
 
 #include "platform.h"
 
-#include "splinter.h"
+#include "trunk.h"
 #include "merge.h"
 #include "test.h"
 #include "allocator.h"
@@ -58,14 +58,14 @@ typedef struct stats_insert {
 
 typedef struct test_splinter_thread_params {
    platform_thread    thread;
-   splinter_handle ** spl;
-   test_config *      test_cfg;
-   uint64 *           total_ops;
-   uint64 *           curr_op;
+   trunk_handle     **spl;
+   test_config       *test_cfg;
+   uint64            *total_ops;
+   uint64            *curr_op;
    uint64             op_granularity;
    uint8              num_tables;
    uint64             thread_number;
-   task_system *      ts;
+   task_system       *ts;
    platform_status    rc;
    uint64             range_min;
    uint64             range_max;
@@ -99,14 +99,14 @@ test_all_done(const uint8 done, const uint8 num_tables)
 }
 
 void
-test_splinter_insert_thread(void *arg)
+test_trunk_insert_thread(void *arg)
 {
    test_splinter_thread_params *params = (test_splinter_thread_params *)arg;
 
-   splinter_handle ** spl_tables     = params->spl;
+   trunk_handle     **spl_tables     = params->spl;
    const test_config *test_cfg       = params->test_cfg;
-   const uint64 *     total_ops      = params->total_ops;
-   uint64 *           curr_op        = params->curr_op;
+   const uint64      *total_ops      = params->total_ops;
+   uint64            *curr_op        = params->curr_op;
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
    message_type       type           = params->message_type;
@@ -144,8 +144,8 @@ test_splinter_insert_thread(void *arg)
             if (test_is_done(done, spl_idx)) {
                continue;
             }
-            splinter_handle *spl = spl_tables[spl_idx];
-            char             key[MAX_KEY_SIZE], data[MAX_MESSAGE_SIZE];
+            trunk_handle *spl = spl_tables[spl_idx];
+            char          key[MAX_KEY_SIZE], data[MAX_MESSAGE_SIZE];
 
             timestamp ts;
             if (spl->cfg.use_stats) {
@@ -156,16 +156,16 @@ test_splinter_insert_thread(void *arg)
                      insert_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     splinter_key_size(spl),
+                     trunk_key_size(spl),
                      test_cfg[spl_idx].period);
             test_insert_data((data_handle *)data,
                              1,
                              (char *)&insert_num,
                              8,
-                             splinter_message_size(spl),
+                             trunk_message_size(spl),
                              type);
             platform_status rc =
-               splinter_insert(spl, key, splinter_message_slice(spl, data));
+               trunk_insert(spl, key, trunk_message_slice(spl, data));
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
                ts = platform_timestamp_elapsed(ts);
@@ -195,29 +195,29 @@ out:
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), insert_base);
    for (uint64 i = 0; i < num_tables; i++) {
-      splinter_handle *spl = spl_tables[i];
-      splinter_perform_tasks(spl);
+      trunk_handle *spl = spl_tables[i];
+      trunk_perform_tasks(spl);
    }
 }
 
 static void
-verify_tuple(splinter_handle *spl,
-             uint64           lookup_num,
-             char *           key,
-             slice            data,
-             uint64           data_size,
-             bool             expected_found)
+verify_tuple(trunk_handle *spl,
+             uint64        lookup_num,
+             char         *key,
+             slice         data,
+             uint64        data_size,
+             bool          expected_found)
 {
    if (slice_is_null(data) != !expected_found) {
       char key_str[128];
-      splinter_key_to_string(spl, key, key_str);
+      trunk_key_to_string(spl, key, key_str);
       platform_default_log("(%2lu) key %lu (%s): found %d (expected:%d)\n",
                            platform_get_tid(),
                            lookup_num,
                            key_str,
                            !slice_is_null(data),
                            expected_found);
-      splinter_print_lookup(spl, key);
+      trunk_print_lookup(spl, key);
       platform_assert(0);
    }
    if (!slice_is_null(data) && expected_found) {
@@ -232,7 +232,7 @@ verify_tuple(splinter_handle *spl,
       if (slice_length(data) != data_size
           || memcmp(expected_data, slice_data(data), data_size) != 0)
       {
-         splinter_message_to_string(spl, data, data_str);
+         trunk_message_to_string(spl, data, data_str);
          platform_log("key found with data: %s\n", data_str);
          platform_assert(0);
       }
@@ -240,7 +240,7 @@ verify_tuple(splinter_handle *spl,
 }
 
 typedef struct {
-   char *        expected_data;
+   char         *expected_data;
    size_t        data_size;
    bool          expected_found;
    bool          stats_only; // update statistic only
@@ -248,10 +248,10 @@ typedef struct {
 } verify_tuple_arg;
 
 static void
-verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
+verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
-   verify_tuple_arg *vta = arg;
-   bool              found = splinter_lookup_found(&ctxt->data);
+   verify_tuple_arg *vta   = arg;
+   bool              found = trunk_lookup_found(&ctxt->data);
 
    if (vta->stats != NULL) {
       if (found) {
@@ -273,12 +273,12 @@ verify_tuple_callback(splinter_handle *spl, test_async_ctxt *ctxt, void *arg)
 }
 
 static void
-test_wait_for_inflight(splinter_handle *  spl,
+test_wait_for_inflight(trunk_handle      *spl,
                        test_async_lookup *async_lookup,
-                       verify_tuple_arg * vtarg)
+                       verify_tuple_arg  *vtarg)
 {
    const timestamp ts          = platform_get_timestamp();
-   uint64 *        latency_max = NULL;
+   uint64         *latency_max = NULL;
    if (vtarg->stats != NULL) {
       latency_max = &vtarg->stats->latency_max;
    }
@@ -293,9 +293,9 @@ test_wait_for_inflight(splinter_handle *  spl,
 }
 
 static test_async_ctxt *
-test_async_ctxt_get(splinter_handle *  spl,
+test_async_ctxt_get(trunk_handle      *spl,
                     test_async_lookup *async_lookup,
-                    verify_tuple_arg * vtarg)
+                    verify_tuple_arg  *vtarg)
 {
    test_async_ctxt *ctxt;
 
@@ -316,22 +316,22 @@ test_async_ctxt_get(splinter_handle *  spl,
 }
 
 void
-test_splinter_lookup_thread(void *arg)
+test_trunk_lookup_thread(void *arg)
 {
    test_splinter_thread_params *params = (test_splinter_thread_params *)arg;
 
-   splinter_handle ** spl_tables     = params->spl;
+   trunk_handle     **spl_tables     = params->spl;
    const test_config *test_cfg       = params->test_cfg;
-   const uint64 *     total_ops      = params->total_ops;
-   uint64 *           curr_op        = params->curr_op;
+   const uint64      *total_ops      = params->total_ops;
+   uint64            *curr_op        = params->curr_op;
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
    bool               expected_found = params->expected_found;
    uint8              num_tables     = params->num_tables;
    verify_tuple_arg   vtarg          = {.expected_data  = NULL,
-                             .data_size      = 0,
-                             .expected_found = expected_found,
-                             .stats = &params->lookup_stats[ASYNC_LU]};
+                                        .data_size      = 0,
+                                        .expected_found = expected_found,
+                                        .stats = &params->lookup_stats[ASYNC_LU]};
 
    platform_assert(num_tables <= 8);
    uint64 *lookup_base =
@@ -359,9 +359,9 @@ test_splinter_lookup_thread(void *arg)
          for (spl_idx = 0; spl_idx < num_tables; spl_idx++) {
             if (test_is_done(done, spl_idx))
                continue;
-            splinter_handle *  spl          = spl_tables[spl_idx];
+            trunk_handle      *spl          = spl_tables[spl_idx];
             test_async_lookup *async_lookup = params->async_lookup[spl_idx];
-            test_async_ctxt *  ctxt;
+            test_async_ctxt   *ctxt;
             uint64             lookup_num = lookup_base[spl_idx] + op_offset;
             timestamp          ts;
 
@@ -376,10 +376,10 @@ test_splinter_lookup_thread(void *arg)
                         lookup_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        splinter_key_size(spl),
+                        trunk_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = splinter_lookup(spl, key, &data);
+               rc = trunk_lookup(spl, key, &data);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
@@ -389,7 +389,7 @@ test_splinter_lookup_thread(void *arg)
                             lookup_num,
                             key,
                             writable_buffer_to_slice(&data),
-                            splinter_message_size(spl),
+                            trunk_message_size(spl),
                             expected_found);
                writable_buffer_reinit(&data);
             } else {
@@ -399,7 +399,7 @@ test_splinter_lookup_thread(void *arg)
                         lookup_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        splinter_key_size(spl),
+                        trunk_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = lookup_num;
                async_ctxt_process_one(
@@ -415,7 +415,7 @@ test_splinter_lookup_thread(void *arg)
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
          if (test_is_done(done, spl_idx))
             continue;
-         splinter_handle *  spl          = spl_tables[spl_idx];
+         trunk_handle      *spl          = spl_tables[spl_idx];
          test_async_lookup *async_lookup = params->async_lookup[spl_idx];
          test_wait_for_inflight(spl, async_lookup, &vtarg);
       }
@@ -426,14 +426,14 @@ out:
 }
 
 void
-test_splinter_range_thread(void *arg)
+test_trunk_range_thread(void *arg)
 {
    test_splinter_thread_params *params = (test_splinter_thread_params *)arg;
 
-   splinter_handle ** spl_tables     = params->spl;
+   trunk_handle     **spl_tables     = params->spl;
    const test_config *test_cfg       = params->test_cfg;
-   const uint64 *     total_ops      = params->total_ops;
-   uint64 *           curr_op        = params->curr_op;
+   const uint64      *total_ops      = params->total_ops;
+   uint64            *curr_op        = params->curr_op;
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
    uint64             range_min      = params->range_min;
@@ -466,8 +466,8 @@ test_splinter_range_thread(void *arg)
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
             if (test_is_done(done, spl_idx))
                continue;
-            splinter_handle *spl = spl_tables[spl_idx];
-            tuple_size = splinter_key_size(spl) + splinter_message_size(spl);
+            trunk_handle *spl  = spl_tables[spl_idx];
+            tuple_size         = trunk_key_size(spl) + trunk_message_size(spl);
             char *range_output = TYPED_ARRAY_MALLOC(
                platform_get_heap_id(), range_output, range_max * tuple_size);
             platform_assert(range_output);
@@ -479,11 +479,11 @@ test_splinter_range_thread(void *arg)
                      range_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     splinter_key_size(spl),
+                     trunk_key_size(spl),
                      test_cfg[spl_idx].period);
             uint64 range_tuples = test_range(range_num, range_min, range_max);
             uint64 returned_tuples;
-            platform_status rc = splinter_range(
+            platform_status rc = trunk_range(
                spl, start_key, range_tuples, &returned_tuples, range_output);
             platform_assert_status_ok(rc);
             platform_free(platform_get_heap_id(), range_output);
@@ -511,10 +511,10 @@ out:
 
 static bool
 advance_base(const test_splinter_thread_params *params,
-             uint64 *                           curr_op,
-             uint64 *                           base,
-             uint8 *                            done,
-             random_state *                     rs,
+             uint64                            *curr_op,
+             uint64                            *base,
+             uint8                             *done,
+             random_state                      *rs,
              test_splinter_pthread_op_type      type)
 {
    const uint64 *total_ops           = params->total_ops;
@@ -600,20 +600,20 @@ advance_base(const test_splinter_thread_params *params,
 
 static void
 do_operation(test_splinter_thread_params *params,
-             const uint64 *               base,
+             const uint64                *base,
              uint64                       num_ops,
              uint64                       op_offset,
-             const uint8 *                done,
+             const uint8                 *done,
              bool                         is_insert)
 {
-   splinter_handle ** spl_tables     = params->spl;
+   trunk_handle     **spl_tables     = params->spl;
    const test_config *test_cfg       = params->test_cfg;
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
    message_type       type           = params->message_type;
    uint8              num_tables     = params->num_tables;
    verify_tuple_arg   vtarg          = {.stats_only = TRUE,
-                             .stats      = &params->lookup_stats[ASYNC_LU]};
+                                        .stats      = &params->lookup_stats[ASYNC_LU]};
 
    for (uint64 op_idx = op_offset; op_idx != op_offset + num_ops; op_idx++) {
       if (op_idx >= op_granularity) {
@@ -624,10 +624,10 @@ do_operation(test_splinter_thread_params *params,
          if (test_is_done(*done, spl_idx)) {
             continue;
          }
-         splinter_handle *spl = spl_tables[spl_idx];
-         char             key[MAX_KEY_SIZE];
-         uint64           op_num = base[spl_idx] + op_idx;
-         timestamp        ts;
+         trunk_handle *spl = spl_tables[spl_idx];
+         char          key[MAX_KEY_SIZE];
+         uint64        op_num = base[spl_idx] + op_idx;
+         timestamp     ts;
 
          if (is_insert) {
             char data[MAX_MESSAGE_SIZE];
@@ -636,17 +636,17 @@ do_operation(test_splinter_thread_params *params,
                      op_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     splinter_key_size(spl),
+                     trunk_key_size(spl),
                      test_cfg[spl_idx].period);
             test_insert_data((data_handle *)data,
                              1,
                              (char *)&op_num,
                              8,
-                             splinter_message_size(spl),
+                             trunk_message_size(spl),
                              type);
-            ts                 = platform_get_timestamp();
+            ts = platform_get_timestamp();
             platform_status rc =
-               splinter_insert(spl, key, splinter_message_slice(spl, data));
+               trunk_insert(spl, key, trunk_message_slice(spl, data));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
             params->insert_stats.duration += ts;
@@ -655,7 +655,7 @@ do_operation(test_splinter_thread_params *params,
             }
          } else {
             test_async_lookup *async_lookup = params->async_lookup[spl_idx];
-            test_async_ctxt *  ctxt;
+            test_async_ctxt   *ctxt;
             writable_buffer    data;
             writable_buffer_init_null(&data, NULL);
 
@@ -668,16 +668,16 @@ do_operation(test_splinter_thread_params *params,
                         op_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        splinter_key_size(spl),
+                        trunk_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = splinter_lookup(spl, key, &data);
+               rc = trunk_lookup(spl, key, &data);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
-               found = splinter_lookup_found(&data);
+               found = trunk_lookup_found(&data);
                if (found) {
                   params->lookup_stats[SYNC_LU].num_found++;
                } else {
@@ -690,7 +690,7 @@ do_operation(test_splinter_thread_params *params,
                         op_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        splinter_key_size(spl),
+                        trunk_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = op_num;
                async_ctxt_process_one(
@@ -710,7 +710,7 @@ do_operation(test_splinter_thread_params *params,
 /*
  *-----------------------------------------------------------------------------
  *
- * test_splinter_insert_lookup_thread
+ * test_trunk_insert_lookup_thread
  *
  *      do number of insert_granularity inserts followed by number of
  *      lookup_granularity repeatedly until insert the full table
@@ -719,18 +719,18 @@ do_operation(test_splinter_thread_params *params,
  *-----------------------------------------------------------------------------
  */
 void
-test_splinter_insert_lookup_thread(void *arg)
+test_trunk_insert_lookup_thread(void *arg)
 {
    test_splinter_thread_params *params = (test_splinter_thread_params *)arg;
 
-   splinter_handle **spl_tables     = params->spl;
-   uint8             num_tables     = params->num_tables;
-   uint64            op_granularity = params->op_granularity;
-   uint64            seed           = params->seed;
+   trunk_handle **spl_tables     = params->spl;
+   uint8          num_tables     = params->num_tables;
+   uint64         op_granularity = params->op_granularity;
+   uint64         seed           = params->seed;
 
    platform_assert(num_tables <= 8);
 
-   uint64 *     bases[NUM_OP_TYPES];
+   uint64      *bases[NUM_OP_TYPES];
    uint64       granularities[NUM_OP_TYPES];
    uint64       offsets[NUM_OP_TYPES];
    uint8        insert_done;
@@ -801,9 +801,9 @@ test_splinter_insert_lookup_thread(void *arg)
 
 out:
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *  spl          = spl_tables[spl_idx];
+      trunk_handle      *spl          = spl_tables[spl_idx];
       verify_tuple_arg   vtarg        = {.stats_only = TRUE,
-                                .stats = &params->lookup_stats[ASYNC_LU]};
+                                         .stats = &params->lookup_stats[ASYNC_LU]};
       test_async_lookup *async_lookup = params->async_lookup[spl_idx];
       test_wait_for_inflight(spl, async_lookup, &vtarg);
    }
@@ -816,17 +816,17 @@ out:
 
 
 static platform_status
-test_splinter_create_tables(splinter_handle ***spl_handles,
-                            splinter_config *  cfg,
-                            allocator *        al,
-                            cache *            cc[],
-                            task_system *      ts,
-                            platform_heap_id   hid,
-                            uint8              num_tables,
-                            uint8              num_caches)
+test_trunk_create_tables(trunk_handle  ***spl_handles,
+                         trunk_config    *cfg,
+                         allocator       *al,
+                         cache           *cc[],
+                         task_system     *ts,
+                         platform_heap_id hid,
+                         uint8            num_tables,
+                         uint8            num_caches)
 {
-   uint32            size = sizeof(splinter_handle *) * num_tables;
-   splinter_handle **spl_tables;
+   uint32         size = sizeof(trunk_handle *) * num_tables;
+   trunk_handle **spl_tables;
    spl_tables = platform_aligned_malloc(hid, PLATFORM_CACHELINE_SIZE, size);
    if (spl_tables == NULL) {
       return STATUS_NO_MEMORY;
@@ -834,15 +834,15 @@ test_splinter_create_tables(splinter_handle ***spl_handles,
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       cache *cache_to_use = num_caches > 1 ? cc[spl_idx] : *cc;
-      spl_tables[spl_idx] = splinter_create(&cfg[spl_idx],
-                                            al,
-                                            cache_to_use,
-                                            ts,
-                                            test_generate_allocator_root_id(),
-                                            hid);
+      spl_tables[spl_idx] = trunk_create(&cfg[spl_idx],
+                                         al,
+                                         cache_to_use,
+                                         ts,
+                                         test_generate_allocator_root_id(),
+                                         hid);
       if (spl_tables[spl_idx] == NULL) {
          for (uint8 del_idx = 0; del_idx < spl_idx; del_idx++) {
-            splinter_destroy(spl_tables[del_idx]);
+            trunk_destroy(spl_tables[del_idx]);
          }
          platform_free(hid, spl_tables);
          return STATUS_NO_MEMORY;
@@ -853,26 +853,26 @@ test_splinter_create_tables(splinter_handle ***spl_handles,
 }
 
 static void
-test_splinter_destroy_tables(splinter_handle **spl_tables,
-                             platform_heap_id  hid,
-                             uint8             num_tables)
+test_trunk_destroy_tables(trunk_handle   **spl_tables,
+                          platform_heap_id hid,
+                          uint8            num_tables)
 {
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_destroy(spl_tables[spl_idx]);
+      trunk_destroy(spl_tables[spl_idx]);
    }
    platform_free(hid, spl_tables);
 }
 
 platform_status
-test_splinter_perf(splinter_config *cfg,
-                   test_config *    test_cfg,
-                   allocator *      al,
-                   cache *          cc[],
+test_splinter_perf(trunk_config    *cfg,
+                   test_config     *test_cfg,
+                   allocator       *al,
+                   cache           *cc[],
                    uint64           num_insert_threads,
                    uint64           num_lookup_threads,
                    uint64           num_range_threads,
                    uint32           max_async_inflight,
-                   task_system *    ts,
+                   task_system     *ts,
                    platform_heap_id hid,
                    uint8            num_tables,
                    uint8            num_caches,
@@ -881,10 +881,10 @@ test_splinter_perf(splinter_config *cfg,
    platform_log("splinter_test: splinter performance test started with %d\
                 tables\n",
                 num_tables);
-   splinter_handle **spl_tables;
-   platform_status   rc;
+   trunk_handle  **spl_tables;
+   platform_status rc;
 
-   rc = test_splinter_create_tables(
+   rc = test_trunk_create_tables(
       &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to create splinter table(s): %s\n",
@@ -941,9 +941,9 @@ test_splinter_perf(splinter_config *cfg,
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
       ret = task_thread_create("insert_thread",
-                               test_splinter_insert_thread,
+                               test_trunk_insert_thread,
                                &params[i],
-                               splinter_get_scratch_size(),
+                               trunk_get_scratch_size(),
                                ts,
                                hid,
                                &params[i].thread);
@@ -989,14 +989,14 @@ test_splinter_perf(splinter_config *cfg,
    }
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *spl = spl_tables[spl_idx];
+      trunk_handle *spl = spl_tables[spl_idx];
       cache_assert_free(spl->cc);
-      platform_assert(splinter_verify_tree(spl));
-      splinter_print_insertion_stats(spl);
+      platform_assert(trunk_verify_tree(spl));
+      trunk_print_insertion_stats(spl);
       cache_print_stats(spl->cc);
-      splinter_print_space_use(spl);
+      trunk_print_space_use(spl);
       cache_reset_stats(spl->cc);
-      // splinter_print(spl);
+      // trunk_print(spl);
    }
 
    ZERO_CONTENTS_N(curr_op, num_tables);
@@ -1013,9 +1013,9 @@ test_splinter_perf(splinter_config *cfg,
                             &params[i].async_lookup[j]);
          }
          ret = task_thread_create("lookup thread",
-                                  test_splinter_lookup_thread,
+                                  test_trunk_lookup_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1066,9 +1066,9 @@ test_splinter_perf(splinter_config *cfg,
                    sync_lookup_latency_max,
                    async_lookup_latency_max);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
@@ -1096,9 +1096,9 @@ test_splinter_perf(splinter_config *cfg,
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
          ret = task_thread_create("range thread",
-                                  test_splinter_range_thread,
+                                  test_trunk_range_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1126,9 +1126,9 @@ test_splinter_perf(splinter_config *cfg,
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
@@ -1152,9 +1152,9 @@ test_splinter_perf(splinter_config *cfg,
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
          ret = task_thread_create("range thread",
-                                  test_splinter_range_thread,
+                                  test_trunk_range_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1181,9 +1181,9 @@ test_splinter_perf(splinter_config *cfg,
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
@@ -1207,9 +1207,9 @@ test_splinter_perf(splinter_config *cfg,
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
          ret = task_thread_create("range thread",
-                                  test_splinter_range_thread,
+                                  test_trunk_range_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1236,16 +1236,16 @@ test_splinter_perf(splinter_config *cfg,
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
    }
 
 destroy_splinter:
-   test_splinter_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables);
    platform_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(cc[idx]);
@@ -1258,15 +1258,15 @@ destroy_splinter:
 }
 
 platform_status
-test_splinter_periodic(splinter_config *cfg,
-                       test_config *    test_cfg,
-                       allocator *      al,
-                       cache *          cc[],
+test_splinter_periodic(trunk_config    *cfg,
+                       test_config     *test_cfg,
+                       allocator       *al,
+                       cache           *cc[],
                        uint64           num_insert_threads,
                        uint64           num_lookup_threads,
                        uint64           num_range_threads,
                        uint32           max_async_inflight,
-                       task_system *    ts,
+                       task_system     *ts,
                        platform_heap_id hid,
                        uint8            num_tables,
                        uint8            num_caches,
@@ -1275,10 +1275,10 @@ test_splinter_periodic(splinter_config *cfg,
    platform_log("splinter_test: splinter performance test started with %d\
                 tables\n",
                 num_tables);
-   splinter_handle **spl_tables;
-   platform_status   rc;
+   trunk_handle  **spl_tables;
+   platform_status rc;
 
-   rc = test_splinter_create_tables(
+   rc = test_trunk_create_tables(
       &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to create splinter table(s): %s\n",
@@ -1334,9 +1334,9 @@ test_splinter_periodic(splinter_config *cfg,
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
       ret = task_thread_create("insert_thread",
-                               test_splinter_insert_thread,
+                               test_trunk_insert_thread,
                                &params[i],
-                               splinter_get_scratch_size(),
+                               trunk_get_scratch_size(),
                                ts,
                                hid,
                                &params[i].thread);
@@ -1382,12 +1382,12 @@ test_splinter_periodic(splinter_config *cfg,
    }
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *spl = spl_tables[spl_idx];
+      trunk_handle *spl = spl_tables[spl_idx];
       cache_assert_free(spl->cc);
-      platform_assert(splinter_verify_tree(spl));
-      splinter_print_insertion_stats(spl);
+      platform_assert(trunk_verify_tree(spl));
+      trunk_print_insertion_stats(spl);
       cache_print_stats(spl->cc);
-      splinter_print_space_use(spl);
+      trunk_print_space_use(spl);
       cache_reset_stats(spl->cc);
    }
 
@@ -1402,9 +1402,9 @@ test_splinter_periodic(splinter_config *cfg,
       for (uint64 i = 0; i < num_insert_threads; i++) {
          platform_status ret;
          ret = task_thread_create("insert_thread",
-                                  test_splinter_insert_thread,
+                                  test_trunk_insert_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1450,12 +1450,12 @@ test_splinter_periodic(splinter_config *cfg,
       }
 
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         platform_assert(splinter_verify_tree(spl));
-         splinter_print_insertion_stats(spl);
+         platform_assert(trunk_verify_tree(spl));
+         trunk_print_insertion_stats(spl);
          cache_print_stats(spl->cc);
-         splinter_print_space_use(spl);
+         trunk_print_space_use(spl);
          cache_reset_stats(spl->cc);
       }
 
@@ -1479,9 +1479,9 @@ test_splinter_periodic(splinter_config *cfg,
                             &params[i].async_lookup[j]);
          }
          ret = task_thread_create("lookup thread",
-                                  test_splinter_lookup_thread,
+                                  test_trunk_lookup_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1532,9 +1532,9 @@ test_splinter_periodic(splinter_config *cfg,
                    sync_lookup_latency_max,
                    async_lookup_latency_max);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
@@ -1562,9 +1562,9 @@ test_splinter_periodic(splinter_config *cfg,
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
          ret = task_thread_create("range thread",
-                                  test_splinter_range_thread,
+                                  test_trunk_range_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1592,9 +1592,9 @@ test_splinter_periodic(splinter_config *cfg,
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
@@ -1618,9 +1618,9 @@ test_splinter_periodic(splinter_config *cfg,
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
          ret = task_thread_create("range thread",
-                                  test_splinter_range_thread,
+                                  test_trunk_range_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1647,9 +1647,9 @@ test_splinter_periodic(splinter_config *cfg,
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
@@ -1673,9 +1673,9 @@ test_splinter_periodic(splinter_config *cfg,
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
          ret = task_thread_create("range thread",
-                                  test_splinter_range_thread,
+                                  test_trunk_range_thread,
                                   &params[i],
-                                  splinter_get_scratch_size(),
+                                  trunk_get_scratch_size(),
                                   ts,
                                   hid,
                                   &params[i].thread);
@@ -1702,16 +1702,16 @@ test_splinter_periodic(splinter_config *cfg,
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl = spl_tables[spl_idx];
          cache_assert_free(spl->cc);
-         splinter_print_lookup_stats(spl);
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
    }
 
 destroy_splinter:
-   test_splinter_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables);
    platform_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(cc[idx]);
@@ -1723,17 +1723,17 @@ destroy_splinter:
    return rc;
 }
 platform_status
-test_splinter_parallel_perf(splinter_config *cfg,
-                            test_config *    test_cfg,
-                            allocator *      al,
-                            cache *          cc[],
+test_splinter_parallel_perf(trunk_config    *cfg,
+                            test_config     *test_cfg,
+                            allocator       *al,
+                            cache           *cc[],
                             uint64           seed,
                             const uint64     num_threads,
                             const uint64     num_inserts_per_thread,
                             const uint64     num_lookups_per_thread,
                             uint32           max_async_inflight,
                             uint8            lookup_positive_pct,
-                            task_system *    ts,
+                            task_system     *ts,
                             platform_heap_id hid,
                             uint8            num_tables,
                             uint8            num_caches)
@@ -1741,12 +1741,12 @@ test_splinter_parallel_perf(splinter_config *cfg,
    platform_log("splinter_test: splinter performance test started with %d\
                 tables\n",
                 num_tables);
-   splinter_handle **spl_tables;
-   platform_status   rc;
+   trunk_handle  **spl_tables;
+   platform_status rc;
 
    platform_assert(num_inserts_per_thread <= num_lookups_per_thread);
 
-   rc = test_splinter_create_tables(
+   rc = test_trunk_create_tables(
       &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to create splinter table(s): %s\n",
@@ -1797,9 +1797,9 @@ test_splinter_parallel_perf(splinter_config *cfg,
                          &params[i].async_lookup[j]);
       }
       ret = task_thread_create("insert/lookup thread",
-                               test_splinter_insert_lookup_thread,
+                               test_trunk_insert_lookup_thread,
                                &params[i],
-                               splinter_get_scratch_size(),
+                               trunk_get_scratch_size(),
                                ts,
                                hid,
                                &params[i].thread);
@@ -1865,8 +1865,8 @@ test_splinter_parallel_perf(splinter_config *cfg,
    }
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *spl = spl_tables[spl_idx];
-      splinter_print_insertion_stats(spl);
+      trunk_handle *spl = spl_tables[spl_idx];
+      trunk_print_insertion_stats(spl);
    }
 
    if (num_threads > 0) {
@@ -1890,15 +1890,15 @@ test_splinter_parallel_perf(splinter_config *cfg,
                    sync_lookup_latency_max,
                    async_lookup_latency_max);
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         splinter_handle *spl = spl_tables[spl_idx];
-         splinter_print_lookup_stats(spl);
+         trunk_handle *spl = spl_tables[spl_idx];
+         trunk_print_lookup_stats(spl);
          cache_print_stats(spl->cc);
          cache_reset_stats(spl->cc);
       }
    }
 
 destroy_splinter:
-   test_splinter_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables);
    platform_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(cc[idx]);
@@ -1910,14 +1910,14 @@ destroy_splinter:
 }
 
 platform_status
-test_splinter_delete(splinter_config *cfg,
-                     test_config *    test_cfg,
-                     allocator *      al,
-                     cache *          cc[],
+test_splinter_delete(trunk_config    *cfg,
+                     test_config     *test_cfg,
+                     allocator       *al,
+                     cache           *cc[],
                      uint64           num_insert_threads,
                      uint64           num_lookup_threads,
                      uint32           max_async_inflight,
-                     task_system *    ts,
+                     task_system     *ts,
                      platform_heap_id hid,
                      uint8            num_tables,
                      uint8            num_caches,
@@ -1926,10 +1926,10 @@ test_splinter_delete(splinter_config *cfg,
    platform_log("splinter_test: splinter deletion test started with %d\
                 tables\n",
                 num_tables);
-   splinter_handle **spl_tables;
-   platform_status   rc;
+   trunk_handle  **spl_tables;
+   platform_status rc;
 
-   rc = test_splinter_create_tables(
+   rc = test_trunk_create_tables(
       &spl_tables, cfg, al, cc, ts, hid, num_tables, num_caches);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to initialize splinter table(s): %s\n",
@@ -1978,9 +1978,9 @@ test_splinter_delete(splinter_config *cfg,
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
       ret = task_thread_create("insert thread",
-                               test_splinter_insert_thread,
+                               test_trunk_insert_thread,
                                &params[i],
-                               splinter_get_scratch_size(),
+                               trunk_get_scratch_size(),
                                ts,
                                hid,
                                &params[i].thread);
@@ -1999,8 +1999,8 @@ test_splinter_delete(splinter_config *cfg,
                 SEC_TO_NSEC(total_inserts) / total_time);
    platform_log("After inserts:\n");
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *spl = spl_tables[spl_idx];
-      splinter_print_insertion_stats(spl);
+      trunk_handle *spl = spl_tables[spl_idx];
+      trunk_print_insertion_stats(spl);
       cache_print_stats(spl->cc);
    }
 
@@ -2022,9 +2022,9 @@ test_splinter_delete(splinter_config *cfg,
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
       ret = task_thread_create("delete thread",
-                               test_splinter_insert_thread,
+                               test_trunk_insert_thread,
                                &params[i],
-                               splinter_get_scratch_size(),
+                               trunk_get_scratch_size(),
                                ts,
                                hid,
                                &params[i].thread);
@@ -2042,16 +2042,16 @@ test_splinter_delete(splinter_config *cfg,
                 SEC_TO_NSEC(total_inserts) / total_time);
    platform_log("After deletes:\n");
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *spl = spl_tables[spl_idx];
-      splinter_print_insertion_stats(spl);
+      trunk_handle *spl = spl_tables[spl_idx];
+      trunk_print_insertion_stats(spl);
       cache_print_stats(spl->cc);
    }
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *spl = spl_tables[spl_idx];
-      splinter_force_flush(spl);
+      trunk_handle *spl = spl_tables[spl_idx];
+      trunk_force_flush(spl);
       platform_log("After flushing table %d:\n", spl_idx);
-      splinter_print_insertion_stats(spl);
+      trunk_print_insertion_stats(spl);
       cache_print_stats(spl->cc);
    }
 
@@ -2079,9 +2079,9 @@ test_splinter_delete(splinter_config *cfg,
                          &params[i].async_lookup[j]);
       }
       rc = task_thread_create("lookup thread",
-                              test_splinter_lookup_thread,
+                              test_trunk_lookup_thread,
                               &params[i],
-                              splinter_get_scratch_size(),
+                              trunk_get_scratch_size(),
                               ts,
                               hid,
                               &params[i].thread);
@@ -2122,13 +2122,13 @@ test_splinter_delete(splinter_config *cfg,
    platform_log("%lu%% lookups were async\n",
                 num_async_lookups * 100 / total_inserts);
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      splinter_handle *spl = spl_tables[spl_idx];
-      splinter_print_lookup_stats(spl);
+      trunk_handle *spl = spl_tables[spl_idx];
+      trunk_print_lookup_stats(spl);
       cache_print_stats(spl->cc);
    }
 
 destroy_splinter:
-   test_splinter_destroy_tables(spl_tables, hid, num_tables);
+   test_trunk_destroy_tables(spl_tables, hid, num_tables);
    platform_log("After destroy:\n");
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(cc[idx]);
@@ -2140,29 +2140,28 @@ destroy_splinter:
 }
 
 void
-test_splinter_shadow_insert(splinter_handle *spl,
-                            char *           shadow,
-                            char *           key,
-                            char *           data,
-                            uint64           idx)
+test_splinter_shadow_insert(trunk_handle *spl,
+                            char         *shadow,
+                            char         *key,
+                            char         *data,
+                            uint64        idx)
 {
-   uint64 byte_pos =
-      idx * (splinter_key_size(spl) + splinter_message_size(spl));
-   memmove(&shadow[byte_pos], key, splinter_key_size(spl));
-   byte_pos += splinter_key_size(spl);
-   memmove(&shadow[byte_pos], data, splinter_message_size(spl));
+   uint64 byte_pos = idx * (trunk_key_size(spl) + trunk_message_size(spl));
+   memmove(&shadow[byte_pos], key, trunk_key_size(spl));
+   byte_pos += trunk_key_size(spl);
+   memmove(&shadow[byte_pos], data, trunk_message_size(spl));
 }
 
 int
-test_splinter_key_compare(const void *left, const void *right, void *spl)
+test_trunk_key_compare(const void *left, const void *right, void *spl)
 {
-   return splinter_key_compare(
-      (splinter_handle *)spl, (const char *)left, (const char *)right);
+   return trunk_key_compare(
+      (trunk_handle *)spl, (const char *)left, (const char *)right);
 }
 
 void *
 test_splinter_bsearch(register const void *key,
-                      void *               base0,
+                      void                *base0,
                       size_t               nmemb,
                       register size_t      size,
                       register int (*compar)(const void *,
@@ -2190,25 +2189,25 @@ test_splinter_bsearch(register const void *key,
 }
 
 static platform_status
-test_splinter_basic(allocator *      al,
-                    cache *          cc,
-                    splinter_config *cfg,
+test_splinter_basic(allocator       *al,
+                    cache           *cc,
+                    trunk_config    *cfg,
                     uint64           num_inserts,
                     uint32           max_async_inflight,
-                    task_system *    ts,
+                    task_system     *ts,
                     platform_heap_id hid)
 {
    platform_log("splinter_test: splinter basic test started\n");
-   splinter_handle *spl =
-      splinter_create(cfg, al, cc, ts, test_generate_allocator_root_id(), hid);
+   trunk_handle *spl =
+      trunk_create(cfg, al, cc, ts, test_generate_allocator_root_id(), hid);
    platform_status rc;
 
    uint64       start_time = platform_get_timestamp();
    uint64       insert_num;
    char         key[MAX_KEY_SIZE];
-   const size_t key_size  = splinter_key_size(spl);
-   const size_t data_size = splinter_message_size(spl);
-   char *       data      = TYPED_ARRAY_MALLOC(hid, data, data_size);
+   const size_t key_size  = trunk_key_size(spl);
+   const size_t data_size = trunk_message_size(spl);
+   char        *data      = TYPED_ARRAY_MALLOC(hid, data, data_size);
    platform_assert(data != NULL);
    test_async_lookup *async_lookup;
    if (max_async_inflight > 0) {
@@ -2219,8 +2218,8 @@ test_splinter_basic(allocator *      al,
    // 1 extra for temp argument to sort
    uint64 tuple_size  = key_size + data_size;
    uint64 shadow_size = num_inserts * tuple_size;
-   char * shadow      = TYPED_ARRAY_ZALLOC(hid, shadow, shadow_size);
-   char * temp        = TYPED_ARRAY_ZALLOC(hid, temp, tuple_size);
+   char  *shadow      = TYPED_ARRAY_ZALLOC(hid, shadow, shadow_size);
+   char  *temp        = TYPED_ARRAY_ZALLOC(hid, temp, tuple_size);
 
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
       if (insert_num % (num_inserts / 100) == 0) {
@@ -2229,7 +2228,7 @@ test_splinter_basic(allocator *      al,
                                       insert_num / (num_inserts / 100));
       }
       if (insert_num != 0 && insert_num % TEST_VERIFY_GRANULARITY == 0) {
-         platform_assert(splinter_verify_tree(spl));
+         platform_assert(trunk_verify_tree(spl));
       }
       test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       test_insert_data((data_handle *)data,
@@ -2238,7 +2237,7 @@ test_splinter_basic(allocator *      al,
                        sizeof(uint64),
                        data_size,
                        MESSAGE_TYPE_INSERT);
-      rc = splinter_insert(spl, key, splinter_message_slice(spl, data));
+      rc = trunk_insert(spl, key, trunk_message_slice(spl, data));
       if (!SUCCESS(rc)) {
          platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
          goto destroy_splinter;
@@ -2249,7 +2248,7 @@ test_splinter_basic(allocator *      al,
    platform_log("\nsplinter insert time per tuple %lu ns\n",
                 platform_timestamp_elapsed(start_time) / num_inserts);
 
-   platform_assert(splinter_verify_tree(spl));
+   platform_assert(trunk_verify_tree(spl));
    cache_assert_free(cc);
 
    char *expected_data = TYPED_ARRAY_MALLOC(hid, expected_data, data_size);
@@ -2270,7 +2269,7 @@ test_splinter_basic(allocator *      al,
       if (max_async_inflight == 0) {
          test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
          writable_buffer_reinit(&qdata);
-         rc = splinter_lookup(spl, key, &qdata);
+         rc = trunk_lookup(spl, key, &qdata);
          if (!SUCCESS(rc)) {
             platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
             goto destroy_splinter;
@@ -2312,7 +2311,7 @@ test_splinter_basic(allocator *      al,
       if (max_async_inflight == 0) {
          test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
          ZERO_CONTENTS_N(data, data_size);
-         rc = splinter_lookup(spl, key, &qdata);
+         rc = trunk_lookup(spl, key, &qdata);
          if (!SUCCESS(rc)) {
             platform_error_log("FAILURE: %s\n", platform_status_to_string(rc));
             goto destroy_splinter;
@@ -2337,7 +2336,7 @@ test_splinter_basic(allocator *      al,
    platform_log("\n");
 
    platform_sort_slow(
-      shadow, num_inserts, tuple_size, test_splinter_key_compare, spl, temp);
+      shadow, num_inserts, tuple_size, test_trunk_key_compare, spl, temp);
 
    uint64 num_ranges = num_inserts / 128;
    start_time        = platform_get_timestamp();
@@ -2355,14 +2354,14 @@ test_splinter_basic(allocator *      al,
          start_key, TEST_RANDOM, num_inserts + range_num, 0, 0, key_size, 0);
       uint64 range_tuples    = test_range(range_num, 1, 100);
       uint64 returned_tuples = 0;
-      rc                     = splinter_range(
+      rc                     = trunk_range(
          spl, start_key, range_tuples, &returned_tuples, range_output);
       platform_assert_status_ok(rc);
-      char * shadow_start             = test_splinter_bsearch(start_key,
+      char  *shadow_start             = test_splinter_bsearch(start_key,
                                                  shadow,
                                                  num_inserts,
                                                  tuple_size,
-                                                 test_splinter_key_compare,
+                                                 test_trunk_key_compare,
                                                  spl);
       uint64 start_idx                = (shadow_start - shadow) / tuple_size;
       uint64 expected_returned_tuples = num_inserts - start_idx > range_tuples
@@ -2374,7 +2373,7 @@ test_splinter_basic(allocator *      al,
       {
          platform_log("range lookup: incorrect return\n");
          char start[128];
-         splinter_key_to_string(spl, start_key, start);
+         trunk_key_to_string(spl, start_key, start);
          platform_log("start_key: %s\n", start);
          platform_log("tuples returned: expected %lu actual %lu\n",
                       expected_returned_tuples,
@@ -2383,18 +2382,18 @@ test_splinter_basic(allocator *      al,
             char   expected[128];
             char   actual[128];
             uint64 offset = i * tuple_size;
-            splinter_key_to_string(spl, shadow_start + offset, expected);
-            splinter_key_to_string(spl, range_output + offset, actual);
+            trunk_key_to_string(spl, shadow_start + offset, expected);
+            trunk_key_to_string(spl, range_output + offset, actual);
             char expected_data[128];
             char actual_data[128];
             offset += key_size;
-            splinter_message_to_string(
+            trunk_message_to_string(
                spl,
-               splinter_message_slice(spl, shadow_start + offset),
+               trunk_message_slice(spl, shadow_start + offset),
                expected_data);
-            splinter_message_to_string(
+            trunk_message_to_string(
                spl,
-               splinter_message_slice(spl, range_output + offset),
+               trunk_message_slice(spl, range_output + offset),
                actual_data);
             if (i < returned_tuples) {
                platform_log("expected %s | %s\n", expected, expected_data);
@@ -2419,7 +2418,7 @@ destroy_splinter:
    }
    platform_free(hid, temp);
    platform_free(hid, shadow);
-   splinter_destroy(spl);
+   trunk_destroy(spl);
    if (SUCCESS(rc)) {
       platform_log("splinter_test: splinter basic test succeeded\n");
    } else {
@@ -2471,13 +2470,13 @@ usage(const char *argv0)
 
 static int
 splinter_test_parse_perf_args(char ***argv,
-                              int *   argc,
+                              int    *argc,
                               uint32 *max_async_inflight,
                               uint32 *num_insert_threads,
                               uint32 *num_lookup_threads,
                               uint32 *num_range_lookup_threads,
                               uint32 *num_pthreads,
-                              uint8 * lookup_positive_pct)
+                              uint8  *lookup_positive_pct)
 {
    if (*argc > 1
        && strncmp(
@@ -2559,7 +2558,7 @@ splinter_test(int argc, char *argv[])
    rc_allocator_config al_cfg;
    shard_log_config    log_cfg;
    int                 config_argc;
-   char **             config_argv;
+   char              **config_argv;
    test_type           test;
    platform_status     rc;
    uint64              seed = 0;
@@ -2764,11 +2763,11 @@ splinter_test(int argc, char *argv[])
    }
 
    /*
-    * 3. Parse splinter_config options, see config_usage()
+    * 3. Parse trunk_config options, see config_usage()
     */
-   splinter_config *splinter_cfg =
+   trunk_config *splinter_cfg =
       TYPED_ARRAY_MALLOC(hid, splinter_cfg, num_tables);
-   data_config *      data_cfg = TYPED_ARRAY_MALLOC(hid, data_cfg, num_tables);
+   data_config       *data_cfg = TYPED_ARRAY_MALLOC(hid, data_cfg, num_tables);
    clockcache_config *cache_cfg =
       TYPED_ARRAY_MALLOC(hid, cache_cfg, num_tables);
    rc = test_parse_args_n(splinter_cfg,

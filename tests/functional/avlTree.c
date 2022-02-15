@@ -54,8 +54,8 @@ AvlTreeGetHeight(AvlTreeLinks *n)
  */
 
 void
-AvlTree_Init(AvlTree *             tree,    // IN/OUT
-             AvlTreeLinks *        root,    // IN
+AvlTree_Init(AvlTree              *tree,    // IN/OUT
+             AvlTreeLinks         *root,    // IN
              AvlTreeNodeComparator nodeCmp, // IN
              AvlTreeKeyComparator  keyCmp)   // IN
 {
@@ -128,9 +128,9 @@ AvlTree_IsUnlinked(AvlTreeLinks *node)
 
 static void
 AvlTreeUpdateHeight(const AvlTree *tree, // IN
-                    AvlTreeLinks * n,    // IN/OUT
-                    AvlTreeLinks * l,    // IN
-                    AvlTreeLinks * r)     // IN
+                    AvlTreeLinks  *n,    // IN/OUT
+                    AvlTreeLinks  *l,    // IN
+                    AvlTreeLinks  *r)     // IN
 {
    uint32 lHeight = 0;
    uint32 rHeight = 0;
@@ -170,8 +170,8 @@ AvlTreeUpdateHeight(const AvlTree *tree, // IN
 
 static AvlTreeLinks *
 AvlTreeRotateLeft(const AvlTree *tree, // IN
-                  AvlTreeLinks * n1,   // IN/OUT
-                  AvlTreeLinks * n2)    // IN/OUT
+                  AvlTreeLinks  *n1,   // IN/OUT
+                  AvlTreeLinks  *n2)    // IN/OUT
 {
    n1->left  = n2->right;
    n2->right = n1;
@@ -206,8 +206,8 @@ AvlTreeRotateLeft(const AvlTree *tree, // IN
 
 static AvlTreeLinks *
 AvlTreeRotateRight(const AvlTree *tree, // IN
-                   AvlTreeLinks * n2,   // IN/OUT
-                   AvlTreeLinks * n1)    // IN/OUT
+                   AvlTreeLinks  *n2,   // IN/OUT
+                   AvlTreeLinks  *n1)    // IN/OUT
 {
    n2->right = n1->left;
    n1->left  = n2;
@@ -236,9 +236,9 @@ AvlTreeRotateRight(const AvlTree *tree, // IN
 
 static AvlTreeLinks *
 AvlTreeRebalanceNode(const AvlTree *tree, // IN/OUT
-                     AvlTreeLinks * n,    // IN/OUT
-                     AvlTreeLinks * l,    // IN/OUT
-                     AvlTreeLinks * r)     // IN/OUT
+                     AvlTreeLinks  *n,    // IN/OUT
+                     AvlTreeLinks  *l,    // IN/OUT
+                     AvlTreeLinks  *r)     // IN/OUT
 {
    uint32 lHeight = AvlTreeGetHeight(l);
    uint32 rHeight = AvlTreeGetHeight(r);
@@ -291,8 +291,8 @@ AvlTreeRebalanceNode(const AvlTree *tree, // IN/OUT
 
 static AvlTreeLinks *
 AvlTreeInsertInt(const AvlTree *tree,    // IN
-                 AvlTreeLinks * newNode, // IN/OUT
-                 AvlTreeLinks * n)        // IN/OUT
+                 AvlTreeLinks  *newNode, // IN/OUT
+                 AvlTreeLinks  *n)        // IN/OUT
 {
    AvlTreeLinks *l, *r;
    int           cmp;
@@ -343,7 +343,7 @@ AvlTreeInsertInt(const AvlTree *tree,    // IN
  */
 
 void
-AvlTree_Insert(AvlTree *     tree, // IN/OUT
+AvlTree_Insert(AvlTree      *tree, // IN/OUT
                AvlTreeLinks *node) // IN/OUT
 {
    AvlTreeLinks *root = tree->root;
@@ -372,8 +372,8 @@ AvlTree_Insert(AvlTree *     tree, // IN/OUT
 
 static AvlTreeLinks *
 AvlTreeDeleteInt(const AvlTree *tree,      // IN
-                 AvlTreeLinks * nodeToDel, // IN/OUT
-                 AvlTreeLinks * n)          // IN/OUT
+                 AvlTreeLinks  *nodeToDel, // IN/OUT
+                 AvlTreeLinks  *n)          // IN/OUT
 {
    AvlTreeLinks *l, *r;
    int           cmp;
@@ -441,7 +441,7 @@ AvlTreeDeleteInt(const AvlTree *tree,      // IN
  */
 
 void
-AvlTree_Delete(AvlTree *     tree, // IN/OUT
+AvlTree_Delete(AvlTree      *tree, // IN/OUT
                AvlTreeLinks *node) // IN/OUT
 {
    AvlTreeLinks *root = tree->root;
@@ -647,7 +647,7 @@ AvlTree_Max(const AvlTree *tree) // IN
  */
 
 AvlTreeLinks *
-AvlTree_Successor(const AvlTree *     tree, // IN
+AvlTree_Successor(const AvlTree      *tree, // IN
                   const AvlTreeLinks *node) // IN
 {
    AvlTreeLinks *res     = NULL;
@@ -682,7 +682,7 @@ AvlTree_Successor(const AvlTree *     tree, // IN
  */
 
 AvlTreeLinks *
-AvlTree_Predecessor(const AvlTree *     tree, // IN
+AvlTree_Predecessor(const AvlTree      *tree, // IN
                     const AvlTreeLinks *node) // IN
 {
    AvlTreeLinks *res     = NULL;
@@ -812,7 +812,7 @@ AvlTreeStackIsEmpty(AvlTreeIter *iter)
  */
 
 static void
-AvlTreeIterFindSmallest(AvlTreeIter * iter, // IN iterator
+AvlTreeIterFindSmallest(AvlTreeIter  *iter, // IN iterator
                         AvlTreeLinks *cur)  // IN node to start search
 {
    while (cur != NULL) {
@@ -846,7 +846,7 @@ AvlTreeIterFindSmallest(AvlTreeIter * iter, // IN iterator
 void
 AvlTreeIter_Init(AvlTreeIter *iter, // IN iterator
                  unsigned     max,  // IN maximum height of the tree
-                 AvlTree *    tree)     // IN tree
+                 AvlTree     *tree)     // IN tree
 {
    iter->tree = tree;
    AvlTreeStackInit(iter, max);

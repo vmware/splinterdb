@@ -13,7 +13,7 @@
 
 #include "platform.h"
 
-#define SRQ_MAX_ENTRIES 8192
+#define SRQ_MAX_ENTRIES     8192
 #define SRQ_INDEX_AVAILABLE -1
 
 typedef struct srq_data {
@@ -32,8 +32,7 @@ typedef struct srq {
 } srq;
 
 static inline void
-srq_init(srq                *queue,
-         platform_heap_id    UNUSED_PARAM(heap_id))
+srq_init(srq *queue, platform_heap_id UNUSED_PARAM(heap_id))
 {
    ZERO_CONTENTS(queue);
    platform_mutex_init(&queue->mutex, heap_id);
@@ -73,9 +72,7 @@ srq_rchild(int64 pos)
  * Returns TRUE if priority(left) > priority(right)
  */
 static inline bool
-srq_has_priority(srq   *queue,
-                 int64  lpos,
-                 int64  rpos)
+srq_has_priority(srq *queue, int64 lpos, int64 rpos)
 {
    debug_assert(lpos >= 0);
    debug_assert(rpos >= 0);
@@ -86,22 +83,19 @@ srq_has_priority(srq   *queue,
  * Sets the index of the priority queue to the correct position in the heap
  */
 static inline void
-srq_update_index(srq   *queue,
-                 int64  pos)
+srq_update_index(srq *queue, int64 pos)
 {
    debug_assert(pos >= 0);
-   srq_data *data = &queue->heap[pos];
+   srq_data *data          = &queue->heap[pos];
    queue->index[data->idx] = pos;
 }
 
 static inline void
-srq_swap(srq   *queue,
-         int64  lpos,
-         int64  rpos)
+srq_swap(srq *queue, int64 lpos, int64 rpos)
 {
    debug_assert(lpos >= 0);
    debug_assert(rpos >= 0);
-   srq_data temp = queue->heap[lpos];
+   srq_data temp     = queue->heap[lpos];
    queue->heap[lpos] = queue->heap[rpos];
    queue->heap[rpos] = temp;
    srq_update_index(queue, lpos);
@@ -109,8 +103,7 @@ srq_swap(srq   *queue,
 }
 
 static inline void
-srq_move_tail_to_pos(srq   *queue,
-                     int64  pos)
+srq_move_tail_to_pos(srq *queue, int64 pos)
 {
    debug_assert(pos >= 0);
    debug_assert(pos < queue->num_entries);
@@ -123,36 +116,31 @@ srq_move_tail_to_pos(srq   *queue,
 }
 
 static inline void
-srq_rebalance_up(srq   *queue,
-                 int64  pos)
+srq_rebalance_up(srq *queue, int64 pos)
 {
    debug_assert(pos >= 0);
-   debug_assert(0 || (1 && queue->num_entries == 0
-                        && pos == 0)
-                  || pos < queue->num_entries);
-   while (1 && pos != 0
-            && srq_has_priority(queue, pos, srq_parent(pos)))
-   {
+   debug_assert(0 || (1 && queue->num_entries == 0 && pos == 0)
+                || pos < queue->num_entries);
+   while (1 && pos != 0 && srq_has_priority(queue, pos, srq_parent(pos))) {
       srq_swap(queue, srq_parent(pos), pos);
       pos = srq_parent(pos);
    }
 }
 
 static inline void
-srq_rebalance_down(srq    *queue,
-                   uint64  pos)
+srq_rebalance_down(srq *queue, uint64 pos)
 {
    debug_assert(pos >= 0);
-   debug_assert(0 || (1 && queue->num_entries == 0
-                        && pos == 0)
-                  || pos < queue->num_entries);
-   while (0 || (1 && srq_lchild(pos) < queue->num_entries
-                  && srq_has_priority(queue, srq_lchild(pos), pos))
-            || (1 && srq_rchild(pos) < queue->num_entries
-                  && srq_has_priority(queue, srq_rchild(pos), pos)))
+   debug_assert(0 || (1 && queue->num_entries == 0 && pos == 0)
+                || pos < queue->num_entries);
+   while (0
+          || (1 && srq_lchild(pos) < queue->num_entries
+              && srq_has_priority(queue, srq_lchild(pos), pos))
+          || (1 && srq_rchild(pos) < queue->num_entries
+              && srq_has_priority(queue, srq_rchild(pos), pos)))
    {
       if (0 || srq_rchild(pos) >= queue->num_entries
-            || srq_has_priority(queue, srq_lchild(pos), srq_rchild(pos)))
+          || srq_has_priority(queue, srq_lchild(pos), srq_rchild(pos)))
       {
          srq_swap(queue, pos, srq_lchild(pos));
          pos = srq_lchild(pos);
@@ -179,16 +167,15 @@ static inline void
 srq_print(srq *queue);
 
 static inline uint64
-srq_insert(srq      *queue,
-           srq_data  new_data)
+srq_insert(srq *queue, srq_data new_data)
 {
    srq_print(queue);
    platform_mutex_lock(&queue->mutex);
    platform_assert(queue->num_entries != SRQ_MAX_ENTRIES);
-   uint64 new_idx = srq_get_new_index(queue);
-   uint64 new_pos = queue->num_entries++;
-   new_data.idx = new_idx;
-   queue->heap[new_pos] = new_data;
+   uint64 new_idx        = srq_get_new_index(queue);
+   uint64 new_pos        = queue->num_entries++;
+   new_data.idx          = new_idx;
+   queue->heap[new_pos]  = new_data;
    queue->index[new_idx] = new_pos;
    srq_rebalance_up(queue, new_pos);
    platform_mutex_unlock(&queue->mutex);
@@ -211,11 +198,11 @@ srq_extract_max(srq *queue)
    srq_print(queue);
    platform_mutex_lock(&queue->mutex);
    if (queue->num_entries == 0) {
-      srq_data not_found_data = { .idx = SRQ_INDEX_AVAILABLE };
+      srq_data not_found_data = {.idx = SRQ_INDEX_AVAILABLE};
       platform_mutex_unlock(&queue->mutex);
       return not_found_data;
    }
-   srq_data max = queue->heap[0];
+   srq_data max          = queue->heap[0];
    queue->index[max.idx] = SRQ_INDEX_AVAILABLE;
    srq_move_tail_to_pos(queue, 0);
    srq_rebalance_down(queue, 0);
@@ -225,8 +212,7 @@ srq_extract_max(srq *queue)
 }
 
 static inline srq_data
-srq_delete(srq   *queue,
-           int64  idx)
+srq_delete(srq *queue, int64 idx)
 {
    srq_print(queue);
    platform_mutex_lock(&queue->mutex);
@@ -245,9 +231,7 @@ srq_delete(srq   *queue,
 }
 
 static inline void
-srq_update(srq    *queue,
-           int64   idx,
-           uint32  new_priority)
+srq_update(srq *queue, int64 idx, uint32 new_priority)
 {
    platform_mutex_lock(&queue->mutex);
    int64 pos = queue->index[idx];
@@ -277,14 +261,20 @@ srq_print(srq *queue)
    for (uint64 i = 0; i < queue->num_entries; i++) {
       srq_data data = queue->heap[i];
       platform_log("%4lu: %12lu-%lu %8lu",
-            i, data.addr, data.pivot_generation, data.priority);
+                   i,
+                   data.addr,
+                   data.pivot_generation,
+                   data.priority);
       if (queue->num_entries != 1) {
          platform_log(" (");
       }
       if (i != 0) {
          data = queue->heap[srq_parent(i)];
          platform_log("parent %4lu: %12lu-%lu %8lu",
-            srq_parent(i), data.addr, data.pivot_generation, data.priority);
+                      srq_parent(i),
+                      data.addr,
+                      data.pivot_generation,
+                      data.priority);
          if (srq_lchild(i) < queue->num_entries) {
             platform_log(" ");
          }
@@ -292,12 +282,18 @@ srq_print(srq *queue)
       if (srq_lchild(i) < queue->num_entries) {
          data = queue->heap[srq_lchild(i)];
          platform_log("lchild %4lu: %12lu-%lu %8lu",
-            srq_lchild(i), data.addr, data.pivot_generation, data.priority);
+                      srq_lchild(i),
+                      data.addr,
+                      data.pivot_generation,
+                      data.priority);
       }
       if (srq_rchild(i) < queue->num_entries) {
          data = queue->heap[srq_rchild(i)];
          platform_log(" rchild %4lu: %12lu-%lu %8lu",
-            srq_rchild(i), data.addr, data.pivot_generation, data.priority);
+                      srq_rchild(i),
+                      data.addr,
+                      data.pivot_generation,
+                      data.priority);
       }
       if (queue->num_entries != 1) {
          platform_log(")");
@@ -331,14 +327,14 @@ srq_verify(srq *queue)
    }
    for (uint64 pos = 0; pos < queue->num_entries; pos++) {
       if (1 && srq_lchild(pos) < queue->num_entries
-            && srq_has_priority(queue, srq_lchild(pos), pos))
+          && srq_has_priority(queue, srq_lchild(pos), pos))
       {
          platform_error_log("SRQ: unbalanced\n");
          ret = FALSE;
          goto out;
       }
       if (1 && srq_rchild(pos) < queue->num_entries
-            && srq_has_priority(queue, srq_rchild(pos), pos))
+          && srq_has_priority(queue, srq_rchild(pos), pos))
       {
          platform_error_log("SRQ: unbalanced\n");
          ret = FALSE;

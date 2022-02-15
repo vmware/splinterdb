@@ -9,9 +9,9 @@
 typedef struct iterator iterator;
 
 typedef void (*iterator_get_curr_fn)(iterator *itor, slice *key, slice *data);
-typedef platform_status (*iterator_at_end_fn)  (iterator *itor, bool *at_end);
-typedef platform_status (*iterator_advance_fn) (iterator *itor);
-typedef void  (*iterator_print_fn)   (iterator *itor);
+typedef platform_status (*iterator_at_end_fn)(iterator *itor, bool *at_end);
+typedef platform_status (*iterator_advance_fn)(iterator *itor);
+typedef void (*iterator_print_fn)(iterator *itor);
 
 typedef struct iterator_ops {
    /* Callers should not modify data pointed to by *key or *data */

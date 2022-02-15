@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ *-----------------------------------------------------------------------------
  * memtable.c --
  *
  *     This file contains the implementation for the splinter memtable.
+ *-----------------------------------------------------------------------------
  */
 
 #include "platform.h"
@@ -18,11 +20,10 @@ bool
 memtable_is_full(memtable_context *ctxt)
 {
    const threadid tid = platform_get_tid();
-   uint64 thread_num_tuples_overcount =
-      (
-       MEMTABLE_COUNT_GRANULARITY -
-      (ctxt->thread_num_tuples[tid].v % MEMTABLE_COUNT_GRANULARITY)
-      ) % MEMTABLE_COUNT_GRANULARITY;
+   uint64         thread_num_tuples_overcount =
+      (MEMTABLE_COUNT_GRANULARITY
+       - (ctxt->thread_num_tuples[tid].v % MEMTABLE_COUNT_GRANULARITY))
+      % MEMTABLE_COUNT_GRANULARITY;
    uint64 upper_bound_num_tuples =
       ctxt->num_tuples - thread_num_tuples_overcount + MAX_THREADS;
    return upper_bound_num_tuples >= ctxt->cfg.max_tuples_per_memtable;
@@ -42,31 +43,30 @@ memtable_clear_num_tuples(memtable_context *ctxt)
 }
 
 static inline void
-memtable_process(memtable_context *ctxt,
-                 uint64            generation)
+memtable_process(memtable_context *ctxt, uint64 generation)
 {
    ctxt->process(ctxt->process_ctxt, generation);
 }
 
 
 platform_status
-memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
-                                          uint64            *generation,
-                                          page_handle      **lock_page)
+memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
+                                          uint64           *generation,
+                                          page_handle     **lock_page)
 {
-   cache *cc = ctxt->cc;
+   cache *cc        = ctxt->cc;
    uint64 lock_addr = ctxt->insert_lock_addr;
-   uint64 wait = 100;
+   uint64 wait      = 100;
    while (TRUE) {
-      *lock_page = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
-      *generation = ctxt->generation;
-      uint64 mt_no = *generation % ctxt->cfg.max_memtables;
-      memtable *mt = &ctxt->mt[mt_no];
+      *lock_page      = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
+      *generation     = ctxt->generation;
+      uint64    mt_no = *generation % ctxt->cfg.max_memtables;
+      memtable *mt    = &ctxt->mt[mt_no];
       if (mt->state != MEMTABLE_STATE_READY) {
-          // The next memtable is not ready yet, back off and wait.
+         // The next memtable is not ready yet, back off and wait.
          cache_unget(cc, *lock_page);
          platform_sleep(wait);
-         wait = wait > 2048 ? wait: 2 * wait;
+         wait = wait > 2048 ? wait : 2 * wait;
          continue;
       }
 
@@ -75,8 +75,8 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
          if (cache_claim(cc, *lock_page)) {
             // We successfully got the claim, so we do the finalization
             cache_lock(cc, *lock_page);
-            memtable_transition(mt,
-                                MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
+            memtable_transition(
+               mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
 
             uint64 process_generation = ctxt->generation++;
             memtable_clear_num_tuples(ctxt);
@@ -97,6 +97,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
 }
 
 /*
+ *-----------------------------------------------------------------------------
  * Increments the distributed tuple counter.  Must hold a read lock on
  * insert_lock.
  *
@@ -111,6 +112,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context  *ctxt,
  * adds a tuple which takes its local count to
  * k * MEMTABLE_COUNT_GRANULARITY + 1. Therefore, num_tuples is an upper
  * bound except that each thread may still add 1 more tuple.
+ *-----------------------------------------------------------------------------
  */
 static inline void
 memtable_add_tuple(memtable_context *ctxt)
@@ -124,11 +126,11 @@ memtable_add_tuple(memtable_context *ctxt)
 
 platform_status
 memtable_insert(memtable_context *ctxt,
-                memtable *        mt,
+                memtable         *mt,
                 platform_heap_id  heap_id,
-                const char *      key,
+                const char       *key,
                 slice             message,
-                uint64 *          leaf_generation)
+                uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
    bool           was_unique;
@@ -156,8 +158,7 @@ memtable_insert(memtable_context *ctxt,
 }
 
 void
-memtable_unget_insert_lock(memtable_context *ctxt,
-                           page_handle      *lock_page)
+memtable_unget_insert_lock(memtable_context *ctxt, page_handle *lock_page)
 {
    cache_unget(ctxt->cc, lock_page);
 }
@@ -165,13 +166,12 @@ memtable_unget_insert_lock(memtable_context *ctxt,
 page_handle *
 memtable_get_lookup_lock(memtable_context *ctxt)
 {
-   return cache_get(ctxt->cc, ctxt->lookup_lock_addr, TRUE,
-                    PAGE_TYPE_LOCK_NO_DATA);
+   return cache_get(
+      ctxt->cc, ctxt->lookup_lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
 }
 
 void
-memtable_unget_lookup_lock(memtable_context *ctxt,
-                           page_handle      *lock_page)
+memtable_unget_lookup_lock(memtable_context *ctxt, page_handle *lock_page)
 {
    cache_unget(ctxt->cc, lock_page);
 }
@@ -180,8 +180,8 @@ page_handle *
 memtable_uncontended_get_claim_lock_lookup_lock(memtable_context *ctxt)
 {
    page_handle *lock_page = memtable_get_lookup_lock(ctxt);
-   cache *cc = ctxt->cc;
-   bool claimed = cache_claim(cc, lock_page);
+   cache       *cc        = ctxt->cc;
+   bool         claimed   = cache_claim(cc, lock_page);
    platform_assert(claimed);
    cache_lock(cc, lock_page);
    return lock_page;
@@ -202,8 +202,7 @@ memtable_unlock_unclaim_unget_lookup_lock(memtable_context *ctxt,
  * transition to READY
  */
 bool
-memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
-                               memtable         *mt)
+memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt)
 {
    cache *cc = ctxt->cc;
 
@@ -214,8 +213,8 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
       memtable_lock_incorporation_lock(ctxt);
       mt->generation += ctxt->cfg.max_memtables;
       memtable_unlock_incorporation_lock(ctxt);
-      memtable_transition(mt, MEMTABLE_STATE_INCORPORATED,
-                              MEMTABLE_STATE_READY);
+      memtable_transition(
+         mt, MEMTABLE_STATE_INCORPORATED, MEMTABLE_STATE_READY);
    }
    return freed;
 }
@@ -223,8 +222,8 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt,
 uint64
 memtable_force_finalize(memtable_context *ctxt)
 {
-   uint64 lock_addr = ctxt->insert_lock_addr;
-   cache *cc = ctxt->cc;
+   uint64       lock_addr = ctxt->insert_lock_addr;
+   cache       *cc        = ctxt->cc;
    page_handle *lock_page =
       cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
    uint64 wait = 100;
@@ -236,9 +235,9 @@ memtable_force_finalize(memtable_context *ctxt)
    }
    cache_lock(cc, lock_page);
 
-   uint64 generation = ctxt->generation;
-   uint64 mt_no = generation % ctxt->cfg.max_memtables;
-   memtable *mt = &ctxt->mt[mt_no];
+   uint64    generation = ctxt->generation;
+   uint64    mt_no      = generation % ctxt->cfg.max_memtables;
+   memtable *mt         = &ctxt->mt[mt_no];
    memtable_transition(mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
    uint64 process_generation = ctxt->generation++;
    memtable_clear_num_tuples(ctxt);
@@ -251,22 +250,18 @@ memtable_force_finalize(memtable_context *ctxt)
 }
 
 void
-memtable_init(memtable         *mt,
-              cache            *cc,
-              memtable_config  *cfg,
-              uint64            generation)
+memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 {
    ZERO_CONTENTS(mt);
-   mt->cfg = cfg->btree_cfg;
+   mt->cfg       = cfg->btree_cfg;
    mt->root_addr = btree_create(cc, mt->cfg, &mt->mini, PAGE_TYPE_MEMTABLE);
-   mt->state = MEMTABLE_STATE_READY;
+   mt->state     = MEMTABLE_STATE_READY;
    platform_assert(generation < UINT64_MAX);
    mt->generation = generation;
 }
 
 void
-memtable_deinit(cache            *cc,
-                memtable         *mt)
+memtable_deinit(cache *cc, memtable *mt)
 {
    mini_release(&mt->mini, NULL_SLICE);
    debug_only bool freed =
@@ -275,11 +270,11 @@ memtable_deinit(cache            *cc,
 }
 
 memtable_context *
-memtable_context_create(platform_heap_id  hid,
-                        cache            *cc,
-                        memtable_config  *cfg,
-                        process_fn        process,
-                        void             *process_ctxt)
+memtable_context_create(platform_heap_id hid,
+                        cache           *cc,
+                        memtable_config *cfg,
+                        process_fn       process,
+                        void            *process_ctxt)
 {
    memtable_context *ctxt =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ctxt, mt, cfg->max_memtables);
@@ -287,7 +282,7 @@ memtable_context_create(platform_heap_id  hid,
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
    uint64          base_addr;
-   allocator *     al = cache_allocator(cc);
+   allocator      *al = cache_allocator(cc);
    platform_status rc = allocator_alloc(al, &base_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert_status_ok(rc);
 
@@ -315,19 +310,18 @@ memtable_context_create(platform_heap_id  hid,
       memtable_init(&ctxt->mt[mt_no], cc, cfg, generation);
    }
 
-   ctxt->generation = 0;
+   ctxt->generation                = 0;
    ctxt->generation_to_incorporate = 0;
-   ctxt->generation_retired = (uint64)-1;
+   ctxt->generation_retired        = (uint64)-1;
 
-   ctxt->process = process;
+   ctxt->process      = process;
    ctxt->process_ctxt = process_ctxt;
 
    return ctxt;
 }
 
 void
-memtable_context_destroy(platform_heap_id  hid,
-                         memtable_context *ctxt)
+memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
 {
    cache *cc = ctxt->cc;
    for (uint64 mt_no = 0; mt_no < ctxt->cfg.max_memtables; mt_no++) {
@@ -353,15 +347,15 @@ memtable_context_destroy(platform_heap_id  hid,
 
 void
 memtable_config_init(memtable_config *cfg,
-                     btree_config *   btree_cfg,
+                     btree_config    *btree_cfg,
                      uint64           max_memtables,
                      uint64           memtable_capacity)
 {
    ZERO_CONTENTS(cfg);
-   cfg->btree_cfg = btree_cfg;
+   cfg->btree_cfg     = btree_cfg;
    cfg->max_memtables = max_memtables;
 
-   data_config *data_cfg = btree_cfg->data_cfg;
-   uint64 packed_tuple_size = data_cfg->key_size + data_cfg->message_size;
-   cfg->max_tuples_per_memtable = memtable_capacity / packed_tuple_size;
+   data_config *data_cfg          = btree_cfg->data_cfg;
+   uint64       packed_tuple_size = data_cfg->key_size + data_cfg->message_size;
+   cfg->max_tuples_per_memtable   = memtable_capacity / packed_tuple_size;
 }
