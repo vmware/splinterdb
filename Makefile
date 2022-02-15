@@ -164,7 +164,7 @@ $(BINDIR)/driver_test : $(COMMON_TESTOBJ) $(FUNCTIONAL_TESTOBJ) $(LIBDIR)/libspl
 $(BINDIR)/unit_test: unit_test
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS)                   \
-                            $(OBJDIR)/tests/test_data.o                 \
+                            $(COMMON_TESTOBJ)                         \
                             $(LIBDIR)/libsplinterdb.so $(LIBS)
 
 
@@ -232,11 +232,11 @@ unit/splinterdb_test: $(OBJDIR)/tests/unit/splinterdb_test.o        \
 # String together all objects needed to link btree test binaries
 BTREE_TEST_OBJS = $(OBJDIR)/tests/unit/btree_test_common.o      \
                   $(OBJDIR)/tests/test_data.o                   \
+                  $(OBJDIR)/tests/config.o                      \
                   $(OBJDIR)/src/util.o                          \
                   $(OBJDIR)/src/data_internal.o                 \
                   $(OBJDIR)/src/mini_allocator.o                \
                   $(OBJDIR)/src/rc_allocator.o                  \
-                  $(OBJDIR)/src/config.o                        \
                   $(OBJDIR)/src/clockcache.o                    \
                   $(OBJDIR)/src/btree.o                         \
                   $(OBJDIR)/src/platform_linux/platform.o       \
