@@ -41,8 +41,8 @@ typedef struct {
    uint64 io_async_queue_depth;
 
    // cache
-   bool   cache_use_stats;
-   const char*   cache_logfile;
+   bool        cache_use_stats;
+   const char *cache_logfile;
 
    // btree
    uint64 btree_rough_count_height;

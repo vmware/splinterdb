@@ -1697,7 +1697,7 @@ clockcache_config_init(clockcache_config *cache_cfg,
                        uint64             page_size,
                        uint64             extent_size,
                        uint64             capacity,
-                       const char              *cache_logfile,
+                       const char        *cache_logfile,
                        uint64             use_stats)
 {
    int rc;
