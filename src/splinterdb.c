@@ -153,18 +153,17 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    kvs->heap_id     = cfg.heap_id;
 
    io_config_init(&kvs->io_cfg,
+                  cfg.page_size,
+                  cfg.extent_size,
                   cfg.io_flags,
                   cfg.io_perms,
                   cfg.io_async_queue_depth,
-                  cfg.extent_size / cfg.page_size,
                   cfg.filename);
 
-   rc_allocator_config_init(
-      &kvs->allocator_cfg, cfg.page_size, cfg.extent_size, cfg.disk_size);
+   rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
 
    clockcache_config_init(&kvs->cache_cfg,
-                          cfg.page_size,
-                          cfg.extent_size,
+                          &kvs->io_cfg,
                           cfg.cache_size,
                           cfg.cache_logfile,
                           cfg.use_stats);

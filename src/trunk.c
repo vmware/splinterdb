@@ -8197,8 +8197,8 @@ trunk_config_init(trunk_config *trunk_cfg,
 
    trunk_cfg->log_cfg = log_cfg;
 
-   trunk_cfg->page_size             = cache_cfg->page_size;
-   trunk_cfg->extent_size           = cache_cfg->extent_size;
+   trunk_cfg->page_size             = cache_config_page_size(cache_cfg);
+   trunk_cfg->extent_size           = cache_config_extent_size(cache_cfg);
    trunk_cfg->fanout                = fanout;
    trunk_cfg->max_branches_per_node = max_branches_per_node;
    trunk_cfg->reclaim_threshold     = reclaim_threshold;
@@ -8230,10 +8230,8 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_cfg->target_leaf_tuples = trunk_cfg->max_tuples_per_node / 2;
 
    // filter config settings
-   index_filter_cfg->page_size   = cache_cfg->page_size;
-   leaf_filter_cfg->page_size    = cache_cfg->page_size;
-   index_filter_cfg->extent_size = cache_cfg->extent_size;
-   leaf_filter_cfg->extent_size  = cache_cfg->extent_size;
+   index_filter_cfg->cache_cfg = cache_cfg;
+   leaf_filter_cfg->cache_cfg  = cache_cfg;
 
    index_filter_cfg->index_size = filter_index_size;
    index_filter_cfg->seed       = 42;

@@ -161,20 +161,18 @@ test_config_init(trunk_config        *splinter_cfg,
    data_cfg->message_size = master_cfg->message_size;
 
    io_config_init(io_cfg,
+                  master_cfg->page_size,
+                  master_cfg->extent_size,
                   master_cfg->io_flags,
                   master_cfg->io_perms,
                   master_cfg->io_async_queue_depth,
-                  master_cfg->extent_size / master_cfg->page_size,
                   master_cfg->io_filename);
 
-   rc_allocator_config_init(allocator_cfg,
-                            master_cfg->page_size,
-                            master_cfg->extent_size,
-                            master_cfg->allocator_capacity);
+   rc_allocator_config_init(
+      allocator_cfg, io_cfg, master_cfg->allocator_capacity);
 
    clockcache_config_init(cache_cfg,
-                          master_cfg->page_size,
-                          master_cfg->extent_size,
+                          io_cfg,
                           master_cfg->cache_capacity,
                           master_cfg->cache_logfile,
                           master_cfg->use_stats);
