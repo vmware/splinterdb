@@ -103,7 +103,7 @@ jobs:
 - #@ job_pr_check("debug-clang", steps_pr_debug_build_test("clang"), depends_on=stage_one, description="debug build and test")
 - #@ job_pr_check("debug-gcc", steps_pr_debug_build_test("gcc"), depends_on=stage_one, description="debug build and test")
 
-- #@ job_pr_check("asan", steps_pr_debug_build_test("clang", sanitize="asan"), depends_on=stage_one, description="address sanitizer")
+- #@ job_pr_check("asan", steps_pr_debug_build_test("gcc", sanitize="asan"), depends_on=stage_one, description="address sanitizer")
 - #@ job_pr_check("msan", steps_pr_debug_build_test("clang", sanitize="msan"), depends_on=stage_one, description="memory sanitizer")
 
 - #@ job_pr_check("rust", steps_pr_build_test("clang", with_rust=True), depends_on=stage_one, description="rust build and test")

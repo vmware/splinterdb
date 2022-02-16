@@ -117,6 +117,8 @@ endif
 #
 all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test \
         unit_test $(EXTRA_TARGETS)
+	uname -a
+	$(CC) --version
 
 # Any libraries required to link test code will be built, if needed.
 tests: $(BINDIR)/driver_test unit_test
