@@ -3398,6 +3398,6 @@ btree_config_init(btree_config *btree_cfg,
                   uint64        rough_count_height)
 {
    btree_cfg->cache_cfg          = cache_cfg;
-   btree_cfg->data_cfg = data_cfg;
+   btree_cfg->data_cfg           = data_cfg;
    btree_cfg->rough_count_height = rough_count_height;
 }

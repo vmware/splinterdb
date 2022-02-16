@@ -18,9 +18,9 @@
 
 typedef struct rc_allocator_config {
    io_config *io_cfg;
-   uint64 capacity;
-   uint64 page_capacity;
-   uint64 extent_capacity;
+   uint64     capacity;
+   uint64     page_capacity;
+   uint64     extent_capacity;
 } rc_allocator_config;
 
 /*

@@ -636,8 +636,8 @@ routing_filter_prefetch(cache          *cc,
    uint64 last_extent_addr = 0;
    uint64 addrs_per_page =
       cache_config_page_size(cfg->cache_cfg) / sizeof(uint64);
-   uint64 num_index_pages  = (num_indices - 1) / addrs_per_page + 1;
-   uint64 index_no         = 0;
+   uint64 num_index_pages = (num_indices - 1) / addrs_per_page + 1;
+   uint64 index_no        = 0;
 
    for (uint64 index_page_no = 0; index_page_no < num_index_pages;
         index_page_no++) {
@@ -1071,10 +1071,10 @@ routing_filter_lookup_async(cache              *cc,
             if (ctxt->was_async) {
                cache_async_done(cc, PAGE_TYPE_FILTER, cache_ctxt);
             }
-            uint64 *index_arr      = ((uint64 *)cache_ctxt->page->data);
+            uint64 *index_arr = ((uint64 *)cache_ctxt->page->data);
             uint64  addrs_per_page =
                cache_config_page_size(cfg->cache_cfg) / sizeof(uint64);
-            ctxt->header_addr      = index_arr[ctxt->index % addrs_per_page];
+            ctxt->header_addr = index_arr[ctxt->index % addrs_per_page];
             ctxt->page_addr =
                ctxt->header_addr
                - (ctxt->header_addr % cache_config_page_size(cfg->cache_cfg));
