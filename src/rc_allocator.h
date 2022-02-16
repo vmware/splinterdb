@@ -17,11 +17,10 @@
 #define RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS (30)
 
 typedef struct rc_allocator_config {
+   io_config *io_cfg;
    uint64 capacity;
    uint64 page_capacity;
    uint64 extent_capacity;
-   uint64 page_size;
-   uint64 extent_size;
 } rc_allocator_config;
 
 /*
@@ -79,8 +78,7 @@ typedef struct rc_allocator {
 
 void
 rc_allocator_config_init(rc_allocator_config *allocator_cfg,
-                         uint64               page_size,
-                         uint64               extent_size,
+                         io_config           *io_cfg,
                          uint64               capacity);
 
 platform_status

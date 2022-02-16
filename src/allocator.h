@@ -71,8 +71,6 @@ typedef struct allocator_ops {
    get_size_fn in_use;
 
    get_size_fn get_capacity;
-   get_size_fn get_extent_size;
-   get_size_fn get_page_size;
 
    assert_fn assert_noleaks;
 
@@ -140,18 +138,6 @@ static inline uint64
 allocator_get_capacity(allocator *al)
 {
    return al->ops->get_capacity(al);
-}
-
-static inline uint64
-allocator_extent_size(allocator *al)
-{
-   return al->ops->get_extent_size(al);
-}
-
-static inline uint64
-allocator_page_size(allocator *al)
-{
-   return al->ops->get_page_size(al);
 }
 
 static inline void

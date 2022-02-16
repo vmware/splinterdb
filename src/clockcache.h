@@ -26,6 +26,7 @@
 
 typedef struct clockcache_config {
    cache_config super;
+   io_config   *io_cfg;
    uint64       log_page_size;
    uint64       capacity;
    uint32       page_capacity;
@@ -144,8 +145,7 @@ struct clockcache {
 
 void
 clockcache_config_init(clockcache_config *cache_config,
-                       uint64             page_size,
-                       uint64             extent_size,
+                       io_config         *io_cfg,
                        uint64             capacity,
                        const char        *cache_logfile,
                        uint64             use_stats);

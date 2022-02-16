@@ -72,7 +72,7 @@ pack_tests(cache           *cc,
 static slice
 gen_key(btree_config *cfg,
         uint64        i,
-        uint8         buffer[static cfg->cache_cfg->page_size]);
+        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)]);
 
 static uint64
 ungen_key(slice key);
@@ -80,7 +80,7 @@ ungen_key(slice key);
 static slice
 gen_msg(btree_config *cfg,
         uint64        i,
-        uint8         buffer[static cfg->cache_cfg->page_size]);
+        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)]);
 
 /*
  * Global data declaration macro:
@@ -123,10 +123,10 @@ CTEST_SETUP(btree_stress)
        || !init_data_config_from_master_config(&data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
-       || !init_rc_allocator_config_from_master_config(&data->allocator_cfg,
-                                                       &data->master_cfg)
-       || !init_clockcache_config_from_master_config(&data->cache_cfg,
-                                                     &data->master_cfg)
+       || !init_rc_allocator_config_from_master_config(
+          &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
+       || !init_clockcache_config_from_master_config(
+          &data->cache_cfg, &data->master_cfg, &data->io_cfg)
        || !init_btree_config_from_master_config(&data->dbtree_cfg,
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
@@ -299,8 +299,8 @@ insert_tests(cache           *cc,
 {
    uint64 generation;
    bool   was_unique;
-   uint8  keybuf[cfg->cache_cfg->page_size];
-   uint8  msgbuf[cfg->cache_cfg->page_size];
+   uint8  keybuf[cache_config_page_size(cfg->cache_cfg)];
+   uint8  msgbuf[cache_config_page_size(cfg->cache_cfg)];
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -322,7 +322,7 @@ insert_tests(cache           *cc,
 static slice
 gen_key(btree_config *cfg,
         uint64        i,
-        uint8         buffer[static cfg->cache_cfg->page_size])
+        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)])
 {
    uint64 keylen = sizeof(i) + (i % 100);
    memset(buffer, 0, keylen);
@@ -346,10 +346,11 @@ ungen_key(slice key)
 static slice
 gen_msg(btree_config *cfg,
         uint64        i,
-        uint8         buffer[static cfg->cache_cfg->page_size])
+        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)])
 {
    data_handle *dh      = (data_handle *)buffer;
-   uint64       datalen = sizeof(i) + (i % (cfg->cache_cfg->page_size / 3));
+   uint64       datalen =
+      sizeof(i) + (i % (cache_config_page_size(cfg->cache_cfg) / 3));
 
    dh->message_type = MESSAGE_TYPE_INSERT;
    dh->ref_count    = 1;
@@ -366,8 +367,8 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 keybuf[cfg->cache_cfg->page_size];
-   uint8 msgbuf[cfg->cache_cfg->page_size];
+   uint8 keybuf[cache_config_page_size(cfg->cache_cfg)];
+   uint8 msgbuf[cache_config_page_size(cfg->cache_cfg)];
 
    memset(keybuf, 0, sizeof(keybuf));
    writable_buffer result;
@@ -406,12 +407,12 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
 
    uint64 seen = 0;
    bool   at_end;
-   uint8  prevbuf[cfg->cache_cfg->page_size];
+   uint8  prevbuf[cache_config_page_size(cfg->cache_cfg)];
    slice  prev = NULL_SLICE;
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
-      uint8 keybuf[cfg->cache_cfg->page_size];
-      uint8 msgbuf[cfg->cache_cfg->page_size];
+      uint8 keybuf[cache_config_page_size(cfg->cache_cfg)];
+      uint8 msgbuf[cache_config_page_size(cfg->cache_cfg)];
       slice key, msg;
 
       iterator_get_curr(iter, &key, &msg);

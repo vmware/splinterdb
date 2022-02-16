@@ -128,6 +128,15 @@
  *-----------------------------------------------------------------------------
  */
 
+static uint64
+clockcache_config_page_size(clockcache_config *cfg);
+
+static uint64
+clockcache_config_extent_size(clockcache_config *cfg);
+
+static uint64
+clockcache_config_base_addr(clockcache_config *cfg, uint64 addr);
+
 page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type);
 
@@ -252,6 +261,32 @@ clockcache_base_addr(clockcache *cc, uint64 addr);
  *-----------------------------------------------------------------------------
  */
 
+uint64
+clockcache_config_page_size_virtual(cache_config *cfg)
+{
+   clockcache_config *ccfg = (clockcache_config *)cfg;
+   return clockcache_config_page_size(ccfg);
+}
+
+uint64
+clockcache_config_extent_size_virtual(cache_config *cfg)
+{
+   clockcache_config *ccfg = (clockcache_config *)cfg;
+   return clockcache_config_extent_size(ccfg);
+}
+
+uint64
+clockcache_config_base_addr_virtual(cache_config *cfg, uint64 addr)
+{
+   clockcache_config *ccfg = (clockcache_config *)cfg;
+   return clockcache_config_base_addr(ccfg, addr);
+}
+
+cache_config_ops clockcache_config_ops = {
+   .page_size   = clockcache_config_page_size_virtual,
+   .extent_size = clockcache_config_extent_size_virtual,
+   .base_addr   = clockcache_config_base_addr_virtual,
+};
 
 page_handle *
 clockcache_alloc_virtual(cache *c, uint64 addr, page_type type)
@@ -400,10 +435,10 @@ clockcache_wait_virtual(cache *c)
 }
 
 uint64
-clockcache_get_page_size_virtual(cache *c)
+clockcache_get_page_size_virtual(void *cache_config)
 {
-   clockcache *cc = (clockcache *)c;
-   return clockcache_get_page_size(cc);
+   clockcache_config *cfg = (clockcache_config *)cache_config;
+   return cfg->io_cfg->page_size;
 }
 
 uint64
@@ -511,6 +546,13 @@ clockcache_base_addr_virtual(cache *c, uint64 addr)
    return clockcache_base_addr(cc, addr);
 }
 
+cache_config *
+clockcache_get_config(cache *c)
+{
+   clockcache *cc = (clockcache *)c;
+   return &cc->cfg->super;
+}
+
 static cache_ops clockcache_ops = {
    .page_alloc        = clockcache_alloc_virtual,
    .extent_hard_evict = clockcache_hard_evict_extent_virtual,
@@ -532,8 +574,6 @@ static cache_ops clockcache_ops = {
    .flush             = clockcache_flush_virtual,
    .evict             = clockcache_evict_all_virtual,
    .cleanup           = clockcache_wait_virtual,
-   .get_page_size     = clockcache_get_page_size_virtual,
-   .get_extent_size   = clockcache_get_extent_size_virtual,
    .assert_ungot      = clockcache_assert_ungot_virtual,
    .assert_free       = clockcache_assert_no_locks_held_virtual,
    .print             = clockcache_print_virtual,
@@ -547,7 +587,7 @@ static cache_ops clockcache_ops = {
    .cache_present     = clockcache_present_virtual,
    .enable_sync_get   = clockcache_enable_sync_get_virtual,
    .cache_allocator   = clockcache_allocator_virtual,
-   .base_addr         = clockcache_base_addr_virtual,
+   .get_config        = clockcache_get_config,
 };
 
 /*
@@ -663,6 +703,25 @@ clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
  */
 
 static inline uint64
+clockcache_config_page_size(clockcache_config *cfg)
+{
+   return cfg->io_cfg->page_size;
+}
+
+static inline uint64
+clockcache_config_extent_size(clockcache_config *cfg)
+{
+   return cfg->io_cfg->extent_size;
+}
+
+static inline uint64
+clockcache_config_base_addr(clockcache_config *cfg, uint64 addr)
+{
+   return addr / clockcache_config_extent_size(cfg)
+          * clockcache_config_extent_size(cfg);
+}
+
+static inline uint64
 clockcache_multiply_by_page_size(clockcache *cc, uint64 addr)
 {
    return addr << cc->cfg->log_page_size;
@@ -693,8 +752,8 @@ clockcache_pages_share_extent(clockcache *cc,
                               uint64      left_addr,
                               uint64      right_addr)
 {
-   return left_addr / cc->cfg->super.extent_size
-          == right_addr / cc->cfg->super.extent_size;
+   return left_addr / clockcache_config_extent_size(cc->cfg)
+          == right_addr / clockcache_config_extent_size(cc->cfg);
 }
 
 static inline clockcache_entry *
@@ -724,13 +783,13 @@ clockcache_data_to_entry(clockcache *cc, char *data)
 uint64
 clockcache_get_page_size(const clockcache *cc)
 {
-   return cc->cfg->super.page_size;
+   return clockcache_config_page_size(cc->cfg);
 }
 
 uint64
 clockcache_get_extent_size(const clockcache *cc)
 {
-   return cc->cfg->super.extent_size;
+   return clockcache_config_extent_size(cc->cfg);
 }
 
 /*
@@ -1297,7 +1356,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          first_addr = entry->page.disk_addr;
          // walk backwards through extent to find first cleanable entry
          do {
-            first_addr -= cc->cfg->super.page_size;
+            first_addr -= clockcache_config_page_size(cc->cfg);
             if (clockcache_pages_share_extent(cc, first_addr, addr))
                next_entry_no = clockcache_lookup(cc, first_addr);
             else
@@ -1305,11 +1364,11 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          } while (
             next_entry_no != CC_UNMAPPED_ENTRY
             && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
-         first_addr += cc->cfg->super.page_size;
+         first_addr += clockcache_config_page_size(cc->cfg);
          end_addr = entry->page.disk_addr;
          // walk forwards through extent to find last cleanable entry
          do {
-            end_addr += cc->cfg->super.page_size;
+            end_addr += clockcache_config_page_size(cc->cfg);
             if (clockcache_pages_share_extent(cc, end_addr, addr))
                next_entry_no = clockcache_lookup(cc, end_addr);
             else
@@ -1341,7 +1400,6 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
                                   "flush: entry %u addr %lu\n",
                                   next_entry_no,
                                   addr);
-            iovec[i].iov_len  = cc->cfg->super.page_size;
             iovec[i].iov_base = next_entry->page.data;
          }
 
@@ -1696,8 +1754,7 @@ clockcache_evict_all(clockcache *cc, bool ignore_pinned_pages)
  */
 void
 clockcache_config_init(clockcache_config *cache_cfg,
-                       uint64             page_size,
-                       uint64             extent_size,
+                       io_config         *io_cfg,
                        uint64             capacity,
                        const char        *cache_logfile,
                        uint64             use_stats)
@@ -1705,11 +1762,11 @@ clockcache_config_init(clockcache_config *cache_cfg,
    int rc;
    ZERO_CONTENTS(cache_cfg);
 
-   cache_cfg->super.page_size = page_size;
-   cache_cfg->super.extent_size = extent_size;
+   cache_cfg->super.ops     = &clockcache_config_ops;
+   cache_cfg->io_cfg        = io_cfg;
    cache_cfg->capacity      = capacity;
-   cache_cfg->log_page_size = 63 - __builtin_clzll(page_size);
-   cache_cfg->page_capacity = capacity / page_size;
+   cache_cfg->log_page_size = 63 - __builtin_clzll(io_cfg->page_size);
+   cache_cfg->page_capacity = capacity / io_cfg->page_size;
    cache_cfg->use_stats     = use_stats;
 
    rc = snprintf(cache_cfg->logfile, MAX_STRING_LENGTH, "%s", cache_logfile);
@@ -1743,8 +1800,8 @@ clockcache_init(clockcache          *cc,   // OUT
    cc->cfg->batch_capacity = cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH;
    cc->cfg->cacheline_capacity =
       cc->cfg->page_capacity / PLATFORM_CACHELINE_SIZE;
-   cc->cfg->pages_per_extent =
-      clockcache_divide_by_page_size(cc, cc->cfg->super.extent_size);
+   cc->cfg->pages_per_extent = clockcache_divide_by_page_size(
+      cc, clockcache_config_extent_size(cc->cfg));
 
    platform_assert(cc->cfg->page_capacity % PLATFORM_CACHELINE_SIZE == 0);
    platform_assert(cc->cfg->capacity == debug_capacity);
@@ -1992,7 +2049,7 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
 void
 clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 {
-   debug_assert(addr % cc->cfg->super.extent_size == 0);
+   debug_assert(addr % clockcache_config_extent_size(cc->cfg) == 0);
    debug_code(allocator *al = cc->al);
    debug_assert(allocator_get_ref(al, addr) == 1);
 
@@ -2038,13 +2095,13 @@ clockcache_get_internal(clockcache   *cc,       // IN
                         page_type     type,     // IN
                         page_handle **page)     // OUT
 {
-   debug_assert(addr % cc->cfg->super.page_size == 0);
+   debug_assert(addr % clockcache_config_page_size(cc->cfg) == 0);
    uint32            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    clockcache_entry *entry;
    __attribute__((unused)) platform_status status;
    __attribute__((unused)) uint64          base_addr =
-      addr - addr % cc->cfg->super.extent_size;
+      addr - addr % clockcache_config_extent_size(cc->cfg);
    uint64         start, elapsed;
    const threadid tid = platform_get_tid();
 
@@ -2147,7 +2204,8 @@ clockcache_get_internal(clockcache   *cc,       // IN
       start = platform_get_timestamp();
    }
 
-   status = io_read(cc->io, entry->page.data, cc->cfg->super.page_size, addr);
+   status = io_read(
+      cc->io, entry->page.data, clockcache_config_page_size(cc->cfg), addr);
    platform_assert_status_ok(status);
 
    if (cc->cfg->use_stats) {
@@ -2280,14 +2338,14 @@ clockcache_get_async(clockcache       *cc,   // IN
    }
 #endif
 
-   debug_assert(addr % cc->cfg->super.page_size == 0);
+   debug_assert(addr % clockcache_config_page_size(cc->cfg) == 0);
    debug_assert((cache *)cc == ctxt->cc);
    uint32            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    clockcache_entry *entry;
    __attribute__((unused)) platform_status status;
    __attribute__((unused)) uint64          base_addr =
-      addr - addr % cc->cfg->super.extent_size;
+      addr - addr % clockcache_config_extent_size(cc->cfg);
    const threadid tid = platform_get_tid();
 
    debug_assert(allocator_get_ref(cc->al, base_addr) > 1);
@@ -2390,7 +2448,6 @@ clockcache_get_async(clockcache       *cc,   // IN
    }
    req->bytes                         = clockcache_multiply_by_page_size(cc, 1);
    struct iovec *iovec                = io_get_iovec(cc->io, req);
-   iovec[0].iov_len                   = cc->cfg->super.page_size;
    iovec[0].iov_base                  = entry->page.data;
    void *req_metadata                 = io_get_metadata(cc->io, req);
    *(cache_async_ctxt **)req_metadata = ctxt;
@@ -2636,13 +2693,13 @@ clockcache_page_sync(clockcache  *cc,
       uint64 req_count             = 1;
       req->bytes        = clockcache_multiply_by_page_size(cc, req_count);
       iovec             = io_get_iovec(cc->io, req);
-      iovec[0].iov_len  = cc->cfg->super.page_size;
       iovec[0].iov_base = page->data;
       status            = io_write_async(
          cc->io, req, clockcache_write_callback, req_count, addr);
       platform_assert_status_ok(status);
    } else {
-      status = io_write(cc->io, page->data, cc->cfg->super.page_size, addr);
+      status = io_write(
+         cc->io, page->data, clockcache_config_page_size(cc->cfg), addr);
       platform_assert_status_ok(status);
       clockcache_log(addr,
                      entry_number,
@@ -2729,7 +2786,6 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
             cc_req->pages_outstanding = pages_outstanding;
             iovec                     = io_get_iovec(cc->io, io_req);
          }
-         iovec[req_count].iov_len    = cc->cfg->super.page_size;
          iovec[req_count++].iov_base = cc->entry[entry_number].page.data;
       } else {
          // ALEX: There is maybe a race with eviction with this assertion
@@ -2796,7 +2852,7 @@ clockcache_prefetch_callback(void           *metadata,
       debug_code(int64 addr = entry->page.disk_addr);
       debug_assert(addr != CC_UNMAPPED_ADDR);
       debug_assert(last_addr == CC_UNMAPPED_ADDR
-                   || addr == last_addr + cc->cfg->super.page_size);
+                   || addr == last_addr + clockcache_config_page_size(cc->cfg));
       debug_code(last_addr = addr);
       debug_assert(entry_no == clockcache_lookup(cc, addr));
    }
@@ -2825,7 +2881,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
    uint64        req_start_addr   = CC_UNMAPPED_ADDR;
    threadid      tid              = platform_get_tid();
 
-   debug_assert(base_addr % cc->cfg->super.extent_size == 0);
+   debug_assert(base_addr % clockcache_config_extent_size(cc->cfg) == 0);
 
    for (uint64 page_off = 0; page_off < pages_per_extent; page_off++) {
       uint64 addr = base_addr + clockcache_multiply_by_page_size(cc, page_off);
@@ -2882,7 +2938,6 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   iovec                        = io_get_iovec(cc->io, req);
                   req_start_addr               = addr;
                }
-               iovec[pages_in_req].iov_len    = cc->cfg->super.page_size;
                iovec[pages_in_req++].iov_base = entry->page.data;
                clockcache_log(addr,
                               entry_no,
@@ -2958,9 +3013,9 @@ clockcache_print(clockcache *cc)
 bool
 clockcache_page_valid(clockcache *cc, uint64 addr)
 {
-   if (addr % cc->cfg->super.page_size != 0)
+   if (addr % clockcache_config_page_size(cc->cfg) != 0)
       return FALSE;
-   uint64 base_addr = addr - addr % cc->cfg->super.extent_size;
+   uint64 base_addr = addr - addr % clockcache_config_extent_size(cc->cfg);
    if (addr < allocator_get_capacity(cc->al)) {
       return base_addr != 0 && allocator_get_ref(cc->al, base_addr) != 0;
    } else {
@@ -3187,5 +3242,5 @@ clockcache_allocator(clockcache *cc)
 uint64
 clockcache_base_addr(clockcache *cc, uint64 addr)
 {
-   return addr / cc->cfg->super.extent_size * cc->cfg->super.extent_size;
+   return clockcache_config_base_addr(cc->cfg, addr);
 }

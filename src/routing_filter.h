@@ -24,17 +24,14 @@
 // worry about how many bits to store etc.
 
 typedef struct routing_config {
+   cache_config *cache_cfg;
+   data_config  *data_cfg;
    uint32 fingerprint_size;
    uint32 index_size;
    uint32 log_index_size;
 
    hash_fn      hash;
    unsigned int seed;
-
-   // These must match the cache/fs/etc.
-   uint64       page_size;
-   uint64       extent_size;
-   data_config *data_cfg;
 } routing_config;
 
 typedef struct PACKED routing_filter {

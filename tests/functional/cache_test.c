@@ -79,7 +79,7 @@ cache_test_alloc_extents(cache             *cc,
       }
 
       for (uint32 i = 0; i < cfg->pages_per_extent; i++) {
-         uint64       addr = base_addr + i * cfg->super.page_size;
+         uint64       addr = base_addr + i * cfg->io_cfg->page_size;
          page_handle *page = cache_alloc(cc, addr, PAGE_TYPE_MISC);
          addr_arr[j * cfg->pages_per_extent + i] = addr;
          cache_unlock(cc, page);
