@@ -3,8 +3,6 @@
 
 #include "config.h"
 
-const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
-
 void
 config_set_defaults(master_config *cfg)
 {

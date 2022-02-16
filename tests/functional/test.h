@@ -12,7 +12,7 @@
 
 #include "cache.h"
 #include "clockcache.h"
-#include "config.h"
+#include "../config.h"
 #include "splinterdb/data.h"
 #include "rc_allocator.h"
 #include "shard_log.h"

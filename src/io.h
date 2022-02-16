@@ -172,17 +172,20 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
  *
  *      Initialize io config values
  *
+ *  (Stores a copy of io_filename to io_cfg->filename, so the caller may
+ *  deallocate io_filename once this returns)
+ *
  *-----------------------------------------------------------------------------
  */
 
 static inline void
-io_config_init(io_config *io_cfg,
-               uint64     page_size,
-               uint64     extent_size,
-               int        flags,
-               uint32     perms,
-               uint64     async_queue_depth,
-               char      *io_filename)
+io_config_init(io_config  *io_cfg,
+               uint64      page_size,
+               uint64      extent_size,
+               int         flags,
+               uint32      perms,
+               uint64      async_queue_depth,
+               const char *io_filename)
 {
    ZERO_CONTENTS(io_cfg);
 

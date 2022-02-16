@@ -13,7 +13,6 @@
 
 #include "platform.h"
 
-#include "config.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/splinterdb_kv.h"
 #include "util.h"
