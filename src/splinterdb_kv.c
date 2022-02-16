@@ -290,7 +290,6 @@ splinterdb_kv_create_or_open(const splinterdb_kv_cfg *cfg,      // IN
    *kvsb = (splinterdb_kv){
       .max_app_key_size = cfg->max_key_size,
       .max_app_val_size = cfg->max_value_size,
-      .page_size        = cfg->page_size,
       .heap_id          = cfg->heap_id,
       .heap_handle      = cfg->heap_handle,
    };
@@ -461,8 +460,10 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   char *msg_buffer = platform_aligned_malloc(
-      kvsb->heap_id, kvsb->page_size, val_max_len + sizeof(basic_message));
+   char *msg_buffer =
+      platform_aligned_malloc(kvsb->heap_id,
+                              PLATFORM_CACHELINE_SIZE,
+                              val_max_len + sizeof(basic_message));
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);

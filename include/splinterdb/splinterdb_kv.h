@@ -52,9 +52,6 @@ typedef struct {
    // Size of file to use on disk, in bytes
    size_t disk_size;
 
-   // Size of a disk page
-   size_t page_size;
-
    // Maximum length of keys, in bytes. Must be <= MAX_KEY_SIZE
    size_t max_key_size;
 
