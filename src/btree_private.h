@@ -155,13 +155,13 @@ static inline void
 btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 {
    ZERO_CONTENTS(hdr);
-   hdr->next_entry = cfg->page_size;
+   hdr->next_entry = cfg->cache_cfg->page_size;
 }
 
 static inline uint64
 btree_page_size(const btree_config *cfg)
 {
-   return cfg->page_size;
+   return cfg->cache_cfg->page_size;
 }
 
 static inline uint64

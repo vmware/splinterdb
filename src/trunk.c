@@ -8174,14 +8174,13 @@ trunk_print_branches(trunk_handle *spl)
  */
 void
 trunk_config_init(trunk_config *trunk_cfg,
+                  cache_config *cache_cfg,
                   data_config  *data_cfg,
                   log_config   *log_cfg,
                   uint64        memtable_capacity,
                   uint64        fanout,
                   uint64        max_branches_per_node,
                   uint64        btree_rough_count_height,
-                  uint64        page_size,
-                  uint64        extent_size,
                   uint64        filter_remainder_size,
                   uint64        filter_index_size,
                   uint64        reclaim_threshold,
@@ -8198,8 +8197,8 @@ trunk_config_init(trunk_config *trunk_cfg,
 
    trunk_cfg->log_cfg = log_cfg;
 
-   trunk_cfg->page_size             = page_size;
-   trunk_cfg->extent_size           = extent_size;
+   trunk_cfg->page_size             = cache_cfg->page_size;
+   trunk_cfg->extent_size           = cache_cfg->extent_size;
    trunk_cfg->fanout                = fanout;
    trunk_cfg->max_branches_per_node = max_branches_per_node;
    trunk_cfg->reclaim_threshold     = reclaim_threshold;
@@ -8216,10 +8215,9 @@ trunk_config_init(trunk_config *trunk_cfg,
 
    // Initialize point message btree
    btree_config_init(&trunk_cfg->btree_cfg,
+                     cache_cfg,
                      trunk_cfg->data_cfg,
-                     btree_rough_count_height,
-                     trunk_cfg->page_size,
-                     trunk_cfg->extent_size);
+                     btree_rough_count_height);
 
    memtable_config_init(&trunk_cfg->mt_cfg,
                         &trunk_cfg->btree_cfg,
@@ -8232,10 +8230,10 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_cfg->target_leaf_tuples = trunk_cfg->max_tuples_per_node / 2;
 
    // filter config settings
-   index_filter_cfg->page_size   = page_size;
-   leaf_filter_cfg->page_size    = page_size;
-   index_filter_cfg->extent_size = extent_size;
-   leaf_filter_cfg->extent_size  = extent_size;
+   index_filter_cfg->page_size   = cache_cfg->page_size;
+   leaf_filter_cfg->page_size    = cache_cfg->page_size;
+   index_filter_cfg->extent_size = cache_cfg->extent_size;
+   leaf_filter_cfg->extent_size  = cache_cfg->extent_size;
 
    index_filter_cfg->index_size = filter_index_size;
    index_filter_cfg->seed       = 42;

@@ -170,14 +170,13 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                           cfg.use_stats);
 
    trunk_config_init(&kvs->trunk_cfg,
+                     &kvs->cache_cfg.super,
                      &kvs->data_cfg,
                      NULL,
                      cfg.memtable_capacity,
                      cfg.fanout,
                      cfg.max_branches_per_node,
                      cfg.btree_rough_count_height,
-                     cfg.page_size,
-                     cfg.extent_size,
                      cfg.filter_remainder_size,
                      cfg.filter_index_size,
                      cfg.reclaim_threshold,
