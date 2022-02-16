@@ -11,7 +11,7 @@
 #ifndef _SPLINTER_TEST_H_
 #define _SPLINTER_TEST_H_
 
-#include "config.h"
+#include "../config.h"
 #include "test.h"
 
 typedef enum test_type {
