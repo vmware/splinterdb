@@ -437,6 +437,11 @@ CTEST2(splinterdb_kv, test_basic_iterator)
       ASSERT_EQUAL(0, rc);
       i++;
    }
+
+   rc = splinterdb_kv_iter_status(it);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_kv_iter_deinit(&it);
 }
 
 /*

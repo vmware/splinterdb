@@ -176,7 +176,10 @@ Sample application code:
    }
 
    // loop exit may mean error, or just that we've reached the end of the range
-   rc = splinterdb_iter_status(it); if (rc != 0) { ... handle error ... }
+   rc = splinterdb_kv_iter_status(it);
+   if (rc != 0) { ... handle error ... }
+
+   splinterdb_kv_iter_deinit(&it);
 */
 
 typedef struct splinterdb_kv_iterator splinterdb_kv_iterator;
