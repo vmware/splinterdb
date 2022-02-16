@@ -348,7 +348,7 @@ gen_msg(btree_config *cfg,
         uint64        i,
         uint8         buffer[static cache_config_page_size(cfg->cache_cfg)])
 {
-   data_handle *dh      = (data_handle *)buffer;
+   data_handle *dh = (data_handle *)buffer;
    uint64       datalen =
       sizeof(i) + (i % (cache_config_page_size(cfg->cache_cfg) / 3));
 

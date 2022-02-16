@@ -26,9 +26,9 @@
 typedef struct routing_config {
    cache_config *cache_cfg;
    data_config  *data_cfg;
-   uint32 fingerprint_size;
-   uint32 index_size;
-   uint32 log_index_size;
+   uint32        fingerprint_size;
+   uint32        index_size;
+   uint32        log_index_size;
 
    hash_fn      hash;
    unsigned int seed;
