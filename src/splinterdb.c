@@ -153,11 +153,10 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    kvs->heap_id     = cfg.heap_id;
 
    io_config_init(&kvs->io_cfg,
-                  cfg.page_size,
-                  cfg.extent_size,
                   cfg.io_flags,
                   cfg.io_perms,
                   cfg.io_async_queue_depth,
+                  cfg.extent_size / cfg.page_size,
                   cfg.filename);
 
    rc_allocator_config_init(

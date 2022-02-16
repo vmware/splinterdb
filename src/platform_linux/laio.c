@@ -70,7 +70,7 @@ io_handle_init(laio_handle         *io,
    int           status;
    uint64        req_size;
    uint64        total_req_size;
-   uint64        i, j;
+   uint64        i;
    io_async_req *req;
 
    platform_assert(cfg->async_queue_size % LAIO_HAND_BATCH_SIZE == 0);
@@ -99,8 +99,6 @@ io_handle_init(laio_handle         *io,
       req->iocb_p = &req->iocb;
       req->number = i;
       req->busy   = FALSE;
-      for (j = 0; j < cfg->async_max_pages; j++)
-         req->iovec[j].iov_len = cfg->page_size;
    }
    io->max_batches_nonblocking_get =
       cfg->async_queue_size / LAIO_HAND_BATCH_SIZE;

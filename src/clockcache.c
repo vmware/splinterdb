@@ -1340,6 +1340,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
                                   "flush: entry %u addr %lu\n",
                                   next_entry_no,
                                   addr);
+            iovec[i].iov_len  = cc->cfg->page_size;
             iovec[i].iov_base = next_entry->page.data;
          }
 
@@ -2388,6 +2389,7 @@ clockcache_get_async(clockcache       *cc,   // IN
    }
    req->bytes                         = clockcache_multiply_by_page_size(cc, 1);
    struct iovec *iovec                = io_get_iovec(cc->io, req);
+   iovec[0].iov_len                   = cc->cfg->page_size;
    iovec[0].iov_base                  = entry->page.data;
    void *req_metadata                 = io_get_metadata(cc->io, req);
    *(cache_async_ctxt **)req_metadata = ctxt;
@@ -2633,6 +2635,7 @@ clockcache_page_sync(clockcache  *cc,
       uint64 req_count             = 1;
       req->bytes        = clockcache_multiply_by_page_size(cc, req_count);
       iovec             = io_get_iovec(cc->io, req);
+      iovec[0].iov_len  = cc->cfg->page_size;
       iovec[0].iov_base = page->data;
       status            = io_write_async(
          cc->io, req, clockcache_write_callback, req_count, addr);
@@ -2725,6 +2728,7 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
             cc_req->pages_outstanding = pages_outstanding;
             iovec                     = io_get_iovec(cc->io, io_req);
          }
+         iovec[req_count].iov_len    = cc->cfg->page_size;
          iovec[req_count++].iov_base = cc->entry[entry_number].page.data;
       } else {
          // ALEX: There is maybe a race with eviction with this assertion
@@ -2877,6 +2881,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                   iovec                        = io_get_iovec(cc->io, req);
                   req_start_addr               = addr;
                }
+               iovec[pages_in_req].iov_len    = cc->cfg->page_size;
                iovec[pages_in_req++].iov_base = entry->page.data;
                clockcache_log(addr,
                               entry_no,
