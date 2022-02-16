@@ -255,6 +255,10 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    rc = iterator_tests(
       (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
+
+   for (uint64 i = 0; i < nthreads; i++) {
+      platform_free(data->hid, params[i].scratch);
+   }
 }
 
 /*
