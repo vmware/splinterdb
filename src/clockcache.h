@@ -25,13 +25,12 @@
 #define CC_RC_WIDTH 4
 
 typedef struct clockcache_config {
-   uint64 page_size;
-   uint64 log_page_size;
-   uint64 extent_size;
-   uint64 capacity;
-   uint32 page_capacity;
-   bool   use_stats;
-   char   logfile[MAX_STRING_LENGTH];
+   cache_config super;
+   uint64       log_page_size;
+   uint64       capacity;
+   uint32       page_capacity;
+   bool         use_stats;
+   char         logfile[MAX_STRING_LENGTH];
 
    // computed
    uint64 batch_capacity;

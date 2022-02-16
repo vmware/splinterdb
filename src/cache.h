@@ -19,6 +19,11 @@ typedef struct page_handle {
    uint64 disk_addr;
 } page_handle;
 
+typedef struct cache_config {
+   uint64 page_size;
+   uint64 extent_size;
+} cache_config;
+
 typedef struct cache cache;
 
 typedef struct cache_stats {

@@ -1240,7 +1240,7 @@ ycsb_test(int argc, char *argv[])
                 B_TO_MiB(overhead_bytes),
                 B_TO_MiB(buffer_bytes));
    cache_cfg.capacity      = memory_bytes - buffer_bytes;
-   cache_cfg.page_capacity = cache_cfg.capacity / cache_cfg.page_size;
+   cache_cfg.page_capacity = cache_cfg.capacity / cache_cfg.super.page_size;
 
    uint64 al_size = allocator_cfg.extent_capacity * sizeof(uint8);
    al_size        = ROUNDUP(al_size, 2 * MiB);
