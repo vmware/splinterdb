@@ -101,8 +101,16 @@ endif
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 DEFAULT_LDFLAGS += -ggdb3 -pthread
 
-# to set sanitiziers, use environment variables, e.g.
+# ##########################################################################
+# To set sanitiziers, use environment variables, e.g.
 #   DEFAULT_CFLAGS="-fsanitize=address" DEFAULT_LDFLAGS="-fsanitize=address" make debug
+# Note(s):
+#  - Address sanitizer builds: -fsanitize=address
+#     - Ctests will be silently skipped with clang builds. (Known issue.)
+#       Use gcc to build in Asan mode to run unit-tests.
+#
+#  - Memory sanitizer builds: -fsanitize=memory
+#     - Builds will fail with gcc due to compiler error. Use clang instead.
 
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 LDFLAGS += $(DEFAULT_LDFLAGS) -Ofast -flto
@@ -112,32 +120,26 @@ ifeq ($(WITH_RUST),true)
   EXTRA_TARGETS += $(BINDIR)/splinterdb-cli
 endif
 
-#*********************************************************#
+#*************************************************************#
 # Targets to track whether we have a release or debug build
-#
 all: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(BINDIR)/driver_test \
         unit_test $(EXTRA_TARGETS)
-	uname -a
-	$(CC) --version
 
 # Any libraries required to link test code will be built, if needed.
 tests: $(BINDIR)/driver_test unit_test
 
 release: .release all
-	rm -f .debug
-	rm -f .debug-log
+	rm -f .debug .debug-log
 
 debug: CFLAGS = -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
 debug: LDFLAGS = -g $(DEFAULT_LDFLAGS)
 debug: .debug all
-	rm -f .release
-	rm -f .debug-log
+	rm -f .release .debug-log
 
 debug-log: CFLAGS = -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
 debug-log: LDFLAGS = -g $(DEFAULT_LDFLAGS)
 debug-log: .debug-log all
-	rm -f .release
-	rm -f .debug
+	rm -f .release .debug
 
 .release:
 	$(MAKE) clean
@@ -279,10 +281,13 @@ unit/misc_test: $(OBJDIR)/tests/unit/misc_test.o            \
 
 #*************************************************************#
 
+# Report build machine details and compiler version for troubleshooting, so
+# we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
 	rm -rf $(OBJDIR)/* $(BINDIR)/* $(LIBDIR)/*
-
+	uname -a
+	$(CC) --version
 tags:
 	ctags -R src
 

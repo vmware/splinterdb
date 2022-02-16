@@ -552,7 +552,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
    }
 }
 
-static void
+void
 destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec)
 {
    if (spec->was_found) {
