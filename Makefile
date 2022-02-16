@@ -83,7 +83,7 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM)
 include .libconfig.mk
 #######END libconfig
 
-DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror
+DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
 DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 
 # track git ref in the built library

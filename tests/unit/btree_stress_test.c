@@ -70,13 +70,13 @@ pack_tests(cache           *cc,
            uint64           nkvs);
 
 static slice
-gen_key(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size]);
+gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t legnth);
 
 static uint64
 ungen_key(slice key);
 
 static slice
-gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size]);
+gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t legnth);
 
 /*
  * Global data declaration macro:
@@ -176,31 +176,31 @@ CTEST_TEARDOWN(btree_stress) {}
  * multiple threads. This test case verifies that registration of threads
  * to Splinter is working stably.
  */
+#define NTHREADS 8
 CTEST2(btree_stress, test_random_inserts_concurrent)
 {
-   int nkvs     = 1000000;
-   int nthreads = 8;
+   int nkvs = 1000000;
 
    mini_allocator mini;
 
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   insert_thread_params params[nthreads];
-   platform_thread      threads[nthreads];
+   insert_thread_params params[NTHREADS];
+   platform_thread      threads[NTHREADS];
 
-   for (uint64 i = 0; i < nthreads; i++) {
+   for (uint64 i = 0; i < NTHREADS; i++) {
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
       params[i].heap_id   = data->hid;
       params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
-      params[i].start     = i * (nkvs / nthreads);
-      params[i].end = i < nthreads - 1 ? (i + 1) * (nkvs / nthreads) : nkvs;
+      params[i].start     = i * (nkvs / NTHREADS);
+      params[i].end = i < NTHREADS - 1 ? (i + 1) * (nkvs / NTHREADS) : nkvs;
    }
 
-   for (uint64 i = 0; i < nthreads; i++) {
+   for (uint64 i = 0; i < NTHREADS; i++) {
       platform_status ret = task_thread_create("insert thread",
                                                insert_thread,
                                                &params[i],
@@ -213,7 +213,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       // root_addr, 0, nkvs);
    }
 
-   for (uint64 thread_no = 0; thread_no < nthreads; thread_no++) {
+   for (uint64 thread_no = 0; thread_no < NTHREADS; thread_no++) {
       platform_thread_join(threads[thread_no]);
    }
 
@@ -288,8 +288,8 @@ insert_tests(cache           *cc,
 {
    uint64 generation;
    bool   was_unique;
-   uint8  keybuf[cfg->page_size];
-   uint8  msgbuf[cfg->page_size];
+   uint8 *keybuf = alloca(cfg->page_size);
+   uint8 *msgbuf = alloca(cfg->page_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -298,8 +298,8 @@ insert_tests(cache           *cc,
                                 scratch,
                                 root_addr,
                                 mini,
-                                gen_key(cfg, i, keybuf),
-                                gen_msg(cfg, i, msgbuf),
+                                gen_key(cfg, i, keybuf, cfg->page_size),
+                                gen_msg(cfg, i, msgbuf, cfg->page_size),
                                 &generation,
                                 &was_unique)))
       {
@@ -309,7 +309,7 @@ insert_tests(cache           *cc,
 }
 
 static slice
-gen_key(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size])
+gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 {
    uint64 keylen = sizeof(i) + (i % 100);
    memset(buffer, 0, keylen);
@@ -331,7 +331,7 @@ ungen_key(slice key)
 }
 
 static slice
-gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static cfg->page_size])
+gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 {
    data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (cfg->page_size / 3));
@@ -351,18 +351,23 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 keybuf[cfg->page_size];
-   uint8 msgbuf[cfg->page_size];
+   uint8 *keybuf = alloca(cfg->page_size);
+   uint8 *msgbuf = alloca(cfg->page_size);
 
-   memset(keybuf, 0, sizeof(keybuf));
+   memset(keybuf, 0, cfg->page_size);
    writable_buffer result;
    writable_buffer_init(&result, hid, 0, NULL);
 
    for (uint64 i = 0; i < nkvs; i++) {
-      btree_lookup(cc, cfg, root_addr, type, gen_key(cfg, i, keybuf), &result);
+      btree_lookup(cc,
+                   cfg,
+                   root_addr,
+                   type,
+                   gen_key(cfg, i, keybuf, cfg->page_size),
+                   &result);
       if (!btree_found(&result)
           || slice_lex_cmp(writable_buffer_to_slice(&result),
-                           gen_msg(cfg, i, msgbuf)))
+                           gen_msg(cfg, i, msgbuf, cfg->page_size)))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
@@ -391,12 +396,12 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
 
    uint64 seen = 0;
    bool   at_end;
-   uint8  prevbuf[cfg->page_size];
-   slice  prev = NULL_SLICE;
+   uint8 *prevbuf = alloca(cfg->page_size);
+   slice  prev    = NULL_SLICE;
+   uint8 *keybuf = alloca(cfg->page_size);
+   uint8 *msgbuf = alloca(cfg->page_size);
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
-      uint8 keybuf[cfg->page_size];
-      uint8 msgbuf[cfg->page_size];
       slice key, msg;
 
       iterator_get_curr(iter, &key, &msg);
@@ -404,10 +409,10 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
       ASSERT_TRUE(k < nkvs);
 
       int rc = 0;
-      rc     = slice_lex_cmp(key, gen_key(cfg, k, keybuf));
+      rc     = slice_lex_cmp(key, gen_key(cfg, k, keybuf, cfg->page_size));
       ASSERT_EQUAL(0, rc);
 
-      rc = slice_lex_cmp(msg, gen_msg(cfg, k, msgbuf));
+      rc = slice_lex_cmp(msg, gen_msg(cfg, k, msgbuf, cfg->page_size));
       ASSERT_EQUAL(0, rc);
 
       ASSERT_TRUE(slice_is_null(prev) || slice_lex_cmp(prev, key) < 0);

@@ -151,9 +151,9 @@ CTEST2(btree, test_leaf_split)
 static int
 leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 {
-   char       leaf_buffer[cfg->page_size];
-   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int        nkvs = 240;
+   char      *leaf_buffer = alloca(cfg->page_size);
+   btree_hdr *hdr         = (btree_hdr *)leaf_buffer;
+   int        nkvs        = 240;
 
    btree_init_hdr(cfg, hdr);
 
@@ -217,9 +217,9 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char       leaf_buffer[cfg->page_size];
-   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int        nkvs = 256;
+   char      *leaf_buffer = alloca(cfg->page_size);
+   btree_hdr *hdr         = (btree_hdr *)leaf_buffer;
+   int        nkvs        = 256;
 
    btree_init_hdr(cfg, hdr);
 
@@ -254,9 +254,9 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 static int
 index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 {
-   char       index_buffer[cfg->page_size];
-   btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int        nkvs = 100;
+   char      *index_buffer = alloca(cfg->page_size);
+   btree_hdr *hdr          = (btree_hdr *)index_buffer;
+   int        nkvs         = 100;
 
    bool rv     = FALSE;
    int  cmp_rv = 0;
@@ -311,9 +311,9 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 static int
 index_hdr_search_tests(btree_config *cfg)
 {
-   char       index_buffer[cfg->page_size];
-   btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int        nkvs = 100;
+   char      *index_buffer = alloca(cfg->page_size);
+   btree_hdr *hdr          = (btree_hdr *)index_buffer;
+   int        nkvs         = 100;
 
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -344,10 +344,10 @@ index_hdr_search_tests(btree_config *cfg)
 static int
 leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
 {
-   char leaf_buffer[cfg->page_size];
-   char msg_buffer[cfg->page_size];
+   char *leaf_buffer = alloca(cfg->page_size);
+   char *msg_buffer  = alloca(cfg->page_size);
 
-   memset(msg_buffer, 0, sizeof(msg_buffer));
+   memset(msg_buffer, 0, cfg->page_size);
 
    btree_hdr *hdr = (btree_hdr *)leaf_buffer;
 

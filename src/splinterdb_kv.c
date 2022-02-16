@@ -459,7 +459,7 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   char                     msg_buffer[val_max_len + sizeof(basic_message)];
+   char *msg_buffer = alloca(val_max_len + sizeof(basic_message));
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);
