@@ -35,6 +35,7 @@ struct splinterdb_kv {
    kvsb_data_config_context *data_config_context;
 
    splinterdb *kvs;
+   size_t      page_size;
 };
 
 // Length-prefix encoding of a variable-sized key
@@ -289,6 +290,7 @@ splinterdb_kv_create_or_open(const splinterdb_kv_cfg *cfg,      // IN
    *kvsb = (splinterdb_kv){
       .max_app_key_size = cfg->max_key_size,
       .max_app_val_size = cfg->max_value_size,
+      .page_size        = cfg->page_size,
       .heap_id          = cfg->heap_id,
       .heap_handle      = cfg->heap_handle,
    };
@@ -459,9 +461,8 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   // xxx - eah -pagesize
    char *msg_buffer = platform_aligned_malloc(
-      kvsb->heap_id, val_max_len + sizeof(basic_message), 4096);
+      kvsb->heap_id, kvsb->page_size, val_max_len + sizeof(basic_message));
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);

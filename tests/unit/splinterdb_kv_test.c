@@ -761,7 +761,7 @@ setup_splinterdb_kv(splinterdb_kv **kvsb, splinterdb_kv_cfg *cfg)
       .max_value_size = (cfg->max_value_size) ? cfg->max_value_size : 16,
       .key_comparator = cfg->key_comparator,
       .key_comparator_context = cfg->key_comparator_context,
-   };
+      .page_size              = 4096};
 
    int rc = splinterdb_kv_create(cfg, kvsb);
    ASSERT_EQUAL(rc, 0);
