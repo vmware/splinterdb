@@ -459,7 +459,9 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   char *msg_buffer = alloca(val_max_len + sizeof(basic_message));
+   // xxx - eah -pagesize
+   char *msg_buffer = platform_aligned_malloc(
+      kvsb->heap_id, val_max_len + sizeof(basic_message), 4096);
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);
@@ -471,15 +473,18 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    int rc = splinterdb_lookup(kvsb->kvs, key_buffer, &result);
    if (rc) {
       splinterdb_lookup_result_deinit(&result);
+      platform_free(kvsb->heap_id, msg_buffer);
       return rc;
    }
    if (!splinterdb_lookup_result_found(&result)) {
       splinterdb_lookup_result_deinit(&result);
       *found = 0;
+      platform_free(kvsb->heap_id, msg_buffer);
       return 0;
    }
    if (splinterdb_lookup_result_size(&result) < sizeof(basic_message)) {
       splinterdb_lookup_result_deinit(&result);
+      platform_free(kvsb->heap_id, msg_buffer);
       return -2; // FIXME: better error code?
    }
 
@@ -496,6 +501,7 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    memmove(val, msg->value, *val_bytes);
 
    splinterdb_lookup_result_deinit(&result);
+   platform_free(kvsb->heap_id, msg_buffer);
    return 0;
 }
 

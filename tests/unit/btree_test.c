@@ -25,12 +25,16 @@
 // Function Prototypes
 
 static int
-leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch);
+leaf_hdr_tests(btree_config    *cfg,
+               btree_scratch   *scratch,
+               platform_heap_id working);
 
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid);
 static int
-index_hdr_tests(btree_config *cfg, btree_scratch *scratch);
+index_hdr_tests(btree_config    *cfg,
+                btree_scratch   *scratch,
+                platform_heap_id working);
 
 static int
 index_hdr_search_tests(btree_config *cfg);
@@ -97,7 +101,8 @@ CTEST_TEARDOWN(btree) {}
  */
 CTEST2(btree, test_leaf_hdr)
 {
-   int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+   int rc = leaf_hdr_tests(
+      &data->dbtree_cfg, &data->test_scratch, platform_get_heap_id());
    ASSERT_EQUAL(0, rc);
 }
 
@@ -115,7 +120,8 @@ CTEST2(btree, test_leaf_hdr_search)
  */
 CTEST2(btree, test_index_hdr)
 {
-   int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+   int rc = index_hdr_tests(
+      &data->dbtree_cfg, &data->test_scratch, platform_get_heap_id());
    ASSERT_EQUAL(0, rc);
 }
 
@@ -149,11 +155,14 @@ CTEST2(btree, test_leaf_split)
  * message to platform log file.
  */
 static int
-leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
+leaf_hdr_tests(btree_config    *cfg,
+               btree_scratch   *scratch,
+               platform_heap_id working)
 {
-   char      *leaf_buffer = alloca(cfg->page_size);
-   btree_hdr *hdr         = (btree_hdr *)leaf_buffer;
-   int        nkvs        = 240;
+   char *leaf_buffer =
+      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
+   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
+   int        nkvs = 240;
 
    btree_init_hdr(cfg, hdr);
 
@@ -211,15 +220,18 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
+   platform_free(platform_get_heap_id(), leaf_buffer);
    return 0;
 }
 
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char      *leaf_buffer = alloca(cfg->page_size);
-   btree_hdr *hdr         = (btree_hdr *)leaf_buffer;
-   int        nkvs        = 256;
+   char *leaf_buffer =
+      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+
+   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
+   int        nkvs = 256;
 
    btree_init_hdr(cfg, hdr);
 
@@ -252,11 +264,14 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 }
 
 static int
-index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
+index_hdr_tests(btree_config    *cfg,
+                btree_scratch   *scratch,
+                platform_heap_id working)
 {
-   char      *index_buffer = alloca(cfg->page_size);
-   btree_hdr *hdr          = (btree_hdr *)index_buffer;
-   int        nkvs         = 100;
+   char *index_buffer =
+      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
+   btree_hdr *hdr  = (btree_hdr *)index_buffer;
+   int        nkvs = 100;
 
    bool rv     = FALSE;
    int  cmp_rv = 0;

@@ -60,7 +60,11 @@ query_tests(cache           *cc,
             int              nkvs);
 
 static int
-iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs);
+iterator_tests(cache           *cc,
+               btree_config    *cfg,
+               uint64           root_addr,
+               int              nkvs,
+               platform_heap_id working);
 
 static uint64
 pack_tests(cache           *cc,
@@ -225,7 +229,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                         nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
-   if (!iterator_tests((cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs))
+   if (!iterator_tests(
+          (cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs, data->hid))
    {
       platform_log("invalid ranges in original tree\n");
    }
@@ -253,7 +258,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
    rc = iterator_tests(
-      (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs);
+      (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs, data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
 }
 
@@ -288,8 +293,10 @@ insert_tests(cache           *cc,
 {
    uint64 generation;
    bool   was_unique;
-   uint8 *keybuf = alloca(cfg->page_size);
-   uint8 *msgbuf = alloca(cfg->page_size);
+   uint8 *keybuf =
+      platform_aligned_malloc(heap_id, cfg->page_size, cfg->page_size);
+   uint8 *msgbuf =
+      platform_aligned_malloc(heap_id, cfg->page_size, cfg->page_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -306,6 +313,8 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
+   platform_free(heap_id, keybuf);
+   platform_free(heap_id, msgbuf);
 }
 
 static slice
@@ -351,8 +360,8 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 *keybuf = alloca(cfg->page_size);
-   uint8 *msgbuf = alloca(cfg->page_size);
+   uint8 *keybuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   uint8 *msgbuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
 
    memset(keybuf, 0, cfg->page_size);
    writable_buffer result;
@@ -374,11 +383,17 @@ query_tests(cache           *cc,
    }
 
    writable_buffer_reinit(&result);
+   platform_free(hid, keybuf);
+   platform_free(hid, msgbuf);
    return 1;
 }
 
 static int
-iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
+iterator_tests(cache           *cc,
+               btree_config    *cfg,
+               uint64           root_addr,
+               int              nkvs,
+               platform_heap_id working)
 {
    btree_iterator dbiter;
 
@@ -396,10 +411,13 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
 
    uint64 seen = 0;
    bool   at_end;
-   uint8 *prevbuf = alloca(cfg->page_size);
-   slice  prev    = NULL_SLICE;
-   uint8 *keybuf = alloca(cfg->page_size);
-   uint8 *msgbuf = alloca(cfg->page_size);
+   uint8 *prevbuf =
+      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
+   slice  prev = NULL_SLICE;
+   uint8 *keybuf =
+      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
+   uint8 *msgbuf =
+      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
       slice key, msg;
@@ -430,6 +448,9 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
    ASSERT_EQUAL(nkvs, seen);
 
    btree_iterator_deinit(&dbiter);
+   platform_free(working, prevbuf);
+   platform_free(working, keybuf);
+   platform_free(working, msgbuf);
 
    return 1;
 }
