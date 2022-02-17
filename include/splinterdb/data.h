@@ -116,4 +116,11 @@ data_validate_config(const data_config *cfg)
    return !bad;
 }
 
+static inline void
+data_key_copy(const data_config *cfg, char *dst, const char *src)
+{
+   memmove(dst, src, cfg->key_size);
+}
+
+
 #endif // __DATA_H
