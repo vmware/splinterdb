@@ -427,6 +427,24 @@ trunk_key_compare(trunk_handle *spl, const char *key1, const char *key2)
    return btree_key_compare(&spl->cfg.btree_cfg, key1_slice, key2_slice);
 }
 
+static inline bool
+trunk_key_equal(trunk_handle *spl, const char *key1, const char *key2)
+{
+   return trunk_key_compare(spl, key1, key2) == 0;
+}
+
+static inline void
+trunk_key_copy(trunk_handle *spl, char *dst, const char *src)
+{
+   memmove(dst, src, spl->cfg.data_cfg->key_size);
+}
+
+static inline data_config *
+trunk_data_config(trunk_handle *spl)
+{
+   return spl->cfg.data_cfg;
+}
+
 static inline void
 trunk_key_to_string(trunk_handle *spl, const char *key, char str[static 128])
 {
