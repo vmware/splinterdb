@@ -373,8 +373,10 @@ leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
    for (uint8 i = 0; i < 2 * realnkvs + 1; i++) {
       uint64                generation;
       leaf_incorporate_spec spec;
-      slice                 key     = slice_create(1, &i);
-      bool                  success = btree_leaf_incorporate_tuple(
+
+      slice key = slice_create(1, &i);
+
+      bool success = btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
       if (success) {
          btree_print_locked_node(cfg, 0, hdr, PLATFORM_ERR_LOG_HANDLE);
@@ -397,6 +399,8 @@ leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
                   "realnkvs = %d, plan.split_idx = %d",
                   realnkvs,
                   plan.split_idx);
+
+      destroy_leaf_incorporate_spec(&spec);
    }
 
    return 0;

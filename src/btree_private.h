@@ -146,6 +146,9 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
                                 const btree_hdr             *hdr,
                                 const leaf_incorporate_spec *spec); // IN
 
+void
+destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec);
+
 /*
  * ***********************************************************
  * Inline accessor functions for different private structure.
