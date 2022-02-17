@@ -358,8 +358,11 @@ index_hdr_search_tests(btree_config *cfg)
 static int
 leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
 {
-   char *leaf_buffer = alloca(cfg->page_size);
-   char *msg_buffer  = alloca(cfg->page_size);
+   platform_heap_id hid = platform_get_heap_id();
+   char            *leaf_buffer =
+      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   char *msg_buffer =
+      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
 
    memset(msg_buffer, 0, cfg->page_size);
 
@@ -416,5 +419,7 @@ leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
       destroy_leaf_incorporate_spec(&spec);
    }
 
+   platform_free(hid, leaf_buffer);
+   platform_free(hid, msg_buffer);
    return 0;
 }

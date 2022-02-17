@@ -180,31 +180,32 @@ CTEST_TEARDOWN(btree_stress) {}
  * multiple threads. This test case verifies that registration of threads
  * to Splinter is working stably.
  */
-#define NTHREADS 8
+
 CTEST2(btree_stress, test_random_inserts_concurrent)
 {
-   int nkvs = 1000000;
+   int nkvs     = 1000000;
+   int nthreads = 8;
 
    mini_allocator mini;
 
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   insert_thread_params params[NTHREADS];
-   platform_thread      threads[NTHREADS];
+   insert_thread_params *params  = alloca(nthreads);
+   platform_thread      *threads = alloca(nthreads);
 
-   for (uint64 i = 0; i < NTHREADS; i++) {
+   for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
       params[i].heap_id   = data->hid;
       params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
-      params[i].start     = i * (nkvs / NTHREADS);
-      params[i].end = i < NTHREADS - 1 ? (i + 1) * (nkvs / NTHREADS) : nkvs;
+      params[i].start     = i * (nkvs / nthreads);
+      params[i].end = i < nthreads - 1 ? (i + 1) * (nkvs / nthreads) : nkvs;
    }
 
-   for (uint64 i = 0; i < NTHREADS; i++) {
+   for (uint64 i = 0; i < nthreads; i++) {
       platform_status ret = task_thread_create("insert thread",
                                                insert_thread,
                                                &params[i],
@@ -217,7 +218,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       // root_addr, 0, nkvs);
    }
 
-   for (uint64 thread_no = 0; thread_no < NTHREADS; thread_no++) {
+   for (uint64 thread_no = 0; thread_no < nthreads; thread_no++) {
       platform_thread_join(threads[thread_no]);
    }
 

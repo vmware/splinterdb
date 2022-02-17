@@ -34,7 +34,6 @@ struct splinterdb_kv {
    kvsb_data_config_context *data_config_context;
 
    splinterdb *kvs;
-   size_t      page_size;
 };
 
 // Length-prefix encoding of a variable-sized key
