@@ -4,11 +4,11 @@
 #@ load("@ytt:template", "template")
 #@ def get_task_timeout(quick=False, sanitize=""):
 #@   if sanitize:
-#@     return "2h"
+#@     return "3h"
 #@   elif quick:
 #@     return "5m"
 #@   else:
-#@     return "55m"
+#@     return "1h"
 #@   end
 #@ end
 

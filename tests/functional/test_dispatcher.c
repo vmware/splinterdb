@@ -3,6 +3,7 @@
 
 #include "platform.h"
 
+#include "splinterdb/splinterdb.h"
 #include "test.h"
 
 #include "poison.h"

@@ -19,7 +19,7 @@
 
 #include "../functional/test.h"
 #include "splinterdb/data.h"
-#include "config.h"
+#include "../config.h"
 #include "io.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
@@ -260,6 +260,11 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    rc = iterator_tests(
       (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs, data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
+
+   // Release memory allocated in this test case
+   for (uint64 i = 0; i < nthreads; i++) {
+      platform_free(data->hid, params[i].scratch);
+   }
 }
 
 /*
