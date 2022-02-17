@@ -325,9 +325,10 @@ index_hdr_tests(btree_config    *cfg,
 static int
 index_hdr_search_tests(btree_config *cfg)
 {
-   char      *index_buffer = alloca(cfg->page_size);
-   btree_hdr *hdr          = (btree_hdr *)index_buffer;
-   int        nkvs         = 100;
+   char *index_buffer = platform_aligned_malloc(
+      platform_get_heap_id(), cfg->page_size, cfg->page_size);
+   btree_hdr *hdr  = (btree_hdr *)index_buffer;
+   int        nkvs = 100;
 
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -352,6 +353,7 @@ index_hdr_search_tests(btree_config *cfg)
          (i / 2), idx, "Bad pivot search result idx=%ld for i=%d\n", idx, i);
    }
 
+   platform_free(platform_get_heap_id(), index_buffer);
    return 0;
 }
 

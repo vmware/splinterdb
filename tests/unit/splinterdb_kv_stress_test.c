@@ -17,6 +17,7 @@
 #include "splinterdb/platform_public.h"
 #include "splinterdb/splinterdb_kv.h"
 #include "unit_tests.h"
+#include <platform.h>
 #include "ctest.h" // This is required for all test-case files.
 
 // Function Prototypes
@@ -108,7 +109,6 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_serial)
  * multiple threads. This test case verifies that registration of threads
  * to Splinter is working stably.
  */
-#define NUM_THREADS 4
 CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
 {
    // We need a configuration larger than the default setup.
@@ -134,19 +134,23 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
       .max_value_size = data->cfg.max_value_size,
    };
 
-   pthread_t thread_ids[NUM_THREADS];
+   const uint8_t num_threads = 4;
+   pthread_t    *thread_ids =
+      platform_aligned_malloc(platform_get_heap_id(),
+                              PLATFORM_CACHELINE_SIZE,
+                              num_threads * sizeof(pthread_t));
 
-   for (int i = 0; i < NUM_THREADS; i++) {
+   for (int i = 0; i < num_threads; i++) {
       rc = pthread_create(&thread_ids[i], NULL, &exec_worker_thread, &wcfg);
       ASSERT_EQUAL(0, rc);
    }
 
-   fprintf(stderr, "Waiting for %d worker threads ...\n", NUM_THREADS);
-   for (int i = 0; i < NUM_THREADS; i++) {
+   fprintf(stderr, "Waiting for %d worker threads ...\n", num_threads);
+   for (int i = 0; i < num_threads; i++) {
       fprintf(stderr, "  Thread[%d] ID=%lu\n", i, thread_ids[i]);
    }
 
-   for (int i = 0; i < NUM_THREADS; i++) {
+   for (int i = 0; i < num_threads; i++) {
       void *thread_rc;
       rc = pthread_join(thread_ids[i], &thread_rc);
       ASSERT_EQUAL(0, rc);
@@ -159,6 +163,7 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
          ASSERT_TRUE(FALSE);
       }
    }
+   platform_free(platform_get_heap_id(), thread_ids);
 }
 
 /*
