@@ -136,9 +136,7 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
 
    const uint8_t num_threads = 4;
    pthread_t    *thread_ids =
-      platform_aligned_malloc(platform_get_heap_id(),
-                              PLATFORM_CACHELINE_SIZE,
-                              num_threads * sizeof(pthread_t));
+      TYPED_ARRAY_ZALLOC(platform_get_heap_id(), thread_ids, num_threads);
 
    for (int i = 0; i < num_threads; i++) {
       rc = pthread_create(&thread_ids[i], NULL, &exec_worker_thread, &wcfg);

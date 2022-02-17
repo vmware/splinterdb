@@ -191,11 +191,9 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid    = platform_get_heap_id();
-   insert_thread_params *params = platform_aligned_malloc(
-      hid, PLATFORM_CACHELINE_SIZE, nthreads * sizeof(insert_thread_params));
-   platform_thread *threads = platform_aligned_malloc(
-      hid, PLATFORM_CACHELINE_SIZE, nthreads * sizeof(platform_thread));
+   platform_heap_id      hid     = platform_get_heap_id();
+   insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
+   platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
