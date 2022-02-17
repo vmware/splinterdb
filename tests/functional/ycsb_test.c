@@ -1286,7 +1286,8 @@ ycsb_test(int argc, char *argv[])
    }
 
    uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   rc                                   = test_init_splinter(
+
+   rc = test_init_task_system(
       hid, io, &ts, splinter_cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
@@ -1354,7 +1355,7 @@ ycsb_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_dismount(&al);
-   test_deinit_splinter(hid, ts);
+   test_deinit_task_system(hid, ts);
    rc = STATUS_OK;
 
    // struct rusage usage;
