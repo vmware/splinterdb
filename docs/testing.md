@@ -18,7 +18,21 @@ In CI, we execute these tests against the following build modes
 - clang-format checks
 - [shellcheck](https://www.shellcheck.net) and shfmt checks run against shell scripts
 
-In CI, all product test execution is driven by the top-level [test.sh](../test.sh) script, which essentially invokes the build artifacts produced for testing as described below.
+To run a small collection of unit-tests to give you a very quick initial baseline stabiity of the product, do
+
+```shell
+$ make run-tests
+```
+The `make run-tests` target invokes the underlying `test.sh` script.
+
+To execute the full set of tests, including functional and performance tests, you can do one of the following:
+
+```shell
+$ INCLUDE_SLOW_TESTS=true make run-tests
+$ INCLUDE_SLOW_TESTS=true ./test.sh
+```
+
+In CI, all product test execution is driven by the top-level [test.sh](../test.sh) script, which invokes the build artifacts produced for testing as described below.
 
 ### Testing Artifacts
 
@@ -27,6 +41,8 @@ the `./bin` directory:
 - A `unit_test` binary and a collection of stand-alone unit-test binaries are produced under the `./bin` directory. 
 - A `driver_test` binary to drive functional and performance tests
 
+-----
+The following sections describe how to execute individual testing artifacts, for more granular test stabilization.
 
 ## Running Unit tests
 

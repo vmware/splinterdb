@@ -21,16 +21,17 @@ $ make [debug]
 $ make run-tests
 $ sudo make install
 ```
+Debug builds are done using the `$ make debug` command.
 
 ### Build Artifacts
 
-Resulting from a build are the following artifacts
-- In the ./lib dir, shared libraries: libsplinterdb.so and libsplinterdb.a
-- In the ./bin dir, driver programs used to test SplinterDB:
-     - driver_test - Binary to drive various tests
-     - unit_test - Binary to drive a collection of unit-tests
-     - In the ./bin/unit/ dir, a collection of stand-alone unit-test binaries for different modules, all of which are linked in the unit_test binary.
- - A stand-alone splinterdb-cli tool, developed in Rust
+The following artifacts are produced by a successful build:
+- In the `./lib` dir, shared libraries: `libsplinterdb.so` and `libsplinterdb.a`
+- In the `./bin` dir, driver programs used to test SplinterDB:
+     - `driver_test` - Binary to drive various functional and performance tests
+     - `unit_test` - Binary to drive a collection of unit-tests
+     - In the `./bin/unit` dir, a collection of stand-alone unit-test binaries for different modules, all of which are linked in the unit_test binary.
+ - A stand-alone `splinterdb-cli` tool, developed in Rust
 
 ### Sanitizer Builds
 
@@ -40,16 +41,16 @@ run these sanitizer builds, as mentioned in the [Makefile](../Makefile)
 
 
 ```shell
-# To run address-sanitizer builds
+## To run address-sanitizer builds
 $ make clean
 $ DEFAULT_CFLAGS="-fsanitize=address" DEFAULT_LDFLAGS="-fsanitize=address" make
 
-# To run memory-sanitizer builds
+## To run memory-sanitizer builds
 $ make clean
 $ DEFAULT_CFLAGS="-fsanitize=memory" DEFAULT_LDFLAGS="-fsanitize=memory" make
 ```
 
-Note(s):
+> Note
 - Currently, unit-tests can only be executed with address-sanitizer builds done with the clang compiler.
 - Other tests can be executed with address-sanitizer builds done using gcc.
 - Memory-sanitizer builds are only supported with the clang compiler.
@@ -74,8 +75,9 @@ with either GCC or Clang.
 For example, from inside the running container:
 ```shell
 docker$ cd /splinterdb
-docker$ export CC=clang  # or gcc
-docker$ export LD=clang
+docker$ export COMPILER=clang  # or gcc
+docker$ export CC=$COMPILER
+docker$ export LD=$COMPILER
 docker$ make
 docker$ make test
 docker$ make install
