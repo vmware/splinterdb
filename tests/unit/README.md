@@ -22,25 +22,22 @@ fuller description of the features of this CTest framework.
 
 Build directives are defined in the top-level `Makefile`. After the initial [build setup](../../docs/build.md), build unit tests as follows.
 
-Build the SplinterDB library and all test code: `$ make clean; make`
+Build the SplinterDB library and all test code: `$ make clean && make`
 
-The unit test driver program `bin/unit_test` and all standalone unit test binaries will be generated, including other test binaries.
-
+The unit test driver program `bin/unit_test` and all standalone unit test binaries will be generated, including other test drivers.
 
 Rebuild all the test binaries:  `$ make  tests`
 
 Rebuild just the unit test binaries: `$ make unit_test`
 
-To build debug versions of unit tests, do either one of:
--  `$ make debug tests`
--  `$ make debug unit_test`
+To build debug versions of tests: `$ make debug tests` or  `$ make debug unit_test`
 
 ----
 ## Basic help / usage
 
 To get **basic help / usage** information: `$ bin/unit_test --help`
 
-```
+```shell
 $ ./bin/unit_test --help
 Usage: ./bin/unit_test [--list [ <suite-name> ] ]
 Usage: ./bin/unit_test [ --<config options> ]* [ <suite-name> [ <test-case-name> ] ]
@@ -57,8 +54,7 @@ To list all the test cases from a given test suite: `$ bin/unit_test --list <sui
 
 `$ bin/unit_test --list splinterdb`
 
-
-You can also use the `--list` argument to list the test cases that can be run from an individual standalone unit-test binary.
+You can also list the test cases that can be run from an individual standalone unit-test binary with the `--list` argument.
 
 **Example**: List all the test cases from the [`btree`](btree_test.c) test suite using the standalone binary
 
@@ -68,10 +64,9 @@ You can also use the `--list` argument to list the test cases that can be run fr
 ----
 ## How To Run unit-tests
 
-
 Quick **smoke-tests** run of unit tests: `$ make run-tests`
 
-This runs a small subset of unit tests, which execute very quickly, so that you can get a quick turnaround on the overall stability of any product changes.
+This runs a small subset of unit tests, which execute very quickly, so that you get a quick turnaround on the overall stability of any product changes.
 
 You can achieve the same result by executing the following test driver script [test.sh](../../test.sh):
 
