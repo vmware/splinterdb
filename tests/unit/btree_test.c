@@ -317,7 +317,7 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
       ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
    }
-
+   platform_free(hid, index_buffer);
    return 0;
 }
 
