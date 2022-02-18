@@ -27,11 +27,11 @@ function record_elapsed_time() {
    el_m=$((total_seconds % 3600 / 60))
    el_s=$((total_seconds % 60))
 
-   echo "${Me}: ${test_tag}: ${total_seconds} s [ ${el_h} h ${el_m} m ${el_s} s ]"
+   echo "${Me}: ${test_tag}: ${total_seconds} s [ ${el_h}h ${el_m}m ${el_s}s ]"
 
    # Log a line in the /tmp log-file; for future cat of summary output
    echo $total_seconds, $el_h, $el_m, $el_s \
-        | awk -va_msg="${test_tag}" '{printf " %-30s: %4d s [ %2d h %2d m %2d s ]\n", a_msg, $1, $2, $3, $4}' \
+        | awk -va_msg="${test_tag}" '{printf " %-40s: %4ds [ %2dh %2dm %2ds ]\n", a_msg, $1, $2, $3, $4}' \
          >> "${test_exec_log_file}"
 }
 
@@ -51,10 +51,24 @@ function run_with_timing() {
    record_elapsed_time $start_seconds "${test_tag}"
 }
 
+# ########################################################################
+# cat contents of test execution log file, and delete it.
+# ########################################################################
+function cat_exec_log_file() {
+    # Display summary test-execution metrics to stdout from /tmp file
+    if [ -f "${test_exec_log_file}" ]; then
+        cat "${test_exec_log_file}"
+        rm -f "${test_exec_log_file}"
+   fi
+   echo
+   echo "$Me: $(date) End SplinterDB Test Suite Execution."
+}
+
 # ##################################################################
 # main() begins here
 # ##################################################################
 
+echo "$Me: $(date) Start SplinterDB Test Suite Execution."
 set -x
 
 SEED="${SEED:-135}"
@@ -89,7 +103,7 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    echo
    echo "NOTE: **** Only running fast unit tests ****"
-   echo "To run all tests, set the env var, and re-run: $ INCLUDE_SLOW_TESTS=true $Me"
+   echo "To run all tests, set the env var, and re-run: $ INCLUDE_SLOW_TESTS=true ./$Me"
    echo
    start_seconds=$SECONDS
 
@@ -102,11 +116,21 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    echo "Fast tests passed"
    record_elapsed_time ${start_seconds} "Fast unit tests"
+   cat_exec_log_file
    exit 0
 fi
 
 # Run all the unit-tests first, to get basic coverage
-run_with_timing "All unit tests" bin/unit_test
+run_with_timing "Fast unit tests" bin/unit_test
+
+# ------------------------------------------------------------------------
+# Explicitly run individual cases from specific slow running unit-tests,
+# where appropriate with a different test-configuration that has been found to
+# provide the required coverage.
+run_with_timing "Splinter inserts test" bin/unit/splinter_test test_inserts
+
+# Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
+run_with_timing "Splinter lookups test" bin/unit/splinter_test --num-inserts 2000000 test_lookups
 
 UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then
@@ -150,8 +174,4 @@ fi
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED
 
-# Display summary test-execution metrics to stdout from /tmp file
-if [ -f "${test_exec_log_file}" ]; then
-    cat "${test_exec_log_file}"
-    rm -f "${test_exec_log_file}"
-fi
+cat_exec_log_file

@@ -119,9 +119,8 @@ CTEST_SETUP(btree_stress)
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
 
-   // RESOLVE: Sort this out with RobJ about cmd line args support
-   // if (!SUCCESS(config_parse(&data->master_cfg, 1, argc - 1, argv + 1)) ||
-   if (!SUCCESS(config_parse(&data->master_cfg, 1, 0, (char **)NULL))
+   if (!SUCCESS(
+          config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
        || !init_data_config_from_master_config(&data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
