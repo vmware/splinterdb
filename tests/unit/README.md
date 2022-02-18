@@ -1,4 +1,4 @@
-# SplinterDB Unit-Testing
+# SplinterDB Unit Testing
 
 We have adapted the [CTest framework](https://github.com/bvdberg/ctest),
 which is a unit testing framework for software written in C/C++,
@@ -9,59 +9,90 @@ fuller description of the features of this CTest framework.
 ---
 ## Developing using CTest
 
-* All unit-test code lives under the test/unit/ sub-directory
-* Naming Conventions:
+- All unit-test code lives under the `splinterdb/tests/unit` sub-directory
+- Naming Conventions:
 
-    * For a source file named `<fileName>.c`, the unit-test file is named `<fileName>_test.c`
-    * The test suite name used for test cases in each test file is usually the `<fileName>` prefix
-    * Each test case is named `test_<something>`
+  - For a source file named `<fileName>.c`, the unit-test file is named `<fileName>_test.c`
+  - The test suite name used for test cases in each test file is usually the `<fileName>` prefix
+    - Each test case is named `test_<something>`
 
 
+----
+## How To build unit tests
 
-* How To Build unit-tests:
+Build directives are defined in the top-level `Makefile`. After the initial [build setup](../../docs/build.md), build unit tests as follows.
 
-    * Build directives are defined in the top-level Makefile. Build as follows:
+Build the SplinterDB library and all test code: `$ make clean; make`
 
-```shell
-$ cd /splinterdb
+The unit test driver program `bin/unit_test` and all standalone unit test binaries will be generated, including other test binaries.
 
-# Build the SplinterDB library first. 'make' will rebuild bin/unit_test also.
-$ make clean; make [debug]
 
-# Build the unit-test binary
-$ make bin/unit_test
+Rebuild all the test binaries:  `$ make  tests`
 
-# Build all the test sources and binaries, which will also build all unit-test binaries.
-# bin/unit_test and a collection of stand-alone module-specific unit-test binaries will
-# be generated in the bin/unit sub-directory.
-#
-$ make clean; make tests
-```
+Rebuild just the unit test binaries: `$ make unit_test`
 
-* How To Run unit-tests:
+To build debug versions of unit tests, do either one of:
+-  `$ make debug tests`
+-  `$ make debug unit_test`
 
-```shell
+----
+## Basic help / usage
 
-# Get help/usage information
-$ bin/unit_test --help
-
-# Run all the unit test suites
-$ bin/unit_test
-
-# Run a specific suite, optionally filtering on a specific test case
-$ bin/unit_test suite-name [ <test-case-name> ]
-
-Example: Run all test cases named 'test_leaf_hdr%' from the 'btree' test suite
-
-$ bin/unit_test btree test_leaf_hdr
-
-# Run a specific unit-test binary
-$ bin/unit/splinterdb_kv_test
-
-# Run all test cases named with a prefix from specific unit-test binary.
-# E.g., run all test cases named 'test_splinterdb_iterator%' from splinterdb_kv_test
-#
-$ bin/unit/<unit-test-binary-name> <test-case-name>
-$ bin/unit/splinterdb_kv_test test_splinterdb_iterator
+To get **basic help / usage** information: `$ bin/unit_test --help`
 
 ```
+$ ./bin/unit_test --help
+Usage: ./bin/unit_test [--list [ <suite-name> ] ]
+Usage: ./bin/unit_test [ --<config options> ]* [ <suite-name> [ <test-case-name> ] ]
+```
+
+> Note: The `[ --<config options> ]*` option allows specifying different configuration parameters for test execution. This is supported by very few unit tests and is **only** meant for internal developer-use.
+
+
+To **list all the unit-test suites** that can be run: `$ bin/unit_test --list`
+
+To list all the test cases from a given test suite: `$ bin/unit_test --list <suite-name>`
+
+**Example**: List all test cases from the [`splinterdb`](splinterdb_test.c) test suite.
+
+`$ bin/unit_test --list splinterdb`
+
+
+You can also use the `--list` argument to list the test cases that can be run from an individual standalone unit-test binary.
+
+**Example**: List all the test cases from the [`btree`](btree_test.c) test suite using the standalone binary
+
+`$ bin/unit/btree_test --list`
+
+
+----
+## How To Run unit-tests
+
+
+Quick **smoke-tests** run of unit tests: `$ make run-tests`
+
+This runs a small subset of unit tests, which execute very quickly, so that you can get a quick turnaround on the overall stability of any product changes.
+
+You can achieve the same result by executing the following test driver script [test.sh](../../test.sh):
+
+`$ ./test.sh`
+
+To **run** all the unit-test suites: `$ bin/unit_test`
+
+To run a specific suite, optionally filtering on a specific test case:
+
+`$ bin/unit_test <suite-name> [ <test-case-name> ]`
+
+**Example**: Run all test cases named `test_leaf_hdr*` from the `btree_test` suite
+
+`$ bin/unit_test btree test_leaf_hdr`
+
+To run all test cases from a specific unit-test binary:[ `$ bin/unit/splinter_test`](splinter_test.c)
+
+To run all test cases named with a prefix from a specific unit-test binary:
+
+`$ bin/unit/<binary-name> <test-case-prefix>`
+
+**Example**: Run all SplinterDB iterator-related test cases from the [`splinterdb_kv_test`](splinterdb_kv_test.c)
+
+`$ bin/unit/splinterdb_kv_test test_splinterdb_iterator`
