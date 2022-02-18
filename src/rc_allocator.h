@@ -14,29 +14,40 @@
 #include "platform.h"
 #include "util.h"
 
-#define RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS (30)
+/*
+ * In the current system, every Splinter instance has a superblock, one
+ * for each table that is mapped to the Splinter instance. This limit
+ * is the max number of superblocks (special pages) that can be accessed.
+ * All of these superblocks are required to be on the 1st extent.
+ */
+#define RC_ALLOCATOR_MAX_ROOT_IDS (30)
 
+/*
+ * Configuration structure to set up the Ref Count Allocation sub-system.
+ */
 typedef struct rc_allocator_config {
-   uint64 capacity;
-   uint64 page_capacity;
-   uint64 extent_capacity;
-   uint64 page_size;
-   uint64 extent_size;
+   io_config *io_cfg;
+   uint64     capacity;
+   uint64     page_capacity;
+   uint64     extent_capacity;
 } rc_allocator_config;
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_meta_page --
+ * rc_allocator_meta_page -- Disk-resident structure.
  *
  *  An on disk structure to hold the super block information about all the
- *  splinter tables using this allocator. This is persisted at
+ *  Splinter tables using this allocator. This is persisted at
  *  offset 0 of the device.
  *----------------------------------------------------------------------
  */
-typedef struct PACKED rc_allocator_meta_page {
-   allocator_root_id splinters[RC_ALLOCATOR_MAX_ALLOCATOR_ROOT_IDS];
+typedef struct ONDISK rc_allocator_meta_page {
+   allocator_root_id splinters[RC_ALLOCATOR_MAX_ROOT_IDS];
    checksum128       checksum;
 } rc_allocator_meta_page;
+
+_Static_assert(offsetof(rc_allocator_meta_page, splinters) == 0,
+               "splinters array should be first field in meta_page struct");
 
 /*
  *----------------------------------------------------------------------
@@ -52,7 +63,7 @@ typedef struct rc_allocator_stats {
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator --
+ * rc_allocator -- Ref Count allocator context structure.
  *----------------------------------------------------------------------
  */
 typedef struct rc_allocator {
@@ -79,8 +90,7 @@ typedef struct rc_allocator {
 
 void
 rc_allocator_config_init(rc_allocator_config *allocator_cfg,
-                         uint64               page_size,
-                         uint64               extent_size,
+                         io_config           *io_cfg,
                          uint64               capacity);
 
 platform_status

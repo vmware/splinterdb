@@ -16,17 +16,24 @@
 #include "util.h"
 #include "btree.h"
 
+/*
+ * Typedefs for disk-resident index / offset / sizes of pieces of BTree row
+ * formats. These appear in other disk-resident structures defined below.
+ */
 typedef uint16 table_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
 typedef node_offset table_entry;
 typedef uint16      inline_key_size;
 typedef uint16      inline_message_size;
 
-/* **********************
- * Node headers
- * *********************
+/*
+ * *************************************************************************
+ * BTree Node headers: Disk-resident structure:
+ * Stored on pages of Page Type == PAGE_TYPE_MEMTABLE, PAGE_TYPE_BRANCH
+ * See btree.c for a description of the layout of this page format.
+ * *************************************************************************
  */
-struct PACKED btree_hdr {
+struct ONDISK btree_hdr {
    uint64      next_addr;
    uint64      next_extent_addr;
    uint64      generation;
@@ -36,11 +43,12 @@ struct PACKED btree_hdr {
    table_entry offsets[];
 };
 
-/* **********************************
- * Node entries
- * *********************************
+/*
+ * *************************************************************************
+ * BTree Node index entries: Disk-resident structure
+ * *************************************************************************
  */
-typedef struct PACKED index_entry {
+typedef struct ONDISK index_entry {
    btree_pivot_data pivot_data;
    inline_key_size  key_size;
    char             key[];
@@ -53,7 +61,17 @@ _Static_assert(sizeof(index_entry)
 _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
                "index_entry key has wrong offset");
 
-typedef struct PACKED leaf_entry {
+/*
+ * *************************************************************************
+ * BTree Leaf entry: Disk-resident structure
+ *
+ * The key and message data are laid out abutting each other on the BTree
+ * leaf node. This structure describes that layout in terms of the length
+ * of the key-portion and the message-portion, following which appears
+ * the concatenated [<key>, <message>] datum.
+ * *************************************************************************
+ */
+typedef struct ONDISK leaf_entry {
    inline_key_size     key_size;
    inline_message_size message_size;
    char                key_and_message[];
@@ -102,10 +120,10 @@ typedef struct leaf_splitting_plan {
 } leaf_splitting_plan;
 
 /*
- * ************************************************************************
- * External function prototypes: Declare these first, as some inine static
+ * *************************************************************************
+ * External function prototypes: Declare these first, as some inline static
  * functions defined below may call these extern functions.
- * ************************************************************************
+ * *************************************************************************
  */
 bool
 btree_set_index_entry(const btree_config *cfg,
@@ -154,17 +172,23 @@ destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec);
  * Inline accessor functions for different private structure.
  * ***********************************************************
  */
+static inline uint64
+btree_page_size(const btree_config *cfg)
+{
+   return cache_config_page_size(cfg->cache_cfg);
+}
+
+static inline uint64
+btree_extent_size(const btree_config *cfg)
+{
+   return cache_config_extent_size(cfg->cache_cfg);
+}
+
 static inline void
 btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 {
    ZERO_CONTENTS(hdr);
-   hdr->next_entry = cfg->page_size;
-}
-
-static inline uint64
-btree_page_size(const btree_config *cfg)
-{
-   return cfg->page_size;
+   hdr->next_entry = btree_page_size(cfg);
 }
 
 static inline uint64

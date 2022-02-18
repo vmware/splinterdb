@@ -21,9 +21,29 @@
 #include "log.h"
 #include "srq.h"
 
+/*
+ * Max height of the Trunk Tree; Limited for convenience to allow for static
+ * allocation of various nested arrays. (Should be possible to increase this, if
+ * ever needed, in future w/o perf impacts.) This limit is quite large enough
+ * for most expected installations.
+ */
 #define TRUNK_MAX_HEIGHT 8
 
-#define TRUNK_MAX_TOTAL_DEGREE 256
+/*
+ * Mini-allocator uses separate batches for each height of the Trunk tree.
+ * Therefore, the max # of mini-batches that the mini-allocator can track
+ * is limited by the max height of the SplinterDB trunk.
+ */
+_Static_assert(TRUNK_MAX_HEIGHT == MINI_MAX_BATCHES,
+               "TRUNK_MAX_HEIGHT should be == MINI_MAX_BATCHES");
+
+/*
+ * Upper-bound on most number of branches that we can find our lookup-key in.
+ * (Used in the range iterator context.) A convenience limit, used mostly to
+ * size statically defined arrays.
+ */
+#define TRUNK_RANGE_ITOR_MAX_BRANCHES 256
+
 
 /*
  *----------------------------------------------------------------------
@@ -31,9 +51,7 @@
  *----------------------------------------------------------------------
  */
 typedef struct trunk_config {
-   // robj: if these are redundant, maybe delete them?
-   uint64 page_size;   // must match the cache/fs page_size
-   uint64 extent_size; // same
+   cache_config *cache_cfg;
 
    // parameters
    uint64 fanout;         // children to trigger split
@@ -205,7 +223,7 @@ typedef struct trunk_range_iterator {
    uint64          num_memtable_branches;
    uint64          memtable_start_gen;
    uint64          memtable_end_gen;
-   bool            compacted[TRUNK_MAX_TOTAL_DEGREE];
+   bool            compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    merge_iterator *merge_itor;
    bool            has_max_key;
    bool            at_end;
@@ -213,11 +231,11 @@ typedef struct trunk_range_iterator {
    char            max_key[MAX_KEY_SIZE];
    char            local_max_key[MAX_KEY_SIZE];
    char            rebuild_key[MAX_KEY_SIZE];
-   btree_iterator  btree_itor[TRUNK_MAX_TOTAL_DEGREE];
-   trunk_branch    branch[TRUNK_MAX_TOTAL_DEGREE];
+   btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   trunk_branch    branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 
    // used for merge iterator construction
-   iterator *itor[TRUNK_MAX_TOTAL_DEGREE];
+   iterator *itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 } trunk_range_iterator;
 
 
@@ -451,14 +469,13 @@ trunk_hdr_size();
 
 void
 trunk_config_init(trunk_config *trunk_cfg,
+                  cache_config *cache_cfg,
                   data_config  *data_cfg,
                   log_config   *log_cfg,
                   uint64        memtable_capacity,
                   uint64        fanout,
                   uint64        max_branches_per_node,
                   uint64        btree_rough_count_height,
-                  uint64        page_size,
-                  uint64        extent_size,
                   uint64        filter_remainder_size,
                   uint64        filter_index_size,
                   uint64        reclaim_threshold,

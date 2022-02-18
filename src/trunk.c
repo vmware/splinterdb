@@ -41,15 +41,52 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
    10000000000 // 10  s
 };
 
-#define TRUNK_NUM_MEMTABLES             (4)
-#define TRUNK_HARD_MAX_NUM_TREES        (128)
-#define TRUNK_MAX_PIVOTS                (20)
-#define TRUNK_MAX_BUNDLES               (12)
-#define TRUNK_MAX_SUBBUNDLES            (24)
-#define TRUNK_MAX_FILTERS               (24)
-#define TRUNK_PREFETCH_MIN              (16384)
-#define TRUNK_MIN_SPACE_RECL            (2048)
-#define TRUNK_SUPER_CSUM_SEED           (42)
+/*
+ * At any time, one Memtable is "active" for inserts / updates.
+ * At any time, the most # of Memtables that can be active or in one of these
+ * states, such as, compaction, incorporation, reclamation, is given by this
+ * limit.
+ */
+#define TRUNK_NUM_MEMTABLES (4)
+
+/*
+ * These are hard-coded to values so that statically allocated
+ * structures sized by these limits can fit within 4K byte pages.
+ *
+ * NOTE: The bundle and sub-bundle related limits below are used to size arrays
+ * of structures in splinter_trunk_hdr{}; i.e. Splinter pages of type
+ * PAGE_TYPE_TRUNK. So these constants do affect disk-resident structures.
+ */
+#define TRUNK_MAX_PIVOTS            (20)
+#define TRUNK_MAX_BUNDLES           (12)
+#define TRUNK_MAX_SUBBUNDLES        (24)
+#define TRUNK_MAX_SUBBUNDLE_FILTERS (24)
+
+/*
+ * For a "small" range query, you don't want to prefetch pages.
+ * This is the minimal # of items requested before we turn ON prefetching.
+ * (Empirically established through past experiments, for small key-value
+ * pairs. So, _may_ be less efficient in general cases. Needs a revisit.)
+ */
+#define TRUNK_PREFETCH_MIN (16384)
+
+/*
+ * If space reclamation had been configured when Splinter was instantiated.
+ * Splinter can perform extra compactions to reclaim space.
+ * Compactions are added to the space reclamation queue if the "estimated"
+ * amount of space that can be reclaimed is > this limit.
+ */
+#define TRUNK_MIN_SPACE_RECL (2048)
+
+/* Some randomly chosen Splinter super-block checksum seed. */
+#define TRUNK_SUPER_CSUM_SEED (42)
+
+/*
+ * When a leaf becomes full, Splinter estimates the amount of data in the leaf.
+ * If the 'estimated' amount of data is > this threshold, Splinter will split
+ * the leaf. Otherwise, the leaf page will be compacted.
+ * (This limit has also been empirically established thru in-house experiments.)
+ */
 #define TRUNK_SINGLE_LEAF_THRESHOLD_PCT (75)
 
 //#define TRUNK_LOG
@@ -143,17 +180,16 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          As part of this process, the generation number of the leaf into
  *          which the new tuple is placed is returned and stored in the log (if
  *          used) in order to establish a per-key temporal ordering.  The
- *          memtable also keeps an list of fingerprints, fp_arr, which are used
+ *          memtable also keeps a list of fingerprints, fp_arr, which are used
  *          to build the filter when the memtable becomes a branch.
  *
  *       Incorporation When the memtable fills, it is incorporated
  *          into the root node. The memtable locks itself to inserts
- *          (but not lookups), splinter switches the active memtable,
+ *          (but not lookups), Splinter switches the active memtable,
  *          then the filter is built from the fp_arr, and the
  *          btree in the memtable is inserted into the
  *          root as a new (distinct) branch.  Then the memtable is
- *          reinitialized with a new (empty) btree and
- *          unlocked.
+ *          reinitialized with a new (empty) btree and unlocked.
  *
  *       Flushing
  *          A node is considered full when it has max_tuples_per_node tuples
@@ -270,9 +306,9 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 
 /*
  *-----------------------------------------------------------------------------
- * Trunk Nodes:
+ * Trunk Nodes: splinter_trunk_hdr{}: Disk-resident structure
  *
- *       A trunk node consists of the following:
+ *   A trunk node, on pages of PAGE_TYPE_TRUNK type, consists of the following:
  *
  *       header
  *          meta data
@@ -293,7 +329,7 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *          Subbundles function properly in the current design, but are not
  *          used for anything. They are going to be used for routing filters.
  *       ----------
- *       array of pivots Each node has a pivot corresponding to each
+ *       array of pivots: Each node has a pivot corresponding to each
  *          child as well as an additional last pivot which contains
  *          an exclusive upper bound key for the node. Each pivot has
  *          a key which is an inclusive lower bound for the keys in
@@ -352,9 +388,15 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  *-----------------------------------------------------------------------------
  */
 
-// A super block
-typedef struct trunk_super_block {
-   uint64      root_addr;
+/*
+ *-----------------------------------------------------------------------------
+ * Splinter Super Block: Disk-resident structure.
+ * Super block lives on page of page type == PAGE_TYPE_SUPERBLOCK.
+ *-----------------------------------------------------------------------------
+ */
+typedef struct ONDISK trunk_super_block {
+   uint64 root_addr; // Address of the root of the trunk for the instance
+                     // referenced by this superblock.
    uint64      meta_tail;
    uint64      log_addr;
    uint64      log_meta_addr;
@@ -367,24 +409,34 @@ typedef struct trunk_super_block {
 /*
  * A subbundle is a collection of branches which originated in the same node.
  * It is used to organize branches with their routing filters when they are
- * flushed or otherwise moved or reorganized.  A query to the node uses the
+ * flushed or otherwise moved or reorganized. A query to the node uses the
  * routing filter to filter the branches in the subbundle.
+ * Disk-resident artifact.
  */
+typedef uint16 trunk_subbundle_state_t;
 typedef enum trunk_subbundle_state {
-   SB_STATE_UNCOMPACTED_INDEX,
+   SB_STATE_UNCOMPACTED_INDEX = 0,
    SB_STATE_UNCOMPACTED_LEAF,
    SB_STATE_COMPACTED, // compacted subbundles are always index
 } trunk_subbundle_state;
 
-typedef struct PACKED trunk_subbundle {
-   trunk_subbundle_state state;
-   uint16                start_branch;
-   uint16                end_branch;
-   uint16                start_filter;
-   uint16                end_filter;
+/*
+ *-----------------------------------------------------------------------------
+ * Splinter Sub-bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
+ *-----------------------------------------------------------------------------
+ */
+typedef struct ONDISK trunk_subbundle {
+   trunk_subbundle_state_t state;
+   uint16                  start_branch;
+   uint16                  end_branch;
+   uint16                  start_filter;
+   uint16                  end_filter;
 } trunk_subbundle;
 
 /*
+ *-----------------------------------------------------------------------------
+ * Splinter Bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
+ *
  * A flush moves branches from the parent to a bundle in the child. The bundle
  * is then compacted with a compact_bundle job.
  *
@@ -393,19 +445,22 @@ typedef struct PACKED trunk_subbundle {
  * When a compact_bundle job completes, the branches in the bundle are replaced
  * with the outputted branch of the compaction and the bundle is marked
  * compacted. If there is not an earlier uncompacted bundle, the bundle can be
- * released and the compacted branch can become a whole branch. This is
+ * released and the compacted branch can become a whole branch. This is to
  * maintain the invariant that the outstanding bundles form a contiguous range.
+ *-----------------------------------------------------------------------------
  */
-typedef struct PACKED trunk_bundle {
+typedef struct ONDISK trunk_bundle {
    uint16 start_subbundle;
    uint16 end_subbundle;
    uint64 num_tuples;
 } trunk_bundle;
 
 /*
- * Trunk headers:
+ *-----------------------------------------------------------------------------
+ * Trunk headers: Disk-resident structure
  *
  * Contains metadata for trunk nodes. See below for comments on fields.
+ * Found on pages of page type == PAGE_TYPE_TRUNK
  *
  * Generation numbers are used by asynchronous processes to detect node splits.
  *    internal nodes: Splits increment the generation number of the left node.
@@ -415,8 +470,9 @@ typedef struct PACKED trunk_bundle {
  *    leaves: Splits increment the generation numbers of all the resulting
  *       leaves. This is because there are no processes which need to revisit
  *       all the created leaves.
+ *-----------------------------------------------------------------------------
  */
-typedef struct PACKED trunk_hdr {
+typedef struct ONDISK trunk_hdr {
    uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
    uint16 height;           // height of the node
    uint64 next_addr;        // PBN of the node's successor (0 if no successor)
@@ -435,17 +491,21 @@ typedef struct PACKED trunk_hdr {
 
    trunk_bundle    bundle[TRUNK_MAX_BUNDLES];
    trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
-   routing_filter  sb_filter[TRUNK_MAX_FILTERS];
+   routing_filter  sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
 } trunk_hdr;
 
 /*
+ *-----------------------------------------------------------------------------
+ * Splinter Pivot Data: Disk-resident structure on Trunk pages
+ *
  * A pivot consists of the pivot key (of size cfg.key_size) followed by a
  * trunk_pivot_data
  *
  * The generation is used by asynchronous processes to determine when a pivot
  * has split
+ *-----------------------------------------------------------------------------
  */
-typedef struct trunk_pivot_data {
+typedef struct ONDISK trunk_pivot_data {
    uint64         addr;         // PBN of the child
    uint64         num_tuples;   // estimate of the # of tuples for this pivot
    uint64         generation;   // receives new higher number when pivot splits
@@ -462,6 +522,18 @@ typedef enum trunk_compaction_type {
    TRUNK_COMPACTION_TYPE_SPACE_REC,
    NUM_TRUNK_COMPACTION_TYPES,
 } trunk_compaction_type;
+
+/*
+ * Used to specify compaction bundle "task" request. These enums specify
+ * the compaction bundle request type. (Not disk-resident.)
+ */
+typedef enum splinter_compaction_type {
+   SPLINTER_COMPACTION_TYPE_FLUSH,
+   SPLINTER_COMPACTION_TYPE_LEAF_SPLIT,
+   SPLINTER_COMPACTION_TYPE_SINGLE_LEAF_SPLIT,
+   SPLINTER_COMPACTION_TYPE_SPACE_REC,
+   NUM_SPLINTER_COMPACTION_TYPES,
+} splinter_compaction_type;
 
 // arguments to a compact_bundle job
 struct trunk_compact_bundle_req {
@@ -506,16 +578,16 @@ typedef bool (*node_fn)(trunk_handle *spl, uint64 addr, void *arg);
 
 // Used by trunk_compact_bundle()
 typedef struct {
-   trunk_btree_skiperator skip_itor[TRUNK_MAX_TOTAL_DEGREE];
-   iterator              *itor_arr[TRUNK_MAX_TOTAL_DEGREE];
+   trunk_btree_skiperator skip_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   iterator              *itor_arr[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    key_buffer             saved_pivot_keys[TRUNK_MAX_PIVOTS];
 } compact_bundle_scratch;
 
 // Used by trunk_split_leaf()
 typedef struct {
    char           pivot[TRUNK_MAX_PIVOTS][MAX_KEY_SIZE];
-   btree_iterator btree_itor[TRUNK_MAX_TOTAL_DEGREE];
-   iterator      *rough_itor[TRUNK_MAX_TOTAL_DEGREE];
+   btree_iterator btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
+   iterator      *rough_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 } split_leaf_scratch;
 
 /*
@@ -623,6 +695,24 @@ const static iterator_ops trunk_btree_skiperator_ops = {
 
 // clang-format on
 
+static inline uint64
+trunk_page_size(const trunk_config *cfg)
+{
+   return cache_config_page_size(cfg->cache_cfg);
+}
+
+static inline uint64
+trunk_extent_size(const trunk_config *cfg)
+{
+   return cache_config_extent_size(cfg->cache_cfg);
+}
+
+static inline uint64
+trunk_pages_per_extent(const trunk_config *cfg)
+{
+   return cache_config_pages_per_extent(cfg->cache_cfg);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * Super block functions
@@ -646,7 +736,7 @@ trunk_set_super_block(trunk_handle *spl,
       rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    }
    platform_assert_status_ok(rc);
-   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_MISC);
+   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    while (!cache_claim(spl->cc, super_page)) {
       platform_sleep(wait);
       wait *= 2;
@@ -673,7 +763,7 @@ trunk_set_super_block(trunk_handle *spl,
    cache_unlock(spl->cc, super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
-   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_MISC);
+   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
 }
 
 trunk_super_block *
@@ -684,7 +774,7 @@ trunk_get_super_block_if_valid(trunk_handle *spl, page_handle **super_page)
 
    platform_status rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
    platform_assert_status_ok(rc);
-   *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_MISC);
+   *super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    super       = (trunk_super_block *)(*super_page)->data;
 
    if (!platform_checksum_is_equal(
@@ -790,6 +880,13 @@ trunk_set_next_addr(trunk_handle *spl, page_handle *node, uint64 addr)
    hdr->next_addr = addr;
 }
 
+/*
+ * trunk_for_each_node() is an iterator driver function to walk through all
+ * nodes in a Splinter tree, and to execute the work-horse 'func' function on
+ * each node.
+ *
+ * Returns: TRUE, if 'func' was successful on all nodes. FALSE, otherwise.
+ */
 bool
 trunk_for_each_node(trunk_handle *spl, node_fn func, void *arg)
 {
@@ -1819,6 +1916,10 @@ static inline routing_filter *
 trunk_get_sb_filter(trunk_handle *spl, page_handle *node, uint16 filter_no)
 {
    trunk_hdr *hdr = (trunk_hdr *)node->data;
+   debug_assert(filter_no < TRUNK_MAX_SUBBUNDLE_FILTERS,
+                "filter_no=%d should be < TRUNK_MAX_SUBBUNDLE_FILTERS (%d)",
+                filter_no,
+                TRUNK_MAX_SUBBUNDLE_FILTERS);
    return &hdr->sb_filter[filter_no];
 }
 
@@ -2264,7 +2365,7 @@ trunk_get_branch(trunk_handle *spl, page_handle *node, uint32 k)
    debug_assert(sizeof(trunk_hdr)
                    + spl->cfg.max_pivot_keys * trunk_pivot_size(spl)
                    + (k + 1) * sizeof(trunk_branch)
-                < spl->cfg.page_size);
+                < trunk_page_size(&spl->cfg));
 
    char *cursor = node->data;
    cursor += sizeof(trunk_hdr) + spl->cfg.max_pivot_keys * trunk_pivot_size(spl)
@@ -2335,7 +2436,8 @@ trunk_process_generation_to_pos(trunk_handle             *spl,
                                 uint64                    generation)
 {
    uint64 pos = 0;
-   while (pos != TRUNK_MAX_PIVOTS && req->pivot_generation[pos] != generation) {
+   while ((pos != TRUNK_MAX_PIVOTS)
+          && (req->pivot_generation[pos] != generation)) {
       pos++;
    }
    return pos;
@@ -3504,8 +3606,8 @@ trunk_replace_routing_filter(trunk_handle             *spl,
          //    node->disk_addr, pdata->generation, num_tuples_to_reclaim);
          srq_update(&spl->srq, pdata->srq_idx, num_tuples_to_reclaim);
          srq_print(&spl->srq);
-      } else if (num_tuples_to_reclaim > TRUNK_MIN_SPACE_RECL
-                 && spl->cfg.reclaim_threshold != UINT64_MAX)
+      } else if ((num_tuples_to_reclaim > TRUNK_MIN_SPACE_RECL)
+                 && (spl->cfg.reclaim_threshold != UINT64_MAX))
       {
          srq_data data = {.addr             = node->disk_addr,
                           .pivot_generation = pdata->generation,
@@ -4049,7 +4151,8 @@ trunk_btree_skiperator_init(trunk_handle           *spl,
    skip_itor->super.ops = &trunk_btree_skiperator_ops;
    uint16 min_pivot_no  = 0;
    uint16 max_pivot_no  = trunk_num_children(spl, node);
-   debug_assert(max_pivot_no < TRUNK_MAX_PIVOTS);
+   debug_assert(
+      (max_pivot_no < TRUNK_MAX_PIVOTS), "max_pivot_no = %d", max_pivot_no);
 
    char *min_key     = pivots[min_pivot_no].k;
    char *max_key     = pivots[max_pivot_no].k;
@@ -4655,7 +4758,7 @@ trunk_split_index(trunk_handle *spl,
    uint64       right_addr = right_node->disk_addr;
 
    // ALEX: Maybe worth figuring out the real page size
-   memmove(right_node->data, left_node->data, spl->cfg.page_size);
+   memmove(right_node->data, left_node->data, trunk_page_size(&spl->cfg));
    char *right_start_pivot = trunk_get_pivot(spl, right_node, 0);
    char *left_split_pivot =
       trunk_get_pivot(spl, left_node, target_num_children);
@@ -4789,6 +4892,7 @@ trunk_single_leaf_threshold(trunk_handle *spl)
 }
 
 /*
+ *----------------------------------------------------------------------
  * split_leaf splits a trunk leaf logically. It determines pivots to split
  * on, uses them to split the leaf and adds them to its parent. It then
  * issues compact_bundle jobs on each leaf to perform the actual compaction.
@@ -4813,6 +4917,7 @@ trunk_single_leaf_threshold(trunk_handle *spl)
  * 6. Issue compact_bundle for last_leaf and release
  * 7. Repeat 4-6 on new leaf
  * 8. Clean up
+ *----------------------------------------------------------------------
  */
 void
 trunk_split_leaf(trunk_handle *spl,
@@ -4935,8 +5040,9 @@ trunk_split_leaf(trunk_handle *spl,
             slice curr_key, pivot_data_slice;
             iterator_get_curr(
                &rough_merge_itor->super, &curr_key, &pivot_data_slice);
+
             const btree_pivot_data *pivot_data = slice_data(pivot_data_slice);
-            rough_count_tuples += pivot_data->num_kvs_in_tree;
+            rough_count_tuples += pivot_data->num_kvs_in_subtree;
             iterator_advance(&rough_merge_itor->super);
             iterator_at_end(&rough_merge_itor->super, &at_end);
          }
@@ -5004,7 +5110,7 @@ trunk_split_leaf(trunk_handle *spl,
          new_leaf = trunk_alloc(spl, 0);
 
          // copy leaf to new leaf
-         memmove(new_leaf->data, leaf->data, spl->cfg.page_size);
+         memmove(new_leaf->data, leaf->data, trunk_page_size(&spl->cfg));
       } else {
          // just going to edit the min/max keys, etc. of original leaf
          new_leaf = leaf;
@@ -5145,7 +5251,7 @@ trunk_split_root(trunk_handle *spl, page_handle *root)
    trunk_hdr   *child_hdr = (trunk_hdr *)child->data;
 
    // copy root to child, fix up root, then split
-   memmove(child_hdr, root_hdr, spl->cfg.page_size);
+   memmove(child_hdr, root_hdr, trunk_page_size(&spl->cfg));
    // num_pivot_keys is changed by add_pivot_new_root below
    root_hdr->height++;
    debug_assert(root_hdr->next_addr == 0);
@@ -5247,7 +5353,12 @@ trunk_range_iterator_init(trunk_handle         *spl,
         mt_gen != range_itor->memtable_end_gen;
         mt_gen--)
    {
-      platform_assert(range_itor->num_branches < TRUNK_MAX_TOTAL_DEGREE);
+      platform_assert(
+         (range_itor->num_branches < TRUNK_RANGE_ITOR_MAX_BRANCHES),
+         "range_itor->num_branches=%lu should be < "
+         " TRUNK_RANGE_ITOR_MAX_BRANCHES (%d).",
+         range_itor->num_branches,
+         TRUNK_RANGE_ITOR_MAX_BRANCHES);
       debug_assert(range_itor->num_branches < ARRAY_SIZE(range_itor->branch));
 
       bool   compacted;
@@ -5280,7 +5391,13 @@ trunk_range_iterator_init(trunk_handle         *spl,
            branch_offset != trunk_pivot_branch_count(spl, node, pdata);
            branch_offset++)
       {
-         platform_assert(range_itor->num_branches < TRUNK_MAX_TOTAL_DEGREE);
+         platform_assert(
+            (range_itor->num_branches < TRUNK_RANGE_ITOR_MAX_BRANCHES),
+            "range_itor->num_branches=%lu should be < "
+            " TRUNK_RANGE_ITOR_MAX_BRANCHES (%d).",
+            range_itor->num_branches,
+            TRUNK_RANGE_ITOR_MAX_BRANCHES);
+
          debug_assert(range_itor->num_branches
                       < ARRAY_SIZE(range_itor->branch));
          uint16 branch_no = trunk_branch_no_sub(
@@ -6611,7 +6728,7 @@ trunk_create(trunk_config     *cfg,
 
    // set up the mini allocator
    //    we use the root extent as the initial mini_allocator head
-   uint64 meta_addr = spl->root_addr + cfg->page_size;
+   uint64 meta_addr = spl->root_addr + trunk_page_size(cfg);
    // The trunk uses an unkeyed mini allocator
    mini_init(&spl->mini,
              cc,
@@ -6638,7 +6755,7 @@ trunk_create(trunk_config     *cfg,
    // set up the initial leaf
    page_handle *leaf     = trunk_alloc(spl, 0);
    trunk_hdr   *leaf_hdr = (trunk_hdr *)leaf->data;
-   memset(leaf_hdr, 0, spl->cfg.page_size);
+   memset(leaf_hdr, 0, trunk_page_size(&spl->cfg));
    const char *min_key = spl->cfg.data_cfg->min_key;
    const char *max_key = spl->cfg.data_cfg->max_key;
    trunk_set_initial_pivots(spl, leaf, min_key, max_key);
@@ -6723,7 +6840,7 @@ trunk_mount(trunk_config     *cfg,
    if (spl->root_addr == 0) {
       return NULL;
    }
-   uint64 meta_head = spl->root_addr + spl->cfg.page_size;
+   uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
 
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
@@ -8110,7 +8227,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
          trunk_branch_count_num_tuples(spl, node, branch_no);
       uint64 kib_in_branch = 0;
       // trunk_branch_extent_count(spl, node, branch_no);
-      kib_in_branch *= spl->cfg.extent_size / 1024;
+      kib_in_branch *= trunk_extent_size(&spl->cfg) / 1024;
       fraction space_amp = init_fraction(
          kib_in_branch * 1024,
          num_tuples_in_branch
@@ -8174,14 +8291,13 @@ trunk_print_branches(trunk_handle *spl)
  */
 void
 trunk_config_init(trunk_config *trunk_cfg,
+                  cache_config *cache_cfg,
                   data_config  *data_cfg,
                   log_config   *log_cfg,
                   uint64        memtable_capacity,
                   uint64        fanout,
                   uint64        max_branches_per_node,
                   uint64        btree_rough_count_height,
-                  uint64        page_size,
-                  uint64        extent_size,
                   uint64        filter_remainder_size,
                   uint64        filter_index_size,
                   uint64        reclaim_threshold,
@@ -8194,12 +8310,10 @@ trunk_config_init(trunk_config *trunk_cfg,
    routing_config *leaf_filter_cfg  = &trunk_cfg->leaf_filter_cfg;
 
    ZERO_CONTENTS(trunk_cfg);
-   trunk_cfg->data_cfg = data_cfg;
+   trunk_cfg->cache_cfg = cache_cfg;
+   trunk_cfg->data_cfg  = data_cfg;
+   trunk_cfg->log_cfg   = log_cfg;
 
-   trunk_cfg->log_cfg = log_cfg;
-
-   trunk_cfg->page_size             = page_size;
-   trunk_cfg->extent_size           = extent_size;
    trunk_cfg->fanout                = fanout;
    trunk_cfg->max_branches_per_node = max_branches_per_node;
    trunk_cfg->reclaim_threshold     = reclaim_threshold;
@@ -8209,17 +8323,16 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_pivot_size = data_cfg->key_size + trunk_pivot_message_size();
    // Setting hard limit and over overprovisioning
    trunk_cfg->max_pivot_keys = trunk_cfg->fanout + 6;
-   bytes_for_branches        = trunk_cfg->page_size - trunk_hdr_size()
+   bytes_for_branches        = trunk_page_size(trunk_cfg) - trunk_hdr_size()
                         - trunk_cfg->max_pivot_keys * trunk_pivot_size;
    trunk_cfg->hard_max_branches_per_node =
       bytes_for_branches / sizeof(trunk_branch) - 1;
 
    // Initialize point message btree
    btree_config_init(&trunk_cfg->btree_cfg,
+                     cache_cfg,
                      trunk_cfg->data_cfg,
-                     btree_rough_count_height,
-                     trunk_cfg->page_size,
-                     trunk_cfg->extent_size);
+                     btree_rough_count_height);
 
    memtable_config_init(&trunk_cfg->mt_cfg,
                         &trunk_cfg->btree_cfg,
@@ -8232,10 +8345,8 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_cfg->target_leaf_tuples = trunk_cfg->max_tuples_per_node / 2;
 
    // filter config settings
-   index_filter_cfg->page_size   = page_size;
-   leaf_filter_cfg->page_size    = page_size;
-   index_filter_cfg->extent_size = extent_size;
-   leaf_filter_cfg->extent_size  = extent_size;
+   index_filter_cfg->cache_cfg = cache_cfg;
+   leaf_filter_cfg->cache_cfg  = cache_cfg;
 
    index_filter_cfg->index_size = filter_index_size;
    index_filter_cfg->seed       = 42;
@@ -8290,8 +8401,8 @@ trunk_config_init(trunk_config *trunk_cfg,
     *   filter_cfg.index_size > (max_tuples_per_node / (addrs_per_page *
     *   pages_per_extent))
     */
-   uint64 addrs_per_page   = trunk_cfg->page_size / sizeof(uint64);
-   uint64 pages_per_extent = trunk_cfg->extent_size / trunk_cfg->page_size;
+   uint64 addrs_per_page   = trunk_page_size(trunk_cfg) / sizeof(uint64);
+   uint64 pages_per_extent = trunk_pages_per_extent(trunk_cfg);
    while (
       leaf_filter_cfg->index_size
       <= (trunk_cfg->max_tuples_per_node / (addrs_per_page * pages_per_extent)))

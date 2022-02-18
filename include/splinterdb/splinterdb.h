@@ -122,10 +122,15 @@ splinterdb_insert(const splinterdb *kvs,
  * Lookups
  **************/
 
+/*
+ * Lookup result buffer is sized by 6 8-byte fields, defined elsewhere.
+ */
+#define SPLINTERDB_LOOKUP_BUFSIZE (6 * sizeof(void *))
+
 /* Lookup results are stored in a splinterdb_lookup_result.
  */
 typedef struct splinterdb_lookup_result {
-   char opaque[48];
+   char opaque[SPLINTERDB_LOOKUP_BUFSIZE];
 } splinterdb_lookup_result;
 
 /*

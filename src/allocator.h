@@ -21,20 +21,57 @@ typedef uint64 allocator_root_id;
 #define AL_NO_REFS 1
 #define AL_FREE    0
 
+/*
+ * ----------------------------------------------------------------------------
+ * Different types of pages managed by SplinterDB:
+ * This is currently not a Disk-resident value, but different modules that
+ * access a type of a page "know" to expect a page of a specific type / format.
+ *
+ * Brief overview of the data structures involved in different page types:
+ *
+ * - PAGE_TYPE_TRUNK      : struct trunk_hdr{} + computed offsets for
+ *                          pivots / branches depending on key_size
+ *                          Following the trunk_hdr{}, we have an array of
+ *                          [<key>, struct trunk_pivot_data{} ]
+ *
+ * - PAGE_TYPE_BRANCH, PAGE_TYPE_MEMTABLE
+ *                        : struct btree_hdr{} + computed items for offsets.
+ *
+ * - PAGE_TYPE_FILTER     : Freeform, because they consist of very concise
+ *                          and heavily optimized data structures
+ *
+ * - PAGE_TYPE_LOG        : struct shard_log_hdr{} + computed offsets
+ *
+ * - PAGE_TYPE_SUPERBLOCK : struct trunk_super_block{}
+ * ----------------------------------------------------------------------------
+ */
 typedef enum page_type {
-   PAGE_TYPE_TRUNK,
+   PAGE_TYPE_FIRST = 0,
+   PAGE_TYPE_TRUNK = PAGE_TYPE_FIRST,
    PAGE_TYPE_BRANCH,
    PAGE_TYPE_MEMTABLE,
    PAGE_TYPE_FILTER,
    PAGE_TYPE_LOG,
-   PAGE_TYPE_MISC,
+   PAGE_TYPE_SUPERBLOCK,
+   PAGE_TYPE_MISC, // Used mainly as a testing hook, for cache access testing.
    PAGE_TYPE_LOCK_NO_DATA,
    NUM_PAGE_TYPES,
    PAGE_TYPE_INVALID,
 } page_type;
 
-static const char *const page_type_str[NUM_PAGE_TYPES] =
-   {"trunk", "branch", "memtable", "filter", "log", "misc", "lock"};
+static const char *const page_type_str[] = {"trunk",
+                                            "branch",
+                                            "memtable",
+                                            "filter",
+                                            "log",
+                                            "superblock",
+                                            "misc",
+                                            "lock"};
+
+// Ensure that the page-type lookup array is adequately sized.
+_Static_assert(
+   ARRAY_SIZE(page_type_str) == NUM_PAGE_TYPES,
+   "Lookup array page_type_str[] is incorrectly sized for NUM_PAGE_TYPES");
 
 typedef struct allocator allocator;
 
@@ -57,6 +94,10 @@ typedef uint64 (*get_size_fn)(allocator *al);
 typedef void (*print_fn)(allocator *al);
 typedef void (*assert_fn)(allocator *al);
 
+/*
+ * Define an abstract allocator interface, holding different allocation-related
+ * function pointers.
+ */
 typedef struct allocator_ops {
    alloc_fn alloc;
 
@@ -71,8 +112,6 @@ typedef struct allocator_ops {
    get_size_fn in_use;
 
    get_size_fn get_capacity;
-   get_size_fn get_extent_size;
-   get_size_fn get_page_size;
 
    assert_fn assert_noleaks;
 
@@ -140,18 +179,6 @@ static inline uint64
 allocator_get_capacity(allocator *al)
 {
    return al->ops->get_capacity(al);
-}
-
-static inline uint64
-allocator_extent_size(allocator *al)
-{
-   return al->ops->get_extent_size(al);
-}
-
-static inline uint64
-allocator_page_size(allocator *al)
-{
-   return al->ops->get_page_size(al);
 }
 
 static inline void
