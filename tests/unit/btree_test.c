@@ -158,10 +158,9 @@ CTEST2(btree, test_leaf_split)
 static int
 leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-   char *leaf_buffer =
-      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
-   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int        nkvs = 240;
+   char      *leaf_buffer = platform_allocate(hid, cfg->page_size);
+   btree_hdr *hdr         = (btree_hdr *)leaf_buffer;
+   int        nkvs        = 240;
 
    btree_init_hdr(cfg, hdr);
 
@@ -226,8 +225,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char *leaf_buffer =
-      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   char *leaf_buffer = platform_allocate(hid, cfg->page_size);
 
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 256;
@@ -266,10 +264,9 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 static int
 index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-   char *index_buffer =
-      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
-   btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int        nkvs = 100;
+   char      *index_buffer = platform_allocate(hid, cfg->page_size);
+   btree_hdr *hdr          = (btree_hdr *)index_buffer;
+   int        nkvs         = 100;
 
    bool rv     = FALSE;
    int  cmp_rv = 0;
@@ -324,10 +321,9 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 static int
 index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char *index_buffer =
-      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
-   btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int        nkvs = 100;
+   char      *index_buffer = platform_allocate(hid, cfg->page_size);
+   btree_hdr *hdr          = (btree_hdr *)index_buffer;
+   int        nkvs         = 100;
 
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
@@ -362,10 +358,8 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid)
 {
-   char *leaf_buffer =
-      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
-   char *msg_buffer =
-      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   char *leaf_buffer = platform_allocate(hid, cfg->page_size);
+   char *msg_buffer  = platform_allocate(hid, cfg->page_size);
 
    memset(msg_buffer, 0, cfg->page_size);
 

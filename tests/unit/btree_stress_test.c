@@ -304,8 +304,8 @@ insert_tests(cache           *cc,
    bool   was_unique;
    int    keybuf_size = cfg->page_size;
    int    msgbuf_size = cfg->page_size;
-   uint8 *keybuf = platform_aligned_malloc(heap_id, keybuf_size, keybuf_size);
-   uint8 *msgbuf = platform_aligned_malloc(heap_id, msgbuf_size, msgbuf_size);
+   uint8 *keybuf      = platform_allocate(heap_id, keybuf_size);
+   uint8 *msgbuf      = platform_allocate(heap_id, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -371,10 +371,10 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 *keybuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
-   uint8 *msgbuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   uint8 *keybuf = platform_allocate(hid, cfg->page_size);
+   uint8 *msgbuf = platform_allocate(hid, cfg->page_size);
+   memset(msgbuf, 0, cfg->page_size);
 
-   memset(keybuf, 0, cfg->page_size);
    writable_buffer result;
    writable_buffer_init(&result, hid, 0, NULL);
 
@@ -422,11 +422,10 @@ iterator_tests(cache           *cc,
 
    uint64 seen = 0;
    bool   at_end;
-   uint8 *prevbuf =
-      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
-   slice  prev   = NULL_SLICE;
-   uint8 *keybuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
-   uint8 *msgbuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   uint8 *prevbuf = platform_allocate(hid, cfg->page_size);
+   slice  prev    = NULL_SLICE;
+   uint8 *keybuf  = platform_allocate(hid, cfg->page_size);
+   uint8 *msgbuf  = platform_allocate(hid, cfg->page_size);
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
       slice key, msg;

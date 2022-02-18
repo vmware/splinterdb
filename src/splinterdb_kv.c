@@ -460,9 +460,7 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
    char *msg_buffer =
-      platform_aligned_malloc(kvsb->heap_id,
-                              PLATFORM_CACHELINE_SIZE,
-                              val_max_len + sizeof(basic_message));
+      platform_allocate(kvsb->heap_id, val_max_len + sizeof(basic_message));
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);
