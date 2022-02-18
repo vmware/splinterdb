@@ -73,6 +73,20 @@ echo "      **** SplinterDB Test Suite Execution Times **** " > "${test_exec_log
 echo >> "${test_exec_log_file}"
 
 if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
+   # For some coverage, exercise --help, --list args for unit test binaries
+   set -x
+   bin/unit_test --help
+
+   bin/unit_test --list
+
+   bin/unit_test --list splinterdb
+
+   bin/unit/btree_test --help
+
+   bin/unit/splinterdb_test --list
+
+   set +x
+
    echo
    echo "NOTE: **** Only running fast unit tests ****"
    echo "To run all tests, set the env var, and re-run: $ INCLUDE_SLOW_TESTS=true $Me"
