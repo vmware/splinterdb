@@ -6,6 +6,16 @@
  * splinter_test.c --
  *
  *  Exercises the basic SplinterDB interfaces.
+ *
+ * NOTE: There is some duplication of the splinter_do_inserts() in the test
+ * cases which adds considerable execution times. The test_inserts() test case
+ * will run with the default test configuration, which is sufficiently large
+ * enough to trigger a compaction. The expectation is that this unit test case
+ * will be invoked on its own, with a reduced memtable capacity to invoke the
+ * lookups test case(s):
+ *
+ * $ bin/unit/splinter_test test_inserts
+ * $ bin/unit/splinter_test --memtable-capacity-mib 4 test_lookups
  * -----------------------------------------------------------------------------
  */
 #include "splinterdb/platform_public.h"
@@ -75,7 +85,6 @@ CTEST_DATA(splinter)
    // Declare head handles for io, allocator, cache and splinter allocation.
    platform_heap_handle hh;
    platform_heap_id     hid;
-   uint64               seed;
 
    // Thread-related config parameters. These don't change for unit tests
    uint32 num_insert_threads;
@@ -99,6 +108,9 @@ CTEST_DATA(splinter)
    platform_io_handle *io;
    clockcache         *clock_cache;
    task_system        *tasks;
+
+   // Test execution related configuration
+   test_exec_config test_exec_cfg;
 };
 
 /*
@@ -124,8 +136,6 @@ CTEST_SETUP(splinter)
    heap_capacity        = MIN(heap_capacity, UINT32_MAX);
    heap_capacity        = MAX(heap_capacity, 2 * GiB);
 
-   data->seed = 0;
-
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
                                              heap_capacity,
@@ -143,13 +153,15 @@ CTEST_SETUP(splinter)
    data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg,
                                         num_tables);
 
+   ZERO_STRUCT(data->test_exec_cfg);
+
    rc = test_parse_args_n(data->splinter_cfg,
                           data->data_cfg,
                           &data->io_cfg,
                           &data->al_cfg,
                           data->cache_cfg,
                           &data->log_cfg,
-                          &data->seed,
+                          &data->test_exec_cfg,
                           num_tables,
                           Ctest_argc,   // argc/argv globals setup by CTests
                           (char **)Ctest_argv);
@@ -250,15 +262,13 @@ CTEST_TEARDOWN(splinter)
 
 /*
  * **************************************************************************
- * Basic test case to verify trunk_insert() API and validate inserts.
- * This is a valid test case and does run successfully. However, enabling
- * this increases the execution time of this test, tipping the elapsed time
- * for debug builds over the timeout limits (25 mins, at the time of this
- * writing). The insert phase is also required, and covered, in the subsequent
- * lookups test case, hence, this test case is skipped.
+ * Basic test case to verify trunk_insert() API and validate a very large #
+ * of inserts. This test case is designed to insert enough rows to trigger
+ * compaction. (We don't, quite, actually verify that compaction has occurred
+ * but based on the default test configs, we expect that it would trigger.)
  * **************************************************************************
  */
-CTEST2_SKIP(splinter, test_inserts)
+CTEST2(splinter, test_inserts)
 {
    allocator *alp = (allocator *)&data->al;
 
@@ -270,7 +280,9 @@ CTEST2_SKIP(splinter, test_inserts)
                                     data->hid);
    ASSERT_TRUE(spl != NULL);
 
-   int    tuple_size  = 0;
+   int tuple_size = 0;
+
+   // TRUE : Also do verification-after-inserts
    uint64 num_inserts = splinter_do_inserts(data, spl, TRUE, NULL, &tuple_size);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
@@ -305,9 +317,10 @@ CTEST2(splinter, test_lookups)
    char *shadow     = NULL;
    int   tuple_size = 0;
 
-   // TRUE : Also do verification-after-inserts
+   // FALSE : No need to do verification-after-inserts, as that functionality
+   // has been tested earlier in test_inserts() case.
    uint64 num_inserts =
-      splinter_do_inserts(data, spl, TRUE, &shadow, &tuple_size);
+      splinter_do_inserts(data, spl, FALSE, &shadow, &tuple_size);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
@@ -533,8 +546,23 @@ splinter_do_inserts(void         *datap,
    // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
       (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
-   int num_inserts =
-      data->splinter_cfg[0].max_tuples_per_node * data->splinter_cfg[0].fanout;
+
+   // First see if test was invoked with --num-inserts execution parameter
+   int num_inserts = data->test_exec_cfg.num_inserts;
+
+   // If not, derive total # of rows to be inserted
+   if (!num_inserts) {
+      trunk_config *splinter_cfg = data->splinter_cfg;
+      num_inserts = splinter_cfg->max_tuples_per_node * splinter_cfg->fanout;
+   }
+
+   platform_default_log("Splinter_cfg max_tuples_per_node=%lu"
+                        ", fanout=%lu"
+                        ", max_tuples_per_memtable=%lu, num_inserts=%d. ",
+                        data->splinter_cfg[0].max_tuples_per_node,
+                        data->splinter_cfg[0].fanout,
+                        data->splinter_cfg[0].mt_cfg.max_tuples_per_memtable,
+                        num_inserts);
 
    // Debug hook: Override this to smaller value for faster test execution,
    // while doing test-dev / debugging. Default is some big value, like
@@ -596,12 +624,17 @@ splinter_do_inserts(void         *datap,
    }
 
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   uint64 elapsed_s  = NSEC_TO_SEC(elapsed_ns);
 
+   // For small # of inserts, elapsed sec will be 0. Deal with it.
    platform_default_log(
-      "... tuple_size=%d, splinter insert time %lu s, per tuple %lu ns. ",
+      "... tuple_size=%d, splinter insert time %lu s, per "
+      "tuple %lu ns, %s%lu rows/sec. ",
       *tuple_size,
-      NSEC_TO_SEC(elapsed_ns),
-      (elapsed_ns / num_inserts));
+      elapsed_s,
+      (elapsed_ns / num_inserts),
+      (elapsed_s ? "" : "(n/a)"),
+      (elapsed_s ? (num_inserts / NSEC_TO_SEC(elapsed_ns)) : num_inserts));
 
    platform_assert(trunk_verify_tree(spl));
    cache_assert_free((cache *)data->clock_cache);

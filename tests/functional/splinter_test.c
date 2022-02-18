@@ -2356,13 +2356,16 @@ splinter_test(int argc, char *argv[])
    data_config       *data_cfg = TYPED_ARRAY_MALLOC(hid, data_cfg, num_tables);
    clockcache_config *cache_cfg =
       TYPED_ARRAY_MALLOC(hid, cache_cfg, num_tables);
+   test_exec_config test_exec_cfg;
+   ZERO_STRUCT(test_exec_cfg);
+
    rc = test_parse_args_n(splinter_cfg,
                           data_cfg,
                           &io_cfg,
                           &al_cfg,
                           cache_cfg,
                           &log_cfg,
-                          &seed,
+                          &test_exec_cfg,
                           num_tables,
                           config_argc,
                           config_argv);
@@ -2385,6 +2388,8 @@ splinter_test(int argc, char *argv[])
       usage(argv[0]);
       goto cfg_free;
    }
+
+   seed = test_exec_cfg.seed;
 
    // Max active threads
    uint32 total_threads = num_lookup_threads;

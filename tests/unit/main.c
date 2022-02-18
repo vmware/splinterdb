@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <wchar.h>
 
+#include "util.h"
 #include "ctest.h"
 
 #define MSG_SIZE 4096
@@ -385,21 +386,28 @@ ctest_is_unit_test(const char *argv0)
 
 /*
  * ---------------------------------------------------------------------------
- * Process the command-line arguments. Handle the following cases:
+ * Process the command-line arguments. The main job of this function is to
+ * do some blind-parsing of the argc/argv[] and to figure out if:
+ *
+ * - the last arg is a "<suite-name>" or "<test-case-name>" arg.
+ * - or the last-2-args is pair of "<suite-name>" "<test-case-name>" args.
+ *
+ * Handle the following valid usages:
  *
  * 1. We can invoke the top-level unit_test as follows:
  *
- *      unit_test [ --one-or-more-config options ] [ <suite-name> [
- * <test-case-name> ] ]
+ *   unit_test [ --config-options ]* [ <suite-name> [ <test-case-name> ] ]
  *
  * 2. We can invoke an individual stand-alone unit_test as follows:
  *
- *      sub_unit_test [ --one-or-more-config options ] [ <test-case-name> ]
+ *      sub_unit_test [ --config-options ]* [ <test-case-name> ]
  *
  * This routines handles both cases to identify suite_name and test-case_name.
  *
  * Returns:
- *  # of trailing arguments processed. -1, in case of any usage / invocation
+ *  # of trailing arguments processed; i.e. identified as either suite-name or
+ *  test-name and extracted to output args.
+ *  -1, in case of any usage / invocation
  * error.
  * ---------------------------------------------------------------------------
  */
@@ -407,20 +415,33 @@ static int
 ctest_process_args(const int    argc,
                    const char  *argv[],
                    int          program_is_unit_test,
-                   const char **suite_name,
-                   const char **testcase_name)
+                   const char **suite_name,    // OUT
+                   const char **testcase_name) // OUT
 {
    if (argc <= 1) {
       return 0;
    }
 
-   // If the last arg is a --<arg>, then it's a config option. No need for
-   // further processing to extract "name"-args.
-   if (strncmp(argv[argc - 1], "--", 2) == 0) {
+   uint64 unused;
+
+   /*
+    * If the last arg is a --<arg>, then it's a config option with a value.
+    * If last arg is parseable as a number, it's probably a "--config <value>"
+    * No need for further processing to extract the "name"-args.
+    */
+   if ((strncmp(argv[argc - 1], "--", 2) == 0)
+       || (try_string_to_uint64(argv[argc - 1], &unused)))
+   {
       return 0;
    }
 
-   // We expect up to 2 trailing "name"-args to be provided.
+   /*
+    * Here, argc >= 2; i.e. we are dealing with either one of these cases:
+    *   - bin/unit_test <suite-name>
+    *   - bin/unit_test <suite-name> <test-case-name>
+    *   - bin/unit/standalone <test-case-name>
+    * We expect up to 2 trailing "name"-args to be provided.
+    */
    if (program_is_unit_test) {
       *suite_name = argv[argc - 1];
    } else {
@@ -436,20 +457,46 @@ ctest_process_args(const int    argc,
    if (!program_is_unit_test && (strcmp(argv[argc - 2], "--list") == 0)) {
       return -1;
    }
+
+   // Here, argc >= 3. If the last-but-one arg is a --<option> ...
    if (strncmp(argv[argc - 2], "--", 2) == 0) {
-      // We stripped off 1 "name"-argument from list.
+      /*
+       * We stripped off the last one "name"-argument from list.
+       * Rest are config options, which can be passed-through.
+       */
       return 1;
    }
 
+   // Here, still argc >= 3
    if (program_is_unit_test) {
+      /*
+       * Separately identify these two cases:
+       *   - bin/unit_test <suite-name> <test-case-name>
+       *   - bin/unit_test <suite-name>
+       */
+      if (try_string_to_uint64(argv[argc - 2], &unused)) {
+         // We have already extracted the very last arg as suite-name.
+         // Penultimate one probably belongs to a config option. We are done.
+         return 1;
+      }
+
+      // Last pair is now parsed as: <suite-name> <test-case-name>
       *suite_name    = argv[argc - 2];
       *testcase_name = argv[argc - 1];
       return 2;
-   } else {
-      // It's an error to issue: sub_unit-test <suite-name> <testcase-name>
+   } else if (!try_string_to_uint64(argv[argc - 2], &unused)) {
+      /*
+       * We could not parse the penultimate arg as a number. So, it's probably
+       * a string. It's an error to issue:
+       *   standalone [ config-options ]* <suite-name> <testcase-name>
+       */
       return -1;
    }
-   return 0;
+   /*
+    * We are down to the last case of:
+    *   sub_unit-test [ config-options ]* <testcase-name>
+    */
+   return 1;
 }
 
 /*
