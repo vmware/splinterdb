@@ -940,7 +940,7 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
       if (!mini_addrs_share_extent(cc, last_meta_addr, meta_addr)) {
          uint64 last_meta_base_addr =
             cache_extent_base_addr(cc, last_meta_addr);
-         uint8  ref = allocator_dec_ref(al, last_meta_base_addr, type);
+         uint8 ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_NO_REFS);
          cache_hard_evict_extent(cc, last_meta_base_addr, type);
          ref = allocator_dec_ref(al, last_meta_base_addr, type);

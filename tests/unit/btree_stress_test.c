@@ -340,7 +340,7 @@ ungen_key(slice key)
 static slice
 gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)])
 {
-   data_handle *dh = (data_handle *)buffer;
+   data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (btree_page_size(cfg) / 3));
 
    dh->message_type = MESSAGE_TYPE_INSERT;

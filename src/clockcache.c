@@ -1258,12 +1258,12 @@ clockcache_write_callback(void           *metadata,
                           uint64          count,
                           platform_status status)
 {
-   clockcache        *cc = *(clockcache **)metadata;
-   uint64             i;
-   uint32             entry_number;
-   clockcache_entry  *entry;
-   uint64             addr;
-   debug_only uint32  debug_status;
+   clockcache       *cc = *(clockcache **)metadata;
+   uint64            i;
+   uint32            entry_number;
+   clockcache_entry *entry;
+   uint64            addr;
+   debug_only uint32 debug_status;
 
    platform_assert_status_ok(status);
    platform_assert(count > 0);
@@ -1749,8 +1749,8 @@ clockcache_config_init(clockcache_config *cache_cfg,
    cache_cfg->io_cfg        = io_cfg;
    cache_cfg->capacity      = capacity;
    cache_cfg->log_page_size = 63 - __builtin_clzll(io_cfg->page_size);
-   uint64 log_extent_size     = 63 - __builtin_clzll(io_cfg->extent_size);
-   cache_cfg->extent_mask     = ~((1ULL << log_extent_size) - 1);
+   uint64 log_extent_size   = 63 - __builtin_clzll(io_cfg->extent_size);
+   cache_cfg->extent_mask   = ~((1ULL << log_extent_size) - 1);
    cache_cfg->page_capacity = capacity / io_cfg->page_size;
    cache_cfg->use_stats     = use_stats;
 
