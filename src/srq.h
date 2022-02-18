@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * srq.h --
+ * srq.h -- Space Reclamation Queue
  *
  *     This file contains the interface for a priority queue that splinter uses
  *     to identify potential compactions to perform to reclaim space.
@@ -13,7 +13,9 @@
 
 #include "platform.h"
 
-#define SRQ_MAX_ENTRIES     8192
+// Max size of space reclamation queue (For static allocation now)
+#define SRQ_MAX_ENTRIES 8192
+
 #define SRQ_INDEX_AVAILABLE -1
 
 typedef struct srq_data {
@@ -52,21 +54,21 @@ srq_deinit(srq *queue)
 static inline int64
 srq_parent(int64 pos)
 {
-   debug_assert(pos >= 0);
+   debug_assert(pos >= 0, "pos=%ld", pos);
    return (pos - 1) / 2;
 }
 
 static inline int64
 srq_lchild(int64 pos)
 {
-   debug_assert(pos >= 0);
+   debug_assert(pos >= 0, "pos=%ld", pos);
    return 2 * pos + 1;
 }
 
 static inline int64
 srq_rchild(int64 pos)
 {
-   debug_assert(pos >= 0);
+   debug_assert(pos >= 0, "pos=%ld", pos);
    return 2 * pos + 2;
 }
 
@@ -76,8 +78,8 @@ srq_rchild(int64 pos)
 static inline bool
 srq_has_priority(srq *queue, int64 lpos, int64 rpos)
 {
-   debug_assert(lpos >= 0);
-   debug_assert(rpos >= 0);
+   debug_assert(lpos >= 0, "lpos=%ld", lpos);
+   debug_assert(rpos >= 0, "rpos=%ld", rpos);
    return queue->heap[lpos].priority > queue->heap[rpos].priority;
 }
 
@@ -107,8 +109,11 @@ srq_swap(srq *queue, int64 lpos, int64 rpos)
 static inline void
 srq_move_tail_to_pos(srq *queue, int64 pos)
 {
-   debug_assert(pos >= 0);
-   debug_assert(pos < queue->num_entries);
+   debug_assert(pos >= 0, "pos=%ld", pos);
+   debug_assert(pos < queue->num_entries,
+                "pos=%ld, num_entries=%ld",
+                pos,
+                queue->num_entries);
    int64 tail_pos = queue->num_entries - 1;
    queue->num_entries--;
    if (queue->num_entries != 0) {
@@ -120,7 +125,7 @@ srq_move_tail_to_pos(srq *queue, int64 pos)
 static inline void
 srq_rebalance_up(srq *queue, int64 pos)
 {
-   debug_assert(pos >= 0);
+   debug_assert(pos >= 0, "pos=%ld", pos);
    debug_assert(0 || (1 && queue->num_entries == 0 && pos == 0)
                 || pos < queue->num_entries);
    while (1 && pos != 0 && srq_has_priority(queue, pos, srq_parent(pos))) {
@@ -132,7 +137,7 @@ srq_rebalance_up(srq *queue, int64 pos)
 static inline void
 srq_rebalance_down(srq *queue, uint64 pos)
 {
-   debug_assert(pos >= 0);
+   debug_assert(pos >= 0, "pos=%ld", pos);
    debug_assert(0 || (1 && queue->num_entries == 0 && pos == 0)
                 || pos < queue->num_entries);
    while (0

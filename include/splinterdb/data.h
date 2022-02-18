@@ -18,7 +18,7 @@
 #include <string.h> // for memmove
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
-#include "splinterdb/util.h"
+#include "splinterdb/public_util.h"
 
 typedef enum message_type {
    MESSAGE_TYPE_INSERT,
@@ -68,11 +68,28 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          char              *str,
                                          size_t             max_len);
 
+/*
+ * ----------------------------------------------------------------------------
+ * data_config: This structure defines the handshake between a
+ * Key-Value Store application built using Splinter primitives. In order to
+ * build this integration, the application needs to tell Splinter a few
+ * different things about keys and values:
+ *
+ *  1. The sorting order of keys - defined by the key_compare function
+ *  2. How to hash keys - defined by the key_hash function
+ *  3. How to merge update messages - defined by the pair of merge_tuples* fns.
+ *  4. Few other debugging aids on how-to print & diagnose messages.
+ *
+ * splinterdb_kv.c is a reference implementation of this integration provided
+ * as a "batteries included" implementation. If any other application wishes
+ * to do something differently, it has to provide these implementations.
+ * ----------------------------------------------------------------------------
+ */
 struct data_config {
    uint64 key_size;
    uint64 message_size;
 
-   // robj: we should get rid of min/max key
+   // FIXME: Planned for deprecation.
    char min_key[MAX_KEY_SIZE];
    char max_key[MAX_KEY_SIZE];
 

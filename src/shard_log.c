@@ -133,7 +133,13 @@ shard_log_zap(shard_log *log)
    mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
 }
 
-struct PACKED log_entry {
+/*
+ * -------------------------------------------------------------------------
+ * Header for a key/message pair stored in the sharded log: Disk-resident
+ * structure. Appears on pages of page type == PAGE_TYPE_LOG
+ * -------------------------------------------------------------------------
+ */
+struct ONDISK log_entry {
    uint64 generation;
    uint16 keylen;
    uint16 messagelen;

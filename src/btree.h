@@ -14,10 +14,60 @@
 #include "iterator.h"
 #include "util.h"
 
-#define VARIABLE_LENGTH_BTREE_MAX_HEIGHT (8)
-#define MAX_INLINE_KEY_SIZE              (512)
-#define MAX_INLINE_MESSAGE_SIZE          (2048)
-#define MAX_NODE_SIZE                    (1ULL << 16)
+/*
+ * Max height of the BTree. This is somewhat of an arbitrary limit to size
+ * the maximum storage that can be tracked by a BTree. This constant affects
+ * the size of the BTree depending on the key-size, fanout etc. For default
+ * 4 KiB pages, with an avg row-size of ~512 bytes, we can store roughly
+ * 6-7 rows / page; round it off to 8. With max of 8 levels, that's about
+ * ( 8 ** 8) * 4KiB of storage ~= 64 GiB. This is expected to be plenty big.
+ *
+ * This limit is also related to the batching done by the mini-allocator.
+ * Finally, this is limited for convenience to allow for static allocation
+ * of some nested arrays sized by this value.
+ */
+#define BTREE_MAX_HEIGHT (8)
+
+/*
+ * Mini-allocator uses separate batches for each height of the BTree.
+ * Therefore, the max # of mini-batches that the mini-allocator can track
+ * is limited by the max height of the BTree.
+ */
+_Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
+               "BTREE_MAX_HEIGHT has to be == MINI_MAX_BATCHES");
+
+/*
+ * Acceptable upper-bound on amount of space to waste when deciding whether
+ * to do pre-emptive splits. Pre-emptive splitting is when we may split a
+ * BTree child node in anticipation that a subsequent split of a grand-child
+ * node may cause this child node to have to split. Pre-emptive splitting
+ * requires that we leave enough free space in each child node for at least
+ * one key + one pivot data. In such cases, we are willing to 'waste' this
+ * much of space on the child node when splitting it.
+ *
+ * In other words, this limit anticpates that a split of a grand-child node
+ * may result in an insertion of a key of this size to the child node. We,
+ * therefore, may pre-emptively split the child to provision for this much of
+ * available space to absorb inserts from the split of a grand-child.
+ *
+ * (This limit is indirectly 'disk-resident' as it affects the node's layout.
+ *  In future, this may need be made a function of the configured page size.)
+ */
+#define MAX_INLINE_KEY_SIZE (512) // Bytes
+
+/*
+ * Size of messages are limited so that a single split will always enable an
+ * index insertion to succeed. Defined currently to serve for default 4K page
+ * sizes. (This limit does not factor in the choice of pre-emptive splitting.
+ * In future, this may need be made a function of the configured page size.)
+ */
+#define MAX_INLINE_MESSAGE_SIZE (2048) // Bytes
+
+/*
+ * Used in-memory to allocate scratch buffer space for BTree splits &
+ * defragmentation.
+ */
+#define MAX_NODE_SIZE (1ULL << 16) // Bytes
 
 extern char         trace_key[24];
 extern page_handle *trace_page;
@@ -39,7 +89,7 @@ typedef struct btree_config {
    uint64        rough_count_height;
 } btree_config;
 
-typedef struct PACKED btree_hdr btree_hdr;
+typedef struct ONDISK btree_hdr btree_hdr;
 
 typedef struct btree_node {
    uint64       addr;
@@ -60,13 +110,27 @@ typedef struct { // Note: not a union
    scratch_btree_defragment_node defragment_node;
 } PLATFORM_CACHELINE_ALIGNED btree_scratch;
 
-typedef struct PACKED btree_pivot_data {
+/*
+ * *************************************************************************
+ * BTree pivot data: Disk-resident structure
+ *
+ * Metadata for a pivot of an internal BTree node. Returned from an iterator
+ * of height > 0 in order to track amount of data stored in sub-trees, given
+ * by stuff like # of key/value pairs, # of bytes stored in the tree.
+ *
+ * Iterators at (height > 0) return this struct as a value for each pivot.
+ * *************************************************************************
+ */
+typedef struct ONDISK btree_pivot_data {
    uint64 child_addr;
-   uint32 num_kvs_in_tree;
-   uint32 key_bytes_in_tree;
-   uint32 message_bytes_in_tree;
+   uint32 num_kvs_in_subtree;
+   uint32 key_bytes_in_subtree;
+   uint32 message_bytes_in_subtree;
 } btree_pivot_data;
 
+/*
+ * A BTree iterator:
+ */
 typedef struct btree_iterator {
    iterator      super;
    cache        *cc;
@@ -102,7 +166,7 @@ typedef struct btree_pack_req {
    // internal data
    uint64         next_extent;
    uint16         height;
-   btree_node     edge[VARIABLE_LENGTH_BTREE_MAX_HEIGHT];
+   btree_node     edge[BTREE_MAX_HEIGHT];
    mini_allocator mini;
 
    // output of the compaction

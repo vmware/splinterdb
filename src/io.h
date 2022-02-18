@@ -15,6 +15,9 @@
 typedef struct io_handle    io_handle;
 typedef struct io_async_req io_async_req;
 
+/*
+ * IO Configuration structure - used to setup the run-time IO system.
+ */
 typedef struct io_config {
    uint64 async_queue_size;
    uint64 kernel_queue_size;
@@ -57,6 +60,9 @@ typedef void (*io_cleanup_all_fn)(io_handle *io);
 typedef void (*io_thread_register_fn)(io_handle *io);
 typedef bool (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
 
+/*
+ * An abstract IO interface, holding different IO Ops function pointers.
+ */
 typedef struct io_ops {
    io_read_fn                read;
    io_write_fn               write;
@@ -167,17 +173,14 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
 
 /*
  *-----------------------------------------------------------------------------
- *
  * io_config_init --
  *
  *      Initialize io config values
  *
  *  (Stores a copy of io_filename to io_cfg->filename, so the caller may
  *  deallocate io_filename once this returns)
- *
  *-----------------------------------------------------------------------------
  */
-
 static inline void
 io_config_init(io_config  *io_cfg,
                uint64      page_size,

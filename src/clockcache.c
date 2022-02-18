@@ -22,9 +22,7 @@
 
 /*
  *-----------------------------------------------------------------------------
- *
  * Constants and Fixed Parameters
- *
  *-----------------------------------------------------------------------------
  */
 
@@ -578,25 +576,18 @@ static cache_ops clockcache_ops = {
 
 /*
  *-----------------------------------------------------------------------------
- *
  * clockcache_entry --
  *
  *     The meta data entry in the cache. Each entry has the underlying
  *     page_handle together with some flags.
- *
  *-----------------------------------------------------------------------------
  */
 
 /*
  *-----------------------------------------------------------------------------
- *
- * Status Constants and Functions
- *
+ * Definitions for entry_status (clockcache_entry->status)
  *-----------------------------------------------------------------------------
  */
-
-typedef uint32 entry_status;
-
 #define CC_FREE        (1u << 0) // entry is free
 #define CC_ACCESSED    (1u << 1) // access bit prevents eviction for one cycle
 #define CC_CLEAN       (1u << 2) // page has no new changes
@@ -636,45 +627,72 @@ typedef uint32 entry_status;
 // loading for read
 #define CC_READ_LOADING_STATUS (0 | CC_ACCESSED | CC_CLEAN | CC_LOADING)
 
+/*
+ *-----------------------------------------------------------------------------
+ * Clock cache Functions
+ *-----------------------------------------------------------------------------
+ */
 /*-----------------------------------------------------------------------------
  * clockcache_{set/clear/test}_flag --
  *
  *      Atomically sets, clears or tests the given flag in the entry.
  *-----------------------------------------------------------------------------
  */
+
+/* Validate entry_number, and return addr of clockcache_entry slot */
+static inline clockcache_entry *
+clockcache_get_entry(clockcache *cc, uint32 entry_number)
+{
+   debug_assert(entry_number < cc->cfg->page_capacity,
+                "entry_number=%u is out-of-bounds. Should be < %d.",
+                entry_number,
+                cc->cfg->page_capacity);
+   return (&cc->entry[entry_number]);
+}
+
 static inline entry_status
-clockcache_set_flag(clockcache *cc, entry_status entry_number, uint32 flag)
+clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
-   return flag & __sync_fetch_and_or(&cc->entry[entry_number].status, flag);
+   return flag
+          & __sync_fetch_and_or(&clockcache_get_entry(cc, entry_number)->status,
+                                flag);
 }
 
 static inline uint32
-clockcache_clear_flag(clockcache *cc, uint32 entry_number, uint32 flag)
+clockcache_clear_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
-   return flag & __sync_fetch_and_and(&cc->entry[entry_number].status, ~flag);
+   return flag
+          & __sync_fetch_and_and(
+             &clockcache_get_entry(cc, entry_number)->status, ~flag);
 }
 
 static inline uint32
-clockcache_test_flag(clockcache *cc, uint32 entry_number, uint32 flag)
+clockcache_test_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
-   return flag & cc->entry[entry_number].status;
+   return flag & clockcache_get_entry(cc, entry_number)->status;
 }
 
 #ifdef RECORD_ACQUISITION_STACKS
 static void
 clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
 {
-   int myhistindex =
-      __sync_fetch_and_add(&cc->entry[entry_number].next_history_record, 1);
-   myhistindex               = myhistindex % 32;
+   // clang-format off
+   int myhistindex = __sync_fetch_and_add(
+                            &clockcache_get_entry(cc, entry_number)->next_history_record,
+                            1);
+   // clang-format on
+   myhistindex = myhistindex % NUM_HISTORY_RECORDS;
+
+   // entry_number is now known to be valid; offset into slot directly.
    clockcache_entry *myEntry = &cc->entry[entry_number];
 
    myEntry->history[myhistindex].status   = myEntry->status;
    myEntry->history[myhistindex].refcount = 0;
-   for (threadid i = 0; i < MAX_THREADS; i++)
+   for (threadid i = 0; i < MAX_THREADS; i++) {
       myEntry->history[myhistindex].refcount +=
          cc->refcount[i * cc->cfg->page_capacity + entry_number];
-   backtrace(myEntry->history[myhistindex].backtrace, 32);
+   }
+   backtrace(myEntry->history[myhistindex].backtrace, NUM_HISTORY_RECORDS);
 }
 #else
 #   define clockcache_record_backtrace(a, b)
@@ -721,8 +739,17 @@ clockcache_config_extent_base_addr(const clockcache_config *cfg, uint64 addr)
 static inline uint32
 clockcache_lookup(const clockcache *cc, uint64 addr)
 {
-   uint64 lookup_no = clockcache_divide_by_page_size(cc, addr);
-   return cc->lookup[lookup_no];
+   uint64 lookup_no    = clockcache_divide_by_page_size(cc, addr);
+   uint32 entry_number = cc->lookup[lookup_no];
+
+   debug_assert(((entry_number < cc->cfg->page_capacity)
+                 || (entry_number == CC_UNMAPPED_ENTRY)),
+                "entry_number=%u is out-of-bounds. "
+                " Should be either CC_UNMAPPED_ENTRY,"
+                " or should be < %d.",
+                entry_number,
+                cc->cfg->page_capacity);
+   return entry_number;
 }
 
 static inline clockcache_entry *
@@ -918,8 +945,9 @@ clockcache_assert_no_locks_held(clockcache *cc)
 {
    uint64 i;
    clockcache_assert_no_refs_and_pins(cc);
-   for (i = 0; i < cc->cfg->page_capacity; i++)
+   for (i = 0; i < cc->cfg->page_capacity; i++) {
       debug_assert(!clockcache_test_flag(cc, i, CC_WRITELOCKED));
+   }
 }
 
 void
@@ -927,9 +955,10 @@ clockcache_assert_clean(clockcache *cc)
 {
    uint64 i;
 
-   for (i = 0; i < cc->cfg->page_capacity; i++)
+   for (i = 0; i < cc->cfg->page_capacity; i++) {
       debug_assert(clockcache_test_flag(cc, i, CC_FREE)
                    || clockcache_test_flag(cc, i, CC_CLEAN));
+   }
 }
 
 /*
@@ -1206,9 +1235,9 @@ clockcache_ok_to_writeback(clockcache *cc,
                            uint32      entry_number,
                            bool        with_access)
 {
-   uint32 status = cc->entry[entry_number].status;
-   return status == CC_CLEANABLE1_STATUS
-          || (with_access && status == CC_CLEANABLE2_STATUS);
+   uint32 status = clockcache_get_entry(cc, entry_number)->status;
+   return ((status == CC_CLEANABLE1_STATUS)
+           || (with_access && status == CC_CLEANABLE2_STATUS));
 }
 
 /*
@@ -1226,15 +1255,25 @@ clockcache_try_set_writeback(clockcache *cc,
                              uint32      entry_number,
                              bool        with_access)
 {
+   // Validate first, as we need access to volatile status * below.
+   debug_assert(entry_number < cc->cfg->page_capacity,
+                "entry_number=%u is out-of-bounds. Should be < %d.",
+                entry_number,
+                cc->cfg->page_capacity);
+
    volatile uint32 *status = &cc->entry[entry_number].status;
    if (__sync_bool_compare_and_swap(
           status, CC_CLEANABLE1_STATUS, CC_WRITEBACK1_STATUS))
+   {
       return TRUE;
+   }
 
    if (with_access
        && __sync_bool_compare_and_swap(
           status, CC_CLEANABLE2_STATUS, CC_WRITEBACK2_STATUS))
+   {
       return TRUE;
+   }
    return FALSE;
 }
 
@@ -1272,7 +1311,7 @@ clockcache_write_callback(void           *metadata,
    for (i = 0; i < count; i++) {
       entry_number =
          clockcache_data_to_entry_number(cc, (char *)iovec[i].iov_base);
-      entry = &cc->entry[entry_number];
+      entry = clockcache_get_entry(cc, entry_number);
       addr  = entry->page.disk_addr;
 
       clockcache_log(addr,
@@ -1412,7 +1451,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
 static void
 clockcache_try_evict(clockcache *cc, uint32 entry_number)
 {
-   clockcache_entry *entry = &cc->entry[entry_number];
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    const threadid    tid   = platform_get_tid();
 
    /* store status for testing, then clear CC_ACCESSED */
@@ -1980,7 +2019,7 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
          clockcache_wait(cc);
       }
 
-      clockcache_entry *entry = &cc->entry[entry_number];
+      clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
 
       if (entry->page.disk_addr != addr) {
          // raced with eviction, try again
@@ -2091,7 +2130,10 @@ clockcache_get_internal(clockcache   *cc,       // IN
 
    debug_assert(allocator_get_ref(cc->al, base_addr) > 1);
 
+   // We expect entry_number to be valid, but it's still validated below
+   // in case some arithmetic goes wrong.
    entry_number = clockcache_lookup(cc, addr);
+
    if (entry_number != CC_UNMAPPED_ENTRY) {
       if (blocking) {
          if (clockcache_get_read(cc, entry_number) != GET_RC_SUCCESS) {
@@ -2103,7 +2145,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
                            addr);
             return TRUE;
          }
-         if (cc->entry[entry_number].page.disk_addr != addr) {
+         if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
             // this also means we raced with eviction and really lost
             clockcache_dec_ref(cc, entry_number, tid);
             return TRUE;
@@ -2128,7 +2170,8 @@ clockcache_get_internal(clockcache   *cc,       // IN
                               addr);
                return TRUE;
             case GET_RC_SUCCESS:
-               if (cc->entry[entry_number].page.disk_addr != addr) {
+               if (clockcache_get_entry(cc, entry_number)->page.disk_addr
+                   != addr) {
                   // this also means we raced with eviction and really lost
                   clockcache_dec_ref(cc, entry_number, tid);
                   return TRUE;
@@ -2142,7 +2185,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
       while (clockcache_test_flag(cc, entry_number, CC_LOADING)) {
          clockcache_wait(cc);
       }
-      entry = &cc->entry[entry_number];
+      entry = clockcache_get_entry(cc, entry_number);
 
       if (cc->cfg->use_stats) {
          cc->stats[tid].cache_hits[type]++;
@@ -2164,7 +2207,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
                                            CC_READ_LOADING_STATUS,
                                            TRUE,  // refcount
                                            TRUE); // blocking
-   entry        = &cc->entry[entry_number];
+   entry        = clockcache_get_entry(cc, entry_number);
    /*
     * If someone else is loading the page and has reserved the lookup, let them
     * do it.
@@ -2261,7 +2304,7 @@ clockcache_read_async_callback(void           *metadata,
 
    uint32 entry_number =
       clockcache_data_to_entry_number(cc, (char *)iovec[0].iov_base);
-   clockcache_entry *entry = &cc->entry[entry_number];
+   clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    uint64            addr  = entry->page.disk_addr;
    debug_assert(addr != CC_UNMAPPED_ADDR);
 
@@ -2348,7 +2391,7 @@ clockcache_get_async(clockcache       *cc,   // IN
                         addr);
          return async_locked;
       }
-      if (cc->entry[entry_number].page.disk_addr != addr) {
+      if (clockcache_get_entry(cc, entry_number)->page.disk_addr != addr) {
          // this also means we raced with eviction and really lost
          clockcache_dec_ref(cc, entry_number, tid);
          return async_locked;
@@ -2361,7 +2404,7 @@ clockcache_get_async(clockcache       *cc,   // IN
          clockcache_dec_ref(cc, entry_number, tid);
          return async_locked;
       }
-      entry = &cc->entry[entry_number];
+      entry = clockcache_get_entry(cc, entry_number);
 
       if (cc->cfg->use_stats) {
          cc->stats[tid].cache_hits[type]++;
@@ -2386,7 +2429,8 @@ clockcache_get_async(clockcache       *cc,   // IN
    if (entry_number == CC_UNMAPPED_ENTRY) {
       return async_locked;
    }
-   entry = &cc->entry[entry_number];
+   entry = clockcache_get_entry(cc, entry_number);
+
    /*
     * If someone else is loading the page and has reserved the lookup, let them
     * do it.
@@ -2692,16 +2736,14 @@ clockcache_page_sync(clockcache  *cc,
    }
 }
 
-
 /*
  *----------------------------------------------------------------------
  * clockcache_sync_callback --
  *
- *      internal callback for clockcache_extent_sync which decrements the pages
- *      outstanding counter
+ *      Internal callback for clockcache_extent_sync which decrements
+ *      the pages-outstanding counter.
  *----------------------------------------------------------------------
  */
-
 typedef struct clockcache_sync_callback_req {
    clockcache *cc;
    uint64     *pages_outstanding;
@@ -2764,7 +2806,8 @@ clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
             cc_req->pages_outstanding = pages_outstanding;
             iovec                     = io_get_iovec(cc->io, io_req);
          }
-         iovec[req_count++].iov_base = cc->entry[entry_number].page.data;
+         iovec[req_count++].iov_base =
+            clockcache_get_entry(cc, entry_number)->page.data;
       } else {
          // ALEX: There is maybe a race with eviction with this assertion
          debug_assert(entry_number == CC_UNMAPPED_ENTRY
@@ -2970,11 +3013,15 @@ clockcache_print(clockcache *cc)
    platform_log_stream("************************** CACHE CONTENTS "
                        "**************************\n");
    for (i = 0; i < cc->cfg->page_capacity; i++) {
-      if (i != 0 && i % 16 == 0)
+      if (i != 0 && i % 16 == 0) {
          platform_log_stream("\n");
-      if (i % CC_ENTRIES_PER_BATCH == 0)
-         platform_log_stream(
-            "Word %lu entries %lu-%lu\n", i / CC_ENTRIES_PER_BATCH, i, i + 63);
+      }
+      if (i % CC_ENTRIES_PER_BATCH == 0) {
+         platform_log_stream("Word %lu entries %lu-%lu\n",
+                             (i / CC_ENTRIES_PER_BATCH),
+                             i,
+                             i + 63);
+      }
       status   = cc->entry[i].status;
       refcount = 0;
       for (thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
@@ -3099,14 +3146,14 @@ clockcache_print_stats(clockcache *cc)
          global_stats.cache_hits[PAGE_TYPE_MEMTABLE],
          global_stats.cache_hits[PAGE_TYPE_FILTER],
          global_stats.cache_hits[PAGE_TYPE_LOG],
-         global_stats.cache_hits[PAGE_TYPE_MISC]);
+         global_stats.cache_hits[PAGE_TYPE_SUPERBLOCK]);
    platform_log("cache misses    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_misses[PAGE_TYPE_TRUNK],
          global_stats.cache_misses[PAGE_TYPE_BRANCH],
          global_stats.cache_misses[PAGE_TYPE_MEMTABLE],
          global_stats.cache_misses[PAGE_TYPE_FILTER],
          global_stats.cache_misses[PAGE_TYPE_LOG],
-         global_stats.cache_misses[PAGE_TYPE_MISC]);
+         global_stats.cache_misses[PAGE_TYPE_SUPERBLOCK]);
    platform_log("cache miss time | " FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
@@ -3116,21 +3163,21 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(miss_time[PAGE_TYPE_MEMTABLE]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_LOG]),
-                FRACTION_ARGS(miss_time[PAGE_TYPE_MISC]));
+                FRACTION_ARGS(miss_time[PAGE_TYPE_SUPERBLOCK]));
    platform_log("pages written   | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_writes[PAGE_TYPE_TRUNK],
          global_stats.page_writes[PAGE_TYPE_BRANCH],
          global_stats.page_writes[PAGE_TYPE_MEMTABLE],
          global_stats.page_writes[PAGE_TYPE_FILTER],
          global_stats.page_writes[PAGE_TYPE_LOG],
-         global_stats.page_writes[PAGE_TYPE_MISC]);
+         global_stats.page_writes[PAGE_TYPE_SUPERBLOCK]);
    platform_log("pages read      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_reads[PAGE_TYPE_TRUNK],
          global_stats.page_reads[PAGE_TYPE_BRANCH],
          global_stats.page_reads[PAGE_TYPE_MEMTABLE],
          global_stats.page_reads[PAGE_TYPE_FILTER],
          global_stats.page_reads[PAGE_TYPE_LOG],
-         global_stats.page_reads[PAGE_TYPE_MISC]);
+         global_stats.page_reads[PAGE_TYPE_SUPERBLOCK]);
    platform_log("avg prefetch pg |  " FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
@@ -3140,7 +3187,7 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_MEMTABLE]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_LOG]),
-                FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_MISC]));
+                FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_SUPERBLOCK]));
    platform_default_log("-----------------------------------------------------------------------------------------------\n");
    platform_log("avg write pgs: "FRACTION_FMT(9,2)"\n",
          FRACTION_ARGS(avg_write_pages));

@@ -6,6 +6,12 @@
  *
  *     This file contains the abstract interface for an allocator which
  *     allocates individual pages from extents.
+ *
+ *     The purpose of the mini allocator is to allocate pages from extents
+ *     and to maintain a list of allocated extents for future bulk operations,
+ *     such as reference counting and deallocation. Keyed mini allocators
+ *     further associate a key range to each extent, so that these bulk
+ *     operations can be restricted to given key ranges.
  */
 
 #ifndef __MINI_ALLOCATOR_H
@@ -16,8 +22,18 @@
 #include "cache.h"
 #include "data_internal.h"
 
+/*
+ * Mini-allocator breaks extents into pages. The pages are fed out of separate
+ * batches, so that pages from each batch are contiguous within extents. This
+ * facilitates, for example, packing successive BTree leaves contiguously into
+ * extents. This batch-size is somewhat of an artificial limit to manage this
+ * contiguity.
+ */
 #define MINI_MAX_BATCHES 8
 
+/*
+ * mini_allocator: Mini-allocator context.
+ */
 typedef struct mini_allocator {
    allocator      *al;
    cache          *cc;
