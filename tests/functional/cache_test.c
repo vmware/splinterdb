@@ -65,8 +65,11 @@ cache_test_alloc_extents(cache             *cc,
                          uint64             addr_arr[],
                          uint32             extents_to_allocate)
 {
-   allocator      *al = cache_allocator(cc);
+   allocator      *al                 = cache_allocator(cc);
+   uint64          page_size          = cache_config_page_size(&cfg->super);
+   uint64 pages_per_extent = cache_config_pages_per_extent(&cfg->super);
    platform_status rc;
+
    for (uint32 j = 0; j < extents_to_allocate; j++) {
       uint64 base_addr;
       rc = allocator_alloc(al, &base_addr, PAGE_TYPE_MISC);
@@ -78,10 +81,10 @@ cache_test_alloc_extents(cache             *cc,
          break;
       }
 
-      for (uint32 i = 0; i < cfg->pages_per_extent; i++) {
-         uint64       addr = base_addr + i * cfg->io_cfg->page_size;
+      for (uint32 i = 0; i < pages_per_extent; i++) {
+         uint64       addr = base_addr + i * page_size;
          page_handle *page = cache_alloc(cc, addr, PAGE_TYPE_MISC);
-         addr_arr[j * cfg->pages_per_extent + i] = addr;
+         addr_arr[j * pages_per_extent + i] = addr;
          cache_unlock(cc, page);
          cache_unclaim(cc, page);
          cache_unget(cc, page);
@@ -100,9 +103,10 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    uint64         *addr_arr = NULL;
 
    /* allocate twice as many pages as the cache capacity */
-   uint32 extent_capacity     = cfg->page_capacity / cfg->pages_per_extent;
+   uint64 pages_per_extent    = cache_config_pages_per_extent(&cfg->super);
+   uint32 extent_capacity     = cfg->page_capacity / pages_per_extent;
    uint32 extents_to_allocate = 2 * extent_capacity;
-   uint64 pages_to_allocate   = extents_to_allocate * cfg->pages_per_extent;
+   uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
@@ -122,7 +126,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
     * Get all entries for read, verify ref counts, and release. Verify
     * that there are no dirty entries afterwards.
     */
-   uint32 pages_allocated = extents_to_allocate * cfg->pages_per_extent;
+   uint32 pages_allocated = extents_to_allocate * pages_per_extent;
    page_arr = TYPED_ARRAY_MALLOC(hid, page_arr, cfg->page_capacity);
    if (page_arr == NULL) {
       rc = STATUS_NO_MEMORY;
@@ -263,7 +267,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
     * Deallocate all the entries.
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
@@ -452,7 +456,8 @@ test_cache_flush(cache             *cc,
    uint64         *addr_arr = NULL;
    timestamp       t_start;
 
-   uint32 extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
+   uint64 pages_per_extent = cache_config_pages_per_extent(&cfg->super);
+   uint32 extent_capacity  = cfg->page_capacity / pages_per_extent;
    /*
     * Allocator capacity as factor of cache size, accounting for 1 extent
     * as allocator metadata.
@@ -463,7 +468,7 @@ test_cache_flush(cache             *cc,
       factor = 100;
    }
    uint32 extents_to_allocate = factor * extent_capacity;
-   uint64 pages_to_allocate   = extents_to_allocate * cfg->pages_per_extent;
+   uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    t_start  = platform_get_timestamp();
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
@@ -511,7 +516,7 @@ test_cache_flush(cache             *cc,
     * Deallocate all the entries.
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
@@ -807,9 +812,10 @@ test_cache_async(cache             *cc,
    uint64 *addr_arr = NULL;
 
    /* allocate twice as many pages as the cache capacity */
-   uint32       extent_capacity = cfg->page_capacity / cfg->pages_per_extent;
+   uint64       pages_per_extent = cache_config_pages_per_extent(&cfg->super);
+   uint32       extent_capacity     = cfg->page_capacity / pages_per_extent;
    uint32       extents_to_allocate = 2 * extent_capacity;
-   uint64       pages_to_allocate = extents_to_allocate * cfg->pages_per_extent;
+   uint64       pages_to_allocate   = extents_to_allocate * pages_per_extent;
    const uint64 working_set_pages =
       cfg->page_capacity * working_set_percent / 100;
 
@@ -895,7 +901,7 @@ test_cache_async(cache             *cc,
    }
    // Deallocate all the entries.
    for (uint32 i = 0; i < extents_to_allocate; i++) {
-      uint64     addr = addr_arr[i * cfg->pages_per_extent];
+      uint64     addr = addr_arr[i * pages_per_extent];
       allocator *al   = cache_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);

@@ -623,6 +623,24 @@ const static iterator_ops trunk_btree_skiperator_ops = {
 
 // clang-format on
 
+static inline uint64
+trunk_page_size(const trunk_config *cfg)
+{
+   return cache_config_page_size(cfg->cache_cfg);
+}
+
+static inline uint64
+trunk_extent_size(const trunk_config *cfg)
+{
+   return cache_config_extent_size(cfg->cache_cfg);
+}
+
+static inline uint64
+trunk_pages_per_extent(const trunk_config *cfg)
+{
+   return cache_config_pages_per_extent(cfg->cache_cfg);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * Super block functions
@@ -2264,7 +2282,7 @@ trunk_get_branch(trunk_handle *spl, page_handle *node, uint32 k)
    debug_assert(sizeof(trunk_hdr)
                    + spl->cfg.max_pivot_keys * trunk_pivot_size(spl)
                    + (k + 1) * sizeof(trunk_branch)
-                < spl->cfg.page_size);
+                < trunk_page_size(&spl->cfg));
 
    char *cursor = node->data;
    cursor += sizeof(trunk_hdr) + spl->cfg.max_pivot_keys * trunk_pivot_size(spl)
@@ -4655,7 +4673,7 @@ trunk_split_index(trunk_handle *spl,
    uint64       right_addr = right_node->disk_addr;
 
    // ALEX: Maybe worth figuring out the real page size
-   memmove(right_node->data, left_node->data, spl->cfg.page_size);
+   memmove(right_node->data, left_node->data, trunk_page_size(&spl->cfg));
    char *right_start_pivot = trunk_get_pivot(spl, right_node, 0);
    char *left_split_pivot =
       trunk_get_pivot(spl, left_node, target_num_children);
@@ -5004,7 +5022,7 @@ trunk_split_leaf(trunk_handle *spl,
          new_leaf = trunk_alloc(spl, 0);
 
          // copy leaf to new leaf
-         memmove(new_leaf->data, leaf->data, spl->cfg.page_size);
+         memmove(new_leaf->data, leaf->data, trunk_page_size(&spl->cfg));
       } else {
          // just going to edit the min/max keys, etc. of original leaf
          new_leaf = leaf;
@@ -5145,7 +5163,7 @@ trunk_split_root(trunk_handle *spl, page_handle *root)
    trunk_hdr   *child_hdr = (trunk_hdr *)child->data;
 
    // copy root to child, fix up root, then split
-   memmove(child_hdr, root_hdr, spl->cfg.page_size);
+   memmove(child_hdr, root_hdr, trunk_page_size(&spl->cfg));
    // num_pivot_keys is changed by add_pivot_new_root below
    root_hdr->height++;
    debug_assert(root_hdr->next_addr == 0);
@@ -6611,7 +6629,7 @@ trunk_create(trunk_config     *cfg,
 
    // set up the mini allocator
    //    we use the root extent as the initial mini_allocator head
-   uint64 meta_addr = spl->root_addr + cfg->page_size;
+   uint64 meta_addr = spl->root_addr + trunk_page_size(cfg);
    // The trunk uses an unkeyed mini allocator
    mini_init(&spl->mini,
              cc,
@@ -6638,7 +6656,7 @@ trunk_create(trunk_config     *cfg,
    // set up the initial leaf
    page_handle *leaf     = trunk_alloc(spl, 0);
    trunk_hdr   *leaf_hdr = (trunk_hdr *)leaf->data;
-   memset(leaf_hdr, 0, spl->cfg.page_size);
+   memset(leaf_hdr, 0, trunk_page_size(&spl->cfg));
    const char *min_key = spl->cfg.data_cfg->min_key;
    const char *max_key = spl->cfg.data_cfg->max_key;
    trunk_set_initial_pivots(spl, leaf, min_key, max_key);
@@ -6723,7 +6741,7 @@ trunk_mount(trunk_config     *cfg,
    if (spl->root_addr == 0) {
       return NULL;
    }
-   uint64 meta_head = spl->root_addr + spl->cfg.page_size;
+   uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
 
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
@@ -8110,7 +8128,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
          trunk_branch_count_num_tuples(spl, node, branch_no);
       uint64 kib_in_branch = 0;
       // trunk_branch_extent_count(spl, node, branch_no);
-      kib_in_branch *= spl->cfg.extent_size / 1024;
+      kib_in_branch *= trunk_extent_size(&spl->cfg) / 1024;
       fraction space_amp = init_fraction(
          kib_in_branch * 1024,
          num_tuples_in_branch
@@ -8193,12 +8211,10 @@ trunk_config_init(trunk_config *trunk_cfg,
    routing_config *leaf_filter_cfg  = &trunk_cfg->leaf_filter_cfg;
 
    ZERO_CONTENTS(trunk_cfg);
-   trunk_cfg->data_cfg = data_cfg;
+   trunk_cfg->cache_cfg = cache_cfg;
+   trunk_cfg->data_cfg  = data_cfg;
+   trunk_cfg->log_cfg   = log_cfg;
 
-   trunk_cfg->log_cfg = log_cfg;
-
-   trunk_cfg->page_size             = cache_config_page_size(cache_cfg);
-   trunk_cfg->extent_size           = cache_config_extent_size(cache_cfg);
    trunk_cfg->fanout                = fanout;
    trunk_cfg->max_branches_per_node = max_branches_per_node;
    trunk_cfg->reclaim_threshold     = reclaim_threshold;
@@ -8208,7 +8224,7 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_pivot_size = data_cfg->key_size + trunk_pivot_message_size();
    // Setting hard limit and over overprovisioning
    trunk_cfg->max_pivot_keys = trunk_cfg->fanout + 6;
-   bytes_for_branches        = trunk_cfg->page_size - trunk_hdr_size()
+   bytes_for_branches        = trunk_page_size(trunk_cfg) - trunk_hdr_size()
                         - trunk_cfg->max_pivot_keys * trunk_pivot_size;
    trunk_cfg->hard_max_branches_per_node =
       bytes_for_branches / sizeof(trunk_branch) - 1;
@@ -8286,8 +8302,8 @@ trunk_config_init(trunk_config *trunk_cfg,
     *   filter_cfg.index_size > (max_tuples_per_node / (addrs_per_page *
     *   pages_per_extent))
     */
-   uint64 addrs_per_page   = trunk_cfg->page_size / sizeof(uint64);
-   uint64 pages_per_extent = trunk_cfg->extent_size / trunk_cfg->page_size;
+   uint64 addrs_per_page   = trunk_page_size(trunk_cfg) / sizeof(uint64);
+   uint64 pages_per_extent = trunk_pages_per_extent(trunk_cfg);
    while (
       leaf_filter_cfg->index_size
       <= (trunk_cfg->max_tuples_per_node / (addrs_per_page * pages_per_extent)))

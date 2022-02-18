@@ -18,11 +18,10 @@
 #include "task.h"
 
 typedef struct shard_log_config {
-   uint64 page_size;
-   uint64 extent_size;
-   uint64 seed;
+   cache_config *cache_cfg;
+   data_config  *data_cfg;
+   uint64        seed;
    // data config of point message tree
-   data_config *data_cfg;
 } shard_log_config;
 
 typedef struct shard_log_thread_data {
@@ -78,9 +77,8 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor);
 
 void
 shard_log_config_init(shard_log_config *log_cfg,
-                      data_config      *data_cfg,
-                      uint64            page_size,
-                      uint64            extent_size);
+                      cache_config     *cache_cfg,
+                      data_config      *data_cfg);
 void
 shard_log_print(shard_log *log);
 

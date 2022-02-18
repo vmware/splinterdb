@@ -177,8 +177,7 @@ test_config_init(trunk_config        *splinter_cfg,
                           master_cfg->cache_logfile,
                           master_cfg->use_stats);
 
-   shard_log_config_init(
-      log_cfg, data_cfg, master_cfg->page_size, master_cfg->extent_size);
+   shard_log_config_init(log_cfg, &cache_cfg->super, data_cfg);
 
    trunk_config_init(splinter_cfg,
                      &cache_cfg->super,

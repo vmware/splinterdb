@@ -1223,10 +1223,11 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   uint64 overhead_bytes =
-      memory_bytes / splinter_cfg->page_size * (sizeof(clockcache_entry) + 64)
-      + allocator_cfg.extent_capacity * sizeof(uint8)
-      + allocator_cfg.page_capacity * sizeof(uint32);
+   uint64 overhead_bytes = memory_bytes
+                              / cache_config_page_size(splinter_cfg->cache_cfg)
+                              * (sizeof(clockcache_entry) + 64)
+                           + allocator_cfg.extent_capacity * sizeof(uint8)
+                           + allocator_cfg.page_capacity * sizeof(uint32);
    uint64 buffer_bytes = MiB_TO_B(1024);
    // if (memory_bytes > GiB_TO_B(40)) {
    //   buffer_bytes = use_existing ? MiB_TO_B(2048) : MiB_TO_B(1280);

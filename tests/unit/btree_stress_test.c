@@ -23,7 +23,7 @@
 #include "io.h"
 #include "rc_allocator.h"
 #include "clockcache.h"
-#include "btree.h"
+#include "btree_private.h"
 #include "btree_test_common.h"
 
 typedef struct insert_thread_params {
@@ -70,17 +70,13 @@ pack_tests(cache           *cc,
            uint64           nkvs);
 
 static slice
-gen_key(btree_config *cfg,
-        uint64        i,
-        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)]);
+gen_key(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)]);
 
 static uint64
 ungen_key(slice key);
 
 static slice
-gen_msg(btree_config *cfg,
-        uint64        i,
-        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)]);
+gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)]);
 
 /*
  * Global data declaration macro:
@@ -299,8 +295,8 @@ insert_tests(cache           *cc,
 {
    uint64 generation;
    bool   was_unique;
-   uint8  keybuf[cache_config_page_size(cfg->cache_cfg)];
-   uint8  msgbuf[cache_config_page_size(cfg->cache_cfg)];
+   uint8  keybuf[btree_page_size(cfg)];
+   uint8  msgbuf[btree_page_size(cfg)];
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -320,9 +316,7 @@ insert_tests(cache           *cc,
 }
 
 static slice
-gen_key(btree_config *cfg,
-        uint64        i,
-        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)])
+gen_key(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)])
 {
    uint64 keylen = sizeof(i) + (i % 100);
    memset(buffer, 0, keylen);
@@ -344,13 +338,10 @@ ungen_key(slice key)
 }
 
 static slice
-gen_msg(btree_config *cfg,
-        uint64        i,
-        uint8         buffer[static cache_config_page_size(cfg->cache_cfg)])
+gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)])
 {
    data_handle *dh = (data_handle *)buffer;
-   uint64       datalen =
-      sizeof(i) + (i % (cache_config_page_size(cfg->cache_cfg) / 3));
+   uint64       datalen = sizeof(i) + (i % (btree_page_size(cfg) / 3));
 
    dh->message_type = MESSAGE_TYPE_INSERT;
    dh->ref_count    = 1;
@@ -367,8 +358,8 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 keybuf[cache_config_page_size(cfg->cache_cfg)];
-   uint8 msgbuf[cache_config_page_size(cfg->cache_cfg)];
+   uint8 keybuf[btree_page_size(cfg)];
+   uint8 msgbuf[btree_page_size(cfg)];
 
    memset(keybuf, 0, sizeof(keybuf));
    writable_buffer result;
@@ -407,12 +398,12 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
 
    uint64 seen = 0;
    bool   at_end;
-   uint8  prevbuf[cache_config_page_size(cfg->cache_cfg)];
+   uint8  prevbuf[btree_page_size(cfg)];
    slice  prev = NULL_SLICE;
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
-      uint8 keybuf[cache_config_page_size(cfg->cache_cfg)];
-      uint8 msgbuf[cache_config_page_size(cfg->cache_cfg)];
+      uint8 keybuf[btree_page_size(cfg)];
+      uint8 msgbuf[btree_page_size(cfg)];
       slice key, msg;
 
       iterator_get_curr(iter, &key, &msg);

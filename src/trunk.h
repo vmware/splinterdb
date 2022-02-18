@@ -31,9 +31,7 @@
  *----------------------------------------------------------------------
  */
 typedef struct trunk_config {
-   // robj: if these are redundant, maybe delete them?
-   uint64 page_size;   // must match the cache/fs page_size
-   uint64 extent_size; // same
+   cache_config *cache_cfg;
 
    // parameters
    uint64 fanout;         // children to trigger split
