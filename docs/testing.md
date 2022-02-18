@@ -23,7 +23,7 @@ To run a small collection of unit-tests to give you a very quick initial baselin
 ```shell
 $ make run-tests
 ```
-The `make run-tests` target invokes the underlying `test.sh` script.
+The `make run-tests` target invokes the underlying [`test.sh`](../test.sh#:~:text=run-tests) script.
 
 To execute the full set of tests, including functional and performance tests, you can do one of the following:
 
