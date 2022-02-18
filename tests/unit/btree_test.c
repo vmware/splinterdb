@@ -77,12 +77,14 @@ CTEST_SETUP(btree)
        || !init_data_config_from_master_config(&data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
-       || !init_rc_allocator_config_from_master_config(&data->allocator_cfg,
-                                                       &data->master_cfg)
-       || !init_clockcache_config_from_master_config(&data->cache_cfg,
-                                                     &data->master_cfg)
-       || !init_btree_config_from_master_config(
-          &data->dbtree_cfg, &data->master_cfg, &data->data_cfg))
+       || !init_rc_allocator_config_from_master_config(
+          &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
+       || !init_clockcache_config_from_master_config(
+          &data->cache_cfg, &data->master_cfg, &data->io_cfg)
+       || !init_btree_config_from_master_config(&data->dbtree_cfg,
+                                                &data->master_cfg,
+                                                &data->cache_cfg.super,
+                                                &data->data_cfg))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -150,7 +152,7 @@ CTEST2(btree, test_leaf_split)
 static int
 leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 {
-   char       leaf_buffer[cfg->page_size];
+   char       leaf_buffer[btree_page_size(cfg)];
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 240;
 
@@ -216,7 +218,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char       leaf_buffer[cfg->page_size];
+   char       leaf_buffer[btree_page_size(cfg)];
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 256;
 
@@ -253,7 +255,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 static int
 index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 {
-   char       index_buffer[cfg->page_size];
+   char       index_buffer[btree_page_size(cfg)];
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
 
@@ -310,7 +312,7 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 static int
 index_hdr_search_tests(btree_config *cfg)
 {
-   char       index_buffer[cfg->page_size];
+   char       index_buffer[btree_page_size(cfg)];
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
 
@@ -343,8 +345,8 @@ index_hdr_search_tests(btree_config *cfg)
 static int
 leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
 {
-   char leaf_buffer[cfg->page_size];
-   char msg_buffer[cfg->page_size];
+   char leaf_buffer[btree_page_size(cfg)];
+   char msg_buffer[btree_page_size(cfg)];
 
    memset(msg_buffer, 0, sizeof(msg_buffer));
 
@@ -352,7 +354,7 @@ leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
 
    btree_init_hdr(cfg, hdr);
 
-   int   msgsize = cfg->page_size / (nkvs + 1);
+   int   msgsize = btree_page_size(cfg) / (nkvs + 1);
    slice msg     = slice_create(msgsize, msg_buffer);
    slice bigger_msg =
       slice_create(msgsize + sizeof(table_entry) + 1, msg_buffer);

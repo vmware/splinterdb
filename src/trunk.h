@@ -51,9 +51,7 @@ _Static_assert(TRUNK_MAX_HEIGHT == MINI_MAX_BATCHES,
  *----------------------------------------------------------------------
  */
 typedef struct trunk_config {
-   // robj: if these are redundant, maybe delete them?
-   uint64 page_size;   // must match the cache/fs page_size
-   uint64 extent_size; // same
+   cache_config *cache_cfg;
 
    // parameters
    uint64 fanout;         // children to trigger split
@@ -471,14 +469,13 @@ trunk_hdr_size();
 
 void
 trunk_config_init(trunk_config *trunk_cfg,
+                  cache_config *cache_cfg,
                   data_config  *data_cfg,
                   log_config   *log_cfg,
                   uint64        memtable_capacity,
                   uint64        fanout,
                   uint64        max_branches_per_node,
                   uint64        btree_rough_count_height,
-                  uint64        page_size,
-                  uint64        extent_size,
                   uint64        filter_remainder_size,
                   uint64        filter_index_size,
                   uint64        reclaim_threshold,

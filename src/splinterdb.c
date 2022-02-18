@@ -160,25 +160,22 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                   cfg.io_async_queue_depth,
                   cfg.filename);
 
-   rc_allocator_config_init(
-      &kvs->allocator_cfg, cfg.page_size, cfg.extent_size, cfg.disk_size);
+   rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
 
    clockcache_config_init(&kvs->cache_cfg,
-                          cfg.page_size,
-                          cfg.extent_size,
+                          &kvs->io_cfg,
                           cfg.cache_size,
                           cfg.cache_logfile,
                           cfg.use_stats);
 
    trunk_config_init(&kvs->trunk_cfg,
+                     &kvs->cache_cfg.super,
                      &kvs->data_cfg,
                      NULL,
                      cfg.memtable_capacity,
                      cfg.fanout,
                      cfg.max_branches_per_node,
                      cfg.btree_rough_count_height,
-                     cfg.page_size,
-                     cfg.extent_size,
                      cfg.filter_remainder_size,
                      cfg.filter_index_size,
                      cfg.reclaim_threshold,

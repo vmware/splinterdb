@@ -139,7 +139,7 @@ btree_fill_index_entry(const btree_config *cfg,
 {
    debug_assert((void *)hdr <= (void *)entry);
    debug_assert(diff_ptr(hdr, entry) + index_entry_size(new_pivot_key)
-                <= cfg->page_size);
+                <= btree_page_size(cfg));
    memcpy(entry->key, slice_data(new_pivot_key), slice_length(new_pivot_key));
    entry->key_size                            = slice_length(new_pivot_key);
    entry->pivot_data.child_addr               = new_addr;
@@ -258,7 +258,7 @@ btree_fill_leaf_entry(const btree_config *cfg,
                       slice               message)
 {
    debug_assert(pointer_byte_offset(entry, leaf_entry_size(key, message))
-                <= pointer_byte_offset(hdr, cfg->page_size));
+                <= pointer_byte_offset(hdr, btree_page_size(cfg)));
    memcpy(entry->key_and_message, slice_data(key), slice_length(key));
    memcpy(entry->key_and_message + slice_length(key),
           slice_data(message),
@@ -1055,13 +1055,14 @@ btree_addrs_share_extent(const btree_config *cfg,
                          uint64              left_addr,
                          uint64              right_addr)
 {
-   return (right_addr / cfg->extent_size) == (left_addr / cfg->extent_size);
+   return cache_config_pages_share_extent(
+      cfg->cache_cfg, right_addr, left_addr);
 }
 
 static inline uint64
 btree_get_extent_base_addr(const btree_config *cfg, btree_node *node)
 {
-   return (node->addr / cfg->extent_size) * cfg->extent_size;
+   return cache_config_extent_base_addr(cfg->cache_cfg, node->addr);
 }
 
 static inline uint64
@@ -1069,7 +1070,7 @@ btree_root_to_meta_addr(const btree_config *cfg,
                         uint64              root_addr,
                         uint64              meta_page_no)
 {
-   return root_addr + (meta_page_no + 1) * cfg->page_size;
+   return root_addr + (meta_page_no + 1) * btree_page_size(cfg);
 }
 
 
@@ -1120,7 +1121,7 @@ btree_create(cache              *cc,
    mini_init(mini,
              cc,
              cfg->data_cfg,
-             root.addr + cfg->page_size,
+             root.addr + btree_page_size(cfg),
              0,
              BTREE_MAX_HEIGHT,
              type,
@@ -1334,7 +1335,7 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       live_bytes + leaf_entry_size(spec->key, spec_message(spec))
       + (nentries + spec->was_found ? 0 : 1) * sizeof(index_entry);
 
-   if (total_space_required < BTREE_SPLIT_THRESHOLD(cfg->page_size)) {
+   if (total_space_required < BTREE_SPLIT_THRESHOLD(btree_page_size(cfg))) {
       btree_node_unclaim(cc, cfg, parent);
       btree_node_unget(cc, cfg, parent);
       btree_node_lock(cc, cfg, child);
@@ -1478,7 +1479,7 @@ btree_defragment_or_split_child_index(cache              *cc,
    }
    uint64 total_space_required = live_bytes + nentries * sizeof(index_entry);
 
-   if (total_space_required < BTREE_SPLIT_THRESHOLD(cfg->page_size)) {
+   if (total_space_required < BTREE_SPLIT_THRESHOLD(btree_page_size(cfg))) {
       btree_node_full_unlock(cc, cfg, parent);
       btree_defragment_index(cfg, scratch, child->hdr);
       *new_child = *child;
@@ -3197,7 +3198,7 @@ btree_space_use_in_range(cache        *cc,
    uint64 meta_head    = btree_root_to_meta_addr(cfg, root_addr, 0);
    uint64 extents_used = mini_keyed_extent_count(
       cc, cfg->data_cfg, type, meta_head, start_key, end_key);
-   return extents_used * cfg->extent_size;
+   return extents_used * btree_extent_size(cfg);
 }
 
 bool
@@ -3385,14 +3386,11 @@ btree_print_lookup(cache        *cc,        // IN
  */
 void
 btree_config_init(btree_config *btree_cfg,
+                  cache_config *cache_cfg,
                   data_config  *data_cfg,
-                  uint64        rough_count_height,
-                  uint64        page_size,
-                  uint64        extent_size)
+                  uint64        rough_count_height)
 {
-   btree_cfg->data_cfg = data_cfg;
-
-   btree_cfg->page_size          = page_size;
-   btree_cfg->extent_size        = extent_size;
+   btree_cfg->cache_cfg          = cache_cfg;
+   btree_cfg->data_cfg           = data_cfg;
    btree_cfg->rough_count_height = rough_count_height;
 }

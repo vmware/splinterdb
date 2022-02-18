@@ -168,30 +168,25 @@ test_config_init(trunk_config        *splinter_cfg,
                   master_cfg->io_async_queue_depth,
                   master_cfg->io_filename);
 
-   rc_allocator_config_init(allocator_cfg,
-                            master_cfg->page_size,
-                            master_cfg->extent_size,
-                            master_cfg->allocator_capacity);
+   rc_allocator_config_init(
+      allocator_cfg, io_cfg, master_cfg->allocator_capacity);
 
    clockcache_config_init(cache_cfg,
-                          master_cfg->page_size,
-                          master_cfg->extent_size,
+                          io_cfg,
                           master_cfg->cache_capacity,
                           master_cfg->cache_logfile,
                           master_cfg->use_stats);
 
-   shard_log_config_init(
-      log_cfg, data_cfg, master_cfg->page_size, master_cfg->extent_size);
+   shard_log_config_init(log_cfg, &cache_cfg->super, data_cfg);
 
    trunk_config_init(splinter_cfg,
+                     &cache_cfg->super,
                      data_cfg,
                      (log_config *)log_cfg,
                      master_cfg->memtable_capacity,
                      master_cfg->fanout,
                      master_cfg->max_branches_per_node,
                      master_cfg->btree_rough_count_height,
-                     master_cfg->page_size,
-                     master_cfg->extent_size,
                      master_cfg->filter_remainder_size,
                      master_cfg->filter_index_size,
                      master_cfg->reclaim_threshold,

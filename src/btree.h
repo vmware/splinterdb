@@ -84,10 +84,9 @@ extern page_handle *trace_page;
  *----------------------------------------------------------------------
  */
 typedef struct btree_config {
-   uint64       page_size;   // must match the cache/fs page_size
-   uint64       extent_size; // same
-   uint64       rough_count_height;
-   data_config *data_cfg;
+   cache_config *cache_cfg;
+   data_config  *data_cfg;
+   uint64        rough_count_height;
 } btree_config;
 
 typedef struct ONDISK btree_hdr btree_hdr;
@@ -433,10 +432,9 @@ btree_space_use_in_range(cache        *cc,
 
 void
 btree_config_init(btree_config *btree_cfg,
+                  cache_config *cache_cfg,
                   data_config  *data_cfg,
-                  uint64        rough_count_height,
-                  uint64        page_size,
-                  uint64        extent_size);
+                  uint64        rough_count_height);
 
 // robj: I propose making all the following functions private to
 // btree.c

@@ -172,17 +172,23 @@ destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec);
  * Inline accessor functions for different private structure.
  * ***********************************************************
  */
+static inline uint64
+btree_page_size(const btree_config *cfg)
+{
+   return cache_config_page_size(cfg->cache_cfg);
+}
+
+static inline uint64
+btree_extent_size(const btree_config *cfg)
+{
+   return cache_config_extent_size(cfg->cache_cfg);
+}
+
 static inline void
 btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 {
    ZERO_CONTENTS(hdr);
-   hdr->next_entry = cfg->page_size;
-}
-
-static inline uint64
-btree_page_size(const btree_config *cfg)
-{
-   return cfg->page_size;
+   hdr->next_entry = btree_page_size(cfg);
 }
 
 static inline uint64
