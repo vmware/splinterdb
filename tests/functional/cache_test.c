@@ -65,9 +65,9 @@ cache_test_alloc_extents(cache             *cc,
                          uint64             addr_arr[],
                          uint32             extents_to_allocate)
 {
-   allocator      *al                 = cache_allocator(cc);
-   uint64          page_size          = cache_config_page_size(&cfg->super);
-   uint64 pages_per_extent = cache_config_pages_per_extent(&cfg->super);
+   allocator *al               = cache_allocator(cc);
+   uint64     page_size        = cache_config_page_size(&cfg->super);
+   uint64     pages_per_extent = cache_config_pages_per_extent(&cfg->super);
    platform_status rc;
 
    for (uint32 j = 0; j < extents_to_allocate; j++) {
@@ -813,7 +813,7 @@ test_cache_async(cache             *cc,
 
    /* allocate twice as many pages as the cache capacity */
    uint64       pages_per_extent = cache_config_pages_per_extent(&cfg->super);
-   uint32       extent_capacity     = cfg->page_capacity / pages_per_extent;
+   uint32       extent_capacity  = cfg->page_capacity / pages_per_extent;
    uint32       extents_to_allocate = 2 * extent_capacity;
    uint64       pages_to_allocate   = extents_to_allocate * pages_per_extent;
    const uint64 working_set_pages =
