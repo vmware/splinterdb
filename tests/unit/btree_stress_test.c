@@ -64,7 +64,7 @@ iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
                int              nkvs,
-               platform_heap_id working);
+               platform_heap_id hid);
 
 static uint64
 pack_tests(cache           *cc,
@@ -74,13 +74,13 @@ pack_tests(cache           *cc,
            uint64           nkvs);
 
 static slice
-gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t legnth);
+gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
 static uint64
 ungen_key(slice key);
 
 static slice
-gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t legnth);
+gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
 /*
  * Global data declaration macro:
@@ -268,6 +268,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       platform_free(data->hid, params[i].scratch);
    }
    platform_free(hid, params);
+   platform_free(hid, threads);
 }
 
 /*
@@ -301,10 +302,10 @@ insert_tests(cache           *cc,
 {
    uint64 generation;
    bool   was_unique;
-   uint8 *keybuf =
-      platform_aligned_malloc(heap_id, cfg->page_size, cfg->page_size);
-   uint8 *msgbuf =
-      platform_aligned_malloc(heap_id, cfg->page_size, cfg->page_size);
+   int    keybuf_size = cfg->page_size;
+   int    msgbuf_size = cfg->page_size;
+   uint8 *keybuf = platform_aligned_malloc(heap_id, keybuf_size, keybuf_size);
+   uint8 *msgbuf = platform_aligned_malloc(heap_id, msgbuf_size, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -313,8 +314,8 @@ insert_tests(cache           *cc,
                                 scratch,
                                 root_addr,
                                 mini,
-                                gen_key(cfg, i, keybuf, cfg->page_size),
-                                gen_msg(cfg, i, msgbuf, cfg->page_size),
+                                gen_key(cfg, i, keybuf, keybuf_size),
+                                gen_msg(cfg, i, msgbuf, msgbuf_size),
                                 &generation,
                                 &was_unique)))
       {
@@ -329,6 +330,7 @@ static slice
 gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 {
    uint64 keylen = sizeof(i) + (i % 100);
+   platform_assert(keylen + sizeof(i) <= length);
    memset(buffer, 0, keylen);
    uint64 j = i * 23232323731ULL + 99382474567ULL;
    memcpy(buffer, &j, sizeof(j));
@@ -353,6 +355,7 @@ gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (cfg->page_size / 3));
 
+   platform_assert(datalen + sizeof(i) <= length);
    dh->message_type = MESSAGE_TYPE_INSERT;
    dh->ref_count    = 1;
    memset(dh->data, 0, datalen);
@@ -401,7 +404,7 @@ iterator_tests(cache           *cc,
                btree_config    *cfg,
                uint64           root_addr,
                int              nkvs,
-               platform_heap_id working)
+               platform_heap_id hid)
 {
    btree_iterator dbiter;
 
@@ -420,12 +423,10 @@ iterator_tests(cache           *cc,
    uint64 seen = 0;
    bool   at_end;
    uint8 *prevbuf =
-      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
-   slice  prev = NULL_SLICE;
-   uint8 *keybuf =
-      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
-   uint8 *msgbuf =
-      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
+      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   slice  prev   = NULL_SLICE;
+   uint8 *keybuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
+   uint8 *msgbuf = platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
       slice key, msg;
@@ -456,9 +457,9 @@ iterator_tests(cache           *cc,
    ASSERT_EQUAL(nkvs, seen);
 
    btree_iterator_deinit(&dbiter);
-   platform_free(working, prevbuf);
-   platform_free(working, keybuf);
-   platform_free(working, msgbuf);
+   platform_free(hid, prevbuf);
+   platform_free(hid, keybuf);
+   platform_free(hid, msgbuf);
 
    return 1;
 }

@@ -24,16 +24,14 @@
 // Function Prototypes
 
 static int
-leaf_hdr_tests(btree_config    *cfg,
-               btree_scratch   *scratch,
-               platform_heap_id working);
+leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid);
 
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid);
 static int
 index_hdr_tests(btree_config    *cfg,
                 btree_scratch   *scratch,
-                platform_heap_id working);
+                platform_heap_id hid);
 
 static int
 index_hdr_search_tests(btree_config *cfg);
@@ -154,12 +152,10 @@ CTEST2(btree, test_leaf_split)
  * message to platform log file.
  */
 static int
-leaf_hdr_tests(btree_config    *cfg,
-               btree_scratch   *scratch,
-               platform_heap_id working)
+leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
    char *leaf_buffer =
-      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
+      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 240;
 
@@ -219,7 +215,7 @@ leaf_hdr_tests(btree_config    *cfg,
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
-   platform_free(platform_get_heap_id(), leaf_buffer);
+   platform_free(hid, leaf_buffer);
    return 0;
 }
 
@@ -259,16 +255,15 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
    }
 
+   platform_free(hid, leaf_buffer);
    return 0;
 }
 
 static int
-index_hdr_tests(btree_config    *cfg,
-                btree_scratch   *scratch,
-                platform_heap_id working)
+index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
    char *index_buffer =
-      platform_aligned_malloc(working, cfg->page_size, cfg->page_size);
+      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
 
@@ -325,8 +320,9 @@ index_hdr_tests(btree_config    *cfg,
 static int
 index_hdr_search_tests(btree_config *cfg)
 {
-   char *index_buffer = platform_aligned_malloc(
-      platform_get_heap_id(), cfg->page_size, cfg->page_size);
+   platform_heap_id hid = platform_get_heap_id();
+   char            *index_buffer =
+      platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
 
@@ -353,7 +349,7 @@ index_hdr_search_tests(btree_config *cfg)
          (i / 2), idx, "Bad pivot search result idx=%ld for i=%d\n", idx, i);
    }
 
-   platform_free(platform_get_heap_id(), index_buffer);
+   platform_free(hid, index_buffer);
    return 0;
 }
 
