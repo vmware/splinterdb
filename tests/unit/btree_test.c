@@ -34,10 +34,13 @@ index_hdr_tests(btree_config    *cfg,
                 platform_heap_id hid);
 
 static int
-index_hdr_search_tests(btree_config *cfg);
+index_hdr_search_tests(btree_config *cfg, platform_heap_id hid);
 
 static int
-leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs);
+leaf_split_tests(btree_config    *cfg,
+                 btree_scratch   *scratch,
+                 int              nkvs,
+                 platform_heap_id hid);
 
 static bool
 btree_leaf_incorporate_tuple(const btree_config    *cfg,
@@ -66,6 +69,7 @@ CTEST_DATA(btree)
    clockcache_config   cache_cfg;
    btree_scratch       test_scratch;
    btree_config        dbtree_cfg;
+   platform_heap_id    hid;
 };
 
 // Optional setup function for suite, called before every test in suite
@@ -73,6 +77,7 @@ CTEST_SETUP(btree)
 {
    config_set_defaults(&data->master_cfg);
    data->data_cfg = test_data_config;
+   data->hid      = platform_get_heap_id();
 
    if (!SUCCESS(
           config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
@@ -98,8 +103,7 @@ CTEST_TEARDOWN(btree) {}
  */
 CTEST2(btree, test_leaf_hdr)
 {
-   int rc = leaf_hdr_tests(
-      &data->dbtree_cfg, &data->test_scratch, platform_get_heap_id());
+   int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -108,7 +112,7 @@ CTEST2(btree, test_leaf_hdr)
  */
 CTEST2(btree, test_leaf_hdr_search)
 {
-   int rc = leaf_hdr_search_tests(&data->dbtree_cfg, &data->test_scratch);
+   int rc = leaf_hdr_search_tests(&data->dbtree_cfg, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -117,8 +121,7 @@ CTEST2(btree, test_leaf_hdr_search)
  */
 CTEST2(btree, test_index_hdr)
 {
-   int rc = index_hdr_tests(
-      &data->dbtree_cfg, &data->test_scratch, platform_get_heap_id());
+   int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -127,7 +130,7 @@ CTEST2(btree, test_index_hdr)
  */
 CTEST2(btree, test_index_hdr_search)
 {
-   int rc = index_hdr_search_tests(&data->dbtree_cfg);
+   int rc = index_hdr_search_tests(&data->dbtree_cfg, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -137,7 +140,8 @@ CTEST2(btree, test_index_hdr_search)
 CTEST2(btree, test_leaf_split)
 {
    for (int nkvs = 2; nkvs < 100; nkvs++) {
-      int rc = leaf_split_tests(&data->dbtree_cfg, &data->test_scratch, nkvs);
+      int rc = leaf_split_tests(
+         &data->dbtree_cfg, &data->test_scratch, nkvs, data->hid);
       ASSERT_EQUAL(0, rc);
    }
 }
@@ -318,10 +322,9 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 }
 
 static int
-index_hdr_search_tests(btree_config *cfg)
+index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   platform_heap_id hid = platform_get_heap_id();
-   char            *index_buffer =
+   char *index_buffer =
       platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
@@ -354,10 +357,12 @@ index_hdr_search_tests(btree_config *cfg)
 }
 
 static int
-leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
+leaf_split_tests(btree_config    *cfg,
+                 btree_scratch   *scratch,
+                 int              nkvs,
+                 platform_heap_id hid)
 {
-   platform_heap_id hid = platform_get_heap_id();
-   char            *leaf_buffer =
+   char *leaf_buffer =
       platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
    char *msg_buffer =
       platform_aligned_malloc(hid, cfg->page_size, cfg->page_size);
