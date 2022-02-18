@@ -15,6 +15,9 @@ fuller description of the features of this CTest framework.
   - For a source file named `<fileName>.c`, the unit-test file is named `<fileName>_test.c`
   - The test suite name used for test cases in each test file is usually the `<fileName>` prefix
     - Each test case is named `test_<something>`
+- To write a new test suite, copy the [unit_test_template_dot_c](unit_test_template_dot_c) file to your new test suite. Follow the instruction given in the [splinterdb_kv_test](splinterdb_kv_test.c) to build individual test cases using the testing framework.
+- If your new unit test is small and runs quickly (under few seconds), consider adding
+  it to the list of "smoke tests" in [test.sh](../../test.sh#:~:INCLUDE_SLOW_TESTS,Fast)
 
 
 ----
