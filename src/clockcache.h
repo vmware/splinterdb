@@ -27,13 +27,14 @@
 typedef struct clockcache_config {
    cache_config super;
    io_config   *io_cfg;
-   uint64       log_page_size;
    uint64       capacity;
-   uint32       page_capacity;
    bool         use_stats;
    char         logfile[MAX_STRING_LENGTH];
 
    // computed
+   uint64 log_page_size;
+   uint64 extent_mask;
+   uint32 page_capacity;
    uint64 batch_capacity;
    uint64 cacheline_capacity;
    uint64 pages_per_extent;

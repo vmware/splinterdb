@@ -1056,8 +1056,8 @@ btree_addrs_share_extent(const btree_config *cfg,
                          uint64              left_addr,
                          uint64              right_addr)
 {
-   return cache_config_extent_base_addr(cfg->cache_cfg, right_addr)
-          == cache_config_extent_base_addr(cfg->cache_cfg, left_addr);
+   return cache_config_pages_share_extent(
+      cfg->cache_cfg, right_addr, left_addr);
 }
 
 static inline uint64
