@@ -350,7 +350,9 @@ filter_test(int argc, char *argv[])
    }
 
    uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   rc = test_init_splinter(hid, io, &ts, cfg->use_stats, FALSE, num_bg_threads);
+
+   rc = test_init_task_system(
+      hid, io, &ts, cfg->use_stats, FALSE, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter ts: %s\n",
                          platform_status_to_string(rc));
@@ -422,7 +424,7 @@ filter_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_splinter(hid, ts);
+   test_deinit_task_system(hid, ts);
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:

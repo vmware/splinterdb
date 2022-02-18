@@ -50,16 +50,16 @@ int
 ycsb_test(int argc, char *argv[]);
 
 /*
- * Initialization for using splinter, need to be called at the
- * start of the test main function.
+ * Initialization for using splinter, need to be called at the start of the test
+ * main function. This initializes Splinter's task sub-system.
  */
 static inline platform_status
-test_init_splinter(platform_heap_id    hid,
-                   platform_io_handle *ioh,
-                   task_system       **system,
-                   bool                use_stats,
-                   bool                use_bg_threads,
-                   uint8               num_bg_threads[NUM_TASK_TYPES])
+test_init_task_system(platform_heap_id    hid,
+                      platform_io_handle *ioh,
+                      task_system       **system,
+                      bool                use_stats,
+                      bool                use_bg_threads,
+                      uint8               num_bg_threads[NUM_TASK_TYPES])
 {
    // splinter initialization
    return task_system_create(hid,
@@ -72,7 +72,7 @@ test_init_splinter(platform_heap_id    hid,
 }
 
 static inline void
-test_deinit_splinter(platform_heap_id hid, task_system *ts)
+test_deinit_task_system(platform_heap_id hid, task_system *ts)
 {
    task_system_destroy(hid, ts);
 }

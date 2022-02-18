@@ -68,7 +68,7 @@ $(BINDIR)/%/.:
 # CFLAGS, ETC
 #
 
-INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM)
+INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS_DIR)
 
 #######BEGIN libconfig
 # Get output of `pkg-config --(cflags|libs) libconfig` every time we run make,
@@ -169,8 +169,8 @@ $(BINDIR)/unit_test: unit_test
 unit_test: $(UNIT_TESTBINS) $(LIBDIR)/libsplinterdb.so
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $(UNIT_TESTOBJS)                   \
                             $(COMMON_TESTOBJ)                         \
+                            $(OBJDIR)/tests/functional/test_async.o     \
                             $(LIBDIR)/libsplinterdb.so $(LIBS)
-
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
@@ -229,6 +229,15 @@ unit/splinterdb_test: $(OBJDIR)/tests/unit/splinterdb_test.o        \
                       $(OBJDIR)/tests/test_data.o                   \
                       $(OBJDIR)/tests/unit/main.o                   \
                       $(LIBDIR)/libsplinterdb.so
+	mkdir -p $(BINDIR)/unit;
+	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
+# ----
+$(BINDIR)/unit/splinter_test: unit/splinter_test
+unit/splinter_test: $(OBJDIR)/tests/unit/splinter_test.o        \
+                    $(COMMON_TESTOBJ)                           \
+                    $(OBJDIR)/tests/functional/test_async.o     \
+                    $(OBJDIR)/tests/unit/main.o                 \
+                    $(LIBDIR)/libsplinterdb.so
 	mkdir -p $(BINDIR)/unit;
 	$(LD) $(LDFLAGS) -o $(BINDIR)/$@ $^ $(LIBS)
 

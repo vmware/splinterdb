@@ -32,7 +32,7 @@ test_platform_assert_msg(platform_stream_handle stream,
 
 /*
  * Same as platform_assert() but simply exercises the message-raising
- * aspect of platform_assert_impl(). All we really test here is that the
+ * aspect of platform_assert_false(). All we really test here is that the
  * user-supplied message with arguments is being printed as expected.
  */
 #define test_platform_assert(expr, ...)                                        \

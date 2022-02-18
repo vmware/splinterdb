@@ -10,7 +10,7 @@
  */
 #include "splinterdb/platform_public.h"
 #include "splinterdb/splinterdb.h"
-#include "../test_data.h"
+#include "test_data.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 

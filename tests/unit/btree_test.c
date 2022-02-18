@@ -13,7 +13,7 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
-#include "../test_data.h"
+#include "test_data.h"
 #include "splinterdb/data.h"
 #include "io.h"
 #include "rc_allocator.h"
