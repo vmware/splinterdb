@@ -85,13 +85,13 @@ typedef struct cache_async_ctxt {
    } stats;
 } cache_async_ctxt;
 
-typedef uint64 (*cache_config_generic_uint64_fn)(cache_config *cfg);
-typedef uint64 (*base_addr_fn)(cache_config *cfg, uint64 addr);
+typedef uint64 (*cache_config_generic_uint64_fn)(const cache_config *cfg);
+typedef uint64 (*base_addr_fn)(const cache_config *cfg, uint64 addr);
 
 typedef struct cache_config_ops {
    cache_config_generic_uint64_fn page_size;
    cache_config_generic_uint64_fn extent_size;
-   base_addr_fn                   base_addr;
+   base_addr_fn                   extent_base_addr;
 } cache_config_ops;
 
 typedef struct cache_config {
@@ -99,23 +99,45 @@ typedef struct cache_config {
 } cache_config;
 
 static inline uint64
-cache_config_page_size(cache_config *cfg)
+cache_config_page_size(const cache_config *cfg)
 {
    return cfg->ops->page_size(cfg);
 }
 
 static inline uint64
-cache_config_extent_size(cache_config *cfg)
+cache_config_extent_size(const cache_config *cfg)
 {
    return cfg->ops->extent_size(cfg);
 }
 
 static inline uint64
-cache_config_base_addr(cache_config *cfg, uint64 addr)
+cache_config_extent_base_addr(const cache_config *cfg, uint64 addr)
 {
-   return cfg->ops->base_addr(cfg, addr);
+   return cfg->ops->extent_base_addr(cfg, addr);
 }
 
+static inline uint64
+cache_config_pages_per_extent(const cache_config *cfg)
+{
+   uint64 page_size   = cache_config_page_size(cfg);
+   uint64 extent_size = cache_config_extent_size(cfg);
+   return extent_size / page_size;
+}
+
+static inline uint64
+cache_config_pages_share_extent(const cache_config *cfg,
+                                uint64              addr1,
+                                uint64              addr2)
+{
+   return cache_config_extent_base_addr(cfg, addr1)
+          == cache_config_extent_base_addr(cfg, addr2);
+}
+
+static inline uint64
+cache_config_extent_page(const cache_config *cfg, uint64 extent_addr, uint64 i)
+{
+   return extent_addr + i * cache_config_page_size(cfg);
+}
 
 typedef void (*cache_generic_fn)(cache *cc);
 typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
@@ -153,8 +175,8 @@ typedef uint32 (*count_dirty_fn)(cache *cc);
 typedef uint16 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
 typedef bool (*cache_present_fn)(cache *cc, page_handle *page);
 typedef void (*enable_sync_get_fn)(cache *cc, bool enabled);
-typedef allocator *(*cache_allocator_fn)(cache *cc);
-typedef cache_config *(*cache_config_fn)(cache *cc);
+typedef allocator *(*cache_allocator_fn)(const cache *cc);
+typedef cache_config *(*cache_config_fn)(const cache *cc);
 
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
@@ -403,34 +425,47 @@ cache_enable_sync_get(cache *cc, bool enabled)
 }
 
 static inline allocator *
-cache_allocator(cache *cc)
+cache_allocator(const cache *cc)
 {
    return cc->ops->cache_allocator(cc);
 }
 
 static inline cache_config *
-cache_get_config(cache *cc)
+cache_get_config(const cache *cc)
 {
    return cc->ops->get_config(cc);
 }
 
 static inline uint64
-cache_page_size(cache *cc)
+cache_page_size(const cache *cc)
 {
    return cache_config_page_size(cache_get_config(cc));
 }
 
 static inline uint64
-cache_extent_size(cache *cc)
+cache_extent_size(const cache *cc)
 {
    return cache_config_extent_size(cache_get_config(cc));
 }
 
 static inline uint64
-cache_base_addr(cache *cc, uint64 addr)
+cache_extent_base_addr(const cache *cc, uint64 addr)
 {
-   return cache_config_base_addr(cache_get_config(cc), addr);
+   return cache_config_extent_base_addr(cache_get_config(cc), addr);
 }
 
+static inline uint64
+cache_pages_per_extent(const cache *cc)
+{
+   cache_config *cfg = cache_get_config(cc);
+   return cache_config_pages_per_extent(cfg);
+}
+
+static inline uint64
+cache_pages_share_extent(const cache *cc, uint64 addr1, uint64 addr2)
+{
+   cache_config *cfg = cache_get_config(cc);
+   return cache_config_pages_share_extent(cfg, addr1, addr2);
+}
 
 #endif // __CACHE_H

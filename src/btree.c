@@ -1056,15 +1056,14 @@ btree_addrs_share_extent(const btree_config *cfg,
                          uint64              left_addr,
                          uint64              right_addr)
 {
-   return (right_addr / cache_config_extent_size(cfg->cache_cfg))
-          == (left_addr / cache_config_extent_size(cfg->cache_cfg));
+   return cache_config_extent_base_addr(cfg->cache_cfg, right_addr)
+          == cache_config_extent_base_addr(cfg->cache_cfg, left_addr);
 }
 
 static inline uint64
 btree_get_extent_base_addr(const btree_config *cfg, btree_node *node)
 {
-   return (node->addr / cache_config_extent_size(cfg->cache_cfg))
-          * cache_config_extent_size(cfg->cache_cfg);
+   return cache_config_extent_base_addr(cfg->cache_cfg, node->addr);
 }
 
 static inline uint64
@@ -3205,7 +3204,7 @@ btree_space_use_in_range(cache        *cc,
    uint64 meta_head    = btree_root_to_meta_addr(cfg, root_addr, 0);
    uint64 extents_used = mini_keyed_extent_count(
       cc, cfg->data_cfg, type, meta_head, start_key, end_key);
-   return extents_used * cache_config_extent_size(cfg->cache_cfg);
+   return extents_used * btree_extent_size(cfg);
 }
 
 bool

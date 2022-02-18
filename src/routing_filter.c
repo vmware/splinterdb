@@ -375,7 +375,7 @@ routing_filter_add(cache           *cc,
    // for convenience
    uint64 page_size        = cache_config_page_size(cfg->cache_cfg);
    uint64 extent_size      = cache_config_extent_size(cfg->cache_cfg);
-   uint64 pages_per_extent = extent_size / page_size;
+   uint64 pages_per_extent = cache_config_pages_per_extent(cfg->cache_cfg);
    uint64 index_size       = cfg->index_size;
 
    /*
