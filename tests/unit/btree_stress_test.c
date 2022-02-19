@@ -35,6 +35,7 @@ typedef struct insert_thread_params {
    uint64           root_addr;
    int              start;
    int              end;
+   platform_heap_id hid;
 } insert_thread_params;
 
 // Function Prototypes
@@ -49,7 +50,8 @@ insert_tests(cache           *cc,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end);
+             int              end,
+             platform_heap_id hid);
 
 static int
 query_tests(cache           *cc,
@@ -74,21 +76,13 @@ pack_tests(cache           *cc,
            uint64           nkvs);
 
 static slice
-<<<<<<< HEAD
 gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
-=======
-gen_key(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)]);
->>>>>>> origin/main
 
 static uint64
 ungen_key(slice key);
 
 static slice
-<<<<<<< HEAD
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
-=======
-gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)]);
->>>>>>> origin/main
 
 /*
  * Global data declaration macro:
@@ -297,7 +291,8 @@ insert_thread(void *arg)
                 params->mini,
                 params->root_addr,
                 params->start,
-                params->end);
+                params->end,
+                params->hid);
 }
 
 static void
@@ -308,12 +303,16 @@ insert_tests(cache           *cc,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end)
+             int              end,
+             platform_heap_id hid)
 {
    uint64 generation;
    bool   was_unique;
+
    int    keybuf_size = btree_page_size(cfg);
    int    msgbuf_size = btree_page_size(cfg);
+   uint8 *keybuf      = platform_allocate(hid, keybuf_size);
+   uint8 *msgbuf      = platform_allocate(hid, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -335,11 +334,7 @@ insert_tests(cache           *cc,
 }
 
 static slice
-<<<<<<< HEAD
 gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
-=======
-gen_key(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)])
->>>>>>> origin/main
 {
    uint64 keylen = sizeof(i) + (i % 100);
    platform_assert(keylen + sizeof(i) <= length);
@@ -362,11 +357,7 @@ ungen_key(slice key)
 }
 
 static slice
-<<<<<<< HEAD
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
-=======
-gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)])
->>>>>>> origin/main
 {
    data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (btree_page_size(cfg) / 3));
@@ -403,7 +394,7 @@ query_tests(cache           *cc,
                    &result);
       if (!btree_found(&result)
           || slice_lex_cmp(writable_buffer_to_slice(&result),
-                           gen_msg(cfg, i, msgbuf, btree_page_size(cfg)))
+                           gen_msg(cfg, i, msgbuf, btree_page_size(cfg))))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
