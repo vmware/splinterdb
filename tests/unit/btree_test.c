@@ -326,8 +326,9 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
    char      *leaf_buffer = platform_allocate(hid, btree_page_size(cfg));
    btree_hdr *hdr         = (btree_hdr *)leaf_buffer;
+   int        nkvs        = 256;
+
    btree_init_hdr(cfg, hdr);
-   hdr->height = 1;
 
    bool rv = FALSE;
    for (int i = 0; i < nkvs; i += 2) {
