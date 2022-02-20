@@ -385,46 +385,30 @@ filter_test(int argc, char *argv[])
 
    if (run_perf_test) {
       rc = test_filter_perf((cache *)cc,
-                            &cfg->leaf_filter_cfg,
+                            &cfg->filter_cfg,
                             hid,
                             max_tuples_per_memtable,
                             cfg->fanout,
                             100);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_perf((cache *)cc,
-                            &cfg->index_filter_cfg,
-                            hid,
-                            max_tuples_per_memtable / 5,
-                            cfg->fanout,
-                            100);
-      platform_assert(SUCCESS(rc));
    } else {
       rc = test_filter_basic((cache *)cc,
-                             &cfg->leaf_filter_cfg,
+                             &cfg->filter_cfg,
                              hid,
                              max_tuples_per_memtable,
                              cfg->fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc,
-                             &cfg->index_filter_cfg,
-                             hid,
-                             max_tuples_per_memtable / 5,
-                             cfg->fanout);
+      rc = test_filter_basic(
+         (cache *)cc, &cfg->filter_cfg, hid, 100, cfg->fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic(
-         (cache *)cc, &cfg->leaf_filter_cfg, hid, 100, cfg->fanout);
+         (cache *)cc, &cfg->filter_cfg, hid, 50, cfg->max_branches_per_node);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc,
-                             &cfg->leaf_filter_cfg,
-                             hid,
-                             50,
-                             cfg->max_branches_per_node);
+      rc =
+         test_filter_basic((cache *)cc, &cfg->filter_cfg, hid, 1, cfg->fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic(
-         (cache *)cc, &cfg->leaf_filter_cfg, hid, 1, cfg->fanout);
-      platform_assert(SUCCESS(rc));
-      rc = test_filter_basic(
-         (cache *)cc, &cfg->leaf_filter_cfg, hid, 1, 2 * cfg->fanout);
+         (cache *)cc, &cfg->filter_cfg, hid, 1, 2 * cfg->fanout);
       platform_assert(SUCCESS(rc));
    }
 
