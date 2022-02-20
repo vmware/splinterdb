@@ -2922,8 +2922,9 @@ btree_pack_post_loop(btree_pack_req *req, slice last_key)
    // loop into the btree_create root
    btree_node root;
 
-   // if output tree is empty, dec_ref the tree
+   // if output tree is empty, deallocate any preallocated extents
    if (req->num_tuples == 0) {
+      mini_destroy_unused(&req->mini);
       req->root_addr = 0;
       return;
    }

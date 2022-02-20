@@ -14,6 +14,8 @@
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 #include "unit_tests.h"
+#include "util.h"
+#include "../functional/random.h"
 #include "ctest.h" // This is required for all test-case files.
 
 #define TEST_KEY_SIZE   20
@@ -22,6 +24,9 @@
 // Function Prototypes
 static void *
 exec_worker_thread(void *w);
+
+static void
+naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count);
 
 // Configuration for each worker thread
 typedef struct {
@@ -104,6 +109,45 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
 }
 
 
+// Do some inserts, and then some range-deletes
+CTEST2(splinterdb_stress, test_naive_range_delete)
+{
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   random_state rand_state;
+   random_init(&rand_state, 42, 0);
+
+   const uint32 num_inserts = 2 * 1000 * 1000;
+
+   platform_log("loading data...");
+   for (uint32 i = 0; i < num_inserts; i++) {
+      char key_buffer[TEST_KEY_SIZE]     = {0};
+      char value_buffer[TEST_VALUE_SIZE] = {0};
+      random_bytes(&rand_state, key_buffer, TEST_KEY_SIZE);
+      random_bytes(&rand_state, value_buffer, TEST_VALUE_SIZE);
+      int rc = splinterdb_insert(data->kvsb,
+                                 slice_create(TEST_KEY_SIZE, key_buffer),
+                                 slice_create(TEST_VALUE_SIZE, value_buffer));
+      ASSERT_EQUAL(0, rc);
+   }
+
+   platform_log("loaded %u k/v pairs\n", num_inserts);
+
+   uint32 num_rounds = 5;
+   for (uint32 round = 0; round < num_rounds; round++) {
+      platform_log("range delete round %d...\n", round);
+      char start_key_data[4];
+      random_bytes(&rand_state, start_key_data, sizeof(start_key_data));
+      const uint32 num_to_delete = num_inserts / num_rounds;
+
+      naive_range_delete(data->kvsb,
+                         slice_create(sizeof(start_key_data), start_key_data),
+                         num_to_delete);
+   }
+}
+
+
 // Per-thread workload
 static void *
 exec_worker_thread(void *w)
@@ -141,4 +185,46 @@ exec_worker_thread(void *w)
 
    splinterdb_deregister_thread(kvsb);
    return 0;
+}
+
+
+// Do a "range delete" by collecting keys and then deleting them one at a time
+static void
+naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
+{
+   platform_log("\tcollecting keys to delete...\n");
+   char *keys_to_delete = calloc(count, TEST_KEY_SIZE);
+
+   splinterdb_iterator *it;
+
+   int rc = splinterdb_iterator_init(kvsb, &it, start_key);
+   ASSERT_EQUAL(0, rc);
+
+   slice key, value;
+
+   uint32 num_found = 0;
+   for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
+      splinterdb_iterator_get_current(it, &key, &value);
+      ASSERT_EQUAL(TEST_KEY_SIZE, slice_length(key));
+      memcpy(keys_to_delete + num_found * TEST_KEY_SIZE,
+             slice_data(key),
+             TEST_KEY_SIZE);
+      num_found++;
+      if (num_found >= count) {
+         break;
+      }
+   }
+   rc = splinterdb_iterator_status(it);
+   ASSERT_EQUAL(0, rc);
+   splinterdb_iterator_deinit(it);
+
+   platform_log("\tdeleting collected keys...\n");
+   for (uint32 i = 0; i < num_found; i++) {
+      slice key_to_delete =
+         slice_create(TEST_KEY_SIZE, keys_to_delete + i * TEST_KEY_SIZE);
+      splinterdb_delete(kvsb, key_to_delete);
+   }
+
+   free(keys_to_delete);
+   platform_log("\tdeleted %u k/v pairs\n", num_found);
 }

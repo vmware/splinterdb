@@ -66,8 +66,7 @@ typedef struct trunk_config {
    bool            use_stats;   // stats
    memtable_config mt_cfg;
    btree_config    btree_cfg;
-   routing_config  index_filter_cfg;
-   routing_config  leaf_filter_cfg;
+   routing_config  filter_cfg;
    data_config    *data_cfg;
    bool            use_log;
    log_config     *log_cfg;
