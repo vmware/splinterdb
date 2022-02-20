@@ -217,20 +217,23 @@ ctest_main(int argc, const char *argv[])
 #endif
    uint64_t t1 = getCurrentTime();
 
+   // Fabricate placeholder begin / end test suite marker
    struct ctest *ctest_begin = &CTEST_IMPL_TNAME(suite, test);
    struct ctest *ctest_end   = &CTEST_IMPL_TNAME(suite, test);
 
    // find begin and end of section by comparing magics
    while (1) {
       struct ctest *t = ctest_begin - 1;
-      if (t->magic != CTEST_IMPL_MAGIC)
+      if (t->magic != CTEST_IMPL_MAGIC) {
          break;
+      }
       ctest_begin--;
    }
    while (1) {
       struct ctest *t = ctest_end + 1;
-      if (t->magic != CTEST_IMPL_MAGIC)
+      if (t->magic != CTEST_IMPL_MAGIC) {
          break;
+      }
       ctest_end++;
    }
    ctest_end++; // end after last one
@@ -538,6 +541,10 @@ suite_filter(struct ctest *t)
  *  - Will list all suite-names, or all test cases names in specified suite name
  *  $ unit_test --list [ <suite-name> ]
  *
+ * When used as "unit_test --list <suite-name>", we first find the start of
+ * the requested suite-name, then, will print list of test cases from it.
+ * Processing returns early immediately upon start of the next test suite name.
+ *
  *  - Will list all test cases names in specified standalone test
  *  $ standalone_test --list
  * ---------------------------------------------------------------------------
@@ -557,14 +564,29 @@ print_test_suite_names(const struct ctest *test_begin,
           (print_test_case_name ? "cases" : "suites"));
 
    const struct ctest *test;
-   const char         *prev_suite_name = NULL;
+   const char         *prev_suite_name  = NULL;
+   int                 found_suite_name = 0;
 
    for (test = test_begin; test != test_end; test++) {
+      // Skip placeholder entry of test definitions in input list
+      if (test == &CTEST_IMPL_TNAME(suite, test)) {
+         continue;
+      }
+
       // If user has asked to list test-cases for specified suite ...
       if (suite_name) {
          // Find the first occurrence of that suite-name in the list.
-         if (strcmp(test->ssname, suite_name)) {
-            continue;
+         if (!found_suite_name) {
+            // It's the wrong suite name; skip it.
+            if (strcmp(test->ssname, suite_name)) {
+               continue;
+            }
+            found_suite_name = 1;
+         } else if (strcmp(test->ssname, suite_name)) {
+            // All test cases come in a chunk for a test suite.
+            // So, if user wanted to list test cases for a specific suite,
+            // and we find the start of a new chunk of test cases, we are done.
+            return;
          }
       }
 
@@ -575,11 +597,6 @@ print_test_suite_names(const struct ctest *test_begin,
          if (prev_suite_name && (strcmp(prev_suite_name, test->ssname) == 0)) {
             continue;
          }
-      }
-      // Skip terminator entry of test definitions in input list
-      else if (test == &CTEST_IMPL_TNAME(suite, test))
-      {
-         continue;
       }
 
       printf("  %s\n", (print_test_case_name ? test->ttname : test->ssname));
