@@ -72,7 +72,6 @@ testRunStartSeconds=$SECONDS
 echo "      **** SplinterDB Test Suite Execution Times **** " > "${test_exec_log_file}"
 echo >> "${test_exec_log_file}"
 
-# INCLUDESLOWTESTS: Tag for README.md file.
 if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    # For some coverage, exercise --help, --list args for unit test binaries
    set -x
