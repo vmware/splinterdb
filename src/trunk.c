@@ -542,7 +542,6 @@ struct trunk_compact_bundle_req {
    uint16                height;
    uint16                bundle_no;
    trunk_compaction_type type;
-   uint64                filter_generation;
    uint64                pivot_generation[TRUNK_MAX_PIVOTS];
    uint64                max_pivot_generation;
    uint64                input_pivot_count[TRUNK_MAX_PIVOTS];
@@ -1225,13 +1224,6 @@ trunk_pivot_start_branch(trunk_handle *spl, page_handle *node, uint16 pivot_no)
 {
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
    return pdata->start_branch;
-}
-
-static inline uint64
-trunk_generation(trunk_handle *spl, page_handle *node)
-{
-   trunk_hdr *hdr = (trunk_hdr *)node->data;
-   return hdr->generation;
 }
 
 static inline void
@@ -3682,7 +3674,6 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          platform_assert(!req->should_build[i]);
       }
       trunk_prepare_build_filter(spl, req, node);
-      req->filter_generation = trunk_generation(spl, node);
       trunk_node_unget(spl, &node);
 
       trunk_build_filters(spl, req);
@@ -7504,13 +7495,12 @@ trunk_print_locked_node(trunk_handle          *spl,
 {
    uint16 height = trunk_height(spl, node);
    platform_log_stream("---------------------------------------------------------------------------------------\n");
-   platform_log_stream("|          |     addr      | height |   gen   | pvt gen |                             |\n");
+   platform_log_stream("|          |     addr      | height | pvt gen |                                       |\n");
    platform_log_stream("|  HEADER  |---------------|--------|---------|---------|-----------------------------|\n");
    platform_log_stream(
-      "|          | %12lu^ | %6u | %7lu | %7lu |                             |\n",
+      "|          | %12lu^ | %6u | %7lu |                                       |\n",
       node->disk_addr,
       height,
-      trunk_generation(spl, node),
       trunk_pivot_generation(spl, node));
    platform_log_stream("|-------------------------------------------------------------------------------------|\n");
    platform_log_stream("|                                       PIVOTS                                        |\n");
