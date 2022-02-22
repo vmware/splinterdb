@@ -301,7 +301,13 @@ memtable_verify(cache *cc, memtable *mt)
 static inline void
 memtable_print(cache *cc, memtable *mt)
 {
-   btree_print_tree(cc, mt->cfg, mt->root_addr);
+   btree_print_tree(cc, mt->cfg, mt->root_addr, NULL);
+}
+
+static inline void
+memtable_print_to_stream(cache *cc, memtable *mt, platform_stream_handle stream)
+{
+   btree_print_tree(cc, mt->cfg, mt->root_addr, stream);
 }
 
 static inline void

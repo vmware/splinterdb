@@ -389,7 +389,11 @@ void
 trunk_reset_stats(trunk_handle *spl);
 
 void
-trunk_print(trunk_handle *spl);
+trunk_print_super_block(trunk_handle *spl);
+
+void
+trunk_print(trunk_handle *spl, platform_stream_handle user_stream);
+
 void
 trunk_print_lookup(trunk_handle *spl, char *key);
 void

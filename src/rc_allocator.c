@@ -395,7 +395,8 @@ rc_allocator_mount(rc_allocator        *al,
          al->stats.curr_allocated++;
       }
    }
-   platform_log("Allocated at mount: %lu MiB\n",
+   platform_log("Allocated extents at mount = %lu (%lu MiB)\n",
+                al->stats.curr_allocated,
                 B_TO_MiB(al->stats.curr_allocated * cfg->io_cfg->extent_size));
    return STATUS_OK;
 }
@@ -693,63 +694,88 @@ rc_allocator_assert_noleaks(rc_allocator *al)
 void
 rc_allocator_print_stats(rc_allocator *al)
 {
+   rc_allocator_print_stats_to_stream(al, PLATFORM_DEFAULT_LOG_HANDLE);
+}
+
+void
+rc_allocator_print_stats_to_stream(rc_allocator *al,
+                                   platform_stream_handle stream)
+{
    int64 divider = GiB / al->cfg->io_cfg->extent_size;
-   platform_default_log(
+   platform_log_stream(
       "----------------------------------------------------------------\n");
-   platform_default_log(
+   platform_log_stream(
       "| Allocator Stats                                              |\n");
-   platform_default_log(
+   platform_log_stream(
       "|--------------------------------------------------------------|\n");
    uint64 curr_gib = al->stats.curr_allocated / divider;
-   platform_default_log(
+   platform_log_stream(
       "| Currently Allocated: %12lu extents (%4luGiB)          |\n",
       al->stats.curr_allocated,
       curr_gib);
    uint64 max_gib = al->stats.max_allocated / divider;
-   platform_default_log(
+   platform_log_stream(
       "| Max Allocated:       %12lu extents (%4luGiB)          |\n",
       al->stats.max_allocated,
       max_gib);
-   platform_default_log(
+   platform_log_stream(
       "|--------------------------------------------------------------|\n");
-   platform_default_log(
+   platform_log_stream(
       "| Page Type | Allocations | Deallocations | Footprint (bytes)  |\n");
-   platform_default_log(
+   platform_log_stream(
       "|--------------------------------------------------------------|\n");
+   int64 exp_allocated_count = 0;
    for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
       const char *str           = page_type_str[type];
       int64       allocs        = al->stats.extent_allocs[type];
       int64       deallocs      = al->stats.extent_deallocs[type];
       int64       footprint     = allocs - deallocs;
       int64       footprint_gib = footprint / divider;
-      platform_default_log("| %9s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
+
+      exp_allocated_count += footprint;
+
+      platform_log_stream("| %-10s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
                            str,
                            allocs,
                            deallocs,
                            footprint,
                            footprint_gib);
    }
-   platform_default_log(
+   platform_log_stream(
       "----------------------------------------------------------------\n");
+   platform_log_stream("Expected allocation count from footprint = %ld\n",
+                       exp_allocated_count);
 }
 
 /*
  *----------------------------------------------------------------------
  * rc_allocator_debug_print --
  *
- *      Prints the base addrs of all allocated extents.
+ *      Prints the base addresses of all allocated extents.
  *----------------------------------------------------------------------
  */
 void
 rc_allocator_debug_print(rc_allocator *al)
 {
+   rc_allocator_debug_print_to_stream(al, PLATFORM_DEFAULT_LOG_HANDLE);
+}
+
+void
+rc_allocator_debug_print_to_stream(rc_allocator *al,
+                                   platform_stream_handle stream)
+{
    uint64 i;
    uint8  ref;
-   platform_default_log("Allocated: %lu\n", al->stats.curr_allocated);
+   platform_log_stream("Allocated extents: %lu\n", al->stats.curr_allocated);
+   platform_log_stream("   Index  ExtentID  ExtentAddr  Count\n");
    for (i = 0; i < al->cfg->extent_capacity; i++) {
       ref = al->ref_count[i];
-      if (ref != 0)
-         platform_default_log(
-            "%lu -- %u\n", i * al->cfg->io_cfg->extent_size, ref);
+      if (ref != 0) {
+         uint64 ext_addr = (i * al->cfg->io_cfg->extent_size);
+         platform_log_stream(
+            // "%lu -- %u\n", i * al->cfg->io_cfg->extent_size, ref);
+            "%8lu %8lu %12lu     %u\n",
+             i, (ext_addr / al->cfg->io_cfg->page_size), ext_addr, ref);
+      }
    }
 }

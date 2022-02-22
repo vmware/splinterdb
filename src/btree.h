@@ -392,7 +392,10 @@ btree_rough_count(cache        *cc,
                   slice         max_key);
 
 void
-btree_print_tree(cache *cc, btree_config *cfg, uint64 addr);
+btree_print_tree(cache                 *cc,
+                 btree_config          *cfg,
+                 uint64                 addr,
+                 platform_stream_handle user_strea);
 
 void
 btree_print_locked_node(btree_config          *cfg,
