@@ -115,4 +115,10 @@ rc_allocator_mount(rc_allocator        *al,
 void
 rc_allocator_dismount(rc_allocator *al);
 
-#endif
+void
+rc_allocator_sprint_stats(platform_stream_handle stream, rc_allocator *al);
+
+void
+rc_allocator_sprint_debug(platform_stream_handle stream, rc_allocator *al);
+
+#endif /* __RC_ALLOCATOR_H */
