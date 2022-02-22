@@ -53,7 +53,7 @@ plan:
     outputs:
     - name: image
     params:
-      BUILD_ARG_base_image: harbor-repo.vmware.com/dockerhub-proxy-cache/library/ubuntu:22.04
+      BUILD_ARG_base_image: harbor-repo.vmware.com/dockerhub-proxy-cache/library/ubuntu:20.04
       DOCKERFILE: #@ "Dockerfile." + resource_name
       LABEL_created_by: "SplinterDB Concourse CI"
     run:
