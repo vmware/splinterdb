@@ -691,6 +691,19 @@ static inline bool                 trunk_needs_split               (trunk_handle
 int                                trunk_split_index               (trunk_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
 void                               trunk_split_leaf                (trunk_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
 int                                trunk_split_root                (trunk_handle *spl, page_handle     *root);
+
+static void
+trunk_print_pivots(trunk_handle *spl, page_handle *node,
+                   platform_stream_handle stream);
+
+static void
+trunk_print_branches_and_bundles(trunk_handle *spl, page_handle *node,
+                   platform_stream_handle stream);
+
+static void
+trunk_print_branches_sb_filters(trunk_handle *spl, page_handle *node,
+                   platform_stream_handle stream);
+
 void                               trunk_print_node                (trunk_handle *spl, uint64 addr, platform_stream_handle stream);
 void                               trunk_print_locked_node         (trunk_handle *spl, page_handle *node, platform_stream_handle stream);
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
@@ -7489,6 +7502,24 @@ trunk_print_locked_node(trunk_handle          *spl,
       trunk_pivot_generation(spl, node));
    platform_log_stream("|------------------------------------------------------"
                        "-------------------------------|\n");
+
+   trunk_print_pivots(spl, node, stream);
+
+   trunk_print_branches_and_bundles(spl, node, stream);
+
+   trunk_print_branches_sb_filters(spl, node, stream);
+
+   platform_log_stream("}\n");
+}
+
+/*
+ * trunk_print_pivots() -- Print pivot array information.
+ */
+static void
+trunk_print_pivots(trunk_handle          *spl,
+                   page_handle           *node,
+                   platform_stream_handle stream)
+{
    platform_log_stream("|                                       PIVOTS         "
                        "                               |\n");
    platform_log_stream("|------------------------------------------------------"
@@ -7529,14 +7560,22 @@ trunk_print_locked_node(trunk_handle          *spl,
             "| Full key: '%.*s'\n", (int)sizeof(key_string), key_string);
       }
    }
+}
+
+/*
+ * trunk_print_branches_and_bundles() --
+ *
+ * Iterate through arrays of bundles and sub-bundles on a trunk page.
+ * Print contents of those structures.
+ */
+static void
+trunk_print_branches_and_bundles(trunk_handle          *spl,
+                                 page_handle           *node,
+                                 platform_stream_handle stream)
+{
    // clang-format off
    platform_log_stream("|-------------------------------------------------------------------------------------|\n");
    platform_log_stream("|                              BRANCHES AND [SUB]BUNDLES                              |\n");
-   platform_log_stream("|-------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |    |\n");
-   platform_log_stream("|     |    pivot/bundle/subbundle   |  num tuples  |              |              |    |\n");
-   platform_log_stream("|-----|--------------|--------------|--------------|--------------|--------------|----|\n");
-   // clang-format on
 
    // Establish start/end markers for branches, and [sub-] bundles.
    uint16 start_branch = trunk_start_branch(spl, node);
@@ -7545,6 +7584,22 @@ trunk_print_locked_node(trunk_handle          *spl,
    uint16 end_bundle   = trunk_end_bundle(spl, node);
    uint16 start_sb     = trunk_start_subbundle(spl, node);
    uint16 end_sb       = trunk_end_subbundle(spl, node);
+
+   platform_log_stream("|start_branch=%-2u end_branch=%-2u"
+                       " start_bundle=%-2u end_bundle=%-2u"
+                       " start_sb=%-2u end_sb=%-2u    |\n",
+                       start_branch,
+                       end_branch,
+                       start_bundle,
+                       end_bundle,
+                       start_sb,
+                       end_sb);
+
+   platform_log_stream("|-------------------------------------------------------------------------------------|\n");
+   platform_log_stream("|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |    |\n");
+   platform_log_stream("|     |    pivot/bundle/subbundle   |  num tuples  |              |              |    |\n");
+   platform_log_stream("|-----|--------------|--------------|--------------|--------------|--------------|----|\n");
+   // clang-format on
 
    // Iterate through all the branches ...
    for (uint16 branch_no = start_branch; branch_no != end_branch;
@@ -7603,12 +7658,17 @@ trunk_print_locked_node(trunk_handle          *spl,
       platform_log_stream("| %3u |         %12lu        |              |              |              |    |\n",
                           branch_no,
                           branch->root_addr);
-      // clang-format on
    }
    platform_log_stream("-------------------------------------------------------"
                        "--------------------------------\n");
-   platform_log_stream("}\n");
 }
+// clang-format on
+
+static void
+trunk_print_branches_sb_filters(trunk_handle          *spl,
+                                page_handle           *node,
+                                platform_stream_handle stream)
+{}
 
 void
 trunk_print_node(trunk_handle *spl, uint64 addr, platform_stream_handle stream)
@@ -7705,10 +7765,10 @@ trunk_print(trunk_handle *spl, platform_stream_handle user_stream)
 void
 trunk_print_super_block(trunk_handle *spl)
 {
-   page_handle * super_page;
+   page_handle       *super_page;
    trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
    if (super == NULL) {
-       return;
+      return;
    }
 
    platform_log("Superblock root_addr=%lu {\n", super->root_addr);

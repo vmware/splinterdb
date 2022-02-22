@@ -549,8 +549,7 @@ CTEST2(splinter, test_splinter_print_diags)
 
    platform_log("\n** Allocator stats **\n");
    rc_allocator_print_stats_to_stream((rc_allocator *)alp, Platform_stdout_fh);
-   rc_allocator_debug_print_to_stream((rc_allocator *) alp,
-                                      Platform_stdout_fh);
+   rc_allocator_debug_print_to_stream((rc_allocator *)alp, Platform_stdout_fh);
 
    trunk_destroy(spl);
 }

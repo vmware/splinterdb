@@ -698,7 +698,7 @@ rc_allocator_print_stats(rc_allocator *al)
 }
 
 void
-rc_allocator_print_stats_to_stream(rc_allocator *al,
+rc_allocator_print_stats_to_stream(rc_allocator          *al,
                                    platform_stream_handle stream)
 {
    int64 divider = GiB / al->cfg->io_cfg->extent_size;
@@ -735,11 +735,11 @@ rc_allocator_print_stats_to_stream(rc_allocator *al,
       exp_allocated_count += footprint;
 
       platform_log_stream("| %-10s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
-                           str,
-                           allocs,
-                           deallocs,
-                           footprint,
-                           footprint_gib);
+                          str,
+                          allocs,
+                          deallocs,
+                          footprint,
+                          footprint_gib);
    }
    platform_log_stream(
       "----------------------------------------------------------------\n");
@@ -761,7 +761,7 @@ rc_allocator_debug_print(rc_allocator *al)
 }
 
 void
-rc_allocator_debug_print_to_stream(rc_allocator *al,
+rc_allocator_debug_print_to_stream(rc_allocator          *al,
                                    platform_stream_handle stream)
 {
    uint64 i;
@@ -775,7 +775,10 @@ rc_allocator_debug_print_to_stream(rc_allocator *al,
          platform_log_stream(
             // "%lu -- %u\n", i * al->cfg->io_cfg->extent_size, ref);
             "%8lu %8lu %12lu     %u\n",
-             i, (ext_addr / al->cfg->io_cfg->page_size), ext_addr, ref);
+            i,
+            (ext_addr / al->cfg->io_cfg->page_size),
+            ext_addr,
+            ref);
       }
    }
 }

@@ -116,11 +116,11 @@ void
 rc_allocator_dismount(rc_allocator *al);
 
 void
-rc_allocator_print_stats_to_stream(rc_allocator *al,
+rc_allocator_print_stats_to_stream(rc_allocator          *al,
                                    platform_stream_handle stream);
 
 void
-rc_allocator_debug_print_to_stream(rc_allocator *al,
+rc_allocator_debug_print_to_stream(rc_allocator          *al,
                                    platform_stream_handle stream);
 
-#endif  /* __RC_ALLOCATOR_H */
+#endif /* __RC_ALLOCATOR_H */
