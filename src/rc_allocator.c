@@ -770,11 +770,22 @@ rc_allocator_sprint_debug(platform_stream_handle stream, rc_allocator *al)
 {
    uint64 i;
    uint8  ref;
-   platform_log_stream("Allocated extents: %lu\n", al->stats.curr_allocated);
+   uint64 nallocated = al->stats.curr_allocated;
+
+   // For more than a few allocated extents, print enclosing { } tags.
+   bool print_curly = (nallocated > 20);
+
+   platform_log_stream(
+      "Allocated extents: %lu\n%s", nallocated, (print_curly ? "{\n" : ""));
    platform_log_stream("   Index  ExtentID  ExtentAddr  Count\n");
+
+   // # of extents with non-zero referenced page-count found
+   uint64 found = 0;
+
    for (i = 0; i < al->cfg->extent_capacity; i++) {
       ref = al->ref_count[i];
       if (ref != 0) {
+         found++;
          uint64 ext_addr = (i * al->cfg->io_cfg->extent_size);
          platform_log_stream("%8lu %8lu %12lu     %u\n",
                              i,
@@ -783,4 +794,7 @@ rc_allocator_sprint_debug(platform_stream_handle stream, rc_allocator *al)
                              ref);
       }
    }
+   platform_log_stream("%sFound %lu extents with allocated pages.\n",
+                       (print_curly ? "}\n" : ""),
+                       found);
 }

@@ -402,7 +402,7 @@ btree_sprint_tree(platform_stream_handle user_stream,
                   btree_config          *cfg,
                   uint64                 addr);
 
-inline void
+static inline void
 btree_print_tree(cache *cc, btree_config *cfg, uint64 addr)
 {
    btree_sprint_tree(NULL, cc, cfg, addr);
