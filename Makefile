@@ -176,7 +176,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
 # Automatically generated .o dependencies on .c and .h files
 -include $(SRC:%.c=$(OBJDIR)/%.d) $(TESTSRC:%.c=$(OBJDIR)/%.d)
 
-# Dependencies for main executables
+# Dependencies for the main executables
 $(BINDIR)/driver_test: $(FUNCTIONAL_TESTOBJ) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so
 $(BINDIR)/unit_test: $(UNIT_TESTOBJS) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o
 
@@ -189,61 +189,77 @@ $(BINDIR)/unit_test: $(UNIT_TESTOBJS) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.
 # all the mini unit tests depend on these files
 $(UNIT_TESTBINS): $(OBJDIR)/$(UNIT_TESTSDIR)/main.o
 
-# Every unit test of the form bin/unit/<test> depends on obj/tests/unit/<test>.c
+# Every unit test of the form bin/unit/<test> depends on obj/tests/unit/<test>.o
 #
-# We can't use pattern rules to state this pattern dependency because
+# We can't use pattern rules to state this dependency pattern because
 # dependencies specified using pattern rules get overwritten by
 # dependencies in explicit rules, which we will use below to give the
-# dependencies of each individual unit test.  So we use this code to
-# turn the dependency pattern into several explicit dependencies.
+# dependencies of each individual unit test.  So we use "eval" to
+# turn the dependency pattern into explicit dependencies.
 define unit_test_self_dependency =
 $(1): $(patsubst $(BINDIR)/$(UNITDIR)/%,$(OBJDIR)/$(UNIT_TESTSDIR)/%.o, $(1))
 endef
+# See https://www.gnu.org/software/make/manual/html_node/Eval-Function.html
 $(foreach unit,$(UNIT_TESTBINS),$(eval $(call unit_test_self_dependency,$(unit))))
 
 # Variables defining the dependency graph of the .o files from src.
 # This is used to specify the dependencies of the individual unit
 # tests.
-PLATFORM_OBJS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o \
-								$(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
-UTIL_OBJS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_OBJS)
-CLOCKCACHE_OBJS = $(OBJDIR)/$(SRCDIR)/clockcache.o           \
-                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o         \
-                  $(OBJDIR)/$(SRCDIR)/task.o                 \
-									$(UTIL_OBJS)
-BTREE_OBJS = $(OBJDIR)/$(SRCDIR)/btree.o                         \
-				 		 $(OBJDIR)/$(SRCDIR)/data_internal.o                 \
-						 $(OBJDIR)/$(SRCDIR)/mini_allocator.o                \
-						 $(CLOCKCACHE_OBJS)
+#
+# These will need to be fleshed out for filters, io subsystem, trunk,
+# etc. as we create mini unit test executables for those subsystems.
+PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o
+
+PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
+
+UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
+
+CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o		\
+                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
+                 $(OBJDIR)/$(SRCDIR)/task.o         \
+                 $(UTIL_SYS)                        \
+                 $(PLATFORM_IO_SYS)
+
+BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
+            $(OBJDIR)/$(SRCDIR)/data_internal.o   \
+            $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
+            $(CLOCKCACHE_SYS)
 
 #
-# The dependencies of each individual test
+# The dependencies of each mini unit test
 #
-$(BINDIR)/$(UNITDIR)/misc_test: $(PLATFORM_OBJS)
-$(BINDIR)/$(UNITDIR)/util_test: $(UTIL_OBJS)
+$(BINDIR)/$(UNITDIR)/misc_test: $(PLATFORM_SYS)
+
+$(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)
+
 $(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
-													 $(OBJDIR)/$(TESTS_DIR)/config.o \
-													 $(OBJDIR)/$(TESTS_DIR)/test_data.o \
-													 $(BTREE_OBJS)
-$(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
-																  $(OBJDIR)/$(TESTS_DIR)/config.o \
-																  $(OBJDIR)/$(TESTS_DIR)/test_data.o \
-																  $(BTREE_OBJS)
-$(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                       \
-					                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-					                    $(LIBDIR)/libsplinterdb.so
-$(BINDIR)/$(UNITDIR)/splinterdb_test: $(COMMON_TESTOBJ)          \
-						                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-																$(LIBDIR)/libsplinterdb.so
-$(BINDIR)/$(UNITDIR)/splinterdb_kv_test: $(COMMON_TESTOBJ)          \
-							                     $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-																	 $(LIBDIR)/libsplinterdb.so
-$(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test: $(COMMON_TESTOBJ)          \
-											                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-																					$(LIBDIR)/libsplinterdb.so
+                                 $(OBJDIR)/$(TESTS_DIR)/config.o                \
+                                 $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
+                                 $(BTREE_SYS)
+
+$(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
+                                        $(OBJDIR)/$(TESTS_DIR)/config.o                 \
+                                        $(OBJDIR)/$(TESTS_DIR)/test_data.o              \
+                                        $(BTREE_SYS)
+
+$(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                             \
+                                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                    $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(UNITDIR)/splinterdb_test: $(COMMON_TESTOBJ)                             \
+                                      $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                      $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(UNITDIR)/splinterdb_kv_test: $(COMMON_TESTOBJ)                              \
+                                         $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o  \
+                                         $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test: $(COMMON_TESTOBJ)															\
+                                                $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                                $(LIBDIR)/libsplinterdb.so
 
 ########################################
-# convenience macros
+# Convenience macros
 unit/util_test: $(BINDIR)/$(UNITDIR)/util_test
 unit/misc_test: $(BINDIR)/$(UNITDIR)/misc_test
 unit/btree_test: $(BINDIR)/$(UNITDIR)/btree_test
