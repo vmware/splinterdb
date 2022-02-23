@@ -197,7 +197,7 @@ $(UNIT_TESTBINS): $(OBJDIR)/$(UNIT_TESTSDIR)/main.o
 # dependencies of each individual unit test.  So we use "eval" to
 # turn the dependency pattern into explicit dependencies.
 #
-# Given <x>, this macro generates a line of Maefile of the form
+# Given <x>, this macro generates a line of Makefile of the form
 # bin/unit/<x>: obj/unit/<x>.o
 define unit_test_self_dependency =
 $(1): $(patsubst $(BINDIR)/$(UNITDIR)/%,$(OBJDIR)/$(UNIT_TESTSDIR)/%.o, $(1))
@@ -232,7 +232,7 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 # The dependencies of each mini unit test.
 #
 # Note each test bin/unit/<x> also depends on obj/unit/<x>.o, as
-# defined above usign unit_test_self_dependency.
+# defined above using unit_test_self_dependency.
 #
 $(BINDIR)/$(UNITDIR)/misc_test: $(PLATFORM_SYS)
 
@@ -266,15 +266,15 @@ $(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test: $(COMMON_TESTOBJ)               
 
 ########################################
 # Convenience targets
-unit/util_test:                 $(BINDIR)/$(UNITDIR)/util_test
-unit/misc_test:                 $(BINDIR)/$(UNITDIR)/misc_test
-unit/btree_test:                $(BINDIR)/$(UNITDIR)/btree_test
-unit/btree_stress_test:         $(BINDIR)/$(UNITDIR)/btree_stress_test
-unit/splinter_test:             $(BINDIR)/$(UNITDIR)/splinter_test
-unit/splinterdb_test:           $(BINDIR)/$(UNITDIR)/splinterdb_test
-unit/splinterdb_kv_test:        $(BINDIR)/$(UNITDIR)/splinterdb_kv_test
-unit/splinterdb_kv_stress_test: $(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test
-unit_test:                      $(BINDIR)/unit_test
+unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
+unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
+unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
+unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
+unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
+unit/splinterdb_test:              $(BINDIR)/$(UNITDIR)/splinterdb_test
+unit/splinterdb_kv_test:           $(BINDIR)/$(UNITDIR)/splinterdb_kv_test
+unit/splinterdb_kv_stress_test:    $(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test
+unit_test:                         $(BINDIR)/unit_test
 
 #*************************************************************#
 
