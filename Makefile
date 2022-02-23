@@ -196,6 +196,9 @@ $(UNIT_TESTBINS): $(OBJDIR)/$(UNIT_TESTSDIR)/main.o
 # dependencies in explicit rules, which we will use below to give the
 # dependencies of each individual unit test.  So we use "eval" to
 # turn the dependency pattern into explicit dependencies.
+#
+# Given <x>, this macro generates a line of Maefile of the form
+# bin/unit/<x>: obj/unit/<x>.o
 define unit_test_self_dependency =
 $(1): $(patsubst $(BINDIR)/$(UNITDIR)/%,$(OBJDIR)/$(UNIT_TESTSDIR)/%.o, $(1))
 endef
@@ -214,7 +217,7 @@ PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
-CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o		\
+CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
                  $(UTIL_SYS)                        \
@@ -226,7 +229,10 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
             $(CLOCKCACHE_SYS)
 
 #
-# The dependencies of each mini unit test
+# The dependencies of each mini unit test.
+#
+# Note each test bin/unit/<x> also depends on obj/unit/<x>.o, as
+# defined above usign unit_test_self_dependency.
 #
 $(BINDIR)/$(UNITDIR)/misc_test: $(PLATFORM_SYS)
 
@@ -254,21 +260,21 @@ $(BINDIR)/$(UNITDIR)/splinterdb_kv_test: $(COMMON_TESTOBJ)                      
                                          $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o  \
                                          $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test: $(COMMON_TESTOBJ)															\
+$(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test: $(COMMON_TESTOBJ)                             \
                                                 $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                 $(LIBDIR)/libsplinterdb.so
 
 ########################################
-# Convenience macros
-unit/util_test: $(BINDIR)/$(UNITDIR)/util_test
-unit/misc_test: $(BINDIR)/$(UNITDIR)/misc_test
-unit/btree_test: $(BINDIR)/$(UNITDIR)/btree_test
-unit/btree_stress_test: $(BINDIR)/$(UNITDIR)/btree_stress_test
-unit/splinter_test: $(BINDIR)/$(UNITDIR)/splinter_test
-unit/splinterdb_test: $(BINDIR)/$(UNITDIR)/splinterdb_test
-unit/splinterdb_kv_test: $(BINDIR)/$(UNITDIR)/splinterdb_kv_test
+# Convenience targets
+unit/util_test:                 $(BINDIR)/$(UNITDIR)/util_test
+unit/misc_test:                 $(BINDIR)/$(UNITDIR)/misc_test
+unit/btree_test:                $(BINDIR)/$(UNITDIR)/btree_test
+unit/btree_stress_test:         $(BINDIR)/$(UNITDIR)/btree_stress_test
+unit/splinter_test:             $(BINDIR)/$(UNITDIR)/splinter_test
+unit/splinterdb_test:           $(BINDIR)/$(UNITDIR)/splinterdb_test
+unit/splinterdb_kv_test:        $(BINDIR)/$(UNITDIR)/splinterdb_kv_test
 unit/splinterdb_kv_stress_test: $(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test
-unit_test: $(BINDIR)/unit_test
+unit_test:                      $(BINDIR)/unit_test
 
 #*************************************************************#
 
