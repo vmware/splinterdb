@@ -54,9 +54,9 @@ To **list all the unit-test suites** that can be run: `$ bin/unit_test --list`
 
 To list all the test cases from a given test suite: `$ bin/unit_test --list <suite-name>`
 
-**Example**: List all test cases from the [`splinterdb`](splinterdb_test.c) test suite.
+**Example**: List all test cases from the [`splinterdb_quick_test`](splinterdb_quick_test.c) test suite.
 
-`$ bin/unit_test --list splinterdb`
+`$ bin/unit_test --list splinterdb_quick`
 
 You can also list the test cases that can be run from an individual standalone unit-test binary with the `--list` argument.
 

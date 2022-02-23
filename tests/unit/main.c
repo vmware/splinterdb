@@ -486,7 +486,7 @@ suite_all(struct ctest *t)
  * considered in the future). User can invoke as follows to just run one
  * test case from a specific suite:
  *
- * $ bin/unit_test splinterdb_kv test_splinterdb_iterator_with_startkey
+ * $ bin/unit_test splinterdb test_splinterdb_iterator_with_startkey
  */
 static int
 testcase_filter(struct ctest *t)
@@ -506,10 +506,10 @@ testcase_filter(struct ctest *t)
  * iteration of test execution loop.
  *
  * User can invoke as follows to just run one suite:
- *  $ bin/unit_test splinterdb_kv
+ *  $ bin/unit_test splinterdb
  *
  * User can invoke as follows to just run one test case from a suite:
- *  $ bin/unit_test splinterdb_kv test_splinterdb_iterator_with_startkey
+ *  $ bin/unit_test splinterdb test_splinterdb_iterator_with_startkey
  * ---------------------------------------------------------------------------
  */
 static int

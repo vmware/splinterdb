@@ -2,7 +2,7 @@
 
 Lowest level, unsafe Rust declarations for (some of) the C functions exported from SplinterDB.
 
-Currently this is limited to the `splinterdb_kv` API, but could be enlarged in the future.
+Currently this is limited to the `splinterdb` and `default_data_config` APIs, but could be enlarged in the future.
 
 This package statically links against `libsplinterdb.a`.
 
