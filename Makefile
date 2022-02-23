@@ -47,7 +47,8 @@ UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 # Also, there may be other shared .c files that don't yield a standalone
 # binary. Hence, only build a list from files named *_test.c
 # Resolves to a list: bin/unit/a_test bin/unit/b_test bin/unit/c_test ...
-UNIT_TESTBINS= $($(filter %_test.c, $(UNIT_TESTSRC)):$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
+UNIT_TESTBIN_SRC=$(filter %_test.c, $(UNIT_TESTSRC))
+UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 
 #*************************************************************#
 # CFLAGS, ETC
