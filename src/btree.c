@@ -51,6 +51,9 @@
  */
 #define BTREE_DEFRAGMENT_THRESHOLD(page_size) ((page_size) / 4)
 
+#define BTREE_INITIAL_PREFETCHING_DISTANCE(pages_per_extent)   \
+   ((pages_per_extent) / 4)
+
 char  positive_infinity_buffer;
 slice positive_infinity = {0, &positive_infinity_buffer};
 
@@ -1900,11 +1903,13 @@ start_over:
 
 /*
  *-----------------------------------------------------------------------------
- * btree_lookup_node --
+ * btree_lookup_path --
  *
- *      lookup_node finds the node of height stop_at_height with
- *      (node.min_key <= key < node.max_key) and returns it with a read lock
- *      held.
+ *      lookup_path finds the path to height stop_height with
+ *      (node.min_key <= key < node.max_key).  It returns all the
+ *      addresses along this path in out_nodes, and all the indexes in out_idxs.
+ *      Furthermore, all nodes on this path with height < start_height will be
+ *      read-locked on return.
  *
  *      out_rank returns the rank of out_node amount nodes of height
  *      stop_at_height.
@@ -1913,6 +1918,74 @@ start_over:
  *      btree_lookup_async_with_ref too.
  *-----------------------------------------------------------------------------
  */
+platform_status
+btree_lookup_path(
+   cache        *cc,           // IN
+   btree_config *cfg,          // IN
+   uint64        root_addr,    // IN
+   const slice   key,          // IN
+   uint16        start_height, // IN
+   uint16        stop_height,  // IN  search down to this height
+   page_type     type,         // IN
+   btree_node    out_nodes[static BTREE_MAX_HEIGHT], // OUT
+   uint64        out_idxs[static BTREE_MAX_HEIGHT],
+   uint64       *root_height, // OUT
+   uint32       *kv_rank,     // ranks must be all NULL or all non-NULL
+   uint32       *key_byte_rank,
+   uint32       *message_byte_rank)
+{
+   debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
+
+   if (kv_rank) {
+      *kv_rank = *key_byte_rank = *message_byte_rank = 0;
+   }
+
+   uint32 h;
+   {
+      btree_node node;
+      node.addr = root_addr;
+      btree_node_get(cc, cfg, &node, type);
+      h            = btree_height(node.hdr);
+      out_nodes[h] = node;
+      *root_height = h;
+   }
+
+   while (h > stop_height) {
+      bool  found;
+      int64 child_idx =
+         slices_equal(key, positive_infinity)
+            ? btree_num_entries(out_nodes[h].hdr) - 1
+            : btree_find_pivot(cfg, out_nodes[h].hdr, key, &found);
+      if (child_idx < 0) {
+         child_idx = 0;
+      }
+      out_idxs[h] = child_idx;
+
+      if (kv_rank) {
+         accumulate_node_ranks(cfg,
+                               out_nodes[h].hdr,
+                               0,
+                               out_idxs[h],
+                               kv_rank,
+                               key_byte_rank,
+                               message_byte_rank);
+      }
+
+      out_nodes[h - 1].addr =
+         btree_get_child_addr(cfg, out_nodes[h].hdr, out_idxs[h]);
+
+      btree_node_get(cc, cfg, &out_nodes[h - 1], type);
+      debug_assert(out_nodes[h - 1].page->disk_addr == out_nodes[h - 1].addr);
+      if (start_height <= h) {
+         btree_node_unget(cc, cfg, &out_nodes[h]);
+      }
+
+      h--;
+   }
+
+   return STATUS_OK;
+}
+
 platform_status
 btree_lookup_node(cache        *cc,           // IN
                   btree_config *cfg,          // IN
@@ -1926,47 +1999,26 @@ btree_lookup_node(cache        *cc,           // IN
                   uint32 *key_byte_rank,
                   uint32 *message_byte_rank)
 {
-   btree_node node, child_node;
-   uint32     h;
-   int64      child_idx;
-
-   if (kv_rank) {
-      *kv_rank = *key_byte_rank = *message_byte_rank = 0;
+   btree_node      out_nodes[BTREE_MAX_HEIGHT];
+   uint64          out_idxs[BTREE_MAX_HEIGHT];
+   uint64          root_height;
+   platform_status rc = btree_lookup_path(cc,
+                                          cfg,
+                                          root_addr,
+                                          key,
+                                          stop_at_height + 1,
+                                          stop_at_height,
+                                          type,
+                                          out_nodes,
+                                          out_idxs,
+                                          &root_height,
+                                          kv_rank,
+                                          key_byte_rank,
+                                          message_byte_rank);
+   if (SUCCESS(rc)) {
+      *out_node = out_nodes[stop_at_height];
    }
-
-   debug_assert(type == PAGE_TYPE_BRANCH || type == PAGE_TYPE_MEMTABLE);
-   node.addr = root_addr;
-   btree_node_get(cc, cfg, &node, type);
-
-   for (h = btree_height(node.hdr); h > stop_at_height; h--) {
-      bool found;
-      child_idx = slices_equal(key, positive_infinity)
-                     ? btree_num_entries(node.hdr) - 1
-                     : btree_find_pivot(cfg, node.hdr, key, &found);
-      if (child_idx < 0) {
-         child_idx = 0;
-      }
-      index_entry *entry = btree_get_index_entry(cfg, node.hdr, child_idx);
-      child_node.addr    = index_entry_child_addr(entry);
-
-      if (kv_rank) {
-         accumulate_node_ranks(cfg,
-                               node.hdr,
-                               0,
-                               child_idx,
-                               kv_rank,
-                               key_byte_rank,
-                               message_byte_rank);
-      }
-
-      btree_node_get(cc, cfg, &child_node, type);
-      debug_assert(child_node.page->disk_addr == child_node.addr);
-      btree_node_unget(cc, cfg, &node);
-      node = child_node;
-   }
-
-   *out_node = node;
-   return STATUS_OK;
+   return rc;
 }
 
 
@@ -2336,30 +2388,39 @@ btree_lookup_and_merge_async(cache            *cc,          // IN
 static bool
 btree_iterator_is_at_end(btree_iterator *itor)
 {
-   return itor->curr.addr == itor->end_addr && itor->idx == itor->end_idx;
+   int height = itor->height;
+   return itor->curr[height].addr == itor->end_addr
+          && itor->idx[height] == itor->end_idx;
 }
 
 void
 btree_iterator_get_curr(iterator *base_itor, slice *key, slice *data)
 {
    debug_assert(base_itor != NULL);
-   btree_iterator *itor = (btree_iterator *)base_itor;
-   debug_assert(itor->curr.hdr != NULL);
+   btree_iterator *itor =
+     (btree_iterator *)base_itor;
+   int height = itor->height;
+   debug_assert(itor->curr[height].hdr != NULL);
    // if (itor->at_end || itor->idx == itor->curr.hdr->num_entries) {
    //   btree_print_tree(itor->cc, itor->cfg, itor->root_addr);
    //}
    debug_assert(!btree_iterator_is_at_end(itor));
-   debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
-   debug_assert(itor->curr.page != NULL);
-   debug_assert(itor->curr.page->disk_addr == itor->curr.addr);
-   debug_assert((char *)itor->curr.hdr == itor->curr.page->data);
-   cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
-   if (itor->curr.hdr->height == 0) {
-      *key  = btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
-      *data = btree_get_tuple_message(itor->cfg, itor->curr.hdr, itor->idx);
+   debug_assert(itor->idx[height]
+                < btree_num_entries(itor->curr[height].hdr));
+   debug_assert(itor->curr[height].page != NULL);
+   debug_assert(itor->curr[height].page->disk_addr == itor->curr[height].addr);
+   debug_assert((char *)itor->curr[height].hdr
+                == itor->curr[height].page->data);
+   cache_validate_page(
+      itor->cc, itor->curr[height].page, itor->curr[height].addr);
+   if (height == 0) {
+      *key  = btree_get_tuple_key(
+         itor->cfg, itor->curr[0].hdr, itor->idx[0]);
+      *data = btree_get_tuple_message(
+         itor->cfg, itor->curr[0].hdr, itor->idx[0]);
    } else {
-      index_entry *entry =
-         btree_get_index_entry(itor->cfg, itor->curr.hdr, itor->idx);
+      index_entry *entry = btree_get_index_entry(
+         itor->cfg, itor->curr[height].hdr, itor->idx[height]);
       *key  = index_entry_key_slice(entry);
       *data = slice_create(sizeof(entry->pivot_data), &entry->pivot_data);
    }
@@ -2394,9 +2455,7 @@ btree_iterator_find_end(btree_iterator *itor)
             tmp++;
          }
       } else if (itor->height > end.hdr->height) {
-         tmp = 0;
-         itor->height =
-            (uint32)-1; // So we will always exceed height in future lookups
+         platform_assert(0);
       } else {
          tmp = btree_find_pivot(itor->cfg, end.hdr, itor->max_key, &found);
          if (!found) {
@@ -2410,33 +2469,40 @@ btree_iterator_find_end(btree_iterator *itor)
 }
 
 /*
- * Move to the next leaf when we've reached the end of one leaf but
+ * There are two versions of the code for moving from one node to the
+ * next.  The advance_node() version uses the sibling pointers and is
+ * intended for use in the memtable.  The advance_path() version does
+ * a tree walk and avoids using the sibling pointers.  This is for the
+ * branches.
+ */
+
+/*
+ * Move to the next node when we've reached the end of one node but
  * haven't reached the end of the iterator.
  */
 static void
-btree_iterator_advance_leaf(btree_iterator *itor)
+btree_iterator_advance_node(btree_iterator *itor)
 {
-   cache        *cc  = itor->cc;
-   btree_config *cfg = itor->cfg;
+   cache        *cc     = itor->cc;
+   btree_config *cfg    = itor->cfg;
+   uint64        height = itor->height;
 
-   uint64 last_addr = itor->curr.addr;
-   uint64 next_addr = itor->curr.hdr->next_addr;
-   btree_node_unget(cc, cfg, &itor->curr);
-   itor->curr.addr = next_addr;
-   btree_node_get(cc, cfg, &itor->curr, itor->page_type);
-   itor->idx = 0;
+   uint64 next_addr = itor->curr[height].hdr->next_addr;
+   btree_node_unget(cc, cfg, &itor->curr[height]);
+   itor->curr[height].addr = next_addr;
+   btree_node_get(cc, cfg, &itor->curr[height], itor->page_type);
+   itor->idx[height] = 0;
+   itor->prefetch_distance[height]--;
 
-   while (itor->curr.addr == itor->end_addr
-          && itor->curr.hdr->generation != itor->end_generation)
+   while (itor->curr[height].addr == itor->end_addr
+          && itor->curr[height].hdr->generation != itor->end_generation)
    {
       /* We need to recompute the end node and end_idx. (see
          comment at beginning of iterator implementation for
          high-level description)
-
          There's a potential for deadlock with concurrent inserters
          if we hold a read-lock on curr while looking up end, so we
          temporarily release curr.
-
          It is safe to relase curr because we are at index 0 of
          curr.  To see why, observe that, at this point, curr
          cannot be the first leaf in the tree (since we just
@@ -2452,22 +2518,84 @@ btree_iterator_advance_leaf(btree_iterator *itor)
          curr while we've released it, we will still want to
          continue at curr (since we're at the 0th entry).
       */
-      btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+      btree_node_unget(itor->cc, itor->cfg, &itor->curr[height]);
       btree_iterator_find_end(itor);
-      btree_node_get(itor->cc, itor->cfg, &itor->curr, itor->page_type);
+      btree_node_get(itor->cc, itor->cfg, &itor->curr[height], itor->page_type);
    }
 
    // To prefetch:
    // 1. we just moved from one extent to the next
    // 2. this can't be the last extent
-   if (itor->do_prefetch
-       && !btree_addrs_share_extent(cfg, last_addr, itor->curr.addr)
-       && itor->curr.hdr->next_extent_addr != 0
-       && !btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr))
+   if (itor->prefetch_distance[height] == 0
+       && itor->curr[height].hdr->next_extent_addr != 0
+       && !btree_addrs_share_extent(
+          cfg, itor->curr[height].addr, itor->end_addr))
    {
       // IO prefetch the next extent
-      cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
+      cache_prefetch(cc, itor->curr[height].hdr->next_extent_addr, TRUE);
+      uint64 page_size    = btree_page_size(itor->cfg);
+      uint64 extent_pages = btree_extent_size(cfg) / page_size;
+      uint64 offset = (itor->curr[height].addr / page_size) % extent_pages;
+      itor->prefetch_distance[height] = extent_pages - offset;
    }
+}
+
+platform_status
+btree_iterator_advance_path(
+   btree_iterator *itor)
+{
+   debug_assert(itor != NULL);
+
+   // We should not be calling advance on an empty iterator
+   debug_assert(!btree_iterator_is_at_end(itor));
+
+   // Walk up the tree until we find a node with more entries.
+   // Since we are not at the end of the iterator, such a node is
+   // guaranteed to exist.
+   int height = itor->height;
+   while (itor->idx[height]
+          == btree_num_entries(itor->curr[height].hdr))
+   {
+      btree_node_unget(
+         itor->cc, itor->cfg, &itor->curr[height]);
+      height++;
+      itor->idx[height]++;
+   }
+
+   uint64 page_size    = btree_page_size(itor->cfg);
+   uint64 extent_pages = btree_extent_size(itor->cfg) / page_size;
+
+   // Walk back down the tree to the desired height of the iterator, issuing
+   // prefetches as we go.
+   while (itor->height < height) {
+      uint64 child_addr = btree_get_child_addr(
+         itor->cfg, itor->curr[height].hdr, itor->idx[height]);
+
+      height--;
+
+      itor->curr[height].addr = child_addr;
+      btree_node_get(
+         itor->cc, itor->cfg, &itor->curr[height], itor->page_type);
+      itor->idx[height] = 0;
+
+      if (itor->prefetch_distance[height] == 0
+          && itor->curr[height].hdr->next_extent_addr != 0
+          && !btree_addrs_share_extent(
+             itor->cfg, itor->curr[height].addr, itor->end_addr))
+      {
+         // IO prefetch the next extent
+         cache_prefetch(
+            itor->cc, itor->curr[height].hdr->next_extent_addr, TRUE);
+         uint64 offset = (itor->curr[height].addr / page_size) % extent_pages;
+         itor->prefetch_distance[height] = extent_pages - offset;
+      }
+   }
+
+   debug_assert(btree_iterator_is_at_end(itor)
+                || itor->idx[itor->height] < btree_num_entries(
+                      itor->curr[itor->height].hdr));
+
+   return STATUS_OK;
 }
 
 platform_status
@@ -2478,22 +2606,28 @@ btree_iterator_advance(iterator *base_itor)
 
    // We should not be calling advance on an empty iterator
    debug_assert(!btree_iterator_is_at_end(itor));
-   debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
+   debug_assert(itor->idx[itor->height] < btree_num_entries(
+                   itor->curr[itor->height].hdr));
 
-   itor->idx++;
+   itor->idx[itor->height]++;
 
    if (!btree_iterator_is_at_end(itor)
-       && itor->idx == btree_num_entries(itor->curr.hdr))
+       && itor->idx[itor->height]
+             == btree_num_entries(itor->curr[itor->height].hdr))
    {
-      btree_iterator_advance_leaf(itor);
+      if (itor->page_type == PAGE_TYPE_MEMTABLE) {
+         btree_iterator_advance_node(itor);
+      } else {
+         btree_iterator_advance_path(itor);
+      }
    }
 
    debug_assert(btree_iterator_is_at_end(itor)
-                || itor->idx < btree_num_entries(itor->curr.hdr));
+                || itor->idx[itor->height] < btree_num_entries(
+                      itor->curr[itor->height].hdr));
 
    return STATUS_OK;
 }
-
 
 platform_status
 btree_iterator_at_end(iterator *itor, bool *at_end)
@@ -2512,17 +2646,25 @@ btree_iterator_print(iterator *itor)
 
    platform_log("########################################\n");
    platform_log("## btree_itor: %p\n", itor);
-   platform_log("## root: %lu\n", btree_itor->root_addr);
-   platform_log(
-      "## curr %lu end %lu\n", btree_itor->curr.addr, btree_itor->end_addr);
-   platform_log("## idx %lu end_idx %lu generation %lu\n",
-                btree_itor->idx,
+   platform_log("## root: %lu end %lu end_idx %lu end_generation %lu\n",
+                btree_itor->root_addr,
+                btree_itor->end_addr,
                 btree_itor->end_idx,
                 btree_itor->end_generation);
-   btree_print_node(btree_itor->cc,
-                    btree_itor->cfg,
-                    &btree_itor->curr,
-                    PLATFORM_DEFAULT_LOG_HANDLE);
+
+   int height = btree_itor->height;
+   while (btree_itor->curr[height].hdr) {
+      platform_log("## height %d curr %lu idx %lu\n",
+                   height,
+                   btree_itor->curr[height].addr,
+                   btree_itor->idx[height]);
+      btree_print_node(
+         btree_itor->cc,
+         btree_itor->cfg,
+         &btree_itor->curr[height],
+         PLATFORM_DEFAULT_LOG_HANDLE);
+      height++;
+   }
 }
 
 const static iterator_ops btree_iterator_ops = {
@@ -2536,7 +2678,7 @@ const static iterator_ops btree_iterator_ops = {
 /*
  *-----------------------------------------------------------------------------
  * Caller must guarantee:
- *    max_key (if not null) needs to be valid until at_end() returns true
+ *    max_key (if not null) needs to be valid until iterator is deinited.
  *-----------------------------------------------------------------------------
  */
 void
@@ -2556,6 +2698,7 @@ btree_iterator_init(cache          *cc,
 
    slice max_key;
 
+   /* Handle _max_key == NULL and when _max_key < min_key. */
    if (slice_is_null(_max_key)) {
       max_key = positive_infinity;
    } else if (!slice_is_null(min_key)
@@ -2577,95 +2720,151 @@ btree_iterator_init(cache          *cc,
    itor->page_type   = page_type;
    itor->super.ops   = &btree_iterator_ops;
 
-   btree_lookup_node(itor->cc,
+   /* Find the starting node. For branches, this also read-locks the
+      entire path to the starting node, and computes the indexes
+      within each node on that path (except for the last). */
+   uint64 root_height;
+   uint64 lock_height = page_type == PAGE_TYPE_MEMTABLE
+                           ? itor->height + 1
+                           : BTREE_MAX_HEIGHT;
+   btree_lookup_path(itor->cc,
                      itor->cfg,
                      itor->root_addr,
                      min_key,
+                     lock_height,
                      itor->height,
                      itor->page_type,
-                     &itor->curr,
+                     itor->curr,
+                     itor->idx,
+                     &root_height,
                      NULL,
                      NULL,
                      NULL);
-   /* We have to claim curr in order to prevent possible deadlocks
-    * with insertion threads while finding the end node.
-    *
-    * Note that we can't lookup end first because, if there's a split
-    * between looking up end and looking up curr, we could end up in a
-    * situation where end comes before curr in the tree!  (We could
-    * prevent this by holding a claim on end while looking up curr,
-    * but that would essentially be the same as the code below.)
-    *
-    * Note that the approach in advance (i.e. releasing and reaquiring
-    * a lock on curr) is not viable here because we are not
-    * necessarily searching for the 0th entry in curr.  Thus a split
-    * of curr while we have released it could mean that we really want
-    * to start at curr's right sibling (after the split).  So we'd
-    * have to redo the search from scratch after releasing curr.
-    *
-    * So we take a claim on curr instead.
-    */
-   while (!btree_node_claim(cc, cfg, &itor->curr)) {
-      btree_node_unget(cc, cfg, &itor->curr);
-      btree_lookup_node(itor->cc,
-                        itor->cfg,
-                        itor->root_addr,
-                        min_key,
-                        itor->height,
-                        itor->page_type,
-                        &itor->curr,
-                        NULL,
-                        NULL,
-                        NULL);
+
+   if (root_height < height) {
+      /* If the requested height is higher than the tree, then set up the
+         iterator so that at_end() will return true. */
+      itor->height           = root_height;
+      itor->idx[root_height] = 0;
+      itor->end_addr         = itor->curr[root_height].addr;
+      itor->end_idx          = 0;
+      itor->end_generation   = itor->curr[root_height].hdr->generation;
+      return;
    }
 
-   btree_iterator_find_end(itor);
-
-   /* Once we've found end, we can unclaim curr. */
-   btree_node_unclaim(cc, cfg, &itor->curr);
-
+   /* Find our starting index in curr. */
    bool  found;
    int64 tmp;
    if (slice_is_null(min_key)) {
       tmp = 0;
    } else if (itor->height == 0) {
-      tmp = btree_find_tuple(itor->cfg, itor->curr.hdr, min_key, &found);
+      tmp = btree_find_tuple(
+         itor->cfg, itor->curr[itor->height].hdr, min_key, &found);
       if (!found) {
          tmp++;
       }
-   } else if (itor->height > itor->curr.hdr->height) {
+   } else if (itor->height > itor->curr[itor->height].hdr->height) {
       tmp = 0;
    } else {
-      tmp = btree_find_pivot(itor->cfg, itor->curr.hdr, min_key, &found);
+      tmp = btree_find_pivot(
+         itor->cfg, itor->curr[itor->height].hdr, min_key, &found);
       if (!found) {
          tmp++;
       }
       platform_assert(0 <= tmp);
    }
-   itor->idx = tmp;
+   itor->idx[itor->height] = tmp;
 
-   if (!btree_iterator_is_at_end(itor)
-       && itor->idx == btree_num_entries(itor->curr.hdr))
-   {
-      btree_iterator_advance_leaf(itor);
+   /* Now we find the ending node and index. */
+
+   if (page_type == PAGE_TYPE_MEMTABLE) {
+      /* Since we might not be locking the root in this case, there
+       * are possible deadlocks with insertion threads while finding
+       * the end node.  We avoid these by claiming curr.
+       *
+       * Note that we can't lookup end first because, if there's a split
+       * between looking up end and looking up curr, we could end up in a
+       * situation where end comes before curr in the tree!  (We could
+       * prevent this by holding a claim on end while looking up curr,
+       * but that would essentially be the same as the code below.)
+       *
+       * Note that the approach in advance (i.e. releasing and reaquiring
+       * a lock on curr) is not viable here because we are not
+       * necessarily searching for the 0th entry in curr.  Thus a split
+       * of curr while we have released it could mean that we really want
+       * to start at curr's right sibling (after the split).  So we'd
+       * have to redo the search from scratch after releasing curr.
+       *
+       * So we take a claim on curr instead.
+       */
+      while (!btree_node_claim(cc, cfg, &itor->curr[height])) {
+         btree_node_unget(cc, cfg, &itor->curr[height]);
+         btree_lookup_node(itor->cc,
+                           itor->cfg,
+                           itor->root_addr,
+                           min_key,
+                           itor->height,
+                           itor->page_type,
+                           &itor->curr[height],
+                           NULL,
+                           NULL,
+                           NULL);
+      }
    }
 
-   if (itor->do_prefetch && itor->curr.hdr->next_extent_addr != 0
-       && !btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr))
+   /* Find the end node and index. */
+   btree_iterator_find_end(itor);
+
+   if (page_type == PAGE_TYPE_MEMTABLE) {
+      /* Once we've found end, we can unclaim curr. */
+      btree_node_unclaim(cc, cfg, &itor->curr[height]);
+   }
+
+   /* Set up prefetching state. */
+   if (itor->do_prefetch) {
+      int    h                = itor->height;
+      uint64 page_size        = btree_page_size(itor->cfg);
+      uint64 pages_per_extent = btree_extent_size(itor->cfg) / page_size;
+      while (itor->curr[h].hdr) {
+         itor->prefetch_distance[h] =
+            BTREE_INITIAL_PREFETCHING_DISTANCE(
+               pages_per_extent);
+         h++;
+      }
+   } else {
+      memset(itor->prefetch_distance, 0xff, sizeof(itor->prefetch_distance));
+   }
+
+   /* If the starting key falls in the range of curr but is larger
+      than any key in curr, then we need to advance to the next
+      node. We can't do this earlier because we needed to set up the
+      prefetching state, and setting up the prefetching state can't be
+      done until we've found the end node. */
+   if (!btree_iterator_is_at_end(itor)
+       && itor->idx[itor->height]
+             == btree_num_entries(itor->curr[itor->height].hdr))
    {
-      // IO prefetch the next extent
-      cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
+      if (itor->page_type == PAGE_TYPE_MEMTABLE) {
+         btree_iterator_advance_node(itor);
+      } else {
+         btree_iterator_advance_path(itor);
+      }
    }
 
    debug_assert(btree_iterator_is_at_end(itor)
-                || itor->idx < btree_num_entries(itor->curr.hdr));
+                || itor->idx[itor->height]
+                      < btree_num_entries(itor->curr[itor->height].hdr));
 }
 
 void
 btree_iterator_deinit(btree_iterator *itor)
 {
    debug_assert(itor != NULL);
-   btree_node_unget(itor->cc, itor->cfg, &itor->curr);
+   int h = itor->height;
+   while (itor->curr[h].hdr) {
+      btree_node_unget(itor->cc, itor->cfg, &itor->curr[h]);
+      h++;
+   }
 }
 
 // generation number isn't used in packed btrees
@@ -2805,7 +3004,7 @@ btree_pack_loop(btree_pack_req *req,     // IN/OUT
       btree_node_full_unlock(req->cc, req->cfg, &old_edge);
    }
 
-#if defined(VARIABLE_LENGTH_BTREE_TRACE)
+#if defined(BTREE_TRACE)
    if (btree_key_compare(req->cfg, key, trace_key) == 0) {
       platform_log("adding tuple to %lu, root addr %lu\n",
                    req->edge[0].addr,

@@ -142,11 +142,14 @@ typedef struct btree_iterator {
    slice         max_key;
 
    uint64     root_addr;
-   btree_node curr;
-   uint64     idx;
+   btree_node curr[BTREE_MAX_HEIGHT];
+   uint64                     idx[BTREE_MAX_HEIGHT];
    uint64     end_addr;
    uint64     end_idx;
    uint64     end_generation;
+
+   // The number of nodes to pass before the next prefetch
+   uint64 prefetch_distance[BTREE_MAX_HEIGHT];
 
    // Variables used for debug only
    debug_code(bool debug_is_packed);
