@@ -65,9 +65,16 @@ writable_buffer_data(writable_buffer *wb)
  *----------------------------------------------------------------------
  * Utility function; you should not use this directly
  * negative_limit and positive_limit are absolute values
- *----------------------------------------------------------------------
+ *
+ * If it parses a valid integer in the specified range, then it
+ * returns a pointer to the first non-white-space character following
+ * the integer.
+ *
+ * A parsing error or value outside the specified limits is indicated by
+ * returning NULL.
+ * ----------------------------------------------------------------------
  */
-static inline bool
+const char *
 try_string_to_uint64_limit(const char  *nptr,           // IN
                            const uint64 negative_limit, // IN
                            const uint64 positive_limit, // IN
@@ -157,33 +164,25 @@ try_string_to_uint64_limit(const char  *nptr,           // IN
    while (isspace(c)) {
       c = *s++;
    }
-   if (c != '\0') {
-      /*
-       * We had trailing space(s) followed by something else.
-       * This function is intended to convert an entire string.
-       */
-      goto multiple_strings;
-   }
 
+invalid_characters:
    if (!converted_any) {
       goto no_digits;
    }
+
    if (negative) {
       value = -value;
    }
    *n = value;
-   return TRUE;
+   return s - 1;
 
    /*
-    * Right now we just return FALSE but if necessary we can later provide
-    * an error enum (or some other return value) indicating the reason we failed
+    * Indicate a parsing failure
     */
 no_digits:
 negative_disallowed:
-invalid_characters:
 overflow:
-multiple_strings:
-   return FALSE;
+   return NULL;
 }
 
 
@@ -216,7 +215,8 @@ try_string_to_uint64(const char *nptr, // IN
 {
    const uint64 negative_limit = 0;
    const uint64 positive_limit = UINT64_MAX;
-   return try_string_to_uint64_limit(nptr, negative_limit, positive_limit, n);
+   return try_string_to_uint64_limit(nptr, negative_limit, positive_limit, n)
+          != NULL;
 }
 
 bool
@@ -227,7 +227,8 @@ try_string_to_int64(const char *nptr, // IN
    const uint64 negative_limit = ((uint64)INT64_MAX) + 1;
    const uint64 positive_limit = (uint64)INT64_MAX;
    uint64       u64;
-   if (!try_string_to_uint64_limit(nptr, negative_limit, positive_limit, &u64))
+   if (try_string_to_uint64_limit(nptr, negative_limit, positive_limit, &u64)
+       == NULL)
    {
       return FALSE;
    }
@@ -240,7 +241,7 @@ try_string_to_uint32(const char *nptr, // IN
                      uint32     *n)        // OUT
 {
    uint64 tmp;
-   if (!try_string_to_uint64(nptr, &tmp) || tmp > UINT32_MAX) {
+   if (try_string_to_uint64(nptr, &tmp) || tmp > UINT32_MAX) {
       return FALSE;
    }
    *n = tmp;

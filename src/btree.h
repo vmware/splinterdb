@@ -430,6 +430,9 @@ btree_space_use_in_range(cache        *cc,
                          slice         start_key,
                          slice         end_key);
 
+bool
+btree_config_compile(btree_config *btree_cfg);
+
 void
 btree_config_init(btree_config *btree_cfg,
                   cache_config *cache_cfg,

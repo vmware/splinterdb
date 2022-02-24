@@ -255,6 +255,13 @@ writable_buffer_to_slice(const writable_buffer *wb)
  *
  * Base is automatically detected based on the regular expressions above
  */
+const char *
+try_string_to_uint64_limit(const char  *nptr,           // IN
+                           const uint64 negative_limit, // IN
+                           const uint64 positive_limit, // IN
+                           uint64      *n);                  // OUT
+
+
 bool
 try_string_to_uint64(const char *nptr, // IN
                      uint64     *n);       // OUT

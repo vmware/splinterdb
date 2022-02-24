@@ -1769,6 +1769,26 @@ clockcache_evict_all(clockcache *cc, bool ignore_pinned_pages)
 
 /*
  *-----------------------------------------------------------------------------
+ * clockcache_config_compile --
+ *
+ *      Validate and fill out a config
+ *-----------------------------------------------------------------------------
+ */
+bool
+clockcache_config_compile(clockcache_config *cache_cfg)
+{
+   io_config *io_cfg = cache_cfg->io_cfg;
+
+   cache_cfg->log_page_size = 63 - __builtin_clzll(io_cfg->page_size);
+   uint64 log_extent_size   = 63 - __builtin_clzll(io_cfg->extent_size);
+   cache_cfg->extent_mask   = ~((1ULL << log_extent_size) - 1);
+   cache_cfg->page_capacity = cache_cfg->capacity / io_cfg->page_size;
+
+   return TRUE;
+}
+
+/*
+ *-----------------------------------------------------------------------------
  * clockcache_config_init --
  *
  *      Initialize clockcache config values
@@ -1787,14 +1807,12 @@ clockcache_config_init(clockcache_config *cache_cfg,
    cache_cfg->super.ops     = &clockcache_config_ops;
    cache_cfg->io_cfg        = io_cfg;
    cache_cfg->capacity      = capacity;
-   cache_cfg->log_page_size = 63 - __builtin_clzll(io_cfg->page_size);
-   uint64 log_extent_size   = 63 - __builtin_clzll(io_cfg->extent_size);
-   cache_cfg->extent_mask   = ~((1ULL << log_extent_size) - 1);
-   cache_cfg->page_capacity = capacity / io_cfg->page_size;
    cache_cfg->use_stats     = use_stats;
-
    rc = snprintf(cache_cfg->logfile, MAX_STRING_LENGTH, "%s", cache_logfile);
    platform_assert(rc < MAX_STRING_LENGTH);
+
+   bool ok = clockcache_config_compile(cache_cfg);
+   platform_assert(ok, "Invalid clockcache config");
 }
 
 platform_status

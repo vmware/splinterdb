@@ -3379,6 +3379,19 @@ btree_print_lookup(cache        *cc,        // IN
 
 /*
  *-----------------------------------------------------------------------------
+ * btree_config_compile --
+ *
+ *      Validate btree config and fill in computed fields
+ *-----------------------------------------------------------------------------
+ */
+bool
+btree_config_compile(btree_config *btree_cfg)
+{
+   return TRUE;
+}
+
+/*
+ *-----------------------------------------------------------------------------
  * btree_config_init --
  *
  *      Initialize btree config values
@@ -3393,4 +3406,6 @@ btree_config_init(btree_config *btree_cfg,
    btree_cfg->cache_cfg          = cache_cfg;
    btree_cfg->data_cfg           = data_cfg;
    btree_cfg->rough_count_height = rough_count_height;
+   bool ok                       = btree_config_compile(btree_cfg);
+   platform_assert(ok, "Invalid btree config");
 }

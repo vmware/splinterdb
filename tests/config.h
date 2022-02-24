@@ -20,6 +20,68 @@
 
 extern const char *BUILD_VERSION;
 
+// Describes scaling suffixes, e.g. "GiB", "K", etc.
+typedef struct scaling_entry {
+   char *suffix;
+   int64 scaling_factor;
+} scaling_entry;
+
+typedef struct scaling_table {
+   int            nentries;
+   scaling_entry *entries;
+} scaling_table;
+
+extern scaling_table standard_scaling_table;
+
+typedef enum config_field_type {
+   CONFIG_FIELD_BOOL          = 0,
+   CONFIG_FIELD_UINT          = 1,
+   CONFIG_FIELD_INT           = 2,
+   CONFIG_FIELD_CHAR_POINTER  = 3,
+   CONFIG_FIELD_INLINE_STRING = 4,
+} config_field_type;
+
+// Describes a single configuration field in a struct
+typedef struct config_field {
+   config_field_type type;
+   char  *long_name;   // e.g. "blocksize"
+   char  *short_name;  // e.g. "b"
+   char  *description; // e.g. "The blocksize for disk I/Os
+   uint64 offset;
+   uint64            size;
+   uint64 value; // for CONFIG_FIELD_BOOL: value to OR into the field when
+                 // option is set
+   scaling_table    *scales; // for CONFIG_FIELD_{U}INT
+} config_field;
+
+typedef struct config_struct {
+   uint64        nfields;
+   config_field *fields;
+} config_struct;
+
+#define CONFIG_STRUCT_OF_FIELDS(farray)                                        \
+   {                                                                           \
+      .nfields = ARRAY_SIZE(farray), .fields = farray                          \
+   }
+
+#define CONFIG_STRUCT_FIELD(                                                   \
+   stype, fname, typ, lname, sname, desc, val, scaletable)                     \
+   {                                                                           \
+      .type = typ, .long_name = lname, .short_name = sname,                    \
+      .description = desc, .offset = offsetof(stype, fname),                   \
+      .size = sizeof(((stype *)NULL)->fname), .value = val,                    \
+      .scales = scaletable,                                                    \
+   }
+
+extern config_struct io_config_struct;
+extern config_struct rc_allocator_config_struct;
+extern config_struct cache_config_struct;
+extern config_struct btree_config_struct;
+extern config_struct routing_config_struct;
+extern config_struct trunk_config_struct;
+extern config_struct splinterdb_config_struct;
+extern config_struct test_config_struct;
+
 /*
  * --------------------------------------------------------------------------
  * Convenience structure to hold configuration options for all sub-systems.

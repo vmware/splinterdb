@@ -20,13 +20,15 @@ typedef struct io_async_req io_async_req;
  */
 typedef struct io_config {
    uint64 async_queue_size;
-   uint64 kernel_queue_size;
-   uint64 async_max_pages;
    uint64 page_size;
    uint64 extent_size;
    char   filename[MAX_STRING_LENGTH];
    int    flags;
    uint32 perms;
+
+   // computed
+   uint64 kernel_queue_size;
+   uint64 async_max_pages;
 } io_config;
 
 typedef void (*io_callback_fn)(void           *metadata,
@@ -173,6 +175,28 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
 
 /*
  *-----------------------------------------------------------------------------
+ * io_config_compile --
+ *
+ *      Verify that the user-supplied parameters in the config are
+ *      consistent and, if so, fill in the computed parts of a config
+ *      from the parameters set by the user.
+ *-----------------------------------------------------------------------------
+ */
+static inline bool
+io_config_compile(io_config *io_cfg)
+{
+   if (io_cfg->extent_size % io_cfg->page_size != 0) {
+      return FALSE;
+   }
+
+   io_cfg->kernel_queue_size = io_cfg->async_queue_size;
+   io_cfg->async_max_pages   = io_cfg->extent_size / io_cfg->page_size;
+
+   return TRUE;
+}
+
+/*
+ *-----------------------------------------------------------------------------
  * io_config_init --
  *
  *      Initialize io config values
@@ -201,8 +225,9 @@ io_config_init(io_config  *io_cfg,
    io_cfg->flags             = flags;
    io_cfg->perms             = perms;
    io_cfg->async_queue_size  = async_queue_depth;
-   io_cfg->kernel_queue_size = async_queue_depth;
-   io_cfg->async_max_pages   = extent_size / page_size;
+
+   bool ok = io_config_compile(io_cfg);
+   platform_assert(ok, "invalid io config");
 }
 
 #endif //__IO_H

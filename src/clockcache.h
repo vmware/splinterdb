@@ -153,6 +153,9 @@ struct clockcache {
  *-----------------------------------------------------------------------------
  */
 
+bool
+clockcache_config_compile(clockcache_config *cache_config);
+
 void
 clockcache_config_init(clockcache_config *cache_config,
                        io_config         *io_cfg,

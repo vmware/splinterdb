@@ -218,6 +218,25 @@ rc_allocator_init_meta_page(rc_allocator *al)
 
 /*
  *-----------------------------------------------------------------------------
+ * rc_allocator_config_compile --
+ *
+ *      validate user-supplied parameters and fill in computed fields
+ *-----------------------------------------------------------------------------
+ */
+bool
+rc_allocator_config_compile(rc_allocator_config *allocator_cfg)
+{
+   io_config *io_cfg = allocator_cfg->io_cfg;
+
+   allocator_cfg->page_capacity = allocator_cfg->capacity / io_cfg->page_size;
+   allocator_cfg->extent_capacity =
+      allocator_cfg->capacity / io_cfg->extent_size;
+
+   return TRUE;
+}
+
+/*
+ *-----------------------------------------------------------------------------
  * rc_allocator_config_init --
  *
  *      Initialize rc_allocator config values
@@ -232,8 +251,8 @@ rc_allocator_config_init(rc_allocator_config *allocator_cfg,
 
    allocator_cfg->io_cfg          = io_cfg;
    allocator_cfg->capacity        = capacity;
-   allocator_cfg->page_capacity   = capacity / io_cfg->page_size;
-   allocator_cfg->extent_capacity = capacity / io_cfg->extent_size;
+   bool ok                        = rc_allocator_config_compile(allocator_cfg);
+   platform_assert(ok, "Invalid rc_allocator config");
 }
 
 /*
