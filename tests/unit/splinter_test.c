@@ -106,8 +106,9 @@ CTEST_DATA(splinter)
 };
 
 /*
- * Setup Splinter configuration: Extracted from functional/splinter_test.c:
- * splinter_test().
+ * -------------------------------------------------------------------------
+ * Setup Splinter configuration:
+ * -------------------------------------------------------------------------
  */
 // clang-format off
 CTEST_SETUP(splinter)
@@ -627,8 +628,13 @@ CTEST2(splinter, test_lookups)
 }
 
 /*
+ * -----------------------------------------------------------------------------
  * Simple test cases to exercise print / diagnostic functions provided
- * by various sub-systems.
+ * by various sub-systems.  Test is now readily useful as an educational tool.
+ *
+ * NOTE: This test case is mentioned in external docs. Be careful what
+ *  changes you bring in here.
+ * -----------------------------------------------------------------------------
  */
 CTEST2(splinter, test_splinter_print_diags)
 {
