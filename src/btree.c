@@ -3332,9 +3332,9 @@ btree_print_subtree(platform_log_handle *log_handle,
 
    if (node.hdr->height > 0) {
       int nentries = node.hdr->num_entries;
-      platform_log(log_handle,
-                   "\n---- Print BTree sub-trees under addr=%lu"
-                   " num_entries=%d, height=%d {\n",
+      platform_log(log_handle, "\n---- BTree sub-trees under addr=%lu"
+                          " num_entries=%d"
+                          ", height=%d {\n",
                           addr,
                           nentries,
                           node.hdr->height);
@@ -3344,9 +3344,9 @@ btree_print_subtree(platform_log_handle *log_handle,
          btree_print_subtree(
             log_handle, cc, cfg, btree_get_child_addr(cfg, node.hdr, idx));
       }
-      platform_log(log_handle,
-                   "\n} -- End Print BTree sub-trees under addr=%lu\n",
-                   addr);
+      platform_log(log_handle, "\n} -- End BTree sub-trees under"
+                          " addr=%lu\n",
+                          addr);
    }
    btree_node_unget(cc, cfg, &node);
 }

@@ -1146,7 +1146,7 @@ trunk_get_pivot(trunk_handle *spl, page_handle *node, uint16 pivot_no)
                    pivot_no,
                    spl->cfg.max_pivot_keys);
    trunk_hdr *hdr = (trunk_hdr *)node->data;
-   return ((char *)hdr) + sizeof(*hdr) + (pivot_no * trunk_pivot_size(spl));
+   return ((char *)hdr) + sizeof(*hdr) + pivot_no * trunk_pivot_size(spl);
 }
 
 static inline void
@@ -7996,7 +7996,6 @@ trunk_print_pivots(platform_log_handle *log_handle,
          platform_log(log_handle, "| %.*s | %12lu | %12lu | %11lu | %4ld | %5lu |\n",
                              24,
                              key_string,
-                             // (int) sizeof(key_string), key_string,
                              pdata->addr,
                              pdata->filter.addr,
                              pdata->num_tuples,
