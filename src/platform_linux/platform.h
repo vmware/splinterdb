@@ -591,13 +591,6 @@ platform_aligned_zalloc(platform_heap_id heap_id, size_t alignment, size_t size)
    return x;
 }
 
-static inline void *
-platform_allocate(platform_heap_id heap_id, size_t size)
-{
-   return platform_aligned_malloc(heap_id, PLATFORM_CACHELINE_SIZE, size);
-}
-
-
 static inline size_t
 max_size_t(size_t a, size_t b)
 {

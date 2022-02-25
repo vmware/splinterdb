@@ -5,11 +5,24 @@ To integrate SplinterDB into another application, see [Usage](usage.md).
 ## On Linux
 Builds are known to work on Ubuntu using recent versions of GCC and Clang.
 
-In CI, we test against the versions that Ubuntu "jammy" 22.04 provides by
-default, currently GCC 11 and Clang 13.
+In CI, we test against the default version of gcc that Ubuntu "focal" 20.04 supports,
+currently GCC 9.3.
+We use Clang 13 as the code base is formatted using clang-format-13 rules.
+
+Here are the steps we used to install `clang-13` tools on Linux.
 
 ```shell
-$ export COMPILER=gcc-11
+$ wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+
+$ sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main'
+
+$ sudo apt-get install -y clang-13 clang-format-13
+```
+
+Here are the steps to do a full-build of the library, run smoke tests, and to install the shared libraries:
+
+```shell
+$ export COMPILER=gcc    # or clang-13
 $ sudo apt update -y
 $ sudo apt install -y libaio-dev libconfig-dev libxxhash-dev $COMPILER
 $ export CC=$COMPILER
@@ -18,6 +31,17 @@ $ make
 $ make run-tests
 $ sudo make install
 ```
+
+> Note: In CI, we also run a job to check source code formatting.
+
+Before committing your changes, run the [format-check.sh](../format-check.sh#:~:text=clang\-format\-13)
+script to verify that your code changes conform to required formatting rules.
+
+```shell
+$ format-check.sh fixall
+```
+
+Check for any files that need re-formatting, which will be edited in-place.
 
 ### Using Docker
 Docker can be used to build from source on many platforms, including Mac and Windows.
@@ -39,8 +63,9 @@ with either GCC or Clang.
 For example, from inside the running container:
 ```shell
 docker$ cd /splinterdb
-docker$ export CC=clang  # or gcc
-docker$ export LD=clang
+docker$ export CC=clang-13  # or gcc
+docker$ export CC=$COMPILER
+docker$ export LD=$COMPILER
 docker$ make
 docker$ make test
 docker$ make install

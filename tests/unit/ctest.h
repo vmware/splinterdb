@@ -66,8 +66,8 @@ union ctest_run_func_union {
  * ************************************************************************
  */
 struct ctest {
-   const char                *ssname; // suite name
-   const char                *ttname; // test name
+   const char                *ssname; // test suite name
+   const char                *ttname; // test case name
    union ctest_run_func_union run;
 
    void                *data;

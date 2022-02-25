@@ -13,7 +13,6 @@
 
 #include <setjmp.h>
 #include <stdarg.h>
-#include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -78,7 +77,7 @@ ctest_main(int argc, const char *argv[]);
 void
 ctest_usage(const char *progname, int program_is_unit_test);
 
-int
+static int
 ctest_process_args(const int    argc,
                    const char  *argv[],
                    int          program_is_unit_test,
@@ -96,6 +95,12 @@ suite_filter(struct ctest *t);
 
 static int
 testcase_filter(struct ctest *t);
+
+static void
+print_test_suite_names(const struct ctest *tbegin,
+                       const struct ctest *tend,
+                       const char         *suite_name,
+                       int                 program_is_unit_test);
 
 static uint64_t
 getCurrentTime(void);
@@ -166,10 +171,16 @@ ctest_main(int argc, const char *argv[])
 
    int program_is_unit_test = ctest_is_unit_test(argv[0]);
 
-   // Process --help arg up-front, before processing other variations.
-   if ((argc >= 2) && (strcmp(argv[1], "--help") == 0)) {
-      ctest_usage(argv[0], program_is_unit_test);
-      return num_fail;
+   int print_list = 0; // Are we processing --list arg?
+
+   // Process --help | --list arg up-front, before processing other variations.
+   if ((argc >= 2)) {
+      if (strcmp(argv[1], "--help") == 0) {
+         ctest_usage(argv[0], program_is_unit_test);
+         return num_fail;
+      } else if (strcmp(argv[1], "--list") == 0) {
+         print_list = 1;
+      }
    }
 
    // Establish test-suite and test-case name filters
@@ -206,24 +217,32 @@ ctest_main(int argc, const char *argv[])
 #endif
    uint64_t t1 = getCurrentTime();
 
+   // Fabricate placeholder begin / end test suite marker
    struct ctest *ctest_begin = &CTEST_IMPL_TNAME(suite, test);
    struct ctest *ctest_end   = &CTEST_IMPL_TNAME(suite, test);
 
    // find begin and end of section by comparing magics
    while (1) {
       struct ctest *t = ctest_begin - 1;
-      if (t->magic != CTEST_IMPL_MAGIC)
+      if (t->magic != CTEST_IMPL_MAGIC) {
          break;
+      }
       ctest_begin--;
    }
    while (1) {
       struct ctest *t = ctest_end + 1;
-      if (t->magic != CTEST_IMPL_MAGIC)
+      if (t->magic != CTEST_IMPL_MAGIC) {
          break;
+      }
       ctest_end++;
    }
    ctest_end++; // end after last one
 
+   if (print_list) {
+      print_test_suite_names(
+         ctest_begin, ctest_end, suite_name, program_is_unit_test);
+      return 0;
+   }
    static struct ctest *test;
 
    // Establish count of # of test-suites & test cases we will run (next).
@@ -329,6 +348,7 @@ ctest_main(int argc, const char *argv[])
  * ---------------------------------------------------------------------------
  */
 /*
+ * ---------------------------------------------------------------------------
  * Identify the name of the program being executed (argv[0]). The usage will
  * vary depending on whether the top-level 'unit_test' or a stand-alone
  * unit-test binary is being invoked.
@@ -337,6 +357,7 @@ ctest_main(int argc, const char *argv[])
  *  1 - If it is 'unit_test'
  *  0 - For all other stand-alone unit-test binaries being invoked.
  * -1 - For any other error / unknown conditions.
+ * ---------------------------------------------------------------------------
  */
 int
 ctest_is_unit_test(const char *argv0)
@@ -363,6 +384,7 @@ ctest_is_unit_test(const char *argv0)
 }
 
 /*
+ * ---------------------------------------------------------------------------
  * Process the command-line arguments. Handle the following cases:
  *
  * 1. We can invoke the top-level unit_test as follows:
@@ -379,8 +401,9 @@ ctest_is_unit_test(const char *argv0)
  * Returns:
  *  # of trailing arguments processed. -1, in case of any usage / invocation
  * error.
+ * ---------------------------------------------------------------------------
  */
-int
+static int
 ctest_process_args(const int    argc,
                    const char  *argv[],
                    int          program_is_unit_test,
@@ -408,6 +431,11 @@ ctest_process_args(const int    argc,
       // We stripped off 1 "name"-argument from list.
       return 1;
    }
+
+   // It's an error to issue: splinter_test --list <any-string>
+   if (!program_is_unit_test && (strcmp(argv[argc - 2], "--list") == 0)) {
+      return -1;
+   }
    if (strncmp(argv[argc - 2], "--", 2) == 0) {
       // We stripped off 1 "name"-argument from list.
       return 1;
@@ -430,11 +458,14 @@ ctest_process_args(const int    argc,
 void
 ctest_usage(const char *progname, int program_is_unit_test)
 {
-   printf("Usage: %s [ --<config options> ]* ", progname);
+   printf("Usage: %s ", progname);
    if (program_is_unit_test) {
-      printf("[ <suite-name> [ <test-case-name> ] ]\n");
+      printf("[--list [ <suite-name> ] ]\n");
+      printf("Usage: %s "
+             "[ --<config options> ]* [ <suite-name> [ <test-case-name> ] ]\n",
+             progname);
    } else {
-      printf("[ <test-case-name> ]\n");
+      printf("[ --list | [ --<config options> ]* <test-case-name> ]\n");
    }
 }
 
@@ -467,6 +498,7 @@ testcase_filter(struct ctest *t)
 }
 
 /*
+ * ---------------------------------------------------------------------------
  * Function to filter suite name to run. Currently, we only support an
  * exact match of the suite-name. (Wild-card matching may be considered
  * in the future). Test case name filtering is implicitly subsumed in
@@ -478,6 +510,7 @@ testcase_filter(struct ctest *t)
  *
  * User can invoke as follows to just run one test case from a suite:
  *  $ bin/unit_test splinterdb_kv test_splinterdb_iterator_with_startkey
+ * ---------------------------------------------------------------------------
  */
 static int
 suite_filter(struct ctest *t)
@@ -494,6 +527,81 @@ suite_filter(struct ctest *t)
 
    rv = testcase_filter(t);
    return rv;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * print_test_suite_names(): Implements --list support
+ *
+ * This function lists the suite-names that can be run from unit_test,
+ * or will list the test-case names that can be run for a give suite-name.
+ *
+ * Usage
+ *
+ *  - Will list all suite-names, or all test cases names in specified suite name
+ *  $ unit_test --list [ <suite-name> ]
+ *
+ * When used as "unit_test --list <suite-name>", we first find the start of
+ * the requested suite-name, then, will print list of test cases from it.
+ * Processing returns early immediately upon start of the next test suite name.
+ *
+ *  - Will list all test cases names in specified standalone test
+ *  $ standalone_test --list
+ * ---------------------------------------------------------------------------
+ */
+static void
+print_test_suite_names(const struct ctest *test_begin,
+                       const struct ctest *test_end,
+                       const char         *suite_name,
+                       int                 program_is_unit_test)
+{
+   // unit_test --list                  : Print suite-name
+   //    unit_test --list <suite-name>
+   // or <standalone-test> --list       : Print test case name
+   int print_test_case_name = (suite_name || !program_is_unit_test);
+
+   printf("\nList of test %s that can be run:\n",
+          (print_test_case_name ? "cases" : "suites"));
+
+   const struct ctest *test;
+   const char         *prev_suite_name  = NULL;
+   int                 found_suite_name = 0;
+
+   for (test = test_begin; test != test_end; test++) {
+      // Skip placeholder entry of test definitions in input list
+      if (test == &CTEST_IMPL_TNAME(suite, test)) {
+         continue;
+      }
+
+      // If user has asked to list test-cases for specified suite ...
+      if (suite_name) {
+         // Find the first occurrence of that suite-name in the list.
+         if (!found_suite_name) {
+            // It's the wrong suite name; skip it.
+            if (strcmp(test->ssname, suite_name)) {
+               continue;
+            }
+            found_suite_name = 1;
+         } else if (strcmp(test->ssname, suite_name)) {
+            // All test cases come in a chunk for a test suite.
+            // So, if user wanted to list test cases for a specific suite,
+            // and we find the start of a new chunk of test cases, we are done.
+            return;
+         }
+      }
+
+      // Print each suite-name only once. It may appear multiple times
+      // in the list of individual test-cases from that suite.
+      else if (program_is_unit_test)
+      {
+         if (prev_suite_name && (strcmp(prev_suite_name, test->ssname) == 0)) {
+            continue;
+         }
+      }
+
+      printf("  %s\n", (print_test_case_name ? test->ttname : test->ssname));
+      prev_suite_name = test->ssname;
+   }
 }
 
 static uint64_t
