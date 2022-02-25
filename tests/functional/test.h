@@ -133,18 +133,43 @@ test_int_to_key(char *key, uint64 idx, uint64 key_size)
 }
 
 static inline void
-test_insert_data(void        *raw_data,
-                 int8         ref_count,
-                 char        *val,
-                 uint64       input_size,
-                 uint64       data_size,
-                 message_type type)
+test_build_message(writable_buffer *msg,
+                   message_type     type,
+                   int8             ref_count,
+                   slice            payload)
 {
-   memset(raw_data, 0, data_size);
-   data_handle *data  = raw_data;
-   data->message_type = type;
-   data->ref_count    = ref_count;
-   memmove(data->data, val, input_size);
+   uint64 total_size = sizeof(data_handle) + slice_length(payload);
+   writable_buffer_set_length(msg, total_size);
+
+   data_handle *raw_data = writable_buffer_data(msg);
+   memset(raw_data, 0, total_size);
+   raw_data->message_type = type;
+   raw_data->ref_count    = ref_count;
+   memmove(raw_data->data, slice_data(payload), slice_length(payload));
+}
+
+/* The intention is that we can shove all our different algorithms for
+   generating sequences of messages into this structure (e.g. via
+   tagged union or whatever). */
+typedef struct test_message_generator {
+   message_type type;
+   uint64_t     min_payload_size;
+   uint64_t     max_payload_size;
+} test_message_generator;
+
+void
+generate_test_message(const test_message_generator *generator,
+                      uint64_t                      idx,
+                      writable_buffer *             msg)
+{
+   char payload[generator->max_payload_size];
+   debug_assert(generator->min_payload_size <= generator->max_payload_size);
+   debug_assert(sizeof(uint64) <= generator->min_payload_size);
+   memcpy(payload, &idx, sizeof(idx));
+   uint64 size =
+      generator->min_payload_size
+      + (idx % (generator->max_payload_size - generator->min_payload_size + 1));
+   test_build_message(msg, generator->type, 1, slice_create(size, payload));
 }
 
 static inline void

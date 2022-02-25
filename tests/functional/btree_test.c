@@ -145,11 +145,12 @@ test_memtable_lookup(test_memtable_context *ctxt,
 }
 
 void
-test_btree_tuple(test_memtable_context *ctxt,
-                 writable_buffer       *key,
-                 writable_buffer       *data,
-                 uint64                 seq,
-                 uint64                 thread_id)
+test_btree_tuple(test_memtable_context * ctxt,
+                 test_message_generator *msg_gen,
+                 writable_buffer *       key,
+                 writable_buffer *       data,
+                 uint64                  seq,
+                 uint64                  thread_id)
 {
    test_btree_config *cfg = ctxt->cfg;
    writable_buffer_set_length(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
@@ -162,14 +163,7 @@ test_btree_tuple(test_memtable_context *ctxt,
             cfg->period);
 
    if (data != NULL) {
-      writable_buffer_set_length(
-         data, cfg->mt_cfg->btree_cfg->data_cfg->message_size);
-      test_insert_data(writable_buffer_data(data),
-                       1,
-                       (char *)&seq,
-                       8,
-                       cfg->mt_cfg->btree_cfg->data_cfg->message_size,
-                       MESSAGE_TYPE_INSERT);
+      generate_test_message(msg_gen, seq, data);
    }
 }
 
@@ -178,7 +172,8 @@ typedef struct test_btree_thread_params {
    test_btree_config     *cfg;
    uint64                 num_ops;
    platform_thread        thread;
-   uint64                 thread_id;
+   uint64                  thread_id;
+   test_message_generator *msg_gen;
    uint64                 time_elapsed;
    platform_status        rc;
 } test_btree_thread_params;
@@ -190,6 +185,7 @@ test_btree_insert_thread(void *arg)
    test_memtable_context    *ctxt        = params->ctxt;
    uint64                    thread_id   = params->thread_id;
    uint64                    num_inserts = params->num_ops;
+   test_message_generator *  msg_gen     = params->msg_gen;
 
    uint64          start_time = platform_get_timestamp();
    writable_buffer key;
@@ -201,7 +197,7 @@ test_btree_insert_thread(void *arg)
    uint64 start_num = thread_id * num_inserts;
    uint64 end_num   = (thread_id + 1) * num_inserts;
    for (uint64 insert_num = start_num; insert_num < end_num; insert_num++) {
-      test_btree_tuple(ctxt, &key, &data, insert_num, thread_id);
+      test_btree_tuple(ctxt, msg_gen, &key, &data, insert_num, thread_id);
       platform_status rc = test_btree_insert(
          ctxt, writable_buffer_to_slice(&key), writable_buffer_to_slice(&data));
       if (!SUCCESS(rc)) {

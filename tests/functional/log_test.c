@@ -50,6 +50,7 @@ test_log_crash(clockcache          *cc,
    char               key_str[128];
    char               data_str[128];
    bool               at_end;
+   writable_buffer    msg;
 
    platform_assert(cc != NULL);
    rc = shard_log_init(log, (cache *)cc, cfg);
@@ -59,19 +60,13 @@ test_log_crash(clockcache          *cc,
    addr  = log_addr(logh);
    magic = log_magic(logh);
 
+   writable_buffer_init_null(&msg);
 
    for (i = 0; i < num_entries; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(databuffer,
-                       1,
-                       &dummy,
-                       0,
-                       cfg->data_cfg->message_size,
-                       MESSAGE_TYPE_INSERT);
+      generate_test_message(&standard_insert_generator, i, msg);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      slice smessage =
-         slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
-      log_write(logh, skey, smessage, i);
+      log_write(logh, skey, writable_buffer_to_slice(msg), i);
    }
 
    if (crash) {
