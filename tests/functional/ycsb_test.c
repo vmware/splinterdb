@@ -1170,10 +1170,11 @@ ycsb_test(int argc, char *argv[])
    uint64              seed;
    task_system        *ts;
 
-   uint64      nphases;
-   bool        use_existing = 0;
-   ycsb_phase *phases;
-   int         args_consumed;
+   uint64                 nphases;
+   bool                   use_existing = 0;
+   ycsb_phase            *phases;
+   int                    args_consumed;
+   test_message_generator gen;
 
    uint64 log_size_bytes, memory_bytes;
    rc = load_ycsb_logs(argc,
@@ -1209,6 +1210,7 @@ ycsb_test(int argc, char *argv[])
                         &cache_cfg,
                         &log_cfg,
                         &seed,
+                        &gen,
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {

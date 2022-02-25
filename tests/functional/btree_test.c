@@ -24,10 +24,11 @@ static uint64 max_async_inflight = 32;
 #include "poison.h"
 
 typedef struct test_btree_config {
-   memtable_config *mt_cfg;
-   test_key_type    type;
-   uint64           semiseq_freq;
-   uint64           period;
+   memtable_config        *mt_cfg;
+   test_key_type           type;
+   uint64                  semiseq_freq;
+   uint64                  period;
+   test_message_generator *msggen;
 } test_btree_config;
 
 typedef struct test_memtable_context {
@@ -145,12 +146,11 @@ test_memtable_lookup(test_memtable_context *ctxt,
 }
 
 void
-test_btree_tuple(test_memtable_context * ctxt,
-                 test_message_generator *msg_gen,
-                 writable_buffer *       key,
-                 writable_buffer *       data,
-                 uint64                  seq,
-                 uint64                  thread_id)
+test_btree_tuple(test_memtable_context *ctxt,
+                 writable_buffer       *key,
+                 writable_buffer       *data,
+                 uint64                 seq,
+                 uint64                 thread_id)
 {
    test_btree_config *cfg = ctxt->cfg;
    writable_buffer_set_length(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
@@ -163,7 +163,7 @@ test_btree_tuple(test_memtable_context * ctxt,
             cfg->period);
 
    if (data != NULL) {
-      generate_test_message(msg_gen, seq, data);
+      generate_test_message(cfg->msggen, seq, data);
    }
 }
 
@@ -172,8 +172,7 @@ typedef struct test_btree_thread_params {
    test_btree_config     *cfg;
    uint64                 num_ops;
    platform_thread        thread;
-   uint64                  thread_id;
-   test_message_generator *msg_gen;
+   uint64                 thread_id;
    uint64                 time_elapsed;
    platform_status        rc;
 } test_btree_thread_params;
@@ -185,7 +184,6 @@ test_btree_insert_thread(void *arg)
    test_memtable_context    *ctxt        = params->ctxt;
    uint64                    thread_id   = params->thread_id;
    uint64                    num_inserts = params->num_ops;
-   test_message_generator *  msg_gen     = params->msg_gen;
 
    uint64          start_time = platform_get_timestamp();
    writable_buffer key;
@@ -197,7 +195,7 @@ test_btree_insert_thread(void *arg)
    uint64 start_num = thread_id * num_inserts;
    uint64 end_num   = (thread_id + 1) * num_inserts;
    for (uint64 insert_num = start_num; insert_num < end_num; insert_num++) {
-      test_btree_tuple(ctxt, msg_gen, &key, &data, insert_num, thread_id);
+      test_btree_tuple(ctxt, &key, &data, insert_num, thread_id);
       platform_status rc = test_btree_insert(
          ctxt, writable_buffer_to_slice(&key), writable_buffer_to_slice(&data));
       if (!SUCCESS(rc)) {
@@ -1461,16 +1459,17 @@ usage(const char *argv0)
 int
 btree_test(int argc, char *argv[])
 {
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   clockcache_config   cache_cfg;
-   shard_log_config    log_cfg;
-   int                 config_argc;
-   char              **config_argv;
-   bool                run_perf_test;
-   platform_status     rc;
-   uint64              seed;
-   task_system        *ts;
+   io_config              io_cfg;
+   rc_allocator_config    al_cfg;
+   clockcache_config      cache_cfg;
+   shard_log_config       log_cfg;
+   int                    config_argc;
+   char                 **config_argv;
+   bool                   run_perf_test;
+   platform_status        rc;
+   uint64                 seed;
+   task_system           *ts;
+   test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
@@ -1511,13 +1510,14 @@ btree_test(int argc, char *argv[])
                         &cache_cfg,
                         &log_cfg,
                         &seed,
+                        &gen,
                         config_argc,
                         config_argv);
 
    memtable_config *mt_cfg    = &cfg->mt_cfg;
    mt_cfg->max_memtables      = 128;
    test_btree_config test_cfg = {
-      .mt_cfg = mt_cfg, .type = TEST_RANDOM, .semiseq_freq = 0};
+      .mt_cfg = mt_cfg, .type = TEST_RANDOM, .semiseq_freq = 0, .msggen = &gen};
    if (!SUCCESS(rc)) {
       platform_error_log("btree_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));

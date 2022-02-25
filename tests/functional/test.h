@@ -157,14 +157,15 @@ typedef struct test_message_generator {
    uint64_t     max_payload_size;
 } test_message_generator;
 
-void
+static inline void
 generate_test_message(const test_message_generator *generator,
                       uint64_t                      idx,
-                      writable_buffer *             msg)
+                      writable_buffer              *msg)
 {
    char payload[generator->max_payload_size];
    debug_assert(generator->min_payload_size <= generator->max_payload_size);
    debug_assert(sizeof(uint64) <= generator->min_payload_size);
+   memset(payload, 0, sizeof(payload));
    memcpy(payload, &idx, sizeof(idx));
    uint64 size =
       generator->min_payload_size
@@ -172,14 +173,24 @@ generate_test_message(const test_message_generator *generator,
    test_build_message(msg, generator->type, 1, slice_create(size, payload));
 }
 
+/* Create a message generator that will generate delete messages for
+   all the insert messages created by the given insert generator. */
 static inline void
-test_config_init(trunk_config        *splinter_cfg,
-                 data_config         *data_cfg,
-                 shard_log_config    *log_cfg,
-                 clockcache_config   *cache_cfg,
-                 rc_allocator_config *allocator_cfg,
-                 io_config           *io_cfg,
-                 master_config       *master_cfg)
+message_generate_set_message_type(test_message_generator *gen,
+                                  message_type            type)
+{
+   gen->type = type;
+}
+
+static inline void
+test_config_init(trunk_config           *splinter_cfg,
+                 data_config            *data_cfg,
+                 shard_log_config       *log_cfg,
+                 clockcache_config      *cache_cfg,
+                 rc_allocator_config    *allocator_cfg,
+                 io_config              *io_cfg,
+                 test_message_generator *gen,
+                 master_config          *master_cfg)
 {
    *data_cfg              = test_data_config;
    data_cfg->key_size     = master_cfg->key_size;
@@ -217,19 +228,24 @@ test_config_init(trunk_config        *splinter_cfg,
                      master_cfg->reclaim_threshold,
                      master_cfg->use_log,
                      master_cfg->use_stats);
+
+   gen->type             = MESSAGE_TYPE_INSERT;
+   gen->min_payload_size = sizeof(uint64);
+   gen->max_payload_size = master_cfg->message_size;
 }
 
 static inline platform_status
-test_parse_args_n(trunk_config        *splinter_cfg,
-                  data_config         *data_cfg,
-                  io_config           *io_cfg,
-                  rc_allocator_config *allocator_cfg,
-                  clockcache_config   *cache_cfg,
-                  shard_log_config    *log_cfg,
-                  uint64              *seed,
-                  uint8                num_config,
-                  int                  argc,
-                  char                *argv[])
+test_parse_args_n(trunk_config           *splinter_cfg,
+                  data_config            *data_cfg,
+                  io_config              *io_cfg,
+                  rc_allocator_config    *allocator_cfg,
+                  clockcache_config      *cache_cfg,
+                  shard_log_config       *log_cfg,
+                  uint64                 *seed,
+                  test_message_generator *gen,
+                  uint8                   num_config,
+                  int                     argc,
+                  char                   *argv[])
 {
    platform_status rc;
    uint8           i;
@@ -252,6 +268,7 @@ test_parse_args_n(trunk_config        *splinter_cfg,
                        &cache_cfg[i],
                        allocator_cfg,
                        io_cfg,
+                       gen,
                        &master_cfg[i]);
    }
    *seed = master_cfg[0].seed;
@@ -261,15 +278,16 @@ test_parse_args_n(trunk_config        *splinter_cfg,
 }
 
 static inline platform_status
-test_parse_args(trunk_config        *splinter_cfg,
-                data_config         *data_cfg,
-                io_config           *io_cfg,
-                rc_allocator_config *allocator_cfg,
-                clockcache_config   *cache_cfg,
-                shard_log_config    *log_cfg,
-                uint64              *seed,
-                int                  argc,
-                char                *argv[])
+test_parse_args(trunk_config           *splinter_cfg,
+                data_config            *data_cfg,
+                io_config              *io_cfg,
+                rc_allocator_config    *allocator_cfg,
+                clockcache_config      *cache_cfg,
+                shard_log_config       *log_cfg,
+                uint64                 *seed,
+                test_message_generator *gen,
+                int                     argc,
+                char                   *argv[])
 {
    return test_parse_args_n(splinter_cfg,
                             data_cfg,
@@ -278,6 +296,7 @@ test_parse_args(trunk_config        *splinter_cfg,
                             cache_cfg,
                             log_cfg,
                             seed,
+                            gen,
                             1,
                             argc,
                             argv);

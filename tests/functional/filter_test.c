@@ -289,20 +289,21 @@ usage(const char *argv0)
 int
 filter_test(int argc, char *argv[])
 {
-   int                 r;
-   data_config         data_cfg;
-   io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
-   clockcache_config   cache_cfg;
-   shard_log_config    log_cfg;
-   rc_allocator        al;
-   clockcache         *cc;
-   int                 config_argc;
-   char              **config_argv;
-   bool                run_perf_test;
-   platform_status     rc;
-   uint64              seed;
-   task_system        *ts;
+   int                    r;
+   data_config            data_cfg;
+   io_config              io_cfg;
+   rc_allocator_config    allocator_cfg;
+   clockcache_config      cache_cfg;
+   shard_log_config       log_cfg;
+   rc_allocator           al;
+   clockcache            *cc;
+   int                    config_argc;
+   char                 **config_argv;
+   bool                   run_perf_test;
+   platform_status        rc;
+   uint64                 seed;
+   task_system           *ts;
+   test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
@@ -329,6 +330,7 @@ filter_test(int argc, char *argv[])
                         &cache_cfg,
                         &log_cfg,
                         &seed,
+                        &gen,
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {

@@ -21,28 +21,26 @@
 #include "poison.h"
 
 int
-test_log_crash(clockcache          *cc,
-               clockcache_config   *cache_cfg,
-               io_handle           *io,
-               allocator           *al,
-               shard_log_config    *cfg,
-               shard_log           *log,
-               uint64               num_entries,
-               task_system         *ts,
-               platform_heap_handle hh,
-               platform_heap_id     hid,
-               bool                 crash)
+test_log_crash(clockcache             *cc,
+               clockcache_config      *cache_cfg,
+               io_handle              *io,
+               allocator              *al,
+               shard_log_config       *cfg,
+               shard_log              *log,
+               task_system            *ts,
+               platform_heap_handle    hh,
+               platform_heap_id        hid,
+               test_message_generator *gen,
+               uint64                  num_entries,
+               bool                    crash)
 
 {
    platform_status rc;
    log_handle     *logh;
    uint64          i;
    char            keybuffer[MAX_KEY_SIZE];
-   char           *databuffer =
-      TYPED_ARRAY_MALLOC(hid, databuffer, cfg->data_cfg->message_size);
    slice              returned_key;
    slice              returned_message;
-   char               dummy = 'z';
    uint64             addr;
    uint64             magic;
    shard_log_iterator itor;
@@ -60,13 +58,13 @@ test_log_crash(clockcache          *cc,
    addr  = log_addr(logh);
    magic = log_magic(logh);
 
-   writable_buffer_init_null(&msg);
+   writable_buffer_init_null(&msg, hid);
 
    for (i = 0; i < num_entries; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      generate_test_message(&standard_insert_generator, i, msg);
+      generate_test_message(gen, i, &msg);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      log_write(logh, skey, writable_buffer_to_slice(msg), i);
+      log_write(logh, skey, writable_buffer_to_slice(&msg), i);
    }
 
    if (crash) {
@@ -90,15 +88,9 @@ test_log_crash(clockcache          *cc,
    iterator_at_end(itorh, &at_end);
    for (i = 0; i < num_entries && !at_end; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
-      test_insert_data(databuffer,
-                       1,
-                       &dummy,
-                       0,
-                       cfg->data_cfg->message_size,
-                       MESSAGE_TYPE_INSERT);
+      generate_test_message(gen, i, &msg);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      slice smessage =
-         slice_create(1 + ((7 + i) % cfg->data_cfg->message_size), databuffer);
+      slice smessage = writable_buffer_to_slice(&msg);
       iterator_get_curr(itorh, &returned_key, &returned_message);
       if (slice_lex_cmp(skey, returned_key)
           || slice_lex_cmp(smessage, returned_message))
@@ -121,57 +113,50 @@ test_log_crash(clockcache          *cc,
    shard_log_iterator_deinit(hid, &itor);
    shard_log_zap(log);
 
-   platform_free(hid, databuffer);
    return 0;
 }
 
 typedef struct test_log_thread_params {
-   shard_log      *log;
-   platform_thread thread;
-   int             thread_id;
-   uint64          num_entries;
+   shard_log              *log;
+   platform_thread         thread;
+   int                     thread_id;
+   test_message_generator *gen;
+   uint64                  num_entries;
 } test_log_thread_params;
 
 void
 test_log_thread(void *arg)
 {
-   platform_heap_id        hid    = platform_get_heap_id();
-   test_log_thread_params *params = (test_log_thread_params *)arg;
-
-   shard_log  *log         = params->log;
-   log_handle *logh        = (log_handle *)log;
-   int         thread_id   = params->thread_id;
-   uint64      num_entries = params->num_entries;
-   uint64      i;
-   char        key[MAX_KEY_SIZE];
-   char *data = TYPED_ARRAY_MALLOC(hid, data, log->cfg->data_cfg->message_size);
-   char  dummy;
+   platform_heap_id        hid         = platform_get_heap_id();
+   test_log_thread_params *params      = (test_log_thread_params *)arg;
+   shard_log              *log         = params->log;
+   log_handle             *logh        = (log_handle *)log;
+   int                     thread_id   = params->thread_id;
+   uint64                  num_entries = params->num_entries;
+   test_message_generator *gen         = params->gen;
+   uint64                  i;
+   char                    key[MAX_KEY_SIZE];
+   writable_buffer         msg;
 
    slice skey     = slice_create(log->cfg->data_cfg->key_size, key);
-   slice smessage = slice_create(log->cfg->data_cfg->message_size, data);
+   writable_buffer_init_null(&msg, hid);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
-      test_insert_data(data,
-                       1,
-                       &dummy,
-                       0,
-                       log->cfg->data_cfg->message_size,
-                       MESSAGE_TYPE_INSERT);
-      log_write(logh, skey, smessage, i);
+      generate_test_message(gen, i, &msg);
+      log_write(logh, skey, writable_buffer_to_slice(&msg), i);
    }
-
-   platform_free(hid, data);
 }
 
 platform_status
-test_log_perf(cache            *cc,
-              shard_log_config *cfg,
-              shard_log        *log,
-              uint64            num_entries,
-              uint64            num_threads,
-              task_system      *ts,
-              platform_heap_id  hid)
+test_log_perf(cache                  *cc,
+              shard_log_config       *cfg,
+              shard_log              *log,
+              uint64                  num_entries,
+              test_message_generator *gen,
+              uint64                  num_threads,
+              task_system            *ts,
+              platform_heap_id        hid)
 
 {
    test_log_thread_params *params =
@@ -186,6 +171,7 @@ test_log_perf(cache            *cc,
    for (uint64 i = 0; i < num_threads; i++) {
       params[i].log         = log;
       params[i].thread_id   = i;
+      params[i].gen         = gen;
       params[i].num_entries = num_entries / num_threads;
    }
 
@@ -237,21 +223,22 @@ usage(const char *argv0)
 int
 log_test(int argc, char *argv[])
 {
-   platform_status     status;
-   data_config         data_cfg;
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   clockcache_config   cache_cfg;
-   shard_log_config    log_cfg;
-   rc_allocator        al;
-   platform_status     ret;
-   int                 config_argc;
-   char              **config_argv;
-   bool                run_perf_test;
-   bool                run_crash_test;
-   int                 rc;
-   uint64              seed;
-   task_system        *ts;
+   platform_status        status;
+   data_config            data_cfg;
+   io_config              io_cfg;
+   rc_allocator_config    al_cfg;
+   clockcache_config      cache_cfg;
+   shard_log_config       log_cfg;
+   rc_allocator           al;
+   platform_status        ret;
+   int                    config_argc;
+   char                 **config_argv;
+   bool                   run_perf_test;
+   bool                   run_crash_test;
+   int                    rc;
+   uint64                 seed;
+   task_system           *ts;
+   test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test  = TRUE;
@@ -287,6 +274,7 @@ log_test(int argc, char *argv[])
                             &cache_cfg,
                             &log_cfg,
                             &seed,
+                            &gen,
                             config_argc,
                             config_argv);
    if (!SUCCESS(status)) {
@@ -340,7 +328,8 @@ log_test(int argc, char *argv[])
    shard_log *log = TYPED_MALLOC(hid, log);
    platform_assert(log != NULL);
    if (run_perf_test) {
-      ret = test_log_perf((cache *)cc, &log_cfg, log, 200000000, 16, ts, hid);
+      ret = test_log_perf(
+         (cache *)cc, &log_cfg, log, 200000000, &gen, 16, ts, hid);
       rc  = -1;
       platform_assert_status_ok(ret);
    } else if (run_crash_test) {
@@ -350,10 +339,11 @@ log_test(int argc, char *argv[])
                           (allocator *)&al,
                           &log_cfg,
                           log,
-                          500000,
                           ts,
                           hh,
                           hid,
+                          &gen,
+                          500000,
                           TRUE /* crash */);
       platform_assert(rc == 0);
    } else {
@@ -363,10 +353,11 @@ log_test(int argc, char *argv[])
                           (allocator *)&al,
                           &log_cfg,
                           log,
-                          500000,
                           ts,
                           hh,
                           hid,
+                          &gen,
+                          500000,
                           FALSE /* don't cash */);
       platform_assert(rc == 0);
    }

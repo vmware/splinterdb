@@ -929,17 +929,18 @@ usage(const char *argv0)
 int
 cache_test(int argc, char *argv[])
 {
-   data_config         data_cfg;
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   clockcache_config   cache_cfg;
-   shard_log_config    log_cfg;
-   int                 config_argc = argc - 1;
-   char              **config_argv = argv + 1;
-   platform_status     rc;
-   task_system        *ts;
-   bool                benchmark = FALSE, async = FALSE;
-   uint64              seed;
+   data_config            data_cfg;
+   io_config              io_cfg;
+   rc_allocator_config    al_cfg;
+   clockcache_config      cache_cfg;
+   shard_log_config       log_cfg;
+   int                    config_argc = argc - 1;
+   char                 **config_argv = argv + 1;
+   platform_status        rc;
+   task_system           *ts;
+   bool                   benchmark = FALSE, async = FALSE;
+   uint64                 seed;
+   test_message_generator gen;
 
    if (argc > 1) {
       if (strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
@@ -970,6 +971,7 @@ cache_test(int argc, char *argv[])
                         &cache_cfg,
                         &log_cfg,
                         &seed,
+                        &gen,
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {

@@ -93,12 +93,13 @@ CTEST_DATA(splinter)
    rc_allocator al;
 
    // Following get setup pointing to allocated memory
-   trunk_config       *splinter_cfg;
-   data_config        *data_cfg;
-   clockcache_config  *cache_cfg;
-   platform_io_handle *io;
-   clockcache         *clock_cache;
-   task_system        *tasks;
+   trunk_config           *splinter_cfg;
+   data_config            *data_cfg;
+   clockcache_config      *cache_cfg;
+   platform_io_handle     *io;
+   clockcache             *clock_cache;
+   task_system            *tasks;
+   test_message_generator  gen;
 };
 
 /*
@@ -150,6 +151,7 @@ CTEST_SETUP(splinter)
                           data->cache_cfg,
                           &data->log_cfg,
                           &data->seed,
+                          &data->gen,
                           num_tables,
                           Ctest_argc,   // argc/argv globals setup by CTests
                           (char **)Ctest_argv);
@@ -345,10 +347,10 @@ CTEST2(splinter, test_lookups)
                   platform_status_to_string(rc));
 
       verify_tuple(spl,
+                   &data->gen,
                    insert_num,
                    key,
                    writable_buffer_to_slice(&qdata),
-                   data_size,
                    TRUE);
    }
 
@@ -381,8 +383,12 @@ CTEST2(splinter, test_lookups)
                   insert_num,
                   platform_status_to_string(rc));
 
-      verify_tuple(
-         spl, insert_num, key, writable_buffer_to_slice(&qdata), 0, FALSE);
+      verify_tuple(spl,
+                   &data->gen,
+                   insert_num,
+                   key,
+                   writable_buffer_to_slice(&qdata),
+                   FALSE);
    }
 
    elapsed_ns = platform_timestamp_elapsed(start_time);
@@ -563,6 +569,8 @@ splinter_do_inserts(void         *datap,
    platform_default_log("trunk_insert() test with %d inserts %s ...\n",
                         num_inserts,
                         (verify ? "and verify" : ""));
+   writable_buffer msg;
+   writable_buffer_init_null(&msg, NULL);
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
 
       // Show progress message in %age-completed to stdout
@@ -576,14 +584,8 @@ splinter_do_inserts(void         *datap,
                      insert_num);
       }
       test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-      test_insert_data((data_handle *)databuf,
-                       1,
-                       (char *)&insert_num,
-                       sizeof(uint64),
-                       data_size,
-                       MESSAGE_TYPE_INSERT);
-
-      rc = trunk_insert(spl, key, trunk_message_slice(spl, databuf));
+      generate_test_message(&data->gen, insert_num, &msg);
+      rc = trunk_insert(spl, key, writable_buffer_to_slice(&msg));
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_insert() FAILURE: %s\n",
                   platform_status_to_string(rc));

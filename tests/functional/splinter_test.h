@@ -32,6 +32,7 @@ typedef struct test_config {
    uint64        period;       // if TEST_PERIODIC then repeat sequence after
                                // this many keys
    uint64 num_periods;         // if TEST_PERIODIC then repeat this many times
+   test_message_generator *gen;
 } test_config;
 
 static inline void

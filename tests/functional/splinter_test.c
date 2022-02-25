@@ -64,7 +64,7 @@ typedef struct test_splinter_thread_params {
    uint64             range_min;
    uint64             range_max;
    stats_insert       insert_stats;
-   message_type       message_type;
+   // message_type       message_type;
    uint64             num_ops_per_thread[NUM_OP_TYPES]; // in each round
    bool               expected_found;
    test_async_lookup *async_lookup[8]; // async lookup state per table
@@ -103,7 +103,6 @@ test_trunk_insert_thread(void *arg)
    uint64            *curr_op        = params->curr_op;
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
-   message_type       type           = params->message_type;
    uint8              num_tables     = params->num_tables;
 
    platform_assert(num_tables <= 8);
@@ -115,6 +114,8 @@ test_trunk_insert_thread(void *arg)
    timestamp next_check_time = platform_get_timestamp();
    // divide the per second insert rate into periods of 10 milli seconds.
    uint64 insert_rate = params->insert_rate / 100;
+   writable_buffer msg;
+   writable_buffer_init_null(&msg, NULL);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -139,7 +140,7 @@ test_trunk_insert_thread(void *arg)
                continue;
             }
             trunk_handle *spl = spl_tables[spl_idx];
-            char          key[MAX_KEY_SIZE], data[MAX_MESSAGE_SIZE];
+            char          key[MAX_KEY_SIZE];
 
             timestamp ts;
             if (spl->cfg.use_stats) {
@@ -152,14 +153,9 @@ test_trunk_insert_thread(void *arg)
                      test_cfg[spl_idx].semiseq_freq,
                      trunk_key_size(spl),
                      test_cfg[spl_idx].period);
-            test_insert_data((data_handle *)data,
-                             1,
-                             (char *)&insert_num,
-                             8,
-                             trunk_message_size(spl),
-                             type);
+            generate_test_message(test_cfg->gen, insert_num, &msg);
             platform_status rc =
-               trunk_insert(spl, key, trunk_message_slice(spl, data));
+               trunk_insert(spl, key, writable_buffer_to_slice(&msg));
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
                ts = platform_timestamp_elapsed(ts);
@@ -265,10 +261,10 @@ test_trunk_lookup_thread(void *arg)
                }
                platform_assert(SUCCESS(rc));
                verify_tuple(spl,
+                            test_cfg->gen,
                             lookup_num,
                             key,
                             writable_buffer_to_slice(&data),
-                            trunk_message_size(spl),
                             expected_found);
                writable_buffer_reinit(&data);
             } else {
@@ -489,10 +485,12 @@ do_operation(test_splinter_thread_params *params,
    const test_config *test_cfg       = params->test_cfg;
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
-   message_type       type           = params->message_type;
    uint8              num_tables     = params->num_tables;
    verify_tuple_arg   vtarg          = {.stats_only = TRUE,
                                         .stats      = &params->lookup_stats[ASYNC_LU]};
+   writable_buffer    msg;
+
+   writable_buffer_init_null(&msg, NULL);
 
    for (uint64 op_idx = op_offset; op_idx != op_offset + num_ops; op_idx++) {
       if (op_idx >= op_granularity) {
@@ -517,12 +515,7 @@ do_operation(test_splinter_thread_params *params,
                      test_cfg[spl_idx].semiseq_freq,
                      trunk_key_size(spl),
                      test_cfg[spl_idx].period);
-            test_insert_data((data_handle *)data,
-                             1,
-                             (char *)&op_num,
-                             8,
-                             trunk_message_size(spl),
-                             type);
+            generate_test_message(test_cfg->gen, op_num, &msg);
             ts = platform_get_timestamp();
             platform_status rc =
                trunk_insert(spl, key, trunk_message_slice(spl, data));
@@ -808,7 +801,6 @@ test_splinter_perf(trunk_config    *cfg,
       params[i].curr_op        = curr_op;
       params[i].op_granularity = TEST_INSERT_GRANULARITY;
       params[i].thread_number  = i;
-      params[i].message_type   = MESSAGE_TYPE_INSERT;
       params[i].expected_found = TRUE;
       params[i].num_tables     = num_tables;
       params[i].ts             = ts;
@@ -1202,7 +1194,6 @@ test_splinter_periodic(trunk_config    *cfg,
       params[i].curr_op        = curr_op;
       params[i].op_granularity = TEST_INSERT_GRANULARITY;
       params[i].thread_number  = i;
-      params[i].message_type   = MESSAGE_TYPE_INSERT;
       params[i].expected_found = TRUE;
       params[i].num_tables     = num_tables;
       params[i].ts             = ts;
@@ -1654,7 +1645,6 @@ test_splinter_parallel_perf(trunk_config    *cfg,
       params[i].total_ops                     = per_table_inserts;
       params[i].op_granularity                = TEST_INSERT_GRANULARITY;
       params[i].thread_number                 = i;
-      params[i].message_type                  = MESSAGE_TYPE_INSERT;
       params[i].num_tables                    = num_tables;
       params[i].ts                            = ts;
       params[i].curr_op                       = curr_insert_op;
@@ -1845,7 +1835,6 @@ test_splinter_delete(trunk_config    *cfg,
       params[i].curr_op        = curr_op;
       params[i].op_granularity = TEST_INSERT_GRANULARITY;
       params[i].thread_number  = i;
-      params[i].message_type   = MESSAGE_TYPE_INSERT;
       params[i].num_tables     = num_tables;
       params[i].ts             = ts;
       params[i].insert_rate    = insert_rate / num_insert_threads;
@@ -1893,9 +1882,7 @@ test_splinter_delete(trunk_config    *cfg,
    rc = STATUS_OK;
 
    // Deletes
-   for (uint64 i = 0; i < num_threads; i++) {
-      params[i].message_type = MESSAGE_TYPE_DELETE;
-   }
+   message_generate_set_message_type(test_cfg->gen, MESSAGE_TYPE_DELETE);
    ZERO_CONTENTS_N(curr_op, num_tables);
    start_time = platform_get_timestamp();
    for (uint64 i = 0; i < num_insert_threads; i++) {
@@ -2159,10 +2146,11 @@ splinter_test(int argc, char *argv[])
    uint8  num_tables      = 1;
    bool   cache_per_table = FALSE;
    // no bg threads by default.
-   uint8        num_bg_threads[NUM_TASK_TYPES] = {0};
-   uint64       insert_rate = 0; // no rate throttling by default.
-   task_system *ts;
-   uint8        lookup_positive_pct = 0;
+   uint8                  num_bg_threads[NUM_TASK_TYPES] = {0};
+   uint64                 insert_rate = 0; // no rate throttling by default.
+   task_system           *ts;
+   uint8                  lookup_positive_pct = 0;
+   test_message_generator gen;
 
    // Defaults
    num_insert_threads = num_lookup_threads = num_range_lookup_threads = 1;
@@ -2341,6 +2329,7 @@ splinter_test(int argc, char *argv[])
    test_config *test_cfg = TYPED_ARRAY_MALLOC(hid, test_cfg, num_tables);
    for (uint8 i = 0; i < num_tables; i++) {
       test_config_set_defaults(test, &test_cfg[i]);
+      test_cfg[i].gen = &gen;
    }
    rc = test_config_parse(test_cfg, num_tables, &config_argc, &config_argv);
    if (!SUCCESS(rc)) {
@@ -2365,6 +2354,7 @@ splinter_test(int argc, char *argv[])
                           cache_cfg,
                           &log_cfg,
                           &seed,
+                          &gen,
                           num_tables,
                           config_argc,
                           config_argv);

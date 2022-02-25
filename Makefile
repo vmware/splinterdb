@@ -24,9 +24,9 @@ SRC := $(shell find $(SRCDIR) -name "*.c")
 # Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
 # These objects are shared between functional/ and unit/ test binaries.
 COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
-
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
+TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 

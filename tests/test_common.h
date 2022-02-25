@@ -30,12 +30,12 @@ typedef struct {
  * Tuple verification routine.
  */
 void
-verify_tuple(trunk_handle *spl,
-             uint64        lookup_num,
-             char         *key,
-             slice         data,
-             uint64        data_size,
-             bool          expected_found);
+verify_tuple(trunk_handle           *spl,
+             test_message_generator *gen,
+             uint64                  lookup_num,
+             char                   *key,
+             slice                   data,
+             bool                    expected_found);
 
 void
 test_wait_for_inflight(trunk_handle      *spl,
