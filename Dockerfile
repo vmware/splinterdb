@@ -43,8 +43,8 @@ FROM $run_env_image
 COPY --from=build /splinterdb-install/lib/* /usr/local/lib/
 COPY --from=build /splinterdb-install/include/splinterdb/* /usr/local/include/splinterdb/
 
-# Copy over the test binary and test script
-COPY --from=build /splinterdb-src/bin/* /splinterdb/bin/
+# Copy over the test binaries under bin/ (recursively) and the test script
+COPY --from=build /splinterdb-src/bin/ /splinterdb/bin/
 COPY --from=build /splinterdb-src/test.sh /splinterdb/test.sh
 # TODO: Currently driver_test dynamically links against the relative path lib/libsplinterdb.so
 # Instead we should link driver_test statically against libsplinterdb.a so that this hack isn't necessary
