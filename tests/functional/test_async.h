@@ -49,7 +49,6 @@ typedef void (*async_ctxt_process_cb)(trunk_handle    *spl,
 void
 async_ctxt_init(platform_heap_id    hid,
                 uint32              max_async_inflight,
-                uint64              data_size,
                 test_async_lookup **out);
 void
 async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup);

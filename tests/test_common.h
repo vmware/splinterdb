@@ -19,8 +19,6 @@ typedef struct stats_lookup {
 } stats_lookup;
 
 typedef struct {
-   char         *expected_data;
-   size_t        data_size;
    bool          expected_found;
    bool          stats_only; // update statistic only
    stats_lookup *stats;

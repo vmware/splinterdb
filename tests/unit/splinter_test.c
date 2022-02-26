@@ -430,8 +430,6 @@ CTEST2(splinter, test_lookups)
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
                     num_inserts);
 
-   const size_t data_size = trunk_message_size(spl);
-
    writable_buffer qdata;
    writable_buffer_init_null(&qdata, NULL);
    char         key[MAX_KEY_SIZE];
@@ -542,8 +540,7 @@ CTEST2(splinter, test_lookups)
    */
    // Setup Async-context sub-system for async lookups.
    test_async_lookup *async_lookup;
-   async_ctxt_init(
-      data->hid, data->max_async_inflight, data_size, &async_lookup);
+   async_ctxt_init(data->hid, data->max_async_inflight, &async_lookup);
 
    test_async_ctxt *ctxt = NULL;
 
@@ -553,13 +550,7 @@ CTEST2(splinter, test_lookups)
    // **************************************************************************
 
    // Declare an expected data tuple that will be found.
-   char *expected_data =
-      TYPED_ARRAY_MALLOC(data->hid, expected_data, data_size);
-   ASSERT_TRUE(expected_data != NULL);
-
-   verify_tuple_arg vtarg_true = {.expected_data  = expected_data,
-                                  .data_size      = data_size,
-                                  .expected_found = TRUE};
+   verify_tuple_arg vtarg_true = {.expected_found = TRUE};
 
    start_time = platform_get_timestamp();
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
@@ -590,8 +581,7 @@ CTEST2(splinter, test_lookups)
    // **************************************************************************
 
    // Declare a tuple that data will not be found.
-   verify_tuple_arg vtarg_false = {
-      .expected_data = NULL, .data_size = 0, .expected_found = FALSE};
+   verify_tuple_arg vtarg_false = {.expected_found = FALSE};
 
    start_time = platform_get_timestamp();
    for (uint64 insert_num = num_inserts; insert_num < 2 * num_inserts;
@@ -617,7 +607,6 @@ CTEST2(splinter, test_lookups)
       (elapsed_ns / num_inserts));
 
    // Cleanup memory allocated in this test case
-   platform_free(data->hid, expected_data);
    if (async_lookup) {
       async_ctxt_deinit(data->hid, async_lookup);
    }

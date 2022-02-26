@@ -66,7 +66,6 @@ async_ctxt_unget(test_async_lookup *async_lookup, test_async_ctxt *ctxt)
 void
 async_ctxt_init(platform_heap_id    hid,                // IN
                 uint32              max_async_inflight, // IN
-                uint64              data_size,          // IN
                 test_async_lookup **out)                // OUT
 {
    test_async_lookup *async_lookup;

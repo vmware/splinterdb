@@ -641,8 +641,7 @@ test_functionality(allocator           *al,
    platform_assert(splinters != NULL);
    test_async_lookup *async_lookup;
    if (max_async_inflight > 0) {
-      async_ctxt_init(
-         hid, max_async_inflight, cfg->data_cfg->message_size, &async_lookup);
+      async_ctxt_init(hid, max_async_inflight, &async_lookup);
    } else {
       async_lookup = NULL;
    }

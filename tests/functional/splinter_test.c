@@ -203,9 +203,7 @@ test_trunk_lookup_thread(void *arg)
    uint64             thread_number  = params->thread_number;
    bool               expected_found = params->expected_found;
    uint8              num_tables     = params->num_tables;
-   verify_tuple_arg   vtarg          = {.expected_data  = NULL,
-                                        .data_size      = 0,
-                                        .expected_found = expected_found,
+   verify_tuple_arg   vtarg          = {.expected_found = expected_found,
                                         .stats = &params->lookup_stats[ASYNC_LU]};
 
    platform_assert(num_tables <= 8);
@@ -877,10 +875,8 @@ test_splinter_perf(trunk_config    *cfg,
          platform_status ret;
 
          for (uint8 j = 0; j < num_tables; j++) {
-            async_ctxt_init(hid,
-                            max_async_inflight,
-                            cfg[j].data_cfg->message_size,
-                            &params[i].async_lookup[j]);
+            async_ctxt_init(
+               hid, max_async_inflight, &params[i].async_lookup[j]);
          }
          ret = task_thread_create("lookup thread",
                                   test_trunk_lookup_thread,
@@ -1342,10 +1338,8 @@ test_splinter_periodic(trunk_config    *cfg,
          platform_status ret;
 
          for (uint8 j = 0; j < num_tables; j++) {
-            async_ctxt_init(hid,
-                            max_async_inflight,
-                            cfg[j].data_cfg->message_size,
-                            &params[i].async_lookup[j]);
+            async_ctxt_init(
+               hid, max_async_inflight, &params[i].async_lookup[j]);
          }
          ret = task_thread_create("lookup thread",
                                   test_trunk_lookup_thread,
@@ -1659,10 +1653,7 @@ test_splinter_parallel_perf(trunk_config    *cfg,
       platform_status ret;
 
       for (uint8 j = 0; j < num_tables; j++) {
-         async_ctxt_init(hid,
-                         max_async_inflight,
-                         cfg[j].data_cfg->message_size,
-                         &params[i].async_lookup[j]);
+         async_ctxt_init(hid, max_async_inflight, &params[i].async_lookup[j]);
       }
       ret = task_thread_create("insert/lookup thread",
                                test_trunk_insert_lookup_thread,
@@ -1938,10 +1929,7 @@ test_splinter_delete(trunk_config    *cfg,
 
    for (uint64 i = 0; i < num_lookup_threads; i++) {
       for (uint8 j = 0; j < num_tables; j++) {
-         async_ctxt_init(hid,
-                         max_async_inflight,
-                         cfg[j].data_cfg->message_size,
-                         &params[i].async_lookup[j]);
+         async_ctxt_init(hid, max_async_inflight, &params[i].async_lookup[j]);
       }
       rc = task_thread_create("lookup thread",
                               test_trunk_lookup_thread,
