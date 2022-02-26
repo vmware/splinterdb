@@ -5304,8 +5304,8 @@ const static iterator_ops trunk_range_iterator_ops = {
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
-                          char                 *min_key,
-                          char                 *max_key,
+                          const char           *min_key,
+                          const char           *max_key,
                           uint64                num_tuples)
 {
    range_itor->spl          = spl;
@@ -5432,7 +5432,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    }
 
    // have a leaf, use to get rebuild key
-   char *rebuild_key =
+   const char *rebuild_key =
       !range_itor->has_max_key
             || trunk_key_compare(spl, trunk_max_key(spl, node), max_key) < 0
          ? trunk_max_key(spl, node)
@@ -6650,11 +6650,11 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
 
 
 platform_status
-trunk_range(trunk_handle *spl,
-            char         *start_key,
-            uint64        num_tuples,
-            uint64       *tuples_returned,
-            char         *out)
+trunk_range(trunk_handle  *spl,
+            const char    *start_key,
+            uint64         num_tuples,
+            tuple_function func,
+            void          *arg)
 {
    trunk_range_iterator *range_itor = TYPED_MALLOC(spl->heap_id, range_itor);
    platform_status       rc =
@@ -6666,19 +6666,10 @@ trunk_range(trunk_handle *spl,
    bool at_end;
    iterator_at_end(&range_itor->super, &at_end);
 
-   for (*tuples_returned = 0; *tuples_returned < num_tuples && !at_end;
-        (*tuples_returned)++)
-   {
+   for (int i = 0; i < num_tuples && !at_end; i++) {
       slice key, data;
       iterator_get_curr(&range_itor->super, &key, &data);
-      debug_assert(slice_length(key) == trunk_key_size(spl));
-      debug_assert(slice_length(data) == trunk_message_size(spl));
-      char *next_key =
-         out
-         + *tuples_returned * (trunk_key_size(spl) + trunk_message_size(spl));
-      char *next_data = next_key + trunk_key_size(spl);
-      memmove(next_key, slice_data(key), trunk_key_size(spl));
-      memmove(next_data, slice_data(data), trunk_message_size(spl));
+      func(key, data, arg);
       iterator_advance(&range_itor->super);
       iterator_at_end(&range_itor->super, &at_end);
    }

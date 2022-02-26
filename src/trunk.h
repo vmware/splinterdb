@@ -345,17 +345,19 @@ trunk_lookup_async(trunk_handle     *spl,
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
-                          char                 *min_key,
-                          char                 *max_key,
+                          const char           *min_key,
+                          const char           *max_key,
                           uint64                num_tuples);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
+
+typedef void (*tuple_function)(slice key, slice value, void *arg);
 platform_status
-trunk_range(trunk_handle *spl,
-            char         *start_key,
-            uint64        num_tuples,
-            uint64       *tuples_returned,
-            char         *out);
+trunk_range(trunk_handle  *spl,
+            const char    *start_key,
+            uint64         num_tuples,
+            tuple_function func,
+            void          *arg);
 
 trunk_handle *
 trunk_create(trunk_config     *cfg,

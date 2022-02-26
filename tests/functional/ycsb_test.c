@@ -304,10 +304,13 @@ typedef struct ycsb_phase {
 } ycsb_phase;
 
 static void
+nop_tuple_func(slice key, slice value, void *arg)
+{}
+
+static void
 ycsb_thread(void *arg)
 {
    platform_status  rc;
-   platform_heap_id hid = platform_get_heap_id();
    uint64           i;
    ycsb_log_params *params     = (ycsb_log_params *)arg;
    trunk_handle    *spl        = params->spl;
@@ -322,8 +325,6 @@ ycsb_thread(void *arg)
    struct timespec start_thread_cputime;
    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start_thread_cputime);
 
-   char  *range_buffer      = NULL;
-   size_t range_buffer_size = 0;
    my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
    while (my_batch < num_ops) {
       if (num_ops < my_batch + batch_size)
@@ -359,25 +360,8 @@ ycsb_thread(void *arg)
             }
             case 's':
             {
-               uint64       tuples_returned;
-               const size_t size_needed =
-                  ops->range_len * (MAX_KEY_SIZE + MAX_MESSAGE_SIZE);
-               if (range_buffer_size < size_needed) {
-                  if (range_buffer) {
-                     platform_free(hid, range_buffer);
-                  }
-                  range_buffer_size = range_buffer_size * 2 < size_needed
-                                         ? size_needed
-                                         : range_buffer_size * 2;
-                  range_buffer =
-                     TYPED_ARRAY_MALLOC(hid, range_buffer, range_buffer_size);
-                  platform_assert(range_buffer);
-               }
-               rc = trunk_range(spl,
-                                ops->key,
-                                ops->range_len,
-                                &tuples_returned,
-                                range_buffer);
+               rc = trunk_range(
+                  spl, ops->key, ops->range_len, nop_tuple_func, NULL);
                platform_assert_status_ok(rc);
                break;
             }
@@ -392,9 +376,6 @@ ycsb_thread(void *arg)
          ops++;
       }
       my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
-   }
-   if (range_buffer) {
-      platform_free(hid, range_buffer);
    }
 
    __sync_fetch_and_add(params->threads_complete, 1);

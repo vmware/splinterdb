@@ -300,6 +300,10 @@ out:
    platform_free(platform_get_heap_id(), lookup_base);
 }
 
+static void
+nop_tuple_func(slice key, slice value, void *arg)
+{}
+
 void
 test_trunk_range_thread(void *arg)
 {
@@ -343,9 +347,6 @@ test_trunk_range_thread(void *arg)
                continue;
             trunk_handle *spl  = spl_tables[spl_idx];
             tuple_size         = trunk_key_size(spl) + trunk_message_size(spl);
-            char *range_output = TYPED_ARRAY_MALLOC(
-               platform_get_heap_id(), range_output, range_max * tuple_size);
-            platform_assert(range_output);
 
             char   start_key[MAX_KEY_SIZE];
             uint64 range_num = range_base[spl_idx] + op_offset;
@@ -357,11 +358,9 @@ test_trunk_range_thread(void *arg)
                      trunk_key_size(spl),
                      test_cfg[spl_idx].period);
             uint64 range_tuples = test_range(range_num, range_min, range_max);
-            uint64 returned_tuples;
-            platform_status rc = trunk_range(
-               spl, start_key, range_tuples, &returned_tuples, range_output);
+            platform_status rc =
+               trunk_range(spl, start_key, range_tuples, nop_tuple_func, NULL);
             platform_assert_status_ok(rc);
-            platform_free(platform_get_heap_id(), range_output);
          }
       }
    }

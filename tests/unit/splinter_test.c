@@ -20,41 +20,31 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
+typedef struct shadow_entry {
+   uint64 key_offset;
+   uint64 key_length;
+   uint64 value_length;
+} shadow_entry;
+
+typedef struct trunk_shadow {
+   bool            sorted;
+   writable_buffer entries;
+   writable_buffer data;
+} trunk_shadow;
+
 /* Function prototypes */
 static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
                     bool          verify,
-                    char        **shadowpp,
-                    int          *tuple_size);
-
-static void
-test_splinter_shadow_insert(trunk_handle *spl,
-                            char         *shadow,
-                            char         *key,
-                            char         *data,
-                            uint64        idx);
+                    trunk_shadow *shadow); // Out
 
 static platform_status
 test_lookup_by_range(void         *datap,
                      trunk_handle *spl,
                      uint64        num_inserts,
-                     char         *shadow,
+                     trunk_shadow *shadow,
                      uint64        num_ranges);
-
-static int
-test_trunk_key_compare(const void *left, const void *right, void *spl);
-
-static void *
-test_splinter_bsearch(register const void *key,
-                      void                *base0,
-                      size_t               nmemb,
-                      register size_t      size,
-                      register int (*compar)(const void *,
-                                             const void *,
-                                             void *),
-                      void *ctxt);
-
 
 // Verify consistency of data after so-many inserts
 #define TEST_VERIFY_GRANULARITY 100000
@@ -272,24 +262,150 @@ CTEST2_SKIP(splinter, test_inserts)
                                     data->hid);
    ASSERT_TRUE(spl != NULL);
 
-   int    tuple_size  = 0;
-   uint64 num_inserts = splinter_do_inserts(data, spl, TRUE, NULL, &tuple_size);
+   uint64 num_inserts = splinter_do_inserts(data, spl, TRUE, NULL);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
-                    "Expected to have inserted non-zero rows, num_inserts=%lu"
-                    ", tuple_size=%d.",
-                    num_inserts,
-                    tuple_size);
+                    "Expected to have inserted non-zero rows, num_inserts=%lu.",
+                    num_inserts);
 
    trunk_destroy(spl);
+}
+
+static uint64
+writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
+{
+   uint64 oldsize = writable_buffer_length(wb);
+   writable_buffer_set_length(wb, oldsize + length);
+   char *data = writable_buffer_data(wb);
+   memcpy(data + oldsize, newdata, length);
+   return oldsize;
+}
+
+static void
+trunk_shadow_init(trunk_shadow *shadow)
+{
+   shadow->sorted = TRUE;
+   writable_buffer_init_null(&shadow->entries, NULL);
+   writable_buffer_init_null(&shadow->data, NULL);
+}
+
+static void
+trunk_shadow_reinit(trunk_shadow *shadow)
+{
+   shadow->sorted = TRUE;
+   writable_buffer_reinit(&shadow->entries);
+   writable_buffer_reinit(&shadow->data);
+}
+
+/*
+ * Copy the newly inserted key/value row to a shadow buffer. This set of
+ * rows will be used later during lookup-validation using range searches.
+ */
+static void
+trunk_shadow_append(trunk_shadow *shadow, slice key, slice value)
+{
+   uint64 key_offset =
+      writable_buffer_append(&shadow->data, slice_length(key), slice_data(key));
+   writable_buffer_append(
+      &shadow->data, slice_length(value), slice_data(value));
+
+   shadow_entry new_entry = {.key_offset   = key_offset,
+                             .key_length   = slice_length(key),
+                             .value_length = slice_length(value)};
+   writable_buffer_append(&shadow->entries, sizeof(new_entry), &new_entry);
+   shadow->sorted = FALSE;
+}
+
+static slice
+shadow_entry_key(const shadow_entry *entry, char *data)
+{
+   return slice_create(entry->key_length, data + entry->key_offset);
+}
+
+static slice
+shadow_entry_value(const shadow_entry *entry, char *data)
+{
+   return slice_create(entry->value_length,
+                       data + entry->key_offset + entry->key_length);
+}
+
+static int
+compare_shadow_entries(const void *a, const void *b, void *arg)
+{
+   slice akey = shadow_entry_key(a, arg);
+   slice bkey = shadow_entry_key(b, arg);
+   return slice_lex_cmp(akey, bkey);
+}
+
+static uint64
+trunk_shadow_length(trunk_shadow *shadow)
+{
+   return writable_buffer_length(&shadow->entries) / sizeof(shadow_entry);
+}
+
+static void
+trunk_shadow_sort(trunk_shadow *shadow)
+{
+   shadow_entry *entries = writable_buffer_data(&shadow->entries);
+   uint64        nentries = trunk_shadow_length(shadow);
+   shadow_entry  temp;
+   char        *data = writable_buffer_data(&shadow->data);
+
+   platform_sort_slow(
+      entries, nentries, sizeof(*entries), compare_shadow_entries, data, &temp);
+   shadow->sorted = TRUE;
+}
+
+static void
+trunk_shadow_get(trunk_shadow *shadow, uint64 i, slice *key, slice *value)
+{
+
+   if (!shadow->sorted) {
+      trunk_shadow_sort(shadow);
+   }
+
+   shadow_entry *entries = writable_buffer_data(&shadow->entries);
+   debug_only uint64 nentries = trunk_shadow_length(shadow);
+   debug_assert(i < nentries);
+   shadow_entry *entry = &entries[i];
+
+   char *data = writable_buffer_data(&shadow->data);
+   *key       = shadow_entry_key(entry, data);
+   *value     = shadow_entry_value(entry, data);
+}
+
+static uint64
+test_splinter_bsearch(trunk_shadow *shadow, slice key)
+{
+   uint64 lo = 0;
+   uint64 hi = trunk_shadow_length(shadow);
+   while (lo < hi) {
+      // invariant: forall i | i < lo  :: s[i] < key
+      // invariant: forall i | hi <= i :: key <= s[i]
+      slice  ckey;
+      slice  cvalue;
+      uint64 mid = (lo + hi) / 2;
+      trunk_shadow_get(shadow, mid, &ckey, &cvalue);
+      int cmp = slice_lex_cmp(key, ckey);
+      if (cmp <= 0) {
+         // key <= s[mid]
+         hi = mid;
+      } else {
+         // s[mid] < key
+         lo = mid + 1;
+      }
+   }
+
+   return lo;
 }
 
 /*
  * **************************************************************************
  * Test case to run a bunch of inserts into Splinter, and then perform
- * different types of lookup-verification. As all lookups need an inserts step,
- * this test case is really a set of multiple sub-test-cases for inserts,
- * synchronous and async lookups, and lookups-by-range rolled into one.
+ * different types of lookup-verification. As all lookups need an inserts
+ * step, this test case is really a set of multiple sub-test-cases for
+ * inserts, synchronous and async lookups, and lookups-by-range rolled into
+ * one.
  * **************************************************************************
  */
 CTEST2(splinter, test_lookups)
@@ -304,12 +420,11 @@ CTEST2(splinter, test_lookups)
                                     data->hid);
    ASSERT_TRUE(spl != NULL);
 
-   char *shadow     = NULL;
-   int   tuple_size = 0;
+   trunk_shadow shadow;
+   trunk_shadow_init(&shadow);
 
    // TRUE : Also do verification-after-inserts
-   uint64 num_inserts =
-      splinter_do_inserts(data, spl, TRUE, &shadow, &tuple_size);
+   uint64 num_inserts = splinter_do_inserts(data, spl, TRUE, &shadow);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
@@ -401,10 +516,6 @@ CTEST2(splinter, test_lookups)
    // Test sub-case 3: Validate using binary searches across ranges for the
    //   keys inside the range of keys inserted.
    // **************************************************************************
-   char *temp = TYPED_ARRAY_ZALLOC(data->hid, temp, tuple_size);
-   platform_sort_slow(
-      shadow, num_inserts, tuple_size, test_trunk_key_compare, spl, temp);
-   platform_free(data->hid, temp);
 
    int niters = 3;
    platform_default_log(
@@ -417,7 +528,7 @@ CTEST2(splinter, test_lookups)
       // Range search uses the shadow-copy of the rows previously inserted while
       // doing a binary-search.
       rc = test_lookup_by_range(
-         (void *)data, spl, num_inserts, shadow, num_ranges);
+         (void *)data, spl, num_inserts, &shadow, num_ranges);
       ASSERT_TRUE(SUCCESS(rc),
                   "test_lookup_by_range() FAILURE, num_ranges=%d: %s\n",
                   num_ranges,
@@ -511,8 +622,8 @@ CTEST2(splinter, test_lookups)
       async_ctxt_deinit(data->hid, async_lookup);
    }
 
-   platform_free(data->hid, shadow);
    trunk_destroy(spl);
+   trunk_shadow_reinit(&shadow);
 }
 
 /*
@@ -525,7 +636,6 @@ CTEST2(splinter, test_lookups)
  *  verify      - Boolean; periodically verify splinter tree consistency
  *  shadowpp    - Addr of ptr to shadow buffer, which will be allocated
  *                and filled-out in this function, if supplied.
- *  tuple_size  - Size of tuple
  *
  * Returns the # of rows inserted.
  */
@@ -533,8 +643,7 @@ static uint64
 splinter_do_inserts(void         *datap,
                     trunk_handle *spl,
                     bool          verify,
-                    char        **shadowpp, // Out
-                    int          *tuple_size)        // Out
+                    trunk_shadow *shadow) // Out
 {
    // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
@@ -550,18 +659,11 @@ splinter_do_inserts(void         *datap,
    uint64       insert_num;
    char         key[MAX_KEY_SIZE];
    const size_t key_size  = trunk_key_size(spl);
-   const size_t data_size = trunk_message_size(spl);
-   char        *databuf   = TYPED_ARRAY_MALLOC(data->hid, databuf, data_size);
-   ASSERT_TRUE(databuf != NULL);
-
-   *tuple_size        = (int)(key_size + data_size);
-   uint64 shadow_size = (*tuple_size * num_inserts);
 
    // Allocate a large array for copying over shadow copies of rows
    // inserted, if user has asked to return such an array.
-   char *shadow = NULL;
-   if (shadowpp) {
-      shadow = TYPED_ARRAY_ZALLOC(data->hid, shadow, shadow_size);
+   if (shadow) {
+      trunk_shadow_reinit(shadow);
    }
 
    platform_status rc;
@@ -592,49 +694,58 @@ splinter_do_inserts(void         *datap,
 
       // Caller is interested in using a copy of the rows inserted for
       // verification; e.g. by range-search lookups.
-      if (shadowpp) {
-         test_splinter_shadow_insert(spl, shadow, key, databuf, insert_num);
+      if (shadow) {
+         trunk_shadow_append(
+            shadow, trunk_key_slice(spl, key), writable_buffer_to_slice(&msg));
       }
    }
 
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
 
-   platform_default_log(
-      "... tuple_size=%d, splinter insert time %lu s, per tuple %lu ns. ",
-      *tuple_size,
-      NSEC_TO_SEC(elapsed_ns),
-      (elapsed_ns / num_inserts));
+   platform_default_log("... splinter insert time %lu s, per tuple %lu ns. ",
+                        NSEC_TO_SEC(elapsed_ns),
+                        (elapsed_ns / num_inserts));
 
    platform_assert(trunk_verify_tree(spl));
    cache_assert_free((cache *)data->clock_cache);
 
-   // Return allocated memory for shadow copies to caller. [ Caller is expected
-   // to free this memory. ]
-   if (shadowpp) {
-      platform_default_log(
-         "\nAllocated shadow buffer %p, of %lu bytes.", shadow, shadow_size);
-      *shadowpp = shadow;
-   }
    // Cleanup memory allocated in this test case
-   platform_free(data->hid, databuf);
    return num_inserts;
 }
 
-/*
- * Copy the newly inserted key/value row to a shadow buffer. This set of
- * rows will be used later during lookup-validation using range searches.
- */
+typedef struct shadow_check_tuple_arg {
+   trunk_handle *spl;
+   trunk_shadow *shadow;
+   uint64        pos;
+   uint64        errors;
+} shadow_check_tuple_arg;
+
 static void
-test_splinter_shadow_insert(trunk_handle *spl,
-                            char         *shadow,
-                            char         *key,
-                            char         *data,
-                            uint64        idx)
+shadow_check_tuple_func(slice key, slice value, void *varg)
 {
-   uint64 byte_pos = idx * (trunk_key_size(spl) + trunk_message_size(spl));
-   memmove(&shadow[byte_pos], key, trunk_key_size(spl));
-   byte_pos += trunk_key_size(spl);
-   memmove(&shadow[byte_pos], data, trunk_message_size(spl));
+   shadow_check_tuple_arg *arg = varg;
+
+   slice shadow_key;
+   slice shadow_value;
+   trunk_shadow_get(arg->shadow, arg->pos, &shadow_key, &shadow_value);
+   if (slice_lex_cmp(key, shadow_key) || slice_lex_cmp(value, shadow_value)) {
+      char expected_key[128];
+      char actual_key[128];
+      char expected_value[128];
+      char actual_value[128];
+
+      trunk_key_to_string(arg->spl, slice_data(shadow_key), expected_key);
+      trunk_key_to_string(arg->spl, slice_data(key), actual_key);
+
+      trunk_message_to_string(arg->spl, shadow_value, expected_value);
+      trunk_message_to_string(arg->spl, value, actual_value);
+
+      platform_log("expected: '%s' | '%s'\n", expected_key, expected_value);
+      platform_log("actual  : '%s' | '%s'\n", actual_key, actual_value);
+      arg->errors++;
+   }
+
+   arg->pos++;
 }
 
 /*
@@ -651,21 +762,12 @@ static platform_status
 test_lookup_by_range(void         *datap,
                      trunk_handle *spl,
                      uint64        num_inserts,
-                     char         *shadow,
+                     trunk_shadow *shadow,
                      uint64        num_ranges)
 {
-   // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
-   struct CTEST_IMPL_DATA_SNAME(splinter) *data =
-      (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
-
    const size_t key_size   = trunk_key_size(spl);
-   const size_t data_size  = trunk_message_size(spl);
-   uint64       tuple_size = key_size + data_size;
 
    uint64 start_time = platform_get_timestamp();
-
-   char *range_output =
-      TYPED_ARRAY_MALLOC(data->hid, range_output, 100 * tuple_size);
 
    platform_status rc;
 
@@ -675,73 +777,42 @@ test_lookup_by_range(void         *datap,
       SHOW_PCT_PROGRESS(
          range_num, num_ranges, "Verify range    lookups %3lu%% complete");
 
-      char start_key[MAX_KEY_SIZE];
-      test_key(
-         start_key, TEST_RANDOM, num_inserts + range_num, 0, 0, key_size, 0);
-      uint64 range_tuples    = test_range(range_num, 1, 100);
-      uint64 returned_tuples = 0;
+      char start_key_buf[MAX_KEY_SIZE];
+      test_key(start_key_buf,
+               TEST_RANDOM,
+               num_inserts + range_num,
+               0,
+               0,
+               key_size,
+               0);
+      slice start_key = slice_create(key_size, start_key_buf);
+      uint64 range_tuples = test_range(range_num, 1, 100);
 
-      rc = trunk_range(
-         spl, start_key, range_tuples, &returned_tuples, range_output);
-      ASSERT_TRUE(SUCCESS(rc),
-                  "trunk_range() failed for range_tuples=%lu"
-                  ", returned_tuples=%lu"
-                  ", start_key='%.*s'",
-                  range_tuples,
-                  returned_tuples,
-                  key_size,
-                  start_key);
-
-      char *shadow_start = test_splinter_bsearch(start_key,
-                                                 shadow,
-                                                 num_inserts,
-                                                 tuple_size,
-                                                 test_trunk_key_compare,
-                                                 spl);
-
-      uint64 start_idx                = (shadow_start - shadow) / tuple_size;
+      uint64 start_idx = test_splinter_bsearch(shadow, start_key);
       uint64 expected_returned_tuples = num_inserts - start_idx > range_tuples
                                            ? range_tuples
                                            : num_inserts - start_idx;
-      if (returned_tuples != expected_returned_tuples
-          || memcmp(shadow_start, range_output, returned_tuples * tuple_size)
-                != 0)
-      {
-         platform_log("range lookup: incorrect return\n");
-         char start[128];
-         trunk_key_to_string(spl, start_key, start);
-         platform_log("start_key: %s\n", start);
-         platform_log("tuples returned: expected %lu actual %lu\n",
-                      expected_returned_tuples,
-                      returned_tuples);
-         for (uint64 i = 0; i < expected_returned_tuples; i++) {
-            char   expected[128];
-            char   actual[128];
-            uint64 offset = i * tuple_size;
-            trunk_key_to_string(spl, shadow_start + offset, expected);
-            trunk_key_to_string(spl, range_output + offset, actual);
-            char expected_data[128];
-            char actual_data[128];
-            offset += key_size;
 
-            trunk_message_to_string(
-               spl,
-               trunk_message_slice(spl, shadow_start + offset),
-               expected_data);
+      shadow_check_tuple_arg arg = {
+         .spl = spl, .shadow = shadow, .pos = start_idx, .errors = 0};
 
-            trunk_message_to_string(
-               spl,
-               trunk_message_slice(spl, range_output + offset),
-               actual_data);
-            if (i < returned_tuples) {
-               platform_log("expected: '%s' | '%s'\n", expected, expected_data);
-               platform_log("actual  : '%s' | '%s'\n", actual, actual_data);
-            } else {
-               platform_log("expected: '%s' | '%s'\n", expected, expected_data);
-            }
-         }
-         platform_assert(0);
-      }
+      rc = trunk_range(spl,
+                       slice_data(start_key),
+                       range_tuples,
+                       shadow_check_tuple_func,
+                       &arg);
+
+      ASSERT_TRUE(SUCCESS(rc) && arg.errors == 0
+                     && arg.pos == start_idx + expected_returned_tuples,
+                  "trunk_range() failed for expected_returned_tuples=%lu"
+                  ", returned_tuples=%lu"
+                  ", start_key='%.*s'"
+                  ", errors=%lu",
+                  expected_returned_tuples,
+                  arg.pos - start_idx,
+                  key_size,
+                  start_key,
+                  arg.errors);
    }
 
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
@@ -751,44 +822,6 @@ test_lookup_by_range(void         *datap,
                         (elapsed_ns / num_ranges),
                         num_ranges);
 
-   // Cleanup memory allocated in this routine
-   platform_free(data->hid, range_output);
-
    return rc;
 }
 
-static int
-test_trunk_key_compare(const void *left, const void *right, void *spl)
-{
-   return trunk_key_compare(
-      (trunk_handle *)spl, (const char *)left, (const char *)right);
-}
-
-static void *
-test_splinter_bsearch(register const void *key,
-                      void                *base0,
-                      size_t               nmemb,
-                      register size_t      size,
-                      register int (*compar)(const void *,
-                                             const void *,
-                                             void *),
-                      void *ctxt)
-{
-   register char *base = (char *)base0;
-   register int   lim, cmp;
-   register void *p;
-
-   platform_assert(nmemb != 0);
-   for (lim = nmemb; lim != 0; lim >>= 1) {
-      p   = base + (lim >> 1) * size;
-      cmp = (*compar)(key, p, ctxt);
-      if (cmp >= 0) { /* key > p: move right */
-         base = (char *)p + size;
-         lim--;
-      } /* else move left */
-   }
-   if (cmp < 0) {
-      return (void *)p;
-   }
-   return (void *)p + size;
-}
