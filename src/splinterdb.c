@@ -343,7 +343,6 @@ void
 splinterdb_close(splinterdb *kvs) // IN
 {
    platform_assert(kvs != NULL);
-
    trunk_dismount(kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_dismount(&kvs->allocator_handle);
