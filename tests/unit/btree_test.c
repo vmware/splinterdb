@@ -58,7 +58,7 @@ btree_leaf_incorporate_tuple(const btree_config    *cfg,
 CTEST_DATA(btree)
 {
    master_config       master_cfg;
-   data_config         data_cfg;
+   data_config        *data_cfg;
    io_config           io_cfg;
    rc_allocator_config allocator_cfg;
    clockcache_config   cache_cfg;
@@ -74,7 +74,7 @@ CTEST_SETUP(btree)
 
    if (!SUCCESS(
           config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
-       || !init_data_config_from_master_config(&data->data_cfg,
+       || !init_data_config_from_master_config(data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
        || !init_rc_allocator_config_from_master_config(
@@ -84,7 +84,7 @@ CTEST_SETUP(btree)
        || !init_btree_config_from_master_config(&data->dbtree_cfg,
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
-                                                &data->data_cfg))
+                                                data->data_cfg))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }

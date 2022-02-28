@@ -87,7 +87,7 @@ CTEST_DATA(btree_stress)
    // to set up a Splinter instance, as is done in
    // btree_test.c
    master_config       master_cfg;
-   data_config         data_cfg;
+   data_config        *data_cfg;
    io_config           io_cfg;
    rc_allocator_config allocator_cfg;
    clockcache_config   cache_cfg;
@@ -116,7 +116,7 @@ CTEST_SETUP(btree_stress)
    // RESOLVE: Sort this out with RobJ about cmd line args support
    // if (!SUCCESS(config_parse(&data->master_cfg, 1, argc - 1, argv + 1)) ||
    if (!SUCCESS(config_parse(&data->master_cfg, 1, 0, (char **)NULL))
-       || !init_data_config_from_master_config(&data->data_cfg,
+       || !init_data_config_from_master_config(data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
        || !init_rc_allocator_config_from_master_config(
@@ -126,7 +126,7 @@ CTEST_SETUP(btree_stress)
        || !init_btree_config_from_master_config(&data->dbtree_cfg,
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
-                                                &data->data_cfg))
+                                                data->data_cfg))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }

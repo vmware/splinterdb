@@ -224,7 +224,7 @@ int
 log_test(int argc, char *argv[])
 {
    platform_status        status;
-   data_config            data_cfg;
+   data_config           *data_cfg;
    io_config              io_cfg;
    rc_allocator_config    al_cfg;
    clockcache_config      cache_cfg;

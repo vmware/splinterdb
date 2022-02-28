@@ -20,9 +20,10 @@
 #include "poison.h"
 
 typedef struct {
+   data_config       super;
    key_comparator_fn key_comparator;
    void             *key_comparator_context;
-} kvsb_data_config_context;
+} kvsb_data_config;
 
 struct splinterdb_kv {
    size_t max_app_key_size; // size of keys provided by app
@@ -31,7 +32,7 @@ struct splinterdb_kv {
    platform_heap_handle heap_handle; // for platform_buffer_create
    platform_heap_id     heap_id;
 
-   kvsb_data_config_context *data_config_context;
+   kvsb_data_config *kvsb_data_cfg;
 
    splinterdb *kvs;
 };
@@ -112,12 +113,12 @@ basic_key_compare(const data_config *cfg,
    assert(key1->length <= SPLINTERDB_KV_MAX_KEY_SIZE);
    assert(key2->length <= SPLINTERDB_KV_MAX_KEY_SIZE);
 
-   kvsb_data_config_context *ctx = (kvsb_data_config_context *)(cfg->context);
-   return ctx->key_comparator(ctx->key_comparator_context,
-                              &(key1->data),
-                              key1->length,
-                              &(key2->data),
-                              key2->length);
+   kvsb_data_config *kvsb_data_cfg = (kvsb_data_config *)cfg;
+   return kvsb_data_cfg->key_comparator(kvsb_data_cfg->key_comparator_context,
+                                        &(key1->data),
+                                        key1->length,
+                                        &(key2->data),
+                                        key2->length);
 }
 
 static int
@@ -273,15 +274,21 @@ splinterdb_kv_create_or_open(const splinterdb_kv_cfg *cfg,      // IN
                              splinterdb_kv          **kvsb_out, // OUT
                              bool                     open_existing)
 {
-   data_config data_cfg = {0};
-   int         res =
-      new_basic_data_config(cfg->max_key_size, cfg->max_value_size, &data_cfg);
+   kvsb_data_config *kvsb_data_cfg = TYPED_ZALLOC(cfg->heap_id, kvsb_data_cfg);
+   int res = new_basic_data_config(
+      cfg->max_key_size, cfg->max_value_size, &kvsb_data_cfg->super);
    if (res != 0) {
+      platform_free(cfg->heap_id, kvsb_data_cfg);
       return res; // new_basic_data_config already logs on error
    }
+   kvsb_data_cfg->key_comparator =
+      cfg->key_comparator ? cfg->key_comparator : default_key_comparator;
+   kvsb_data_cfg->key_comparator_context =
+      cfg->key_comparator ? cfg->key_comparator_context : NULL;
 
    splinterdb_kv *kvsb = TYPED_ZALLOC(cfg->heap_id, kvsb);
    if (kvsb == NULL) {
+      platform_free(cfg->heap_id, kvsb_data_cfg);
       platform_error_log("zalloc error\n");
       return ENOMEM;
    }
@@ -291,20 +298,14 @@ splinterdb_kv_create_or_open(const splinterdb_kv_cfg *cfg,      // IN
       .heap_id          = cfg->heap_id,
       .heap_handle      = cfg->heap_handle,
    };
-   kvsb_data_config_context *ctxt = TYPED_ZALLOC(cfg->heap_id, ctxt);
-   ctxt->key_comparator =
-      cfg->key_comparator ? cfg->key_comparator : default_key_comparator;
-   ctxt->key_comparator_context =
-      cfg->key_comparator ? cfg->key_comparator_context : NULL;
-   kvsb->data_config_context = ctxt; // store, so we can free it later
-   data_cfg.context          = ctxt; // make it usable from the callbacks
+   kvsb->kvsb_data_cfg = kvsb_data_cfg; // store, so we can free it later
 
    // this can be stack-allocated since splinterdb_create does a shallow-copy
    splinterdb_config kvs_config = {
       .filename    = cfg->filename,
       .cache_size  = cfg->cache_size,
       .disk_size   = cfg->disk_size,
-      .data_cfg    = data_cfg,
+      .data_cfg    = &kvsb_data_cfg->super,
       .heap_id     = cfg->heap_id,
       .heap_handle = cfg->heap_handle,
    };
@@ -342,8 +343,8 @@ void
 splinterdb_kv_close(splinterdb_kv *kvsb)
 {
    splinterdb_close(kvsb->kvs);
-   if (kvsb->data_config_context != NULL) {
-      platform_free(kvsb->heap_id, kvsb->data_config_context);
+   if (kvsb->kvsb_data_cfg != NULL) {
+      platform_free(kvsb->heap_id, kvsb->kvsb_data_cfg);
    }
    platform_free(kvsb->heap_id, kvsb);
 }

@@ -50,8 +50,8 @@ CTEST_SETUP(splinterdb)
    ASSERT_EQUAL(0, rc);
 
    data->msg_size            = SPLINTERDB_UNIT_TEST_MESSAGE_SIZE;
-   data->key                 = calloc(1, data->kvs_cfg.data_cfg.key_size);
-   data->expected_key        = calloc(1, data->kvs_cfg.data_cfg.key_size);
+   data->key                 = calloc(1, data->kvs_cfg.data_cfg->key_size);
+   data->expected_key        = calloc(1, data->kvs_cfg.data_cfg->key_size);
    data->msg_buffer          = calloc(1, data->msg_size);
    data->expected_msg_buffer = calloc(1, data->msg_size);
 
@@ -209,13 +209,13 @@ CTEST2(splinterdb, test_iterator)
 
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it), i++) {
       int expected_key_len = snprintf(
-         data->expected_key, data->kvs_cfg.data_cfg.key_size, "key-%04d", i);
+         data->expected_key, data->kvs_cfg.data_cfg->key_size, "key-%04d", i);
       ASSERT_TRUE(
          ((expected_key_len > 0)
-          && (expected_key_len < data->kvs_cfg.data_cfg.key_size)),
+          && (expected_key_len < data->kvs_cfg.data_cfg->key_size)),
          "expected_key_len = %d is not within expected range of [0 .. %d]. ",
          expected_key_len,
-         data->kvs_cfg.data_cfg.key_size);
+         data->kvs_cfg.data_cfg->key_size);
 
       int expected_val_len =
          snprintf(data->expected_msg_buffer, max_val_size, "val-%04d", i);
@@ -223,7 +223,7 @@ CTEST2(splinterdb, test_iterator)
          ((expected_val_len > 0) && (expected_val_len < max_val_size)),
          "expected_key_len = %d is not within expected range of [0 .. %d]. ",
          expected_key_len,
-         data->kvs_cfg.data_cfg.key_size);
+         data->kvs_cfg.data_cfg->key_size);
 
       splinterdb_iterator_get_current(
          it, &current_key, &current_msg_len, &current_msg);
@@ -231,16 +231,16 @@ CTEST2(splinterdb, test_iterator)
          (const char *)(((const data_handle *)current_msg)->data);
 
       int memcmp_rv = memcmp(
-         current_key, data->expected_key, data->kvs_cfg.data_cfg.key_size);
+         current_key, data->expected_key, data->kvs_cfg.data_cfg->key_size);
       ASSERT_EQUAL(0,
                    memcmp_rv,
                    "iteration %d, memcmp() failed, rv=%d: expected_key = '%.*s'"
                    ", current_key = '%.*s'.",
                    i,
                    memcmp_rv,
-                   data->kvs_cfg.data_cfg.key_size,
+                   data->kvs_cfg.data_cfg->key_size,
                    data->expected_key,
-                   data->kvs_cfg.data_cfg.key_size,
+                   data->kvs_cfg.data_cfg->key_size,
                    current_key);
 
       ASSERT_EQUAL(data->msg_size,
@@ -375,14 +375,14 @@ do_inserts(const int          num_inserts,
    for (int i = num_inserts - 1; i >= 0; i--) {
 
       fprintf(stderr, ".");
-      int key_len = snprintf(key, kvs_cfg->data_cfg.key_size, "key-%04d", i);
+      int key_len = snprintf(key, kvs_cfg->data_cfg->key_size, "key-%04d", i);
 
       ASSERT_TRUE(
-         ((key_len > 0) && (key_len < kvs_cfg->data_cfg.key_size)),
+         ((key_len > 0) && (key_len < kvs_cfg->data_cfg->key_size)),
          "Insert failed for key i=%d, key_len = %d should be within (0, %d). ",
          i,
          key_len,
-         kvs_cfg->data_cfg.key_size);
+         kvs_cfg->data_cfg->key_size);
 
       int val_len = snprintf((char *)(msg->data), max_val_size, "val-%04d", i);
 

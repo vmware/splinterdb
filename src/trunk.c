@@ -620,7 +620,7 @@ static inline void                 trunk_node_unlock               (trunk_handle
 page_handle *                      trunk_alloc                     (trunk_handle *spl, uint64 height);
 static inline char *               trunk_get_pivot                 (trunk_handle *spl, page_handle *node, uint16 pivot_no);
 static inline trunk_pivot_data *trunk_get_pivot_data            (trunk_handle *spl, page_handle *node, uint16 pivot_no);
-static inline uint16               trunk_find_pivot                (trunk_handle *spl, page_handle *node, char *key, lookup_type comp);
+static inline uint16               trunk_find_pivot                (trunk_handle *spl, page_handle *node, const char *key, lookup_type comp);
 platform_status                    trunk_add_pivot                 (trunk_handle *spl, page_handle *parent, page_handle *child, uint16 pivot_no);
 static inline uint16               trunk_num_children              (trunk_handle *spl, page_handle *node);
 static inline uint16               trunk_num_pivot_keys            (trunk_handle *spl, page_handle *node);
@@ -1252,7 +1252,7 @@ trunk_update_lowerbound(uint16 *lo, uint16 *mid, int cmp, lookup_type comp)
 static inline uint16
 trunk_find_pivot(trunk_handle *spl,
                  page_handle  *node,
-                 char         *key,
+                 const char   *key,
                  lookup_type   comp)
 {
    debug_assert(node != NULL);
@@ -5927,7 +5927,7 @@ bool
 trunk_bundle_lookup(trunk_handle    *spl,
                     page_handle     *node,
                     trunk_bundle    *bundle,
-                    char            *key,
+                    const char      *key,
                     writable_buffer *data)
 {
    uint16 sb_count = trunk_bundle_subbundle_count(spl, node, bundle);
@@ -5959,7 +5959,7 @@ bool
 trunk_pivot_lookup(trunk_handle     *spl,
                    page_handle      *node,
                    trunk_pivot_data *pdata,
-                   char             *key,
+                   const char       *key,
                    writable_buffer  *data,
                    bool             *found)
 {
@@ -8013,7 +8013,7 @@ trunk_print_lookup_stats(trunk_handle *spl)
 
 
 void
-trunk_print_lookup(trunk_handle *spl, char *key)
+trunk_print_lookup(trunk_handle *spl, const char *key)
 {
    writable_buffer data;
    writable_buffer_init(&data, spl->heap_id, 0, NULL);

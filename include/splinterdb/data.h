@@ -86,6 +86,7 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
  * ----------------------------------------------------------------------------
  */
 struct data_config {
+   // FIXME: Planned for deprecation.
    uint64 key_size;
    uint64 message_size;
 
@@ -100,9 +101,6 @@ struct data_config {
    merge_tuple_final_fn     merge_tuples_final;
    key_or_message_to_str_fn key_to_string;
    key_or_message_to_str_fn message_to_string;
-
-   // additional context, available to the above callbacks
-   void *context;
 };
 
 static inline bool

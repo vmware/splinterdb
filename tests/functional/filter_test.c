@@ -290,7 +290,7 @@ int
 filter_test(int argc, char *argv[])
 {
    int                    r;
-   data_config            data_cfg;
+   data_config           *data_cfg;
    io_config              io_cfg;
    rc_allocator_config    allocator_cfg;
    clockcache_config      cache_cfg;

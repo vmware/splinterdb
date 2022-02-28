@@ -393,7 +393,7 @@ trunk_reset_stats(trunk_handle *spl);
 void
 trunk_print(trunk_handle *spl);
 void
-trunk_print_lookup(trunk_handle *spl, char *key);
+trunk_print_lookup(trunk_handle *spl, const char *key);
 void
 trunk_print_branches(trunk_handle *spl);
 void

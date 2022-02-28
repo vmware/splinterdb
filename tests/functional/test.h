@@ -132,22 +132,6 @@ test_int_to_key(char *key, uint64 idx, uint64 key_size)
    *(uint64 *)key = htobe64(idx);
 }
 
-static inline void
-test_build_message(writable_buffer *msg,
-                   message_type     type,
-                   int8             ref_count,
-                   slice            payload)
-{
-   uint64 total_size = sizeof(data_handle) + slice_length(payload);
-   writable_buffer_set_length(msg, total_size);
-
-   data_handle *raw_data = writable_buffer_data(msg);
-   memset(raw_data, 0, total_size);
-   raw_data->message_type = type;
-   raw_data->ref_count    = ref_count;
-   memmove(raw_data->data, slice_data(payload), slice_length(payload));
-}
-
 /* The intention is that we can shove all our different algorithms for
    generating sequences of messages into this structure (e.g. via
    tagged union or whatever). */
@@ -162,15 +146,18 @@ generate_test_message(const test_message_generator *generator,
                       uint64_t                      idx,
                       writable_buffer              *msg)
 {
-   char payload[generator->max_payload_size];
    debug_assert(generator->min_payload_size <= generator->max_payload_size);
    debug_assert(sizeof(uint64) <= generator->min_payload_size);
-   memset(payload, 0, sizeof(payload));
-   memcpy(payload, &idx, sizeof(idx));
-   uint64 size =
+   uint64 payload_size =
       generator->min_payload_size
       + (idx % (generator->max_payload_size - generator->min_payload_size + 1));
-   test_build_message(msg, generator->type, 1, slice_create(size, payload));
+   uint64 total_size = sizeof(data_handle) + payload_size;
+   writable_buffer_set_length(msg, total_size);
+   data_handle *raw_data = writable_buffer_data(msg);
+   memset(raw_data, 0, total_size);
+   raw_data->message_type = generator->type;
+   raw_data->ref_count    = 1;
+   memcpy(raw_data->data, &idx, sizeof(idx));
 }
 
 /* Create a message generator that will generate delete messages for
@@ -182,9 +169,16 @@ message_generate_set_message_type(test_message_generator *gen,
    gen->type = type;
 }
 
+static inline uint64
+generator_average_message_size(test_message_generator *gen)
+{
+   return sizeof(data_handle)
+          + (gen->min_payload_size + gen->max_payload_size) / 2;
+}
+
 static inline void
 test_config_init(trunk_config           *splinter_cfg,
-                 data_config            *data_cfg,
+                 data_config           **data_cfg,
                  shard_log_config       *log_cfg,
                  clockcache_config      *cache_cfg,
                  rc_allocator_config    *allocator_cfg,
@@ -193,8 +187,8 @@ test_config_init(trunk_config           *splinter_cfg,
                  master_config          *master_cfg)
 {
    *data_cfg              = test_data_config;
-   data_cfg->key_size     = master_cfg->key_size;
-   data_cfg->message_size = master_cfg->message_size;
+   (*data_cfg)->key_size     = master_cfg->key_size;
+   (*data_cfg)->message_size = master_cfg->message_size;
 
    io_config_init(io_cfg,
                   master_cfg->page_size,
@@ -213,11 +207,11 @@ test_config_init(trunk_config           *splinter_cfg,
                           master_cfg->cache_logfile,
                           master_cfg->use_stats);
 
-   shard_log_config_init(log_cfg, &cache_cfg->super, data_cfg);
+   shard_log_config_init(log_cfg, &cache_cfg->super, *data_cfg);
 
    trunk_config_init(splinter_cfg,
                      &cache_cfg->super,
-                     data_cfg,
+                     *data_cfg,
                      (log_config *)log_cfg,
                      master_cfg->memtable_capacity,
                      master_cfg->fanout,
@@ -236,7 +230,7 @@ test_config_init(trunk_config           *splinter_cfg,
 
 static inline platform_status
 test_parse_args_n(trunk_config           *splinter_cfg,
-                  data_config            *data_cfg,
+                  data_config           **data_cfg,
                   io_config              *io_cfg,
                   rc_allocator_config    *allocator_cfg,
                   clockcache_config      *cache_cfg,
@@ -279,7 +273,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,
 
 static inline platform_status
 test_parse_args(trunk_config           *splinter_cfg,
-                data_config            *data_cfg,
+                data_config           **data_cfg,
                 io_config              *io_cfg,
                 rc_allocator_config    *allocator_cfg,
                 clockcache_config      *cache_cfg,

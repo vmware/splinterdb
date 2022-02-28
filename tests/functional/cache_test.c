@@ -929,7 +929,7 @@ usage(const char *argv0)
 int
 cache_test(int argc, char *argv[])
 {
-   data_config            data_cfg;
+   data_config           *data_cfg;
    io_config              io_cfg;
    rc_allocator_config    al_cfg;
    clockcache_config      cache_cfg;

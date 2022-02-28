@@ -316,7 +316,6 @@ test_trunk_range_thread(void *arg)
    uint64             range_min      = params->range_min;
    uint64             range_max      = params->range_max;
    uint8              num_tables     = params->num_tables;
-   uint64             tuple_size;
 
    platform_assert(num_tables <= 8);
    uint64 *range_base =
@@ -344,7 +343,6 @@ test_trunk_range_thread(void *arg)
             if (test_is_done(done, spl_idx))
                continue;
             trunk_handle *spl  = spl_tables[spl_idx];
-            tuple_size         = trunk_key_size(spl) + trunk_message_size(spl);
 
             char   start_key[MAX_KEY_SIZE];
             uint64 range_num = range_base[spl_idx] + op_offset;
@@ -504,7 +502,6 @@ do_operation(test_splinter_thread_params *params,
          timestamp     ts;
 
          if (is_insert) {
-            char data[MAX_MESSAGE_SIZE];
             test_key(key,
                      test_cfg[spl_idx].key_type,
                      op_num,
@@ -514,8 +511,8 @@ do_operation(test_splinter_thread_params *params,
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, op_num, &msg);
             ts = platform_get_timestamp();
-            platform_status rc =
-               trunk_insert(spl, key, trunk_message_slice(spl, data));
+            platform_status rc = trunk_insert(
+               spl, key, trunk_message_slice(spl, writable_buffer_data(&msg)));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
             params->insert_stats.duration += ts;
@@ -770,7 +767,8 @@ test_splinter_perf(trunk_config    *cfg,
    uint64  total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size  = cfg[i].data_cfg->key_size + cfg[i].data_cfg->message_size;
+      tuple_size = cfg[i].data_cfg->key_size
+                   + generator_average_message_size(test_cfg->gen);
       num_inserts = test_cfg[i].tree_size / tuple_size;
       if (test_cfg[i].key_type == TEST_PERIODIC) {
          test_cfg[i].period = num_inserts;
@@ -1161,7 +1159,8 @@ test_splinter_periodic(trunk_config    *cfg,
    uint64  total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size  = cfg[i].data_cfg->key_size + cfg[i].data_cfg->message_size;
+      tuple_size = cfg[i].data_cfg->key_size
+                   + generator_average_message_size(test_cfg->gen);
       num_inserts = test_cfg[i].tree_size / tuple_size;
       if (test_cfg[i].key_type == TEST_PERIODIC) {
          test_cfg[i].period = num_inserts;
@@ -1624,7 +1623,8 @@ test_splinter_parallel_perf(trunk_config    *cfg,
    uint64  total_inserts  = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size  = cfg[i].data_cfg->key_size + cfg[i].data_cfg->message_size;
+      tuple_size = cfg[i].data_cfg->key_size
+                   + generator_average_message_size(test_cfg->gen);
       num_inserts = test_cfg[i].tree_size / tuple_size;
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
       total_inserts += per_table_inserts[i];
@@ -1803,7 +1803,8 @@ test_splinter_delete(trunk_config    *cfg,
    uint64  total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size  = cfg[i].data_cfg->key_size + cfg[i].data_cfg->message_size;
+      tuple_size = cfg[i].data_cfg->key_size
+                   + generator_average_message_size(test_cfg->gen);
       num_inserts = test_cfg[i].tree_size / tuple_size;
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
       total_inserts += per_table_inserts[i];
@@ -2331,11 +2332,11 @@ splinter_test(int argc, char *argv[])
     */
    trunk_config *splinter_cfg =
       TYPED_ARRAY_MALLOC(hid, splinter_cfg, num_tables);
-   data_config       *data_cfg = TYPED_ARRAY_MALLOC(hid, data_cfg, num_tables);
+   data_config       *data_cfg;
    clockcache_config *cache_cfg =
       TYPED_ARRAY_MALLOC(hid, cache_cfg, num_tables);
    rc = test_parse_args_n(splinter_cfg,
-                          data_cfg,
+                          &data_cfg,
                           &io_cfg,
                           &al_cfg,
                           cache_cfg,
@@ -2539,7 +2540,7 @@ splinter_test(int argc, char *argv[])
       case functionality:
          for (uint8 i = 0; i < num_tables; i++) {
             splinter_cfg[i].data_cfg->key_to_string =
-               test_data_config.key_to_string;
+               test_data_config->key_to_string;
          }
          rc = test_functionality(alp,
                                  (io_handle *)io,
@@ -2583,7 +2584,6 @@ io_free:
    platform_free(hid, io);
 cfg_free:
    platform_free(hid, cache_cfg);
-   platform_free(hid, data_cfg);
    platform_free(hid, splinter_cfg);
    platform_free(hid, test_cfg);
 heap_destroy:

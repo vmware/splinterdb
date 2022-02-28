@@ -1181,11 +1181,11 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config  *data_cfg     = TYPED_MALLOC(hid, data_cfg);
+   data_config  *data_cfg;
    trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
-                        data_cfg,
+                        &data_cfg,
                         &io_cfg,
                         &allocator_cfg,
                         &cache_cfg,
@@ -1366,7 +1366,6 @@ free_iohandle:
    platform_free(hid, io);
 cleanup:
    platform_free(hid, splinter_cfg);
-   platform_free(hid, data_cfg);
    platform_heap_destroy(&hh);
 
    return SUCCESS(rc) ? 0 : -1;

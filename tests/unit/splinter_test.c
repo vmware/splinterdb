@@ -135,7 +135,7 @@ CTEST_SETUP(splinter)
                                         num_tables);
 
    rc = test_parse_args_n(data->splinter_cfg,
-                          data->data_cfg,
+                          &data->data_cfg,
                           &data->io_cfg,
                           &data->al_cfg,
                           data->cache_cfg,

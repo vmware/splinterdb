@@ -27,7 +27,7 @@ const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
 
 typedef struct splinterdb {
    task_system         *task_sys;
-   data_config          data_cfg;
+   data_config         *data_cfg;
    io_config            io_cfg;
    platform_io_handle   io_handle;
    rc_allocator_config  allocator_cfg;
@@ -119,7 +119,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                        splinterdb              *kvs      // OUT
 )
 {
-   if (!data_validate_config(&kvs_cfg->data_cfg)) {
+   if (!data_validate_config(kvs_cfg->data_cfg)) {
       platform_error_log("data_validate_config error\n");
       return STATUS_BAD_PARAM;
    }
@@ -140,13 +140,13 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    kvs->data_cfg = cfg.data_cfg;
    // check if min_key and max_key are set
    if (0
-       == memcmp(kvs->data_cfg.min_key,
-                 kvs->data_cfg.max_key,
-                 sizeof(kvs->data_cfg.min_key)))
+       == memcmp(kvs->data_cfg->min_key,
+                 kvs->data_cfg->max_key,
+                 sizeof(kvs->data_cfg->min_key)))
    {
       // application hasn't set them, so provide defaults
-      memset(kvs->data_cfg.min_key, 0, kvs->data_cfg.key_size);
-      memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
+      memset(kvs->data_cfg->min_key, 0, kvs->data_cfg->key_size);
+      memset(kvs->data_cfg->max_key, 0xff, kvs->data_cfg->key_size);
    }
 
    kvs->heap_handle = cfg.heap_handle;
@@ -170,7 +170,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 
    trunk_config_init(&kvs->trunk_cfg,
                      &kvs->cache_cfg.super,
-                     &kvs->data_cfg,
+                     kvs->data_cfg,
                      NULL,
                      cfg.memtable_capacity,
                      cfg.fanout,

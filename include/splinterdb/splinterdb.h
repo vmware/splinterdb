@@ -25,7 +25,7 @@ typedef struct {
    uint64      cache_size;
    uint64      disk_size;
 
-   data_config data_cfg;
+   data_config *data_cfg;
 
    void *heap_handle;
    void *heap_id;
