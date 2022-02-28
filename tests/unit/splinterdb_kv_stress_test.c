@@ -17,6 +17,7 @@
 #include "splinterdb/platform_public.h"
 #include "splinterdb/splinterdb_kv.h"
 #include "unit_tests.h"
+#include <platform.h>
 #include "ctest.h" // This is required for all test-case files.
 
 // Function Prototypes
@@ -133,8 +134,9 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
       .max_value_size = data->cfg.max_value_size,
    };
 
-   const uint8_t num_threads = 4;
-   pthread_t     thread_ids[num_threads];
+   const uint8_t    num_threads = 4;
+   platform_heap_id hid         = platform_get_heap_id();
+   pthread_t *thread_ids = TYPED_ARRAY_ZALLOC(hid, thread_ids, num_threads);
 
    for (int i = 0; i < num_threads; i++) {
       rc = pthread_create(&thread_ids[i], NULL, &exec_worker_thread, &wcfg);
@@ -159,6 +161,7 @@ CTEST2(splinterdb_kv_stress, test_random_inserts_concurrent)
          ASSERT_TRUE(FALSE);
       }
    }
+   platform_free(hid, thread_ids);
 }
 
 /*

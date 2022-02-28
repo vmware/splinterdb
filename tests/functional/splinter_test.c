@@ -704,9 +704,7 @@ test_trunk_create_tables(trunk_handle  ***spl_handles,
                          uint8            num_tables,
                          uint8            num_caches)
 {
-   uint32         size = sizeof(trunk_handle *) * num_tables;
-   trunk_handle **spl_tables;
-   spl_tables = platform_aligned_malloc(hid, PLATFORM_CACHELINE_SIZE, size);
+   trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    if (spl_tables == NULL) {
       return STATUS_NO_MEMORY;
    }

@@ -447,6 +447,7 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
                      _Bool               *found          // OUT
 )
 {
+   int rc = 0;
    if (key_len > kvsb->max_app_key_size) {
       platform_error_log("splinterdb_kv_lookup: key_len, %lu, exceeds"
                          " max_key_size, %lu bytes; key='%.*s'\n",
@@ -458,7 +459,8 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    }
    char key_buffer[MAX_KEY_SIZE] = {0};
    encode_key(key_buffer, key, key_len);
-   char                     msg_buffer[val_max_len + sizeof(basic_message)];
+   char *msg_buffer = TYPED_MALLOC_MANUAL(
+      kvsb->heap_id, msg_buffer, val_max_len + sizeof(basic_message));
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(
       kvsb->kvs, &result, sizeof(msg_buffer), msg_buffer);
@@ -467,19 +469,18 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    // exposes the _Bool type rather than  typedef int32 bool
    // which is used elsewhere in the codebase
    // So, we pass in int32 found here, and convert to _Bool below
-   int rc = splinterdb_lookup(kvsb->kvs, key_buffer, &result);
-   if (rc) {
-      splinterdb_lookup_result_deinit(&result);
-      return rc;
-   }
+   rc = splinterdb_lookup(kvsb->kvs, key_buffer, &result);
+   if (rc)
+      goto out;
+
    if (!splinterdb_lookup_result_found(&result)) {
-      splinterdb_lookup_result_deinit(&result);
       *found = 0;
-      return 0;
+      goto out;
    }
+
    if (splinterdb_lookup_result_size(&result) < sizeof(basic_message)) {
-      splinterdb_lookup_result_deinit(&result);
-      return -2; // FIXME: better error code?
+      rc = -2;
+      goto out;
    }
 
    *found = 1;
@@ -494,8 +495,10 @@ splinterdb_kv_lookup(const splinterdb_kv *kvsb,
    basic_message *msg = splinterdb_lookup_result_data(&result);
    memmove(val, msg->value, *val_bytes);
 
+out:
    splinterdb_lookup_result_deinit(&result);
-   return 0;
+   platform_free(kvsb->heap_id, msg_buffer);
+   return rc;
 }
 
 struct splinterdb_kv_iterator {

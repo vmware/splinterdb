@@ -626,18 +626,17 @@ test_functionality(allocator           *al,
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
 
-   trunk_handle **spl_tables = platform_aligned_malloc(
-      hid, PLATFORM_CACHELINE_SIZE, sizeof(trunk_handle *) * num_tables);
+   trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    platform_assert(spl_tables != NULL);
 
    test_splinter_shadow_tree **shadows =
-      platform_aligned_malloc(hid,
-                              PLATFORM_CACHELINE_SIZE,
-                              sizeof(test_splinter_shadow_tree *) * num_tables);
+      TYPED_ARRAY_ZALLOC(hid, shadows, num_tables);
+
    platform_assert(shadows != NULL);
 
-   allocator_root_id *splinters = platform_aligned_malloc(
-      hid, PLATFORM_CACHELINE_SIZE, sizeof(allocator_root_id) * num_tables);
+   allocator_root_id *splinters =
+      TYPED_ARRAY_ZALLOC(hid, splinters, num_tables);
+
    platform_assert(splinters != NULL);
    test_async_lookup *async_lookup;
    if (max_async_inflight > 0) {
