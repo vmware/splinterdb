@@ -12,7 +12,7 @@
 
 # Missing Features
 * Checkpointing. 
-* Recovery mechanism.
+* Recovery mechanism (see [Issue Discussion](issues/236)).
 * Range delete.
 * Empty database.
 * Transactions (SplinterDB has atomic operations.)
