@@ -12,7 +12,7 @@
 
 # Missing Features
 * Checkpointing. 
-* Recovery mechanism (see [Issue Discussion](../issues/236)).
+* Recovery mechanism (see [Issue Discussion](https://github.com/vmware/splinterdb/issues/236)).
 * Range delete.
 * Empty database.
 * Transactions (SplinterDB has atomic operations.)
