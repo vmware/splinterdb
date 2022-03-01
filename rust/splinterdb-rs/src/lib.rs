@@ -176,7 +176,7 @@ impl SplinterDB {
 
             let mut value_ptr: *const std::os::raw::c_char = std::mem::zeroed();
             let mut value_size: usize = 0;
-            let mut found: bool = false;
+            let mut found: i32 = 0;
             let rc = splinterdb_sys::splinterdb_lookup_result_parse(
                 self._inner,
                 &lr,
@@ -186,7 +186,7 @@ impl SplinterDB {
             );
             as_result(rc)?;
 
-            if !found {
+            if found == 0 {
                 return Ok(LookupResult::NotFound);
             }
 

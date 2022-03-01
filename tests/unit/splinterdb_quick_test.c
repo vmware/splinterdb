@@ -138,7 +138,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    int rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
 
-   _Bool       found;
+   bool       found;
    size_t      val_len;
    const char *value;
 
@@ -209,7 +209,7 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    rc = splinterdb_lookup(data->kvsb, TEST_MAX_KEY_SIZE, large_key, &result);
    ASSERT_EQUAL(0, rc);
 
-   _Bool       found;
+   bool       found;
    size_t      val_len;
    const char *value;
    rc = splinterdb_lookup_result_parse(
@@ -344,7 +344,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    char big_buffer[2 * TEST_MAX_VALUE_SIZE];
    memset(big_buffer, 'x', sizeof(big_buffer));
 
-   _Bool                    found;
+   bool                    found;
    size_t                   val_len;
    const char              *value;
    splinterdb_lookup_result result;
@@ -491,7 +491,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_startkey)
       rc = splinterdb_iterator_init(data->kvsb, &it, strlen(key), key);
       ASSERT_EQUAL(0, rc);
 
-      _Bool is_valid = splinterdb_iterator_valid(it);
+      bool is_valid = splinterdb_iterator_valid(it);
       ASSERT_TRUE(is_valid);
 
       // Scan should have been positioned at the i'th key
@@ -524,7 +524,7 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    rc = splinterdb_iterator_init(data->kvsb, &it, strlen(key), key);
 
    // Iterator should be invalid, as lookup key is non-existent.
-   _Bool is_valid = splinterdb_iterator_valid(it);
+   bool is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
 
    splinterdb_iterator_deinit(it);
@@ -588,7 +588,7 @@ CTEST2(splinterdb_quick,
    rc = splinterdb_iterator_init(data->kvsb, &it, strlen(key), key);
    ASSERT_EQUAL(0, rc);
 
-   _Bool is_valid = splinterdb_iterator_valid(it);
+   bool is_valid = splinterdb_iterator_valid(it);
    ASSERT_TRUE(is_valid);
 
    // Iterator should be initialized to 1st key inserted, if the supplied
@@ -672,7 +672,7 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   _Bool       found;
+   bool       found;
    const char *value;
    size_t      result_val_len;
 
@@ -743,7 +743,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
 
-   _Bool       found;
+   bool       found;
    size_t      val_len;
    const char *val;
    rc = splinterdb_lookup_result_parse(
@@ -845,7 +845,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
    ASSERT_EQUAL(num_inserts, i);
    ASSERT_TRUE(key_comp_context > (2 * num_inserts));
 
-   _Bool is_valid = splinterdb_iterator_valid(it);
+   bool is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
 
    if (it) {

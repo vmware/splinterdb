@@ -596,12 +596,12 @@ extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
-    pub fn splinterdb_insert_message(
+    pub fn splinterdb_insert_raw_message(
         kvs: *const splinterdb,
         key_length: usize,
         key: *const ::std::os::raw::c_char,
-        message_length: usize,
-        message: *const ::std::os::raw::c_char,
+        raw_message_length: usize,
+        raw_message: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
@@ -654,7 +654,7 @@ extern "C" {
     pub fn splinterdb_lookup_result_parse(
         kvs: *const splinterdb,
         result: *const splinterdb_lookup_result,
-        found: *mut bool,
+        found: *mut bool_,
         value_size: *mut usize,
         value: *mut *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;

@@ -185,7 +185,7 @@ splinterdb_lookup_result_deinit(splinterdb_lookup_result *result); // IN
 int
 splinterdb_lookup_result_parse(const splinterdb               *kvs,
                                const splinterdb_lookup_result *result, // IN
-                               _Bool                          *found,  // OUT
+                               bool                          *found,  // OUT
                                size_t      *value_size,                // OUT
                                const char **value                      // OUT
 );
