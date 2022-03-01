@@ -1,12 +1,16 @@
 # Using SplinterDB
 
-SplinterDB is an embedded key-value store.  To use it, you must link your
-program to it and call the C functions declared in the
-[`include/splinterdb`](../include/splinterdb) headers.
+SplinterDB is an embedded key-value store.  It is currently Linux-only.
 
-The headers and their code comments are the definitive API reference.
-This document is a high-level overview.  Some details here may be out of date.
+To use SplinterDB, you must link your program to the library and call
+the C functions declared in the [`include/splinterdb`](../include/splinterdb)
+headers.  More details on our build process are [here](build.md).
 
+This document is a high-level overview, but the code comments in the
+[header files](../include/splinterdb) are the definitive API reference.
+We're actively evolving our public API surface right now, and will do our
+best to keep this document up to date as details change.  If something
+looks out-of-date, please open an issue or pull request.
 
 ## Program flow
 
@@ -14,13 +18,13 @@ This document is a high-level overview.  Some details here may be out of date.
   applications may opt to use the `default_data_config`, provides a basic
   key / value interface with lexicographical sorting of keys.
 
-- Call `splinterdb_create()` to create a new database file or block device,
-  `splinterdb_open()` to open an already-created one, and
-  `splinterdb_close()` to close the file or device.
+- Call `splinterdb_create()` to create a new database in a file or block device,
+  `splinterdb_open()` to open an existing database, and
+  `splinterdb_close()` to a database and flush any pending writes.
 
-   All access to the database must go through the single `splinterdb*` object
-   returned.  It is not safe for more than one process to open the same
-   SplinterDB disk file or device.
+   All access to a SplinterDB database file or device must go through the
+   single `splinterdb*` object returned.  It is not safe for more than one
+   process to open the same SplinterDB database file or device.
 
 - Basic key/value operations like `insert`, `delete`, point `lookup` and
   range scan using an `iterator` are available.  See the code comments
@@ -69,12 +73,3 @@ This document is a high-level overview.  Some details here may be out of date.
 - [`tests/unit/splinterdb_stress_test.c`](../tests/unit/splinterdb_stress_test.c) uses multiple threads
 - [`splinterdb-cli`](../rust/splinterdb-cli) is a small Rust program that demonstrates inserts, lookups, deletes and
 range scans, and includes a multithreaded test of insert performance.
-
-
-## Compiling and linking
-SplinterDB is a C library, not a standalone program.  To use it, you'll need to link your program against it at build time or at run time.  Our [build process](build.md) produces `libsplinterdb.a` and `libsplinterdb.so` libraries, and headers for the public API are in [`include/splinterdb/`](../include/splinterdb).
-
-SplinterDB is currently Linux-only.
-
-## Optional: Docker-based development
-Some application developers may prefer to use a [Docker-based workflow](docker.md), which can leverage containers built by our continuous integration system.
