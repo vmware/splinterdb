@@ -663,10 +663,15 @@ test_btree_basic(cache             *cc,
    platform_log("btree iterator init time %luns\n",
                 platform_timestamp_elapsed(start_time));
    btree_pack_req req;
-   memset(&req, 0, sizeof(req));
-   req.cc   = cc;
-   req.cfg  = btree_cfg;
-   req.itor = (iterator *)&itor;
+   btree_pack_req_init(&req,
+                       cc,
+                       btree_cfg,
+                       (iterator *)&itor,
+                       UINT64_MAX,
+                       UINT64_MAX,
+                       NULL,
+                       0,
+                       NULL);
 
    btree_print_tree_stats(cc, btree_cfg, root_addr);
 
