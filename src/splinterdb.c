@@ -736,7 +736,7 @@ splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
 }
 
 bool
-splinterdb_lookup_result_found(const splinterdb_lookup_result *result) // IN
+splinterdb_lookup_found(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
    return trunk_lookup_found(&_result->value);
@@ -763,7 +763,7 @@ splinterdb_lookup_result_value(const splinterdb               *kvs,
                                const char **value)
 {
 
-   if (!splinterdb_lookup_result_found(result)) {
+   if (!splinterdb_lookup_found(result)) {
       return EINVAL;
    }
 

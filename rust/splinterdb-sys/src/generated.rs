@@ -652,7 +652,7 @@ extern "C" {
     pub fn splinterdb_lookup_result_deinit(result: *mut splinterdb_lookup_result);
 }
 extern "C" {
-    pub fn splinterdb_lookup_result_found(result: *const splinterdb_lookup_result) -> bool_;
+    pub fn splinterdb_lookup_found(result: *const splinterdb_lookup_result) -> bool_;
 }
 extern "C" {
     pub fn splinterdb_lookup_result_value(

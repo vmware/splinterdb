@@ -182,7 +182,7 @@ splinterdb_lookup_result_deinit(splinterdb_lookup_result *result); // IN
 
 // Returns true if the result was found
 bool
-splinterdb_lookup_result_found(const splinterdb_lookup_result *result); // IN
+splinterdb_lookup_found(const splinterdb_lookup_result *result); // IN
 
 // Decode the value from a found result
 int

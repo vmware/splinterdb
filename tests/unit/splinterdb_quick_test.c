@@ -142,7 +142,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    const char *value;
 
    // Lookup of a non-existent key should return not-found.
-   ASSERT_FALSE(splinterdb_lookup_result_found(&result));
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    static char *to_insert = "some-value";
 
@@ -154,7 +154,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    // Lookup of inserted key should succeed.
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &value);
    ASSERT_EQUAL(0, rc);
@@ -168,7 +168,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    // Deleted key should not be found
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_FALSE(splinterdb_lookup_result_found(&result));
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    splinterdb_lookup_result_deinit(&result);
 }
@@ -198,7 +198,7 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    // **** Lookup of max-size key should return correct value
    rc = splinterdb_lookup(data->kvsb, TEST_MAX_KEY_SIZE, large_key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    size_t      val_len;
    const char *value;
@@ -217,7 +217,7 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    // **** Should not find this large-key once it's deleted
    rc = splinterdb_lookup(data->kvsb, TEST_MAX_KEY_SIZE, large_key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_FALSE(splinterdb_lookup_result_found(&result));
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
 }
 
 /*
@@ -338,7 +338,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // look up a 0-length value
    rc = splinterdb_lookup(data->kvsb, sizeof("empty"), "empty", &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(0, val_len);
@@ -346,7 +346,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // lookup tuple with value of length 1, providing sufficient buffer
    rc = splinterdb_lookup(data->kvsb, sizeof("short"), "short", &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(1, val_len);
@@ -354,7 +354,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // lookup tuple with almost max-sized-value
    rc = splinterdb_lookup(data->kvsb, sizeof("long"), "long", &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(TEST_MAX_VALUE_SIZE - 1, val_len);
@@ -363,7 +363,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // lookup tuple with max-sized-value
    rc = splinterdb_lookup(data->kvsb, sizeof("max"), "max", &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(TEST_MAX_VALUE_SIZE, val_len);
@@ -382,7 +382,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // lookup tuple with max-sized-value, passing it the short buffer
    rc = splinterdb_lookup(data->kvsb, sizeof("max"), "max", &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &value);
    ASSERT_EQUAL(0, rc);
@@ -405,7 +405,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    // lookup, see we get the full result back
    rc = splinterdb_lookup(data->kvsb, sizeof("max"), "max", &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &value);
    ASSERT_EQUAL(0, rc);
    // we get the full result back, because internally splinterdb did an
@@ -655,7 +655,7 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
 
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
    rc = splinterdb_lookup_result_value(
       data->kvsb, &result, &result_val_len, &value);
    ASSERT_EQUAL(0, rc);
@@ -715,7 +715,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    size_t      val_len;
    const char *val;
@@ -736,7 +736,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // check still found
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_TRUE(splinterdb_lookup_result_found(&result));
+   ASSERT_TRUE(splinterdb_lookup_found(&result));
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &val_len, &val);
    ASSERT_EQUAL(0, rc);
 
@@ -750,7 +750,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // on lookup, merge will decide the tuple is deleted
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_FALSE(splinterdb_lookup_result_found(&result));
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    // add it back as a value
    rc = splinterdb_insert(data->kvsb, key_len, key, 3, "bar");
@@ -765,7 +765,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // on lookup, it should not be found
    rc = splinterdb_lookup(data->kvsb, key_len, key, &result);
    ASSERT_EQUAL(0, rc);
-   ASSERT_FALSE(splinterdb_lookup_result_found(&result));
+   ASSERT_FALSE(splinterdb_lookup_found(&result));
 }
 
 /*

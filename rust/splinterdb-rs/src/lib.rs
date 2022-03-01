@@ -180,7 +180,7 @@ impl SplinterDB {
             );
             as_result(rc)?;
 
-            let found = splinterdb_sys::splinterdb_lookup_result_found(&lr);
+            let found = splinterdb_sys::splinterdb_lookup_found(&lr);
             if found == 0 {
                 return Ok(LookupResult::NotFound);
             }
