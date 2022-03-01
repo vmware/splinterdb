@@ -14,3 +14,5 @@ SplinterDB is *provided as-is* and is not recommended for use in production unti
 
 ## Build
 See [Build](docs/build.md) for instructions on building SplinterDB from source.
+
+See [Documentation](docs/README.md) for preliminary documentation.
