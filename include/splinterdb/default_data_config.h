@@ -13,8 +13,8 @@
 #include "splinterdb/data.h"
 
 void
-default_data_config_init(const size_t max_key_size,   // IN
-                         const size_t max_value_size, // IN
+default_data_config_init(const uint64 max_key_size,   // IN
+                         const uint64 max_value_size, // IN
                          data_config *out_cfg         // OUT
 );
 

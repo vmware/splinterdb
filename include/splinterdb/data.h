@@ -70,25 +70,25 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,
                                          const void        *key_or_message,
                                          char              *str,
-                                         size_t             max_len);
+                                         uint64             max_len);
 
 
 // Encodes a message from a type and (optionally) a value
 // Returns the length of the fully-encoded message via out_encoded_len
 // Is allowed to fail by returning a non-zero exit code
 typedef int (*encode_message_fn)(message_type type,
-                                 size_t       value_len,
+                                 uint64       value_len,
                                  const void  *value,
-                                 size_t       dst_msg_buffer_len,
+                                 uint64       dst_msg_buffer_len,
                                  void        *dst_msg_buffer,
-                                 size_t      *out_encoded_len);
+                                 uint64      *out_encoded_len);
 
 // Extract the value from a message
 // This shouldn't need to do any allocation or copying, just pointer arithmetic
 // Is allowed to fail by returning a non-zero exit code
-typedef int (*decode_message_fn)(size_t       msg_buffer_len,
+typedef int (*decode_message_fn)(uint64       msg_buffer_len,
                                  const void  *msg_buffer,
-                                 size_t      *out_value_len,
+                                 uint64      *out_value_len,
                                  const char **out_value);
 
 /*
@@ -113,10 +113,10 @@ struct data_config {
 
    // FIXME: Planned for deprecation.
    char   min_key[MAX_KEY_SIZE];
-   size_t min_key_length;
+   uint64 min_key_length;
 
    char   max_key[MAX_KEY_SIZE];
-   size_t max_key_length;
+   uint64 max_key_length;
 
    key_compare_fn           key_compare;
    key_hash_fn              key_hash;

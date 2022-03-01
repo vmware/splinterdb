@@ -9,7 +9,6 @@ splinter_src="$(cd ../../.. && pwd)"
 include_dir="${splinter_src}/include"
 
 bindgen include.h -o generated.rs \
-    --size_t-is-usize \
     --no-copy 'splinterdb.*' \
     --no-copy 'writable_buffer' \
     --no-copy 'data_config' \
