@@ -229,10 +229,6 @@ CTEST_TEARDOWN(splinter)
       platform_free(data->hid, data->cache_cfg);
    }
 
-   if (data->data_cfg) {
-      platform_free(data->hid, data->data_cfg);
-   }
-
    if (data->splinter_cfg) {
       platform_free(data->hid, data->splinter_cfg);
    }

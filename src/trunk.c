@@ -5960,8 +5960,7 @@ trunk_pivot_lookup(trunk_handle     *spl,
                    page_handle      *node,
                    trunk_pivot_data *pdata,
                    const char       *key,
-                   writable_buffer  *data,
-                   bool             *found)
+                   writable_buffer  *data)
 {
    // first check in bundles
    uint16 num_bundles = trunk_pivot_bundle_count(spl, node, pdata);
@@ -6031,9 +6030,7 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
       uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      bool              local_found;
-      bool              should_continue =
-         trunk_pivot_lookup(spl, node, pdata, key, data, &local_found);
+      bool should_continue    = trunk_pivot_lookup(spl, node, pdata, key, data);
       if (!should_continue) {
          goto found_final_answer_early;
       }
@@ -6044,9 +6041,7 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
 
    // look in leaf
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
-   bool              local_found;
-   bool              should_continue =
-      trunk_pivot_lookup(spl, node, pdata, key, data, &local_found);
+   bool should_continue    = trunk_pivot_lookup(spl, node, pdata, key, data);
    if (!should_continue) {
       goto found_final_answer_early;
    }
@@ -8061,10 +8056,9 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
       uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      bool              found;
       writable_buffer_reinit(&data);
-      trunk_pivot_lookup(spl, node, pdata, key, &data, &found);
-      if (found) {
+      trunk_pivot_lookup(spl, node, pdata, key, &data);
+      if (!writable_buffer_is_null(&data)) {
          char key_str[128];
          char message_str[128];
          trunk_key_to_string(spl, key, key_str);
@@ -8075,7 +8069,6 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                       node->disk_addr,
                       pivot_no,
                       message_str);
-         found = FALSE;
       } else {
          for (uint16 branch_no = pdata->start_branch;
               branch_no != trunk_end_branch(spl, node);
@@ -8102,7 +8095,6 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                             pivot_no,
                             message_str);
             }
-            found = FALSE;
          }
       }
       page_handle *child = trunk_node_get(spl, pdata->addr);
@@ -8115,8 +8107,8 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
    trunk_print_locked_node(spl, node, PLATFORM_DEFAULT_LOG_HANDLE);
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
    writable_buffer_reinit(&data);
-   trunk_pivot_lookup(spl, node, pdata, key, &data, &found);
-   if (found) {
+   trunk_pivot_lookup(spl, node, pdata, key, &data);
+   if (!writable_buffer_is_null(&data)) {
       char key_str[128];
       char message_str[128];
       trunk_key_to_string(spl, key, key_str);
@@ -8140,7 +8132,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
          rc =
             trunk_btree_lookup_and_merge(spl, branch, key, &data, &local_found);
          platform_assert_status_ok(rc);
-         if (found) {
+         if (local_found) {
             char key_str[128];
             char message_str[128];
             trunk_key_to_string(spl, key, key_str);

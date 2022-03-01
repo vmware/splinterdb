@@ -25,6 +25,30 @@ destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
 }
 
 static void
+search_for_key_via_iterator(trunk_handle *spl, slice target)
+{
+   trunk_range_iterator iter;
+   bool                 at_end;
+
+   trunk_range_iterator_init(spl, &iter, NULL, NULL, UINT64_MAX);
+   uint64 count = 0;
+   while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
+      slice key, value;
+      iterator_get_curr((iterator *)&iter, &key, &value);
+      if (slice_lex_cmp(target, key) == 0) {
+         platform_log("Found missing key\n");
+      } else {
+         platform_log("Found non-missing key %s\n",
+                      key_string(spl->cfg.data_cfg, key));
+      }
+      iterator_advance((iterator *)&iter);
+      count++;
+   }
+   platform_log("Saw a total of %lu keys\n", count);
+}
+
+
+static void
 verify_tuple(trunk_handle    *spl,
              const char      *keybuf,
              slice            message,
@@ -52,6 +76,8 @@ verify_tuple(trunk_handle    *spl,
          refcount);
       *result = STATUS_NOT_FOUND;
       trunk_print_lookup(spl, keybuf);
+      search_for_key_via_iterator(
+         spl, slice_create(spl->cfg.data_cfg->key_size, keybuf));
       platform_assert(0);
    } else if (refcount == 0 && found) {
       platform_error_log(
@@ -532,7 +558,7 @@ insert_random_messages(trunk_handle              *spl,
    platform_assert(sizeof(data_handle) <= sizeof(void *));
 
    int             i;
-   platform_status rc;
+   platform_status rc = STATUS_OK;
    uint64          key;
    writable_buffer msg;
    writable_buffer_init_null(&msg, NULL);
@@ -560,8 +586,18 @@ insert_random_messages(trunk_handle              *spl,
       //   i, op, key, msg->ref_count);
       rc = trunk_insert(spl, keybuf, writable_buffer_to_slice(&msg));
       if (!SUCCESS(rc)) {
-         return rc;
+         goto cleanup;
       }
+
+      /* if (key == 0x015101e8ULL) { */
+      /*    platform_log( */
+      /*       "Inserting key %lu with refcount %d and message length %lu\n", */
+      /*       key, */
+      /*       ref_count, */
+      /*       writable_buffer_length(&msg)); */
+      /*    trunk_print_lookup(spl, keybuf); */
+      /* } */
+
 
       // Now apply same operation to the shadow
       int8 new_refcount = ref_count;
@@ -576,11 +612,13 @@ insert_random_messages(trunk_handle              *spl,
       if (!SUCCESS(rc)) {
          platform_error_log("Failed to insert key to shadow: %s\n",
                             platform_status_to_string(rc));
-         return rc;
+         goto cleanup;
       }
    }
 
-   return STATUS_OK;
+cleanup:
+   writable_buffer_reinit(&msg);
+   return rc;
 }
 
 int

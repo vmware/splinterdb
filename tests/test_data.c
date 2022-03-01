@@ -33,11 +33,10 @@ test_data_generate_message(const data_config *cfg,
                            uint8              ref_count,
                            writable_buffer   *msg)
 {
-   const data_test_config *tdcfg = (const data_test_config *)cfg;
-
    uint64 payload_size = 0;
    if (type == MESSAGE_TYPE_INSERT) {
-      // A couple good ol' random primes
+      const data_test_config *tdcfg = (const data_test_config *)cfg;
+      // A coupla good ol' random primes
       payload_size = (253456363ULL + (uint64)ref_count * 750599937895091ULL)
                      % tdcfg->payload_size_limit;
    }

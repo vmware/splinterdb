@@ -200,7 +200,8 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
-   btree_defragment_leaf(cfg, scratch, hdr, -1);
+   leaf_incorporate_spec spec = {.old_entry_state = did_not_exist};
+   btree_defragment_leaf(cfg, scratch, hdr, &spec);
 
    for (uint64 i = 0; i < nkvs; i++) {
       slice key     = btree_get_tuple_key(cfg, hdr, i);
