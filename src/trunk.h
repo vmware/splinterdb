@@ -56,10 +56,11 @@ typedef struct trunk_config {
    // parameters
    uint64 fanout;         // children to trigger split
    uint64 max_pivot_keys; // hard limit on number of pivot keys
-   uint64 max_tuples_per_node;
+   uint64 max_tuples_per_node; // deprecated
+   uint64 max_kv_bytes_per_node;
    uint64 max_branches_per_node;
    uint64 hard_max_branches_per_node;
-   uint64 target_leaf_tuples; // make leaves this big when splitting
+   uint64 target_leaf_kv_bytes; // make leaves this big when splitting
    uint64 reclaim_threshold;  // start reclaming space when
                               // free space < threshold
    bool            use_stats; // stats
@@ -409,12 +410,6 @@ trunk_key_size(trunk_handle *spl)
    return spl->cfg.data_cfg->key_size;
 }
 
-static inline uint64
-trunk_message_size(trunk_handle *spl)
-{
-   return spl->cfg.data_cfg->message_size;
-}
-
 static inline slice
 trunk_key_slice(trunk_handle *spl, const char *key)
 {
@@ -423,12 +418,6 @@ trunk_key_slice(trunk_handle *spl, const char *key)
    } else {
       return NULL_SLICE;
    }
-}
-
-static inline slice
-trunk_message_slice(trunk_handle *spl, const char *message)
-{
-   return slice_create(trunk_message_size(spl), message);
 }
 
 static inline int

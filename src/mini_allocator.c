@@ -224,6 +224,16 @@ mini_unget_unclaim_meta_page(cache *cc, page_handle *meta_page)
    cache_unget(cc, meta_page);
 }
 
+static platform_status
+mini_allocator_alloc(mini_allocator *mini, uint64 *addr)
+{
+   platform_status rc = allocator_alloc(mini->al, addr, mini->type);
+   if (SUCCESS(rc)) {
+      __sync_fetch_and_add(&mini->num_extents, 1);
+   }
+   return rc;
+}
+
 /*
  *-----------------------------------------------------------------------------
  * mini_init --
@@ -267,6 +277,7 @@ mini_init(mini_allocator *mini,
    mini->data_cfg    = cfg;
    mini->keyed       = keyed;
    mini->meta_head   = meta_head;
+   mini->num_extents = 1; // for the meta page
    mini->num_batches = num_batches;
    mini->type        = type;
    mini->pinned      = (type == PAGE_TYPE_MEMTABLE);
@@ -298,7 +309,7 @@ mini_init(mini_allocator *mini,
       // because we recover ref counts from the mini allocators on recovery, we
       // don't need to store these in the mini allocator until we consume them.
       platform_status rc =
-         allocator_alloc(mini->al, &mini->next_extent[batch], type);
+         mini_allocator_alloc(mini, &mini->next_extent[batch]);
       platform_assert_status_ok(rc);
    }
 
@@ -505,8 +516,7 @@ mini_append_entry(mini_allocator *mini,
       uint64 new_meta_tail = mini->meta_tail + cache_page_size(mini->cc);
       if (new_meta_tail % cache_extent_size(mini->cc) == 0) {
          // need to allocate the next meta extent
-         platform_status rc =
-            allocator_alloc(mini->al, &new_meta_tail, mini->type);
+         platform_status rc = mini_allocator_alloc(mini, &new_meta_tail);
          platform_assert_status_ok(rc);
       }
 
@@ -571,7 +581,7 @@ mini_alloc(mini_allocator *mini,
 
       uint64          extent_addr = mini->next_extent[batch];
       platform_status rc =
-         allocator_alloc(mini->al, &mini->next_extent[batch], mini->type);
+         mini_allocator_alloc(mini, &mini->next_extent[batch]);
       platform_assert_status_ok(rc);
       next_addr = extent_addr;
 

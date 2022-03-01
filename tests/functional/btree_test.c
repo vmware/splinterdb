@@ -824,7 +824,15 @@ test_btree_create_packed_trees(cache             *cc,
                           0);
 
       btree_pack_req req;
-      btree_pack_req_init(&req, cc, btree_cfg, &itor.super, 0, NULL, 0, hid);
+      btree_pack_req_init(&req,
+                          cc,
+                          btree_cfg,
+                          &itor.super,
+                          UINT64_MAX,
+                          UINT64_MAX,
+                          NULL,
+                          0,
+                          hid);
       platform_status rc = btree_pack(&req);
       platform_assert_status_ok(rc);
       btree_iterator_deinit(&itor);
@@ -1020,8 +1028,15 @@ test_btree_merge_basic(cache             *cc,
       }
 
       btree_pack_req req;
-      btree_pack_req_init(
-         &req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0, hid);
+      btree_pack_req_init(&req,
+                          cc,
+                          btree_cfg,
+                          &merge_itor->super,
+                          UINT64_MAX,
+                          UINT64_MAX,
+                          NULL,
+                          0,
+                          hid);
       btree_pack(&req);
       output_addr[pivot_no] = req.root_addr;
 
@@ -1399,8 +1414,15 @@ test_btree_merge_perf(cache             *cc,
          }
 
          btree_pack_req req;
-         btree_pack_req_init(
-            &req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0, hid);
+         btree_pack_req_init(&req,
+                             cc,
+                             btree_cfg,
+                             &merge_itor->super,
+                             UINT64_MAX,
+                             UINT64_MAX,
+                             NULL,
+                             0,
+                             hid);
          btree_pack(&req);
          output_addr[merge_no * num_merges + pivot_no] = req.root_addr;
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
@@ -1563,17 +1585,22 @@ btree_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
    cache *ccp = (cache *)cc;
 
+   uint64 max_tuples_per_memtable =
+      test_cfg.mt_cfg->max_extents_per_memtable
+      * cache_config_extent_size((cache_config *)&cache_cfg)
+      / (data_cfg->key_size + generator_average_message_size(&gen));
    if (run_perf_test) {
-      uint64 total_inserts = 64 * test_cfg.mt_cfg->max_tuples_per_memtable;
+      uint64 total_inserts = 64 * max_tuples_per_memtable;
 
       rc = test_btree_perf(ccp, &test_cfg, total_inserts, 10, 128, ts, hid);
       platform_assert_status_ok(rc);
 
       rc = test_btree_merge_perf(ccp, &test_cfg, hid, 8, 8);
       platform_assert_status_ok(rc);
-   } else {
-      uint64 total_inserts = test_cfg.mt_cfg->max_tuples_per_memtable
-                             - (MAX_THREADS * (64 / sizeof(uint32)));
+   }
+   else {
+      uint64 total_inserts =
+         max_tuples_per_memtable - (MAX_THREADS * (64 / sizeof(uint32)));
       rc = test_btree_basic(ccp, &test_cfg, hid, total_inserts);
       platform_assert_status_ok(rc);
 

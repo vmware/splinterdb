@@ -2955,7 +2955,11 @@ btree_pack(btree_pack_req *req)
       btree_pack_setup_finish(req, key);
    }
 
-   while (!at_end) {
+   while (!at_end && req->num_tuples < req->max_tuples
+          && req->key_bytes + req->message_bytes + slice_length(key)
+                   + slice_length(data)
+                <= req->max_kv_bytes)
+   {
       iterator_get_curr(req->itor, &key, &data);
       btree_pack_loop(req, key, data, &at_end);
    }

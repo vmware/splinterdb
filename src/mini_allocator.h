@@ -44,6 +44,7 @@ typedef struct mini_allocator {
    volatile uint64 meta_tail;
    page_type       type;
 
+   uint64          num_extents;
    uint64          num_batches;
    volatile uint64 next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
@@ -116,6 +117,12 @@ static inline uint64
 mini_meta_tail(mini_allocator *mini)
 {
    return mini->meta_tail;
+}
+
+static inline uint64
+mini_num_extents(mini_allocator *mini)
+{
+   return mini->num_extents;
 }
 
 #endif // __MINI_ALLOCATOR_H
