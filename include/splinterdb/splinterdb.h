@@ -32,9 +32,14 @@ typedef struct {
    const char *filename;
    uint64      cache_size;
    uint64      disk_size;
-   data_config data_cfg; // see data.h
 
-   // optional advanced config
+   // data_config is a required field that defines how your data should be
+   // read and written in SplinterDB.  See data.h for details.
+   // For a simple reference implementation, see default_data_config.h
+   data_config data_cfg;
+
+
+   // optional advanced config below
    // if unset, defaults will be used
    void *heap_handle;
    void *heap_id;
