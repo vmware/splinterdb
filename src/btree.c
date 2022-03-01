@@ -55,7 +55,7 @@ log_trace_key(slice key, char *msg)
  *******************************************************************/
 
 /* Threshold for splitting instead of defragmenting. */
-#define BTREE_SPLIT_THRESHOLD(page_size) ((page_size) / 2)
+#define BTREE_SPLIT_THRESHOLD(page_size) (7 * (page_size) / 8)
 
 /* After a split, the free space in the left node may be fragmented.
  * If there's less than this much contiguous free space, then we also

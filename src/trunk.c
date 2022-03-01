@@ -8512,7 +8512,7 @@ trunk_config_init(trunk_config *trunk_cfg,
       trunk_cfg->fanout * trunk_cfg->mt_cfg.max_extents_per_memtable
       * cache_config_extent_size(cache_cfg);
    trunk_cfg->target_leaf_kv_bytes = trunk_cfg->max_kv_bytes_per_node / 2;
-   trunk_cfg->max_tuples_per_node  = trunk_cfg->max_kv_bytes_per_node / 16;
+   trunk_cfg->max_tuples_per_node  = trunk_cfg->max_kv_bytes_per_node / 32;
 
    // filter config settings
    index_filter_cfg->cache_cfg = cache_cfg;
