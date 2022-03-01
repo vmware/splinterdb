@@ -3190,7 +3190,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_SUPERBLOCK]));
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)"\n",
-         FRACTION_ARGS(avg_write_pages));
+                FRACTION_ARGS(avg_write_pages));
    // clang-format on
 
    allocator_print_stats(cc->al);
