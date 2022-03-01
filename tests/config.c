@@ -34,7 +34,8 @@ config_set_defaults(master_config *cfg)
       .use_stats             = FALSE,
       .reclaim_threshold     = UINT64_MAX,
 
-      .key_size = 24,
+      .key_size     = 24,
+      .message_size = 100,
 
       .seed = 0,
    };
