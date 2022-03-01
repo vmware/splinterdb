@@ -43,7 +43,7 @@ mod tests {
 
         let rc = unsafe {
             super::default_data_config_init(
-                super::SPLINTERDB_MAX_KEY_SIZE as usize,
+                super::SPLINTERDB_MAX_KEY_SIZE as u64,
                 32,
                 &mut cfg.data_cfg,
             );

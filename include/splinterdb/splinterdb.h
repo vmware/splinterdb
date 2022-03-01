@@ -124,9 +124,9 @@ splinterdb_deregister_thread(splinterdb *kvs);
 // Relies on data_config->encode_message
 int
 splinterdb_insert(const splinterdb *kvsb,
-                  size_t            key_len,
+                  uint64            key_len,
                   const char       *key,
-                  size_t            val_len,
+                  uint64            val_len,
                   const char       *value);
 
 // Insert a raw message at the given key.
@@ -136,15 +136,15 @@ splinterdb_insert(const splinterdb *kvsb,
 // These can be stored without doing a read of the current value.
 int
 splinterdb_insert_raw_message(const splinterdb *kvs,
-                              size_t            key_length,
+                              uint64            key_length,
                               const char       *key,
-                              size_t            raw_message_length,
+                              uint64            raw_message_length,
                               const char       *raw_message);
 
 
 // Delete a given key and any associated value / messages
 int
-splinterdb_delete(const splinterdb *kvsb, size_t key_len, const char *key);
+splinterdb_delete(const splinterdb *kvsb, uint64 key_len, const char *key);
 
 
 // Lookups
@@ -170,7 +170,7 @@ typedef struct {
 void
 splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
                               splinterdb_lookup_result *result,     // IN/OUT
-                              size_t                    buffer_len, // IN
+                              uint64                    buffer_len, // IN
                               char                     *buffer      // IN
 );
 
@@ -188,7 +188,7 @@ splinterdb_lookup_result_found(const splinterdb_lookup_result *result); // IN
 int
 splinterdb_lookup_result_value(const splinterdb               *kvs,
                                const splinterdb_lookup_result *result, // IN
-                               size_t      *value_size,                // OUT
+                               uint64      *value_size,                // OUT
                                const char **value                      // OUT
 );
 
@@ -198,7 +198,7 @@ splinterdb_lookup_result_value(const splinterdb               *kvs,
 // result must have first been initialized using splinterdb_lookup_result_init
 int
 splinterdb_lookup(const splinterdb         *kvs,        // IN
-                  size_t                    key_length, // IN
+                  uint64                    key_length, // IN
                   const char               *key,        // IN
                   splinterdb_lookup_result *result      // IN/OUT
 );
@@ -240,10 +240,10 @@ Sample application code:
    int rc = splinterdb_iterator_init(kvs, &it, 0, NULL);
    if (rc != 0) { ... handle error ... }
 
-   size_t key_len;
+   uint64 key_len;
    const char* key;
 
-   size_t value_len;
+   uint64 value_len;
    const char* value;
 
    for(; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
@@ -268,7 +268,7 @@ typedef struct splinterdb_iterator splinterdb_iterator;
 int
 splinterdb_iterator_init(const splinterdb     *kvs,              // IN
                          splinterdb_iterator **iter,             // OUT
-                         size_t                start_key_length, // IN
+                         uint64                start_key_length, // IN
                          const char           *start_key         // IN
 );
 
@@ -297,9 +297,9 @@ splinterdb_iterator_next(splinterdb_iterator *iter);
 // Always check valid() before calling this function.
 void
 splinterdb_iterator_get_current(splinterdb_iterator *iter,    // IN
-                                size_t              *key_len, // OUT
+                                uint64              *key_len, // OUT
                                 const char         **key,     // OUT
-                                size_t              *val_len, // OUT
+                                uint64              *val_len, // OUT
                                 const char         **value    // OUT
 );
 

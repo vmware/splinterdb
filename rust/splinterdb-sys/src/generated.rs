@@ -3,6 +3,7 @@
 pub const MAX_KEY_SIZE: u32 = 24;
 pub const MAX_MESSAGE_SIZE: u32 = 128;
 pub const SPLINTERDB_MAX_KEY_SIZE: u32 = 23;
+pub type size_t = ::std::os::raw::c_ulong;
 pub type __int32_t = ::std::os::raw::c_int;
 pub type __uint32_t = ::std::os::raw::c_uint;
 pub type __uint64_t = ::std::os::raw::c_ulong;
@@ -32,7 +33,7 @@ pub type key_compare_fn = ::std::option::Option<
 pub type key_hash_fn = ::std::option::Option<
     unsafe extern "C" fn(
         input: *const ::std::os::raw::c_void,
-        length: usize,
+        length: size_t,
         seed: uint32,
     ) -> uint32,
 >;
@@ -67,24 +68,24 @@ pub type key_or_message_to_str_fn = ::std::option::Option<
         key_or_message_len: uint64,
         key_or_message: *const ::std::os::raw::c_void,
         str_: *mut ::std::os::raw::c_char,
-        max_len: usize,
+        max_len: uint64,
     ),
 >;
 pub type encode_message_fn = ::std::option::Option<
     unsafe extern "C" fn(
         type_: message_type,
-        value_len: usize,
+        value_len: uint64,
         value: *const ::std::os::raw::c_void,
-        dst_msg_buffer_len: usize,
+        dst_msg_buffer_len: uint64,
         dst_msg_buffer: *mut ::std::os::raw::c_void,
-        out_encoded_len: *mut usize,
+        out_encoded_len: *mut uint64,
     ) -> ::std::os::raw::c_int,
 >;
 pub type decode_message_fn = ::std::option::Option<
     unsafe extern "C" fn(
-        msg_buffer_len: usize,
+        msg_buffer_len: uint64,
         msg_buffer: *const ::std::os::raw::c_void,
-        out_value_len: *mut usize,
+        out_value_len: *mut uint64,
         out_value: *mut *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int,
 >;
@@ -94,9 +95,9 @@ pub struct data_config {
     pub key_size: uint64,
     pub message_size: uint64,
     pub min_key: [::std::os::raw::c_char; 24usize],
-    pub min_key_length: usize,
+    pub min_key_length: uint64,
     pub max_key: [::std::os::raw::c_char; 24usize],
-    pub max_key_length: usize,
+    pub max_key_length: uint64,
     pub key_compare: key_compare_fn,
     pub key_hash: key_hash_fn,
     pub message_class: message_class_fn,
@@ -589,25 +590,25 @@ extern "C" {
 extern "C" {
     pub fn splinterdb_insert(
         kvsb: *const splinterdb,
-        key_len: usize,
+        key_len: uint64,
         key: *const ::std::os::raw::c_char,
-        val_len: usize,
+        val_len: uint64,
         value: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
     pub fn splinterdb_insert_raw_message(
         kvs: *const splinterdb,
-        key_length: usize,
+        key_length: uint64,
         key: *const ::std::os::raw::c_char,
-        raw_message_length: usize,
+        raw_message_length: uint64,
         raw_message: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
     pub fn splinterdb_delete(
         kvsb: *const splinterdb,
-        key_len: usize,
+        key_len: uint64,
         key: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
@@ -643,7 +644,7 @@ extern "C" {
     pub fn splinterdb_lookup_result_init(
         kvs: *const splinterdb,
         result: *mut splinterdb_lookup_result,
-        buffer_len: usize,
+        buffer_len: uint64,
         buffer: *mut ::std::os::raw::c_char,
     );
 }
@@ -657,14 +658,14 @@ extern "C" {
     pub fn splinterdb_lookup_result_value(
         kvs: *const splinterdb,
         result: *const splinterdb_lookup_result,
-        value_size: *mut usize,
+        value_size: *mut uint64,
         value: *mut *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
     pub fn splinterdb_lookup(
         kvs: *const splinterdb,
-        key_length: usize,
+        key_length: uint64,
         key: *const ::std::os::raw::c_char,
         result: *mut splinterdb_lookup_result,
     ) -> ::std::os::raw::c_int;
@@ -678,7 +679,7 @@ extern "C" {
     pub fn splinterdb_iterator_init(
         kvs: *const splinterdb,
         iter: *mut *mut splinterdb_iterator,
-        start_key_length: usize,
+        start_key_length: uint64,
         start_key: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
@@ -694,9 +695,9 @@ extern "C" {
 extern "C" {
     pub fn splinterdb_iterator_get_current(
         iter: *mut splinterdb_iterator,
-        key_len: *mut usize,
+        key_len: *mut uint64,
         key: *mut *const ::std::os::raw::c_char,
-        val_len: *mut usize,
+        val_len: *mut uint64,
         value: *mut *const ::std::os::raw::c_char,
     );
 }
@@ -705,8 +706,8 @@ extern "C" {
 }
 extern "C" {
     pub fn default_data_config_init(
-        max_key_size: usize,
-        max_value_size: usize,
+        max_key_size: uint64,
+        max_value_size: uint64,
         out_cfg: *mut data_config,
     );
 }

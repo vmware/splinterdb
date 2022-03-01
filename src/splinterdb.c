@@ -168,9 +168,9 @@ static_assert((SPLINTERDB_MAX_KEY_SIZE <= UINT8_MAX),
 
 static int
 encode_key(void       *key_buffer,
-           size_t      key_buffer_len,
+           uint64      key_buffer_len,
            const void *key,
-           size_t      key_len)
+           uint64      key_len)
 {
    if (key_len > SPLINTERDB_MAX_KEY_SIZE) {
       platform_error_log("splinterdb.encode_key requires "
@@ -258,7 +258,7 @@ splinterdb_shim_key_to_string(const data_config *cfg,
                               uint64             unused_key_len,
                               const void        *key_raw,
                               char              *str,
-                              size_t             max_len)
+                              uint64             max_len)
 {
 
    data_config          *app_cfg = (data_config *)(cfg->context);
@@ -611,7 +611,7 @@ splinterdb_deregister_thread(splinterdb *kvs)
 }
 
 static int
-validate_key_length(const splinterdb *kvs, size_t key_length)
+validate_key_length(const splinterdb *kvs, uint64 key_length)
 {
    if (key_length > kvs->app_data_cfg.key_size) {
       platform_error_log("key of size %lu exceeds data_config.key_size %lu",
@@ -638,9 +638,9 @@ validate_key_length(const splinterdb *kvs, size_t key_length)
  */
 int
 splinterdb_insert_raw_message(const splinterdb *kvs,            // IN
-                              size_t            key_length,     // IN
+                              uint64            key_length,     // IN
                               const char       *key,            // IN
-                              size_t            message_length, // IN
+                              uint64            message_length, // IN
                               const char       *message         // IN
 )
 {
@@ -664,16 +664,16 @@ splinterdb_insert_raw_message(const splinterdb *kvs,            // IN
 
 int
 splinterdb_insert(const splinterdb *kvsb,
-                  size_t            key_len,
+                  uint64            key_len,
                   const char       *key,
-                  size_t            val_len,
+                  uint64            val_len,
                   const char       *value)
 {
    platform_assert(kvsb->app_data_cfg.encode_message != NULL);
 
-   size_t max_msg_len                  = kvsb->app_data_cfg.message_size;
+   uint64 max_msg_len                  = kvsb->app_data_cfg.message_size;
    char   msg_buffer[MAX_MESSAGE_SIZE] = {0};
-   size_t encoded_len;
+   uint64 encoded_len;
    int    rc = kvsb->app_data_cfg.encode_message(MESSAGE_TYPE_INSERT,
                                               val_len,
                                               value,
@@ -688,13 +688,13 @@ splinterdb_insert(const splinterdb *kvsb,
 }
 
 int
-splinterdb_delete(const splinterdb *kvsb, size_t key_len, const char *key)
+splinterdb_delete(const splinterdb *kvsb, uint64 key_len, const char *key)
 {
    platform_assert(kvsb->app_data_cfg.encode_message != NULL);
 
-   size_t max_msg_len                  = kvsb->app_data_cfg.message_size;
+   uint64 max_msg_len                  = kvsb->app_data_cfg.message_size;
    char   msg_buffer[MAX_MESSAGE_SIZE] = {0};
-   size_t encoded_len;
+   uint64 encoded_len;
    int    rc = kvsb->app_data_cfg.encode_message(
       MESSAGE_TYPE_DELETE, 0, NULL, max_msg_len, msg_buffer, &encoded_len);
    if (rc != 0) {
@@ -720,7 +720,7 @@ _Static_assert(sizeof(_splinterdb_lookup_result)
 void
 splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
                               splinterdb_lookup_result *result,     // IN/OUT
-                              size_t                    buffer_len, // IN
+                              uint64                    buffer_len, // IN
                               char                     *buffer      // IN
 )
 {
@@ -742,7 +742,7 @@ splinterdb_lookup_result_found(const splinterdb_lookup_result *result) // IN
    return trunk_lookup_found(&_result->value);
 }
 
-static size_t
+static uint64
 splinterdb_lookup_result_size(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
@@ -759,7 +759,7 @@ splinterdb_lookup_result_data(const splinterdb_lookup_result *result) // IN
 int
 splinterdb_lookup_result_value(const splinterdb               *kvs,
                                const splinterdb_lookup_result *result, // IN
-                               size_t      *value_size,                // OUT
+                               uint64      *value_size,                // OUT
                                const char **value)
 {
 
@@ -796,7 +796,7 @@ splinterdb_lookup_result_value(const splinterdb               *kvs,
  */
 int
 splinterdb_lookup(const splinterdb         *kvs,        // IN
-                  size_t                    key_length, // IN
+                  uint64                    key_length, // IN
                   const char               *key,        // IN
                   splinterdb_lookup_result *result)     // IN/OUT
 {
@@ -829,7 +829,7 @@ struct splinterdb_iterator {
 int
 splinterdb_iterator_init(const splinterdb     *kvs,              // IN
                          splinterdb_iterator **iter,             // OUT
-                         size_t                start_key_length, // IN
+                         uint64                start_key_length, // IN
                          const char           *start_key         // IN
 )
 {
@@ -906,9 +906,9 @@ splinterdb_iterator_status(const splinterdb_iterator *iter)
 
 void
 splinterdb_iterator_get_current(splinterdb_iterator *iter,    // IN
-                                size_t              *key_len, // OUT
+                                uint64              *key_len, // OUT
                                 const char         **key,     // OUT
-                                size_t              *val_len, // OUT
+                                uint64              *val_len, // OUT
                                 const char         **value    // OUT
 )
 {
@@ -926,7 +926,7 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,    // IN
    *key     = (const char *)(&kenc->data);
    *key_len = kenc->length;
 
-   size_t      message_length = slice_length(message_slice);
+   uint64      message_length = slice_length(message_slice);
    const char *message_buffer = slice_data(message_slice);
 
    int rc = iter->parent->app_data_cfg.decode_message(

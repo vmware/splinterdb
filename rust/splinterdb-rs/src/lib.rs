@@ -73,8 +73,8 @@ impl<'a> RangeIterator<'a> {
     fn _stash_current(&mut self) {
         let mut key_out = ::std::ptr::null();
         let mut val_out = ::std::ptr::null();
-        let mut key_bytes_out: usize = 0;
-        let mut val_bytes_out: usize = 0;
+        let mut key_bytes_out: u64 = 0;
+        let mut val_bytes_out: u64 = 0;
 
         let (key, value): (&[u8], &[u8]) = unsafe {
             splinterdb_sys::splinterdb_iterator_get_current(
@@ -85,8 +85,14 @@ impl<'a> RangeIterator<'a> {
                 &mut val_out,
             );
             (
-                ::std::slice::from_raw_parts(::std::mem::transmute(key_out), key_bytes_out),
-                ::std::slice::from_raw_parts(::std::mem::transmute(val_out), val_bytes_out),
+                ::std::slice::from_raw_parts(
+                    ::std::mem::transmute(key_out),
+                    key_bytes_out as usize,
+                ),
+                ::std::slice::from_raw_parts(
+                    ::std::mem::transmute(val_out),
+                    val_bytes_out as usize,
+                ),
             )
         };
         let r = IteratorResult { key, value };
@@ -136,9 +142,9 @@ impl SplinterDB {
         let rc = unsafe {
             splinterdb_sys::splinterdb_insert(
                 self._inner,
-                key.len(),
+                key.len() as u64,
                 ::std::mem::transmute(key.as_ptr()),
-                value.len(),
+                value.len() as u64,
                 ::std::mem::transmute(value.as_ptr()),
             )
         };
@@ -149,7 +155,7 @@ impl SplinterDB {
         let rc = unsafe {
             splinterdb_sys::splinterdb_delete(
                 self._inner,
-                key.len(),
+                key.len() as u64,
                 ::std::mem::transmute(key.as_ptr()),
             )
         };
@@ -168,7 +174,7 @@ impl SplinterDB {
 
             let rc = splinterdb_sys::splinterdb_lookup(
                 self._inner,
-                key.len(),
+                key.len() as u64,
                 ::std::mem::transmute(key.as_ptr()),
                 &mut lr,
             );
@@ -180,7 +186,7 @@ impl SplinterDB {
             }
 
             let mut value_ptr: *const std::os::raw::c_char = std::mem::zeroed();
-            let mut value_size: usize = 0;
+            let mut value_size: u64 = 0;
             let rc = splinterdb_sys::splinterdb_lookup_result_value(
                 self._inner,
                 &lr,
@@ -189,11 +195,11 @@ impl SplinterDB {
             );
             as_result(rc)?;
 
-            let mut value: Vec<u8> = vec![0; value_size];
+            let mut value: Vec<u8> = vec![0; value_size as usize];
             std::ptr::copy(
                 value_ptr,
                 std::mem::transmute(value.as_mut_ptr()),
-                value_size,
+                value_size as usize,
             );
             Ok(LookupResult::Found(value))
         }
@@ -210,7 +216,7 @@ impl SplinterDB {
             splinterdb_sys::splinterdb_iterator_init(
                 self._inner,
                 &mut iter,
-                start_ptr_len,
+                start_ptr_len as u64,
                 start_ptr,
             )
         };
@@ -240,8 +246,8 @@ fn db_create_or_open<P: AsRef<Path>>(
 
     unsafe {
         splinterdb_sys::default_data_config_init(
-            cfg.max_key_size as usize,
-            cfg.max_value_size as usize,
+            cfg.max_key_size as u64,
+            cfg.max_value_size as u64,
             &mut sdb_cfg.data_cfg,
         );
     };
