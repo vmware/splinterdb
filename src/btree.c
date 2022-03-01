@@ -4,16 +4,16 @@
 #include "btree_private.h"
 #include "poison.h"
 
-char trace_key[24] = {0x00, 0x00, 0x00, 0x00, 0x00, 0xc7, 0xc9, 0xbc,
-                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+/* char trace_key[24] = {0x00, 0x00, 0x00, 0x00, 0x00, 0xc7, 0xc9, 0xbc, */
+/*                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, */
+/*                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; */
 
 void
 log_trace_key(slice key, char *msg)
 {
-   if (slice_lex_cmp(key, slice_create(24, trace_key)) == 0) {
-      platform_log("BTREE_TRACE_KEY: %s\n", msg);
-   }
+   /* if (slice_lex_cmp(key, slice_create(24, trace_key)) == 0) { */
+   /*    platform_log("BTREE_TRACE_KEY: %s\n", msg); */
+   /* } */
 }
 
 /******************************************************************
@@ -754,7 +754,7 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
          total_bytes += sizeof_leaf_entry(entry);
       }
    }
-   total_bytes += (num_entries + spec->old_entry_state != still_exists)
+   total_bytes += (num_entries + (spec->old_entry_state != still_exists))
                   * sizeof(table_entry);
 
    /* Now figure out the number of entries to move, and figure out how
