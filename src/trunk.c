@@ -8103,7 +8103,6 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
    }
 
    // look in leaf
-   bool found;
    trunk_print_locked_node(spl, node, PLATFORM_DEFAULT_LOG_HANDLE);
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
    writable_buffer_reinit(&data);
@@ -8119,7 +8118,6 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                    node->disk_addr,
                    0,
                    message_str);
-      found = FALSE;
    } else {
       for (uint16 branch_no = pdata->start_branch;
            branch_no != trunk_end_branch(spl, node);
@@ -8211,10 +8209,11 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
       uint64 kib_in_branch = 0;
       // trunk_branch_extent_count(spl, node, branch_no);
       kib_in_branch *= trunk_extent_size(&spl->cfg) / 1024;
-      fraction space_amp = init_fraction(
-         kib_in_branch * 1024,
-         num_tuples_in_branch
-            * (spl->cfg.data_cfg->key_size + spl->cfg.data_cfg->message_size));
+      fraction space_amp =
+         init_fraction(kib_in_branch * 1024,
+                       num_tuples_in_branch
+                          * (spl->cfg.data_cfg->key_size
+                             + 0 /*spl->cfg.data_cfg->message_size*/));
       platform_log(
          "| %6u | %12lu | %12lu | %8luKiB |   " FRACTION_FMT(2, 2) "   |\n",
          branch_no,

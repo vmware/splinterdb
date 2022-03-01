@@ -511,8 +511,8 @@ do_operation(test_splinter_thread_params *params,
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, op_num, &msg);
             ts = platform_get_timestamp();
-            platform_status rc = trunk_insert(
-               spl, key, trunk_message_slice(spl, writable_buffer_data(&msg)));
+            platform_status rc =
+               trunk_insert(spl, key, writable_buffer_to_slice(&msg));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
             params->insert_stats.duration += ts;
