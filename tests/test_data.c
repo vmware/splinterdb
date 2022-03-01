@@ -174,13 +174,61 @@ test_data_message_to_string(const data_config *cfg,
    debug_hex_encode(str, len, raw_data, raw_data_len);
 }
 
-data_config test_data_config = {
+static int
+test_encode_message(message_type type,
+                    size_t       value_len,
+                    const void  *value,
+                    size_t       dst_msg_buffer_len,
+                    void        *dst_msg_buffer,
+                    size_t      *out_encoded_len)
+{
+   data_handle *msg  = (data_handle *)dst_msg_buffer;
+   msg->message_type = type;
+   msg->ref_count    = 1;
+   if (value_len + sizeof(data_handle) > dst_msg_buffer_len) {
+      platform_error_log(
+         "encode_message: "
+         "value_len %lu + encoding header %lu exceeds buffer size %lu bytes.",
+         value_len,
+         sizeof(data_handle),
+         dst_msg_buffer_len);
+      return EINVAL;
+   }
+   if (value_len > 0) {
+      memmove(msg->data, value, value_len);
+   }
+   *out_encoded_len = sizeof(data_handle) + value_len;
+   return 0;
+}
+
+static int
+test_decode_message(size_t       msg_buffer_len,
+                    const void  *msg_buffer,
+                    size_t      *out_value_len,
+                    const char **out_value)
+{
+   if (msg_buffer_len < sizeof(data_handle)) {
+      platform_error_log("decode_message: message_buffer_len=%lu must be "
+                         "at least %lu bytes.",
+                         msg_buffer_len,
+                         sizeof(data_handle));
+      return EINVAL;
+   }
+   const data_handle *msg = (const data_handle *)msg_buffer;
+   *out_value_len         = msg_buffer_len - sizeof(data_handle);
+   *out_value             = (const void *)(msg->data);
+   return 0;
+}
+
+
+const data_config test_data_config = {
    .key_size           = 24,
    .message_size       = 24,
    .min_key            = {0},
    .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+   .max_key_length     = 24,
    .key_compare        = test_data_key_cmp,
    .key_hash           = platform_hash32,
    .key_to_string      = test_data_key_to_string,
@@ -188,4 +236,6 @@ data_config test_data_config = {
    .merge_tuples       = test_data_merge_tuples,
    .merge_tuples_final = test_data_merge_tuples_final,
    .message_class      = test_data_message_class,
+   .encode_message     = test_encode_message,
+   .decode_message     = test_decode_message,
 };

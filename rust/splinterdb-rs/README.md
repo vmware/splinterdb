@@ -1,7 +1,6 @@
 # `splinterdb-rs`
 
-This crate aims to be a safe and ergonomic Rust wrapper for the public API of SplinterDB.
+This crate aims to be a safe and ergonomic Rust wrapper SplinterDB's public API.
 
-It currently exposes the `splinterdb_kv` functionality, but could expand in the future.
-
-It is probably buggy right now.
+Currently, it exposes a simple key/value abstraction, by using the `splinterdb` and
+`default_data_config` modules.

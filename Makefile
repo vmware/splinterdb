@@ -42,8 +42,8 @@ UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # ----
 # Binaries from unit-test sources in tests/unit/ sub-dir
-# Although the sources are in, say, tests/unit/splinterdb_kv_test.c, and so on
-# the binaries are named bin/unit/splinterdb_kv_test.
+# Although the sources are in, say, tests/unit/splinterdb_quick_test.c, and so on
+# the binaries are named bin/unit/splinterdb_quick_test.
 # Also, there may be other shared .c files that don't yield a standalone
 # binary. Hence, only build a list from files named *_test.c
 # Resolves to a list: bin/unit/a_test bin/unit/b_test bin/unit/c_test ...
@@ -252,15 +252,11 @@ $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                           
                                     $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                     $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/splinterdb_test: $(COMMON_TESTOBJ)                             \
+$(BINDIR)/$(UNITDIR)/splinterdb_quick_test: $(COMMON_TESTOBJ)                             \
                                       $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                       $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/splinterdb_kv_test: $(COMMON_TESTOBJ)                              \
-                                         $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o  \
-                                         $(LIBDIR)/libsplinterdb.so
-
-$(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test: $(COMMON_TESTOBJ)                             \
+$(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                             \
                                                 $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                 $(LIBDIR)/libsplinterdb.so
 
@@ -271,9 +267,8 @@ unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
 unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
 unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
-unit/splinterdb_test:              $(BINDIR)/$(UNITDIR)/splinterdb_test
-unit/splinterdb_kv_test:           $(BINDIR)/$(UNITDIR)/splinterdb_kv_test
-unit/splinterdb_kv_stress_test:    $(BINDIR)/$(UNITDIR)/splinterdb_kv_stress_test
+unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
+unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
 unit_test:                         $(BINDIR)/unit_test
 
 #*************************************************************#

@@ -7,7 +7,7 @@
 #include "splinterdb/data.h"
 #include "util.h"
 
-extern data_config test_data_config;
+const extern data_config test_data_config;
 
 typedef struct PACKED data_handle {
    uint8 message_type;

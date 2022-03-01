@@ -79,11 +79,11 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    bin/unit_test --list
 
-   bin/unit_test --list splinterdb
+   bin/unit_test --list splinterdb_quick
 
    bin/unit/btree_test --help
 
-   bin/unit/splinterdb_test --list
+   bin/unit/splinterdb_quick_test --list
 
    set +x
 
@@ -94,8 +94,7 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    start_seconds=$SECONDS
 
    set -x
-   bin/unit/splinterdb_kv_test
-   bin/unit/splinterdb_test
+   bin/unit/splinterdb_quick_test
    bin/unit/btree_test
    bin/unit/util_test
    bin/unit/misc_test
