@@ -11,7 +11,6 @@ init_data_config_from_master_config(data_config   *data_cfg,
                                     master_config *master_cfg)
 {
    data_cfg->key_size     = master_cfg->key_size;
-   data_cfg->message_size = master_cfg->message_size;
    return 1;
 }
 

@@ -188,7 +188,6 @@ test_config_init(trunk_config           *splinter_cfg,
 {
    *data_cfg              = test_data_config;
    (*data_cfg)->key_size     = master_cfg->key_size;
-   (*data_cfg)->message_size = master_cfg->message_size;
 
    io_config_init(io_cfg,
                   master_cfg->page_size,

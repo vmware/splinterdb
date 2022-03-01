@@ -209,7 +209,6 @@ static data_test_config data_test_config_internal = {
    .super =
       {
          .key_size           = 24,
-         .message_size       = 24,
          .min_key            = {0},
          .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
                      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,

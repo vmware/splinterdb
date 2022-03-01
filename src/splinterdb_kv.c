@@ -210,7 +210,6 @@ basic_message_to_string(const data_config *cfg,
 
 static data_config _template_basic_data_config = {
    .key_size           = 0,
-   .message_size       = 0,
    .min_key            = {0},
    .max_key            = {0}, // splinterdb_init_config sets this, we can ignore
    .key_compare        = basic_key_compare,
@@ -246,10 +245,8 @@ new_basic_data_config(const size_t max_key_size,   // IN
    // compute sizes for data_config, which are larger than the sizes the
    // application sees
    const size_t key_size = max_key_size + SPLINTERDB_KV_KEY_HDR_SIZE;
-   const size_t msg_size = max_value_size + SPLINTERDB_KV_MSG_HDR_SIZE;
    *out_cfg              = _template_basic_data_config;
    out_cfg->key_size     = key_size;
-   out_cfg->message_size = msg_size;
 
    // set max_key
    char max_app_key[SPLINTERDB_KV_MAX_KEY_SIZE];
