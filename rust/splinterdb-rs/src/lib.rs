@@ -174,21 +174,20 @@ impl SplinterDB {
             );
             as_result(rc)?;
 
+            let found = splinterdb_sys::splinterdb_lookup_result_found(&lr);
+            if found == 0 {
+                return Ok(LookupResult::NotFound);
+            }
+
             let mut value_ptr: *const std::os::raw::c_char = std::mem::zeroed();
             let mut value_size: usize = 0;
-            let mut found: i32 = 0;
-            let rc = splinterdb_sys::splinterdb_lookup_result_parse(
+            let rc = splinterdb_sys::splinterdb_lookup_result_value(
                 self._inner,
                 &lr,
-                &mut found,
                 &mut value_size,
                 &mut value_ptr,
             );
             as_result(rc)?;
-
-            if found == 0 {
-                return Ok(LookupResult::NotFound);
-            }
 
             let mut value: Vec<u8> = vec![0; value_size];
             std::ptr::copy(

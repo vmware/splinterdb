@@ -651,10 +651,12 @@ extern "C" {
     pub fn splinterdb_lookup_result_deinit(result: *mut splinterdb_lookup_result);
 }
 extern "C" {
-    pub fn splinterdb_lookup_result_parse(
+    pub fn splinterdb_lookup_result_found(result: *const splinterdb_lookup_result) -> bool_;
+}
+extern "C" {
+    pub fn splinterdb_lookup_result_value(
         kvs: *const splinterdb,
         result: *const splinterdb_lookup_result,
-        found: *mut bool_,
         value_size: *mut usize,
         value: *mut *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;

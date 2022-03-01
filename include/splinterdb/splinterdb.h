@@ -180,12 +180,14 @@ splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
 void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result); // IN
 
-// Parse results of a lookup
-// Relies on data_config->decode_message
+// Returns true if the result was found
+bool
+splinterdb_lookup_result_found(const splinterdb_lookup_result *result); // IN
+
+// Decode the value from a found result
 int
-splinterdb_lookup_result_parse(const splinterdb               *kvs,
+splinterdb_lookup_result_value(const splinterdb               *kvs,
                                const splinterdb_lookup_result *result, // IN
-                               bool                          *found,  // OUT
                                size_t      *value_size,                // OUT
                                const char **value                      // OUT
 );

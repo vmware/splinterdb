@@ -742,14 +742,14 @@ splinterdb_lookup_result_found(const splinterdb_lookup_result *result) // IN
    return trunk_lookup_found(&_result->value);
 }
 
-size_t
+static size_t
 splinterdb_lookup_result_size(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
    return writable_buffer_length(&_result->value);
 }
 
-void *
+static void *
 splinterdb_lookup_result_data(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
@@ -757,16 +757,14 @@ splinterdb_lookup_result_data(const splinterdb_lookup_result *result) // IN
 }
 
 int
-splinterdb_lookup_result_parse(const splinterdb               *kvs,
+splinterdb_lookup_result_value(const splinterdb               *kvs,
                                const splinterdb_lookup_result *result, // IN
-                               bool                          *found,  // OUT
                                size_t      *value_size,                // OUT
                                const char **value)
 {
 
-   *found = splinterdb_lookup_result_found(result);
-   if (!*found) {
-      return 0;
+   if (!splinterdb_lookup_result_found(result)) {
+      return EINVAL;
    }
 
    return kvs->app_data_cfg.decode_message(
