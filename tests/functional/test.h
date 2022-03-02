@@ -51,7 +51,7 @@ ycsb_test(int argc, char *argv[]);
 
 /*
  * Initialization for using splinter, need to be called at the start of the test
- * main function. This initializes Splinter's task sub-system.
+ * main function. This initializes SplinterDB's task sub-system.
  */
 static inline platform_status
 test_init_task_system(platform_heap_id    hid,
@@ -176,15 +176,23 @@ generator_average_message_size(test_message_generator *gen)
           + (gen->min_payload_size + gen->max_payload_size) / 2;
 }
 
+/*
+ * test_config_init() --
+ *
+ * Initialize the configuration sub-structures for various sub-systems, using an
+ * input master configuration, master_cfg. A few command-line config parameters
+ * may have been used to setup master_cfg beyond its initial defaults.
+ */
 static inline void
-test_config_init(trunk_config           *splinter_cfg,
-                 data_config           **data_cfg,
-                 shard_log_config       *log_cfg,
-                 clockcache_config      *cache_cfg,
-                 rc_allocator_config    *allocator_cfg,
-                 io_config              *io_cfg,
+test_config_init(trunk_config           *splinter_cfg,  // OUT
+                 data_config           **data_cfg,      // OUT
+                 shard_log_config       *log_cfg,       // OUT
+                 clockcache_config      *cache_cfg,     // OUT
+                 rc_allocator_config    *allocator_cfg, // OUT
+                 io_config              *io_cfg,        // OUT
                  test_message_generator *gen,
-                 master_config          *master_cfg)
+                 master_config          *master_cfg // IN
+)
 {
    *data_cfg              = test_data_config;
    (*data_cfg)->key_size     = master_cfg->key_size;
@@ -227,22 +235,43 @@ test_config_init(trunk_config           *splinter_cfg,
    gen->max_payload_size = master_cfg->message_size;
 }
 
+/*
+ * Some command-line [config] arguments become test execution parameters.
+ * Define a structure to hold these when parsing command-line arguments.
+ */
+typedef struct test_exec_config {
+   uint64 seed;
+   uint64 num_inserts;
+} test_exec_config;
+
+/*
+ * test_parse_args_n() --
+ *
+ * Driver routine to parse command-line configuration arguments, to setup the
+ * config sub-structures for all sub-systems in up to n-SplinterDB instances,
+ * given by the num_config parameter.
+ *
+ * NOTE: test_exec_cfg{} contains test-specific configuration parameters.
+ * Not all tests may need these, so this arg is optional, and can be NULL.
+ */
 static inline platform_status
-test_parse_args_n(trunk_config           *splinter_cfg,
-                  data_config           **data_cfg,
-                  io_config              *io_cfg,
-                  rc_allocator_config    *allocator_cfg,
-                  clockcache_config      *cache_cfg,
-                  shard_log_config       *log_cfg,
-                  uint64                 *seed,
-                  test_message_generator *gen,
-                  uint8                   num_config,
-                  int                     argc,
-                  char                   *argv[])
+test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
+                  data_config           **data_cfg,      // OUT
+                  io_config              *io_cfg,        // OUT
+                  rc_allocator_config    *allocator_cfg, // OUT
+                  clockcache_config      *cache_cfg,     // OUT
+                  shard_log_config       *log_cfg,       // OUT
+                  test_exec_config       *test_exec_cfg, // OUT
+                  test_message_generator *gen,           // OUT
+                  uint8                   num_config,    // IN
+                  int                     argc,          // IN
+                  char                   *argv[]         // IN
+)
 {
    platform_status rc;
    uint8           i;
 
+   // Allocate memory and setup default configs for up to n-instances
    master_config *master_cfg =
       TYPED_ARRAY_MALLOC(platform_get_heap_id(), master_cfg, num_config);
    for (i = 0; i < num_config; i++) {
@@ -264,12 +293,25 @@ test_parse_args_n(trunk_config           *splinter_cfg,
                        gen,
                        &master_cfg[i]);
    }
-   *seed = master_cfg[0].seed;
+
+   // All the n-SplinterDB instances will work with the same set of
+   // test execution parameters.
+   if (test_exec_cfg) {
+      test_exec_cfg->seed        = master_cfg[0].seed;
+      test_exec_cfg->num_inserts = master_cfg[0].num_inserts;
+   }
+
    platform_free(platform_get_heap_id(), master_cfg);
 
    return STATUS_OK;
 }
 
+/*
+ * test_parse_args() --
+ *
+ * Parse the command-line configuration arguments to setup the config
+ * sub-structures for individual SplinterDB sub-systems.
+ */
 static inline platform_status
 test_parse_args(trunk_config           *splinter_cfg,
                 data_config           **data_cfg,
@@ -282,17 +324,27 @@ test_parse_args(trunk_config           *splinter_cfg,
                 int                     argc,
                 char                   *argv[])
 {
-   return test_parse_args_n(splinter_cfg,
-                            data_cfg,
-                            io_cfg,
-                            allocator_cfg,
-                            cache_cfg,
-                            log_cfg,
-                            seed,
-                            gen,
-                            1,
-                            argc,
-                            argv);
+   test_exec_config test_exec_cfg;
+   ZERO_STRUCT(test_exec_cfg);
+
+   platform_status rc;
+   rc = test_parse_args_n(splinter_cfg,
+                          data_cfg,
+                          io_cfg,
+                          allocator_cfg,
+                          cache_cfg,
+                          log_cfg,
+                          &test_exec_cfg,
+                          gen,
+                          1,
+                          argc,
+                          argv);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   // Most tests that parse cmdline args are only interested in this one.
+   *seed = test_exec_cfg.seed;
+   return rc;
 }
 
 // monotonically increasing counter to generate splinter id for tests.

@@ -25,8 +25,16 @@ SRC := $(shell find $(SRCDIR) -name "*.c")
 # These objects are shared between functional/ and unit/ test binaries.
 COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
+
+# Symbol for all unit-test sources, from which we will build standalone
+# unit-test binaries.
 UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
 TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
+
+# Some unit-tests which are slow will be skipped from this list, as we want the
+# resulting unit_test to run as fast as it can. For now, we are just skipping one
+# test, which will have to be run stand-alone.
+FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test")
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
@@ -36,9 +44,9 @@ COMMON_TESTOBJ= $(COMMON_TESTSRC:%.c=$(OBJDIR)/%.o)
 # Objects from test sources in tests/functional/ sub-dir
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 
-# Objects from unit-test sources in tests/unit/ sub-dir
+# Objects from unit-test sources in tests/unit/ sub-dir, for fast unit-tests
 # Resolves to a list: obj/tests/unit/a.o obj/tests/unit/b.o obj/tests/unit/c.o
-UNIT_TESTOBJS= $(UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
+FAST_UNIT_TESTOBJS= $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # ----
 # Binaries from unit-test sources in tests/unit/ sub-dir
@@ -77,14 +85,17 @@ DEFAULT_LDFLAGS += -ggdb3 -pthread
 # ##########################################################################
 # To set sanitiziers, use environment variables, e.g.
 #   DEFAULT_CFLAGS="-fsanitize=address" DEFAULT_LDFLAGS="-fsanitize=address" make debug
+#
 # Note(s):
 #  - Address sanitizer builds: -fsanitize=address
 #     - Ctests will be silently skipped with clang builds. (Known issue.)
 #       Use gcc to build in Asan mode to run unit-tests.
+#     - Tests will run slow in address sanitizer builds.
 #
 #  - Memory sanitizer builds: -fsanitize=memory
 #     - Builds will fail with gcc due to compiler error. Use clang instead.
-
+#     - Tests will run even slower in memory sanitizer builds.
+#
 CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
 LDFLAGS += $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
@@ -178,10 +189,10 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
 
 # Dependencies for the main executables
 $(BINDIR)/driver_test: $(FUNCTIONAL_TESTOBJ) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so
-$(BINDIR)/unit_test: $(UNIT_TESTOBJS) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o
+$(BINDIR)/unit_test: $(FAST_UNIT_TESTOBJS) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o
 
-###################################################
-# dependencies for the mini unit tests
+#################################################################
+# Dependencies for the mini unit tests
 # Each mini unit test is a self-contained binary.
 # It links only with its needed .o files
 #
@@ -228,13 +239,13 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
             $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
             $(CLOCKCACHE_SYS)
 
-#
+#################################################################
 # The dependencies of each mini unit test.
 #
 # Note each test bin/unit/<x> also depends on obj/unit/<x>.o, as
 # defined above using unit_test_self_dependency.
 #
-$(BINDIR)/$(UNITDIR)/misc_test: $(PLATFORM_SYS)
+$(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)
 

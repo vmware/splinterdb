@@ -86,6 +86,7 @@ test_config_parse(test_config *cfg,
    temp_config *temp_cfg =
       TYPED_ARRAY_MALLOC(platform_get_heap_id(), temp_cfg, num_config);
    for (i = 0; i < argc; i++) {
+      // Don't be mislead; this is not dead-code. See the config macro expansion
       if (0) {
          config_set_mib("tree-size", cfg, tree_size)
          {

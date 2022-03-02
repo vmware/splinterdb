@@ -66,8 +66,9 @@ typedef struct master_config {
    uint64 key_size;
    uint64 message_size;
 
-   // test
+   // Test-execution configuration parameters
    uint64 seed;
+   uint64 num_inserts;
 } master_config;
 
 
