@@ -22,6 +22,8 @@
 
 #include "poison.h"
 
+#define MAX_ENCODED_MESSAGE_SIZE (4096)
+
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
 const char *
 splinterdb_get_version()
@@ -675,13 +677,14 @@ splinterdb_insert(const splinterdb *kvsb,
 {
    platform_assert(kvsb->shim_data_cfg.app_data_cfg->encode_message != NULL);
 
-   char   msg_buffer[MAX_MESSAGE_SIZE] = {0};
+
+   char   msg_buffer[MAX_ENCODED_MESSAGE_SIZE] = {0};
    uint64 encoded_len;
    int    rc =
       kvsb->shim_data_cfg.app_data_cfg->encode_message(MESSAGE_TYPE_INSERT,
                                                        val_len,
                                                        value,
-                                                       MAX_MESSAGE_SIZE,
+                                                       MAX_ENCODED_MESSAGE_SIZE,
                                                        msg_buffer,
                                                        &encoded_len);
    if (rc != 0) {
@@ -696,10 +699,15 @@ splinterdb_delete(const splinterdb *kvsb, uint64 key_len, const char *key)
 {
    platform_assert(kvsb->shim_data_cfg.app_data_cfg->encode_message != NULL);
 
-   char   msg_buffer[MAX_MESSAGE_SIZE] = {0};
+   char   msg_buffer[MAX_ENCODED_MESSAGE_SIZE] = {0};
    uint64 encoded_len;
-   int    rc = kvsb->shim_data_cfg.app_data_cfg->encode_message(
-      MESSAGE_TYPE_DELETE, 0, NULL, MAX_MESSAGE_SIZE, msg_buffer, &encoded_len);
+   int    rc =
+      kvsb->shim_data_cfg.app_data_cfg->encode_message(MESSAGE_TYPE_DELETE,
+                                                       0,
+                                                       NULL,
+                                                       MAX_ENCODED_MESSAGE_SIZE,
+                                                       msg_buffer,
+                                                       &encoded_len);
    if (rc != 0) {
       return rc;
    }
