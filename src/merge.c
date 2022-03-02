@@ -401,12 +401,12 @@ merge_iterator_create(platform_heap_id hid,
    if (!out_itor || !itor_arr || !cfg || num_trees < 0
        || num_trees >= ARRAY_SIZE(merge_itor->ordered_iterator_stored))
    {
-      platform_log("merge_iterator_create: bad parameter merge_itor %p"
-                   " num_trees %d itor_arr %p cfg %p\n",
-                   out_itor,
-                   num_trees,
-                   itor_arr,
-                   cfg);
+      platform_default_log("merge_iterator_create: bad parameter merge_itor %p"
+                           " num_trees %d itor_arr %p cfg %p\n",
+                           out_itor,
+                           num_trees,
+                           itor_arr,
+                           cfg);
       return STATUS_BAD_PARAM;
    }
 
@@ -625,28 +625,28 @@ merge_iterator_print(merge_iterator *merge_itor)
    data_config *data_cfg = merge_itor->cfg;
    iterator_get_curr(&merge_itor->super, &key, &data);
 
-   platform_log("****************************************\n");
-   platform_log("** merge iterator\n");
-   platform_log("**  - trees: %u remaining: %u\n",
-                merge_itor->num_trees,
-                merge_itor->num_remaining);
-   platform_log("** curr: %s\n", key_string(data_cfg, key));
-   platform_log("----------------------------------------\n");
+   platform_default_log("****************************************\n");
+   platform_default_log("** merge iterator\n");
+   platform_default_log("**  - trees: %u remaining: %u\n",
+                        merge_itor->num_trees,
+                        merge_itor->num_remaining);
+   platform_default_log("** curr: %s\n", key_string(data_cfg, key));
+   platform_default_log("----------------------------------------\n");
    for (i = 0; i < merge_itor->num_trees; i++) {
       bool at_end;
       iterator_at_end(merge_itor->ordered_iterators[i]->itor, &at_end);
-      platform_log("%u: ", merge_itor->ordered_iterators[i]->seq);
+      platform_default_log("%u: ", merge_itor->ordered_iterators[i]->seq);
       if (at_end) {
-         platform_log("# : ");
+         platform_default_log("# : ");
       } else {
-         platform_log("_ : ");
+         platform_default_log("_ : ");
       }
       if (i < merge_itor->num_remaining) {
          iterator_get_curr(merge_itor->ordered_iterators[i]->itor, &key, &data);
-         platform_log("%s\n", key_string(data_cfg, key));
+         platform_default_log("%s\n", key_string(data_cfg, key));
       } else {
-         platform_log("\n");
+         platform_default_log("\n");
       }
    }
-   platform_log("\n");
+   platform_default_log("\n");
 }

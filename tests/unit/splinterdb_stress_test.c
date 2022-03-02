@@ -48,8 +48,8 @@ CTEST_DATA(splinterdb_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_stress)
 {
-   Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
 
    data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
                                              .cache_size = 1000 * Mega,
@@ -120,7 +120,7 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
 
    const uint32 num_inserts = 2 * 1000 * 1000;
 
-   platform_log("loading data...");
+   platform_default_log("loading data...");
    for (uint32 i = 0; i < num_inserts; i++) {
       char key_buffer[TEST_KEY_SIZE]     = {0};
       char value_buffer[TEST_VALUE_SIZE] = {0};
@@ -132,11 +132,11 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
       ASSERT_EQUAL(0, rc);
    }
 
-   platform_log("loaded %u k/v pairs\n", num_inserts);
+   platform_default_log("loaded %u k/v pairs\n", num_inserts);
 
    uint32 num_rounds = 5;
    for (uint32 round = 0; round < num_rounds; round++) {
-      platform_log("range delete round %d...\n", round);
+      platform_default_log("range delete round %d...\n", round);
       char start_key_data[4];
       random_bytes(&rand_state, start_key_data, sizeof(start_key_data));
       const uint32 num_to_delete = num_inserts / num_rounds;
@@ -192,7 +192,7 @@ exec_worker_thread(void *w)
 static void
 naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
 {
-   platform_log("\tcollecting keys to delete...\n");
+   platform_default_log("\tcollecting keys to delete...\n");
    char *keys_to_delete = calloc(count, TEST_KEY_SIZE);
 
    splinterdb_iterator *it;
@@ -218,7 +218,7 @@ naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
    ASSERT_EQUAL(0, rc);
    splinterdb_iterator_deinit(it);
 
-   platform_log("\tdeleting collected keys...\n");
+   platform_default_log("\tdeleting collected keys...\n");
    for (uint32 i = 0; i < num_found; i++) {
       slice key_to_delete =
          slice_create(TEST_KEY_SIZE, keys_to_delete + i * TEST_KEY_SIZE);
@@ -226,5 +226,5 @@ naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
    }
 
    free(keys_to_delete);
-   platform_log("\tdeleted %u k/v pairs\n", num_found);
+   platform_default_log("\tdeleted %u k/v pairs\n", num_found);
 }

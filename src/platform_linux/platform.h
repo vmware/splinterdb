@@ -449,6 +449,42 @@ platform_sort_slow(void               *base,
 #   define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
+/*
+ * Linux understands that you cannot continue after a failed assert already,
+ * so we do not need a workaround for platform_assert in linux
+ */
+__attribute__((noreturn)) void
+platform_assert_false(const char *filename,
+                      int         linenumber,
+                      const char *functionname,
+                      const char *expr,
+                      const char *message,
+                      ...);
+
+void
+platform_assert_msg(platform_log_handle *log_handle,
+                    const char          *filename,
+                    int                  linenumber,
+                    const char          *functionname,
+                    const char          *expr,
+                    const char          *message,
+                    va_list              args);
+
+/*
+ * Caller-macro to invoke assertion checking. Avoids a function call for
+ * most cases when the assertion will succeed.
+ *
+ * Note: The dangling fprintf() is really dead-code, as it executes after the
+ * "noreturn" function implementing the assertion check executes, and fails.
+ * -BUT- The fprintf() is solely there as a small compile-time check to ensure
+ * that the arguments match the print-formats in any user-supplied message.
+ */
+#define platform_assert(expr, ...)                                             \
+   ((expr) ? (void)0                                                           \
+           : (platform_assert_false(                                           \
+                 __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__),     \
+              (void)fprintf(stderr, " " __VA_ARGS__)))
+
 static inline timestamp
 platform_get_timestamp(void);
 
@@ -485,7 +521,9 @@ void
 platform_histo_destroy(platform_heap_id heap_id, platform_histo_handle histo);
 
 void
-platform_histo_print(platform_histo_handle histo, const char *name);
+platform_histo_print(platform_histo_handle histo,
+                     const char           *name,
+                     platform_log_handle  *log_handle);
 
 static inline threadid
 platform_get_tid();

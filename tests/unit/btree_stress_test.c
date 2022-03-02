@@ -237,10 +237,10 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    if (!iterator_tests(
           (cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs, data->hid))
    {
-      platform_log("invalid ranges in original tree\n");
+      platform_default_log("invalid ranges in original tree\n");
    }
 
-   /* platform_log("\n\n\n"); */
+   /* platform_default_log("\n\n\n"); */
    /* btree_print_tree((cache *)&cc, &dbtree_cfg, root_addr); */
 
    uint64 packed_root_addr = pack_tests(
@@ -249,10 +249,10 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       ASSERT_TRUE(FALSE, "Pack failed.\n");
    }
 
-   /* platform_log("\n\n\n"); */
+   /* platform_default_log("\n\n\n"); */
    /* btree_print_tree((cache *)&cc, &dbtree_cfg,
     * packed_root_addr); */
-   /* platform_log("\n\n\n"); */
+   /* platform_default_log("\n\n\n"); */
 
    rc = query_tests((cache *)&data->cc,
                     &data->dbtree_cfg,
@@ -496,7 +496,7 @@ pack_tests(cache           *cc,
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);
    } else {
-      platform_log("Packed %lu items ", req.num_tuples);
+      platform_default_log("Packed %lu items ", req.num_tuples);
    }
 
    btree_pack_req_deinit(&req, hid);

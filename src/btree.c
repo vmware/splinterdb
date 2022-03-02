@@ -2170,7 +2170,7 @@ btree_async_callback(cache_async_ctxt *cache_ctxt)
 
    platform_assert(SUCCESS(cache_ctxt->status));
    platform_assert(cache_ctxt->page);
-   //   platform_log("%s:%d tid %2lu: ctxt %p is callback with page %p
+   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page %p
    //   (%#lx)\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt,
    //                cache_ctxt->page, ctxt->child_addr);
@@ -2235,7 +2235,7 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
             switch (res) {
                case async_locked:
                case async_no_reqs:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            retry\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -2246,7 +2246,7 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
                   done = TRUE;
                   break;
                case async_io_started:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            io_started\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -2603,19 +2603,19 @@ btree_iterator_print(iterator *itor)
    debug_assert(itor != NULL);
    btree_iterator *btree_itor = (btree_iterator *)itor;
 
-   platform_log("########################################\n");
-   platform_log("## btree_itor: %p\n", itor);
-   platform_log("## root: %lu\n", btree_itor->root_addr);
-   platform_log(
+   platform_default_log("########################################\n");
+   platform_default_log("## btree_itor: %p\n", itor);
+   platform_default_log("## root: %lu\n", btree_itor->root_addr);
+   platform_default_log(
       "## curr %lu end %lu\n", btree_itor->curr.addr, btree_itor->end_addr);
-   platform_log("## idx %lu end_idx %lu generation %lu\n",
-                btree_itor->idx,
-                btree_itor->end_idx,
-                btree_itor->end_generation);
-   btree_print_node(btree_itor->cc,
+   platform_default_log("## idx %lu end_idx %lu generation %lu\n",
+                        btree_itor->idx,
+                        btree_itor->end_idx,
+                        btree_itor->end_generation);
+   btree_print_node(Platform_default_log_handle,
+                    btree_itor->cc,
                     btree_itor->cfg,
-                    &btree_itor->curr,
-                    PLATFORM_DEFAULT_LOG_HANDLE);
+                    &btree_itor->curr);
 }
 
 const static iterator_ops btree_iterator_ops = {
@@ -3166,99 +3166,104 @@ btree_count_in_range_by_iterator(cache        *cc,
  *-----------------------------------------------------------------------------
  */
 void
-btree_print_locked_node(btree_config          *cfg,
-                        uint64                 addr,
-                        btree_hdr             *hdr,
-                        platform_stream_handle stream)
+btree_print_locked_node(platform_log_handle *log_handle,
+                        btree_config        *cfg,
+                        uint64               addr,
+                        btree_hdr           *hdr)
 {
    data_config *dcfg = cfg->data_cfg;
 
-   platform_log_stream("*******************\n");
+   platform_log(log_handle, "*******************\n");
    if (btree_height(hdr) > 0) {
-      platform_log_stream("**  INDEX NODE \n");
-      platform_log_stream("**  addr: %lu \n", addr);
-      platform_log_stream("**  ptr: %p\n", hdr);
-      platform_log_stream("**  next_addr: %lu \n", hdr->next_addr);
-      platform_log_stream("**  next_extent_addr: %lu \n",
-                          hdr->next_extent_addr);
-      platform_log_stream("**  generation: %lu \n", hdr->generation);
-      platform_log_stream("**  height: %u \n", btree_height(hdr));
-      platform_log_stream("**  next_entry: %u \n", hdr->next_entry);
-      platform_log_stream("**  num_entries: %u \n", btree_num_entries(hdr));
-      platform_log_stream("-------------------\n");
-      platform_log_stream("Table\n");
+      platform_log(log_handle, "**  INDEX NODE \n");
+      platform_log(log_handle, "**  addr: %lu \n", addr);
+      platform_log(log_handle, "**  ptr: %p\n", hdr);
+      platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
+      platform_log(
+         log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
+      platform_log(log_handle, "**  generation: %lu \n", hdr->generation);
+      platform_log(log_handle, "**  height: %u \n", btree_height(hdr));
+      platform_log(log_handle, "**  next_entry: %u \n", hdr->next_entry);
+      platform_log(
+         log_handle, "**  num_entries: %u \n", btree_num_entries(hdr));
+      platform_log(log_handle, "-------------------\n");
+      platform_log(log_handle, "Table\n");
       for (uint64 i = 0; i < hdr->num_entries; i++) {
-         platform_log_stream("  %lu:%u\n", i, btree_get_table_entry(hdr, i));
+         platform_log(
+            log_handle, "  %lu:%u\n", i, btree_get_table_entry(hdr, i));
       }
-      platform_log_stream("\n");
-      platform_log_stream("-------------------\n");
+      platform_log(log_handle, "\n");
+      platform_log(log_handle, "-------------------\n");
       for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
          index_entry *entry = btree_get_index_entry(cfg, hdr, i);
-         platform_log_stream("%2lu:%s -- %lu (%u, %u, %u)\n",
-                             i,
-                             key_string(dcfg, index_entry_key_slice(entry)),
-                             entry->pivot_data.child_addr,
-                             entry->pivot_data.num_kvs_in_subtree,
-                             entry->pivot_data.key_bytes_in_subtree,
-                             entry->pivot_data.message_bytes_in_subtree);
+         platform_log(log_handle,
+                      "%2lu:%s -- %lu (%u, %u, %u)\n",
+                      i,
+                      key_string(dcfg, index_entry_key_slice(entry)),
+                      entry->pivot_data.child_addr,
+                      entry->pivot_data.num_kvs_in_subtree,
+                      entry->pivot_data.key_bytes_in_subtree,
+                      entry->pivot_data.message_bytes_in_subtree);
       }
-      platform_log_stream("\n");
+      platform_log(log_handle, "\n");
    } else {
-      platform_log_stream("**  LEAF NODE \n");
-      platform_log_stream("**  addr: %lu \n", addr);
-      platform_log_stream("**  ptr: %p\n", hdr);
-      platform_log_stream("**  next_addr: %lu \n", hdr->next_addr);
-      platform_log_stream("**  next_extent_addr: %lu \n",
-                          hdr->next_extent_addr);
-      platform_log_stream("**  generation: %lu \n", hdr->generation);
-      platform_log_stream("**  height: %u \n", btree_height(hdr));
-      platform_log_stream("**  next_entry: %u \n", hdr->next_entry);
-      platform_log_stream("**  num_entries: %u \n", btree_num_entries(hdr));
-      platform_log_stream("-------------------\n");
+      platform_log(log_handle, "**  LEAF NODE \n");
+      platform_log(log_handle, "**  addr: %lu \n", addr);
+      platform_log(log_handle, "**  ptr: %p\n", hdr);
+      platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
+      platform_log(
+         log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
+      platform_log(log_handle, "**  generation: %lu \n", hdr->generation);
+      platform_log(log_handle, "**  height: %u \n", btree_height(hdr));
+      platform_log(log_handle, "**  next_entry: %u \n", hdr->next_entry);
+      platform_log(
+         log_handle, "**  num_entries: %u \n", btree_num_entries(hdr));
+      platform_log(log_handle, "-------------------\n");
       for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
-         platform_log_stream("%lu:%u ", i, btree_get_table_entry(hdr, i));
+         platform_log(log_handle, "%lu:%u ", i, btree_get_table_entry(hdr, i));
       }
-      platform_log_stream("\n");
-      platform_log_stream("-------------------\n");
+      platform_log(log_handle, "\n");
+      platform_log(log_handle, "-------------------\n");
       for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
          leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, i);
-         platform_log_stream("%2lu:%s -- %s\n",
-                             i,
-                             key_string(dcfg, leaf_entry_key_slice(entry)),
-                             message_string(dcfg, leaf_entry_message(entry)));
+         platform_log(log_handle,
+                      "%2lu:%s -- %s\n",
+                      i,
+                      key_string(dcfg, leaf_entry_key_slice(entry)),
+                      message_string(dcfg, leaf_entry_message(entry)));
       }
-      platform_log_stream("-------------------\n");
-      platform_log_stream("\n");
+      platform_log(log_handle, "-------------------\n");
+      platform_log(log_handle, "\n");
    }
 }
 
 void
-btree_print_node(cache                 *cc,
-                 btree_config          *cfg,
-                 btree_node            *node,
-                 platform_stream_handle stream)
+btree_print_node(platform_log_handle *log_handle,
+                 cache               *cc,
+                 btree_config        *cfg,
+                 btree_node          *node)
 {
    if (!cache_page_valid(cc, node->addr)) {
-      platform_log_stream("*******************\n");
-      platform_log_stream("** INVALID NODE \n");
-      platform_log_stream("** addr: %lu \n", node->addr);
-      platform_log_stream("-------------------\n");
+      platform_log(log_handle, "*******************\n");
+      platform_log(log_handle, "** INVALID NODE \n");
+      platform_log(log_handle, "** addr: %lu \n", node->addr);
+      platform_log(log_handle, "-------------------\n");
       return;
    }
    btree_node_get(cc, cfg, node, PAGE_TYPE_BRANCH);
-   btree_print_locked_node(cfg, node->addr, node->hdr, stream);
+   btree_print_locked_node(log_handle, cfg, node->addr, node->hdr);
    btree_node_unget(cc, cfg, node);
 }
 
 void
-btree_print_subtree(cache                 *cc,
-                    btree_config          *cfg,
-                    uint64                 addr,
-                    platform_stream_handle stream)
+btree_print_subtree(platform_log_handle *log_handle,
+                    cache               *cc,
+                    btree_config        *cfg,
+                    uint64               addr)
 {
    btree_node node;
    node.addr = addr;
-   btree_print_node(cc, cfg, &node, stream);
+   btree_print_node(log_handle, cc, cfg, &node);
    if (!cache_page_valid(cc, node.addr)) {
       return;
    }
@@ -3268,29 +3273,33 @@ btree_print_subtree(cache                 *cc,
    if (node.hdr->height > 0) {
       for (idx = 0; idx < node.hdr->num_entries; idx++) {
          btree_print_subtree(
-            cc, cfg, btree_get_child_addr(cfg, node.hdr, idx), stream);
+            log_handle, cc, cfg, btree_get_child_addr(cfg, node.hdr, idx));
       }
    }
    btree_node_unget(cc, cfg, &node);
 }
 
 void
-btree_print_tree(cache *cc, btree_config *cfg, uint64 root_addr)
+btree_print_tree(platform_log_handle *log_handle,
+                 cache               *cc,
+                 btree_config        *cfg,
+                 uint64               root_addr)
 {
-   platform_open_log_stream();
-   btree_print_subtree(cc, cfg, root_addr, stream);
-   platform_close_log_stream(PLATFORM_DEFAULT_LOG_HANDLE);
+   btree_print_subtree(log_handle, cc, cfg, root_addr);
 }
 
 void
-btree_print_tree_stats(cache *cc, btree_config *cfg, uint64 addr)
+btree_print_tree_stats(platform_log_handle *log_handle,
+                       cache               *cc,
+                       btree_config        *cfg,
+                       uint64               addr)
 {
    btree_node node;
    node.addr = addr;
    btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
 
-   platform_log("Tree stats: height %u\n", node.hdr->height);
-   cache_print_stats(cc);
+   platform_default_log("Tree stats: height %u\n", node.hdr->height);
+   cache_print_stats(log_handle, cc);
 
    btree_node_unget(cc, cfg, &node);
 }
@@ -3327,7 +3336,6 @@ btree_verify_node(cache        *cc,
    table_index idx;
    bool        result = FALSE;
 
-   platform_open_log_stream();
    for (idx = 0; idx < node.hdr->num_entries; idx++) {
       if (node.hdr->height == 0) {
          // leaf node
@@ -3337,8 +3345,8 @@ btree_verify_node(cache        *cc,
                                   btree_get_tuple_key(cfg, node.hdr, idx + 1))
                 >= 0)
             {
-               platform_log_stream("out of order tuples\n");
-               platform_log_stream("addr: %lu idx %2u\n", node.addr, idx);
+               platform_error_log("out of order tuples\n");
+               platform_error_log("addr: %lu idx %2u\n", node.addr, idx);
                btree_node_unget(cc, cfg, &node);
                goto out;
             }
@@ -3349,8 +3357,8 @@ btree_verify_node(cache        *cc,
          child.addr = btree_get_child_addr(cfg, node.hdr, idx);
          btree_node_get(cc, cfg, &child, type);
          if (child.hdr->height != node.hdr->height - 1) {
-            platform_log_stream("height mismatch\n");
-            platform_log_stream("addr: %lu idx: %u\n", node.addr, idx);
+            platform_error_log("height mismatch\n");
+            platform_error_log("addr: %lu idx: %u\n", node.addr, idx);
             btree_node_unget(cc, cfg, &child);
             btree_node_unget(cc, cfg, &node);
             goto out;
@@ -3363,9 +3371,9 @@ btree_verify_node(cache        *cc,
             {
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
-               btree_print_tree(cc, cfg, addr);
-               platform_log_stream("out of order pivots\n");
-               platform_log_stream("addr: %lu idx %u\n", node.addr, idx);
+               btree_print_tree(Platform_error_log_handle, cc, cfg, addr);
+               platform_error_log("out of order pivots\n");
+               platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                goto out;
             }
          }
@@ -3377,10 +3385,10 @@ btree_verify_node(cache        *cc,
                                      btree_get_tuple_key(cfg, child.hdr, 0))
                       != 0)
             {
-               platform_log_stream(
+               platform_error_log(
                   "pivot key doesn't match in child and parent\n");
-               platform_log_stream("addr: %lu idx %u\n", node.addr, idx);
-               platform_log_stream("child addr: %lu\n", child.addr);
+               platform_error_log("addr: %lu idx %u\n", node.addr, idx);
+               platform_error_log("child addr: %lu\n", child.addr);
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
                goto out;
@@ -3396,13 +3404,13 @@ btree_verify_node(cache        *cc,
                          cfg, child.hdr, btree_num_entries(child.hdr) - 1))
                       < 0)
             {
-               platform_log_stream("child tuple larger than parent bound\n");
-               platform_log_stream("addr: %lu idx %u\n", node.addr, idx);
-               platform_log_stream("child addr: %lu idx %u\n", child.addr, idx);
+               platform_error_log("child tuple larger than parent bound\n");
+               platform_error_log("addr: %lu idx %u\n", node.addr, idx);
+               platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
                btree_print_locked_node(
-                  cfg, node.addr, node.hdr, PLATFORM_ERR_LOG_HANDLE);
+                  Platform_error_log_handle, cfg, node.addr, node.hdr);
                btree_print_locked_node(
-                  cfg, child.addr, child.hdr, PLATFORM_ERR_LOG_HANDLE);
+                  Platform_error_log_handle, cfg, child.addr, child.hdr);
                platform_assert(0);
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
@@ -3418,13 +3426,13 @@ btree_verify_node(cache        *cc,
                          cfg, child.hdr, btree_num_entries(child.hdr) - 1))
                       < 0)
             {
-               platform_log_stream("child pivot larger than parent bound\n");
-               platform_log_stream("addr: %lu idx %u\n", node.addr, idx);
-               platform_log_stream("child addr: %lu idx %u\n", child.addr, idx);
+               platform_error_log("child pivot larger than parent bound\n");
+               platform_error_log("addr: %lu idx %u\n", node.addr, idx);
+               platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
                btree_print_locked_node(
-                  cfg, node.addr, node.hdr, PLATFORM_ERR_LOG_HANDLE);
+                  Platform_error_log_handle, cfg, node.addr, node.hdr);
                btree_print_locked_node(
-                  cfg, child.addr, child.hdr, PLATFORM_ERR_LOG_HANDLE);
+                  Platform_error_log_handle, cfg, child.addr, child.hdr);
                platform_assert(0);
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
@@ -3442,9 +3450,8 @@ btree_verify_node(cache        *cc,
    }
    btree_node_unget(cc, cfg, &node);
    result = TRUE;
-out:
-   platform_close_log_stream(PLATFORM_ERR_LOG_HANDLE);
 
+out:
    return result;
 }
 
@@ -3466,7 +3473,7 @@ btree_print_lookup(cache        *cc,        // IN
    int64      child_idx;
 
    node.addr = root_addr;
-   btree_print_node(cc, cfg, &node, PLATFORM_DEFAULT_LOG_HANDLE);
+   btree_print_node(Platform_default_log_handle, cc, cfg, &node);
    btree_node_get(cc, cfg, &node, type);
 
    for (h = node.hdr->height; h > 0; h--) {
@@ -3476,7 +3483,7 @@ btree_print_lookup(cache        *cc,        // IN
          child_idx = 0;
       }
       child_node.addr = btree_get_child_addr(cfg, node.hdr, child_idx);
-      btree_print_node(cc, cfg, &child_node, PLATFORM_DEFAULT_LOG_HANDLE);
+      btree_print_node(Platform_default_log_handle, cc, cfg, &child_node);
       btree_node_get(cc, cfg, &child_node, type);
       btree_node_unget(cc, cfg, &node);
       node = child_node;
@@ -3484,7 +3491,7 @@ btree_print_lookup(cache        *cc,        // IN
 
    bool  found;
    int64 idx = btree_find_tuple(cfg, node.hdr, key, &found);
-   platform_log(
+   platform_default_log(
       "Matching index: %lu (%d) of %u\n", idx, found, node.hdr->num_entries);
    btree_node_unget(cc, cfg, &node);
 }

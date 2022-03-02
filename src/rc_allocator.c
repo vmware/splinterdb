@@ -395,8 +395,9 @@ rc_allocator_mount(rc_allocator        *al,
          al->stats.curr_allocated++;
       }
    }
-   platform_log("Allocated at mount: %lu MiB\n",
-                B_TO_MiB(al->stats.curr_allocated * cfg->io_cfg->extent_size));
+   platform_default_log(
+      "Allocated at mount: %lu MiB\n",
+      B_TO_MiB(al->stats.curr_allocated * cfg->io_cfg->extent_size));
    return STATUS_OK;
 }
 
@@ -406,7 +407,7 @@ rc_allocator_dismount(rc_allocator *al)
 {
    platform_status status;
 
-   platform_log(
+   platform_default_log(
       "Allocated at dismount: %lu MiB\n",
       B_TO_MiB(al->stats.curr_allocated * al->cfg->io_cfg->extent_size));
 
@@ -440,10 +441,10 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
    uint8 ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != 1 && ref_count != 0);
    if (SHOULD_TRACE(addr)) {
-      platform_log("rc_allocator_inc_ref(%lu): %d -> %d\n",
-                   addr,
-                   ref_count,
-                   ref_count + 1);
+      platform_default_log("rc_allocator_inc_ref(%lu): %d -> %d\n",
+                           addr,
+                           ref_count,
+                           ref_count + 1);
    }
    return ref_count;
 }
@@ -464,10 +465,10 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
       __sync_add_and_fetch(&al->stats.extent_deallocs[type], 1);
    }
    if (SHOULD_TRACE(addr)) {
-      platform_log("rc_allocator_dec_ref(%lu): %d -> %d\n",
-                   addr,
-                   ref_count,
-                   ref_count - 1);
+      platform_default_log("rc_allocator_dec_ref(%lu): %d -> %d\n",
+                           addr,
+                           ref_count,
+                           ref_count - 1);
    }
    return ref_count;
 }
@@ -618,12 +619,13 @@ rc_allocator_alloc(rc_allocator *al,   // IN
    } while (!extent_is_free
             && (hand + 1) % al->cfg->extent_capacity != first_hand);
    if (!extent_is_free) {
-      platform_log("Out of Space, while allocating an extent of type=%d (%s):"
-                   " allocated %lu out of %lu addrs.\n",
-                   type,
-                   page_type_str[type],
-                   al->stats.curr_allocated,
-                   al->cfg->extent_capacity);
+      platform_default_log(
+         "Out of Space, while allocating an extent of type=%d (%s):"
+         " allocated %lu out of %lu addrs.\n",
+         type,
+         page_type_str[type],
+         al->stats.curr_allocated,
+         al->cfg->extent_capacity);
       return STATUS_NO_SPACE;
    }
    int64 curr_allocated = __sync_add_and_fetch(&al->stats.curr_allocated, 1);
@@ -636,7 +638,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
    __sync_add_and_fetch(&al->stats.extent_allocs[type], 1);
    *addr = hand * al->cfg->io_cfg->extent_size;
    if (SHOULD_TRACE(*addr)) {
-      platform_log(
+      platform_default_log(
          "rc_allocator_alloc_extent %12lu (%s)\n", *addr, page_type_str[type]);
    }
 

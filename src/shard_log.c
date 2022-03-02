@@ -114,7 +114,8 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
                          1,
                          PAGE_TYPE_LOG,
                          FALSE);
-   // platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
+   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
+   // log->meta_head);
 
    return STATUS_OK;
 }
@@ -493,10 +494,10 @@ shard_log_print(shard_log *log)
                  !terminal_log_entry(cfg, page->data, le);
                  le = log_entry_next(le))
             {
-               platform_log("%s -- %s : %lu\n",
-                            key_string(dcfg, log_entry_key(le)),
-                            message_string(dcfg, log_entry_message(le)),
-                            le->generation);
+               platform_default_log("%s -- %s : %lu\n",
+                                    key_string(dcfg, log_entry_key(le)),
+                                    message_string(dcfg, log_entry_message(le)),
+                                    le->generation);
             }
          }
          cache_unget(cc, page);

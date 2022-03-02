@@ -103,7 +103,7 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
    test_splinter_shadow_tree *shadow = TYPED_ZALLOC(hid, shadow);
 
    if (shadow == NULL) {
-      platform_log("Failed to allocate memory for shadow init");
+      platform_default_log("Failed to allocate memory for shadow init");
       return STATUS_NO_MEMORY;
    }
 
@@ -118,7 +118,7 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
                              hh,
                              platform_get_module_id());
    if (shadow->nodes_buffer == NULL) {
-      platform_log("Failed to pre allocate nodes for shadow tree\n");
+      platform_default_log("Failed to pre allocate nodes for shadow tree\n");
       platform_free(hid, shadow);
       return STATUS_NO_MEMORY;
    }
@@ -338,7 +338,7 @@ test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
    shadow_array->buffer =
       platform_buffer_create(totalBufferSize, hh, platform_get_module_id());
    if (shadow_array->buffer == NULL) {
-      platform_log("Failed to allocate memory for shadow array\n");
+      platform_default_log("Failed to allocate memory for shadow array\n");
       return STATUS_NO_MEMORY;
    }
    shadow_array->keys = platform_buffer_getaddr(shadow_array->buffer);

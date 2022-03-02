@@ -282,15 +282,15 @@ memtable_verify(cache *cc, memtable *mt)
 }
 
 static inline void
-memtable_print(cache *cc, memtable *mt)
+memtable_print(platform_log_handle *log_handle, cache *cc, memtable *mt)
 {
-   btree_print_tree(cc, mt->cfg, mt->root_addr);
+   btree_print_tree(log_handle, cc, mt->cfg, mt->root_addr);
 }
 
 static inline void
-memtable_print_stats(cache *cc, memtable *mt)
+memtable_print_stats(platform_log_handle *log_handle, cache *cc, memtable *mt)
 {
-   btree_print_tree_stats(cc, mt->cfg, mt->root_addr);
+   btree_print_tree_stats(log_handle, cc, mt->cfg, mt->root_addr);
 };
 
 static inline void

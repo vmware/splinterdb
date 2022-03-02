@@ -368,7 +368,9 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                      cfg.filter_index_size,
                      cfg.reclaim_threshold,
                      cfg.use_log,
-                     cfg.use_stats);
+                     cfg.use_stats,
+                     FALSE,
+                     NULL);
    return STATUS_OK;
 }
 

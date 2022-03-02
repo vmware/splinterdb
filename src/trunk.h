@@ -70,6 +70,10 @@ typedef struct trunk_config {
    data_config    *data_cfg;
    bool            use_log;
    log_config     *log_cfg;
+
+   // verbose logging
+   bool                 verbose_logging_enabled;
+   platform_log_handle *log_handle;
 } trunk_config;
 
 typedef struct trunk_stats {
@@ -384,22 +388,24 @@ trunk_perform_tasks(trunk_handle *spl);
 void
 trunk_force_flush(trunk_handle *spl);
 void
-trunk_print_insertion_stats(trunk_handle *spl);
+trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl);
 void
-trunk_print_lookup_stats(trunk_handle *spl);
+trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl);
 void
 trunk_reset_stats(trunk_handle *spl);
 
 void
-trunk_print(trunk_handle *spl);
+trunk_print(platform_log_handle *log_handle, trunk_handle *spl);
 void
-trunk_print_lookup(trunk_handle *spl, const char *key);
+trunk_print_lookup(trunk_handle        *spl,
+                   const char          *key,
+                   platform_log_handle *log_handle);
 void
-trunk_print_branches(trunk_handle *spl);
+trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
 void
-trunk_print_extent_counts(trunk_handle *spl);
+trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
 void
-trunk_print_space_use(trunk_handle *spl);
+trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
 bool
 trunk_verify_tree(trunk_handle *spl);
 
@@ -458,19 +464,21 @@ uint64
 trunk_hdr_size();
 
 void
-trunk_config_init(trunk_config *trunk_cfg,
-                  cache_config *cache_cfg,
-                  data_config  *data_cfg,
-                  log_config   *log_cfg,
-                  uint64        memtable_capacity,
-                  uint64        fanout,
-                  uint64        max_branches_per_node,
-                  uint64        btree_rough_count_height,
-                  uint64        filter_remainder_size,
-                  uint64        filter_index_size,
-                  uint64        reclaim_threshold,
-                  uint64        use_log,
-                  uint64        use_stats);
+trunk_config_init(trunk_config        *trunk_cfg,
+                  cache_config        *cache_cfg,
+                  data_config         *data_cfg,
+                  log_config          *log_cfg,
+                  uint64               memtable_capacity,
+                  uint64               fanout,
+                  uint64               max_branches_per_node,
+                  uint64               btree_rough_count_height,
+                  uint64               filter_remainder_size,
+                  uint64               filter_index_size,
+                  uint64               reclaim_threshold,
+                  bool                 use_log,
+                  bool                 use_stats,
+                  bool                 verbose_logging,
+                  platform_log_handle *log_handle);
 size_t
 trunk_get_scratch_size();
 

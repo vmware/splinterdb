@@ -21,10 +21,14 @@ test_data_generate_message(const data_config *cfg,
                            merge_accumulator *msg);
 
 static inline void
-test_data_print_key(const void *key)
+test_data_print_key(const void *key, platform_log_handle *log_handle)
 {
    const uint64 *key_p = key;
-   platform_log("0x%016lx%016lx%016lx", be64toh(key_p[0]), key_p[1], key_p[2]);
+   platform_log(log_handle,
+                "0x%016lx%016lx%016lx",
+                be64toh(key_p[0]),
+                key_p[1],
+                key_p[2]);
 }
 
 #endif

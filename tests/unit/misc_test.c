@@ -22,12 +22,12 @@
 
 /* Function prototypes and caller-macros to invoke testing interfaces */
 void
-test_platform_assert_msg(platform_stream_handle stream,
-                         const char            *filename,
-                         int                    linenumber,
-                         const char            *functionname,
-                         const char            *expr,
-                         const char            *message,
+test_platform_assert_msg(platform_log_handle *log_handle,
+                         const char          *filename,
+                         int                  linenumber,
+                         const char          *functionname,
+                         const char          *expr,
+                         const char          *message,
                          ...);
 
 /*
@@ -35,12 +35,14 @@ test_platform_assert_msg(platform_stream_handle stream,
  * aspect of platform_assert_false(). All we really test here is that the
  * user-supplied message with arguments is being printed as expected.
  */
-#define test_platform_assert(expr, ...)                                        \
+#define test_platform_assert(log_handle, expr, ...)                            \
    test_platform_assert_msg(                                                   \
-      stream, __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__)
+      log_handle, __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__)
 
 void
-test_vfprintf_usermsg(platform_stream_handle stream, const char *message, ...);
+test_vfprintf_usermsg(platform_log_handle *log_handle,
+                      const char          *message,
+                      ...);
 
 /*
  * Caller macro to exercise and validate the message printed by
@@ -48,8 +50,8 @@ test_vfprintf_usermsg(platform_stream_handle stream, const char *message, ...);
  * user-supplied message with parameters, when a CTest ASSERT_*() check were to
  * fail.
  */
-#define test_assert_usermsg(stream, ...)                                       \
-   test_vfprintf_usermsg(stream, "" __VA_ARGS__)
+#define test_assert_usermsg(log_handle, ...)                                   \
+   test_vfprintf_usermsg(log_handle, "" __VA_ARGS__)
 
 /*
  * Global data declaration macro:
@@ -67,10 +69,12 @@ CTEST_TEARDOWN(misc) {}
  */
 CTEST2(misc, test_assert_basic_msg)
 {
-   platform_open_log_stream();
-   int lineno = __LINE__ + 1;
-   test_platform_assert(1 == 2, MISC_MSG_WITH_NO_ARGS);
-   fflush(stream);
+   platform_stream_handle stream;
+   platform_open_log_stream(&stream);
+   platform_log_handle *log_handle = platform_log_stream_to_log_handle(&stream);
+   int                  lineno     = __LINE__ + 1;
+   test_platform_assert(log_handle, 1 == 2, MISC_MSG_WITH_NO_ARGS);
+   char *assert_str = platform_log_stream_to_string(&stream);
 
    // Construct an expected assertion message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];
@@ -82,8 +86,8 @@ CTEST2(misc, test_assert_basic_msg)
             "ctest_misc_test_assert_basic_msg_run",
             MISC_MSG_WITH_NO_ARGS);
 
-   ASSERT_STREQN(expmsg, bp, strlen(expmsg));
-   platform_close_log_stream(Platform_stderr_fh);
+   ASSERT_STREQN(expmsg, assert_str, strlen(expmsg));
+   platform_close_log_stream(&stream, Platform_error_log_handle);
 }
 
 /*
@@ -95,12 +99,14 @@ CTEST2(misc, test_assert_msg_with_args)
    int   arg_id   = 42;
    char *arg_name = "Some-name-string";
 
-   platform_open_log_stream();
-
-   int lineno = __LINE__ + 1;
-   test_platform_assert(1 == 2, MISC_MSG_WITH_ARGS, arg_id, arg_name);
-
-   fflush(stream);
+   platform_stream_handle stream;
+   platform_open_log_stream(&stream);
+   platform_log_handle *log_handle = platform_log_stream_to_log_handle(&stream);
+   int                  lineno     = __LINE__ + 2;
+   // clang-format off
+   test_platform_assert(log_handle, 1 == 2, MISC_MSG_WITH_ARGS, arg_id, arg_name);
+   // clang-format on
+   char *assert_str = platform_log_stream_to_string(&stream);
 
    // Construct an expected assertion message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];
@@ -113,8 +119,8 @@ CTEST2(misc, test_assert_msg_with_args)
             arg_id,
             arg_name);
 
-   ASSERT_STREQN(expmsg, bp, strlen(expmsg));
-   platform_close_log_stream(Platform_stderr_fh);
+   ASSERT_STREQN(expmsg, assert_str, strlen(expmsg));
+   platform_close_log_stream(&stream, Platform_error_log_handle);
 }
 
 /*
@@ -126,11 +132,12 @@ CTEST2(misc, test_ctest_assert_prints_user_msg_with_params)
    int   value       = 42;
    char *some_string = "This is an expected failure message string.";
 
-   platform_open_log_stream();
-
+   platform_stream_handle stream;
+   platform_open_log_stream(&stream);
+   platform_log_handle *log_handle = platform_log_stream_to_log_handle(&stream);
    test_assert_usermsg(
-      stream, "Unexpected failure, value=%d, msg='%s'", value, some_string);
-   fflush(stream);
+      log_handle, "Unexpected failure, value=%d, msg='%s'", value, some_string);
+   char *assert_str = platform_log_stream_to_string(&stream);
 
    // Construct an expected user message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];
@@ -142,15 +149,15 @@ CTEST2(misc, test_ctest_assert_prints_user_msg_with_params)
 
    const int expmsg_len = strlen(expmsg);
    ASSERT_STREQN(expmsg,
-                 bp,
+                 assert_str,
                  expmsg_len,
                  "\nExpected: %.*s\n"
                  "Received: %.*s\n",
                  expmsg_len,
                  expmsg,
                  expmsg_len,
-                 bp);
-   platform_close_log_stream(Platform_stderr_fh);
+                 assert_str);
+   platform_close_log_stream(&stream, Platform_error_log_handle);
 }
 
 /* Helper functions follow all test case methods */
@@ -160,18 +167,18 @@ CTEST2(misc, test_ctest_assert_prints_user_msg_with_params)
  * buffer. Used to test that the message is generated as expected.
  */
 void
-test_platform_assert_msg(platform_stream_handle stream,
-                         const char            *filename,
-                         int                    linenumber,
-                         const char            *functionname,
-                         const char            *expr,
-                         const char            *message,
+test_platform_assert_msg(platform_log_handle *log_handle,
+                         const char          *filename,
+                         int                  linenumber,
+                         const char          *functionname,
+                         const char          *expr,
+                         const char          *message,
                          ...)
 {
    va_list varargs;
    va_start(varargs, message);
    platform_assert_msg(
-      stream, filename, linenumber, functionname, expr, message, varargs);
+      log_handle, filename, linenumber, functionname, expr, message, varargs);
    va_end(varargs);
 }
 
@@ -181,7 +188,7 @@ test_platform_assert_msg(platform_stream_handle stream,
  * expected.
  */
 void
-test_vfprintf_usermsg(platform_stream_handle stream, const char *message, ...)
+test_vfprintf_usermsg(platform_log_handle *log_handle, const char *message, ...)
 {
-   VFPRINTF_USERMSG(stream, message);
+   VFPRINTF_USERMSG(log_handle, message);
 }

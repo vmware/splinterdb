@@ -391,22 +391,28 @@ btree_rough_count(cache        *cc,
                   slice         max_key);
 
 void
-btree_print_tree(cache *cc, btree_config *cfg, uint64 addr);
+btree_print_tree(platform_log_handle *log_handle,
+                 cache               *cc,
+                 btree_config        *cfg,
+                 uint64               addr);
 
 void
-btree_print_locked_node(btree_config          *cfg,
-                        uint64                 addr,
-                        btree_hdr             *hdr,
-                        platform_stream_handle stream);
+btree_print_locked_node(platform_log_handle *log_handle,
+                        btree_config        *cfg,
+                        uint64               addr,
+                        btree_hdr           *hdr);
 
 void
-btree_print_node(cache                 *cc,
-                 btree_config          *cfg,
-                 btree_node            *node,
-                 platform_stream_handle stream);
+btree_print_node(platform_log_handle *log_handle,
+                 cache               *cc,
+                 btree_config        *cfg,
+                 btree_node          *node);
 
 void
-btree_print_tree_stats(cache *cc, btree_config *cfg, uint64 addr);
+btree_print_tree_stats(platform_log_handle *log_handle,
+                       cache               *cc,
+                       btree_config        *cfg,
+                       uint64               addr);
 
 void
 btree_print_lookup(cache        *cc,
