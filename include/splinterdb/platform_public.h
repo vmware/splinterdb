@@ -11,7 +11,6 @@
 #ifndef __PLATFORM_PUBLIC_H
 #define __PLATFORM_PUBLIC_H
 
-#include <stddef.h> // for size_t
 #include <stdio.h>
 
 /*

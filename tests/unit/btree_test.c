@@ -24,18 +24,23 @@
 // Function Prototypes
 
 static int
-leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch);
+leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid);
 
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid);
 static int
-index_hdr_tests(btree_config *cfg, btree_scratch *scratch);
+index_hdr_tests(btree_config    *cfg,
+                btree_scratch   *scratch,
+                platform_heap_id hid);
 
 static int
-index_hdr_search_tests(btree_config *cfg);
+index_hdr_search_tests(btree_config *cfg, platform_heap_id hid);
 
 static int
-leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs);
+leaf_split_tests(btree_config    *cfg,
+                 btree_scratch   *scratch,
+                 int              nkvs,
+                 platform_heap_id hid);
 
 static bool
 btree_leaf_incorporate_tuple(const btree_config    *cfg,
@@ -64,6 +69,7 @@ CTEST_DATA(btree)
    clockcache_config   cache_cfg;
    btree_scratch       test_scratch;
    btree_config        dbtree_cfg;
+   platform_heap_id    hid;
 };
 
 // Optional setup function for suite, called before every test in suite
@@ -71,6 +77,7 @@ CTEST_SETUP(btree)
 {
    config_set_defaults(&data->master_cfg);
    data->data_cfg = test_data_config;
+   data->hid      = platform_get_heap_id();
 
    if (!SUCCESS(
           config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
@@ -98,7 +105,7 @@ CTEST_TEARDOWN(btree) {}
  */
 CTEST2(btree, test_leaf_hdr)
 {
-   int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+   int rc = leaf_hdr_tests(&data->dbtree_cfg, &data->test_scratch, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -107,7 +114,7 @@ CTEST2(btree, test_leaf_hdr)
  */
 CTEST2(btree, test_leaf_hdr_search)
 {
-   int rc = leaf_hdr_search_tests(&data->dbtree_cfg, &data->test_scratch);
+   int rc = leaf_hdr_search_tests(&data->dbtree_cfg, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -116,7 +123,7 @@ CTEST2(btree, test_leaf_hdr_search)
  */
 CTEST2(btree, test_index_hdr)
 {
-   int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch);
+   int rc = index_hdr_tests(&data->dbtree_cfg, &data->test_scratch, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -125,7 +132,7 @@ CTEST2(btree, test_index_hdr)
  */
 CTEST2(btree, test_index_hdr_search)
 {
-   int rc = index_hdr_search_tests(&data->dbtree_cfg);
+   int rc = index_hdr_search_tests(&data->dbtree_cfg, data->hid);
    ASSERT_EQUAL(0, rc);
 }
 
@@ -135,7 +142,8 @@ CTEST2(btree, test_index_hdr_search)
 CTEST2(btree, test_leaf_split)
 {
    for (int nkvs = 2; nkvs < 100; nkvs++) {
-      int rc = leaf_split_tests(&data->dbtree_cfg, &data->test_scratch, nkvs);
+      int rc = leaf_split_tests(
+         &data->dbtree_cfg, &data->test_scratch, nkvs, data->hid);
       ASSERT_EQUAL(0, rc);
    }
 }
@@ -150,9 +158,10 @@ CTEST2(btree, test_leaf_split)
  * message to platform log file.
  */
 static int
-leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
+leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-   char       leaf_buffer[btree_page_size(cfg)];
+   char *leaf_buffer =
+      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 240;
 
@@ -213,13 +222,15 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch)
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
+   platform_free(hid, leaf_buffer);
    return 0;
 }
 
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char       leaf_buffer[btree_page_size(cfg)];
+   char *leaf_buffer =
+      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 256;
 
@@ -250,15 +261,19 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
    }
 
+   platform_free(hid, leaf_buffer);
    return 0;
 }
 
 static int
-index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
+index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-   char       index_buffer[btree_page_size(cfg)];
+
+   char *index_buffer =
+      TYPED_MALLOC_MANUAL(hid, index_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
+
 
    bool rv     = FALSE;
    int  cmp_rv = 0;
@@ -306,19 +321,19 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch)
 
       ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
    }
-
+   platform_free(hid, index_buffer);
    return 0;
 }
 
 static int
-index_hdr_search_tests(btree_config *cfg)
+index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   char       index_buffer[btree_page_size(cfg)];
-   btree_hdr *hdr  = (btree_hdr *)index_buffer;
-   int        nkvs = 100;
+   char *leaf_buffer =
+      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
+   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
+   int        nkvs = 256;
 
    btree_init_hdr(cfg, hdr);
-   hdr->height = 1;
 
    bool rv = FALSE;
    for (int i = 0; i < nkvs; i += 2) {
@@ -340,16 +355,22 @@ index_hdr_search_tests(btree_config *cfg)
          (i / 2), idx, "Bad pivot search result idx=%ld for i=%d\n", idx, i);
    }
 
+   platform_free(hid, leaf_buffer);
    return 0;
 }
 
 static int
-leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
+leaf_split_tests(btree_config    *cfg,
+                 btree_scratch   *scratch,
+                 int              nkvs,
+                 platform_heap_id hid)
 {
-   char leaf_buffer[btree_page_size(cfg)];
-   char msg_buffer[btree_page_size(cfg)];
+   char *leaf_buffer =
+      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
+   char *msg_buffer =
+      TYPED_MALLOC_MANUAL(hid, msg_buffer, btree_page_size(cfg));
 
-   memset(msg_buffer, 0, sizeof(msg_buffer));
+   memset(msg_buffer, 0, btree_page_size(cfg));
 
    btree_hdr *hdr = (btree_hdr *)leaf_buffer;
 
@@ -404,5 +425,7 @@ leaf_split_tests(btree_config *cfg, btree_scratch *scratch, int nkvs)
       destroy_leaf_incorporate_spec(&spec);
    }
 
+   platform_free(hid, leaf_buffer);
+   platform_free(hid, msg_buffer);
    return 0;
 }

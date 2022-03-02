@@ -1,28 +1,28 @@
 # Contributing
 
-The SplinterDB project team welcomes contributions from the community.
+The SplinterDB project welcomes contributions from the community.
 
-If you wish to contribute code and you have not signed our Contributor License Agreement (CLA), our CLA-bot will take you through the process and update the issue when you open a [Pull Request](https://help.github.com/articles/creating-a-pull-request). If you have questions about the CLA process, see our CLA [FAQ](https://cla.vmware.com/faq) or contact us through the GitHub issue tracker.
-
-This page presents guidelines for contributing to SplinterDB. Following the guidelines helps to make the contribution process easy, collaborative, and productive. 
+This page presents guidelines for contributing to SplinterDB. Following the guidelines helps to make the contribution process easy, collaborative, and productive.
 
 ## Submitting Bug Reports and Feature Requests
+Please search through our [GitHub Issues](https://github.com/vmware/splinterdb/issues) for existing issues related to your need.  If something new is appropriate:
+- For bug reports, be as specific as possible about the error and the conditions under which it occurred.
+- For feature requests, please provide as much context as possible about your use case.
 
-Please submit bug reports and feature requests by using our GitHub Issues page.
 
-Before you submit a bug report about the code in the repository, please check the Issues page to see whether someone has already reported the problem. In the bug report, be as specific as possible about the error and the conditions under which it occurred. On what version and build did it occur? What are the steps to reproduce the bug? 
+## Contributing code or documentation
+For small obvious fixes, follow the steps below.  For larger changes, please first [open an Issue](https://github.com/vmware/splinterdb/issues/new) that describes your need ([*talk, then code*](https://dave.cheney.net/2019/02/18/talk-then-code)).
 
-Feature requests should fall within the scope of the project.
+1. Follow [docs/build.md](docs/build.md) for instructions on building from source.
 
-## Pull Requests
-See [docs/build.md](docs/build.md) for instructions on building from source.
+2. Before submitting code, please ensure that:
+    - code builds: `make`
+    - tests pass: `make run-tests`
+    - code is formatted properly: `./format-check.sh`
 
-Before submitting a pull request, please ensure that:
-- code builds: `make`
-- tests pass: `make test`
-- new code is formatted properly: `./format-check.sh`
+        To get an automatic format check on every git commit, add a pre-commit hook:
+        ```
+        ln -s -f ../../format-check.sh .git/hooks/pre-commit
+        ```
 
-To get an automatic format check on every git commit, add a pre-commit hook:
-```
-ln -s -f ../../format-check.sh .git/hooks/pre-commit
-```
+3. Then open a [Pull Request](https://github.com/vmware/splinterdb/pulls).  Our continuous integration (CI) system will run additional checks, which can take a couple hours.  If you have not signed our Contributor License Agreement (CLA), a "CLA-bot" will take you through the process and update the issue.  If you have questions about the CLA process, see our CLA [FAQ](https://cla.vmware.com/faq) or just ask for help on your pull request.

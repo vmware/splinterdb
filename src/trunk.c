@@ -8449,6 +8449,22 @@ trunk_print_branches(trunk_handle *spl)
 //   trunk_for_each_node(spl, trunk_node_print_extent_count, NULL);
 //}
 
+
+// basic validation of data_config
+static void
+trunk_validate_data_config(const data_config *cfg)
+{
+   platform_assert(cfg->key_compare != NULL);
+
+   // basic check of key comparison
+   int min_max_cmp = cfg->key_compare(cfg,
+                                      cfg->min_key_length,
+                                      cfg->min_key,
+                                      cfg->max_key_length,
+                                      cfg->max_key);
+   platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
+}
+
 /*
  *-----------------------------------------------------------------------------
  * trunk_config_init --
@@ -8472,6 +8488,8 @@ trunk_config_init(trunk_config *trunk_cfg,
                   uint64        use_log,
                   uint64        use_stats)
 {
+   trunk_validate_data_config(data_cfg);
+
    uint64          trunk_pivot_size;
    uint64          bytes_for_branches;
    routing_config *index_filter_cfg = &trunk_cfg->index_filter_cfg;

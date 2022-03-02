@@ -35,6 +35,7 @@ typedef struct insert_thread_params {
    uint64           root_addr;
    int              start;
    int              end;
+   platform_heap_id hid;
 } insert_thread_params;
 
 // Function Prototypes
@@ -49,7 +50,8 @@ insert_tests(cache           *cc,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end);
+             int              end,
+             platform_heap_id hid);
 
 static int
 query_tests(cache           *cc,
@@ -60,7 +62,11 @@ query_tests(cache           *cc,
             int              nkvs);
 
 static int
-iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs);
+iterator_tests(cache           *cc,
+               btree_config    *cfg,
+               uint64           root_addr,
+               int              nkvs,
+               platform_heap_id hid);
 
 static uint64
 pack_tests(cache           *cc,
@@ -70,13 +76,13 @@ pack_tests(cache           *cc,
            uint64           nkvs);
 
 static slice
-gen_key(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)]);
+gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
 static uint64
 ungen_key(slice key);
 
 static slice
-gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)]);
+gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
 /*
  * Global data declaration macro:
@@ -178,6 +184,7 @@ CTEST_TEARDOWN(btree_stress) {}
  * multiple threads. This test case verifies that registration of threads
  * to Splinter is working stably.
  */
+
 CTEST2(btree_stress, test_random_inserts_concurrent)
 {
    int nkvs     = 1000000;
@@ -188,8 +195,9 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   insert_thread_params params[nthreads];
-   platform_thread      threads[nthreads];
+   platform_heap_id      hid     = platform_get_heap_id();
+   insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
+   platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
@@ -227,7 +235,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                         nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
-   if (!iterator_tests((cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs))
+   if (!iterator_tests(
+          (cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs, data->hid))
    {
       platform_log("invalid ranges in original tree\n");
    }
@@ -255,13 +264,15 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
 
    rc = iterator_tests(
-      (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs);
+      (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs, data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {
       platform_free(data->hid, params[i].scratch);
    }
+   platform_free(hid, params);
+   platform_free(hid, threads);
 }
 
 /*
@@ -280,7 +291,8 @@ insert_thread(void *arg)
                 params->mini,
                 params->root_addr,
                 params->start,
-                params->end);
+                params->end,
+                params->hid);
 }
 
 static void
@@ -291,12 +303,16 @@ insert_tests(cache           *cc,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end)
+             int              end,
+             platform_heap_id hid)
 {
    uint64 generation;
    bool   was_unique;
-   uint8  keybuf[btree_page_size(cfg)];
-   uint8  msgbuf[btree_page_size(cfg)];
+
+   int    keybuf_size = btree_page_size(cfg);
+   int    msgbuf_size = btree_page_size(cfg);
+   uint8 *keybuf      = TYPED_MALLOC_MANUAL(hid, keybuf, keybuf_size);
+   uint8 *msgbuf      = TYPED_MALLOC_MANUAL(hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -305,20 +321,23 @@ insert_tests(cache           *cc,
                                 scratch,
                                 root_addr,
                                 mini,
-                                gen_key(cfg, i, keybuf),
-                                gen_msg(cfg, i, msgbuf),
+                                gen_key(cfg, i, keybuf, keybuf_size),
+                                gen_msg(cfg, i, msgbuf, msgbuf_size),
                                 &generation,
                                 &was_unique)))
       {
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
+   platform_free(heap_id, keybuf);
+   platform_free(heap_id, msgbuf);
 }
 
 static slice
-gen_key(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)])
+gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 {
    uint64 keylen = sizeof(i) + (i % 100);
+   platform_assert(keylen + sizeof(i) <= length);
    memset(buffer, 0, keylen);
    uint64 j = i * 23232323731ULL + 99382474567ULL;
    memcpy(buffer, &j, sizeof(j));
@@ -338,11 +357,12 @@ ungen_key(slice key)
 }
 
 static slice
-gen_msg(btree_config *cfg, uint64 i, uint8 buffer[static btree_page_size(cfg)])
+gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 {
    data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (btree_page_size(cfg) / 3));
 
+   platform_assert(datalen + sizeof(i) <= length);
    dh->message_type = MESSAGE_TYPE_INSERT;
    dh->ref_count    = 1;
    memset(dh->data, 0, datalen);
@@ -358,29 +378,40 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 keybuf[btree_page_size(cfg)];
-   uint8 msgbuf[btree_page_size(cfg)];
+   uint8 *keybuf = TYPED_MALLOC_MANUAL(hid, keybuf, btree_page_size(cfg));
+   uint8 *msgbuf = TYPED_MALLOC_MANUAL(hid, msgbuf, btree_page_size(cfg));
+   memset(msgbuf, 0, btree_page_size(cfg));
 
-   memset(keybuf, 0, sizeof(keybuf));
    writable_buffer result;
    writable_buffer_init(&result, hid, 0, NULL);
 
    for (uint64 i = 0; i < nkvs; i++) {
-      btree_lookup(cc, cfg, root_addr, type, gen_key(cfg, i, keybuf), &result);
+      btree_lookup(cc,
+                   cfg,
+                   root_addr,
+                   type,
+                   gen_key(cfg, i, keybuf, btree_page_size(cfg)),
+                   &result);
       if (!btree_found(&result)
           || slice_lex_cmp(writable_buffer_to_slice(&result),
-                           gen_msg(cfg, i, msgbuf)))
+                           gen_msg(cfg, i, msgbuf, btree_page_size(cfg))))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
    }
 
    writable_buffer_reinit(&result);
+   platform_free(hid, keybuf);
+   platform_free(hid, msgbuf);
    return 1;
 }
 
 static int
-iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
+iterator_tests(cache           *cc,
+               btree_config    *cfg,
+               uint64           root_addr,
+               int              nkvs,
+               platform_heap_id hid)
 {
    btree_iterator dbiter;
 
@@ -398,12 +429,12 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
 
    uint64 seen = 0;
    bool   at_end;
-   uint8  prevbuf[btree_page_size(cfg)];
-   slice  prev = NULL_SLICE;
+   uint8 *prevbuf = TYPED_MALLOC_MANUAL(hid, prevbuf, btree_page_size(cfg));
+   slice  prev    = NULL_SLICE;
+   uint8 *keybuf  = TYPED_MALLOC_MANUAL(hid, keybuf, btree_page_size(cfg));
+   uint8 *msgbuf  = TYPED_MALLOC_MANUAL(hid, msgbuf, btree_page_size(cfg));
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
-      uint8 keybuf[btree_page_size(cfg)];
-      uint8 msgbuf[btree_page_size(cfg)];
       slice key, msg;
 
       iterator_get_curr(iter, &key, &msg);
@@ -411,10 +442,10 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
       ASSERT_TRUE(k < nkvs);
 
       int rc = 0;
-      rc     = slice_lex_cmp(key, gen_key(cfg, k, keybuf));
+      rc = slice_lex_cmp(key, gen_key(cfg, k, keybuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
-      rc = slice_lex_cmp(msg, gen_msg(cfg, k, msgbuf));
+      rc = slice_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
       ASSERT_TRUE(slice_is_null(prev) || slice_lex_cmp(prev, key) < 0);
@@ -432,6 +463,9 @@ iterator_tests(cache *cc, btree_config *cfg, uint64 root_addr, int nkvs)
    ASSERT_EQUAL(nkvs, seen);
 
    btree_iterator_deinit(&dbiter);
+   platform_free(hid, prevbuf);
+   platform_free(hid, keybuf);
+   platform_free(hid, msgbuf);
 
    return 1;
 }

@@ -4,18 +4,22 @@
 /*
  * data.h --
  *
- *     This file contains constants and functions that pertain to
- *     keys and messages
+ * SplinterDB allows the application to specify the encoding of keys and
+ * values in order to support features like a custom sort order on keys and
+ * blind-write mutations.
  *
- *     A message encodes a value and an operation,
- *     like insert, delete or update.
+ * Internally, SplinterDB operates on keys and _messages_, where a message
+ * encodes a verb like "insert with overwrite", "delete" or "update/mutate".
+ *
+ * To initialize a SplinterDB instance, an application must provide a
+ * data_config (defined below).  Either the application provides a custom one
+ * or it may use the default_data_config.
  *
  */
 
 #ifndef __DATA_H
 #define __DATA_H
 
-#include <string.h> // for memmove
 #include "splinterdb/limits.h"
 #include "splinterdb/platform_public.h"
 #include "splinterdb/public_util.h"
@@ -66,32 +70,53 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
                                          uint64             key_or_message_len,
                                          const void        *key_or_message,
                                          char              *str,
-                                         size_t             max_len);
+                                         uint64             max_len);
+
+
+// Encodes a message from a type and (optionally) a value
+// Returns the length of the fully-encoded message via out_encoded_len
+// Is allowed to fail by returning a non-zero exit code
+typedef int (*encode_message_fn)(message_type type,
+                                 uint64       value_len,
+                                 const void  *value,
+                                 uint64       dst_msg_buffer_len,
+                                 void        *dst_msg_buffer,
+                                 uint64      *out_encoded_len);
+
+// Extract the value from a message
+// This shouldn't need to do any allocation or copying, just pointer arithmetic
+// Is allowed to fail by returning a non-zero exit code
+typedef int (*decode_message_fn)(uint64       msg_buffer_len,
+                                 const void  *msg_buffer,
+                                 uint64      *out_value_len,
+                                 const char **out_value);
 
 /*
- * ----------------------------------------------------------------------------
- * data_config: This structure defines the handshake between a
- * Key-Value Store application built using Splinter primitives. In order to
- * build this integration, the application needs to tell Splinter a few
- * different things about keys and values:
+ * data_config: This structure defines the handshake between an
+ * application and the SplinterDB library.
+ *
+ * The application needs to tell SplinterDB some things about keys and values:
  *
  *  1. The sorting order of keys - defined by the key_compare function
  *  2. How to hash keys - defined by the key_hash function
  *  3. How to merge update messages - defined by the pair of merge_tuples* fns.
+ *  4. How to convert between messages and values (encode and decode functions)
  *  4. Few other debugging aids on how-to print & diagnose messages.
  *
- * splinterdb_kv.c is a reference implementation of this integration provided
- * as a "batteries included" implementation. If any other application wishes
+ * default_data_config.c is a simple reference implementation, provided
+ * as a "batteries included" solution. If an application wishes
  * to do something differently, it has to provide these implementations.
- * ----------------------------------------------------------------------------
  */
 struct data_config {
    // FIXME: Planned for deprecation.
    uint64 key_size;
 
    // FIXME: Planned for deprecation.
-   char min_key[MAX_KEY_SIZE];
-   char max_key[MAX_KEY_SIZE];
+   char   min_key[MAX_KEY_SIZE];
+   uint64 min_key_length;
+
+   char   max_key[MAX_KEY_SIZE];
+   uint64 max_key_length;
 
    key_compare_fn           key_compare;
    key_hash_fn              key_hash;
@@ -100,16 +125,13 @@ struct data_config {
    merge_tuple_final_fn     merge_tuples_final;
    key_or_message_to_str_fn key_to_string;
    key_or_message_to_str_fn message_to_string;
-};
 
-static inline bool
-data_validate_config(const data_config *cfg)
-{
-   bool bad = (cfg->key_size == 0 || cfg->key_compare == NULL
-               || cfg->key_hash == NULL || cfg->merge_tuples == NULL
-               || cfg->merge_tuples_final == NULL || cfg->message_class == NULL
-               || cfg->key_to_string == NULL || cfg->message_to_string == NULL);
-   return !bad;
-}
+   // required by splinterdb_insert and splinterdb_delete
+   encode_message_fn encode_message;
+
+   // required by splinterdb_lookup_result_parse and
+   // splinterdb_iterator_get_current
+   decode_message_fn decode_message;
+};
 
 #endif // __DATA_H
