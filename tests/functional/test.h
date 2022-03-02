@@ -152,7 +152,7 @@ generate_test_message(const test_message_generator *generator,
       generator->min_payload_size
       + (idx % (generator->max_payload_size - generator->min_payload_size + 1));
    uint64 total_size = sizeof(data_handle) + payload_size;
-   writable_buffer_set_length(msg, total_size);
+   writable_buffer_resize(msg, total_size);
    data_handle *raw_data = writable_buffer_data(msg);
    memset(raw_data, 0, total_size);
    raw_data->message_type = generator->type;

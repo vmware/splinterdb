@@ -182,6 +182,7 @@ test_trunk_insert_thread(void *arg)
       }
    }
 out:
+   writable_buffer_deinit(&msg);
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), insert_base);
    for (uint64 i = 0; i < num_tables; i++) {
@@ -210,6 +211,10 @@ test_trunk_lookup_thread(void *arg)
    uint64 *lookup_base =
       TYPED_ARRAY_ZALLOC(platform_get_heap_id(), lookup_base, num_tables);
    uint8 done = 0;
+
+   writable_buffer data;
+   writable_buffer_init_null(&data, NULL);
+
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -241,8 +246,6 @@ test_trunk_lookup_thread(void *arg)
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
                char            key[MAX_KEY_SIZE];
-               writable_buffer data;
-               writable_buffer_init_null(&data, NULL);
 
                test_key(key,
                         test_cfg[spl_idx].key_type,
@@ -264,7 +267,6 @@ test_trunk_lookup_thread(void *arg)
                             key,
                             writable_buffer_to_slice(&data),
                             expected_found);
-               writable_buffer_reinit(&data);
             } else {
                ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg);
                test_key(ctxt->key,
@@ -294,6 +296,7 @@ test_trunk_lookup_thread(void *arg)
       }
    }
 out:
+   writable_buffer_deinit(&data);
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), lookup_base);
 }
@@ -484,7 +487,6 @@ do_operation(test_splinter_thread_params *params,
    verify_tuple_arg   vtarg          = {.stats_only = TRUE,
                                         .stats      = &params->lookup_stats[ASYNC_LU]};
    writable_buffer    msg;
-
    writable_buffer_init_null(&msg, NULL);
 
    for (uint64 op_idx = op_offset; op_idx != op_offset + num_ops; op_idx++) {
@@ -522,8 +524,6 @@ do_operation(test_splinter_thread_params *params,
          } else {
             test_async_lookup *async_lookup = params->async_lookup[spl_idx];
             test_async_ctxt   *ctxt;
-            writable_buffer    data;
-            writable_buffer_init_null(&data, NULL);
 
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
@@ -537,13 +537,13 @@ do_operation(test_splinter_thread_params *params,
                         trunk_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, key, &data);
+               rc = trunk_lookup(spl, key, &msg);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
-               found = trunk_lookup_found(&data);
+               found = trunk_lookup_found(&msg);
                if (found) {
                   params->lookup_stats[SYNC_LU].num_found++;
                } else {
@@ -567,10 +567,11 @@ do_operation(test_splinter_thread_params *params,
                   verify_tuple_callback,
                   &vtarg);
             }
-            writable_buffer_reinit(&data);
          }
       }
    }
+
+   writable_buffer_deinit(&msg);
 }
 
 /*

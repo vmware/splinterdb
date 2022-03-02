@@ -12,40 +12,41 @@ const slice NULL_SLICE = (slice){0, NULL};
 static platform_status
 writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 {
-   if (minspace <= wb->allocation_size) {
+   if (minspace <= wb->buffer_size) {
       return STATUS_OK;
    }
 
-   if (minspace <= wb->original_size) {
-      debug_assert(wb->data == NULL || wb->data == wb->original_pointer);
-      wb->data            = wb->original_pointer;
-      wb->allocation_size = wb->original_size;
-      return STATUS_OK;
+   if (minspace < 2 * wb->buffer_size) {
+      minspace = 2 * wb->buffer_size;
    }
 
-   void *oldptr  = wb->data == wb->original_pointer ? NULL : wb->data;
+   void *oldptr  = wb->can_free ? wb->buffer : NULL;
    void *newdata = platform_realloc(wb->heap_id, oldptr, minspace);
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
    }
 
-   if (wb->data == wb->original_pointer) {
-      memcpy(newdata, wb->data, wb->length);
+   if (oldptr == NULL && wb->length != WRITABLE_BUFFER_NULL_LENGTH) {
+      memcpy(newdata, wb->buffer, wb->length);
    }
 
-   wb->allocation_size = minspace;
-   wb->data            = newdata;
+   wb->buffer_size = minspace;
+   wb->buffer      = newdata;
    return STATUS_OK;
 }
 
 uint64
 writable_buffer_length(writable_buffer *wb)
 {
-   return wb->length;
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return 0;
+   } else {
+      return wb->length;
+   }
 }
 
 bool
-writable_buffer_set_length(writable_buffer *wb, uint64 newlength)
+writable_buffer_resize(writable_buffer *wb, uint64 newlength)
 {
    platform_status rc = writable_buffer_ensure_space(wb, newlength);
    if (!SUCCESS(rc)) {
@@ -58,7 +59,11 @@ writable_buffer_set_length(writable_buffer *wb, uint64 newlength)
 void *
 writable_buffer_data(writable_buffer *wb)
 {
-   return wb->data;
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return NULL;
+   } else {
+      return wb->buffer;
+   }
 }
 
 /*

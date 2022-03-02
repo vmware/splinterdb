@@ -129,7 +129,7 @@ test_btree_lookup(cache        *cc,
       ret = slice_lex_cmp(data, expected_data) == 0;
    }
 
-   writable_buffer_reinit(&result);
+   writable_buffer_deinit(&result);
    return ret;
 }
 
@@ -153,7 +153,7 @@ test_btree_tuple(test_memtable_context *ctxt,
                  uint64                 thread_id)
 {
    test_btree_config *cfg = ctxt->cfg;
-   writable_buffer_set_length(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
+   writable_buffer_resize(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
    test_key(writable_buffer_data(key),
             cfg->type,
             seq,
@@ -206,8 +206,8 @@ test_btree_insert_thread(void *arg)
 
 out:
    params->time_elapsed = platform_timestamp_elapsed(start_time);
-   writable_buffer_reinit(&key);
-   writable_buffer_reinit(&data);
+   writable_buffer_deinit(&key);
+   writable_buffer_deinit(&data);
 }
 
 static platform_status
@@ -367,8 +367,8 @@ btree_test_put_async_ctxt(btree_test_async_lookup *async_lookup,
    int idx = ctxt - async_lookup->ctxt;
 
    debug_assert(idx >= 0 && idx < max_async_inflight);
-   writable_buffer_reinit(&ctxt->key);
-   writable_buffer_reinit(&ctxt->result);
+   writable_buffer_deinit(&ctxt->key);
+   writable_buffer_deinit(&ctxt->result);
    async_lookup->ctxt_bitmap |= (1UL << idx);
 }
 
@@ -781,8 +781,8 @@ destroy_btree:
    platform_log("\n");
    test_memtable_context_destroy(ctxt, hid);
    platform_free(hid, async_lookup);
-   writable_buffer_reinit(&key);
-   writable_buffer_reinit(&expected_data);
+   writable_buffer_deinit(&key);
+   writable_buffer_deinit(&expected_data);
    return rc;
 }
 
@@ -844,8 +844,8 @@ test_btree_create_packed_trees(cache             *cc,
       root_addr[tree_no] = req.root_addr;
    }
 
-   writable_buffer_reinit(&key);
-   writable_buffer_reinit(&data);
+   writable_buffer_deinit(&key);
+   writable_buffer_deinit(&data);
    test_memtable_context_destroy(ctxt, hid);
    return num_tuples;
 }

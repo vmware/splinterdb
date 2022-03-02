@@ -40,7 +40,7 @@ test_data_generate_message(const data_config *cfg,
       payload_size = (253456363ULL + (uint64)ref_count * 750599937895091ULL)
                      % tdcfg->payload_size_limit;
    }
-   writable_buffer_set_length(msg, sizeof(data_handle) + payload_size);
+   writable_buffer_resize(msg, sizeof(data_handle) + payload_size);
    data_handle *dh  = writable_buffer_data(msg);
    dh->message_type = type;
    dh->ref_count    = ref_count;

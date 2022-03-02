@@ -110,7 +110,7 @@ verify_tuple(trunk_handle    *spl,
                       msg->ref_count,
                       slice_length(expected_msg),
                       slice_length(message));
-      writable_buffer_reinit(&expected_message);
+      writable_buffer_deinit(&expected_message);
    } else {
       /* !refcount && !found.  We're good. */
    }
@@ -158,13 +158,14 @@ verify_against_shadow(trunk_handle               *spl,
    platform_status rc, result = STATUS_OK;
 
    uint64 i;
+   writable_buffer message;
+   writable_buffer_init_null(&message, spl->heap_id);
+
    for (i = 0; i < sharr->nkeys; i++) {
       uint64           key      = sharr->keys[i];
       int8             refcount = sharr->ref_counts[i];
       test_async_ctxt *ctxt;
-      writable_buffer  message;
 
-      writable_buffer_init_null(&message, spl->heap_id);
       if (async_lookup) {
          ctxt = async_ctxt_get(async_lookup);
       } else {
@@ -185,8 +186,9 @@ verify_against_shadow(trunk_handle               *spl,
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
-      writable_buffer_reinit(&message);
+      writable_buffer_set_to_null(&message);
    }
+
    if (async_lookup) {
       // Rough detection of stuck contexts
       const timestamp ts = platform_get_timestamp();
@@ -198,6 +200,8 @@ verify_against_shadow(trunk_handle               *spl,
                          < TEST_STUCK_IO_TIMEOUT);
       }
    }
+
+   writable_buffer_deinit(&message);
 
    return result;
 }
@@ -617,7 +621,7 @@ insert_random_messages(trunk_handle              *spl,
    }
 
 cleanup:
-   writable_buffer_reinit(&msg);
+   writable_buffer_deinit(&msg);
    return rc;
 }
 

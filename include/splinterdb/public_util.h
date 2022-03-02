@@ -11,7 +11,7 @@ writable_buffer_length(writable_buffer *wb);
 
 /* Allocates memory as needed. Returns TRUE on success. */
 bool
-writable_buffer_set_length(writable_buffer *wb, uint64 newlength);
+writable_buffer_resize(writable_buffer *wb, uint64 newlength);
 
 /* Returns a ptr to the data region held by this writable_buffer */
 void *

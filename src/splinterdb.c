@@ -743,7 +743,7 @@ void
 splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   writable_buffer_reinit(&_result->value);
+   writable_buffer_deinit(&_result->value);
 }
 
 bool

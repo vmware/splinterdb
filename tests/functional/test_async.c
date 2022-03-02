@@ -100,7 +100,7 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
    platform_assert(pcq_is_empty(async_lookup->ready_q));
    pcq_free(hid, async_lookup->ready_q);
    for (uint64 i = 0; i < async_lookup->max_async_inflight; i++) {
-      writable_buffer_reinit(&async_lookup->ctxt[i].data);
+      writable_buffer_deinit(&async_lookup->ctxt[i].data);
    }
    platform_free(hid, async_lookup);
 }

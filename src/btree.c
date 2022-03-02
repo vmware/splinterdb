@@ -568,7 +568,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
          return STATUS_NO_MEMORY;
       }
       if (btree_merge_tuples(cfg, key, oldmessage, &spec->msg.merged_message)) {
-         writable_buffer_reinit(&spec->msg.merged_message);
+         writable_buffer_deinit(&spec->msg.merged_message);
          return STATUS_NO_MEMORY;
       } else {
          return STATUS_OK;
@@ -580,7 +580,7 @@ void
 destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec)
 {
    if (spec->old_entry_state != did_not_exist) {
-      writable_buffer_reinit(&spec->msg.merged_message);
+      writable_buffer_deinit(&spec->msg.merged_message);
    }
 }
 

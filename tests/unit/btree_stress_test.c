@@ -400,7 +400,7 @@ query_tests(cache           *cc,
       }
    }
 
-   writable_buffer_reinit(&result);
+   writable_buffer_deinit(&result);
    platform_free(hid, keybuf);
    platform_free(hid, msgbuf);
    return 1;

@@ -527,7 +527,7 @@ out:
 platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 {
-   writable_buffer_reinit(&(*merge_itor)->merge_buffer);
+   writable_buffer_deinit(&(*merge_itor)->merge_buffer);
    platform_free(hid, *merge_itor);
    *merge_itor = NULL;
 

@@ -140,7 +140,7 @@ slice_lex_cmp(const slice a, const slice b)
  * - uninitialized
  * - null
  *   - data == NULL
- *   - allocation_size == length == 0
+ *   - length == 0
  * - non-null
  *   - data != NULL
  *   - length <= allocation_size
@@ -163,19 +163,20 @@ slice_lex_cmp(const slice a, const slice b)
  * Also note that the user-provided state can move to the
  * platform-malloced state.
  */
+#define WRITABLE_BUFFER_NULL_LENGTH UINT64_MAX
+
 struct writable_buffer {
-   void            *original_pointer;
-   uint64           original_size;
    platform_heap_id heap_id;
-   uint64           allocation_size;
+   void            *buffer;
+   uint64           buffer_size;
    uint64           length;
-   void            *data;
+   bool             can_free;
 };
 
 static inline bool
 writable_buffer_is_null(const writable_buffer *wb)
 {
-   return wb->data == NULL && wb->length == 0 && wb->allocation_size == 0;
+   return wb->length == WRITABLE_BUFFER_NULL_LENGTH;
 }
 
 static inline void
@@ -184,12 +185,11 @@ writable_buffer_init(writable_buffer *wb,
                      uint64           allocation_size,
                      void            *data)
 {
-   wb->original_pointer = data;
-   wb->original_size    = allocation_size;
    wb->heap_id          = heap_id;
-   wb->allocation_size  = 0;
-   wb->length           = 0;
-   wb->data             = NULL;
+   wb->buffer           = data;
+   wb->buffer_size      = allocation_size;
+   wb->length           = WRITABLE_BUFFER_NULL_LENGTH;
+   wb->can_free         = FALSE;
 }
 
 static inline void
@@ -199,23 +199,26 @@ writable_buffer_init_null(writable_buffer *wb, platform_heap_id heap_id)
 }
 
 static inline void
-writable_buffer_reinit(writable_buffer *wb)
+writable_buffer_set_to_null(writable_buffer *wb)
 {
-   if (wb->data && wb->data != wb->original_pointer) {
-      platform_free(wb->heap_id, wb->data);
+   wb->length = WRITABLE_BUFFER_NULL_LENGTH;
+}
+
+static inline void
+writable_buffer_deinit(writable_buffer *wb)
+{
+   if (wb->can_free) {
+      platform_free(wb->heap_id, wb->buffer);
    }
-   wb->data            = NULL;
-   wb->allocation_size = 0;
-   wb->length          = 0;
 }
 
 static inline platform_status
 writable_buffer_copy_slice(writable_buffer *wb, slice src)
 {
-   if (!writable_buffer_set_length(wb, slice_length(src))) {
+   if (!writable_buffer_resize(wb, slice_length(src))) {
       return STATUS_NO_MEMORY;
    }
-   memcpy(wb->data, slice_data(src), slice_length(src));
+   memcpy(wb->buffer, slice_data(src), slice_length(src));
    return STATUS_OK;
 }
 
@@ -231,7 +234,11 @@ writable_buffer_init_from_slice(writable_buffer *wb,
 static inline slice
 writable_buffer_to_slice(const writable_buffer *wb)
 {
-   return slice_create(wb->length, wb->data);
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return NULL_SLICE;
+   } else {
+      return slice_create(wb->length, wb->buffer);
+   }
 }
 
 /*

@@ -271,7 +271,7 @@ static uint64
 writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 {
    uint64 oldsize = writable_buffer_length(wb);
-   writable_buffer_set_length(wb, oldsize + length);
+   writable_buffer_resize(wb, oldsize + length);
    char *data = writable_buffer_data(wb);
    memcpy(data + oldsize, newdata, length);
    return oldsize;
@@ -286,11 +286,18 @@ trunk_shadow_init(trunk_shadow *shadow)
 }
 
 static void
+trunk_shadow_deinit(trunk_shadow *shadow)
+{
+   writable_buffer_deinit(&shadow->entries);
+   writable_buffer_deinit(&shadow->data);
+}
+
+static void
 trunk_shadow_reinit(trunk_shadow *shadow)
 {
    shadow->sorted = TRUE;
-   writable_buffer_reinit(&shadow->entries);
-   writable_buffer_reinit(&shadow->data);
+   writable_buffer_set_to_null(&shadow->entries);
+   writable_buffer_set_to_null(&shadow->data);
 }
 
 /*
@@ -447,7 +454,7 @@ CTEST2(splinter, test_lookups)
          insert_num, num_inserts, "Verify positive lookups %3lu%% complete");
 
       test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-      writable_buffer_reinit(&qdata);
+      writable_buffer_set_to_null(&qdata);
 
       rc = trunk_lookup(spl, key, &qdata);
       ASSERT_TRUE(SUCCESS(rc),
@@ -515,6 +522,7 @@ CTEST2(splinter, test_lookups)
    platform_default_log(
       "Perform test_lookup_by_range() for %d iterations ...\n", niters);
    // Iterate thru small set of num_ranges for additional coverage.
+   trunk_shadow_sort(&shadow);
    for (int ictr = 1; ictr <= 3; ictr++) {
 
       uint64 num_ranges = (num_inserts / 128) * ictr;
@@ -608,7 +616,7 @@ CTEST2(splinter, test_lookups)
    }
 
    trunk_destroy(spl);
-   trunk_shadow_reinit(&shadow);
+   trunk_shadow_deinit(&shadow);
 }
 
 /*
@@ -696,6 +704,7 @@ splinter_do_inserts(void         *datap,
    cache_assert_free((cache *)data->clock_cache);
 
    // Cleanup memory allocated in this test case
+   writable_buffer_deinit(&msg);
    return num_inserts;
 }
 

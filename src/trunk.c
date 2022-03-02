@@ -6156,7 +6156,7 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
    // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
    //                also handles switch to READY ^^^^^
 
-   writable_buffer_reinit(data);
+   writable_buffer_set_to_null(data);
 
    bool         found_in_memtable   = FALSE;
    page_handle *mt_lookup_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
@@ -6234,7 +6234,7 @@ found_final_answer_early:
    if (!writable_buffer_is_null(data)) {
       message_type type = data_message_class(data_cfg, message);
       if (type == MESSAGE_TYPE_DELETE) {
-         writable_buffer_reinit(data);
+         writable_buffer_set_to_null(data);
       }
    }
 
@@ -6373,7 +6373,7 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
       switch (ctxt->state) {
          case async_state_start:
          {
-            writable_buffer_reinit(data);
+            writable_buffer_set_to_null(data);
             trunk_async_set_state(ctxt, async_state_lookup_memtable);
             // fallthrough
          }
@@ -6794,7 +6794,7 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
       message_type type = data_message_class(data_cfg, message);
       debug_assert(type == MESSAGE_TYPE_DELETE || type == MESSAGE_TYPE_INSERT);
       if (type == MESSAGE_TYPE_DELETE) {
-         writable_buffer_reinit(data);
+         writable_buffer_set_to_null(data);
       }
    }
 
@@ -8225,7 +8225,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
       uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      writable_buffer_reinit(&data);
+      writable_buffer_set_to_null(&data);
       trunk_pivot_lookup(spl, node, pdata, key, &data);
       if (!writable_buffer_is_null(&data)) {
          char key_str[128];
@@ -8246,7 +8246,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
             trunk_branch   *branch = trunk_get_branch(spl, node, branch_no);
             platform_status rc;
             bool            local_found;
-            writable_buffer_reinit(&data);
+            writable_buffer_set_to_null(&data);
             rc = trunk_btree_lookup_and_merge(
                spl, branch, key, &data, &local_found);
             platform_assert_status_ok(rc);
@@ -8274,7 +8274,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
    // look in leaf
    trunk_print_locked_node(spl, node, PLATFORM_DEFAULT_LOG_HANDLE);
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
-   writable_buffer_reinit(&data);
+   writable_buffer_set_to_null(&data);
    trunk_pivot_lookup(spl, node, pdata, key, &data);
    if (!writable_buffer_is_null(&data)) {
       char key_str[128];
@@ -8295,7 +8295,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
          trunk_branch   *branch = trunk_get_branch(spl, node, branch_no);
          platform_status rc;
          bool            local_found;
-         writable_buffer_reinit(&data);
+         writable_buffer_set_to_null(&data);
          rc =
             trunk_btree_lookup_and_merge(spl, branch, key, &data, &local_found);
          platform_assert_status_ok(rc);
@@ -8316,7 +8316,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
       }
    }
    trunk_node_unget(spl, &node);
-   writable_buffer_reinit(&data);
+   writable_buffer_deinit(&data);
 }
 
 void
