@@ -49,7 +49,7 @@ static const char val_fmt[] = "val-%02x";
 
 // Function Prototypes
 static void
-create_default_cfg(splinterdb_config *out_cfg);
+create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
 
 
 static int
@@ -68,6 +68,11 @@ custom_key_comparator(const data_config *cfg,
                       uint64             key2_len,
                       const void        *key2);
 
+typedef struct {
+   data_config super;
+   uint64      num_comparisons;
+} comparison_counting_data_config;
+
 /*
  * Global data declaration macro:
  *
@@ -85,7 +90,8 @@ CTEST_DATA(splinterdb_quick)
 {
    splinterdb       *kvsb;
    splinterdb_config cfg;
-   data_config       default_data_cfg;
+
+   comparison_counting_data_config default_data_cfg;
 };
 
 // Optional setup function for suite, called before every test in suite
@@ -94,8 +100,8 @@ CTEST_SETUP(splinterdb_quick)
    Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
 
-   data->cfg.data_cfg = &data->default_data_cfg;
-   create_default_cfg(&data->cfg);
+   default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
+   create_default_cfg(&data->cfg, &data->default_data_cfg.super);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -254,31 +260,6 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
    }
    if (value) {
       free(value);
-   }
-}
-
-/*
- * Test case to verify core interfaces when value-size is > max value-size.
- * Here, we basically exercise the insert interface, which will trip up
- * if very large values are supplied. (Once insert fails, there is
- * no further need to verify the other interfaces for very-large-values.)
- */
-CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
-{
-   size_t            too_large_value_len = TEST_MAX_VALUE_SIZE + 1;
-   char             *too_large_value     = calloc(1, too_large_value_len);
-   static const char short_key[]         = "a_short_key";
-
-   memset(too_large_value, 'z', too_large_value_len);
-   int rc = splinterdb_insert(data->kvsb,
-                              sizeof(short_key),
-                              short_key,
-                              too_large_value_len,
-                              too_large_value);
-
-   ASSERT_EQUAL(EINVAL, rc);
-   if (too_large_value) {
-      free(too_large_value);
    }
 }
 
@@ -775,11 +756,6 @@ CTEST2(splinterdb_quick, test_custom_data_config)
  *  reconfigures SplinterDB. All other cases that exercise the default
  *  configuration should precede this one.
  */
-typedef struct {
-   data_config super;
-   uint64      num_comparisons;
-} comparison_counting_data_config;
-
 // A user-specified spy comparator
 static int
 custom_key_comparator(const data_config *cfg,
@@ -806,13 +782,11 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
    // We need to reconfigure Splinter with user-specified key comparator fn.
    // Tear down default instance, and create a new one.
    splinterdb_close(data->kvsb);
-   comparison_counting_data_config ccdcfg;
-   ccdcfg.super             = *data->cfg.data_cfg;
-   ccdcfg.super.key_compare = custom_key_comparator;
-   ccdcfg.num_comparisons   = 0;
 
-   data->cfg.data_cfg  = (data_config *)&ccdcfg;
-   int rc              = splinterdb_create(&data->cfg, &data->kvsb);
+   data->default_data_cfg.super.key_compare = custom_key_comparator;
+   data->default_data_cfg.num_comparisons   = 0;
+
+   int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    const int num_inserts = 50;
@@ -836,7 +810,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 
    // Expect that iterator has stopped at num_inserts
    ASSERT_EQUAL(num_inserts, i);
-   ASSERT_TRUE(ccdcfg.num_comparisons > (2 * num_inserts));
+   ASSERT_TRUE(data->default_data_cfg.num_comparisons > (2 * num_inserts));
 
    bool is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
@@ -854,16 +828,12 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
  */
 
 static void
-create_default_cfg(splinterdb_config *out_cfg)
+create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 {
-   *out_cfg = (splinterdb_config){
-      .filename   = TEST_DB_NAME,
-      .cache_size = 64 * Mega,
-      .disk_size  = 127 * Mega,
-   };
-   size_t max_key_size   = TEST_MAX_KEY_SIZE;
-   size_t max_value_size = TEST_MAX_VALUE_SIZE;
-   default_data_config_init(max_key_size, max_value_size, out_cfg->data_cfg);
+   *out_cfg              = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                               .cache_size = 64 * Mega,
+                                               .disk_size  = 127 * Mega,
+                                               .data_cfg   = default_data_cfg};
 }
 
 /*

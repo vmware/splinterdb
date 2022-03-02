@@ -134,9 +134,8 @@ decode_message(size_t       msg_buffer_len,
 
 
 void
-default_data_config_init(const size_t max_key_size,   // IN
-                         const size_t max_value_size, // IN
-                         data_config *out_cfg         // OUT
+default_data_config_init(const size_t max_key_size, // IN
+                         data_config *out_cfg       // OUT
 )
 {
    platform_assert(max_key_size <= SPLINTERDB_MAX_KEY_SIZE && max_key_size > 0,

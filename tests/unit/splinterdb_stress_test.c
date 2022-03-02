@@ -51,8 +51,7 @@ CTEST_SETUP(splinterdb_stress)
                                                .disk_size  = 9000 * Mega,
                                                .data_cfg   = &data->default_data_config};
    size_t max_key_size   = TEST_KEY_SIZE;
-   size_t max_value_size = TEST_VALUE_SIZE;
-   default_data_config_init(max_key_size, max_value_size, data->cfg.data_cfg);
+   default_data_config_init(max_key_size, data->cfg.data_cfg);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
