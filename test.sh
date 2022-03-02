@@ -74,8 +74,6 @@ set -x
 SEED="${SEED:-135}"
 
 INCLUDE_SLOW_TESTS="${INCLUDE_SLOW_TESTS:-false}"
-WITH_RUST="${WITH_RUST:-false}"
-TEST_RUST_CLI="${TEST_RUST_CLI:-${WITH_RUST}}"
 
 set +x
 
@@ -148,28 +146,6 @@ run_with_timing "BTree test" bin/driver_test btree_test --seed "$SEED"
 run_with_timing "Log test" bin/driver_test log_test --seed "$SEED"
 
 run_with_timing "Filter test" bin/driver_test filter_test --seed "$SEED"
-
-# ------------------------------------------------------------------------
-if [ "$WITH_RUST" = "true" ]; then
-   start_seconds=$SECONDS
-   echo
-   set -x
-   pushd rust
-      cargo fmt --all -- --check
-      cargo build
-      cargo test
-      cargo clippy -- -D warnings
-      cargo build --release
-      cargo test --release
-   popd
-   set +x
-   record_elapsed_time ${start_seconds} "Rust build"
-fi
-
-# ------------------------------------------------------------------------
-if [ "$TEST_RUST_CLI" = "true" ]; then
-   run_with_timing "Perf-test driven by splinterdb-cli" bin/splinterdb-cli -f /tmp/splinterdb-rust-test perf -t 4 -w 10000
-fi
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED
