@@ -1528,7 +1528,7 @@ btree_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    data_config  *data_cfg;
-   trunk_config *cfg      = TYPED_MALLOC(hid, cfg);
+   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
                         &data_cfg,
@@ -1602,8 +1602,7 @@ btree_test(int argc, char *argv[])
 
       rc = test_btree_merge_perf(ccp, &test_cfg, hid, 8, 8);
       platform_assert_status_ok(rc);
-   }
-   else {
+   } else {
       uint64 total_inserts =
          max_tuples_per_memtable - (MAX_THREADS * (64 / sizeof(uint32)));
       rc = test_btree_basic(ccp, &test_cfg, hid, total_inserts);

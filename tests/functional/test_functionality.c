@@ -157,7 +157,7 @@ verify_against_shadow(trunk_handle               *spl,
 
    platform_status rc, result = STATUS_OK;
 
-   uint64 i;
+   uint64          i;
    writable_buffer message;
    writable_buffer_init_null(&message, spl->heap_id);
 
@@ -314,7 +314,7 @@ verify_range_against_shadow(trunk_handle               *spl,
       if (!SUCCESS(iterator_advance((iterator *)range_itor))) {
          goto destroy;
       }
-    }
+   }
 
 destroy:
    trunk_range_iterator_deinit(range_itor);
@@ -436,43 +436,43 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
             if (!SUCCESS(rc)) {
                result = rc;
             }
-          }
+         }
       }
-    }
+   }
 
-    begin_type = VERIFY_RANGE_ENDPOINT_RAND;
-    for (end_type = VERIFY_RANGE_ENDPOINT_EQUAL;
-         end_type <= VERIFY_RANGE_ENDPOINT_LESS;
-         end_type++)
-    {
-       start_key = choose_key(spl->cfg.data_cfg,
-                              sharr,
-                              prg,
-                              begin_type,
-                              1,
-                              NULL,
-                              0,
-                              &start_index,
-                              startkey_buf);
-       end_key   = choose_key(spl->cfg.data_cfg,
-                            sharr,
-                            prg,
-                            end_type,
-                            0,
-                            start_key,
-                            start_index,
-                            &end_index,
-                            endkey_buf);
-       if (do_it) {
-          rc = verify_range_against_shadow(
-             spl, sharr, start_key, end_key, hid, start_index, end_index);
-          if (!SUCCESS(rc)) {
-             result = rc;
-          }
-       }
-    }
+   begin_type = VERIFY_RANGE_ENDPOINT_RAND;
+   for (end_type = VERIFY_RANGE_ENDPOINT_EQUAL;
+        end_type <= VERIFY_RANGE_ENDPOINT_LESS;
+        end_type++)
+   {
+      start_key = choose_key(spl->cfg.data_cfg,
+                             sharr,
+                             prg,
+                             begin_type,
+                             1,
+                             NULL,
+                             0,
+                             &start_index,
+                             startkey_buf);
+      end_key   = choose_key(spl->cfg.data_cfg,
+                           sharr,
+                           prg,
+                           end_type,
+                           0,
+                           start_key,
+                           start_index,
+                           &end_index,
+                           endkey_buf);
+      if (do_it) {
+         rc = verify_range_against_shadow(
+            spl, sharr, start_key, end_key, hid, start_index, end_index);
+         if (!SUCCESS(rc)) {
+            result = rc;
+         }
+      }
+   }
 
-    return result;
+   return result;
 }
 
 static platform_status

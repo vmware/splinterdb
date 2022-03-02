@@ -507,7 +507,7 @@ typedef struct ONDISK trunk_hdr {
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK trunk_pivot_data {
-   uint64         addr; // PBN of the child
+   uint64         addr;         // PBN of the child
    uint64         num_kv_bytes; // estimate of the # of kv bytes for this pivot
    uint64         num_tuples;   // estimate of the # of tuples for this pivot
    uint64         generation;   // receives new higher number when pivot splits
@@ -5179,7 +5179,7 @@ trunk_split_leaf(trunk_handle *spl,
       uint64 rough_count_num_tuples;
       for (num_leaves = 0; !at_end; num_leaves++) {
          rough_count_num_tuples = 0;
-         rough_count_kv_bytes = 0;
+         rough_count_kv_bytes   = 0;
          while (1 && !at_end
                 && (0 || rough_count_kv_bytes < target_leaf_kv_bytes
                     || num_leaves == target_num_leaves - 1))
@@ -5362,10 +5362,10 @@ trunk_split_leaf(trunk_handle *spl,
    req->spl                      = spl;
    req->addr                     = leaf->disk_addr;
    // req->height already 0
-   req->bundle_no            = bundle_no;
-   req->generation           = trunk_generation(spl, leaf);
-   req->max_pivot_generation = trunk_pivot_generation(spl, leaf);
-   req->pivot_generation[0]  = trunk_pivot_generation(spl, leaf) - 1;
+   req->bundle_no                    = bundle_no;
+   req->generation                   = trunk_generation(spl, leaf);
+   req->max_pivot_generation         = trunk_pivot_generation(spl, leaf);
+   req->pivot_generation[0]          = trunk_pivot_generation(spl, leaf) - 1;
    req->input_pivot_tuple_count[0]   = trunk_pivot_num_tuples(spl, leaf, 0);
    req->input_pivot_kv_byte_count[0] = trunk_pivot_kv_bytes(spl, leaf, 0);
 
@@ -5808,13 +5808,13 @@ trunk_compact_leaf(trunk_handle *spl, page_handle *leaf)
    req->spl                      = spl;
    req->addr                     = leaf->disk_addr;
    // req->height already 0
-   req->bundle_no            = bundle_no;
-   req->generation           = trunk_generation(spl, leaf);
-   req->max_pivot_generation = trunk_pivot_generation(spl, leaf);
-   req->pivot_generation[0]  = trunk_pivot_generation(spl, leaf) - 1;
+   req->bundle_no                    = bundle_no;
+   req->generation                   = trunk_generation(spl, leaf);
+   req->max_pivot_generation         = trunk_pivot_generation(spl, leaf);
+   req->pivot_generation[0]          = trunk_pivot_generation(spl, leaf) - 1;
    req->input_pivot_tuple_count[0]   = trunk_pivot_num_tuples(spl, leaf, 0);
    req->input_pivot_kv_byte_count[0] = trunk_pivot_kv_bytes(spl, leaf, 0);
-   req->type                 = TRUNK_COMPACTION_TYPE_SPACE_REC;
+   req->type                         = TRUNK_COMPACTION_TYPE_SPACE_REC;
 
    trunk_default_log(
       "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);

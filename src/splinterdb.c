@@ -36,7 +36,7 @@ splinterdb_get_version()
 // called with key-length set to 0.
 // This is a temporary shim until variable-length key support lands in trunk.
 typedef struct {
-   data_config  super;
+   data_config super;
    // This is the data config provided by application, which assumes
    // all keys are variable-length, and the functions will be called
    // with the correct key lenghts.
@@ -208,7 +208,7 @@ splinterdb_shim_key_compare(const data_config *cfg,
    platform_assert(key1->length <= SPLINTERDB_MAX_KEY_SIZE);
    platform_assert(key2->length <= SPLINTERDB_MAX_KEY_SIZE);
 
-   shim_data_config *shim_data_cfg = (shim_data_config *)cfg;
+   shim_data_config  *shim_data_cfg = (shim_data_config *)cfg;
    const data_config *app_cfg       = shim_data_cfg->app_data_cfg;
    return app_cfg->key_compare(
       app_cfg, key1->length, key1->data, key2->length, key2->data);
@@ -219,7 +219,7 @@ splinterdb_shim_message_class(const data_config *cfg,
                               uint64             raw_message_len,
                               const void        *raw_message)
 {
-   shim_data_config *shim_data_cfg = (shim_data_config *)cfg;
+   shim_data_config  *shim_data_cfg = (shim_data_config *)cfg;
    const data_config *app_cfg       = shim_data_cfg->app_data_cfg;
    return app_cfg->message_class(app_cfg, raw_message_len, raw_message);
 }
@@ -283,8 +283,8 @@ static int
 splinterdb_shim_data_config(const data_config *app_cfg,
                             shim_data_config  *out_shim)
 {
-   data_config shim  = {0};
-   shim.key_size     = app_cfg->key_size + sizeof(var_len_key_encoding);
+   data_config shim = {0};
+   shim.key_size    = app_cfg->key_size + sizeof(var_len_key_encoding);
 
    int rc = encode_key(shim.min_key,
                        sizeof(shim.min_key),

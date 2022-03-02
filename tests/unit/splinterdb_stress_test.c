@@ -46,11 +46,11 @@ CTEST_SETUP(splinterdb_stress)
    Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
 
-   data->cfg             = (splinterdb_config){.filename   = TEST_DB_NAME,
-                                               .cache_size = 1000 * Mega,
-                                               .disk_size  = 9000 * Mega,
-                                               .data_cfg   = &data->default_data_config};
-   size_t max_key_size   = TEST_KEY_SIZE;
+   data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                             .cache_size = 1000 * Mega,
+                                             .disk_size  = 9000 * Mega,
+                                             .data_cfg   = &data->default_data_config};
+   size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);

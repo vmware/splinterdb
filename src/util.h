@@ -185,11 +185,11 @@ writable_buffer_init(writable_buffer *wb,
                      uint64           allocation_size,
                      void            *data)
 {
-   wb->heap_id          = heap_id;
-   wb->buffer           = data;
-   wb->buffer_size      = allocation_size;
-   wb->length           = WRITABLE_BUFFER_NULL_LENGTH;
-   wb->can_free         = FALSE;
+   wb->heap_id     = heap_id;
+   wb->buffer      = data;
+   wb->buffer_size = allocation_size;
+   wb->length      = WRITABLE_BUFFER_NULL_LENGTH;
+   wb->can_free    = FALSE;
 }
 
 static inline void

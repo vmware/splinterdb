@@ -35,10 +35,10 @@ test_log_crash(clockcache             *cc,
                bool                    crash)
 
 {
-   platform_status rc;
-   log_handle     *logh;
-   uint64          i;
-   char            keybuffer[MAX_KEY_SIZE];
+   platform_status    rc;
+   log_handle        *logh;
+   uint64             i;
+   char               keybuffer[MAX_KEY_SIZE];
    slice              returned_key;
    slice              returned_message;
    uint64             addr;
@@ -138,7 +138,7 @@ test_log_thread(void *arg)
    char                    key[MAX_KEY_SIZE];
    writable_buffer         msg;
 
-   slice skey     = slice_create(log->cfg->data_cfg->key_size, key);
+   slice skey = slice_create(log->cfg->data_cfg->key_size, key);
    writable_buffer_init_null(&msg, hid);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
@@ -330,7 +330,7 @@ log_test(int argc, char *argv[])
    if (run_perf_test) {
       ret = test_log_perf(
          (cache *)cc, &log_cfg, log, 200000000, &gen, 16, ts, hid);
-      rc  = -1;
+      rc = -1;
       platform_assert_status_ok(ret);
    } else if (run_crash_test) {
       rc = test_log_crash(cc,

@@ -92,13 +92,13 @@ CTEST_DATA(splinter)
    rc_allocator al;
 
    // Following get setup pointing to allocated memory
-   trunk_config           *splinter_cfg;
-   data_config            *data_cfg;
-   clockcache_config      *cache_cfg;
-   platform_io_handle     *io;
-   clockcache             *clock_cache;
-   task_system            *tasks;
-   test_message_generator  gen;
+   trunk_config          *splinter_cfg;
+   data_config           *data_cfg;
+   clockcache_config     *cache_cfg;
+   platform_io_handle    *io;
+   clockcache            *clock_cache;
+   task_system           *tasks;
+   test_message_generator gen;
 
    // Test execution related configuration
    test_exec_config test_exec_cfg;
@@ -360,10 +360,10 @@ trunk_shadow_length(trunk_shadow *shadow)
 static void
 trunk_shadow_sort(trunk_shadow *shadow)
 {
-   shadow_entry *entries = writable_buffer_data(&shadow->entries);
+   shadow_entry *entries  = writable_buffer_data(&shadow->entries);
    uint64        nentries = trunk_shadow_length(shadow);
    shadow_entry  temp;
-   char        *data = writable_buffer_data(&shadow->data);
+   char         *data = writable_buffer_data(&shadow->data);
 
    platform_sort_slow(
       entries, nentries, sizeof(*entries), compare_shadow_entries, data, &temp);
@@ -378,7 +378,7 @@ trunk_shadow_get(trunk_shadow *shadow, uint64 i, slice *key, slice *value)
       trunk_shadow_sort(shadow);
    }
 
-   shadow_entry *entries = writable_buffer_data(&shadow->entries);
+   shadow_entry     *entries  = writable_buffer_data(&shadow->entries);
    debug_only uint64 nentries = trunk_shadow_length(shadow);
    debug_assert(i < nentries);
    shadow_entry *entry = &entries[i];
@@ -680,7 +680,7 @@ splinter_do_inserts(void         *datap,
    uint64       start_time = platform_get_timestamp();
    uint64       insert_num;
    char         key[MAX_KEY_SIZE];
-   const size_t key_size  = trunk_key_size(spl);
+   const size_t key_size = trunk_key_size(spl);
 
    // Allocate a large array for copying over shadow copies of rows
    // inserted, if user has asked to return such an array.
@@ -795,7 +795,7 @@ test_lookup_by_range(void         *datap,
                      trunk_shadow *shadow,
                      uint64        num_ranges)
 {
-   const size_t key_size   = trunk_key_size(spl);
+   const size_t key_size = trunk_key_size(spl);
 
    uint64 start_time = platform_get_timestamp();
 
@@ -815,7 +815,7 @@ test_lookup_by_range(void         *datap,
                0,
                key_size,
                0);
-      slice start_key = slice_create(key_size, start_key_buf);
+      slice  start_key    = slice_create(key_size, start_key_buf);
       uint64 range_tuples = test_range(range_num, 1, 100);
 
       uint64 start_idx = test_splinter_bsearch(shadow, start_key);
@@ -854,4 +854,3 @@ test_lookup_by_range(void         *datap,
 
    return rc;
 }
-

@@ -51,19 +51,19 @@ typedef struct stats_insert {
 } stats_insert;
 
 typedef struct test_splinter_thread_params {
-   platform_thread    thread;
-   trunk_handle     **spl;
-   test_config       *test_cfg;
-   uint64            *total_ops;
-   uint64            *curr_op;
-   uint64             op_granularity;
-   uint8              num_tables;
-   uint64             thread_number;
-   task_system       *ts;
-   platform_status    rc;
-   uint64             range_min;
-   uint64             range_max;
-   stats_insert       insert_stats;
+   platform_thread thread;
+   trunk_handle  **spl;
+   test_config    *test_cfg;
+   uint64         *total_ops;
+   uint64         *curr_op;
+   uint64          op_granularity;
+   uint8           num_tables;
+   uint64          thread_number;
+   task_system    *ts;
+   platform_status rc;
+   uint64          range_min;
+   uint64          range_max;
+   stats_insert    insert_stats;
    // message_type       message_type;
    uint64             num_ops_per_thread[NUM_OP_TYPES]; // in each round
    bool               expected_found;
@@ -113,7 +113,7 @@ test_trunk_insert_thread(void *arg)
    uint64    num_inserts     = 0;
    timestamp next_check_time = platform_get_timestamp();
    // divide the per second insert rate into periods of 10 milli seconds.
-   uint64 insert_rate = params->insert_rate / 100;
+   uint64          insert_rate = params->insert_rate / 100;
    writable_buffer msg;
    writable_buffer_init_null(&msg, NULL);
 
@@ -345,7 +345,7 @@ test_trunk_range_thread(void *arg)
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
             if (test_is_done(done, spl_idx))
                continue;
-            trunk_handle *spl  = spl_tables[spl_idx];
+            trunk_handle *spl = spl_tables[spl_idx];
 
             char   start_key[MAX_KEY_SIZE];
             uint64 range_num = range_base[spl_idx] + op_offset;
@@ -1624,7 +1624,7 @@ test_splinter_parallel_perf(trunk_config    *cfg,
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size = cfg[i].data_cfg->key_size
                    + generator_average_message_size(test_cfg->gen);
-      num_inserts = test_cfg[i].tree_size / tuple_size;
+      num_inserts          = test_cfg[i].tree_size / tuple_size;
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
       total_inserts += per_table_inserts[i];
    }
@@ -1804,7 +1804,7 @@ test_splinter_delete(trunk_config    *cfg,
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size = cfg[i].data_cfg->key_size
                    + generator_average_message_size(test_cfg->gen);
-      num_inserts = test_cfg[i].tree_size / tuple_size;
+      num_inserts          = test_cfg[i].tree_size / tuple_size;
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
       total_inserts += per_table_inserts[i];
    }
