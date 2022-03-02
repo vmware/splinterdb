@@ -238,8 +238,9 @@ laio_read_async(io_handle     *ioh,
    io_set_callback(&req->iocb, laio_callback);
    do {
       status = io_submit(io->ctx, 1, &req->iocb_p);
-      if (status < 0)
-         platform_log("io_submit error %s\n", strerror(-status));
+      if (status < 0) {
+         platform_error_log("io_submit error %s\n", strerror(-status));
+      }
       io_cleanup(ioh, 0);
    } while (status != 1);
 
@@ -263,8 +264,9 @@ laio_write_async(io_handle     *ioh,
    io_set_callback(&req->iocb, laio_callback);
    do {
       status = io_submit(io->ctx, 1, &req->iocb_p);
-      if (status < 0)
-         platform_log("io_submit error %s\n", strerror(-status));
+      if (status < 0) {
+         platform_error_log("io_submit error %s\n", strerror(-status));
+      }
       io_cleanup(ioh, 0);
    } while (status != 1);
 
@@ -283,8 +285,8 @@ laio_cleanup(io_handle *ioh, uint64 count)
    for (i = 0; ((count == 0) || (i < count)); i++) {
       status = io_getevents(io->ctx, 0, 1, &event, NULL);
       if (status < 0) {
-         platform_log("io_getevents failed with error: %s\n",
-                      strerror(-status));
+         platform_error_log("io_getevents failed with error: %s\n",
+                            strerror(-status));
          i--;
          continue;
       }

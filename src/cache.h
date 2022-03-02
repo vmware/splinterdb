@@ -185,6 +185,7 @@ typedef bool (*cache_present_fn)(cache *cc, page_handle *page);
 typedef void (*enable_sync_get_fn)(cache *cc, bool enabled);
 typedef allocator *(*cache_allocator_fn)(const cache *cc);
 typedef cache_config *(*cache_config_fn)(const cache *cc);
+typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
 
 /*
  * Cache Operations structure:
@@ -217,8 +218,8 @@ typedef struct cache_ops {
    page_valid_fn        page_valid;
    validate_page_fn     validate_page;
    cache_present_fn     cache_present;
-   cache_generic_fn     print;
-   cache_generic_fn     print_stats;
+   cache_print_fn       print;
+   cache_print_fn       print_stats;
    io_stats_fn          io_stats;
    cache_generic_fn     reset_stats;
    count_dirty_fn       count_dirty;
@@ -378,15 +379,15 @@ cache_assert_free(cache *cc)
 }
 
 static inline void
-cache_print(cache *cc)
+cache_print(platform_log_handle *log_handle, cache *cc)
 {
-   return cc->ops->print(cc);
+   return cc->ops->print(log_handle, cc);
 }
 
 static inline void
-cache_print_stats(cache *cc)
+cache_print_stats(platform_log_handle *log_handle, cache *cc)
 {
-   return cc->ops->print_stats(cc);
+   return cc->ops->print_stats(log_handle, cc);
 }
 
 static inline void

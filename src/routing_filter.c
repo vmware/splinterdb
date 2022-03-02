@@ -526,7 +526,7 @@ routing_filter_add(cache           *cc,
          uint32 end_bucket      = (index_no + 1) * index_size;
          uint32 new_index_count = index_count[index_no];
          uint64 header_bit      = 0;
-         // platform_log("index 0x%x start 0x%x end 0x%x\n", index_no,
+         // platform_default_log("index 0x%x start 0x%x end 0x%x\n", index_no,
          // last_bucket, end_bucket);
          uint32 last_fp_added = UINT32_MAX;
          while (new_fps_added < new_index_count
@@ -547,11 +547,11 @@ routing_filter_add(cache           *cc,
             uint32 bucket = routing_get_bucket(fp, remainder_and_value_size);
             // if (fp >> value_size == 0x4a11feb) {
             //    if (is_old) {
-            //       platform_log("old %4u 0x%08x bucket 0x%x\n", old_fps_added,
-            //       fp, bucket);
+            //       platform_default_log("old %4u 0x%08x bucket 0x%x\n",
+            //       old_fps_added, fp, bucket);
             //    } else {
-            //       platform_log("new %4u 0x%08x bucket 0x%x\n", new_fps_added,
-            //       fp, bucket);
+            //       platform_default_log("new %4u 0x%08x bucket 0x%x\n",
+            //       new_fps_added, fp, bucket);
             //    }
             // }
             if (bucket >= end_bucket) {
@@ -761,7 +761,7 @@ routing_filter_estimate_unique_fp(cache           *cc,
       fp_start[i + 1] = dst_fp_no;
    }
 
-   // platform_log("num fp %u\n", fp_start[num_filters - 1]);
+   // platform_default_log("num fp %u\n", fp_start[num_filters - 1]);
 
    uint32 idx[MAX_FILTERS] = {0};
    memmove(idx, fp_start, MAX_FILTERS * sizeof(uint32));
@@ -780,15 +780,15 @@ routing_filter_estimate_unique_fp(cache           *cc,
       if (min_fp == UINT32_MAX) {
          break;
       }
-      // platform_log("0x%08x:", min_fp);
+      // platform_default_log("0x%08x:", min_fp);
 
       for (uint64 i = 0; i < num_filters; i++) {
          if (idx[i] != fp_start[i + 1] && fp_arr[idx[i]] == min_fp) {
-            // platform_log(" %lu-%u", i, idx[i]);
+            // platform_default_log(" %lu-%u", i, idx[i]);
             idx[i]++;
          }
       }
-      // platform_log("\n");
+      // platform_default_log("\n");
       num_unique++;
    }
 
@@ -930,7 +930,8 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
 
    platform_assert(SUCCESS(cache_ctxt->status));
    platform_assert(cache_ctxt->page);
-   //   platform_log("%s:%d tid %2lu: ctxt %p is callback with page %p\n",
+   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page
+   //   %p\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt,
    //                cache_ctxt->page);
    ctxt->was_async = TRUE;
@@ -1031,7 +1032,7 @@ routing_filter_lookup_async(cache              *cc,
             switch (res) {
                case async_locked:
                case async_no_reqs:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            retry\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -1042,7 +1043,7 @@ routing_filter_lookup_async(cache              *cc,
                   done = TRUE;
                   break;
                case async_io_started:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            io_started\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -1190,7 +1191,7 @@ routing_filter_estimate_unique_keys_from_count(routing_config *cfg,
 uint32
 routing_filter_estimate_unique_keys(routing_filter *filter, routing_config *cfg)
 {
-   // platform_log("unique fp %u\n", filter->num_unique);
+   // platform_default_log("unique fp %u\n", filter->num_unique);
    return routing_filter_estimate_unique_keys_from_count(cfg,
                                                          filter->num_unique);
 }

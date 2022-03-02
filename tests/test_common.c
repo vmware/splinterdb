@@ -31,14 +31,13 @@ verify_tuple(trunk_handle           *spl,
    if (message_is_null(data) != !expected_found) {
       char key_str[128];
       trunk_key_to_string(spl, key, key_str);
-      platform_handle_log(stderr,
-                          "(%2lu) key %lu (%s): found %d (expected:%d)\n",
-                          platform_get_tid(),
-                          lookup_num,
-                          key_str,
-                          !message_is_null(data),
-                          expected_found);
-      trunk_print_lookup(spl, key);
+      platform_error_log("(%2lu) key %lu (%s): found %d (expected:%d)\n",
+                         platform_get_tid(),
+                         lookup_num,
+                         key_str,
+                         !message_is_null(data),
+                         expected_found);
+      trunk_print_lookup(spl, key, Platform_error_log_handle);
       platform_assert(FALSE);
    }
 
@@ -50,10 +49,10 @@ verify_tuple(trunk_handle           *spl,
       if (message_lex_cmp(merge_accumulator_to_message(&expected_msg), data)
           != 0) {
          trunk_message_to_string(spl, data, data_str);
-         platform_handle_log(stderr, "key found with data: %s\n", data_str);
+         platform_error_log("key found with data: %s\n", data_str);
          trunk_message_to_string(
             spl, merge_accumulator_to_message(&expected_msg), data_str);
-         platform_handle_log(stderr, "expected data: %s\n", data_str);
+         platform_error_log("expected data: %s\n", data_str);
          platform_assert(FALSE);
       }
    }

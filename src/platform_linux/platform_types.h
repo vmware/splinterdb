@@ -52,8 +52,15 @@ typedef XXH128_hash_t checksum128;
 #define LIKELY(_exp)   __builtin_expect(!!(_exp), 1)
 #define UNLIKELY(_exp) __builtin_expect(!!(_exp), 0)
 
-typedef FILE *platform_log_handle;
-typedef FILE *platform_stream_handle;
+/*
+ * A handle which buffers streamed content to be atomically written to a
+ * platform_log_handle.
+ */
+typedef struct {
+   char  *str;
+   size_t size;
+   FILE  *stream;
+} platform_stream_handle;
 
 typedef sem_t platform_semaphore;
 
@@ -63,44 +70,6 @@ typedef void *List_Links;
 #define STRINGIFY_VALUE(s) STRINGIFY(s)
 #define FRACTION_FMT(w, s) "%" STRINGIFY_VALUE(w) "." STRINGIFY_VALUE(s) "f"
 #define FRACTION_ARGS(f)   ((double)(f).numerator / (double)(f).denominator)
-
-/*
- * Linux understands that you cannot continue after a failed assert already,
- * so we do not need a workaround for platform_assert in linux
- */
-__attribute__((noreturn)) void
-platform_assert_false(platform_stream_handle stream,
-                      const char            *filename,
-                      int                    linenumber,
-                      const char            *functionname,
-                      const char            *expr,
-                      const char            *message,
-                      ...);
-
-void
-platform_assert_msg(platform_stream_handle stream,
-                    const char            *filename,
-                    int                    linenumber,
-                    const char            *functionname,
-                    const char            *expr,
-                    const char            *message,
-                    va_list                args);
-
-/*
- * Caller-macro to invoke assertion checking. Avoids a function call for
- * most cases when the assertion will succeed.
- *
- * Note: The dangling fprintf() is really dead-code, as it executes after the
- * "noreturn" function implementing the assertion check executes, and fails.
- * -BUT- The fprintf() is solely there as a small compile-time check to ensure
- * that the arguments match the print-formats in any user-supplied message.
- */
-#define platform_assert(expr, ...)                                             \
-   ((expr)                                                                     \
-       ? (void)0                                                               \
-       : (platform_assert_false(                                               \
-             NULL, __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__),   \
-          (void)fprintf(stderr, " " __VA_ARGS__)))
 
 typedef pthread_t platform_thread;
 

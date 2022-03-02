@@ -111,8 +111,8 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle = fopen("/tmp/unit_test.stderr", "a+");
 
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
@@ -169,12 +169,12 @@ CTEST_SETUP(splinter)
    io_config * io_cfgp = &data->io_cfg;
    if (io_cfgp->async_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->async_queue_size = ROUNDUP(total_threads * data->max_async_inflight, 32);
-      platform_log("Bumped up IO queue size to %lu\n", io_cfgp->async_queue_size);
+      platform_default_log("Bumped up IO queue size to %lu\n", io_cfgp->async_queue_size);
    }
    if (io_cfgp->kernel_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->kernel_queue_size =
          ROUNDUP(total_threads * data->max_async_inflight, 32);
-      platform_log("Bumped up IO queue size to %lu\n",
+      platform_default_log("Bumped up IO queue size to %lu\n",
                    io_cfgp->kernel_queue_size);
    }
 
@@ -764,8 +764,9 @@ shadow_check_tuple_func(slice key, message value, void *varg)
       trunk_message_to_string(arg->spl, shadow_value, expected_value);
       trunk_message_to_string(arg->spl, value, actual_value);
 
-      platform_log("expected: '%s' | '%s'\n", expected_key, expected_value);
-      platform_log("actual  : '%s' | '%s'\n", actual_key, actual_value);
+      platform_default_log(
+         "expected: '%s' | '%s'\n", expected_key, expected_value);
+      platform_default_log("actual  : '%s' | '%s'\n", actual_key, actual_value);
       arg->errors++;
    }
 

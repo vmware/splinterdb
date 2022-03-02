@@ -11,17 +11,17 @@ __thread threadid xxxtid;
 bool platform_use_hugetlb = FALSE;
 bool platform_use_mlock   = FALSE;
 
-// By default, currently all platform_log() messages go to stdout, and
-// platform_error_log() messages go to stderr. These can be changed to
-// module- or test-specific log files, by overriding these settings.
-FILE *Platform_stdout_fh = NULL; // => Output goes to stdout
-FILE *Platform_stderr_fh = NULL; // => Output goes to stderr
+// By default, platform_default_log() messages go to stdout, and
+// platform_error_log() messages go to stderr. These can be changed to module-
+// or test-specific log files, by overriding these settings.
+platform_log_handle *Platform_default_log_handle = NULL;
+platform_log_handle *Platform_error_log_handle   = NULL;
 
 // This function is run automatically at library-load time
 void __attribute__((constructor)) platform_init_log_file_handles(void)
 {
-   Platform_stdout_fh = stdout;
-   Platform_stderr_fh = stderr;
+   Platform_default_log_handle = stdout;
+   Platform_error_log_handle   = stderr;
 }
 
 platform_status
@@ -209,27 +209,35 @@ platform_histo_destroy(platform_heap_id heap_id, platform_histo_handle histo)
 }
 
 void
-platform_histo_print(platform_histo_handle histo, const char *name)
+platform_histo_print(platform_histo_handle histo,
+                     const char           *name,
+                     platform_log_handle  *log_handle)
 {
    if (histo->num == 0) {
       return;
    }
 
-   platform_log("%s\n", name);
-   platform_log("min: %ld\n", histo->min);
-   platform_log("max: %ld\n", histo->max);
-   platform_log("mean: %ld\n", histo->num == 0 ? 0 : histo->total / histo->num);
-   platform_log("count: %ld\n", histo->num);
+   platform_log(log_handle, "%s\n", name);
+   platform_log(log_handle, "min: %ld\n", histo->min);
+   platform_log(log_handle, "max: %ld\n", histo->max);
+   platform_log(log_handle,
+                "mean: %ld\n",
+                histo->num == 0 ? 0 : histo->total / histo->num);
+   platform_log(log_handle, "count: %ld\n", histo->num);
    for (uint32 i = 0; i < histo->num_buckets; i++) {
       if (i == histo->num_buckets - 1) {
-         platform_log(
-            "%-12ld  > %12ld\n", histo->count[i], histo->bucket_limits[i - 1]);
+         platform_log(log_handle,
+                      "%-12ld  > %12ld\n",
+                      histo->count[i],
+                      histo->bucket_limits[i - 1]);
       } else {
-         platform_log(
-            "%-12ld <= %12ld\n", histo->count[i], histo->bucket_limits[i]);
+         platform_log(log_handle,
+                      "%-12ld <= %12ld\n",
+                      histo->count[i],
+                      histo->bucket_limits[i]);
       }
    }
-   platform_log("\n");
+   platform_log(log_handle, "\n");
 }
 
 char *
@@ -303,24 +311,26 @@ platform_condvar_broadcast(platform_condvar *cv)
  * i.e. the assertion is failing.
  */
 __attribute__((noreturn)) void
-platform_assert_false(platform_stream_handle stream,
-                      const char            *filename,
-                      int                    linenumber,
-                      const char            *functionname,
-                      const char            *expr,
-                      const char            *message,
+platform_assert_false(const char *filename,
+                      int         linenumber,
+                      const char *functionname,
+                      const char *expr,
+                      const char *message,
                       ...)
 {
    va_list varargs;
    va_start(varargs, message);
 
    // Run-time assertion messages go to stderr.
-   stream = Platform_stderr_fh;
-   platform_assert_msg(
-      stream, filename, linenumber, functionname, expr, message, varargs);
+   platform_assert_msg(Platform_error_log_handle,
+                       filename,
+                       linenumber,
+                       functionname,
+                       expr,
+                       message,
+                       varargs);
    va_end(varargs);
-   platform_log_stream("\n");
-   fflush(stream);
+   platform_error_log("\n");
 
    abort();
 }
@@ -329,16 +339,16 @@ platform_assert_false(platform_stream_handle stream,
  * Lower-level function to generate the assertion message, alone.
  */
 void
-platform_assert_msg(platform_stream_handle stream,
-                    const char            *filename,
-                    int                    linenumber,
-                    const char            *functionname,
-                    const char            *expr,
-                    const char            *message,
-                    va_list                varargs)
+platform_assert_msg(platform_log_handle *log_handle,
+                    const char          *filename,
+                    int                  linenumber,
+                    const char          *functionname,
+                    const char          *expr,
+                    const char          *message,
+                    va_list              varargs)
 {
    static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";
-   platform_log_stream(
-      assert_msg_fmt, filename, linenumber, functionname, expr);
-   vfprintf(stream, message, varargs);
+   platform_log(
+      log_handle, assert_msg_fmt, filename, linenumber, functionname, expr);
+   vfprintf(log_handle, message, varargs);
 }

@@ -67,6 +67,8 @@ config_set_defaults(master_config *cfg)
       .max_branches_per_node    = TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE,
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
+      .verbose_logging_enabled  = FALSE,
+      .log_handle               = NULL,
       .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
@@ -114,6 +116,8 @@ config_usage()
    platform_error_log("\t--no-stats\n");
    platform_error_log("\t--log\n");
    platform_error_log("\t--no-log\n");
+   platform_error_log("\t--verbose-logging\n");
+   platform_error_log("\t--no-verbose-logging\n");
    platform_error_log("\t--key-size (%d)\n", TEST_CONFIG_DEFAULT_KEY_SIZE);
    platform_error_log("\t--data-size (%d)\n", TEST_CONFIG_DEFAULT_MESSAGE_SIZE);
    platform_error_log("\t--num-inserts (%d)\n",
@@ -230,6 +234,23 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                cfg[cfg_idx].use_log = TRUE;
             }
          }
+         config_has_option("no-log")
+         {
+            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].use_log = FALSE;
+            }
+         }
+         config_has_option("verbose-logging")
+         {
+            cfg[cfg_idx].verbose_logging_enabled = TRUE;
+            cfg[cfg_idx].log_handle              = Platform_default_log_handle;
+         }
+         config_has_option("no-verbose-logging")
+         {
+            cfg[cfg_idx].verbose_logging_enabled = FALSE;
+            cfg[cfg_idx].log_handle              = NULL;
+         }
+
          config_set_uint64("key-size", cfg, key_size) {}
          config_set_uint64("data-size", cfg, message_size) {}
 

@@ -120,7 +120,7 @@ struct clockcache {
    clockcache_entry    *entry;
    buffer_handle       *bh;   // actual memory for pages
    char                *data; // convenience pointer for bh
-   platform_log_handle  logfile;
+   platform_log_handle *logfile;
    platform_heap_handle heap_handle;
    platform_heap_id     heap_id;
 

@@ -89,49 +89,78 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  */
 #define TRUNK_SINGLE_LEAF_THRESHOLD_PCT (75)
 
-//#define TRUNK_LOG
-
-#if defined TRUNK_LOG
-#   define trunk_open_log_stream() platform_open_log_stream()
-#else
-#   define trunk_open_log_stream()
-#endif
-
-#if defined TRUNK_LOG
-#   define trunk_close_log_stream()                                            \
-      platform_close_log_stream(PLATFORM_DEFAULT_LOG_HANDLE)
-#else
-#   define trunk_close_log_stream()
-#endif
-
 /*
- * trunk_log_stream, trunk_log_node, trunk_log_key should be called
- * between trunk_open_log_stream and trunk_close_log_stream.
+ * Trunk logging functions.
+ *
+ * If verbose_logging_enabled is enabled in trunk_config, these functions print
+ * to cfg->log_handle.
  */
-#if defined TRUNK_LOG
-#   define trunk_log_stream(message, ...)                                      \
-      platform_log_stream("(%lu) " message, platform_get_tid(), ##__VA_ARGS__);
-#   define trunk_default_log(...)    platform_default_log(__VA_ARGS__);
-#   define trunk_log_node(spl, node) trunk_print_locked_node(spl, node, stream);
-#else
-#   define trunk_log_stream(message, ...)
-#   define trunk_default_log(...)
-#   define trunk_log_node(spl, node)
-#endif
 
-#if defined TRUNK_LOG
-#   define trunk_log_key(spl, key, message, ...)                               \
-      {                                                                        \
-         char __key_str[128];                                                  \
-         trunk_key_to_string(spl, key, __key_str);                             \
-         platform_log_stream("(%lu) " message " %s\n",                         \
-                             platform_get_tid(),                               \
-                             ##__VA_ARGS__,                                    \
-                             __key_str);                                       \
-      }
-#else
-#   define trunk_log_key(spl, key, message, ...)
-#endif
+static inline bool
+trunk_verbose_logging_enabled(trunk_handle *spl)
+{
+   return spl->cfg.verbose_logging_enabled;
+}
+
+static inline platform_log_handle *
+trunk_log_handle(trunk_handle *spl)
+{
+   platform_assert(trunk_verbose_logging_enabled(spl));
+   platform_assert(spl->cfg.log_handle != NULL);
+   return spl->cfg.log_handle;
+}
+
+static inline platform_status
+trunk_open_log_stream_if_enabled(trunk_handle           *spl,
+                                 platform_stream_handle *stream)
+{
+   if (trunk_verbose_logging_enabled(spl)) {
+      return platform_open_log_stream(stream);
+   }
+   return STATUS_OK;
+}
+
+static inline void
+trunk_close_log_stream_if_enabled(trunk_handle           *spl,
+                                  platform_stream_handle *stream)
+{
+   if (trunk_verbose_logging_enabled(spl)) {
+      platform_assert(stream != NULL);
+      platform_close_log_stream(stream, trunk_log_handle(spl));
+   }
+}
+
+#define trunk_log_stream_if_enabled(spl, _stream, message, ...)                \
+   do {                                                                        \
+      if (trunk_verbose_logging_enabled(spl)) {                                \
+         platform_log_stream(                                                  \
+            (_stream), "[%3lu] " message, platform_get_tid(), ##__VA_ARGS__);  \
+      }                                                                        \
+   } while (0)
+
+#define trunk_default_log_if_enabled(spl, message, ...)                        \
+   do {                                                                        \
+      if (trunk_verbose_logging_enabled(spl)) {                                \
+         platform_default_log(message, __VA_ARGS__);                           \
+      }                                                                        \
+   } while (0)
+
+void
+trunk_print_locked_node(platform_log_handle *log_handle,
+                        trunk_handle        *spl,
+                        page_handle         *node);
+
+static inline void
+trunk_log_node_if_enabled(platform_stream_handle *stream,
+                          trunk_handle           *spl,
+                          page_handle            *node)
+{
+   if (trunk_verbose_logging_enabled(spl)) {
+      platform_log_handle *log_handle =
+         platform_log_stream_to_log_handle(stream);
+      trunk_print_locked_node(log_handle, spl, node);
+   }
+}
 
 /*
  *-----------------------------------------------------------------------------
@@ -670,9 +699,8 @@ static inline bool                 trunk_needs_split               (trunk_handle
 int                                trunk_split_index               (trunk_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
 void                               trunk_split_leaf                (trunk_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
 int                                trunk_split_root                (trunk_handle *spl, page_handle     *root);
-void                               trunk_print                     (trunk_handle *spl);
-void                               trunk_print_node                (trunk_handle *spl, uint64 addr, platform_stream_handle stream);
-void                               trunk_print_locked_node         (trunk_handle *spl, page_handle *node, platform_stream_handle stream);
+void                               trunk_print                     (platform_log_handle *log_handle, trunk_handle *spl);
+void                               trunk_print_node                (platform_log_handle *log_handle, trunk_handle *spl, uint64 addr);
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
 void                               trunk_btree_skiperator_get_curr (iterator *itor, slice *key, message *data);
 platform_status                    trunk_btree_skiperator_advance  (iterator *itor);
@@ -1774,8 +1802,8 @@ trunk_reset_start_branch(trunk_handle *spl, page_handle *node)
           */
          trunk_bundle_clear_subbundles(spl, node, bundle);
          trunk_inc_start_bundle(spl, node);
-         trunk_default_log(
-            "node %lu evicting bundle %hu\n", node->disk_addr, bundle_no);
+         trunk_default_log_if_enabled(
+            spl, "node %lu evicting bundle %hu\n", node->disk_addr, bundle_no);
       }
    }
 }
@@ -2207,7 +2235,7 @@ trunk_leaf_rebundle_all_branches(trunk_handle *spl,
    if (!is_space_rec && pdata->srq_idx != -1
        && spl->cfg.reclaim_threshold != UINT64_MAX)
    {
-      // platform_log("Deleting %12lu-%lu (index %lu) from SRQ\n",
+      // platform_default_log("Deleting %12lu-%lu (index %lu) from SRQ\n",
       //       node->disk_addr, pdata->generation, pdata->srq_idx);
       srq_delete(&spl->srq, pdata->srq_idx);
       srq_print(&spl->srq);
@@ -3258,12 +3286,17 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    platform_assert(trunk_has_vacancy(spl, root, 1));
    trunk_node_lock(spl, root);
 
-   trunk_open_log_stream();
-   trunk_log_stream("incorporate memtable gen %lu into root %lu\n",
-                    generation,
-                    spl->root_addr);
-   trunk_log_node(spl, root);
-   trunk_log_stream("----------------------------------------\n");
+   platform_stream_handle stream;
+   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
+   trunk_log_stream_if_enabled(spl,
+                               &stream,
+                               "incorporate memtable gen %lu into root %lu\n",
+                               generation,
+                               spl->root_addr);
+   trunk_log_node_if_enabled(&stream, spl, root);
+   trunk_log_stream_if_enabled(
+      spl, &stream, "----------------------------------------\n");
 
    // X. Release lookup lock
    memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
@@ -3317,8 +3350,11 @@ trunk_memtable_incorporate(trunk_handle  *spl,
       req->pivot_generation[pivot_no] = pdata->generation;
    }
    debug_assert(trunk_subbundle_branch_count(spl, root, sb) != 0);
-   trunk_log_stream(
-      "enqueuing build filter %lu-%u\n", req->addr, req->bundle_no);
+   trunk_log_stream_if_enabled(spl,
+                               &stream,
+                               "enqueuing build filter %lu-%u\n",
+                               req->addr,
+                               req->bundle_no);
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
@@ -3338,10 +3374,11 @@ trunk_memtable_incorporate(trunk_handle  *spl,
 
    memtable_transition(
       mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
-   trunk_log_node(spl, root);
-   trunk_log_stream("----------------------------------------\n");
-   trunk_log_stream("\n");
-   trunk_close_log_stream();
+   trunk_log_node_if_enabled(&stream, spl, root);
+   trunk_log_stream_if_enabled(
+      spl, &stream, "----------------------------------------\n");
+   trunk_log_stream_if_enabled(spl, &stream, "\n");
+   trunk_close_log_stream_if_enabled(spl, &stream);
 
    // X. If root is full, flush until it is no longer full
    uint64 flush_start;
@@ -3556,11 +3593,17 @@ trunk_node_get_maybe_descend(trunk_handle *spl, trunk_compact_bundle_req *req)
       debug_assert(req->height != 0);
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
       req->addr               = pdata->addr;
-      trunk_open_log_stream();
-      trunk_log_stream("build_filter descending from root\n");
-      trunk_log_stream(
-         "enqueuing build filter %lu-%u\n", req->addr, req->bundle_no);
-      trunk_log_node(spl, node);
+      platform_stream_handle stream;
+      platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
+      platform_assert_status_ok(rc);
+      trunk_log_stream_if_enabled(
+         spl, &stream, "build_filter descending from root\n");
+      trunk_log_stream_if_enabled(spl,
+                                  &stream,
+                                  "enqueuing build filter %lu-%u\n",
+                                  req->addr,
+                                  req->bundle_no);
+      trunk_log_node_if_enabled(&stream, spl, node);
       trunk_node_unget(spl, &node);
       node = trunk_node_get(spl, req->addr);
    }
@@ -3592,11 +3635,16 @@ trunk_build_filter_should_abort(trunk_compact_bundle_req *req,
    trunk_handle *spl    = req->spl;
    uint16        height = trunk_height(spl, node);
    if (height == 0 && req->generation < trunk_generation(spl, node)) {
-      trunk_open_log_stream();
-      trunk_log_stream(
-         "build_filter leaf abort %lu-%u\n", req->addr, req->bundle_no);
-      trunk_log_node(spl, node);
-      trunk_close_log_stream();
+      platform_stream_handle stream;
+      platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
+      platform_assert_status_ok(rc);
+      trunk_log_stream_if_enabled(spl,
+                                  &stream,
+                                  "build_filter leaf abort %lu-%u\n",
+                                  req->addr,
+                                  req->bundle_no);
+      trunk_log_node_if_enabled(&stream, spl, node);
+      trunk_close_log_stream_if_enabled(spl, &stream);
       return TRUE;
    }
    return FALSE;
@@ -3607,13 +3655,17 @@ trunk_build_filter_should_skip(trunk_compact_bundle_req *req, page_handle *node)
 {
    trunk_handle *spl = req->spl;
    if (!trunk_bundle_live(spl, node, req->bundle_no)) {
-      trunk_open_log_stream();
-      trunk_log_stream("build_filter flush abort %lu-%u (%u)\n",
-                       req->addr,
-                       req->bundle_no,
-                       req->height);
-      trunk_log_node(spl, node);
-      trunk_close_log_stream();
+      platform_stream_handle stream;
+      platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
+      platform_assert_status_ok(rc);
+      trunk_log_stream_if_enabled(spl,
+                                  &stream,
+                                  "build_filter flush abort %lu-%u (%u)\n",
+                                  req->addr,
+                                  req->bundle_no,
+                                  req->height);
+      trunk_log_node_if_enabled(&stream, spl, node);
+      trunk_close_log_stream_if_enabled(spl, &stream);
       return TRUE;
    }
    return FALSE;
@@ -3625,13 +3677,21 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
 {
    trunk_handle *spl = req->spl;
    if (req->bundle_no != trunk_start_bundle(spl, node)) {
-      trunk_open_log_stream();
-      trunk_log_stream(
-         "build filter for %lu bundle %u\n", req->addr, req->bundle_no);
-      trunk_log_node(spl, node);
-      trunk_log_stream(
-         "reenqueuing build filter %lu-%u\n", req->addr, req->bundle_no);
-      trunk_close_log_stream();
+      platform_stream_handle stream;
+      platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
+      platform_assert_status_ok(rc);
+      trunk_log_stream_if_enabled(spl,
+                                  &stream,
+                                  "build filter for %lu bundle %u\n",
+                                  req->addr,
+                                  req->bundle_no);
+      trunk_log_node_if_enabled(&stream, spl, node);
+      trunk_log_stream_if_enabled(spl,
+                                  &stream,
+                                  "reenqueuing build filter %lu-%u\n",
+                                  req->addr,
+                                  req->bundle_no);
+      trunk_close_log_stream_if_enabled(spl, &stream);
       return TRUE;
    }
    return FALSE;
@@ -3812,19 +3872,24 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       page_handle *node = trunk_node_get_maybe_descend(spl, compact_req);
       platform_assert(node != NULL);
 
-      trunk_open_log_stream();
-      trunk_log_stream("build filter for %lu bundle %u pivot_gen %lu\n",
-                       compact_req->addr,
-                       compact_req->bundle_no,
-                       compact_req->max_pivot_generation);
-      trunk_log_node(spl, node);
+      platform_stream_handle stream;
+      trunk_open_log_stream_if_enabled(spl, &stream);
+      trunk_log_stream_if_enabled(
+         spl,
+         &stream,
+         "build filter for %lu bundle %u pivot_gen %lu\n",
+         compact_req->addr,
+         compact_req->bundle_no,
+         compact_req->max_pivot_generation);
+      trunk_log_node_if_enabled(&stream, spl, node);
       if (trunk_build_filter_should_abort(compact_req, node)) {
-         trunk_log_stream("leaf split, aborting\n");
+         trunk_log_stream_if_enabled(spl, &stream, "leaf split, aborting\n");
          trunk_node_unget(spl, &node);
          goto out;
       }
       if (trunk_build_filter_should_skip(compact_req, node)) {
-         trunk_log_stream("bundle flushed, skipping\n");
+         trunk_log_stream_if_enabled(
+            spl, &stream, "bundle flushed, skipping\n");
          goto next_node;
       }
 
@@ -3834,8 +3899,9 @@ trunk_bundle_build_filters(void *arg, void *scratch)
                       trunk_bundle_build_filters,
                       compact_req,
                       FALSE);
-         trunk_log_stream("out of order, reequeuing\n");
-         trunk_close_log_stream();
+         trunk_log_stream_if_enabled(
+            spl, &stream, "out of order, reequeuing\n");
+         trunk_close_log_stream_if_enabled(spl, &stream);
          trunk_node_unget(spl, &node);
          return;
       }
@@ -3848,13 +3914,17 @@ trunk_bundle_build_filters(void *arg, void *scratch)
 
       trunk_build_filters(spl, compact_req, &filter_req);
 
-      trunk_log_stream("----------------------------------------\n");
+      trunk_log_stream_if_enabled(
+         spl, &stream, "----------------------------------------\n");
 
       do {
          node = trunk_node_get_claim_maybe_descend(spl, compact_req);
          if (trunk_build_filter_should_abort(compact_req, node)) {
-            trunk_log_stream("replace_filter abort leaf split (%lu)\n",
-                             compact_req->addr);
+            trunk_log_stream_if_enabled(
+               spl,
+               &stream,
+               "replace_filter abort leaf split (%lu)\n",
+               compact_req->addr);
             trunk_node_unclaim(spl, node);
             trunk_node_unget(spl, &node);
             for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
@@ -3873,8 +3943,10 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          generation        = trunk_generation(spl, node);
          debug_assert(trunk_verify_node(spl, node));
          if (generation != filter_generation) {
-            trunk_log_stream("replace_filter split to %lu\n",
-                             compact_req->addr);
+            trunk_log_stream_if_enabled(spl,
+                                        &stream,
+                                        "replace_filter split to %lu\n",
+                                        compact_req->addr);
             debug_assert(compact_req->height != 0);
             debug_assert(compact_req->addr != 0);
             trunk_node_unget(spl, &node);
@@ -3885,9 +3957,10 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          trunk_dec_filter(spl, &filter_req.filter[pos]);
       }
 
-      trunk_log_node(spl, node);
-      trunk_log_stream("----------------------------------------\n");
-      trunk_log_stream("\n");
+      trunk_log_node_if_enabled(&stream, spl, node);
+      trunk_log_stream_if_enabled(
+         spl, &stream, "----------------------------------------\n");
+      trunk_log_stream_if_enabled(spl, &stream, "\n");
 
    next_node:
       compact_req->addr = trunk_next_addr(spl, node);
@@ -3895,11 +3968,12 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       debug_assert(trunk_verify_node(spl, node));
       trunk_node_unget(spl, &node);
       if (compact_req->generation != generation) {
-         trunk_log_stream("build_filter split to %lu\n", compact_req->addr);
+         trunk_log_stream_if_enabled(
+            spl, &stream, "build_filter split to %lu\n", compact_req->addr);
          debug_assert(compact_req->height != 0);
          debug_assert(compact_req->addr != 0);
       }
-      trunk_close_log_stream();
+      trunk_close_log_stream_if_enabled(spl, &stream);
    } while (compact_req->generation != generation);
 
 out:
@@ -3942,12 +4016,18 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
                         trunk_pivot_data         *pdata,  // IN
                         trunk_compact_bundle_req *req)    // IN/OUT
 {
-   trunk_open_log_stream();
-   trunk_log_stream(
-      "flush from %lu to %lu\n", parent->disk_addr, child->disk_addr);
-   trunk_log_node(spl, parent);
-   trunk_log_node(spl, child);
-   trunk_log_stream("----------------------------------------\n");
+   platform_stream_handle stream;
+   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
+   trunk_log_stream_if_enabled(spl,
+                               &stream,
+                               "flush from %lu to %lu\n",
+                               parent->disk_addr,
+                               child->disk_addr);
+   trunk_log_node_if_enabled(&stream, spl, parent);
+   trunk_log_node_if_enabled(&stream, spl, child);
+   trunk_log_stream_if_enabled(
+      spl, &stream, "----------------------------------------\n");
 
    req->spl    = spl;
    req->addr   = child->disk_addr;
@@ -3973,13 +4053,15 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
 
       // create a subbundle from the whole branches of the parent
       child_sb->start_branch = trunk_end_branch(spl, child);
-      trunk_log_stream("subbundle %hu\n", bundle->start_subbundle);
+      trunk_log_stream_if_enabled(
+         spl, &stream, "subbundle %hu\n", bundle->start_subbundle);
       for (uint16 branch_no = pdata->start_branch;
            trunk_branch_is_whole(spl, parent, branch_no);
            branch_no = trunk_add_branch_number(spl, branch_no, 1))
       {
          trunk_branch *parent_branch = trunk_get_branch(spl, parent, branch_no);
-         trunk_log_stream("%lu\n", parent_branch->root_addr);
+         trunk_log_stream_if_enabled(
+            spl, &stream, "%lu\n", parent_branch->root_addr);
          trunk_branch *new_branch = trunk_get_new_branch(spl, child);
          *new_branch              = *parent_branch;
       }
@@ -4009,16 +4091,19 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
             trunk_get_new_subbundle(spl, child, filter_count);
          child_sb->state        = parent_sb->state;
          child_sb->start_branch = trunk_end_branch(spl, child);
-         trunk_log_stream("subbundle %hu from subbundle %hu\n",
-                          trunk_subbundle_no(spl, child, child_sb),
-                          parent_sb_no);
+         trunk_log_stream_if_enabled(spl,
+                                     &stream,
+                                     "subbundle %hu from subbundle %hu\n",
+                                     trunk_subbundle_no(spl, child, child_sb),
+                                     parent_sb_no);
          for (uint16 branch_no = parent_sb->start_branch;
               branch_no != parent_sb->end_branch;
               branch_no = trunk_add_branch_number(spl, branch_no, 1))
          {
             trunk_branch *parent_branch =
                trunk_get_branch(spl, parent, branch_no);
-            trunk_log_stream("%lu\n", parent_branch->root_addr);
+            trunk_log_stream_if_enabled(
+               spl, &stream, "%lu\n", parent_branch->root_addr);
             trunk_branch *new_branch = trunk_get_new_branch(spl, child);
             *new_branch              = *parent_branch;
          }
@@ -4039,12 +4124,13 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
    // clear the branches in the parent's pivot
    trunk_pivot_clear(spl, parent, pdata);
 
-   trunk_log_stream("----------------------------------------\n");
-   trunk_log_node(spl, parent);
-   trunk_log_node(spl, child);
-   trunk_log_stream("flush done\n");
-   trunk_log_stream("\n");
-   trunk_close_log_stream();
+   trunk_log_stream_if_enabled(
+      spl, &stream, "----------------------------------------\n");
+   trunk_log_node_if_enabled(&stream, spl, parent);
+   trunk_log_node_if_enabled(&stream, spl, child);
+   trunk_log_stream_if_enabled(spl, &stream, "flush done\n");
+   trunk_log_stream_if_enabled(spl, &stream, "\n");
+   trunk_close_log_stream_if_enabled(spl, &stream);
 
    return bundle;
 }
@@ -4115,7 +4201,7 @@ trunk_flush(trunk_handle     *spl,
    if ((!is_space_rec && pdata->srq_idx != -1)
        && spl->cfg.reclaim_threshold != UINT64_MAX)
    {
-      // platform_log("Deleting %12lu-%lu (index %lu) from SRQ\n",
+      // platform_default_log("Deleting %12lu-%lu (index %lu) from SRQ\n",
       //       parent->disk_addr, pdata->generation, pdata->srq_idx);
       srq_delete(&spl->srq, pdata->srq_idx);
       srq_print(&spl->srq);
@@ -4172,8 +4258,8 @@ trunk_flush(trunk_handle     *spl,
    trunk_node_unclaim(spl, child);
    trunk_node_unget(spl, &child);
 
-   trunk_default_log(
-      "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
+   trunk_default_log_if_enabled(
+      spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
    rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert_status_ok(rc);
@@ -4449,9 +4535,9 @@ void
 trunk_btree_skiperator_print(iterator *itor)
 {
    trunk_btree_skiperator *skip_itor = (trunk_btree_skiperator *)itor;
-   platform_log("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n");
-   platform_log("$$ skiperator: %p\n", skip_itor);
-   platform_log("$$ curr: %lu\n", skip_itor->curr);
+   platform_default_log("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n");
+   platform_default_log("$$ skiperator: %p\n", skip_itor);
+   platform_default_log("$$ curr: %lu\n", skip_itor->curr);
    iterator_print(&skip_itor->itor[skip_itor->curr].super);
 }
 
@@ -4583,9 +4669,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
          req->generation = trunk_generation(spl, node);
 
-         trunk_default_log("compact_bundle split from %lu to %lu\n",
-                           req->addr,
-                           next_req->addr);
+         trunk_default_log_if_enabled(spl,
+                                      "compact_bundle split from %lu to %lu\n",
+                                      req->addr,
+                                      next_req->addr);
          rc = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, next_req, FALSE);
          platform_assert_status_ok(rc);
@@ -4594,7 +4681,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
           * 4. Abort if node is a splitting leaf (interaction 6)
           */
          trunk_node_unget(spl, &node);
-         trunk_default_log("compact_bundle abort leaf split %lu\n", req->addr);
+         trunk_default_log_if_enabled(
+            spl, "compact_bundle abort leaf split %lu\n", req->addr);
          platform_free(spl->heap_id, req);
          if (spl->cfg.use_stats) {
             spl->stats[tid].compactions_aborted_leaf_split[height]++;
@@ -4617,7 +4705,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    if (!trunk_bundle_live(spl, node, req->bundle_no)) {
       debug_assert(height != 0);
       trunk_node_unget(spl, &node);
-      trunk_default_log("compact_bundle abort flushed %lu\n", req->addr);
+      trunk_default_log_if_enabled(
+         spl, "compact_bundle abort flushed %lu\n", req->addr);
       platform_free(spl->heap_id, req);
       if (spl->cfg.use_stats) {
          spl->stats[tid].compactions_aborted_flushed[height]++;
@@ -4646,9 +4735,14 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       merge_mode = MERGE_INTERMEDIATE;
    }
 
-   trunk_open_log_stream();
-   trunk_log_stream(
-      "compact_bundle addr %lu bundle %hu\n", req->addr, req->bundle_no);
+   platform_stream_handle stream;
+   rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
+   trunk_log_stream_if_enabled(spl,
+                               &stream,
+                               "compact_bundle addr %lu bundle %hu\n",
+                               req->addr,
+                               req->bundle_no);
 
    /*
     * 6. Build iterators
@@ -4674,7 +4768,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       itor_arr[tree_offset] = &skip_itor_arr[tree_offset].super;
       tree_offset++;
    }
-   trunk_log_node(spl, node);
+   trunk_log_node_if_enabled(&stream, spl, node);
 
    /*
     * 7. Release read lock
@@ -4709,7 +4803,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
    req->fp_arr = pack_req.fingerprint_arr;
 
-   trunk_log_stream("output: %lu\n", req->addr);
+   trunk_log_stream_if_enabled(
+      spl, &stream, "output: %lu\n", pack_req.root_addr);
+
    if (spl->cfg.use_stats) {
       if (pack_req.num_tuples == 0) {
          spl->stats[tid].compactions_empty[height]++;
@@ -4719,8 +4815,6 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl->stats[tid].compaction_max_tuples[height] = pack_req.num_tuples;
       }
    }
-
-   trunk_log_stream("output: %lu\n", pack_req.root_addr);
 
    /*
     * 10. Clean up
@@ -4748,7 +4842,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_node_claim(spl, &node);
       trunk_node_lock(spl, node);
 
-      trunk_log_node(spl, node);
+      trunk_log_node_if_enabled(&stream, spl, node);
 
       /*
        * 12a. ...unless node is a leaf which has split, in which case discard
@@ -4759,7 +4853,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
        *      exit.
        */
       if (height == 0 && req->generation < trunk_generation(spl, node)) {
-         trunk_log_stream("compact_bundle discard split %lu\n", req->addr);
+         trunk_log_stream_if_enabled(
+            spl, &stream, "compact_bundle discard split %lu\n", req->addr);
          if (spl->cfg.use_stats) {
             spl->stats[tid].compactions_discarded_leaf_split[height]++;
             spl->stats[tid].compaction_time_wasted_ns[height] +=
@@ -4781,23 +4876,28 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          if (pack_req.num_tuples != 0) {
             trunk_replace_bundle_branches(spl, node, &new_branch, req);
             num_replacements++;
-            trunk_log_stream(
-               "inserted %lu into %lu\n", new_branch.root_addr, addr);
+            trunk_log_stream_if_enabled(spl,
+                                        &stream,
+                                        "inserted %lu into %lu\n",
+                                        new_branch.root_addr,
+                                        addr);
          } else {
             trunk_replace_bundle_branches(spl, node, NULL, req);
-            trunk_log_stream("compact_bundle empty %lu\n", addr);
+            trunk_log_stream_if_enabled(
+               spl, &stream, "compact_bundle empty %lu\n", addr);
          }
       } else {
          /*
           * 12b. ...unless node is internal and bundle has been flushed
           */
          platform_assert(height != 0);
-         trunk_log_stream("compact_bundle discarded flushed %lu\n", addr);
+         trunk_log_stream_if_enabled(
+            spl, &stream, "compact_bundle discarded flushed %lu\n", addr);
       }
 
       addr       = trunk_next_addr(spl, node);
       generation = trunk_generation(spl, node);
-      trunk_log_node(spl, node);
+      trunk_log_node_if_enabled(&stream, spl, node);
       debug_assert(trunk_verify_node(spl, node));
 
       if (num_replacements != 0 && pack_req.num_tuples != 0
@@ -4849,14 +4949,17 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
             spl->stats[tid].compaction_time_max_ns[height] = compaction_start;
          }
       }
-      trunk_log_stream(
-         "enqueuing build filter %lu-%u\n", req->addr, req->bundle_no);
+      trunk_log_stream_if_enabled(spl,
+                                  &stream,
+                                  "enqueuing build filter %lu-%u\n",
+                                  req->addr,
+                                  req->bundle_no);
       task_enqueue(
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
    }
 out:
-   trunk_log_stream("\n");
-   trunk_close_log_stream();
+   trunk_log_stream_if_enabled(spl, &stream, "\n");
+   trunk_close_log_stream_if_enabled(spl, &stream);
 }
 
 
@@ -4950,11 +5053,16 @@ trunk_split_index(trunk_handle *spl,
                   page_handle  *child,
                   uint64        pivot_no)
 {
-   trunk_open_log_stream();
-   trunk_log_stream(
-      "split index %lu with parent %lu\n", child->disk_addr, parent->disk_addr);
-   trunk_log_node(spl, parent);
-   trunk_log_node(spl, child);
+   platform_stream_handle stream;
+   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
+   trunk_log_stream_if_enabled(spl,
+                               &stream,
+                               "split index %lu with parent %lu\n",
+                               child->disk_addr,
+                               parent->disk_addr);
+   trunk_log_node_if_enabled(&stream, spl, parent);
+   trunk_log_node_if_enabled(&stream, spl, child);
    page_handle *left_node           = child;
    uint16       target_num_children = trunk_num_children(spl, left_node) / 2;
    uint16       height              = trunk_height(spl, left_node);
@@ -5004,27 +5112,28 @@ trunk_split_index(trunk_handle *spl,
    for (uint16 pivot_no = 0; pivot_no < right_num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, right_node, pivot_no);
       if (pdata->srq_idx != -1 && spl->cfg.reclaim_threshold != UINT64_MAX) {
-         // platform_log("Deleting %12lu-%lu (index %lu) from SRQ\n",
+         // platform_default_log("Deleting %12lu-%lu (index %lu) from SRQ\n",
          //       left_node->disk_addr, pdata->generation, pdata->srq_idx);
          srq_data data_to_reinsert = srq_delete(&spl->srq, pdata->srq_idx);
          data_to_reinsert.addr     = right_addr;
-         // platform_log("Reinserting %12lu-%lu into SRQ\n",
+         // platform_default_log("Reinserting %12lu-%lu into SRQ\n",
          //       right_addr, pdata->generation);
          pdata->srq_idx = srq_insert(&spl->srq, data_to_reinsert);
       }
    }
 
    // add right child to parent
-   platform_status rc = trunk_add_pivot(spl, parent, right_node, pivot_no + 1);
+   rc = trunk_add_pivot(spl, parent, right_node, pivot_no + 1);
    platform_assert(SUCCESS(rc));
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no);
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no + 1);
 
-   trunk_log_stream("----------------------------------------\n");
-   trunk_log_node(spl, parent);
-   trunk_log_node(spl, left_node);
-   trunk_log_node(spl, right_node);
-   trunk_close_log_stream();
+   trunk_log_stream_if_enabled(
+      spl, &stream, "----------------------------------------\n");
+   trunk_log_node_if_enabled(&stream, spl, parent);
+   trunk_log_node_if_enabled(&stream, spl, left_node);
+   trunk_log_node_if_enabled(&stream, spl, right_node);
+   trunk_close_log_stream_if_enabled(spl, &stream);
 
    trunk_node_unlock(spl, right_node);
    trunk_node_unclaim(spl, right_node);
@@ -5141,8 +5250,11 @@ trunk_split_leaf(trunk_handle *spl,
    trunk_node_unlock(spl, parent);
    trunk_node_unlock(spl, leaf);
 
-   trunk_open_log_stream();
-   trunk_log_stream("split_leaf addr %lu\n", leaf->disk_addr);
+   platform_stream_handle stream;
+   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
+   trunk_log_stream_if_enabled(
+      spl, &stream, "split_leaf addr %lu\n", leaf->disk_addr);
 
    uint64 split_start;
    if (spl->cfg.use_stats) {
@@ -5304,9 +5416,9 @@ trunk_split_leaf(trunk_handle *spl,
     * 3. Clear old bundles from leaf and put all branches in a new bundle
     */
    trunk_node_lock(spl, parent);
-   trunk_log_node(spl, parent);
+   trunk_log_node_if_enabled(&stream, spl, parent);
    trunk_node_lock(spl, leaf);
-   trunk_log_node(spl, leaf);
+   trunk_log_node_if_enabled(&stream, spl, leaf);
 
    uint16 bundle_no = trunk_leaf_rebundle_all_branches(
       spl, leaf, leaf0_num_tuples, leaf0_kv_bytes, FALSE);
@@ -5406,13 +5518,15 @@ trunk_split_leaf(trunk_handle *spl,
          req->input_pivot_tuple_count[0] = trunk_pivot_num_tuples(spl, leaf, 0);
          req->input_pivot_kv_byte_count[0] = trunk_pivot_kv_bytes(spl, leaf, 0);
 
-         trunk_default_log(
-            "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
+         trunk_default_log_if_enabled(spl,
+                                      "enqueuing compact_bundle %lu-%u\n",
+                                      req->addr,
+                                      req->bundle_no);
          rc = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
          platform_assert(SUCCESS(rc));
 
-         trunk_log_node(spl, leaf);
+         trunk_log_node_if_enabled(&stream, spl, leaf);
 
          debug_assert(trunk_verify_node(spl, leaf));
          trunk_node_unlock(spl, leaf);
@@ -5438,14 +5552,14 @@ trunk_split_leaf(trunk_handle *spl,
    req->type                         = comp_type;
 
    // issue compact_bundle for leaf and release
-   trunk_default_log(
-      "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
-   platform_status rc =
+   trunk_default_log_if_enabled(
+      spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
+   rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert(SUCCESS(rc));
 
-   trunk_log_node(spl, parent);
-   trunk_log_node(spl, leaf);
+   trunk_log_node_if_enabled(&stream, spl, parent);
+   trunk_log_node_if_enabled(&stream, spl, leaf);
 
    debug_assert(trunk_verify_node(spl, leaf));
    trunk_node_unlock(spl, leaf);
@@ -5455,7 +5569,7 @@ trunk_split_leaf(trunk_handle *spl,
    /*
     * 8. Clean up
     */
-   trunk_close_log_stream();
+   trunk_close_log_stream_if_enabled(spl, &stream);
 
    if (spl->cfg.use_stats) {
       // Doesn't include the original leaf
@@ -5855,9 +5969,12 @@ trunk_compact_leaf(trunk_handle *spl, page_handle *leaf)
 {
    const threadid tid = platform_get_tid();
 
-   trunk_open_log_stream();
-   trunk_log_stream("compact_leaf addr %lu\n", leaf->disk_addr);
-   trunk_log_node(spl, leaf);
+   platform_stream_handle stream;
+   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
+   platform_assert_status_ok(rc);
+   trunk_log_stream_if_enabled(
+      spl, &stream, "compact_leaf addr %lu\n", leaf->disk_addr);
+   trunk_log_node_if_enabled(&stream, spl, leaf);
 
    uint64 sr_start;
    if (spl->cfg.use_stats) {
@@ -5885,20 +6002,20 @@ trunk_compact_leaf(trunk_handle *spl, page_handle *leaf)
    req->input_pivot_kv_byte_count[0] = trunk_pivot_kv_bytes(spl, leaf, 0);
    req->type                         = TRUNK_COMPACTION_TYPE_SPACE_REC;
 
-   trunk_default_log(
-      "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
-   platform_status rc =
+   trunk_default_log_if_enabled(
+      spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
+   rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert(SUCCESS(rc));
 
-   trunk_log_node(spl, leaf);
+   trunk_log_node_if_enabled(&stream, spl, leaf);
 
    debug_assert(trunk_verify_node(spl, leaf));
 
    /*
     * 8. Clean up
     */
-   trunk_close_log_stream();
+   trunk_close_log_stream_if_enabled(spl, &stream);
 
    if (spl->cfg.use_stats) {
       // Doesn't include the original leaf
@@ -5933,7 +6050,7 @@ trunk_reclaim_space(trunk_handle *spl)
 {
    platform_assert(spl->cfg.reclaim_threshold != UINT64_MAX);
    while (TRUE) {
-      // platform_log("Extract from SRQ\n");
+      // platform_default_log("Extract from SRQ\n");
       srq_data space_rec = srq_extract_max(&spl->srq);
       if (!srq_data_found(&space_rec)) {
          return STATUS_NOT_FOUND;
@@ -5949,7 +6066,7 @@ trunk_reclaim_space(trunk_handle *spl)
       }
       pdata->srq_idx = -1;
 
-      // platform_log("Space rec: %lu-%u\n",
+      // platform_default_log("Space rec: %lu-%u\n",
       //       node->disk_addr, trunk_pdata_to_pivot_index(spl, node,
       //       pdata));
 
@@ -6327,7 +6444,8 @@ trunk_async_callback(cache_async_ctxt *cache_ctxt)
       container_of(cache_ctxt, trunk_async_ctxt, cache_ctxt);
    platform_assert(SUCCESS(cache_ctxt->status));
    platform_assert(cache_ctxt->page);
-   //   platform_log("%s:%d tid %2lu: ctxt %p is callback with page %p\n",
+   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback with page
+   //   %p\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt,
    //                cache_ctxt->page);
    ctxt->was_async = TRUE;
@@ -6358,7 +6476,7 @@ trunk_filter_async_callback(routing_async_ctxt *filter_ctxt)
 {
    trunk_async_ctxt *ctxt =
       container_of(filter_ctxt, trunk_async_ctxt, filter_ctxt);
-   //   platform_log("%s:%d tid %2lu: ctxt %p is callback\n",
+   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt);
    // Requeue for dispatch
    ctxt->cb(ctxt);
@@ -6377,7 +6495,7 @@ trunk_btree_async_callback(btree_async_ctxt *btree_ctxt)
 {
    trunk_async_ctxt *ctxt =
       container_of(btree_ctxt, trunk_async_ctxt, btree_ctxt);
-   //   platform_log("%s:%d tid %2lu: ctxt %p is callback\n",
+   //   platform_default_log("%s:%d tid %2lu: ctxt %p is callback\n",
    //                __FILE__, __LINE__, platform_get_tid(), ctxt);
    // Requeue for dispatch
    ctxt->cb(ctxt);
@@ -6462,7 +6580,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
             switch (res) {
                case async_locked:
                case async_no_reqs:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            retry\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -6473,7 +6591,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                   done = TRUE;
                   break;
                case async_io_started:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            io_started\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -6582,7 +6700,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
             switch (res) {
                case async_locked:
                case async_no_reqs:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            retry\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -6593,7 +6711,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                   done = TRUE;
                   break;
                case async_io_started:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            io_started\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -6661,7 +6779,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
             switch (res) {
                case async_locked:
                case async_no_reqs:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            retry\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -6672,7 +6790,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                   done = TRUE;
                   break;
                case async_io_started:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            io_started\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -6769,7 +6887,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
             switch (res) {
                case async_locked:
                case async_no_reqs:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            retry\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -6780,7 +6898,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                   done = TRUE;
                   break;
                case async_io_started:
-                  //            platform_log("%s:%d tid %2lu: ctxt %p is
+                  //            platform_default_log("%s:%d tid %2lu: ctxt %p is
                   //            io_started\n",
                   //                         __FILE__, __LINE__,
                   //                         platform_get_tid(), ctxt);
@@ -7559,7 +7677,7 @@ trunk_verify_node(trunk_handle *spl, page_handle *node)
    is_valid = TRUE;
 out:
    if (!is_valid) {
-      trunk_print_locked_node(spl, node, PLATFORM_ERR_LOG_HANDLE);
+      trunk_print_locked_node(Platform_error_log_handle, spl, node);
    }
    return is_valid;
 }
@@ -7582,9 +7700,9 @@ trunk_verify_node_with_neighbors(trunk_handle *spl, page_handle *node)
       const char  *ube      = trunk_max_key(spl, node);
       const char  *succ_lbi = trunk_min_key(spl, succ);
       if (trunk_key_compare(spl, ube, succ_lbi) != 0) {
-         platform_log("trunk_verify_node_with_neighbors: "
-                      "mismatched pivots with successor\n");
-         platform_log("addr: %lu\n", addr);
+         platform_default_log("trunk_verify_node_with_neighbors: "
+                              "mismatched pivots with successor\n");
+         platform_default_log("addr: %lu\n", addr);
          trunk_node_unget(spl, &succ);
          goto out;
       }
@@ -7607,29 +7725,29 @@ trunk_verify_node_with_neighbors(trunk_handle *spl, page_handle *node)
       const char *pivot         = trunk_get_pivot(spl, node, pivot_no);
       const char *child_min_key = trunk_min_key(spl, child);
       if (trunk_key_compare(spl, pivot, child_min_key) != 0) {
-         platform_log("trunk_verify_node_with_neighbors: "
-                      "mismatched pivot with child min key\n");
-         platform_log("0x%016lx%016lx%016lx\n",
-                      *((uint64 *)pivot),
-                      *(((uint64 *)pivot) + 1),
-                      *(((uint64 *)pivot) + 2));
-         platform_log("0x%016lx%016lx%016lx\n",
-                      *((uint64 *)child_min_key),
-                      *(((uint64 *)child_min_key) + 1),
-                      *(((uint64 *)child_min_key) + 2));
+         platform_default_log("trunk_verify_node_with_neighbors: "
+                              "mismatched pivot with child min key\n");
+         platform_default_log("0x%016lx%016lx%016lx\n",
+                              *((uint64 *)pivot),
+                              *(((uint64 *)pivot) + 1),
+                              *(((uint64 *)pivot) + 2));
+         platform_default_log("0x%016lx%016lx%016lx\n",
+                              *((uint64 *)child_min_key),
+                              *(((uint64 *)child_min_key) + 1),
+                              *(((uint64 *)child_min_key) + 2));
 
-         platform_log("addr: %lu\n", addr);
-         platform_log("child addr: %lu\n", child_addr);
+         platform_default_log("addr: %lu\n", addr);
+         platform_default_log("child addr: %lu\n", child_addr);
          trunk_node_unget(spl, &child);
          goto out;
       }
       const char *next_pivot    = trunk_get_pivot(spl, node, pivot_no + 1);
       const char *child_max_key = trunk_max_key(spl, child);
       if (trunk_key_compare(spl, next_pivot, child_max_key) != 0) {
-         platform_log("trunk_verify_node_with_neighbors: "
-                      "mismatched pivot with child max key\n");
-         platform_log("addr: %lu\n", addr);
-         platform_log("child addr: %lu\n", child_addr);
+         platform_default_log("trunk_verify_node_with_neighbors: "
+                              "mismatched pivot with child max key\n");
+         platform_default_log("addr: %lu\n", addr);
+         platform_default_log("child addr: %lu\n", child_addr);
          trunk_node_unget(spl, &child);
          goto out;
       }
@@ -7640,7 +7758,7 @@ trunk_verify_node_with_neighbors(trunk_handle *spl, page_handle *node)
    is_valid = TRUE;
 out:
    if (!is_valid) {
-      trunk_print_locked_node(spl, node, PLATFORM_DEFAULT_LOG_HANDLE);
+      trunk_print_locked_node(Platform_default_log_handle, spl, node);
    }
    return is_valid;
 }
@@ -7722,39 +7840,40 @@ trunk_node_space_use(trunk_handle *spl, uint64 addr, void *arg)
 }
 
 void
-trunk_print_space_use(trunk_handle *spl)
+trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
 {
    uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
    trunk_for_each_node(spl, trunk_node_space_use, bytes_used_by_level);
 
-   platform_log("Space used by level:\n");
+   platform_log(log_handle, "Space used by level:\n");
    for (uint16 i = 0; i <= trunk_tree_height(spl); i++) {
-      platform_log("%u: %8luMiB\n", i, B_TO_MiB(bytes_used_by_level[i]));
+      platform_log(
+         log_handle, "%u: %8luMiB\n", i, B_TO_MiB(bytes_used_by_level[i]));
    }
-   platform_log("\n");
+   platform_log(log_handle, "\n");
 }
 
 void
-trunk_print_locked_node(trunk_handle          *spl,
-                        page_handle           *node,
-                        platform_stream_handle stream)
+trunk_print_locked_node(platform_log_handle *log_handle,
+                        trunk_handle        *spl,
+                        page_handle         *node)
 {
    uint16 height = trunk_height(spl, node);
    // clang-format off
-   platform_log_stream("---------------------------------------------------------------------------------------------------\n");
-   platform_log_stream("|          |     addr     |   next addr  | height |   gen   | pvt gen |                           |\n");
-   platform_log_stream("|  HEADER  |--------------|--------------|--------|---------|---------|---------------------------|\n");
-   platform_log_stream("|          | %12lu | %12lu | %6u | %7lu | %7lu |                           |\n",
+   platform_log(log_handle, "---------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                           |\n");
+   platform_log(log_handle, "|  HEADER  |--------------|--------------|--------|---------|---------|---------------------------|\n");
+   platform_log(log_handle, "|          | %12lu | %12lu | %6u | %7lu | %7lu |                           |\n",
       node->disk_addr,
       trunk_next_addr(spl, node),
       height,
       trunk_generation(spl, node),
       trunk_pivot_generation(spl, node));
-   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|                                       PIVOTS                                                    |\n");
-   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes |  srq  |  gen  |\n");
-   platform_log_stream("|--------------------------|--------------|--------------|-------------|----------|-------|-------|\n");
+   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|                                       PIVOTS                                                    |\n");
+   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes |  srq  |  gen  |\n");
+   platform_log(log_handle, "|--------------------------|--------------|--------------|-------------|----------|-------|-------|\n");
    // clang-format on
    for (uint16 pivot_no = 0; pivot_no < trunk_num_pivot_keys(spl, node);
         pivot_no++)
@@ -7764,34 +7883,34 @@ trunk_print_locked_node(trunk_handle          *spl,
          spl, trunk_get_pivot(spl, node, pivot_no), key_string);
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
-         platform_log_stream(
-            "| %24s | %12s | %12s | %11s | %8s | %5s | %5s |\n",
-            key_string,
-            "",
-            "",
-            "",
-            "",
-            "",
-            "");
+         platform_log(log_handle,
+                      "| %24s | %12s | %12s | %11s | %8s | %5s | %5s |\n",
+                      key_string,
+                      "",
+                      "",
+                      "",
+                      "",
+                      "",
+                      "");
       } else {
-         platform_log_stream(
-            "| %24s | %12lu | %12lu | %11lu | %8lu | %5ld | %5lu |\n",
-            key_string,
-            pdata->addr,
-            pdata->filter.addr,
-            pdata->num_tuples_whole + pdata->num_tuples_bundle,
-            pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
-            pdata->srq_idx,
-            pdata->generation);
+         platform_log(log_handle,
+                      "| %24s | %12lu | %12lu | %11lu | %8lu | %5ld | %5lu |\n",
+                      key_string,
+                      pdata->addr,
+                      pdata->filter.addr,
+                      pdata->num_tuples_whole + pdata->num_tuples_bundle,
+                      pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
+                      pdata->srq_idx,
+                      pdata->generation);
       }
    }
    // clang-format off
-   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|                              BRANCHES AND [SUB]BUNDLES                                          |\n");
-   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                |\n");
-   platform_log_stream("|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                |\n");
-   platform_log_stream("|-----|--------------|--------------|--------------|--------------|--------------|----------------|\n");
+   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|                              BRANCHES AND [SUB]BUNDLES                                          |\n");
+   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                |\n");
+   platform_log(log_handle, "|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                |\n");
+   platform_log(log_handle, "|-----|--------------|--------------|--------------|--------------|--------------|----------------|\n");
    // clang-format on
    uint16 start_branch = trunk_start_branch(spl, node);
    uint16 end_branch   = trunk_end_branch(spl, node);
@@ -7806,7 +7925,7 @@ trunk_print_locked_node(trunk_handle          *spl,
            pivot_no++) {
          if (branch_no == trunk_pivot_start_branch(spl, node, pivot_no)) {
             // clang-format off
-            platform_log_stream("|     |        -- pivot %2u --       |              |              |              |                |\n",
+            platform_log(log_handle, "|     |        -- pivot %2u --       |              |              |              |                |\n",
                                 pivot_no);
             // clang-format on
          }
@@ -7817,7 +7936,7 @@ trunk_print_locked_node(trunk_handle          *spl,
          trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
          if (branch_no == trunk_bundle_start_branch(spl, node, bundle)) {
             // clang-format off
-            platform_log_stream("|     |       -- bundle %2u --       | %12lu |              |              |                |\n",
+            platform_log(log_handle, "|     |       -- bundle %2u --       | %12lu |              |              |                |\n",
                                 bundle_no,
                                 bundle->num_tuples);
             // clang-format on
@@ -7830,7 +7949,7 @@ trunk_print_locked_node(trunk_handle          *spl,
          if (branch_no == sb->start_branch) {
             uint16 filter_count = trunk_subbundle_filter_count(spl, node, sb);
             // clang-format off
-            platform_log_stream(
+            platform_log(log_handle,
                "|     |  -- %2scomp subbundle %2u --  | %12lu | %12lu | %12lu | %14s |\n",
                sb->state == SB_STATE_COMPACTED ? "" : "un",
                sb_no,
@@ -7844,89 +7963,90 @@ trunk_print_locked_node(trunk_handle          *spl,
 
       trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
       // clang-format off
-      platform_log_stream("| %3u |         %12lu        |              |              |              |                |\n",
+      platform_log(log_handle, "| %3u |         %12lu        |              |              |              |                |\n",
                           branch_no,
                           branch->root_addr);
       // clang-format on
    }
    // clang-format off
-   platform_log_stream("---------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "---------------------------------------------------------------------------------------------------\n");
    // clang-format on
-   platform_log_stream("\n");
+   platform_log(log_handle, "\n");
 }
 
 void
-trunk_print_node(trunk_handle *spl, uint64 addr, platform_stream_handle stream)
+trunk_print_node(platform_log_handle *log_handle,
+                 trunk_handle        *spl,
+                 uint64               addr)
 {
    if (!cache_page_valid(spl->cc, addr)) {
-      platform_log_stream("*******************\n");
-      platform_log_stream("** INVALID NODE \n");
-      platform_log_stream("** addr: %lu \n", addr);
-      platform_log_stream("-------------------\n");
+      platform_log(log_handle, "*******************\n");
+      platform_log(log_handle, "** INVALID NODE \n");
+      platform_log(log_handle, "** addr: %lu \n", addr);
+      platform_log(log_handle, "-------------------\n");
       return;
    }
 
    page_handle *node = trunk_node_get(spl, addr);
-   trunk_print_locked_node(spl, node, stream);
+   trunk_print_locked_node(log_handle, spl, node);
    cache_unget(spl->cc, node);
 }
 
 void
-trunk_print_subtree(trunk_handle          *spl,
-                    uint64                 addr,
-                    platform_stream_handle stream)
+trunk_print_subtree(trunk_handle        *spl,
+                    uint64               addr,
+                    platform_log_handle *log_handle)
 {
-   trunk_print_node(spl, addr, stream);
+   trunk_print_node(log_handle, spl, addr);
    page_handle *node = trunk_node_get(spl, addr);
    trunk_hdr   *hdr  = (trunk_hdr *)node->data;
 
    if (hdr->height != 0) {
       for (uint32 i = 0; i < trunk_num_children(spl, node); i++) {
          trunk_pivot_data *data = trunk_get_pivot_data(spl, node, i);
-         trunk_print_subtree(spl, data->addr, stream);
+         trunk_print_subtree(spl, data->addr, log_handle);
       }
    }
    cache_unget(spl->cc, node);
 }
 
 void
-trunk_print_memtable(trunk_handle *spl, platform_stream_handle stream)
+trunk_print_memtable(trunk_handle *spl, platform_log_handle *log_handle)
 {
    uint64 curr_memtable =
       memtable_generation(spl->mt_ctxt) % TRUNK_NUM_MEMTABLES;
-   platform_log_stream("&&&&&&&&&&&&&&&&&&&\n");
-   platform_log_stream("&&  MEMTABLES \n");
-   platform_log_stream("&&  curr: %lu\n", curr_memtable);
-   platform_log_stream("-------------------\n");
+   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
+   platform_log(log_handle, "&&  MEMTABLES \n");
+   platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
+   platform_log(log_handle, "-------------------\n");
 
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       memtable *mt = trunk_get_memtable(spl, mt_gen);
-      platform_log_stream("%lu: gen %lu ref_count %u state %d\n",
-                          mt_gen,
-                          mt->root_addr,
-                          allocator_get_ref(spl->al, mt->root_addr),
-                          mt->state);
+      platform_log(log_handle,
+                   "%lu: gen %lu ref_count %u state %d\n",
+                   mt_gen,
+                   mt->root_addr,
+                   allocator_get_ref(spl->al, mt->root_addr),
+                   mt->state);
    }
-   platform_log_stream("\n");
+   platform_log(log_handle, "\n");
 }
 
 void
-trunk_print(trunk_handle *spl)
+trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
 {
-   platform_open_log_stream();
-   trunk_print_memtable(spl, stream);
-   trunk_print_subtree(spl, spl->root_addr, stream);
-   platform_close_log_stream(PLATFORM_DEFAULT_LOG_HANDLE);
+   trunk_print_memtable(spl, log_handle);
+   trunk_print_subtree(spl, spl->root_addr, log_handle);
 }
 
 // clang-format off
 void
-trunk_print_insertion_stats(trunk_handle *spl)
+trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
 {
    if (!spl->cfg.use_stats) {
-      platform_log("Statistics are not enabled\n");
+      platform_log(log_handle, "Statistics are not enabled\n");
       return;
    }
    uint64 avg_flush_wait_time, avg_flush_time, num_flushes;
@@ -8067,39 +8187,39 @@ trunk_print_insertion_stats(trunk_handle *spl)
       global->root_filter_time_ns         += spl->stats[thr_i].root_filter_time_ns;
    }
 
-   platform_log("Overall Statistics\n");
-   platform_log("------------------------------------------------------------------------------------\n");
-   platform_log("| height:            %10u\n", height);
-   platform_log("| index nodes:       %10lu\n", global->index_splits + 1);
-   platform_log("| leaves:            %10lu\n", global->leaf_splits_leaves_created + 1);
-   platform_log("| insertions:        %10lu\n", global->insertions);
-   platform_log("| updates:           %10lu\n", global->updates);
-   platform_log("| deletions:         %10lu\n", global->deletions);
-   platform_log("| completed deletes: %10lu\n", global->discarded_deletes);
-   platform_log("------------------------------------------------------------------------------------\n");
-   platform_log("| root stalls:       %10lu\n", global->memtable_flush_root_full);
-   platform_log("------------------------------------------------------------------------------------\n");
-   platform_log("\n");
+   platform_log(log_handle, "Overall Statistics\n");
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "| height:            %10u\n", height);
+   platform_log(log_handle, "| index nodes:       %10lu\n", global->index_splits + 1);
+   platform_log(log_handle, "| leaves:            %10lu\n", global->leaf_splits_leaves_created + 1);
+   platform_log(log_handle, "| insertions:        %10lu\n", global->insertions);
+   platform_log(log_handle, "| updates:           %10lu\n", global->updates);
+   platform_log(log_handle, "| deletions:         %10lu\n", global->deletions);
+   platform_log(log_handle, "| completed deletes: %10lu\n", global->discarded_deletes);
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "| root stalls:       %10lu\n", global->memtable_flush_root_full);
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "\n");
 
-   platform_log("Latency Histogram Statistics\n");
-   platform_histo_print(insert_lat_accum, "Insert Latency Histogram (ns):");
-   platform_histo_print(update_lat_accum, "Update Latency Histogram (ns):");
-   platform_histo_print(delete_lat_accum, "Delete Latency Histogram (ns):");
+   platform_log(log_handle, "Latency Histogram Statistics\n");
+   platform_histo_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
+   platform_histo_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
+   platform_histo_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
    platform_histo_destroy(spl->heap_id, insert_lat_accum);
    platform_histo_destroy(spl->heap_id, update_lat_accum);
    platform_histo_destroy(spl->heap_id, delete_lat_accum);
 
 
-   platform_log("Flush Statistics\n");
-   platform_log("---------------------------------------------------------------------------------------------------------\n");
-   platform_log("  height | avg wait time (ns) | avg flush time (ns) | max flush time (ns) | full flushes | count flushes |\n");
-   platform_log("---------|--------------------|---------------------|---------------------|--------------|---------------|\n");
+   platform_log(log_handle, "Flush Statistics\n");
+   platform_log(log_handle, "---------------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "  height | avg wait time (ns) | avg flush time (ns) | max flush time (ns) | full flushes | count flushes |\n");
+   platform_log(log_handle, "---------|--------------------|---------------------|---------------------|--------------|---------------|\n");
 
    // memtable
    num_flushes = global->memtable_flushes;
    avg_flush_wait_time = num_flushes == 0 ? 0 : global->memtable_flush_wait_time_ns / num_flushes;
    avg_flush_time = num_flushes == 0 ? 0 : global->memtable_flush_time_ns / num_flushes;
-   platform_log("memtable | %18lu | %19lu | %19lu | %12lu | %13lu |\n",
+   platform_log(log_handle, "memtable | %18lu | %19lu | %19lu | %12lu | %13lu |\n",
                 avg_flush_wait_time, avg_flush_time,
                 global->memtable_flush_time_max_ns, num_flushes, 0UL);
 
@@ -8107,7 +8227,7 @@ trunk_print_insertion_stats(trunk_handle *spl)
    num_flushes = global->root_full_flushes + global->root_count_flushes;
    avg_flush_wait_time = num_flushes == 0 ? 0 : global->root_flush_wait_time_ns / num_flushes;
    avg_flush_time = num_flushes == 0 ? 0 : global->root_flush_time_ns / num_flushes;
-   platform_log("    root | %18lu | %19lu | %19lu | %12lu | %13lu |\n",
+   platform_log(log_handle, "    root | %18lu | %19lu | %19lu | %12lu | %13lu |\n",
                 avg_flush_wait_time, avg_flush_time,
                 global->root_flush_time_max_ns,
                 global->root_full_flushes, global->root_count_flushes);
@@ -8117,18 +8237,18 @@ trunk_print_insertion_stats(trunk_handle *spl)
       num_flushes = global->full_flushes[rev_h] + global->count_flushes[rev_h];
       avg_flush_wait_time = num_flushes == 0 ? 0 : global->flush_wait_time_ns[rev_h] / num_flushes;
       avg_flush_time = num_flushes == 0 ? 0 : global->flush_time_ns[rev_h] / num_flushes;
-      platform_log("%8u | %18lu | %19lu | %19lu | %12lu | %13lu |\n",
+      platform_log(log_handle, "%8u | %18lu | %19lu | %19lu | %12lu | %13lu |\n",
                    rev_h, avg_flush_wait_time, avg_flush_time,
                    global->flush_time_max_ns[rev_h],
                    global->full_flushes[rev_h], global->count_flushes[rev_h]);
    }
-   platform_log("---------------------------------------------------------------------------------------------------------\n");
-   platform_log("\n");
+   platform_log(log_handle, "---------------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "\n");
 
-   platform_log("Compaction Statistics\n");
-   platform_log("------------------------------------------------------------------------------------------------------------------------------------------\n");
-   platform_log("  height | compactions | avg setup time (ns) | time / tuple (ns) | avg tuples | max tuples | max time (ns) | empty | aborted | discarded |\n");
-   platform_log("---------|-------------|---------------------|-------------------|------------|------------|---------------|-------|---------|-----------|\n");
+   platform_log(log_handle, "Compaction Statistics\n");
+   platform_log(log_handle, "------------------------------------------------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "  height | compactions | avg setup time (ns) | time / tuple (ns) | avg tuples | max tuples | max time (ns) | empty | aborted | discarded |\n");
+   platform_log(log_handle, "---------|-------------|---------------------|-------------------|------------|------------|---------------|-------|---------|-----------|\n");
 
    avg_setup_time = global->root_compactions == 0 ? 0
       : (global->root_compaction_time_ns - global->root_compaction_pack_time_ns)
@@ -8137,7 +8257,7 @@ trunk_print_insertion_stats(trunk_handle *spl)
       : global->root_compaction_tuples / global->root_compactions;
    pack_time_per_tuple = global->root_compaction_tuples == 0 ? 0
       : global->root_compaction_pack_time_ns / global->root_compaction_tuples;
-   platform_log("    root | %11lu | %19lu | %17lu | %10lu | %10lu | %13lu | %5lu | %2lu | %2lu | %3lu | %3lu |\n",
+   platform_log(log_handle, "    root | %11lu | %19lu | %17lu | %10lu | %10lu | %13lu | %5lu | %2lu | %2lu | %3lu | %3lu |\n",
          global->root_compactions, avg_setup_time, pack_time_per_tuple,
          avg_compaction_tuples, global->root_compaction_max_tuples,
          global->root_compaction_time_max_ns, 0UL, 0UL, 0UL, 0UL, 0UL);
@@ -8151,15 +8271,15 @@ trunk_print_insertion_stats(trunk_handle *spl)
          : global->compaction_tuples[rev_h] / global->compactions[rev_h];
       pack_time_per_tuple = global->compaction_tuples[rev_h] == 0 ? 0
          : global->compaction_pack_time_ns[rev_h] / global->compaction_tuples[rev_h];
-      platform_log("%8u | %11lu | %19lu | %17lu | %10lu | %10lu | %13lu | %5lu | %2lu | %2lu | %3lu | %3lu |\n",
+      platform_log(log_handle, "%8u | %11lu | %19lu | %17lu | %10lu | %10lu | %13lu | %5lu | %2lu | %2lu | %3lu | %3lu |\n",
             rev_h, global->compactions[rev_h], avg_setup_time, pack_time_per_tuple,
             avg_compaction_tuples, global->compaction_max_tuples[rev_h],
             global->compaction_time_max_ns[rev_h], global->compactions_empty[rev_h],
             global->compactions_aborted_flushed[rev_h], global->compactions_aborted_leaf_split[rev_h],
             global->compactions_discarded_flushed[rev_h], global->compactions_discarded_leaf_split[rev_h]);
    }
-   platform_log("------------------------------------------------------------------------------------------------------------------------------------------\n");
-   platform_log("\n");
+   platform_log(log_handle, "------------------------------------------------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "\n");
 
    if (global->leaf_splits == 0) {
       avg_leaves_created = zero_fraction;
@@ -8174,22 +8294,22 @@ trunk_print_insertion_stats(trunk_handle *spl)
    uint64 single_leaf_avg_tuples = global->single_leaf_splits == 0 ? 0 :
       global->single_leaf_tuples / global->single_leaf_splits;
 
-   platform_log("Leaf Split Statistics\n");
-   platform_log("--------------------------------------------------------------------------------------------------------------------------------\n");
-   platform_log("| leaf splits | avg leaves created | avg split time (ns) | max split time (ns) | single splits | ss avg tuples | ss max tuples |\n");
-   platform_log("--------------|--------------------|---------------------|---------------------|---------------|---------------|---------------|\n");
-   platform_log("| %11lu | "FRACTION_FMT(18, 2)" | %19lu | %19lu | %13lu | %13lu | %13lu |\n",
+   platform_log(log_handle, "Leaf Split Statistics\n");
+   platform_log(log_handle, "--------------------------------------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "| leaf splits | avg leaves created | avg split time (ns) | max split time (ns) | single splits | ss avg tuples | ss max tuples |\n");
+   platform_log(log_handle, "--------------|--------------------|---------------------|---------------------|---------------|---------------|---------------|\n");
+   platform_log(log_handle, "| %11lu | "FRACTION_FMT(18, 2)" | %19lu | %19lu | %13lu | %13lu | %13lu |\n",
          global->leaf_splits, FRACTION_ARGS(avg_leaves_created),
          leaf_avg_split_time, global->leaf_split_max_time_ns,
          global->single_leaf_splits, single_leaf_avg_tuples,
          global->single_leaf_max_tuples);
-   platform_log("-------------------------------------------------------------------------------------------------------------------------------|\n");
-   platform_log("\n");
+   platform_log(log_handle, "-------------------------------------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "\n");
 
-   platform_log("Filter Build Statistics\n");
-   platform_log("---------------------------------------------------------------------------------\n");
-   platform_log("| height |   built | avg tuples | avg build time (ns) | build_time / tuple (ns) |\n");
-   platform_log("---------|---------|------------|---------------------|-------------------------|\n");
+   platform_log(log_handle, "Filter Build Statistics\n");
+   platform_log(log_handle, "---------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "| height |   built | avg tuples | avg build time (ns) | build_time / tuple (ns) |\n");
+   platform_log(log_handle, "---------|---------|------------|---------------------|-------------------------|\n");
 
    avg_filter_tuples = global->root_filters_built == 0 ? 0 :
       global->root_filter_tuples / global->root_filters_built;
@@ -8198,7 +8318,7 @@ trunk_print_insertion_stats(trunk_handle *spl)
    filter_time_per_tuple = global->root_filter_tuples == 0 ? 0 :
       global->root_filter_time_ns / global->root_filter_tuples;
 
-   platform_log("|   root | %7lu | %10lu | %19lu | %23lu |\n",
+   platform_log(log_handle, "|   root | %7lu | %10lu | %19lu | %23lu |\n",
          global->root_filters_built, avg_filter_tuples,
          avg_filter_time, filter_time_per_tuple);
    for (h = 1; h <= height; h++) {
@@ -8209,38 +8329,38 @@ trunk_print_insertion_stats(trunk_handle *spl)
          global->filter_time_ns[rev_h] / global->filters_built[rev_h];
       filter_time_per_tuple = global->filter_tuples[rev_h] == 0 ? 0 :
          global->filter_time_ns[rev_h] / global->filter_tuples[rev_h];
-      platform_log("| %6u | %7lu | %10lu | %19lu | %23lu |\n",
+      platform_log(log_handle, "| %6u | %7lu | %10lu | %19lu | %23lu |\n",
             rev_h, global->filters_built[rev_h], avg_filter_tuples,
             avg_filter_time, filter_time_per_tuple);
    }
-   platform_log("--------------------------------------------------------------------------------|\n");
-   platform_default_log("\n");
+   platform_log(log_handle, "--------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "\n");
 
-   platform_log("Space Reclamation Statistics\n");
-   platform_log("------------------------------------------------------------------------------------\n");
-   platform_log("| height | space recs | tuples reclaimed in sr | tuples reclaimed | tuples per rec |\n");
-   platform_log("|--------|------------|------------------------|------------------|----------------|\n");
+   platform_log(log_handle, "Space Reclamation Statistics\n");
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "| height | space recs | tuples reclaimed in sr | tuples reclaimed | tuples per rec |\n");
+   platform_log(log_handle, "|--------|------------|------------------------|------------------|----------------|\n");
 
    for (h = 1; h <= height; h++) {
       rev_h = height - h;
       uint64 avg_tuples_per_sr = global->space_recs[rev_h] == 0 ?
          0 : global->space_rec_tuples_reclaimed[rev_h] / global->space_recs[rev_h];
-      platform_log("| %6u | %10lu | %22lu | %16lu | %14lu |\n",
+      platform_log(log_handle, "| %6u | %10lu | %22lu | %16lu | %14lu |\n",
             rev_h, global->space_recs[rev_h],
             global->space_rec_tuples_reclaimed[rev_h],
             global->tuples_reclaimed[rev_h], avg_tuples_per_sr);
    }
-   platform_log("------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    task_print_stats(spl->ts);
-   platform_default_log("\n");
+   platform_log(log_handle, "\n");
    platform_free(spl->heap_id, global);
 }
 
 void
-trunk_print_lookup_stats(trunk_handle *spl)
+trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
 {
    if (!spl->cfg.use_stats) {
-      platform_log("Statistics are not enabled\n");
+      platform_log(log_handle, "Statistics are not enabled\n");
       return;
    }
 
@@ -8272,19 +8392,19 @@ trunk_print_lookup_stats(trunk_handle *spl)
    }
    lookups = global->lookups_found + global->lookups_not_found;
 
-   platform_log("Overall Statistics\n");
-   platform_log("-----------------------------------------------------------------------------------\n");
-   platform_log("| height:            %u\n", height);
-   platform_log("| lookups:           %lu\n", lookups);
-   platform_log("| lookups found:     %lu\n", global->lookups_found);
-   platform_log("| lookups not found: %lu\n", global->lookups_not_found);
-   platform_log("-----------------------------------------------------------------------------------\n");
-   platform_log("\n");
+   platform_log(log_handle, "Overall Statistics\n");
+   platform_log(log_handle, "-----------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "| height:            %u\n", height);
+   platform_log(log_handle, "| lookups:           %lu\n", lookups);
+   platform_log(log_handle, "| lookups found:     %lu\n", global->lookups_found);
+   platform_log(log_handle, "| lookups not found: %lu\n", global->lookups_not_found);
+   platform_log(log_handle, "-----------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "\n");
 
-   platform_log("Filter/Branch Statistics\n");
-   platform_log("-------------------------------------------------------------------------------------\n");
-   platform_log("height   | avg filter lookups | avg false pos | false pos rate | avg branch lookups |\n");
-   platform_log("---------|--------------------|---------------|----------------|--------------------|\n");
+   platform_log(log_handle, "Filter/Branch Statistics\n");
+   platform_log(log_handle, "-------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "height   | avg filter lookups | avg false pos | false pos rate | avg branch lookups |\n");
+   platform_log(log_handle, "---------|--------------------|---------------|----------------|--------------------|\n");
 
    for (h = 0; h <= height; h++) {
       rev_h = height - h;
@@ -8310,27 +8430,30 @@ trunk_print_lookup_stats(trunk_handle *spl)
          init_fraction(global->filter_false_positives[rev_h],
                        filter_negatives);
       }
-      platform_log("%8u | "FRACTION_FMT(18, 2)" | "FRACTION_FMT(13, 4)" | "
+      platform_log(log_handle, "%8u | "FRACTION_FMT(18, 2)" | "FRACTION_FMT(13, 4)" | "
                    FRACTION_FMT(14, 4)" | "FRACTION_FMT(18, 4)"\n",
                    rev_h, FRACTION_ARGS(avg_filter_lookups),
                    FRACTION_ARGS(avg_filter_false_positives),
                    FRACTION_ARGS(false_positives_in_revision),
                    FRACTION_ARGS(avg_branch_lookups));
    }
-   platform_log("------------------------------------------------------------------------------------|\n");
-   platform_default_log("\n");
+   platform_log(log_handle, "------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "\n");
    platform_free(spl->heap_id, global);
 }
 // clang-format on
 
 
 void
-trunk_print_lookup(trunk_handle *spl, const char *key)
+trunk_print_lookup(trunk_handle        *spl,
+                   const char          *key,
+                   platform_log_handle *log_handle)
 {
    merge_accumulator data;
    merge_accumulator_init(&data, spl->heap_id);
 
-   platform_open_log_stream();
+   platform_stream_handle stream;
+   platform_open_log_stream(&stream);
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -8353,6 +8476,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
          trunk_key_to_string(spl, key, key_str);
          trunk_message_to_string(spl, msg, message_str);
          platform_log_stream(
+            &stream,
             "Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
             key_str,
             root_addr,
@@ -8370,7 +8494,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
    page_handle *node   = trunk_node_get(spl, spl->root_addr);
    uint16       height = trunk_height(spl, node);
    for (uint16 h = height; h > 0; h--) {
-      trunk_print_locked_node(spl, node, stream);
+      trunk_print_locked_node(Platform_default_log_handle, spl, node);
       uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
@@ -8382,7 +8506,8 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
          trunk_key_to_string(spl, key, key_str);
          message msg = merge_accumulator_to_message(&data);
          trunk_message_to_string(spl, msg, message_str);
-         platform_log_stream("Key %s found in node %lu pivot %u with data %s\n",
+         platform_log_stream(&stream,
+                             "Key %s found in node %lu pivot %u with data %s\n",
                              key_str,
                              node->disk_addr,
                              pivot_no,
@@ -8406,6 +8531,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                message msg = merge_accumulator_to_message(&data);
                trunk_message_to_string(spl, msg, message_str);
                platform_log_stream(
+                  &stream,
                   "!! Key %s found in branch %u of node %lu pivot %u "
                   "with data %s\n",
                   key_str,
@@ -8422,7 +8548,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
    }
 
    // look in leaf
-   trunk_print_locked_node(spl, node, stream);
+   trunk_print_locked_node(Platform_default_log_handle, spl, node);
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
    merge_accumulator_set_to_null(&data);
    trunk_pivot_lookup(spl, node, pdata, key, &data);
@@ -8432,7 +8558,8 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
       trunk_key_to_string(spl, key, key_str);
       message msg = merge_accumulator_to_message(&data);
       trunk_message_to_string(spl, msg, message_str);
-      platform_log_stream("Key %s found in node %lu pivot %u with data %s\n",
+      platform_log_stream(&stream,
+                          "Key %s found in node %lu pivot %u with data %s\n",
                           key_str,
                           node->disk_addr,
                           0,
@@ -8456,6 +8583,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
             message msg = merge_accumulator_to_message(&data);
             trunk_message_to_string(spl, msg, message_str);
             platform_log_stream(
+               &stream,
                "!! Key %s found in branch %u of node %lu pivot %u "
                "with data %s\n",
                key_str,
@@ -8468,7 +8596,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
    }
    trunk_node_unget(spl, &node);
    merge_accumulator_deinit(&data);
-   platform_close_log_stream(PLATFORM_DEFAULT_LOG_HANDLE);
+   platform_close_log_stream(&stream, Platform_default_log_handle);
 }
 
 void
@@ -8504,27 +8632,33 @@ trunk_branch_count_num_tuples(trunk_handle *spl,
 bool
 trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
 {
-   page_handle *node = trunk_node_get(spl, addr);
+   platform_log_handle *log_handle = (platform_log_handle *)arg;
+   page_handle         *node       = trunk_node_get(spl, addr);
 
    platform_log(
+      log_handle,
       "------------------------------------------------------------------\n");
-   platform_log("| node %12lu height %u\n", addr, trunk_height(spl, node));
    platform_log(
+      log_handle, "| node %12lu height %u\n", addr, trunk_height(spl, node));
+   platform_log(
+      log_handle,
       "------------------------------------------------------------------\n");
    uint16 num_pivot_keys = trunk_num_pivot_keys(spl, node);
-   platform_log("| pivots:\n");
+   platform_log(log_handle, "| pivots:\n");
    for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
       char key_str[128];
       trunk_key_to_string(spl, trunk_get_pivot(spl, node, pivot_no), key_str);
-      platform_log("| %u: %s\n", pivot_no, key_str);
+      platform_log(log_handle, "| %u: %s\n", pivot_no, key_str);
    }
 
-   platform_log("--------------------------------------------------------------"
-                "---------------------\n");
-   platform_log("| branch |     addr     |  num tuples  | num kv bytes |    "
-                "space    |  space amp  |\n");
-   platform_log("--------------------------------------------------------------"
-                "---------------------\n");
+   // clang-format off
+   platform_log(log_handle,
+         "-----------------------------------------------------------------------------------\n");
+   platform_log(log_handle,
+         "| branch |     addr     |  num tuples  | num kv bytes |    space    |  space amp  |\n");
+   platform_log(log_handle,
+         "-----------------------------------------------------------------------------------\n");
+   // clang-format on
    uint16 start_branch = trunk_start_branch(spl, node);
    uint16 end_branch   = trunk_end_branch(spl, node);
    for (uint16 branch_no = start_branch; branch_no != end_branch;
@@ -8541,6 +8675,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
       fraction space_amp =
          init_fraction(kib_in_branch * 1024, kv_bytes_in_branch);
       platform_log(
+         log_handle,
          "| %6u | %12lu | %12lu | %9luKiB | %8luKiB |   " FRACTION_FMT(
             2, 2) "   |\n",
          branch_no,
@@ -8551,16 +8686,17 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
          FRACTION_ARGS(space_amp));
    }
    platform_log(
+      log_handle,
       "------------------------------------------------------------------\n");
-   platform_log("\n");
+   platform_log(log_handle, "\n");
    trunk_node_unget(spl, &node);
    return TRUE;
 }
 
 void
-trunk_print_branches(trunk_handle *spl)
+trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl)
 {
-   trunk_for_each_node(spl, trunk_node_print_branches, NULL);
+   trunk_for_each_node(spl, trunk_node_print_branches, log_handle);
 }
 
 // bool
@@ -8579,7 +8715,7 @@ trunk_print_branches(trunk_handle *spl)
 //   {
 //      num_extents += trunk_branch_extent_count(spl, node, branch_no);
 //   }
-//   platform_log("%8lu\n", num_extents);
+//   platform_default_log("%8lu\n", num_extents);
 //   trunk_node_unget(spl, &node);
 //   return TRUE;
 //}
@@ -8587,7 +8723,7 @@ trunk_print_branches(trunk_handle *spl)
 // void
 // trunk_print_extent_counts(trunk_handle *spl)
 //{
-//   platform_log("extent counts:\n");
+//   platform_default_log("extent counts:\n");
 //   trunk_for_each_node(spl, trunk_node_print_extent_count, NULL);
 //}
 
@@ -8615,19 +8751,22 @@ trunk_validate_data_config(const data_config *cfg)
  *-----------------------------------------------------------------------------
  */
 void
-trunk_config_init(trunk_config *trunk_cfg,
-                  cache_config *cache_cfg,
-                  data_config  *data_cfg,
-                  log_config   *log_cfg,
-                  uint64        memtable_capacity,
-                  uint64        fanout,
-                  uint64        max_branches_per_node,
-                  uint64        btree_rough_count_height,
-                  uint64        filter_remainder_size,
-                  uint64        filter_index_size,
-                  uint64        reclaim_threshold,
-                  uint64        use_log,
-                  uint64        use_stats)
+trunk_config_init(trunk_config        *trunk_cfg,
+                  cache_config        *cache_cfg,
+                  data_config         *data_cfg,
+                  log_config          *log_cfg,
+                  uint64               memtable_capacity,
+                  uint64               fanout,
+                  uint64               max_branches_per_node,
+                  uint64               btree_rough_count_height,
+                  uint64               filter_remainder_size,
+                  uint64               filter_index_size,
+                  uint64               reclaim_threshold,
+                  bool                 use_log,
+                  bool                 use_stats,
+                  bool                 verbose_logging,
+                  platform_log_handle *log_handle)
+
 {
    trunk_validate_data_config(data_cfg);
 
@@ -8640,11 +8779,13 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_cfg->data_cfg  = data_cfg;
    trunk_cfg->log_cfg   = log_cfg;
 
-   trunk_cfg->fanout                = fanout;
-   trunk_cfg->max_branches_per_node = max_branches_per_node;
-   trunk_cfg->reclaim_threshold     = reclaim_threshold;
-   trunk_cfg->use_log               = use_log;
-   trunk_cfg->use_stats             = use_stats;
+   trunk_cfg->fanout                  = fanout;
+   trunk_cfg->max_branches_per_node   = max_branches_per_node;
+   trunk_cfg->reclaim_threshold       = reclaim_threshold;
+   trunk_cfg->use_log                 = use_log;
+   trunk_cfg->use_stats               = use_stats;
+   trunk_cfg->verbose_logging_enabled = verbose_logging;
+   trunk_cfg->log_handle              = log_handle;
 
    trunk_pivot_size = data_cfg->key_size + trunk_pivot_message_size();
    // Setting hard limit and over overprovisioning
@@ -8727,7 +8868,7 @@ trunk_config_init(trunk_config *trunk_cfg,
       filter_cfg->fingerprint_size = 32 - max_value_size;
    }
 
-   platform_log("fingerprint_size: %u\n", filter_cfg->fingerprint_size);
+   platform_default_log("fingerprint_size: %u\n", filter_cfg->fingerprint_size);
 
    /*
     * Set filter index size

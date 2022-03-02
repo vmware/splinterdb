@@ -56,11 +56,13 @@ typedef struct master_config {
    bool use_log;
 
    // splinter
-   uint64 memtable_capacity;
-   uint64 fanout;
-   uint64 max_branches_per_node;
-   uint64 use_stats;
-   uint64 reclaim_threshold;
+   uint64               memtable_capacity;
+   uint64               fanout;
+   uint64               max_branches_per_node;
+   uint64               use_stats;
+   uint64               reclaim_threshold;
+   bool                 verbose_logging_enabled;
+   platform_log_handle *log_handle;
 
    // data
    uint64 key_size;

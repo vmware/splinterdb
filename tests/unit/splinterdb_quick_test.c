@@ -99,8 +99,8 @@ CTEST_DATA(splinterdb_quick)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
-   Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);

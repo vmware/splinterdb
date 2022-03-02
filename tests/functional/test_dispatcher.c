@@ -26,12 +26,12 @@ usage(void)
 int
 test_dispatcher(int argc, char *argv[])
 {
-   platform_log("%s: %s\n", argv[0], BUILD_VERSION);
+   platform_default_log("%s: %s\n", argv[0], BUILD_VERSION);
    // check first arg and call the appropriate test
    if (argc > 1) {
       // check test name and dispatch
       char *test_name = argv[1];
-      platform_log("Dispatch test %s\n", test_name);
+      platform_default_log("Dispatch test %s\n", test_name);
 
       if (STRING_EQUALS_LITERAL(test_name, "btree_test")) {
          return btree_test(argc - 1, &argv[1]);

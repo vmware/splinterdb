@@ -95,20 +95,20 @@ test_log_crash(clockcache             *cc,
       if (slice_lex_cmp(skey, returned_key)
           || message_lex_cmp(mmessage, returned_message))
       {
-         platform_log("log_test_basic: key or data mismatch\n");
+         platform_default_log("log_test_basic: key or data mismatch\n");
          data_key_to_string(cfg->data_cfg, skey, key_str, 128);
          data_message_to_string(cfg->data_cfg, mmessage, data_str, 128);
-         platform_log("expected: %s -- %s\n", key_str, data_str);
+         platform_default_log("expected: %s -- %s\n", key_str, data_str);
          data_key_to_string(cfg->data_cfg, returned_key, key_str, 128);
          data_message_to_string(cfg->data_cfg, returned_message, data_str, 128);
-         platform_log("actual: %s -- %s\n", key_str, data_str);
+         platform_default_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }
       iterator_advance(itorh);
       iterator_at_end(itorh, &at_end);
    }
 
-   platform_log("log returned %lu of %lu entries\n", i, num_entries);
+   platform_default_log("log returned %lu of %lu entries\n", i, num_entries);
 
    shard_log_iterator_deinit(hid, &itor);
    shard_log_zap(log);
@@ -196,9 +196,9 @@ test_log_perf(cache                  *cc,
       platform_thread_join(params[i].thread);
    }
 
-   platform_log("log insertion rate: %luM insertions/second\n",
-                SEC_TO_MSEC(num_entries)
-                   / platform_timestamp_elapsed(start_time));
+   platform_default_log("log insertion rate: %luM insertions/second\n",
+                        SEC_TO_MSEC(num_entries)
+                           / platform_timestamp_elapsed(start_time));
 
 cleanup:
    platform_free(hid, params);
@@ -257,7 +257,7 @@ log_test(int argc, char *argv[])
       config_argv    = argv + 1;
    }
 
-   platform_log("\nStarted log_test!!\n");
+   platform_default_log("\nStarted log_test!!\n");
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;

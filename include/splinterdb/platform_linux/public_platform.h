@@ -8,8 +8,8 @@
  *     for internal use.
  */
 
-#ifndef __PLATFORM_PUBLIC_H
-#define __PLATFORM_PUBLIC_H
+#ifndef __PUBLIC_PLATFORM_H
+#define __PUBLIC_PLATFORM_H
 
 #include <stdio.h>
 
@@ -68,7 +68,8 @@ typedef int32 bool;
 typedef uint8 bool8;
 
 // See platform.c
-extern FILE *Platform_stdout_fh; // File handle for stdout
-extern FILE *Platform_stderr_fh; // File handle for stderr
+typedef FILE                platform_log_handle;
+extern platform_log_handle *Platform_default_log_handle; // stdout FILE handle
+extern platform_log_handle *Platform_error_log_handle;   // stderr FILE handle
 
-#endif // __PLATFORM_PUBLIC_H
+#endif // __PUBLIC_PLATFORM_H

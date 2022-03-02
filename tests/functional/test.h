@@ -248,7 +248,9 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                      master_cfg->filter_index_size,
                      master_cfg->reclaim_threshold,
                      master_cfg->use_log,
-                     master_cfg->use_stats);
+                     master_cfg->use_stats,
+                     master_cfg->verbose_logging_enabled,
+                     master_cfg->log_handle);
 
    gen->type             = MESSAGE_TYPE_INSERT;
    gen->min_payload_size = GENERATOR_MIN_PAYLOAD_SIZE;

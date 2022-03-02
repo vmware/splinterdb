@@ -235,66 +235,85 @@ platform_status_to_string(const platform_status status)
 }
 
 /* Default output file handles for different logging interfaces */
-#define PLATFORM_DEFAULT_LOG_HANDLE stdout
-#define PLATFORM_ERR_LOG_HANDLE     stderr
-#define PLATFORM_CR                 "\r"
+#define PLATFORM_CR "\r"
 
-#define platform_open_log_stream()                                             \
-   char                  *bp;                                                  \
-   size_t                 size;                                                \
-   platform_stream_handle stream;                                              \
-   stream = open_memstream(&bp, &size);
+static inline platform_status
+platform_open_log_stream(platform_stream_handle *stream)
+{
+   ZERO_CONTENTS(stream);
+   stream->stream = open_memstream(&stream->str, &stream->size);
+   if (stream->stream == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+   return STATUS_OK;
+}
 
-#define platform_close_log_stream(h)                                           \
-   fclose(stream);                                                             \
-   fputs(bp, h);                                                               \
-   fflush(h);                                                                  \
-   platform_free(NULL, bp);
+static inline void
+platform_flush_log_stream(platform_stream_handle *stream)
+{
+   fflush(stream->stream);
+}
 
-/*
- * platform_log_stream should be called between platform_open_log_stream and
- * platform_close_log_stream.
- */
-#define platform_log_stream(...)                                               \
+static inline void
+platform_close_log_stream(platform_stream_handle *stream,
+                          platform_log_handle    *log_handle)
+{
+   fclose(stream->stream);
+   fputs(stream->str, log_handle);
+   fflush(log_handle);
+   platform_free_from_heap(NULL, stream->str);
+}
+
+static inline platform_log_handle *
+platform_log_stream_to_log_handle(platform_stream_handle *stream)
+{
+   return stream->stream;
+}
+
+static inline char *
+platform_log_stream_to_string(platform_stream_handle *stream)
+{
+   platform_flush_log_stream(stream);
+   return stream->str;
+}
+
+#define platform_log(log_handle, ...)                                          \
    do {                                                                        \
-      fprintf(stream, __VA_ARGS__);                                            \
-   } while (0)
-
-#define platform_log(...)                                                      \
-   do {                                                                        \
-      fprintf(Platform_stdout_fh, __VA_ARGS__);                                \
-      fflush(Platform_stdout_fh);                                              \
-   } while (0)
-
-#define platform_throttled_log(sec, ...)                                       \
-   do {                                                                        \
-      platform_log(__VA_ARGS__);                                               \
+      fprintf((log_handle), __VA_ARGS__);                                      \
+      fflush(log_handle);                                                      \
    } while (0)
 
 #define platform_default_log(...)                                              \
    do {                                                                        \
-      fprintf(stdout, __VA_ARGS__);                                            \
-      fflush(stdout);                                                          \
+      platform_log(Platform_default_log_handle, __VA_ARGS__);                  \
    } while (0)
-
 
 #define platform_error_log(...)                                                \
    do {                                                                        \
-      fprintf(Platform_stderr_fh, __VA_ARGS__);                                \
-      fflush(Platform_stderr_fh);                                              \
+      platform_log(Platform_error_log_handle, __VA_ARGS__);                    \
+   } while (0)
+
+#define platform_log_stream(stream, ...)                                       \
+   do {                                                                        \
+      platform_log_handle *log_handle =                                        \
+         platform_log_stream_to_log_handle(stream);                            \
+      platform_log(log_handle, __VA_ARGS__);                                   \
+   } while (0)
+
+#define platform_throttled_log(sec, log_handle, ...)                           \
+   do {                                                                        \
+      platform_log(log_handle, __VA_ARGS__);                                   \
+   } while (0)
+
+#define platform_throttled_default_log(sec, ...)                               \
+   do {                                                                        \
+      platform_default_log(__VA_ARGS__);                                       \
    } while (0)
 
 #define platform_throttled_error_log(sec, ...)                                 \
    do {                                                                        \
       platform_error_log(__VA_ARGS__);                                         \
    } while (0)
-
-#define platform_handle_log(lh, ...)                                           \
-   do {                                                                        \
-      fprintf(lh, __VA_ARGS__);                                                \
-      fflush(lh);                                                              \
-   } while (0)
-
 
 #define platform_open_log_file(path, mode)                                     \
    ({                                                                          \
