@@ -4567,7 +4567,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          trunk_node_unclaim(spl, node);
          trunk_node_unget(spl, &node);
 
-         trunk_dec_ref(spl, &new_branch, FALSE);
+         if (pack_req.num_tuples != 0) {
+            trunk_dec_ref(spl, &new_branch, FALSE);
+         }
          platform_free(spl->heap_id, req->fp_arr);
          platform_free(spl->heap_id, req);
          goto out;
@@ -4627,7 +4629,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       }
    }
    if (num_replacements == 0) {
-      trunk_dec_ref(spl, &new_branch, FALSE);
+      if (pack_req.num_tuples != 0) {
+         trunk_dec_ref(spl, &new_branch, FALSE);
+      }
       if (spl->cfg.use_stats) {
          spl->stats[tid].compactions_discarded_flushed[height]++;
          spl->stats[tid].compaction_time_wasted_ns[height] +=
