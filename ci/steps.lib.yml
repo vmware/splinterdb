@@ -1,0 +1,145 @@
+#! Copyright 2018-2021 VMware, Inc.
+#! SPDX-License-Identifier: Apache-2.0
+
+
+#@ def get_task_timeout(quick=False, sanitize=""):
+#@   if sanitize:
+#@     return "3h"
+#@   elif quick:
+#@     return "5m"
+#@   else:
+#@     return "1h"
+#@   end
+#@ end
+
+#@ def step_build_splinterdb_image(source, compiler, git_sha=False):
+task: build
+timeout: #@ get_task_timeout()
+privileged: true
+#@ if git_sha:
+params:
+  LABEL_git_sha: ((.:git-commit-sha))
+#@ end
+config:
+  platform: linux
+  image_resource:
+    type: registry-image
+    source:
+      repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/oci-build-task
+  inputs:
+  - name: build-env-image-latest
+  - name: run-env-image-latest
+  - name: #@ source
+    path: splinterdb-src
+  outputs:
+  - name: image
+  params:
+    IMAGE_ARG_build_env_image: build-env-image-latest/image.tar
+    IMAGE_ARG_run_env_image: run-env-image-latest/image.tar
+    BUILD_ARG_compiler: #@ compiler
+    LABEL_compiler: #@ compiler
+    LABEL_source: #@ source
+    LABEL_created_by: "SplinterDB Concourse CI"
+    CONTEXT: splinterdb-src
+    UNPACK_ROOTFS: true
+  run:
+    path: build
+#@ end
+
+---
+
+#@ def step_test_with_image():
+task: test
+timeout: #@ get_task_timeout()
+image: image
+config:
+  platform: linux
+  run:
+    path: sh
+    args: ["-c", "cd /splinterdb && ./test.sh"]
+  params:
+    INCLUDE_SLOW_TESTS: "true"
+#@ end
+
+---
+#@ def step_collect_tags(compiler):
+task: collect-tags
+timeout: #@ get_task_timeout()
+config:
+  platform: linux
+  image_resource:
+    type: registry-image
+    source:
+      repository: harbor-repo.vmware.com/dockerhub-proxy-cache/library/busybox
+  inputs:
+  - name: branch-main
+    path: repo
+  outputs:
+  - name: tags
+  params:
+    compiler: #@ compiler
+  run:
+    path: /bin/sh
+    args: ['-euc', 'sed -e "s/^/$compiler-/" repo/.git/ref > tags/tags && cat tags/tags']
+#@ end
+
+---
+
+#@ def step_debug_build_test(compiler, input_name, quick=False, sanitize=""):
+task: debug-build-test
+timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize)
+image: build-env-image-latest
+config:
+  platform: linux
+  inputs:
+  - name: #@ input_name
+  params:
+    CC: #@ compiler
+    LD: #@ compiler
+    INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
+    #@ if sanitize == "asan":
+    DEFAULT_CFLAGS: "-fsanitize=address"
+    DEFAULT_LDFLAGS: "-fsanitize=address"
+    #! work around issue "LeakSanitizer has encountered a fatal error", may be kernel-dependent
+    ASAN_OPTIONS: "detect_leaks=0"
+    #@ elif sanitize == "msan":
+    DEFAULT_CFLAGS: "-fsanitize=memory"
+    DEFAULT_LDFLAGS: "-fsanitize=memory"
+    #@ end
+  run:
+    path: sh
+    dir: #@ input_name
+    args:
+    - "-c"
+    - "make debug && ./test.sh"
+#@ end
+
+---
+
+#@ def step_set_pr_status(context, status, description=""):
+put: update-status
+resource: github-pull-request
+params:
+  path: github-pull-request
+  status: #@ status
+  base_context: ci
+  context: #@ context
+  #@ if description:
+  description: #@ status + ": " + description
+  #@ end
+get_params: {skip_download: true}
+#@ end
+
+---
+
+#@ def step_set_commit_status(status, context=""):
+put: github-commit-status
+inputs: [branch-main]
+params:
+  state: #@ status
+  #@ if context:
+  context: #@ context
+  #@ end
+#@ end
+
+---

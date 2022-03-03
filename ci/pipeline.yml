@@ -7,18 +7,23 @@
 #!
 #! Use the apply-pipeline.sh script to deploy
 
-
-#@ load("pipeline-funcs.lib.yml",
+#@ load("resources.lib.yml",
 #@         "resource_container_image",
 #@         "resource_splinterdb_git_repo",
+#@ )
+
+#@ load("sequences.lib.yml",
+#@         "sequence_pr_build_test",
+#@         "sequence_pr_debug_build_test",
+#@         "sequence_pr_clang_format",
+#@         "sequence_pr_shell_scripts",
+#@ )
+
+#@ load("jobs.lib.yml",
 #@         "job_recreate_image",
 #@         "job_main_build_test_push",
 #@         "job_debug_main_build_test",
 #@         "job_pr_check",
-#@         "steps_pr_build_test",
-#@         "steps_pr_debug_build_test",
-#@         "steps_pr_clang_format",
-#@         "steps_pr_shell_scripts",
 #@ )
 ---
 
@@ -92,19 +97,19 @@ jobs:
 
 #! first stage of pipeline, runs a few quick jobs
 #@ stage_one = ["pr-quick-check", "pr-clang-format", "pr-shell-scripts"]
-- #@ job_pr_check("clang-format", steps_pr_clang_format(), description="check C source formatting")
-- #@ job_pr_check("shell-scripts", steps_pr_shell_scripts(), description="lint and format any shell scripts")
-- #@ job_pr_check("quick-check", steps_pr_debug_build_test("clang", quick=True), description="build and run fast unit tests")
+- #@ job_pr_check("clang-format", sequence_pr_clang_format(), description="check C source formatting")
+- #@ job_pr_check("shell-scripts", sequence_pr_shell_scripts(), description="lint and format any shell scripts")
+- #@ job_pr_check("quick-check", sequence_pr_debug_build_test("clang", quick=True), description="build and run fast unit tests")
 
 #! second stage of pipeline, only triggers if all of the first-stage passes
-- #@ job_pr_check("clang", steps_pr_build_test("clang"), depends_on=stage_one, description="build and test")
-- #@ job_pr_check("gcc", steps_pr_build_test("gcc"), depends_on=stage_one, description="build and test")
+- #@ job_pr_check("clang", sequence_pr_build_test("clang"), depends_on=stage_one, description="build and test")
+- #@ job_pr_check("gcc", sequence_pr_build_test("gcc"), depends_on=stage_one, description="build and test")
 
-- #@ job_pr_check("debug-clang", steps_pr_debug_build_test("clang"), depends_on=stage_one, description="debug build and test")
-- #@ job_pr_check("debug-gcc", steps_pr_debug_build_test("gcc"), depends_on=stage_one, description="debug build and test")
+- #@ job_pr_check("debug-clang", sequence_pr_debug_build_test("clang"), depends_on=stage_one, description="debug build and test")
+- #@ job_pr_check("debug-gcc", sequence_pr_debug_build_test("gcc"), depends_on=stage_one, description="debug build and test")
 
-- #@ job_pr_check("asan", steps_pr_debug_build_test("gcc", sanitize="asan"), depends_on=stage_one, description="address sanitizer")
-- #@ job_pr_check("msan", steps_pr_debug_build_test("clang", sanitize="msan"), depends_on=stage_one, description="memory sanitizer")
+- #@ job_pr_check("asan", sequence_pr_debug_build_test("gcc", sanitize="asan"), depends_on=stage_one, description="address sanitizer")
+- #@ job_pr_check("msan", sequence_pr_debug_build_test("clang", sanitize="msan"), depends_on=stage_one, description="memory sanitizer")
 
 groups:
 - name: main_branch
