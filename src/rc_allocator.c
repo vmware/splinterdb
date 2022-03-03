@@ -618,7 +618,10 @@ rc_allocator_alloc(rc_allocator *al,   // IN
    } while (!extent_is_free
             && (hand + 1) % al->cfg->extent_capacity != first_hand);
    if (!extent_is_free) {
-      platform_log("Out of Space: allocated %lu out of %lu addrs.\n",
+      platform_log("Out of Space, while allocating an extent of type=%d (%s):"
+                   " allocated %lu out of %lu addrs.\n",
+                   type,
+                   page_type_str[type],
                    al->stats.curr_allocated,
                    al->cfg->extent_capacity);
       return STATUS_NO_SPACE;

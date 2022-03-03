@@ -1829,7 +1829,12 @@ trunk_get_new_bundle(trunk_handle *spl, page_handle *node)
    trunk_hdr *hdr           = (trunk_hdr *)node->data;
    uint16     new_bundle_no = hdr->end_bundle;
    hdr->end_bundle          = trunk_bundle_no_add(spl, hdr->end_bundle, 1);
-   platform_assert(hdr->end_bundle != hdr->start_bundle);
+   platform_assert((hdr->end_bundle != hdr->start_bundle),
+                   "No available bundles in trunk node. "
+                   "page disk_addr=%lu, end_bundle=%d, start_bundle=%d",
+                   node->disk_addr,
+                   hdr->end_bundle,
+                   hdr->start_bundle);
    return new_bundle_no;
 }
 
@@ -2623,7 +2628,11 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
          trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
          uint64            pos =
             trunk_process_generation_to_pos(spl, req, pdata->generation);
-         platform_assert(pos != TRUNK_MAX_PIVOTS);
+         platform_assert((pos != TRUNK_MAX_PIVOTS),
+                         "Pivot live for bundle not found in req, "
+                         "pos=%lu != TRUNK_MAX_PIVOTS=%d",
+                         pos,
+                         TRUNK_MAX_PIVOTS);
          uint64 bundle_num_tuples = req->input_pivot_count[pos];
          debug_assert(pdata->num_tuples >= bundle_num_tuples);
          pdata->num_tuples -= bundle_num_tuples;
@@ -2666,7 +2675,7 @@ trunk_zap_branch_range(trunk_handle *spl,
    platform_assert(type == PAGE_TYPE_BRANCH);
    platform_assert((start_key == NULL && end_key == NULL)
                    || (type != PAGE_TYPE_MEMTABLE && start_key != NULL));
-   platform_assert(branch->root_addr != 0);
+   platform_assert(branch->root_addr != 0, "root_addr=%lu", branch->root_addr);
    btree_dec_ref_range(spl->cc,
                        &spl->cfg.btree_cfg,
                        branch->root_addr,
@@ -3662,7 +3671,10 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       }
 
       for (uint64 i = 0; i < TRUNK_MAX_PIVOTS; i++) {
-         platform_assert(!req->should_build[i]);
+         platform_assert(!req->should_build[i],
+                         "i=%lu, should_build[i]=%d",
+                         i,
+                         req->should_build[i]);
       }
       trunk_prepare_build_filter(spl, req, node);
       req->filter_generation = trunk_generation(spl, node);
@@ -6128,7 +6140,10 @@ trunk_async_callback(cache_async_ctxt *cache_ctxt)
    if (UNLIKELY(ctxt->state == async_state_get_root_reentrant)) {
       trunk_async_set_state(ctxt, async_state_trunk_node_lookup);
    } else {
-      debug_assert(ctxt->state == async_state_get_child_trunk_node_reentrant);
+      debug_assert((ctxt->state == async_state_get_child_trunk_node_reentrant),
+                   "ctxt->state=%d != expected state=%d",
+                   ctxt->state,
+                   async_state_get_child_trunk_node_reentrant);
       trunk_async_set_state(ctxt, async_state_unget_parent_trunk_node);
    }
    ctxt->cb(ctxt);
