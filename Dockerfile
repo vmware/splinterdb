@@ -30,8 +30,6 @@ COPY . /splinterdb-src
 ARG compiler=clang
 ENV CC=$compiler
 ENV LD=$compiler
-ARG with_rust=false
-ENV WITH_RUST=$with_rust
 RUN $compiler --version \
     && make -C /splinterdb-src \
     && mkdir /splinterdb-install \

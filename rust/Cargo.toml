@@ -1,6 +1,0 @@
-[workspace]
-members = [
-    "splinterdb-sys",
-    "splinterdb-rs",
-    "splinterdb-cli",
-]
