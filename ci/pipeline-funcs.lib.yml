@@ -93,7 +93,7 @@ params:
 
 ---
 
-#@ def step_build_splinterdb_image(source, compiler, git_sha=False, with_rust=False):
+#@ def step_build_splinterdb_image(source, compiler, git_sha=False):
 task: build
 timeout: #@ get_task_timeout()
 privileged: true
@@ -118,7 +118,6 @@ config:
     IMAGE_ARG_build_env_image: build-env-image-latest/image.tar
     IMAGE_ARG_run_env_image: run-env-image-latest/image.tar
     BUILD_ARG_compiler: #@ compiler
-    BUILD_ARG_with_rust: #@ str(with_rust).lower()
     LABEL_compiler: #@ compiler
     LABEL_source: #@ source
     LABEL_created_by: "SplinterDB Concourse CI"
@@ -130,7 +129,7 @@ config:
 
 ---
 
-#@ def step_test_with_image(with_rust=False):
+#@ def step_test_with_image():
 task: test
 timeout: #@ get_task_timeout()
 image: image
@@ -140,7 +139,6 @@ config:
     path: sh
     args: ["-c", "cd /splinterdb && ./test.sh"]
   params:
-    TEST_RUST_CLI: #@ str(with_rust).lower()
     INCLUDE_SLOW_TESTS: "true"
 #@ end
 
@@ -211,13 +209,9 @@ plan:
 
 ---
 
-#@ def step_debug_build_test(compiler, input_name, with_rust=False, quick=False, sanitize=""):
+#@ def step_debug_build_test(compiler, input_name, quick=False, sanitize=""):
 task: debug-build-test
 timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize)
-#@ if with_rust:
-#! workaround for buggy interaction of newer git/coreutils with older kernel on Runway
-privileged: true
-#@ end
 image: build-env-image-latest
 config:
   platform: linux
@@ -226,7 +220,6 @@ config:
   params:
     CC: #@ compiler
     LD: #@ compiler
-    WITH_RUST: #@ str(with_rust).lower()
     INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
     #@ if sanitize == "asan":
     DEFAULT_CFLAGS: "-fsanitize=address"
@@ -309,7 +302,7 @@ plan:
 
 #! Build plan steps for various PR checks
 
-#@ def steps_pr_build_test(compiler, with_rust=False):
+#@ def steps_pr_build_test(compiler):
 - in_parallel:
     fail_fast: true
     steps:
@@ -319,16 +312,16 @@ plan:
     - get: build-env-image-latest
       passed: [ recreate-build-env ]
       params: { format: oci }
-- #@ step_build_splinterdb_image("github-pull-request", compiler, with_rust=with_rust)
-- #@ step_test_with_image(with_rust=with_rust)
+- #@ step_build_splinterdb_image("github-pull-request", compiler)
+- #@ step_test_with_image()
 #@ end
 
 ---
 
-#@ def steps_pr_debug_build_test(compiler, with_rust=False, quick=False, sanitize=None):
+#@ def steps_pr_debug_build_test(compiler, quick=False, sanitize=None):
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
-- #@ step_debug_build_test(compiler, "github-pull-request", with_rust=with_rust, quick=quick, sanitize=sanitize)
+- #@ step_debug_build_test(compiler, "github-pull-request", quick=quick, sanitize=sanitize)
 #@ end
 
 ---

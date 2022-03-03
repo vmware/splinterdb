@@ -71,5 +71,3 @@ looks out-of-date, please open an issue or pull request.
 ## Example programs
 - [`tests/unit/splinterdb_quick_test.c`](../tests/unit/splinterdb_quick_test.c) covers various basic operations on a single thread
 - [`tests/unit/splinterdb_stress_test.c`](../tests/unit/splinterdb_stress_test.c) uses multiple threads
-- [`splinterdb-cli`](../rust/splinterdb-cli) is a small Rust program that demonstrates inserts, lookups, deletes and
-range scans, and includes a multithreaded test of insert performance.
