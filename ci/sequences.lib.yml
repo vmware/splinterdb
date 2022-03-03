@@ -4,7 +4,7 @@
 #@ load("steps.lib.yml",
 #@         "step_build_splinterdb_image",
 #@         "step_test_with_image",
-#@         "step_debug_build_test",
+#@         "step_build_test",
 #@         "get_task_timeout",
 #@ )
 
@@ -29,7 +29,7 @@
 #@ def sequence_pr_debug_build_test(compiler, quick=False, sanitize=None):
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
-- #@ step_debug_build_test(compiler, "github-pull-request", quick=quick, sanitize=sanitize)
+- #@ step_build_test(compiler, "github-pull-request", is_debug=True, quick=quick, sanitize=sanitize)
 #@ end
 
 ---

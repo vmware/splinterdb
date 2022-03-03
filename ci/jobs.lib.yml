@@ -7,7 +7,7 @@
 #@         "step_build_splinterdb_image",
 #@         "step_test_with_image",
 #@         "step_collect_tags",
-#@         "step_debug_build_test",
+#@         "step_build_test",
 #@         "step_set_pr_status",
 #@         "step_set_commit_status",
 #@         "get_task_timeout",
@@ -124,7 +124,7 @@ plan:
     passed: [ recreate-build-env ]
     trigger: true
 - #@ step_set_commit_status("pending", compiler + "-debug")
-- #@ step_debug_build_test(compiler, "branch-main")
+- #@ step_build_test(compiler, "branch-main", is_debug=True)
 
 #@ end
 
@@ -149,5 +149,28 @@ plan:
     list_changed_files: true
 - #@ step_set_pr_status(job_name, "pending", description)
 - #@ template.replace(sequence)
+#@ end
+
+---
+
+#! Release build and test run nightly, for extended testing
+#@ def job_nightly_main_build_test(compiler="gcc"):
+name: #@ "main-nightly-build-test-" + compiler
+public: true
+on_success: #@ step_set_commit_status("success", compiler + "-nightly")
+on_failure: #@ step_set_commit_status("failure", compiler + "-nightly")
+on_error: #@ step_set_commit_status("error", compiler + "-nightly")
+plan:
+- in_parallel:
+  - get: branch-main
+    trigger: false  #! Do not trigger on every push / commit
+  - get: build-env-image-latest
+    passed: [ recreate-build-env ]
+    trigger: false  #! Do not trigger on every change of the build-env
+  - get: nightly-timer
+    trigger: true  #! -Do- trigger every night
+- #@ step_set_commit_status("pending", compiler + "-nightly")
+- #@ step_build_test(compiler, "branch-main", is_debug=False, is_nightly=True)
+
 #@ end
 

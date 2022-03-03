@@ -2,11 +2,13 @@
 #! SPDX-License-Identifier: Apache-2.0
 
 
-#@ def get_task_timeout(quick=False, sanitize=""):
+#@ def get_task_timeout(quick=False, sanitize="", is_nightly=False):
 #@   if sanitize:
 #@     return "3h"
 #@   elif quick:
 #@     return "5m"
+#@   elif is_nightly:
+#@     return "6h"
 #@   else:
 #@     return "1h"
 #@   end
@@ -85,9 +87,13 @@ config:
 
 ---
 
-#@ def step_debug_build_test(compiler, input_name, quick=False, sanitize=""):
+#@ def step_build_test(compiler, input_name, is_debug=True, quick=False, sanitize="", is_nightly=False):
+#@ if is_debug:
 task: debug-build-test
-timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize)
+#@ else:
+task: release-build-test
+#@ end
+timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize, is_nightly=is_nightly)
 image: build-env-image-latest
 config:
   platform: linux
@@ -97,6 +103,7 @@ config:
     CC: #@ compiler
     LD: #@ compiler
     INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
+    RUN_NIGHTLY_TESTS: #@ str(is_nightly).lower()
     #@ if sanitize == "asan":
     DEFAULT_CFLAGS: "-fsanitize=address"
     DEFAULT_LDFLAGS: "-fsanitize=address"
@@ -111,7 +118,11 @@ config:
     dir: #@ input_name
     args:
     - "-c"
+    #@ if is_debug:
     - "make debug && ./test.sh"
+    #@ else:
+    - "make && ./test.sh"
+    #@ end
 #@ end
 
 ---

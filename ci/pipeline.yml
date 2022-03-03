@@ -24,6 +24,7 @@
 #@         "job_main_build_test_push",
 #@         "job_debug_main_build_test",
 #@         "job_pr_check",
+#@         "job_nightly_main_build_test",
 #@ )
 ---
 
@@ -82,6 +83,17 @@ resources:
     access_token: ((github-bot-access-token))
     base_branch: main
 
+#! Define nightly timer resource
+#! Ref: https://concourse-ci.org/time-trigger-example.html
+#! Ref: https://github.com/concourse/time-resource
+- name: nightly-timer
+  type: time
+  source:
+    start: 12:00 AM
+    stop: 1:00 AM
+    location: America/Los_Angeles
+
+#! List of jobs
 jobs:
 
 #! Create the container image that holds the build environment
@@ -94,6 +106,7 @@ jobs:
 
 - #@ job_debug_main_build_test("clang")
 - #@ job_debug_main_build_test("gcc")
+- #@ job_nightly_main_build_test("gcc")
 
 #! first stage of pipeline, runs a few quick jobs
 #@ stage_one = ["pr-quick-check", "pr-clang-format", "pr-shell-scripts"]
@@ -111,6 +124,7 @@ jobs:
 - #@ job_pr_check("asan", sequence_pr_debug_build_test("gcc", sanitize="asan"), depends_on=stage_one, description="address sanitizer")
 - #@ job_pr_check("msan", sequence_pr_debug_build_test("clang", sanitize="msan"), depends_on=stage_one, description="memory sanitizer")
 
+#! List of CI-groups of jobs
 groups:
 - name: main_branch
   jobs:
@@ -118,6 +132,7 @@ groups:
   - main-build-test-gcc
   - main-debug-build-test-clang
   - main-debug-build-test-gcc
+  - main-nightly-build-test-gcc
 
 - name: pull_requests
   jobs:
