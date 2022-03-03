@@ -118,19 +118,22 @@ test_trunk_insert_thread(void *arg)
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         if (test_is_done(done, spl_idx))
+         if (test_is_done(done, spl_idx)) {
             continue;
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "inserting %3lu%% complete for table %u",
-            insert_base[spl_idx] / (total_ops[spl_idx] / 100),
-            spl_idx);
+         }
+         platform_default_log(PLATFORM_CR
+                              "inserting %3lu%% complete for table %u ... ",
+                              insert_base[spl_idx] / (total_ops[spl_idx] / 100),
+                              spl_idx);
          insert_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
-         if (insert_base[spl_idx] >= total_ops[spl_idx])
+         if (insert_base[spl_idx] >= total_ops[spl_idx]) {
             test_set_done(&done, spl_idx);
-         if (test_all_done(done, num_tables))
+         }
+         if (test_all_done(done, num_tables)) {
+            platform_default_log(" Test done for all %d tables.\n", num_tables);
             goto out;
+         }
       }
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -755,8 +758,8 @@ test_splinter_perf(trunk_config    *cfg,
                    uint8            num_caches,
                    uint64           insert_rate)
 {
-   platform_log("splinter_test: splinter performance test started with %d\
-                tables\n",
+   platform_log("splinter_test: splinter performance test started with %d"
+                " tables\n",
                 num_tables);
    trunk_handle  **spl_tables;
    platform_status rc;
