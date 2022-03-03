@@ -74,6 +74,12 @@ set -x
 SEED="${SEED:-135}"
 
 INCLUDE_SLOW_TESTS="${INCLUDE_SLOW_TESTS:-false}"
+RUN_NIGHTLY_TESTS="${RUN_NIGHTLY_TESTS:-false}"
+
+if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
+   echo "$Me: Running nightly tests script ..."
+   exit 0
+fi
 
 set +x
 
