@@ -758,8 +758,8 @@ test_splinter_perf(trunk_config    *cfg,
                    uint8            num_caches,
                    uint64           insert_rate)
 {
-   platform_log("splinter_test: splinter performance test started with %d"
-                " tables\n",
+   platform_log("splinter_test: SplinterDB performance test started with "
+                "%d tables\n",
                 num_tables);
    trunk_handle  **spl_tables;
    platform_status rc;
@@ -1152,9 +1152,10 @@ test_splinter_periodic(trunk_config    *cfg,
                        uint8            num_caches,
                        uint64           insert_rate)
 {
-   platform_log("splinter_test: splinter performance test started with %d\
-                tables\n",
-                num_tables);
+   platform_log(
+      "splinter_test: SplinterDB performance test (periodic) started with "
+      "%d tables\n",
+      num_tables);
    trunk_handle  **spl_tables;
    platform_status rc;
 
@@ -1618,9 +1619,10 @@ test_splinter_parallel_perf(trunk_config    *cfg,
                             uint8            num_tables,
                             uint8            num_caches)
 {
-   platform_log("splinter_test: splinter performance test started with %d\
-                tables\n",
-                num_tables);
+   platform_log(
+      "splinter_test: SplinterDB parallel performance test started with "
+      "%d tables\n",
+      num_tables);
    trunk_handle  **spl_tables;
    platform_status rc;
 
@@ -1803,8 +1805,8 @@ test_splinter_delete(trunk_config    *cfg,
                      uint8            num_caches,
                      uint64           insert_rate)
 {
-   platform_log("splinter_test: splinter deletion test started with %d\
-                tables\n",
+   platform_log("splinter_test: SplinterDB deletion test started with "
+                "%d tables\n",
                 num_tables);
    trunk_handle  **spl_tables;
    platform_status rc;
