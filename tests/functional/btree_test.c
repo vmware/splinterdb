@@ -1533,6 +1533,22 @@ btree_test(int argc, char *argv[])
       goto cleanup;
    }
 
+   if (run_perf_test) {
+      // For default test execution parameters, we need a reasonably big
+      // enough cache to handle the Memtable being pinned.
+      int reqd_cache_GiB = 4;
+      if (cache_cfg.capacity < (reqd_cache_GiB * GiB)) {
+         platform_log("Warning! Your configured cache size, %lu GiB, may be "
+                      "insufficient to run the 'btree_test --perf' test. "
+                      "Recommend a minimum of '--cache-capacity-gib %d' GiB. "
+                      "If you change the key / message size, or the number "
+                      "of inserts, you may also need to increase the cache "
+                      "size appropriately.\n",
+                      B_TO_GiB(cache_cfg.capacity),
+                      reqd_cache_GiB);
+      }
+   }
+
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hh, hid);
