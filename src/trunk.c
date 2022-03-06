@@ -8360,6 +8360,19 @@ trunk_config_init(trunk_config *trunk_cfg,
    trunk_pivot_size = data_cfg->key_size + trunk_pivot_message_size();
    // Setting hard limit and over overprovisioning
    trunk_cfg->max_pivot_keys = trunk_cfg->fanout + 6;
+   platform_assert(sizeof(trunk_hdr)
+                         + trunk_cfg->max_pivot_keys * (data_cfg->key_size + sizeof(trunk_pivot_data))
+                         + trunk_cfg->max_branches_per_node * sizeof(trunk_branch)
+                      < cache_config_page_size(cache_cfg),
+                   "\nTrunk node does not fit in page size as configured. hdr: "
+                   "%luB pivots: %luB (%lu x %luB) branches %luB (%lu x %luB)\n",
+                   sizeof(trunk_hdr),
+                   trunk_cfg->max_pivot_keys * (data_cfg->key_size + sizeof(trunk_pivot_data)),
+                   trunk_cfg->max_pivot_keys,
+                   (data_cfg->key_size + sizeof(trunk_pivot_data)),
+                   max_branches_per_node * sizeof(trunk_branch),
+                   max_branches_per_node,
+                   sizeof(trunk_branch));
    bytes_for_branches        = trunk_page_size(trunk_cfg) - trunk_hdr_size()
                         - trunk_cfg->max_pivot_keys * trunk_pivot_size;
    trunk_cfg->hard_max_branches_per_node =
