@@ -1,0 +1,176 @@
+#! Copyright 2018-2021 VMware, Inc.
+#! SPDX-License-Identifier: Apache-2.0
+
+#@ load("@ytt:template", "template")
+
+#@ load("steps.lib.yml",
+#@         "step_build_splinterdb_image",
+#@         "step_test_with_image",
+#@         "step_collect_tags",
+#@         "step_build_test",
+#@         "step_set_pr_status",
+#@         "step_set_commit_status",
+#@         "get_task_timeout",
+#@ )
+
+
+#@ load("sequences.lib.yml",
+#@         "sequence_pr_build_test",
+#@         "sequence_pr_debug_build_test",
+#@         "sequence_pr_clang_format",
+#@         "sequence_pr_shell_scripts",
+#@ )
+
+
+---
+
+#! Build and push a container image
+#@ def job_recreate_image(resource_name):
+name: #@ "recreate-" + resource_name
+public: true
+plan:
+- get: #@ resource_name + "-source"
+  trigger: true
+- load_var: git-commit-sha
+  file: #@ resource_name + "-source/.git/ref"
+  reveal: true
+- task: create-image
+  timeout: #@ get_task_timeout()
+  privileged: true
+  params:
+    LABEL_git_sha: ((.:git-commit-sha))
+  config:
+    platform: linux
+    image_resource:
+      type: registry-image
+      source:
+        repository: harbor-repo.vmware.com/dockerhub-proxy-cache/concourse/oci-build-task
+    inputs:
+    - name: #@ resource_name + "-source"
+      path: .
+    outputs:
+    - name: image
+    params:
+      BUILD_ARG_base_image: harbor-repo.vmware.com/dockerhub-proxy-cache/library/ubuntu:20.04
+      DOCKERFILE: #@ "Dockerfile." + resource_name
+      LABEL_created_by: "SplinterDB Concourse CI"
+    run:
+      path: build
+- put: #@ resource_name + "-image-latest"
+  params:
+    image: image/image.tar
+    additional_tags: #@ resource_name + "-source/.git/ref"
+#@ end
+
+
+---
+
+
+#! Build, test and publish container images
+#@ def job_main_build_test_push(compiler, also_latest=False):
+name: #@ "main-build-test-" + compiler
+public: true
+on_success: #@ step_set_commit_status("success", compiler)
+on_failure: #@ step_set_commit_status("failure", compiler)
+on_error: #@ step_set_commit_status("error", compiler)
+plan:
+- in_parallel:
+  - get: branch-main
+    trigger: true
+  - get: run-env-image-latest
+    passed: [ recreate-run-env ]
+    params: { format: oci }
+    trigger: true
+  - get: build-env-image-latest
+    passed: [ recreate-build-env ]
+    params: { format: oci }
+    trigger: true
+- load_var: git-commit-sha
+  file: branch-main/.git/ref
+  reveal: true
+- #@ step_set_commit_status("pending", compiler)
+- #@ step_build_splinterdb_image("branch-main", compiler, git_sha=True)
+- #@ step_test_with_image()
+- #@ step_collect_tags(compiler)
+- put: #@ "splinterdb-image-" + compiler
+  attempts: 2  #! allow 1 retry, since Distribution Harbor can be flaky
+  params:
+    image: image/image.tar
+    additional_tags: tags/tags
+#@ if also_latest:
+- put: splinterdb-image-latest
+  attempts: 2  #! allow 1 retry, since Distribution Harbor can be flaky
+  params:
+    image: image/image.tar
+    additional_tags: branch-main/.git/ref
+#@ end
+
+#@ end
+
+---
+
+#! Debug build and test
+#@ def job_debug_main_build_test(compiler):
+name: #@ "main-debug-build-test-" + compiler
+public: true
+on_success: #@ step_set_commit_status("success", compiler + "-debug")
+on_failure: #@ step_set_commit_status("failure", compiler + "-debug")
+on_error: #@ step_set_commit_status("error", compiler + "-debug")
+plan:
+- in_parallel:
+  - get: branch-main
+    trigger: true
+  - get: build-env-image-latest
+    passed: [ recreate-build-env ]
+    trigger: true
+- #@ step_set_commit_status("pending", compiler + "-debug")
+- #@ step_build_test(compiler, "branch-main", is_debug=True)
+
+#@ end
+
+---
+
+#! Job to run against every PR
+#@ def job_pr_check(job_name, sequence, depends_on=[], description=""):
+name: #@ "pr-" + job_name
+public: true
+on_success: #@ step_set_pr_status(job_name, "success", description)
+on_failure: #@ step_set_pr_status(job_name, "failure", description)
+on_error: #@ step_set_pr_status(job_name, "error", description)
+plan:
+- get: github-pull-request
+  trigger: true
+  #@ if depends_on:
+  passed: #@ depends_on
+  #@ else:
+  version: every
+  #@ end
+  params:
+    list_changed_files: true
+- #@ step_set_pr_status(job_name, "pending", description)
+- #@ template.replace(sequence)
+#@ end
+
+---
+
+#! Release build and test run nightly, for extended testing
+#@ def job_nightly_main_build_test(compiler="gcc"):
+name: #@ "main-nightly-build-test-" + compiler
+public: true
+on_success: #@ step_set_commit_status("success", compiler + "-nightly")
+on_failure: #@ step_set_commit_status("failure", compiler + "-nightly")
+on_error: #@ step_set_commit_status("error", compiler + "-nightly")
+plan:
+- in_parallel:
+  - get: branch-main
+    trigger: false  #! Do not trigger on every push / commit
+  - get: build-env-image-latest
+    passed: [ recreate-build-env ]
+    trigger: false  #! Do not trigger on every change of the build-env
+  - get: nightly-timer
+    trigger: true  #! -Do- trigger every night
+- #@ step_set_commit_status("pending", compiler + "-nightly")
+- #@ step_build_test(compiler, "branch-main", is_debug=False, is_nightly=True)
+
+#@ end
+

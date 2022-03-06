@@ -1,0 +1,29 @@
+#! Copyright 2018-2021 VMware, Inc.
+#! SPDX-License-Identifier: Apache-2.0
+
+#@ load("@ytt:template", "template")
+
+#@ def resource_container_image(name, tag):
+name: #@ name + "-image-" + tag
+type: registry-image
+source:
+  tag: #@ tag
+  repository: #@ "projects.registry.vmware.com/splinterdb/" + name
+  username: ((distribution-harbor-robot-username))
+  password: ((distribution-harbor-robot-password))
+#@ end
+
+---
+
+#! Source code
+#@ def resource_splinterdb_git_repo(name, branch, extra_config={}):
+name: #@ name
+type: git
+source:
+  uri: git@github.com:vmware/splinterdb.git
+  branch: #@ branch
+  private_key: ((github-bot-ssh-private-key))
+  #@ if extra_config:
+  _: #@ template.replace(extra_config)
+  #@ end
+#@ end

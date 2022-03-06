@@ -1,0 +1,72 @@
+#! Copyright 2018-2021 VMware, Inc.
+#! SPDX-License-Identifier: Apache-2.0
+
+#@ load("steps.lib.yml",
+#@         "step_build_splinterdb_image",
+#@         "step_test_with_image",
+#@         "step_build_test",
+#@         "get_task_timeout",
+#@ )
+
+#! Build plan sequences for various PR checks
+
+#@ def sequence_pr_build_test(compiler):
+- in_parallel:
+    fail_fast: true
+    steps:
+    - get: run-env-image-latest
+      passed: [ recreate-run-env ]
+      params: { format: oci }
+    - get: build-env-image-latest
+      passed: [ recreate-build-env ]
+      params: { format: oci }
+- #@ step_build_splinterdb_image("github-pull-request", compiler)
+- #@ step_test_with_image()
+#@ end
+
+---
+
+#@ def sequence_pr_debug_build_test(compiler, quick=False, sanitize=None):
+- get: build-env-image-latest
+  passed: [ recreate-build-env ]
+- #@ step_build_test(compiler, "github-pull-request", is_debug=True, quick=quick, sanitize=sanitize)
+#@ end
+
+---
+
+#@ def sequence_pr_clang_format():
+- get: build-env-image-latest
+  passed: [ recreate-build-env ]
+- load_var: base_ref
+  file: github-pull-request/.git/resource/base_sha
+  reveal: true
+- task: format-check
+  timeout: #@ get_task_timeout()
+  image: build-env-image-latest
+  config:
+    platform: linux
+    inputs:
+    - name: github-pull-request
+    run:
+      dir: github-pull-request
+      path: ./format-check.sh
+      args: [ "((.:base_ref))" ]
+#@ end
+
+---
+
+#@ def sequence_pr_shell_scripts():
+- get: build-env-image-latest
+  passed: [ recreate-build-env ]
+- task: check-shell-scripts
+  timeout: #@ get_task_timeout()
+  image: build-env-image-latest
+  config:
+    platform: linux
+    inputs:
+    - name: github-pull-request
+    run:
+      path: "github-pull-request/ci/tasks/pr-check-shell-scripts.sh"
+#@ end
+
+---

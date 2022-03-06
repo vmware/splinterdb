@@ -96,11 +96,13 @@ test_key(char         *key,
             platform_checksum64(&thread_id, sizeof(thread_id), 42) + idx);
          break;
       case TEST_SEMISEQ:
-         if (idx % semiseq_freq == 0)
+         if (idx % semiseq_freq == 0) {
             *(uint64 *)key = platform_checksum64(&idx, sizeof(idx), 42);
-         else
+         } else {
             *(uint64 *)key = htobe64(
                platform_checksum64(&thread_id, sizeof(thread_id), 42) + idx);
+         }
+         break;
       case TEST_PERIODIC:
       {
          uint64 period_idx = idx % period;

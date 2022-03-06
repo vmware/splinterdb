@@ -167,7 +167,10 @@ test_data_message_class(const data_config *cfg,
                         uint64             raw_data_len,
                         const void        *raw_data)
 {
-   assert(sizeof(data_handle) <= raw_data_len);
+   platform_assert((sizeof(data_handle) <= raw_data_len),
+                   "sizeof(data_handle)=%lu, raw_data_len=%lu",
+                   sizeof(data_handle),
+                   raw_data_len);
 
    const data_handle *data = raw_data;
    switch (data->message_type) {

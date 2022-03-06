@@ -9,7 +9,9 @@ TARGET_CONCOURSE=runway
 
 RENDERED_PIPELINE="$(mktemp -t pipeline-XXXXXX.yml)"
 
-ytt -f ci/pipeline.yml -f ci/pipeline-funcs.lib.yml > "$RENDERED_PIPELINE"
+cd "$(dirname "$0")"
+
+ytt -f . > "$RENDERED_PIPELINE"
 
 echo ytt rendered pipeline template to "$RENDERED_PIPELINE"
 

@@ -325,6 +325,12 @@ cache_test_index_itor_mono_init(cache_test_index_itor *itor,
    itor->mono.incr = incr;
 }
 
+/*
+ * cache_test_index_itor_rand_init() --
+ *
+ * Index iterator random initializer. Caller provides us a [min, max] capacity
+ * values to use as the range between which to randomly choose a page address.
+ */
 static void
 cache_test_index_itor_rand_init(cache_test_index_itor *itor,
                                 uint32                 seed,
@@ -333,6 +339,11 @@ cache_test_index_itor_rand_init(cache_test_index_itor *itor,
 {
    itor->type = RAND;
    random_init(&itor->rand.rs, seed, 0);
+
+   platform_assert(min > 0);
+   platform_assert(max > 0);
+   platform_assert((min < max), "min=%u, max=%u", min, max);
+
    itor->rand.min = min;
    itor->rand.max = max;
 }
@@ -391,11 +402,11 @@ cache_test_dirty_flush(cache                 *cc,
    platform_status rc = STATUS_OK;
    timestamp       t_start;
 
+   platform_log("Running Flush %s test case ... ", testname);
    /*
     * Get all entries for write, mark dirty, release, and
     * flush. Verify that there are no dirty entries afterwards.
     */
-
    for (uint32 i = 0; i < cfg->page_capacity; i++) {
       const uint32 idx = cache_test_index_itor_get(itor);
       page_handle *ph  = cache_get(cc, addr_arr[idx], TRUE, PAGE_TYPE_MISC);
@@ -429,8 +440,7 @@ cache_test_dirty_flush(cache                 *cc,
    t_start = platform_get_timestamp();
    cache_flush(cc);
    t_start = NSEC_TO_MSEC(platform_timestamp_elapsed(t_start));
-   platform_log("Flush %s took %lu msec (%lu MiB/sec)\n",
-                testname,
+   platform_log("took %lu msec (%lu MiB/sec)\n",
                 t_start,
                 (cfg->page_capacity << cfg->log_page_size) / MiB
                    * SEC_TO_MSEC(1) / t_start);
@@ -469,14 +479,17 @@ test_cache_flush(cache             *cc,
    }
    uint32 extents_to_allocate = factor * extent_capacity;
    uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
+   platform_log("Allocate %d extents ... ", extents_to_allocate);
+
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    t_start  = platform_get_timestamp();
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
+      platform_log("failed.\n");
       /* no need to set status because we got here from an error status */
       goto exit;
    }
-   platform_log("Allocation took %lu secs\n",
+   platform_log("took %lu secs.\n",
                 NSEC_TO_SEC(platform_timestamp_elapsed(t_start)));
 
    cache_test_index_itor itor;
@@ -488,6 +501,7 @@ test_cache_flush(cache             *cc,
       platform_error_log("failed test seq inc");
       goto exit;
    }
+
    // Second: monotonically decreasing seq addresses
    cache_test_index_itor_mono_init(&itor, cfg->page_capacity * 2, -1);
    rc = cache_test_dirty_flush(cc, cfg, "Reverse Seq", addr_arr, &itor);
@@ -495,6 +509,7 @@ test_cache_flush(cache             *cc,
       platform_error_log("failed test seq dec");
       goto exit;
    }
+
    // Third: addresses hopping between min and max
    cache_test_index_itor_hop_init(
       &itor, cfg->page_capacity * 3, cfg->page_capacity * 4, 1);
@@ -503,9 +518,21 @@ test_cache_flush(cache             *cc,
       platform_error_log("failed test seq dec");
       goto exit;
    }
+
+   // Because for this test we require (disk-capacity > 5*cache-capacity),
+   // we can assert the following. (That's checked elsewhere.)
+   platform_assert((factor >= 4), "factor=%d\n", factor);
+
+   // Based on input db-/cache-sizes specified when running the test, we may
+   // end up with factor==4. Account for this lapsed case, to specify some
+   // reasonable range of [min < max] for the random iterator to pick from.
+   uint32 min_factor = ((factor == 4) ? 2 : 4);
+
    // Fourth: random addresses
-   cache_test_index_itor_rand_init(
-      &itor, 42, cfg->page_capacity * 4, cfg->page_capacity * factor);
+   cache_test_index_itor_rand_init(&itor,
+                                   42,
+                                   (cfg->page_capacity * min_factor),
+                                   cfg->page_capacity * factor);
    rc = cache_test_dirty_flush(cc, cfg, "Random", addr_arr, &itor);
    if (!SUCCESS(rc)) {
       platform_error_log("failed test seq dec");
@@ -827,7 +854,8 @@ test_cache_async(cache             *cc,
        */
       platform_assert(num_writer_threads == 0);
    }
-   platform_log("cache_test: async test started with %u+%u threads (ws=%u%%)\n",
+   platform_log("cache_test: async test started with %u reader"
+                ", %u writer threads (working set=%u%%)\n",
                 num_reader_threads,
                 num_writer_threads,
                 working_set_percent);
@@ -954,7 +982,10 @@ cache_test(int argc, char *argv[])
       }
    }
 
-   platform_log("\nStarted cache_test!!\n");
+   platform_log("\nStarted cache_test %s\n",
+                ((argc == 1) ? "basic"
+                 : benchmark ? "performance benchmarking."
+                             : "async performance."));
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
@@ -986,8 +1017,10 @@ cache_test(int argc, char *argv[])
    }
 
    if (al_cfg.page_capacity < 5 * cache_cfg.page_capacity) {
-      platform_error_log("cache_test: disk capacity must be at least 5 times "
-                         "cache capacity\n");
+      platform_error_log("cache_test: disk capacity, # of pages=%lu, must be"
+                         " at least 5 times cache capacity # of pages=%u\n",
+                         al_cfg.page_capacity,
+                         cache_cfg.page_capacity);
       rc = STATUS_BAD_PARAM;
       goto cleanup;
    }
