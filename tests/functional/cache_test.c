@@ -461,7 +461,14 @@ test_cache_flush(cache             *cc,
                  platform_heap_id   hid,
                  uint64             al_extent_capacity)
 {
-   platform_log("cache_test: flush test started\n");
+   const char *units  = ((cfg->capacity < GiB) ? "MiB" : "GiB");
+   uint64      size_h = ((cfg->capacity < GiB) ? B_TO_MiB(cfg->capacity)
+                                               : B_TO_GiB(cfg->capacity));
+   platform_log("cache_test: flush test started on cache "
+                "of size %lu bytes (%lu %s)\n",
+                cfg->capacity,
+                size_h,
+                units);
    platform_status rc       = STATUS_OK;
    uint64         *addr_arr = NULL;
    timestamp       t_start;
