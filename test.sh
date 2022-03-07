@@ -15,9 +15,9 @@ RUN_NIGHTLY_TESTS_DEBUG="${RUN_NIGHTLY_TESTS_DEBUG:-false}"
 # Name of sub-script that is invoked when running nightly tests to monitor
 # OS-level memory usage
 #
-monOSMemScript="monOSmem.sh"
-monOSMem="scripts/${monOSMemScript}"
-tmp_mon_out="/tmp/monOSMem.$$.out"
+MonOSMemScript="monOSmem.sh"
+MonOSMem="scripts/${MonOSMemScript}"
+Tmp_mon_out="/tmp/monOSMem.$$.out"
 
 # ----
 # Setup a script global, if we are running / debugging nightly run-test execution
@@ -30,14 +30,14 @@ if [ "$RUN_NIGHTLY_TESTS" = "true" ] || [ "$RUN_NIGHTLY_TESTS_DEBUG" = "true" ];
    fi
 
     # Check for monitoring script ..., used when running nightly tests.
-    if [ ! -x ${monOSMem} ]; then
-        echo "$Me: Error, OS-memory monitoring script, '${monOSMem}' not found. Exiting."
+    if [ ! -x ${MonOSMem} ]; then
+        echo "$Me: Error, OS-memory monitoring script, '${MonOSMem}' not found. Exiting."
         exit 1
    fi
 fi
 
 # Name of /tmp file to record test-execution times
-test_exec_log_file="/tmp/${Me}.$$.log"
+Test_exec_log_file="/tmp/${Me}.$$.log"
 
 # Global, that will be re-set at the start of each test's execution
 start_seconds=0
@@ -90,7 +90,7 @@ function record_elapsed_time() {
 
    # Construct print format string for use by awk
    local fmtstr=": %4ds [ %2dh %2dm %2ds ] %s\n"
-   if [ $Run_nightly_tests -eq 1 ]; then
+   if [ $Run_nightly_tests -ne 0 ]; then
       # Provide wider test-tag for nightly tests which print verbose descriptions
       fmtstr="%-80s""${fmtstr}"
    else
@@ -101,7 +101,7 @@ function record_elapsed_time() {
    echo $total_seconds, $el_h, $el_m, $el_s \
         | awk -va_msg="${test_tag}" -va_fmt="${fmtstr}" -va_res="${result}" \
             '{printf a_fmt, a_msg, $1, $2, $3, $4, a_res}' \
-         >> "${test_exec_log_file}"
+         >> "${Test_exec_log_file}"
 }
 
 # ########################################################################
@@ -125,11 +125,10 @@ function run_with_timing() {
 # ########################################################################
 function cat_exec_log_file() {
     # Display summary test-execution metrics to stdout from /tmp file
-    if [ -f "${test_exec_log_file}" ]; then
+    if [ -f "${Test_exec_log_file}" ]; then
         # cat contents of log-file, skipping 'Cumulative elapsed time' lines
         # These were included to get run-time accounting; not interesting now.
-        grep -v "Cumulative elapsed time" "${test_exec_log_file}"
-        rm -f "${test_exec_log_file}"
+        grep -v "Cumulative elapsed time" "${Test_exec_log_file}"
    fi
    echo
    echo "$(TZ='America/Los_Angeles' date) End SplinterDB Test Suite Execution."
@@ -155,10 +154,10 @@ function cat_exec_log_file() {
 # #############################################################################
 function wait_for_OS_mem_monitoring() {
 
-    while [ "$(pgrep --count ${monOSMemScript})" -gt 0 ]; do
+    while [ "$(pgrep --count ${MonOSMemScript})" -gt 0 ]; do
         sleep 5
    done
-    if [ -f ${tmp_mon_out} ]; then cat ${tmp_mon_out}; fi
+    if [ -f ${Tmp_mon_out} ]; then cat ${Tmp_mon_out}; fi
 }
 
 # #############################################################################
@@ -190,8 +189,8 @@ function nightly_functionality_stress_tests() {
     local cache_size=4  # GB
     local test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} GiB cache"
     local dbname="splinter_test.functionality.db"
-    echo "$Me: Run ${test_name} with ${n_mills} rows, on ${ntables} tables, with ${cache_size} GiB cache"
-    ${monOSMem} driver_test 0 "splinter_test --functionality" > ${tmp_mon_out} 2>&1 &
+    echo "$Me: Run ${test_name} with ${nrows_h} rows, on ${ntables} tables, with ${cache_size} GiB cache"
+    ${MonOSMem} driver_test 0 "splinter_test --functionality" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Functionality Stress test ${test_descr}" \
             bin/driver_test splinter_test --functionality  ${num_rows} 1000 \
@@ -205,7 +204,7 @@ function nightly_functionality_stress_tests() {
     local test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} GiB cache"
     local dbname="splinter_test.functionality.db"
     echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size} GiB cache"
-    ${monOSMem} driver_test 0 "splinter_test --functionality" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "splinter_test --functionality" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Functionality Stress test ${test_descr}" \
             bin/driver_test splinter_test --functionality  ${num_rows} 1000 \
@@ -224,7 +223,7 @@ function nightly_functionality_stress_tests() {
 
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
-    ${monOSMem} driver_test 0 "splinter_test --functionality" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "splinter_test --functionality" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Functionality Stress test ${test_descr}" \
             bin/driver_test splinter_test --functionality ${num_rows} 1000 \
@@ -238,7 +237,7 @@ function nightly_functionality_stress_tests() {
     cache_size=1        # GiB
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
-    ${monOSMem} driver_test 0 "splinter_test --functionality" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "splinter_test --functionality" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Functionality Stress test ${test_descr}" \
             bin/driver_test splinter_test --functionality ${num_rows} 1000 \
@@ -251,7 +250,7 @@ function nightly_functionality_stress_tests() {
     cache_size=512      # MiB
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     # echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with small ${cache_size} MiB cache"
-    # ${monOSMem} driver_test 0 "splinter_test --functionality" > ${tmp_mon_out} 2>&1 &
+    # ${MonOSMem} driver_test 0 "splinter_test --functionality" > ${Tmp_mon_out} 2>&1 &
 
     # Commented out, because we run into issue # 322.
     # run_with_timing "Functionality Stress test ${test_descr}" \
@@ -302,7 +301,7 @@ function nightly_sync_perf_tests() {
 
     local test_descr="${nins_t} insert, ${nlookup_t} lookup, ${nrange_lookup_t} range lookup threads"
 
-    ${monOSMem} driver_test 0 "splinter_test --perf" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "splinter_test --perf" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Performance (sync) test ${test_descr}" \
             bin/driver_test splinter_test --perf \
@@ -319,7 +318,7 @@ function nightly_sync_perf_tests() {
 
     dbname="splinter_test.pll_perf.db"
     test_descr="${npthreads} pthreads"
-    ${monOSMem} driver_test 0 "splinter_test --parallel-perf" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "splinter_test --parallel-perf" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Parallel Performance (sync) test ${test_descr}" \
             bin/driver_test splinter_test --parallel-perf \
@@ -344,7 +343,7 @@ function nightly_cache_perf_tests() {
     local dbname="cache_test.perf.db"
     local test_descr="default cache size"
     local cache_size=256  # MiB
-    ${monOSMem} driver_test 0 "cache_test --perf" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "cache_test --perf" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Cache Performance test, ${test_descr}" \
             bin/driver_test cache_test --perf \
@@ -361,7 +360,7 @@ function nightly_cache_perf_tests() {
         cache_size=1
    fi
     test_descr="${cache_size} GiB cache"
-    ${monOSMem} driver_test 0 "cache_test --perf" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "cache_test --perf" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Cache Performance test, ${test_descr}" \
             bin/driver_test cache_test --perf \
@@ -387,7 +386,7 @@ function nightly_async_perf_tests() {
     local nasync=10
     local test_descr="${npthreads} pthreads,bgt=${nbgthreads},async=${nasync}"
     local dbname="splinter_test.perf.db"
-    ${monOSMem} driver_test 0 "splinter_test --parallel-perf" > ${tmp_mon_out} 2>&1 &
+    ${MonOSMem} driver_test 0 "splinter_test --parallel-perf" > ${Tmp_mon_out} 2>&1 &
 
     run_with_timing "Parallel Async Performance test ${test_descr}" \
             bin/driver_test splinter_test --parallel-perf \
@@ -410,7 +409,33 @@ function run_nightly_perf_tests() {
     nightly_cache_perf_tests "$debug_nightly_test"
 
     # nightly_async_perf_tests
+}
 
+# ##################################################################
+# include_nightly_tests_for_PRs() - **** Debugging hook. ****
+#
+# Call this function if you wish to execute the full battery of
+# nightly regression tests for individual PRs, just to verify that
+# your code changes will not regress nightly tests.
+#
+# The CI-job, job_nightly_main_build_test, is hard-wired to run
+# for gcc compiler, in release build mode. This function checks for
+# those conditions, and will set global Run_nightly_tests to 2, which
+# will cause nightly tests to execute for CI-builds using 'gcc'.
+# - We cannot tell apart if it's a release or debug build when running
+#   tests, so we end up running nightly tests in gcc-debug jobs, too.
+#   This is more than what the nightly test jobs do, but that's ok as
+#   we are getting more coverage.
+# - Skip running nightly tests for sanitizer builds, as they are very slow.
+# ##################################################################
+function include_nightly_tests_for_PRs() {
+    set +u
+    if [[ $CC == gcc* ]] \
+      && [[ $DEFAULT_CFLAGS != *sanitize* ]]; then
+            Run_nightly_tests=2
+            echo "$Me:$LINENO: **** Reset Run_nightly_tests to 2 to invoke nightly tests for PR-changes"
+   fi
+    set -u
 }
 
 # ##################################################################
@@ -427,19 +452,23 @@ set -x
 SEED="${SEED:-135}"
 set +x
 
+# Debugging hook: Uncomment this if you wish to run nightly tests along with your PR's CI
+# IMP -- DO NOT LEAVE THIS UNCOMMENTED. -- It will affect CI-jobs for all other PRs.
+include_nightly_tests_for_PRs
+
 run_type=" "
-if [ $Run_nightly_tests -eq 1 ]; then run_type=" Nightly "; fi
+if [ $Run_nightly_tests -ne 0 ]; then run_type=" Nightly "; fi
 if [ $Debug_nightly_tests -eq 1 ]; then run_type="${run_type}(Debugging) "; fi
 
 # Track total elapsed time for entire test-suite's run
 testRunStartSeconds=$SECONDS
 
 # Initialize test-execution timing log file
-echo "$(TZ='America/Los_Angeles' date) **** SplinterDB${run_type}Test Suite Execution Times **** " > "${test_exec_log_file}"
-echo >> "${test_exec_log_file}"
+echo "$(TZ='America/Los_Angeles' date) **** SplinterDB${run_type}Test Suite Execution Times **** " > "${Test_exec_log_file}"
+echo >> "${Test_exec_log_file}"
 
 # ---- Nightly Stress and Performance test runs ----
-if [ $Run_nightly_tests -eq 1 ]; then
+if [ $Run_nightly_tests -ne 0 ]; then
 
     ./scripts/osinfo.sh 1
 
@@ -451,7 +480,14 @@ if [ $Run_nightly_tests -eq 1 ]; then
 
     record_elapsed_time ${testRunStartSeconds} "Nightly Stress & Performance Tests" 0
     cat_exec_log_file
-    exit 0
+
+    # If we are running nightly tests for PR-debugging, continue with execution
+    # of remaining tests. Otherwise, exit this script, when run from CI-nightly
+    # jobs.
+    if [ $Run_nightly_tests -eq 1 ]; then
+        rm -f "${Test_exec_log_file}"
+        exit 0
+   fi
 fi
 
 # ---- Fast running Smoke test runs ----
@@ -482,6 +518,7 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    echo "Fast tests passed"
    record_elapsed_time ${start_seconds} "Fast unit tests" 0
    cat_exec_log_file
+   rm -f "${Test_exec_log_file}"
    exit 0
 fi
 
@@ -497,7 +534,7 @@ run_with_timing "Fast unit tests" bin/unit_test
 # where appropriate with a different test-configuration that has been found to
 # provide the required coverage.
 # RESOLVE: Add this, just to test out OS-memory monitoring hooks.
-${monOSMem} splinter_test 0 "test_inserts" > ${tmp_mon_out} 2>&1 &
+${MonOSMem} splinter_test 0 "test_inserts" > ${Tmp_mon_out} 2>&1 &
 
 run_with_timing "Splinter inserts test" bin/unit/splinter_test test_inserts
 
@@ -528,3 +565,4 @@ record_elapsed_time ${testRunStartSeconds} "All Tests" 0
 echo ALL PASSED
 
 cat_exec_log_file
+rm -f "${Test_exec_log_file}"
