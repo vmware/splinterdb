@@ -383,6 +383,8 @@ run_with_timing "Cache test" bin/driver_test cache_test --seed "$SEED"
 
 run_with_timing "BTree test" bin/driver_test btree_test --seed "$SEED"
 
+run_with_timing "BTree Perf test" bin/driver_test btree_test --perf --cache-capacity-gib 4 --seed "$SEED"
+
 run_with_timing "Log test" bin/driver_test log_test --seed "$SEED"
 
 run_with_timing "Filter test" bin/driver_test filter_test --seed "$SEED"
