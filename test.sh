@@ -487,6 +487,8 @@ fi
 
 # ---- Rest of the coverage runs included in CI test runs ----
 
+./scripts/osinfo.sh 1
+
 # Run all the unit-tests first, to get basic coverage
 run_with_timing "Fast unit tests" bin/unit_test
 
@@ -494,7 +496,13 @@ run_with_timing "Fast unit tests" bin/unit_test
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been found to
 # provide the required coverage.
+# RESOLVE: Add this, just to test out OS-memory monitoring hooks.
+${monOSMem} splinter_test 0 "test_inserts" > ${tmp_mon_out} 2>&1 &
+
 run_with_timing "Splinter inserts test" bin/unit/splinter_test test_inserts
+
+# RESOLVE: Delete before check-in. These are only needed for nightly test runs.
+wait_for_OS_mem_monitoring
 
 # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
 run_with_timing "Splinter lookups test" bin/unit/splinter_test --num-inserts 2000000 test_lookups
