@@ -6647,7 +6647,8 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
             slice message = writable_buffer_to_slice(data);
             if (!writable_buffer_is_null(data)) {
                message_type type = data_message_class(data_cfg, message);
-               debug_assert(type == MESSAGE_TYPE_DELETE || type == MESSAGE_TYPE_INSERT);
+               debug_assert(type == MESSAGE_TYPE_DELETE
+                            || type == MESSAGE_TYPE_INSERT);
                if (type == MESSAGE_TYPE_DELETE) {
                   writable_buffer_reinit(data);
                }
