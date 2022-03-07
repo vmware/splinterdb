@@ -145,6 +145,12 @@ function nightly_functionality_stress_tests() {
 
     # ----
     cache_size=1        # GiB
+
+    # Remove this block once issue #322 is fixed.
+    n_mills=1
+    num_rows=$((n_mills * 1000 * 1000))
+    nrows_h="${n_mills} mil"
+
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
