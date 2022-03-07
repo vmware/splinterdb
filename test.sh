@@ -175,7 +175,6 @@ function nightly_functionality_stress_tests() {
     local n_mills=10
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
-    local tmp_mon_out="/tmp/monOSMem.$$.out"
 
     # For script debugging, drop # of rows to smaller count
     if [ "$debug_nightly_test" == "1" ]; then
@@ -517,7 +516,7 @@ run_with_timing "Log test" bin/driver_test log_test --seed "$SEED"
 
 run_with_timing "Filter test" bin/driver_test filter_test --seed "$SEED"
 
-r 0 0 0 0ecord_elapsed_time ${testRunStartSeconds} "All Tests"
+record_elapsed_time ${testRunStartSeconds} "All Tests" 0
 echo ALL PASSED
 
 cat_exec_log_file
