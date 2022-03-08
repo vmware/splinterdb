@@ -799,6 +799,11 @@ test_splinter_perf(trunk_config    *cfg,
 
    uint64 num_threads = num_insert_threads;
 
+   platform_default_log("Allocate memory for %lu insert threads to "
+                        "insert %lu rows\n",
+                        num_threads,
+                        total_inserts);
+
    if (num_lookup_threads > num_threads) {
       num_threads = num_lookup_threads;
    }
@@ -824,6 +829,7 @@ test_splinter_perf(trunk_config    *cfg,
 
    uint64 start_time = platform_get_timestamp();
 
+   platform_default_log("Create %lu insert threads ...\n", num_insert_threads);
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_status ret;
       ret = task_thread_create("insert_thread",
@@ -837,10 +843,15 @@ test_splinter_perf(trunk_config    *cfg,
          return ret;
       }
    }
+
+   platform_default_log("Wait-for Join %lu insert threads ...\n",
+                        num_insert_threads);
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_thread_join(params[i].thread);
    }
 
+   platform_default_log("Wait-for completion of %lu insert threads ...\n",
+                        num_insert_threads);
    for (uint64 i = 0; i < num_tables; i++) {
       task_wait_for_completion(ts);
    }
