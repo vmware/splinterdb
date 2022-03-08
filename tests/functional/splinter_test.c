@@ -222,25 +222,28 @@ test_trunk_lookup_thread(void *arg)
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         if (test_is_done(done, spl_idx))
+         if (test_is_done(done, spl_idx)) {
             continue;
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
+         }
+         platform_default_log(
             PLATFORM_CR "lookups %3lu%% complete for table %u",
             lookup_base[spl_idx] / (total_ops[spl_idx] / 100),
             spl_idx);
          lookup_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
-         if (lookup_base[spl_idx] >= total_ops[spl_idx])
+         if (lookup_base[spl_idx] >= total_ops[spl_idx]) {
             test_set_done(&done, spl_idx);
-         if (test_all_done(done, num_tables))
+         }
+         if (test_all_done(done, num_tables)) {
             goto out;
+         }
       }
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          uint8 spl_idx;
          for (spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-            if (test_is_done(done, spl_idx))
+            if (test_is_done(done, spl_idx)) {
                continue;
+            }
             trunk_handle      *spl          = spl_tables[spl_idx];
             test_async_lookup *async_lookup = params->async_lookup[spl_idx];
             test_async_ctxt   *ctxt;
@@ -295,8 +298,9 @@ test_trunk_lookup_thread(void *arg)
          }
       }
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         if (test_is_done(done, spl_idx))
+         if (test_is_done(done, spl_idx)) {
             continue;
+         }
          trunk_handle      *spl          = spl_tables[spl_idx];
          test_async_lookup *async_lookup = params->async_lookup[spl_idx];
          test_wait_for_inflight(spl, async_lookup, &vtarg);
@@ -330,24 +334,27 @@ test_trunk_range_thread(void *arg)
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         if (test_is_done(done, spl_idx))
+         if (test_is_done(done, spl_idx)) {
             continue;
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
+         }
+         platform_default_log(
             PLATFORM_CR "range lookups %3lu%% complete for table %u",
             range_base[spl_idx] / (total_ops[spl_idx] / 100),
             spl_idx);
          range_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
-         if (range_base[spl_idx] >= total_ops[spl_idx])
+         if (range_base[spl_idx] >= total_ops[spl_idx]) {
             test_set_done(&done, spl_idx);
-         if (test_all_done(done, num_tables))
+         }
+         if (test_all_done(done, num_tables)) {
             goto out;
+         }
       }
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-            if (test_is_done(done, spl_idx))
+            if (test_is_done(done, spl_idx)) {
                continue;
+            }
             trunk_handle *spl  = spl_tables[spl_idx];
             tuple_size         = trunk_key_size(spl) + trunk_message_size(spl);
             char *range_output = TYPED_ARRAY_MALLOC(
@@ -409,8 +416,7 @@ advance_base(const test_splinter_thread_params *params,
          continue;
 
       if (type == OP_INSERT) {
-         platform_throttled_error_log(
-            DEFAULT_THROTTLE_INTERVAL_SEC,
+         platform_default_log(
             PLATFORM_CR "inserting/lookups %3lu%% complete for table %u",
             base[spl_idx] / (total_ops[spl_idx] / 100),
             spl_idx);
@@ -432,7 +438,7 @@ advance_base(const test_splinter_thread_params *params,
             if (local_curr_op == op_granularity) {
                random_base = 0;
             } else {
-               // positvie lookup by selecting random base
+               // positive lookup by selecting random base
                // [op_granularity, local_curr_op)
                random_base = ((random_next_uint64(rs)
                                % (local_curr_op / op_granularity - 1))
@@ -1042,8 +1048,9 @@ test_splinter_perf(trunk_config    *cfg,
             return ret;
          }
       }
-      for (uint64 i = 0; i < num_range_threads; i++)
+      for (uint64 i = 0; i < num_range_threads; i++) {
          platform_thread_join(params[i].thread);
+      }
 
       total_time = platform_timestamp_elapsed(start_time);
 
@@ -1097,8 +1104,9 @@ test_splinter_perf(trunk_config    *cfg,
             return ret;
          }
       }
-      for (uint64 i = 0; i < num_range_threads; i++)
+      for (uint64 i = 0; i < num_range_threads; i++) {
          platform_thread_join(params[i].thread);
+      }
 
       total_time = platform_timestamp_elapsed(start_time);
 
