@@ -14,13 +14,10 @@ help::
 #
 SRCDIR               = src
 TESTS_DIR            = tests
+INCDIR               = include
 FUNCTIONAL_TESTSDIR  = $(TESTS_DIR)/functional
 UNITDIR              = unit
 UNIT_TESTSDIR        = $(TESTS_DIR)/$(UNITDIR)
-OBJDIR               = obj
-BINDIR               = bin
-LIBDIR               = lib
-INCDIR               = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 
@@ -38,28 +35,6 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 # resulting unit_test to run as fast as it can. For now, we are just skipping one
 # test, which will have to be run stand-alone.
 FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test")
-
-OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
-
-# Objects from test sources in tests/ that are shared by functional/ and unit/ tests
-COMMON_TESTOBJ= $(COMMON_TESTSRC:%.c=$(OBJDIR)/%.o)
-
-# Objects from test sources in tests/functional/ sub-dir
-FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
-
-# Objects from unit-test sources in tests/unit/ sub-dir, for fast unit-tests
-# Resolves to a list: obj/tests/unit/a.o obj/tests/unit/b.o obj/tests/unit/c.o
-FAST_UNIT_TESTOBJS= $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
-
-# ----
-# Binaries from unit-test sources in tests/unit/ sub-dir
-# Although the sources are in, say, tests/unit/splinterdb_quick_test.c, and so on
-# the binaries are named bin/unit/splinterdb_quick_test.
-# Also, there may be other shared .c files that don't yield a standalone
-# binary. Hence, only build a list from files named *_test.c
-# Resolves to a list: bin/unit/a_test bin/unit/b_test bin/unit/c_test ...
-UNIT_TESTBIN_SRC=$(filter %_test.c, $(UNIT_TESTSRC))
-UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 
 #*************************************************************#
 # CFLAGS, ETC
@@ -100,13 +75,68 @@ DEFAULT_LDFLAGS += -ggdb3 -pthread
 #     - Builds will fail with gcc due to compiler error. Use clang instead.
 #     - Tests will run even slower in memory sanitizer builds.
 #
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
-LDFLAGS += $(DEFAULT_LDFLAGS) -Ofast -flto
-LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
+CFLAGS   += $(DEFAULT_CFLAGS) -Ofast -flto
+LDFLAGS  += $(DEFAULT_LDFLAGS) -Ofast -flto
+LIBS      = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
+DEPFLAGS  = -MMD -MP
 
-DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
+#*************************************************************#
+# Targets to track whether we have a release or debug build
+release: all
 
-COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+ifdef D
+CFLAGS  = -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
+LDFLAGS = -g $(DEFAULT_LDFLAGS)
+LINK_SUFFIX=-debug
+endif
+
+ifdef DL
+CFLAGS = -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
+LDFLAGS = -g $(DEFAULT_LDFLAGS)
+LINK_SUFFIX=-debug
+endif
+
+###################################################################
+# Put all build objects into a directory based on the exact parameters
+# to this build.
+#
+BUILDDIR  = build
+TARGETDIR = $(BUILDDIR)/$(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
+OBJDIRNAME = obj
+BINDIRNAME = bin
+LIBDIRNAME = lib
+OBJDIR    = $(TARGETDIR)/$(OBJDIRNAME)
+BINDIR    = $(TARGETDIR)/$(BINDIRNAME)
+LIBDIR    = $(TARGETDIR)/$(LIBDIRNAME)
+
+OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
+
+# Objects from test sources in tests/ that are shared by functional/ and unit/ tests
+COMMON_TESTOBJ= $(COMMON_TESTSRC:%.c=$(OBJDIR)/%.o)
+
+# Objects from test sources in tests/functional/ sub-dir
+FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
+
+# Objects from unit-test sources in tests/unit/ sub-dir, for fast unit-tests
+# Resolves to a list: obj/tests/unit/a.o obj/tests/unit/b.o obj/tests/unit/c.o
+FAST_UNIT_TESTOBJS= $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
+
+# ----
+# Binaries from unit-test sources in tests/unit/ sub-dir
+# Although the sources are in, say, tests/unit/splinterdb_quick_test.c, and so on
+# the binaries are named bin/unit/splinterdb_quick_test.
+# Also, there may be other shared .c files that don't yield a standalone
+# binary. Hence, only build a list from files named *_test.c
+# Resolves to a list: bin/unit/a_test bin/unit/b_test bin/unit/c_test ...
+UNIT_TESTBIN_SRC=$(filter %_test.c, $(UNIT_TESTSRC))
+UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
+
+##########################################################
+# Now define our compile, linking, and archive commands
+
+COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+
+# LD and AR are fine as-is
 
 ####################################################################
 # The main targets
@@ -118,34 +148,6 @@ libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 
 tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
-#*************************************************************#
-# Targets to track whether we have a release or debug build
-release: .release all
-	rm -f .debug .debug-log
-
-debug: CFLAGS = -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
-debug: LDFLAGS = -g $(DEFAULT_LDFLAGS)
-debug: .debug all
-	rm -f .release .debug-log
-
-debug-log: CFLAGS = -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
-debug-log: LDFLAGS = -g $(DEFAULT_LDFLAGS)
-debug-log: .debug-log all
-	rm -f .release .debug
-
-.release:
-	$(MAKE) clean
-	touch .release
-
-.debug:
-	$(MAKE) clean
-	touch .debug
-
-.debug-log:
-	$(MAKE) clean
-	touch .debug-log
-
-
 #************************************************************#
 # Automatically create directories, based on
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
@@ -153,31 +155,53 @@ debug-log: .debug-log all
 
 .SECONDARY:
 
-$(OBJDIR)/. $(BINDIR)/. $(LIBDIR)/.:
+.PHONY: links
+links:
+	ln -snf $(OBJDIR) $(OBJDIRNAME)$(LINK_SUFFIX)
+	ln -snf $(BINDIR) $(BINDIRNAME)$(LINK_SUFFIX)
+	ln -snf $(LIBDIR) $(LIBDIRNAME)$(LINK_SUFFIX)
+
+$(TARGETDIR)/.:
 	mkdir -p $@
 
-$(OBJDIR)/%/.:
+$(TARGETDIR)/flags: | $(TARGETDIR)/.
+	echo CC          = $(CC)          >> $(TARGETDIR)/flags
+	echo DEPFLAGS    = $(DEPFLAGS)    >> $(TARGETDIR)/flags
+	echo CFLAGS      = $(CFLAGS)      >> $(TARGETDIR)/flags
+	echo INCLUDE     = $(INCLUDE)     >> $(TARGETDIR)/flags
+	echo TARGET_ARCH = $(TARGET_ARCH) >> $(TARGETDIR)/flags
+	echo LD          = $(LD)          >> $(TARGETDIR)/flags
+	echo LDFLAGS     = $(LDFLAGS)     >> $(TARGETDIR)/flags
+	echo LIBS        = $(LIBS)        >> $(TARGETDIR)/flags
+	echo AR          = $(AR)          >> $(TARGETDIR)/flags
+
+$(TARGETDIR)/%/.: $(TARGETDIR)/flags
 	mkdir -p $@
 
-$(BINDIR)/%/.:
+# These two targets prevent circular dependencies arising from the
+# recipe for building binaries
+$(BINDIR)/.: $(TARGETDIR)/flags
+	mkdir -p $@
+
+$(BINDIR)/%/.: $(TARGETDIR)/flags
 	mkdir -p $@
 
 #*************************************************************#
 # RECIPES
 #
 
-$(OBJDIR)/%.o: %.c | $$(@D)/.
+$(OBJDIR)/%.o: %.c | $$(@D)/. links
 	$(COMPILE.c) $< -o $@
 
-$(BINDIR)/%: | $$(@D)/.
+$(BINDIR)/%: | $$(@D)/. links
 	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
+$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. links
 	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
-$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
+$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. links
 	$(AR) -crs $@ $^
 
 #################################################################
@@ -291,7 +315,7 @@ unit_test:                         $(BINDIR)/unit_test
 # we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
-	rm -rf $(OBJDIR)/* $(BINDIR)/* $(LIBDIR)/*
+	rm -rf $(BUILDDIR)
 	uname -a
 	$(CC) --version
 tags:
