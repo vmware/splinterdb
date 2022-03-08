@@ -32,7 +32,7 @@ looks out-of-date, please open an issue or pull request.
 
 - Basic key/value operations like `insert`, `delete`, point `lookup` and
   range scan using an `iterator` are available.  See the code comments
-  in `[splinterdb.h](../include/splinterdb/splinterdb.h)`.
+  in [`splinterdb.h`](../include/splinterdb/splinterdb.h).
 
 - If an application frequently makes small modifications to existing values,
   better performance may be possible by using a custom `data_config` object
