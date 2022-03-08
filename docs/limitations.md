@@ -11,7 +11,7 @@ Thus, SplinterDB is provided *as-is* given the following limitations and missing
 * SplinterDB on-disk size is fixed at compile time.
 * SplinterDB does not expose an API to force the latest write to be durable (e.g., fsync/commit.)
 * SplinterDB disk size cannot be changed once specified.
-* SplinterDB does not have a public API for async features.
+* SplinterDB does not have a public API for the experimental async features.
 * SplinterDB does not retain initialization parameters metadata (which cannot be discovered from the database.)
 * Internal metrics and stats are not exposed to applications.
 * Range delete is not yet implemented.
