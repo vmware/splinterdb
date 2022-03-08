@@ -10,5 +10,7 @@ See
 ## Usage
 SplinterDB is a library intended to be embedded within another program.  See [Usage](docs/usage.md) for a guide on how to integrate SplinterDB into an application.
 
+SplinterDB is *provided as-is* and is not recommended for use in production until version 1.0. See [Limitations](docs/limitations.md) for details.
+
 ## Build
 See [Build](docs/build.md) for instructions on building SplinterDB from source.
