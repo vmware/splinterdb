@@ -116,15 +116,25 @@ test_trunk_insert_thread(void *arg)
    // divide the per second insert rate into periods of 10 milli seconds.
    uint64 insert_rate = params->insert_rate / 100;
 
+   uint32 old_pct_done = 0;
+   uint32 pct_done = 0;
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
          if (test_is_done(done, spl_idx)) {
             continue;
          }
-         platform_default_log(PLATFORM_CR
-                              "inserting %3lu%% complete for table %u ... ",
-                              insert_base[spl_idx] / (total_ops[spl_idx] / 100),
-                              spl_idx);
+
+         pct_done = (insert_base[spl_idx] / (total_ops[spl_idx] / 100));
+         if ((old_pct_done < pct_done)
+             && ((thread_number == 0) || ((pct_done % 10) == 0))) {
+             platform_default_log(PLATFORM_CR
+                                  "Thread %lu inserting %3u%% complete "
+                                  "for table %u ...\n",
+                                  thread_number, pct_done,
+                                  spl_idx);
+
+             old_pct_done = pct_done;
+         }
          insert_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (insert_base[spl_idx] >= total_ops[spl_idx]) {
@@ -220,15 +230,25 @@ test_trunk_lookup_thread(void *arg)
       TYPED_ARRAY_ZALLOC(platform_get_heap_id(), lookup_base, num_tables);
    uint8 done = 0;
 
+   uint32 old_pct_done = 0;
+   uint32 pct_done = 0;
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
          if (test_is_done(done, spl_idx)) {
             continue;
          }
-         platform_default_log(
-            PLATFORM_CR "lookups %3lu%% complete for table %u",
-            lookup_base[spl_idx] / (total_ops[spl_idx] / 100),
-            spl_idx);
+
+         pct_done = (lookup_base[spl_idx] / (total_ops[spl_idx] / 100));
+         if ((old_pct_done < pct_done)
+             && ((thread_number == 0) || ((pct_done % 10) == 0))) {
+             platform_default_log(
+                PLATFORM_CR "Thread %lu lookups %3u%% complete for table %u\n",
+                thread_number,
+                pct_done,
+                spl_idx);
+
+            old_pct_done = pct_done;
+         }
          lookup_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (lookup_base[spl_idx] >= total_ops[spl_idx]) {
@@ -332,15 +352,24 @@ test_trunk_range_thread(void *arg)
       TYPED_ARRAY_ZALLOC(platform_get_heap_id(), range_base, num_tables);
    uint8 done = 0;
 
+   uint32 old_pct_done = 0;
+   uint32 pct_done = 0;
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
          if (test_is_done(done, spl_idx)) {
             continue;
          }
-         platform_default_log(
-            PLATFORM_CR "range lookups %3lu%% complete for table %u",
-            range_base[spl_idx] / (total_ops[spl_idx] / 100),
-            spl_idx);
+         pct_done = (range_base[spl_idx] / (total_ops[spl_idx] / 100));
+         if ((old_pct_done < pct_done)
+             && ((thread_number == 0) || ((pct_done % 10) == 0))) {
+             platform_default_log(
+                PLATFORM_CR "Thread %lu range lookups %3u%% complete for table %u\n",
+                thread_number,
+                pct_done,
+                spl_idx);
+
+             old_pct_done = pct_done;
+         }
          range_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (range_base[spl_idx] >= total_ops[spl_idx]) {
@@ -800,9 +829,11 @@ test_splinter_perf(trunk_config    *cfg,
    uint64 num_threads = num_insert_threads;
 
    platform_default_log("Allocate memory for %lu insert threads to "
-                        "insert %lu rows\n",
+                        "insert %lu (~%lu+ million) rows (tree_size=%lu GiB)\n",
                         num_threads,
-                        total_inserts);
+                        total_inserts,
+                        (total_inserts/MILLION),
+                        B_TO_GiB(test_cfg[0].tree_size));
 
    if (num_lookup_threads > num_threads) {
       num_threads = num_lookup_threads;
@@ -844,7 +875,7 @@ test_splinter_perf(trunk_config    *cfg,
       }
    }
 
-   platform_default_log("Wait-for Join %lu insert threads ...\n",
+   platform_default_log("Wait-for %lu insert threads to join ...\n",
                         num_insert_threads);
    for (uint64 i = 0; i < num_insert_threads; i++) {
       platform_thread_join(params[i].thread);
@@ -876,7 +907,8 @@ test_splinter_perf(trunk_config    *cfg,
    rc = STATUS_OK;
 
    if (total_inserts > 0) {
-      platform_log("\nper-splinter per-thread insert time per tuple %lu ns\n",
+      platform_log("\nInserts total time=%lus, per-splinter per-thread insert time per tuple %lu ns\n",
+                   NSEC_TO_SEC(total_time),
                    total_time * num_insert_threads / total_inserts);
       platform_log("splinter total insertion rate: %lu insertions/second\n",
                    SEC_TO_NSEC(total_inserts) / total_time);
@@ -900,6 +932,8 @@ test_splinter_perf(trunk_config    *cfg,
    if (num_lookup_threads != 0) {
       start_time = platform_get_timestamp();
 
+      platform_log("\nStarting lookup phase with %lu lookup threads ...\n",
+                   num_lookup_threads);
       for (uint64 i = 0; i < num_lookup_threads; i++) {
          platform_status ret;
 
@@ -920,6 +954,9 @@ test_splinter_perf(trunk_config    *cfg,
             return ret;
          }
       }
+
+      platform_default_log(" Wait-for %lu lookup threads to join ...\n",
+                           num_lookup_threads);
       for (uint64 i = 0; i < num_lookup_threads; i++) {
          platform_thread_join(params[i].thread);
       }
@@ -953,7 +990,9 @@ test_splinter_perf(trunk_config    *cfg,
 
       rc = STATUS_OK;
 
-      platform_log("\nper-splinter per-thread lookup time per tuple %lu ns\n",
+      platform_log("\nLookups total time=%lus, "
+                   "per-splinter per-thread lookup time per tuple %lu ns\n",
+                   NSEC_TO_SEC(total_time),
                    total_time * num_lookup_threads / total_inserts);
       platform_log("splinter total lookup rate: %lu lookups/second\n",
                    SEC_TO_NSEC(total_inserts) / total_time);
@@ -979,16 +1018,22 @@ test_splinter_perf(trunk_config    *cfg,
       total_ranges += per_table_ranges[i];
    }
 
+   int range_min = 1;
+   int range_max = 100;
    for (uint64 i = 0; i < num_threads; i++) {
       params[i].total_ops      = per_table_ranges;
       params[i].op_granularity = TEST_RANGE_GRANULARITY;
-      params[i].range_min      = 1;
-      params[i].range_max      = 100;
+      params[i].range_min      = range_min;
+      params[i].range_max      = range_max;
    }
 
    ZERO_CONTENTS_N(curr_op, num_tables);
    if (num_range_threads != 0) {
       start_time = platform_get_timestamp();
+      platform_log("\nStarting range lookups phase with %lu range lookup threads "
+                   " using range [min=%d, max=%d] ...\n",
+                   num_range_threads,
+                   range_min, range_max);
 
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
@@ -1003,6 +1048,8 @@ test_splinter_perf(trunk_config    *cfg,
             return ret;
          }
       }
+      platform_default_log(" Wait-for %lu range lookup threads to join ...\n",
+                           num_range_threads);
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_thread_join(params[i].thread);
       }
@@ -1018,7 +1065,9 @@ test_splinter_perf(trunk_config    *cfg,
 
       rc = STATUS_OK;
 
-      platform_log("\nper-splinter per-thread range time per tuple %lu ns\n",
+      platform_log("\nRange lookups total time=%lus, "
+                   "per-splinter per-thread range time per tuple %lu ns\n",
+                   NSEC_TO_SEC(total_time),
                    total_time * num_range_threads / total_ranges);
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
@@ -1037,14 +1086,21 @@ test_splinter_perf(trunk_config    *cfg,
             ROUNDUP(per_table_ranges[i] / 4, TEST_RANGE_GRANULARITY);
          total_ranges += per_table_ranges[i];
       }
+
+      range_min = 512;
+      range_max = 1024;
       for (uint64 i = 0; i < num_range_threads; i++) {
          params[i].total_ops      = per_table_ranges;
          params[i].op_granularity = TEST_RANGE_GRANULARITY;
-         params[i].range_min      = 512;
-         params[i].range_max      = 1024;
+         params[i].range_min      = range_min;
+         params[i].range_max      = range_max;
       }
 
       start_time = platform_get_timestamp();
+      platform_log("\nStarting range lookups phase with %lu range lookup threads "
+                   " using range [min=%d, max=%d] ...\n",
+                   num_range_threads,
+                   range_min, range_max);
 
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
@@ -1059,6 +1115,8 @@ test_splinter_perf(trunk_config    *cfg,
             return ret;
          }
       }
+      platform_default_log(" Wait-for %lu range lookup threads to join ...\n",
+                           num_range_threads);
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_thread_join(params[i].thread);
       }
@@ -1074,7 +1132,9 @@ test_splinter_perf(trunk_config    *cfg,
 
       rc = STATUS_OK;
 
-      platform_log("\nper-splinter per-thread range time per tuple %lu ns\n",
+      platform_log("\nRange lookups total time=%lus, "
+                   "per-splinter per-thread range time per tuple %lu ns\n",
+                   NSEC_TO_SEC(total_time),
                    total_time * num_range_threads / total_ranges);
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
@@ -1093,14 +1153,21 @@ test_splinter_perf(trunk_config    *cfg,
             ROUNDUP(per_table_ranges[i] / 4, TEST_RANGE_GRANULARITY);
          total_ranges += per_table_ranges[i];
       }
+
+      range_min = (131072 - 16384);
+      range_max = 131072;
       for (uint64 i = 0; i < num_range_threads; i++) {
          params[i].total_ops      = per_table_ranges;
          params[i].op_granularity = TEST_RANGE_GRANULARITY;
-         params[i].range_min      = 131072 - 16384;
-         params[i].range_max      = 131072;
+         params[i].range_min      = range_min;
+         params[i].range_max      = range_max;
       }
 
       start_time = platform_get_timestamp();
+      platform_log("\nStarting range lookups phase with %lu range lookup threads "
+                   " using range [min=%d, max=%d] ...\n",
+                   num_range_threads,
+                   range_min, range_max);
 
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_status ret;
@@ -1130,7 +1197,9 @@ test_splinter_perf(trunk_config    *cfg,
 
       rc = STATUS_OK;
 
-      platform_log("\nper-splinter per-thread range time per tuple %lu ns\n",
+      platform_log("\nRange lookups total time=%lus, "
+                   "per-splinter per-thread range time per tuple %lu ns\n",
+                   NSEC_TO_SEC(total_time),
                    total_time * num_range_threads / total_ranges);
       platform_log("splinter total range rate: %lu ops/second\n",
                    SEC_TO_NSEC(total_ranges) / total_time);
