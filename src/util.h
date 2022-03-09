@@ -310,6 +310,9 @@ try_string_to_int8(const char *nptr, // IN
 /* Disk-resident structures that should be packed are tagged with this. */
 #define ONDISK __attribute__((__packed__))
 
+/* Mnemonic to indicate that a parameter is unused / not-needed */
+#define PARAM_UNUSED 0
+
 // Hex-encode arbitrary bytes to a destination buffer
 //    e.g. 0xc0de4f00de
 //
