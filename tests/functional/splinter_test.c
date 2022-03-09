@@ -118,6 +118,8 @@ test_trunk_insert_thread(void *arg)
 
    uint32 old_pct_done = 0;
    uint32 pct_done = 0;
+   uint64 insert_start_time = platform_get_timestamp();
+
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
          if (test_is_done(done, spl_idx)) {
@@ -127,11 +129,14 @@ test_trunk_insert_thread(void *arg)
          pct_done = (insert_base[spl_idx] / (total_ops[spl_idx] / 100));
          if ((old_pct_done < pct_done)
              && ((thread_number == 0) || ((pct_done % 10) == 0))) {
+
+             uint64 elapsed_ns = platform_timestamp_elapsed(insert_start_time);
              platform_default_log(PLATFORM_CR
-                                  "Thread %lu inserting %3u%% complete "
-                                  "for table %u ...\n",
+                                  "Thread %lu inserting %2u%% complete "
+                                  "for table %u, elapsed=%lus\n",
                                   thread_number, pct_done,
-                                  spl_idx);
+                                  spl_idx,
+                                  NSEC_TO_SEC(elapsed_ns));
 
              old_pct_done = pct_done;
          }
@@ -246,7 +251,7 @@ test_trunk_lookup_thread(void *arg)
 
              uint64 elapsed_ns = platform_timestamp_elapsed(lookup_start_time);
              platform_default_log(
-                PLATFORM_CR "Thread %lu lookups %3u%% complete for table %u"
+                PLATFORM_CR "Thread %lu lookups %2u%% complete for table %u"
                             ", elapsed=%lus\n",
                 thread_number,
                 pct_done,
@@ -373,7 +378,7 @@ test_trunk_range_thread(void *arg)
 
              uint64 elapsed_ns = platform_timestamp_elapsed(lookup_start_time);
              platform_default_log(
-                PLATFORM_CR "Thread %lu range lookups %3u%% complete for table %u"
+                PLATFORM_CR "Thread %lu range lookups %2u%% complete for table %u"
                             ", elapsed=%lus\n",
                 thread_number,
                 pct_done,
