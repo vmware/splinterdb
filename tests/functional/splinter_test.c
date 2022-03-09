@@ -133,7 +133,7 @@ test_trunk_insert_thread(void *arg)
              uint64 elapsed_ns = platform_timestamp_elapsed(insert_start_time);
              platform_default_log(PLATFORM_CR
                                   "Thread %lu inserting %2u%% complete "
-                                  "for table %u, elapsed=%lus\n",
+                                  "for table %u, total elapsed=%lus\n",
                                   thread_number, pct_done,
                                   spl_idx,
                                   NSEC_TO_SEC(elapsed_ns));
@@ -146,7 +146,9 @@ test_trunk_insert_thread(void *arg)
             test_set_done(&done, spl_idx);
          }
          if (test_all_done(done, num_tables)) {
-            platform_default_log(" Test done for all %d tables.\n", num_tables);
+            platform_default_log(" Thread %lu Test done for all %d tables.\n",
+                                 thread_number,
+                                 num_tables);
             goto out;
          }
       }
@@ -238,6 +240,7 @@ test_trunk_lookup_thread(void *arg)
    uint32 old_pct_done = 0;
    uint32 pct_done = 0;
    uint64 lookup_start_time = platform_get_timestamp();
+   uint64 delta_start_time = lookup_start_time;
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -250,15 +253,20 @@ test_trunk_lookup_thread(void *arg)
              && ((thread_number == 0) || ((pct_done % 5) == 0))) {
 
              uint64 elapsed_ns = platform_timestamp_elapsed(lookup_start_time);
+             uint64 delta_ns = platform_timestamp_elapsed(delta_start_time);
              platform_default_log(
                 PLATFORM_CR "Thread %lu lookups %2u%% complete for table %u"
-                            ", elapsed=%lus\n",
+                            ", delta elapsed=%lus, total elapsed=%lus\n",
                 thread_number,
                 pct_done,
                 spl_idx,
+                NSEC_TO_SEC(delta_ns),
                 NSEC_TO_SEC(elapsed_ns));
 
             old_pct_done = pct_done;
+
+            // Reset start to compute delta-elapsed time for next %age-chunk
+            delta_start_time = platform_get_timestamp();
          }
          lookup_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
@@ -366,6 +374,7 @@ test_trunk_range_thread(void *arg)
    uint32 old_pct_done = 0;
    uint32 pct_done = 0;
    uint64 lookup_start_time = platform_get_timestamp();
+   uint64 delta_start_time = lookup_start_time;
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -377,12 +386,14 @@ test_trunk_range_thread(void *arg)
              && ((thread_number == 0) || ((pct_done % 10) == 0))) {
 
              uint64 elapsed_ns = platform_timestamp_elapsed(lookup_start_time);
+             uint64 delta_ns = platform_timestamp_elapsed(delta_start_time);
              platform_default_log(
                 PLATFORM_CR "Thread %lu range lookups %2u%% complete for table %u"
-                            ", elapsed=%lus\n",
+                            ", delta elapsed=%lus, total elapsed=%lus\n",
                 thread_number,
                 pct_done,
                 spl_idx,
+                NSEC_TO_SEC(delta_ns),
                 NSEC_TO_SEC(elapsed_ns));
 
              old_pct_done = pct_done;
