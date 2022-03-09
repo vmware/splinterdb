@@ -968,11 +968,14 @@ platform_status
 splinter_perf_range_lookups(platform_heap_id             hid,
                             trunk_handle               **spl_tables,
                             task_system                 *ts,
+                            test_splinter_thread_params *params,
                             uint64                      *per_table_inserts,
                             uint64                      *per_table_ranges,
                             uint64                       num_range_threads,
                             uint8                        num_tables,
-                            test_splinter_thread_params *params)
+                            int                          num_ranges,
+                            uint64                       range_min,
+                            uint64                       range_max)
 {
    platform_assert(
       (num_range_threads > 0), "num_range_threads=%lu", num_range_threads);
@@ -980,15 +983,15 @@ splinter_perf_range_lookups(platform_heap_id             hid,
    uint64 total_ranges = 0;
    for (uint8 i = 0; i < num_tables; i++) {
       per_table_ranges[i] =
-         ROUNDUP(per_table_inserts[i] / 128, TEST_RANGE_GRANULARITY);
+         ROUNDUP(per_table_inserts[i] / num_ranges, TEST_RANGE_GRANULARITY);
       total_ranges += per_table_ranges[i];
    }
 
    for (uint64 i = 0; i < num_range_threads; i++) {
       params[i].total_ops      = per_table_ranges;
       params[i].op_granularity = TEST_RANGE_GRANULARITY;
-      params[i].range_min      = 1;
-      params[i].range_max      = 100;
+      params[i].range_min      = range_min;
+      params[i].range_max      = range_max;
    }
 
    uint64 start_time = platform_get_timestamp();
@@ -1199,45 +1202,25 @@ test_splinter_perf(trunk_config    *cfg,
 
    ZERO_CONTENTS_N(curr_op, num_tables);
    if (num_range_threads != 0) {
-      start_time = platform_get_timestamp();
-
-      rc = do_n_thread_creates("range_thread",
-                               num_range_threads,
-                               params,
-                               ts,
-                               hid,
-                               test_trunk_range_thread);
+      int    num_ranges = 128;
+      uint64 range_min  = 1;
+      uint64 range_max  = 100;
+      rc                = splinter_perf_range_lookups(hid,
+                                       spl_tables,
+                                       ts,
+                                       params,
+                                       per_table_inserts,
+                                       per_table_ranges,
+                                       num_range_threads,
+                                       num_tables,
+                                       num_ranges,
+                                       range_min,
+                                       range_max);
       if (!SUCCESS(rc)) {
-         return rc;
+         goto destroy_splinter;
       }
-      for (uint64 i = 0; i < num_range_threads; i++) {
-         platform_thread_join(params[i].thread);
-      }
-
-      total_time = platform_timestamp_elapsed(start_time);
-
-      for (uint64 i = 0; i < num_range_threads; i++) {
-         if (!SUCCESS(params[i].rc)) {
-            rc = params[i].rc;
-            goto destroy_splinter;
-         }
-      }
-
-      rc = STATUS_OK;
-
-      platform_log("\nper-splinter per-thread range time per tuple %lu ns\n",
-                   total_time * num_range_threads / total_ranges);
-      platform_log("splinter total range rate: %lu ops/second\n",
-                   SEC_TO_NSEC(total_ranges) / total_time);
-      for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         trunk_handle *spl = spl_tables[spl_idx];
-         cache_assert_free(spl->cc);
-         trunk_print_lookup_stats(spl);
-         cache_print_stats(spl->cc);
-         cache_reset_stats(spl->cc);
-      }
-
-      ZERO_CONTENTS_N(curr_op, num_tables);
+   }
+   if (num_range_threads != 0) {
       total_ranges = 0;
       for (uint8 i = 0; i < num_tables; i++) {
          per_table_ranges[i] =
