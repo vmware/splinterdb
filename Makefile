@@ -301,7 +301,7 @@ run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	./test.sh
 
 test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	(./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
+	(INCLUDE_SLOW_TESTS=true ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 
