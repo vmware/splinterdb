@@ -92,6 +92,9 @@ test_all_done(const uint8 done, const uint8 num_tables)
    return (done == ((1 << num_tables) - 1));
 }
 
+/*
+ * test_trunk_insert_thread() -- Per-thread function to drive inserts.
+ */
 void
 test_trunk_insert_thread(void *arg)
 {
@@ -121,10 +124,12 @@ test_trunk_insert_thread(void *arg)
          if (test_is_done(done, spl_idx)) {
             continue;
          }
-         platform_default_log(PLATFORM_CR
-                              "inserting %3lu%% complete for table %u ... ",
-                              insert_base[spl_idx] / (total_ops[spl_idx] / 100),
-                              spl_idx);
+         platform_default_log(
+            PLATFORM_CR
+            "Thread %lu inserting %3lu%% complete for table %u ... ",
+            thread_number,
+            insert_base[spl_idx] / (total_ops[spl_idx] / 100),
+            spl_idx);
          insert_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (insert_base[spl_idx] >= total_ops[spl_idx]) {
@@ -197,6 +202,9 @@ out:
    }
 }
 
+/*
+ * test_trunk_lookup_thread() -- Per-thread function to drive lookups.
+ */
 void
 test_trunk_lookup_thread(void *arg)
 {
@@ -222,25 +230,30 @@ test_trunk_lookup_thread(void *arg)
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         if (test_is_done(done, spl_idx))
+         if (test_is_done(done, spl_idx)) {
             continue;
+         }
          platform_throttled_error_log(
             DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "lookups %3lu%% complete for table %u",
+            PLATFORM_CR "Thread %lu lookups %3lu%% complete for table %u",
+            thread_number,
             lookup_base[spl_idx] / (total_ops[spl_idx] / 100),
             spl_idx);
          lookup_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
-         if (lookup_base[spl_idx] >= total_ops[spl_idx])
+         if (lookup_base[spl_idx] >= total_ops[spl_idx]) {
             test_set_done(&done, spl_idx);
-         if (test_all_done(done, num_tables))
+         }
+         if (test_all_done(done, num_tables)) {
             goto out;
+         }
       }
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          uint8 spl_idx;
          for (spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-            if (test_is_done(done, spl_idx))
+            if (test_is_done(done, spl_idx)) {
                continue;
+            }
             trunk_handle      *spl          = spl_tables[spl_idx];
             test_async_lookup *async_lookup = params->async_lookup[spl_idx];
             test_async_ctxt   *ctxt;
@@ -295,8 +308,9 @@ test_trunk_lookup_thread(void *arg)
          }
       }
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         if (test_is_done(done, spl_idx))
+         if (test_is_done(done, spl_idx)) {
             continue;
+         }
          trunk_handle      *spl          = spl_tables[spl_idx];
          test_async_lookup *async_lookup = params->async_lookup[spl_idx];
          test_wait_for_inflight(spl, async_lookup, &vtarg);
@@ -307,6 +321,9 @@ out:
    platform_free(platform_get_heap_id(), lookup_base);
 }
 
+/*
+ * test_trunk_range_thread() -- Per-thread function to drive range queries.
+ */
 void
 test_trunk_range_thread(void *arg)
 {
@@ -330,24 +347,29 @@ test_trunk_range_thread(void *arg)
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         if (test_is_done(done, spl_idx))
+         if (test_is_done(done, spl_idx)) {
             continue;
+         }
          platform_throttled_error_log(
             DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "range lookups %3lu%% complete for table %u",
+            PLATFORM_CR "Thread %lu range lookups %3lu%% complete for table %u",
+            thread_number,
             range_base[spl_idx] / (total_ops[spl_idx] / 100),
             spl_idx);
          range_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
-         if (range_base[spl_idx] >= total_ops[spl_idx])
+         if (range_base[spl_idx] >= total_ops[spl_idx]) {
             test_set_done(&done, spl_idx);
-         if (test_all_done(done, num_tables))
+         }
+         if (test_all_done(done, num_tables)) {
             goto out;
+         }
       }
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-            if (test_is_done(done, spl_idx))
+            if (test_is_done(done, spl_idx)) {
                continue;
+            }
             trunk_handle *spl  = spl_tables[spl_idx];
             tuple_size         = trunk_key_size(spl) + trunk_message_size(spl);
             char *range_output = TYPED_ARRAY_MALLOC(
@@ -379,7 +401,6 @@ out:
 
 /*
  *-----------------------------------------------------------------------------
- *
  * advance_base
  *
  *      advance the base operation number synchronously
@@ -387,10 +408,8 @@ out:
  *      not with insert by lookup positive %
  *
  * Returns: TRUE if all tests are done
- *
  *-----------------------------------------------------------------------------
  */
-
 static bool
 advance_base(const test_splinter_thread_params *params,
              uint64                            *curr_op,
@@ -405,8 +424,9 @@ advance_base(const test_splinter_thread_params *params,
    const uint8   lookup_positive_pct = params->lookup_positive_pct;
 
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      if (test_is_done(*done, spl_idx))
+      if (test_is_done(*done, spl_idx)) {
          continue;
+      }
 
       if (type == OP_INSERT) {
          platform_throttled_error_log(
@@ -417,10 +437,12 @@ advance_base(const test_splinter_thread_params *params,
 
          base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
-         if (base[spl_idx] >= total_ops[spl_idx])
+         if (base[spl_idx] >= total_ops[spl_idx]) {
             test_set_done(done, spl_idx);
-         if (test_all_done(*done, num_tables))
+         }
+         if (test_all_done(*done, num_tables)) {
             return TRUE;
+         }
       } else {
          /* lookup */
          uint64 random_base;
@@ -432,7 +454,7 @@ advance_base(const test_splinter_thread_params *params,
             if (local_curr_op == op_granularity) {
                random_base = 0;
             } else {
-               // positvie lookup by selecting random base
+               // positive lookup by selecting random base
                // [op_granularity, local_curr_op)
                random_base = ((random_next_uint64(rs)
                                % (local_curr_op / op_granularity - 1))
@@ -473,8 +495,8 @@ advance_base(const test_splinter_thread_params *params,
  *-----------------------------------------------------------------------------
  * do_operation
  *
- *      do num_ops(assume it is valid and not exceed op granularity) inserts or
- *      lookups
+ *      Do num_ops (assume it is valid and not exceed op granularity) inserts
+ *      or lookups.
  *-----------------------------------------------------------------------------
  */
 static void
@@ -590,6 +612,8 @@ do_operation(test_splinter_thread_params *params,
  *-----------------------------------------------------------------------------
  * test_trunk_insert_lookup_thread
  *
+    RESOLVE: Comments need rewording: ... Suggestions?
+
  *      Do number of insert_granularity inserts followed by number of
  *      lookup_granularity repeatedly until insert the full table
  *      lookup will be restarted from beginning until insert is done
@@ -744,7 +768,7 @@ test_trunk_destroy_tables(trunk_handle   **spl_tables,
  * Helper function to compute the # of inserts for each table, based on the
  * configuration specified.
  *
- * Returns: Total # of inserts done in the workload
+ * Returns: Total # of inserts to-be-done in the workload
  */
 static uint64
 compute_per_table_inserts(uint64       *per_table_inserts, // OUT
@@ -808,7 +832,8 @@ load_thread_params(test_splinter_thread_params *params,
 /*
  * do_n_thread_creates() --
  *
- * Helper function to create n-threads.
+ * Helper function to create n-threads, each thread executing the specified
+ * thread_hdlr handler function.
  */
 platform_status
 do_n_thread_creates(const char                  *thread_type,
@@ -821,7 +846,7 @@ do_n_thread_creates(const char                  *thread_type,
    platform_status ret;
    for (uint64 i = 0; i < num_threads; i++) {
       ret = task_thread_create(thread_type,
-                               test_trunk_insert_thread,
+                               thread_hdlr,
                                &params[i],
                                trunk_get_scratch_size(),
                                ts,
@@ -837,7 +862,10 @@ do_n_thread_creates(const char                  *thread_type,
 /*
  * do_n_async_ctxt_inits() --
  *
- * Helper function to setup n-Async contexts for m-tables.
+ * Helper function to setup Async contexts for num_threads threads, each thread
+ * processing num_tables tables. This async-lookup context is tied to each
+ * table. Lookup execution for each table needs to access this context before it
+ * can check if (max_async_inflight == 0).
  */
 void
 do_n_async_ctxt_inits(platform_heap_id             hid,
@@ -847,9 +875,6 @@ do_n_async_ctxt_inits(platform_heap_id             hid,
                       trunk_config                *cfg,
                       test_splinter_thread_params *params)
 {
-   platform_assert(
-      (max_async_inflight > 0), "max_async_inflight=%lu", max_async_inflight);
-
    for (uint64 i = 0; i < num_threads; i++) {
       for (uint8 j = 0; j < num_tables; j++) {
          async_ctxt_init(hid,
@@ -874,14 +899,17 @@ do_n_async_ctxt_deinits(platform_heap_id             hid,
    for (uint64 i = 0; i < num_threads; i++) {
       for (uint8 j = 0; j < num_tables; j++) {
          async_ctxt_deinit(hid, params[i].async_lookup[j]);
+         params[i].async_lookup[j] = NULL;
       }
    }
 }
 
 /*
+ * -----------------------------------------------------------------------------
  * splinter_perf_inserts() --
  *
  * Work-horse routine to run n-threads to exercise insert performance.
+ * -----------------------------------------------------------------------------
  */
 platform_status
 splinter_perf_inserts(platform_heap_id             hid,
@@ -899,6 +927,10 @@ splinter_perf_inserts(platform_heap_id             hid,
                       uint64                       insert_rate,
                       uint64                      *total_inserts)
 {
+   platform_log("%s() starting num_insert_threads=%lu, num_threads=%lu ...\n",
+                __FUNCTION__,
+                num_insert_threads,
+                num_threads);
    platform_status rc;
    *total_inserts =
       compute_per_table_inserts(per_table_inserts, cfg, test_cfg, num_tables);
@@ -974,13 +1006,16 @@ splinter_perf_inserts(platform_heap_id             hid,
       cache_reset_stats(spl->cc);
       // trunk_print(spl);
    }
+   platform_log("%s() completed.\n", __FUNCTION__);
    return rc;
 }
 
 /*
+ * -----------------------------------------------------------------------------
  * splinter_perf_lookups() --
  *
  * Work-horse routine to run n-threads to exercise lookups performance.
+ * -----------------------------------------------------------------------------
  */
 platform_status
 splinter_perf_lookups(platform_heap_id             hid,
@@ -994,17 +1029,23 @@ splinter_perf_lookups(platform_heap_id             hid,
                       uint32                       max_async_inflight,
                       uint64                       total_inserts)
 {
+   platform_log("%s() starting num_lookup_threads=%lu"
+                ", max_async_inflight=%d ...\n",
+                __FUNCTION__,
+                num_lookup_threads,
+                max_async_inflight);
    uint64          start_time = platform_get_timestamp();
    platform_status rc;
 
    do_n_async_ctxt_inits(
       hid, num_lookup_threads, num_tables, max_async_inflight, cfg, params);
+
    rc = do_n_thread_creates("lookup_thread",
                             num_lookup_threads,
                             params,
                             ts,
                             hid,
-                            test_trunk_insert_thread);
+                            test_trunk_lookup_thread);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -1054,14 +1095,17 @@ splinter_perf_lookups(platform_heap_id             hid,
       cache_print_stats(spl->cc);
       cache_reset_stats(spl->cc);
    }
+   platform_log("%s() completed.\n", __FUNCTION__);
    return rc;
 }
 
 /*
+ * -----------------------------------------------------------------------------
  * splinter_perf_range_lookups() --
  *
  * Work-horse routine to run n-threads to exercise trunk range lookups
  * performance.
+ * -----------------------------------------------------------------------------
  */
 platform_status
 splinter_perf_range_lookups(platform_heap_id             hid,
@@ -1076,6 +1120,14 @@ splinter_perf_range_lookups(platform_heap_id             hid,
                             uint64                       range_min,
                             uint64                       range_max)
 {
+   platform_log(
+      "%s() starting num_range_threads=%lu, num_ranges=%d, range_min=%lu"
+      ", range_max=%lu ...\n",
+      __FUNCTION__,
+      num_range_threads,
+      num_ranges,
+      range_min,
+      range_max);
    platform_assert(
       (num_range_threads > 0), "num_range_threads=%lu", num_range_threads);
 
@@ -1132,6 +1184,7 @@ splinter_perf_range_lookups(platform_heap_id             hid,
       cache_print_stats(spl->cc);
       cache_reset_stats(spl->cc);
    }
+   platform_log("%s() completed.\n", __FUNCTION__);
    return rc;
 }
 
@@ -1193,27 +1246,29 @@ test_splinter_perf(trunk_config    *cfg,
 
    uint64 total_inserts = 0;
 
-   if (num_insert_threads > 0) {
-      rc = splinter_perf_inserts(hid,
-                                 cfg,
-                                 test_cfg,
-                                 spl_tables,
-                                 cc,
-                                 ts,
-                                 params,
-                                 per_table_inserts,
-                                 curr_op,
-                                 num_insert_threads,
-                                 num_threads,
-                                 num_tables,
-                                 insert_rate,
-                                 &total_inserts);
-      if (!SUCCESS(rc)) {
-         goto destroy_splinter;
-      }
+   // It is meaningless to execute lookup / range-query performance runs
+   // if nothing is being inserted.
+   platform_assert(num_insert_threads > 0);
+   rc = splinter_perf_inserts(hid,
+                              cfg,
+                              test_cfg,
+                              spl_tables,
+                              cc,
+                              ts,
+                              params,
+                              per_table_inserts,
+                              curr_op,
+                              num_insert_threads,
+                              num_threads,
+                              num_tables,
+                              insert_rate,
+                              &total_inserts);
+   if (!SUCCESS(rc)) {
+      goto destroy_splinter;
    }
 
    if (num_lookup_threads > 0) {
+      ZERO_CONTENTS_N(curr_op, num_tables);
       rc = splinter_perf_lookups(hid,
                                  cfg,
                                  test_cfg,
@@ -1231,6 +1286,7 @@ test_splinter_perf(trunk_config    *cfg,
 
    if (num_range_threads > 0) {
 
+      ZERO_CONTENTS_N(curr_op, num_tables);
       // Range lookup performance for small range
       int    num_ranges = 128;
       uint64 range_min  = 1;
@@ -1250,6 +1306,7 @@ test_splinter_perf(trunk_config    *cfg,
          goto destroy_splinter;
       }
 
+      ZERO_CONTENTS_N(curr_op, num_tables);
       // Range lookup performance for medium range
       num_ranges = 4;
       range_min  = 512;
@@ -1270,6 +1327,7 @@ test_splinter_perf(trunk_config    *cfg,
       }
       rc = STATUS_OK;
 
+      ZERO_CONTENTS_N(curr_op, num_tables);
       // Range lookup performance for large range
       num_ranges = 4;
       range_min  = (131072 - 16384);
