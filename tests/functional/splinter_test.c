@@ -240,7 +240,7 @@ test_trunk_lookup_thread(void *arg)
 
          pct_done = (lookup_base[spl_idx] / (total_ops[spl_idx] / 100));
          if ((old_pct_done < pct_done)
-             && ((thread_number == 0) || ((pct_done % 10) == 0))) {
+             && ((thread_number == 0) || ((pct_done % 5) == 0))) {
              platform_default_log(
                 PLATFORM_CR "Thread %lu lookups %3u%% complete for table %u\n",
                 thread_number,
@@ -859,6 +859,7 @@ test_splinter_perf(trunk_config    *cfg,
    }
 
    uint64 start_time = platform_get_timestamp();
+   uint64 test_start_time = start_time;
 
    platform_default_log("Create %lu insert threads ...\n", num_insert_threads);
    for (uint64 i = 0; i < num_insert_threads; i++) {
@@ -1031,7 +1032,7 @@ test_splinter_perf(trunk_config    *cfg,
    if (num_range_threads != 0) {
       start_time = platform_get_timestamp();
       platform_log("\nStarting range lookups phase with %lu range lookup threads "
-                   " using range [min=%d, max=%d] ...\n",
+                   "using range [min=%d, max=%d] ...\n",
                    num_range_threads,
                    range_min, range_max);
 
@@ -1098,7 +1099,7 @@ test_splinter_perf(trunk_config    *cfg,
 
       start_time = platform_get_timestamp();
       platform_log("\nStarting range lookups phase with %lu range lookup threads "
-                   " using range [min=%d, max=%d] ...\n",
+                   "using range [min=%d, max=%d] ...\n",
                    num_range_threads,
                    range_min, range_max);
 
@@ -1165,7 +1166,7 @@ test_splinter_perf(trunk_config    *cfg,
 
       start_time = platform_get_timestamp();
       platform_log("\nStarting range lookups phase with %lu range lookup threads "
-                   " using range [min=%d, max=%d] ...\n",
+                   "using range [min=%d, max=%d] ...\n",
                    num_range_threads,
                    range_min, range_max);
 
@@ -1211,6 +1212,10 @@ test_splinter_perf(trunk_config    *cfg,
          cache_reset_stats(spl->cc);
       }
    }
+
+   total_time = platform_timestamp_elapsed(test_start_time);
+   platform_log("\nSplinterDB --perf test total time=%lus\n",
+                NSEC_TO_SEC(total_time));
 
 destroy_splinter:
    test_trunk_destroy_tables(spl_tables, hid, num_tables);
