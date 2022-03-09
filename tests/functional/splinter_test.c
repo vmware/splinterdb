@@ -878,6 +878,160 @@ do_n_async_ctxt_deinits(platform_heap_id             hid,
    }
 }
 
+/*
+ * splinter_perf_lookups() --
+ *
+ * Work-horse routine to run n-threads to exercise lookups performance.
+ */
+platform_status
+splinter_perf_lookups(platform_heap_id             hid,
+                      trunk_config                *cfg,
+                      test_config                 *test_cfg,
+                      trunk_handle               **spl_tables,
+                      task_system                 *ts,
+                      uint64                       num_lookup_threads,
+                      uint8                        num_tables,
+                      uint32                       max_async_inflight,
+                      uint64                       total_inserts,
+                      test_splinter_thread_params *params)
+{
+   uint64          start_time = platform_get_timestamp();
+   platform_status rc;
+
+   do_n_async_ctxt_inits(
+      hid, num_lookup_threads, num_tables, max_async_inflight, cfg, params);
+   rc = do_n_thread_creates("lookup_thread",
+                            num_lookup_threads,
+                            params,
+                            ts,
+                            hid,
+                            test_trunk_insert_thread);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   for (uint64 i = 0; i < num_lookup_threads; i++) {
+      platform_thread_join(params[i].thread);
+   }
+
+   uint64 total_time = platform_timestamp_elapsed(start_time);
+
+   uint64    num_async_lookups        = 0;
+   timestamp sync_lookup_latency_max  = 0;
+   timestamp async_lookup_latency_max = 0;
+
+   do_n_async_ctxt_deinits(hid, num_lookup_threads, num_tables, params);
+
+   for (uint64 i = 0; i < num_lookup_threads; i++) {
+      num_async_lookups += params[i].lookup_stats[ASYNC_LU].num_found
+                           + params[i].lookup_stats[ASYNC_LU].num_not_found;
+      sync_lookup_latency_max = MAX(
+         sync_lookup_latency_max, params[i].lookup_stats[SYNC_LU].latency_max);
+
+      async_lookup_latency_max =
+         MAX(async_lookup_latency_max,
+             params[i].lookup_stats[ASYNC_LU].latency_max);
+
+      rc = params[i].rc;
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   rc = STATUS_OK;
+
+   platform_log("\nper-splinter per-thread lookup time per tuple %lu ns\n",
+                total_time * num_lookup_threads / total_inserts);
+   platform_log("splinter total lookup rate: %lu lookups/second\n",
+                SEC_TO_NSEC(total_inserts) / total_time);
+   platform_log("%lu%% lookups were async\n",
+                num_async_lookups * 100 / total_inserts);
+   platform_log("max lookup latency ns (sync=%lu, async=%lu)\n",
+                sync_lookup_latency_max,
+                async_lookup_latency_max);
+   for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
+      trunk_handle *spl = spl_tables[spl_idx];
+      cache_assert_free(spl->cc);
+      trunk_print_lookup_stats(spl);
+      cache_print_stats(spl->cc);
+      cache_reset_stats(spl->cc);
+   }
+   return rc;
+}
+
+/*
+ * splinter_perf_range_lookups() --
+ *
+ * Work-horse routine to run n-threads to exercise trunk range lookups
+ * performance.
+ */
+platform_status
+splinter_perf_range_lookups(platform_heap_id             hid,
+                            trunk_handle               **spl_tables,
+                            task_system                 *ts,
+                            uint64                      *per_table_inserts,
+                            uint64                      *per_table_ranges,
+                            uint64                       num_range_threads,
+                            uint8                        num_tables,
+                            test_splinter_thread_params *params)
+{
+   platform_assert(
+      (num_range_threads > 0), "num_range_threads=%lu", num_range_threads);
+
+   uint64 total_ranges = 0;
+   for (uint8 i = 0; i < num_tables; i++) {
+      per_table_ranges[i] =
+         ROUNDUP(per_table_inserts[i] / 128, TEST_RANGE_GRANULARITY);
+      total_ranges += per_table_ranges[i];
+   }
+
+   for (uint64 i = 0; i < num_range_threads; i++) {
+      params[i].total_ops      = per_table_ranges;
+      params[i].op_granularity = TEST_RANGE_GRANULARITY;
+      params[i].range_min      = 1;
+      params[i].range_max      = 100;
+   }
+
+   uint64 start_time = platform_get_timestamp();
+
+   platform_status rc;
+
+   rc = do_n_thread_creates("range_thread",
+                            num_range_threads,
+                            params,
+                            ts,
+                            hid,
+                            test_trunk_range_thread);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   for (uint64 i = 0; i < num_range_threads; i++) {
+      platform_thread_join(params[i].thread);
+   }
+
+   uint64 total_time = platform_timestamp_elapsed(start_time);
+
+   for (uint64 i = 0; i < num_range_threads; i++) {
+      rc = params[i].rc;
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+   }
+
+   rc = STATUS_OK;
+
+   platform_log("\nper-splinter per-thread range time per tuple %lu ns\n",
+                total_time * num_range_threads / total_ranges);
+   platform_log("splinter total range rate: %lu ops/second\n",
+                SEC_TO_NSEC(total_ranges) / total_time);
+   for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
+      trunk_handle *spl = spl_tables[spl_idx];
+      cache_assert_free(spl->cc);
+      trunk_print_lookup_stats(spl);
+      cache_print_stats(spl->cc);
+      cache_reset_stats(spl->cc);
+   }
+   return rc;
+}
 
 /*
  * -----------------------------------------------------------------------------
@@ -1013,67 +1167,18 @@ test_splinter_perf(trunk_config    *cfg,
 
    ZERO_CONTENTS_N(curr_op, num_tables);
    if (num_lookup_threads != 0) {
-      start_time = platform_get_timestamp();
-
-      do_n_async_ctxt_inits(
-         hid, num_threads, num_tables, max_async_inflight, cfg, params);
-      rc = do_n_thread_creates("lookup_thread",
-                               num_lookup_threads,
-                               params,
-                               ts,
-                               hid,
-                               test_trunk_insert_thread);
+      rc = splinter_perf_lookups(hid,
+                                 cfg,
+                                 test_cfg,
+                                 spl_tables,
+                                 ts,
+                                 num_lookup_threads,
+                                 num_tables,
+                                 max_async_inflight,
+                                 total_inserts,
+                                 params);
       if (!SUCCESS(rc)) {
-         return rc;
-      }
-      for (uint64 i = 0; i < num_lookup_threads; i++) {
-         platform_thread_join(params[i].thread);
-      }
-
-      total_time = platform_timestamp_elapsed(start_time);
-
-      uint64    num_async_lookups        = 0;
-      timestamp sync_lookup_latency_max  = 0;
-      timestamp async_lookup_latency_max = 0;
-
-      do_n_async_ctxt_deinits(hid, num_threads, num_tables, params);
-
-      for (uint64 i = 0; i < num_lookup_threads; i++) {
-         num_async_lookups += params[i].lookup_stats[ASYNC_LU].num_found
-                              + params[i].lookup_stats[ASYNC_LU].num_not_found;
-         if (params[i].lookup_stats[SYNC_LU].latency_max
-             > sync_lookup_latency_max) {
-            sync_lookup_latency_max =
-               params[i].lookup_stats[SYNC_LU].latency_max;
-         }
-         if (params[i].lookup_stats[ASYNC_LU].latency_max
-             > async_lookup_latency_max) {
-            async_lookup_latency_max =
-               params[i].lookup_stats[ASYNC_LU].latency_max;
-         }
-         if (!SUCCESS(params[i].rc)) {
-            rc = params[i].rc;
-            goto destroy_splinter;
-         }
-      }
-
-      rc = STATUS_OK;
-
-      platform_log("\nper-splinter per-thread lookup time per tuple %lu ns\n",
-                   total_time * num_lookup_threads / total_inserts);
-      platform_log("splinter total lookup rate: %lu lookups/second\n",
-                   SEC_TO_NSEC(total_inserts) / total_time);
-      platform_log("%lu%% lookups were async\n",
-                   num_async_lookups * 100 / total_inserts);
-      platform_log("max lookup latency ns (sync=%lu, async=%lu)\n",
-                   sync_lookup_latency_max,
-                   async_lookup_latency_max);
-      for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-         trunk_handle *spl = spl_tables[spl_idx];
-         cache_assert_free(spl->cc);
-         trunk_print_lookup_stats(spl);
-         cache_print_stats(spl->cc);
-         cache_reset_stats(spl->cc);
+         goto destroy_splinter;
       }
    }
 
@@ -1096,18 +1201,14 @@ test_splinter_perf(trunk_config    *cfg,
    if (num_range_threads != 0) {
       start_time = platform_get_timestamp();
 
-      for (uint64 i = 0; i < num_range_threads; i++) {
-         platform_status ret;
-         ret = task_thread_create("range thread",
-                                  test_trunk_range_thread,
-                                  &params[i],
-                                  trunk_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &params[i].thread);
-         if (!SUCCESS(ret)) {
-            return ret;
-         }
+      rc = do_n_thread_creates("range_thread",
+                               num_range_threads,
+                               params,
+                               ts,
+                               hid,
+                               test_trunk_range_thread);
+      if (!SUCCESS(rc)) {
+         return rc;
       }
       for (uint64 i = 0; i < num_range_threads; i++) {
          platform_thread_join(params[i].thread);
@@ -1731,7 +1832,7 @@ destroy_splinter:
  * -----------------------------------------------------------------------------
  * test_splinter_parallel_perf() --
  *
- * variation of Splinter Performance exerciser. Here we execute concurrently
+ * Variation of Splinter Performance exerciser. Here we execute concurrently
  * n-threads each peforming some # of inserts and lookups / thread.
  *
  * we don't quite declare pass / fail based on the performance, but simply
@@ -1820,6 +1921,7 @@ test_splinter_parallel_perf(trunk_config    *cfg,
       return rc;
    }
 
+   // Wait-for threads to finish ...
    for (uint64 i = 0; i < num_threads; i++) {
       platform_thread_join(params[i].thread);
    }
@@ -1836,18 +1938,16 @@ test_splinter_parallel_perf(trunk_config    *cfg,
    do_n_async_ctxt_deinits(hid, num_threads, num_tables, params);
 
    for (uint64 i = 0; i < num_threads; i++) {
-      if (params[i].insert_stats.latency_max > insert_latency_max) {
-         insert_latency_max = params[i].insert_stats.latency_max;
-      }
-      if (params[i].lookup_stats[SYNC_LU].latency_max > sync_lookup_latency_max)
-      {
-         sync_lookup_latency_max = params[i].lookup_stats[SYNC_LU].latency_max;
-      }
-      if (params[i].lookup_stats[ASYNC_LU].latency_max
-          > async_lookup_latency_max) {
-         async_lookup_latency_max =
-            params[i].lookup_stats[ASYNC_LU].latency_max;
-      }
+      insert_latency_max =
+         MAX(insert_latency_max, params[i].insert_stats.latency_max);
+
+      sync_lookup_latency_max = MAX(
+         sync_lookup_latency_max, params[i].lookup_stats[SYNC_LU].latency_max);
+
+      async_lookup_latency_max =
+         MAX(async_lookup_latency_max,
+             params[i].lookup_stats[ASYNC_LU].latency_max);
+
       if (!SUCCESS(params[i].rc)) {
          rc = params[i].rc;
          goto destroy_splinter;
