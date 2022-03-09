@@ -130,8 +130,9 @@ exec_worker_thread(void *w)
       result = read(random_data, value_buf, sizeof value_buf);
       ASSERT_TRUE(result >= 0);
 
-      rc = splinterdb_insert(
-         kvsb, TEST_KEY_SIZE, key_buf, TEST_VALUE_SIZE, value_buf);
+      rc = splinterdb_insert(kvsb,
+                             slice_create(TEST_KEY_SIZE, key_buf),
+                             slice_create(TEST_VALUE_SIZE, value_buf));
       ASSERT_EQUAL(0, rc);
 
       if (i && (i % 100000 == 0)) {
