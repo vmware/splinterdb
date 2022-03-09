@@ -254,6 +254,13 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                                MAX_PAGES_PER_EXTENT);
             return STATUS_BAD_PARAM;
          }
+         if (cfg[cfg_idx].key_size > MAX_KEY_SIZE) {
+            platform_error_log("Configured key-size, %lu bytes, is larger than "
+                               "the MAX_KEY_SIZE=%d.\n",
+                               cfg[cfg_idx].key_size,
+                               MAX_KEY_SIZE);
+            return STATUS_BAD_PARAM;
+         }
       }
       return STATUS_OK;
    }
