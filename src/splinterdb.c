@@ -153,9 +153,9 @@ splinterdb_validate_app_data_config(const data_config *cfg)
 
 // Variable-length key encoding and decoding virtual functions
 
-// Length-prefix encoding of a variable-sized key
+// Length-prefix encoding of a variable-sized key (Disk-Resident Structure)
 // We do this so that key comparison can be variable-length
-typedef struct PACKED {
+typedef struct ONDISK {
    uint8 length;
    uint8 data[0];
 } var_len_key_encoding;
