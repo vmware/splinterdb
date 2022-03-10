@@ -74,6 +74,17 @@ typedef struct test_splinter_thread_params {
    uint64             seed;
 } test_splinter_thread_params;
 
+/*
+ * Parameters to driver trunk range query performance workload.
+ */
+typedef struct trunk_range_perf_params {
+   const char *range_perf_descr;
+   int         num_ranges;
+   uint64      range_min;
+   uint64      range_max;
+
+} trunk_range_perf_params;
+
 static inline bool
 test_is_done(const uint8 done, const uint8 n)
 {
@@ -352,10 +363,12 @@ test_trunk_range_thread(void *arg)
          }
          platform_throttled_error_log(
             DEFAULT_THROTTLE_INTERVAL_SEC,
-            PLATFORM_CR "Thread %lu range lookups %3lu%% complete for table %u",
+            PLATFORM_CR "Thread %lu range lookups %3lu%% complete for table %u"
+                        ", range_base=%lu",
             thread_number,
             range_base[spl_idx] / (total_ops[spl_idx] / 100),
-            spl_idx);
+            spl_idx,
+            range_base[spl_idx]);
          range_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (range_base[spl_idx] >= total_ops[spl_idx]) {
@@ -798,7 +811,7 @@ compute_per_table_inserts(uint64       *per_table_inserts, // OUT
  *
  * Helper function to load thread-specific parameters to drive the workload
  */
-void
+static void
 load_thread_params(test_splinter_thread_params *params,
                    trunk_handle               **spl_tables,
                    test_config                 *test_cfg,
@@ -835,7 +848,7 @@ load_thread_params(test_splinter_thread_params *params,
  * Helper function to create n-threads, each thread executing the specified
  * thread_hdlr handler function.
  */
-platform_status
+static platform_status
 do_n_thread_creates(const char                  *thread_type,
                     uint64                       num_threads,
                     test_splinter_thread_params *params,
@@ -867,7 +880,7 @@ do_n_thread_creates(const char                  *thread_type,
  * table. Lookup execution for each table needs to access this context before it
  * can check if (max_async_inflight == 0).
  */
-void
+static void
 do_n_async_ctxt_inits(platform_heap_id             hid,
                       uint64                       num_threads,
                       uint8                        num_tables,
@@ -890,7 +903,7 @@ do_n_async_ctxt_inits(platform_heap_id             hid,
  *
  * Helper function to dismantle n-Async contexts for m-tables.
  */
-void
+static void
 do_n_async_ctxt_deinits(platform_heap_id             hid,
                         uint64                       num_threads,
                         uint8                        num_tables,
@@ -911,7 +924,7 @@ do_n_async_ctxt_deinits(platform_heap_id             hid,
  * Work-horse routine to run n-threads to exercise insert performance.
  * -----------------------------------------------------------------------------
  */
-platform_status
+static platform_status
 splinter_perf_inserts(platform_heap_id             hid,
                       trunk_config                *cfg,
                       test_config                 *test_cfg,
@@ -1017,7 +1030,7 @@ splinter_perf_inserts(platform_heap_id             hid,
  * Work-horse routine to run n-threads to exercise lookups performance.
  * -----------------------------------------------------------------------------
  */
-platform_status
+static platform_status
 splinter_perf_lookups(platform_heap_id             hid,
                       trunk_config                *cfg,
                       test_config                 *test_cfg,
@@ -1107,7 +1120,7 @@ splinter_perf_lookups(platform_heap_id             hid,
  * performance.
  * -----------------------------------------------------------------------------
  */
-platform_status
+static platform_status
 splinter_perf_range_lookups(platform_heap_id             hid,
                             trunk_handle               **spl_tables,
                             task_system                 *ts,
@@ -1116,18 +1129,21 @@ splinter_perf_range_lookups(platform_heap_id             hid,
                             uint64                      *per_table_ranges,
                             uint64                       num_range_threads,
                             uint8                        num_tables,
-                            int                          num_ranges,
-                            uint64                       range_min,
-                            uint64                       range_max)
+                            trunk_range_perf_params     *range_perf)
 {
-   platform_log(
-      "%s() starting num_range_threads=%lu, num_ranges=%d, range_min=%lu"
-      ", range_max=%lu ...\n",
-      __FUNCTION__,
-      num_range_threads,
-      num_ranges,
-      range_min,
-      range_max);
+   const char *range_descr = range_perf->range_perf_descr;
+   int         num_ranges  = range_perf->num_ranges;
+   uint64      range_min   = range_perf->range_min;
+   uint64      range_max   = range_perf->range_max;
+   platform_log("%s() starting for %s: num_range_threads=%lu, num_ranges=%d, "
+                "range_min=%lu"
+                ", range_max=%lu ...\n",
+                __FUNCTION__,
+                range_descr,
+                num_range_threads,
+                num_ranges,
+                range_min,
+                range_max);
    platform_assert(
       (num_range_threads > 0), "num_range_threads=%lu", num_range_threads);
 
@@ -1192,18 +1208,18 @@ splinter_perf_range_lookups(platform_heap_id             hid,
  * -----------------------------------------------------------------------------
  * test_splinter_perf() --
  *
- * splinterDB Performance exerciser. For a specified # of threads of each type,
+ * SplinterDB Performance exerciser. For a specified # of threads of each type,
  * execute:
  *  - Inserts
  *  - Lookups
- *  - Range lookups, of 3 diff ranges { small, medium, large }
+ *  - Range queries, of 3 diff ranges { small, medium, large }
  *
- * we don't quite declare pass / fail based on the performance, but simply
+ * We don't quite declare pass / fail based on the performance, but simply
  * exercise this concurrent workload of different types, and report the
- * performance metrics (elapsed time, throughput).
+ * performance metrics (such as latency, elapsed time, throughput, ...).
  * -----------------------------------------------------------------------------
  */
-platform_status
+static platform_status
 test_splinter_perf(trunk_config    *cfg,
                    test_config     *test_cfg,
                    allocator       *al,
@@ -1286,67 +1302,31 @@ test_splinter_perf(trunk_config    *cfg,
 
    if (num_range_threads > 0) {
 
-      ZERO_CONTENTS_N(curr_op, num_tables);
-      // Range lookup performance for small range
-      int    num_ranges = 128;
-      uint64 range_min  = 1;
-      uint64 range_max  = 100;
-      rc                = splinter_perf_range_lookups(hid,
-                                       spl_tables,
-                                       ts,
-                                       params,
-                                       per_table_inserts,
-                                       per_table_ranges,
-                                       num_range_threads,
-                                       num_tables,
-                                       num_ranges,
-                                       range_min,
-                                       range_max);
-      if (!SUCCESS(rc)) {
-         goto destroy_splinter;
-      }
+      // clang-format off
+      // Define a set of parameters to drive trunk range query perf
+      trunk_range_perf_params perf_ranges[] = {
+         //               number     min                 max
+         {"Small range"  , 128      , 1                , 100    },
+         {"Medium range" , 4        , 512              , 1024   },
+         {"Large range"  , 4        , (131072 - 16384) , 131072 }
+      };
+      // clang-format on
 
-      ZERO_CONTENTS_N(curr_op, num_tables);
-      // Range lookup performance for medium range
-      num_ranges = 4;
-      range_min  = 512;
-      range_max  = 1024;
-      rc         = splinter_perf_range_lookups(hid,
-                                       spl_tables,
-                                       ts,
-                                       params,
-                                       per_table_inserts,
-                                       per_table_ranges,
-                                       num_range_threads,
-                                       num_tables,
-                                       num_ranges,
-                                       range_min,
-                                       range_max);
-      if (!SUCCESS(rc)) {
-         goto destroy_splinter;
+      for (int rctr = 0; rctr < ARRAY_SIZE(perf_ranges); rctr++) {
+         ZERO_CONTENTS_N(curr_op, num_tables);
+         rc = splinter_perf_range_lookups(hid,
+                                          spl_tables,
+                                          ts,
+                                          params,
+                                          per_table_inserts,
+                                          per_table_ranges,
+                                          num_range_threads,
+                                          num_tables,
+                                          &perf_ranges[rctr]);
+         if (!SUCCESS(rc)) {
+            goto destroy_splinter;
+         }
       }
-      rc = STATUS_OK;
-
-      ZERO_CONTENTS_N(curr_op, num_tables);
-      // Range lookup performance for large range
-      num_ranges = 4;
-      range_min  = (131072 - 16384);
-      range_max  = 131072;
-      rc         = splinter_perf_range_lookups(hid,
-                                       spl_tables,
-                                       ts,
-                                       params,
-                                       per_table_inserts,
-                                       per_table_ranges,
-                                       num_range_threads,
-                                       num_tables,
-                                       num_ranges,
-                                       range_min,
-                                       range_max);
-      if (!SUCCESS(rc)) {
-         goto destroy_splinter;
-      }
-      rc = STATUS_OK;
    }
 
 destroy_splinter:
