@@ -29,7 +29,7 @@
 #include <errno.h>
 
 #include "splinterdb/data.h"
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 #include "unit_tests.h"
