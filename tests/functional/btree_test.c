@@ -1608,7 +1608,7 @@ btree_test(int argc, char *argv[])
 
    uint64 max_tuples_per_memtable =
       test_cfg.mt_cfg->max_extents_per_memtable
-      * cache_config_extent_size((cache_config *)&cache_cfg) / 2
+      * cache_config_extent_size((cache_config *)&cache_cfg) / 3
       / (data_cfg->key_size + generator_average_message_size(&gen));
    if (run_perf_test) {
       uint64 total_inserts = 64 * max_tuples_per_memtable;

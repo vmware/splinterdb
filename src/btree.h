@@ -69,10 +69,6 @@ _Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
  */
 #define MAX_NODE_SIZE (1ULL << 16) // Bytes
 
-extern char         trace_key[24];
-extern page_handle *trace_page;
-
-
 /*
  *----------------------------------------------------------------------
  * Dynamic btree --

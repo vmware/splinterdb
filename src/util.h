@@ -210,6 +210,7 @@ writable_buffer_deinit(writable_buffer *wb)
    if (wb->can_free) {
       platform_free(wb->heap_id, wb->buffer);
    }
+   debug_code(wb->buffer = NULL);
 }
 
 static inline platform_status
@@ -239,6 +240,16 @@ writable_buffer_to_slice(const writable_buffer *wb)
    } else {
       return slice_create(wb->length, wb->buffer);
    }
+}
+
+static inline uint64
+writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
+{
+   uint64 oldsize = writable_buffer_length(wb);
+   writable_buffer_resize(wb, oldsize + length);
+   char *data = writable_buffer_data(wb);
+   memcpy(data + oldsize, newdata, length);
+   return oldsize;
 }
 
 /*
