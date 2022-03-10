@@ -8375,21 +8375,20 @@ trunk_config_init(trunk_config *trunk_cfg,
       available_pivot_bytes / trunk_cfg->max_pivot_keys;
    uint64 available_bytes_per_pivot_key =
       available_bytes_per_pivot - sizeof(trunk_pivot_data);
-   platform_assert(
-      trunk_node_min_size < cache_config_page_size(cache_cfg),
-      "\nTrunk node does not fit in page size as configured.\n"
-      "hdr: %luB\n"
-      "pivots: %luB (max_pivot=%lu x %luB)\n"
-      "branches %luB (max_branches=%lu x %luB).\n"
-      "Maximum key size supported with current config: %luB.\n",
-      header_bytes,
-      pivot_bytes,
-      trunk_cfg->max_pivot_keys,
-      data_cfg->key_size + sizeof(trunk_pivot_data),
-      branch_bytes,
-      max_branches_per_node,
-      sizeof(trunk_branch),
-      available_bytes_per_pivot_key);
+   platform_assert(trunk_node_min_size < cache_config_page_size(cache_cfg),
+                   "\nTrunk node does not fit in page size as configured.\n"
+                   "hdr: %luB\n"
+                   "pivots: %luB (max_pivot=%lu x %luB)\n"
+                   "branches %luB (max_branches=%lu x %luB).\n"
+                   "Maximum key size supported with current config: %luB.\n",
+                   header_bytes,
+                   pivot_bytes,
+                   trunk_cfg->max_pivot_keys,
+                   data_cfg->key_size + sizeof(trunk_pivot_data),
+                   branch_bytes,
+                   max_branches_per_node,
+                   sizeof(trunk_branch),
+                   available_bytes_per_pivot_key);
 
    bytes_for_branches = (trunk_page_size(trunk_cfg) - trunk_hdr_size()
                          - trunk_cfg->max_pivot_keys * trunk_pivot_size);
