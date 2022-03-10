@@ -8310,11 +8310,10 @@ trunk_validate_data_config(const data_config *cfg)
    platform_assert(cfg->key_compare != NULL);
 
    // basic check of key comparison
-   int min_max_cmp = cfg->key_compare(cfg,
-                                      cfg->min_key_length,
-                                      cfg->min_key,
-                                      cfg->max_key_length,
-                                      cfg->max_key);
+   int min_max_cmp =
+      cfg->key_compare(cfg,
+                       slice_create(cfg->min_key_length, cfg->min_key),
+                       slice_create(cfg->max_key_length, cfg->max_key));
    platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
 }
 

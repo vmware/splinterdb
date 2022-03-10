@@ -16,18 +16,13 @@
 static inline int
 data_key_compare(const data_config *cfg, const slice key1, const slice key2)
 {
-   return cfg->key_compare(cfg,
-                           slice_length(key1),
-                           slice_data(key1),
-                           slice_length(key2),
-                           slice_data(key2));
+   return cfg->key_compare(cfg, key1, key2);
 }
 
 static inline message_type
 data_message_class(const data_config *cfg, const slice raw_message)
 {
-   return cfg->message_class(
-      cfg, slice_length(raw_message), slice_data(raw_message));
+   return cfg->message_class(cfg, raw_message);
 }
 
 static inline int
@@ -36,12 +31,7 @@ data_merge_tuples(const data_config *cfg,
                   const slice        old_raw_message,
                   writable_buffer   *new_message)
 {
-   return cfg->merge_tuples(cfg,
-                            slice_length(key),
-                            slice_data(key),
-                            slice_length(old_raw_message),
-                            slice_data(old_raw_message),
-                            new_message);
+   return cfg->merge_tuples(cfg, key, old_raw_message, new_message);
 }
 
 static inline int
@@ -59,7 +49,7 @@ data_key_to_string(const data_config *cfg,
                    char              *str,
                    size_t             size)
 {
-   cfg->key_to_string(cfg, slice_length(key), slice_data(key), str, size);
+   cfg->key_to_string(cfg, key, str, size);
 }
 
 #define key_string(cfg, key)                                                   \
@@ -77,8 +67,7 @@ data_message_to_string(const data_config *cfg,
                        char              *str,
                        size_t             size)
 {
-   cfg->message_to_string(
-      cfg, slice_length(message), slice_data(message), str, size);
+   cfg->message_to_string(cfg, message, str, size);
 }
 
 #define message_string(cfg, key)                                               \
