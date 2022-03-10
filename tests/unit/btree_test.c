@@ -9,7 +9,7 @@
  *  files. Validates correctness of variable key-value size support in BTree.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 

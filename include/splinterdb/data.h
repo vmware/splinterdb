@@ -21,7 +21,7 @@
 #define __DATA_H
 
 #include "splinterdb/limits.h"
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
 
 typedef enum message_type {

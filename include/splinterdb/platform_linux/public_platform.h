@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * platform_public.h --
+ * public_platform.h --
  *
  *     Minimal common header for both external users (e.g. splinterdb) and
  *     for internal use.

@@ -38,8 +38,8 @@ RUN $compiler --version \
 FROM $run_env_image
 
 # Put the library and headers in the standard location
-COPY --from=build /splinterdb-install/lib/* /usr/local/lib/
-COPY --from=build /splinterdb-install/include/splinterdb/* /usr/local/include/splinterdb/
+COPY --from=build /splinterdb-install/lib/ /usr/local/lib/
+COPY --from=build /splinterdb-install/include/splinterdb/ /usr/local/include/splinterdb/
 
 # Copy over the test binaries under bin/ (recursively) and the test script
 COPY --from=build /splinterdb-src/bin/ /splinterdb/bin/
