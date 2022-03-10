@@ -66,6 +66,7 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 
 DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
 DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
+DEFAULT_CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
 # track git ref in the built library
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
@@ -310,8 +311,7 @@ install: $(LIBDIR)/libsplinterdb.so
 
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
-	cp -p $(INCDIR)/splinterdb/*.h $(INSTALL_PATH)/include/splinterdb/
-
+	cp -p -r $(INCDIR)/splinterdb/ $(INSTALL_PATH)/include/
 
 # to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
 .PHONY: compile_flags.txt
