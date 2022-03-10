@@ -301,7 +301,7 @@ run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	./test.sh
 
 test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	(./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
+	(INCLUDE_SLOW_TESTS=true ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 
@@ -311,3 +311,9 @@ install: $(LIBDIR)/libsplinterdb.so
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
 	cp -p $(INCDIR)/splinterdb/*.h $(INSTALL_PATH)/include/splinterdb/
+
+
+# to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
+.PHONY: compile_flags.txt
+compile_flags.txt:
+	echo "$(INCLUDE)" | tr ' ' "\n" > compile_flags.txt

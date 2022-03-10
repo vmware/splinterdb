@@ -145,6 +145,12 @@ function nightly_functionality_stress_tests() {
 
     # ----
     cache_size=1        # GiB
+
+    # Remove this block once issue #322 is fixed.
+    n_mills=1
+    num_rows=$((n_mills * 1000 * 1000))
+    nrows_h="${n_mills} mil"
+
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
@@ -376,6 +382,8 @@ run_with_timing "Performance test" bin/driver_test splinter_test --perf --max-as
 run_with_timing "Cache test" bin/driver_test cache_test --seed "$SEED"
 
 run_with_timing "BTree test" bin/driver_test btree_test --seed "$SEED"
+
+run_with_timing "BTree Perf test" bin/driver_test btree_test --perf --cache-capacity-gib 4 --seed "$SEED"
 
 run_with_timing "Log test" bin/driver_test log_test --seed "$SEED"
 
