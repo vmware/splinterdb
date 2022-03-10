@@ -32,6 +32,7 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 
    wb->buffer_size = minspace;
    wb->buffer      = newdata;
+   wb->can_free    = TRUE;
    return STATUS_OK;
 }
 

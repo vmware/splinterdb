@@ -86,10 +86,14 @@ _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
 typedef struct leaf_incorporate_spec {
    slice key;
    int64 idx;
-   enum { did_not_exist, still_exists, has_been_removed } old_entry_state;
+   enum {
+      ENTRY_DID_NOT_EXIST,
+      ENTRY_STILL_EXISTS,
+      ENTRY_HAS_BEEN_REMOVED
+   } old_entry_state;
    union {
       /* "old_entry_state" is the tag on this union. */
-      slice           new_message;    /* old_entry_state == did_not_exist */
+      slice           new_message; /* old_entry_state == ENTRY_DID_NOT_EXIST */
       writable_buffer merged_message; /* otherwise */
    } msg;
 } leaf_incorporate_spec;

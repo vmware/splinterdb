@@ -36,6 +36,7 @@
 #include "util.h"
 #include "test_data.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
 
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7
@@ -260,6 +261,31 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
    }
    if (value) {
       free(value);
+   }
+}
+
+/*
+ * Test case to verify core interfaces when value-size is > max value-size.
+ * Here, we basically exercise the insert interface, which will trip up
+ * if very large values are supplied. (Once insert fails, there is
+ * no further need to verify the other interfaces for very-large-values.)
+ */
+CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
+{
+   size_t            too_large_value_len = MAX_INLINE_MESSAGE_SIZE + 1;
+   char             *too_large_value     = calloc(1, too_large_value_len);
+   static const char short_key[]         = "a_short_key";
+
+   memset(too_large_value, 'z', too_large_value_len);
+   int rc = splinterdb_insert(data->kvsb,
+                              sizeof(short_key),
+                              short_key,
+                              too_large_value_len,
+                              too_large_value);
+
+   ASSERT_EQUAL(EINVAL, rc);
+   if (too_large_value) {
+      free(too_large_value);
    }
 }
 
