@@ -758,9 +758,6 @@ test_splinter_perf(trunk_config    *cfg,
                    uint8            num_caches,
                    uint64           insert_rate)
 {
-   platform_log("splinter_test: SplinterDB performance test started with "
-                "%d tables\n",
-                num_tables);
    trunk_handle  **spl_tables;
    platform_status rc;
 
@@ -790,6 +787,16 @@ test_splinter_perf(trunk_config    *cfg,
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
       total_inserts += per_table_inserts[i];
    }
+
+   platform_log("splinter_test: SplinterDB performance test started "
+                "with (tree_size=%lu (%lu GiB), tuple_size=%lu), "
+                "%d tables, total # of inserts = %lu (~%d million)\n",
+                test_cfg[0].tree_size,
+                B_TO_GiB(test_cfg[0].tree_size),
+                tuple_size,
+                num_tables,
+                total_inserts,
+                (int)(total_inserts / MILLION));
 
    uint64 num_threads = num_insert_threads;
 
@@ -1619,10 +1626,6 @@ test_splinter_parallel_perf(trunk_config    *cfg,
                             uint8            num_tables,
                             uint8            num_caches)
 {
-   platform_log(
-      "splinter_test: SplinterDB parallel performance test started with "
-      "%d tables\n",
-      num_tables);
    trunk_handle  **spl_tables;
    platform_status rc;
 
@@ -1648,6 +1651,15 @@ test_splinter_parallel_perf(trunk_config    *cfg,
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
       total_inserts += per_table_inserts[i];
    }
+
+   platform_log("splinter_test: SplinterDB parallel performance test started"
+                "with (tree_size=%lu, tuple_size=%lu), "
+                "%d tables, total # of inserts = %lu (~%d million)\n",
+                test_cfg[0].tree_size,
+                tuple_size,
+                num_tables,
+                total_inserts,
+                (int)(total_inserts / MILLION));
 
    test_splinter_thread_params *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_threads);
