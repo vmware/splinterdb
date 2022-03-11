@@ -76,7 +76,7 @@ default_data_config_init(const size_t max_key_size, // IN
 {
    platform_assert(max_key_size <= SPLINTERDB_MAX_KEY_SIZE && max_key_size > 0,
                    "default_data_config_init: must have 0 < max_key_size (%lu) "
-                   "< SPLINTERDB_MAX_KEY_SIZE (%d)",
+                   "<= SPLINTERDB_MAX_KEY_SIZE (%d)",
                    max_key_size,
                    SPLINTERDB_MAX_KEY_SIZE);
 

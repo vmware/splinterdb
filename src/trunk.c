@@ -7025,6 +7025,16 @@ trunk_create(trunk_config     *cfg,
    trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
+
+   // Validate configured key-size is within limits.
+   if (trunk_key_size(spl) > MAX_KEY_SIZE) {
+      platform_error_log("Trunk create failed. Configured key size, %lu, is "
+                         "greater than the max key-size supported, %d bytes.\n",
+                         trunk_key_size(spl),
+                         MAX_KEY_SIZE);
+      platform_free(hid, spl);
+      return (trunk_handle *)NULL;
+   }
    spl->al = al;
    spl->cc = cc;
    debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
@@ -7132,6 +7142,16 @@ trunk_mount(trunk_config     *cfg,
    trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
       hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
    memmove(&spl->cfg, cfg, sizeof(*cfg));
+
+   // Validate configured key-size is within limits.
+   if (trunk_key_size(spl) > MAX_KEY_SIZE) {
+      platform_error_log("Trunk mount failed. Configured key size, %lu, is "
+                         "greater than the max key-size supported, %d bytes.\n",
+                         trunk_key_size(spl),
+                         MAX_KEY_SIZE);
+      platform_free(hid, spl);
+      return (trunk_handle *)NULL;
+   }
    spl->al = al;
    spl->cc = cc;
    debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
@@ -7156,7 +7176,8 @@ trunk_mount(trunk_config     *cfg,
       trunk_release_super_block(spl, super_page);
    }
    if (spl->root_addr == 0) {
-      return NULL;
+      platform_free(hid, spl);
+      return (trunk_handle *)NULL;
    }
    uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
 

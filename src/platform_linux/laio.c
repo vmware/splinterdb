@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * laio_io.h --
+ * laio.c --
  *
  *     This file contains the inplementation for a libaio wrapper.
  */
@@ -61,6 +61,10 @@ static io_ops laio_ops = {
    .cleanup_all   = laio_cleanup_all,
 };
 
+/*
+ * Given an IO configuration, validate it. Allocate memory for various
+ * structures and initialize the IO sub-system.
+ */
 platform_status
 io_handle_init(laio_handle         *io,
                io_config           *cfg,
@@ -72,6 +76,12 @@ io_handle_init(laio_handle         *io,
    uint64        total_req_size;
    uint64        i, j;
    io_async_req *req;
+
+   // Validate IO-configuration parameters
+   platform_status rc = laio_config_valid(cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    platform_assert(cfg->async_queue_size % LAIO_HAND_BATCH_SIZE == 0);
    memset(io, 0, sizeof(*io));
@@ -309,4 +319,38 @@ laio_cleanup_all(io_handle *ioh)
       while (req->busy)
          io_cleanup(ioh, 0);
    }
+}
+
+static inline bool
+laio_config_valid_page_size(io_config *cfg)
+{
+   return (cfg->page_size == LAIO_DEFAULT_PAGE_SIZE);
+}
+
+static inline bool
+laio_config_valid_extent_size(io_config *cfg)
+{
+   return (cfg->extent_size == LAIO_DEFAULT_EXTENT_SIZE);
+}
+
+/*
+ * Do basic validation of IO configuration so we don't have to deal
+ * with unsupported configurations that may creep through there.
+ */
+platform_status
+laio_config_valid(io_config *cfg)
+{
+   if (!laio_config_valid_page_size(cfg)) {
+      platform_error_log(
+         "Page-size, %lu bytes, is an invalid IO configuration.\n",
+         cfg->page_size);
+      return STATUS_BAD_PARAM;
+   }
+   if (!laio_config_valid_extent_size(cfg)) {
+      platform_error_log(
+         "Extent-size, %lu bytes, is an invalid IO configuration.\n",
+         cfg->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+   return STATUS_OK;
 }

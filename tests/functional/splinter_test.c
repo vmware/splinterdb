@@ -2400,6 +2400,10 @@ splinter_test(int argc, char *argv[])
    /*
     * 1. Parse splinter_test options, see usage()
     */
+   if (argc > 1 && strncmp(argv[1], "--help", sizeof("--help")) == 0) {
+      usage(argv[0]);
+      return 0;
+   }
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       test                     = perf;
       config_argc              = argc - 2;
@@ -2617,9 +2621,10 @@ splinter_test(int argc, char *argv[])
       rc = STATUS_BAD_PARAM;
    }
    if (!SUCCESS(rc)) {
-      platform_error_log("splinter_test: failed to parse config: %s\n",
+      platform_error_log("Failed to parse config arguments. See "
+                         "'driver_test %s --help' for usage information: %s\n",
+                         argv[0],
                          platform_status_to_string(rc));
-      usage(argv[0]);
       goto cfg_free;
    }
 
