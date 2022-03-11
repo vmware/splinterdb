@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * laio_io.h --
+ * laio.c --
  *
  *     This file contains the inplementation for a libaio wrapper.
  */
@@ -72,6 +72,20 @@ io_handle_init(laio_handle         *io,
    uint64        total_req_size;
    uint64        i, j;
    io_async_req *req;
+
+   // Validate IO-configuration parameters
+   if (!io_config_valid_page_size(cfg)) {
+      platform_error_log(
+         "Page-size, %lu bytes, is an invalid IO configuration.\n",
+         cfg->page_size);
+      return STATUS_BAD_PARAM;
+   }
+   if (!io_config_valid_extent_size(cfg)) {
+      platform_error_log(
+         "Extent-size, %lu bytes, is an invalid IO configuration.\n",
+         cfg->extent_size);
+      return STATUS_BAD_PARAM;
+   }
 
    platform_assert(cfg->async_queue_size % LAIO_HAND_BATCH_SIZE == 0);
    memset(io, 0, sizeof(*io));

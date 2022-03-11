@@ -117,6 +117,15 @@
 
 #define MAX_STRING_LENGTH 256
 
+/*
+ * SplinterDB can be configured with different page-sizes, with a minimum of
+ * this one. But for now, these are the only configurations supported.
+ */
+#define SPLINTER_DEFAULT_PAGE_SIZE        (4096)
+#define SPLINTER_DEFAULT_PAGES_PER_EXTENT 32
+#define SPLINTER_DEFAULT_EXTENT_SIZE                                           \
+   (SPLINTER_DEFAULT_PAGES_PER_EXTENT * SPLINTER_DEFAULT_PAGE_SIZE)
+
 typedef void (*platform_thread_worker)(void *);
 
 /*

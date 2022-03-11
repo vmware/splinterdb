@@ -383,6 +383,10 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
 
 $(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
 
+$(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)            \
+                                       $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                       $(LIBDIR)/libsplinterdb.so
+
 ########################################
 # Convenience targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test

@@ -215,7 +215,6 @@ CTEST_SETUP(splinter)
 
       ASSERT_TRUE(SUCCESS(rc), "clockcache_init() failed for index=%d. ", idx);
    }
-
 }
 
 // clang-format on

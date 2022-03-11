@@ -10,9 +10,9 @@
  * master_config used to run tests.
  * --------------------------------------------------------------------------
  */
-#define TEST_CONFIG_DEFAULT_PAGE_SIZE 4096 // bytes
+#define TEST_CONFIG_DEFAULT_PAGE_SIZE SPLINTER_DEFAULT_PAGE_SIZE // bytes
 
-#define TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT 32
+#define TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT SPLINTER_DEFAULT_PAGES_PER_EXTENT
 _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
                "Invalid TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT value");
 
@@ -81,8 +81,8 @@ void
 config_usage()
 {
    platform_error_log("Configuration: (default)\n");
-   platform_error_log("\t--page_size (%d)\n", TEST_CONFIG_DEFAULT_PAGE_SIZE);
-   platform_error_log("\t--extent_size (%d)\n",
+   platform_error_log("\t--page-size (%d)\n", TEST_CONFIG_DEFAULT_PAGE_SIZE);
+   platform_error_log("\t--extent-size (%d)\n",
                       TEST_CONFIG_DEFAULT_EXTENT_SIZE);
    platform_error_log("\t--set-hugetlb\n");
    platform_error_log("\t--unset-hugetlb\n");
@@ -144,19 +144,32 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          {
             for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                if (cfg[cfg_idx].page_size != TEST_CONFIG_DEFAULT_PAGE_SIZE) {
-                  platform_error_log("page_size must be %d for now\n",
+                  platform_error_log("Currently, page-size configuration "
+                                     "is restricted to %d bytes.\n",
                                      TEST_CONFIG_DEFAULT_PAGE_SIZE);
                   platform_error_log("config: failed to parse page-size\n");
                   return STATUS_BAD_PARAM;
                }
+               // Really dead-code for now; Leave it for future enablement.
                if (!IS_POWER_OF_2(cfg[cfg_idx].page_size)) {
-                  platform_error_log("page_size must be a power of 2\n");
+                  platform_error_log("page-size must be a power of 2.\n");
                   platform_error_log("config: failed to parse page-size\n");
                   return STATUS_BAD_PARAM;
                }
             }
          }
-         config_set_uint64("extent-size", cfg, extent_size) {}
+         config_set_uint64("extent-size", cfg, extent_size)
+         {
+            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               if (!IS_POWER_OF_2(cfg[cfg_idx].extent_size)) {
+                  platform_error_log("Configuration parameter '%s' must be "
+                                     "a power of 2.\n",
+                                     "--extent-size");
+                  platform_error_log("config: failed to parse page-size\n");
+                  return STATUS_BAD_PARAM;
+               }
+            }
+         }
          config_has_option("set-hugetlb")
          {
             platform_use_hugetlb = TRUE;
@@ -266,16 +279,27 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
       }
       for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
          if (cfg[cfg_idx].extent_size % cfg[cfg_idx].page_size != 0) {
-            platform_error_log(
-               "config: extent_size is not a multiple of page_size\n");
+            platform_error_log("Configured extent-size, %lu, is not a multiple "
+                               "of page-size, %lu bytes.\n",
+                               cfg[cfg_idx].extent_size,
+                               cfg[cfg_idx].page_size);
             return STATUS_BAD_PARAM;
          }
          if (cfg[cfg_idx].extent_size / cfg[cfg_idx].page_size
-             > MAX_PAGES_PER_EXTENT) {
-            platform_error_log("config: pages per extent too high: %lu > %lu\n",
-                               cfg[cfg_idx].extent_size
-                                  / cfg[cfg_idx].page_size,
-                               MAX_PAGES_PER_EXTENT);
+             != MAX_PAGES_PER_EXTENT) {
+            int npages = (cfg[cfg_idx].extent_size / cfg[cfg_idx].page_size);
+            platform_error_log("For the configured page-size, %lu bytes, "
+                               "the '%s' argument, %lu, results in %d "
+                               "pages per extent which is not the "
+                               "supported value, %lu. "
+                               "Valid value for %s is %lu.\n",
+                               cfg[cfg_idx].page_size,
+                               "--extent-size",
+                               cfg[cfg_idx].extent_size,
+                               npages,
+                               MAX_PAGES_PER_EXTENT,
+                               "--extent-size",
+                               (MAX_PAGES_PER_EXTENT * cfg[cfg_idx].page_size));
             return STATUS_BAD_PARAM;
          }
          if (cfg[cfg_idx].key_size < TEST_CONFIG_MIN_KEY_SIZE) {
@@ -288,7 +312,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          }
          if (cfg[cfg_idx].key_size > MAX_KEY_SIZE) {
             platform_error_log("Configured key-size, %lu bytes, is larger than "
-                               "the MAX_KEY_SIZE=%d.\n",
+                               "the MAX_KEY_SIZE=%d bytes.\n",
                                cfg[cfg_idx].key_size,
                                MAX_KEY_SIZE);
             return STATUS_BAD_PARAM;
