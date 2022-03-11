@@ -316,4 +316,4 @@ install: $(LIBDIR)/libsplinterdb.so
 # to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
 .PHONY: compile_flags.txt
 compile_flags.txt:
-	echo "$(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
+	echo "$(DEFAULT_CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
