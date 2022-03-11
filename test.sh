@@ -6,6 +6,9 @@
 Me=$(basename "$0")
 set -euo pipefail
 
+# location of binaries
+BINDIR="${BINDIR:-bin}"
+
 # Top-level env-vars controlling test execution logic. CI sets these, too.
 INCLUDE_SLOW_TESTS="${INCLUDE_SLOW_TESTS:-false}"
 RUN_NIGHTLY_TESTS="${RUN_NIGHTLY_TESTS:-false}"
@@ -127,7 +130,7 @@ function nightly_functionality_stress_tests() {
     local dbname="splinter_test.functionality.db"
     echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            bin/driver_test splinter_test --functionality  ${num_rows} 1000 \
+            $BINDIR/driver_test splinter_test --functionality  ${num_rows} 1000 \
                                           --num-tables ${ntables} \
                                           --cache-capacity-gib ${cache_size} \
                                           --db-location ${dbname}
@@ -138,7 +141,7 @@ function nightly_functionality_stress_tests() {
     local dbname="splinter_test.functionality.db"
     echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            bin/driver_test splinter_test --functionality  ${num_rows} 1000 \
+            $BINDIR/driver_test splinter_test --functionality  ${num_rows} 1000 \
                                           --num-tables ${ntables} \
                                           --cache-capacity-gib ${cache_size} \
                                           --db-location ${dbname}
@@ -154,7 +157,7 @@ function nightly_functionality_stress_tests() {
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            bin/driver_test splinter_test --functionality ${num_rows} 1000 \
+            $BINDIR/driver_test splinter_test --functionality ${num_rows} 1000 \
                                           --num-tables ${ntables} \
                                           --cache-capacity-gib ${cache_size} \
                                           --db-location ${dbname}
@@ -165,7 +168,7 @@ function nightly_functionality_stress_tests() {
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            bin/driver_test splinter_test --functionality ${num_rows} 1000 \
+            $BINDIR/driver_test splinter_test --functionality ${num_rows} 1000 \
                                           --num-tables ${ntables} \
                                           --cache-capacity-gib ${cache_size} \
                                           --db-location ${dbname}
@@ -175,7 +178,7 @@ function nightly_functionality_stress_tests() {
     # echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with small ${cache_size} MiB cache"
     # Commented out, because we run into issue # 322.
     # run_with_timing "Functionality Stress test ${test_descr}" \
-    #       bin/driver_test splinter_test --functionality ${num_rows} 1000 \
+    #       $BINDIR/driver_test splinter_test --functionality ${num_rows} 1000 \
                                         # --num-tables ${ntables} \
                                         # --cache-capacity-mib ${cache_size} \
                                         # --db-location ${dbname}
@@ -207,6 +210,7 @@ function nightly_sync_perf_tests() {
     local nrange_lookup_t=8
     local test_descr="${nins_t} insert, ${nlookup_t} lookup, ${nrange_lookup_t} range lookup threads"
 
+<<<<<<< HEAD
     # ----
     # (#325) Commented this out till slow-performance of this test is resolved.
     # splinter_test --perf is included in CI-runs, but just with
@@ -225,10 +229,23 @@ function nightly_sync_perf_tests() {
     local npthreads=8
     local tree_size=8 # GiB
     test_descr="tree-size ${tree_size} GiB, ${npthreads} pthreads"
+=======
+    run_with_timing "Performance (sync) test ${test_descr}" \
+            $BINDIR/driver_test splinter_test --perf \
+                                          --max-async-inflight 0 \
+                                          --num-insert-threads ${nins_t} \
+                                          --num-lookup-threads ${nlookup_t} \
+                                          --num-range-lookup-threads ${nrange_lookup_t} \
+                                          --lookup-positive-percent 10 \
+                                          --db-capacity-gib 60 \
+                                          --db-location ${dbname}
+    rm ${dbname}
+
+>>>>>>> respond to all comments and feature requests
     dbname="splinter_test.pll_perf.db"
 
     run_with_timing "Parallel Performance (sync) test ${test_descr}" \
-            bin/driver_test splinter_test --parallel-perf \
+            $BINDIR/driver_test splinter_test --parallel-perf \
                                           --max-async-inflight 0 \
                                           --num-pthreads ${npthreads} \
                                           --lookup-positive-percent 10 \
@@ -243,6 +260,7 @@ function nightly_sync_perf_tests() {
 function nightly_cache_perf_tests() {
 
     local dbname="cache_test.perf.db"
+<<<<<<< HEAD
     local test_descr="default cache size"
     run_with_timing "Cache Performance test, ${test_descr}" \
             bin/driver_test cache_test --perf \
@@ -252,6 +270,17 @@ function nightly_cache_perf_tests() {
     test_descr="${cache_size} GiB cache"
     run_with_timing "Cache Performance test, ${test_descr}" \
             bin/driver_test cache_test --perf \
+=======
+    local test_descr=", default cache size"
+    run_with_timing "Cache Performance test ${test_descr}" \
+            $BINDIR/driver_test cache_test --perf \
+                                       --db-location ${dbname}
+
+    cache_size=6  # GiB
+    test_descr=", ${cache_size} GiB cache"
+    run_with_timing "Cache Performance test ${test_descr}" \
+            $BINDIR/driver_test cache_test --perf \
+>>>>>>> respond to all comments and feature requests
                                        --db-location ${dbname} \
                                        --cache-capacity-gib ${cache_size} \
                                        --db-capacity-gib 60
@@ -270,7 +299,7 @@ function nightly_async_perf_tests() {
     local test_descr="${npthreads} pthreads,bgt=${nbgthreads},async=${nasync}"
     local dbname="splinter_test.perf.db"
     run_with_timing "Parallel Async Performance test ${test_descr}" \
-            bin/driver_test splinter_test --parallel-perf \
+            $BINDIR/driver_test splinter_test --parallel-perf \
                                           --num-bg-threads ${nbgthreads} \
                                           --max-async-inflight ${nasync} \
                                           --num-pthreads ${npthreads} \
@@ -336,11 +365,11 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    # For some coverage, exercise --help, --list args for unit test binaries
    set -x
-   bin/unit_test --help
-   bin/unit_test --list
-   bin/unit_test --list splinterdb_quick
-   bin/unit/btree_test --help
-   bin/unit/splinterdb_quick_test --list
+   $BINDIR/unit_test --help
+   $BINDIR/unit_test --list
+   $BINDIR/unit_test --list splinterdb_quick
+   $BINDIR/unit/btree_test --help
+   $BINDIR/unit/splinterdb_quick_test --list
    set +x
 
    echo
@@ -350,10 +379,10 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    start_seconds=$SECONDS
 
    set -x
-   bin/unit/splinterdb_quick_test
-   bin/unit/btree_test
-   bin/unit/util_test
-   bin/unit/misc_test
+   $BINDIR/unit/splinterdb_quick_test
+   $BINDIR/unit/btree_test
+   $BINDIR/unit/util_test
+   $BINDIR/unit/misc_test
    set +x
 
    echo "Fast tests passed"
@@ -365,22 +394,23 @@ fi
 # ---- Rest of the coverage runs included in CI test runs ----
 
 # Run all the unit-tests first, to get basic coverage
-run_with_timing "Fast unit tests" bin/unit_test
+run_with_timing "Fast unit tests" $BINDIR/unit_test
 
 # ------------------------------------------------------------------------
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been found to
 # provide the required coverage.
-run_with_timing "Splinter inserts test" bin/unit/splinter_test test_inserts
+run_with_timing "Splinter inserts test" $BINDIR/unit/splinter_test test_inserts
 
 # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
-run_with_timing "Splinter lookups test" bin/unit/splinter_test --num-inserts 2000000 test_lookups
+run_with_timing "Splinter lookups test" $BINDIR/unit/splinter_test --num-inserts 2000000 test_lookups
 
 UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then
     rm ${UNIT_TESTS_DB_DEV}
 fi
 
+<<<<<<< HEAD
 key_size=8
 run_with_timing "Functionality test, key size=${key_size} bytes" bin/driver_test splinter_test --functionality 1000000 100 --key-size ${key_size} --seed "$SEED"
 
@@ -388,11 +418,15 @@ run_with_timing "Functionality test, with default key size" bin/driver_test spli
 
 max_key_size=105
 run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" bin/driver_test splinter_test --functionality 1000000 100 --key-size ${max_key_size} --seed "$SEED"
+=======
+run_with_timing "Functionality test" $BINDIR/driver_test splinter_test --functionality 1000000 100 --seed "$SEED"
+>>>>>>> respond to all comments and feature requests
 
-run_with_timing "Performance test" bin/driver_test splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 0 --tree-size-gib 2 --cache-capacity-mib 512
+run_with_timing "Performance test" $BINDIR/driver_test splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 0 --tree-size-gib 2 --cache-capacity-mib 512
 
-run_with_timing "Cache test" bin/driver_test cache_test --seed "$SEED"
+run_with_timing "Cache test" $BINDIR/driver_test cache_test --seed "$SEED"
 
+<<<<<<< HEAD
 key_size=8
 run_with_timing "BTree test, key size=${key_size} bytes" bin/driver_test btree_test --key-size ${key_size} --seed "$SEED"
 
@@ -400,12 +434,15 @@ run_with_timing "BTree test, with default key size" bin/driver_test btree_test -
 
 key_size=100
 run_with_timing "BTree test, key size=${key_size} bytes" bin/driver_test btree_test --key-size ${key_size} --seed "$SEED"
+=======
+run_with_timing "BTree test" $BINDIR/driver_test btree_test --seed "$SEED"
+>>>>>>> respond to all comments and feature requests
 
-run_with_timing "BTree Perf test" bin/driver_test btree_test --perf --cache-capacity-gib 4 --seed "$SEED"
+run_with_timing "BTree Perf test" $BINDIR/driver_test btree_test --perf --cache-capacity-gib 4 --seed "$SEED"
 
-run_with_timing "Log test" bin/driver_test log_test --seed "$SEED"
+run_with_timing "Log test" $BINDIR/driver_test log_test --seed "$SEED"
 
-run_with_timing "Filter test" bin/driver_test filter_test --seed "$SEED"
+run_with_timing "Filter test" $BINDIR/driver_test filter_test --seed "$SEED"
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

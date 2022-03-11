@@ -10,7 +10,7 @@ help::
 	@echo 'Usage: make [debug]'
 
 #*************************************************************#
-# DIRECTORIES, SRC, OBJ, ETC
+# SOURCE DIRECTORIES AND FILES
 #
 SRCDIR               = src
 TESTS_DIR            = tests
@@ -37,7 +37,7 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test")
 
 #*************************************************************#
-# CFLAGS, ETC
+# DEFAULT CFLAGS, ETC
 #
 
 INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS_DIR)
@@ -61,55 +61,113 @@ endif
 DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
 DEFAULT_LDFLAGS += -ggdb3 -pthread
 
-# ##########################################################################
-# To set sanitiziers, use environment variables, e.g.
-#   DEFAULT_CFLAGS="-fsanitize=address" DEFAULT_LDFLAGS="-fsanitize=address" make debug
-#
-# Note(s):
-#  - Address sanitizer builds: -fsanitize=address
-#     - Ctests will be silently skipped with clang builds. (Known issue.)
-#       Use gcc to build in Asan mode to run unit-tests.
-#     - Tests will run slow in address sanitizer builds.
-#
-#  - Memory sanitizer builds: -fsanitize=memory
-#     - Builds will fail with gcc due to compiler error. Use clang instead.
-#     - Tests will run even slower in memory sanitizer builds.
-#
 LIBS      = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 DEPFLAGS  = -MMD -MP
 
 #*************************************************************#
-# Flags to select release vs debug builds
+# Flags to select release vs debug builds, verbosity, etc.
+#
 
-ifdef D
+help::
+	$(SUMMARY) Environment variables controlling the build
+	$(SUMMARY) '  BUILD_SUFFIX: Base suffix for build output.'
+	$(SUMMARY) '    Objects go into obj-$$(BUILD_SUFFIX)'
+	$(SUMMARY) '    Libraries go into lib-$$(BUILD_SUFFIX)'
+	$(SUMMARY) '    Executables go into bin-$$(BUILD_SUFFIX)'
+	$(SUMMARY) '    Note: setting DEBUGMODE and other flags may further modify the suffix'
+
+#
+# Debug mode
+#
+ifndef DEBUGMODE
+DEBUGMODE=release
+endif
+
+ifeq "$(DEBUGMODE)" "debug"
 CFLAGS  += -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
 LDFLAGS += -g $(DEFAULT_LDFLAGS)
-BUILD_SUFFIX=-debug
-else ifdef DL
+BUILD_SUFFIX+=-debug
+else ifeq "$(DEBUGMODE)" "debug-log"
 CFLAGS  += -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
 LDFLAGS += -g $(DEFAULT_LDFLAGS)
-BUILD_SUFFIX=-debug
-else
+BUILD_SUFFIX+=-debug
+else ifeq "$(DEBUGMODE)" "release"
 CFLAGS   += $(DEFAULT_CFLAGS) -Ofast -flto
 LDFLAGS  += $(DEFAULT_LDFLAGS) -Ofast -flto
-BUILD_SUFFIX=
+else ifdef DEBUGMODE
+$(error Unknown DEBUGMODE "$(DEBUGMODE)".  Valid options are "debug", "debug-log", and "release".  Default is "release")
 endif
 
-ifdef V
-VERBOSE=
-SUMMARY=@ >/dev/null echo
-FORMATTED_SUMMARY=@ >/dev/null echo
-PARTIAL=@ >/dev/null echo
-else
-VERBOSE=@
-SUMMARY=@echo
-FORMATTED_SUMMARY=@printf
-PARTIAL=@echo -n
+help::
+	$(SUMMARY) '  DEBUGMODE: "release", "debug", or "debug-log" (Default: "release")'
+
+#
+# address sanitizer
+#
+ifndef ASAN
+ASAN=0
 endif
+
+ifeq "$(ASAN)" "1"
+CFLAGS  += -fsanitize-address
+LDFLAGS += -fsanitize-address
+BUILD_SUFFIX+=-asan
+else ifeq "$(ASAN)" "0"
+else ifdef ASAN
+$(error Unknown ASAN mode "$(ASAN)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	$(SUMMARY) '  ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
+
+#
+# memory sanitizer
+#
+ifndef MSAN
+MSAN=0
+endif
+
+ifeq "$(MSAN)" "1"
+CFLAGS  += -fsanitize-memory
+LDFLAGS += -fsanitize-memory
+BUILD_SUFFIX+=-msan
+else ifeq "$(MSAN)" "0"
+else ifdef <SAN
+$(error Unknown MSAN mode "$(MSAN)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	$(SUMMARY) '  MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
+
+#
+# Verbosity
+#
+ifndef VERBOSE
+VERBOSE=0
+endif
+
+ifeq "$(VERBOSE)" "1"
+COMMAND=
+PROLIX=@echo
+BRIEF=@ >/dev/null echo
+BRIEF_FORMATTED=@ >/dev/null echo
+BRIEF_PARTIAL=@ >/dev/null echo
+else ifeq "$(VERBOSE)" "0"
+COMMAND=@
+PROLIX=@ >/dev/null echo
+BRIEF=@echo
+BRIEF_FORMATTED=@printf
+BRIEF_PARTIAL=@echo -n
+else ifdef VERBOSE
+$(error Unknown VERBOSE mode "$(VERBOSE)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	$(SUMMARY) '  VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
+
 
 ###################################################################
-# Put all build objects into a directory based on the exact parameters
-# to this build.
+# BUILD DIRECTORIES AND FILES
 #
 OBJDIR    = obj$(BUILD_SUFFIX)
 BINDIR    = bin$(BUILD_SUFFIX)
@@ -142,19 +200,12 @@ UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 #
 
 all: libs tests $(EXTRA_TARGETS)
-
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
-
 tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
-##########################################################
-# Now define our compile, linking, and archive commands
-
-COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
-
-# LD and AR are fine as-is
-
 #######################################################################
+# CONFIGURATION CHECKING
+#
 # Save a hash of the config we used to perform the build and check for
 # any mismatched config from a prior build, so we can ensure we never
 # accidentially build using a mixture of configs
@@ -165,25 +216,22 @@ CONFIG_FILE=$(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
 
 .PHONY: mismatched_config_file_check
 mismatched_config_file_check:
-	$(PARTIAL) Checking for mismatched config...
-	$(VERBOSE) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | \
-						 grep -v $(CONFIG_FILE) | \
-						 xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  " \
-																	 "You need to \"make clean\"."; false'
-	$(SUMMARY) No mismatched config found
+	$(BRIEF_PARTIAL) Checking for mismatched config...
+	$(COMMAND) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | grep -v $(CONFIG_FILE) | xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  You need to \"make clean\"."; false'
+	$(BRIEF) No mismatched config found
 
 
 $(CONFIG_FILE): | mismatched_config_file_check
-	$(SUMMARY) Saving config to $@
-	$(VERBOSE) echo CC          = $(CC)          >> $@
-	$(VERBOSE) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
-	$(VERBOSE) echo CFLAGS      = $(CFLAGS)      >> $@
-	$(VERBOSE) echo INCLUDE     = $(INCLUDE)     >> $@
-	$(VERBOSE) echo TARGET_ARCH = $(TARGET_ARCH) >> $@
-	$(VERBOSE) echo LD          = $(LD)          >> $@
-	$(VERBOSE) echo LDFLAGS     = $(LDFLAGS)     >> $@
-	$(VERBOSE) echo LIBS        = $(LIBS)        >> $@
-	$(VERBOSE) echo AR          = $(AR)          >> $@
+	$(BRIEF) Saving config to $@
+	$(COMMAND) echo CC          = $(CC)          >> $@
+	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
+	$(COMMAND) echo CFLAGS      = $(CFLAGS)      >> $@
+	$(COMMAND) echo INCLUDE     = $(INCLUDE)     >> $@
+	$(COMMAND) echo TARGET_ARCH = $(TARGET_ARCH) >> $@
+	$(COMMAND) echo LD          = $(LD)          >> $@
+	$(COMMAND) echo LDFLAGS     = $(LDFLAGS)     >> $@
+	$(COMMAND) echo LIBS        = $(LIBS)        >> $@
+	$(COMMAND) echo AR          = $(AR)          >> $@
 
 
 #************************************************************#
@@ -194,37 +242,43 @@ $(CONFIG_FILE): | mismatched_config_file_check
 .SECONDARY:
 
 %/.: $(CONFIG_FILE)
-	$(VERBOSE) mkdir -p $@
+	$(COMMAND) mkdir -p $@
 
 # These targets prevent circular dependencies arising from the
 # recipe for building binaries
 $(BINDIR)/.: $(CONFIG_FILE)
-	$(VERBOSE) mkdir -p $@
+	$(COMMAND) mkdir -p $@
 
 $(BINDIR)/%/.: $(CONFIG_FILE)
-	$(VERBOSE) mkdir -p $@
+	$(COMMAND) mkdir -p $@
 
 #*************************************************************#
 # RECIPES
 #
 
+COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+
 $(OBJDIR)/%.o: %.c | $$(@D)/.
-	$(FORMATTED_SUMMARY) "%-20s %-40s [%s]\n" COMPILING $< $@
-	$(VERBOSE) $(COMPILE.c) $< -o $@
+	$(BRIEF_FORMATTED) "%-20s %-40s [%s]\n" COMPILING $< $@
+	$(COMMAND) $(COMPILE.c) $< -o $@
+	$(PROLIX) # blank line
 
 $(BINDIR)/%: | $$(@D)/.
-	$(FORMATTED_SUMMARY) "%-20s %s\n" LINKING $@
-	$(VERBOSE) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
+	$(COMMAND) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(PROLIX) # blank line
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
-	$(FORMATTED_SUMMARY) "%-20s %s\n" LINKING $@
-	$(VERBOSE) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
+	$(COMMAND) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+	$(PROLIX) # blank line
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
 $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
-	$(FORMATTED_SUMMARY) "%-20s %s\n" "BUILDING ARCHIVE" $@
-	$(VERBOSE) $(AR) -crs $@ $^
+	$(BRIEF_FORMATTED) "%-20s %s\n" "BUILDING ARCHIVE" $@
+	$(COMMAND) $(AR) -crs $@ $^
+	$(PROLIX) # blank line
 
 #################################################################
 # Dependencies
@@ -351,10 +405,10 @@ tags:
 .PHONY: install
 
 run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	./test.sh
+	BINDIR=$(BINDIR) ./test.sh
 
 test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	(INCLUDE_SLOW_TESTS=true ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
+	(BINDIR=$(BINDIR) ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 
