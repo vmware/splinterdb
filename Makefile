@@ -1,7 +1,7 @@
 # Copyright 2018-2021 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-.DEFAULT_GOAL := release
+.DEFAULT_GOAL := all
 
 PLATFORM = linux
 PLATFORM_DIR = platform_$(PLATFORM)
@@ -75,39 +75,45 @@ DEFAULT_LDFLAGS += -ggdb3 -pthread
 #     - Builds will fail with gcc due to compiler error. Use clang instead.
 #     - Tests will run even slower in memory sanitizer builds.
 #
-CFLAGS   += $(DEFAULT_CFLAGS) -Ofast -flto
-LDFLAGS  += $(DEFAULT_LDFLAGS) -Ofast -flto
 LIBS      = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
 DEPFLAGS  = -MMD -MP
 
 #*************************************************************#
-# Targets to track whether we have a release or debug build
-release: all
+# Flags to select release vs debug builds
 
 ifdef D
-CFLAGS  = -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
-LDFLAGS = -g $(DEFAULT_LDFLAGS)
-LINK_SUFFIX=-debug
+CFLAGS  += -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
+LDFLAGS += -g $(DEFAULT_LDFLAGS)
+BUILD_SUFFIX=-debug
+else ifdef DL
+CFLAGS  += -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
+LDFLAGS += -g $(DEFAULT_LDFLAGS)
+BUILD_SUFFIX=-debug
+else
+CFLAGS   += $(DEFAULT_CFLAGS) -Ofast -flto
+LDFLAGS  += $(DEFAULT_LDFLAGS) -Ofast -flto
+BUILD_SUFFIX=
 endif
 
-ifdef DL
-CFLAGS = -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
-LDFLAGS = -g $(DEFAULT_LDFLAGS)
-LINK_SUFFIX=-debug
+ifdef V
+VERBOSE=
+SUMMARY=@ >/dev/null echo
+FORMATTED_SUMMARY=@ >/dev/null echo
+PARTIAL=@ >/dev/null echo
+else
+VERBOSE=@
+SUMMARY=@echo
+FORMATTED_SUMMARY=@printf
+PARTIAL=@echo -n
 endif
 
 ###################################################################
 # Put all build objects into a directory based on the exact parameters
 # to this build.
 #
-BUILDDIR  = build
-TARGETDIR = $(BUILDDIR)/$(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
-OBJDIRNAME = obj
-BINDIRNAME = bin
-LIBDIRNAME = lib
-OBJDIR    = $(TARGETDIR)/$(OBJDIRNAME)
-BINDIR    = $(TARGETDIR)/$(BINDIRNAME)
-LIBDIR    = $(TARGETDIR)/$(LIBDIRNAME)
+OBJDIR    = obj$(BUILD_SUFFIX)
+BINDIR    = bin$(BUILD_SUFFIX)
+LIBDIR    = lib$(BUILD_SUFFIX)
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
@@ -131,13 +137,6 @@ FAST_UNIT_TESTOBJS= $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 UNIT_TESTBIN_SRC=$(filter %_test.c, $(UNIT_TESTSRC))
 UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 
-##########################################################
-# Now define our compile, linking, and archive commands
-
-COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
-
-# LD and AR are fine as-is
-
 ####################################################################
 # The main targets
 #
@@ -148,6 +147,45 @@ libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 
 tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
+##########################################################
+# Now define our compile, linking, and archive commands
+
+COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+
+# LD and AR are fine as-is
+
+#######################################################################
+# Save a hash of the config we used to perform the build and check for
+# any mismatched config from a prior build, so we can ensure we never
+# accidentially build using a mixture of configs
+
+CONFIG_HASH=$(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
+CONFIG_FILE_PREFIX=.Makefile.config$(BUILD_SUFFIX).
+CONFIG_FILE=$(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
+
+.PHONY: mismatched_config_file_check
+mismatched_config_file_check:
+	$(PARTIAL) Checking for mismatched config...
+	$(VERBOSE) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | \
+						 grep -v $(CONFIG_FILE) | \
+						 xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  " \
+																	 "You need to \"make clean\"."; false'
+	$(SUMMARY) No mismatched config found
+
+
+$(CONFIG_FILE): | mismatched_config_file_check
+	$(SUMMARY) Saving config to $@
+	$(VERBOSE) echo CC          = $(CC)          >> $@
+	$(VERBOSE) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
+	$(VERBOSE) echo CFLAGS      = $(CFLAGS)      >> $@
+	$(VERBOSE) echo INCLUDE     = $(INCLUDE)     >> $@
+	$(VERBOSE) echo TARGET_ARCH = $(TARGET_ARCH) >> $@
+	$(VERBOSE) echo LD          = $(LD)          >> $@
+	$(VERBOSE) echo LDFLAGS     = $(LDFLAGS)     >> $@
+	$(VERBOSE) echo LIBS        = $(LIBS)        >> $@
+	$(VERBOSE) echo AR          = $(AR)          >> $@
+
+
 #************************************************************#
 # Automatically create directories, based on
 # http://ismail.badawi.io/blog/2017/03/28/automatic-directory-creation-in-make/
@@ -155,54 +193,38 @@ tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
 .SECONDARY:
 
-.PHONY: links
-links:
-	ln -snf $(OBJDIR) $(OBJDIRNAME)$(LINK_SUFFIX)
-	ln -snf $(BINDIR) $(BINDIRNAME)$(LINK_SUFFIX)
-	ln -snf $(LIBDIR) $(LIBDIRNAME)$(LINK_SUFFIX)
+%/.: $(CONFIG_FILE)
+	$(VERBOSE) mkdir -p $@
 
-$(TARGETDIR)/.:
-	mkdir -p $@
-
-$(TARGETDIR)/flags: | $(TARGETDIR)/.
-	echo CC          = $(CC)          >> $(TARGETDIR)/flags
-	echo DEPFLAGS    = $(DEPFLAGS)    >> $(TARGETDIR)/flags
-	echo CFLAGS      = $(CFLAGS)      >> $(TARGETDIR)/flags
-	echo INCLUDE     = $(INCLUDE)     >> $(TARGETDIR)/flags
-	echo TARGET_ARCH = $(TARGET_ARCH) >> $(TARGETDIR)/flags
-	echo LD          = $(LD)          >> $(TARGETDIR)/flags
-	echo LDFLAGS     = $(LDFLAGS)     >> $(TARGETDIR)/flags
-	echo LIBS        = $(LIBS)        >> $(TARGETDIR)/flags
-	echo AR          = $(AR)          >> $(TARGETDIR)/flags
-
-$(TARGETDIR)/%/.: $(TARGETDIR)/flags
-	mkdir -p $@
-
-# These two targets prevent circular dependencies arising from the
+# These targets prevent circular dependencies arising from the
 # recipe for building binaries
-$(BINDIR)/.: $(TARGETDIR)/flags
-	mkdir -p $@
+$(BINDIR)/.: $(CONFIG_FILE)
+	$(VERBOSE) mkdir -p $@
 
-$(BINDIR)/%/.: $(TARGETDIR)/flags
-	mkdir -p $@
+$(BINDIR)/%/.: $(CONFIG_FILE)
+	$(VERBOSE) mkdir -p $@
 
 #*************************************************************#
 # RECIPES
 #
 
-$(OBJDIR)/%.o: %.c | $$(@D)/. links
-	$(COMPILE.c) $< -o $@
+$(OBJDIR)/%.o: %.c | $$(@D)/.
+	$(FORMATTED_SUMMARY) "%-20s %-40s [%s]\n" COMPILING $< $@
+	$(VERBOSE) $(COMPILE.c) $< -o $@
 
-$(BINDIR)/%: | $$(@D)/. links
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+$(BINDIR)/%: | $$(@D)/.
+	$(FORMATTED_SUMMARY) "%-20s %s\n" LINKING $@
+	$(VERBOSE) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. links
-	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
+	$(FORMATTED_SUMMARY) "%-20s %s\n" LINKING $@
+	$(VERBOSE) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
-$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. links
-	$(AR) -crs $@ $^
+$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
+	$(FORMATTED_SUMMARY) "%-20s %s\n" "BUILDING ARCHIVE" $@
+	$(VERBOSE) $(AR) -crs $@ $^
 
 #################################################################
 # Dependencies
@@ -315,7 +337,7 @@ unit_test:                         $(BINDIR)/unit_test
 # we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
-	rm -rf $(BUILDDIR)
+	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(CONFIG_FILE_PREFIX)*
 	uname -a
 	$(CC) --version
 tags:
