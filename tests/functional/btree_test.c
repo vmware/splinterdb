@@ -116,7 +116,7 @@ test_btree_lookup(cache        *cc,
    writable_buffer result;
    bool            ret;
 
-   writable_buffer_init_null(&result, NULL);
+   writable_buffer_init(&result, NULL);
 
    rc = btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, key, &result);
    platform_assert_status_ok(rc);
@@ -189,8 +189,8 @@ test_btree_insert_thread(void *arg)
    writable_buffer key;
    writable_buffer data;
 
-   writable_buffer_init_null(&key, NULL);
-   writable_buffer_init_null(&data, NULL);
+   writable_buffer_init(&key, NULL);
+   writable_buffer_init(&data, NULL);
 
    uint64 start_num = thread_id * num_inserts;
    uint64 end_num   = (thread_id + 1) * num_inserts;
@@ -354,8 +354,8 @@ btree_test_get_async_ctxt(btree_config            *cfg,
    ctxt                      = &async_lookup->ctxt[idx];
    btree_ctxt_init(&ctxt->ctxt, &ctxt->cache_ctxt, btree_test_async_callback);
    ctxt->ready = FALSE;
-   writable_buffer_init_null(&ctxt->key, NULL);
-   writable_buffer_init_null(&ctxt->result, NULL);
+   writable_buffer_init(&ctxt->key, NULL);
+   writable_buffer_init(&ctxt->result, NULL);
 
    return ctxt;
 }
@@ -550,8 +550,8 @@ test_btree_basic(cache             *cc,
    uint64          start_time = platform_get_timestamp();
    writable_buffer key;
    writable_buffer expected_data;
-   writable_buffer_init_null(&key, NULL);
-   writable_buffer_init_null(&expected_data, NULL);
+   writable_buffer_init(&key, NULL);
+   writable_buffer_init(&expected_data, NULL);
 
    platform_status rc = STATUS_OK;
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
@@ -799,8 +799,8 @@ test_btree_create_packed_trees(cache             *cc,
    // fill the memtables
    writable_buffer key;
    writable_buffer data;
-   writable_buffer_init_null(&key, NULL);
-   writable_buffer_init_null(&data, NULL);
+   writable_buffer_init(&key, NULL);
+   writable_buffer_init(&data, NULL);
 
    uint64          insert_no;
    platform_status rc = STATUS_OK;

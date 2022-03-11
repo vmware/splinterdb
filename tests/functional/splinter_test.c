@@ -115,7 +115,7 @@ test_trunk_insert_thread(void *arg)
    // divide the per second insert rate into periods of 10 milli seconds.
    uint64          insert_rate = params->insert_rate / 100;
    writable_buffer msg;
-   writable_buffer_init_null(&msg, NULL);
+   writable_buffer_init(&msg, NULL);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -216,7 +216,7 @@ test_trunk_lookup_thread(void *arg)
    uint8 done = 0;
 
    writable_buffer data;
-   writable_buffer_init_null(&data, NULL);
+   writable_buffer_init(&data, NULL);
 
 
    while (1) {
@@ -490,7 +490,7 @@ do_operation(test_splinter_thread_params *params,
    verify_tuple_arg   vtarg          = {.stats_only = TRUE,
                                         .stats      = &params->lookup_stats[ASYNC_LU]};
    writable_buffer    msg;
-   writable_buffer_init_null(&msg, NULL);
+   writable_buffer_init(&msg, NULL);
 
    for (uint64 op_idx = op_offset; op_idx != op_offset + num_ops; op_idx++) {
       if (op_idx >= op_granularity) {

@@ -382,7 +382,7 @@ query_tests(cache           *cc,
    memset(msgbuf, 0, btree_page_size(cfg));
 
    writable_buffer result;
-   writable_buffer_init(&result, hid, 0, NULL);
+   writable_buffer_init(&result, hid);
 
    for (uint64 i = 0; i < nkvs; i++) {
       btree_lookup(cc,

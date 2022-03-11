@@ -418,7 +418,7 @@ merge_iterator_create(platform_heap_id hid,
    if (merge_itor == NULL) {
       return STATUS_NO_MEMORY;
    }
-   writable_buffer_init_null(&merge_itor->merge_buffer, hid);
+   writable_buffer_init(&merge_itor->merge_buffer, hid);
 
    merge_itor->super.ops = &merge_ops;
    merge_itor->num_trees = num_trees;

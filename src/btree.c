@@ -610,17 +610,31 @@ btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         uint64                      *generation)
 {
    bool success;
-   if (spec->old_entry_state == did_not_exist) {
-      success = btree_insert_leaf_entry(
-         cfg, hdr, spec->idx, spec->key, spec->msg.new_message);
-   } else if (spec->old_entry_state == still_exists) {
-      slice merged = writable_buffer_to_slice(&spec->msg.merged_message);
-      success = btree_set_leaf_entry(cfg, hdr, spec->idx, spec->key, merged);
-   } else {
-      debug_assert(spec->old_entry_state == has_been_removed);
-      slice merged = writable_buffer_to_slice(&spec->msg.merged_message);
-      success = btree_insert_leaf_entry(cfg, hdr, spec->idx, spec->key, merged);
+   switch (spec->old_entry_state) {
+      case did_not_exist:
+         success = btree_insert_leaf_entry(
+            cfg, hdr, spec->idx, spec->key, spec->msg.new_message);
+         break;
+      case still_exists:
+      {
+         slice merged = writable_buffer_to_slice(&spec->msg.merged_message);
+         success = btree_set_leaf_entry(cfg, hdr, spec->idx, spec->key, merged);
+         break;
+      }
+      case has_been_removed:
+      {
+         slice merged = writable_buffer_to_slice(&spec->msg.merged_message);
+         success =
+            btree_insert_leaf_entry(cfg, hdr, spec->idx, spec->key, merged);
+         break;
+      }
+      default:
+         platform_assert(
+            FALSE,
+            "Unknown btree leaf_incorporate_spec->old_entry_state %d",
+            spec->old_entry_state);
    }
+
    if (success) {
       *generation = hdr->generation++;
    }
@@ -631,7 +645,10 @@ btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
  *-----------------------------------------------------------------------------
  * btree_defragment_leaf --
  *
- *      Defragment a node
+ *      Defragment a node.  If spec != NULL, then we also remove the old
+ *      entry that will be replaced by the insert, if such an old entry exists.
+ *
+ *      If spec is NULL or if no old entry exists, then we just defrag the node.
  *-----------------------------------------------------------------------------
  */
 void
@@ -754,8 +771,9 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
          total_bytes += sizeof_leaf_entry(entry);
       }
    }
-   total_bytes += (num_entries + (spec->old_entry_state != still_exists))
-                  * sizeof(table_entry);
+   uint64 new_num_entries = num_entries;
+   new_num_entries += spec->old_entry_state == still_exists ? 0 : 1;
+   total_bytes += new_num_entries * sizeof(table_entry);
 
    /* Now figure out the number of entries to move, and figure out how
       much free space will be created in the left_hdr by the split. */
@@ -2933,6 +2951,15 @@ btree_pack_post_loop(btree_pack_req *req, slice last_key)
    mini_release(&req->mini, last_key);
 }
 
+static bool
+btree_pack_can_fit_tuple(btree_pack_req *req, slice key, slice data)
+{
+   return req->num_tuples < req->max_tuples
+          && req->key_bytes + req->message_bytes + slice_length(key)
+                   + slice_length(data)
+                <= req->max_kv_bytes;
+}
+
 /*
  *-----------------------------------------------------------------------------
  * btree_pack --
@@ -2953,20 +2980,13 @@ btree_pack(btree_pack_req *req)
 
    if (!at_end) {
       iterator_get_curr(req->itor, &key, &data);
-      if (req->num_tuples < req->max_tuples
-          && req->key_bytes + req->message_bytes + slice_length(key)
-                   + slice_length(data)
-                <= req->max_kv_bytes)
-      {
-
+      if (btree_pack_can_fit_tuple(req, key, data)) {
          btree_pack_setup_finish(req, key);
       }
    }
 
    while (!at_end && req->num_tuples < req->max_tuples
-          && req->key_bytes + req->message_bytes + slice_length(key)
-                   + slice_length(data)
-                <= req->max_kv_bytes)
+          && btree_pack_can_fit_tuple(req, key, data))
    {
       iterator_get_curr(req->itor, &key, &data);
       btree_pack_loop(req, key, data, &at_end);

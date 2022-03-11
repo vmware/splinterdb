@@ -12,12 +12,12 @@ const slice NULL_SLICE = (slice){0, NULL};
 static platform_status
 writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 {
-   if (minspace <= wb->buffer_size) {
+   if (minspace <= wb->buffer_capacity) {
       return STATUS_OK;
    }
 
-   if (minspace < 2 * wb->buffer_size) {
-      minspace = 2 * wb->buffer_size;
+   if (minspace < 2 * wb->buffer_capacity) {
+      minspace = 2 * wb->buffer_capacity;
    }
 
    void *oldptr  = wb->can_free ? wb->buffer : NULL;
@@ -30,19 +30,15 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
       memcpy(newdata, wb->buffer, wb->length);
    }
 
-   wb->buffer_size = minspace;
-   wb->buffer      = newdata;
+   wb->buffer_capacity = minspace;
+   wb->buffer          = newdata;
    return STATUS_OK;
 }
 
 uint64
 writable_buffer_length(writable_buffer *wb)
 {
-   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
-      return 0;
-   } else {
-      return wb->length;
-   }
+   return wb->length;
 }
 
 bool

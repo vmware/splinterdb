@@ -317,6 +317,8 @@ ycsb_thread(void *arg)
    uint64           num_ops    = params->total_ops;
    uint64           batch_size = params->batch_size;
    uint64           my_batch;
+   writable_buffer  value;
+   writable_buffer_init(&value, NULL);
 
    uint64_t start_time = platform_get_timestamp();
    __sync_val_compare_and_swap(
@@ -336,8 +338,6 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               writable_buffer value;
-               writable_buffer_init_null(&value, NULL);
                rc = trunk_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
@@ -402,6 +402,7 @@ ycsb_thread(void *arg)
       SEC_TO_NSEC(end_thread_cputime.tv_sec) + end_thread_cputime.tv_nsec
       - SEC_TO_NSEC(start_thread_cputime.tv_sec) - start_thread_cputime.tv_nsec;
    __sync_fetch_and_add(&params->times.sum_of_cpu_times, thread_cputime);
+   writable_buffer_deinit(&value);
 }
 
 static int

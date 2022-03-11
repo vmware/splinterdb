@@ -44,7 +44,7 @@ verify_tuple(trunk_handle           *spl,
 
    if (!slice_is_null(data) && expected_found) {
       writable_buffer expected_msg;
-      writable_buffer_init_null(&expected_msg, NULL);
+      writable_buffer_init(&expected_msg, NULL);
       char data_str[128];
       generate_test_message(gen, lookup_num, &expected_msg);
       if (slice_lex_cmp(writable_buffer_to_slice(&expected_msg), data) != 0) {

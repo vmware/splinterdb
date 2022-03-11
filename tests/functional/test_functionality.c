@@ -93,7 +93,7 @@ verify_tuple(trunk_handle    *spl,
       platform_assert(0);
    } else if (refcount && found) {
       writable_buffer expected_message;
-      writable_buffer_init_null(&expected_message, NULL);
+      writable_buffer_init(&expected_message, NULL);
       test_data_generate_message(
          spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
       slice expected_msg = writable_buffer_to_slice(&expected_message);
@@ -159,7 +159,7 @@ verify_against_shadow(trunk_handle               *spl,
 
    uint64          i;
    writable_buffer message;
-   writable_buffer_init_null(&message, spl->heap_id);
+   writable_buffer_init(&message, spl->heap_id);
 
    for (i = 0; i < sharr->nkeys; i++) {
       uint64           key      = sharr->keys[i];
@@ -565,7 +565,7 @@ insert_random_messages(trunk_handle              *spl,
    platform_status rc = STATUS_OK;
    uint64          key;
    writable_buffer msg;
-   writable_buffer_init_null(&msg, NULL);
+   writable_buffer_init(&msg, NULL);
 
    key = minkey;
    for (i = 0; i < num_messages; i++) {

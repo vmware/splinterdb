@@ -736,7 +736,8 @@ splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
 )
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   writable_buffer_init(&_result->value, NULL, buffer_len, buffer);
+   writable_buffer_init_with_buffer(
+      &_result->value, NULL, buffer_len, buffer, WRITABLE_BUFFER_NULL_LENGTH);
 }
 
 void

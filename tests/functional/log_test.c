@@ -58,7 +58,7 @@ test_log_crash(clockcache             *cc,
    addr  = log_addr(logh);
    magic = log_magic(logh);
 
-   writable_buffer_init_null(&msg, hid);
+   writable_buffer_init(&msg, hid);
 
    for (i = 0; i < num_entries; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
@@ -139,7 +139,7 @@ test_log_thread(void *arg)
    writable_buffer         msg;
 
    slice skey = slice_create(log->cfg->data_cfg->key_size, key);
-   writable_buffer_init_null(&msg, hid);
+   writable_buffer_init(&msg, hid);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);

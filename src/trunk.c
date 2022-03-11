@@ -632,11 +632,10 @@ static inline uint16               trunk_num_pivot_keys            (trunk_handle
 static inline void                 trunk_inc_num_pivot_keys        (trunk_handle *spl, page_handle *node);
 static inline char *               trunk_max_key                   (trunk_handle *spl, page_handle *node);
 void                               trunk_update_num_tuples         (trunk_handle *spl, page_handle *node, uint16 branch_no);
+static inline void                 trunk_pivot_branch_tuple_counts (trunk_handle *spl, page_handle  *node, uint16 pivot_no, uint16 branch_no, uint64 *num_tuples, uint64 *num_kv_bytes);
 void                               trunk_pivot_recount_num_tuples_and_kv_bytes  (trunk_handle *spl, page_handle *node, uint64 pivot_no);
 static inline uint16               trunk_pivot_branch_count        (trunk_handle *spl, page_handle *node, trunk_pivot_data *pdata);
 bool                               trunk_pivot_needs_count_flush   (trunk_handle *spl, page_handle *node, trunk_pivot_data *pdata);
-static inline uint64               trunk_pivot_tuples_in_branch    (trunk_handle *spl, page_handle *node, uint16 pivot_no, uint16 branch_no);
-static inline uint64               trunk_pivot_kv_bytes_in_branch  (trunk_handle *spl, page_handle *node, uint16 pivot_no, uint16 branch_no);
 static inline bool                 trunk_has_vacancy               (trunk_handle *spl, page_handle *node, uint16 num_new_branches);
 static inline uint16               trunk_bundle_no_add             (trunk_handle *spl, uint16 start, uint16 end);
 static inline uint16               trunk_bundle_no_sub             (trunk_handle *spl, uint16 start, uint16 end);
@@ -1420,10 +1419,12 @@ trunk_update_pivot_data(trunk_handle *spl, page_handle *node, uint16 branch_no)
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      pdata->num_tuples +=
-         trunk_pivot_tuples_in_branch(spl, node, pivot_no, branch_no);
-      pdata->num_kv_bytes +=
-         trunk_pivot_kv_bytes_in_branch(spl, node, pivot_no, branch_no);
+      uint64            num_tuples;
+      uint64            num_kv_bytes;
+      trunk_pivot_branch_tuple_counts(
+         spl, node, pivot_no, branch_no, &num_tuples, &num_kv_bytes);
+      pdata->num_tuples += num_tuples;
+      pdata->num_kv_bytes += num_kv_bytes;
    }
 }
 
@@ -1445,10 +1446,12 @@ trunk_pivot_recount_num_tuples_and_kv_bytes(trunk_handle *spl,
    for (uint64 branch_no = pdata->start_branch; branch_no != hdr->end_branch;
         branch_no        = trunk_branch_no_add(spl, branch_no, 1))
    {
-      pdata->num_tuples +=
-         trunk_pivot_tuples_in_branch(spl, node, pivot_no, branch_no);
-      pdata->num_kv_bytes +=
-         trunk_pivot_kv_bytes_in_branch(spl, node, pivot_no, branch_no);
+      uint64 num_tuples;
+      uint64 num_kv_bytes;
+      trunk_pivot_branch_tuple_counts(
+         spl, node, pivot_no, branch_no, &num_tuples, &num_kv_bytes);
+      pdata->num_tuples += num_tuples;
+      pdata->num_kv_bytes += num_kv_bytes;
    }
 }
 
@@ -1467,22 +1470,14 @@ trunk_pivot_kv_bytes(trunk_handle *spl, page_handle *node, uint16 pivot_no)
 }
 
 void
-trunk_pivot_set_num_tuples(trunk_handle *spl,
-                           page_handle  *node,
-                           uint16        pivot_no,
-                           uint64        num_tuples)
-{
-   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-   pdata->num_tuples       = num_tuples;
-}
-
-void
-trunk_pivot_set_num_kv_bytes(trunk_handle *spl,
+trunk_pivot_set_tuple_counts(trunk_handle *spl,
                              page_handle  *node,
                              uint16        pivot_no,
+                             uint64        num_tuples,
                              uint64        num_kv_bytes)
 {
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+   pdata->num_tuples       = num_tuples;
    pdata->num_kv_bytes     = num_kv_bytes;
 }
 
@@ -1610,68 +1605,42 @@ trunk_pivot_branch_count(trunk_handle     *spl,
    return trunk_branch_no_sub(spl, hdr->end_branch, pdata->start_branch);
 }
 
-static inline uint64
-trunk_pivot_tuples_in_btree(trunk_handle *spl,
-                            page_handle  *node,
-                            uint16        pivot_no,
-                            uint64        root_addr)
-{
-   char  *min_key = trunk_get_pivot(spl, node, pivot_no);
-   char  *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
-   uint32 num_tuples;
-   uint32 key_bytes;
-   uint32 message_bytes;
-   btree_count_in_range(spl->cc,
-                        trunk_btree_config(spl),
-                        root_addr,
-                        trunk_key_slice(spl, min_key),
-                        trunk_key_slice(spl, max_key),
-                        &num_tuples,
-                        &key_bytes,
-                        &message_bytes);
-   return num_tuples;
-}
-
-static inline uint64
-trunk_pivot_kv_bytes_in_btree(trunk_handle *spl,
-                              page_handle  *node,
-                              uint16        pivot_no,
-                              uint64        root_addr)
-{
-   char  *min_key = trunk_get_pivot(spl, node, pivot_no);
-   char  *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
-   uint32 num_tuples;
-   uint32 key_bytes;
-   uint32 message_bytes;
-   btree_count_in_range(spl->cc,
-                        trunk_btree_config(spl),
-                        root_addr,
-                        trunk_key_slice(spl, min_key),
-                        trunk_key_slice(spl, max_key),
-                        &num_tuples,
-                        &key_bytes,
-                        &message_bytes);
-   return key_bytes + message_bytes;
-}
-
-static inline uint64
-trunk_pivot_tuples_in_branch(trunk_handle *spl,
-                             page_handle  *node,
-                             uint16        pivot_no,
-                             uint16        branch_no)
-{
-   trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
-   return trunk_pivot_tuples_in_btree(spl, node, pivot_no, branch->root_addr);
-}
-
-static inline uint64
-trunk_pivot_kv_bytes_in_branch(trunk_handle *spl,
+static inline void
+trunk_pivot_btree_tuple_counts(trunk_handle *spl,
                                page_handle  *node,
                                uint16        pivot_no,
-                               uint16        branch_no)
+                               uint64        root_addr,
+                               uint64       *num_tuples,
+                               uint64       *num_kv_bytes)
+{
+   char  *min_key = trunk_get_pivot(spl, node, pivot_no);
+   char  *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
+   uint32 local_num_tuples;
+   uint32 key_bytes;
+   uint32 message_bytes;
+   btree_count_in_range(spl->cc,
+                        trunk_btree_config(spl),
+                        root_addr,
+                        trunk_key_slice(spl, min_key),
+                        trunk_key_slice(spl, max_key),
+                        &local_num_tuples,
+                        &key_bytes,
+                        &message_bytes);
+   *num_tuples   = local_num_tuples;
+   *num_kv_bytes = key_bytes + message_bytes;
+}
+
+static inline void
+trunk_pivot_branch_tuple_counts(trunk_handle *spl,
+                                page_handle  *node,
+                                uint16        pivot_no,
+                                uint16        branch_no,
+                                uint64       *num_tuples,
+                                uint64       *num_kv_bytes)
 {
    trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
-   return trunk_pivot_kv_bytes_in_btree(spl, node, pivot_no, branch->root_addr);
+   return trunk_pivot_btree_tuple_counts(
+      spl, node, pivot_no, branch->root_addr, num_tuples, num_kv_bytes);
 }
 
 __attribute__((unused)) static inline uint64
@@ -1698,7 +1667,7 @@ trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
 }
 
 /*
- * leaf_count_num_tuples estimates the number of tuples in all branches except
+ * leaf_count_tuples estimates the number of tuples in all branches except
  * the first, adds them to first_branch_tuples and stores the result in the
  * tuple estimate for the (only) pivot (in num_tuples).
  *
@@ -1709,9 +1678,9 @@ trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
  * their tuples.
  */
 void
-trunk_leaf_count_num_tuples(trunk_handle *spl,
-                            page_handle  *node,
-                            uint64        first_branch_tuples)
+trunk_leaf_count_tuples(trunk_handle *spl,
+                        page_handle  *node,
+                        uint64        first_branch_tuples)
 {
    trunk_hdr        *hdr   = (trunk_hdr *)node->data;
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
@@ -1720,25 +1689,12 @@ trunk_leaf_count_num_tuples(trunk_handle *spl,
         branch_no != hdr->end_branch;
         branch_no = trunk_branch_no_add(spl, branch_no, 1))
    {
-      pdata->num_tuples +=
-         trunk_pivot_tuples_in_branch(spl, node, 0, branch_no);
-   }
-}
-
-void
-trunk_leaf_count_kv_bytes(trunk_handle *spl,
-                          page_handle  *node,
-                          uint64        first_branch_kv_bytes)
-{
-   trunk_hdr        *hdr   = (trunk_hdr *)node->data;
-   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
-   pdata->num_kv_bytes     = first_branch_kv_bytes;
-   for (uint16 branch_no = trunk_branch_no_add(spl, hdr->start_branch, 1);
-        branch_no != hdr->end_branch;
-        branch_no = trunk_branch_no_add(spl, branch_no, 1))
-   {
-      pdata->num_kv_bytes +=
-         trunk_pivot_kv_bytes_in_branch(spl, node, 0, branch_no);
+      uint64 num_tuples;
+      uint64 num_kv_bytes;
+      trunk_pivot_branch_tuple_counts(
+         spl, node, 0, branch_no, &num_tuples, &num_kv_bytes);
+      pdata->num_tuples   = num_tuples;
+      pdata->num_kv_bytes = num_kv_bytes;
    }
 }
 
@@ -2359,10 +2315,12 @@ static inline void
 trunk_tuples_in_bundle(trunk_handle *spl,
                        page_handle  *node,
                        trunk_bundle *bundle,
-                       uint64        pivot_count[static TRUNK_MAX_PIVOTS])
+                       uint64        pivot_tuple_count[static TRUNK_MAX_PIVOTS],
+                       uint64 pivot_kv_byte_count[static TRUNK_MAX_PIVOTS])
 {
    // Can't ZERO_ARRAY because degerates to a uint64 *
-   ZERO_CONTENTS_N(pivot_count, TRUNK_MAX_PIVOTS);
+   ZERO_CONTENTS_N(pivot_tuple_count, TRUNK_MAX_PIVOTS);
+   ZERO_CONTENTS_N(pivot_kv_byte_count, TRUNK_MAX_PIVOTS);
 
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 branch_no = trunk_bundle_start_branch(spl, node, bundle);
@@ -2370,60 +2328,33 @@ trunk_tuples_in_bundle(trunk_handle *spl,
         branch_no = trunk_branch_no_add(spl, branch_no, 1))
    {
       for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-         pivot_count[pivot_no] +=
-            trunk_pivot_tuples_in_branch(spl, node, pivot_no, branch_no);
-      }
-   }
-}
-
-debug_only static inline void
-trunk_kv_bytes_in_bundle(trunk_handle *spl,
-                         page_handle  *node,
-                         trunk_bundle *bundle,
-                         uint64        pivot_count[static TRUNK_MAX_PIVOTS])
-{
-   // Can't ZERO_ARRAY because degerates to a uint64 *
-   ZERO_CONTENTS_N(pivot_count, TRUNK_MAX_PIVOTS);
-
-   uint16 num_children = trunk_num_children(spl, node);
-   for (uint16 branch_no = trunk_bundle_start_branch(spl, node, bundle);
-        branch_no != trunk_bundle_end_branch(spl, node, bundle);
-        branch_no = trunk_branch_no_add(spl, branch_no, 1))
-   {
-      for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-         pivot_count[pivot_no] +=
-            trunk_pivot_kv_bytes_in_branch(spl, node, pivot_no, branch_no);
+         trunk_pivot_branch_tuple_counts(spl,
+                                         node,
+                                         pivot_no,
+                                         branch_no,
+                                         &pivot_tuple_count[pivot_no],
+                                         &pivot_kv_byte_count[pivot_no]);
       }
    }
 }
 
 static inline void
-trunk_pivot_add_bundle_num_tuples(trunk_handle *spl,
-                                  page_handle  *node,
-                                  trunk_bundle *bundle,
-                                  uint64        pivot_count[TRUNK_MAX_PIVOTS])
-{
-   bundle->num_tuples  = 0;
-   uint16 num_children = trunk_num_children(spl, node);
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      pdata->num_tuples += pivot_count[pivot_no];
-      bundle->num_tuples += pivot_count[pivot_no];
-   }
-}
+trunk_pivot_add_bundle_tuple_counts(
+   trunk_handle *spl,
+   page_handle  *node,
+   trunk_bundle *bundle,
+   uint64        pivot_tuple_count[TRUNK_MAX_PIVOTS],
+   uint64        pivot_kv_byte_count[TRUNK_MAX_PIVOTS])
 
-debug_only static inline void
-trunk_pivot_add_bundle_kv_bytes(trunk_handle *spl,
-                                page_handle  *node,
-                                trunk_bundle *bundle,
-                                uint64        pivot_count[TRUNK_MAX_PIVOTS])
 {
    bundle->num_tuples  = 0;
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      pdata->num_kv_bytes += pivot_count[pivot_no];
-      bundle->num_tuples += pivot_count[pivot_no];
+      pdata->num_tuples += pivot_tuple_count[pivot_no];
+      bundle->num_tuples += pivot_tuple_count[pivot_no];
+      pdata->num_kv_bytes += pivot_kv_byte_count[pivot_no];
+      bundle->num_kv_bytes += pivot_kv_byte_count[pivot_no];
    }
 }
 
@@ -2757,11 +2688,13 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
          pdata->num_tuples -= bundle_num_tuples;
          pdata->num_kv_bytes -= bundle_num_kv_bytes;
          if (repl_branch != NULL) {
-            req->output_pivot_tuple_count[pos] =
-               trunk_pivot_tuples_in_branch(spl, node, pivot_no, new_branch_no);
-            req->output_pivot_kv_byte_count[pos] =
-               trunk_pivot_kv_bytes_in_branch(
-                  spl, node, pivot_no, new_branch_no);
+            trunk_pivot_branch_tuple_counts(
+               spl,
+               node,
+               pivot_no,
+               new_branch_no,
+               &req->output_pivot_tuple_count[pos],
+               &req->output_pivot_kv_byte_count[pos]);
             pdata->num_tuples += req->output_pivot_tuple_count[pos];
             pdata->num_kv_bytes += req->output_pivot_kv_byte_count[pos];
          }
@@ -3278,12 +3211,16 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    req->height                   = trunk_height(spl, root);
    req->generation               = trunk_generation(spl, root);
    req->max_pivot_generation     = trunk_pivot_generation(spl, root);
-   trunk_tuples_in_bundle(spl, root, bundle, req->output_pivot_tuple_count);
-   trunk_kv_bytes_in_bundle(spl, root, bundle, req->output_pivot_kv_byte_count);
-   trunk_pivot_add_bundle_num_tuples(
-      spl, root, bundle, req->output_pivot_tuple_count);
-   trunk_pivot_add_bundle_kv_bytes(
-      spl, root, bundle, req->output_pivot_kv_byte_count);
+   trunk_tuples_in_bundle(spl,
+                          root,
+                          bundle,
+                          req->output_pivot_tuple_count,
+                          req->output_pivot_kv_byte_count);
+   trunk_pivot_add_bundle_tuple_counts(spl,
+                                       root,
+                                       bundle,
+                                       req->output_pivot_tuple_count,
+                                       req->output_pivot_kv_byte_count);
    uint16 num_children = trunk_num_children(spl, root);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       if (pivot_no != 0) {
@@ -4099,12 +4036,16 @@ trunk_flush(trunk_handle     *spl,
    trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
    trunk_bundle             *bundle =
       trunk_flush_into_bundle(spl, parent, child, pdata, req);
-   trunk_tuples_in_bundle(spl, child, bundle, req->input_pivot_tuple_count);
-   trunk_kv_bytes_in_bundle(spl, child, bundle, req->input_pivot_kv_byte_count);
-   trunk_pivot_add_bundle_num_tuples(
-      spl, child, bundle, req->input_pivot_tuple_count);
-   trunk_pivot_add_bundle_kv_bytes(
-      spl, child, bundle, req->input_pivot_kv_byte_count);
+   trunk_tuples_in_bundle(spl,
+                          child,
+                          bundle,
+                          req->input_pivot_tuple_count,
+                          req->input_pivot_kv_byte_count);
+   trunk_pivot_add_bundle_tuple_counts(spl,
+                                       child,
+                                       bundle,
+                                       req->input_pivot_tuple_count,
+                                       req->input_pivot_kv_byte_count);
    trunk_bundle_inc_pivot_rc(spl, child, bundle);
    debug_assert(cache_page_valid(spl->cc, req->addr));
    req->type = is_space_rec ? TRUNK_COMPACTION_TYPE_FLUSH
@@ -5192,8 +5133,8 @@ trunk_split_leaf(trunk_handle *spl,
       for (num_leaves = 0; !at_end; num_leaves++) {
          rough_count_num_tuples = 0;
          rough_count_kv_bytes   = 0;
-         while (1 && !at_end
-                && (0 || rough_count_kv_bytes < target_leaf_kv_bytes
+         while (!at_end
+                && (rough_count_kv_bytes < target_leaf_kv_bytes
                     || num_leaves == target_num_leaves - 1))
          {
             slice curr_key, pivot_data_slice;
@@ -5294,12 +5235,11 @@ trunk_split_leaf(trunk_handle *spl,
       // set new_leaf tuple_count
       trunk_bundle *bundle = trunk_get_bundle(spl, new_leaf, bundle_no);
       uint64        new_leaf_num_tuples[TRUNK_MAX_PIVOTS];
-      trunk_tuples_in_bundle(spl, new_leaf, bundle, new_leaf_num_tuples);
-      trunk_pivot_set_num_tuples(spl, new_leaf, 0, new_leaf_num_tuples[0]);
-
-      uint64 new_leaf_kv_bytes[TRUNK_MAX_PIVOTS];
-      trunk_kv_bytes_in_bundle(spl, new_leaf, bundle, new_leaf_kv_bytes);
-      trunk_pivot_set_num_kv_bytes(spl, new_leaf, 0, new_leaf_kv_bytes[0]);
+      uint64        new_leaf_kv_bytes[TRUNK_MAX_PIVOTS];
+      trunk_tuples_in_bundle(
+         spl, new_leaf, bundle, new_leaf_num_tuples, new_leaf_kv_bytes);
+      trunk_pivot_set_tuple_counts(
+         spl, new_leaf, 0, new_leaf_num_tuples[0], new_leaf_kv_bytes[0]);
 
       if (leaf_no != 0) {
          // set next_addr of leaf
@@ -7278,10 +7218,8 @@ trunk_verify_node(trunk_handle *spl, page_handle *node)
       {
          // slow_count += trunk_pivot_tuples_in_branch_slow(spl, node,
          //       pivot_no, branch_no);
-         tuple_count +=
-            trunk_pivot_tuples_in_branch(spl, node, pivot_no, branch_no);
-         kv_bytes +=
-            trunk_pivot_kv_bytes_in_branch(spl, node, pivot_no, branch_no);
+         trunk_pivot_branch_tuple_counts(
+            spl, node, pivot_no, branch_no, &tuple_count, &kv_bytes);
       }
       // if (count != slow_count) {
       //    platform_error_log("trunk_verify: count != slow_count\n");
@@ -8201,7 +8139,7 @@ void
 trunk_print_lookup(trunk_handle *spl, const char *key)
 {
    writable_buffer data;
-   writable_buffer_init(&data, spl->heap_id, 0, NULL);
+   writable_buffer_init(&data, spl->heap_id);
 
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
@@ -8348,36 +8286,26 @@ trunk_reset_stats(trunk_handle *spl)
    }
 }
 
-uint64
+void
 trunk_branch_count_num_tuples(trunk_handle *spl,
                               page_handle  *node,
-                              uint16        branch_no)
+                              uint16        branch_no,
+                              uint64       *num_tuples,
+                              uint64       *kv_bytes)
 {
    uint16 num_children = trunk_num_children(spl, node);
-   uint64 num_tuples   = 0;
+   *num_tuples         = 0;
+   *kv_bytes           = 0;
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       if (trunk_branch_live_for_pivot(spl, node, branch_no, pivot_no)) {
-         num_tuples +=
-            trunk_pivot_tuples_in_branch(spl, node, pivot_no, branch_no);
+         uint64 local_num_tuples;
+         uint64 local_kv_bytes;
+         trunk_pivot_branch_tuple_counts(
+            spl, node, pivot_no, branch_no, &local_num_tuples, &local_kv_bytes);
+         *num_tuples += local_num_tuples;
+         *kv_bytes += local_kv_bytes;
       }
    }
-   return num_tuples;
-}
-
-uint64
-trunk_branch_count_kv_bytes(trunk_handle *spl,
-                            page_handle  *node,
-                            uint16        branch_no)
-{
-   uint16 num_children = trunk_num_children(spl, node);
-   uint64 kv_bytes     = 0;
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      if (trunk_branch_live_for_pivot(spl, node, branch_no, pivot_no)) {
-         kv_bytes +=
-            trunk_pivot_kv_bytes_in_branch(spl, node, pivot_no, branch_no);
-      }
-   }
-   return kv_bytes;
 }
 
 bool
@@ -8410,10 +8338,10 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
         branch_no        = trunk_branch_no_add(spl, branch_no, 1))
    {
       uint64 addr = trunk_get_branch(spl, node, branch_no)->root_addr;
-      uint64 num_tuples_in_branch =
-         trunk_branch_count_num_tuples(spl, node, branch_no);
-      uint64 kv_bytes_in_branch =
-         trunk_branch_count_kv_bytes(spl, node, branch_no);
+      uint64 num_tuples_in_branch;
+      uint64 kv_bytes_in_branch;
+      trunk_branch_count_num_tuples(
+         spl, node, branch_no, &num_tuples_in_branch, &kv_bytes_in_branch);
       uint64 kib_in_branch = 0;
       // trunk_branch_extent_count(spl, node, branch_no);
       kib_in_branch *= trunk_extent_size(&spl->cfg) / 1024;

@@ -292,8 +292,8 @@ static void
 trunk_shadow_init(trunk_shadow *shadow)
 {
    shadow->sorted = TRUE;
-   writable_buffer_init_null(&shadow->entries, NULL);
-   writable_buffer_init_null(&shadow->data, NULL);
+   writable_buffer_init(&shadow->entries, NULL);
+   writable_buffer_init(&shadow->data, NULL);
 }
 
 static void
@@ -446,7 +446,7 @@ CTEST2(splinter, test_lookups)
                     num_inserts);
 
    writable_buffer qdata;
-   writable_buffer_init_null(&qdata, NULL);
+   writable_buffer_init(&qdata, NULL);
    char         key[MAX_KEY_SIZE];
    const size_t key_size = trunk_key_size(spl);
 
@@ -694,7 +694,7 @@ splinter_do_inserts(void         *datap,
                         num_inserts,
                         (verify ? "and verify" : ""));
    writable_buffer msg;
-   writable_buffer_init_null(&msg, NULL);
+   writable_buffer_init(&msg, NULL);
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
 
       // Show progress message in %age-completed to stdout
