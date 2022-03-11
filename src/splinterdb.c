@@ -77,10 +77,10 @@ static void
 splinterdb_config_set_defaults(splinterdb_config *cfg)
 {
    if (!cfg->page_size) {
-      cfg->page_size = 4096;
+      cfg->page_size = LAIO_DEFAULT_PAGE_SIZE;
    }
    if (!cfg->extent_size) {
-      cfg->extent_size = 128 * 1024;
+      cfg->extent_size = LAIO_DEFAULT_EXTENT_SIZE;
    }
    if (!cfg->io_flags) {
       cfg->io_flags = O_RDWR | O_CREAT;
@@ -118,7 +118,7 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    }
 }
 
-static void
+static platform_status
 splinterdb_validate_app_data_config(const data_config *cfg)
 {
    platform_assert(cfg->key_size > 0);
@@ -129,10 +129,13 @@ splinterdb_validate_app_data_config(const data_config *cfg)
    platform_assert(cfg->key_to_string != NULL);
    platform_assert(cfg->message_to_string != NULL);
 
-   platform_assert(cfg->key_size <= SPLINTERDB_MAX_KEY_SIZE,
-                   "key_size=%lu cannot exceed SPLINTERDB_MAX_KEY_SIZE=%d",
-                   cfg->key_size,
-                   SPLINTERDB_MAX_KEY_SIZE);
+   if (cfg->key_size > SPLINTERDB_MAX_KEY_SIZE) {
+      platform_error_log("Invalid data_config: Specified key_size=%lu cannot "
+                         "exceed SPLINTERDB_MAX_KEY_SIZE=%d.\n",
+                         cfg->key_size,
+                         SPLINTERDB_MAX_KEY_SIZE);
+      return STATUS_BAD_PARAM;
+   }
 
    platform_assert(cfg->max_key_length > 0,
                    "length of maximum key must be positive");
@@ -150,6 +153,7 @@ splinterdb_validate_app_data_config(const data_config *cfg)
                        slice_create(cfg->min_key_length, cfg->min_key),
                        slice_create(cfg->max_key_length, cfg->max_key));
    platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
+   return STATUS_OK;
 }
 
 // Variable-length key encoding and decoding virtual functions
@@ -315,7 +319,12 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                        splinterdb              *kvs      // OUT
 )
 {
-   splinterdb_validate_app_data_config(kvs_cfg->data_cfg);
+   platform_status rc = STATUS_OK;
+
+   rc = splinterdb_validate_app_data_config(kvs_cfg->data_cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0
        || kvs_cfg->disk_size == 0)
@@ -344,6 +353,12 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                   cfg.io_perms,
                   cfg.io_async_queue_depth,
                   cfg.filename);
+
+   // Validate IO-configuration parameters
+   rc = laio_config_valid(&kvs->io_cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
 
@@ -397,7 +412,10 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 
    status = splinterdb_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init config: %s\n",
+      platform_error_log("Failed to %s SplinterDB device '%s' with specified "
+                         "configuration: %s\n",
+                         (open_existing ? "open existing" : "initialize"),
+                         kvs_cfg->filename,
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
@@ -411,7 +429,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    }
 
    uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   status                               = task_system_create(kvs->heap_id,
+
+   status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
                                TRUE,
@@ -419,7 +438,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                                num_bg_threads,
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init splinter state: %s\n",
+      platform_error_log("Failed to init Splinter task system state: %s\n",
                          platform_status_to_string(status));
       goto deinit_iohandle;
    }
@@ -477,8 +496,11 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                               kvs->heap_id);
    }
    if (kvs->spl == NULL) {
-      platform_error_log("Failed to init splinter\n");
-      platform_assert(kvs->spl != NULL);
+      platform_error_log("Failed to %s Splinter instance.\n",
+                         (open_existing ? "mount existing" : "initialize"));
+
+      // Return a generic 'something went wrong' error
+      status = STATUS_INVALID_STATE;
       goto deinit_cache;
    }
 
