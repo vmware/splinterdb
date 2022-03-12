@@ -51,7 +51,7 @@ function record_elapsed_time() {
       # Provide wider test-tag for nightly tests which print verbose descriptions
       fmtstr="%-80s""${fmtstr}"
    else
-      fmtstr="%-40s""${fmtstr}"
+      fmtstr="%-50s""${fmtstr}"
    fi
 
    # Log a line in the /tmp log-file; for future cat of summary output
@@ -381,13 +381,25 @@ if [ -f ${UNIT_TESTS_DB_DEV} ]; then
     rm ${UNIT_TESTS_DB_DEV}
 fi
 
-run_with_timing "Functionality test" bin/driver_test splinter_test --functionality 1000000 100 --seed "$SEED"
+key_size=8
+run_with_timing "Functionality test, key size=${key_size} bytes" bin/driver_test splinter_test --functionality 1000000 100 --key-size ${key_size} --seed "$SEED"
+
+run_with_timing "Functionality test, with default key size" bin/driver_test splinter_test --functionality 1000000 100 --seed "$SEED"
+
+max_key_size=121
+run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" bin/driver_test splinter_test --functionality 1000000 100 --key-size ${max_key_size} --seed "$SEED"
 
 run_with_timing "Performance test" bin/driver_test splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 0 --tree-size-gib 2 --cache-capacity-mib 512
 
 run_with_timing "Cache test" bin/driver_test cache_test --seed "$SEED"
 
-run_with_timing "BTree test" bin/driver_test btree_test --seed "$SEED"
+key_size=8
+run_with_timing "BTree test, key size=${key_size} bytes" bin/driver_test btree_test --key-size ${key_size} --seed "$SEED"
+
+run_with_timing "BTree test, with default key size" bin/driver_test btree_test --seed "$SEED"
+
+key_size=100
+run_with_timing "BTree test, key size=${key_size} bytes" bin/driver_test btree_test --key-size ${key_size} --seed "$SEED"
 
 run_with_timing "BTree Perf test" bin/driver_test btree_test --perf --cache-capacity-gib 4 --seed "$SEED"
 
