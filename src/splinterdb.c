@@ -39,7 +39,7 @@ typedef struct {
    data_config super;
    // This is the data config provided by application, which assumes
    // all keys are variable-length, and the functions will be called
-   // with the correct key lenghts.
+   // with the correct key lengths.
    const data_config *app_data_cfg;
 } shim_data_config;
 

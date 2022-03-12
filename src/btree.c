@@ -154,7 +154,7 @@ log_trace_leaf(const btree_config *cfg, const btree_hdr *hdr, char *msg)
 #else
 #   define log_trace_key(key, msg)
 #   define log_trace_leaf(cfg, hdr, msg)
-#endif
+#endif /* BTREE_KEY_TRACING */
 
 
 /**************************************
@@ -1678,10 +1678,6 @@ btree_grow_root(cache              *cc,   // IN
  *
  *      Inserts the tuple into the dynamic btree.
  *
- *      Return value:
- *      success       -- the tuple has been inserted
- *      locked        -- the insert failed, but the caller didn't fill the tree
- *      lock acquired -- the insert failed, and the caller filled the tree
  *-----------------------------------------------------------------------------
  */
 platform_status

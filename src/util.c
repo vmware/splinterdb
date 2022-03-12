@@ -45,6 +45,7 @@ writable_buffer_length(writable_buffer *wb)
    return wb->length;
 }
 
+/* May allocate memory */
 bool
 writable_buffer_resize(writable_buffer *wb, uint64 newlength)
 {

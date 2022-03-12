@@ -232,6 +232,7 @@ writable_buffer_to_slice(const writable_buffer *wb)
    }
 }
 
+/* Returns the old length of wb */
 static inline uint64
 writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 {
