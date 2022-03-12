@@ -18,7 +18,7 @@
  * $ bin/unit/splinter_test --memtable-capacity-mib 4 test_lookups
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "trunk.h"
 #include "clockcache.h"
 #include "allocator.h"

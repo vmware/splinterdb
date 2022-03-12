@@ -146,19 +146,18 @@ splinterdb_validate_app_data_config(const data_config *cfg)
                    cfg->min_key_length,
                    cfg->key_size);
 
-   int min_max_cmp = cfg->key_compare(cfg,
-                                      cfg->min_key_length,
-                                      cfg->min_key,
-                                      cfg->max_key_length,
-                                      cfg->max_key);
+   int min_max_cmp =
+      cfg->key_compare(cfg,
+                       slice_create(cfg->min_key_length, cfg->min_key),
+                       slice_create(cfg->max_key_length, cfg->max_key));
    platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
 }
 
 // Variable-length key encoding and decoding virtual functions
 
-// Length-prefix encoding of a variable-sized key
+// Length-prefix encoding of a variable-sized key (Disk-Resident Structure)
 // We do this so that key comparison can be variable-length
-typedef struct PACKED {
+typedef struct ONDISK {
    uint8 length;
    uint8 data[0];
 } var_len_key_encoding;
@@ -170,26 +169,23 @@ static_assert((SPLINTERDB_MAX_KEY_SIZE <= UINT8_MAX),
               "Variable-length key support is currently cappted at 255 bytes");
 
 static int
-encode_key(void       *key_buffer,
-           uint64      key_buffer_len,
-           const void *key,
-           uint64      key_len)
+encode_key(uint64 out_key_buffer_len, void *out_key_buffer, slice in_key)
 {
-   if (key_len > SPLINTERDB_MAX_KEY_SIZE) {
+   if (slice_length(in_key) > SPLINTERDB_MAX_KEY_SIZE) {
       platform_error_log("splinterdb.encode_key requires "
                          "key_len (%lu) <= SPLINTERDB_MAX_KEY_SIZE (%u)\n",
-                         key_len,
+                         slice_length(in_key),
                          SPLINTERDB_MAX_KEY_SIZE);
       return EINVAL;
    }
-   platform_assert(key_buffer_len == MAX_KEY_SIZE,
+   platform_assert(out_key_buffer_len == MAX_KEY_SIZE,
                    "key buffer must always be of size MAX_KEY_SIZE");
 
-   memset(key_buffer, 0, key_buffer_len);
-   var_len_key_encoding *key_enc = (var_len_key_encoding *)key_buffer;
-   key_enc->length               = (uint8)key_len;
-   if (key_len > 0) {
-      memmove(key_enc->data, key, key_len);
+   memset(out_key_buffer, 0, out_key_buffer_len);
+   var_len_key_encoding *key_enc = (var_len_key_encoding *)out_key_buffer;
+   key_enc->length               = (uint8)slice_length(in_key);
+   if (slice_length(in_key) > 0) {
+      memmove(key_enc->data, slice_data(in_key), slice_length(in_key));
    }
    return 0;
 }
@@ -197,52 +193,43 @@ encode_key(void       *key_buffer,
 
 static int
 splinterdb_shim_key_compare(const data_config *cfg,
-                            uint64             unused_key1_raw_len,
-                            const void        *key1_raw,
-                            uint64             unused_key2_raw_len,
-                            const void        *key2_raw)
+                            slice              key1_raw,
+                            slice              key2_raw)
 {
-   var_len_key_encoding *key1 = (var_len_key_encoding *)key1_raw;
-   var_len_key_encoding *key2 = (var_len_key_encoding *)key2_raw;
+   var_len_key_encoding *key1 = (var_len_key_encoding *)slice_data(key1_raw);
+   var_len_key_encoding *key2 = (var_len_key_encoding *)slice_data(key2_raw);
 
    platform_assert(key1->length <= SPLINTERDB_MAX_KEY_SIZE);
    platform_assert(key2->length <= SPLINTERDB_MAX_KEY_SIZE);
 
    shim_data_config  *shim_data_cfg = (shim_data_config *)cfg;
    const data_config *app_cfg       = shim_data_cfg->app_data_cfg;
-   return app_cfg->key_compare(
-      app_cfg, key1->length, key1->data, key2->length, key2->data);
+   return app_cfg->key_compare(app_cfg,
+                               slice_create(key1->length, key1->data),
+                               slice_create(key2->length, key2->data));
 }
 
 static message_type
-splinterdb_shim_message_class(const data_config *cfg,
-                              uint64             raw_message_len,
-                              const void        *raw_message)
+splinterdb_shim_message_class(const data_config *cfg, slice raw_message)
 {
    shim_data_config  *shim_data_cfg = (shim_data_config *)cfg;
    const data_config *app_cfg       = shim_data_cfg->app_data_cfg;
-   return app_cfg->message_class(app_cfg, raw_message_len, raw_message);
+   return app_cfg->message_class(app_cfg, raw_message);
 }
 
 static int
 splinterdb_shim_merge_tuple(const data_config *cfg,
-                            uint64             unused_key_len,
-                            const void        *key_raw,
-                            uint64             old_message_len,
-                            const void        *old_message,
+                            const slice        key_raw,
+                            const slice        old_message,
                             writable_buffer   *new_message)
 {
    shim_data_config     *shim_data_cfg = (shim_data_config *)cfg;
    const data_config    *app_cfg       = shim_data_cfg->app_data_cfg;
-   var_len_key_encoding *key           = (var_len_key_encoding *)key_raw;
+   var_len_key_encoding *key = (var_len_key_encoding *)slice_data(key_raw);
 
    platform_assert(key->length <= SPLINTERDB_MAX_KEY_SIZE);
-   return app_cfg->merge_tuples(app_cfg,
-                                key->length,
-                                key->data,
-                                old_message_len,
-                                old_message,
-                                new_message);
+   return app_cfg->merge_tuples(
+      app_cfg, slice_create(key->length, key->data), old_message, new_message);
 }
 
 static int
@@ -262,17 +249,17 @@ splinterdb_shim_merge_tuple_final(const data_config *cfg,
 
 static void
 splinterdb_shim_key_to_string(const data_config *cfg,
-                              uint64             unused_key_len,
-                              const void        *key_raw,
+                              const slice        key_raw,
                               char              *str,
                               uint64             max_len)
 {
    shim_data_config     *shim_data_cfg = (shim_data_config *)cfg;
    const data_config    *app_cfg       = shim_data_cfg->app_data_cfg;
-   var_len_key_encoding *key           = (var_len_key_encoding *)key_raw;
+   var_len_key_encoding *key = (var_len_key_encoding *)slice_data(key_raw);
 
    platform_assert(key->length <= SPLINTERDB_MAX_KEY_SIZE);
-   app_cfg->key_to_string(app_cfg, key->length, key->data, str, max_len);
+   app_cfg->key_to_string(
+      app_cfg, slice_create(key->length, key->data), str, max_len);
 }
 
 
@@ -286,19 +273,17 @@ splinterdb_shim_data_config(const data_config *app_cfg,
    data_config shim = {0};
    shim.key_size    = app_cfg->key_size + sizeof(var_len_key_encoding);
 
-   int rc = encode_key(shim.min_key,
-                       sizeof(shim.min_key),
-                       app_cfg->min_key,
-                       app_cfg->min_key_length);
+   int rc = encode_key(sizeof(shim.min_key),
+                       shim.min_key,
+                       slice_create(app_cfg->min_key_length, app_cfg->min_key));
    if (rc != 0) {
       return rc;
    }
    shim.min_key_length = 0; // lower layer ignores this
 
-   rc = encode_key(shim.max_key,
-                   sizeof(shim.max_key),
-                   app_cfg->max_key,
-                   app_cfg->max_key_length);
+   rc = encode_key(sizeof(shim.max_key),
+                   shim.max_key,
+                   slice_create(app_cfg->max_key_length, app_cfg->max_key));
    if (rc != 0) {
       return rc;
    }
@@ -643,37 +628,30 @@ validate_key_length(const splinterdb *kvs, uint64 key_length)
  *-----------------------------------------------------------------------------
  */
 int
-splinterdb_insert_raw_message(const splinterdb *kvs,            // IN
-                              uint64            key_length,     // IN
-                              const char       *key,            // IN
-                              uint64            message_length, // IN
-                              const char       *message         // IN
+splinterdb_insert_raw_message(const splinterdb *kvs,        // IN
+                              slice             key,        // IN
+                              slice             raw_message // IN
 )
 {
    platform_assert(kvs != NULL);
-   int rc = validate_key_length(kvs, key_length);
+   int rc = validate_key_length(kvs, slice_length(key));
    if (rc != 0) {
       return rc;
    }
-
-   slice message_slice = slice_create(message_length, message);
 
    char key_buffer[MAX_KEY_SIZE] = {0};
-   rc = encode_key(key_buffer, sizeof(key_buffer), key, key_length);
+
+   rc = encode_key(sizeof(key_buffer), key_buffer, key);
    if (rc != 0) {
       return rc;
    }
 
-   platform_status status = trunk_insert(kvs->spl, key_buffer, message_slice);
+   platform_status status = trunk_insert(kvs->spl, key_buffer, raw_message);
    return platform_status_to_int(status);
 }
 
 int
-splinterdb_insert(const splinterdb *kvsb,
-                  uint64            key_len,
-                  const char       *key,
-                  uint64            val_len,
-                  const char       *value)
+splinterdb_insert(const splinterdb *kvsb, slice key, slice value)
 {
    platform_assert(kvsb->shim_data_cfg.app_data_cfg->encode_message != NULL);
 
@@ -682,7 +660,6 @@ splinterdb_insert(const splinterdb *kvsb,
    uint64 encoded_len;
    int    rc =
       kvsb->shim_data_cfg.app_data_cfg->encode_message(MESSAGE_TYPE_INSERT,
-                                                       val_len,
                                                        value,
                                                        MAX_ENCODED_MESSAGE_SIZE,
                                                        msg_buffer,
@@ -691,11 +668,11 @@ splinterdb_insert(const splinterdb *kvsb,
       return rc;
    }
    return splinterdb_insert_raw_message(
-      kvsb, key_len, key, encoded_len, msg_buffer);
+      kvsb, key, slice_create(encoded_len, msg_buffer));
 }
 
 int
-splinterdb_delete(const splinterdb *kvsb, uint64 key_len, const char *key)
+splinterdb_delete(const splinterdb *kvsb, slice key)
 {
    platform_assert(kvsb->shim_data_cfg.app_data_cfg->encode_message != NULL);
 
@@ -703,8 +680,7 @@ splinterdb_delete(const splinterdb *kvsb, uint64 key_len, const char *key)
    uint64 encoded_len;
    int    rc =
       kvsb->shim_data_cfg.app_data_cfg->encode_message(MESSAGE_TYPE_DELETE,
-                                                       0,
-                                                       NULL,
+                                                       NULL_SLICE,
                                                        MAX_ENCODED_MESSAGE_SIZE,
                                                        msg_buffer,
                                                        &encoded_len);
@@ -712,7 +688,7 @@ splinterdb_delete(const splinterdb *kvsb, uint64 key_len, const char *key)
       return rc;
    }
    return splinterdb_insert_raw_message(
-      kvsb, key_len, key, encoded_len, msg_buffer);
+      kvsb, key, slice_create(encoded_len, msg_buffer));
 }
 
 /*
@@ -771,19 +747,27 @@ splinterdb_lookup_result_data(const splinterdb_lookup_result *result) // IN
 int
 splinterdb_lookup_result_value(const splinterdb               *kvs,
                                const splinterdb_lookup_result *result, // IN
-                               uint64      *value_size,                // OUT
-                               const char **value)
+                               slice                          *value)
 {
 
    if (!splinterdb_lookup_found(result)) {
       return EINVAL;
    }
 
-   return kvs->shim_data_cfg.app_data_cfg->decode_message(
-      splinterdb_lookup_result_size(result),
-      splinterdb_lookup_result_data(result),
-      value_size,
-      value);
+   size_t      value_size;
+   const char *value_data;
+
+   slice msg = slice_create(splinterdb_lookup_result_size(result),
+                            splinterdb_lookup_result_data(result));
+
+   int rc = kvs->shim_data_cfg.app_data_cfg->decode_message(
+      msg, &value_size, &value_data);
+   if (rc != 0) {
+      return rc;
+   }
+
+   *value = slice_create(value_size, value_data);
+   return 0;
 }
 
 /*
@@ -807,12 +791,11 @@ splinterdb_lookup_result_value(const splinterdb               *kvs,
  *-----------------------------------------------------------------------------
  */
 int
-splinterdb_lookup(const splinterdb         *kvs,        // IN
-                  uint64                    key_length, // IN
-                  const char               *key,        // IN
-                  splinterdb_lookup_result *result)     // IN/OUT
+splinterdb_lookup(const splinterdb         *kvs, // IN
+                  slice                     key,
+                  splinterdb_lookup_result *result) // IN/OUT
 {
-   int rc = validate_key_length(kvs, key_length);
+   int rc = validate_key_length(kvs, slice_length(key));
    if (rc != 0) {
       return rc;
    }
@@ -822,7 +805,8 @@ splinterdb_lookup(const splinterdb         *kvs,        // IN
 
    platform_assert(kvs != NULL);
    char key_buffer[MAX_KEY_SIZE] = {0};
-   rc = encode_key(key_buffer, sizeof(key_buffer), key, key_length);
+
+   rc = encode_key(sizeof(key_buffer), key_buffer, key);
    if (rc != 0) {
       return rc;
    }
@@ -839,10 +823,9 @@ struct splinterdb_iterator {
 };
 
 int
-splinterdb_iterator_init(const splinterdb     *kvs,              // IN
-                         splinterdb_iterator **iter,             // OUT
-                         uint64                start_key_length, // IN
-                         const char           *start_key         // IN
+splinterdb_iterator_init(const splinterdb     *kvs,      // IN
+                         splinterdb_iterator **iter,     // OUT
+                         slice                 start_key // IN
 )
 {
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);
@@ -855,11 +838,8 @@ splinterdb_iterator_init(const splinterdb     *kvs,              // IN
    trunk_range_iterator *range_itor = &(it->sri);
 
    char start_key_buffer[MAX_KEY_SIZE] = {0};
-   if (start_key) {
-      int rc = encode_key(start_key_buffer,
-                          sizeof(start_key_buffer),
-                          start_key,
-                          start_key_length);
+   if (!slice_is_null(start_key)) {
+      int rc = encode_key(MAX_KEY_SIZE, start_key_buffer, start_key);
       if (rc != 0) {
          return rc;
       }
@@ -917,11 +897,9 @@ splinterdb_iterator_status(const splinterdb_iterator *iter)
 }
 
 void
-splinterdb_iterator_get_current(splinterdb_iterator *iter,    // IN
-                                uint64              *key_len, // OUT
-                                const char         **key,     // OUT
-                                uint64              *val_len, // OUT
-                                const char         **value    // OUT
+splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
+                                slice               *key,  // OUT
+                                slice               *value // OUT
 )
 {
    platform_assert(iter->parent->shim_data_cfg.app_data_cfg->decode_message
@@ -936,14 +914,10 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,    // IN
    var_len_key_encoding *kenc = (var_len_key_encoding *)(slice_data(key_slice));
    platform_assert(kenc->length <= SPLINTERDB_MAX_KEY_SIZE);
 
-   *key     = (const char *)(&kenc->data);
-   *key_len = kenc->length;
-
-   uint64      message_length = slice_length(message_slice);
-   const char *message_buffer = slice_data(message_slice);
+   *key = slice_create(kenc->length, kenc->data);
 
    int rc = iter->parent->shim_data_cfg.app_data_cfg->decode_message(
-      message_length, message_buffer, val_len, value);
+      message_slice, &(value->length), (const char **)&(value->data));
    if (rc != 0) {
       iter->last_rc = STATUS_BAD_PARAM;
    }

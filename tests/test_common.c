@@ -8,7 +8,7 @@
  * Module contains functions shared between functional/ and unit/ test sources.
  * -----------------------------------------------------------------------------
  */
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "trunk.h"
 #include "functional/test.h"
 #include "functional/test_async.h"

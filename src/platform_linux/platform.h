@@ -4,7 +4,7 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 
 /*
  * Platform directory is chosen via -I include options to compiler.

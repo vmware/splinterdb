@@ -70,40 +70,6 @@ init_fraction(uint64 numerator, uint64 denominator)
       .denominator = 1,                                                        \
    })
 
-/*
- * Non-disk resident descriptor for a [<length>, <value ptr>] pair handle.
- * Used to pass-around references to keys and values of different lengths.
- */
-typedef struct slice {
-   uint64      length;
-   const void *data;
-} slice;
-
-extern const slice NULL_SLICE;
-
-static inline bool
-slice_is_null(const slice b)
-{
-   return b.length == 0 && b.data == NULL;
-}
-
-static inline slice
-slice_create(uint64 len, const void *data)
-{
-   return (slice){.length = len, .data = data};
-}
-
-static inline uint64
-slice_length(const slice b)
-{
-   return b.length;
-}
-
-static inline const void *
-slice_data(const slice b)
-{
-   return b.data;
-}
 
 static inline slice
 slice_copy_contents(void *dst, const slice src)

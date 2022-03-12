@@ -11,7 +11,7 @@
 #ifndef __BTREE_PRIVATE_H__
 #define __BTREE_PRIVATE_H__
 
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "splinterdb/data.h"
 #include "util.h"
 #include "btree.h"
