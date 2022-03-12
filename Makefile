@@ -267,6 +267,8 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                                 $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                 $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
+
 ########################################
 # Convenience targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
@@ -276,6 +278,7 @@ unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
+unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit_test:                         $(BINDIR)/unit_test
 
 #*************************************************************#
@@ -301,7 +304,7 @@ run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	./test.sh
 
 test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	(./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
+	(INCLUDE_SLOW_TESTS=true ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 

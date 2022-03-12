@@ -278,16 +278,6 @@ CTEST2(splinter, test_inserts)
    trunk_destroy(spl);
 }
 
-static uint64
-writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
-{
-   uint64 oldsize = writable_buffer_length(wb);
-   writable_buffer_resize(wb, oldsize + length);
-   char *data = writable_buffer_data(wb);
-   memcpy(data + oldsize, newdata, length);
-   return oldsize;
-}
-
 static void
 trunk_shadow_init(trunk_shadow *shadow)
 {
@@ -832,9 +822,12 @@ test_lookup_by_range(void         *datap,
                        shadow_check_tuple_func,
                        &arg);
 
-      ASSERT_TRUE(SUCCESS(rc) && arg.errors == 0
-                     && arg.pos == start_idx + expected_returned_tuples,
-                  "trunk_range() failed for expected_returned_tuples=%lu"
+      ASSERT_TRUE(SUCCESS(rc));
+      ASSERT_TRUE(
+         arg.errors == 0, "trunk_range() found %lu mismatches", arg.errors);
+      ASSERT_TRUE(arg.pos == start_idx + expected_returned_tuples,
+                  "trunk_range() saw wrong number of tuples: "
+                  " expected_returned_tuples=%lu"
                   ", returned_tuples=%lu"
                   ", start_key='%.*s'"
                   ", errors=%lu",

@@ -24,6 +24,10 @@ destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
    sharr->nkeys = 0;
 }
 
+/*
+ * Try to find the key target by iterating through the whole
+ * database. Used for diagnosing failures.
+ */
 static void
 search_for_key_via_iterator(trunk_handle *spl, slice target)
 {
@@ -33,13 +37,12 @@ search_for_key_via_iterator(trunk_handle *spl, slice target)
    trunk_range_iterator_init(spl, &iter, NULL, NULL, UINT64_MAX);
    uint64 count = 0;
    while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
-      slice key, value;
+      slice key;
+      slice value;
       iterator_get_curr((iterator *)&iter, &key, &value);
       if (slice_lex_cmp(target, key) == 0) {
-         platform_log("Found missing key\n");
-      } else {
-         platform_log("Found non-missing key %s\n",
-                      key_string(spl->cfg.data_cfg, key));
+         platform_log("Found missing key %s\n",
+                      key_string(spl->cfg.data_cfg, target));
       }
       iterator_advance((iterator *)&iter);
       count++;
@@ -97,8 +100,8 @@ verify_tuple(trunk_handle    *spl,
       test_data_generate_message(
          spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
       slice expected_msg = writable_buffer_to_slice(&expected_message);
-      platform_assert(!slice_is_null(message)
-                         && slice_lex_cmp(message, expected_msg) == 0,
+      platform_assert(!slice_is_null(message));
+      platform_assert(slice_lex_cmp(message, expected_msg) == 0,
                       "ERROR: message does not match expected message.  "
                       "key = 0x%08lx "
                       "shadow ref: %4d "
@@ -534,7 +537,6 @@ cleanup:
 /*
  *-----------------------------------------------------------------------------
  * Insert several messages of the given type into the splinter and the shadow
- *--
  *
  * Results:
  *      Return 0 if all operations are successful.  Appropriate error code
@@ -585,23 +587,10 @@ insert_random_messages(trunk_handle              *spl,
       }
       test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
 
-      // if (key == 0x02f90065)
-      //   platform_log("Inserting message: %8d OP=%d Key=0x%08lx Value=%8d\n",
-      //   i, op, key, msg->ref_count);
       rc = trunk_insert(spl, keybuf, writable_buffer_to_slice(&msg));
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
-
-      /* if (key == 0x015101e8ULL) { */
-      /*    platform_log( */
-      /*       "Inserting key %lu with refcount %d and message length %lu\n", */
-      /*       key, */
-      /*       ref_count, */
-      /*       writable_buffer_length(&msg)); */
-      /*    trunk_print_lookup(spl, keybuf); */
-      /* } */
-
 
       // Now apply same operation to the shadow
       int8 new_refcount = ref_count;

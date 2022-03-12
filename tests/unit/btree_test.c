@@ -209,7 +209,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
-   leaf_incorporate_spec spec = {.old_entry_state = did_not_exist};
+   leaf_incorporate_spec spec = {.old_entry_state = ENTRY_DID_NOT_EXIST};
    btree_defragment_leaf(cfg, scratch, hdr, &spec);
 
    for (uint64 i = 0; i < nkvs; i++) {

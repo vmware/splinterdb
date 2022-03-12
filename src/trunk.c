@@ -6743,7 +6743,7 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
 
             if (!writable_buffer_is_null(data)) {
                slice        message = writable_buffer_to_slice(data);
-               message_type type = data_message_class(data_cfg, message);
+               message_type type    = data_message_class(data_cfg, message);
                debug_assert(type == MESSAGE_TYPE_DELETE
                             || type == MESSAGE_TYPE_INSERT);
                if (type == MESSAGE_TYPE_DELETE) {
