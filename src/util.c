@@ -38,12 +38,16 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 uint64
 writable_buffer_length(writable_buffer *wb)
 {
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return 0;
+   }
    return wb->length;
 }
 
 bool
 writable_buffer_resize(writable_buffer *wb, uint64 newlength)
 {
+   platform_assert(newlength != WRITABLE_BUFFER_NULL_LENGTH);
    platform_status rc = writable_buffer_ensure_space(wb, newlength);
    if (!SUCCESS(rc)) {
       return FALSE;

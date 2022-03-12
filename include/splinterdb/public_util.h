@@ -19,7 +19,7 @@
  *
  * You can change the logical length of the buffer by calling
  * writable_buffer_resize.  Passing WRITABLE_BUFFER_NULL_LENGTH for
- * the newlength changes the writable_buffer to the null state.
+ * the newlength is not allowed.
  *
  * writable_buffer_data returns a pointer to the memory managed by the
  * writable_buffer.  You can then update the contents of the data as
