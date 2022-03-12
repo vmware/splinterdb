@@ -786,7 +786,7 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
       }
    }
    uint64 new_num_entries = num_entries;
-   new_num_entries += spec->old_entry_state == still_exists ? 0 : 1;
+   new_num_entries += spec->old_entry_state == ENTRY_STILL_EXISTS ? 0 : 1;
    total_bytes += new_num_entries * sizeof(table_entry);
 
    /* Now figure out the number of entries to move, and figure out how

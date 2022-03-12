@@ -199,7 +199,8 @@ writable_buffer_deinit(writable_buffer *wb)
    if (wb->can_free) {
       platform_free(wb->heap_id, wb->buffer);
    }
-   debug_code(wb->buffer = NULL);
+   wb->buffer   = NULL;
+   wb->can_free = FALSE;
 }
 
 static inline platform_status

@@ -49,7 +49,7 @@ CTEST2(writable_buffer, test_basic_empty_buffer)
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
 
-   writable_buffer_init(wb, data->hid, 0, NULL);
+   writable_buffer_init(wb, data->hid);
    ASSERT_EQUAL(0, writable_buffer_length(wb));
    ASSERT_NULL(writable_buffer_data(wb));
    writable_buffer_deinit(wb);
@@ -63,7 +63,7 @@ CTEST2(writable_buffer, test_resize_empty_buffer)
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
 
-   writable_buffer_init(wb, data->hid, 0, NULL);
+   writable_buffer_init(wb, data->hid);
    uint64 new_length = 20;
    writable_buffer_resize(wb, new_length);
 
@@ -84,7 +84,7 @@ CTEST2(writable_buffer, test_resize_empty_buffer_to_smaller)
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
 
-   writable_buffer_init(wb, data->hid, 0, NULL);
+   writable_buffer_init(wb, data->hid);
    uint64 new_length = 20;
    writable_buffer_resize(wb, new_length);
 
@@ -106,7 +106,7 @@ CTEST2(writable_buffer, test_resize_empty_buffer_to_larger)
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
 
-   writable_buffer_init(wb, data->hid, 0, NULL);
+   writable_buffer_init(wb, data->hid);
    uint64 new_length = 20;
    writable_buffer_resize(wb, new_length);
 
@@ -124,7 +124,7 @@ CTEST2(writable_buffer, test_resize_empty_buffer_to_larger)
 
    // But we can assert just these two ...
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
-   ASSERT_TRUE(writable_buffer_length(wb) <= wb->buffer_size);
+   ASSERT_TRUE(writable_buffer_length(wb) <= wb->buffer_capacity);
    writable_buffer_deinit(wb);
 }
 
@@ -137,16 +137,17 @@ CTEST2(writable_buffer, test_basic_user_buffer)
    writable_buffer *wb = &wb_data;
 
    char buf[WB_ONSTACK_BUFSIZE];
-   writable_buffer_init(wb, data->hid, sizeof(buf), (void *)buf);
+   writable_buffer_init_with_buffer(
+      wb, data->hid, sizeof(buf), (void *)buf, WRITABLE_BUFFER_NULL_LENGTH);
 
    // Validate internals
    uint64 buf_len = writable_buffer_length(wb);
    ASSERT_EQUAL(0, buf_len, "Unexpected buffer length=%lu", buf_len);
    ASSERT_EQUAL(sizeof(buf),
-                wb->buffer_size,
+                wb->buffer_capacity,
                 "Expected size=%lu, received buffer_size=%lu ",
                 sizeof(buf),
-                wb->buffer_size);
+                wb->buffer_capacity);
 
    // RESOLVE - This I find very odd. We just init'ed a buffer, and provided
    // on-stack buffer. I would naturally want to write stuff to the address
@@ -160,7 +161,7 @@ CTEST2(writable_buffer, test_basic_user_buffer)
    // But as no memory allocation has happened, yet, the "length" of
    // the 'allocated' portion of the writable buffer should still == 0.
    ASSERT_EQUAL(0, writable_buffer_length(wb));
-   ASSERT_EQUAL(WB_ONSTACK_BUFSIZE, wb->buffer_size);
+   ASSERT_EQUAL(WB_ONSTACK_BUFSIZE, wb->buffer_capacity);
    writable_buffer_deinit(wb);
 }
 
@@ -174,7 +175,7 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_same_length)
    writable_buffer *wb = &wb_data;
 
    char buf[WB_ONSTACK_BUFSIZE];
-   writable_buffer_init(wb, data->hid, sizeof(buf), (void *)buf);
+   writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
 
    uint64 new_length = sizeof(buf);
    writable_buffer_resize(wb, new_length);
@@ -211,7 +212,7 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_smaller)
    writable_buffer *wb = &wb_data;
 
    char buf[WB_ONSTACK_BUFSIZE];
-   writable_buffer_init(wb, data->hid, sizeof(buf), (void *)buf);
+   writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
 
    uint64 new_length = (sizeof(buf) - 5);
    writable_buffer_resize(wb, new_length);
@@ -242,7 +243,7 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_larger)
    ASSERT_EQUAL(WB_ONSTACK_BUFSIZE, sizeof(junk_before));
    ASSERT_EQUAL(WB_ONSTACK_BUFSIZE, sizeof(junk_after));
 
-   writable_buffer_init(wb, data->hid, sizeof(buf), (void *)buf);
+   writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
 
    // Increase buffer beyond its current length.
    // RESOLVE: This is odd. I am expecting this to change to 35, but because
@@ -281,7 +282,7 @@ CTEST2(writable_buffer, test_basic_copy_slice)
    char buf[WB_ONSTACK_BUFSIZE];
    const slice src = slice_create(strlen(input_str), (const void *) input_str);
 
-   writable_buffer_init(wb, data->hid, sizeof(buf), (void *)buf);
+   writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
    platform_status rc = writable_buffer_copy_slice(wb, src);
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -308,7 +309,7 @@ CTEST2(writable_buffer, test_copy_slice_causing_resize_larger)
    char buf[WB_ONSTACK_BUFSIZE];
    const slice src = slice_create(strlen(input_str), (const void *) input_str);
 
-   writable_buffer_init(wb, data->hid, sizeof(buf), (void *)buf);
+   writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
    platform_status rc = writable_buffer_copy_slice(wb, src);
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -345,7 +346,7 @@ CTEST2(writable_buffer, test_basic_length_after_deinit)
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
 
-   writable_buffer_init(wb, data->hid, 0, NULL);
+   writable_buffer_init(wb, data->hid);
    writable_buffer_deinit(wb);
    ASSERT_EQUAL(0, writable_buffer_length(wb));
    ASSERT_NULL(writable_buffer_data(wb));
@@ -357,7 +358,7 @@ CTEST2(writable_buffer, test_resize_empty_buffer_then_check_apis_after_deinit)
    writable_buffer  wb_data;
    writable_buffer *wb = &wb_data;
 
-   writable_buffer_init(wb, data->hid, 0, NULL);
+   writable_buffer_init(wb, data->hid);
    uint64 new_length = 20;
    writable_buffer_resize(wb, new_length);
 
