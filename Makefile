@@ -24,12 +24,12 @@ SRC := $(shell find $(SRCDIR) -name "*.c")
 # Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
 # These objects are shared between functional/ and unit/ test binaries.
 COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
-
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 
 # Symbol for all unit-test sources, from which we will build standalone
 # unit-test binaries.
 UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
+TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 
 # Some unit-tests which are slow will be skipped from this list, as we want the
 # resulting unit_test to run as fast as it can. For now, we are just skipping one
@@ -268,6 +268,8 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                                 $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                 $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
+
 ########################################
 # Convenience targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
@@ -277,6 +279,7 @@ unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
+unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit_test:                         $(BINDIR)/unit_test
 
 #*************************************************************#

@@ -3,10 +3,35 @@
 
 #include "test_data.h"
 
+typedef struct data_test_config {
+   data_config super;
+   uint64      payload_size_limit;
+} data_test_config;
+
 static int
 test_data_key_cmp(const data_config *cfg, slice key1, slice key2)
 {
    return slice_lex_cmp(key1, key2);
+}
+
+void
+test_data_generate_message(const data_config *cfg,
+                           message_type       type,
+                           uint8              ref_count,
+                           writable_buffer   *msg)
+{
+   uint64 payload_size = 0;
+   if (type == MESSAGE_TYPE_INSERT) {
+      const data_test_config *tdcfg = (const data_test_config *)cfg;
+      // A coupla good ol' random primes
+      payload_size = (253456363ULL + (uint64)ref_count * 750599937895091ULL)
+                     % tdcfg->payload_size_limit;
+   }
+   writable_buffer_resize(msg, sizeof(data_handle) + payload_size);
+   data_handle *dh  = writable_buffer_data(msg);
+   dh->message_type = type;
+   dh->ref_count    = ref_count;
+   memset(dh->data, ref_count, payload_size);
 }
 
 /*
@@ -58,10 +83,13 @@ test_data_merge_tuples(const data_config *cfg,
             default:
                platform_assert(0);
          }
+         test_data_generate_message(
+            cfg, new_data->message_type, new_data->ref_count, new_raw_message);
          break;
       default:
          platform_assert(0);
    }
+
    return 0;
    // if (new_data->message_type == MESSAGE_TYPE_INSERT) {
    //   ;
@@ -103,8 +131,11 @@ test_data_merge_tuples_final(const data_config *cfg,
    debug_assert(old_data != NULL);
 
    if (old_data->message_type == MESSAGE_TYPE_UPDATE) {
-      old_data->message_type =
-         (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
+      test_data_generate_message(
+         cfg,
+         (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT,
+         old_data->ref_count,
+         oldest_raw_data);
    }
    return 0;
 }
@@ -200,22 +231,26 @@ test_decode_message(slice in_msg, size_t *out_value_len, const char **out_value)
    return 0;
 }
 
+static data_test_config data_test_config_internal = {
+   .super =
+      {
+         .key_size           = 24,
+         .min_key            = {0},
+         .min_key_length     = 0,
+         .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+         .max_key_length     = 24,
+         .key_compare        = test_data_key_cmp,
+         .key_hash           = platform_hash32,
+         .key_to_string      = test_data_key_to_string,
+         .message_to_string  = test_data_message_to_string,
+         .merge_tuples       = test_data_merge_tuples,
+         .merge_tuples_final = test_data_merge_tuples_final,
+         .message_class      = test_data_message_class,
+         .encode_message     = test_encode_message,
+         .decode_message     = test_decode_message,
+      },
+   .payload_size_limit = 24};
 
-const data_config test_data_config = {
-   .key_size           = 24,
-   .message_size       = 24,
-   .min_key            = {0},
-   .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-   .max_key_length     = 24,
-   .key_compare        = test_data_key_cmp,
-   .key_hash           = platform_hash32,
-   .key_to_string      = test_data_key_to_string,
-   .message_to_string  = test_data_message_to_string,
-   .merge_tuples       = test_data_merge_tuples,
-   .merge_tuples_final = test_data_merge_tuples_final,
-   .message_class      = test_data_message_class,
-   .encode_message     = test_encode_message,
-   .decode_message     = test_decode_message,
-};
+data_config *test_data_config = &data_test_config_internal.super;

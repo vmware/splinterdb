@@ -36,12 +36,18 @@
 #include "util.h"
 #include "test_data.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
 
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7
 
-#define TEST_MAX_KEY_SIZE   13
-#define TEST_MAX_VALUE_SIZE 32
+#define TEST_MAX_KEY_SIZE 13
+
+/* -1 for message encoding overhead */
+#define TEST_MAX_VALUE_SIZE (MAX_INLINE_MESSAGE_SIZE - 1)
+
+_Static_assert(TEST_MAX_VALUE_SIZE <= MAX_INLINE_MESSAGE_SIZE,
+               "TEST_MAX_VALUE_SIZE cannot exceed MAX_INLINE_MESSAGE_SIZE");
 
 // Hard-coded format strings to generate key and values
 static const char key_fmt[] = "key-%02x";
@@ -49,7 +55,7 @@ static const char val_fmt[] = "val-%02x";
 
 // Function Prototypes
 static void
-create_default_cfg(splinterdb_config *out_cfg);
+create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
 
 
 static int
@@ -61,10 +67,13 @@ insert_keys(splinterdb *kvsb, const int minkey, int numkeys, const int incr);
 static int
 check_current_tuple(splinterdb_iterator *it, const int expected_i);
 
-static uint64_t key_comp_context = 0;
-
 static int
 custom_key_comparator(const data_config *cfg, slice key1, slice key2);
+
+typedef struct {
+   data_config super;
+   uint64      num_comparisons;
+} comparison_counting_data_config;
 
 /*
  * Global data declaration macro:
@@ -83,6 +92,8 @@ CTEST_DATA(splinterdb_quick)
 {
    splinterdb       *kvsb;
    splinterdb_config cfg;
+
+   comparison_counting_data_config default_data_cfg;
 };
 
 // Optional setup function for suite, called before every test in suite
@@ -91,7 +102,8 @@ CTEST_SETUP(splinterdb_quick)
    Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
 
-   create_default_cfg(&data->cfg);
+   default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
+   create_default_cfg(&data->cfg, &data->default_data_cfg.super);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -358,10 +370,12 @@ CTEST2(splinterdb_quick, test_variable_length_values)
 
    // freshen up the buffer
    memset(big_buffer, 'x', sizeof(big_buffer));
+   char saved_big_buffer[sizeof(big_buffer)];
+   memcpy(saved_big_buffer, big_buffer, sizeof(big_buffer));
 
    // init the result again, but pretend the buffer is small
    splinterdb_lookup_result_init(
-      data->kvsb, &result, TEST_MAX_VALUE_SIZE / 2, big_buffer);
+      data->kvsb, &result, sizeof(big_buffer) / 2, big_buffer);
 
    // lookup tuple with max-sized-value, passing it the short buffer
    rc = splinterdb_lookup(data->kvsb, key_max, &result);
@@ -376,8 +390,10 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    ASSERT_STREQN(max_length_string, slice_data(value), slice_length(value));
 
    // our buffer is untouched
-   ASSERT_STREQN(
-      "xxxxxxxxxxxxxxxxxxxxxxxxx", big_buffer, TEST_MAX_VALUE_SIZE / 2);
+   ASSERT_DATA(saved_big_buffer,
+               sizeof(saved_big_buffer),
+               big_buffer,
+               sizeof(big_buffer));
 
    // we can deinit the result, and it doesn't try to free the stack space we
    // originally gave it
@@ -685,9 +701,9 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
    splinterdb_close(data->kvsb);
-   data->cfg.data_cfg                = test_data_config;
-   data->cfg.data_cfg.key_size       = 20;
-   data->cfg.data_cfg.max_key_length = 20;
+   data->cfg.data_cfg                 = test_data_config;
+   data->cfg.data_cfg->key_size       = 20;
+   data->cfg.data_cfg->max_key_length = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -752,20 +768,14 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 }
 
-/*
- * Test case to exercise APIs using custom user-defined comparator function.
- *
- * NOTE: This test case is expected to be the last one in this suite as it
- *  reconfigures SplinterDB. All other cases that exercise the default
- *  configuration should precede this one.
- */
 CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 {
    // We need to reconfigure Splinter with user-specified key comparator fn.
    // Tear down default instance, and create a new one.
    splinterdb_close(data->kvsb);
-   data->cfg.data_cfg.key_compare = custom_key_comparator;
-   data->cfg.data_cfg.context     = &key_comp_context;
+
+   data->default_data_cfg.super.key_compare = custom_key_comparator;
+   data->default_data_cfg.num_comparisons   = 0;
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -791,7 +801,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 
    // Expect that iterator has stopped at num_inserts
    ASSERT_EQUAL(num_inserts, i);
-   ASSERT_TRUE(key_comp_context > (2 * num_inserts));
+   ASSERT_TRUE(data->default_data_cfg.num_comparisons > (2 * num_inserts));
 
    bool is_valid = splinterdb_iterator_valid(it);
    ASSERT_FALSE(is_valid);
@@ -809,16 +819,12 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
  */
 
 static void
-create_default_cfg(splinterdb_config *out_cfg)
+create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 {
-   *out_cfg = (splinterdb_config){
-      .filename   = TEST_DB_NAME,
-      .cache_size = 64 * Mega,
-      .disk_size  = 127 * Mega,
-   };
-   size_t max_key_size   = TEST_MAX_KEY_SIZE;
-   size_t max_value_size = TEST_MAX_VALUE_SIZE;
-   default_data_config_init(max_key_size, max_value_size, &out_cfg->data_cfg);
+   *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                  .cache_size = 64 * Mega,
+                                  .disk_size  = 127 * Mega,
+                                  .data_cfg   = default_data_cfg};
 }
 
 /*
@@ -930,7 +936,8 @@ custom_key_comparator(const data_config *cfg, slice key1, slice key2)
    int r = slice_lex_cmp(key1, key2);
 
    // record that this spy was called
-   uint64_t *counter = (uint64_t *)(cfg->context);
-   *counter += 1;
+   comparison_counting_data_config *ccfg =
+      (comparison_counting_data_config *)cfg;
+   ccfg->num_comparisons += 1;
    return r;
 }

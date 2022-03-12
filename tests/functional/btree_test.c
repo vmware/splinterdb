@@ -24,10 +24,11 @@ static uint64 max_async_inflight = 32;
 #include "poison.h"
 
 typedef struct test_btree_config {
-   memtable_config *mt_cfg;
-   test_key_type    type;
-   uint64           semiseq_freq;
-   uint64           period;
+   memtable_config        *mt_cfg;
+   test_key_type           type;
+   uint64                  semiseq_freq;
+   uint64                  period;
+   test_message_generator *msggen;
 } test_btree_config;
 
 typedef struct test_memtable_context {
@@ -115,7 +116,7 @@ test_btree_lookup(cache        *cc,
    writable_buffer result;
    bool            ret;
 
-   writable_buffer_init_null(&result, NULL);
+   writable_buffer_init(&result, NULL);
 
    rc = btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, key, &result);
    platform_assert_status_ok(rc);
@@ -128,7 +129,7 @@ test_btree_lookup(cache        *cc,
       ret = slice_lex_cmp(data, expected_data) == 0;
    }
 
-   writable_buffer_reinit(&result);
+   writable_buffer_deinit(&result);
    return ret;
 }
 
@@ -152,7 +153,7 @@ test_btree_tuple(test_memtable_context *ctxt,
                  uint64                 thread_id)
 {
    test_btree_config *cfg = ctxt->cfg;
-   writable_buffer_set_length(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
+   writable_buffer_resize(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
    test_key(writable_buffer_data(key),
             cfg->type,
             seq,
@@ -162,14 +163,7 @@ test_btree_tuple(test_memtable_context *ctxt,
             cfg->period);
 
    if (data != NULL) {
-      writable_buffer_set_length(
-         data, cfg->mt_cfg->btree_cfg->data_cfg->message_size);
-      test_insert_data(writable_buffer_data(data),
-                       1,
-                       (char *)&seq,
-                       8,
-                       cfg->mt_cfg->btree_cfg->data_cfg->message_size,
-                       MESSAGE_TYPE_INSERT);
+      generate_test_message(cfg->msggen, seq, data);
    }
 }
 
@@ -195,8 +189,8 @@ test_btree_insert_thread(void *arg)
    writable_buffer key;
    writable_buffer data;
 
-   writable_buffer_init_null(&key, NULL);
-   writable_buffer_init_null(&data, NULL);
+   writable_buffer_init(&key, NULL);
+   writable_buffer_init(&data, NULL);
 
    uint64 start_num = thread_id * num_inserts;
    uint64 end_num   = (thread_id + 1) * num_inserts;
@@ -212,8 +206,8 @@ test_btree_insert_thread(void *arg)
 
 out:
    params->time_elapsed = platform_timestamp_elapsed(start_time);
-   writable_buffer_reinit(&key);
-   writable_buffer_reinit(&data);
+   writable_buffer_deinit(&key);
+   writable_buffer_deinit(&data);
 }
 
 static platform_status
@@ -360,8 +354,8 @@ btree_test_get_async_ctxt(btree_config            *cfg,
    ctxt                      = &async_lookup->ctxt[idx];
    btree_ctxt_init(&ctxt->ctxt, &ctxt->cache_ctxt, btree_test_async_callback);
    ctxt->ready = FALSE;
-   writable_buffer_init_null(&ctxt->key, NULL);
-   writable_buffer_init_null(&ctxt->result, NULL);
+   writable_buffer_init(&ctxt->key, NULL);
+   writable_buffer_init(&ctxt->result, NULL);
 
    return ctxt;
 }
@@ -373,8 +367,8 @@ btree_test_put_async_ctxt(btree_test_async_lookup *async_lookup,
    int idx = ctxt - async_lookup->ctxt;
 
    debug_assert(idx >= 0 && idx < max_async_inflight);
-   writable_buffer_reinit(&ctxt->key);
-   writable_buffer_reinit(&ctxt->result);
+   writable_buffer_deinit(&ctxt->key);
+   writable_buffer_deinit(&ctxt->result);
    async_lookup->ctxt_bitmap |= (1UL << idx);
 }
 
@@ -556,8 +550,8 @@ test_btree_basic(cache             *cc,
    uint64          start_time = platform_get_timestamp();
    writable_buffer key;
    writable_buffer expected_data;
-   writable_buffer_init_null(&key, NULL);
-   writable_buffer_init_null(&expected_data, NULL);
+   writable_buffer_init(&key, NULL);
+   writable_buffer_init(&expected_data, NULL);
 
    platform_status rc = STATUS_OK;
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
@@ -669,10 +663,15 @@ test_btree_basic(cache             *cc,
    platform_log("btree iterator init time %luns\n",
                 platform_timestamp_elapsed(start_time));
    btree_pack_req req;
-   memset(&req, 0, sizeof(req));
-   req.cc   = cc;
-   req.cfg  = btree_cfg;
-   req.itor = (iterator *)&itor;
+   btree_pack_req_init(&req,
+                       cc,
+                       btree_cfg,
+                       (iterator *)&itor,
+                       UINT64_MAX,
+                       UINT64_MAX,
+                       NULL,
+                       0,
+                       NULL);
 
    btree_print_tree_stats(cc, btree_cfg, root_addr);
 
@@ -782,8 +781,8 @@ destroy_btree:
    platform_log("\n");
    test_memtable_context_destroy(ctxt, hid);
    platform_free(hid, async_lookup);
-   writable_buffer_reinit(&key);
-   writable_buffer_reinit(&expected_data);
+   writable_buffer_deinit(&key);
+   writable_buffer_deinit(&expected_data);
    return rc;
 }
 
@@ -800,8 +799,8 @@ test_btree_create_packed_trees(cache             *cc,
    // fill the memtables
    writable_buffer key;
    writable_buffer data;
-   writable_buffer_init_null(&key, NULL);
-   writable_buffer_init_null(&data, NULL);
+   writable_buffer_init(&key, NULL);
+   writable_buffer_init(&data, NULL);
 
    uint64          insert_no;
    platform_status rc = STATUS_OK;
@@ -830,15 +829,23 @@ test_btree_create_packed_trees(cache             *cc,
                           0);
 
       btree_pack_req req;
-      btree_pack_req_init(&req, cc, btree_cfg, &itor.super, 0, NULL, 0, hid);
+      btree_pack_req_init(&req,
+                          cc,
+                          btree_cfg,
+                          &itor.super,
+                          UINT64_MAX,
+                          UINT64_MAX,
+                          NULL,
+                          0,
+                          hid);
       platform_status rc = btree_pack(&req);
       platform_assert_status_ok(rc);
       btree_iterator_deinit(&itor);
       root_addr[tree_no] = req.root_addr;
    }
 
-   writable_buffer_reinit(&key);
-   writable_buffer_reinit(&data);
+   writable_buffer_deinit(&key);
+   writable_buffer_deinit(&data);
    test_memtable_context_destroy(ctxt, hid);
    return num_tuples;
 }
@@ -1026,8 +1033,15 @@ test_btree_merge_basic(cache             *cc,
       }
 
       btree_pack_req req;
-      btree_pack_req_init(
-         &req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0, hid);
+      btree_pack_req_init(&req,
+                          cc,
+                          btree_cfg,
+                          &merge_itor->super,
+                          UINT64_MAX,
+                          UINT64_MAX,
+                          NULL,
+                          0,
+                          hid);
       btree_pack(&req);
       output_addr[pivot_no] = req.root_addr;
 
@@ -1405,8 +1419,15 @@ test_btree_merge_perf(cache             *cc,
          }
 
          btree_pack_req req;
-         btree_pack_req_init(
-            &req, cc, btree_cfg, &merge_itor->super, 0, NULL, 0, hid);
+         btree_pack_req_init(&req,
+                             cc,
+                             btree_cfg,
+                             &merge_itor->super,
+                             UINT64_MAX,
+                             UINT64_MAX,
+                             NULL,
+                             0,
+                             hid);
          btree_pack(&req);
          output_addr[merge_no * num_merges + pivot_no] = req.root_addr;
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
@@ -1465,16 +1486,17 @@ usage(const char *argv0)
 int
 btree_test(int argc, char *argv[])
 {
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   clockcache_config   cache_cfg;
-   shard_log_config    log_cfg;
-   int                 config_argc;
-   char              **config_argv;
-   bool                run_perf_test;
-   platform_status     rc;
-   uint64              seed;
-   task_system        *ts;
+   io_config              io_cfg;
+   rc_allocator_config    al_cfg;
+   clockcache_config      cache_cfg;
+   shard_log_config       log_cfg;
+   int                    config_argc;
+   char                 **config_argv;
+   bool                   run_perf_test;
+   platform_status        rc;
+   uint64                 seed;
+   task_system           *ts;
+   test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
@@ -1505,23 +1527,24 @@ btree_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config  *data_cfg = TYPED_MALLOC(hid, data_cfg);
-   trunk_config *cfg      = TYPED_MALLOC(hid, cfg);
+   data_config  *data_cfg;
+   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
-                        data_cfg,
+                        &data_cfg,
                         &io_cfg,
                         &al_cfg,
                         &cache_cfg,
                         &log_cfg,
                         &seed,
+                        &gen,
                         config_argc,
                         config_argv);
 
    memtable_config *mt_cfg    = &cfg->mt_cfg;
    mt_cfg->max_memtables      = 128;
    test_btree_config test_cfg = {
-      .mt_cfg = mt_cfg, .type = TEST_RANDOM, .semiseq_freq = 0};
+      .mt_cfg = mt_cfg, .type = TEST_RANDOM, .semiseq_freq = 0, .msggen = &gen};
    if (!SUCCESS(rc)) {
       platform_error_log("btree_test: failed to parse config: %s\n",
                          platform_status_to_string(rc));
@@ -1583,8 +1606,12 @@ btree_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
    cache *ccp = (cache *)cc;
 
+   uint64 max_tuples_per_memtable =
+      test_cfg.mt_cfg->max_extents_per_memtable
+      * cache_config_extent_size((cache_config *)&cache_cfg) / 3
+      / (data_cfg->key_size + generator_average_message_size(&gen));
    if (run_perf_test) {
-      uint64 total_inserts = 64 * test_cfg.mt_cfg->max_tuples_per_memtable;
+      uint64 total_inserts = 64 * max_tuples_per_memtable;
 
       rc = test_btree_perf(ccp, &test_cfg, total_inserts, 10, 128, ts, hid);
       platform_assert_status_ok(rc);
@@ -1592,8 +1619,8 @@ btree_test(int argc, char *argv[])
       rc = test_btree_merge_perf(ccp, &test_cfg, hid, 8, 8);
       platform_assert_status_ok(rc);
    } else {
-      uint64 total_inserts = test_cfg.mt_cfg->max_tuples_per_memtable
-                             - (MAX_THREADS * (64 / sizeof(uint32)));
+      uint64 total_inserts =
+         max_tuples_per_memtable - (MAX_THREADS * (64 / sizeof(uint32)));
       rc = test_btree_basic(ccp, &test_cfg, hid, total_inserts);
       platform_assert_status_ok(rc);
 
@@ -1624,7 +1651,6 @@ free_iohandle:
    platform_free(hid, io);
 cleanup:
    platform_free(hid, cfg);
-   platform_free(hid, data_cfg);
    platform_heap_destroy(&hh);
 
    return SUCCESS(rc) ? 0 : -1;

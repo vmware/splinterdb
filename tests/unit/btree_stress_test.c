@@ -93,7 +93,7 @@ CTEST_DATA(btree_stress)
    // to set up a Splinter instance, as is done in
    // btree_test.c
    master_config       master_cfg;
-   data_config         data_cfg;
+   data_config        *data_cfg;
    io_config           io_cfg;
    rc_allocator_config allocator_cfg;
    clockcache_config   cache_cfg;
@@ -121,7 +121,7 @@ CTEST_SETUP(btree_stress)
 
    if (!SUCCESS(
           config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
-       || !init_data_config_from_master_config(&data->data_cfg,
+       || !init_data_config_from_master_config(data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
        || !init_rc_allocator_config_from_master_config(
@@ -131,7 +131,7 @@ CTEST_SETUP(btree_stress)
        || !init_btree_config_from_master_config(&data->dbtree_cfg,
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
-                                                &data->data_cfg))
+                                                data->data_cfg))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -382,7 +382,7 @@ query_tests(cache           *cc,
    memset(msgbuf, 0, btree_page_size(cfg));
 
    writable_buffer result;
-   writable_buffer_init(&result, hid, 0, NULL);
+   writable_buffer_init(&result, hid);
 
    for (uint64 i = 0; i < nkvs; i++) {
       btree_lookup(cc,
@@ -399,7 +399,7 @@ query_tests(cache           *cc,
       }
    }
 
-   writable_buffer_reinit(&result);
+   writable_buffer_deinit(&result);
    platform_free(hid, keybuf);
    platform_free(hid, msgbuf);
    return 1;
@@ -490,7 +490,7 @@ pack_tests(cache           *cc,
                        0);
 
    btree_pack_req req;
-   btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   btree_pack_req_init(&req, cc, cfg, iter, nkvs, UINT64_MAX, NULL, 0, hid);
 
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);

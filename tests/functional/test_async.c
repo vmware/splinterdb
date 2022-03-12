@@ -66,7 +66,6 @@ async_ctxt_unget(test_async_lookup *async_lookup, test_async_ctxt *ctxt)
 void
 async_ctxt_init(platform_heap_id    hid,                // IN
                 uint32              max_async_inflight, // IN
-                uint64              data_size,          // IN
                 test_async_lookup **out)                // OUT
 {
    test_async_lookup *async_lookup;
@@ -82,7 +81,7 @@ async_ctxt_init(platform_heap_id    hid,                // IN
    async_lookup->ready_q = pcq_alloc(hid, max_async_inflight);
    platform_assert(async_lookup->ready_q);
    for (uint64 i = 0; i < max_async_inflight; i++) {
-      writable_buffer_init_null(&async_lookup->ctxt[i].data, NULL);
+      writable_buffer_init(&async_lookup->ctxt[i].data, NULL);
       async_lookup->ctxt[i].ready_q = async_lookup->ready_q;
       // All ctxts start out as available
       pcq_enqueue(async_lookup->avail_q, &async_lookup->ctxt[i]);
@@ -101,7 +100,7 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
    platform_assert(pcq_is_empty(async_lookup->ready_q));
    pcq_free(hid, async_lookup->ready_q);
    for (uint64 i = 0; i < async_lookup->max_async_inflight; i++) {
-      writable_buffer_reinit(&async_lookup->ctxt[i].data);
+      writable_buffer_deinit(&async_lookup->ctxt[i].data);
    }
    platform_free(hid, async_lookup);
 }

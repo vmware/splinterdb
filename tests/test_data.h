@@ -7,13 +7,19 @@
 #include "splinterdb/data.h"
 #include "util.h"
 
-const extern data_config test_data_config;
+extern data_config *test_data_config;
 
 typedef struct PACKED data_handle {
    uint8 message_type;
    int8  ref_count;
    uint8 data[0];
 } data_handle;
+
+void
+test_data_generate_message(const data_config *cfg,
+                           message_type       type,
+                           uint8              ref_count,
+                           writable_buffer   *msg);
 
 static inline void
 test_data_set_insert_flag(void *raw_data)

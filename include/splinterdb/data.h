@@ -98,8 +98,8 @@ typedef int (*decode_message_fn)(slice        in_buffer,
  * to do something differently, it has to provide these implementations.
  */
 struct data_config {
+   // FIXME: Planned for deprecation.
    uint64 key_size;
-   uint64 message_size;
 
    // FIXME: Planned for deprecation.
    char   min_key[MAX_KEY_SIZE];
@@ -122,10 +122,6 @@ struct data_config {
    // required by splinterdb_lookup_result_parse and
    // splinterdb_iterator_get_current
    decode_message_fn decode_message;
-
-   // additional context, available to the above callbacks
-   void *context;
 };
-
 
 #endif // __DATA_H

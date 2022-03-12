@@ -69,10 +69,6 @@ _Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
  */
 #define MAX_NODE_SIZE (1ULL << 16) // Bytes
 
-extern char         trace_key[24];
-extern page_handle *trace_page;
-
-
 /*
  *----------------------------------------------------------------------
  * Dynamic btree --
@@ -158,10 +154,11 @@ typedef struct btree_pack_req {
    // inputs to the pack
    cache        *cc;
    btree_config *cfg;
-   iterator     *itor;       // the itor which is being packed
-   uint64        max_tuples; // max tuples for the tree
-   hash_fn       hash;       // hash function used for calculating filter_hash
-   unsigned int  seed;       // seed used for calculating filter_hash
+   iterator     *itor; // the itor which is being packed
+   uint64        max_tuples;
+   uint64        max_kv_bytes; // max kv_bytes for the tree
+   hash_fn       hash;         // hash function used for calculating filter_hash
+   unsigned int  seed;         // seed used for calculating filter_hash
 
    // internal data
    uint64         next_extent;
@@ -336,17 +333,19 @@ btree_pack_req_init(btree_pack_req  *req,
                     btree_config    *cfg,
                     iterator        *itor,
                     uint64           max_tuples,
+                    uint64           max_kv_bytes,
                     hash_fn          hash,
                     unsigned int     seed,
                     platform_heap_id hid)
 {
    memset(req, 0, sizeof(*req));
-   req->cc         = cc;
-   req->cfg        = cfg;
-   req->itor       = itor;
-   req->max_tuples = max_tuples;
-   req->hash       = hash;
-   req->seed       = seed;
+   req->cc           = cc;
+   req->cfg          = cfg;
+   req->itor         = itor;
+   req->max_tuples   = max_tuples;
+   req->max_kv_bytes = max_kv_bytes;
+   req->hash         = hash;
+   req->seed         = seed;
    if (hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
          TYPED_ARRAY_MALLOC(hid, req->fingerprint_arr, max_tuples);

@@ -19,8 +19,6 @@ typedef struct stats_lookup {
 } stats_lookup;
 
 typedef struct {
-   char         *expected_data;
-   size_t        data_size;
    bool          expected_found;
    bool          stats_only; // update statistic only
    stats_lookup *stats;
@@ -30,12 +28,12 @@ typedef struct {
  * Tuple verification routine.
  */
 void
-verify_tuple(trunk_handle *spl,
-             uint64        lookup_num,
-             char         *key,
-             slice         data,
-             uint64        data_size,
-             bool          expected_found);
+verify_tuple(trunk_handle           *spl,
+             test_message_generator *gen,
+             uint64                  lookup_num,
+             char                   *key,
+             slice                   data,
+             bool                    expected_found);
 
 void
 test_wait_for_inflight(trunk_handle      *spl,

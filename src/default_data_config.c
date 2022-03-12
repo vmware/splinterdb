@@ -123,9 +123,8 @@ decode_message(slice in_msg, size_t *out_value_len, const char **out_value)
 
 
 void
-default_data_config_init(const size_t max_key_size,   // IN
-                         const size_t max_value_size, // IN
-                         data_config *out_cfg         // OUT
+default_data_config_init(const size_t max_key_size, // IN
+                         data_config *out_cfg       // OUT
 )
 {
    platform_assert(max_key_size <= SPLINTERDB_MAX_KEY_SIZE && max_key_size > 0,
@@ -136,7 +135,6 @@ default_data_config_init(const size_t max_key_size,   // IN
 
    data_config cfg = {
       .key_size           = max_key_size,
-      .message_size       = max_value_size + sizeof(message_encoding),
       .min_key            = {0},
       .min_key_length     = 0,
       .max_key            = {0}, // see memset below
@@ -150,7 +148,6 @@ default_data_config_init(const size_t max_key_size,   // IN
       .message_to_string  = key_or_message_to_string,
       .encode_message     = encode_message,
       .decode_message     = decode_message,
-      .context            = NULL,
    };
 
    memset(cfg.max_key, 0xFF, sizeof(cfg.max_key));

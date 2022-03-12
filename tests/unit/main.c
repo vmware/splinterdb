@@ -779,14 +779,16 @@ assert_wstr(const wchar_t *exp,
 }
 
 void
-assert_data(const unsigned char *exp,
-            size_t               expsize,
-            const unsigned char *real,
-            size_t               realsize,
-            const char          *caller,
-            int                  line)
+assert_data(const void *vexp,
+            size_t      expsize,
+            const void *vreal,
+            size_t      realsize,
+            const char *caller,
+            int         line)
 {
-   size_t i;
+   const unsigned char *exp  = vexp;
+   const unsigned char *real = vreal;
+   size_t               i;
    if (expsize != realsize) {
       CTEST_ERR("%s:%d  expected %" PRIuMAX " bytes, got %" PRIuMAX,
                 caller,

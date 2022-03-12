@@ -192,12 +192,12 @@ assert_wstr(const wchar_t *exp,
 #define ASSERT_WSTR(exp, real) assert_wstr(exp, real, __FILE__, __LINE__)
 
 void
-assert_data(const unsigned char *exp,
-            size_t               expsize,
-            const unsigned char *real,
-            size_t               realsize,
-            const char          *caller,
-            int                  line);
+assert_data(const void *exp,
+            size_t      expsize,
+            const void *real,
+            size_t      realsize,
+            const char *caller,
+            int         line);
 #define ASSERT_DATA(exp, expsize, real, realsize)                              \
    assert_data(exp, expsize, real, realsize, __FILE__, __LINE__)
 

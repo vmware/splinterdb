@@ -24,9 +24,36 @@ destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
    sharr->nkeys = 0;
 }
 
+/*
+ * Try to find the key target by iterating through the whole
+ * database. Used for diagnosing failures.
+ */
+static void
+search_for_key_via_iterator(trunk_handle *spl, slice target)
+{
+   trunk_range_iterator iter;
+   bool                 at_end;
+
+   trunk_range_iterator_init(spl, &iter, NULL, NULL, UINT64_MAX);
+   uint64 count = 0;
+   while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
+      slice key;
+      slice value;
+      iterator_get_curr((iterator *)&iter, &key, &value);
+      if (slice_lex_cmp(target, key) == 0) {
+         platform_log("Found missing key %s\n",
+                      key_string(spl->cfg.data_cfg, target));
+      }
+      iterator_advance((iterator *)&iter);
+      count++;
+   }
+   platform_log("Saw a total of %lu keys\n", count);
+}
+
+
 static void
 verify_tuple(trunk_handle    *spl,
-             char            *keybuf,
+             const char      *keybuf,
              slice            message,
              int8             refcount,
              platform_status *result)
@@ -52,8 +79,10 @@ verify_tuple(trunk_handle    *spl,
          refcount);
       *result = STATUS_NOT_FOUND;
       trunk_print_lookup(spl, keybuf);
+      search_for_key_via_iterator(
+         spl, slice_create(spl->cfg.data_cfg->key_size, keybuf));
       platform_assert(0);
-   } else if (refcount == 0 && found && msg->ref_count != 0) {
+   } else if (refcount == 0 && found) {
       platform_error_log(
          "ERROR: A key found in the Splinter has refcount 0 in shadow tree. "
          "key = 0x%08lx, "
@@ -65,17 +94,30 @@ verify_tuple(trunk_handle    *spl,
       *result = STATUS_INVALID_STATE;
       trunk_print_lookup(spl, keybuf);
       platform_assert(0);
-   } else if (found && msg->ref_count != refcount) {
-      platform_error_log(
-         "ERROR: Refcount mismatch between a key returned by Splinter"
-         " (ref: %4d) and shadow tree (ref: %4d) key = 0x%08lx\n",
-         msg->ref_count,
-         refcount,
-         key);
-      *result = STATUS_INVALID_STATE;
-      trunk_print_lookup(spl, keybuf);
-      platform_assert(0);
+   } else if (refcount && found) {
+      writable_buffer expected_message;
+      writable_buffer_init(&expected_message, NULL);
+      test_data_generate_message(
+         spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
+      slice expected_msg = writable_buffer_to_slice(&expected_message);
+      platform_assert(!slice_is_null(message));
+      platform_assert(slice_lex_cmp(message, expected_msg) == 0,
+                      "ERROR: message does not match expected message.  "
+                      "key = 0x%08lx "
+                      "shadow ref: %4d "
+                      "splinter ref: %4d"
+                      "shadow len: %lu "
+                      "splinter len: %lu\n",
+                      key,
+                      refcount,
+                      msg->ref_count,
+                      slice_length(expected_msg),
+                      slice_length(message));
+      writable_buffer_deinit(&expected_message);
+   } else {
+      /* !refcount && !found.  We're good. */
    }
+   *result = STATUS_OK;
 }
 
 static void
@@ -111,23 +153,22 @@ verify_against_shadow(trunk_handle               *spl,
                       test_splinter_shadow_array *sharr,
                       test_async_lookup          *async_lookup)
 {
-   uint64 key_size  = spl->cfg.data_cfg->key_size;
-   uint64 data_size = spl->cfg.data_cfg->message_size;
+   uint64 key_size = spl->cfg.data_cfg->key_size;
 
    platform_assert(key_size >= sizeof(uint64));
-   platform_assert(data_size >= sizeof(data_handle));
    platform_assert(sizeof(data_handle) <= sizeof(void *));
 
    platform_status rc, result = STATUS_OK;
 
-   uint64 i;
+   uint64          i;
+   writable_buffer message;
+   writable_buffer_init(&message, spl->heap_id);
+
    for (i = 0; i < sharr->nkeys; i++) {
       uint64           key      = sharr->keys[i];
       int8             refcount = sharr->ref_counts[i];
       test_async_ctxt *ctxt;
-      writable_buffer  message;
 
-      writable_buffer_init_null(&message, spl->heap_id);
       if (async_lookup) {
          ctxt = async_ctxt_get(async_lookup);
       } else {
@@ -148,8 +189,9 @@ verify_against_shadow(trunk_handle               *spl,
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
-      writable_buffer_reinit(&message);
+      writable_buffer_set_to_null(&message);
    }
+
    if (async_lookup) {
       // Rough detection of stuck contexts
       const timestamp ts = platform_get_timestamp();
@@ -161,6 +203,8 @@ verify_against_shadow(trunk_handle               *spl,
                          < TEST_STUCK_IO_TIMEOUT);
       }
    }
+
+   writable_buffer_deinit(&message);
 
    return result;
 }
@@ -209,10 +253,10 @@ verify_range_against_shadow(trunk_handle               *spl,
 
       status = iterator_at_end((iterator *)range_itor, &at_end);
       if (!SUCCESS(status) || at_end) {
-         platform_error_log(
-            "ERROR: range itor failed or terminated early (at_end = %d): %s\n",
-            at_end,
-            platform_status_to_string(status));
+         platform_error_log("ERROR: range itor failed or terminated "
+                            "early (at_end = %d): %s\n",
+                            at_end,
+                            platform_status_to_string(status));
          if (SUCCESS(status)) {
             status = STATUS_NO_PERMISSION;
          }
@@ -232,35 +276,25 @@ verify_range_against_shadow(trunk_handle               *spl,
       if (splinter_key == shadow_key) {
          status = STATUS_OK;
       } else {
-         platform_error_log(
-            "ERROR: Key mismatch: "
-            "Shadow Key: 0x%08lx, Shadow Refcount: %3d, "
-            "Tree Key: 0x%08lx, Tree Msg Type: 0x%02x, Tree Refcount: %3d\n",
-            shadow_key,
-            shadow_refcount,
-            splinter_key,
-            splinter_data_handle->message_type,
-            splinter_data_handle->ref_count);
+         platform_error_log("ERROR: Key mismatch: "
+                            "Shadow Key: 0x%08lx, Shadow Refcount: %3d, "
+                            "Tree Key: 0x%08lx, Tree Msg Type: 0x%02x, "
+                            "Tree Refcount: %3d\n",
+                            shadow_key,
+                            shadow_refcount,
+                            splinter_key,
+                            splinter_data_handle->message_type,
+                            splinter_data_handle->ref_count);
          platform_assert(0);
          status = STATUS_INVALID_STATE;
          goto destroy;
       }
 
-      if (shadow_refcount == splinter_data_handle->ref_count) {
-         status = STATUS_OK;
-      } else {
-         platform_error_log("ERROR: Refcount mismatch: "
-                            "key: 0x%08lx, Shadow refcount: %3d, "
-                            "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
-                            shadow_key,
-                            shadow_refcount,
-                            splinter_data_handle->message_type,
-                            splinter_data_handle->ref_count);
-         trunk_print_lookup(spl, (char *)slice_data(splinter_keybuf));
-         platform_assert(0);
-         status = STATUS_INVALID_STATE;
-         goto destroy;
-      }
+      verify_tuple(spl,
+                   slice_data(splinter_keybuf),
+                   splinter_message,
+                   shadow_refcount,
+                   &status);
 
       status = iterator_advance((iterator *)range_itor);
       if (!SUCCESS(status)) {
@@ -502,7 +536,7 @@ cleanup:
 
 /*
  *-----------------------------------------------------------------------------
- * Insert several messages of the given type into the splinter and the shadow --
+ * Insert several messages of the given type into the splinter and the shadow
  *
  * Results:
  *      Return 0 if all operations are successful.  Appropriate error code
@@ -517,7 +551,6 @@ insert_random_messages(trunk_handle              *spl,
                        test_splinter_shadow_tree *shadow,
                        random_state              *prg,
                        char                      *keybuf,
-                       data_handle               *msg,
                        int                        num_messages,
                        message_type               op,
                        uint64                     minkey,
@@ -525,16 +558,16 @@ insert_random_messages(trunk_handle              *spl,
                        int64                      mindelta,
                        int64                      maxdelta)
 {
-   uint64 key_size  = spl->cfg.data_cfg->key_size;
-   uint64 data_size = spl->cfg.data_cfg->message_size;
+   uint64 key_size = spl->cfg.data_cfg->key_size;
 
    platform_assert(key_size >= sizeof(uint64));
-   platform_assert(data_size >= sizeof(data_handle));
    platform_assert(sizeof(data_handle) <= sizeof(void *));
 
    int             i;
-   platform_status rc;
+   platform_status rc = STATUS_OK;
    uint64          key;
+   writable_buffer msg;
+   writable_buffer_init(&msg, NULL);
 
    key = minkey;
    for (i = 0; i < num_messages; i++) {
@@ -548,27 +581,23 @@ insert_random_messages(trunk_handle              *spl,
       // Insert message into Splinter
       test_int_to_key(keybuf, key, key_size);
 
-      msg->message_type = op;
-      if (op != MESSAGE_TYPE_DELETE)
-         msg->ref_count = ((int)(random_next_uint64(prg) % 256)) - 127;
-      else
-         msg->ref_count = 0;
+      int8 ref_count = 0;
+      if (op != MESSAGE_TYPE_DELETE) {
+         ref_count = ((int)(random_next_uint64(prg) % 256)) - 127;
+      }
+      test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
 
-      // if (key == 0x02f90065)
-      //   platform_log("Inserting message: %8d OP=%d Key=0x%08lx Value=%8d\n",
-      //   i, op, key, msg->ref_count);
-      slice message = slice_create(data_size, msg);
-      rc            = trunk_insert(spl, keybuf, message);
+      rc = trunk_insert(spl, keybuf, writable_buffer_to_slice(&msg));
       if (!SUCCESS(rc)) {
-         return rc;
+         goto cleanup;
       }
 
       // Now apply same operation to the shadow
-      int8 new_refcount = msg->ref_count;
+      int8 new_refcount = ref_count;
       if (op == MESSAGE_TYPE_UPDATE) {
          uint64 old_ref_count;
          if (test_splinter_shadow_lookup(shadow, &key, &old_ref_count)) {
-            new_refcount = old_ref_count + msg->ref_count;
+            new_refcount = old_ref_count + ref_count;
          }
       }
 
@@ -576,11 +605,13 @@ insert_random_messages(trunk_handle              *spl,
       if (!SUCCESS(rc)) {
          platform_error_log("Failed to insert key to shadow: %s\n",
                             platform_status_to_string(rc));
-         return rc;
+         goto cleanup;
       }
    }
 
-   return STATUS_OK;
+cleanup:
+   writable_buffer_deinit(&msg);
+   return rc;
 }
 
 int
@@ -640,8 +671,7 @@ test_functionality(allocator           *al,
    platform_assert(splinters != NULL);
    test_async_lookup *async_lookup;
    if (max_async_inflight > 0) {
-      async_ctxt_init(
-         hid, max_async_inflight, cfg->data_cfg->message_size, &async_lookup);
+      async_ctxt_init(hid, max_async_inflight, &async_lookup);
    } else {
       async_lookup = NULL;
    }
@@ -757,15 +787,10 @@ test_functionality(allocator           *al,
 
          keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, spl->cfg.data_cfg->key_size);
          platform_assert(keybuf);
-         msgbuf = TYPED_FLEXIBLE_STRUCT_MALLOC(
-            hid, msgbuf, data, spl->cfg.data_cfg->message_size);
-         platform_assert(msgbuf);
-
          status = insert_random_messages(spl,
                                          shadow,
                                          &prg,
                                          keybuf,
-                                         msgbuf,
                                          num_messages,
                                          op,
                                          minkey,
@@ -809,7 +834,8 @@ test_functionality(allocator           *al,
          /*                         hid); */
          /*    spl_tables[idx] = spl; */
          /*    if (spl->root_addr != prev_root_addr) { */
-         /*       platform_error_log("Mismatch in root addr across mount\n"); */
+         /*       platform_error_log("Mismatch in root addr across mount\n");
+          */
          /*       status = STATUS_TEST_FAILED; */
          /*       goto cleanup; */
          /*    } */
@@ -831,9 +857,6 @@ test_functionality(allocator           *al,
       test_splinter_shadow_tree *shadow = shadows[idx];
       keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, spl->cfg.data_cfg->key_size);
       platform_assert(keybuf);
-      msgbuf = TYPED_FLEXIBLE_STRUCT_MALLOC(
-         hid, msgbuf, data, spl->cfg.data_cfg->message_size);
-      platform_assert(msgbuf);
 
       status = validate_tree_against_shadow(
          spl,
@@ -846,7 +869,6 @@ test_functionality(allocator           *al,
             && ((i - 1) % correctness_check_frequency) != 0,
          async_lookup);
       platform_free(hid, keybuf);
-      platform_free(hid, msgbuf);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to validate tree against shadow one \
                             last time: %s\n",
