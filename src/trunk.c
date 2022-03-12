@@ -1693,8 +1693,8 @@ trunk_leaf_count_tuples(trunk_handle *spl,
       uint64 num_kv_bytes;
       trunk_pivot_branch_tuple_counts(
          spl, node, 0, branch_no, &num_tuples, &num_kv_bytes);
-      pdata->num_tuples   = num_tuples;
-      pdata->num_kv_bytes = num_kv_bytes;
+      pdata->num_tuples += num_tuples;
+      pdata->num_kv_bytes += num_kv_bytes;
    }
 }
 
@@ -2328,12 +2328,16 @@ trunk_tuples_in_bundle(trunk_handle *spl,
         branch_no = trunk_branch_no_add(spl, branch_no, 1))
    {
       for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+         uint64 local_tuple_count;
+         uint64 local_kv_byte_count;
          trunk_pivot_branch_tuple_counts(spl,
                                          node,
                                          pivot_no,
                                          branch_no,
-                                         &pivot_tuple_count[pivot_no],
-                                         &pivot_kv_byte_count[pivot_no]);
+                                         &local_tuple_count,
+                                         &local_kv_byte_count);
+         pivot_tuple_count[pivot_no] += local_tuple_count;
+         pivot_kv_byte_count[pivot_no] += local_kv_byte_count;
       }
    }
 }
@@ -4593,7 +4597,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
    req->fp_arr = pack_req.fingerprint_arr;
 
-   trunk_log_stream("output: %lu\n", req->root_addr);
+   trunk_log_stream("output: %lu\n", req->addr);
    if (spl->cfg.use_stats) {
       if (pack_req.num_tuples == 0) {
          spl->stats[tid].compactions_empty[height]++;
@@ -7216,10 +7220,18 @@ trunk_verify_node(trunk_handle *spl, page_handle *node)
            branch_no != trunk_end_branch(spl, node);
            branch_no = trunk_branch_no_add(spl, branch_no, 1))
       {
+         uint64 local_tuple_count = 0;
+         uint64 local_kv_bytes    = 0;
          // slow_count += trunk_pivot_tuples_in_branch_slow(spl, node,
          //       pivot_no, branch_no);
-         trunk_pivot_branch_tuple_counts(
-            spl, node, pivot_no, branch_no, &tuple_count, &kv_bytes);
+         trunk_pivot_branch_tuple_counts(spl,
+                                         node,
+                                         pivot_no,
+                                         branch_no,
+                                         &local_tuple_count,
+                                         &local_kv_bytes);
+         tuple_count += local_tuple_count;
+         kv_bytes += local_kv_bytes;
       }
       // if (count != slow_count) {
       //    platform_error_log("trunk_verify: count != slow_count\n");
@@ -7545,30 +7557,22 @@ trunk_print_locked_node(trunk_handle          *spl,
                         platform_stream_handle stream)
 {
    uint16 height = trunk_height(spl, node);
-   platform_log_stream("-------------------------------------------------------"
-                       "--------------------------------\n");
-   platform_log_stream("|          |     addr      |   next addr  | height |   "
-                       "gen   | pvt gen |              |\n");
-   platform_log_stream("|  HEADER  "
-                       "|---------------|--------------|--------|---------|----"
-                       "-----|--------------|\n");
-   platform_log_stream(
-      "|          | %12lu^ | %12lu | %6u | %7lu | %7lu |              |\n",
+   // clang-format off
+   platform_log_stream("---------------------------------------------------------------------------------------------------\n");
+   platform_log_stream("|          |     addr     |   next addr  | height |   gen   | pvt gen |                           |\n");
+   platform_log_stream("|  HEADER  |--------------|--------------|--------|---------|---------|---------------------------|\n");
+   platform_log_stream("|          | %12lu | %12lu | %6u | %7lu | %7lu |                           |\n",
       node->disk_addr,
       trunk_next_addr(spl, node),
       height,
       trunk_generation(spl, node),
       trunk_pivot_generation(spl, node));
-   platform_log_stream("|------------------------------------------------------"
-                       "-------------------------------|\n");
-   platform_log_stream("|                                       PIVOTS         "
-                       "                               |\n");
-   platform_log_stream("|------------------------------------------------------"
-                       "-------------------------------|\n");
-   platform_log_stream("|         pivot key        |  child addr  |  filter "
-                       "addr | tuple count | kv bytes |  srq |  gen  |\n");
-   platform_log_stream("|--------------------------|--------------|------------"
-                       "--|-------------|------|-------|\n");
+   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
+   platform_log_stream("|                                       PIVOTS                                                    |\n");
+   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
+   platform_log_stream("|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes |  srq  |  gen  |\n");
+   platform_log_stream("|--------------------------|--------------|--------------|-------------|----------|-------|-------|\n");
+   // clang-format on
    for (uint16 pivot_no = 0; pivot_no < trunk_num_pivot_keys(spl, node);
         pivot_no++)
    {
@@ -7577,16 +7581,18 @@ trunk_print_locked_node(trunk_handle          *spl,
          spl, trunk_get_pivot(spl, node, pivot_no), key_string);
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
-         platform_log_stream("| %24s | %12s | %12s | %11s | %4s | %5s |\n",
-                             key_string,
-                             "",
-                             "",
-                             "",
-                             "",
-                             "");
+         platform_log_stream(
+            "| %24s | %12s | %12s | %11s | %8s | %5s | %5s |\n",
+            key_string,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "");
       } else {
          platform_log_stream(
-            "| %24s | %12lu | %12lu | %11lu | %8lu | %4ld | %5lu |\n",
+            "| %24s | %12lu | %12lu | %11lu | %8lu | %5ld | %5lu |\n",
             key_string,
             pdata->addr,
             pdata->filter.addr,
@@ -7597,12 +7603,12 @@ trunk_print_locked_node(trunk_handle          *spl,
       }
    }
    // clang-format off
-   platform_log_stream("|-------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|                              BRANCHES AND [SUB]BUNDLES                              |\n");
-   platform_log_stream("|-------------------------------------------------------------------------------------|\n");
-   platform_log_stream("|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |    |\n");
-   platform_log_stream("|     |    pivot/bundle/subbundle   |  num tuples  |              |              |    |\n");
-   platform_log_stream("|-----|--------------|--------------|--------------|--------------|--------------|----|\n");
+   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
+   platform_log_stream("|                              BRANCHES AND [SUB]BUNDLES                                          |\n");
+   platform_log_stream("|-------------------------------------------------------------------------------------------------|\n");
+   platform_log_stream("|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                |\n");
+   platform_log_stream("|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                |\n");
+   platform_log_stream("|-----|--------------|--------------|--------------|--------------|--------------|----------------|\n");
    // clang-format on
    uint16 start_branch = trunk_start_branch(spl, node);
    uint16 end_branch   = trunk_end_branch(spl, node);
@@ -7617,7 +7623,7 @@ trunk_print_locked_node(trunk_handle          *spl,
            pivot_no++) {
          if (branch_no == trunk_pivot_start_branch(spl, node, pivot_no)) {
             // clang-format off
-            platform_log_stream("|     |        -- pivot %2u --       |              |              |              |    |\n",
+            platform_log_stream("|     |        -- pivot %2u --       |              |              |              |                |\n",
                                 pivot_no);
             // clang-format on
          }
@@ -7627,10 +7633,11 @@ trunk_print_locked_node(trunk_handle          *spl,
       {
          trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
          if (branch_no == trunk_bundle_start_branch(spl, node, bundle)) {
-            platform_log_stream("|     |       -- bundle %2u --       | %12lu "
-                                "|              |              |    |\n",
+            // clang-format off
+            platform_log_stream("|     |       -- bundle %2u --       | %12lu |              |              |                |\n",
                                 bundle_no,
                                 bundle->num_tuples);
+            // clang-format on
          }
       }
       for (uint16 sb_no = start_sb; sb_no != end_sb;
@@ -7639,30 +7646,29 @@ trunk_print_locked_node(trunk_handle          *spl,
          trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
          if (branch_no == sb->start_branch) {
             uint16 filter_count = trunk_subbundle_filter_count(spl, node, sb);
+            // clang-format off
             platform_log_stream(
-               "|     |  -- %scomp subbundle %2u --  | %12lu | %12lu | %12lu | "
-               "%s |\n",
+               "|     |  -- %2scomp subbundle %2u --  | %12lu | %12lu | %12lu | %14s |\n",
                sb->state == SB_STATE_COMPACTED ? "" : "un",
                sb_no,
-               0 < filter_count ? trunk_subbundle_filter(spl, node, sb, 0)->addr
-                                : 0,
-               1 < filter_count ? trunk_subbundle_filter(spl, node, sb, 1)->addr
-                                : 0,
-               2 < filter_count ? trunk_subbundle_filter(spl, node, sb, 2)->addr
-                                : 0,
+               0 < filter_count ? trunk_subbundle_filter(spl, node, sb, 0)->addr : 0,
+               1 < filter_count ? trunk_subbundle_filter(spl, node, sb, 1)->addr : 0,
+               2 < filter_count ? trunk_subbundle_filter(spl, node, sb, 2)->addr : 0,
                3 < filter_count ? " *" : "  ");
+            // clang-format on
          }
       }
 
       trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
       // clang-format off
-      platform_log_stream("| %3u |         %12lu       |              |              |              |    |\n",
+      platform_log_stream("| %3u |         %12lu        |              |              |              |                |\n",
                           branch_no,
                           branch->root_addr);
       // clang-format on
    }
-   platform_log_stream("-------------------------------------------------------"
-                       "--------------------------------\n");
+   // clang-format off
+   platform_log_stream("---------------------------------------------------------------------------------------------------\n");
+   // clang-format on
    platform_log_stream("\n");
 }
 
