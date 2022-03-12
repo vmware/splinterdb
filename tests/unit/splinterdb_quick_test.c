@@ -44,9 +44,9 @@
 #define TEST_MAX_KEY_SIZE 13
 
 /* -1 for message encoding overhead */
-#define TEST_MAX_VALUE_SIZE (MAX_INLINE_MESSAGE_SIZE - 1)
+#define TEST_MAX_VALUE_SIZE 32
 
-_Static_assert(TEST_MAX_VALUE_SIZE <= MAX_INLINE_MESSAGE_SIZE,
+_Static_assert(TEST_MAX_VALUE_SIZE < MAX_INLINE_MESSAGE_SIZE,
                "TEST_MAX_VALUE_SIZE cannot exceed MAX_INLINE_MESSAGE_SIZE");
 
 // Hard-coded format strings to generate key and values
@@ -263,7 +263,7 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
  */
 CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 {
-   char   too_large_value_data[TEST_MAX_VALUE_SIZE + 1];
+   char   too_large_value_data[MAX_INLINE_MESSAGE_SIZE + 1];
    size_t too_large_value_len = sizeof(too_large_value_data);
    memset(too_large_value_data, 'z', too_large_value_len);
    slice too_large_value =
