@@ -253,7 +253,7 @@ CTEST2(writable_buffer, test_resize_user_buffer_to_larger)
    ASSERT_EQUAL(new_length, writable_buffer_length(wb));
 
    // RESOLVE - Again, odd; just do this to keep test moving along ...
-   void * old_datap_before_resize = writable_buffer_data(wb);
+   void *old_datap_before_resize = writable_buffer_data(wb);
    ASSERT_TRUE((void *)buf == old_datap_before_resize);
 
    // Do a hard resize to some really bigger value
@@ -279,8 +279,8 @@ CTEST2(writable_buffer, test_basic_copy_slice)
 
    const char *input_str = "Hello World!";
 
-   char buf[WB_ONSTACK_BUFSIZE];
-   const slice src = slice_create(strlen(input_str), (const void *) input_str);
+   char        buf[WB_ONSTACK_BUFSIZE];
+   const slice src = slice_create(strlen(input_str), (const void *)input_str);
 
    writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
    platform_status rc = writable_buffer_copy_slice(wb, src);
@@ -291,7 +291,8 @@ CTEST2(writable_buffer, test_basic_copy_slice)
 
    uint64 exp_len = strlen(input_str);
    uint64 act_len = writable_buffer_length(wb);
-   ASSERT_EQUAL(exp_len, act_len, "exp_len=%lu, act_len=%lu ", exp_len, act_len);
+   ASSERT_EQUAL(
+      exp_len, act_len, "exp_len=%lu, act_len=%lu ", exp_len, act_len);
    writable_buffer_deinit(wb);
 }
 
@@ -306,8 +307,8 @@ CTEST2(writable_buffer, test_copy_slice_causing_resize_larger)
 
    const char *input_str = "Hello World!";
 
-   char buf[WB_ONSTACK_BUFSIZE];
-   const slice src = slice_create(strlen(input_str), (const void *) input_str);
+   char        buf[WB_ONSTACK_BUFSIZE];
+   const slice src = slice_create(strlen(input_str), (const void *)input_str);
 
    writable_buffer_init_with_buffer(wb, data->hid, sizeof(buf), (void *)buf, 0);
    platform_status rc = writable_buffer_copy_slice(wb, src);
@@ -323,14 +324,15 @@ CTEST2(writable_buffer, test_copy_slice_causing_resize_larger)
                                ", much longer than input_str"
                                " known to exceed original WB_ONSTACK_BUFSIZE";
 
-   const slice newsrc = slice_create(strlen(very_long_str),
-                                     (const void *) very_long_str);
+   const slice newsrc =
+      slice_create(strlen(very_long_str), (const void *)very_long_str);
    rc = writable_buffer_copy_slice(wb, newsrc);
    ASSERT_TRUE(SUCCESS(rc));
 
    uint64 exp_len = strlen(very_long_str);
    uint64 act_len = writable_buffer_length(wb);
-   ASSERT_EQUAL(exp_len, act_len, "exp_len=%lu, act_len=%lu ", exp_len, act_len);
+   ASSERT_EQUAL(
+      exp_len, act_len, "exp_len=%lu, act_len=%lu ", exp_len, act_len);
 
    // Memory allocation should have occurred!
    ASSERT_TRUE(wb->can_free);

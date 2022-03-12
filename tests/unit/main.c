@@ -788,7 +788,7 @@ assert_data(const void *vexp,
 {
    const unsigned char *exp  = vexp;
    const unsigned char *real = vreal;
-   size_t i;
+   size_t               i;
    if (expsize != realsize) {
       CTEST_ERR("%s:%d  expected %" PRIuMAX " bytes, got %" PRIuMAX,
                 caller,

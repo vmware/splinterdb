@@ -44,6 +44,8 @@
 #define TEST_MAX_KEY_SIZE   13
 #define TEST_MAX_VALUE_SIZE 32
 
+_Static_assert(TEST_MAX_VALUE_SIZE <= MAX_INLINE_MESSAGE_SIZE);
+
 // Hard-coded format strings to generate key and values
 static const char key_fmt[] = "key-%02x";
 static const char val_fmt[] = "val-%02x";
