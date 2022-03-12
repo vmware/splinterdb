@@ -42,8 +42,9 @@
 #define TEST_INSERT_VAL_LENGTH 7
 
 #define TEST_MAX_KEY_SIZE 13
-#define TEST_MAX_VALUE_SIZE                                                    \
-   (MAX_INLINE_MESSAGE_SIZE - 1) /* -1 for message encoding overhead */
+
+/* -1 for message encoding overhead */
+#define TEST_MAX_VALUE_SIZE (MAX_INLINE_MESSAGE_SIZE - 1)
 
 _Static_assert(TEST_MAX_VALUE_SIZE <= MAX_INLINE_MESSAGE_SIZE);
 
