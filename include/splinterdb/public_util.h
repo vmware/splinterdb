@@ -34,7 +34,7 @@ typedef struct writable_buffer writable_buffer;
 
 #define WRITABLE_BUFFER_NULL_LENGTH UINT64_MAX
 
-/* Returns WRITABLE_BUFFER_NULL_LENGTH if wb is in the null state */
+/* Returns 0 if wb is in the null state */
 uint64
 writable_buffer_length(writable_buffer *wb);
 
