@@ -19,10 +19,10 @@
 #include "splinterdb/splinterdb.h"
 #include "rc_allocator.h"
 #include "trunk.h"
-
+#include "btree_private.h"
 #include "poison.h"
 
-#define MAX_ENCODED_MESSAGE_SIZE (4096)
+#define MAX_ENCODED_MESSAGE_SIZE (MAX_INLINE_MESSAGE_SIZE)
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
 const char *

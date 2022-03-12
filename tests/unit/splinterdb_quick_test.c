@@ -235,7 +235,6 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
    size_t too_large_key_len = TEST_MAX_KEY_SIZE + 1;
    char  *too_large_key     = calloc(1, too_large_key_len);
    memset(too_large_key, 'a', too_large_key_len);
-   char *value = calloc(1, TEST_MAX_VALUE_SIZE);
 
    int rc = splinterdb_insert(data->kvsb,
                               too_large_key_len,
@@ -258,9 +257,6 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 
    if (too_large_key) {
       free(too_large_key);
-   }
-   if (value) {
-      free(value);
    }
 }
 
@@ -381,10 +377,12 @@ CTEST2(splinterdb_quick, test_variable_length_values)
 
    // freshen up the buffer
    memset(big_buffer, 'x', sizeof(big_buffer));
+   char saved_big_buffer[sizeof(big_buffer)];
+   memcpy(saved_big_buffer, big_buffer, sizeof(big_buffer));
 
    // init the result again, but pretend the buffer is small
    splinterdb_lookup_result_init(
-      data->kvsb, &result, TEST_MAX_VALUE_SIZE / 2, big_buffer);
+      data->kvsb, &result, sizeof(big_buffer) / 2, big_buffer);
 
    // lookup tuple with max-sized-value, passing it the short buffer
    rc = splinterdb_lookup(data->kvsb, sizeof("max"), "max", &result);
@@ -399,8 +397,10 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    ASSERT_STREQN(max_length_string, value, TEST_MAX_VALUE_SIZE);
 
    // our buffer is untouched
-   ASSERT_STREQN(
-      "xxxxxxxxxxxxxxxxxxxxxxxxx", big_buffer, TEST_MAX_VALUE_SIZE / 2);
+   ASSERT_DATA(saved_big_buffer,
+               sizeof(saved_big_buffer),
+               big_buffer,
+               sizeof(big_buffer));
 
    // we can deinit the result, and it doesn't try to free the stack space we
    // originally gave it
