@@ -46,7 +46,8 @@
 /* -1 for message encoding overhead */
 #define TEST_MAX_VALUE_SIZE (MAX_INLINE_MESSAGE_SIZE - 1)
 
-_Static_assert(TEST_MAX_VALUE_SIZE <= MAX_INLINE_MESSAGE_SIZE);
+_Static_assert(TEST_MAX_VALUE_SIZE <= MAX_INLINE_MESSAGE_SIZE,
+               "TEST_MAX_VALUE_SIZE cannot exceed MAX_INLINE_MESSAGE_SIZE");
 
 // Hard-coded format strings to generate key and values
 static const char key_fmt[] = "key-%02x";
