@@ -41,7 +41,7 @@
 #define TEST_INSERT_KEY_LENGTH 7
 #define TEST_INSERT_VAL_LENGTH 7
 
-#define TEST_MAX_KEY_SIZE   13
+#define TEST_MAX_KEY_SIZE 13
 #define TEST_MAX_VALUE_SIZE                                                    \
    (MAX_INLINE_MESSAGE_SIZE - 1) /* -1 for message encoding overhead */
 
