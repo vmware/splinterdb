@@ -37,31 +37,30 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test")
 
 #*************************************************************#
-# DEFAULT CFLAGS, ETC
+# CFLAGS, LDFLAGS, ETC
 #
 
 INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS_DIR)
 
-DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
-DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
-DEFAULT_CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
+# use += here, so that extra flags can be provided via the environment
+
+CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
+CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
+CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
 # track git ref in the built library
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
-DEFAULT_CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
 
 cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
   # not supported on ARM64
-  DEFAULT_CFLAGS += -msse4.2 -mpopcnt
   CFLAGS += -march=native
 endif
 
-# use += here, so that extra flags can be provided via the environment
-DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
-DEFAULT_LDFLAGS += -ggdb3 -pthread
+LDFLAGS += -ggdb3 -pthread
 
-LIBS      = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
+LIBS      = -lm -lpthread -laio -lxxhash
 DEPFLAGS  = -MMD -MP
 
 #*************************************************************#
@@ -84,22 +83,18 @@ DEBUGMODE=release
 endif
 
 ifeq "$(DEBUGMODE)" "debug"
-CFLAGS  += -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
-LDFLAGS += -g $(DEFAULT_LDFLAGS)
-BUILD_SUFFIX+=-debug
-else ifeq "$(DEBUGMODE)" "debug-log"
-CFLAGS  += -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
-LDFLAGS += -g $(DEFAULT_LDFLAGS)
-BUILD_SUFFIX+=-debug
+CFLAGS  += -DSPLINTER_DEBUG
+#LDFLAGS +=
+BUILD_SUFFIX:=$(BUILD_SUFFIX)-debug
 else ifeq "$(DEBUGMODE)" "release"
-CFLAGS   += $(DEFAULT_CFLAGS) -Ofast -flto
-LDFLAGS  += $(DEFAULT_LDFLAGS) -Ofast -flto
-else ifdef DEBUGMODE
-$(error Unknown DEBUGMODE "$(DEBUGMODE)".  Valid options are "debug", "debug-log", and "release".  Default is "release")
+CFLAGS   += -Ofast -flto
+LDFLAGS  += -Ofast -flto
+else
+$(error Unknown DEBUGMODE "$(DEBUGMODE)".  Valid options are "debug" and "release".  Default is "release")
 endif
 
 help::
-	$(SUMMARY) '  DEBUGMODE: "release", "debug", or "debug-log" (Default: "release")'
+	$(SUMMARY) '  DEBUGMODE: "release" or "debug" (Default: "release")'
 
 #
 # address sanitizer
@@ -109,11 +104,11 @@ ASAN=0
 endif
 
 ifeq "$(ASAN)" "1"
-CFLAGS  += -fsanitize-address
-LDFLAGS += -fsanitize-address
-BUILD_SUFFIX+=-asan
+CFLAGS  += -fsanitize=address
+LDFLAGS += -fsanitize=address
+BUILD_SUFFIX:=$(BUILD_SUFFIX)-asan
 else ifeq "$(ASAN)" "0"
-else ifdef ASAN
+else
 $(error Unknown ASAN mode "$(ASAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
@@ -128,11 +123,11 @@ MSAN=0
 endif
 
 ifeq "$(MSAN)" "1"
-CFLAGS  += -fsanitize-memory
-LDFLAGS += -fsanitize-memory
-BUILD_SUFFIX+=-msan
+CFLAGS  += -fsanitize=memory
+LDFLAGS += -fsanitize=memory
+BUILD_SUFFIX:=$(BUILD_SUFFIX)-msan
 else ifeq "$(MSAN)" "0"
-else ifdef <SAN
+else
 $(error Unknown MSAN mode "$(MSAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
@@ -158,7 +153,7 @@ PROLIX=@ >/dev/null echo
 BRIEF=@echo
 BRIEF_FORMATTED=@printf
 BRIEF_PARTIAL=@echo -n
-else ifdef VERBOSE
+else
 $(error Unknown VERBOSE mode "$(VERBOSE)".  Valid values are "0" or "1". Default is "0")
 endif
 
@@ -169,6 +164,7 @@ help::
 ###################################################################
 # BUILD DIRECTORIES AND FILES
 #
+
 OBJDIR    = obj$(BUILD_SUFFIX)
 BINDIR    = bin$(BUILD_SUFFIX)
 LIBDIR    = lib$(BUILD_SUFFIX)
@@ -422,4 +418,4 @@ install: $(LIBDIR)/libsplinterdb.so
 # to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
 .PHONY: compile_flags.txt
 compile_flags.txt:
-	echo "$(DEFAULT_CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
+	echo "$(CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
