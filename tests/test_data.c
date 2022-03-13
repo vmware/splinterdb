@@ -3,23 +3,35 @@
 
 #include "test_data.h"
 
+typedef struct data_test_config {
+   data_config super;
+   uint64      payload_size_limit;
+} data_test_config;
+
 static int
-test_data_key_cmp(const data_config *cfg,
-                  uint64             key1_len,
-                  const void        *key1,
-                  uint64             key2_len,
-                  const void        *key2)
+test_data_key_cmp(const data_config *cfg, slice key1, slice key2)
 {
-   uint64 mlen = key1_len < key2_len ? key1_len : key2_len;
-   int    r    = memcmp(key1, key2, mlen);
-   if (r) {
-      return r;
-   } else if (key1_len < key2_len) {
-      return -1;
-   } else if (key2_len < key1_len) {
-      return 1;
+   return slice_lex_cmp(key1, key2);
+}
+
+void
+test_data_generate_message(const data_config *cfg,
+                           message_type       type,
+                           uint8              ref_count,
+                           writable_buffer   *msg)
+{
+   uint64 payload_size = 0;
+   if (type == MESSAGE_TYPE_INSERT) {
+      const data_test_config *tdcfg = (const data_test_config *)cfg;
+      // A coupla good ol' random primes
+      payload_size = (253456363ULL + (uint64)ref_count * 750599937895091ULL)
+                     % tdcfg->payload_size_limit;
    }
-   return 0;
+   writable_buffer_resize(msg, sizeof(data_handle) + payload_size);
+   data_handle *dh  = writable_buffer_data(msg);
+   dh->message_type = type;
+   dh->ref_count    = ref_count;
+   memset(dh->data, ref_count, payload_size);
 }
 
 /*
@@ -32,17 +44,15 @@ test_data_key_cmp(const data_config *cfg,
  */
 static int
 test_data_merge_tuples(const data_config *cfg,
-                       uint64             key_len,
-                       const void        *key,
-                       uint64             old_raw_data_len,
-                       const void        *old_raw_data,
-                       writable_buffer   *new_raw_data)
+                       const slice        key,
+                       const slice        old_raw_message,
+                       writable_buffer   *new_raw_message)
 {
-   assert(sizeof(data_handle) <= old_raw_data_len);
-   assert(sizeof(data_handle) <= writable_buffer_length(new_raw_data));
+   assert(sizeof(data_handle) <= slice_length(old_raw_message));
+   assert(sizeof(data_handle) <= writable_buffer_length(new_raw_message));
 
-   const data_handle *old_data = old_raw_data;
-   data_handle       *new_data = writable_buffer_data(new_raw_data);
+   const data_handle *old_data = slice_data(old_raw_message);
+   data_handle       *new_data = writable_buffer_data(new_raw_message);
    debug_assert(old_data != NULL);
    debug_assert(new_data != NULL);
    // platform_log("data_merge_tuples: op=%d old_op=%d key=0x%08lx old=%d
@@ -73,10 +83,13 @@ test_data_merge_tuples(const data_config *cfg,
             default:
                platform_assert(0);
          }
+         test_data_generate_message(
+            cfg, new_data->message_type, new_data->ref_count, new_raw_message);
          break;
       default:
          platform_assert(0);
    }
+
    return 0;
    // if (new_data->message_type == MESSAGE_TYPE_INSERT) {
    //   ;
@@ -118,8 +131,11 @@ test_data_merge_tuples_final(const data_config *cfg,
    debug_assert(old_data != NULL);
 
    if (old_data->message_type == MESSAGE_TYPE_UPDATE) {
-      old_data->message_type =
-         (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT;
+      test_data_generate_message(
+         cfg,
+         (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE : MESSAGE_TYPE_INSERT,
+         old_data->ref_count,
+         oldest_raw_data);
    }
    return 0;
 }
@@ -132,16 +148,14 @@ test_data_merge_tuples_final(const data_config *cfg,
  *-----------------------------------------------------------------------------
  */
 static message_type
-test_data_message_class(const data_config *cfg,
-                        uint64             raw_data_len,
-                        const void        *raw_data)
+test_data_message_class(const data_config *cfg, slice raw_data)
 {
-   platform_assert((sizeof(data_handle) <= raw_data_len),
+   platform_assert((sizeof(data_handle) <= slice_length(raw_data)),
                    "sizeof(data_handle)=%lu, raw_data_len=%lu",
                    sizeof(data_handle),
-                   raw_data_len);
+                   slice_length(raw_data));
 
-   const data_handle *data = raw_data;
+   const data_handle *data = slice_data(raw_data);
    switch (data->message_type) {
       case MESSAGE_TYPE_INSERT:
          return data->ref_count == 0 ? MESSAGE_TYPE_DELETE
@@ -159,28 +173,25 @@ test_data_message_class(const data_config *cfg,
 
 static void
 test_data_key_to_string(const data_config *cfg,
-                        uint64             key_len,
-                        const void        *key,
+                        const slice        key,
                         char              *str,
                         size_t             len)
 {
-   debug_hex_encode(str, len, key, key_len);
+   debug_hex_encode(str, len, slice_data(key), slice_length(key));
 }
 
 static void
 test_data_message_to_string(const data_config *cfg,
-                            uint64             raw_data_len,
-                            const void        *raw_data,
+                            const slice        message,
                             char              *str,
                             size_t             len)
 {
-   debug_hex_encode(str, len, raw_data, raw_data_len);
+   debug_hex_encode(str, len, slice_data(message), slice_length(message));
 }
 
 static int
 test_encode_message(message_type type,
-                    size_t       value_len,
-                    const void  *value,
+                    slice        in_value,
                     size_t       dst_msg_buffer_len,
                     void        *dst_msg_buffer,
                     size_t      *out_encoded_len)
@@ -188,57 +199,58 @@ test_encode_message(message_type type,
    data_handle *msg  = (data_handle *)dst_msg_buffer;
    msg->message_type = type;
    msg->ref_count    = 1;
-   if (value_len + sizeof(data_handle) > dst_msg_buffer_len) {
+   if (slice_length(in_value) + sizeof(data_handle) > dst_msg_buffer_len) {
       platform_error_log(
          "encode_message: "
          "value_len %lu + encoding header %lu exceeds buffer size %lu bytes.",
-         value_len,
+         slice_length(in_value),
          sizeof(data_handle),
          dst_msg_buffer_len);
       return EINVAL;
    }
-   if (value_len > 0) {
-      memmove(msg->data, value, value_len);
+   if (slice_length(in_value) > 0) {
+      memmove(msg->data, slice_data(in_value), slice_length(in_value));
    }
-   *out_encoded_len = sizeof(data_handle) + value_len;
+   *out_encoded_len = sizeof(data_handle) + slice_length(in_value);
    return 0;
 }
 
 static int
-test_decode_message(size_t       msg_buffer_len,
-                    const void  *msg_buffer,
-                    size_t      *out_value_len,
-                    const char **out_value)
+test_decode_message(slice in_msg, size_t *out_value_len, const char **out_value)
 {
-   if (msg_buffer_len < sizeof(data_handle)) {
+   if (slice_length(in_msg) < sizeof(data_handle)) {
       platform_error_log("decode_message: message_buffer_len=%lu must be "
                          "at least %lu bytes.",
-                         msg_buffer_len,
+                         slice_length(in_msg),
                          sizeof(data_handle));
       return EINVAL;
    }
-   const data_handle *msg = (const data_handle *)msg_buffer;
-   *out_value_len         = msg_buffer_len - sizeof(data_handle);
+   const data_handle *msg = (const data_handle *)slice_data(in_msg);
+   *out_value_len         = slice_length(in_msg) - sizeof(data_handle);
    *out_value             = (const void *)(msg->data);
    return 0;
 }
 
+static data_test_config data_test_config_internal = {
+   .super =
+      {
+         .key_size           = 24,
+         .min_key            = {0},
+         .min_key_length     = 0,
+         .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+         .max_key_length     = 24,
+         .key_compare        = test_data_key_cmp,
+         .key_hash           = platform_hash32,
+         .key_to_string      = test_data_key_to_string,
+         .message_to_string  = test_data_message_to_string,
+         .merge_tuples       = test_data_merge_tuples,
+         .merge_tuples_final = test_data_merge_tuples_final,
+         .message_class      = test_data_message_class,
+         .encode_message     = test_encode_message,
+         .decode_message     = test_decode_message,
+      },
+   .payload_size_limit = 24};
 
-const data_config test_data_config = {
-   .key_size           = 24,
-   .message_size       = 24,
-   .min_key            = {0},
-   .max_key            = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-               0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-   .max_key_length     = 24,
-   .key_compare        = test_data_key_cmp,
-   .key_hash           = platform_hash32,
-   .key_to_string      = test_data_key_to_string,
-   .message_to_string  = test_data_message_to_string,
-   .merge_tuples       = test_data_merge_tuples,
-   .merge_tuples_final = test_data_merge_tuples_final,
-   .message_class      = test_data_message_class,
-   .encode_message     = test_encode_message,
-   .decode_message     = test_decode_message,
-};
+data_config *test_data_config = &data_test_config_internal.super;

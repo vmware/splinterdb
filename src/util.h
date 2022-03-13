@@ -70,40 +70,6 @@ init_fraction(uint64 numerator, uint64 denominator)
       .denominator = 1,                                                        \
    })
 
-/*
- * Non-disk resident descriptor for a [<length>, <value ptr>] pair handle.
- * Used to pass-around references to keys and values of different lengths.
- */
-typedef struct slice {
-   uint64      length;
-   const void *data;
-} slice;
-
-extern const slice NULL_SLICE;
-
-static inline bool
-slice_is_null(const slice b)
-{
-   return b.length == 0 && b.data == NULL;
-}
-
-static inline slice
-slice_create(uint64 len, const void *data)
-{
-   return (slice){.length = len, .data = data};
-}
-
-static inline uint64
-slice_length(const slice b)
-{
-   return b.length;
-}
-
-static inline const void *
-slice_data(const slice b)
-{
-   return b.data;
-}
 
 static inline slice
 slice_copy_contents(void *dst, const slice src)
@@ -139,83 +105,77 @@ slice_lex_cmp(const slice a, const slice b)
  * Writable buffers can be in one of four states:
  * - uninitialized
  * - null
- *   - data == NULL
- *   - allocation_size == length == 0
+ *   - length == WRITABLE_BUFFER_NULL_LENGTH
  * - non-null
- *   - data != NULL
  *   - length <= allocation_size
  *
- * No operation (other than destroy) ever shrinks allocation_size, so
- * writable_buffers can only go down the above list, e.g. once a
- * writable_buffer is out-of-line, it never becomes inline again.
+ * The writable_buffer maintains two size fields: (1) the logical size
+ * of the buffer and (2) the size of the memory it has allocated.  The
+ * amount of allocated memory never decreases until the buffer is
+ * deinited.
  *
- * writable_buffer_init can create any of the initialized,
- * non-user-provided-buffer states, based on the allocation_size
- * specified.
- *
- * writable_buffer_destroy returns the writable_buffer to the null state.
- *
- * Note that the null state is not isolated.  writable_buffer_realloc
- * can move a null writable_buffer to the inline or the platform_malloced
- * states.  Thus it is possible to, e.g. perform
- * writable_buffer_copy_slice on a null writable_buffer.
- *
- * Also note that the user-provided state can move to the
- * platform-malloced state.
+ * When initializing a writable_buffer, you can provide an initial
+ * buffer for it to use.  The writable_buffer will _never_ free the
+ * buffer you give it during initialization.
  */
 struct writable_buffer {
-   void            *original_pointer;
-   uint64           original_size;
    platform_heap_id heap_id;
-   uint64           allocation_size;
+   void            *buffer;
+   uint64           buffer_capacity;
    uint64           length;
-   void            *data;
+   bool             can_free;
 };
 
 static inline bool
 writable_buffer_is_null(const writable_buffer *wb)
 {
-   return wb->data == NULL && wb->length == 0 && wb->allocation_size == 0;
+   return wb->length == WRITABLE_BUFFER_NULL_LENGTH;
 }
 
 static inline void
-writable_buffer_init(writable_buffer *wb,
-                     platform_heap_id heap_id,
-                     uint64           allocation_size,
-                     void            *data)
+writable_buffer_init_with_buffer(writable_buffer *wb,
+                                 platform_heap_id heap_id,
+                                 uint64           allocation_size,
+                                 void            *data,
+                                 uint64           logical_size)
 {
-   wb->original_pointer = data;
-   wb->original_size    = allocation_size;
-   wb->heap_id          = heap_id;
-   wb->allocation_size  = 0;
-   wb->length           = 0;
-   wb->data             = NULL;
+   wb->heap_id         = heap_id;
+   wb->buffer          = data;
+   wb->buffer_capacity = allocation_size;
+   wb->length          = logical_size;
+   wb->can_free        = FALSE;
 }
 
 static inline void
-writable_buffer_init_null(writable_buffer *wb, platform_heap_id heap_id)
+writable_buffer_init(writable_buffer *wb, platform_heap_id heap_id)
 {
-   writable_buffer_init(wb, heap_id, 0, NULL);
+   writable_buffer_init_with_buffer(
+      wb, heap_id, 0, NULL, WRITABLE_BUFFER_NULL_LENGTH);
 }
 
 static inline void
-writable_buffer_reinit(writable_buffer *wb)
+writable_buffer_set_to_null(writable_buffer *wb)
 {
-   if (wb->data && wb->data != wb->original_pointer) {
-      platform_free(wb->heap_id, wb->data);
+   wb->length = WRITABLE_BUFFER_NULL_LENGTH;
+}
+
+static inline void
+writable_buffer_deinit(writable_buffer *wb)
+{
+   if (wb->can_free) {
+      platform_free(wb->heap_id, wb->buffer);
    }
-   wb->data            = NULL;
-   wb->allocation_size = 0;
-   wb->length          = 0;
+   wb->buffer   = NULL;
+   wb->can_free = FALSE;
 }
 
 static inline platform_status
 writable_buffer_copy_slice(writable_buffer *wb, slice src)
 {
-   if (!writable_buffer_set_length(wb, slice_length(src))) {
+   if (!writable_buffer_resize(wb, slice_length(src))) {
       return STATUS_NO_MEMORY;
    }
-   memcpy(wb->data, slice_data(src), slice_length(src));
+   memcpy(wb->buffer, slice_data(src), slice_length(src));
    return STATUS_OK;
 }
 
@@ -224,14 +184,29 @@ writable_buffer_init_from_slice(writable_buffer *wb,
                                 platform_heap_id heap_id,
                                 slice            contents)
 {
-   writable_buffer_init_null(wb, heap_id);
+   writable_buffer_init(wb, heap_id);
    return writable_buffer_copy_slice(wb, contents);
 }
 
 static inline slice
 writable_buffer_to_slice(const writable_buffer *wb)
 {
-   return slice_create(wb->length, wb->data);
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return NULL_SLICE;
+   } else {
+      return slice_create(wb->length, wb->buffer);
+   }
+}
+
+/* Returns the old length of wb */
+static inline uint64
+writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
+{
+   uint64 oldsize = writable_buffer_length(wb);
+   writable_buffer_resize(wb, oldsize + length);
+   char *data = writable_buffer_data(wb);
+   memcpy(data + oldsize, newdata, length);
+   return oldsize;
 }
 
 /*

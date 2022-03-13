@@ -21,12 +21,12 @@ SRC := $(shell find $(SRCDIR) -name "*.c")
 # Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
 # These objects are shared between functional/ and unit/ test binaries.
 COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
-
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 
 # Symbol for all unit-test sources, from which we will build standalone
 # unit-test binaries.
 UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
+TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 
 # Some unit-tests which are slow will be skipped from this list, as we want the
 # resulting unit_test to run as fast as it can. For now, we are just skipping one
@@ -41,6 +41,7 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 
 DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
 DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
+DEFAULT_CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
 # track git ref in the built library
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
@@ -367,6 +368,8 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                                 $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                 $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
+
 ########################################
 # Convenience targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
@@ -376,6 +379,7 @@ unit/btree_stress_test:            $(BINDIR)/$(UNITDIR)/btree_stress_test
 unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
+unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit_test:                         $(BINDIR)/unit_test
 
 #*************************************************************#
@@ -401,7 +405,7 @@ run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
 	BINDIR=$(BINDIR) ./test.sh
 
 test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	(BINDIR=$(BINDIR) ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
+	(INCLUDE_SLOW_TESTS=true BINDIR=$(BINDIR) ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 
@@ -410,4 +414,9 @@ install: $(LIBDIR)/libsplinterdb.so
 
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
-	cp -p $(INCDIR)/splinterdb/*.h $(INSTALL_PATH)/include/splinterdb/
+	cp -p -r $(INCDIR)/splinterdb/ $(INSTALL_PATH)/include/
+
+# to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
+.PHONY: compile_flags.txt
+compile_flags.txt:
+	echo "$(DEFAULT_CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt

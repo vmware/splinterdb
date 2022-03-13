@@ -21,24 +21,19 @@ typedef struct ONDISK {
 } message_encoding;
 
 static int
-key_compare(const data_config *cfg,
-            uint64             key1_len,
-            const void        *key1,
-            uint64             key2_len,
-            const void        *key2)
+key_compare(const data_config *cfg, slice key1, slice key2)
 {
-   platform_assert(key1 != NULL);
-   platform_assert(key2 != NULL);
+   platform_assert(slice_data(key1) != NULL);
+   platform_assert(slice_data(key2) != NULL);
 
-   return slice_lex_cmp(slice_create(key1_len, key1),
-                        slice_create(key2_len, key2));
+   return slice_lex_cmp(key1, key2);
 }
 
 
 static message_type
-message_class(const data_config *cfg, uint64 raw_msg_len, const void *raw_msg)
+message_class(const data_config *cfg, slice raw_msg)
 {
-   const message_encoding *msg = raw_msg;
+   const message_encoding *msg = slice_data(raw_msg);
    switch (msg->type) {
       case MESSAGE_TYPE_INSERT:
          return MESSAGE_TYPE_INSERT;
@@ -52,10 +47,8 @@ message_class(const data_config *cfg, uint64 raw_msg_len, const void *raw_msg)
 
 static int
 merge_tuples(const data_config *cfg,
-             uint64             key_len,
-             const void        *key,
-             uint64             old_raw_data_len,
-             const void        *old_raw_data,
+             const slice        key,
+             const slice        old_raw_message,
              writable_buffer   *new_data)
 {
    // we don't implement UPDATEs, so this is a no-op:
@@ -78,65 +71,60 @@ merge_tuples_final(const data_config *cfg,
 
 static void
 key_or_message_to_string(const data_config *cfg,
-                         uint64             raw_data_len,
-                         const void        *raw_data,
+                         const slice        key_or_msg,
                          char              *str,
                          size_t             max_len)
 {
-   debug_hex_encode(str, max_len, raw_data, raw_data_len);
+   debug_hex_encode(
+      str, max_len, slice_data(key_or_msg), slice_length(key_or_msg));
 }
 
 
 static int
 encode_message(message_type type,
-               size_t       value_len,
-               const void  *value,
+               slice        in_value,
                size_t       dst_msg_buffer_len,
                void        *dst_msg_buffer,
                size_t      *out_encoded_len)
 {
    message_encoding *msg = (message_encoding *)dst_msg_buffer;
    msg->type             = type;
-   if (value_len + sizeof(message_encoding) > dst_msg_buffer_len) {
-      platform_error_log(
-         "encode_message: "
-         "value_len %lu + encoding header %lu exceeds buffer size %lu bytes.",
-         value_len,
-         sizeof(message_encoding),
-         dst_msg_buffer_len);
+   if (slice_length(in_value) + sizeof(message_encoding) > dst_msg_buffer_len) {
+      platform_error_log("encode_message: "
+                         "length of value %lu + encoding header %lu exceeds "
+                         "buffer size %lu bytes.",
+                         slice_length(in_value),
+                         sizeof(message_encoding),
+                         dst_msg_buffer_len);
       return EINVAL;
    }
-   if (value_len > 0) {
-      memmove(&(msg->value), value, value_len);
+   if (slice_length(in_value) > 0) {
+      memmove(&(msg->value), slice_data(in_value), slice_length(in_value));
    }
-   *out_encoded_len = sizeof(message_encoding) + value_len;
+   *out_encoded_len = sizeof(message_encoding) + slice_length(in_value);
    return 0;
 }
 
 static int
-decode_message(size_t       msg_buffer_len,
-               const void  *msg_buffer,
-               size_t      *out_value_len,
-               const char **out_value)
+decode_message(slice in_msg, size_t *out_value_len, const char **out_value)
 {
-   if (msg_buffer_len < sizeof(message_encoding)) {
+   if (slice_length(in_msg) < sizeof(message_encoding)) {
       platform_error_log("decode_message: message_buffer_len=%lu must be "
                          "at least %lu bytes.",
-                         msg_buffer_len,
+                         slice_length(in_msg),
                          sizeof(message_encoding));
       return EINVAL;
    }
-   const message_encoding *msg = (const message_encoding *)msg_buffer;
-   *out_value_len              = msg_buffer_len - sizeof(message_encoding);
-   *out_value                  = (const void *)(msg->value);
+   const message_encoding *msg = (const message_encoding *)slice_data(in_msg);
+   *out_value_len = slice_length(in_msg) - sizeof(message_encoding);
+   *out_value     = (const void *)(msg->value);
    return 0;
 }
 
 
 void
-default_data_config_init(const size_t max_key_size,   // IN
-                         const size_t max_value_size, // IN
-                         data_config *out_cfg         // OUT
+default_data_config_init(const size_t max_key_size, // IN
+                         data_config *out_cfg       // OUT
 )
 {
    platform_assert(max_key_size <= SPLINTERDB_MAX_KEY_SIZE && max_key_size > 0,
@@ -147,7 +135,6 @@ default_data_config_init(const size_t max_key_size,   // IN
 
    data_config cfg = {
       .key_size           = max_key_size,
-      .message_size       = max_value_size + sizeof(message_encoding),
       .min_key            = {0},
       .min_key_length     = 0,
       .max_key            = {0}, // see memset below
@@ -161,7 +148,6 @@ default_data_config_init(const size_t max_key_size,   // IN
       .message_to_string  = key_or_message_to_string,
       .encode_message     = encode_message,
       .decode_message     = decode_message,
-      .context            = NULL,
    };
 
    memset(cfg.max_key, 0xFF, sizeof(cfg.max_key));

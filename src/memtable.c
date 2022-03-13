@@ -17,29 +17,21 @@
 #define MEMTABLE_COUNT_GRANULARITY 128
 
 bool
-memtable_is_full(memtable_context *ctxt)
+memtable_is_full(const memtable_config *cfg, memtable *mt)
 {
-   const threadid tid = platform_get_tid();
-   uint64         thread_num_tuples_overcount =
-      (MEMTABLE_COUNT_GRANULARITY
-       - (ctxt->thread_num_tuples[tid].v % MEMTABLE_COUNT_GRANULARITY))
-      % MEMTABLE_COUNT_GRANULARITY;
-   uint64 upper_bound_num_tuples =
-      ctxt->num_tuples - thread_num_tuples_overcount + MAX_THREADS;
-   return upper_bound_num_tuples >= ctxt->cfg.max_tuples_per_memtable;
+   return cfg->max_extents_per_memtable <= mini_num_extents(&mt->mini);
 }
 
 bool
 memtable_is_empty(memtable_context *ctxt)
 {
-   return ctxt->num_tuples == 0;
+   return ctxt->is_empty;
 }
 
 static inline void
-memtable_clear_num_tuples(memtable_context *ctxt)
+memtable_mark_empty(memtable_context *ctxt)
 {
-   ZERO_ARRAY(ctxt->thread_num_tuples);
-   ctxt->num_tuples = 0;
+   ctxt->is_empty = TRUE;
 }
 
 static inline void
@@ -70,7 +62,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
          continue;
       }
 
-      if (memtable_is_full(ctxt)) {
+      if (memtable_is_full(&ctxt->cfg, &ctxt->mt[mt_no])) {
          // If the current memtable is full, try to retire it.
          if (cache_claim(cc, *lock_page)) {
             // We successfully got the claim, so we do the finalization
@@ -79,7 +71,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
                mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
 
             uint64 process_generation = ctxt->generation++;
-            memtable_clear_num_tuples(ctxt);
+            memtable_mark_empty(ctxt);
             cache_unlock(cc, *lock_page);
             cache_unclaim(cc, *lock_page);
             cache_unget(cc, *lock_page);
@@ -117,11 +109,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
 static inline void
 memtable_add_tuple(memtable_context *ctxt)
 {
-   const threadid tid = platform_get_tid();
-   ctxt->thread_num_tuples[tid].v++;
-   if (ctxt->thread_num_tuples[tid].v % MEMTABLE_COUNT_GRANULARITY == 1) {
-      __sync_fetch_and_add(&ctxt->num_tuples, MEMTABLE_COUNT_GRANULARITY);
-   }
+   ctxt->is_empty = FALSE;
 }
 
 platform_status
@@ -240,7 +228,7 @@ memtable_force_finalize(memtable_context *ctxt)
    memtable *mt         = &ctxt->mt[mt_no];
    memtable_transition(mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
    uint64 process_generation = ctxt->generation++;
-   memtable_clear_num_tuples(ctxt);
+   memtable_mark_empty(ctxt);
 
    cache_unlock(cc, lock_page);
    cache_unclaim(cc, lock_page);
@@ -314,6 +302,8 @@ memtable_context_create(platform_heap_id hid,
    ctxt->generation_to_incorporate = 0;
    ctxt->generation_retired        = (uint64)-1;
 
+   ctxt->is_empty = TRUE;
+
    ctxt->process      = process;
    ctxt->process_ctxt = process_ctxt;
 
@@ -354,8 +344,6 @@ memtable_config_init(memtable_config *cfg,
    ZERO_CONTENTS(cfg);
    cfg->btree_cfg     = btree_cfg;
    cfg->max_memtables = max_memtables;
-
-   data_config *data_cfg          = btree_cfg->data_cfg;
-   uint64       packed_tuple_size = data_cfg->key_size + data_cfg->message_size;
-   cfg->max_tuples_per_memtable   = memtable_capacity / packed_tuple_size;
+   cfg->max_extents_per_memtable =
+      memtable_capacity / cache_config_extent_size(btree_cfg->cache_cfg);
 }

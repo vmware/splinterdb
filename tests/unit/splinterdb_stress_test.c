@@ -10,7 +10,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 #include "unit_tests.h"
@@ -37,6 +37,7 @@ CTEST_DATA(splinterdb_stress)
 {
    splinterdb       *kvsb;
    splinterdb_config cfg;
+   data_config       default_data_config;
 };
 
 // Setup function for suite, called before every test in suite
@@ -45,14 +46,12 @@ CTEST_SETUP(splinterdb_stress)
    Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
    Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
 
-   data->cfg = (splinterdb_config){
-      .filename   = TEST_DB_NAME,
-      .cache_size = 1000 * Mega,
-      .disk_size  = 9000 * Mega,
-   };
-   size_t max_key_size   = TEST_KEY_SIZE;
-   size_t max_value_size = TEST_VALUE_SIZE;
-   default_data_config_init(max_key_size, max_value_size, &data->cfg.data_cfg);
+   data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                             .cache_size = 1000 * Mega,
+                                             .disk_size  = 9000 * Mega,
+                                             .data_cfg   = &data->default_data_config};
+   size_t max_key_size = TEST_KEY_SIZE;
+   default_data_config_init(max_key_size, data->cfg.data_cfg);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -130,8 +129,9 @@ exec_worker_thread(void *w)
       result = read(random_data, value_buf, sizeof value_buf);
       ASSERT_TRUE(result >= 0);
 
-      rc = splinterdb_insert(
-         kvsb, TEST_KEY_SIZE, key_buf, TEST_VALUE_SIZE, value_buf);
+      rc = splinterdb_insert(kvsb,
+                             slice_create(TEST_KEY_SIZE, key_buf),
+                             slice_create(TEST_VALUE_SIZE, value_buf));
       ASSERT_EQUAL(0, rc);
 
       if (i && (i % 100000 == 0)) {

@@ -21,7 +21,7 @@
 #define __DATA_H
 
 #include "splinterdb/limits.h"
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
 
 typedef enum message_type {
@@ -33,28 +33,21 @@ typedef enum message_type {
 
 typedef struct data_config data_config;
 
-typedef int (*key_compare_fn)(const data_config *cfg,
-                              uint64             key1_len,
-                              const void        *key1,
-                              uint64             key2_len,
-                              const void        *key2);
+typedef int (*key_compare_fn)(const data_config *cfg, slice key1, slice key2);
 
 typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
 
 typedef message_type (*message_class_fn)(const data_config *cfg,
-                                         uint64             raw_message_len,
-                                         const void        *raw_message);
+                                         slice              raw_message);
 
 // Given two messages, old_message and new_message, merge them
 // and return the result in new_raw_message.
 //
 // Returns 0 on success.  non-zero indicates an internal error.
 typedef int (*merge_tuple_fn)(const data_config *cfg,
-                              uint64             key_len,
-                              const void        *key,
-                              uint64             old_message_len,
-                              const void        *old_message,
-                              writable_buffer   *new_message); // IN/OUT
+                              slice              key,         // IN
+                              slice              old_message, // IN
+                              writable_buffer   *new_message);  // IN/OUT
 
 // Called for non-MESSAGE_TYPE_INSERT messages when they are
 // determined to be the oldest message Can change data_class or
@@ -67,8 +60,7 @@ typedef int (*merge_tuple_final_fn)(const data_config *cfg,
                                     writable_buffer   *oldest_message);
 
 typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
-                                         uint64             key_or_message_len,
-                                         const void        *key_or_message,
+                                         slice              key_or_msg,
                                          char              *str,
                                          uint64             max_len);
 
@@ -77,8 +69,7 @@ typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
 // Returns the length of the fully-encoded message via out_encoded_len
 // Is allowed to fail by returning a non-zero exit code
 typedef int (*encode_message_fn)(message_type type,
-                                 uint64       value_len,
-                                 const void  *value,
+                                 slice        in_value,
                                  uint64       dst_msg_buffer_len,
                                  void        *dst_msg_buffer,
                                  uint64      *out_encoded_len);
@@ -86,8 +77,7 @@ typedef int (*encode_message_fn)(message_type type,
 // Extract the value from a message
 // This shouldn't need to do any allocation or copying, just pointer arithmetic
 // Is allowed to fail by returning a non-zero exit code
-typedef int (*decode_message_fn)(uint64       msg_buffer_len,
-                                 const void  *msg_buffer,
+typedef int (*decode_message_fn)(slice        in_buffer,
                                  uint64      *out_value_len,
                                  const char **out_value);
 
@@ -108,8 +98,8 @@ typedef int (*decode_message_fn)(uint64       msg_buffer_len,
  * to do something differently, it has to provide these implementations.
  */
 struct data_config {
+   // FIXME: Planned for deprecation.
    uint64 key_size;
-   uint64 message_size;
 
    // FIXME: Planned for deprecation.
    char   min_key[MAX_KEY_SIZE];
@@ -132,10 +122,6 @@ struct data_config {
    // required by splinterdb_lookup_result_parse and
    // splinterdb_iterator_get_current
    decode_message_fn decode_message;
-
-   // additional context, available to the above callbacks
-   void *context;
 };
-
 
 #endif // __DATA_H

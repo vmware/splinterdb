@@ -54,15 +54,16 @@ typedef struct trunk_config {
    cache_config *cache_cfg;
 
    // parameters
-   uint64 fanout;         // children to trigger split
-   uint64 max_pivot_keys; // hard limit on number of pivot keys
-   uint64 max_tuples_per_node;
+   uint64 fanout;              // children to trigger split
+   uint64 max_pivot_keys;      // hard limit on number of pivot keys
+   uint64 max_tuples_per_node; // deprecated
+   uint64 max_kv_bytes_per_node;
    uint64 max_branches_per_node;
    uint64 hard_max_branches_per_node;
-   uint64 target_leaf_tuples; // make leaves this big when splitting
-   uint64 reclaim_threshold;  // start reclaming space when
-                              // free space < threshold
-   bool            use_stats; // stats
+   uint64 target_leaf_kv_bytes; // make leaves this big when splitting
+   uint64 reclaim_threshold;    // start reclaming space when
+                                // free space < threshold
+   bool            use_stats;   // stats
    memtable_config mt_cfg;
    btree_config    btree_cfg;
    routing_config  index_filter_cfg;
@@ -345,17 +346,19 @@ trunk_lookup_async(trunk_handle     *spl,
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
-                          char                 *min_key,
-                          char                 *max_key,
+                          const char           *min_key,
+                          const char           *max_key,
                           uint64                num_tuples);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
+
+typedef void (*tuple_function)(slice key, slice value, void *arg);
 platform_status
-trunk_range(trunk_handle *spl,
-            char         *start_key,
-            uint64        num_tuples,
-            uint64       *tuples_returned,
-            char         *out);
+trunk_range(trunk_handle  *spl,
+            const char    *start_key,
+            uint64         num_tuples,
+            tuple_function func,
+            void          *arg);
 
 trunk_handle *
 trunk_create(trunk_config     *cfg,
@@ -391,7 +394,7 @@ trunk_reset_stats(trunk_handle *spl);
 void
 trunk_print(trunk_handle *spl);
 void
-trunk_print_lookup(trunk_handle *spl, char *key);
+trunk_print_lookup(trunk_handle *spl, const char *key);
 void
 trunk_print_branches(trunk_handle *spl);
 void
@@ -407,12 +410,6 @@ trunk_key_size(trunk_handle *spl)
    return spl->cfg.data_cfg->key_size;
 }
 
-static inline uint64
-trunk_message_size(trunk_handle *spl)
-{
-   return spl->cfg.data_cfg->message_size;
-}
-
 static inline slice
 trunk_key_slice(trunk_handle *spl, const char *key)
 {
@@ -421,12 +418,6 @@ trunk_key_slice(trunk_handle *spl, const char *key)
    } else {
       return NULL_SLICE;
    }
-}
-
-static inline slice
-trunk_message_slice(trunk_handle *spl, const char *message)
-{
-   return slice_create(trunk_message_size(spl), message);
 }
 
 static inline int

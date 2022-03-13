@@ -36,7 +36,7 @@ typedef struct {
    // data_config is a required field that defines how your data should be
    // read and written in SplinterDB.  See data.h for details.
    // For a simple reference implementation, see default_data_config.h
-   data_config data_cfg;
+   data_config *data_cfg;
 
 
    // optional advanced config below
@@ -128,11 +128,7 @@ splinterdb_deregister_thread(splinterdb *kvs);
 // Insert a key and value.
 // Relies on data_config->encode_message
 int
-splinterdb_insert(const splinterdb *kvsb,
-                  uint64            key_len,
-                  const char       *key,
-                  uint64            val_len,
-                  const char       *value);
+splinterdb_insert(const splinterdb *kvsb, slice key, slice value);
 
 // Insert a raw message at the given key.
 //
@@ -141,15 +137,13 @@ splinterdb_insert(const splinterdb *kvsb,
 // These can be stored without doing a read of the current value.
 int
 splinterdb_insert_raw_message(const splinterdb *kvs,
-                              uint64            key_length,
-                              const char       *key,
-                              uint64            raw_message_length,
-                              const char       *raw_message);
+                              slice             key,
+                              slice             raw_message);
 
 
 // Delete a given key and any associated value / messages
 int
-splinterdb_delete(const splinterdb *kvsb, uint64 key_len, const char *key);
+splinterdb_delete(const splinterdb *kvsb, slice key);
 
 
 // Lookups
@@ -193,8 +187,7 @@ splinterdb_lookup_found(const splinterdb_lookup_result *result); // IN
 int
 splinterdb_lookup_result_value(const splinterdb               *kvs,
                                const splinterdb_lookup_result *result, // IN
-                               uint64      *value_size,                // OUT
-                               const char **value                      // OUT
+                               slice                          *value   // OUT
 );
 
 
@@ -202,10 +195,9 @@ splinterdb_lookup_result_value(const splinterdb               *kvs,
 //
 // result must have first been initialized using splinterdb_lookup_result_init
 int
-splinterdb_lookup(const splinterdb         *kvs,        // IN
-                  uint64                    key_length, // IN
-                  const char               *key,        // IN
-                  splinterdb_lookup_result *result      // IN/OUT
+splinterdb_lookup(const splinterdb         *kvs,   // IN
+                  slice                     key,   // IN
+                  splinterdb_lookup_result *result // IN/OUT
 );
 
 
@@ -242,17 +234,13 @@ Known issue: a live iterator may block inserts and deletes from the same thread.
 Sample application code:
 
    splinterdb_iterator* it;
-   int rc = splinterdb_iterator_init(kvs, &it, 0, NULL);
+   int rc = splinterdb_iterator_init(kvs, &it, NULL_SLICE);
    if (rc != 0) { ... handle error ... }
 
-   uint64 key_len;
-   const char* key;
-
-   uint64 value_len;
-   const char* value;
+   slice key, value;
 
    for(; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
-      splinterdb_iterator_get_current(it, &key_len, &key, &value_len, &value);
+      splinterdb_iterator_get_current(it, &key, &value);
       // do something with key and value...
    }
 
@@ -269,12 +257,11 @@ typedef struct splinterdb_iterator splinterdb_iterator;
 
 // Initialize a new iterator, starting at the given key
 //
-// If start_key is NULL, the iterator will start before the minimum key
+// If start_key is NULL_SLICE, the iterator will start before the minimum key
 int
-splinterdb_iterator_init(const splinterdb     *kvs,              // IN
-                         splinterdb_iterator **iter,             // OUT
-                         uint64                start_key_length, // IN
-                         const char           *start_key         // IN
+splinterdb_iterator_init(const splinterdb     *kvs,      // IN
+                         splinterdb_iterator **iter,     // OUT
+                         slice                 start_key // IN
 );
 
 // Deinitialize an iterator
@@ -296,16 +283,14 @@ void
 splinterdb_iterator_next(splinterdb_iterator *iter);
 
 // Sets *key and *value to the locations of the current item
-// Callers must not modify that memory.
+// Callers must not modify that memory pointed to by the slice
 //
 // If valid() == false, then behavior is undefined.
 // Always check valid() before calling this function.
 void
-splinterdb_iterator_get_current(splinterdb_iterator *iter,    // IN
-                                uint64              *key_len, // OUT
-                                const char         **key,     // OUT
-                                uint64              *val_len, // OUT
-                                const char         **value    // OUT
+splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
+                                slice               *key,  // OUT
+                                slice               *value // OUT
 );
 
 // Returns an error encountered from iteration, or 0 if successful.

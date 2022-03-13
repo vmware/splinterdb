@@ -11,7 +11,7 @@
 #ifndef __BTREE_PRIVATE_H__
 #define __BTREE_PRIVATE_H__
 
-#include "splinterdb/platform_public.h"
+#include "splinterdb/public_platform.h"
 #include "splinterdb/data.h"
 #include "util.h"
 #include "btree.h"
@@ -86,11 +86,15 @@ _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
 typedef struct leaf_incorporate_spec {
    slice key;
    int64 idx;
-   bool  was_found;
+   enum {
+      ENTRY_DID_NOT_EXIST,
+      ENTRY_STILL_EXISTS,
+      ENTRY_HAS_BEEN_REMOVED
+   } old_entry_state;
    union {
-      /* "was_found" is the tag on this union. */
-      slice           new_message;    /* was_found == FALSE */
-      writable_buffer merged_message; /* was_found == TRUE */
+      /* "old_entry_state" is the tag on this union. */
+      slice           new_message; /* old_entry_state == ENTRY_DID_NOT_EXIST */
+      writable_buffer merged_message; /* otherwise */
    } msg;
 } leaf_incorporate_spec;
 
@@ -143,10 +147,10 @@ btree_set_leaf_entry(const btree_config *cfg,
                      slice               new_message);
 
 void
-btree_defragment_leaf(const btree_config *cfg, // IN
-                      btree_scratch      *scratch,
-                      btree_hdr          *hdr,
-                      int64               omit_idx); // IN
+btree_defragment_leaf(const btree_config    *cfg, // IN
+                      btree_scratch         *scratch,
+                      btree_hdr             *hdr,
+                      leaf_incorporate_spec *spec); // IN
 
 void
 btree_defragment_index(const btree_config *cfg, // IN

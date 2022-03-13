@@ -100,7 +100,7 @@ memtable_transition(memtable      *mt,
 typedef void (*process_fn)(void *arg, uint64 generation);
 
 typedef struct memtable_config {
-   uint64        max_tuples_per_memtable;
+   uint64        max_extents_per_memtable;
    uint64        max_memtables;
    btree_config *btree_cfg;
 } memtable_config;
@@ -127,24 +127,7 @@ typedef struct memtable_context {
    uint64          lookup_lock_addr;
    volatile uint64 generation_retired;
 
-   /*
-    * num_tuples is the sum of per-thread inserted tuples, each up to the last
-    * MEMTABLE_COUNT_GRANULARITY tuples (So this will be accurate up to
-    * MEMTABLE_COUNT_GRANULARITY * number_of_threads).
-    *
-    * thread_num_tuples is the per-thread remainder modulo BNTG
-    *
-    * Actual number of tuples is therefore
-    * num_tuples + sum_{i=0..MAX_THREADS}(thread_num_tuples[i])
-    *
-    * global and thread local counters use atomic instructions instad of the
-    * write lock on lock page
-    *    -- Need to have read_lock(lock_addr) to modify even with atomic
-    *       instructions
-    *    -- Need write_lock(lock_addr) to clear when rotating
-    */
-   uint64               num_tuples;
-   cache_aligned_uint64 thread_num_tuples[MAX_THREADS];
+   bool is_empty;
 
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];

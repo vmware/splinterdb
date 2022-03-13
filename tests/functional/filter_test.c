@@ -289,20 +289,21 @@ usage(const char *argv0)
 int
 filter_test(int argc, char *argv[])
 {
-   int                 r;
-   data_config         data_cfg;
-   io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
-   clockcache_config   cache_cfg;
-   shard_log_config    log_cfg;
-   rc_allocator        al;
-   clockcache         *cc;
-   int                 config_argc;
-   char              **config_argv;
-   bool                run_perf_test;
-   platform_status     rc;
-   uint64              seed;
-   task_system        *ts;
+   int                    r;
+   data_config           *data_cfg;
+   io_config              io_cfg;
+   rc_allocator_config    allocator_cfg;
+   clockcache_config      cache_cfg;
+   shard_log_config       log_cfg;
+   rc_allocator           al;
+   clockcache            *cc;
+   int                    config_argc;
+   char                 **config_argv;
+   bool                   run_perf_test;
+   platform_status        rc;
+   uint64                 seed;
+   task_system           *ts;
+   test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
@@ -329,6 +330,7 @@ filter_test(int argc, char *argv[])
                         &cache_cfg,
                         &log_cfg,
                         &seed,
+                        &gen,
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {
@@ -376,18 +378,23 @@ filter_test(int argc, char *argv[])
                         platform_get_module_id());
    platform_assert_status_ok(rc);
 
+   uint64 max_tuples_per_memtable =
+      cfg->mt_cfg.max_extents_per_memtable
+      * cache_config_extent_size((cache_config *)&cache_cfg)
+      / (data_cfg->key_size + generator_average_message_size(&gen));
+
    if (run_perf_test) {
       rc = test_filter_perf((cache *)cc,
                             &cfg->leaf_filter_cfg,
                             hid,
-                            cfg->mt_cfg.max_tuples_per_memtable,
+                            max_tuples_per_memtable,
                             cfg->fanout,
                             100);
       platform_assert(SUCCESS(rc));
       rc = test_filter_perf((cache *)cc,
                             &cfg->index_filter_cfg,
                             hid,
-                            cfg->mt_cfg.max_tuples_per_memtable / 5,
+                            max_tuples_per_memtable / 5,
                             cfg->fanout,
                             100);
       platform_assert(SUCCESS(rc));
@@ -395,13 +402,13 @@ filter_test(int argc, char *argv[])
       rc = test_filter_basic((cache *)cc,
                              &cfg->leaf_filter_cfg,
                              hid,
-                             cfg->mt_cfg.max_tuples_per_memtable,
+                             max_tuples_per_memtable,
                              cfg->fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic((cache *)cc,
                              &cfg->index_filter_cfg,
                              hid,
-                             cfg->mt_cfg.max_tuples_per_memtable / 5,
+                             max_tuples_per_memtable / 5,
                              cfg->fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic(

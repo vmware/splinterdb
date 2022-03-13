@@ -304,16 +304,21 @@ typedef struct ycsb_phase {
 } ycsb_phase;
 
 static void
+nop_tuple_func(slice key, slice value, void *arg)
+{}
+
+static void
 ycsb_thread(void *arg)
 {
    platform_status  rc;
-   platform_heap_id hid = platform_get_heap_id();
    uint64           i;
    ycsb_log_params *params     = (ycsb_log_params *)arg;
    trunk_handle    *spl        = params->spl;
    uint64           num_ops    = params->total_ops;
    uint64           batch_size = params->batch_size;
    uint64           my_batch;
+   writable_buffer  value;
+   writable_buffer_init(&value, NULL);
 
    uint64_t start_time = platform_get_timestamp();
    __sync_val_compare_and_swap(
@@ -322,8 +327,6 @@ ycsb_thread(void *arg)
    struct timespec start_thread_cputime;
    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start_thread_cputime);
 
-   char  *range_buffer      = NULL;
-   size_t range_buffer_size = 0;
    my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
    while (my_batch < num_ops) {
       if (num_ops < my_batch + batch_size)
@@ -335,8 +338,6 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               writable_buffer value;
-               writable_buffer_init_null(&value, NULL);
                rc = trunk_lookup(spl, ops->key, &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
@@ -359,25 +360,8 @@ ycsb_thread(void *arg)
             }
             case 's':
             {
-               uint64       tuples_returned;
-               const size_t size_needed =
-                  ops->range_len * (MAX_KEY_SIZE + MAX_MESSAGE_SIZE);
-               if (range_buffer_size < size_needed) {
-                  if (range_buffer) {
-                     platform_free(hid, range_buffer);
-                  }
-                  range_buffer_size = range_buffer_size * 2 < size_needed
-                                         ? size_needed
-                                         : range_buffer_size * 2;
-                  range_buffer =
-                     TYPED_ARRAY_MALLOC(hid, range_buffer, range_buffer_size);
-                  platform_assert(range_buffer);
-               }
-               rc = trunk_range(spl,
-                                ops->key,
-                                ops->range_len,
-                                &tuples_returned,
-                                range_buffer);
+               rc = trunk_range(
+                  spl, ops->key, ops->range_len, nop_tuple_func, NULL);
                platform_assert_status_ok(rc);
                break;
             }
@@ -392,9 +376,6 @@ ycsb_thread(void *arg)
          ops++;
       }
       my_batch = __sync_fetch_and_add(&params->next_op, batch_size);
-   }
-   if (range_buffer) {
-      platform_free(hid, range_buffer);
    }
 
    __sync_fetch_and_add(params->threads_complete, 1);
@@ -421,6 +402,7 @@ ycsb_thread(void *arg)
       SEC_TO_NSEC(end_thread_cputime.tv_sec) + end_thread_cputime.tv_nsec
       - SEC_TO_NSEC(start_thread_cputime.tv_sec) - start_thread_cputime.tv_nsec;
    __sync_fetch_and_add(&params->times.sum_of_cpu_times, thread_cputime);
+   writable_buffer_deinit(&value);
 }
 
 static int
@@ -1170,10 +1152,11 @@ ycsb_test(int argc, char *argv[])
    uint64              seed;
    task_system        *ts;
 
-   uint64      nphases;
-   bool        use_existing = 0;
-   ycsb_phase *phases;
-   int         args_consumed;
+   uint64                 nphases;
+   bool                   use_existing = 0;
+   ycsb_phase            *phases;
+   int                    args_consumed;
+   test_message_generator gen;
 
    uint64 log_size_bytes, memory_bytes;
    rc = load_ycsb_logs(argc,
@@ -1199,16 +1182,17 @@ ycsb_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
-   data_config  *data_cfg     = TYPED_MALLOC(hid, data_cfg);
+   data_config  *data_cfg;
    trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
-                        data_cfg,
+                        &data_cfg,
                         &io_cfg,
                         &allocator_cfg,
                         &cache_cfg,
                         &log_cfg,
                         &seed,
+                        &gen,
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {
@@ -1383,7 +1367,6 @@ free_iohandle:
    platform_free(hid, io);
 cleanup:
    platform_free(hid, splinter_cfg);
-   platform_free(hid, data_cfg);
    platform_heap_destroy(&hh);
 
    return SUCCESS(rc) ? 0 : -1;
