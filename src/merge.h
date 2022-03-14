@@ -18,11 +18,11 @@
 #define MAX_MERGE_ARITY (1024)
 
 typedef struct ordered_iterator {
-   iterator *itor;
-   int       seq;
-   slice     key;
-   slice     data;
-   bool      next_key_equal;
+   iterator                 *itor;
+   int                       seq;
+   slice                     key;
+   message                   data;
+   bool                      next_key_equal;
 } ordered_iterator;
 
 /*
@@ -58,16 +58,16 @@ extern struct merge_behavior   merge_full, merge_intermediate, merge_raw;
 
 
 typedef struct merge_iterator {
-   iterator     super;     // handle for iterator.h API
-   int          num_trees; // number of trees in the forest
-   bool         merge_messages;
-   bool         finalize_updates;
-   bool         emit_deletes;
-   bool         at_end;
-   int          num_remaining; // number of ritors not at end
-   data_config *cfg;           // point message tree data config
-   slice        key;           // next key
-   slice        data;          // next data
+   iterator                  super;     // handle for iterator.h API
+   int                       num_trees; // number of trees in the forest
+   bool                      merge_messages;
+   bool                      finalize_updates;
+   bool                      emit_deletes;
+   bool                      at_end;
+   int                       num_remaining; // number of ritors not at end
+   data_config              *cfg;           // point message tree data config
+   slice                     key;           // next key
+   message                   data;          // next data
 
    // Padding so ordered_iterators[-1] is valid
    ordered_iterator ordered_iterator_stored_pad;
@@ -81,7 +81,7 @@ typedef struct merge_iterator {
    uint64 discarded_deletes;
 
    // space for merging data together
-   writable_buffer merge_buffer;
+   merge_accumulator merge_buffer;
 } merge_iterator;
 
 // Statically enforce that the padding variables act as index -1 for both arrays

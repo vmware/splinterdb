@@ -19,7 +19,7 @@ void
 test_data_generate_message(const data_config *cfg,
                            message_type       type,
                            uint8              ref_count,
-                           writable_buffer   *msg);
+                           merge_accumulator *msg);
 
 static inline void
 test_data_set_insert_flag(void *raw_data)

@@ -1210,8 +1210,8 @@ routing_filter_verify(cache          *cc,
    iterator_at_end(itor, &at_end);
    while (!at_end) {
       slice key;
-      slice message;
-      iterator_get_curr(itor, &key, &message);
+      message msg;
+      iterator_get_curr(itor, &key, &msg);
       uint64          found_values;
       platform_status rc =
          routing_filter_lookup(cc, cfg, filter, key, &found_values);

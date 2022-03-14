@@ -152,13 +152,13 @@ typedef struct btree_iterator {
 
 typedef struct btree_pack_req {
    // inputs to the pack
-   cache        *cc;
-   btree_config *cfg;
-   iterator     *itor; // the itor which is being packed
-   uint64        max_tuples;
-   uint64        max_kv_bytes; // max kv_bytes for the tree
-   hash_fn       hash;         // hash function used for calculating filter_hash
-   unsigned int  seed;         // seed used for calculating filter_hash
+   cache            *cc;
+   btree_config     *cfg;
+   iterator         *itor; // the itor which is being packed
+   uint64            max_tuples;
+   uint64            max_kv_bytes; // max kv_bytes for the tree
+   hash_fn           hash; // hash function used for calculating filter_hash
+   unsigned int      seed; // seed used for calculating filter_hash
 
    // internal data
    uint64         next_extent;
@@ -211,7 +211,7 @@ btree_insert(cache              *cc,         // IN
              uint64              root_addr,  // IN
              mini_allocator     *mini,       // IN
              slice               key,        // IN
-             slice               data,       // IN
+             message             data,       // IN
              uint64             *generation, // OUT
              bool               *was_unique);              // OUT
 
@@ -274,44 +274,44 @@ btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr);
 void
 btree_node_unget(cache *cc, const btree_config *cfg, btree_node *node);
 platform_status
-btree_lookup(cache           *cc,
-             btree_config    *cfg,
-             uint64           root_addr,
-             page_type        type,
-             slice            key,
-             writable_buffer *result);
+btree_lookup(cache             *cc,
+             btree_config      *cfg,
+             uint64             root_addr,
+             page_type          type,
+             slice              key,
+             merge_accumulator *result);
 
 static inline bool
-btree_found(writable_buffer *result)
+btree_found(merge_accumulator *result)
 {
-   return !writable_buffer_is_null(result);
+   return !merge_accumulator_is_null(result);
 }
 
 platform_status
-btree_lookup_and_merge(cache           *cc,
-                       btree_config    *cfg,
-                       uint64           root_addr,
-                       page_type        type,
-                       slice            key,
-                       writable_buffer *data,
-                       bool            *local_found);
+btree_lookup_and_merge(cache             *cc,
+                       btree_config      *cfg,
+                       uint64             root_addr,
+                       page_type          type,
+                       slice              key,
+                       merge_accumulator *data,
+                       bool              *local_found);
 
 cache_async_result
-btree_lookup_async(cache            *cc,
-                   btree_config     *cfg,
-                   uint64            root_addr,
-                   slice             key,
-                   writable_buffer  *result,
-                   btree_async_ctxt *ctxt);
+btree_lookup_async(cache             *cc,
+                   btree_config      *cfg,
+                   uint64             root_addr,
+                   slice              key,
+                   merge_accumulator *result,
+                   btree_async_ctxt  *ctxt);
 
 cache_async_result
-btree_lookup_and_merge_async(cache            *cc,          // IN
-                             btree_config     *cfg,         // IN
-                             uint64            root_addr,   // IN
-                             const slice       key,         // IN
-                             writable_buffer  *data,        // OUT
-                             bool             *local_found, // OUT
-                             btree_async_ctxt *ctxt);       // IN
+btree_lookup_and_merge_async(cache             *cc,          // IN
+                             btree_config      *cfg,         // IN
+                             uint64             root_addr,   // IN
+                             const slice        key,         // IN
+                             merge_accumulator *data,        // OUT
+                             bool              *local_found, // OUT
+                             btree_async_ctxt  *ctxt);        // IN
 
 void
 btree_iterator_init(cache          *cc,
@@ -458,7 +458,7 @@ btree_key_to_string(btree_config *cfg, slice key, char str[static 128])
 }
 
 static inline void
-btree_message_to_string(btree_config *cfg, slice data, char str[static 128])
+btree_message_to_string(btree_config *cfg, message data, char str[static 128])
 {
    return data_message_to_string(cfg->data_cfg, data, str, 128);
 }

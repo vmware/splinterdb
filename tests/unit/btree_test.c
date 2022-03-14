@@ -47,12 +47,12 @@ btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              platform_heap_id       hid,
                              btree_hdr             *hdr,
                              slice                  key,
-                             slice                  message,
+                             message                msg,
                              leaf_incorporate_spec *spec,
                              uint64                *generation)
 {
    platform_status rc =
-      btree_create_leaf_incorporate_spec(cfg, hid, hdr, key, message, spec);
+      btree_create_leaf_incorporate_spec(cfg, hid, hdr, key, msg, spec);
    ASSERT_TRUE(SUCCESS(rc));
    return btree_try_perform_leaf_incorporate_spec(cfg, hdr, spec, generation);
 }
@@ -169,43 +169,49 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    bool rv = FALSE;
    for (uint32 i = 0; i < nkvs; i++) {
-      rv = btree_set_leaf_entry(cfg,
-                                hdr,
-                                i,
-                                slice_create(i % sizeof(i), &i),
-                                slice_create(i % sizeof(i), &i));
+      rv = btree_set_leaf_entry(
+         cfg,
+         hdr,
+         i,
+         slice_create(i % sizeof(i), &i),
+         message_create(MESSAGE_TYPE_INSERT, slice_create(i % sizeof(i), &i)));
       ASSERT_TRUE(rv, "Failed to insert 4-byte %d\n", i);
    }
 
    int cmp_rv = 0;
    for (uint32 i = 0; i < nkvs; i++) {
       slice key     = btree_get_tuple_key(cfg, hdr, i);
-      slice message = btree_get_tuple_message(cfg, hdr, i);
+      message msg     = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
-      cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
+      cmp_rv = message_lex_cmp(
+         message_create(MESSAGE_TYPE_INSERT, slice_create(i % sizeof(i), &i)),
+         msg);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
    rv = FALSE;
    for (uint64 i = 0; i < nkvs; i++) {
-      rv = btree_set_leaf_entry(cfg,
-                                hdr,
-                                i,
-                                slice_create(i % sizeof(i), &i),
-                                slice_create(i % sizeof(i), &i));
+      rv = btree_set_leaf_entry(
+         cfg,
+         hdr,
+         i,
+         slice_create(i % sizeof(i), &i),
+         message_create(MESSAGE_TYPE_INSERT, slice_create(i % sizeof(i), &i)));
       ASSERT_TRUE(rv, "Failed to insert 8-byte %ld\n", i);
    }
 
    cmp_rv = 0;
    for (uint64 i = 0; i < nkvs; i++) {
       slice key     = btree_get_tuple_key(cfg, hdr, i);
-      slice message = btree_get_tuple_message(cfg, hdr, i);
+      message msg     = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
-      cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
+      cmp_rv = message_lex_cmp(
+         message_create(MESSAGE_TYPE_INSERT, slice_create(i % sizeof(i), &i)),
+         msg);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
@@ -214,11 +220,13 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    for (uint64 i = 0; i < nkvs; i++) {
       slice key     = btree_get_tuple_key(cfg, hdr, i);
-      slice message = btree_get_tuple_message(cfg, hdr, i);
+      message msg     = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
-      cmp_rv = slice_lex_cmp(slice_create(i % sizeof(i), &i), message);
+      cmp_rv = message_lex_cmp(
+         message_create(MESSAGE_TYPE_INSERT, slice_create(i % sizeof(i), &i)),
+         msg);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte message %d\n", i);
    }
 
@@ -244,11 +252,12 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       messagebuf[0] = i;
 
       slice key     = slice_create(1, &keybuf);
-      slice message = slice_create(i % 8, messagebuf);
+      message msg =
+         message_create(MESSAGE_TYPE_INSERT, slice_create(i % 8, messagebuf));
 
       leaf_incorporate_spec spec;
       bool                  result = btree_leaf_incorporate_tuple(
-         cfg, hid, hdr, key, message, &spec, &generation);
+         cfg, hid, hdr, key, msg, &spec, &generation);
       ASSERT_TRUE(result, "Could not incorporate kv pair %d\n", i);
 
       ASSERT_EQUAL(generation, i, "Bad generation=%lu, i=%d\n", generation, i);
@@ -377,9 +386,11 @@ leaf_split_tests(btree_config    *cfg,
    btree_init_hdr(cfg, hdr);
 
    int   msgsize = btree_page_size(cfg) / (nkvs + 1);
-   slice msg     = slice_create(msgsize, msg_buffer);
-   slice bigger_msg =
-      slice_create(msgsize + sizeof(table_entry) + 1, msg_buffer);
+   message msg =
+      message_create(MESSAGE_TYPE_INSERT, slice_create(msgsize, msg_buffer));
+   message bigger_msg = message_create(
+      MESSAGE_TYPE_INSERT,
+      slice_create(msgsize + sizeof(table_entry) + 1, msg_buffer));
 
    uint8 realnkvs = 0;
    while (realnkvs < nkvs) {

@@ -38,7 +38,7 @@ typedef struct writable_buffer writable_buffer;
 
 /* Returns 0 if wb is in the null state */
 uint64
-writable_buffer_length(writable_buffer *wb);
+writable_buffer_length(const writable_buffer *wb);
 
 /* Allocates memory as needed. Returns TRUE on success. */
 bool
@@ -46,7 +46,7 @@ writable_buffer_resize(writable_buffer *wb, uint64 newlength);
 
 /* Returns a ptr to the data region held by this writable_buffer */
 void *
-writable_buffer_data(writable_buffer *wb);
+writable_buffer_data(const writable_buffer *wb);
 
 
 /*

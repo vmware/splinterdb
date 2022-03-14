@@ -306,16 +306,17 @@ trunk_shadow_reinit(trunk_shadow *shadow)
  * rows will be used later during lookup-validation using range searches.
  */
 static void
-trunk_shadow_append(trunk_shadow *shadow, slice key, slice value)
+trunk_shadow_append(trunk_shadow *shadow, slice key, message value)
 {
+   platform_assert(message_class(value) == MESSAGE_TYPE_INSERT);
    uint64 key_offset =
       writable_buffer_append(&shadow->data, slice_length(key), slice_data(key));
    writable_buffer_append(
-      &shadow->data, slice_length(value), slice_data(value));
+      &shadow->data, message_length(value), message_data(value));
 
    shadow_entry new_entry = {.key_offset   = key_offset,
                              .key_length   = slice_length(key),
-                             .value_length = slice_length(value)};
+                             .value_length = message_length(value)};
    writable_buffer_append(&shadow->entries, sizeof(new_entry), &new_entry);
    shadow->sorted = FALSE;
 }
@@ -326,11 +327,13 @@ shadow_entry_key(const shadow_entry *entry, char *data)
    return slice_create(entry->key_length, data + entry->key_offset);
 }
 
-static slice
+static message
 shadow_entry_value(const shadow_entry *entry, char *data)
 {
-   return slice_create(entry->value_length,
-                       data + entry->key_offset + entry->key_length);
+   return message_create(
+      MESSAGE_TYPE_INSERT,
+      slice_create(entry->value_length,
+                   data + entry->key_offset + entry->key_length));
 }
 
 static int
@@ -361,7 +364,7 @@ trunk_shadow_sort(trunk_shadow *shadow)
 }
 
 static void
-trunk_shadow_get(trunk_shadow *shadow, uint64 i, slice *key, slice *value)
+trunk_shadow_get(trunk_shadow *shadow, uint64 i, slice *key, message *value)
 {
 
    if (!shadow->sorted) {
@@ -387,7 +390,7 @@ test_splinter_bsearch(trunk_shadow *shadow, slice key)
       // invariant: forall i | i < lo  :: s[i] < key
       // invariant: forall i | hi <= i :: key <= s[i]
       slice  ckey;
-      slice  cvalue;
+      message cvalue;
       uint64 mid = (lo + hi) / 2;
       trunk_shadow_get(shadow, mid, &ckey, &cvalue);
       int cmp = slice_lex_cmp(key, ckey);
@@ -435,8 +438,8 @@ CTEST2(splinter, test_lookups)
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
                     num_inserts);
 
-   writable_buffer qdata;
-   writable_buffer_init(&qdata, NULL);
+   merge_accumulator qdata;
+   merge_accumulator_init(&qdata, NULL);
    char         key[MAX_KEY_SIZE];
    const size_t key_size = trunk_key_size(spl);
 
@@ -456,7 +459,7 @@ CTEST2(splinter, test_lookups)
          insert_num, num_inserts, "Verify positive lookups %3lu%% complete");
 
       test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-      writable_buffer_set_to_null(&qdata);
+      merge_accumulator_set_to_null(&qdata);
 
       rc = trunk_lookup(spl, key, &qdata);
       ASSERT_TRUE(SUCCESS(rc),
@@ -468,7 +471,7 @@ CTEST2(splinter, test_lookups)
                    &data->gen,
                    insert_num,
                    key,
-                   writable_buffer_to_slice(&qdata),
+                   merge_accumulator_to_message(&qdata),
                    TRUE);
    }
 
@@ -505,7 +508,7 @@ CTEST2(splinter, test_lookups)
                    &data->gen,
                    insert_num,
                    key,
-                   writable_buffer_to_slice(&qdata),
+                   merge_accumulator_to_message(&qdata),
                    FALSE);
    }
 
@@ -683,8 +686,8 @@ splinter_do_inserts(void         *datap,
    platform_default_log("trunk_insert() test with %d inserts %s ...\n",
                         num_inserts,
                         (verify ? "and verify" : ""));
-   writable_buffer msg;
-   writable_buffer_init(&msg, NULL);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, NULL);
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
 
       // Show progress message in %age-completed to stdout
@@ -699,7 +702,7 @@ splinter_do_inserts(void         *datap,
       }
       test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       generate_test_message(&data->gen, insert_num, &msg);
-      rc = trunk_insert(spl, key, writable_buffer_to_slice(&msg));
+      rc = trunk_insert(spl, key, merge_accumulator_to_message(&msg));
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_insert() FAILURE: %s\n",
                   platform_status_to_string(rc));
@@ -707,8 +710,9 @@ splinter_do_inserts(void         *datap,
       // Caller is interested in using a copy of the rows inserted for
       // verification; e.g. by range-search lookups.
       if (shadow) {
-         trunk_shadow_append(
-            shadow, trunk_key_slice(spl, key), writable_buffer_to_slice(&msg));
+         trunk_shadow_append(shadow,
+                             trunk_key_slice(spl, key),
+                             merge_accumulator_to_message(&msg));
       }
    }
 
@@ -729,7 +733,7 @@ splinter_do_inserts(void         *datap,
    cache_assert_free((cache *)data->clock_cache);
 
    // Cleanup memory allocated in this test case
-   writable_buffer_deinit(&msg);
+   merge_accumulator_deinit(&msg);
    return num_inserts;
 }
 
@@ -741,14 +745,14 @@ typedef struct shadow_check_tuple_arg {
 } shadow_check_tuple_arg;
 
 static void
-shadow_check_tuple_func(slice key, slice value, void *varg)
+shadow_check_tuple_func(slice key, message value, void *varg)
 {
    shadow_check_tuple_arg *arg = varg;
 
    slice shadow_key;
-   slice shadow_value;
+   message shadow_value;
    trunk_shadow_get(arg->shadow, arg->pos, &shadow_key, &shadow_value);
-   if (slice_lex_cmp(key, shadow_key) || slice_lex_cmp(value, shadow_value)) {
+   if (slice_lex_cmp(key, shadow_key) || message_lex_cmp(value, shadow_value)) {
       char expected_key[128];
       char actual_key[128];
       char expected_value[128];

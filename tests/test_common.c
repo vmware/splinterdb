@@ -25,10 +25,10 @@ verify_tuple(trunk_handle           *spl,
              test_message_generator *gen,
              uint64                  lookup_num,
              char                   *key,
-             slice                   data,
+             message                 data,
              bool                    expected_found)
 {
-   if (slice_is_null(data) != !expected_found) {
+   if (message_is_null(data) != !expected_found) {
       char key_str[128];
       trunk_key_to_string(spl, key, key_str);
       platform_handle_log(stderr,
@@ -36,22 +36,23 @@ verify_tuple(trunk_handle           *spl,
                           platform_get_tid(),
                           lookup_num,
                           key_str,
-                          !slice_is_null(data),
+                          !message_is_null(data),
                           expected_found);
       trunk_print_lookup(spl, key);
       platform_assert(FALSE);
    }
 
-   if (!slice_is_null(data) && expected_found) {
-      writable_buffer expected_msg;
-      writable_buffer_init(&expected_msg, NULL);
+   if (!message_is_null(data) && expected_found) {
+      merge_accumulator expected_msg;
+      merge_accumulator_init(&expected_msg, NULL);
       char data_str[128];
       generate_test_message(gen, lookup_num, &expected_msg);
-      if (slice_lex_cmp(writable_buffer_to_slice(&expected_msg), data) != 0) {
+      if (message_lex_cmp(merge_accumulator_to_message(&expected_msg), data)
+          != 0) {
          trunk_message_to_string(spl, data, data_str);
          platform_handle_log(stderr, "key found with data: %s\n", data_str);
          trunk_message_to_string(
-            spl, writable_buffer_to_slice(&expected_msg), data_str);
+            spl, merge_accumulator_to_message(&expected_msg), data_str);
          platform_handle_log(stderr, "expected data: %s\n", data_str);
          platform_assert(FALSE);
       }

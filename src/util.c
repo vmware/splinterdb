@@ -37,7 +37,7 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 }
 
 uint64
-writable_buffer_length(writable_buffer *wb)
+writable_buffer_length(const writable_buffer *wb)
 {
    if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
       return 0;
@@ -59,7 +59,7 @@ writable_buffer_resize(writable_buffer *wb, uint64 newlength)
 }
 
 void *
-writable_buffer_data(writable_buffer *wb)
+writable_buffer_data(const writable_buffer *wb)
 {
    if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
       return NULL;
