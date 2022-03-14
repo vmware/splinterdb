@@ -582,15 +582,12 @@ parse_ycsb_log_file(void *arg)
          platform_assert(ret == 2);
       } else if (result[i].cmd == 'd') {
          platform_assert(ret == 2);
-         test_data_set_delete_flag(dh);
       } else if (result[i].cmd == 'u') {
          platform_assert(ret == 2);
          random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
-         test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 'i') {
          platform_assert(ret == 2);
          random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
-         test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 's') {
          ret = sscanf(buffer,
                       "%c %64s %lu\n",

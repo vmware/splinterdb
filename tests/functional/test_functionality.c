@@ -86,10 +86,8 @@ verify_tuple(trunk_handle    *spl,
       platform_error_log(
          "ERROR: A key found in the Splinter has refcount 0 in shadow tree. "
          "key = 0x%08lx, "
-         "splinter flags = %d, "
          "splinter refcount = 0x%08x\n",
          key,
-         msg->message_type,
          msg->ref_count);
       *result = STATUS_INVALID_STATE;
       trunk_print_lookup(spl, keybuf);
@@ -278,12 +276,11 @@ verify_range_against_shadow(trunk_handle               *spl,
       } else {
          platform_error_log("ERROR: Key mismatch: "
                             "Shadow Key: 0x%08lx, Shadow Refcount: %3d, "
-                            "Tree Key: 0x%08lx, Tree Msg Type: 0x%02x, "
+                            "Tree Key: 0x%08lx, "
                             "Tree Refcount: %3d\n",
                             shadow_key,
                             shadow_refcount,
                             splinter_key,
-                            splinter_data_handle->message_type,
                             splinter_data_handle->ref_count);
          platform_assert(0);
          status = STATUS_INVALID_STATE;
@@ -310,9 +307,8 @@ verify_range_against_shadow(trunk_handle               *spl,
       splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
 
       platform_log("Range iterator EXTRA KEY: %08lx \n"
-                   "Tree Msg Type: 0x%02x, Tree Refcount %3d\n",
+                   "Tree Refcount %3d\n",
                    splinter_key,
-                   splinter_data_handle->message_type,
                    splinter_data_handle->ref_count);
       if (!SUCCESS(iterator_advance((iterator *)range_itor))) {
          goto destroy;

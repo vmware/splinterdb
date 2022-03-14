@@ -362,8 +362,7 @@ gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    uint64       datalen = sizeof(i) + (i % (btree_page_size(cfg) / 3));
 
    platform_assert(datalen + sizeof(i) <= length);
-   dh->message_type = MESSAGE_TYPE_INSERT;
-   dh->ref_count    = 1;
+   dh->ref_count = 1;
    memset(dh->data, 0, datalen);
    memcpy(dh->data, &i, sizeof(i));
    return message_create(MESSAGE_TYPE_INSERT,

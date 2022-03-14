@@ -177,8 +177,7 @@ generate_test_message(const test_message_generator *generator,
    merge_accumulator_resize(msg, total_size);
    data_handle *raw_data = merge_accumulator_data(msg);
    memset(raw_data, idx, total_size);
-   raw_data->message_type = generator->type;
-   raw_data->ref_count    = 1;
+   raw_data->ref_count = 1;
    memcpy(raw_data->data, &idx, sizeof(idx));
 }
 

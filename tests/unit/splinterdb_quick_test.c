@@ -704,7 +704,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    const size_t key_len  = 3;
    const char  *key_data = "foo";
    slice        key      = slice_create(key_len, key_data);
-   data_handle  msg = {.message_type = MESSAGE_TYPE_INSERT, .ref_count = 1};
+   data_handle  msg       = {.ref_count = 1};
    slice        msg_slice = slice_create(sizeof(msg), &msg);
 
    ASSERT_EQUAL(0, rc);
@@ -723,7 +723,6 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_EQUAL(0, slice_lex_cmp(value, msg_slice));
 
    // insert a message that adds to the refcount
-   msg.message_type = MESSAGE_TYPE_UPDATE;
    msg.ref_count    = 5;
    rc               = splinterdb_update(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
@@ -734,7 +733,6 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    // insert a message that drops the refcount to zero
-   msg.message_type = MESSAGE_TYPE_UPDATE;
    msg.ref_count    = -6;
    rc               = splinterdb_update(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
@@ -745,7 +743,6 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    // add it back as a value
-   msg.message_type = MESSAGE_TYPE_INSERT;
    msg.ref_count    = 12;
    rc               = splinterdb_insert(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
