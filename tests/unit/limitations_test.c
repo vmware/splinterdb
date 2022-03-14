@@ -156,6 +156,7 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
+   platform_free(data->hid, data->io->req);
    platform_free(data->hid, data->io);
 
    if (data->cache_cfg) {
@@ -419,8 +420,6 @@ splinter_init_subsystems(void *arg)
    // Allocate memory for global config structures
    data->splinter_cfg =
       TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg, num_tables);
-
-   data->data_cfg = TYPED_ARRAY_MALLOC(data->hid, data->data_cfg, num_tables);
 
    data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
