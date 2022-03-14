@@ -11,7 +11,7 @@
 #ifndef __LIMITS_H__
 #define __LIMITS_H__
 
-#define MAX_KEY_SIZE    136 /* bytes */
+#define MAX_KEY_SIZE    121 /* bytes */
 #define MAX_KEY_STR_LEN 128 /* bytes */
 
 #endif // __LIMITS_H__
