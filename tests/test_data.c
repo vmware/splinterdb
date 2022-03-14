@@ -30,8 +30,8 @@ test_data_generate_message(const data_config *cfg,
    }
    merge_accumulator_set_class(msg, type);
    merge_accumulator_resize(msg, sizeof(data_handle) + payload_size);
-   data_handle *dh  = merge_accumulator_data(msg);
-   dh->ref_count    = ref_count;
+   data_handle *dh = merge_accumulator_data(msg);
+   dh->ref_count   = ref_count;
    memset(dh->data, ref_count, payload_size);
 }
 
