@@ -389,9 +389,9 @@ test_splinter_bsearch(trunk_shadow *shadow, slice key)
    while (lo < hi) {
       // invariant: forall i | i < lo  :: s[i] < key
       // invariant: forall i | hi <= i :: key <= s[i]
-      slice  ckey;
+      slice   ckey;
       message cvalue;
-      uint64 mid = (lo + hi) / 2;
+      uint64  mid = (lo + hi) / 2;
       trunk_shadow_get(shadow, mid, &ckey, &cvalue);
       int cmp = slice_lex_cmp(key, ckey);
       if (cmp <= 0) {
@@ -749,7 +749,7 @@ shadow_check_tuple_func(slice key, message value, void *varg)
 {
    shadow_check_tuple_arg *arg = varg;
 
-   slice shadow_key;
+   slice   shadow_key;
    message shadow_value;
    trunk_shadow_get(arg->shadow, arg->pos, &shadow_key, &shadow_value);
    if (slice_lex_cmp(key, shadow_key) || message_lex_cmp(value, shadow_value)) {

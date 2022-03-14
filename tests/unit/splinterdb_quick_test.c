@@ -725,7 +725,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // insert a message that adds to the refcount
    msg.message_type = MESSAGE_TYPE_UPDATE;
    msg.ref_count    = 5;
-   rc = splinterdb_update(data->kvsb, key, msg_slice);
+   rc               = splinterdb_update(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // check still found
@@ -734,9 +734,9 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    // insert a message that drops the refcount to zero
-   msg.message_type  = MESSAGE_TYPE_UPDATE;
-   msg.ref_count     = -6;
-   rc                = splinterdb_update(data->kvsb, key, msg_slice);
+   msg.message_type = MESSAGE_TYPE_UPDATE;
+   msg.ref_count    = -6;
+   rc               = splinterdb_update(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // on lookup, merge will decide the tuple is deleted

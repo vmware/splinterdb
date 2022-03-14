@@ -112,9 +112,9 @@ test_btree_lookup(cache        *cc,
                   slice         key,
                   message       expected_data)
 {
-   platform_status rc;
+   platform_status   rc;
    merge_accumulator result;
-   bool            ret;
+   bool              ret;
 
    merge_accumulator_init(&result, NULL);
 
@@ -185,8 +185,8 @@ test_btree_insert_thread(void *arg)
    uint64                    thread_id   = params->thread_id;
    uint64                    num_inserts = params->num_ops;
 
-   uint64          start_time = platform_get_timestamp();
-   writable_buffer key;
+   uint64            start_time = platform_get_timestamp();
+   writable_buffer   key;
    merge_accumulator data;
 
    writable_buffer_init(&key, NULL);
@@ -308,10 +308,10 @@ destroy_btrees:
 
 // A single async context
 typedef struct {
-   btree_async_ctxt ctxt;
-   cache_async_ctxt cache_ctxt;
-   bool             ready;
-   writable_buffer  key;
+   btree_async_ctxt  ctxt;
+   cache_async_ctxt  cache_ctxt;
+   bool              ready;
+   writable_buffer   key;
    merge_accumulator result;
 } btree_test_async_ctxt;
 
@@ -549,8 +549,8 @@ test_btree_basic(cache             *cc,
 
    btree_test_async_ctxt_init(async_lookup);
 
-   uint64          start_time = platform_get_timestamp();
-   writable_buffer key;
+   uint64            start_time = platform_get_timestamp();
+   writable_buffer   key;
    merge_accumulator expected_data;
    writable_buffer_init(&key, NULL);
    merge_accumulator_init(&expected_data, NULL);
@@ -799,7 +799,7 @@ test_btree_create_packed_trees(cache             *cc,
       test_memtable_context_create(cc, cfg, num_trees, hid);
 
    // fill the memtables
-   writable_buffer key;
+   writable_buffer   key;
    merge_accumulator data;
    writable_buffer_init(&key, NULL);
    merge_accumulator_init(&data, NULL);
@@ -1259,7 +1259,7 @@ test_btree_rough_iterator(cache             *cc,
       if (SUCCESS(iterator_at_end(&rough_btree_itor[tree_no].super, &at_end))
           && !at_end)
       {
-         slice key;
+         slice   key;
          message msg;
          iterator_get_curr(&rough_btree_itor[tree_no].super, &key, &msg);
          platform_log("key size: %lu\n", slice_length(key));

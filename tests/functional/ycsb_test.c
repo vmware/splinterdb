@@ -310,13 +310,13 @@ nop_tuple_func(slice key, message value, void *arg)
 static void
 ycsb_thread(void *arg)
 {
-   platform_status  rc;
-   uint64           i;
-   ycsb_log_params *params     = (ycsb_log_params *)arg;
-   trunk_handle    *spl        = params->spl;
-   uint64           num_ops    = params->total_ops;
-   uint64           batch_size = params->batch_size;
-   uint64           my_batch;
+   platform_status   rc;
+   uint64            i;
+   ycsb_log_params  *params     = (ycsb_log_params *)arg;
+   trunk_handle     *spl        = params->spl;
+   uint64            num_ops    = params->total_ops;
+   uint64            batch_size = params->batch_size;
+   uint64            my_batch;
    merge_accumulator value;
    merge_accumulator_init(&value, NULL);
 

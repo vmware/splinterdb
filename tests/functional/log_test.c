@@ -89,7 +89,7 @@ test_log_crash(clockcache             *cc,
    for (i = 0; i < num_entries && !at_end; i++) {
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
-      slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
+      slice   skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
       message mmessage = merge_accumulator_to_message(&msg);
       iterator_get_curr(itorh, &returned_key, &returned_message);
       if (slice_lex_cmp(skey, returned_key)

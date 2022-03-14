@@ -854,6 +854,6 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
    var_len_key_encoding *kenc = (var_len_key_encoding *)(slice_data(key_slice));
    platform_assert(kenc->length <= SPLINTERDB_MAX_KEY_SIZE);
 
-   *key = slice_create(kenc->length, kenc->data);
+   *key   = slice_create(kenc->length, kenc->data);
    *value = message_slice(msg);
 }

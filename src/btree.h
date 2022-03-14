@@ -152,13 +152,13 @@ typedef struct btree_iterator {
 
 typedef struct btree_pack_req {
    // inputs to the pack
-   cache            *cc;
-   btree_config     *cfg;
-   iterator         *itor; // the itor which is being packed
-   uint64            max_tuples;
-   uint64            max_kv_bytes; // max kv_bytes for the tree
-   hash_fn           hash; // hash function used for calculating filter_hash
-   unsigned int      seed; // seed used for calculating filter_hash
+   cache        *cc;
+   btree_config *cfg;
+   iterator     *itor; // the itor which is being packed
+   uint64        max_tuples;
+   uint64        max_kv_bytes; // max kv_bytes for the tree
+   hash_fn       hash;         // hash function used for calculating filter_hash
+   unsigned int  seed;         // seed used for calculating filter_hash
 
    // internal data
    uint64         next_extent;

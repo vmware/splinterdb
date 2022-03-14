@@ -113,7 +113,7 @@ test_trunk_insert_thread(void *arg)
    uint64    num_inserts     = 0;
    timestamp next_check_time = platform_get_timestamp();
    // divide the per second insert rate into periods of 10 milli seconds.
-   uint64          insert_rate = params->insert_rate / 100;
+   uint64            insert_rate = params->insert_rate / 100;
    merge_accumulator msg;
    merge_accumulator_init(&msg, NULL);
 

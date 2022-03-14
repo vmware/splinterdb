@@ -303,7 +303,7 @@ btree_fill_leaf_entry(const btree_config *cfg,
    entry->type         = message_class(msg);
    /* This assertion ensures that entry->type is large enough to hold type. */
    debug_assert(entry->type == message_class(msg));
-   entry->message_size = message_length(msg);
+   entry->message_size     = message_length(msg);
    entry->message_indirect = FALSE;
 }
 

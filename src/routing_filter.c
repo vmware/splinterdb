@@ -1209,7 +1209,7 @@ routing_filter_verify(cache          *cc,
    bool at_end;
    iterator_at_end(itor, &at_end);
    while (!at_end) {
-      slice key;
+      slice   key;
       message msg;
       iterator_get_curr(itor, &key, &msg);
       uint64          found_values;

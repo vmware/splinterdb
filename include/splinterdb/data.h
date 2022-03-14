@@ -33,7 +33,7 @@ typedef enum message_type {
 
 typedef struct message {
    message_type type;
-   slice data;
+   slice        data;
 } message;
 
 static inline message_type
@@ -124,12 +124,12 @@ struct data_config {
    char   max_key[MAX_KEY_SIZE];
    uint64 max_key_length;
 
-   key_compare_fn           key_compare;
-   key_hash_fn              key_hash;
-   merge_tuple_fn           merge_tuples;
-   merge_tuple_final_fn     merge_tuples_final;
-   key_to_str_fn            key_to_string;
-   message_to_str_fn        message_to_string;
+   key_compare_fn       key_compare;
+   key_hash_fn          key_hash;
+   merge_tuple_fn       merge_tuples;
+   merge_tuple_final_fn merge_tuples_final;
+   key_to_str_fn        key_to_string;
+   message_to_str_fn    message_to_string;
 };
 
 #endif // __DATA_H

@@ -180,9 +180,9 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    int cmp_rv = 0;
    for (uint32 i = 0; i < nkvs; i++) {
-      slice key     = btree_get_tuple_key(cfg, hdr, i);
-      message msg     = btree_get_tuple_message(cfg, hdr, i);
-      cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      slice   key = btree_get_tuple_key(cfg, hdr, i);
+      message msg = btree_get_tuple_message(cfg, hdr, i);
+      cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       cmp_rv = message_lex_cmp(
@@ -204,9 +204,9 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    cmp_rv = 0;
    for (uint64 i = 0; i < nkvs; i++) {
-      slice key     = btree_get_tuple_key(cfg, hdr, i);
-      message msg     = btree_get_tuple_message(cfg, hdr, i);
-      cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      slice   key = btree_get_tuple_key(cfg, hdr, i);
+      message msg = btree_get_tuple_message(cfg, hdr, i);
+      cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       cmp_rv = message_lex_cmp(
@@ -219,9 +219,9 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    btree_defragment_leaf(cfg, scratch, hdr, &spec);
 
    for (uint64 i = 0; i < nkvs; i++) {
-      slice key     = btree_get_tuple_key(cfg, hdr, i);
-      message msg     = btree_get_tuple_message(cfg, hdr, i);
-      cmp_rv        = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
+      slice   key = btree_get_tuple_key(cfg, hdr, i);
+      message msg = btree_get_tuple_message(cfg, hdr, i);
+      cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       cmp_rv = message_lex_cmp(
@@ -251,7 +251,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       keybuf[0]     = 17 * i;
       messagebuf[0] = i;
 
-      slice key     = slice_create(1, &keybuf);
+      slice   key = slice_create(1, &keybuf);
       message msg =
          message_create(MESSAGE_TYPE_INSERT, slice_create(i % 8, messagebuf));
 
@@ -385,7 +385,7 @@ leaf_split_tests(btree_config    *cfg,
 
    btree_init_hdr(cfg, hdr);
 
-   int   msgsize = btree_page_size(cfg) / (nkvs + 1);
+   int     msgsize = btree_page_size(cfg) / (nkvs + 1);
    message msg =
       message_create(MESSAGE_TYPE_INSERT, slice_create(msgsize, msg_buffer));
    message bigger_msg = message_create(

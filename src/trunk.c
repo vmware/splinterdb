@@ -3017,8 +3017,8 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
 
    uint64         memtable_root_addr = mt->root_addr;
    btree_iterator btree_itor;
-   iterator         *itor    = &btree_itor.super;
-   const char       *min_key = spl->cfg.data_cfg->min_key;
+   iterator      *itor    = &btree_itor.super;
+   const char    *min_key = spl->cfg.data_cfg->min_key;
 
    trunk_memtable_iterator_init(
       spl, &btree_itor, memtable_root_addr, min_key, NULL, FALSE, FALSE);
@@ -5905,7 +5905,7 @@ trunk_insert(trunk_handle *spl, char *key, message data)
    timestamp                            ts;
    __attribute((unused)) const threadid tid = platform_get_tid();
    if (spl->cfg.use_stats) {
-      ts       = platform_get_timestamp();
+      ts = platform_get_timestamp();
    }
 
    platform_status rc = trunk_memtable_insert(spl, key, data);
@@ -8155,8 +8155,8 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                         &data);
       platform_assert_status_ok(rc);
       if (!merge_accumulator_is_null(&data)) {
-         char  key_str[128];
-         char  message_str[128];
+         char    key_str[128];
+         char    message_str[128];
          message msg = merge_accumulator_to_message(&data);
          trunk_key_to_string(spl, key, key_str);
          trunk_message_to_string(spl, msg, message_str);

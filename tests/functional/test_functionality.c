@@ -37,7 +37,7 @@ search_for_key_via_iterator(trunk_handle *spl, slice target)
    trunk_range_iterator_init(spl, &iter, NULL, NULL, UINT64_MAX);
    uint64 count = 0;
    while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
-      slice key;
+      slice   key;
       message value;
       iterator_get_curr((iterator *)&iter, &key, &value);
       if (slice_lex_cmp(target, key) == 0) {
@@ -160,7 +160,7 @@ verify_against_shadow(trunk_handle               *spl,
 
    platform_status rc, result = STATUS_OK;
 
-   uint64          i;
+   uint64            i;
    merge_accumulator msgacc;
    merge_accumulator_init(&msgacc, spl->heap_id);
 
@@ -563,9 +563,9 @@ insert_random_messages(trunk_handle              *spl,
    platform_assert(key_size >= sizeof(uint64));
    platform_assert(sizeof(data_handle) <= sizeof(void *));
 
-   int             i;
-   platform_status rc = STATUS_OK;
-   uint64          key;
+   int               i;
+   platform_status   rc = STATUS_OK;
+   uint64            key;
    merge_accumulator msg;
    merge_accumulator_init(&msg, NULL);
 
