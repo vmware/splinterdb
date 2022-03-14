@@ -89,7 +89,7 @@ function cat_exec_log_file() {
         rm -f "${test_exec_log_file}"
    fi
    echo
-   echo "$(date) End SplinterDB Test Suite Execution."
+   echo "$(TZ="America/Los_Angeles" date) End SplinterDB Test Suite Execution."
 }
 
 # #############################################################################
@@ -200,7 +200,6 @@ function run_nightly_stress_tests() {
 # #############################################################################
 function nightly_sync_perf_tests() {
 
-    local npthreads=10
     local dbname="splinter_test.perf.db"
 
     # Different #s of threads. --perf test runs in phases, where some # of
@@ -211,25 +210,32 @@ function nightly_sync_perf_tests() {
     local nrange_lookup_t=8
     local test_descr="${nins_t} insert, ${nlookup_t} lookup, ${nrange_lookup_t} range lookup threads"
 
-    run_with_timing "Performance (sync) test ${test_descr}" \
-            $BINDIR/driver_test splinter_test --perf \
-                                          --max-async-inflight 0 \
-                                          --num-insert-threads ${nins_t} \
-                                          --num-lookup-threads ${nlookup_t} \
-                                          --num-range-lookup-threads ${nrange_lookup_t} \
-                                          --lookup-positive-percent 10 \
-                                          --db-capacity-gib 60 \
-                                          --db-location ${dbname}
-    rm ${dbname}
+    # ----
+    # (#325) Commented this out till slow-performance of this test is resolved.
+    # splinter_test --perf is included in CI-runs, but just with
+    # --num-range-lookup-threads 0
+    # run_with_timing "Performance (sync) test ${test_descr}" \
+    #       $BINDIR/driver_test splinter_test --perf \
+    #                                     --max-async-inflight 0 \
+    #                                     --num-insert-threads ${nins_t} \
+    #                                     --num-lookup-threads ${nlookup_t} \
+    #                                     --num-range-lookup-threads ${nrange_lookup_t} \
+    #                                     --lookup-positive-percent 10 \
+    #                                     --db-capacity-gib 60 \
+    #                                     --db-location ${dbname}
+    # rm ${dbname}
 
+    local npthreads=8
+    local tree_size=8 # GiB
+    test_descr="tree-size ${tree_size} GiB, ${npthreads} pthreads"
     dbname="splinter_test.pll_perf.db"
-    test_descr="${npthreads} pthreads"
 
     run_with_timing "Parallel Performance (sync) test ${test_descr}" \
             $BINDIR/driver_test splinter_test --parallel-perf \
                                           --max-async-inflight 0 \
                                           --num-pthreads ${npthreads} \
                                           --lookup-positive-percent 10 \
+                                          --tree-size-gib ${tree_size} \
                                           --db-capacity-gib 60 \
                                           --db-location ${dbname}
     rm ${dbname}
@@ -240,14 +246,14 @@ function nightly_sync_perf_tests() {
 function nightly_cache_perf_tests() {
 
     local dbname="cache_test.perf.db"
-    local test_descr=", default cache size"
-    run_with_timing "Cache Performance test ${test_descr}" \
+    local test_descr="default cache size"
+    run_with_timing "Cache Performance test, ${test_descr}" \
             $BINDIR/driver_test cache_test --perf \
                                        --db-location ${dbname}
 
     cache_size=6  # GiB
-    test_descr=", ${cache_size} GiB cache"
-    run_with_timing "Cache Performance test ${test_descr}" \
+    test_descr="${cache_size} GiB cache"
+    run_with_timing "Cache Performance test, ${test_descr}" \
             $BINDIR/driver_test cache_test --perf \
                                        --db-location ${dbname} \
                                        --cache-capacity-gib ${cache_size} \
@@ -295,14 +301,14 @@ if [ $# -eq 1 ] && [ "$1" == "--help" ]; then
     exit 0
 fi
 
-echo "$Me: $(date) Start SplinterDB Test Suite Execution."
+echo "$Me: $(TZ="America/Los_Angeles" date) Start SplinterDB Test Suite Execution."
 set -x
 
 SEED="${SEED:-135}"
 
 run_type=" "
 if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
-   run_type="Nightly"
+   run_type=" Nightly "
 fi
 
 set +x
@@ -311,7 +317,7 @@ set +x
 testRunStartSeconds=$SECONDS
 
 # Initialize test-execution timing log file
-echo "$(date) **** SplinterDB${run_type}Test Suite Execution Times **** " > "${test_exec_log_file}"
+echo "$(TZ="America/Los_Angeles" date) **** SplinterDB${run_type}Test Suite Execution Times **** " > "${test_exec_log_file}"
 echo >> "${test_exec_log_file}"
 
 # ---- Nightly Stress and Performance test runs ----
