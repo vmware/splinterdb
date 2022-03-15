@@ -159,6 +159,7 @@ typedef struct btree_pack_req {
    uint64        max_kv_bytes; // max kv_bytes for the tree
    hash_fn       hash;         // hash function used for calculating filter_hash
    unsigned int  seed;         // seed used for calculating filter_hash
+   uint32       *fingerprint_arr; // IN/OUT: hashes of the keys in the tree
 
    // internal data
    uint64         next_extent;
@@ -171,7 +172,6 @@ typedef struct btree_pack_req {
    uint64  num_tuples;      // no. of tuples in the output tree
    uint64  key_bytes;       // total size of keys in tuples of the output tree
    uint64  message_bytes;   // total size of msgs in tuples of the output tree
-   uint32 *fingerprint_arr; // hashes of the keys in the tree
 } btree_pack_req;
 
 struct btree_async_ctxt;
