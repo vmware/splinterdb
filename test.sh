@@ -344,12 +344,14 @@ function nightly_test_limitations() {
     # All these invocations are expected to raise an error. If they
     # sneak-through that's a test failure.
     run_check_rc bin/driver_test splinter_test --page-size 1024
+    run_check_rc bin/driver_test splinter_test --page-size 2000
     run_check_rc bin/driver_test splinter_test --page-size 2048
     run_check_rc bin/driver_test splinter_test --page-size 8192
 
     # Only --extent-size 131072 (i.e. 32 pages/extent) is valid.
     run_check_rc bin/driver_test splinter_test --extent-size 2048
     run_check_rc bin/driver_test splinter_test --extent-size 4096
+    run_check_rc bin/driver_test splinter_test --extent-size 40960
     run_check_rc bin/driver_test splinter_test --extent-size 8192
     run_check_rc bin/driver_test splinter_test --extent-size 135168
     run_check_rc bin/driver_test splinter_test --extent-size 262144

@@ -7177,7 +7177,7 @@ trunk_mount(trunk_config     *cfg,
    }
    if (spl->root_addr == 0) {
       platform_free(hid, spl);
-      return NULL;
+      return (trunk_handle *)NULL;
    }
    uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
 

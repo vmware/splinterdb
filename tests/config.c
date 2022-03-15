@@ -144,15 +144,18 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          {
             for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                if (cfg[cfg_idx].page_size != TEST_CONFIG_DEFAULT_PAGE_SIZE) {
-                  platform_error_log("Currently, page-size configuration "
+                  platform_error_log("Currently, configuration parameter '%s' "
                                      "is restricted to %d bytes.\n",
+                                     "--page-size",
                                      TEST_CONFIG_DEFAULT_PAGE_SIZE);
                   platform_error_log("config: failed to parse page-size\n");
                   return STATUS_BAD_PARAM;
                }
                // Really dead-code for now; Leave it for future enablement.
                if (!IS_POWER_OF_2(cfg[cfg_idx].page_size)) {
-                  platform_error_log("page-size must be a power of 2.\n");
+                  platform_error_log("Configuration parameter '%s' must be "
+                                     "a power of 2.\n",
+                                     "--page-size");
                   platform_error_log("config: failed to parse page-size\n");
                   return STATUS_BAD_PARAM;
                }
