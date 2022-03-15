@@ -34,6 +34,9 @@ _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
 #define TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE 24
 
 // Deal with reasonable key / message sizes for tests
+// There are open issues in some tests for smaller key-sizes.
+// For now, restrict tests to use this minimum key-size.
+#define TEST_CONFIG_MIN_KEY_SIZE         ((int)sizeof(uint64))
 #define TEST_CONFIG_DEFAULT_KEY_SIZE     24
 #define TEST_CONFIG_DEFAULT_MESSAGE_SIZE 100
 
@@ -252,6 +255,14 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                                cfg[cfg_idx].extent_size
                                   / cfg[cfg_idx].page_size,
                                MAX_PAGES_PER_EXTENT);
+            return STATUS_BAD_PARAM;
+         }
+         if (cfg[cfg_idx].key_size < TEST_CONFIG_MIN_KEY_SIZE) {
+            platform_error_log("Configured key-size, %lu, should be at least "
+                               "%d bytes. Support for smaller key-sizes is "
+                               "experimental.\n",
+                               cfg[cfg_idx].key_size,
+                               TEST_CONFIG_MIN_KEY_SIZE);
             return STATUS_BAD_PARAM;
          }
          if (cfg[cfg_idx].key_size > MAX_KEY_SIZE) {
