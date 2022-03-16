@@ -692,6 +692,7 @@ routing_filter_estimate_unique_fp(cache           *cc,
    uint32 fp_start[MAX_FILTERS] = {0};
    for (uint64 i = 0; i != num_filters; i++) {
       if (filter[i].addr == 0) {
+         fp_start[i + 1] = dst_fp_no;
          continue;
       }
       uint32 log_num_buckets = 31 - __builtin_clz(filter[i].num_fingerprints);
@@ -706,56 +707,56 @@ routing_filter_estimate_unique_fp(cache           *cc,
       platform_assert(cfg->fingerprint_size + value_size <= 32);
       uint32 index_size = cfg->index_size;
 
-      if (num_indices < 16) {
+      if (num_indices >= 16) {
          // the filter is too small forget it
-         continue;
-      }
-      platform_assert(num_indices % 16 == 0);
-      num_indices /= 16;
+         platform_assert(num_indices % 16 == 0);
+         num_indices /= 16;
 
-      routing_filter_prefetch(cc, cfg, &filter[i], num_indices);
+         routing_filter_prefetch(cc, cfg, &filter[i], num_indices);
 
-      for (uint32 index_no = 0; index_no < num_indices; index_no++) {
-         // process metadata
-         char        *block_start;
-         uint16       index_count = 0;
-         page_handle *filter_node;
-         routing_hdr *hdr =
-            routing_get_header(cc, cfg, filter[i].addr, index_no, &filter_node);
-         uint16 header_length = routing_header_length(cfg, hdr);
-         block_start          = (char *)hdr + header_length;
-         index_count          = hdr->num_remainders;
-         routing_get_bucket_counts(cfg, hdr, count);
-         // routing_filter_print_encoding(cfg, hdr);
+         for (uint32 index_no = 0; index_no < num_indices; index_no++) {
+            // process metadata
+            char        *block_start;
+            uint16       index_count = 0;
+            page_handle *filter_node;
+            routing_hdr *hdr = routing_get_header(
+               cc, cfg, filter[i].addr, index_no, &filter_node);
+            uint16 header_length = routing_header_length(cfg, hdr);
+            block_start          = (char *)hdr + header_length;
+            index_count          = hdr->num_remainders;
+            routing_get_bucket_counts(cfg, hdr, count);
+            // routing_filter_print_encoding(cfg, hdr);
 
-         uint32  index_bucket_start = index_no * index_size;
-         uint32 *src_fp             = &fp_arr[src_fp_no];
-         platform_assert(src_fp_no + index_count <= buffer_size);
-         if (index_count != 0) {
-            __attribute__((unused)) uint32 index_start = src_fp_no;
-            PackedArray_unpack((uint32 *)block_start,
-                               0,
-                               src_fp,
-                               index_count,
-                               remainder_and_value_size);
-            uint32 last_fp = UINT32_MAX;
-            for (uint32 bucket_off = 0; bucket_off < index_size; bucket_off++) {
-               uint32 bucket = index_bucket_start + bucket_off;
-               for (uint32 i = 0; i < count[bucket_off]; i++) {
-                  fp_arr[src_fp_no] |= bucket << remainder_and_value_size;
-                  fp_arr[src_fp_no] >>= value_size;
-                  if (fp_arr[src_fp_no] == last_fp) {
-                     src_fp_no++;
-                  } else {
-                     last_fp             = fp_arr[src_fp_no];
-                     fp_arr[dst_fp_no++] = fp_arr[src_fp_no++];
-                     platform_assert(dst_fp_no <= buffer_size);
+            uint32  index_bucket_start = index_no * index_size;
+            uint32 *src_fp             = &fp_arr[src_fp_no];
+            platform_assert(src_fp_no + index_count <= buffer_size);
+            if (index_count != 0) {
+               __attribute__((unused)) uint32 index_start = src_fp_no;
+               PackedArray_unpack((uint32 *)block_start,
+                                  0,
+                                  src_fp,
+                                  index_count,
+                                  remainder_and_value_size);
+               uint32 last_fp = UINT32_MAX;
+               for (uint32 bucket_off = 0; bucket_off < index_size;
+                    bucket_off++) {
+                  uint32 bucket = index_bucket_start + bucket_off;
+                  for (uint32 i = 0; i < count[bucket_off]; i++) {
+                     fp_arr[src_fp_no] |= bucket << remainder_and_value_size;
+                     fp_arr[src_fp_no] >>= value_size;
+                     if (fp_arr[src_fp_no] == last_fp) {
+                        src_fp_no++;
+                     } else {
+                        last_fp             = fp_arr[src_fp_no];
+                        fp_arr[dst_fp_no++] = fp_arr[src_fp_no++];
+                        platform_assert(dst_fp_no <= buffer_size);
+                     }
                   }
                }
+               debug_assert(src_fp_no - index_start == index_count);
             }
-            debug_assert(src_fp_no - index_start == index_count);
+            routing_unget_header(cc, filter_node);
          }
-         routing_unget_header(cc, filter_node);
       }
       fp_start[i + 1] = dst_fp_no;
    }
@@ -765,6 +766,9 @@ routing_filter_estimate_unique_fp(cache           *cc,
    uint32 idx[MAX_FILTERS] = {0};
    memmove(idx, fp_start, MAX_FILTERS * sizeof(uint32));
    uint32 num_unique = 0;
+   for (uint64 i = 0; i < num_filters; i++) {
+      debug_assert(fp_start[i] <= fp_start[i + 1]);
+   }
    while (TRUE) {
       uint32 min_fp = UINT32_MAX;
       for (uint64 i = 0; i < num_filters; i++) {
@@ -908,7 +912,7 @@ routing_async_set_state(routing_async_ctxt *ctxt, routing_async_state new_state)
  * routing_filter_async_callback --
  *
  *      Callback that's called when the async cache get loads a page into
- *      the cache. This funciton moves the async filter lookup state machine's
+ *      the cache. This function moves the async filter lookup state machine's
  *      state ahead, and calls the upper layer callback that'll re-enqueue
  *      the filter lookup for dispatch.
  *
@@ -951,7 +955,7 @@ routing_filter_async_callback(cache_async_ctxt *cache_ctxt)
  *      async_locked: A page needed by lookup is locked. User should retry
  *                    request.
  *      async_no_reqs: A page needed by lookup is not in cache and the IO
- *                     subsytem is out of requests. User should throttle.
+ *                     subsystem is out of requests. User should throttle.
  *      async_io_started: Async IO was started to read a page needed by the
  *                        lookup into the cache. When the read is done, caller
  *                        will be notified using ctxt->cb, that won't run on
