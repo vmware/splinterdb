@@ -8364,7 +8364,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
          char message_str[128];
          trunk_key_to_string(spl, key, key_str);
          message msg = merge_accumulator_to_message(&data);
-         trunk_message_to_string(spl, message, message_str);
+         trunk_message_to_string(spl, msg, message_str);
          platform_log_stream("Key %s found in node %lu pivot %u with data %s\n",
                              key_str,
                              node->disk_addr,
@@ -8387,7 +8387,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                char message_str[128];
                trunk_key_to_string(spl, key, key_str);
                message msg = merge_accumulator_to_message(&data);
-               trunk_message_to_string(spl, message, message_str);
+               trunk_message_to_string(spl, msg, message_str);
                platform_log_stream(
                   "!! Key %s found in branch %u of node %lu pivot %u "
                   "with data %s\n",
@@ -8414,7 +8414,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
       char message_str[128];
       trunk_key_to_string(spl, key, key_str);
       message msg = merge_accumulator_to_message(&data);
-      trunk_message_to_string(spl, message, message_str);
+      trunk_message_to_string(spl, msg, message_str);
       platform_log_stream("Key %s found in node %lu pivot %u with data %s\n",
                           key_str,
                           node->disk_addr,
@@ -8437,7 +8437,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
             char message_str[128];
             trunk_key_to_string(spl, key, key_str);
             message msg = merge_accumulator_to_message(&data);
-            trunk_message_to_string(spl, message, message_str);
+            trunk_message_to_string(spl, msg, message_str);
             platform_log_stream(
                "!! Key %s found in branch %u of node %lu pivot %u "
                "with data %s\n",
