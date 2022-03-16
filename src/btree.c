@@ -2766,7 +2766,7 @@ btree_pack_setup_start(btree_pack_req *req)
 {
    req->next_extent = 0;
    req->height      = 0;
-   memset(req->edge, 0, sizeof(req->edge));
+   ZERO_ARRAY(req->edge);
 
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end
