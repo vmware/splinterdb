@@ -62,6 +62,12 @@ mini_init(mini_allocator *mini,
 void
 mini_release(mini_allocator *mini, const slice key);
 
+/*
+ * NOTE: Can only be called on a mini_allocator which has made no allocations.
+ */
+void
+mini_destroy_unused(mini_allocator *mini);
+
 uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,

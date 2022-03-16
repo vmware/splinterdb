@@ -302,7 +302,7 @@ splinterdb_shim_data_config(const data_config *app_cfg,
  *      Translate splinterdb_config to configs for individual subsystems.
  *
  * Results:
- *      STATUS_OK on success, appopriate error on failure.
+ *      STATUS_OK on success, appropriate error on failure.
  *
  * Side effects:
  *      None.

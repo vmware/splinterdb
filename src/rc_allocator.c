@@ -578,7 +578,7 @@ rc_allocator_remove_super_addr(rc_allocator     *al,
    }
 
    platform_mutex_unlock(&al->lock);
-   // Couldnt find the splinter id in the meta page.
+   // Couldn't find the splinter id in the meta page.
    platform_assert(0, "Couldn't find existing splinter table in meta page");
 }
 
