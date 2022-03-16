@@ -68,12 +68,12 @@ DEPFLAGS  = -MMD -MP
 #
 
 help::
-	$(SUMMARY) Environment variables controlling the build
-	$(SUMMARY) '  BUILD_SUFFIX: Base suffix for build output.'
-	$(SUMMARY) '    Objects go into obj-$$(BUILD_SUFFIX)'
-	$(SUMMARY) '    Libraries go into lib-$$(BUILD_SUFFIX)'
-	$(SUMMARY) '    Executables go into bin-$$(BUILD_SUFFIX)'
-	$(SUMMARY) '    Note: setting DEBUGMODE and other flags may further modify the suffix'
+	@echo Environment variables controlling the build
+	@echo '  BUILD_SUFFIX: Base suffix for build output.'
+	@echo '    Objects go into obj-$$(BUILD_SUFFIX)'
+	@echo '    Libraries go into lib-$$(BUILD_SUFFIX)'
+	@echo '    Executables go into bin-$$(BUILD_SUFFIX)'
+	@echo '    Note: setting DEBUGMODE and other flags may further modify the suffix'
 
 #
 # Debug mode
@@ -94,7 +94,7 @@ $(error Unknown DEBUGMODE "$(DEBUGMODE)".  Valid options are "debug" and "releas
 endif
 
 help::
-	$(SUMMARY) '  DEBUGMODE: "release" or "debug" (Default: "release")'
+	@echo '  DEBUGMODE: "release" or "debug" (Default: "release")'
 
 #
 # address sanitizer
@@ -113,7 +113,7 @@ $(error Unknown ASAN mode "$(ASAN)".  Valid values are "0" or "1". Default is "0
 endif
 
 help::
-	$(SUMMARY) '  ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
+	@echo '  ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
 
 #
 # memory sanitizer
@@ -132,7 +132,7 @@ $(error Unknown MSAN mode "$(MSAN)".  Valid values are "0" or "1". Default is "0
 endif
 
 help::
-	$(SUMMARY) '  MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
+	@echo '  MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
 
 #
 # Verbosity
@@ -158,7 +158,7 @@ $(error Unknown VERBOSE mode "$(VERBOSE)".  Valid values are "0" or "1". Default
 endif
 
 help::
-	$(SUMMARY) '  VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
+	@echo '  VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
 
 
 ###################################################################
