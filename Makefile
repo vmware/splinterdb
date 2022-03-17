@@ -66,11 +66,12 @@ DEPFLAGS  = -MMD -MP
 
 help::
 	@echo Environment variables controlling the build
-	@echo '  BUILD_DIR: Base name for build output.'
-	@echo '    Objects go into $$(BUILD_DIR)/obj'
-	@echo '    Libraries go into $$(BUILD_DIR)/lib'
-	@echo '    Executables go into $$(BUILD_DIR)/bin'
-	@echo '    Note: setting BUILD_MODE and other flags may further modify BUILD_DIR'
+	@echo '  BUILD_DIR: Base name for build output (Default: "build").'
+	@echo '    $$(BUILD_DIR)/obj: object files'
+	@echo '    $$(BUILD_DIR)/lib: libraries'
+	@echo '    $$(BUILD_DIR)/bin: executables'
+	@echo '  Note: setting BUILD_MODE and other flags may further modify BUILD_DIR'
+	@echo
 
 ifndef BUILD_DIR
 BUILD_DIR := build
@@ -105,66 +106,66 @@ help::
 #
 # address sanitizer
 #
-ifndef ASAN
-ASAN=0
+ifndef BUILD_ASAN
+BUILD_ASAN=0
 endif
 
-ifeq "$(ASAN)" "1"
+ifeq "$(BUILD_ASAN)" "1"
 CFLAGS  += -fsanitize=address
 LDFLAGS += -fsanitize=address
 BUILD_DIR:=$(BUILD_DIR)-asan
-else ifeq "$(ASAN)" "0"
+else ifeq "$(BUILD_ASAN)" "0"
 else
-$(error Unknown ASAN mode "$(ASAN)".  Valid values are "0" or "1". Default is "0")
+$(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
-	@echo '  ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
+	@echo '  BUILD_ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
 
 #
 # memory sanitizer
 #
-ifndef MSAN
-MSAN=0
+ifndef BUILD_MSAN
+BUILD_MSAN=0
 endif
 
-ifeq "$(MSAN)" "1"
+ifeq "$(BUILD_MSAN)" "1"
 CFLAGS  += -fsanitize=memory
 LDFLAGS += -fsanitize=memory
 BUILD_DIR:=$(BUILD_DIR)-msan
-else ifeq "$(MSAN)" "0"
+else ifeq "$(BUILD_MSAN)" "0"
 else
-$(error Unknown MSAN mode "$(MSAN)".  Valid values are "0" or "1". Default is "0")
+$(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
-	@echo '  MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
+	@echo '  BUILD_MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
 
 #
 # Verbosity
 #
-ifndef VERBOSE
-VERBOSE=0
+ifndef BUILD_VERBOSE
+BUILD_VERBOSE=0
 endif
 
-ifeq "$(VERBOSE)" "1"
+ifeq "$(BUILD_VERBOSE)" "1"
 COMMAND=
 PROLIX=@echo
 BRIEF=@ >/dev/null echo
 BRIEF_FORMATTED=@ >/dev/null echo
 BRIEF_PARTIAL=@ >/dev/null echo
-else ifeq "$(VERBOSE)" "0"
+else ifeq "$(BUILD_VERBOSE)" "0"
 COMMAND=@
 PROLIX=@ >/dev/null echo
 BRIEF=@echo
 BRIEF_FORMATTED=@printf
 BRIEF_PARTIAL=@echo -n
 else
-$(error Unknown VERBOSE mode "$(VERBOSE)".  Valid values are "0" or "1". Default is "0")
+$(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
-	@echo '  VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
+	@echo '  BUILD_VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
 
 
 ###################################################################
@@ -204,6 +205,12 @@ UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 all: libs all-tests $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
+
+
+# This is for backwards compatibility with old CI.  Once we update CI,
+# we can delete this target
+debug: all
+
 
 #######################################################################
 # CONFIGURATION CHECKING
@@ -406,17 +413,16 @@ tags:
 
 .PHONY: install
 
-run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
+run-tests: all-tests
 	BINDIR=$(BINDIR) ./test.sh
 
-test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
+test-results: all-tests
 	(INCLUDE_SLOW_TESTS=true BINDIR=$(BINDIR) ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 
-install: $(LIBDIR)/libsplinterdb.so
+install: libs
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
-
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
 	cp -p -r $(INCDIR)/splinterdb/ $(INSTALL_PATH)/include/

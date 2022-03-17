@@ -108,11 +108,11 @@ config:
     BUILD_MODE: "debug"
     #@end
     #@ if sanitize == "asan":
-    ASAN: "1"
+    BUILD_ASAN: "1"
     #! work around issue "LeakSanitizer has encountered a fatal error", may be kernel-dependent
     ASAN_OPTIONS: "detect_leaks=0"
     #@ elif sanitize == "msan":
-    MSAN: "1"
+    BUILD_MSAN: "1"
     #@ end
   run:
     path: sh
