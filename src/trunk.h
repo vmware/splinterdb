@@ -181,6 +181,7 @@ struct trunk_handle {
    uint64           super_block_idx;
    trunk_config     cfg;
    platform_heap_id heap_id;
+   platform_mutex   trunk_modification_lock;
 
    // space reclamation
    uint64 est_tuples_in_compaction;
