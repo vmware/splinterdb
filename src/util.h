@@ -33,12 +33,12 @@ pointer_byte_offset(void *base, int64 offset)
  *-----------------------------------------------------------------------------
  * int64abs --
  *
- *    This function takes an int64 value and it returns the abolute value.
+ *    This function takes an int64 value and it returns the absolute value.
  *    Note the return type is uint64, therefore it can return the absolute
  *    value of the smallest negative number as well.
  *
  * Results:
- *      Returns abolute value of the given value
+ *      Returns absolute value of the given value
  *
  * Side effects:
  *      None.

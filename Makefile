@@ -66,32 +66,41 @@ DEPFLAGS  = -MMD -MP
 
 help::
 	@echo Environment variables controlling the build
-	@echo '  BUILD_SUFFIX: Base suffix for build output.'
-	@echo '    Objects go into obj-$$(BUILD_SUFFIX)'
-	@echo '    Libraries go into lib-$$(BUILD_SUFFIX)'
-	@echo '    Executables go into bin-$$(BUILD_SUFFIX)'
-	@echo '    Note: setting DEBUGMODE and other flags may further modify the suffix'
+	@echo '  BUILD_DIR: Base name for build output.'
+	@echo '    Objects go into $$(BUILD_DIR)/obj'
+	@echo '    Libraries go into $$(BUILD_DIR)/lib'
+	@echo '    Executables go into $$(BUILD_DIR)/bin'
+	@echo '    Note: setting BUILD_MODE and other flags may further modify BUILD_DIR'
 
-#
-# Debug mode
-#
-ifndef DEBUGMODE
-DEBUGMODE=release
+ifndef BUILD_DIR
+BUILD_DIR := build
 endif
 
-ifeq "$(DEBUGMODE)" "debug"
+#
+# Build mode
+#
+ifndef BUILD_MODE
+BUILD_MODE=release
+endif
+
+ifeq "$(BUILD_MODE)" "debug"
 CFLAGS  += -DSPLINTER_DEBUG
 #LDFLAGS +=
-BUILD_SUFFIX:=$(BUILD_SUFFIX)-debug
-else ifeq "$(DEBUGMODE)" "release"
+BUILD_DIR:=$(BUILD_DIR)-debug
+else ifeq "$(BUILD_MODE)" "release"
 CFLAGS   += -Ofast -flto
 LDFLAGS  += -Ofast -flto
+else ifeq "$(BUILD_MODE)" "optimized-debug"
+CFLAGS  += -DSPLINTER_DEBUG
+CFLAGS  += -Ofast -flto
+LDFLAGS += -Ofast -flto
+BUILD_DIR := $(BUILD_DIR)-optimized-debug
 else
-$(error Unknown DEBUGMODE "$(DEBUGMODE)".  Valid options are "debug" and "release".  Default is "release")
+$(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif
 
 help::
-	@echo '  DEBUGMODE: "release" or "debug" (Default: "release")'
+	@echo '  BUILD_MODE: "release", "debug", or "optimized-debug" (Default: "release")'
 
 #
 # address sanitizer
@@ -103,7 +112,7 @@ endif
 ifeq "$(ASAN)" "1"
 CFLAGS  += -fsanitize=address
 LDFLAGS += -fsanitize=address
-BUILD_SUFFIX:=$(BUILD_SUFFIX)-asan
+BUILD_DIR:=$(BUILD_DIR)-asan
 else ifeq "$(ASAN)" "0"
 else
 $(error Unknown ASAN mode "$(ASAN)".  Valid values are "0" or "1". Default is "0")
@@ -122,7 +131,7 @@ endif
 ifeq "$(MSAN)" "1"
 CFLAGS  += -fsanitize=memory
 LDFLAGS += -fsanitize=memory
-BUILD_SUFFIX:=$(BUILD_SUFFIX)-msan
+BUILD_DIR:=$(BUILD_DIR)-msan
 else ifeq "$(MSAN)" "0"
 else
 $(error Unknown MSAN mode "$(MSAN)".  Valid values are "0" or "1". Default is "0")
@@ -162,9 +171,9 @@ help::
 # BUILD DIRECTORIES AND FILES
 #
 
-OBJDIR    = obj$(BUILD_SUFFIX)
-BINDIR    = bin$(BUILD_SUFFIX)
-LIBDIR    = lib$(BUILD_SUFFIX)
+OBJDIR = $(BUILD_DIR)/obj
+BINDIR = $(BUILD_DIR)/bin
+LIBDIR = $(BUILD_DIR)/lib
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
@@ -192,9 +201,9 @@ UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 # The main targets
 #
 
-all: libs tests $(EXTRA_TARGETS)
+all: libs all-tests $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
+all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
 #######################################################################
 # CONFIGURATION CHECKING
@@ -203,18 +212,18 @@ tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 # any mismatched config from a prior build, so we can ensure we never
 # accidentially build using a mixture of configs
 
-CONFIG_HASH=$(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
-CONFIG_FILE_PREFIX=.Makefile.config$(BUILD_SUFFIX).
-CONFIG_FILE=$(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
+CONFIG_HASH = $(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
+CONFIG_FILE_PREFIX = $(BUILD_DIR)/build-config.
+CONFIG_FILE = $(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
 
 .PHONY: mismatched_config_file_check
-mismatched_config_file_check:
+mismatched_config_file_check: | $(BUILD_DIR)/.
 	$(BRIEF_PARTIAL) Checking for mismatched config...
 	$(COMMAND) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | grep -v $(CONFIG_FILE) | xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  You need to \"make clean\"."; false'
 	$(BRIEF) No mismatched config found
 
 
-$(CONFIG_FILE): | mismatched_config_file_check
+$(CONFIG_FILE): | $(BUILD_DIR)/. mismatched_config_file_check
 	$(BRIEF) Saving config to $@
 	$(COMMAND) echo CC          = $(CC)          >> $@
 	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
@@ -234,15 +243,15 @@ $(CONFIG_FILE): | mismatched_config_file_check
 
 .SECONDARY:
 
-%/.: $(CONFIG_FILE)
+%/.:
 	$(COMMAND) mkdir -p $@
 
 # These targets prevent circular dependencies arising from the
 # recipe for building binaries
-$(BINDIR)/.: $(CONFIG_FILE)
+$(BINDIR)/.:
 	$(COMMAND) mkdir -p $@
 
-$(BINDIR)/%/.: $(CONFIG_FILE)
+$(BINDIR)/%/.:
 	$(COMMAND) mkdir -p $@
 
 #*************************************************************#
@@ -251,24 +260,24 @@ $(BINDIR)/%/.: $(CONFIG_FILE)
 
 COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
-$(OBJDIR)/%.o: %.c | $$(@D)/.
-	$(BRIEF_FORMATTED) "%-20s %-40s [%s]\n" COMPILING $< $@
+$(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" COMPILING $< $@
 	$(COMMAND) $(COMPILE.c) $< -o $@
 	$(PROLIX) # blank line
 
-$(BINDIR)/%: | $$(@D)/.
+$(BINDIR)/%: | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
 	$(COMMAND) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
-$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
+$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
 	$(COMMAND) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
-$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
+$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %s\n" "BUILDING ARCHIVE" $@
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line

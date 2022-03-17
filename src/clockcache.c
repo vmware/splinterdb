@@ -1335,7 +1335,7 @@ clockcache_write_callback(void           *metadata,
  *      Iterates through all pages in the batch and issues writeback for any
  *      which are cleanable.
  *
- *      Where possible, the write is extented to the extent, including pages
+ *      Where possible, the write is extended to the extent, including pages
  *      outside the batch.
  *
  *      If is_urgent is set, pages with CC_ACCESSED are written back, otherwise
@@ -2104,7 +2104,7 @@ clockcache_get_allocator_ref(clockcache *cc, uint64 addr)
  *      Attempts to get a pointer to the page_handle for the page with
  *      address addr. If successful returns FALSE indicating no retries
  *      are needed, else TRUE indicating the caller needs to retry.
- *      Updates the "page" argument to the page_handle on sucess.
+ *      Updates the "page" argument to the page_handle on success.
  *
  *      Will ask the caller to retry if we race with the eviction or if
  *      we have to evict an entry and race with someone else loading the
@@ -2772,7 +2772,7 @@ clockcache_sync_callback(void           *arg,
  *
  *      Asynchronously syncs the extent.
  *
- *      Adds the number of pages issued writeback to the coutner pointered to
+ *      Adds the number of pages issued writeback to the counter pointed to
  *      by pages_outstanding. When the writes complete, a callback subtracts
  *      them off, so that the caller may track how many pages are in writeback.
  *

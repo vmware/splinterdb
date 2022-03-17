@@ -389,7 +389,7 @@ run_with_timing "Functionality test, key size=${key_size} bytes" $BINDIR/driver_
 
 run_with_timing "Functionality test, with default key size" $BINDIR/driver_test splinter_test --functionality 1000000 100 --seed "$SEED"
 
-max_key_size=121
+max_key_size=105
 run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" $BINDIR/driver_test splinter_test --functionality 1000000 100 --key-size ${max_key_size} --seed "$SEED"
 
 run_with_timing "Performance test" $BINDIR/driver_test splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 0 --tree-size-gib 2 --cache-capacity-mib 512
