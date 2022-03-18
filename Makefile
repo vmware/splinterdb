@@ -68,111 +68,127 @@ DEPFLAGS  = -MMD -MP
 #
 
 help::
-	@echo Environment variables controlling the build
-	@echo '  BUILD_DIR: Base name for build output (Default: "build").'
+	@echo Environment variables controlling the build:
+	@echo '  BUILD_DIR: Base dir name for build outputs (Default: "build").'
 	@echo '    $$(BUILD_DIR)/obj: object files'
 	@echo '    $$(BUILD_DIR)/lib: libraries'
 	@echo '    $$(BUILD_DIR)/bin: executables'
-	@echo '  Note: setting BUILD_MODE and other flags may further modify BUILD_DIR'
-	@echo
 
 ifndef BUILD_DIR
-BUILD_DIR := build
+   BUILD_DIR := build
 endif
 
 #
 # Debug mode
 #
-ifndef DEBUGMODE
-DEBUGMODE=release
+ifndef BUILD_MODE
+   BUILD_MODE=release
 endif
 
-ifeq "$(DEBUGMODE)" "debug"
-CFLAGS  += -DSPLINTER_DEBUG
+ifeq "$(BUILD_MODE)" "debug"
+   CFLAGS  += -DSPLINTER_DEBUG
 #LDFLAGS +=
-BUILD_SUFFIX:=$(BUILD_SUFFIX)-debug
-else ifeq "$(DEBUGMODE)" "release"
-CFLAGS   += -Ofast -flto
-LDFLAGS  += -Ofast -flto
+   BUILD_DIR:=$(BUILD_DIR)-debug
+else ifeq "$(BUILD_MODE)" "release"
+   CFLAGS   += -Ofast -flto
+   LDFLAGS  += -Ofast -flto
+else ifeq "$(BUILD_MODE)" "optimized-debug"
+   CFLAGS  += -DSPLINTER_DEBUG
+   CFLAGS  += -Ofast -flto
+   LDFLAGS += -Ofast -flto
+   BUILD_DIR := $(BUILD_DIR)-optimized-debug
 else
-$(error Unknown DEBUGMODE "$(DEBUGMODE)".  Valid options are "debug" and "release".  Default is "release")
+   $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif
 
 help::
-	@echo '  DEBUGMODE: "release" or "debug" (Default: "release")'
+	@echo '  BUILD_MODE: "release" or "debug" (Default: "release")'
 
-#
-# address sanitizer
-#
+# ************************************************************************
+# Address sanitizer
+#   - Ctests will be silently skipped with clang builds. (Known issue.)
+#   - Use gcc to build in Asan mode to run unit-tests.
+#   - Tests will run slow in address sanitizer builds.
 ifndef BUILD_ASAN
-BUILD_ASAN=0
+   BUILD_ASAN=0
 endif
 
 ifeq "$(BUILD_ASAN)" "1"
-CFLAGS  += -fsanitize=address
-LDFLAGS += -fsanitize=address
-BUILD_DIR:=$(BUILD_DIR)-asan
-else ifeq "$(BUILD_ASAN)" "0"
-else
-$(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
+   CFLAGS  += -fsanitize=address
+   LDFLAGS += -fsanitize=address
+   BUILD_DIR:=$(BUILD_DIR)-asan
+else ifneq "$(BUILD_ASAN)" "0"
+   $(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
 	@echo '  BUILD_ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
+	@echo '                    Use gcc to run unit-tests with ASAN-builds.'
 
-#
-# memory sanitizer
-#
+# ************************************************************************
+# Memory sanitizer
+#   - Builds will fail with gcc due to compiler error. Use clang instead.
+#   - Tests will run even slower in memory sanitizer builds.
 ifndef BUILD_MSAN
-BUILD_MSAN=0
+   BUILD_MSAN=0
 endif
 
 ifeq "$(BUILD_MSAN)" "1"
-CFLAGS  += -fsanitize=memory
-LDFLAGS += -fsanitize=memory
-BUILD_DIR:=$(BUILD_DIR)-msan
-else ifeq "$(BUILD_MSAN)" "0"
-else
-$(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
+   CFLAGS  += -fsanitize=memory
+   LDFLAGS += -fsanitize=memory
+   BUILD_DIR:=$(BUILD_DIR)-msan
+else ifneq "$(BUILD_MSAN)" "0"
+   $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
 	@echo '  BUILD_MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
+	@echo '                    Use clang for MSAN-builds.'
 
 #
 # Verbosity
 #
 ifndef BUILD_VERBOSE
-BUILD_VERBOSE=0
+   BUILD_VERBOSE=0
 endif
 
 ifeq "$(BUILD_VERBOSE)" "1"
-COMMAND=
-PROLIX=@echo
-BRIEF=@ >/dev/null echo
-BRIEF_FORMATTED=@ >/dev/null echo
-BRIEF_PARTIAL=@ >/dev/null echo
+   COMMAND=
+   PROLIX=@echo
+   BRIEF=@ >/dev/null echo
+   BRIEF_FORMATTED=@ >/dev/null echo
+   BRIEF_PARTIAL=@ >/dev/null echo
 else ifeq "$(BUILD_VERBOSE)" "0"
-COMMAND=@
-PROLIX=@ >/dev/null echo
-BRIEF=@echo
-BRIEF_FORMATTED=@printf
-BRIEF_PARTIAL=@echo -n
+   COMMAND=@
+   PROLIX=@ >/dev/null echo
+   BRIEF=@echo
+   BRIEF_FORMATTED=@printf
+   BRIEF_PARTIAL=@echo -n
 else
-$(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
+   $(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
+	@echo '  Note: setting BUILD_MODE and other flags may further modify BUILD_DIR'
+	@echo
 	@echo '  BUILD_VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
+
+ifeq "$(BUILD_VERBOSE)" "1"
+
+	@echo '  '
+	@echo 'Examples:'
+	@echo '  - Default release build: make'
+	@echo '  - Debug build: BUILD_DEBUG=1 make'
+	@echo '  - Build release binary and run all tests: make all run-tests'
+endif
 
 
 ###################################################################
 # BUILD DIRECTORIES AND FILES
 #
-
-OBJDIR    = obj$(BUILD_SUFFIX)
-BINDIR    = bin$(BUILD_SUFFIX)
-LIBDIR    = lib$(BUILD_SUFFIX)
+OBJDIR = $(BUILD_DIR)/obj
+BINDIR = $(BUILD_DIR)/bin
+LIBDIR = $(BUILD_DIR)/lib
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
@@ -200,9 +216,9 @@ UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 # The main targets
 #
 
-all: libs tests $(EXTRA_TARGETS)
+all: libs all-tests $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
+all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
 
 # This is for backwards compatibility with old CI.  Once we update CI,
@@ -222,14 +238,17 @@ CONFIG_FILE_PREFIX=.Makefile.config$(BUILD_SUFFIX).
 CONFIG_FILE=$(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
 
 .PHONY: mismatched_config_file_check
-mismatched_config_file_check:
+mismatched_config_file_check: | $(BUILD_DIR)/.
+	@echo '  '
 	$(BRIEF_PARTIAL) Checking for mismatched config...
 	$(COMMAND) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | grep -v $(CONFIG_FILE) | xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  You need to \"make clean\"."; false'
-	$(BRIEF) No mismatched config found
+	$(BRIEF) No mismatched config found in $(CONFIG_FILE)
 
-
-$(CONFIG_FILE): | mismatched_config_file_check
+# Search for CC also in 'env' command below, while storing config to a file.
+# Otherwise, 'make' may fail if user's environment has no BUILD_ env-vars set.
+$(CONFIG_FILE): | $(BUILD_DIR)/. mismatched_config_file_check
 	$(BRIEF) Saving config to $@
+	$(COMMAND) env | grep -E "BUILD_|CC"         >> $@
 	$(COMMAND) echo CC          = $(CC)          >> $@
 	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
 	$(COMMAND) echo CFLAGS      = $(CFLAGS)      >> $@
@@ -265,25 +284,25 @@ $(BINDIR)/%/.: $(CONFIG_FILE)
 
 COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
-$(OBJDIR)/%.o: %.c | $$(@D)/.
-	$(BRIEF_FORMATTED) "%-20s %-40s [%s]\n" COMPILING $< $@
+$(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@
 	$(COMMAND) $(COMPILE.c) $< -o $@
 	$(PROLIX) # blank line
 
-$(BINDIR)/%: | $$(@D)/.
-	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
+$(BINDIR)/%: | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %s\n" Linking $@
 	$(COMMAND) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
-$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
-	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
+$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %s\n" Linking $@
 	$(COMMAND) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
-$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
-	$(BRIEF_FORMATTED) "%-20s %s\n" "BUILDING ARCHIVE" $@
+$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %s\n" "Building archive" $@
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line
 
@@ -335,10 +354,10 @@ PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
-CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
-                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
-                 $(OBJDIR)/$(SRCDIR)/task.o         \
-                 $(UTIL_SYS)                        \
+CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	    \
+                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o     \
+                 $(OBJDIR)/$(SRCDIR)/task.o             \
+                 $(UTIL_SYS)                            \
                  $(PLATFORM_IO_SYS)
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
@@ -371,12 +390,12 @@ $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                           
                                     $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinterdb_quick_test: $(COMMON_TESTOBJ)                             \
-                                      $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-                                      $(LIBDIR)/libsplinterdb.so
+                                            $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                            $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                             \
-                                                $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-                                                $(LIBDIR)/libsplinterdb.so
+                                             $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                             $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
 
