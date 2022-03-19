@@ -104,24 +104,41 @@ config:
     LD: #@ compiler
     INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
     RUN_NIGHTLY_TESTS: #@ str(is_nightly).lower()
+
+    #! Exercise 'make help' in quick tests mode, to ensure 'help' still works.
+    #@ if quick:
+    MAKE_HELP: help
+    #@ else:
+    MAKE_HELP: ""
+    #@ end
+
+    #@ if is_debug:
+    BUILD_MODE: "debug"
+    #! Add this, just to ensure that verbose build outputs feature doesn't regress
+    BUILD_VERBOSE: "1"
+    #@ end
+
     #@ if sanitize == "asan":
     DEFAULT_CFLAGS: "-fsanitize=address"
     DEFAULT_LDFLAGS: "-fsanitize=address"
+    BUILD_ASAN: "1"
     #! work around issue "LeakSanitizer has encountered a fatal error", may be kernel-dependent
     ASAN_OPTIONS: "detect_leaks=0"
     #@ elif sanitize == "msan":
     DEFAULT_CFLAGS: "-fsanitize=memory"
     DEFAULT_LDFLAGS: "-fsanitize=memory"
+    BUILD_MSAN: "1"
     #@ end
+
   run:
     path: sh
     dir: #@ input_name
     args:
     - "-c"
     #@ if is_debug:
-    - "make debug && ./test.sh"
+    - "make $MAKE_HELP debug all run-tests"
     #@ else:
-    - "make && ./test.sh"
+    - "make $MAKE_HELP all run-tests"
     #@ end
 #@ end
 
