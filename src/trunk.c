@@ -664,8 +664,8 @@ void                               trunk_bundle_build_filters      (void *arg, v
 static inline void                 trunk_inc_filter                (trunk_handle *spl, routing_filter *filter);
 static inline void                 trunk_dec_filter                (trunk_handle *spl, routing_filter *filter);
 void                               trunk_compact_bundle            (void *arg, void *scratch);
-int                                trunk_flush                     (trunk_handle *spl, page_handle *parent, trunk_pivot_data *pdata, bool is_space_rec);
-int                                trunk_flush_fullest             (trunk_handle *spl, page_handle *node);
+platform_status                    trunk_flush                     (trunk_handle *spl, page_handle *parent, trunk_pivot_data *pdata, bool is_space_rec);
+platform_status                    trunk_flush_fullest             (trunk_handle *spl, page_handle *node);
 static inline bool                 trunk_needs_split               (trunk_handle *spl, page_handle *node);
 int                                trunk_split_index               (trunk_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
 void                               trunk_split_leaf                (trunk_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
@@ -1228,6 +1228,13 @@ trunk_generation(trunk_handle *spl, page_handle *node)
 {
    trunk_hdr *hdr = (trunk_hdr *)node->data;
    return hdr->generation;
+}
+
+static inline uint16
+trunk_pivot_start_bundle(trunk_handle *spl, page_handle *node, uint16 pivot_no)
+{
+   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+   return pdata->start_bundle;
 }
 
 static inline void
@@ -1879,10 +1886,29 @@ trunk_find_node(trunk_handle *spl, char *key, uint64 height)
  *-----------------------------------------------------------------------------
  */
 
+/*
+ * Returns TRUE if the bundle is live in the node and FALSE otherwise.
+ */
+static inline bool
+trunk_bundle_live(trunk_handle *spl, page_handle *node, uint16 bundle_no)
+{
+   return trunk_bundle_in_range(spl,
+                                bundle_no,
+                                trunk_start_bundle(spl, node),
+                                trunk_end_bundle(spl, node));
+}
+
 static inline trunk_bundle *
 trunk_get_bundle(trunk_handle *spl, page_handle *node, uint16 bundle_no)
 {
    trunk_hdr *hdr = (trunk_hdr *)node->data;
+   debug_assert(trunk_bundle_live(spl, node, bundle_no),
+                "Attempt to get a dead bundle.\n"
+                "addr: %lu, bundle_no: %u, start_bundle: %u, end_bundle: %u\n",
+                node->disk_addr,
+                bundle_no,
+                trunk_start_bundle(spl, node),
+                trunk_end_bundle(spl, node));
    return &hdr->bundle[bundle_no];
 }
 
@@ -2266,18 +2292,6 @@ trunk_subbundle_count(trunk_handle *spl, page_handle *node)
 }
 
 /*
- * Returns TRUE if the bundle is live in the node and FALSE otherwise.
- */
-static inline bool
-trunk_bundle_live(trunk_handle *spl, page_handle *node, uint16 bundle_no)
-{
-   trunk_hdr *hdr = (trunk_hdr *)node->data;
-   return trunk_subtract_bundle_number(spl, bundle_no, hdr->start_bundle)
-          < trunk_subtract_bundle_number(
-             spl, hdr->end_bundle, hdr->start_bundle);
-}
-
-/*
  * Returns TRUE if the bundle is valid in the node (live or == end_bundle) and
  * FALSE otherwise.
  */
@@ -2300,9 +2314,10 @@ trunk_bundle_live_for_pivot(trunk_handle *spl,
                             uint16        pivot_no)
 {
    debug_assert(pivot_no < trunk_num_children(spl, node));
-   trunk_bundle *bundle    = trunk_get_bundle(spl, node, bundle_no);
-   uint16        branch_no = trunk_bundle_start_branch(spl, node, bundle);
-   return trunk_branch_live_for_pivot(spl, node, branch_no, pivot_no);
+   return trunk_bundle_in_range(spl,
+                                bundle_no,
+                                trunk_pivot_start_bundle(spl, node, pivot_no),
+                                trunk_end_bundle(spl, node));
 }
 
 static inline uint16
@@ -3321,7 +3336,6 @@ trunk_memtable_incorporate(trunk_handle  *spl,
          platform_timestamp_elapsed(cmt->wait_start);
    }
 
-
    memtable_transition(
       mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
    trunk_log_node(spl, root);
@@ -3334,11 +3348,11 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
-   bool   did_flush = FALSE;
-   uint64 wait      = 1;
-   while (!did_flush && trunk_node_is_full(spl, root)) {
-      did_flush = trunk_flush_fullest(spl, root);
-      if (!did_flush) {
+
+   uint64 wait = 1;
+   while (trunk_node_is_full(spl, root)) {
+      platform_status rc = trunk_flush_fullest(spl, root);
+      if (!SUCCESS(rc)) {
          trunk_node_unlock(spl, root);
          platform_sleep(wait);
          wait = wait > 2048 ? 2048 : 2 * wait;
@@ -3766,7 +3780,6 @@ trunk_replace_routing_filter(trunk_handle             *spl,
       pdata->num_kv_bytes_bundle -= bundle_num_kv_bytes;
       pdata->num_kv_bytes_whole += bundle_num_kv_bytes;
 
-
       uint64 num_tuples_to_reclaim = trunk_pivot_tuples_to_reclaim(spl, pdata);
       if (pdata->srq_idx != -1 && spl->cfg.reclaim_threshold != UINT64_MAX) {
          srq_update(&spl->srq, pdata->srq_idx, num_tuples_to_reclaim);
@@ -4060,28 +4073,28 @@ trunk_room_to_flush(trunk_handle     *spl,
 }
 
 /*
- * flush flushes from parent to the child indicated by pdata and returns TRUE
- * if the flush was successful and false otherwise. Failure can occur if there
- * is not enough space in the child.
+ * flush flushes from parent to the child indicated by pdata.
+ *
+ * Failure can occur if there is not enough space in the child.
  *
  * NOTE: parent must be write locked
  */
-bool
+platform_status
 trunk_flush(trunk_handle     *spl,
             page_handle      *parent,
             trunk_pivot_data *pdata,
             bool              is_space_rec)
 {
-   uint64 wait_start, flush_start;
-   if (spl->cfg.use_stats)
-      wait_start = platform_get_timestamp();
-   page_handle    *child = trunk_node_get(spl, pdata->addr);
-   threadid        tid;
    platform_status rc;
 
+   uint64   wait_start, flush_start;
+   threadid tid;
    if (spl->cfg.use_stats) {
-      tid = platform_get_tid();
+      tid        = platform_get_tid();
+      wait_start = platform_get_timestamp();
    }
+
+   page_handle *child = trunk_node_get(spl, pdata->addr);
    trunk_node_claim(spl, &child);
 
    if (!trunk_room_to_flush(spl, parent, child, pdata)) {
@@ -4096,7 +4109,7 @@ trunk_flush(trunk_handle     *spl,
       }
       trunk_node_unclaim(spl, child);
       trunk_node_unget(spl, &child);
-      return FALSE;
+      return STATUS_INVALID_STATE;
    }
 
    if ((!is_space_rec && pdata->srq_idx != -1)
@@ -4147,7 +4160,7 @@ trunk_flush(trunk_handle     *spl,
          uint16 child_idx = trunk_pdata_to_pivot_index(spl, parent, pdata);
          trunk_split_leaf(spl, parent, child, child_idx);
          debug_assert(trunk_verify_node(spl, child));
-         return TRUE;
+         return STATUS_OK;
       } else {
          uint64 child_idx = trunk_pdata_to_pivot_index(spl, parent, pdata);
          trunk_split_index(spl, parent, child, child_idx);
@@ -4179,38 +4192,46 @@ trunk_flush(trunk_handle     *spl,
          }
       }
    }
-   return TRUE;
+   return rc;
 }
 
 /*
  * flush_fullest first flushes any pivots with too many live logical branches.
  * If the node is still full, it then flushes the pivot with the most tuples.
  */
-bool
+platform_status
 trunk_flush_fullest(trunk_handle *spl, page_handle *node)
 {
+   platform_status   rc                 = STATUS_OK;
    uint16            fullest_pivot_no   = 0;
    trunk_pivot_data *fullest_pivot_data = trunk_get_pivot_data(spl, node, 0);
-   uint16            pivot_no;
-   threadid          tid;
 
+   threadid tid;
    if (spl->cfg.use_stats) {
       tid = platform_get_tid();
    }
    if (trunk_pivot_needs_flush(spl, node, fullest_pivot_data)) {
-      trunk_flush(spl, node, fullest_pivot_data, FALSE);
+      rc = trunk_flush(spl, node, fullest_pivot_data, FALSE);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       if (spl->cfg.use_stats) {
-         if (node->disk_addr == spl->root_addr)
+         if (node->disk_addr == spl->root_addr) {
             spl->stats[tid].root_count_flushes++;
-         else
+         } else {
             spl->stats[tid].count_flushes[trunk_height(spl, node)]++;
+         }
       }
    }
-   for (pivot_no = 1; pivot_no < trunk_num_children(spl, node); pivot_no++) {
+   uint16 num_children = trunk_num_children(spl, node);
+   for (uint16 pivot_no = 1; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       // if a pivot has too many branches, just flush it here
       if (trunk_pivot_needs_flush(spl, node, pdata)) {
-         trunk_flush(spl, node, pdata, FALSE);
+         rc = trunk_flush(spl, node, pdata, FALSE);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          if (spl->cfg.use_stats) {
             if (node->disk_addr == spl->root_addr) {
                spl->stats[tid].root_count_flushes++;
@@ -4235,7 +4256,7 @@ trunk_flush_fullest(trunk_handle *spl, page_handle *node)
       }
       return trunk_flush(spl, node, fullest_pivot_data, FALSE);
    }
-   return FALSE;
+   return rc;
 }
 
 void
@@ -4529,9 +4550,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    if (height != 0 && trunk_node_is_full(spl, node)) {
       trunk_node_claim(spl, &node);
       trunk_node_lock(spl, node);
-      bool flush_successful = TRUE;
-      while (flush_successful && trunk_node_is_full(spl, node))
-         flush_successful = trunk_flush_fullest(spl, node);
+      rc = STATUS_OK;
+      while (SUCCESS(rc) && trunk_node_is_full(spl, node)) {
+         rc = trunk_flush_fullest(spl, node);
+      }
       trunk_node_unlock(spl, node);
       trunk_node_unclaim(spl, node);
    }
@@ -4849,8 +4871,10 @@ trunk_flush_node(trunk_handle *spl, uint64 addr, void *arg)
       for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
            pivot_no++) {
          trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-         if (trunk_pivot_branch_count(spl, node, pdata) != 0)
-            trunk_flush(spl, node, pdata, FALSE);
+         if (trunk_pivot_branch_count(spl, node, pdata) != 0) {
+            platform_status rc = trunk_flush(spl, node, pdata, FALSE);
+            platform_assert_status_ok(rc);
+         }
       }
    }
 
@@ -5937,7 +5961,7 @@ trunk_reclaim_space(trunk_handle *spl)
          if (spl->cfg.use_stats) {
             sr_start = platform_get_timestamp();
          }
-         bool flush_succeeded = trunk_flush(spl, node, pdata, TRUE);
+         platform_status rc = trunk_flush(spl, node, pdata, TRUE);
          if (spl->cfg.use_stats) {
             const threadid tid    = platform_get_tid();
             uint16         height = trunk_height(spl, node);
@@ -5945,7 +5969,7 @@ trunk_reclaim_space(trunk_handle *spl)
             spl->stats[tid].space_rec_time_ns[height] +=
                platform_timestamp_elapsed(sr_start);
          }
-         if (!flush_succeeded) {
+         if (!SUCCESS(rc)) {
             trunk_node_unlock(spl, node);
             trunk_node_unclaim(spl, node);
             trunk_node_unget(spl, &node);

@@ -26,8 +26,6 @@ void
 task_system_io_register_thread(task_system *ts);
 // end forward declarations
 
-#define INVALID_TID (MAX_THREADS)
-
 void
 task_init_tid_bitmask(uint64 *tid_bitmask)
 {
@@ -342,6 +340,7 @@ task_group_deinit(task_group *group)
    if (task_system_use_bg_threads(group->ts)) {
       platform_condvar_destroy(&group->bg.cv);
    } else {
+      platform_mutex_unlock(&group->fg.mutex);
       platform_mutex_destroy(&group->fg.mutex);
    }
 }

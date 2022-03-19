@@ -104,8 +104,11 @@ platform_assert_msg(platform_stream_handle stream,
 
 typedef pthread_t platform_thread;
 
-// Mutex
-typedef pthread_mutex_t platform_mutex;
+// Thread-specific mutex, with ownership tracking.
+typedef struct {
+   pthread_mutex_t mutex;
+   threadid        owner;
+} platform_mutex;
 
 // Spin lock
 typedef pthread_spinlock_t platform_spinlock;

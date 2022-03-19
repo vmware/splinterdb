@@ -137,24 +137,21 @@ platform_thread_join(platform_thread thread)
 }
 
 platform_status
-platform_mutex_init(platform_mutex    *mu,
+platform_mutex_init(platform_mutex    *lock,
                     platform_module_id UNUSED_PARAM(module_id),
                     platform_heap_id   UNUSED_PARAM(heap_id))
 {
-   int ret;
-
-   ret = pthread_mutex_init(mu, NULL);
-
+   int ret     = pthread_mutex_init(&lock->mutex, NULL);
+   lock->owner = INVALID_TID;
    return CONST_STATUS(ret);
 }
 
 platform_status
-platform_mutex_destroy(platform_mutex *mu)
+platform_mutex_destroy(platform_mutex *lock)
 {
-   int ret;
-
-   ret = pthread_mutex_destroy(mu);
-
+   // Cannot call destroy on a locked lock
+   platform_assert(lock->owner == INVALID_TID);
+   int ret = pthread_mutex_destroy(&lock->mutex);
    return CONST_STATUS(ret);
 }
 
@@ -257,14 +254,14 @@ platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
 {
    platform_status status;
 
-   status = platform_mutex_init(&cv->lock, platform_get_module_id(), heap_id);
+   status.r = pthread_mutex_init(&cv->lock, NULL);
    if (!SUCCESS(status)) {
       return status;
    }
 
    status.r = pthread_cond_init(&cv->cond, NULL);
    if (!SUCCESS(status)) {
-      platform_mutex_destroy(&cv->lock);
+      status.r = pthread_mutex_destroy(&cv->lock);
    }
 
    return status;
