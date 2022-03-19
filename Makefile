@@ -268,24 +268,24 @@ $(BINDIR)/%/.:
 COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
 $(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
-	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" COMPILING $< $@
+	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@
 	$(COMMAND) $(COMPILE.c) $< -o $@
 	$(PROLIX) # blank line
 
 $(BINDIR)/%: | $$(@D)/. $(CONFIG_FILE)
-	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
+	$(BRIEF_FORMATTED) "%-20s %s\n" Linking $@
 	$(COMMAND) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
 $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
-	$(BRIEF_FORMATTED) "%-20s %s\n" LINKING $@
+	$(BRIEF_FORMATTED) "%-20s %s\n" Linking $@
 	$(COMMAND) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
 $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
-	$(BRIEF_FORMATTED) "%-20s %s\n" "BUILDING ARCHIVE" $@
+	$(BRIEF_FORMATTED) "%-20s %s\n" "Building archive" $@
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line
 
