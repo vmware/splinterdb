@@ -150,22 +150,30 @@ platform_semaphore_try_wait(platform_semaphore *sema)
 }
 
 static inline platform_status
-platform_mutex_lock(platform_mutex *mu)
+platform_mutex_lock(platform_mutex *lock)
 {
-   int ret;
-
-   ret = pthread_mutex_lock(mu);
-
+   int ret = pthread_mutex_lock(&lock->mutex);
+   platform_assert(lock->owner == INVALID_TID,
+                   "Found an unlocked a mutex with an existing owner:\n"
+                   "lock: %p, tid: %lu, owner: %lu\n",
+                   lock,
+                   platform_get_tid(),
+                   lock->owner);
+   lock->owner = platform_get_tid();
    return CONST_STATUS(ret);
 }
 
 static inline platform_status
-platform_mutex_unlock(platform_mutex *mu)
+platform_mutex_unlock(platform_mutex *lock)
 {
-   int ret;
-
-   ret = pthread_mutex_unlock(mu);
-
+   platform_assert(lock->owner == platform_get_tid(),
+                   "Attempt to unlock a mutex without ownership:\n"
+                   "lock: %p, tid: %lu, owner: %lu\n",
+                   lock,
+                   platform_get_tid(),
+                   lock->owner);
+   lock->owner = INVALID_TID;
+   int ret     = pthread_mutex_unlock(&lock->mutex);
    return CONST_STATUS(ret);
 }
 

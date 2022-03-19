@@ -64,7 +64,15 @@
 /* Evaluates to sizeof() a field, f, in a C-structure, s */
 #define FSIZEOF(s, f) sizeof(((typeof(s) *)NULL)->f)
 
+/*
+ * MAX_THREADS is used primarily for convenience, where allocations made on a
+ * per-thread basis create an array with MAX_THREADS items, e.g. the
+ * trunk_stats field in trunk_handle. The task subsystem also uses a 64-bit
+ * bit-array to track thread IDs in use. This could be changed relatively
+ * easily if needed.
+ */
 #define MAX_THREADS (64)
+#define INVALID_TID (MAX_THREADS)
 
 #define HASH_SEED         (42)
 #define UNUSED_FUNCTION() __attribute__((__unused__))
