@@ -869,7 +869,8 @@ trunk_for_each_subtree(trunk_handle *spl, uint64 addr, node_fn func, void *arg)
       uint16 num_children = trunk_num_children(spl, node);
       for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
          trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-         bool succeeded_on_subtree = trunk_for_each_subtree(spl, pdata->addr, func, arg);
+         bool              succeeded_on_subtree =
+            trunk_for_each_subtree(spl, pdata->addr, func, arg);
          if (!succeeded_on_subtree) {
             goto failed_on_subtree;
          }
@@ -984,12 +985,12 @@ trunk_alloc(trunk_handle *spl, uint64 height)
 
 platform_status
 trunk_node_get_by_key_and_height(trunk_handle *spl,      // IN
-                                 const char *  key,      // IN
+                                 const char   *key,      // IN
                                  uint16        height,   // IN
                                  page_handle **out_node) // OUT
 {
-   page_handle *node = trunk_node_get(spl, spl->root_addr);
-   uint16 root_height = trunk_height(spl, node);
+   page_handle *node        = trunk_node_get(spl, spl->root_addr);
+   uint16       root_height = trunk_height(spl, node);
    if (height > root_height) {
       goto error;
    }
@@ -999,7 +1000,7 @@ trunk_node_get_by_key_and_height(trunk_handle *spl,      // IN
       uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      page_handle *child = trunk_node_get(spl, pdata->addr);
+      page_handle      *child = trunk_node_get(spl, pdata->addr);
       trunk_node_unget(spl, &node);
       node = child;
    }
@@ -3327,8 +3328,10 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    debug_assert(trunk_subbundle_branch_count(spl, root, sb) != 0);
    trunk_log_stream(
       "enqueuing build filter: range %s-%s, height %u, bundle %u\n",
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->start_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->end_key)),
       req->height,
       req->bundle_no);
    task_enqueue(
@@ -3545,19 +3548,22 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
  * Scratch space used for filter building.
  */
 typedef struct trunk_filter_scratch {
+   char           start_key[MAX_KEY_SIZE];
+   char           end_key[MAX_KEY_SIZE];
+   uint16         height;
    bool           should_build[TRUNK_MAX_PIVOTS];
    routing_filter old_filter[TRUNK_MAX_PIVOTS];
    uint16         value[TRUNK_MAX_PIVOTS];
    routing_filter filter[TRUNK_MAX_PIVOTS];
    uint32        *fp_arr;
-} trunk_filter_req;
+} trunk_filter_scratch;
 
 static inline void
-trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
-                      trunk_filter_req         *filter_req)
+trunk_filter_scratch_init(trunk_compact_bundle_req *compact_req,
+                          trunk_filter_scratch     *filter_scratch)
 {
-   ZERO_CONTENTS(filter_req);
-   filter_req->fp_arr = compact_req->fp_arr;
+   ZERO_CONTENTS(filter_scratch);
+   filter_scratch->fp_arr = compact_req->fp_arr;
 }
 static inline bool
 trunk_compact_bundle_node_has_split(trunk_handle             *spl,
@@ -3572,15 +3578,17 @@ trunk_compact_bundle_node_get(trunk_handle             *spl,
                               trunk_compact_bundle_req *req,
                               page_handle             **node)
 {
-   return trunk_node_get_by_key_and_height(spl, req->start_key, req->height, node);
+   return trunk_node_get_by_key_and_height(
+      spl, req->start_key, req->height, node);
 }
 
 static inline platform_status
-trunk_compact_bundle_node_get_and_claim(trunk_handle             *spl,
-                                        trunk_compact_bundle_req *req,
-                                        page_handle             **node)
+trunk_filter_build_node_get_and_claim(trunk_handle         *spl,
+                                      trunk_filter_scratch *req,
+                                      page_handle         **node)
 {
-   platform_status rc = trunk_node_get_by_key_and_height(spl, req->start_key, req->height, node);
+   platform_status rc =
+      trunk_node_get_by_key_and_height(spl, req->start_key, req->height, node);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -3588,7 +3596,7 @@ trunk_compact_bundle_node_get_and_claim(trunk_handle             *spl,
    if (trunk_height(spl, *node) != req->height) {
       trunk_node_unclaim(spl, *node);
       trunk_node_unget(spl, node);
-      return trunk_compact_bundle_node_get_and_claim(spl, req, node);
+      return trunk_filter_build_node_get_and_claim(spl, req, node);
    }
    return rc;
 }
@@ -3597,13 +3605,17 @@ static inline bool
 trunk_build_filter_should_abort(trunk_compact_bundle_req *req,
                                 page_handle              *node)
 {
-   trunk_handle *spl    = req->spl;
-   if (trunk_is_leaf(spl, node) && trunk_compact_bundle_node_has_split(spl, req, node)) {
+   trunk_handle *spl = req->spl;
+   if (trunk_is_leaf(spl, node)
+       && trunk_compact_bundle_node_has_split(spl, req, node))
+   {
       trunk_open_log_stream();
       trunk_log_stream(
          "build_filter leaf abort: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->start_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->end_key)),
          req->height,
          req->bundle_no);
       trunk_close_log_stream();
@@ -3620,8 +3632,10 @@ trunk_build_filter_should_skip(trunk_compact_bundle_req *req, page_handle *node)
       trunk_open_log_stream();
       trunk_log_stream(
          "build_filter flush abort: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->start_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->end_key)),
          req->height,
          req->bundle_no);
       trunk_log_node(spl, node);
@@ -3640,8 +3654,10 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
       trunk_open_log_stream();
       trunk_log_stream(
          "build_filter reenqueuing: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->start_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->end_key)),
          req->height,
          req->bundle_no);
       trunk_log_node(spl, node);
@@ -3654,14 +3670,14 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
 static inline void
 trunk_prepare_build_filter(trunk_handle             *spl,
                            trunk_compact_bundle_req *compact_req,
-                           trunk_filter_req         *filter_req,
+                           trunk_filter_scratch     *filter_scratch,
                            page_handle              *node)
 {
    uint16 height = trunk_height(spl, node);
    platform_assert(compact_req->height == height);
    platform_assert(compact_req->bundle_no == trunk_start_bundle(spl, node));
 
-   trunk_filter_req_init(compact_req, filter_req);
+   trunk_filter_scratch_init(compact_req, filter_scratch);
 
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
@@ -3671,12 +3687,18 @@ trunk_prepare_build_filter(trunk_handle             *spl,
          uint64 pos = trunk_process_generation_to_pos(
             spl, compact_req, pdata->generation);
          platform_assert(pos != TRUNK_MAX_PIVOTS);
-         filter_req->old_filter[pos] = pdata->filter;
-         filter_req->value[pos] =
+         filter_scratch->old_filter[pos] = pdata->filter;
+         filter_scratch->value[pos] =
             trunk_pivot_whole_branch_count(spl, node, pdata);
-         filter_req->should_build[pos] = TRUE;
+         filter_scratch->should_build[pos] = TRUE;
       }
    }
+
+   // copy the node's start and end key so that replacement can determine when
+   // to stop
+   trunk_key_copy(spl, filter_scratch->start_key, trunk_min_key(spl, node));
+   trunk_key_copy(spl, filter_scratch->end_key, trunk_max_key(spl, node));
+   filter_scratch->height = height;
 }
 
 static inline void
@@ -3701,7 +3723,7 @@ trunk_process_generation_to_fp_bounds(trunk_handle             *spl,
 static inline void
 trunk_build_filters(trunk_handle             *spl,
                     trunk_compact_bundle_req *compact_req,
-                    trunk_filter_req         *filter_req)
+                    trunk_filter_scratch     *filter_scratch)
 {
    threadid tid;
    uint64   filter_build_start;
@@ -3713,26 +3735,26 @@ trunk_build_filters(trunk_handle             *spl,
    }
 
    for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
-      if (!filter_req->should_build[pos]) {
+      if (!filter_scratch->should_build[pos]) {
          continue;
       }
-      routing_filter old_filter = filter_req->old_filter[pos];
+      routing_filter old_filter = filter_scratch->old_filter[pos];
       uint32         fp_start, fp_end;
       uint64         generation = compact_req->pivot_generation[pos];
       trunk_process_generation_to_fp_bounds(
          spl, compact_req, generation, &fp_start, &fp_end);
-      uint32 *fp_arr           = filter_req->fp_arr + fp_start;
+      uint32 *fp_arr           = filter_scratch->fp_arr + fp_start;
       uint32  num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
          if (old_filter.addr != 0) {
             trunk_inc_filter(spl, &old_filter);
          }
-         filter_req->filter[pos] = old_filter;
+         filter_scratch->filter[pos] = old_filter;
          continue;
       }
       routing_filter  new_filter;
       routing_config *filter_cfg = &spl->cfg.filter_cfg;
-      uint16          value      = filter_req->value[pos];
+      uint16          value      = filter_scratch->value[pos];
       platform_status rc         = routing_filter_add(spl->cc,
                                               filter_cfg,
                                               spl->heap_id,
@@ -3743,8 +3765,8 @@ trunk_build_filters(trunk_handle             *spl,
                                               value);
       platform_assert(SUCCESS(rc));
 
-      filter_req->filter[pos]       = new_filter;
-      filter_req->should_build[pos] = FALSE;
+      filter_scratch->filter[pos]       = new_filter;
+      filter_scratch->should_build[pos] = FALSE;
       if (spl->cfg.use_stats) {
          spl->stats[tid].filters_built[height]++;
          spl->stats[tid].filter_tuples[height] += num_fingerprints;
@@ -3760,7 +3782,7 @@ trunk_build_filters(trunk_handle             *spl,
 static inline void
 trunk_replace_routing_filter(trunk_handle             *spl,
                              trunk_compact_bundle_req *compact_req,
-                             trunk_filter_req         *filter_req,
+                             trunk_filter_scratch     *filter_scratch,
                              page_handle              *node)
 {
    uint16 num_children = trunk_num_children(spl, node);
@@ -3770,21 +3792,22 @@ trunk_replace_routing_filter(trunk_handle             *spl,
          trunk_process_generation_to_pos(spl, compact_req, pdata->generation);
       if (!trunk_bundle_live_for_pivot(
              spl, node, compact_req->bundle_no, pivot_no)) {
-         if (pos != TRUNK_MAX_PIVOTS && filter_req->filter[pos].addr != 0) {
-            trunk_dec_filter(spl, &filter_req->filter[pos]);
-            ZERO_CONTENTS(&filter_req->filter[pos]);
+         if (pos != TRUNK_MAX_PIVOTS && filter_scratch->filter[pos].addr != 0) {
+            trunk_dec_filter(spl, &filter_scratch->filter[pos]);
+            ZERO_CONTENTS(&filter_scratch->filter[pos]);
          }
          continue;
       }
       platform_assert(pos != TRUNK_MAX_PIVOTS);
       debug_assert(pdata->generation < compact_req->max_pivot_generation);
       trunk_dec_filter(spl, &pdata->filter);
-      pdata->filter = filter_req->filter[pos];
-      ZERO_CONTENTS(&filter_req->filter[pos]);
+      pdata->filter = filter_scratch->filter[pos];
+      ZERO_CONTENTS(&filter_scratch->filter[pos]);
 
       // Move the tuples count from the bundle to whole branch
       uint64 bundle_num_tuples = compact_req->output_pivot_tuple_count[pos];
       debug_assert(pdata->num_tuples_bundle >= bundle_num_tuples);
+      debug_assert((bundle_num_tuples == 0) == (pdata->filter.addr == 0));
       pdata->num_tuples_bundle -= bundle_num_tuples;
       pdata->num_tuples_whole += bundle_num_tuples;
 
@@ -3824,16 +3847,19 @@ trunk_bundle_build_filters(void *arg, void *scratch)
 
    bool should_continue_build_filters = TRUE;
    while (should_continue_build_filters) {
-      page_handle *node = NULL;
-      platform_status rc = trunk_compact_bundle_node_get(spl, compact_req, &node);
+      page_handle    *node = NULL;
+      platform_status rc =
+         trunk_compact_bundle_node_get(spl, compact_req, &node);
       platform_assert_status_ok(rc);
       platform_assert(node != NULL);
 
       trunk_open_log_stream();
       trunk_log_stream(
          "build_filter: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), compact_req->start_key)),
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), compact_req->end_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), compact_req->start_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), compact_req->end_key)),
          compact_req->height,
          compact_req->bundle_no);
       trunk_log_node(spl, node);
@@ -3860,18 +3886,18 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       }
 
       debug_assert(trunk_verify_node(spl, node));
-      trunk_filter_req filter_req = {0};
-      trunk_prepare_build_filter(spl, compact_req, &filter_req, node);
+      trunk_filter_scratch filter_scratch = {0};
+      trunk_prepare_build_filter(spl, compact_req, &filter_scratch, node);
       trunk_node_unget(spl, &node);
 
-      trunk_build_filters(spl, compact_req, &filter_req);
+      trunk_build_filters(spl, compact_req, &filter_scratch);
 
       trunk_log_stream("Filters built\n");
 
       bool should_continue_replacing_filters = TRUE;
-      while (should_continue_replacing_filters)
-      {
-         rc = trunk_compact_bundle_node_get_and_claim(spl, compact_req, &node);
+      while (should_continue_replacing_filters) {
+         rc =
+            trunk_filter_build_node_get_and_claim(spl, &filter_scratch, &node);
          platform_assert_status_ok(rc);
          debug_assert(trunk_height(spl, node) == compact_req->height);
          if (trunk_build_filter_should_abort(compact_req, node)) {
@@ -3879,12 +3905,12 @@ trunk_bundle_build_filters(void *arg, void *scratch)
             trunk_node_unclaim(spl, node);
             trunk_node_unget(spl, &node);
             for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
-               trunk_dec_filter(spl, &filter_req.filter[pos]);
+               trunk_dec_filter(spl, &filter_scratch.filter[pos]);
             }
             goto out;
          }
          trunk_node_lock(spl, node);
-         trunk_replace_routing_filter(spl, compact_req, &filter_req, node);
+         trunk_replace_routing_filter(spl, compact_req, &filter_scratch, node);
          if (trunk_bundle_live(spl, node, compact_req->bundle_no)) {
             trunk_clear_bundle(spl, node, compact_req->bundle_no);
          }
@@ -3894,7 +3920,9 @@ trunk_bundle_build_filters(void *arg, void *scratch)
 
          trunk_log_node(spl, node);
          trunk_log_stream("Filters replaced in node:\n");
-         trunk_log_stream("addr: %lu, height: %u\n", node->disk_addr, trunk_height(spl, node));
+         trunk_log_stream("addr: %lu, height: %u\n",
+                          node->disk_addr,
+                          trunk_height(spl, node));
          trunk_log_stream("range: %s-%s\n",
                           key_string(trunk_data_config(spl),
                                      slice_create(trunk_key_size(spl),
@@ -3903,23 +3931,28 @@ trunk_bundle_build_filters(void *arg, void *scratch)
                                      slice_create(trunk_key_size(spl),
                                                   compact_req->end_key)));
 
-         trunk_key_copy(spl, compact_req->start_key, trunk_max_key(spl, node));
-         should_continue_replacing_filters =
-            !trunk_key_equal(spl, compact_req->start_key, compact_req->end_key);
+         trunk_key_copy(
+            spl, filter_scratch.start_key, trunk_max_key(spl, node));
+         should_continue_replacing_filters = !trunk_key_equal(
+            spl, filter_scratch.start_key, filter_scratch.end_key);
          if (should_continue_replacing_filters) {
             trunk_log_stream(
                "replace_filter split: range %s-%s, height %u, bundle %u\n",
-               key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), compact_req->start_key)),
-               key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), compact_req->end_key)),
+               key_string(
+                  trunk_data_config(spl),
+                  slice_create(trunk_key_size(spl), compact_req->start_key)),
+               key_string(
+                  trunk_data_config(spl),
+                  slice_create(trunk_key_size(spl), compact_req->end_key)),
                compact_req->height,
                compact_req->bundle_no);
-               debug_assert(compact_req->height != 0);
-               trunk_node_unget(spl, &node);
+            debug_assert(compact_req->height != 0);
+            trunk_node_unget(spl, &node);
          }
       }
 
       for (uint64 pos = 0; pos < TRUNK_MAX_PIVOTS; pos++) {
-         trunk_dec_filter(spl, &filter_req.filter[pos]);
+         trunk_dec_filter(spl, &filter_scratch.filter[pos]);
       }
 
    next_node:
@@ -3931,14 +3964,19 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       if (should_continue_build_filters) {
          trunk_log_stream(
             "build_filter split: range %s-%s, height %u, bundle %u\n",
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), compact_req->start_key)),
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), compact_req->end_key)),
+            key_string(
+               trunk_data_config(spl),
+               slice_create(trunk_key_size(spl), compact_req->start_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), compact_req->end_key)),
             compact_req->height,
             compact_req->bundle_no);
          debug_assert(compact_req->height != 0);
       }
       trunk_close_log_stream();
-   } while (should_continue_build_filters);
+   }
+   while (should_continue_build_filters)
+      ;
 
 out:
    platform_free(spl->heap_id, compact_req->fp_arr);
@@ -3987,8 +4025,8 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
    trunk_log_node(spl, child);
    trunk_log_stream("----------------------------------------\n");
 
-   req->spl    = spl;
-   req->height = trunk_height(spl, child);
+   req->spl                  = spl;
+   req->height               = trunk_height(spl, child);
    req->bundle_no            = trunk_get_new_bundle(spl, child);
    req->max_pivot_generation = trunk_pivot_generation(spl, child);
 
@@ -4211,8 +4249,10 @@ trunk_flush(trunk_handle     *spl,
 
    trunk_default_log(
       "compact_bundle enqueue: range %s-%s, height %u, bundle %u\n",
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->start_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->end_key)),
       req->height,
       req->bundle_no);
    rc =
@@ -4614,8 +4654,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
          trunk_default_log(
             "compact_bundle split to: range %s-%s, height %u, bundle %u\n",
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->start_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->end_key)),
             next_req->height,
             next_req->bundle_no);
          rc = task_enqueue(
@@ -4627,9 +4669,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
           */
          trunk_node_unget(spl, &node);
          trunk_default_log(
-            "compact_bundle abort leaf split: range %s-%s, height %u, bundle %u\n",
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+            "compact_bundle abort leaf split: range %s-%s, height %u, bundle "
+            "%u\n",
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->start_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->end_key)),
             req->height,
             req->bundle_no);
          platform_free(spl->heap_id, req);
@@ -4653,8 +4698,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_node_unget(spl, &node);
       trunk_default_log(
          "compact_bundle abort flushed: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->start_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->end_key)),
          req->height,
          req->bundle_no);
       platform_free(spl->heap_id, req);
@@ -4689,8 +4736,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    trunk_log_stream(
       "compact_bundle starting: addr %lu, range %s-%s, height %u, bundle %u\n",
       node->disk_addr,
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->start_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->end_key)),
       req->height,
       req->bundle_no);
 
@@ -4785,7 +4834,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
     * 12. For each newly split sibling replace bundle with new branch
     */
    uint64 num_replacements = 0;
-   bool should_continue = TRUE;
+   bool   should_continue  = TRUE;
    while (should_continue) {
       platform_assert(node != NULL);
       trunk_node_claim(spl, &node);
@@ -4806,8 +4855,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       {
          trunk_default_log(
             "compact_bundle discard split: range %s-%s, height %u, bundle %u\n",
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->start_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->end_key)),
             req->height,
             req->bundle_no);
          if (spl->cfg.use_stats) {
@@ -4831,8 +4882,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          if (pack_req.num_tuples != 0) {
             trunk_replace_bundle_branches(spl, node, &new_branch, req);
             num_replacements++;
-            trunk_log_stream(
-               "inserted %lu into %lu\n", new_branch.root_addr, node->disk_addr);
+            trunk_log_stream("inserted %lu into %lu\n",
+                             new_branch.root_addr,
+                             node->disk_addr);
          } else {
             trunk_replace_bundle_branches(spl, node, NULL, req);
             trunk_log_stream("compact_bundle empty %lu\n", node->disk_addr);
@@ -4842,14 +4894,16 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
           * 12b. ...unless node is internal and bundle has been flushed
           */
          platform_assert(height != 0);
-         trunk_log_stream("compact_bundle discarded flushed %lu\n", node->disk_addr);
+         trunk_log_stream("compact_bundle discarded flushed %lu\n",
+                          node->disk_addr);
       }
 
       trunk_log_node(spl, node);
       debug_assert(trunk_verify_node(spl, node));
 
       should_continue = trunk_compact_bundle_node_has_split(spl, req, node);
-      if (!should_continue && num_replacements != 0 && pack_req.num_tuples != 0) {
+      if (!should_continue && num_replacements != 0 && pack_req.num_tuples != 0)
+      {
          const char *max_key = trunk_max_key(spl, node);
          trunk_zap_branch_range(
             spl, &new_branch, max_key, NULL, PAGE_TYPE_BRANCH);
@@ -4901,8 +4955,10 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       }
       trunk_default_log(
          "build_filter enqueue: range %s-%s, height %u, bundle %u\n",
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->start_key)),
+         key_string(trunk_data_config(spl),
+                    slice_create(trunk_key_size(spl), req->end_key)),
          req->height,
          req->bundle_no);
       task_enqueue(
@@ -5450,8 +5506,10 @@ trunk_split_leaf(trunk_handle *spl,
 
          trunk_default_log(
             "compact_bundle enqueue: range %s-%s, height %u, bundle %u\n",
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-            key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->start_key)),
+            key_string(trunk_data_config(spl),
+                       slice_create(trunk_key_size(spl), req->end_key)),
             req->height,
             req->bundle_no);
          rc = task_enqueue(
@@ -5485,8 +5543,10 @@ trunk_split_leaf(trunk_handle *spl,
    // issue compact_bundle for leaf and release
    trunk_default_log(
       "compact_bundle enqueue: range %s-%s, height %u, bundle %u\n",
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->start_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->end_key)),
       req->height,
       req->bundle_no);
    platform_status rc =
@@ -5935,8 +5995,10 @@ trunk_compact_leaf(trunk_handle *spl, page_handle *leaf)
 
    trunk_default_log(
       "compact_bundle enqueue: range %s-%s, height %u, bundle %u\n",
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->start_key)),
-      key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), req->end_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->start_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->end_key)),
       req->height,
       req->bundle_no);
    platform_status rc =
@@ -7654,17 +7716,22 @@ trunk_verify_node_with_neighbors(trunk_handle         *spl,
    bool   is_valid = FALSE;
    uint64 addr     = node->disk_addr;
 
-   uint16 height   = trunk_height(spl, node);
+   uint16 height = trunk_height(spl, node);
    // check node and predescessor have coherent pivots
-   if (!trunk_key_equal(spl, scratch->last_key_seen[height], trunk_min_key(spl, node))) {
-      platform_log("trunk_verify_node_with_neighbors: mismatched pivots with predescessor\n");
-      platform_log(
-         "predescessor max key: %s\n",
-         key_string(trunk_data_config(spl), slice_create(trunk_key_size(spl), scratch->last_key_seen[height])));
+   if (!trunk_key_equal(
+          spl, scratch->last_key_seen[height], trunk_min_key(spl, node)))
+   {
+      platform_log("trunk_verify_node_with_neighbors: mismatched pivots with "
+                   "predescessor\n");
+      platform_log("predescessor max key: %s\n",
+                   key_string(trunk_data_config(spl),
+                              slice_create(trunk_key_size(spl),
+                                           scratch->last_key_seen[height])));
       goto out;
    }
    // set last key seen in scratch
-   trunk_key_copy(spl, scratch->last_key_seen[height], trunk_max_key(spl, node));
+   trunk_key_copy(
+      spl, scratch->last_key_seen[height], trunk_max_key(spl, node));
 
    // don't need to verify coherence with children if node is a leaf
    if (trunk_is_leaf(spl, node)) {
@@ -7746,9 +7813,10 @@ out:
 bool
 trunk_verify_tree(trunk_handle *spl)
 {
-   trunk_verify_scratch scratch = { 0 };
+   trunk_verify_scratch scratch = {0};
    for (uint64 h = 0; h < TRUNK_MAX_HEIGHT; h++) {
-      trunk_key_copy(spl, scratch.last_key_seen[h], trunk_data_config(spl)->min_key);
+      trunk_key_copy(
+         spl, scratch.last_key_seen[h], trunk_data_config(spl)->min_key);
    }
    return trunk_for_each_node(spl, trunk_verify_node_and_neighbors, &scratch);
 }
