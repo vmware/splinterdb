@@ -3687,8 +3687,9 @@ trunk_build_filter_should_skip(trunk_compact_bundle_req *req, page_handle *node)
       platform_stream_handle stream;
       platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
       platform_assert_status_ok(rc);
-      trunk_log_stream_if_enabled(spl,
-                                  &stream,
+      trunk_log_stream_if_enabled(
+         spl,
+         &stream,
          "build_filter flush abort: range %s-%s, height %u, bundle %u\n",
          key_string(trunk_data_config(spl),
                     slice_create(trunk_key_size(spl), req->start_key)),
@@ -3712,8 +3713,9 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
       platform_stream_handle stream;
       platform_status rc = trunk_open_log_stream_if_enabled(spl, &stream);
       platform_assert_status_ok(rc);
-      trunk_log_stream_if_enabled(spl,
-                                  &stream,
+      trunk_log_stream_if_enabled(
+         spl,
+         &stream,
          "build_filter reenqueuing: range %s-%s, height %u, bundle %u\n",
          key_string(trunk_data_config(spl),
                     slice_create(trunk_key_size(spl), req->start_key)),
@@ -4050,7 +4052,9 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          debug_assert(compact_req->height != 0);
       }
       trunk_close_log_stream_if_enabled(spl, &stream);
-   } while (should_continue_build_filters);
+   }
+   while (should_continue_build_filters)
+      ;
 
 out:
    platform_free(spl->heap_id, compact_req->fp_arr);
