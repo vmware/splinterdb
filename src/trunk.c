@@ -3299,35 +3299,36 @@ unlock_incorp_lock:
 /*
  * Function to incorporate the memtable to the root.
  * Carries out the following steps :
- *  4. Lock root (block lookups -- lookups obtain a read lock on the root
- *     before performing lookup on memtable)
- *  5. Add the memtable to the root as a new compacted bundle
- *  6. If root is full, flush until it is no longer full
- *  7. If necessary, split the root
- *  8. Create a new empty memtable in the memtable array at position
- *     curr_memtable.
- *  9. Unlock the root
+ *  1. Lock lookup lock (blocks lookups, which must obtain a read lock on the
+ *     lookup lock), root, and Trunk Modification Lock.
+ *  2. Increment memtable generation (Blocks lookups from accessing the
+ *     memtable that's being incorporated) and release lookup lock.
+ *  3. Add the memtable to the root as a new compacted bundle
+ *  4. If root is full, flush until it is no longer full. Also flushes any full
+ *     descendents.
+ *  5. If necessary, split the root
+ *  6. Unlock the root
+ *  7. Decrement the now-incorporated memtable ref count and recycle if no
+ *     references
  *
  * This functions has some preconditions prior to being called.
  *  --> Trunk root node should be write locked.
  *  --> The memtable should have inserts blocked (can_insert == FALSE)
  */
 static void
-trunk_memtable_incorporate(trunk_handle  *spl,
-                           uint64         generation,
-                           const threadid tid)
+trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
+                                     uint64         generation,
+                                     const threadid tid)
 {
-   // X. Get, claim and lock the lookup lock
+   /*
+    * 1. Lock lookup lock (blocks lookups, which must obtain a read lock on the
+    *    lookup lock), root, and Trunk Modification Lock.
+    */
    page_handle *mt_lookup_lock_page =
       memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
-
-   memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
-
-   // X. Get, claim and lock the root
    page_handle *root = trunk_node_get(spl, spl->root_addr);
    trunk_node_claim(spl, &root);
    platform_assert(trunk_has_vacancy(spl, root, 1));
-
    trunk_modification_lock(spl);
    trunk_node_lock(spl, root);
 
@@ -3343,11 +3344,15 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    trunk_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
 
-   // X. Release lookup lock
+   /*
+    * 2. Increment memtable generation (Blocks lookups from accessing the
+    *    memtable that's being incorporated) and release lookup lock.
+    */
+   memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
    memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
 
    /*
-    * X. Get a new branch in a bundle for the memtable
+    * 3. Add the memtable to the root as a new compacted bundle
     */
    trunk_compacted_memtable *cmt =
       trunk_get_compacted_memtable(spl, generation);
@@ -3408,7 +3413,6 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
-   // X. Incorporate new memtable into the bundle
    memtable *mt = trunk_get_memtable(spl, generation);
    // Normally need to hold incorp_mutex, but debug code and also guaranteed no
    // one is changing gen_to_incorp (we are the only thread that would try)
@@ -3430,37 +3434,38 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    trunk_log_stream_if_enabled(spl, &stream, "\n");
    trunk_close_log_stream_if_enabled(spl, &stream);
 
-   // X. If root is full, flush until it is no longer full
+   /*
+    * 4. If root is full, flush until it is no longer full. Also flushes any
+    * full descendents.
+    */
    uint64 flush_start;
    if (spl->cfg.use_stats) {
       flush_start = platform_get_timestamp();
    }
 
-   uint64 wait = 1;
    while (trunk_node_is_full(spl, root)) {
-      platform_status rc = trunk_flush_fullest(spl, root);
-      if (!SUCCESS(rc)) {
-         trunk_node_unlock(spl, root);
-         trunk_modification_unlock(spl);
-         platform_sleep(wait);
-         wait = wait > 2048 ? 2048 : 2 * wait;
-         trunk_modification_unlock(spl);
-         trunk_node_lock(spl, root);
-      }
+      trunk_flush_fullest(spl, root);
    }
 
-   // X. If necessary, split the root
+   /*
+    * 5. If necessary, split the root
+    */
    if (trunk_needs_split(spl, root)) {
       trunk_split_root(spl, root);
    }
 
-   // X. Unlock the root
+   /*
+    * 6. Unlock the root
+    */
    trunk_node_unlock(spl, root);
    trunk_modification_unlock(spl);
    trunk_node_unclaim(spl, root);
    trunk_node_unget(spl, &root);
 
-   // X. Dec-ref the now-incorporated memtable
+   /*
+    * 7. Decrement the now-incorporated memtable ref count and recycle if no
+    *    references
+    */
    memtable_dec_ref_maybe_recycle(spl->mt_ctxt, mt);
 
    if (spl->cfg.use_stats) {
@@ -3493,7 +3498,7 @@ trunk_memtable_flush_internal(trunk_handle *spl, uint64 generation)
       goto out;
    }
    do {
-      trunk_memtable_incorporate(spl, generation, tid);
+      trunk_memtable_incorporate_and_flush(spl, generation, tid);
       generation++;
    } while (trunk_try_continue_incorporate(spl, generation));
 out:
@@ -4359,6 +4364,12 @@ trunk_flush(trunk_handle     *spl,
    }
 
    debug_assert(trunk_verify_node(spl, child));
+
+   // flush the child if full
+   while (trunk_node_is_full(spl, child)) {
+      trunk_flush_fullest(spl, child);
+   }
+
    trunk_node_unlock(spl, child);
    trunk_node_unclaim(spl, child);
    trunk_node_unget(spl, &child);
@@ -4710,19 +4721,18 @@ trunk_btree_pack_req_init(trunk_handle   *spl,
  *
  * Algorithm:
  * 1.  Acquire node read lock
- * 2.  Flush if node is full (acquires write lock)
- * 3.  If the node has split before this call (interaction 4), this
+ * 2.  If the node has split before this call (interaction 4), this
  *     bundle exists in the new split siblings, so issue compact_bundles
  *     for those nodes
- * 4.  Abort if node is a leaf and started splitting (interaction 6)
- * 5.  The bundle may have been completely flushed by step 2, if so abort
- * 6.  Build iterators
- * 7.  Release read lock
- * 8.  Perform compaction
- * 9.  Build filter
- * 10. Clean up
- * 11. Reacquire read lock
- * 12. For each newly split sibling replace bundle with new branch unless
+ * 3.  Abort if node is a leaf and started splitting (interaction 6)
+ * 4.  The bundle may have been completely flushed by step 2, if so abort
+ * 5.  Build iterators
+ * 6.  Release read lock
+ * 7.  Perform compaction
+ * 8.  Build filter
+ * 9. Clean up
+ * 10. Reacquire read lock
+ * 11. For each newly split sibling replace bundle with new branch unless
  *        a. node if leaf which has split, in which case discard (interaction 6)
  *        b. node is internal and bundle has been flushed
  */
@@ -4743,26 +4753,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    rc = trunk_compact_bundle_node_get(spl, req, &node);
    platform_assert_status_ok(rc);
 
-   /*
-    * 2. Flush if node is full (acquires write lock)
-    */
-   uint16 height = trunk_height(spl, node);
-   if (height != 0 && trunk_node_is_full(spl, node)) {
-      trunk_node_claim(spl, &node);
-      trunk_modification_lock(spl);
-      trunk_node_lock(spl, node);
-      rc = STATUS_OK;
-      while (SUCCESS(rc) && trunk_node_is_full(spl, node)) {
-         rc = trunk_flush_fullest(spl, node);
-      }
-      trunk_node_unlock(spl, node);
-      trunk_modification_unlock(spl);
-      trunk_node_unclaim(spl, node);
-   }
-
    // timers for stats if enabled
    uint64 compaction_start, pack_start;
-
+   uint16 height = trunk_height(spl, node);
    if (spl->cfg.use_stats) {
       tid              = platform_get_tid();
       compaction_start = platform_get_timestamp();
@@ -4770,7 +4763,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    /*
-    * 3. If the node has split before this call (interaction 4), this
+    * 2. If the node has split before this call (interaction 4), this
     *    bundle was copied to the new sibling[s], so issue compact_bundles for
     *    those nodes
     */
@@ -4796,7 +4789,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          platform_assert_status_ok(rc);
       } else {
          /*
-          * 4. Abort if node is a splitting leaf (interaction 6)
+          * 3. Abort if node is a splitting leaf (interaction 6)
           */
          trunk_node_unget(spl, &node);
          trunk_default_log_if_enabled(
@@ -4820,7 +4813,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    /*
-    * 5. The bundle may have been completely flushed by 2., if so abort
+    * 4. The bundle may have been completely flushed by 2., if so abort
     *       -- note this cannot happen in leaves (if the bundle isn't live, the
     *          generation number would change and it would be caught by step 4
     *          above).
@@ -4881,7 +4874,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       req->bundle_no);
 
    /*
-    * 6. Build iterators
+    * 5. Build iterators
     */
    platform_assert(num_branches <= ARRAY_SIZE(scratch->skip_itor));
    trunk_btree_skiperator *skip_itor_arr = scratch->skip_itor;
@@ -4907,12 +4900,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    trunk_log_node_if_enabled(&stream, spl, node);
 
    /*
-    * 7. Release read lock
+    * 6. Release read lock
     */
    trunk_node_unget(spl, &node);
 
    /*
-    * 8. Perform compaction
+    * 7. Perform compaction
     */
    merge_iterator *merge_itor;
    rc = merge_iterator_create(spl->heap_id,
@@ -4952,7 +4945,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    /*
-    * 10. Clean up
+    * 9. Clean up
     */
    rc = merge_iterator_destroy(spl->heap_id, &merge_itor);
    platform_assert_status_ok(rc);
@@ -4961,13 +4954,13 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    /*
-    * 11. Reacquire read lock
+    * 10. Reacquire read lock
     */
    rc = trunk_compact_bundle_node_get(spl, req, &node);
    platform_assert_status_ok(rc);
 
    /*
-    * 12. For each newly split sibling replace bundle with new branch
+    * 11. For each newly split sibling replace bundle with new branch
     */
    uint64 num_replacements = 0;
    bool   should_continue  = TRUE;
@@ -4980,7 +4973,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_log_node_if_enabled(&stream, spl, node);
 
       /*
-       * 12a. ...unless node is a leaf which has split, in which case discard
+       * 11a. ...unless node is a leaf which has split, in which case discard
        *      (interaction 6)
        *
        *      For leaves, the split will cover the compaction and we do not
@@ -5034,7 +5027,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          }
       } else {
          /*
-          * 12b. ...unless node is internal and bundle has been flushed
+          * 11b. ...unless node is internal and bundle has been flushed
           */
          platform_assert(height != 0);
          trunk_log_stream_if_enabled(spl,
