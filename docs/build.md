@@ -35,6 +35,11 @@ $ make run-tests
 $ sudo make install
 ```
 
+Additional options controlling builds can be found by running
+```shell
+$ make help
+```
+
 ### Code formatting
 Our CI system enforces code formatting rules.  If you're making code changes
 that you wish to [contribute back to the project](../CONTRIBUTING.md), please
