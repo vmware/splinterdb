@@ -1,23 +1,23 @@
 # Copyright 2018-2021 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-.DEFAULT_GOAL := release
+.DEFAULT_GOAL := all
 
 PLATFORM = linux
 PLATFORM_DIR = platform_$(PLATFORM)
 
+help::
+	@echo 'Usage: make [debug]'
+
 #*************************************************************#
-# DIRECTORIES, SRC, OBJ, ETC
+# SOURCE DIRECTORIES AND FILES
 #
 SRCDIR               = src
 TESTS_DIR            = tests
+INCDIR               = include
 FUNCTIONAL_TESTSDIR  = $(TESTS_DIR)/functional
 UNITDIR              = unit
 UNIT_TESTSDIR        = $(TESTS_DIR)/$(UNITDIR)
-OBJDIR               = obj
-BINDIR               = bin
-LIBDIR               = lib
-INCDIR               = include
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 
@@ -35,6 +35,151 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 # resulting unit_test to run as fast as it can. For now, we are just skipping one
 # test, which will have to be run stand-alone.
 FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test")
+
+#*************************************************************#
+# CFLAGS, LDFLAGS, ETC
+#
+
+INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS_DIR)
+
+# use += here, so that extra flags can be provided via the environment
+
+CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
+CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
+CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
+
+# track git ref in the built library
+GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
+CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+
+cpu_arch := $(shell uname -p)
+ifeq ($(cpu_arch),x86_64)
+  # not supported on ARM64
+  CFLAGS += -march=native
+endif
+
+LDFLAGS += -ggdb3 -pthread
+
+LIBS      = -lm -lpthread -laio -lxxhash
+DEPFLAGS  = -MMD -MP
+
+#*************************************************************#
+# Flags to select release vs debug builds, verbosity, etc.
+#
+
+help::
+	@echo Environment variables controlling the build:
+	@echo '  BUILD_DIR: Base dir name for build outputs (Default: "build").'
+	@echo '    $$(BUILD_DIR)/obj: object files'
+	@echo '    $$(BUILD_DIR)/lib: libraries'
+	@echo '    $$(BUILD_DIR)/bin: executables'
+	@echo '  Note: setting BUILD_MODE and other flags may further modify BUILD_DIR'
+	@echo
+
+ifndef BUILD_DIR
+   BUILD_DIR := build
+endif
+
+#
+# Build mode
+#
+ifndef BUILD_MODE
+   BUILD_MODE=release
+endif
+
+ifeq "$(BUILD_MODE)" "debug"
+   CFLAGS  += -DSPLINTER_DEBUG
+   BUILD_DIR:=$(BUILD_DIR)-debug
+else ifeq "$(BUILD_MODE)" "release"
+   CFLAGS   += -Ofast -flto
+   LDFLAGS  += -Ofast -flto
+else ifeq "$(BUILD_MODE)" "optimized-debug"
+   CFLAGS  += -DSPLINTER_DEBUG
+   CFLAGS  += -Ofast -flto
+   LDFLAGS += -Ofast -flto
+   BUILD_DIR := $(BUILD_DIR)-optimized-debug
+else
+   $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
+endif
+
+help::
+	@echo '  BUILD_MODE: "release", "debug", or "optimized-debug" (Default: "release")'
+
+# ************************************************************************
+# Address sanitizer
+#   - Ctests will be silently skipped with clang builds. (Known issue.)
+#   - Use gcc to build in Asan mode to run unit-tests.
+#   - Tests will run slow in address sanitizer builds.
+ifndef BUILD_ASAN
+   BUILD_ASAN=0
+endif
+
+ifeq "$(BUILD_ASAN)" "1"
+   CFLAGS  += -fsanitize=address
+   LDFLAGS += -fsanitize=address
+   BUILD_DIR:=$(BUILD_DIR)-asan
+else ifneq "$(BUILD_ASAN)" "0"
+   $(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	@echo '  BUILD_ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
+	@echo '                    Use gcc to run unit-tests with ASAN-builds.'
+
+# ************************************************************************
+# Memory sanitizer
+#   - Builds will fail with gcc due to compiler error. Use clang instead.
+#   - Tests will run even slower in memory sanitizer builds.
+ifndef BUILD_MSAN
+   BUILD_MSAN=0
+endif
+
+ifeq "$(BUILD_MSAN)" "1"
+   CFLAGS  += -fsanitize=memory
+   LDFLAGS += -fsanitize=memory
+   BUILD_DIR:=$(BUILD_DIR)-msan
+else ifneq "$(BUILD_MSAN)" "0"
+   $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	@echo '  BUILD_MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
+	@echo '                    Use clang for MSAN-builds.'
+
+#
+# Verbosity
+#
+ifndef BUILD_VERBOSE
+   BUILD_VERBOSE=0
+endif
+
+ifeq "$(BUILD_VERBOSE)" "1"
+   COMMAND=
+   PROLIX=@echo
+   BRIEF=@ >/dev/null echo
+   BRIEF_FORMATTED=@ >/dev/null echo
+   BRIEF_PARTIAL=@echo -n >/dev/null
+else ifeq "$(BUILD_VERBOSE)" "0"
+   COMMAND=@
+   PROLIX=@ >/dev/null echo
+   BRIEF=@echo
+   BRIEF_FORMATTED=@printf
+   BRIEF_PARTIAL=@echo -n
+else
+   $(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
+endif
+
+help::
+	@echo '  BUILD_VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
+
+
+###################################################################
+# BUILD DIRECTORIES AND FILES
+#
+
+OBJDIR = $(BUILD_DIR)/obj
+BINDIR = $(BUILD_DIR)/bin
+LIBDIR = $(BUILD_DIR)/lib
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
@@ -58,89 +203,50 @@ FAST_UNIT_TESTOBJS= $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 UNIT_TESTBIN_SRC=$(filter %_test.c, $(UNIT_TESTSRC))
 UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 
-#*************************************************************#
-# CFLAGS, ETC
-#
-
-INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS_DIR)
-
-DEFAULT_CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
-DEFAULT_CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
-DEFAULT_CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
-
-# track git ref in the built library
-GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
-DEFAULT_CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
-
-cpu_arch := $(shell uname -p)
-ifeq ($(cpu_arch),x86_64)
-  # not supported on ARM64
-  DEFAULT_CFLAGS += -msse4.2 -mpopcnt
-  CFLAGS += -march=native
-endif
-
-# use += here, so that extra flags can be provided via the environment
-DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS)
-DEFAULT_LDFLAGS += -ggdb3 -pthread
-
-# ##########################################################################
-# To set sanitiziers, use environment variables, e.g.
-#   DEFAULT_CFLAGS="-fsanitize=address" DEFAULT_LDFLAGS="-fsanitize=address" make debug
-#
-# Note(s):
-#  - Address sanitizer builds: -fsanitize=address
-#     - Ctests will be silently skipped with clang builds. (Known issue.)
-#       Use gcc to build in Asan mode to run unit-tests.
-#     - Tests will run slow in address sanitizer builds.
-#
-#  - Memory sanitizer builds: -fsanitize=memory
-#     - Builds will fail with gcc due to compiler error. Use clang instead.
-#     - Tests will run even slower in memory sanitizer builds.
-#
-CFLAGS += $(DEFAULT_CFLAGS) -Ofast -flto
-LDFLAGS += $(DEFAULT_LDFLAGS) -Ofast -flto
-LIBS = -lm -lpthread -laio -lxxhash $(LIBCONFIG_LIBS)
-
-DEPFLAGS = -MMD -MT $@ -MP -MF $(OBJDIR)/$*.d
-
-COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
-
 ####################################################################
 # The main targets
 #
 
-all: libs tests $(EXTRA_TARGETS)
-
+all: libs all-tests $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
+all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 
-#*************************************************************#
-# Targets to track whether we have a release or debug build
-release: .release all
-	rm -f .debug .debug-log
+# This is for backwards compatibility with old CI.  Once we update CI,
+# we can delete this target
+debug: all
 
-debug: CFLAGS = -g -DSPLINTER_DEBUG $(DEFAULT_CFLAGS)
-debug: LDFLAGS = -g $(DEFAULT_LDFLAGS)
-debug: .debug all
-	rm -f .release .debug-log
 
-debug-log: CFLAGS = -g -DDEBUG -DCC_LOG $(DEFAULT_CFLAGS)
-debug-log: LDFLAGS = -g $(DEFAULT_LDFLAGS)
-debug-log: .debug-log all
-	rm -f .release .debug
+#######################################################################
+# CONFIGURATION CHECKING
+#
+# Save a hash of the config we used to perform the build and check for
+# any mismatched config from a prior build, so we can ensure we never
+# accidentially build using a mixture of configs
 
-.release:
-	$(MAKE) clean
-	touch .release
+CONFIG_HASH = $(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
+CONFIG_FILE_PREFIX = $(BUILD_DIR)/build-config.
+CONFIG_FILE = $(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
 
-.debug:
-	$(MAKE) clean
-	touch .debug
+.PHONY: mismatched_config_file_check
+mismatched_config_file_check: | $(BUILD_DIR)/.
+	$(BRIEF_PARTIAL) Checking for mismatched config...
+	$(COMMAND) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | grep -v $(CONFIG_FILE) | xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  You need to \"make clean\"."; false'
+	$(BRIEF) No mismatched config found
 
-.debug-log:
-	$(MAKE) clean
-	touch .debug-log
+
+$(CONFIG_FILE): | $(BUILD_DIR)/. mismatched_config_file_check
+	$(BRIEF) Saving config to $@
+	$(COMMAND) env | grep -E "BUILD_|CC"         >  $@
+	$(COMMAND) echo CC          = $(CC)          >> $@
+	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
+	$(COMMAND) echo CFLAGS      = $(CFLAGS)      >> $@
+	$(COMMAND) echo INCLUDE     = $(INCLUDE)     >> $@
+	$(COMMAND) echo TARGET_ARCH = $(TARGET_ARCH) >> $@
+	$(COMMAND) echo LD          = $(LD)          >> $@
+	$(COMMAND) echo LDFLAGS     = $(LDFLAGS)     >> $@
+	$(COMMAND) echo LIBS        = $(LIBS)        >> $@
+	$(COMMAND) echo AR          = $(AR)          >> $@
 
 
 #************************************************************#
@@ -150,32 +256,44 @@ debug-log: .debug-log all
 
 .SECONDARY:
 
-$(OBJDIR)/. $(BINDIR)/. $(LIBDIR)/.:
-	mkdir -p $@
+%/.:
+	$(COMMAND) mkdir -p $@
 
-$(OBJDIR)/%/.:
-	mkdir -p $@
+# These targets prevent circular dependencies arising from the
+# recipe for building binaries
+$(BINDIR)/.:
+	$(COMMAND) mkdir -p $@
 
 $(BINDIR)/%/.:
-	mkdir -p $@
+	$(COMMAND) mkdir -p $@
 
 #*************************************************************#
 # RECIPES
 #
 
-$(OBJDIR)/%.o: %.c | $$(@D)/.
-	$(COMPILE.c) $< -o $@
+COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
-$(BINDIR)/%: | $$(@D)/.
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+$(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@
+	$(COMMAND) $(COMPILE.c) $< -o $@
+	$(PROLIX) # blank line
 
-$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/.
-	$(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+$(BINDIR)/%: | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %s\n" Linking $@
+	$(COMMAND) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(PROLIX) # blank line
+
+$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %s\n" Linking $@
+	$(COMMAND) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+	$(PROLIX) # blank line
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
-$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/.
-	$(AR) -crs $@ $^
+$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
+	$(BRIEF_FORMATTED) "%-20s %s\n" "Building archive" $@
+	$(COMMAND) $(AR) -crs $@ $^
+	$(PROLIX) # blank line
 
 #################################################################
 # Dependencies
@@ -288,7 +406,7 @@ unit_test:                         $(BINDIR)/unit_test
 # we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
-	rm -rf $(OBJDIR)/* $(BINDIR)/* $(LIBDIR)/*
+	rm -rf $(BUILD_DIR)
 	uname -a
 	$(CC) --version
 tags:
@@ -301,17 +419,16 @@ tags:
 
 .PHONY: install
 
-run-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	./test.sh
+run-tests: all-tests
+	BINDIR=$(BINDIR) ./test.sh
 
-test-results: $(BINDIR)/driver_test $(BINDIR)/unit_test
-	(INCLUDE_SLOW_TESTS=true ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
+test-results: all-tests
+	(INCLUDE_SLOW_TESTS=true BINDIR=$(BINDIR) ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
 
 INSTALL_PATH ?= /usr/local
 
-install: $(LIBDIR)/libsplinterdb.so
+install: libs
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
-
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
 	cp -p -r $(INCDIR)/splinterdb/ $(INSTALL_PATH)/include/
@@ -319,4 +436,4 @@ install: $(LIBDIR)/libsplinterdb.so
 # to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
 .PHONY: compile_flags.txt
 compile_flags.txt:
-	echo "$(DEFAULT_CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
+	echo "$(CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
