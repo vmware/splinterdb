@@ -237,7 +237,7 @@ mismatched_config_file_check: | $(BUILD_DIR)/.
 
 $(CONFIG_FILE): | $(BUILD_DIR)/. mismatched_config_file_check
 	$(BRIEF) Saving config to $@
-	$(COMMAND) env | grep "BUILD_|CC"            >  $@
+	$(COMMAND) env | grep -E "BUILD_|CC"         >  $@
 	$(COMMAND) echo CC          = $(CC)          >> $@
 	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
 	$(COMMAND) echo CFLAGS      = $(CFLAGS)      >> $@
