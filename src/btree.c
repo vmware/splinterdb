@@ -2764,11 +2764,18 @@ btree_pack_node_init_hdr(const btree_config *cfg,
 static inline void
 btree_pack_setup_start(btree_pack_req *req)
 {
+   req->next_extent = 0;
+   req->height      = 0;
+   ZERO_ARRAY(req->edge);
+
    // we create a root here, but we won't build it with the rest
    // of the tree, we'll copy into it at the end
    req->root_addr =
       btree_create(req->cc, req->cfg, &req->mini, PAGE_TYPE_BRANCH);
-   req->height = 0;
+
+   req->num_tuples    = 0;
+   req->key_bytes     = 0;
+   req->message_bytes = 0;
 }
 
 

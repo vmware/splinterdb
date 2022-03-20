@@ -6,6 +6,9 @@
 PLATFORM = linux
 PLATFORM_DIR = platform_$(PLATFORM)
 
+help::
+	@echo 'Usage: make [debug]'
+
 #*************************************************************#
 # SOURCE DIRECTORIES AND FILES
 #
