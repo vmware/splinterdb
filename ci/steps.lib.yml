@@ -104,6 +104,7 @@ config:
     LD: #@ compiler
     INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
     RUN_NIGHTLY_TESTS: #@ str(is_nightly).lower()
+    BUILD_VERBOSE: "1"
 
     #! Exercise 'make help' in quick tests mode, to ensure 'help' still works.
     #@ if quick:
@@ -114,8 +115,6 @@ config:
 
     #@ if is_debug:
     BUILD_MODE: "debug"
-    #! Add this, just to ensure that verbose build outputs feature doesn't regress
-    BUILD_VERBOSE: "1"
     #@ end
 
     #@ if sanitize == "asan":
