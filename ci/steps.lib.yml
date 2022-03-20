@@ -118,14 +118,10 @@ config:
     #@ end
 
     #@ if sanitize == "asan":
-    DEFAULT_CFLAGS: "-fsanitize=address"
-    DEFAULT_LDFLAGS: "-fsanitize=address"
     BUILD_ASAN: "1"
     #! work around issue "LeakSanitizer has encountered a fatal error", may be kernel-dependent
     ASAN_OPTIONS: "detect_leaks=0"
     #@ elif sanitize == "msan":
-    DEFAULT_CFLAGS: "-fsanitize=memory"
-    DEFAULT_LDFLAGS: "-fsanitize=memory"
     BUILD_MSAN: "1"
     #@ end
 
@@ -134,11 +130,7 @@ config:
     dir: #@ input_name
     args:
     - "-c"
-    #@ if is_debug:
-    - "make $MAKE_HELP debug all run-tests"
-    #@ else:
     - "make $MAKE_HELP all run-tests"
-    #@ end
 #@ end
 
 ---
