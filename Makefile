@@ -68,8 +68,8 @@ DEPFLAGS  = -MMD -MP
 #
 
 help::
-	@echo Environment variables controlling the build
-	@echo '  BUILD_DIR: Base name for build output (Default: "build").'
+	@echo Environment variables controlling the build:
+	@echo '  BUILD_DIR: Base dir name for build outputs (Default: "build").'
 	@echo '    $$(BUILD_DIR)/obj: object files'
 	@echo '    $$(BUILD_DIR)/lib: libraries'
 	@echo '    $$(BUILD_DIR)/bin: executables'
@@ -77,91 +77,96 @@ help::
 	@echo
 
 ifndef BUILD_DIR
-  BUILD_DIR := build
+   BUILD_DIR := build
 endif
 
 #
 # Build mode
 #
 ifndef BUILD_MODE
-  BUILD_MODE=release
+   BUILD_MODE=release
 endif
 
 ifeq "$(BUILD_MODE)" "debug"
-  CFLAGS  += -DSPLINTER_DEBUG
-  BUILD_DIR:=$(BUILD_DIR)-debug
+   CFLAGS  += -DSPLINTER_DEBUG
+   BUILD_DIR:=$(BUILD_DIR)-debug
 else ifeq "$(BUILD_MODE)" "release"
-  CFLAGS   += -Ofast -flto
-  LDFLAGS  += -Ofast -flto
+   CFLAGS   += -Ofast -flto
+   LDFLAGS  += -Ofast -flto
 else ifeq "$(BUILD_MODE)" "optimized-debug"
-  CFLAGS  += -DSPLINTER_DEBUG
-  CFLAGS  += -Ofast -flto
-  LDFLAGS += -Ofast -flto
-  BUILD_DIR := $(BUILD_DIR)-optimized-debug
+   CFLAGS  += -DSPLINTER_DEBUG
+   CFLAGS  += -Ofast -flto
+   LDFLAGS += -Ofast -flto
+   BUILD_DIR := $(BUILD_DIR)-optimized-debug
 else
-  $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
+   $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif
 
 help::
 	@echo '  BUILD_MODE: "release", "debug", or "optimized-debug" (Default: "release")'
 
-#
-# address sanitizer
-#
+# ************************************************************************
+# Address sanitizer
+#   - Ctests will be silently skipped with clang builds. (Known issue.)
+#   - Use gcc to build in Asan mode to run unit-tests.
+#   - Tests will run slow in address sanitizer builds.
 ifndef BUILD_ASAN
-  BUILD_ASAN=0
+   BUILD_ASAN=0
 endif
 
 ifeq "$(BUILD_ASAN)" "1"
-  CFLAGS  += -fsanitize=address
-  LDFLAGS += -fsanitize=address
-  BUILD_DIR:=$(BUILD_DIR)-asan
+   CFLAGS  += -fsanitize=address
+   LDFLAGS += -fsanitize=address
+   BUILD_DIR:=$(BUILD_DIR)-asan
 else ifneq "$(BUILD_ASAN)" "0"
-  $(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
+   $(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
 	@echo '  BUILD_ASAN={0,1}: Disable/enable address-sanitizer (Default: disabled)'
+	@echo '                    Use gcc to run unit-tests with ASAN-builds.'
 
-#
-# memory sanitizer
-#
+# ************************************************************************
+# Memory sanitizer
+#   - Builds will fail with gcc due to compiler error. Use clang instead.
+#   - Tests will run even slower in memory sanitizer builds.
 ifndef BUILD_MSAN
-  BUILD_MSAN=0
+   BUILD_MSAN=0
 endif
 
 ifeq "$(BUILD_MSAN)" "1"
-  CFLAGS  += -fsanitize=memory
-  LDFLAGS += -fsanitize=memory
-  BUILD_DIR:=$(BUILD_DIR)-msan
+   CFLAGS  += -fsanitize=memory
+   LDFLAGS += -fsanitize=memory
+   BUILD_DIR:=$(BUILD_DIR)-msan
 else ifneq "$(BUILD_MSAN)" "0"
-  $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
+   $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
 	@echo '  BUILD_MSAN={0,1}: Disable/enable memory-sanitizer (Default: disabled)'
+	@echo '                    Use clang for MSAN-builds.'
 
 #
 # Verbosity
 #
 ifndef BUILD_VERBOSE
-  BUILD_VERBOSE=0
+   BUILD_VERBOSE=0
 endif
 
 ifeq "$(BUILD_VERBOSE)" "1"
-  COMMAND=
-  PROLIX=@echo
-  BRIEF=@ >/dev/null echo
-  BRIEF_FORMATTED=@ >/dev/null echo
-  BRIEF_PARTIAL=@echo -n >/dev/null
+   COMMAND=
+   PROLIX=@echo
+   BRIEF=@ >/dev/null echo
+   BRIEF_FORMATTED=@ >/dev/null echo
+   BRIEF_PARTIAL=@echo -n >/dev/null
 else ifeq "$(BUILD_VERBOSE)" "0"
-  COMMAND=@
-  PROLIX=@ >/dev/null echo
-  BRIEF=@echo
-  BRIEF_FORMATTED=@printf
-  BRIEF_PARTIAL=@echo -n
+   COMMAND=@
+   PROLIX=@ >/dev/null echo
+   BRIEF=@echo
+   BRIEF_FORMATTED=@printf
+   BRIEF_PARTIAL=@echo -n
 else
-  $(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
+   $(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
@@ -232,7 +237,7 @@ mismatched_config_file_check: | $(BUILD_DIR)/.
 
 $(CONFIG_FILE): | $(BUILD_DIR)/. mismatched_config_file_check
 	$(BRIEF) Saving config to $@
-	$(COMMAND) env | grep BUILD_                 >  $@
+	$(COMMAND) env | grep "BUILD_|CC"            >  $@
 	$(COMMAND) echo CC          = $(CC)          >> $@
 	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
 	$(COMMAND) echo CFLAGS      = $(CFLAGS)      >> $@
