@@ -74,30 +74,29 @@ help::
 	@echo
 
 ifndef BUILD_DIR
-BUILD_DIR := build
+  BUILD_DIR := build
 endif
 
 #
 # Build mode
 #
 ifndef BUILD_MODE
-BUILD_MODE=release
+  BUILD_MODE=release
 endif
 
 ifeq "$(BUILD_MODE)" "debug"
-CFLAGS  += -DSPLINTER_DEBUG
-#LDFLAGS +=
-BUILD_DIR:=$(BUILD_DIR)-debug
+  CFLAGS  += -DSPLINTER_DEBUG
+  BUILD_DIR:=$(BUILD_DIR)-debug
 else ifeq "$(BUILD_MODE)" "release"
-CFLAGS   += -Ofast -flto
-LDFLAGS  += -Ofast -flto
+  CFLAGS   += -Ofast -flto
+  LDFLAGS  += -Ofast -flto
 else ifeq "$(BUILD_MODE)" "optimized-debug"
-CFLAGS  += -DSPLINTER_DEBUG
-CFLAGS  += -Ofast -flto
-LDFLAGS += -Ofast -flto
-BUILD_DIR := $(BUILD_DIR)-optimized-debug
+  CFLAGS  += -DSPLINTER_DEBUG
+  CFLAGS  += -Ofast -flto
+  LDFLAGS += -Ofast -flto
+  BUILD_DIR := $(BUILD_DIR)-optimized-debug
 else
-$(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
+  $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif
 
 help::
@@ -107,16 +106,15 @@ help::
 # address sanitizer
 #
 ifndef BUILD_ASAN
-BUILD_ASAN=0
+  BUILD_ASAN=0
 endif
 
 ifeq "$(BUILD_ASAN)" "1"
-CFLAGS  += -fsanitize=address
-LDFLAGS += -fsanitize=address
-BUILD_DIR:=$(BUILD_DIR)-asan
-else ifeq "$(BUILD_ASAN)" "0"
-else
-$(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
+  CFLAGS  += -fsanitize=address
+  LDFLAGS += -fsanitize=address
+  BUILD_DIR:=$(BUILD_DIR)-asan
+else ifneq "$(BUILD_ASAN)" "0"
+  $(error Unknown BUILD_ASAN mode "$(BUILD_ASAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
@@ -126,16 +124,15 @@ help::
 # memory sanitizer
 #
 ifndef BUILD_MSAN
-BUILD_MSAN=0
+  BUILD_MSAN=0
 endif
 
 ifeq "$(BUILD_MSAN)" "1"
-CFLAGS  += -fsanitize=memory
-LDFLAGS += -fsanitize=memory
-BUILD_DIR:=$(BUILD_DIR)-msan
-else ifeq "$(BUILD_MSAN)" "0"
-else
-$(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
+  CFLAGS  += -fsanitize=memory
+  LDFLAGS += -fsanitize=memory
+  BUILD_DIR:=$(BUILD_DIR)-msan
+else ifneq "$(BUILD_MSAN)" "0"
+  $(error Unknown BUILD_MSAN mode "$(BUILD_MSAN)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
@@ -145,23 +142,23 @@ help::
 # Verbosity
 #
 ifndef BUILD_VERBOSE
-BUILD_VERBOSE=0
+  BUILD_VERBOSE=0
 endif
 
 ifeq "$(BUILD_VERBOSE)" "1"
-COMMAND=
-PROLIX=@echo
-BRIEF=@ >/dev/null echo
-BRIEF_FORMATTED=@ >/dev/null echo
-BRIEF_PARTIAL=@ >/dev/null echo
+  COMMAND=
+  PROLIX=@echo
+  BRIEF=@ >/dev/null echo
+  BRIEF_FORMATTED=@ >/dev/null echo
+  BRIEF_PARTIAL=@echo -n >/dev/null
 else ifeq "$(BUILD_VERBOSE)" "0"
-COMMAND=@
-PROLIX=@ >/dev/null echo
-BRIEF=@echo
-BRIEF_FORMATTED=@printf
-BRIEF_PARTIAL=@echo -n
+  COMMAND=@
+  PROLIX=@ >/dev/null echo
+  BRIEF=@echo
+  BRIEF_FORMATTED=@printf
+  BRIEF_PARTIAL=@echo -n
 else
-$(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
+  $(error Unknown BUILD_VERBOSE mode "$(BUILD_VERBOSE)".  Valid values are "0" or "1". Default is "0")
 endif
 
 help::
@@ -232,6 +229,7 @@ mismatched_config_file_check: | $(BUILD_DIR)/.
 
 $(CONFIG_FILE): | $(BUILD_DIR)/. mismatched_config_file_check
 	$(BRIEF) Saving config to $@
+	$(COMMAND) env | grep BUILD_                 >  $@
 	$(COMMAND) echo CC          = $(CC)          >> $@
 	$(COMMAND) echo DEPFLAGS    = $(DEPFLAGS)    >> $@
 	$(COMMAND) echo CFLAGS      = $(CFLAGS)      >> $@
@@ -400,7 +398,7 @@ unit_test:                         $(BINDIR)/unit_test
 # we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
-	rm -rf $(OBJDIR) $(LIBDIR) $(BINDIR) $(CONFIG_FILE_PREFIX)*
+	rm -rf $(BUILD_DIR)
 	uname -a
 	$(CC) --version
 tags:
