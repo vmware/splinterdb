@@ -20,6 +20,7 @@
 #include "rc_allocator.h"
 #include "trunk.h"
 #include "btree_private.h"
+#include "shard_log.h"
 #include "poison.h"
 
 #define MAX_ENCODED_MESSAGE_SIZE (MAX_INLINE_MESSAGE_SIZE)
@@ -51,6 +52,7 @@ typedef struct splinterdb {
    rc_allocator         allocator_handle;
    clockcache_config    cache_cfg;
    clockcache           cache_handle;
+   shard_log_config     log_cfg;
    allocator_root_id    trunk_id;
    trunk_config         trunk_cfg;
    trunk_handle        *spl;
@@ -364,10 +366,13 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                           cfg.cache_logfile,
                           cfg.use_stats);
 
+   shard_log_config_init(
+      &kvs->log_cfg, &kvs->cache_cfg.super, &kvs->shim_data_cfg.super);
+
    trunk_config_init(&kvs->trunk_cfg,
                      &kvs->cache_cfg.super,
                      &kvs->shim_data_cfg.super,
-                     NULL,
+                     (log_config *)&kvs->log_cfg,
                      cfg.memtable_capacity,
                      cfg.fanout,
                      cfg.max_branches_per_node,
