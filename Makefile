@@ -7,7 +7,8 @@ PLATFORM = linux
 PLATFORM_DIR = platform_$(PLATFORM)
 
 help::
-	@echo 'Usage: make [debug]'
+	@echo 'Usage: make [<target>]'
+	@echo 'Supported targets: clean all libs all-tests run-tests test-results install'
 
 #*************************************************************#
 # SOURCE DIRECTORIES AND FILES
@@ -206,16 +207,9 @@ UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 ####################################################################
 # The main targets
 #
-
 all: libs all-tests $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
-
-
-# This is for backwards compatibility with old CI.  Once we update CI,
-# we can delete this target
-debug: all
-
 
 #######################################################################
 # CONFIGURATION CHECKING
