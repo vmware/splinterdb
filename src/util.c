@@ -36,36 +36,16 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
    return STATUS_OK;
 }
 
-uint64
-writable_buffer_length(const writable_buffer *wb)
-{
-   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
-      return 0;
-   }
-   return wb->length;
-}
-
-/* May allocate memory */
-bool
+platform_status
 writable_buffer_resize(writable_buffer *wb, uint64 newlength)
 {
    platform_assert(newlength != WRITABLE_BUFFER_NULL_LENGTH);
    platform_status rc = writable_buffer_ensure_space(wb, newlength);
    if (!SUCCESS(rc)) {
-      return FALSE;
+      return rc;
    }
    wb->length = newlength;
-   return TRUE;
-}
-
-void *
-writable_buffer_data(const writable_buffer *wb)
-{
-   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
-      return NULL;
-   } else {
-      return wb->buffer;
-   }
+   return rc;
 }
 
 /*

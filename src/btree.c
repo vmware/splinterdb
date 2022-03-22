@@ -302,7 +302,8 @@ btree_fill_leaf_entry(const btree_config *cfg,
    entry->key_indirect = FALSE;
    entry->type         = message_class(msg);
    /* This assertion ensures that entry->type is large enough to hold type. */
-   debug_assert(entry->type == message_class(msg));
+   debug_assert(entry->type == message_class(msg),
+                "entry->type not large enough to hold message_class");
    entry->message_size     = message_length(msg);
    entry->message_indirect = FALSE;
 }
@@ -578,12 +579,12 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
       spec->idx++;
       return STATUS_OK;
    } else {
-      leaf_entry     *entry      = btree_get_leaf_entry(cfg, hdr, spec->idx);
-      message         oldmessage = leaf_entry_message(entry);
-      platform_status rc;
-      rc = merge_accumulator_init_from_message(
+      leaf_entry *entry      = btree_get_leaf_entry(cfg, hdr, spec->idx);
+      message     oldmessage = leaf_entry_message(entry);
+      bool        success;
+      success = merge_accumulator_init_from_message(
          &spec->msg.merged_message, heap_id, msg);
-      if (!SUCCESS(rc)) {
+      if (!success) {
          return STATUS_NO_MEMORY;
       }
       if (btree_merge_tuples(cfg, key, oldmessage, &spec->msg.merged_message)) {
@@ -2005,9 +2006,7 @@ btree_lookup_node(cache        *cc,             // IN
                   const slice   key,            // IN
                   uint16        stop_at_height, // IN
                   page_type     type,           // IN
-                  btree_node   *out_node, // OUT returns the node of height
-                                          // stop_at_height in which
-                                          // key was found
+                  btree_node   *out_node,
                   uint32 *kv_rank, // ranks must be all NULL or all non-NULL
                   uint32 *key_byte_rank,
                   uint32 *message_byte_rank)
@@ -2092,7 +2091,8 @@ btree_lookup(cache             *cc,        // IN
    btree_lookup_with_ref(
       cc, cfg, root_addr, type, key, &node, &data, &local_found);
    if (local_found) {
-      rc = merge_accumulator_copy_message(result, data);
+      bool success = merge_accumulator_copy_message(result, data);
+      rc           = success ? STATUS_OK : STATUS_NO_MEMORY;
       btree_node_unget(cc, cfg, &node);
    }
    return rc;
@@ -2117,7 +2117,8 @@ btree_lookup_and_merge(cache             *cc,        // IN
       cc, cfg, root_addr, type, key, &node, &local_data, local_found);
    if (*local_found) {
       if (merge_accumulator_is_null(data)) {
-         rc = merge_accumulator_copy_message(data, local_data);
+         bool success = merge_accumulator_copy_message(data, local_data);
+         rc           = success ? STATUS_OK : STATUS_NO_MEMORY;
       } else if (btree_merge_tuples(cfg, key, local_data, data)) {
          rc = STATUS_NO_MEMORY;
       }
@@ -2351,8 +2352,8 @@ btree_lookup_async(cache             *cc,        // IN
    res = btree_lookup_async_with_ref(
       cc, cfg, root_addr, key, &node, &data, &local_found, ctxt);
    if (res == async_success && local_found) {
-      platform_status rc = merge_accumulator_copy_message(result, data);
-      platform_assert_status_ok(rc); // FIXME
+      bool success = merge_accumulator_copy_message(result, data);
+      platform_assert(success); // FIXME
       btree_node_unget(cc, cfg, &node);
    }
 
@@ -2376,8 +2377,8 @@ btree_lookup_and_merge_async(cache             *cc,          // IN
       cc, cfg, root_addr, key, &node, &local_data, local_found, ctxt);
    if (res == async_success && *local_found) {
       if (merge_accumulator_is_null(data)) {
-         platform_status rc = merge_accumulator_copy_message(data, local_data);
-         platform_assert_status_ok(rc);
+         bool success = merge_accumulator_copy_message(data, local_data);
+         platform_assert(success);
       } else {
          int rc = btree_merge_tuples(cfg, key, local_data, data);
          platform_assert(rc == 0);
@@ -2926,8 +2927,8 @@ btree_pack_loop(btree_pack_req *req, // IN/OUT
    req->key_bytes += slice_length(key);
    req->message_bytes += message_length(msg);
 
-   iterator_advance((iterator *)req->itor);
-   iterator_at_end((iterator *)req->itor, at_end);
+   iterator_advance(req->itor);
+   iterator_at_end(req->itor, at_end);
 }
 
 
@@ -3006,10 +3007,10 @@ btree_pack(btree_pack_req *req)
    message data;
    bool    at_end;
 
-   iterator_at_end((iterator *)req->itor, &at_end);
+   iterator_at_end(req->itor, &at_end);
 
    if (!at_end) {
-      iterator_get_curr((iterator *)req->itor, &key, &data);
+      iterator_get_curr(req->itor, &key, &data);
       if (btree_pack_can_fit_tuple(req, key, data)) {
          btree_pack_setup_finish(req, key);
       }
@@ -3126,7 +3127,7 @@ btree_count_in_range_by_iterator(cache        *cc,
                                  uint32       *message_bytes_rank)
 {
    btree_iterator btree_itor;
-   iterator      *itor = (iterator *)&btree_itor.super;
+   iterator      *itor = &btree_itor.super;
    btree_iterator_init(cc,
                        cfg,
                        &btree_itor,

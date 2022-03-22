@@ -48,13 +48,14 @@ struct ONDISK btree_hdr {
  * BTree Node index entries: Disk-resident structure
  * *************************************************************************
  */
+#define INDIRECT_FLAG_BITS (1)
 typedef struct ONDISK index_entry {
    // clang-format off
    btree_pivot_data     pivot_data;
-   inline_key_size      key_size     : 8 * sizeof(inline_key_size) - 1;
+   inline_key_size      key_size     : bitsizeof(inline_key_size) - INDIRECT_FLAG_BITS;
    /* Indirect keys are not currently implemented, but this field is
       here so the on-disk format is ready when we add support. */
-   inline_key_size      key_indirect : 1;
+   inline_key_size      key_indirect : INDIRECT_FLAG_BITS;
    char                 key[];
    // clang-format on
 } index_entry;
@@ -76,17 +77,21 @@ _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
  * the concatenated [<key>, <message>] datum.
  * *************************************************************************
  */
+#define MESSAGE_TYPE_BITS (2)
+_Static_assert(MESSAGE_TYPE_INVALID < (1ULL << MESSAGE_TYPE_BITS),
+               "MESSAGE_TYPE_BITS is too small");
+
 typedef struct ONDISK leaf_entry {
    // clang-format off
-   inline_key_size      key_size         : 8 * sizeof(inline_key_size) - 1;
+   inline_key_size      key_size         : bitsizeof(inline_key_size) - INDIRECT_FLAG_BITS;
    /* Indirect keys are not currently implemented, but this field is
       here so the on-disk format is ready when we add support. */
-   inline_key_size      key_indirect     : 1;
-   inline_message_size  message_size     : 8 * sizeof(inline_message_size) - 3;
-   inline_message_size  type             : 2;
+   inline_key_size      key_indirect     : INDIRECT_FLAG_BITS;
+   inline_message_size  message_size     : bitsizeof(inline_message_size) - MESSAGE_TYPE_BITS - INDIRECT_FLAG_BITS;
+   inline_message_size  type             : MESSAGE_TYPE_BITS;
    /* Indirect messages are not currently implemented, but this field is
       here so the on-disk format is ready when we add support. */
-   inline_message_size  message_indirect : 1;
+   inline_message_size  message_indirect : INDIRECT_FLAG_BITS;
    char                 key_and_message[];
    // clang-format on
 } leaf_entry;

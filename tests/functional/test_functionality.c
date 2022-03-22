@@ -54,17 +54,17 @@ search_for_key_via_iterator(trunk_handle *spl, slice target)
 static void
 verify_tuple(trunk_handle    *spl,
              const char      *keybuf,
-             message          mmsg,
+             message          msg,
              int8             refcount,
              platform_status *result)
 {
-   const data_handle *msg   = message_data(mmsg);
-   bool               found = msg != NULL;
+   const data_handle *dh    = message_data(msg);
+   bool               found = dh != NULL;
    uint64             key   = be64toh(*(uint64 *)keybuf);
 
-   if (msg && message_length(mmsg) < sizeof(data_handle)) {
+   if (dh && message_length(msg) < sizeof(data_handle)) {
       platform_error_log("ERROR: Short message of length %ld, key = 0x%08lx, ",
-                         message_length(mmsg),
+                         message_length(msg),
                          key);
       platform_assert(0);
    }
@@ -88,7 +88,7 @@ verify_tuple(trunk_handle    *spl,
          "key = 0x%08lx, "
          "splinter refcount = 0x%08x\n",
          key,
-         msg->ref_count);
+         dh->ref_count);
       *result = STATUS_INVALID_STATE;
       trunk_print_lookup(spl, keybuf);
       platform_assert(0);
@@ -98,8 +98,8 @@ verify_tuple(trunk_handle    *spl,
       test_data_generate_message(
          spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
       message expected_msg = merge_accumulator_to_message(&expected_message);
-      platform_assert(!message_is_null(mmsg));
-      platform_assert(message_lex_cmp(mmsg, expected_msg) == 0,
+      platform_assert(!message_is_null(msg));
+      platform_assert(message_lex_cmp(msg, expected_msg) == 0,
                       "ERROR: message does not match expected message.  "
                       "key = 0x%08lx "
                       "shadow ref: %4d "
@@ -108,9 +108,9 @@ verify_tuple(trunk_handle    *spl,
                       "splinter len: %lu\n",
                       key,
                       refcount,
-                      msg->ref_count,
+                      dh->ref_count,
                       message_length(expected_msg),
-                      message_length(mmsg));
+                      message_length(msg));
       merge_accumulator_deinit(&expected_message);
    } else {
       /* !refcount && !found.  We're good. */
@@ -159,8 +159,8 @@ verify_against_shadow(trunk_handle               *spl,
    platform_status rc, result = STATUS_OK;
 
    uint64            i;
-   merge_accumulator msgacc;
-   merge_accumulator_init(&msgacc, spl->heap_id);
+   merge_accumulator merge_acc;
+   merge_accumulator_init(&merge_acc, spl->heap_id);
 
    for (i = 0; i < sharr->nkeys; i++) {
       uint64           key      = sharr->keys[i];
@@ -175,11 +175,11 @@ verify_against_shadow(trunk_handle               *spl,
       if (ctxt == NULL) {
          test_int_to_key(keybuf, key, key_size);
 
-         rc = trunk_lookup(spl, keybuf, &msgacc);
+         rc = trunk_lookup(spl, keybuf, &merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
          }
-         message msg = merge_accumulator_to_message(&msgacc);
+         message msg = merge_accumulator_to_message(&merge_acc);
          verify_tuple(spl, keybuf, msg, refcount, &result);
       } else {
          test_int_to_key(ctxt->key, key, key_size);
@@ -187,7 +187,7 @@ verify_against_shadow(trunk_handle               *spl,
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
       }
-      merge_accumulator_set_to_null(&msgacc);
+      merge_accumulator_set_to_null(&merge_acc);
    }
 
    if (async_lookup) {
@@ -202,7 +202,7 @@ verify_against_shadow(trunk_handle               *spl,
       }
    }
 
-   merge_accumulator_deinit(&msgacc);
+   merge_accumulator_deinit(&merge_acc);
 
    return result;
 }

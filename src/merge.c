@@ -117,8 +117,8 @@ debug_assert_message_type_valid(debug_only merge_iterator *merge_itor)
    message_type type = message_class(merge_itor->data);
    debug_assert(
       IMPLIES(!merge_itor->emit_deletes, type != MESSAGE_TYPE_DELETE));
-   debug_assert(
-      IMPLIES(merge_itor->finalize_updates, type != MESSAGE_TYPE_UPDATE));
+   debug_assert(IMPLIES(merge_itor->finalize_updates,
+                        message_is_definitive(merge_itor->data)));
 #endif
 }
 
@@ -240,11 +240,10 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
 #endif
 
    // there is more than one copy of the current key
-   platform_status rc;
-   rc = merge_accumulator_copy_message(&merge_itor->merge_buffer,
-                                       merge_itor->data);
-   if (!SUCCESS(rc)) {
-      return rc;
+   bool success = merge_accumulator_copy_message(&merge_itor->merge_buffer,
+                                                 merge_itor->data);
+   if (!success) {
+      return STATUS_NO_MEMORY;
    }
 
    do {
@@ -267,8 +266,8 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
        * page; this means that this pointer must be updated before the 0th
        * iterator is advanced
        */
-      merge_itor->key = merge_itor->ordered_iterators[1]->key;
-      rc              = advance_and_resort_min_ritor(merge_itor);
+      merge_itor->key    = merge_itor->ordered_iterators[1]->key;
+      platform_status rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -301,17 +300,16 @@ static inline platform_status
 merge_finalize_updates_and_discard_deletes(merge_iterator *merge_itor,
                                            bool           *discarded)
 {
-   platform_status rc;
-   data_config    *cfg = merge_itor->cfg;
-   message_type class  = message_class(merge_itor->data);
+   data_config *cfg   = merge_itor->cfg;
+   message_type class = message_class(merge_itor->data);
    if (class != MESSAGE_TYPE_INSERT && merge_itor->finalize_updates) {
       if (message_data(merge_itor->data)
           != merge_accumulator_data(&merge_itor->merge_buffer))
       {
-         rc = merge_accumulator_copy_message(&merge_itor->merge_buffer,
-                                             merge_itor->data);
-         if (!SUCCESS(rc)) {
-            return rc;
+         bool success = merge_accumulator_copy_message(
+            &merge_itor->merge_buffer, merge_itor->data);
+         if (!success) {
+            return STATUS_NO_MEMORY;
          }
       }
       if (data_merge_tuples_final(

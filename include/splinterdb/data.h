@@ -31,6 +31,9 @@ typedef enum message_type {
    MESSAGE_TYPE_INVALID,
 } message_type;
 
+/*
+ * Messages
+ */
 typedef struct message {
    message_type type;
    slice        data;
@@ -49,18 +52,47 @@ message_slice(message msg)
 }
 
 static inline uint64
-message_length(message m)
+message_length(message msg)
 {
-   return slice_length(m.data);
+   return slice_length(msg.data);
 }
 
 static inline const void *
-message_data(message m)
+message_data(message msg)
 {
-   return slice_data(m.data);
+   return slice_data(msg.data);
 }
 
+/*
+ * Merge accumulators
+ */
+
 typedef struct merge_accumulator merge_accumulator;
+
+message_type
+merge_accumulator_message_class(const merge_accumulator *ma);
+
+void *
+merge_accumulator_data(const merge_accumulator *ma);
+
+uint64
+merge_accumulator_length(const merge_accumulator *ma);
+
+slice
+merge_accumulator_to_slice(const merge_accumulator *ma);
+
+bool
+merge_accumulator_copy_message(merge_accumulator *ma, message msg);
+
+bool
+merge_accumulator_resize(merge_accumulator *ma, uint64 newsize);
+
+void
+merge_accumulator_set_class(merge_accumulator *ma, message_type type);
+
+/*
+ * Data configuration callback function types
+ */
 
 typedef struct data_config data_config;
 
@@ -69,18 +101,22 @@ typedef int (*key_compare_fn)(const data_config *cfg, slice key1, slice key2);
 typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
 
 // Given two messages, old_message and new_message, merge them
-// and return the result in new_raw_message.  new_message is guaranteed to be an
-// UPDATE and old_messge is guaranteed to be an INSERT or an UPDATE.
+// and return the result in new_message.
 //
-// Returns 0 on success.  non-zero indicates an internal error.
+// Upon entry, new_message is guaranteed to be an UPDATE and
+// old_messge is guaranteed to be an INSERT or an UPDATE.
+//
+// Returns 0 on success.  Non-zero indicates an internal error.
 typedef int (*merge_tuple_fn)(const data_config *cfg,
                               slice              key,          // IN
                               message            old_message,  // IN
                               merge_accumulator *new_message); // IN/OUT
 
-// Called for MESSAGE_TYPE_UPDATE messages when they are
-// determined to be the oldest message. Can change data_class or
-// contents.  If necessary, update new_data.
+// Called for MESSAGE_TYPE_UPDATE messages when there is no older
+// record to apply the update to.
+//
+// Upon return, merge_accumulator_message_class(old_message) must be
+// either MESSAGE_TYPE_INSERT or MESSAGE_TYPE_DELETE.
 //
 // Returns 0 on success.  non-zero indicates an internal error.
 typedef int (*merge_tuple_final_fn)(const data_config *cfg,
