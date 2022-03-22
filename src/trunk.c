@@ -4303,30 +4303,22 @@ trunk_flush(trunk_handle     *spl,
 {
    platform_status rc;
 
-   uint64   wait_start, flush_start;
+   uint64 wait_start, flush_start;
+   if (spl->cfg.use_stats) {
+      wait_start = platform_get_timestamp();
+   }
+
+   page_handle *old_child = trunk_node_get(spl, pdata->addr);
+   page_handle *new_child = trunk_node_copy(spl, old_child);
+
    threadid tid;
    if (spl->cfg.use_stats) {
       tid        = platform_get_tid();
       wait_start = platform_get_timestamp();
    }
 
-   page_handle *child = trunk_node_get(spl, pdata->addr);
-   trunk_node_claim(spl, &child);
-
-   if (!trunk_room_to_flush(spl, parent, child, pdata)) {
-      platform_error_log(
+   platform_assert(trunk_room_to_flush(spl, parent, child, pdata),
          "Flush failed: %lu %lu\n", parent->disk_addr, child->disk_addr);
-      if (spl->cfg.use_stats) {
-         if (parent->disk_addr == spl->root_addr) {
-            spl->stats[tid].root_failed_flushes++;
-         } else {
-            spl->stats[tid].failed_flushes[trunk_height(spl, parent)]++;
-         }
-      }
-      trunk_node_unclaim(spl, child);
-      trunk_node_unget(spl, &child);
-      return STATUS_INVALID_STATE;
-   }
 
    if ((!is_space_rec && pdata->srq_idx != -1)
        && spl->cfg.reclaim_threshold != UINT64_MAX)
@@ -4337,7 +4329,6 @@ trunk_flush(trunk_handle     *spl,
       srq_print(&spl->srq);
       pdata->srq_idx = -1;
    }
-   trunk_node_lock(spl, child);
 
    if (spl->cfg.use_stats) {
       if (parent->disk_addr == spl->root_addr) {
