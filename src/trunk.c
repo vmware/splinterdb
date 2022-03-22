@@ -5989,6 +5989,10 @@ trunk_insert(trunk_handle *spl, char *key, message data)
       ts = platform_get_timestamp();
    }
 
+   if (message_class(data) == MESSAGE_TYPE_DELETE) {
+      data = DELETE_MESSAGE;
+   }
+
    platform_status rc = trunk_memtable_insert(spl, key, data);
    if (!SUCCESS(rc)) {
       goto out;

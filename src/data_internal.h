@@ -172,7 +172,13 @@ data_merge_tuples(const data_config *cfg,
    }
 
    // new class is UPDATE and old class is INSERT or UPDATE
-   return cfg->merge_tuples(cfg, key, old_raw_message, new_message);
+   int result = cfg->merge_tuples(cfg, key, old_raw_message, new_message);
+   if (result
+       && merge_accumulator_message_class(new_message) == MESSAGE_TYPE_DELETE)
+   {
+      merge_accumulator_resize(new_message, 0);
+   }
+   return result;
 }
 
 static inline int
@@ -183,7 +189,14 @@ data_merge_tuples_final(const data_config *cfg,
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;
    }
-   return cfg->merge_tuples_final(cfg, key, oldest_message);
+   int result = cfg->merge_tuples_final(cfg, key, oldest_message);
+   if (result
+       && merge_accumulator_message_class(oldest_message)
+             == MESSAGE_TYPE_DELETE)
+   {
+      merge_accumulator_resize(oldest_message, 0);
+   }
+   return result;
 }
 
 static inline void
