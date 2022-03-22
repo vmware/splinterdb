@@ -10,7 +10,6 @@
 extern data_config *test_data_config;
 
 typedef struct PACKED data_handle {
-   uint8 message_type;
    int8  ref_count;
    uint8 data[0];
 } data_handle;
@@ -19,34 +18,7 @@ void
 test_data_generate_message(const data_config *cfg,
                            message_type       type,
                            uint8              ref_count,
-                           writable_buffer   *msg);
-
-static inline void
-test_data_set_insert_flag(void *raw_data)
-{
-   data_handle *data  = (data_handle *)raw_data;
-   data->message_type = MESSAGE_TYPE_INSERT;
-}
-
-static inline void
-test_data_set_delete_flag(void *raw_data)
-{
-   data_handle *data  = (data_handle *)raw_data;
-   data->message_type = MESSAGE_TYPE_DELETE;
-}
-
-static inline void
-test_data_set_insert(void  *raw_data,
-                     int8   ref_count,
-                     char  *val,
-                     uint64 data_size)
-{
-   memset(raw_data, 0, data_size);
-   data_handle *data = (data_handle *)raw_data;
-   test_data_set_insert_flag(data);
-   data->ref_count = ref_count;
-   memmove(data->data, val, data_size - 2);
-}
+                           merge_accumulator *msg);
 
 static inline void
 test_data_print_key(const void *key)

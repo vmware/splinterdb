@@ -304,21 +304,21 @@ typedef struct ycsb_phase {
 } ycsb_phase;
 
 static void
-nop_tuple_func(slice key, slice value, void *arg)
+nop_tuple_func(slice key, message value, void *arg)
 {}
 
 static void
 ycsb_thread(void *arg)
 {
-   platform_status  rc;
-   uint64           i;
-   ycsb_log_params *params     = (ycsb_log_params *)arg;
-   trunk_handle    *spl        = params->spl;
-   uint64           num_ops    = params->total_ops;
-   uint64           batch_size = params->batch_size;
-   uint64           my_batch;
-   writable_buffer  value;
-   writable_buffer_init(&value, NULL);
+   platform_status   rc;
+   uint64            i;
+   ycsb_log_params  *params     = (ycsb_log_params *)arg;
+   trunk_handle     *spl        = params->spl;
+   uint64            num_ops    = params->total_ops;
+   uint64            batch_size = params->batch_size;
+   uint64            my_batch;
+   merge_accumulator value;
+   merge_accumulator_init(&value, NULL);
 
    uint64_t start_time = platform_get_timestamp();
    __sync_val_compare_and_swap(
@@ -353,8 +353,10 @@ ycsb_thread(void *arg)
             case 'i':
             case 'u':
             {
-               slice value_slice = slice_create(YCSB_DATA_SIZE, ops->value);
-               rc                = trunk_insert(spl, ops->key, value_slice);
+               message val =
+                  message_create(MESSAGE_TYPE_INSERT,
+                                 slice_create(YCSB_DATA_SIZE, ops->value));
+               rc = trunk_insert(spl, ops->key, val);
                platform_assert_status_ok(rc);
                break;
             }
@@ -402,7 +404,7 @@ ycsb_thread(void *arg)
       SEC_TO_NSEC(end_thread_cputime.tv_sec) + end_thread_cputime.tv_nsec
       - SEC_TO_NSEC(start_thread_cputime.tv_sec) - start_thread_cputime.tv_nsec;
    __sync_fetch_and_add(&params->times.sum_of_cpu_times, thread_cputime);
-   writable_buffer_deinit(&value);
+   merge_accumulator_deinit(&value);
 }
 
 static int
@@ -580,15 +582,12 @@ parse_ycsb_log_file(void *arg)
          platform_assert(ret == 2);
       } else if (result[i].cmd == 'd') {
          platform_assert(ret == 2);
-         test_data_set_delete_flag(dh);
       } else if (result[i].cmd == 'u') {
          platform_assert(ret == 2);
          random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
-         test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 'i') {
          platform_assert(ret == 2);
          random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
-         test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 's') {
          ret = sscanf(buffer,
                       "%c %64s %lu\n",

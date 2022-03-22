@@ -49,9 +49,10 @@ CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
-# track git ref in the built library
+# track git ref in the built library. We don't put this into CFLAGS
+# directly because it causes false-positives in our config tracking.
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
-CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+GIT_VERSION_CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
 
 cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
@@ -265,7 +266,7 @@ $(BINDIR)/%/.:
 # RECIPES
 #
 
-COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
 $(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@
@@ -430,4 +431,4 @@ install: libs
 # to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
 .PHONY: compile_flags.txt
 compile_flags.txt:
-	echo "$(CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
+	echo "$(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt

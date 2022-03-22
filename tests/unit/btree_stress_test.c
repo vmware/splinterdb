@@ -81,7 +81,7 @@ gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 static uint64
 ungen_key(slice key);
 
-static slice
+static message
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
 /*
@@ -355,18 +355,18 @@ ungen_key(slice key)
    return (k - 99382474567ULL) * 14122572041603317147ULL;
 }
 
-static slice
+static message
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 {
    data_handle *dh      = (data_handle *)buffer;
    uint64       datalen = sizeof(i) + (i % (btree_page_size(cfg) / 3));
 
    platform_assert(datalen + sizeof(i) <= length);
-   dh->message_type = MESSAGE_TYPE_INSERT;
-   dh->ref_count    = 1;
+   dh->ref_count = 1;
    memset(dh->data, 0, datalen);
    memcpy(dh->data, &i, sizeof(i));
-   return slice_create(sizeof(data_handle) + datalen, buffer);
+   return message_create(MESSAGE_TYPE_INSERT,
+                         slice_create(sizeof(data_handle) + datalen, buffer));
 }
 
 static int
@@ -381,8 +381,8 @@ query_tests(cache           *cc,
    uint8 *msgbuf = TYPED_MALLOC_MANUAL(hid, msgbuf, btree_page_size(cfg));
    memset(msgbuf, 0, btree_page_size(cfg));
 
-   writable_buffer result;
-   writable_buffer_init(&result, hid);
+   merge_accumulator result;
+   merge_accumulator_init(&result, hid);
 
    for (uint64 i = 0; i < nkvs; i++) {
       btree_lookup(cc,
@@ -392,14 +392,14 @@ query_tests(cache           *cc,
                    gen_key(cfg, i, keybuf, btree_page_size(cfg)),
                    &result);
       if (!btree_found(&result)
-          || slice_lex_cmp(writable_buffer_to_slice(&result),
-                           gen_msg(cfg, i, msgbuf, btree_page_size(cfg))))
+          || message_lex_cmp(merge_accumulator_to_message(&result),
+                             gen_msg(cfg, i, msgbuf, btree_page_size(cfg))))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
       }
    }
 
-   writable_buffer_deinit(&result);
+   merge_accumulator_deinit(&result);
    platform_free(hid, keybuf);
    platform_free(hid, msgbuf);
    return 1;
@@ -434,7 +434,8 @@ iterator_tests(cache           *cc,
    uint8 *msgbuf  = TYPED_MALLOC_MANUAL(hid, msgbuf, btree_page_size(cfg));
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
-      slice key, msg;
+      slice   key;
+      message msg;
 
       iterator_get_curr(iter, &key, &msg);
       uint64 k = ungen_key(key);
@@ -444,7 +445,7 @@ iterator_tests(cache           *cc,
       rc = slice_lex_cmp(key, gen_key(cfg, k, keybuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
-      rc = slice_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
+      rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
       ASSERT_TRUE(slice_is_null(prev) || slice_lex_cmp(prev, key) < 0);

@@ -659,7 +659,7 @@ static inline void                 trunk_dec_ref                   (trunk_handle
 static inline void                 trunk_zap_branch_range          (trunk_handle *spl, trunk_branch *branch, const char *start_key, const char *end_key, page_type type);
 static inline void                 trunk_inc_intersection          (trunk_handle *spl, trunk_branch *branch, const char *key, bool is_memtable);
 void                               trunk_memtable_flush_virtual    (void *arg, uint64 generation);
-platform_status                    trunk_memtable_insert           (trunk_handle *spl, char *key, slice data);
+platform_status                    trunk_memtable_insert           (trunk_handle *spl, char *key, message data);
 void                               trunk_bundle_build_filters      (void *arg, void *scratch);
 static inline void                 trunk_inc_filter                (trunk_handle *spl, routing_filter *filter);
 static inline void                 trunk_dec_filter                (trunk_handle *spl, routing_filter *filter);
@@ -674,7 +674,7 @@ void                               trunk_print                     (trunk_handle
 void                               trunk_print_node                (trunk_handle *spl, uint64 addr, platform_stream_handle stream);
 void                               trunk_print_locked_node         (trunk_handle *spl, page_handle *node, platform_stream_handle stream);
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
-void                               trunk_btree_skiperator_get_curr (iterator *itor, slice *key, slice *data);
+void                               trunk_btree_skiperator_get_curr (iterator *itor, slice *key, message *data);
 platform_status                    trunk_btree_skiperator_advance  (iterator *itor);
 platform_status                    trunk_btree_skiperator_at_end   (iterator *itor, bool *at_end);
 void                               trunk_btree_skiperator_print    (iterator *itor);
@@ -2846,11 +2846,11 @@ trunk_inc_intersection(trunk_handle *spl,
  *    if *local_found, then data can be found in `data`.
  */
 static inline platform_status
-trunk_btree_lookup_and_merge(trunk_handle    *spl,
-                             trunk_branch    *branch,
-                             const char      *key,
-                             writable_buffer *data,
-                             bool            *local_found)
+trunk_btree_lookup_and_merge(trunk_handle      *spl,
+                             trunk_branch      *branch,
+                             const char        *key,
+                             merge_accumulator *data,
+                             bool              *local_found)
 {
    cache          *cc  = spl->cc;
    btree_config   *cfg = &spl->cfg.btree_cfg;
@@ -2892,11 +2892,11 @@ trunk_btree_lookup_and_merge(trunk_handle    *spl,
  *-----------------------------------------------------------------------------
  */
 static cache_async_result
-trunk_btree_lookup_and_merge_async(trunk_handle     *spl,    // IN
-                                   trunk_branch     *branch, // IN
-                                   char             *key,    // IN
-                                   writable_buffer  *data,   // OUT
-                                   btree_async_ctxt *ctxt)   // IN
+trunk_btree_lookup_and_merge_async(trunk_handle      *spl,    // IN
+                                   trunk_branch      *branch, // IN
+                                   char              *key,    // IN
+                                   merge_accumulator *data,   // OUT
+                                   btree_async_ctxt  *ctxt)    // IN
 {
    cache             *cc  = spl->cc;
    btree_config      *cfg = &spl->cfg.btree_cfg;
@@ -3024,7 +3024,7 @@ trunk_memtable_iterator_deinit(trunk_handle   *spl,
  *       responsible for flushing it.
  */
 platform_status
-trunk_memtable_insert(trunk_handle *spl, char *key, slice message)
+trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
 {
    page_handle    *lock_page;
    uint64          generation;
@@ -3038,14 +3038,14 @@ trunk_memtable_insert(trunk_handle *spl, char *key, slice message)
    memtable *mt = trunk_get_memtable(spl, generation);
    uint64    leaf_generation; // used for ordering the log
    rc = memtable_insert(
-      spl->mt_ctxt, mt, spl->heap_id, key, message, &leaf_generation);
+      spl->mt_ctxt, mt, spl->heap_id, key, msg, &leaf_generation);
    if (!SUCCESS(rc)) {
       goto unlock_insert_lock;
    }
 
    if (spl->cfg.use_log) {
       slice key_slice = slice_create(trunk_key_size(spl), key);
-      int crappy_rc = log_write(spl->log, key_slice, message, leaf_generation);
+      int   crappy_rc = log_write(spl->log, key_slice, msg, leaf_generation);
       if (crappy_rc != 0) {
          goto unlock_insert_lock;
       }
@@ -3465,10 +3465,10 @@ trunk_memtable_root_addr_for_lookup(trunk_handle *spl,
  *    if *found, the data can be found in `data`.
  */
 static platform_status
-trunk_memtable_lookup(trunk_handle    *spl,
-                      uint64           generation,
-                      char            *key,
-                      writable_buffer *data)
+trunk_memtable_lookup(trunk_handle      *spl,
+                      uint64             generation,
+                      char              *key,
+                      merge_accumulator *data)
 {
    cache *const        cc  = spl->cc;
    btree_config *const cfg = &spl->cfg.btree_cfg;
@@ -4365,21 +4365,23 @@ trunk_btree_skiperator_init(trunk_handle           *spl,
    }
 
    bool at_end;
-   if (skip_itor->curr != skip_itor->end)
+   if (skip_itor->curr != skip_itor->end) {
       iterator_at_end(&skip_itor->itor[skip_itor->curr].super, &at_end);
-   else
+   } else {
       at_end = TRUE;
+   }
 
    while (skip_itor->curr != skip_itor->end && at_end) {
       iterator_at_end(&skip_itor->itor[skip_itor->curr].super, &at_end);
-      if (!at_end)
+      if (!at_end) {
          break;
+      }
       skip_itor->curr++;
    }
 }
 
 void
-trunk_btree_skiperator_get_curr(iterator *itor, slice *key, slice *data)
+trunk_btree_skiperator_get_curr(iterator *itor, slice *key, message *data)
 {
    debug_assert(itor != NULL);
    trunk_btree_skiperator *skip_itor = (trunk_btree_skiperator *)itor;
@@ -5225,11 +5227,13 @@ trunk_split_leaf(trunk_handle *spl,
                 && (rough_count_kv_bytes < target_leaf_kv_bytes
                     || num_leaves == target_num_leaves - 1))
          {
-            slice curr_key, pivot_data_slice;
+            slice   curr_key;
+            message pivot_data_message;
             iterator_get_curr(
-               &rough_merge_itor->super, &curr_key, &pivot_data_slice);
+               &rough_merge_itor->super, &curr_key, &pivot_data_message);
 
-            const btree_pivot_data *pivot_data = slice_data(pivot_data_slice);
+            const btree_pivot_data *pivot_data =
+               message_data(pivot_data_message);
             rough_count_num_tuples += pivot_data->num_kvs_in_subtree;
             rough_count_kv_bytes += pivot_data->key_bytes_in_subtree
                                     + pivot_data->message_bytes_in_subtree;
@@ -5243,7 +5247,8 @@ trunk_split_leaf(trunk_handle *spl,
          }
 
          if (!at_end) {
-            slice curr_key, dummy_data;
+            slice   curr_key;
+            message dummy_data;
             iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
             debug_assert(slice_length(curr_key) == trunk_key_size(spl));
             // copy new pivot (in parent) of new leaf
@@ -5487,7 +5492,7 @@ trunk_split_root(trunk_handle *spl, page_handle *root)
  *-----------------------------------------------------------------------------
  */
 void
-trunk_range_iterator_get_curr(iterator *itor, slice *key, slice *data);
+trunk_range_iterator_get_curr(iterator *itor, slice *key, message *data);
 platform_status
 trunk_range_iterator_at_end(iterator *itor, bool *at_end);
 platform_status
@@ -5722,7 +5727,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
 }
 
 void
-trunk_range_iterator_get_curr(iterator *itor, slice *key, slice *data)
+trunk_range_iterator_get_curr(iterator *itor, slice *key, message *data)
 {
    debug_assert(itor != NULL);
    trunk_range_iterator *range_itor = (trunk_range_iterator *)itor;
@@ -5976,14 +5981,16 @@ trunk_maybe_reclaim_space(trunk_handle *spl)
  */
 
 platform_status
-trunk_insert(trunk_handle *spl, char *key, slice data)
+trunk_insert(trunk_handle *spl, char *key, message data)
 {
    timestamp                            ts;
    __attribute((unused)) const threadid tid = platform_get_tid();
-   data_config                         *data_cfg;
    if (spl->cfg.use_stats) {
-      ts       = platform_get_timestamp();
-      data_cfg = spl->cfg.data_cfg;
+      ts = platform_get_timestamp();
+   }
+
+   if (message_class(data) == MESSAGE_TYPE_DELETE) {
+      data = DELETE_MESSAGE;
    }
 
    platform_status rc = trunk_memtable_insert(spl, key, data);
@@ -5996,7 +6003,7 @@ trunk_insert(trunk_handle *spl, char *key, slice data)
    }
 
    if (spl->cfg.use_stats) {
-      switch (data_message_class(data_cfg, data)) {
+      switch (message_class(data)) {
          case MESSAGE_TYPE_INSERT:
             spl->stats[tid].insertions++;
             platform_histo_insert(spl->stats[tid].insert_latency_histo,
@@ -6022,13 +6029,13 @@ out:
 }
 
 bool
-trunk_filter_lookup(trunk_handle    *spl,
-                    page_handle     *node,
-                    routing_filter  *filter,
-                    routing_config  *cfg,
-                    uint16           start_branch,
-                    const char      *key,
-                    writable_buffer *data)
+trunk_filter_lookup(trunk_handle      *spl,
+                    page_handle       *node,
+                    routing_filter    *filter,
+                    routing_config    *cfg,
+                    uint16             start_branch,
+                    const char        *key,
+                    merge_accumulator *data)
 {
    uint16   height;
    threadid tid;
@@ -6058,9 +6065,8 @@ trunk_filter_lookup(trunk_handle    *spl,
          spl->stats[tid].branch_lookups[height]++;
       }
       if (local_found) {
-         slice message = writable_buffer_to_slice(data);
-         if (data_message_class(spl->cfg.data_cfg, message)
-             != MESSAGE_TYPE_UPDATE) {
+         message msg = merge_accumulator_to_message(data);
+         if (message_is_definitive(msg)) {
             return FALSE;
          }
       } else if (spl->cfg.use_stats) {
@@ -6072,11 +6078,11 @@ trunk_filter_lookup(trunk_handle    *spl,
 }
 
 bool
-trunk_compacted_subbundle_lookup(trunk_handle    *spl,
-                                 page_handle     *node,
-                                 trunk_subbundle *sb,
-                                 const char      *key,
-                                 writable_buffer *data)
+trunk_compacted_subbundle_lookup(trunk_handle      *spl,
+                                 page_handle       *node,
+                                 trunk_subbundle   *sb,
+                                 const char        *key,
+                                 merge_accumulator *data)
 {
    debug_assert(sb->state == SB_STATE_COMPACTED);
    debug_assert(trunk_subbundle_branch_count(spl, node, sb) == 1);
@@ -6111,9 +6117,8 @@ trunk_compacted_subbundle_lookup(trunk_handle    *spl,
             spl->stats[tid].branch_lookups[height]++;
          }
          if (local_found) {
-            slice message = writable_buffer_to_slice(data);
-            if (data_message_class(spl->cfg.data_cfg, message)
-                != MESSAGE_TYPE_UPDATE) {
+            message msg = merge_accumulator_to_message(data);
+            if (message_is_definitive(msg)) {
                return FALSE;
             }
          } else if (spl->cfg.use_stats) {
@@ -6126,11 +6131,11 @@ trunk_compacted_subbundle_lookup(trunk_handle    *spl,
 }
 
 bool
-trunk_bundle_lookup(trunk_handle    *spl,
-                    page_handle     *node,
-                    trunk_bundle    *bundle,
-                    const char      *key,
-                    writable_buffer *data)
+trunk_bundle_lookup(trunk_handle      *spl,
+                    page_handle       *node,
+                    trunk_bundle      *bundle,
+                    const char        *key,
+                    merge_accumulator *data)
 {
    uint16 sb_count = trunk_bundle_subbundle_count(spl, node, bundle);
    for (uint16 sb_off = 0; sb_off != sb_count; sb_off++) {
@@ -6156,11 +6161,11 @@ trunk_bundle_lookup(trunk_handle    *spl,
 }
 
 bool
-trunk_pivot_lookup(trunk_handle     *spl,
-                   page_handle      *node,
-                   trunk_pivot_data *pdata,
-                   const char       *key,
-                   writable_buffer  *data)
+trunk_pivot_lookup(trunk_handle      *spl,
+                   page_handle       *node,
+                   trunk_pivot_data  *pdata,
+                   const char        *key,
+                   merge_accumulator *data)
 {
    // first check in bundles
    uint16 num_bundles = trunk_pivot_bundle_count(spl, node, pdata);
@@ -6183,11 +6188,8 @@ trunk_pivot_lookup(trunk_handle     *spl,
 // If any change is made in here, please make similar change in
 // trunk_lookup_async
 platform_status
-trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
+trunk_lookup(trunk_handle *spl, char *key, merge_accumulator *result)
 {
-   data_config *data_cfg = spl->cfg.data_cfg;
-   message_type type;
-
    // look in memtables
 
    // 1. get read lock on lookup lock
@@ -6195,7 +6197,7 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
    // 2. for gen = mt->generation; mt[gen % ...].gen == gen; gen --;
    //                also handles switch to READY ^^^^^
 
-   writable_buffer_set_to_null(data);
+   merge_accumulator_set_to_null(result);
 
    bool         found_in_memtable   = FALSE;
    page_handle *mt_lookup_lock_page = memtable_get_lookup_lock(spl->mt_ctxt);
@@ -6203,15 +6205,11 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
    uint64       mt_gen_end          = memtable_generation_retired(spl->mt_ctxt);
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
-      rc = trunk_memtable_lookup(spl, mt_gen, key, data);
+      rc = trunk_memtable_lookup(spl, mt_gen, key, result);
       platform_assert_status_ok(rc);
-      if (!writable_buffer_is_null(data)) {
-         slice message = writable_buffer_to_slice(data);
-         type          = data_message_class(data_cfg, message);
-         if (type != MESSAGE_TYPE_UPDATE) {
-            found_in_memtable = TRUE;
-            goto found_final_answer_early;
-         }
+      if (merge_accumulator_is_definitive(result)) {
+         found_in_memtable = TRUE;
+         goto found_final_answer_early;
       }
    }
 
@@ -6227,7 +6225,7 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
       uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      bool should_continue    = trunk_pivot_lookup(spl, node, pdata, key, data);
+      bool should_continue = trunk_pivot_lookup(spl, node, pdata, key, result);
       if (!should_continue) {
          goto found_final_answer_early;
       }
@@ -6238,18 +6236,17 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
 
    // look in leaf
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
-   bool should_continue    = trunk_pivot_lookup(spl, node, pdata, key, data);
+   bool should_continue    = trunk_pivot_lookup(spl, node, pdata, key, result);
    if (!should_continue) {
       goto found_final_answer_early;
    }
 
-   slice message = writable_buffer_to_slice(data);
-   debug_assert(writable_buffer_is_null(data)
-                || data_message_class(data_cfg, message)
+   debug_assert(merge_accumulator_is_null(result)
+                || merge_accumulator_message_class(result)
                       == MESSAGE_TYPE_UPDATE);
-   if (!writable_buffer_is_null(data)) {
+   if (!merge_accumulator_is_null(result)) {
       data_merge_tuples_final(
-         spl->cfg.data_cfg, trunk_key_slice(spl, key), data);
+         spl->cfg.data_cfg, trunk_key_slice(spl, key), result);
    }
 found_final_answer_early:
 
@@ -6261,20 +6258,18 @@ found_final_answer_early:
    }
    if (spl->cfg.use_stats) {
       threadid tid = platform_get_tid();
-      if (!writable_buffer_is_null(data)) {
+      if (!merge_accumulator_is_null(result)) {
          spl->stats[tid].lookups_found++;
       } else {
          spl->stats[tid].lookups_not_found++;
       }
    }
 
-   /* Normalize DELETE messages to return a null writable_buffer */
-   message = writable_buffer_to_slice(data);
-   if (!writable_buffer_is_null(data)) {
-      message_type type = data_message_class(data_cfg, message);
-      if (type == MESSAGE_TYPE_DELETE) {
-         writable_buffer_set_to_null(data);
-      }
+   /* Normalize DELETE messages to return a null merge_accumulator */
+   if (!merge_accumulator_is_null(result)
+       && merge_accumulator_message_class(result) == MESSAGE_TYPE_DELETE)
+   {
+      merge_accumulator_set_to_null(result);
    }
 
    return STATUS_OK;
@@ -6377,30 +6372,29 @@ trunk_btree_async_callback(btree_async_ctxt *btree_ctxt)
  * trunk_async_ctxt->cache_ctxt->page
  *
  * Returns:
- *    async_success: results are available in *found and *data
+ *    async_success: results are available in *found and *result
  *    async_locked: caller needs to retry
  *    async_no_reqs: caller needs to retry but may want to throttle
  *    async_io_started: async IO was started; the caller will be informed
  *      via callback when it's done. After callback is called, the caller
- *      must call this again from thread context with the same key and data
+ *      must call this again from thread context with the same key and result
  *      as the first invocation.
  *
  * Side-effects:
- *    Maintains state in *data. This helps avoid copying data between
- *    invocations. Caller must use the same pointers to key, data and
+ *    Maintains state in *result. This helps avoid copying data between
+ *    invocations. Caller must use the same pointers to key, result and
  *    found in different invocations of a lookup until it returns
  *    async_success. Caller must not modify the contents of those
  *    pointers.
  */
 cache_async_result
-trunk_lookup_async(trunk_handle     *spl,  // IN
-                   char             *key,  // IN
-                   writable_buffer  *data, // OUT
-                   trunk_async_ctxt *ctxt) // IN/OUT
+trunk_lookup_async(trunk_handle      *spl,    // IN
+                   char              *key,    // IN
+                   merge_accumulator *result, // OUT
+                   trunk_async_ctxt  *ctxt)    // IN/OUT
 {
    cache_async_result res = 0;
    threadid           tid;
-   data_config       *data_cfg = spl->cfg.data_cfg;
 
 #if TRUNK_DEBUG
    cache_enable_sync_get(spl->cc, FALSE);
@@ -6415,7 +6409,7 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
       switch (ctxt->state) {
          case async_state_start:
          {
-            writable_buffer_set_to_null(data);
+            merge_accumulator_set_to_null(result);
             trunk_async_set_state(ctxt, async_state_lookup_memtable);
             // fallthrough
          }
@@ -6426,16 +6420,12 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
             uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
             for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
                platform_status rc;
-               rc = trunk_memtable_lookup(spl, mt_gen, key, data);
+               rc = trunk_memtable_lookup(spl, mt_gen, key, result);
                platform_assert_status_ok(rc);
-               if (!writable_buffer_is_null(data)) {
-                  slice        message = writable_buffer_to_slice(data);
-                  message_type type    = data_message_class(data_cfg, message);
-                  if (type != MESSAGE_TYPE_UPDATE) {
-                     trunk_async_set_state(
-                        ctxt, async_state_found_final_answer_early);
-                     break;
-                  }
+               if (merge_accumulator_is_definitive(result)) {
+                  trunk_async_set_state(ctxt,
+                                        async_state_found_final_answer_early);
+                  break;
                }
             }
             // fallthrough
@@ -6643,7 +6633,7 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
          case async_state_btree_lookup_reentrant:
          {
             res = trunk_btree_lookup_and_merge_async(
-               spl, ctxt->branch, key, data, &ctxt->btree_ctxt);
+               spl, ctxt->branch, key, result, &ctxt->btree_ctxt);
             switch (res) {
                case async_locked:
                case async_no_reqs:
@@ -6668,14 +6658,10 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
                   break;
                case async_success:
                   // I don't own the cache context, btree does
-                  if (!writable_buffer_is_null(data)) {
-                     slice        message = writable_buffer_to_slice(data);
-                     message_type type = data_message_class(data_cfg, message);
-                     if (type != MESSAGE_TYPE_UPDATE) {
-                        trunk_async_set_state(
-                           ctxt, async_state_found_final_answer_early);
-                        break;
-                     }
+                  if (merge_accumulator_is_definitive(result)) {
+                     trunk_async_set_state(
+                        ctxt, async_state_found_final_answer_early);
+                     break;
                   } else if (spl->cfg.use_stats) {
                      const uint16 height = trunk_height(spl, node);
                      spl->stats[tid].filter_false_positives[height]++;
@@ -6735,13 +6721,12 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
          case async_state_trunk_node_done:
          {
             if (ctxt->height == 0) {
-               slice message = writable_buffer_to_slice(data);
-               if (!writable_buffer_is_null(data)
-                   && data_message_class(data_cfg, message)
+               if (!merge_accumulator_is_null(result)
+                   && merge_accumulator_message_class(result)
                          != MESSAGE_TYPE_INSERT)
                {
                   data_merge_tuples_final(
-                     spl->cfg.data_cfg, trunk_key_slice(spl, key), data);
+                     spl->cfg.data_cfg, trunk_key_slice(spl, key), result);
                }
                trunk_async_set_state(ctxt, async_state_end);
                break;
@@ -6816,20 +6801,19 @@ trunk_lookup_async(trunk_handle     *spl,  // IN
             }
             ctxt->trunk_node = NULL;
             if (spl->cfg.use_stats) {
-               if (!writable_buffer_is_null(data)) {
+               if (!merge_accumulator_is_null(result)) {
                   spl->stats[tid].lookups_found++;
                } else {
                   spl->stats[tid].lookups_not_found++;
                }
             }
 
-            if (!writable_buffer_is_null(data)) {
-               slice        message = writable_buffer_to_slice(data);
-               message_type type    = data_message_class(data_cfg, message);
+            if (!merge_accumulator_is_null(result)) {
+               message_type type = merge_accumulator_message_class(result);
                debug_assert(type == MESSAGE_TYPE_DELETE
                             || type == MESSAGE_TYPE_INSERT);
                if (type == MESSAGE_TYPE_DELETE) {
-                  writable_buffer_set_to_null(data);
+                  merge_accumulator_set_to_null(result);
                }
             }
 
@@ -6867,7 +6851,8 @@ trunk_range(trunk_handle  *spl,
    iterator_at_end(&range_itor->super, &at_end);
 
    for (int i = 0; i < num_tuples && !at_end; i++) {
-      slice key, data;
+      slice   key;
+      message data;
       iterator_get_curr(&range_itor->super, &key, &data);
       func(key, data, arg);
       iterator_advance(&range_itor->super);
@@ -8318,8 +8303,8 @@ trunk_print_lookup_stats(trunk_handle *spl)
 void
 trunk_print_lookup(trunk_handle *spl, const char *key)
 {
-   writable_buffer data;
-   writable_buffer_init(&data, spl->heap_id);
+   merge_accumulator data;
+   merge_accumulator_init(&data, spl->heap_id);
 
    platform_open_log_stream();
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
@@ -8337,12 +8322,12 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                         trunk_key_slice(spl, key),
                         &data);
       platform_assert_status_ok(rc);
-      if (!writable_buffer_is_null(&data)) {
-         char  key_str[128];
-         char  message_str[128];
-         slice message = writable_buffer_to_slice(&data);
+      if (!merge_accumulator_is_null(&data)) {
+         char    key_str[128];
+         char    message_str[128];
+         message msg = merge_accumulator_to_message(&data);
          trunk_key_to_string(spl, key, key_str);
-         trunk_message_to_string(spl, message, message_str);
+         trunk_message_to_string(spl, msg, message_str);
          platform_log_stream(
             "Key %s found in memtable %lu (gen %lu comp %d) with data %s\n",
             key_str,
@@ -8365,14 +8350,14 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
       uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-      writable_buffer_set_to_null(&data);
+      merge_accumulator_set_to_null(&data);
       trunk_pivot_lookup(spl, node, pdata, key, &data);
-      if (!writable_buffer_is_null(&data)) {
+      if (!merge_accumulator_is_null(&data)) {
          char key_str[128];
          char message_str[128];
          trunk_key_to_string(spl, key, key_str);
-         slice message = writable_buffer_to_slice(&data);
-         trunk_message_to_string(spl, message, message_str);
+         message msg = merge_accumulator_to_message(&data);
+         trunk_message_to_string(spl, msg, message_str);
          platform_log_stream("Key %s found in node %lu pivot %u with data %s\n",
                              key_str,
                              node->disk_addr,
@@ -8386,7 +8371,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
             trunk_branch   *branch = trunk_get_branch(spl, node, branch_no);
             platform_status rc;
             bool            local_found;
-            writable_buffer_set_to_null(&data);
+            merge_accumulator_set_to_null(&data);
             rc = trunk_btree_lookup_and_merge(
                spl, branch, key, &data, &local_found);
             platform_assert_status_ok(rc);
@@ -8394,8 +8379,8 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
                char key_str[128];
                char message_str[128];
                trunk_key_to_string(spl, key, key_str);
-               slice message = writable_buffer_to_slice(&data);
-               trunk_message_to_string(spl, message, message_str);
+               message msg = merge_accumulator_to_message(&data);
+               trunk_message_to_string(spl, msg, message_str);
                platform_log_stream(
                   "!! Key %s found in branch %u of node %lu pivot %u "
                   "with data %s\n",
@@ -8415,14 +8400,14 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
    // look in leaf
    trunk_print_locked_node(spl, node, stream);
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
-   writable_buffer_set_to_null(&data);
+   merge_accumulator_set_to_null(&data);
    trunk_pivot_lookup(spl, node, pdata, key, &data);
-   if (!writable_buffer_is_null(&data)) {
+   if (!merge_accumulator_is_null(&data)) {
       char key_str[128];
       char message_str[128];
       trunk_key_to_string(spl, key, key_str);
-      slice message = writable_buffer_to_slice(&data);
-      trunk_message_to_string(spl, message, message_str);
+      message msg = merge_accumulator_to_message(&data);
+      trunk_message_to_string(spl, msg, message_str);
       platform_log_stream("Key %s found in node %lu pivot %u with data %s\n",
                           key_str,
                           node->disk_addr,
@@ -8436,7 +8421,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
          trunk_branch   *branch = trunk_get_branch(spl, node, branch_no);
          platform_status rc;
          bool            local_found;
-         writable_buffer_set_to_null(&data);
+         merge_accumulator_set_to_null(&data);
          rc =
             trunk_btree_lookup_and_merge(spl, branch, key, &data, &local_found);
          platform_assert_status_ok(rc);
@@ -8444,8 +8429,8 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
             char key_str[128];
             char message_str[128];
             trunk_key_to_string(spl, key, key_str);
-            slice message = writable_buffer_to_slice(&data);
-            trunk_message_to_string(spl, message, message_str);
+            message msg = merge_accumulator_to_message(&data);
+            trunk_message_to_string(spl, msg, message_str);
             platform_log_stream(
                "!! Key %s found in branch %u of node %lu pivot %u "
                "with data %s\n",
@@ -8458,7 +8443,7 @@ trunk_print_lookup(trunk_handle *spl, const char *key)
       }
    }
    trunk_node_unget(spl, &node);
-   writable_buffer_deinit(&data);
+   merge_accumulator_deinit(&data);
    platform_close_log_stream(PLATFORM_DEFAULT_LOG_HANDLE);
 }
 

@@ -130,21 +130,14 @@ splinterdb_deregister_thread(splinterdb *kvs);
 int
 splinterdb_insert(const splinterdb *kvsb, slice key, slice value);
 
-// Insert a raw message at the given key.
-//
-// Custom message types can be used to encode non-overwriting
-// "blind mutations" like "increment" or "append" via the MESSAGE_TYPE_UPDATE.
-// These can be stored without doing a read of the current value.
-int
-splinterdb_insert_raw_message(const splinterdb *kvs,
-                              slice             key,
-                              slice             raw_message);
-
-
 // Delete a given key and any associated value / messages
 int
 splinterdb_delete(const splinterdb *kvsb, slice key);
 
+// Insert a key and value.
+// Relies on data_config->encode_message
+int
+splinterdb_update(const splinterdb *kvsb, slice key, slice delta);
 
 // Lookups
 

@@ -389,12 +389,6 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    ASSERT_EQUAL(TEST_MAX_VALUE_SIZE, slice_length(value));
    ASSERT_STREQN(max_length_string, slice_data(value), slice_length(value));
 
-   // our buffer is untouched
-   ASSERT_DATA(saved_big_buffer,
-               sizeof(saved_big_buffer),
-               big_buffer,
-               sizeof(big_buffer));
-
    // we can deinit the result, and it doesn't try to free the stack space we
    // originally gave it
    splinterdb_lookup_result_deinit(&result);
@@ -707,11 +701,14 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   const size_t key_len  = 3;
-   const char  *key_data = "foo";
-   slice        key      = slice_create(key_len, key_data);
+   const size_t key_len   = 3;
+   const char  *key_data  = "foo";
+   slice        key       = slice_create(key_len, key_data);
+   data_handle  msg       = {.ref_count = 1};
+   slice        msg_slice = slice_create(sizeof(msg), &msg);
+
    ASSERT_EQUAL(0, rc);
-   rc = splinterdb_insert(data->kvsb, key, slice_create(3, "bar"));
+   rc = splinterdb_insert(data->kvsb, key, msg_slice);
 
    // confirm its there
    splinterdb_lookup_result result;
@@ -723,16 +720,11 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    slice value;
    rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
    ASSERT_EQUAL(0, rc);
-   ASSERT_EQUAL(3, slice_length(value));
-   ASSERT_EQUAL(0, memcmp(slice_data(value), "bar", 3));
+   ASSERT_EQUAL(0, slice_lex_cmp(value, msg_slice));
 
    // insert a message that adds to the refcount
-   char         msg_buffer[sizeof(data_handle)] = {0};
-   data_handle *msg                             = (data_handle *)msg_buffer;
-   msg->message_type                            = MESSAGE_TYPE_UPDATE;
-   msg->ref_count                               = 5;
-   rc                                           = splinterdb_insert_raw_message(
-      data->kvsb, key, slice_create(sizeof(msg_buffer), msg_buffer));
+   msg.ref_count = 5;
+   rc            = splinterdb_update(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // check still found
@@ -741,10 +733,8 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    // insert a message that drops the refcount to zero
-   msg->message_type = MESSAGE_TYPE_UPDATE;
-   msg->ref_count    = -6;
-   rc                = splinterdb_insert_raw_message(
-      data->kvsb, key, slice_create(sizeof(msg_buffer), msg_buffer));
+   msg.ref_count = -6;
+   rc            = splinterdb_update(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // on lookup, merge will decide the tuple is deleted
@@ -753,13 +743,12 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    // add it back as a value
-   rc = splinterdb_insert(data->kvsb, key, slice_create(3, "bar"));
+   msg.ref_count = 12;
+   rc            = splinterdb_insert(data->kvsb, key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // delete it using a raw message
-   msg->message_type = MESSAGE_TYPE_DELETE;
-   rc                = splinterdb_insert_raw_message(
-      data->kvsb, key, slice_create(sizeof(msg_buffer), msg_buffer));
+   rc = splinterdb_delete(data->kvsb, key);
    ASSERT_EQUAL(0, rc);
 
    // on lookup, it should not be found

@@ -326,22 +326,22 @@ typedef struct {
  */
 
 platform_status
-trunk_insert(trunk_handle *spl, char *key, slice data);
+trunk_insert(trunk_handle *spl, char *key, message data);
 
 platform_status
-trunk_lookup(trunk_handle *spl, char *key, writable_buffer *result);
+trunk_lookup(trunk_handle *spl, char *key, merge_accumulator *result);
 
 static inline bool
-trunk_lookup_found(writable_buffer *result)
+trunk_lookup_found(merge_accumulator *result)
 {
-   return !writable_buffer_is_null(result);
+   return !merge_accumulator_is_null(result);
 }
 
 cache_async_result
-trunk_lookup_async(trunk_handle     *spl,
-                   char             *key,
-                   writable_buffer  *data,
-                   trunk_async_ctxt *ctxt);
+trunk_lookup_async(trunk_handle      *spl,
+                   char              *key,
+                   merge_accumulator *data,
+                   trunk_async_ctxt  *ctxt);
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
@@ -351,7 +351,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 
-typedef void (*tuple_function)(slice key, slice value, void *arg);
+typedef void (*tuple_function)(slice key, message value, void *arg);
 platform_status
 trunk_range(trunk_handle  *spl,
             const char    *start_key,
@@ -435,9 +435,9 @@ trunk_key_to_string(trunk_handle *spl, const char *key, char str[static 128])
 }
 
 static inline void
-trunk_message_to_string(trunk_handle *spl, slice message, char str[static 128])
+trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
 {
-   btree_message_to_string(&spl->cfg.btree_cfg, message, str);
+   btree_message_to_string(&spl->cfg.btree_cfg, msg, str);
 }
 
 static inline void

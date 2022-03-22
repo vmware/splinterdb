@@ -148,7 +148,7 @@ memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
                 platform_heap_id  heap_id,
                 const char       *key,
-                slice             message,
+                message           msg,
                 uint64           *generation);
 
 page_handle *

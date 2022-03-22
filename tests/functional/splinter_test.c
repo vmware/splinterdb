@@ -113,9 +113,9 @@ test_trunk_insert_thread(void *arg)
    uint64    num_inserts     = 0;
    timestamp next_check_time = platform_get_timestamp();
    // divide the per second insert rate into periods of 10 milli seconds.
-   uint64          insert_rate = params->insert_rate / 100;
-   writable_buffer msg;
-   writable_buffer_init(&msg, NULL);
+   uint64            insert_rate = params->insert_rate / 100;
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, NULL);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -158,7 +158,7 @@ test_trunk_insert_thread(void *arg)
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, insert_num, &msg);
             platform_status rc =
-               trunk_insert(spl, key, writable_buffer_to_slice(&msg));
+               trunk_insert(spl, key, merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
                ts = platform_timestamp_elapsed(ts);
@@ -185,7 +185,7 @@ test_trunk_insert_thread(void *arg)
       }
    }
 out:
-   writable_buffer_deinit(&msg);
+   merge_accumulator_deinit(&msg);
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), insert_base);
    for (uint64 i = 0; i < num_tables; i++) {
@@ -215,8 +215,8 @@ test_trunk_lookup_thread(void *arg)
       TYPED_ARRAY_ZALLOC(platform_get_heap_id(), lookup_base, num_tables);
    uint8 done = 0;
 
-   writable_buffer data;
-   writable_buffer_init(&data, NULL);
+   merge_accumulator data;
+   merge_accumulator_init(&data, NULL);
 
 
    while (1) {
@@ -268,7 +268,7 @@ test_trunk_lookup_thread(void *arg)
                             test_cfg->gen,
                             lookup_num,
                             key,
-                            writable_buffer_to_slice(&data),
+                            merge_accumulator_to_message(&data),
                             expected_found);
             } else {
                ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg);
@@ -299,13 +299,13 @@ test_trunk_lookup_thread(void *arg)
       }
    }
 out:
-   writable_buffer_deinit(&data);
+   merge_accumulator_deinit(&data);
    params->rc = STATUS_OK;
    platform_free(platform_get_heap_id(), lookup_base);
 }
 
 static void
-nop_tuple_func(slice key, slice value, void *arg)
+nop_tuple_func(slice key, message value, void *arg)
 {}
 
 void
@@ -489,8 +489,8 @@ do_operation(test_splinter_thread_params *params,
    uint8              num_tables     = params->num_tables;
    verify_tuple_arg   vtarg          = {.stats_only = TRUE,
                                         .stats      = &params->lookup_stats[ASYNC_LU]};
-   writable_buffer    msg;
-   writable_buffer_init(&msg, NULL);
+   merge_accumulator  msg;
+   merge_accumulator_init(&msg, NULL);
 
    for (uint64 op_idx = op_offset; op_idx != op_offset + num_ops; op_idx++) {
       if (op_idx >= op_granularity) {
@@ -517,7 +517,7 @@ do_operation(test_splinter_thread_params *params,
             generate_test_message(test_cfg->gen, op_num, &msg);
             ts = platform_get_timestamp();
             platform_status rc =
-               trunk_insert(spl, key, writable_buffer_to_slice(&msg));
+               trunk_insert(spl, key, merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
             params->insert_stats.duration += ts;
@@ -574,7 +574,7 @@ do_operation(test_splinter_thread_params *params,
       }
    }
 
-   writable_buffer_deinit(&msg);
+   merge_accumulator_deinit(&msg);
 }
 
 /*
