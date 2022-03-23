@@ -1004,8 +1004,8 @@ trunk_node_alloc(trunk_handle *spl, uint64 height)
 page_handle *
 trunk_node_copy(trunk_handle *spl, page_handle *node)
 {
-   page_handle *copied_node = trunk_node_alloc(spl, trunk_heigth(spl, node));
-   memmove(copied_node->data, node->data, trunk_page_size(spl));
+   page_handle *copied_node = trunk_node_alloc(spl, trunk_height(spl, node));
+   memmove(copied_node->data, node->data, trunk_page_size(&spl->cfg));
    return copied_node;
 }
 
@@ -1513,6 +1513,7 @@ trunk_add_pivot_new_root(trunk_handle *spl,
    uint64 child_addr = child->disk_addr;
    trunk_set_pivot_data_new_root(spl, parent, child_addr);
 }
+
 
 /*
  * pivot_recount_num_tuples recounts num_tuples for the pivot at position
@@ -3328,7 +3329,7 @@ trunk_install_new_compacted_subbundle(trunk_handle             *spl,
    sb->end_branch          = trunk_end_branch(spl, node);
    sb->state               = SB_STATE_COMPACTED;
    routing_filter *filter  = trunk_subbundle_filter(spl, node, sb, 0);
-   *filter                 = new_filter;
+   *filter                 = *new_filter;
 
    // count tuples for both the req and the pivot counts in the node
    trunk_tuples_in_bundle(spl,
@@ -3345,8 +3346,8 @@ trunk_install_new_compacted_subbundle(trunk_handle             *spl,
    trunk_pivot_add_bundle_tuple_counts(spl,
                                        node,
                                        bundle,
-                                       new_pivot_tuple_count,
-                                       new_pivot_kv_byte_count);
+                                       req->input_pivot_tuple_count,
+                                       req->input_pivot_kv_byte_count);
 
    // record the pivot generations and increment the boundaries
    uint16 num_children = trunk_num_children(spl, node);
@@ -3386,16 +3387,12 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
                                      const threadid tid)
 {
    /*
-    * 1. Lock lookup lock (blocks lookups, which must obtain a read lock on the
-    *    lookup lock), root, and Trunk Modification Lock.
+    * 1. Lock Trunk Modification Lock and copy root.
     */
-   page_handle *mt_lookup_lock_page =
-      memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
    page_handle *root = trunk_node_get(spl, spl->root_addr);
    platform_assert(trunk_has_vacancy(spl, root, 1));
    trunk_modification_lock(spl);
    page_handle *new_root = trunk_node_copy(spl, root);
-   spl->root_addr = new_root->disk_addr;
 
    platform_stream_handle stream;
    platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
@@ -3410,20 +3407,15 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
       spl, &stream, "----------------------------------------\n");
 
    /*
-    * 2. Increment memtable generation (Blocks lookups from accessing the
-    *    memtable that's being incorporated) and release lookup lock.
-    */
-   memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
-   memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
-
-   /*
     * 3. Add the memtable to the new root as a new compacted bundle
     */
    trunk_compacted_memtable *cmt =
       trunk_get_compacted_memtable(spl, generation);
    trunk_compact_bundle_req *req = cmt->req;
    trunk_install_new_compacted_subbundle(spl, new_root, &cmt->branch, &cmt->filter, req);
-   trunk_log_stream(
+   trunk_log_stream_if_enabled(
+      spl,
+      &stream,
       "enqueuing build filter: range %s-%s, height %u, bundle %u\n",
       key_string(trunk_data_config(spl),
                  slice_create(trunk_key_size(spl), req->start_key)),
@@ -3434,19 +3426,11 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
-   memtable *mt = trunk_get_memtable(spl, generation);
-   // Normally need to hold incorp_mutex, but debug code and also guaranteed no
-   // one is changing gen_to_incorp (we are the only thread that would try)
-   debug_assert(generation == memtable_generation_to_incorporate(spl->mt_ctxt));
-   memtable_transition(
-      mt, MEMTABLE_STATE_INCORPORATION_ASSIGNED, MEMTABLE_STATE_INCORPORATING);
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
    }
 
-   memtable_transition(
-      mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
    trunk_log_node_if_enabled(&stream, spl, new_root);
    trunk_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
@@ -3474,7 +3458,26 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    }
 
    /*
-    * 6. Unlock the root
+    * X. Lock the lookup lock, blocking lookups, switch the root. Increment
+    *    memtable generation (Blocks lookups from accessing the memtable that's
+    *    being incorporated) and release lookup lock.
+    */
+   page_handle *mt_lookup_lock_page =
+      memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
+   memtable *mt = trunk_get_memtable(spl, generation);
+   // Normally need to hold incorp_mutex, but debug code and also guaranteed no
+   // one is changing gen_to_incorp (we are the only thread that would try)
+   debug_assert(generation == memtable_generation_to_incorporate(spl->mt_ctxt));
+   memtable_transition(
+      mt, MEMTABLE_STATE_INCORPORATION_ASSIGNED, MEMTABLE_STATE_INCORPORATING);
+   memtable_transition(
+      mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
+   memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
+   spl->root_addr = new_root->disk_addr;
+   memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
+
+   /*
+    * 6. Unlock the TML and new root.
     */
    trunk_node_unlock(spl, new_root);
    trunk_modification_unlock(spl);
@@ -4289,11 +4292,27 @@ trunk_room_to_flush(trunk_handle     *spl,
 }
 
 /*
+ * Makes a copy of the child indicated by pdata and replaces the parent's
+ * pointer with one to the new child. Returns the new child's page_handle *.
+ */
+page_handle *
+trunk_copy_node_and_add_to_parent(trunk_handle     *spl,
+                                  page_handle      *parent,
+                                  trunk_pivot_data *pdata)
+{
+   page_handle *old_child = trunk_node_get(spl, pdata->addr);
+   page_handle *new_child = trunk_node_copy(spl, old_child);
+   pdata->addr = new_child->disk_addr;
+   return new_child;
+}
+
+/*
  * flush flushes from parent to the child indicated by pdata.
  *
+ * FLUSH FAILURE DISABLED TEMPORARILY (WILL ASSERT)
  * Failure can occur if there is not enough space in the child.
  *
- * NOTE: parent must be write locked
+ * NOTE: parent must be write locked and TML must be held.
  */
 platform_status
 trunk_flush(trunk_handle     *spl,
@@ -4304,21 +4323,17 @@ trunk_flush(trunk_handle     *spl,
    platform_status rc;
 
    uint64 wait_start, flush_start;
-   if (spl->cfg.use_stats) {
-      wait_start = platform_get_timestamp();
-   }
-
-   page_handle *old_child = trunk_node_get(spl, pdata->addr);
-   page_handle *new_child = trunk_node_copy(spl, old_child);
-
    threadid tid;
    if (spl->cfg.use_stats) {
       tid        = platform_get_tid();
       wait_start = platform_get_timestamp();
    }
 
-   platform_assert(trunk_room_to_flush(spl, parent, child, pdata),
-         "Flush failed: %lu %lu\n", parent->disk_addr, child->disk_addr);
+   page_handle *new_child =
+      trunk_copy_node_and_add_to_parent(spl, parent, pdata);
+
+   platform_assert(trunk_room_to_flush(spl, parent, new_child, pdata),
+         "Flush failed: %lu %lu\n", parent->disk_addr, new_child->disk_addr);
 
    if ((!is_space_rec && pdata->srq_idx != -1)
        && spl->cfg.reclaim_threshold != UINT64_MAX)
@@ -4344,45 +4359,47 @@ trunk_flush(trunk_handle     *spl,
    // flush the branch references into a new bundle in the child
    trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
    trunk_bundle             *bundle =
-      trunk_flush_into_bundle(spl, parent, child, pdata, req);
+      trunk_flush_into_bundle(spl, parent, new_child, pdata, req);
    trunk_tuples_in_bundle(spl,
-                          child,
+                          new_child,
                           bundle,
                           req->input_pivot_tuple_count,
                           req->input_pivot_kv_byte_count);
    trunk_pivot_add_bundle_tuple_counts(spl,
-                                       child,
+                                       new_child,
                                        bundle,
                                        req->input_pivot_tuple_count,
                                        req->input_pivot_kv_byte_count);
-   trunk_bundle_inc_pivot_rc(spl, child, bundle);
+   trunk_bundle_inc_pivot_rc(spl, new_child, bundle);
    req->type = is_space_rec ? TRUNK_COMPACTION_TYPE_FLUSH
                             : TRUNK_COMPACTION_TYPE_SPACE_REC;
 
    // split child if necessary
-   if (trunk_needs_split(spl, child)) {
-      if (trunk_is_leaf(spl, child)) {
+   if (trunk_needs_split(spl, new_child)) {
+      if (trunk_is_leaf(spl, new_child)) {
          platform_free(spl->heap_id, req);
          uint16 child_idx = trunk_pdata_to_pivot_index(spl, parent, pdata);
-         trunk_split_leaf(spl, parent, child, child_idx);
-         debug_assert(trunk_verify_node(spl, child));
+         trunk_split_leaf(spl, parent, new_child, child_idx);
+         debug_assert(trunk_verify_node(spl, new_child));
          return STATUS_OK;
       } else {
          uint64 child_idx = trunk_pdata_to_pivot_index(spl, parent, pdata);
-         trunk_split_index(spl, parent, child, child_idx);
+         trunk_split_index(spl, parent, new_child, child_idx);
       }
    }
 
-   debug_assert(trunk_verify_node(spl, child));
+   debug_assert(trunk_verify_node(spl, new_child));
 
    // flush the child if full
-   while (trunk_node_is_full(spl, child)) {
-      trunk_flush_fullest(spl, child);
+   while (trunk_node_is_full(spl, new_child)) {
+      platform_assert(!trunk_is_leaf(spl, new_child),
+                      "Full leaf after leaf split\n");
+      trunk_flush_fullest(spl, new_child);
    }
 
-   trunk_node_unlock(spl, child);
-   trunk_node_unclaim(spl, child);
-   trunk_node_unget(spl, &child);
+   trunk_node_unlock(spl, new_child);
+   trunk_node_unclaim(spl, new_child);
+   trunk_node_unget(spl, &new_child);
 
    trunk_default_log_if_enabled(
       spl,
@@ -7488,8 +7505,8 @@ void
 trunk_dismount(trunk_handle *spl)
 {
    srq_deinit(&spl->srq);
-   trunk_set_super_block(spl, FALSE, TRUE, FALSE);
    trunk_prepare_for_shutdown(spl);
+   trunk_set_super_block(spl, FALSE, TRUE, FALSE);
    platform_mutex_destroy(&spl->trunk_modification_lock);
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
