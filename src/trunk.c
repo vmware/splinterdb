@@ -385,16 +385,16 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *           - An internally determined hard limit (max_pivot_keys), based on
  *             the specified 'fanout' setting.
  *
- *           When the soft limit is
- *          reached, it will cause the node to split the next time it is
- *          flushed into (see internal node splits above). Note that multiple
- *          pivots can be added to the parent of a leaf during a split and
- *          multiple splits could theoretically occur before the node is
- *          flushed into again, so the fanout limit may temporarily be exceeded
- *          by multiple pivots. The hard limit is the amount of physical space
- *          in the node which can be used for pivots and cannot be exceeded.
+ *          When the soft limit is reached, it will cause the node to split the
+ *          next time it is flushed into (see internal node splits above).
+ *          Note that multiple pivots can be added to the parent of a leaf
+ *          during a split and multiple splits could theoretically occur before
+ *          the node is flushed into again, so the fanout limit may temporarily
+ *          be exceeded by multiple pivots.
  *
- *      // RESOLVE: 3x seems wrong. See use of TRUNK_EXTRA_PIVOT_KEYS
+ *          The hard limit is the amount of physical space in the node which can
+ *          be used for pivots and cannot be exceeded.
+ *
  *  Limits: The default fanout is 8 and the hard limit is 3x the fanout. Note
  *          that the additional last pivot (containing the exclusive upper
  *          bound to the node) counts towards the hard limit (because it uses
