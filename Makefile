@@ -426,11 +426,14 @@ test-results: all-tests
 
 INSTALL_PATH ?= /usr/local
 
-install: libs
+install:
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
 	cp -p -r $(INCDIR)/splinterdb/ $(INSTALL_PATH)/include/
+
+help::
+	@echo Note: \"make install\" always installs from \"build\"
 
 # to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
 .PHONY: compile_flags.txt
