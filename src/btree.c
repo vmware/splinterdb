@@ -67,15 +67,15 @@ slice positive_infinity = {0, &positive_infinity_buffer};
 /* Function prototypes */
 static void
 btree_print_index_node(platform_log_handle *log_handle,
-                       btree_config          *cfg,
-                       uint64                 addr,
-                       btree_hdr             *hdr);
+                       btree_config        *cfg,
+                       uint64               addr,
+                       btree_hdr           *hdr);
 
 static void
 btree_print_leaf_node(platform_log_handle *log_handle,
-                      btree_config          *cfg,
-                      uint64                 addr,
-                      btree_hdr             *hdr);
+                      btree_config        *cfg,
+                      uint64               addr,
+                      btree_hdr           *hdr);
 
 static void
 btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr);
@@ -3198,38 +3198,41 @@ btree_print_locked_node(platform_log_handle *log_handle,
 
 static void
 btree_print_index_node(platform_log_handle *log_handle,
-                        btree_config        *cfg,
-                        uint64               addr,
-                        btree_hdr           *hdr)
+                       btree_config        *cfg,
+                       uint64               addr,
+                       btree_hdr           *hdr)
 {
    data_config *dcfg = cfg->data_cfg;
    platform_log(log_handle, "**  INDEX NODE \n");
    platform_log(log_handle, "**  hdrptr: %p\n", hdr);
    platform_log(log_handle, "**  addr: %lu \n", addr);
    platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
-   platform_log(log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
+   platform_log(
+      log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
    platform_log(log_handle, "**  generation: %lu \n", hdr->generation);
    platform_log(log_handle, "**  height: %u \n", btree_height(hdr));
    platform_log(log_handle, "**  next_entry: %u \n", hdr->next_entry);
    platform_log(log_handle, "**  num_entries: %u \n", btree_num_entries(hdr));
 
-   btree_sprint_offset_table(stream, hdr);
+   btree_print_offset_table(log_handle, hdr);
 
    platform_log(log_handle, "-------------------\n");
-   platform_log(log_handle, "Array of %d index entries:\n", btree_num_entries(hdr));
+   platform_log(
+      log_handle, "Array of %d index entries:\n", btree_num_entries(hdr));
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       index_entry *entry = btree_get_index_entry(cfg, hdr, i);
-      platform_log(log_handle, "[%2lu]: key=%s\n"
-                          "   child_addr=%lu\n"
-                          "   (num_kvs_in_subtree=%u\n"
-                          "    key_bytes_in_subtree=%u\n"
-                          "    message_bytes_in_subtree=%u)\n",
-                          i,
-                          key_string(dcfg, index_entry_key_slice(entry)),
-                          entry->pivot_data.child_addr,
-                          entry->pivot_data.num_kvs_in_subtree,
-                          entry->pivot_data.key_bytes_in_subtree,
-                          entry->pivot_data.message_bytes_in_subtree);
+      platform_log(log_handle,
+                   "[%2lu]: key=%s\n"
+                   "   child_addr=%lu\n"
+                   "   (num_kvs_in_subtree=%u\n"
+                   "    key_bytes_in_subtree=%u\n"
+                   "    message_bytes_in_subtree=%u)\n",
+                   i,
+                   key_string(dcfg, index_entry_key_slice(entry)),
+                   entry->pivot_data.child_addr,
+                   entry->pivot_data.num_kvs_in_subtree,
+                   entry->pivot_data.key_bytes_in_subtree,
+                   entry->pivot_data.message_bytes_in_subtree);
    }
    platform_log(log_handle, "\n");
 }
@@ -3237,33 +3240,34 @@ btree_print_index_node(platform_log_handle *log_handle,
 
 static void
 btree_print_leaf_node(platform_log_handle *log_handle,
-                      btree_config         *cfg,
-                      uint64                addr,
-                      btree_hdr            *hdr)
+                      btree_config        *cfg,
+                      uint64               addr,
+                      btree_hdr           *hdr)
 {
    data_config *dcfg = cfg->data_cfg;
    platform_log(log_handle, "**  LEAF NODE \n");
    platform_log(log_handle, "**  hdrptr: %p\n", hdr);
    platform_log(log_handle, "**  addr: %lu \n", addr);
    platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
-   platform_log(log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
+   platform_log(
+      log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
    platform_log(log_handle, "**  generation: %lu \n", hdr->generation);
    platform_log(log_handle, "**  height: %u \n", btree_height(hdr));
    platform_log(log_handle, "**  next_entry: %u \n", hdr->next_entry);
    platform_log(log_handle, "**  num_entries: %u \n", btree_num_entries(hdr));
 
-   btree_sprint_offset_table(stream, hdr);
+   btree_print_offset_table(log_handle, hdr);
 
    platform_log(log_handle, "-------------------\n");
-   platform_log(log_handle, "Array of %d index leaf entries:\n",
-                       btree_num_entries(hdr));
+   platform_log(
+      log_handle, "Array of %d index leaf entries:\n", btree_num_entries(hdr));
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, i);
-      platform_log(log_handle, 
-         "[%2lu]: %s -- %s\n",
-         i,
-         key_string(dcfg, leaf_entry_key_slice(entry)),
-         message_string(dcfg, leaf_entry_message_slice(entry)));
+      platform_log(log_handle,
+                   "[%2lu]: %s -- %s\n",
+                   i,
+                   key_string(dcfg, leaf_entry_key_slice(entry)),
+                   message_string(dcfg, leaf_entry_message(entry)));
    }
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "\n");
@@ -3271,7 +3275,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
 
 /* Print offset table entries, 4 entries per line, w/ auto-indentation. */
 static void
-btree_sprint_offset_table(platform_stream_handle stream, btree_hdr *hdr)
+btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
 {
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "Offset Table num_entries=%d\n", hdr->num_entries);
@@ -3292,7 +3296,6 @@ btree_sprint_offset_table(platform_stream_handle stream, btree_hdr *hdr)
          platform_log(log_handle, "\n");
       }
       platform_log(log_handle, fmtstr, i, btree_get_table_entry(hdr, i));
->>>>>>> (#280) Add test to exercise various existing / new print functions
    }
    platform_log(log_handle, "\n");
 }
@@ -3332,21 +3335,24 @@ btree_print_subtree(platform_log_handle *log_handle,
 
    if (node.hdr->height > 0) {
       int nentries = node.hdr->num_entries;
-      platform_log(log_handle, "\n---- BTree sub-trees under addr=%lu"
-                          " num_entries=%d"
-                          ", height=%d {\n",
-                          addr,
-                          nentries,
-                          node.hdr->height);
+      platform_log(log_handle,
+                   "\n---- BTree sub-trees under addr=%lu"
+                   " num_entries=%d"
+                   ", height=%d {\n",
+                   addr,
+                   nentries,
+                   node.hdr->height);
 
       for (idx = 0; idx < nentries; idx++) {
-         platform_log(log_handle, "\n-- Sub-tree index=%d of %d\n", idx, nentries);
+         platform_log(
+            log_handle, "\n-- Sub-tree index=%d of %d\n", idx, nentries);
          btree_print_subtree(
             log_handle, cc, cfg, btree_get_child_addr(cfg, node.hdr, idx));
       }
-      platform_log(log_handle, "\n} -- End BTree sub-trees under"
-                          " addr=%lu\n",
-                          addr);
+      platform_log(log_handle,
+                   "\n} -- End BTree sub-trees under"
+                   " addr=%lu\n",
+                   addr);
    }
    btree_node_unget(cc, cfg, &node);
 }

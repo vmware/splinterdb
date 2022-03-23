@@ -395,9 +395,10 @@ rc_allocator_mount(rc_allocator        *al,
          al->stats.curr_allocated++;
       }
    }
-   platform_default_log("Allocated %lu extents at mount: (%lu MiB)\n",
-                al->stats.curr_allocated,
-                B_TO_MiB(al->stats.curr_allocated * cfg->io_cfg->extent_size));
+   platform_default_log(
+      "Allocated %lu extents at mount: (%lu MiB)\n",
+      al->stats.curr_allocated,
+      B_TO_MiB(al->stats.curr_allocated * cfg->io_cfg->extent_size));
    return STATUS_OK;
 }
 
@@ -698,34 +699,28 @@ rc_allocator_assert_noleaks(rc_allocator *al)
 void
 rc_allocator_print_stats(rc_allocator *al)
 {
-   rc_allocator_sprint_stats(PLATFORM_DEFAULT_LOG_HANDLE, al);
-}
-
-void
-rc_allocator_sprint_stats(platform_stream_handle stream, rc_allocator *al)
-{
    int64 divider = GiB / al->cfg->io_cfg->extent_size;
-   platform_log_stream(
+   platform_default_log(
       "----------------------------------------------------------------\n");
-   platform_log_stream(
+   platform_default_log(
       "| Allocator Stats                                              |\n");
-   platform_log_stream(
+   platform_default_log(
       "|--------------------------------------------------------------|\n");
    uint64 curr_gib = al->stats.curr_allocated / divider;
-   platform_log_stream(
+   platform_default_log(
       "| Currently Allocated: %12lu extents (%4luGiB)          |\n",
       al->stats.curr_allocated,
       curr_gib);
    uint64 max_gib = al->stats.max_allocated / divider;
-   platform_log_stream(
+   platform_default_log(
       "| Max Allocated:       %12lu extents (%4luGiB)          |\n",
       al->stats.max_allocated,
       max_gib);
-   platform_log_stream(
+   platform_default_log(
       "|--------------------------------------------------------------|\n");
-   platform_log_stream(
+   platform_default_log(
       "| Page Type | Allocations | Deallocations | Footprint (bytes)  |\n");
-   platform_log_stream(
+   platform_default_log(
       "|--------------------------------------------------------------|\n");
    int64 exp_allocated_count = 0;
    for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
@@ -737,17 +732,17 @@ rc_allocator_sprint_stats(platform_stream_handle stream, rc_allocator *al)
 
       exp_allocated_count += footprint;
 
-      platform_log_stream("| %-10s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
-                          str,
-                          allocs,
-                          deallocs,
-                          footprint,
-                          footprint_gib);
+      platform_default_log("| %-10s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
+                           str,
+                           allocs,
+                           deallocs,
+                           footprint,
+                           footprint_gib);
    }
-   platform_log_stream(
+   platform_default_log(
       "----------------------------------------------------------------\n");
-   platform_log_stream("Expected allocation count from footprint = %ld\n",
-                       exp_allocated_count);
+   platform_default_log("Expected allocation count from footprint = %ld\n",
+                        exp_allocated_count);
 }
 
 /*
@@ -761,13 +756,6 @@ rc_allocator_sprint_stats(platform_stream_handle stream, rc_allocator *al)
 void
 rc_allocator_print_debug(rc_allocator *al)
 {
-   rc_allocator_sprint_debug(PLATFORM_DEFAULT_LOG_HANDLE, al);
-}
-
-/* Tests may use this version to redirect output to a diff output handle */
-void
-rc_allocator_sprint_debug(platform_stream_handle stream, rc_allocator *al)
-{
    uint64 i;
    uint8  ref;
    uint64 nallocated = al->stats.curr_allocated;
@@ -775,9 +763,9 @@ rc_allocator_sprint_debug(platform_stream_handle stream, rc_allocator *al)
    // For more than a few allocated extents, print enclosing { } tags.
    bool print_curly = (nallocated > 20);
 
-   platform_log_stream(
+   platform_default_log(
       "Allocated extents: %lu\n%s", nallocated, (print_curly ? "{\n" : ""));
-   platform_log_stream("   Index  ExtentID  ExtentAddr  Count\n");
+   platform_default_log("   Index  ExtentID  ExtentAddr  Count\n");
 
    // # of extents with non-zero referenced page-count found
    uint64 found = 0;
@@ -787,14 +775,14 @@ rc_allocator_sprint_debug(platform_stream_handle stream, rc_allocator *al)
       if (ref != 0) {
          found++;
          uint64 ext_addr = (i * al->cfg->io_cfg->extent_size);
-         platform_log_stream("%8lu %8lu %12lu     %u\n",
-                             i,
-                             (ext_addr / al->cfg->io_cfg->page_size),
-                             ext_addr,
-                             ref);
+         platform_default_log("%8lu %8lu %12lu     %u\n",
+                              i,
+                              (ext_addr / al->cfg->io_cfg->page_size),
+                              ext_addr,
+                              ref);
       }
    }
-   platform_log_stream("%sFound %lu extents with allocated pages.\n",
-                       (print_curly ? "}\n" : ""),
-                       found);
+   platform_default_log("%sFound %lu extents with allocated pages.\n",
+                        (print_curly ? "}\n" : ""),
+                        found);
 }

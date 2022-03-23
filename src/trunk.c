@@ -717,20 +717,9 @@ void                               trunk_split_leaf                (trunk_handle
 int                                trunk_split_root                (trunk_handle *spl, page_handle     *root);
 void                               trunk_print                     (platform_log_handle *log_handle, trunk_handle *spl);
 void                               trunk_print_node                (platform_log_handle *log_handle, trunk_handle *spl, uint64 addr);
-
-static void
-trunk_print_pivots(platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
-
-static void
-trunk_print_branches_and_bundles(platform_log_handle *log_handle, trunk_handle *spl,
-                                  page_handle *node);
-
-static void
-trunk_print_branches_sb_filters(platform_log_handle *log_handle, trunk_handle *spl,
-                                 page_handle *node);
-
-void                               trunk_print_node                (trunk_handle *spl, uint64 addr, platform_stream_handle stream);
-
+static void                        trunk_print_pivots              (platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
+static void                        trunk_print_branches_and_bundles(platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
+static void                        trunk_print_branches_sb_filters(platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
 void                               trunk_btree_skiperator_get_curr (iterator *itor, slice *key, message *data);
 platform_status                    trunk_btree_skiperator_advance  (iterator *itor);
@@ -1823,7 +1812,8 @@ trunk_reset_start_branch(trunk_handle *spl, page_handle *node)
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (trunk_subtract_branch_number(
              spl, hdr->end_branch, pdata->start_branch)
-          > trunk_subtract_branch_number(spl, hdr->end_branch, start_branch)) {
+          > trunk_subtract_branch_number(spl, hdr->end_branch, start_branch))
+      {
          start_branch = pdata->start_branch;
       }
    }
@@ -7916,11 +7906,12 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
    uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
    trunk_for_each_node(spl, trunk_node_space_use, bytes_used_by_level);
 
-   platform_log(log_handle, "Space used by level: trunk_tree_height=%d\n",
+   platform_log(log_handle,
+                "Space used by level: trunk_tree_height=%d\n",
                 trunk_tree_height(spl));
    for (uint16 i = 0; i <= trunk_tree_height(spl); i++) {
-      platform_log(log_handle, "%u: %8lu MiB\n",
-                   i, B_TO_MiB(bytes_used_by_level[i]));
+      platform_log(
+         log_handle, "%u: %8lu MiB\n", i, B_TO_MiB(bytes_used_by_level[i]));
    }
    platform_log(log_handle, "\n");
 }
@@ -7954,7 +7945,7 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 
    trunk_print_branches_sb_filters(log_handle, spl, node);
 
-   platform_log(log_handle("}\n");
+   platform_log(log_handle, "}\n");
 }
 
 /*
@@ -7962,8 +7953,8 @@ trunk_print_locked_node(platform_log_handle *log_handle,
  */
 static void
 trunk_print_pivots(platform_log_handle *log_handle,
-                   trunk_handle          *spl,
-                   page_handle           *node)
+                   trunk_handle        *spl,
+                   page_handle         *node)
 {
    // clang-format off
    platform_log(log_handle, "|-------------------------------------------------------------------------------------|\n");
@@ -7982,27 +7973,33 @@ trunk_print_pivots(platform_log_handle *log_handle,
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
          platform_log(log_handle,
-                         "| %.*s | %12s | %12s | %11s | %4s | %5s |\n",
-                             24,
-                             key_string,
-                             "",
-                             "",
-                             "",
-                             "",
-                             "");
+                      "| %.*s | %12s | %12s | %11s | %4s | %5s |\n",
+                      24,
+                      key_string,
+                      "",
+                      "",
+                      "",
+                      "",
+                      "");
          platform_log(log_handle,
-            "| Full key: '%.*s'\n", (int)sizeof(key_string), key_string);
+                      "| Full key: '%.*s'\n",
+                      (int)sizeof(key_string),
+                      key_string);
       } else {
-         platform_log(log_handle, "| %.*s | %12lu | %12lu | %11lu | %4ld | %5lu |\n",
-                             24,
-                             key_string,
-                             pdata->addr,
-                             pdata->filter.addr,
-                             pdata->num_tuples,
-                             pdata->srq_idx,
-                             pdata->generation);
          platform_log(log_handle,
-            "| Full key: '%.*s'\n", (int)sizeof(key_string), key_string);
+                      "| %.*s | %12lu | %12lu | %11lu | %8lu | %5ld | %5lu |\n",
+                      24,
+                      key_string,
+                      pdata->addr,
+                      pdata->filter.addr,
+                      pdata->num_tuples_whole + pdata->num_tuples_bundle,
+                      pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
+                      pdata->srq_idx,
+                      pdata->generation);
+         platform_log(log_handle,
+                      "| Full key: '%.*s'\n",
+                      (int)sizeof(key_string),
+                      key_string);
       }
    }
 }
@@ -8014,9 +8011,9 @@ trunk_print_pivots(platform_log_handle *log_handle,
  * Print contents of those structures.
  */
 static void
-trunk_print_branches_and_bundles(platform_log *log_handle,
-                                  trunk_handle          *spl,
-                                  page_handle           *node)
+trunk_print_branches_and_bundles(platform_log_handle *log_handle,
+                                 trunk_handle        *spl,
+                                 page_handle         *node)
 {
    // clang-format off
    platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
@@ -8034,15 +8031,16 @@ trunk_print_branches_and_bundles(platform_log *log_handle,
    uint16 start_sb     = trunk_start_subbundle(spl, node);
    uint16 end_sb       = trunk_end_subbundle(spl, node);
 
-   platform_log(log_handle, "|start_branch=%-2u end_branch=%-2u"
-                            " start_bundle=%-2u end_bundle=%-2u"
-                            " start_sb=%-2u end_sb=%-2u    |\n",
-                       start_branch,
-                       end_branch,
-                       start_bundle,
-                       end_bundle,
-                       start_sb,
-                       end_sb);
+   platform_log(log_handle,
+                "|start_branch=%-2u end_branch=%-2u"
+                " start_bundle=%-2u end_bundle=%-2u"
+                " start_sb=%-2u end_sb=%-2u    |\n",
+                start_branch,
+                end_branch,
+                start_bundle,
+                end_bundle,
+                start_sb,
+                end_sb);
 
    // clang-format off
    platform_log(log_handle, "|-------------------------------------------------------------------------------------|\n");
@@ -8121,8 +8119,8 @@ trunk_print_branches_and_bundles(platform_log *log_handle,
  */
 static void
 trunk_print_branches_sb_filters(platform_log_handle *log_handle,
-                                 trunk_handle          *spl,
-                                 page_handle           *node)
+                                trunk_handle        *spl,
+                                page_handle         *node)
 {}
 
 void
@@ -8209,8 +8207,8 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
 void
 trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
 {
-   trunk_print_memtable(spl, log_handle);
-   trunk_print_subtree(log_handle, spl, spl->root_addr, log_handle);
+   trunk_print_memtable(log_handle, spl);
+   trunk_print_subtree(log_handle, spl, spl->root_addr);
 }
 
 /*
@@ -8220,7 +8218,7 @@ trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
  * contents.
  */
 void
-trunk_print_super_block(trunk_handle *spl)
+trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl)
 {
    page_handle       *super_page;
    trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
@@ -8228,16 +8226,18 @@ trunk_print_super_block(trunk_handle *spl)
       return;
    }
 
-   platform_log("Superblock root_addr=%lu {\n", super->root_addr);
-   platform_log("meta_tail=%lu log_addr=%lu log_meta_addr=%lu\n",
+   platform_log(log_handle, "Superblock root_addr=%lu {\n", super->root_addr);
+   platform_log(log_handle,
+                "meta_tail=%lu log_addr=%lu log_meta_addr=%lu\n",
                 super->meta_tail,
                 super->meta_tail,
                 super->log_meta_addr);
-   platform_log("timestamp=%lu, checkpointed=%d, dismounted=%d\n",
+   platform_log(log_handle,
+                "timestamp=%lu, checkpointed=%d, dismounted=%d\n",
                 super->timestamp,
                 super->checkpointed,
                 super->dismounted);
-   platform_log("}\n\n");
+   platform_log(log_handle, "}\n\n");
    trunk_release_super_block(spl, super_page);
 }
 

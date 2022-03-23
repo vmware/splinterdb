@@ -391,23 +391,10 @@ btree_rough_count(cache        *cc,
                   slice         max_key);
 
 void
-<<<<<<< HEAD
 btree_print_tree(platform_log_handle *log_handle,
                  cache               *cc,
                  btree_config        *cfg,
                  uint64               addr);
-=======
-btree_sprint_tree(platform_stream_handle user_stream,
-                  cache                 *cc,
-                  btree_config          *cfg,
-                  uint64                 addr);
-
-static inline void
-btree_print_tree(cache *cc, btree_config *cfg, uint64 addr)
-{
-   btree_sprint_tree(NULL, cc, cfg, addr);
-}
->>>>>>> (#280) Add test to exercise various existing / new print functions
 
 void
 btree_print_locked_node(platform_log_handle *log_handle,
