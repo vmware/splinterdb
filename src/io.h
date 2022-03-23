@@ -171,18 +171,6 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
    return TRUE;
 }
 
-static inline bool
-io_config_valid_page_size(io_config *cfg)
-{
-   return (cfg->page_size == SPLINTER_DEFAULT_PAGE_SIZE);
-}
-
-static inline bool
-io_config_valid_extent_size(io_config *cfg)
-{
-   return (cfg->extent_size == SPLINTER_DEFAULT_EXTENT_SIZE);
-}
-
 /*
  *-----------------------------------------------------------------------------
  * io_config_init --

@@ -7,18 +7,10 @@
  * --------------------------------------------------------------------------
  * Default test configuration settings. These will be used by
  * config_set_defaults() to initialize test-execution configuration in the
- * master_config used to run tests.
+ * master_config used to run tests. See also config.h, where few default
+ * config limits used outside this file are defined.
  * --------------------------------------------------------------------------
  */
-#define TEST_CONFIG_DEFAULT_PAGE_SIZE SPLINTER_DEFAULT_PAGE_SIZE // bytes
-
-#define TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT SPLINTER_DEFAULT_PAGES_PER_EXTENT
-_Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
-               "Invalid TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT value");
-
-#define TEST_CONFIG_DEFAULT_EXTENT_SIZE                                        \
-   (TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT * TEST_CONFIG_DEFAULT_PAGE_SIZE)
-
 // Determined empirically ... nothing scientific here
 #define TEST_CONFIG_DEFAULT_IO_ASYNC_Q_DEPTH 256
 

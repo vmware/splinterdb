@@ -73,8 +73,8 @@ CTEST_DATA(limitations)
 // clang-format off
 CTEST_SETUP(limitations)
 {
-   Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle = fopen("/tmp/unit_test.stderr", "a+");
 
    uint64 heap_capacity = (1 * GiB);
 
@@ -400,8 +400,8 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
    *out_cfg = (splinterdb_config){.filename    = TEST_DB_NAME,
                                   .cache_size  = 64 * Mega,
                                   .disk_size   = 127 * Mega,
-                                  .page_size   = SPLINTER_DEFAULT_PAGE_SIZE,
-                                  .extent_size = SPLINTER_DEFAULT_EXTENT_SIZE,
+                                  .page_size   = TEST_CONFIG_DEFAULT_PAGE_SIZE,
+                                  .extent_size = TEST_CONFIG_DEFAULT_EXTENT_SIZE,
                                   .data_cfg    = default_data_cfg};
 }
 

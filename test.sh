@@ -355,6 +355,10 @@ function nightly_test_limitations() {
     run_check_rc bin/driver_test splinter_test --extent-size 8192
     run_check_rc bin/driver_test splinter_test --extent-size 135168
     run_check_rc bin/driver_test splinter_test --extent-size 262144
+
+    # Validate that test-configs honor min / max key-sizes
+    run_check_rc bin/driver_test splinter_test --key-size 0
+    run_check_rc bin/driver_test splinter_test --key-size 7
     run_check_rc bin/driver_test splinter_test --key-size 122
     run_check_rc bin/driver_test splinter_test --key-size 200
 

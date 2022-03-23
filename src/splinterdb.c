@@ -77,10 +77,10 @@ static void
 splinterdb_config_set_defaults(splinterdb_config *cfg)
 {
    if (!cfg->page_size) {
-      cfg->page_size = SPLINTER_DEFAULT_PAGE_SIZE;
+      cfg->page_size = LAIO_DEFAULT_PAGE_SIZE;
    }
    if (!cfg->extent_size) {
-      cfg->extent_size = SPLINTER_DEFAULT_EXTENT_SIZE;
+      cfg->extent_size = LAIO_DEFAULT_EXTENT_SIZE;
    }
    if (!cfg->io_flags) {
       cfg->io_flags = O_RDWR | O_CREAT;
@@ -355,17 +355,9 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                   cfg.filename);
 
    // Validate IO-configuration parameters
-   if (!io_config_valid_page_size(&kvs->io_cfg)) {
-      platform_error_log(
-         "Page-size, %lu bytes, is an invalid IO configuration.\n",
-         kvs->io_cfg.page_size);
-      return STATUS_BAD_PARAM;
-   }
-   if (!io_config_valid_extent_size(&kvs->io_cfg)) {
-      platform_error_log(
-         "Extent-size, %lu bytes, is an invalid IO configuration.\n",
-         kvs->io_cfg.extent_size);
-      return STATUS_BAD_PARAM;
+   rc = laio_config_valid(&kvs->io_cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
    rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
