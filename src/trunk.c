@@ -7923,20 +7923,15 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 {
    uint16 height = trunk_height(spl, node);
    // clang-format off
-   platform_log(log_handle, "---------------------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                           |\n");
-   platform_log(log_handle, "|  HEADER  |--------------|--------------|--------|---------|---------|---------------------------|\n");
-   platform_log(log_handle, "|          | %12lu | %12lu | %6u | %7lu | %7lu |                           |\n",
+   platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                            |\n");
+   platform_log(log_handle, "|  HEADER  |--------------|--------------|--------|---------|---------|----------------------------|\n");
+   platform_log(log_handle, "|          | %12lu | %12lu | %6u | %7lu | %7lu |                            |\n",
       node->disk_addr,
       trunk_next_addr(spl, node),
       height,
       trunk_generation(spl, node),
       trunk_pivot_generation(spl, node));
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|                                       PIVOTS                                                    |\n");
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes |  srq  |  gen  |\n");
-   platform_log(log_handle, "|--------------------------|--------------|--------------|-------------|----------|-------|-------|\n");
    // clang-format on
 
    trunk_print_pivots(log_handle, spl, node);
@@ -7957,11 +7952,11 @@ trunk_print_pivots(platform_log_handle *log_handle,
                    page_handle         *node)
 {
    // clang-format off
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|                                       PIVOTS                                        |\n");
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|         pivot key        |  child addr  |  filter addr | tuple count |  srq |  gen  |\n");
-   platform_log(log_handle, "|--------------------------|--------------|--------------|-------------|------|-------|\n");
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|                                       PIVOTS                                                     |\n");
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes  |  srq  |  gen  |\n");
+   platform_log(log_handle, "|--------------------------|--------------|--------------|-------------|-----------|-------|-------|\n");
    // clang-format on
 
    for (uint16 pivot_no = 0; pivot_no < trunk_num_pivot_keys(spl, node);
@@ -7973,9 +7968,10 @@ trunk_print_pivots(platform_log_handle *log_handle,
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
          platform_log(log_handle,
-                      "| %.*s | %12s | %12s | %11s | %4s | %5s |\n",
+                      "| %.*s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
                       24,
                       key_string,
+                      "",
                       "",
                       "",
                       "",
@@ -7987,7 +7983,7 @@ trunk_print_pivots(platform_log_handle *log_handle,
                       key_string);
       } else {
          platform_log(log_handle,
-                      "| %.*s | %12lu | %12lu | %11lu | %8lu | %5ld | %5lu |\n",
+                      "| %.*s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
                       24,
                       key_string,
                       pdata->addr,
@@ -8015,15 +8011,6 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
                                  trunk_handle        *spl,
                                  page_handle         *node)
 {
-   // clang-format off
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|                              BRANCHES AND [SUB]BUNDLES                                          |\n");
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                |\n");
-   platform_log(log_handle, "|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                |\n");
-   platform_log(log_handle, "|-----|--------------|--------------|--------------|--------------|--------------|----------------|\n");
-   // clang-format on
-
    uint16 start_branch = trunk_start_branch(spl, node);
    uint16 end_branch   = trunk_end_branch(spl, node);
    uint16 start_bundle = trunk_start_bundle(spl, node);
@@ -8031,22 +8018,21 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
    uint16 start_sb     = trunk_start_subbundle(spl, node);
    uint16 end_sb       = trunk_end_subbundle(spl, node);
 
-   platform_log(log_handle,
-                "|start_branch=%-2u end_branch=%-2u"
-                " start_bundle=%-2u end_bundle=%-2u"
-                " start_sb=%-2u end_sb=%-2u    |\n",
+   // clang-format off
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|                              BRANCHES AND [SUB]BUNDLES                                           |\n");
+   platform_log(log_handle, "|start_branch=%-2u end_branch=%-2u start_bundle=%-2u end_bundle=%-2u start_sb=%-2u end_sb=%-2u%-17s|\n",
                 start_branch,
                 end_branch,
                 start_bundle,
                 end_bundle,
                 start_sb,
-                end_sb);
-
-   // clang-format off
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |    |\n");
-   platform_log(log_handle, "|     |    pivot/bundle/subbundle   |  num tuples  |              |              |    |\n");
-   platform_log(log_handle, "|-----|--------------|--------------|--------------|--------------|--------------|----|\n");
+                end_sb,
+                " ");
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                 |\n");
+   platform_log(log_handle, "|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                 |\n");
+   platform_log(log_handle, "|-----|--------------|--------------|--------------|--------------|--------------|-----------------|\n");
    // clang-format on
 
    // Iterate through all the branches ...
@@ -8058,7 +8044,7 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
            pivot_no++) {
          if (branch_no == trunk_pivot_start_branch(spl, node, pivot_no)) {
             // clang-format off
-            platform_log(log_handle, "|     |        -- pivot %2u --       |              |              |              |                |\n",
+            platform_log(log_handle, "|     |        -- pivot %2u --       |              |              |              |                 |\n",
                          pivot_no);
             // clang-format on
          }
@@ -8072,7 +8058,7 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
          // Generate marker line if current branch is a bundle's start branch
          if (branch_no == trunk_bundle_start_branch(spl, node, bundle)) {
             // clang-format off
-            platform_log(log_handle, "|     |       -- bundle %2u --       | %12lu |              |              |                |\n",
+            platform_log(log_handle, "|     |       -- bundle %2u --       | %12lu |              |              |                 |\n",
                          bundle_no,
                          bundle->num_tuples);
             // clang-format on
@@ -8102,13 +8088,13 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
 
       trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
       // clang-format off
-      platform_log(log_handle, "| %3u |         %12lu        |              |              |              |                |\n",
+      platform_log(log_handle, "| %3u |         %12lu        |              |              |              |                 |\n",
                           branch_no,
                           branch->root_addr);
       // clang-format on
    }
    // clang-format off
-   platform_log(log_handle, "---------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
    // clang-format on
    platform_log(log_handle, "\n");
 }
@@ -8142,7 +8128,7 @@ trunk_print_node(platform_log_handle *log_handle,
 }
 
 /*
- * trunk_sprint_subtree() --
+ * trunk_print_subtree() --
  *
  * Print the Trunk node at given 'addr'. Iterate down to all its children and
  * print each sub-tree.
@@ -8166,7 +8152,7 @@ trunk_print_subtree(platform_log_handle *log_handle,
 }
 
 /*
- * trunk_sprint_memtable() --
+ * trunk_print_memtable() --
  *
  * Print the currently active Memtable, and the other Memtables being processed.
  * Memtable printing will drill-down to BTree printing which will keep

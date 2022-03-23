@@ -765,7 +765,7 @@ rc_allocator_print_debug(rc_allocator *al)
 
    platform_default_log(
       "Allocated extents: %lu\n%s", nallocated, (print_curly ? "{\n" : ""));
-   platform_default_log("   Index  ExtentID  ExtentAddr  Count\n");
+   platform_default_log("   Index  ExtentAddr  Count\n");
 
    // # of extents with non-zero referenced page-count found
    uint64 found = 0;
@@ -775,9 +775,8 @@ rc_allocator_print_debug(rc_allocator *al)
       if (ref != 0) {
          found++;
          uint64 ext_addr = (i * al->cfg->io_cfg->extent_size);
-         platform_default_log("%8lu %8lu %12lu     %u\n",
+         platform_default_log("%8lu %12lu     %u\n",
                               i,
-                              (ext_addr / al->cfg->io_cfg->page_size),
                               ext_addr,
                               ref);
       }
