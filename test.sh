@@ -423,7 +423,6 @@ function run_build_and_test() {
         CC=${compiler} LD=${compiler} \
         BUILD_ASAN=${asan_mode} BUILD_MSAN=${msan_mode} \
         make all >> "${outfile}" 2>&1
-    # set +x
 
     echo "${Me}: Basic checks to verify few build artifacts:" >> "${outfile}"
     ls -l "${bindir}"/driver_test >> "${outfile}" 2>&1
