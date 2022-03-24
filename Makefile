@@ -74,9 +74,6 @@ help::
 	@echo '  BUILD_ROOT: Base dir name for build outputs (Default: "build").'
 	@echo '              Build artifacts are created in '
 	@echo '                  $$(BUILD_ROOT)/$$(BUILD_MODE)[-asan][-msan]'
-	@echo '              For example, if BUILD_MODE is "debug" and BUILD_ASAN'
-	@echo '              is enabled, then build artifacts will be stored under'
-	@echo '              "build/debug-asan".'
 	@echo
 
 ifndef BUILD_ROOT
@@ -106,7 +103,6 @@ endif
 
 help::
 	@echo '  BUILD_MODE: "release", "debug", or "optimized-debug" (Default: "release")'
-
 
 # ************************************************************************
 # Address sanitizer
@@ -174,6 +170,25 @@ endif
 
 help::
 	@echo '  BUILD_VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
+
+ifeq "$(BUILD_VERBOSE)" "1"
+
+	@echo '  '
+	@echo 'Examples:'
+	@echo '  - Default release build, artifacts created under build/release:'
+	@echo '     $$ make'
+	@echo '  '
+	@echo '  - Default debug build, artifacts created under build/debug:'
+	@echo '     $$ BUILD_DEBUG=1 make'
+	@echo '  '
+	@echo '  - Build release binary and run all tests:'
+	@echo '     $$ make all run-tests'
+	@echo '     $$ make run-tests'
+	@echo '  '
+	@echo '  - Debug ASAN build, artifacts created under /tmp/build/debug-asan:'
+	@echo '     $$ BUILD_ROOT=/tmp/build BUILD_MODE=debug BUILD_ASAN=1 make'
+	@echo '  '
+endif
 
 
 ###################################################################

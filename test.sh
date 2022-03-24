@@ -6,22 +6,21 @@
 Me=$(basename "$0")
 set -euo pipefail
 
-# location of binaries, which live under $BUILD_DIR, if set.
-build_dir="${BUILD_DIR:-build}"
-BINDIR="${BINDIR:-${build_dir}/bin}"
+# Location of binaries, which live under $BUILD_ROOT, if set.
+build_dir="${BUILD_ROOT:-build}"
+build_mode="${BUILD_MODE:-release}"
+BINDIR="${BINDIR:-${build_dir}/${build_mode}/bin}"
 
-# Location of binaries, which live under $BUILD_DIR, if BINDIR is not set.
+# Location of binaries, which live under $BUILD_ROOT, if BINDIR is not set.
 # If BINDIR -was- set in the user's env, we need to drive off of that.
 # To avoid raising a script error by referencing this variable if it was
 # -not-set- we just initialized it above to this value. Thus, if the
 # following is true, it means the env-var BINDIR was -not- set already.
-if [ "${BINDIR}" == "${build_dir}/bin" ]; then
+if [ "${BINDIR}" == "${build_dir}/${build_mode}/bin" ]; then
 
-   # If BUILD_MODE is -set-, fix build-dir path.
-   build_mode="${BUILD_MODE:-0}"
-   if [ "${build_mode}" != "0" ]; then
-      build_dir="${build_dir}-${build_mode}"
-   fi
+   # Fix build-dir path based on BUILD_MODE, if -set-.
+   build_mode="${BUILD_MODE:-release}"
+   build_dir="${build_dir}/${build_mode}"
 
    # If either one of Asan / Msan build options is -set-, fix build-dir path.
    build_asan="${BUILD_ASAN:-0}"
@@ -41,6 +40,7 @@ echo "$Me: build_dir='${build_dir}', BINDIR='${BINDIR}'"
 # Top-level env-vars controlling test execution logic. CI sets these, too.
 INCLUDE_SLOW_TESTS="${INCLUDE_SLOW_TESTS:-false}"
 RUN_NIGHTLY_TESTS="${RUN_NIGHTLY_TESTS:-false}"
+RUN_MAKE_TESTS="${RUN_MAKE_TESTS:-false}"
 
 # Name of /tmp file to record test-execution times
 test_exec_log_file="/tmp/${Me}.$$.log"
@@ -55,9 +55,10 @@ function usage() {
 
    # Computed elapsed hours, mins, seconds from total elapsed seconds
    echo "Usage: $Me [--help]"
-   echo "To run quick smoke tests        : ./${Me}"
-   echo "To run CI-regression tests      : INCLUDE_SLOW_TESTS=true ./${Me}"
-   echo "To run nightly regression tests : RUN_NIGHTLY_TESTS=true ./${Me}"
+   echo "To run quick smoke tests         : ./${Me}"
+   echo "To run CI-regression tests       : INCLUDE_SLOW_TESTS=true ./${Me}"
+   echo "To run nightly regression tests  : RUN_NIGHTLY_TESTS=true ./${Me}"
+   echo "To run make build-and-test tests : RUN_MAKE_TESTS=true ./${Me}"
 }
 
 # ##################################################################
@@ -367,6 +368,139 @@ function nightly_test_limitations() {
 }
 
 # ##################################################################
+# run_build_and_test -- Driver to exercise build in different modes
+# and do basic validation that build succeeded.
+#
+# This function manages the build output-dirs for different modes
+# to enable parallel execution of test-builds. This way, we do not
+# clobber build outputs across different build-modes when this test
+# below runs 'make clean'.
+# ##################################################################
+function run_build_and_test() {
+
+    local build_root=$1
+    local build_mode=$2
+    local asan_mode=$3
+    local msan_mode=$4
+
+    local binroot="${build_mode}"   # Will be 'debug' or 'release'
+    local compiler="gcc"
+    local outfile="${Me}.${build_mode}"
+    local san=""
+
+    if [ "${asan_mode}" == 1 ]; then
+        san="asan"
+        outfile="${outfile}.${san}"
+        binroot="${binroot}-${san}"
+    elif [ "${msan_mode}" == 1 ]; then
+        san="msan"
+        outfile="${outfile}.${san}"
+        binroot="${binroot}-${san}"
+        compiler="clang"
+    fi
+    local bindir="${build_root}/${binroot}/bin"
+    outfile="${outfile}.out"
+    echo "${Me}: Test ${build_mode} ${san} build; tail -f $outfile"
+
+    # --------------------------------------------------------------------------
+    # Do a build in the requested mode. Some gotchas on this execution:
+    #  - This step will recursively execute this script, so provide env-vars
+    #    that will avoid falling into an endless recursion.
+    #  - Specify a diff build-dir to test out make functionality, so that we
+    #    do not clobber user's existing build/ outputs by 'make clean'
+    #  - Verify that couple of build-artifacts are found in bin/ dir as expected.
+    #  - Just check for the existence of driver_test, but do -not- try to run
+    #    'driver_test --help', as that command exits with non-zero $rc
+    # --------------------------------------------------------------------------
+    {
+        INCLUDE_SLOW_TESTS=false \
+        RUN_MAKE_TESTS=false \
+        BUILD_ROOT=${build_root} \
+        BUILD_MODE=${build_mode} \
+        CC=${compiler} \
+        LD=${compiler} \
+        BUILD_ASAN=${asan_mode} \
+        BUILD_MSAN=${msan_mode} \
+        make all
+
+        echo "${Me}: Basic checks to verify few build artifacts:"
+        ls -l "${bindir}"/driver_test
+        "${bindir}"/unit_test --help
+        "${bindir}"/unit/splinter_test --help
+
+    } >> "${outfile}" 2>&1
+
+}
+
+# ##################################################################
+# test_make_all_build_modes: Basic sanity verification of builds.
+# Test the 'make' interfaces for various build-modes.
+# ##################################################################
+function test_make_all_build_modes() {
+
+    # clean build root dir, so we can do parallel builds below.
+    local build_root=$1
+    BUILD_ROOT=${build_root} make clean
+
+    set +x
+    echo "$Me: Test 'make' and ${Me} integration for various build modes."
+
+    local build_modes="release debug optimized-debug"
+    for build_mode in ${build_modes}; do
+        #                                                 asan msan
+        run_build_and_test "${build_root}" "${build_mode}"  0    0 &
+        run_build_and_test "${build_root}" "${build_mode}"  1    0 &
+        run_build_and_test "${build_root}" "${build_mode}"  0    1 &
+    done
+    wait
+}
+
+# ##################################################################
+# Basic test to verify that the Makefile's config-conflict checks
+# are working as designed.
+# ##################################################################
+function test_make_config_conflicts() {
+    set +x
+    local build_root=$1
+    BUILD_ROOT=${build_root} make clean
+
+    local outfile="${Me}.config_conflicts.out"
+    echo "${Me}: test Makefile config-conflict detection ... tail -f ${outfile}"
+
+    # Should succeed
+    BUILD_ROOT=${build_root} CC=gcc LD=gcc make libs >> "${outfile}" 2>&1
+
+    # Should also succeed in another build-mode
+    BUILD_ROOT=${build_root} CC=gcc LD=gcc BUILD_MODE=debug make libs >> "${outfile}" 2>&1
+
+    # These commands are supposed to fail, so turn this OFF
+    set +e
+    BUILD_ROOT=${build_root} CC=clang LD=clang make libs >> "${outfile}" 2>&1
+    local rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "$Me:${LINENO}: Test is expected to fail, but did not."
+        exit 1
+   fi
+    BUILD_ROOT=${build_root} CC=clang LD=clang BUILD_MODE=debug make libs >> "${outfile}" 2>&1
+    local rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "$Me:${LINENO} Test is expected to fail, but did not."
+        exit 1
+   fi
+}
+
+# ##################################################################
+# Driver function to exercise 'make' build-tests
+# ##################################################################
+function test_make_run_tests() {
+    local build_root="/tmp/test-builds"
+    test_make_config_conflicts "${build_root}"
+    test_make_all_build_modes "${build_root}"
+
+    if [ -d ${build_root} ]; then rm -rf "${build_root}"; fi
+}
+
+# ##################################################################
 # main() begins here
 # ##################################################################
 
@@ -438,6 +572,11 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    echo "Fast tests passed"
    record_elapsed_time ${start_seconds} "Fast unit tests"
+
+   if [ "$RUN_MAKE_TESTS" == "true" ]; then
+      run_with_timing "Basic build-and-test tests" test_make_run_tests
+   fi
+
    cat_exec_log_file
    exit 0
 fi
