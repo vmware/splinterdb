@@ -6,22 +6,21 @@
 Me=$(basename "$0")
 set -euo pipefail
 
-# location of binaries, which live under $BUILD_DIR, if set.
-build_dir="${BUILD_DIR:-build}"
-BINDIR="${BINDIR:-${build_dir}/bin}"
+# Location of binaries, which live under $BUILD_ROOT, if set.
+build_dir="${BUILD_ROOT:-build}"
+build_mode="${BUILD_MODE:-release}"
+BINDIR="${BINDIR:-${build_dir}/${build_mode}/bin}"
 
-# Location of binaries, which live under $BUILD_DIR, if BINDIR is not set.
+# Location of binaries, which live under $BUILD_ROOT, if BINDIR is not set.
 # If BINDIR -was- set in the user's env, we need to drive off of that.
 # To avoid raising a script error by referencing this variable if it was
 # -not-set- we just initialized it above to this value. Thus, if the
 # following is true, it means the env-var BINDIR was -not- set already.
-if [ "${BINDIR}" == "${build_dir}/bin" ]; then
+if [ "${BINDIR}" == "${build_dir}/${build_mode}/bin" ]; then
 
-   # If BUILD_MODE is -set-, fix build-dir path.
-   build_mode="${BUILD_MODE:-0}"
-   if [ "${build_mode}" != "0" ]; then
-      build_dir="${build_dir}-${build_mode}"
-   fi
+   # Fix build-dir path based on BUILD_MODE, if -set-.
+   build_mode="${BUILD_MODE:-release}"
+   build_dir="${build_dir}/${build_mode}"
 
    # If either one of Asan / Msan build options is -set-, fix build-dir path.
    build_asan="${BUILD_ASAN:-0}"
