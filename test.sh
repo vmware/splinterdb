@@ -366,6 +366,43 @@ function nightly_test_limitations() {
 }
 
 # ##################################################################
+# test_make_run_tests: Basic sanity verification of build and tests.
+# Test the 'make' interfaces for various build-modes, executing the
+# quick unit-tests for each build.
+# ##################################################################
+function test_make_run_tests() {
+    echo "$Me: Test 'make' and ${Me} integration for various build modes."
+
+    local outfile=""
+
+    local build_modes="release debug"
+    local asan_mode=""
+    local msan_mode=""
+
+    for build_mode in ${build_modes}; do
+        for asan_mode in 0 1;
+        do
+            outfile="${Me}.${build_mode}"
+            if [ ${asan_mode} == "1" ]; then
+                outfile="${outfile}.asan"
+            fi
+            outfile="${outfile}.out"
+            echo "${outfile}"
+        done
+
+        for msan_mode in 0 1;
+        do
+            outfile="${Me}.${build_mode}"
+            if [ ${msan_mode} == "1" ]; then
+                outfile="${outfile}.msan"
+            fi
+            outfile="${outfile}.out"
+            echo "${outfile}"
+        done
+    done
+}
+
+# ##################################################################
 # main() begins here
 # ##################################################################
 
@@ -411,6 +448,8 @@ fi
 
 # ---- Fast running Smoke test runs ----
 if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
+
+   test_make_run_tests
 
    # For some coverage, exercise --help, --list args for unit test binaries
    set -x
