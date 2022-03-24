@@ -365,6 +365,44 @@ function nightly_test_limitations() {
     bin/driver_test splinter_test --help
 }
 
+function run_build_and_test() {
+
+    local build_mode=$1
+    local asan_mode=$2
+    local msan_mode=$3
+    local outfile="${Me}.${build_mode}"
+    local binroot="build/${build_mode}"
+    local compiler="gcc"
+
+    if [ "${asan_mode}" == 1 ]; then
+        outfile="${outfile}.asan"
+        binroot="${binroot}-asan"
+    elif [ "${msan_mode}" == 1 ]; then
+        outfile="${outfile}.msan"
+        binroot="${binroot}-msan"
+        compiler="clang"
+    fi
+    local bindir="${binroot}/bin"
+    outfile="${outfile}.out"
+    echo "${Me}: tail -f $outfile"
+
+    # --------------------------------------------------------------------------
+    # Do a build in the requested mode.
+    # Verify that couple of build-artifacts are found in bin/ dir as expected.
+    # Do -not- try to run 'driver_test --help', as that exits with non-zero $rc
+    set -x
+    make clean > "${outfile}" 2>&1
+    INCLUDE_SLOW_TESTS=false RUN_MAKE_TESTS=false BUILD_MODE=${build_mode} \
+        CC=${compiler} LD=${compiler} \
+        BUILD_ASAN=${asan_mode} BUILD_MSAN=${msan_mode} \
+        make all >> "${outfile}" 2>&1
+
+    ls -l ${bindir}/driver_test >> "${outfile}" 2>&1
+    ${bindir}/unit_test --help >> "${outfile}" 2>&1
+    ${bindir}/unit/splinter_test --help >> "${outfile}" 2>&1
+    set +x
+}
+
 # ##################################################################
 # test_make_run_tests: Basic sanity verification of build and tests.
 # Test the 'make' interfaces for various build-modes, executing the
@@ -373,33 +411,15 @@ function nightly_test_limitations() {
 function test_make_run_tests() {
     echo "$Me: Test 'make' and ${Me} integration for various build modes."
 
-    local outfile=""
 
     local build_modes="release debug"
-    local asan_mode=""
-    local msan_mode=""
-
     for build_mode in ${build_modes}; do
-        for asan_mode in 0 1;
-        do
-            outfile="${Me}.${build_mode}"
-            if [ ${asan_mode} == "1" ]; then
-                outfile="${outfile}.asan"
-            fi
-            outfile="${outfile}.out"
-            echo "${outfile}"
-        done
 
-        for msan_mode in 0 1;
-        do
-            outfile="${Me}.${build_mode}"
-            if [ ${msan_mode} == "1" ]; then
-                outfile="${outfile}.msan"
-            fi
-            outfile="${outfile}.out"
-            echo "${outfile}"
-        done
+        run_build_and_test "${build_mode}" 0 0
+        run_build_and_test "${build_mode}" 1 0
+        run_build_and_test "${build_mode}" 0 1
     done
+    exit 1
 }
 
 # ##################################################################
@@ -449,8 +469,6 @@ fi
 # ---- Fast running Smoke test runs ----
 if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
-   test_make_run_tests
-
    # For some coverage, exercise --help, --list args for unit test binaries
    set -x
    "$BINDIR"/unit_test --help
@@ -480,6 +498,9 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    exit 0
 fi
 
+if [ "$RUN_MAKE_TESTS" == "true" ]; then
+   test_make_run_tests
+fi
 # ---- Rest of the coverage runs included in CI test runs ----
 
 # Run all the unit-tests first, to get basic coverage
