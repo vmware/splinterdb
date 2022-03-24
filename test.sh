@@ -40,6 +40,7 @@ echo "$Me: build_dir='${build_dir}', BINDIR='${BINDIR}'"
 # Top-level env-vars controlling test execution logic. CI sets these, too.
 INCLUDE_SLOW_TESTS="${INCLUDE_SLOW_TESTS:-false}"
 RUN_NIGHTLY_TESTS="${RUN_NIGHTLY_TESTS:-false}"
+RUN_MAKE_TESTS="${RUN_MAKE_TESTS:-false}"
 
 # Name of /tmp file to record test-execution times
 test_exec_log_file="/tmp/${Me}.$$.log"
@@ -375,22 +376,24 @@ function run_build_and_test() {
     local msan_mode=$3
 
     local buildroot="/tmp/test-builds"
-    local binroot="${buildroot}/${build_mode}"
+    local binroot="${build_mode}"   # Will be 'debug' or 'release'
     local compiler="gcc"
     local outfile="${Me}.${build_mode}"
     local san=""
 
     if [ "${asan_mode}" == 1 ]; then
         san="asan"
+        buildroot="${buildroot}-${san}"
         outfile="${outfile}.${san}"
         binroot="${binroot}-${san}"
     elif [ "${msan_mode}" == 1 ]; then
         san="msan"
+        buildroot="${buildroot}-${san}"
         outfile="${outfile}.${san}"
         binroot="${binroot}-${san}"
         compiler="clang"
     fi
-    local bindir="${binroot}/bin"
+    local bindir="${buildroot}/${binroot}/bin"
     outfile="${outfile}.out"
     echo "${Me}: Test ${build_mode} ${san} build; tail -f $outfile"
 
@@ -508,11 +511,12 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    echo "Fast tests passed"
    record_elapsed_time ${start_seconds} "Fast unit tests"
-   cat_exec_log_file
 
    if [ "$RUN_MAKE_TESTS" == "true" ]; then
       run_with_timing "Basic build-and-test tests" test_make_run_tests
    fi
+
+   cat_exec_log_file
    exit 0
 fi
 
