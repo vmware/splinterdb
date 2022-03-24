@@ -345,5 +345,5 @@ memtable_config_init(memtable_config *cfg,
    cfg->btree_cfg     = btree_cfg;
    cfg->max_memtables = max_memtables;
    cfg->max_extents_per_memtable =
-      memtable_capacity / cache_config_extent_size(btree_cfg->cache_cfg);
+      2 * memtable_capacity / cache_config_extent_size(btree_cfg->cache_cfg);
 }
