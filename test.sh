@@ -368,6 +368,8 @@ function nightly_test_limitations() {
 
 function run_build_and_test() {
 
+    set +x
+
     local build_mode=$1
     local asan_mode=$2
     local msan_mode=$3
@@ -376,18 +378,21 @@ function run_build_and_test() {
     local binroot="${buildroot}/${build_mode}"
     local compiler="gcc"
     local outfile="${Me}.${build_mode}"
+    local san=""
 
     if [ "${asan_mode}" == 1 ]; then
-        outfile="${outfile}.asan"
-        binroot="${binroot}-asan"
+        san="asan"
+        outfile="${outfile}.${san}"
+        binroot="${binroot}-${san}"
     elif [ "${msan_mode}" == 1 ]; then
-        outfile="${outfile}.msan"
-        binroot="${binroot}-msan"
+        san="msan"
+        outfile="${outfile}.${san}"
+        binroot="${binroot}-${san}"
         compiler="clang"
     fi
     local bindir="${binroot}/bin"
     outfile="${outfile}.out"
-    echo "${Me}: tail -f $outfile"
+    echo "${Me}: Test ${build_mode} ${san} build; tail -f $outfile"
 
     # --------------------------------------------------------------------------
     # Do a build in the requested mode. Some gotchas on this execution:
@@ -399,14 +404,14 @@ function run_build_and_test() {
     #  - Just check for the existence of driver_test, but do -not- try to run
     #    'driver_test --help', as that command exits with non-zero $rc
     # --------------------------------------------------------------------------
-    set -x
+    # set -x
     BUILD_ROOT=${buildroot} make clean > "${outfile}" 2>&1
     INCLUDE_SLOW_TESTS=false RUN_MAKE_TESTS=false \
         BUILD_ROOT=${buildroot} BUILD_MODE=${build_mode} \
         CC=${compiler} LD=${compiler} \
         BUILD_ASAN=${asan_mode} BUILD_MSAN=${msan_mode} \
         make all >> "${outfile}" 2>&1
-    set +x
+    # set +x
 
     echo "${Me}: Basic checks to verify few build artifacts:" >> "${outfile}"
     ls -l "${bindir}"/driver_test >> "${outfile}" 2>&1
@@ -424,7 +429,6 @@ function test_make_run_tests() {
 
     local build_modes="release debug"
     for build_mode in ${build_modes}; do
-
         #                                  asan msan
         run_build_and_test "${build_mode}"  0    0
         run_build_and_test "${build_mode}"  1    0
