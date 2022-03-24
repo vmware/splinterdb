@@ -775,10 +775,7 @@ rc_allocator_print_debug(rc_allocator *al)
       if (ref != 0) {
          found++;
          uint64 ext_addr = (i * al->cfg->io_cfg->extent_size);
-         platform_default_log("%8lu %12lu     %u\n",
-                              i,
-                              ext_addr,
-                              ref);
+         platform_default_log("%8lu %12lu     %u\n", i, ext_addr, ref);
       }
    }
    platform_default_log("%sFound %lu extents with allocated pages.\n",
