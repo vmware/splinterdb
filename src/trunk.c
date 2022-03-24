@@ -3393,6 +3393,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    platform_assert(trunk_has_vacancy(spl, root, 1));
    trunk_modification_lock(spl);
    page_handle *new_root = trunk_node_copy(spl, root);
+   trunk_node_unget(spl, &root);
 
    platform_stream_handle stream;
    platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
@@ -3413,19 +3414,6 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
       trunk_get_compacted_memtable(spl, generation);
    trunk_compact_bundle_req *req = cmt->req;
    trunk_install_new_compacted_subbundle(spl, new_root, &cmt->branch, &cmt->filter, req);
-   trunk_log_stream_if_enabled(
-      spl,
-      &stream,
-      "enqueuing build filter: range %s-%s, height %u, bundle %u\n",
-      key_string(trunk_data_config(spl),
-                 slice_create(trunk_key_size(spl), req->start_key)),
-      key_string(trunk_data_config(spl),
-                 slice_create(trunk_key_size(spl), req->end_key)),
-      req->height,
-      req->bundle_no);
-   task_enqueue(
-      spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
-
    if (spl->cfg.use_stats) {
       spl->stats[tid].memtable_flush_wait_time_ns +=
          platform_timestamp_elapsed(cmt->wait_start);
@@ -3435,7 +3423,6 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
    trunk_log_stream_if_enabled(spl, &stream, "\n");
-   trunk_close_log_stream_if_enabled(spl, &stream);
 
    /*
     * 4. If root is full, flush until it is no longer full. Also flushes any
@@ -3483,6 +3470,23 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
    trunk_modification_unlock(spl);
    trunk_node_unclaim(spl, new_root);
    trunk_node_unget(spl, &new_root);
+
+   /*
+    * X. Enqueue the filter building task.
+    */
+   trunk_log_stream_if_enabled(
+      spl,
+      &stream,
+      "enqueuing build filter: range %s-%s, height %u, bundle %u\n",
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->start_key)),
+      key_string(trunk_data_config(spl),
+                 slice_create(trunk_key_size(spl), req->end_key)),
+      req->height,
+      req->bundle_no);
+   trunk_close_log_stream_if_enabled(spl, &stream);
+   task_enqueue(
+      spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
    /*
     * 7. Decrement the now-incorporated memtable ref count and recycle if no
@@ -4106,8 +4110,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       }
       trunk_close_log_stream_if_enabled(spl, &stream);
    }
-   while (should_continue_build_filters)
-      ;
+   while (should_continue_build_filters);
 
 out:
    platform_free(spl->heap_id, compact_req->fp_arr);
@@ -4302,6 +4305,7 @@ trunk_copy_node_and_add_to_parent(trunk_handle     *spl,
 {
    page_handle *old_child = trunk_node_get(spl, pdata->addr);
    page_handle *new_child = trunk_node_copy(spl, old_child);
+   trunk_node_unget(spl, &old_child);
    pdata->addr = new_child->disk_addr;
    return new_child;
 }
@@ -4772,6 +4776,13 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    compact_bundle_scratch          *scratch = &task_scratch->compact_bundle;
    trunk_handle                    *spl     = req->spl;
    __attribute__((unused)) threadid tid;
+
+   /*
+    * This prevents an attempt to acquire the node prior to the copy-on-write
+    * root switch.
+    */
+   trunk_modification_lock(spl);
+   trunk_modification_unlock(spl);
 
    /*
     * 1. Acquire node read lock
