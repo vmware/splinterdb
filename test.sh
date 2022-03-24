@@ -367,9 +367,16 @@ function nightly_test_limitations() {
     bin/driver_test splinter_test --help
 }
 
+# ##################################################################
+# run_build_and_test -- Driver to exercise build in different modes
+# and do basic validation that build succeeded.
+#
+# This function manages the build output-dirs for different modes
+# to enable parallel execution of test-builds. This way, we do not
+# clobber build outputs across different build-modes when this test
+# below runs 'make clean'.
+# ##################################################################
 function run_build_and_test() {
-
-    set +x
 
     local build_mode=$1
     local asan_mode=$2
@@ -381,6 +388,9 @@ function run_build_and_test() {
     local outfile="${Me}.${build_mode}"
     local san=""
 
+    if [ "${build_mode}" != "release" ]; then
+        buildroot="${buildroot}-${build_mode}"
+    fi
     if [ "${asan_mode}" == 1 ]; then
         san="asan"
         buildroot="${buildroot}-${san}"
@@ -407,7 +417,6 @@ function run_build_and_test() {
     #  - Just check for the existence of driver_test, but do -not- try to run
     #    'driver_test --help', as that command exits with non-zero $rc
     # --------------------------------------------------------------------------
-    # set -x
     BUILD_ROOT=${buildroot} make clean > "${outfile}" 2>&1
     INCLUDE_SLOW_TESTS=false RUN_MAKE_TESTS=false \
         BUILD_ROOT=${buildroot} BUILD_MODE=${build_mode} \
@@ -424,19 +433,20 @@ function run_build_and_test() {
 
 # ##################################################################
 # test_make_run_tests: Basic sanity verification of build and tests.
-# Test the 'make' interfaces for various build-modes, executing the
-# quick unit-tests for each build.
+# Test the 'make' interfaces for various build-modes.
 # ##################################################################
 function test_make_run_tests() {
+    set +x
     echo "$Me: Test 'make' and ${Me} integration for various build modes."
 
-    local build_modes="release debug"
+    local build_modes="release debug optimized-debug"
     for build_mode in ${build_modes}; do
         #                                  asan msan
-        run_build_and_test "${build_mode}"  0    0
-        run_build_and_test "${build_mode}"  1    0
-        run_build_and_test "${build_mode}"  0    1
+        run_build_and_test "${build_mode}"  0    0 &
+        run_build_and_test "${build_mode}"  1    0 &
+        run_build_and_test "${build_mode}"  0    1 &
     done
+    wait
 }
 
 # ##################################################################
