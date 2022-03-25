@@ -61,8 +61,8 @@ typedef struct test_splinter_thread_params {
    uint64             thread_number;
    task_system       *ts;
    platform_status    rc;
-   uint64             range_min;
-   uint64             range_max;
+   uint64             min_range_length;
+   uint64             max_range_length;
    stats_insert       insert_stats;
    uint64             num_ops_per_thread[NUM_OP_TYPES]; // in each round
    bool               expected_found;
@@ -71,16 +71,18 @@ typedef struct test_splinter_thread_params {
    stats_lookup       lookup_stats[NUM_LOOKUP_TYPES];
    uint8              lookup_positive_pct; // parallel lookup positive %
    uint64             seed;
+   uint64             range_lookups_done;
 } test_splinter_thread_params;
 
 /*
  * Parameters to driver trunk range query performance workload.
+ * NOTE: number of range operations is the ( # of inserts  / num_ranges )
  */
 typedef struct trunk_range_perf_params {
    const char *range_perf_descr;
    int         num_ranges;
-   uint64      range_min;
-   uint64      range_max;
+   uint64      min_range_length;
+   uint64      max_range_length;
 
 } trunk_range_perf_params;
 
@@ -344,34 +346,60 @@ test_trunk_range_thread(void *arg)
 {
    test_splinter_thread_params *params = (test_splinter_thread_params *)arg;
 
-   trunk_handle     **spl_tables     = params->spl;
-   const test_config *test_cfg       = params->test_cfg;
-   const uint64      *total_ops      = params->total_ops;
-   uint64            *curr_op        = params->curr_op;
-   uint64             op_granularity = params->op_granularity;
-   uint64             thread_number  = params->thread_number;
-   uint64             range_min      = params->range_min;
-   uint64             range_max      = params->range_max;
-   uint8              num_tables     = params->num_tables;
+   trunk_handle     **spl_tables       = params->spl;
+   const test_config *test_cfg         = params->test_cfg;
+   const uint64      *total_ops        = params->total_ops;
+   uint64            *curr_op          = params->curr_op;
+   uint64             op_granularity   = params->op_granularity;
+   uint64             thread_number    = params->thread_number;
+   uint64             min_range_length = params->min_range_length;
+   uint64             max_range_length = params->max_range_length;
+   uint8              num_tables       = params->num_tables;
 
    platform_assert(num_tables <= 8);
    uint64 *range_base =
       TYPED_ARRAY_ZALLOC(platform_get_heap_id(), range_base, num_tables);
    uint8 done = 0;
 
+   bool verbose_progress  = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   uint64 test_start_time = platform_get_timestamp();
+   uint64 start_time      = platform_get_timestamp();
+   char   progress_msg[60];
+
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
          if (test_is_done(done, spl_idx)) {
             continue;
          }
+         int   pct_done = (range_base[spl_idx] / (total_ops[spl_idx] / 100));
+         char *newmsg   = "";
+
+         if (verbose_progress) {
+            // For all threads other than thread 0, periodically emit a message
+            if (thread_number && pct_done && ((pct_done % 10) == 0)) {
+               uint64 delta_time = platform_timestamp_elapsed(start_time);
+               uint64 total_time = platform_timestamp_elapsed(test_start_time);
+               snprintf(progress_msg,
+                        sizeof(progress_msg),
+                        " ... delta=%lus, total time=%lus\n",
+                        NSEC_TO_SEC(delta_time),
+                        NSEC_TO_SEC(total_time));
+               newmsg = progress_msg;
+
+               // Reset ... for next batch of progress messages
+               start_time = platform_get_timestamp();
+            }
+         }
          platform_throttled_error_log(
             DEFAULT_THROTTLE_INTERVAL_SEC,
             PLATFORM_CR "Thread %lu range lookups %3lu%% complete for table %u"
-                        ", range_base=%lu",
+                        ", range_base=%lu%s",
             thread_number,
             range_base[spl_idx] / (total_ops[spl_idx] / 100),
             spl_idx,
-            range_base[spl_idx]);
+            range_base[spl_idx],
+            newmsg);
+
          range_base[spl_idx] =
             __sync_fetch_and_add(&curr_op[spl_idx], op_granularity);
          if (range_base[spl_idx] >= total_ops[spl_idx]) {
@@ -381,6 +409,7 @@ test_trunk_range_thread(void *arg)
             goto out;
          }
       }
+
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
             if (test_is_done(done, spl_idx)) {
@@ -397,10 +426,13 @@ test_trunk_range_thread(void *arg)
                      test_cfg[spl_idx].semiseq_freq,
                      trunk_key_size(spl),
                      test_cfg[spl_idx].period);
-            uint64 range_tuples = test_range(range_num, range_min, range_max);
+            uint64 range_tuples =
+               test_range(range_num, min_range_length, max_range_length);
             platform_status rc =
                trunk_range(spl, start_key, range_tuples, nop_tuple_func, NULL);
             platform_assert_status_ok(rc);
+
+            params->range_lookups_done++;
          }
       }
    }
@@ -781,12 +813,14 @@ compute_per_table_inserts(uint64       *per_table_inserts, // OUT
 {
    uint64 tuple_size;
    uint64 num_inserts;
-   uint64 total_inserts = 0;
+   uint64 num_inserts_cfg = test_cfg->test_exec_cfg->num_inserts;
+   uint64 total_inserts   = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size = cfg[i].data_cfg->key_size
                    + generator_average_message_size(test_cfg->gen);
-      num_inserts = test_cfg[i].tree_size / tuple_size;
+      num_inserts = (num_inserts_cfg ? num_inserts_cfg
+                                     : test_cfg[i].tree_size / tuple_size);
       if (test_cfg[i].key_type == TEST_PERIODIC) {
          test_cfg[i].period = num_inserts;
          num_inserts *= test_cfg[i].num_periods;
@@ -927,14 +961,17 @@ splinter_perf_inserts(platform_heap_id             hid,
                       uint64                       insert_rate,
                       uint64                      *total_inserts)
 {
-   platform_default_log("%s() starting num_insert_threads=%lu"
-                        ", num_threads=%lu ...\n",
-                        __FUNCTION__,
-                        num_insert_threads,
-                        num_threads);
    platform_status rc;
    *total_inserts =
       compute_per_table_inserts(per_table_inserts, cfg, test_cfg, num_tables);
+
+   platform_default_log("%s() starting num_insert_threads=%lu, num_threads=%lu"
+                        ", num_inserts=%lu (~%lu million) ...\n",
+                        __FUNCTION__,
+                        num_insert_threads,
+                        num_threads,
+                        *total_inserts,
+                        (*total_inserts / MILLION));
 
    load_thread_params(params,
                       spl_tables,
@@ -950,11 +987,6 @@ splinter_perf_inserts(platform_heap_id             hid,
 
    uint64 start_time = platform_get_timestamp();
 
-   bool verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
-   if (verbose_progress) {
-      platform_default_log("Create %lu insert threads ...\n",
-                           num_insert_threads);
-   }
    rc = do_n_thread_creates("insert_thread",
                             num_insert_threads,
                             params,
@@ -963,6 +995,13 @@ splinter_perf_inserts(platform_heap_id             hid,
                             test_trunk_insert_thread);
    if (!SUCCESS(rc)) {
       return rc;
+   }
+
+   bool verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   if (verbose_progress) {
+      platform_default_log("Created %lu insert threads"
+                           ", Waiting for threads to complete ...\n",
+                           num_insert_threads);
    }
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
@@ -977,8 +1016,9 @@ splinter_perf_inserts(platform_heap_id             hid,
    timestamp insert_latency_max = 0;
    uint64    read_io_bytes, write_io_bytes;
    cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
-   uint64 io_mib    = (read_io_bytes + write_io_bytes) / MiB;
-   uint64 bandwidth = io_mib / NSEC_TO_SEC(total_time);
+   uint64 io_mib = (read_io_bytes + write_io_bytes) / MiB;
+   uint64 bandwidth =
+      (NSEC_TO_SEC(total_time) ? (io_mib / NSEC_TO_SEC(total_time)) : 0);
 
    for (uint64 i = 0; i < num_insert_threads; i++) {
       rc = params[i].rc;
@@ -993,12 +1033,13 @@ splinter_perf_inserts(platform_heap_id             hid,
    rc = STATUS_OK;
 
    if (*total_inserts > 0) {
-      platform_default_log(
-         "\nper-splinter per-thread insert time per tuple %lu ns\n",
-         total_time * num_insert_threads / *total_inserts);
+      platform_default_log("\nTotal time=%lus, per-splinter per-thread "
+                           "insert time per tuple %lu ns\n",
+                           NSEC_TO_SEC(total_time),
+                           (total_time * num_insert_threads) / *total_inserts);
       platform_default_log(
          "splinter total insertion rate: %lu insertions/second\n",
-         SEC_TO_NSEC(*total_inserts) / total_time);
+         (total_time ? SEC_TO_NSEC(*total_inserts) / total_time : 0));
       platform_default_log("splinter bandwidth: %lu megabytes/second\n",
                            bandwidth);
       platform_default_log("splinter max insert latency: %lu msec\n",
@@ -1015,7 +1056,7 @@ splinter_perf_inserts(platform_heap_id             hid,
       cache_reset_stats(spl->cc);
       // trunk_print(Platform_default_log_handle, spl);
    }
-   platform_default_log("%s() completed.\n", __FUNCTION__);
+   platform_default_log("%s() completed.\n\n", __FUNCTION__);
    return rc;
 }
 
@@ -1058,6 +1099,14 @@ splinter_perf_lookups(platform_heap_id             hid,
    if (!SUCCESS(rc)) {
       return rc;
    }
+
+   bool verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   if (verbose_progress) {
+      platform_default_log("Created %lu lookup threads"
+                           ", Waiting for threads to complete ...\n",
+                           num_lookup_threads);
+   }
+
    for (uint64 i = 0; i < num_lookup_threads; i++) {
       platform_thread_join(params[i].thread);
    }
@@ -1088,11 +1137,13 @@ splinter_perf_lookups(platform_heap_id             hid,
 
    rc = STATUS_OK;
 
+   platform_default_log("\nTotal time=%lus, per-splinter per-thread "
+                        "lookup time per tuple %lu ns\n",
+                        NSEC_TO_SEC(total_time),
+                        total_time * num_lookup_threads / total_inserts);
    platform_default_log(
-      "\nper-splinter per-thread lookup time per tuple %lu ns\n",
-      total_time * num_lookup_threads / total_inserts);
-   platform_default_log("splinter total lookup rate: %lu lookups/second\n",
-                        SEC_TO_NSEC(total_inserts) / total_time);
+      "splinter total lookup rate: %lu lookups/second\n",
+      (total_time ? SEC_TO_NSEC(total_inserts) / total_time : 0));
    platform_default_log("%lu%% lookups were async\n",
                         num_async_lookups * 100 / total_inserts);
    platform_default_log("max lookup latency ns (sync=%lu, async=%lu)\n",
@@ -1105,7 +1156,7 @@ splinter_perf_lookups(platform_heap_id             hid,
       cache_print_stats(Platform_default_log_handle, spl->cc);
       cache_reset_stats(spl->cc);
    }
-   platform_default_log("%s() completed.\n", __FUNCTION__);
+   platform_default_log("%s() completed.\n\n", __FUNCTION__);
    return rc;
 }
 
@@ -1119,6 +1170,7 @@ splinter_perf_lookups(platform_heap_id             hid,
  */
 static platform_status
 splinter_perf_range_lookups(platform_heap_id             hid,
+                            test_config                 *test_cfg,
                             trunk_handle               **spl_tables,
                             task_system                 *ts,
                             test_splinter_thread_params *params,
@@ -1128,33 +1180,55 @@ splinter_perf_range_lookups(platform_heap_id             hid,
                             uint8                        num_tables,
                             trunk_range_perf_params     *range_perf)
 {
-   const char *range_descr = range_perf->range_perf_descr;
-   int         num_ranges  = range_perf->num_ranges;
-   uint64      range_min   = range_perf->range_min;
-   uint64      range_max   = range_perf->range_max;
+   const char *range_descr      = range_perf->range_perf_descr;
+   int         num_ranges       = range_perf->num_ranges;
+   uint64      min_range_length = range_perf->min_range_length;
+   uint64      max_range_length = range_perf->max_range_length;
    platform_default_log("%s() starting for %s: num_range_threads=%lu"
-                        ", num_ranges=%d, range_min=%lu, range_max=%lu ...\n",
+                        ", num_ranges=%d, min_range_length=%lu"
+                        ", max_range_length=%lu ...\n",
                         __FUNCTION__,
                         range_descr,
                         num_range_threads,
                         num_ranges,
-                        range_min,
-                        range_max);
+                        min_range_length,
+                        max_range_length);
    platform_assert(
       (num_range_threads > 0), "num_range_threads=%lu", num_range_threads);
 
-   uint64 total_ranges = 0;
+   bool verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   uint64 total_ranges   = 0;
    for (uint8 i = 0; i < num_tables; i++) {
       per_table_ranges[i] =
          ROUNDUP(per_table_inserts[i] / num_ranges, TEST_RANGE_GRANULARITY);
       total_ranges += per_table_ranges[i];
+
+      if (verbose_progress) {
+         platform_default_log(" Table[%d], per_table_inserts=%lu"
+                              ", per_table_ranges=%lu, total_ranges=%lu\n",
+                              i,
+                              per_table_inserts[i],
+                              per_table_ranges[i],
+                              total_ranges);
+      }
    }
 
    for (uint64 i = 0; i < num_range_threads; i++) {
-      params[i].total_ops      = per_table_ranges;
-      params[i].op_granularity = TEST_RANGE_GRANULARITY;
-      params[i].range_min      = range_min;
-      params[i].range_max      = range_max;
+      params[i].total_ops        = per_table_ranges;
+      params[i].op_granularity   = TEST_RANGE_GRANULARITY;
+      params[i].min_range_length = min_range_length;
+      params[i].max_range_length = max_range_length;
+
+      if (verbose_progress) {
+         platform_default_log(" Range thread[%lu] "
+                              "total_ops for table0=%lu, op_granularity=%lu"
+                              ", min_range_length=%lu, max_range_length=%lu\n",
+                              i,
+                              *params[i].total_ops,
+                              params[i].op_granularity,
+                              params[i].min_range_length,
+                              params[i].max_range_length);
+      }
    }
 
    uint64 start_time = platform_get_timestamp();
@@ -1170,6 +1244,13 @@ splinter_perf_range_lookups(platform_heap_id             hid,
    if (!SUCCESS(rc)) {
       return rc;
    }
+
+   if (verbose_progress) {
+      platform_default_log("Created %lu range lookup threads"
+                           ", Waiting for threads to complete ...\n",
+                           num_range_threads);
+   }
+
    for (uint64 i = 0; i < num_range_threads; i++) {
       platform_thread_join(params[i].thread);
    }
@@ -1185,11 +1266,27 @@ splinter_perf_range_lookups(platform_heap_id             hid,
 
    rc = STATUS_OK;
 
+   platform_default_log("\nTotal time=%lus for %s lookup, per-splinter "
+                        "per-thread range time per tuple %lu ns\n",
+                        NSEC_TO_SEC(total_time),
+                        range_descr,
+                        total_time * num_range_threads / total_ranges);
+
+   uint64 num_range_lookups = 0;
+   for (uint64 i = 0; i < num_range_threads; i++) {
+      if (verbose_progress) {
+         platform_default_log("  Range thread %lu, range lookups = %lu\n",
+                              i,
+                              params[i].range_lookups_done);
+      }
+      num_range_lookups += params[i].range_lookups_done;
+   }
    platform_default_log(
-      "\nper-splinter per-thread range time per tuple %lu ns\n",
-      total_time * num_range_threads / total_ranges);
-   platform_default_log("splinter total range rate: %lu ops/second\n",
-                        SEC_TO_NSEC(total_ranges) / total_time);
+      "splinter total range lookups: %lu"
+      ", range rate: %lu ops/second\n",
+      num_range_lookups,
+      (total_time ? SEC_TO_NSEC(total_ranges) / total_time : 0));
+
    for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
       trunk_handle *spl = spl_tables[spl_idx];
       cache_assert_free(spl->cc);
@@ -1197,7 +1294,7 @@ splinter_perf_range_lookups(platform_heap_id             hid,
       cache_print_stats(Platform_default_log_handle, spl->cc);
       cache_reset_stats(spl->cc);
    }
-   platform_default_log("%s() completed.\n", __FUNCTION__);
+   platform_default_log("%s() completed.\n\n", __FUNCTION__);
    return rc;
 }
 
@@ -1304,14 +1401,15 @@ test_splinter_perf(trunk_config    *cfg,
       trunk_range_perf_params perf_ranges[] = {
          //               number     min                 max
          {"Small range"  , 128      , 1                , 100    },
-         {"Medium range" , 4        , 512              , 1024   },
-         {"Large range"  , 4        , (131072 - 16384) , 131072 }
+         {"Medium range" , 512      , 512              , 1024   },
+         {"Large range"  , 2048     , (131072 - 16384) , 131072 }
       };
       // clang-format on
 
       for (int rctr = 0; rctr < ARRAY_SIZE(perf_ranges); rctr++) {
          ZERO_CONTENTS_N(curr_op, num_tables);
          rc = splinter_perf_range_lookups(hid,
+                                          test_cfg,
                                           spl_tables,
                                           ts,
                                           params,
@@ -1637,10 +1735,10 @@ test_splinter_periodic(trunk_config    *cfg,
    }
 
    for (uint64 i = 0; i < num_threads; i++) {
-      params[i].total_ops      = per_table_ranges;
-      params[i].op_granularity = TEST_RANGE_GRANULARITY;
-      params[i].range_min      = 1;
-      params[i].range_max      = 100;
+      params[i].total_ops        = per_table_ranges;
+      params[i].op_granularity   = TEST_RANGE_GRANULARITY;
+      params[i].min_range_length = 1;
+      params[i].max_range_length = 100;
    }
 
    ZERO_CONTENTS_N(curr_op, num_tables);
@@ -1696,10 +1794,10 @@ test_splinter_periodic(trunk_config    *cfg,
          total_ranges += per_table_ranges[i];
       }
       for (uint64 i = 0; i < num_range_threads; i++) {
-         params[i].total_ops      = per_table_ranges;
-         params[i].op_granularity = TEST_RANGE_GRANULARITY;
-         params[i].range_min      = 512;
-         params[i].range_max      = 1024;
+         params[i].total_ops        = per_table_ranges;
+         params[i].op_granularity   = TEST_RANGE_GRANULARITY;
+         params[i].min_range_length = 512;
+         params[i].max_range_length = 1024;
       }
 
       start_time = platform_get_timestamp();
@@ -1752,10 +1850,10 @@ test_splinter_periodic(trunk_config    *cfg,
          total_ranges += per_table_ranges[i];
       }
       for (uint64 i = 0; i < num_range_threads; i++) {
-         params[i].total_ops      = per_table_ranges;
-         params[i].op_granularity = TEST_RANGE_GRANULARITY;
-         params[i].range_min      = 131072 - 16384;
-         params[i].range_max      = 131072;
+         params[i].total_ops        = per_table_ranges;
+         params[i].op_granularity   = TEST_RANGE_GRANULARITY;
+         params[i].min_range_length = 131072 - 16384;
+         params[i].max_range_length = 131072;
       }
 
       start_time = platform_get_timestamp();
