@@ -227,6 +227,8 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    rc = splinterdb_lookup(data->kvsb, large_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(splinterdb_lookup_found(&result));
+
+   splinterdb_lookup_result_deinit(&result);
 }
 
 /*
@@ -755,6 +757,8 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    rc = splinterdb_lookup(data->kvsb, key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(splinterdb_lookup_found(&result));
+
+   splinterdb_lookup_result_deinit(&result);
 }
 
 CTEST2(splinterdb_quick, test_iterator_custom_comparator)
