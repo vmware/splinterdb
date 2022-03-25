@@ -378,32 +378,27 @@ function nightly_test_limitations() {
 # ##################################################################
 function run_build_and_test() {
 
-    local build_mode=$1
-    local asan_mode=$2
-    local msan_mode=$3
+    local build_root=$1
+    local build_mode=$2
+    local asan_mode=$3
+    local msan_mode=$4
 
-    local buildroot="/tmp/test-builds"
     local binroot="${build_mode}"   # Will be 'debug' or 'release'
     local compiler="gcc"
     local outfile="${Me}.${build_mode}"
     local san=""
 
-    if [ "${build_mode}" != "release" ]; then
-        buildroot="${buildroot}-${build_mode}"
-    fi
     if [ "${asan_mode}" == 1 ]; then
         san="asan"
-        buildroot="${buildroot}-${san}"
         outfile="${outfile}.${san}"
         binroot="${binroot}-${san}"
     elif [ "${msan_mode}" == 1 ]; then
         san="msan"
-        buildroot="${buildroot}-${san}"
         outfile="${outfile}.${san}"
         binroot="${binroot}-${san}"
         compiler="clang"
     fi
-    local bindir="${buildroot}/${binroot}/bin"
+    local bindir="${build_root}/${binroot}/bin"
     outfile="${outfile}.out"
     echo "${Me}: Test ${build_mode} ${san} build; tail -f $outfile"
 
@@ -417,35 +412,92 @@ function run_build_and_test() {
     #  - Just check for the existence of driver_test, but do -not- try to run
     #    'driver_test --help', as that command exits with non-zero $rc
     # --------------------------------------------------------------------------
-    BUILD_ROOT=${buildroot} make clean > "${outfile}" 2>&1
-    INCLUDE_SLOW_TESTS=false RUN_MAKE_TESTS=false \
-        BUILD_ROOT=${buildroot} BUILD_MODE=${build_mode} \
-        CC=${compiler} LD=${compiler} \
-        BUILD_ASAN=${asan_mode} BUILD_MSAN=${msan_mode} \
-        make all >> "${outfile}" 2>&1
+    {
+        INCLUDE_SLOW_TESTS=false \
+        RUN_MAKE_TESTS=false \
+        BUILD_ROOT=${build_root} \
+        BUILD_MODE=${build_mode} \
+        CC=${compiler} \
+        LD=${compiler} \
+        BUILD_ASAN=${asan_mode} \
+        BUILD_MSAN=${msan_mode} \
+        make all
 
-    echo "${Me}: Basic checks to verify few build artifacts:" >> "${outfile}"
-    ls -l "${bindir}"/driver_test >> "${outfile}" 2>&1
-    "${bindir}"/unit_test --help >> "${outfile}" 2>&1
-    "${bindir}"/unit/splinter_test --help >> "${outfile}" 2>&1
+        echo "${Me}: Basic checks to verify few build artifacts:"
+        ls -l "${bindir}"/driver_test
+        "${bindir}"/unit_test --help
+        "${bindir}"/unit/splinter_test --help
+
+    } >> "${outfile}" 2>&1
+
 }
 
 # ##################################################################
-# test_make_run_tests: Basic sanity verification of build and tests.
+# test_make_all_build_modes: Basic sanity verification of builds.
 # Test the 'make' interfaces for various build-modes.
 # ##################################################################
-function test_make_run_tests() {
+function test_make_all_build_modes() {
+
+    # clean build root dir, so we can do parallel builds below.
+    local build_root=$1
+    BUILD_ROOT=${build_root} make clean
+
     set +x
     echo "$Me: Test 'make' and ${Me} integration for various build modes."
 
     local build_modes="release debug optimized-debug"
     for build_mode in ${build_modes}; do
-        #                                  asan msan
-        run_build_and_test "${build_mode}"  0    0 &
-        run_build_and_test "${build_mode}"  1    0 &
-        run_build_and_test "${build_mode}"  0    1 &
+        #                                                 asan msan
+        run_build_and_test "${build_root}" "${build_mode}"  0    0 &
+        run_build_and_test "${build_root}" "${build_mode}"  1    0 &
+        run_build_and_test "${build_root}" "${build_mode}"  0    1 &
     done
     wait
+}
+
+# ##################################################################
+# Basic test to verify that the Makefile's config-conflict checks
+# are working as designed.
+# ##################################################################
+function test_make_config_conflicts() {
+    set +x
+    local build_root=$1
+    BUILD_ROOT=${build_root} make clean
+
+    local outfile="${Me}.config_conflicts.out"
+    echo "${Me}: test Makefile config-conflict detection ... tail -f ${outfile}"
+
+    # Should succeed
+    BUILD_ROOT=${build_root} CC=gcc LD=gcc make libs >> "${outfile}" 2>&1
+
+    # Should also succeed in another build-mode
+    BUILD_ROOT=${build_root} CC=gcc LD=gcc BUILD_MODE=debug make libs >> "${outfile}" 2>&1
+
+    # These commands are supposed to fail, so turn this OFF
+    set +e
+    BUILD_ROOT=${build_root} CC=clang LD=clang make libs >> "${outfile}" 2>&1
+    local rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "$Me:${LINENO}: Test is expected to fail, but did not."
+        exit 1
+   fi
+    BUILD_ROOT=${build_root} CC=clang LD=clang BUILD_MODE=debug make libs >> "${outfile}" 2>&1
+    local rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "$Me:${LINENO} Test is expected to fail, but did not."
+        exit 1
+   fi
+}
+
+# ##################################################################
+# Driver function to exercise 'make' build-tests
+# ##################################################################
+function test_make_run_tests() {
+    local build_root="/tmp/test-builds"
+    test_make_config_conflicts "${build_root}"
+    test_make_all_build_modes "${build_root}"
+
+    if [ -d ${build_root} ]; then rm -rf "${build_root}"; fi
 }
 
 # ##################################################################
