@@ -33,6 +33,7 @@ typedef struct test_config {
                                // this many keys
    uint64 num_periods;         // if TEST_PERIODIC then repeat this many times
    test_message_generator *gen;
+   test_exec_config       *test_exec_cfg; // Describes test's exec parameters
 } test_config;
 
 static inline void

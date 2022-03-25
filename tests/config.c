@@ -60,6 +60,7 @@ config_set_defaults(master_config *cfg)
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
       .verbose_logging_enabled  = FALSE,
+      .verbose_progress         = FALSE,
       .log_handle               = NULL,
       .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
@@ -110,6 +111,7 @@ config_usage()
    platform_error_log("\t--no-log\n");
    platform_error_log("\t--verbose-logging\n");
    platform_error_log("\t--no-verbose-logging\n");
+   platform_error_log("\t--verbose-progress\n");
    platform_error_log("\t--key-size (%d)\n", TEST_CONFIG_DEFAULT_KEY_SIZE);
    platform_error_log("\t--data-size (%d)\n", TEST_CONFIG_DEFAULT_MESSAGE_SIZE);
    platform_error_log("\t--num-inserts (%d)\n",
@@ -128,13 +130,12 @@ platform_status
 config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
 {
    uint64 i;
-   uint8  cfg_idx;
    for (i = 0; i < argc; i++) {
       // Don't be mislead; this is not dead-code. See the config macro expansion
       if (0) {
          config_set_uint64("page-size", cfg, page_size)
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                if (cfg[cfg_idx].page_size != TEST_CONFIG_DEFAULT_PAGE_SIZE) {
                   platform_error_log("Currently, configuration parameter '%s' "
                                      "is restricted to %d bytes.\n",
@@ -155,7 +156,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          }
          config_set_uint64("extent-size", cfg, extent_size)
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                if (!IS_POWER_OF_2(cfg[cfg_idx].extent_size)) {
                   platform_error_log("Configuration parameter '%s' must be "
                                      "a power of 2.\n",
@@ -184,25 +185,25 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_string("db-location", cfg, io_filename) {}
          config_has_option("set-O_DIRECT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags |= O_DIRECT;
             }
          }
          config_has_option("unset-O_DIRECT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags &= ~O_DIRECT;
             }
          }
          config_has_option("set-O_CREAT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags |= O_CREAT;
             }
          }
          config_has_option("unset-O_CREAT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags &= ~O_CREAT;
             }
          }
@@ -226,37 +227,47 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {}
          config_has_option("stats")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_stats = TRUE;
             }
          }
          config_has_option("no-stats")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_stats = FALSE;
             }
          }
          config_has_option("log")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_log = TRUE;
             }
          }
          config_has_option("no-log")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_log = FALSE;
             }
          }
          config_has_option("verbose-logging")
          {
-            cfg[cfg_idx].verbose_logging_enabled = TRUE;
-            cfg[cfg_idx].log_handle              = Platform_default_log_handle;
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].verbose_logging_enabled = TRUE;
+               cfg[cfg_idx].log_handle = Platform_default_log_handle;
+            }
          }
          config_has_option("no-verbose-logging")
          {
-            cfg[cfg_idx].verbose_logging_enabled = FALSE;
-            cfg[cfg_idx].log_handle              = NULL;
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].verbose_logging_enabled = FALSE;
+               cfg[cfg_idx].log_handle              = NULL;
+            }
+         }
+         config_has_option("verbose-progress")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].verbose_progress = TRUE;
+            }
          }
 
          config_set_uint64("key-size", cfg, key_size) {}
@@ -272,7 +283,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             return STATUS_BAD_PARAM;
          }
       }
-      for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+      for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
          if (cfg[cfg_idx].extent_size % cfg[cfg_idx].page_size != 0) {
             platform_error_log("Configured extent-size, %lu, is not a multiple "
                                "of page-size, %lu bytes.\n",

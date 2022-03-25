@@ -260,10 +260,12 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 /*
  * Some command-line [config] arguments become test execution parameters.
  * Define a structure to hold these when parsing command-line arguments.
+ * This is shared by both functional and unit-test methods.
  */
 typedef struct test_exec_config {
    uint64 seed;
    uint64 num_inserts;
+   bool   verbose_progress; // --verbose-progress: During test execution
 } test_exec_config;
 
 /*
@@ -319,8 +321,9 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    // All the n-SplinterDB instances will work with the same set of
    // test execution parameters.
    if (test_exec_cfg) {
-      test_exec_cfg->seed        = master_cfg[0].seed;
-      test_exec_cfg->num_inserts = master_cfg[0].num_inserts;
+      test_exec_cfg->seed             = master_cfg[0].seed;
+      test_exec_cfg->num_inserts      = master_cfg[0].num_inserts;
+      test_exec_cfg->verbose_progress = master_cfg[0].verbose_progress;
    }
 
    platform_free(platform_get_heap_id(), master_cfg);
