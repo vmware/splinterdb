@@ -78,6 +78,7 @@ typedef struct master_config {
    uint64               use_stats;
    uint64               reclaim_threshold;
    bool                 verbose_logging_enabled;
+   bool                 verbose_progress;
    platform_log_handle *log_handle;
 
    // data

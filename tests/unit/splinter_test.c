@@ -139,11 +139,7 @@ CTEST_SETUP(splinter)
    data->splinter_cfg = TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg,
                                           num_tables);
 
-   data->data_cfg = TYPED_ARRAY_MALLOC(data->hid, data->data_cfg,
-                                       num_tables);
-
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg,
-                                        num_tables);
+   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
 

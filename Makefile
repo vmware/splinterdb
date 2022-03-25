@@ -32,10 +32,13 @@ FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
 TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 
-# Some unit-tests which are slow will be skipped from this list, as we want the
-# resulting unit_test to run as fast as it can. For now, we are just skipping one
-# test, which will have to be run stand-alone.
-FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test")
+# Some unit-tests will be excluded from the list of dot-oh's that are linked into
+# bin/unit_test, for various reasons:
+#  - Slow unit-tests will be skipped, as we want the#    resulting unit_test to
+#    run as fast as it can.
+#  - Skip tests that are to be invoked with specialized command-line arguments.
+# These skipped tests which will have to be run stand-alone.
+FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test")
 
 #*************************************************************#
 # CFLAGS, LDFLAGS, ETC
@@ -404,6 +407,11 @@ $(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
 $(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)            \
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(UNITDIR)/config_parse_test: $(UTIL_SYS)                                   \
+                                        $(COMMON_TESTOBJ)                             \
+                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                        $(LIBDIR)/libsplinterdb.so
 
 ########################################
 # Convenience targets

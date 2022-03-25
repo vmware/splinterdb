@@ -3165,7 +3165,8 @@ btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
 
    uint64 nentries = btree_num_entries(hdr);
    char   fmtstr[30];
-   snprintf(fmtstr, sizeof(fmtstr), "[%%%s] %%-8u", PRInd(nentries));
+   snprintf(
+      fmtstr, sizeof(fmtstr), "[%%%s] %%-8u", DECIMAL_STRING_WIDTH(nentries));
 
    for (int i = 0; i < btree_num_entries(hdr); i++) {
       // New-line every n-offset entries

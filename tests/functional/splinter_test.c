@@ -950,6 +950,11 @@ splinter_perf_inserts(platform_heap_id             hid,
 
    uint64 start_time = platform_get_timestamp();
 
+   bool verbose_progress = test_show_verbose_progress(test_cfg->test_exec_cfg);
+   if (verbose_progress) {
+      platform_default_log("Create %lu insert threads ...\n",
+                           num_insert_threads);
+   }
    rc = do_n_thread_creates("insert_thread",
                             num_insert_threads,
                             params,
@@ -2393,6 +2398,8 @@ splinter_test(int argc, char *argv[])
    task_system           *ts;
    uint8                  lookup_positive_pct = 0;
    test_message_generator gen;
+   test_exec_config       test_exec_cfg;
+   ZERO_STRUCT(test_exec_cfg);
 
    // Defaults
    num_insert_threads = num_lookup_threads = num_range_lookup_threads = 1;
@@ -2572,10 +2579,16 @@ splinter_test(int argc, char *argv[])
    /*
     * 2. Parse test_config options, see test_config_usage()
     */
+
    test_config *test_cfg = TYPED_ARRAY_MALLOC(hid, test_cfg, num_tables);
    for (uint8 i = 0; i < num_tables; i++) {
       test_config_set_defaults(test, &test_cfg[i]);
+
+      // All tables share the same message-generator.
       test_cfg[i].gen = &gen;
+
+      // And, all tests & tables share the same test-execution parameters.
+      test_cfg[i].test_exec_cfg = &test_exec_cfg;
    }
    rc = test_config_parse(test_cfg, num_tables, &config_argc, &config_argv);
    if (!SUCCESS(rc)) {
@@ -2593,8 +2606,6 @@ splinter_test(int argc, char *argv[])
    data_config       *data_cfg;
    clockcache_config *cache_cfg =
       TYPED_ARRAY_MALLOC(hid, cache_cfg, num_tables);
-   test_exec_config test_exec_cfg;
-   ZERO_STRUCT(test_exec_cfg);
 
    rc = test_parse_args_n(splinter_cfg,
                           &data_cfg,
@@ -2607,6 +2618,7 @@ splinter_test(int argc, char *argv[])
                           num_tables,
                           config_argc,
                           config_argv);
+
    // if there are multiple cache capacity, cache_per_table needs to be TRUE
    bool multi_cap = FALSE;
    for (uint8 i = 0; i < num_tables; i++) {
@@ -2633,7 +2645,6 @@ splinter_test(int argc, char *argv[])
    // Max active threads
    uint32 total_threads =
       MAX(num_lookup_threads, MAX(num_insert_threads, num_pthreads));
-   ;
 
    if (num_bg_threads[TASK_TYPE_NORMAL] != 0
        && num_bg_threads[TASK_TYPE_MEMTABLE] == 0)

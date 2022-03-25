@@ -560,6 +560,21 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    echo "NOTE: **** Only running fast unit tests ****"
    echo "To run all tests, set the env var, and re-run: $ INCLUDE_SLOW_TESTS=true ./$Me"
    echo
+
+   # Exercise config-parsing test case. Here, we feed-in a set of
+   # --config-params that the test code knows to "expect" and validates.
+   # These options can come in any order.
+   set -x
+   run_with_timing "Config-params parsing test"
+            "$BINDIR"/unit/config_parse_test --log \
+                                             --max-branches-per-node 42 \
+                                             --num-inserts 20 \
+                                             --rough-count-height 11 \
+                                             --stats \
+                                             --verbose-logging \
+                                             --verbose-progress
+   set +x
+
    start_seconds=$SECONDS
 
    set -x
@@ -571,6 +586,7 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    set +x
 
    echo "Fast tests passed"
+
    record_elapsed_time ${start_seconds} "Fast unit tests"
 
    if [ "$RUN_MAKE_TESTS" == "true" ]; then
@@ -587,6 +603,9 @@ fi
 run_with_timing "Fast unit tests" "$BINDIR"/unit_test
 
 # ------------------------------------------------------------------------
+# Run mini-unit-tests that were excluded from bin/unit_test binary:
+# ------------------------------------------------------------------------
+
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been found to
 # provide the required coverage.
