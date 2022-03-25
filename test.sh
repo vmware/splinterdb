@@ -233,27 +233,26 @@ function nightly_sync_perf_tests() {
     local dbname="splinter_test.perf.db"
 
     # Different #s of threads. --perf test runs in phases, where some # of
-    # threads are setup. Insert / lookup / range-lookups are run. Then, the
-    # threads are destroyed.
+    # threads are setup. Insert / lookup / range-lookups are run in separate
+    # phases. Then, the threads are destroyed.
     local nins_t=8
     local nlookup_t=8
     local nrange_lookup_t=8
     local test_descr="${nins_t} insert, ${nlookup_t} lookup, ${nrange_lookup_t} range lookup threads"
 
     # ----
-    # (#325) Commented this out till slow-performance of this test is resolved.
-    # splinter_test --perf is included in CI-runs, but just with
-    # --num-range-lookup-threads 0
-    # run_with_timing "Performance (sync) test ${test_descr}" \
-    #       "$BINDIR"/driver_test splinter_test --perf \
-    #                                           --max-async-inflight 0 \
-    #                                           --num-insert-threads ${nins_t} \
-    #                                           --num-lookup-threads ${nlookup_t} \
-    #                                           --num-range-lookup-threads ${nrange_lookup_t} \
-    #                                           --lookup-positive-percent 10 \
-    #                                           --db-capacity-gib 60 \
-    #                                           --db-location ${dbname}
-    # rm ${dbname}
+    run_with_timing "Performance (sync) test ${test_descr}" \
+            "$BINDIR"/driver_test splinter_test --perf \
+                                                --max-async-inflight 0 \
+                                                --num-insert-threads ${nins_t} \
+                                                --num-lookup-threads ${nlookup_t} \
+                                                --num-range-lookup-threads ${nrange_lookup_t} \
+                                                --lookup-positive-percent 10 \
+                                                --tree-size-gib 4 \
+                                                --db-capacity-gib 60 \
+                                                --db-location ${dbname} \
+                                                --verbose-progress
+    rm ${dbname}
 
     local npthreads=8
     local tree_size=8 # GiB
@@ -636,6 +635,19 @@ max_key_size=105
 run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             --key-size ${max_key_size} --seed "$SEED"
+
+# Validate use of small # of --num-inserts, and --verbose-progress
+# Test-case basically is for functional testing of interfaces.
+run_with_timing "Very quick Performance test" \
+        "$BINDIR"/driver_test splinter_test --perf \
+                                            --max-async-inflight 0 \
+                                            --num-insert-threads 4 \
+                                            --num-lookup-threads 4 \
+                                            --num-range-lookup-threads 4 \
+                                            --lookup-positive-percent 10 \
+                                            --num-inserts 10000 \
+                                            --cache-capacity-mib 512 \
+                                            --verbose-progress
 
 run_with_timing "Performance test" \
         "$BINDIR"/driver_test splinter_test --perf \
