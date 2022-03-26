@@ -19,6 +19,7 @@ INCDIR               = include
 FUNCTIONAL_TESTSDIR  = $(TESTS_DIR)/functional
 UNITDIR              = unit
 UNIT_TESTSDIR        = $(TESTS_DIR)/$(UNITDIR)
+EXAMPLES_DIR         = examples
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
 
@@ -39,6 +40,8 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 #  - Skip tests that are to be invoked with specialized command-line arguments.
 # These skipped tests which will have to be run stand-alone.
 FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test")
+
+EXAMPLES_SRC := $(shell find $(EXAMPLES_DIR) -name "*.c")
 
 #*************************************************************#
 # CFLAGS, LDFLAGS, ETC
@@ -226,12 +229,18 @@ FAST_UNIT_TESTOBJS= $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 UNIT_TESTBIN_SRC=$(filter %_test.c, $(UNIT_TESTSRC))
 UNIT_TESTBINS=$(UNIT_TESTBIN_SRC:$(TESTS_DIR)/%_test.c=$(BINDIR)/%_test)
 
+# ---- Symbols to build example sample programs
+EXAMPLES_OBJ= $(EXAMPLES_SRC:%.c=$(OBJDIR)/%.o)
+EXAMPLES_BIN_SRC=$(filter %_example.c, $(EXAMPLES_SRC))
+EXAMPLES_BINS=$(EXAMPLES_BIN_SRC:$(EXAMPLES_DIR)/%_example.c=$(BINDIR)/$(EXAMPLES_DIR)/%_example)
+
 ####################################################################
 # The main targets
 #
-all: libs all-tests $(EXTRA_TARGETS)
+all: libs all-tests all-examples $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
+all-examples: $(EXAMPLES_BINS)
 
 #######################################################################
 # CONFIGURATION CHECKING
@@ -331,6 +340,7 @@ $(BINDIR)/unit_test: $(FAST_UNIT_TESTOBJS) $(COMMON_TESTOBJ) $(LIBDIR)/libsplint
 # all the mini unit tests depend on these files
 $(UNIT_TESTBINS): $(OBJDIR)/$(UNIT_TESTSDIR)/main.o
 
+# -----------------------------------------------------------------------------
 # Every unit test of the form bin/unit/<test> depends on obj/tests/unit/<test>.o
 #
 # We can't use pattern rules to state this dependency pattern because
@@ -414,7 +424,7 @@ $(BINDIR)/$(UNITDIR)/config_parse_test: $(UTIL_SYS)                             
                                         $(LIBDIR)/libsplinterdb.so
 
 ########################################
-# Convenience targets
+# Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
 unit/misc_test:                    $(BINDIR)/$(UNITDIR)/misc_test
 unit/btree_test:                   $(BINDIR)/$(UNITDIR)/btree_test
@@ -424,6 +434,28 @@ unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
 unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit_test:                         $(BINDIR)/unit_test
+
+# -----------------------------------------------------------------------------
+# Every example program of the form bin/examples/<eg-prog> depends on
+# obj/examples/<eg-prog>.o
+
+#################################################################
+# The dependencies of each example program
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_intro_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_intro_example.o \
+                                                    $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_admin_config_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_admin_config_example.o \
+                                                           $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_apis_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_apis_example.o \
+                                                   $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example.o \
+                                                        $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example.o \
+                                                                       $(LIBDIR)/libsplinterdb.so
 
 #*************************************************************#
 
