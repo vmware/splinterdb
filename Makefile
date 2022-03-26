@@ -442,7 +442,8 @@ unit_test:                         $(BINDIR)/unit_test
 #################################################################
 # The dependencies of each example program
 
-$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_basic_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_basic_example.o
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_basic_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_basic_example.o \
+                                                    $(LIBDIR)/libsplinterdb.so
 
 #*************************************************************#
 
