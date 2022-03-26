@@ -721,7 +721,6 @@ splinter_do_inserts(void         *datap,
    // Debug hook: Override this to smaller value for faster test execution,
    // while doing test-dev / debugging. Default is some big value, like
    // 12988800; num_inserts = (100 * 100 * 100);
-   // num_inserts = (100 * 100 * 100);
 
    uint64       start_time = platform_get_timestamp();
    uint64       insert_num;
