@@ -57,6 +57,7 @@ typedef struct splinterdb {
    platform_heap_handle heap_handle; // for platform_buffer_create
    platform_heap_id     heap_id;
    shim_data_config     shim_data_cfg;
+   bool                 is_up;
 } splinterdb;
 
 
@@ -505,6 +506,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_cache;
    }
 
+   kvs->is_up = TRUE;
+
    *kvs_out = kvs;
    return platform_status_to_int(status);
 
@@ -538,6 +541,12 @@ splinterdb_open(const splinterdb_config *cfg, // IN
    return splinterdb_create_or_open(cfg, kvs, TRUE);
 }
 
+bool
+splinterdb_is_up(const splinterdb *kvs)
+{
+   return (kvs && kvs->is_up);
+}
+
 
 /*
  *-----------------------------------------------------------------------------
@@ -553,8 +562,10 @@ splinterdb_open(const splinterdb_config *cfg, // IN
  *-----------------------------------------------------------------------------
  */
 void
-splinterdb_close(splinterdb *kvs) // IN
+splinterdb_close(splinterdb **kvs_in) // IN
 {
+   splinterdb *kvs = *kvs_in;
+
    platform_assert(kvs != NULL);
 
    trunk_dismount(kvs->spl);
@@ -564,6 +575,7 @@ splinterdb_close(splinterdb *kvs) // IN
    task_system_destroy(kvs->heap_id, kvs->task_sys);
 
    platform_free(kvs->heap_id, kvs);
+   *kvs_in = (splinterdb *)NULL;
 }
 
 

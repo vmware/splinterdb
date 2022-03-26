@@ -11,6 +11,14 @@
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 
+/* Tag to identify messages from application program */
+#define APP_ME "App"
+
+// #define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, "" __VA_ARGS__)
+#define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, __VA_ARGS__)
+
+#define ex_err(msg, ...) fprintf(stderr, "%s: Error: " msg, APP_ME, __VA_ARGS__)
+
 /* Useful constants */
 #define K_KiB 1024
 #define K_MiB (K_KiB * K_KiB)
@@ -34,15 +42,19 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
                             uint64             dev_size,
                             uint64             cache_size);
 
+int
+reboot_splinter_instance(const splinterdb_config *splinterdb_cfg,
+                         splinterdb             **spl_handle_out);
 
 /*
+ * -------------------------------------------------------------------------------
  * main() Driver for basic SplinterDB example program.
+ * -------------------------------------------------------------------------------
  */
 int
 main()
 {
-   printf("     **** SplinterDB Basic Example program ****\n");
-   printf("Hello world\n");
+   printf("     **** SplinterDB Basic Example program ****\n\n");
 
    // Initialize data configuration, describing your key-value properties
    data_config splinter_data_cfg;
@@ -53,24 +65,37 @@ main()
    configure_splinter_instance(&splinterdb_cfg,
                                &splinter_data_cfg,
                                APP_DB_NAME,
-                               (APP_DEVICE_SIZE_MB * 1),
-                               (APP_CACHE_SIZE_MB * 1));
+                               (APP_DEVICE_SIZE_MB * K_MiB),
+                               (APP_CACHE_SIZE_MB * K_MiB));
 
-   splinterdb *spl_handle; // To a running SplinterDB instance
+   splinterdb *spl_handle = NULL; // To a running SplinterDB instance
 
    int rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
    if (rc) {
+      ex_err("SplinterDB creation failed. (rc=%d)\n", rc);
       return rc;
    }
+   ex_msg("Created SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
+
+   rc = reboot_splinter_instance(&splinterdb_cfg, &spl_handle);
+   if (rc) {
+      ex_err("SplinterDB reboot failed. (rc=%d)\n", rc);
+      return rc;
+   }
+
+   splinterdb_close(&spl_handle);
+   ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
 
    return rc;
 }
 
 /*
+ * -------------------------------------------------------------------------------
  * configure_splinter_instance()
  *
  * Basic configuration of a SplinterDB instance, specifying min parameters such
  * as the device's name, device and cache sizes.
+ * -------------------------------------------------------------------------------
  */
 void
 configure_splinter_instance(splinterdb_config *splinterdb_cfg,
@@ -85,4 +110,31 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
    splinterdb_cfg->cache_size = cache_size;
    splinterdb_cfg->data_cfg   = splinter_data_cfg;
    return;
+}
+
+/*
+ * -------------------------------------------------------------------------------
+ * reboot_splinter_instance()
+ *
+ * Commands to shutdown a running SplinterDB instance and re-start it with
+ * a previously used configuration.
+ * -------------------------------------------------------------------------------
+ */
+int
+reboot_splinter_instance(const splinterdb_config *splinterdb_cfg,
+                         splinterdb             **spl_handle_out)
+{
+   splinterdb *spl_handle = *spl_handle_out;
+   if (splinterdb_is_up(spl_handle)) {
+      splinterdb_close(&spl_handle);
+      ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
+   }
+
+   int rc = splinterdb_open(splinterdb_cfg, spl_handle_out);
+   if (rc) {
+      ex_err("Error re-opening SplinterDB instance, dbname '%s'.\n",
+             APP_DB_NAME);
+   }
+   ex_msg("Re-opened SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
+   return rc;
 }

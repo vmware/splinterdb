@@ -97,9 +97,14 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 
 // Close a splinterdb
 //
-// This will flush all data to disk and release all resources
+// This will flush all data to disk and release all resources.
+// Handle is NULL'ed out on a succcessful close.
 void
-splinterdb_close(splinterdb *kvs);
+splinterdb_close(splinterdb **kvs);
+
+// Check status of a splinterdb instance: Is it running?
+bool
+splinterdb_is_up(const splinterdb *kvs);
 
 // Register the current thread so that it can be used with splinterdb.
 // This causes scratch space to be allocated for the thread.
