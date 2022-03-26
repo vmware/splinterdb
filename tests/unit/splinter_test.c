@@ -429,11 +429,10 @@ CTEST2(splinter, test_lookups)
 
    trunk_shadow shadow;
    trunk_shadow_init(&shadow);
-   uint64 num_inserts = 0;
 
    // FALSE : No need to do verification-after-inserts, as that functionality
    // has been tested earlier in test_inserts() case.
-   num_inserts = splinter_do_inserts(data, spl, FALSE, &shadow);
+   uint64 num_inserts = splinter_do_inserts(data, spl, FALSE, &shadow);
    ASSERT_NOT_EQUAL(0,
                     num_inserts,
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
@@ -662,7 +661,7 @@ CTEST2(splinter, test_splinter_print_diags)
 
    trunk_print_space_use(Platform_default_log_handle, spl);
 
-   platform_default_log("\n** trunk_sprint() **\n");
+   platform_default_log("\n** trunk_print() **\n");
    trunk_print(Platform_default_log_handle, spl);
 
    platform_default_log("\n** Allocator stats **\n");

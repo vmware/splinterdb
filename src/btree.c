@@ -64,22 +64,6 @@ slice positive_infinity = {0, &positive_infinity_buffer};
  */
 #define BTREE_UNKNOWN_COUNTER (0x7fffffffUL)
 
-/* Function prototypes */
-static void
-btree_print_index_node(platform_log_handle *log_handle,
-                       btree_config        *cfg,
-                       uint64               addr,
-                       btree_hdr           *hdr);
-
-static void
-btree_print_leaf_node(platform_log_handle *log_handle,
-                      btree_config        *cfg,
-                      uint64               addr,
-                      btree_hdr           *hdr);
-
-static void
-btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr);
-
 static inline uint8
 btree_height(const btree_hdr *hdr)
 {
@@ -3172,28 +3156,31 @@ btree_count_in_range_by_iterator(cache        *cc,
    btree_iterator_deinit(&btree_itor);
 }
 
-/*
- *-----------------------------------------------------------------------------
- * btree_print_node --
- * btree_print_tree --
- *
- *      Prints out the contents of the node/tree.
- *-----------------------------------------------------------------------------
- */
-void
-btree_print_locked_node(platform_log_handle *log_handle,
-                        btree_config        *cfg,
-                        uint64               addr,
-                        btree_hdr           *hdr)
+/* Print offset table entries, 4 entries per line, w/ auto-indentation. */
+static void
+btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
 {
-   platform_log(log_handle, "*******************\n");
-   platform_log(log_handle, "BTree node at addr=%lu\n{\n", addr);
-   if (btree_height(hdr) > 0) {
-      btree_print_index_node(log_handle, cfg, addr, hdr);
-   } else {
-      btree_print_leaf_node(log_handle, cfg, addr, hdr);
+   platform_log(log_handle, "-------------------\n");
+   platform_log(log_handle, "Offset Table num_entries=%d\n", hdr->num_entries);
+
+   uint64 nentries = btree_num_entries(hdr);
+   char   fmtstr[30];
+   snprintf(fmtstr,
+            sizeof(fmtstr),
+            "[%%%s] %%-8u",
+            ((nentries < 10)     ? "d"
+             : (nentries < 100)  ? "2d"
+             : (nentries < 1000) ? "3d"
+                                 : "4d"));
+
+   for (int i = 0; i < btree_num_entries(hdr); i++) {
+      // New-line every n-offset entries
+      if (i && ((i % 4) == 0)) {
+         platform_log(log_handle, "\n");
+      }
+      platform_log(log_handle, fmtstr, i, btree_get_table_entry(hdr, i));
    }
-   platform_log(log_handle, "} -- End BTree node at addr=%lu\n", addr);
+   platform_log(log_handle, "\n");
 }
 
 static void
@@ -3237,7 +3224,6 @@ btree_print_index_node(platform_log_handle *log_handle,
    platform_log(log_handle, "\n");
 }
 
-
 static void
 btree_print_leaf_node(platform_log_handle *log_handle,
                       btree_config        *cfg,
@@ -3273,32 +3259,30 @@ btree_print_leaf_node(platform_log_handle *log_handle,
    platform_log(log_handle, "\n");
 }
 
-/* Print offset table entries, 4 entries per line, w/ auto-indentation. */
-static void
-btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
+/*
+ *-----------------------------------------------------------------------------
+ * btree_print_node --
+ * btree_print_tree --
+ *
+ *      Prints out the contents of the node/tree.
+ *-----------------------------------------------------------------------------
+ */
+void
+btree_print_locked_node(platform_log_handle *log_handle,
+                        btree_config        *cfg,
+                        uint64               addr,
+                        btree_hdr           *hdr)
 {
-   platform_log(log_handle, "-------------------\n");
-   platform_log(log_handle, "Offset Table num_entries=%d\n", hdr->num_entries);
-
-   uint64 nentries = btree_num_entries(hdr);
-   char   fmtstr[30];
-   snprintf(fmtstr,
-            sizeof(fmtstr),
-            "[%%%s] %%-8u",
-            ((nentries < 10)     ? "d"
-             : (nentries < 100)  ? "2d"
-             : (nentries < 1000) ? "3d"
-                                 : "4d"));
-
-   for (int i = 0; i < btree_num_entries(hdr); i++) {
-      // New-line every n-offset entries
-      if (i && ((i % 4) == 0)) {
-         platform_log(log_handle, "\n");
-      }
-      platform_log(log_handle, fmtstr, i, btree_get_table_entry(hdr, i));
+   platform_log(log_handle, "*******************\n");
+   platform_log(log_handle, "BTree node at addr=%lu\n{\n", addr);
+   if (btree_height(hdr) > 0) {
+      btree_print_index_node(log_handle, cfg, addr, hdr);
+   } else {
+      btree_print_leaf_node(log_handle, cfg, addr, hdr);
    }
-   platform_log(log_handle, "\n");
+   platform_log(log_handle, "} -- End BTree node at addr=%lu\n", addr);
 }
+
 
 void
 btree_print_node(platform_log_handle *log_handle,

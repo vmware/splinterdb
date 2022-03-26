@@ -91,7 +91,9 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 
 /*
  * During Splinter configuration, the fanout parameter is provided by the user.
- * We slightly over-provision the max # of pivot keys on a trunk node by this
+ * SplinterDB defers internal node splitting in order to use hand-over-hand
+ * locking. As a result, index nodes may temporarily have more pivots than the
+ * fanout. Therefore, the number of pivot keys is over-provisioned by this
  * value.
  */
 #define TRUNK_EXTRA_PIVOT_KEYS (6)
@@ -342,7 +344,7 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
 
 /*
  *-----------------------------------------------------------------------------
- * Trunk Nodes: Splinter trunk_hdr{}: Disk-resident structure
+ * Trunk Nodes: splinter trunk_hdr{}: Disk-resident structure
  *
  *   A trunk node, on pages of PAGE_TYPE_TRUNK type, consists of the following:
  *
@@ -719,7 +721,6 @@ void                               trunk_print                     (platform_log
 void                               trunk_print_node                (platform_log_handle *log_handle, trunk_handle *spl, uint64 addr);
 static void                        trunk_print_pivots              (platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
 static void                        trunk_print_branches_and_bundles(platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
-static void                        trunk_print_branches_sb_filters(platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
 void                               trunk_btree_skiperator_get_curr (iterator *itor, slice *key, message *data);
 platform_status                    trunk_btree_skiperator_advance  (iterator *itor);
@@ -1911,11 +1912,6 @@ trunk_inc_num_pivot_keys(trunk_handle *spl, page_handle *node)
    trunk_hdr *hdr = (trunk_hdr *)node->data;
    debug_assert(hdr->num_pivot_keys >= 2);
    hdr->num_pivot_keys++;
-   /* RESOLVE: Do we have an off-by-1 issue here?
-    * In trunk_add_pivot(), we check
-    * if (trunk_num_pivot_keys() > cfg.max_pivot_keys) and then
-    * raise an error. Should we not raise an error here, too?
-    */
    debug_assert(hdr->num_pivot_keys <= spl->cfg.max_pivot_keys);
 }
 
@@ -7938,8 +7934,6 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 
    trunk_print_branches_and_bundles(log_handle, spl, node);
 
-   trunk_print_branches_sb_filters(log_handle, spl, node);
-
    platform_log(log_handle, "}\n");
 }
 
@@ -8050,7 +8044,7 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
          }
       }
 
-      // Iterate through all the bundles ...
+      // Search for bundles that start at this branch.
       for (uint16 bundle_no = start_bundle; bundle_no != end_bundle;
            bundle_no        = trunk_add_bundle_number(spl, bundle_no, 1))
       {
@@ -8100,15 +8094,6 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
 }
 // clang-format on
 
-/*
- * trunk_print_branches_sb_filters() -- Flesh this out.
- */
-static void
-trunk_print_branches_sb_filters(platform_log_handle *log_handle,
-                                trunk_handle        *spl,
-                                page_handle         *node)
-{}
-
 void
 trunk_print_node(platform_log_handle *log_handle,
                  trunk_handle        *spl,
@@ -8156,7 +8141,7 @@ trunk_print_subtree(platform_log_handle *log_handle,
  *
  * Print the currently active Memtable, and the other Memtables being processed.
  * Memtable printing will drill-down to BTree printing which will keep
- * recursing. So ... you'll end up with TONS of output; all very useful.
+ * recursing.
  */
 void
 trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
@@ -8188,7 +8173,6 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
  * trunk_print()
  *
  * Driver routine to print a SplinterDB trunk, and all its sub-pages.
- * Caller can supply non-NULL user_stream handle to redirect output.
  */
 void
 trunk_print(platform_log_handle *log_handle, trunk_handle *spl)

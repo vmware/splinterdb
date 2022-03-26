@@ -2,10 +2,12 @@
 This document gives brief references to diagnostics and troubleshooting
 interfaces available in the library.
 
-A small collection of print routines is available which can be used to examine key data strucures, such as the Splinter trunk pages, BTree pages, space-allocation maps and so on.
+A small collection of print routines is available which can be used to examine
+key data strucures, such as the SplinterDB trunk pages, BTree pages, space-allocation
+maps and so on.
 
 - [trunk_print_super_block](../src/trunk.c#:~:text=trunk\_print\_super\_block\(trunk\_handle)
-  Print contents of Splinter super block
+  Print contents of SplinterDB super block
 
 - [trunk_print](../src/trunk.c#:~:text=trunk\_print\_node\(trunk\_handle)
   Print contents of a Trunk node (page)
@@ -27,9 +29,6 @@ A small collection of print routines is available which can be used to examine k
   [rc_allocator_sprint_debug](../src/rc_allocator.c#:~:text=rc_allocator\_sprint\_debug\(platform\_stream\_handle)
   Print the space allocation maps and lists of extents / pages allocated.
 
-- [srq_print](../src/srq.h#::~:text=srq_print\(srq)
-  Prints contents of the space reclamation queue
-
 ----
 
 A small unit test to exercise these print diagnostics can be found here,
@@ -41,4 +40,5 @@ A useful way to learn about SplinterDB internal structures is to run this test c
 This test case creates a small SplinterDB instance, and loads a large set
 of rows, enough to create several pages in the trunk.
 
-Examine the outputs generated in /tmp/unit_test.stdout by this test case to get a quick view of the internal structures.
+Examine the outputs generated in /tmp/unit_test.stdout by this test case to get
+a quick view of the internal structures.

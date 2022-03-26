@@ -31,6 +31,8 @@ typedef uint16      inline_message_size;
  * BTree Node headers: Disk-resident structure:
  * Stored on pages of Page Type == PAGE_TYPE_MEMTABLE, PAGE_TYPE_BRANCH
  * See btree.c for a description of the layout of this page format.
+ * The byte offset of the k'th entry from the start of the page is given by
+ * the offsets[k]'th value.
  * *************************************************************************
  */
 struct ONDISK btree_hdr {
@@ -316,9 +318,8 @@ btree_get_tuple_message_type(const btree_config *cfg,
 
 
 /*
- * Return a ptr to the k'th index_entry on the BTree header page.
- * The byte offset of this entry from the start of the header page is given
- * by the offsets[k]'th value. Add diagnostic checks to validate addresses.
+ * Return a ptr to the k'th index_entry on the BTree page.
+ * Validates addresses, in debug mode.
  */
 static inline index_entry *
 btree_get_index_entry(const btree_config *cfg,

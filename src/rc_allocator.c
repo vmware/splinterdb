@@ -161,13 +161,13 @@ rc_allocator_print_stats_virtual(allocator *a)
 }
 
 void
-rc_allocator_print_debug(rc_allocator *al);
+rc_allocator_print_allocated(rc_allocator *al);
 
 void
-rc_allocator_debug_print_virtual(allocator *a)
+rc_allocator_print_allocated_virtual(allocator *a)
 {
    rc_allocator *al = (rc_allocator *)a;
-   rc_allocator_print_debug(al);
+   rc_allocator_print_allocated(al);
 }
 
 const static allocator_ops rc_allocator_ops = {
@@ -181,7 +181,7 @@ const static allocator_ops rc_allocator_ops = {
    .get_capacity      = rc_allocator_get_capacity_virtual,
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
    .print_stats       = rc_allocator_print_stats_virtual,
-   .debug_print       = rc_allocator_debug_print_virtual,
+   .debug_print       = rc_allocator_print_allocated_virtual,
 };
 
 static platform_status
@@ -681,7 +681,7 @@ rc_allocator_assert_noleaks(rc_allocator *al)
          platform_default_log("assert_noleaks: leak found\n");
          platform_default_log("\n");
          rc_allocator_print_stats(al);
-         rc_allocator_print_debug(al);
+         rc_allocator_print_allocated(al);
          platform_assert(0);
       }
    }
@@ -747,14 +747,14 @@ rc_allocator_print_stats(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_print_debug --
+ * rc_allocator_print_allocated() --
  *
  *      Prints the base addresses of all allocated extents to the default
  *      log handle.
  *----------------------------------------------------------------------
  */
 void
-rc_allocator_print_debug(rc_allocator *al)
+rc_allocator_print_allocated(rc_allocator *al)
 {
    uint64 i;
    uint8  ref;

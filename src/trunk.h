@@ -401,9 +401,6 @@ void
 trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl);
 
 void
-trunk_sprint(platform_stream_handle user_stream, trunk_handle *spl);
-
-void
 trunk_print_lookup(trunk_handle        *spl,
                    const char          *key,
                    platform_log_handle *log_handle);
