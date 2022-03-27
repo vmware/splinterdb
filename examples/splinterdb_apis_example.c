@@ -26,6 +26,10 @@
 /* Application declares the limit of key-sizes it intends to use */
 #define APP_MAX_KEY_SIZE ((int)100)
 
+/* Application declares its expected avg value size and max value size */
+#define APP_AVG_VALUE_SIZE ((int)128)
+#define APP_MAX_VALUE_SIZE ((int)1024)
+
 // Declare a struct to build a key/value pair
 typedef struct kv_pair {
    char *kv_key;
@@ -44,6 +48,9 @@ void
 do_inserts_and_lookups(splinterdb *spl_handle);
 
 int
+do_inserts_wide_values(splinterdb *spl_handle);
+
+int
 do_insert(splinterdb  *spl_handle,
           const char  *key_data,
           const size_t key_len,
@@ -53,9 +60,12 @@ do_insert(splinterdb  *spl_handle,
 int
 do_lookup(splinterdb *spl_handle, const char *key_data, const size_t key_len);
 
+int
+do_lookups_with_output_buf(splinterdb *spl_handle);
+
 /*
  * -------------------------------------------------------------------------------
- * main() Driver for basic SplinterDB example program.
+ * main() Driver for SplinterDB program for insert / loookup / delete APIs.
  * -------------------------------------------------------------------------------
  */
 int
@@ -85,6 +95,10 @@ main()
    ex_msg("Created SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
 
    do_inserts_and_lookups(spl_handle);
+
+   do_inserts_wide_values(spl_handle);
+
+   do_lookups_with_output_buf(spl_handle);
 
    splinterdb_close(&spl_handle);
    ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
@@ -199,5 +213,82 @@ do_lookup(splinterdb *spl_handle, const char *key_data, const size_t key_len)
    } else {
       ex_err("Did not find key '%.*s'.\n", (int)key_len, key_data);
    }
+
+   splinterdb_lookup_result_deinit(&result);
+   return rc;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * do_inserts_wide_values()
+ *
+ * Insert few more key/value pairs with increasing length of the value.
+ * This data will later be used to demonstrate use of output buffers during
+ * lookups.
+ */
+int
+do_inserts_wide_values(splinterdb *spl_handle)
+{
+   int  rc = 0;
+   char key_buf[APP_MAX_KEY_SIZE];
+   char val_buf[APP_MAX_VALUE_SIZE];
+
+   // Insert few values with increasing sizes.
+   int nrows = 0;
+   for (int ictr = 16; ictr <= APP_MAX_VALUE_SIZE; ictr <<= 1, nrows++) {
+      snprintf(key_buf, sizeof(key_buf), "Key: val_len=%d", ictr);
+      memset(val_buf, 'z', ictr);
+
+      rc = do_insert(spl_handle, key_buf, strlen(key_buf), val_buf, ictr);
+      if (rc) {
+         break;
+      }
+   }
+   ex_msg("Inserted %d rows with wide-values\n", nrows);
+   return rc;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * do_lookups_with_output_buf()
+ *
+ * Lookup keys which have increasingly wider-values, using a fixed sized
+ * output buffer. This example shows how we can start with an average sized
+ * output buffer, to retrieve multiple key/value pairs. When necessary, memory
+ * will be allocated for wider values.
+ * ---------------------------------------------------------------------------
+ */
+int
+do_lookups_with_output_buf(splinterdb *spl_handle)
+{
+   int  rc    = 0;
+   int  nrows = 0;
+   char outbuf[APP_AVG_VALUE_SIZE];
+
+   /* Initialize a result struct, providing an output buffer for use */
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(spl_handle, &result, sizeof(outbuf), outbuf);
+
+   for (int ictr = 16; ictr <= APP_MAX_VALUE_SIZE; ictr <<= 1, nrows++) {
+
+      char key_buf[APP_MAX_KEY_SIZE];
+      snprintf(key_buf, sizeof(key_buf), "Key: val_len=%d", ictr);
+      size_t key_len = strlen(key_buf);
+
+      slice key = slice_create(key_len, key_buf);
+      rc        = splinterdb_lookup(spl_handle, key, &result);
+
+      slice value;
+      rc = splinterdb_lookup_result_value(spl_handle, &result, &value);
+      if (!rc) {
+         ex_msg("Found key: '%.*s', value length = %lu\n",
+                (int)key_len,
+                key_buf,
+                slice_length(value));
+      } else {
+         ex_err("Did not find key '%.*s'.\n", (int)key_len, key_buf);
+      }
+   }
+   splinterdb_lookup_result_deinit(&result);
    return rc;
 }
