@@ -10,18 +10,10 @@
 
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
+#include "example_common.h"
 
 /* Tag to identify messages from application program */
 #define APP_ME "App"
-
-// #define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, "" __VA_ARGS__)
-#define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, __VA_ARGS__)
-
-#define ex_err(msg, ...) fprintf(stderr, "%s: Error: " msg, APP_ME, __VA_ARGS__)
-
-/* Useful constants */
-#define K_KiB 1024
-#define K_MiB (K_KiB * K_KiB)
 
 /*
  * App-specific 'defaults' that can be parameterized, eventually.
