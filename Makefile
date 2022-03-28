@@ -240,7 +240,7 @@ EXAMPLES_BINS=$(EXAMPLES_BIN_SRC:$(EXAMPLES_DIR)/%_example.c=$(BINDIR)/$(EXAMPLE
 all: libs all-tests all-examples $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
-all-examples: $(BINDIR)/$(EXAMPLES) $(EXAMPLES_BINS)
+all-examples: $(EXAMPLES_BINS)
 
 #######################################################################
 # CONFIGURATION CHECKING
