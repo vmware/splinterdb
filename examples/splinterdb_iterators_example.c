@@ -34,23 +34,6 @@ typedef struct kv_pair {
 
 // clang-format off
 // Define an array of key-value pairs to load
-// Mapping from inet-IP address to www.address etc.
-kv_pair inet_addr_info[] =
-{
-      { "5.79.89.114"       , "www.acm.org, ttl=47 time=171.147 ms" }
-    , { "208.80.154.232"    , "www.wikidpedia.org, ttl=52 time=99.427 ms" }
-    , { "151.101.188.81"    , "www.bbc.com, ttl=57 time=28.620 ms" }
-    , { "99.84.238.130"     , "www.worldbank.org, ttl=240 time=46.452 ms" }
-    , { "10.113.78.20"      , "www.vmware.com, ttl=57 time=31.888 ms" }
-    , { "34.102.136.180"    , "www.eiffeltower.com, ttl=116 time=33.266 ms" }
-    , { "184.26.53.176"     , "www.rediff.com, ttl=56 time=33.587 ms" }
-    , { "151.101.190.154"   , "www.cnet.com, ttl=58 time=37.691 ms" }
-    , { "104.244.42.129"    , "www.twitter.com, ttl=52 time=74.215 ms" }
-    , { "104.143.9.110"     , "www.hongkongair.com, ttl=49 time=91.059 ms" }
-};
-
-int num_inet_addrs = (sizeof(inet_addr_info) / sizeof(*inet_addr_info));
-
 // Mapping from www.address to inet-IP address etc.
 kv_pair www_inet_info[] =
 {
@@ -125,33 +108,15 @@ main()
       return rc;
    }
 
-   ex_msg("Insert and iterate through %d {ipaddr} -> {www-url, metrics} "
-          "mapping table:\n",
-          num_inet_addrs);
-   do_inserts(spl_handle, inet_addr_info, num_inet_addrs);
-
-   do_iterate_all(spl_handle, num_inet_addrs);
-
-   const char *start_key = "99.84.238.130";
-   do_iterate_from(spl_handle, start_key);
-
-   start_key = "5.79.89.114";
-   do_iterate_from(spl_handle, start_key);
-
-   start_key = "10.113.78.20";
-   do_iterate_from(spl_handle, start_key);
-
    ex_msg("Insert and iterate through %d {www-url} -> {ipaddr, metrics} "
           "mapping table:\n",
           num_www_addrs);
-
-   // Deal with www-addresses to inet IP-addr mapping table
    do_inserts(spl_handle, www_inet_info, num_www_addrs);
 
    // This will return all kv-pairs, including the previous mapping table.
    do_iterate_all(spl_handle, num_www_addrs);
 
-   start_key = "www.bbc.com";
+   const char *start_key = "www.eiffeltower.com";
    do_iterate_from(spl_handle, start_key);
 
    start_key = "www.twitter.com";
