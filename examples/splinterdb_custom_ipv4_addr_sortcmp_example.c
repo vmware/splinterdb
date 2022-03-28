@@ -19,7 +19,7 @@
 /*
  * App-specific 'defaults' that can be parameterized, eventually.
  */
-#define APP_DB_NAME "splinterdb_apis_example_db"
+#define APP_DB_NAME "splinterdb_custom_ipv4_sortcmp_example_db"
 
 #define APP_DEVICE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define APP_CACHE_SIZE_MB  64   // Size of cache; can be changed across boots
