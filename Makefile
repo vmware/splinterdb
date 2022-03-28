@@ -451,8 +451,8 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_apis_example: $(OBJDIR)/$(EXAMPLES_DIR)/spl
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example.o \
                                                            $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_custom_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_custom_sortcmp_example.o \
-                                                                       $(LIBDIR)/libsplinterdb.so
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example.o \
+                                                                         $(LIBDIR)/libsplinterdb.so
 
 #*************************************************************#
 

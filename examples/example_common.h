@@ -16,4 +16,8 @@
 #define K_KiB 1024
 #define K_MiB (K_KiB * K_KiB)
 
+#ifndef MIN
+#   define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif /* MIN */
+
 #endif /* __EXAMPLE_COMMON_H__ */
