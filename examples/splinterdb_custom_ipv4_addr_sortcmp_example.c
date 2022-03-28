@@ -24,15 +24,14 @@
 #define APP_DEVICE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define APP_CACHE_SIZE_MB  64   // Size of cache; can be changed across boots
 
-/* Describe the layout of fields in an IP4-address */
+// Describe the layout of fields in an IP4-address
 #define APP_IPV4_NUM_FIELDS 4
 #define APP_IPV4_NUM_DOTS   (APP_IPV4_NUM_FIELDS - 1)
 
-/* Application declares the limit of key-sizes it intends to use */
+// Application declares the limit of key-sizes it intends to use
 #define APP_MAX_KEY_SIZE ((3 * APP_IPV4_NUM_FIELDS) + APP_IPV4_NUM_DOTS)
 
-/* Max # of chars in a well-formed IP4 address, including null-terminator byte
- */
+// Max # of chars in a well-formed IP4 address, including null-terminator byte
 #define APP_IPV4_MAX_KEY_BUF_SIZE (APP_MAX_KEY_SIZE + 1)
 
 // Declare a struct to build a key/value pair
@@ -114,6 +113,9 @@ main()
    default_data_config_init(APP_MAX_KEY_SIZE, &splinter_data_cfg);
 
    // Customize key-comparison with our implementation for IP4 addresses
+   // **** NOTE **** Custom key-comparision function needs to be provided
+   // up-front. Every insert will invoke this method to insert the new key
+   // in custom-sorted order.
    sprintf(splinter_data_cfg.min_key, "%s", "0.0.0.0");
    sprintf(splinter_data_cfg.max_key, "%s", "255.255.255.255");
    splinter_data_cfg.key_compare = custom_key_compare;
@@ -197,10 +199,6 @@ custom_key_compare(const data_config *cfg, slice key1, slice key2)
                             slice_length(key2));
 }
 
-/* Return value expected from key comparison routine */
-#define KEYCMP_RV_KEY1_LT_KEY2 ((int)-1)
-#define KEYCMP_RV_KEY1_EQ_KEY2 ((int)0)
-#define KEYCMP_RV_KEY1_GT_KEY2 ((int)1)
 
 /*
  * -----------------------------------------------------------------------------
@@ -210,12 +208,14 @@ custom_key_compare(const data_config *cfg, slice key1, slice key2)
  * - Extract each of the 4 parts of the IP-address
  * - Implement comparison by numerical sort-order of each part.
  *
- * Returns:
- *  -1 : If key1 < key2
- *   0 : If key1 == key2
- *   1 : If key1 > key2
+ * Returns: See below:
  * -----------------------------------------------------------------------------
  */
+/* Return value expected from key comparison routine */
+#define KEYCMP_RV_KEY1_LT_KEY2 ((int)-1)
+#define KEYCMP_RV_KEY1_EQ_KEY2 ((int)0)
+#define KEYCMP_RV_KEY1_GT_KEY2 ((int)1)
+
 int
 ip4_ipaddr_keycmp(const char  *key1,
                   const size_t key1_len,
@@ -251,22 +251,28 @@ ip4_ipaddr_keycmp(const char  *key1,
    return rv;
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * ip4_split() - Split a well-formed IPV4-address into its constituent parts.
+ *
+ * Returns: Output array key_fields[], populated with each piece of IP-address.
+ * -----------------------------------------------------------------------------
+ */
 int
 ip4_split(int *key_fields, const char *key, const size_t key_len)
 {
-   // printf("key_len=%lu, APP_IPV4_MAX_KEY_BUF_SIZE=%d\n", key_len,
-   // APP_IPV4_MAX_KEY_BUF_SIZE);
    assert(key_len < APP_IPV4_MAX_KEY_BUF_SIZE);
-   char keybuf[APP_IPV4_MAX_KEY_BUF_SIZE];
-
-   // Split each ip-address into its constituent parts
-   snprintf(keybuf, sizeof(keybuf), "%.*s", (int)key_len, key);
 
    // Process on-stack copy of key, so as to not trash user's data
+   char keybuf[APP_IPV4_MAX_KEY_BUF_SIZE];
+   snprintf(keybuf, sizeof(keybuf), "%.*s", (int)key_len, key);
+
    char *cp   = (char *)keybuf;
    char *dot  = NULL;
    int   fctr = 0;
-   while ((dot = strchr(cp, '.'))) {
+
+   // Split each ip-address into its constituent parts
+   while ((dot = strchr(cp, '.')) != NULL) {
       *dot             = '\n';
       key_fields[fctr] = atoi(cp);
       fctr++;
@@ -275,11 +281,6 @@ ip4_split(int *key_fields, const char *key, const size_t key_len)
    key_fields[fctr] = atoi(cp);
    fctr++;
 
-   /*
-   for (int ictr = 0; ictr < fctr; ictr++) {
-       printf(" [%d] = %d ", ictr, key_fields[ictr]);
-   }
-   */
    return fctr;
 }
 
