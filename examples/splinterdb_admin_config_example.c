@@ -62,6 +62,7 @@ main()
 
    splinterdb *spl_handle = NULL; // To a running SplinterDB instance
 
+   // -- ACTION IS HERE --
    int rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
    if (rc) {
       ex_err("SplinterDB creation failed. (rc=%d)\n", rc);
@@ -117,6 +118,8 @@ reboot_splinter_instance(const splinterdb_config *splinterdb_cfg,
                          splinterdb             **spl_handle_out)
 {
    splinterdb *spl_handle = *spl_handle_out;
+
+   // -- ACTION IS HERE --
    if (splinterdb_is_up(spl_handle)) {
       splinterdb_close(&spl_handle);
       ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);

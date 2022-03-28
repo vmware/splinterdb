@@ -94,10 +94,12 @@ main()
    }
    ex_msg("Created SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
 
+   // -- ACTION IS HERE --
    do_inserts_and_lookups(spl_handle);
 
    do_inserts_wide_values(spl_handle);
 
+   // -- ACTION IS HERE --
    do_lookups_with_output_buf(spl_handle);
 
    splinterdb_close(&spl_handle);

@@ -206,6 +206,7 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
 
    splinterdb_iterator *it = NULL;
 
+   // -- ACTION IS HERE --
    int rc = splinterdb_iterator_init(spl_handle, &it, NULL_SLICE);
 
    int i = 0;
@@ -243,6 +244,7 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key)
 
    splinterdb_iterator *it = NULL;
 
+   // -- ACTION IS HERE --
    slice start_key = slice_create(strlen(from_key), from_key);
    int   rc        = splinterdb_iterator_init(spl_handle, &it, start_key);
 

@@ -112,6 +112,7 @@ main()
    data_config splinter_data_cfg;
    default_data_config_init(APP_MAX_KEY_SIZE, &splinter_data_cfg);
 
+   // -- ACTION IS HERE --
    // Customize key-comparison with our implementation for IP4 addresses
    // **** NOTE **** Custom key-comparision function needs to be provided
    // up-front. Every insert will invoke this method to insert the new key
@@ -204,6 +205,7 @@ custom_key_compare(const data_config *cfg, slice key1, slice key2)
  * -----------------------------------------------------------------------------
  * ipaddr_keycmp() - Custom IPV4 IP-address key-comparison routine.
  *
+ // -- ACTION IS HERE --
  * 'key1' and 'key2' are expected to be well-formed IP4 addresses.
  * - Extract each of the 4 parts of the IP-address
  * - Implement comparison by numerical sort-order of each part.
