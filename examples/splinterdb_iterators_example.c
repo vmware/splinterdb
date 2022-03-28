@@ -102,7 +102,8 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key);
 int
 main()
 {
-   printf("     **** SplinterDB Iterators Example program ****\n\n");
+   printf("     **** SplinterDB Iterators Example program: "
+          "Lexicographic sort comparison  ****\n\n");
 
    // Initialize data configuration, describing your key-value properties
    data_config splinter_data_cfg;

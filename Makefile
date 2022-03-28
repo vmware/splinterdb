@@ -444,10 +444,15 @@ unit_test:                         $(BINDIR)/unit_test
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_admin_config_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_admin_config_example.o \
                                                            $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_apis_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_apis_example.o \
                                                            $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example.o \
                                                            $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_custom_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_custom_sortcmp_example.o \
+                                                                       $(LIBDIR)/libsplinterdb.so
 
 #*************************************************************#
 
