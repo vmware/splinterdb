@@ -1,6 +1,5 @@
 # Using SplinterDB
 
-<<<<<<< HEAD
 SplinterDB is an embedded key-value store.  It is currently Linux-only.
 
 To use SplinterDB, you must link your program to the library and call
