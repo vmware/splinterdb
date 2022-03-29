@@ -649,12 +649,14 @@ task_system_io_register_thread(task_system *ts)
 }
 
 void
-task_system_destroy(platform_heap_id hid, task_system *ts)
+task_system_destroy(platform_heap_id hid, task_system **ts_in)
 {
+   task_system *ts = *ts_in;
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
       task_group_deinit(&ts->group[type]);
    }
    platform_free(hid, ts);
+   *ts_in = (task_system *)NULL;
 }
 
 uint64 *

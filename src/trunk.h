@@ -380,7 +380,7 @@ trunk_mount(trunk_config     *cfg,
             allocator_root_id id,
             platform_heap_id  hid);
 void
-trunk_dismount(trunk_handle *spl);
+trunk_unmount(trunk_handle **spl);
 
 void
 trunk_perform_tasks(trunk_handle *spl);

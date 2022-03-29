@@ -447,7 +447,7 @@ typedef struct ONDISK trunk_super_block {
    uint64      log_meta_addr;
    uint64      timestamp;
    bool        checkpointed;
-   bool        dismounted;
+   bool        unmounted;
    checksum128 checksum;
 } trunk_super_block;
 
@@ -764,7 +764,7 @@ trunk_pages_per_extent(const trunk_config *cfg)
 void
 trunk_set_super_block(trunk_handle *spl,
                       bool          is_checkpoint,
-                      bool          is_dismount,
+                      bool          is_unmount,
                       bool          is_create)
 {
    uint64             super_addr;
@@ -796,7 +796,7 @@ trunk_set_super_block(trunk_handle *spl,
    }
    super->timestamp    = platform_get_real_time();
    super->checkpointed = is_checkpoint;
-   super->dismounted   = is_dismount;
+   super->unmounted    = is_unmount;
    super->checksum =
       platform_checksum128(super,
                            sizeof(trunk_super_block) - sizeof(checksum128),
@@ -7200,14 +7200,14 @@ trunk_mount(trunk_config     *cfg,
 
    srq_init(&spl->srq, platform_get_module_id(), hid);
 
-   // find the dismounted super block
+   // find the unmounted super block
    spl->root_addr                      = 0;
    uint64             meta_tail        = 0;
    uint64             latest_timestamp = 0;
    page_handle       *super_page;
    trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
    if (super != NULL) {
-      if (super->dismounted && super->timestamp > latest_timestamp) {
+      if (super->unmounted && super->timestamp > latest_timestamp) {
          spl->root_addr   = super->root_addr;
          meta_tail        = super->meta_tail;
          latest_timestamp = super->timestamp;
@@ -7375,12 +7375,13 @@ trunk_destroy(trunk_handle *spl)
 }
 
 /*
- * Close (dismount) a database without destroying it.
+ * Close (unmount) a database without destroying it.
  * It can be re-opened later with trunk_mount().
  */
 void
-trunk_dismount(trunk_handle *spl)
+trunk_unmount(trunk_handle **spl_in)
 {
+   trunk_handle *spl = *spl_in;
    srq_deinit(&spl->srq);
    trunk_set_super_block(spl, FALSE, TRUE, FALSE);
    trunk_prepare_for_shutdown(spl);
@@ -7396,6 +7397,7 @@ trunk_dismount(trunk_handle *spl)
       platform_free(spl->heap_id, spl->stats);
    }
    platform_free(spl->heap_id, spl);
+   *spl_in = (trunk_handle *)NULL;
 }
 
 /*
@@ -8206,10 +8208,10 @@ trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl)
                 super->meta_tail,
                 super->log_meta_addr);
    platform_log(log_handle,
-                "timestamp=%lu, checkpointed=%d, dismounted=%d\n",
+                "timestamp=%lu, checkpointed=%d, unmounted=%d\n",
                 super->timestamp,
                 super->checkpointed,
-                super->dismounted);
+                super->unmounted);
    platform_log(log_handle, "}\n\n");
    trunk_release_super_block(spl, super_page);
 }

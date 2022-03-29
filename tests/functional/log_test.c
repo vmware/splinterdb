@@ -366,7 +366,7 @@ log_test(int argc, char *argv[])
    platform_free(hid, log);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, ts);
+   test_deinit_task_system(hid, &ts);
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:

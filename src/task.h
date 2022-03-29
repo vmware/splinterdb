@@ -144,7 +144,7 @@ task_system_create(platform_heap_id    hid,
                    uint64              scratch_size);
 
 void
-task_system_destroy(platform_heap_id hid, task_system *ts);
+task_system_destroy(platform_heap_id hid, task_system **ts);
 
 
 void *

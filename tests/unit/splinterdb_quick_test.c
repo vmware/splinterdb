@@ -112,7 +112,7 @@ CTEST_SETUP(splinterdb_quick)
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(splinterdb_quick)
 {
-   splinterdb_close(data->kvsb);
+   splinterdb_close(&data->kvsb);
 }
 
 /*
@@ -641,7 +641,7 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    ASSERT_EQUAL(0, rc);
 
    // Close and re-open the database
-   splinterdb_close(data->kvsb);
+   splinterdb_close(&data->kvsb);
    rc = splinterdb_open(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -683,7 +683,7 @@ CTEST2(splinterdb_quick, test_repeated_insert_close_reopen)
          data->kvsb, slice_create(key_len, key), slice_create(val_len, val));
       ASSERT_EQUAL(0, rc, "Insert is expected to pass, iter=%d.", i);
 
-      splinterdb_close(data->kvsb);
+      splinterdb_close(&data->kvsb);
 
       rc = splinterdb_open(&data->cfg, &data->kvsb);
       ASSERT_EQUAL(0, rc);
@@ -696,7 +696,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 {
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
-   splinterdb_close(data->kvsb);
+   splinterdb_close(&data->kvsb);
    data->cfg.data_cfg                 = test_data_config;
    data->cfg.data_cfg->key_size       = 20;
    data->cfg.data_cfg->max_key_length = 20;
@@ -765,7 +765,7 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 {
    // We need to reconfigure Splinter with user-specified key comparator fn.
    // Tear down default instance, and create a new one.
-   splinterdb_close(data->kvsb);
+   splinterdb_close(&data->kvsb);
 
    data->default_data_cfg.super.key_compare = custom_key_comparator;
    data->default_data_cfg.num_comparisons   = 0;

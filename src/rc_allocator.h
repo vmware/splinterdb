@@ -113,6 +113,6 @@ rc_allocator_mount(rc_allocator        *al,
                    platform_module_id   mid);
 
 void
-rc_allocator_dismount(rc_allocator *al);
+rc_allocator_unmount(rc_allocator *al);
 
 #endif /* __RC_ALLOCATOR_H */

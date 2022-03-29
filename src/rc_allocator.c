@@ -323,7 +323,7 @@ rc_allocator_deinit(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_[dis]mount --
+ * rc_allocator_{mount,unmount} --
  *
  *      Loads the file system from disk
  *      Write the file system to disk
@@ -404,15 +404,15 @@ rc_allocator_mount(rc_allocator        *al,
 
 
 void
-rc_allocator_dismount(rc_allocator *al)
+rc_allocator_unmount(rc_allocator *al)
 {
    platform_status status;
 
    platform_default_log(
-      "Allocated at dismount: %lu MiB\n",
+      "Allocated at unmount: %lu MiB\n",
       B_TO_MiB(al->stats.curr_allocated * al->cfg->io_cfg->extent_size));
 
-   // persist the ref counts upon dismount.
+   // persist the ref counts upon unmount.
    uint32 io_size =
       ROUNDUP(al->cfg->extent_capacity, al->cfg->io_cfg->page_size);
    status =

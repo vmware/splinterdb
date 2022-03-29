@@ -72,7 +72,7 @@ test_init_task_system(platform_heap_id    hid,
 }
 
 static inline void
-test_deinit_task_system(platform_heap_id hid, task_system *ts)
+test_deinit_task_system(platform_heap_id hid, task_system **ts)
 {
    task_system_destroy(hid, ts);
 }
