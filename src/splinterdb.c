@@ -510,9 +510,9 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
 deinit_cache:
    clockcache_deinit(&kvs->cache_handle);
 deinit_allocator:
-   rc_allocator_dismount(&kvs->allocator_handle);
+   rc_allocator_unmount(&kvs->allocator_handle);
 deinit_system:
-   task_system_destroy(kvs->heap_id, kvs->task_sys);
+   task_system_destroy(kvs->heap_id, &kvs->task_sys);
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 deinit_kvhandle:
@@ -552,17 +552,19 @@ splinterdb_open(const splinterdb_config *cfg, // IN
  *-----------------------------------------------------------------------------
  */
 void
-splinterdb_close(splinterdb *kvs) // IN
+splinterdb_close(splinterdb **kvs_in) // IN
 {
+   splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
 
-   trunk_dismount(kvs->spl);
+   trunk_unmount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
-   rc_allocator_dismount(&kvs->allocator_handle);
+   rc_allocator_unmount(&kvs->allocator_handle);
    io_handle_deinit(&kvs->io_handle);
-   task_system_destroy(kvs->heap_id, kvs->task_sys);
+   task_system_destroy(kvs->heap_id, &kvs->task_sys);
 
    platform_free(kvs->heap_id, kvs);
+   *kvs_in = (splinterdb *)NULL;
 }
 
 

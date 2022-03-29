@@ -1336,11 +1336,11 @@ ycsb_test(int argc, char *argv[])
 
    run_all_ycsb_phases(spl, phases, nphases, ts, hid);
 
-   trunk_dismount(spl);
+   trunk_unmount(&spl);
    clockcache_deinit(cc);
    platform_free(hid, cc);
-   rc_allocator_dismount(&al);
-   test_deinit_task_system(hid, ts);
+   rc_allocator_unmount(&al);
+   test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 
    // struct rusage usage;

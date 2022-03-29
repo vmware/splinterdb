@@ -310,7 +310,7 @@ CTEST2(limitations, test_splinterdb_mount_invalid_key_size)
    int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_close(kvsb);
+   splinterdb_close(&kvsb);
 
    // We have carefully configured Splinter to use the default key-size
    // used by tests. Force-it to be an invalid value, to check that
@@ -506,7 +506,7 @@ splinter_deinit_subsystems(void *arg)
    allocator_assert_noleaks(alp);
 
    rc_allocator_deinit(&data->al);
-   test_deinit_task_system(data->hid, data->tasks);
+   test_deinit_task_system(data->hid, &data->tasks);
 
    io_handle_deinit(data->io);
    platform_free(data->hid, data->io);

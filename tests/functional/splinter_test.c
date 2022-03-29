@@ -2850,7 +2850,7 @@ splinter_test(int argc, char *argv[])
    platform_free(hid, cc);
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, ts);
+   test_deinit_task_system(hid, &ts);
 handle_deinit:
    io_handle_deinit(io);
 io_free:

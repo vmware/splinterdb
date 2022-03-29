@@ -99,7 +99,7 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 //
 // This will flush all data to disk and release all resources
 void
-splinterdb_close(splinterdb *kvs);
+splinterdb_close(splinterdb **kvs);
 
 // Register the current thread so that it can be used with splinterdb.
 // This causes scratch space to be allocated for the thread.

@@ -228,7 +228,7 @@ CTEST_TEARDOWN(splinter)
    allocator_assert_noleaks(alp);
 
    rc_allocator_deinit(&data->al);
-   test_deinit_task_system(data->hid, data->tasks);
+   test_deinit_task_system(data->hid, &data->tasks);
 
    io_handle_deinit(data->io);
    platform_free(data->hid, data->io);
