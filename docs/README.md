@@ -6,7 +6,7 @@ Table of Contents
 
 ----
 
-For End-users:
+## For End-users:
 
 [Building SplinterDB](./build.md)
 
@@ -20,7 +20,7 @@ For End-users:
 
 ----
 
-For Developers:
+## For Developers:
 
 [Architecture](./architecture.md)
 
