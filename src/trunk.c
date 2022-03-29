@@ -2944,6 +2944,93 @@ out:
    return rc;
 }
 
+/* Assume trunk update lock is held */
+static inline void
+trunk_get_cow_path(trunk_handle *spl, uint64 root_addr,
+                   char *key, page_handle **node_path,
+                   uint64 *addr_array, int *idx,
+                   int *root_height, uint16 dest_height)
+{
+   // FIXME: spl->root_addr may not be the same with root_addr argument here
+   page_handle *node = trunk_node_get(spl, root_addr);
+
+   uint16 height = trunk_height(spl, node);
+   *root_height = height;
+   int num_cowed = 0;
+
+   //platform_log("%s: height=%d, key=%s, dest_height=%d\n", __func__, height, key, dest_height);
+   //platform_log("%s: root_addr=%lu, height=%d\n", __func__, root_addr, height);
+   //for (uint16 h = height; h >= dest_height; h--) {
+   int h = height;
+   do {
+      page_handle *cow_node = trunk_alloc(spl, h);
+      memcpy(cow_node->data, node->data, trunk_page_size(&spl->cfg));
+      node_path[h] = cow_node;
+      addr_array[h] = cow_node->disk_addr;
+      num_cowed += 1;
+      //platform_log("h=%d, cow_addr=%lu, node_addr=%lu\n", h, cow_node->disk_addr, node->disk_addr);
+      // only root is cow here
+      // only called during memtable incorporation
+      // also break if the node is a leaf
+      if (dest_height == TRUNK_MAX_HEIGHT || h == 0) {
+         trunk_node_unget(spl, &node);
+         break;     
+      }
+
+      uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
+      debug_assert(pivot_no < trunk_num_children(spl, node));
+      char *pivot = trunk_get_pivot(spl, node, pivot_no);
+      int cmp = trunk_key_compare(spl, key, pivot);
+      if (0 == cmp && h == dest_height) {
+         // We choose the first pivot to search this node
+         // for splinter_compact_bundle
+         debug_assert(pivot_no == 0);
+         trunk_node_unget(spl, &node);
+         break;
+      }
+      idx[h] = pivot_no;
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+      page_handle *child = trunk_node_get(spl, pdata->addr);
+      trunk_node_unget(spl, &node);
+      node = child;
+      h = trunk_height(spl, node);
+      //platform_log("h=%d\n", h);
+   } while (h >= 0);
+
+   if (num_cowed == 1) {
+      goto unlock;
+   }
+
+   // The for loop below only works when the cow-ed path
+   // has at least two node.
+   // set the link from parent to child
+   for (h = *root_height; h > 0; h--) {
+      //platform_log("h=%d, node_path[h-1]=%p\n", h, node_path[h-1]);
+      page_handle *parent = node_path[h];
+      uint16 child_no = idx[h];
+      uint16 num_children = trunk_num_children(spl, parent);
+      platform_assert(child_no < num_children);
+      if (node_path[h-1] != NULL) {
+         trunk_pivot_data *pdata = trunk_get_pivot_data(spl, parent, child_no);
+         pdata->addr = node_path[h-1]->disk_addr;
+      } else {
+         break;
+      }
+   }
+
+unlock:
+   for (h = *root_height; h >= 0; h--) {
+      //platform_log("%s: h=%d at %d\n", __func__, h, __LINE__);
+      if (!node_path[h]) {
+         break;
+      }
+      trunk_node_unlock(spl, node_path[h]);
+      trunk_node_unclaim(spl, node_path[h]);
+      trunk_node_unget(spl, &node_path[h]);
+   }
+   //platform_log("%s is done\n", __func__);
+}
+
 /*
  * Compacts the memtable with generation generation and builds its filter.
  * Returns a pointer to the memtable.
@@ -3120,14 +3207,24 @@ trunk_memtable_incorporate(trunk_handle  *spl,
                            uint64         generation,
                            const threadid tid)
 {
+   trunk_update_lock(spl);
    // X. Get, claim and lock the lookup lock
    page_handle *mt_lookup_lock_page =
       memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
 
    memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
 
+   page_handle *node_path[TRUNK_MAX_HEIGHT] = { NULL };
+   int idx[TRUNK_MAX_HEIGHT] = { TRUNK_MAX_PIVOTS };
+   uint64 addr_array[TRUNK_MAX_HEIGHT] = {0};
+   int root_height;
+   trunk_get_cow_path(spl, spl->root_addr, "", node_path, addr_array, idx, &root_height, TRUNK_MAX_HEIGHT);
+   //platform_log("%s: root_height=%d, node_path[root_height]=%p\n", __func__, root_height, node_path[root_height]);
+   uint64 new_root_addr = addr_array[root_height];
+
    // X. Get, claim and lock the root
-   page_handle *root = trunk_node_get(spl, spl->root_addr);
+   page_handle *root = trunk_node_get(spl, new_root_addr);
+   //platform_log("%s: root=%p, root->disk_addr=%lu\n", __func__, root, root->disk_addr);
    trunk_node_claim(spl, &root);
    platform_assert(trunk_has_vacancy(spl, root, 1));
    trunk_node_lock(spl, root);
@@ -3135,7 +3232,7 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    trunk_open_log_stream();
    trunk_log_stream("incorporate memtable gen %lu into root %lu\n",
                     generation,
-                    spl->root_addr);
+                    root->disk_addr);
    trunk_log_node(spl, root);
    trunk_log_stream("----------------------------------------\n");
 
@@ -3160,6 +3257,7 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    sb->state                     = SB_STATE_COMPACTED;
    routing_filter *filter        = trunk_subbundle_filter(spl, root, sb, 0);
    *filter                       = cmt->filter;
+   // When the background job is executed, spl->root_addr has been change
    req->spl                      = spl;
    req->height                   = trunk_height(spl, root);
    req->max_pivot_generation     = trunk_pivot_generation(spl, root);
@@ -3248,6 +3346,8 @@ trunk_memtable_incorporate(trunk_handle  *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+   spl->root_addr = new_root_addr;
+   trunk_update_unlock(spl);
 }
 
 /*
@@ -3636,12 +3736,36 @@ trunk_bundle_build_filters(void *arg, void *scratch)
    trunk_compact_bundle_req *req = (trunk_compact_bundle_req *)arg;
    trunk_handle             *spl = req->spl;
 
+   trunk_update_lock(spl);
+
+   //platform_log("%s: spl->root_addr=%lu\n", __func__, spl->root_addr);
+   platform_log("%s is called\n", __func__);
+   //cache        *cc        = spl->cc;
+   //cache_assert_free(cc);
+
+   page_handle *node_path[TRUNK_MAX_HEIGHT] = { NULL };
+   int idx[TRUNK_MAX_HEIGHT] = { TRUNK_MAX_PIVOTS };
+   uint64 addr_array[TRUNK_MAX_HEIGHT] = {0};
+   int root_height;
+   uint64 new_root_addr = spl->root_addr;
+
+   //trunk_get_cow_path(spl, spl->root_addr, req->start_key, node_path, idx, &root_height, req->height);
+   //uint64 new_root_addr = node_path[root_height].disk_addr;
+   //page_handle *node = node_path[req->height];
+   //trunk_node_get(spl, node->disk_addr);
+
    bool should_continue_build_filters = TRUE;
-   while (should_continue_build_filters) {
+   do {
       page_handle *node = NULL;
-      platform_status rc = trunk_compact_bundle_node_get(spl, req, &node);
-      platform_assert_status_ok(rc);
-      platform_assert(node != NULL);
+      //platform_log("%s: trunk_get_cow_path is called at %d\n", __func__, __LINE__);
+      trunk_get_cow_path(spl, new_root_addr, req->start_key, node_path, addr_array, idx, &root_height, req->height);
+      //cache_assert_free(cc);
+      uint64 node_addr = addr_array[req->height];
+      node = trunk_node_get(spl, node_addr);
+      //cache_assert_free(cc);
+      //platform_status rc = trunk_compact_bundle_node_get(spl, req, &node);
+      //platform_assert_status_ok(rc);
+      //platform_assert(node != NULL);
 
       trunk_open_log_stream();
       trunk_log_stream(
@@ -3654,10 +3778,13 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       if (trunk_build_filter_should_abort(req, node)) {
          trunk_log_stream("leaf split, aborting\n");
          trunk_node_unget(spl, &node);
+         // FIXME: need to release the node in node_path
+         platform_log("%s goto out\n", __func__);
          goto out;
       }
       if (trunk_build_filter_should_skip(req, node)) {
          trunk_log_stream("bundle flushed, skipping\n");
+         platform_log("%s goto next_node\n", __func__);
          goto next_node;
       }
 
@@ -3667,31 +3794,49 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          trunk_log_stream("out of order, reequeuing\n");
          trunk_close_log_stream();
          trunk_node_unget(spl, &node);
+         // FIXME: need to release the node in node_path
+         spl->root_addr = new_root_addr;
+         trunk_update_unlock(spl);
+         platform_log("%s return at %d\n", __func__, __LINE__);
          return;
       }
+      platform_log("%s at %d\n", __func__, __LINE__);
 
       for (uint64 i = 0; i < TRUNK_MAX_PIVOTS; i++) {
          platform_assert(!req->should_build[i]);
       }
+
+      new_root_addr = addr_array[root_height];
+
       trunk_prepare_build_filter(spl, req, node);
       trunk_node_unget(spl, &node);
+      //cache_assert_free(cc);
 
       trunk_build_filters(spl, req);
 
       trunk_log_stream("----------------------------------------\n");
 
       bool should_continue_replacing_filters = TRUE;
-      while (should_continue_replacing_filters)
-      {
-         rc = trunk_compact_bundle_node_get(spl, req, &node);
-         platform_assert_status_ok(rc);
+      do {
+         platform_log("%s at %d\n", __func__, __LINE__);
+         //platform_log("%s: trunk_get_cow_path is called at %d\n", __func__, __LINE__);
+         trunk_get_cow_path(spl, new_root_addr, req->start_key, node_path, addr_array, idx, &root_height, req->height);
+         uint64 node_addr = addr_array[req->height];
+         node = trunk_node_get(spl, node_addr);
+         //cache_assert_free(cc);
+         //rc = trunk_compact_bundle_node_get(spl, req, &node);
+         //platform_assert_status_ok(rc);
          trunk_node_claim(spl, &node);
          if (trunk_build_filter_should_abort(req, node)) {
             trunk_log_stream("replace_filter abort leaf split\n");
             trunk_node_unclaim(spl, node);
             trunk_node_unget(spl, &node);
+            // FIXME: release the node on node_path
+            platform_log("%s goto out at %d\n", __func__, __LINE__);
             goto out;
          }
+
+         new_root_addr = addr_array[root_height];
          trunk_node_lock(spl, node);
          trunk_replace_routing_filter(spl, req, node);
          if (trunk_bundle_live(spl, node, req->bundle_no)) {
@@ -3704,6 +3849,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          should_continue_replacing_filters =
             !trunk_key_equal(spl, req->start_key, req->end_key);
          if (should_continue_replacing_filters) {
+         platform_log("%s at %d\n", __func__, __LINE__);
          trunk_log_stream(
             "replace_filter split: range %s-%s, height %u, bundle %u\n",
             key_string(trunk_data_config(spl), req->min_key),
@@ -3713,7 +3859,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
             debug_assert(req->height != 0);
             trunk_node_unget(spl, &node);
          }
-      }
+      } while (should_continue_replacing_filters)
 
       trunk_log_node(spl, node);
       trunk_log_stream("----------------------------------------\n");
@@ -3723,6 +3869,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       debug_assert(trunk_verify_node(spl, node));
       trunk_key_copy(spl, req->start_key, trunk_max_key(spl, node));
       trunk_node_unget(spl, &node);
+      //cache_assert_free(cc);
       should_continue_build_filters =
          !trunk_key_equal(spl, req->start_key, req->end_key);
       if (should_continue_build_filters) {
@@ -3735,6 +3882,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          debug_assert(req->height != 0);
       }
       trunk_close_log_stream();
+      platform_log("%s at %d\n", __func__, __LINE__);
    } while (should_continue_build_filters);
 
 out:
@@ -3744,6 +3892,12 @@ out:
    platform_free(spl->heap_id, req->fp_arr);
    platform_free(spl->heap_id, req);
    trunk_maybe_reclaim_space(spl);
+   // FIXME: is this a good place to switch the root
+   spl->root_addr = new_root_addr;
+   trunk_update_unlock(spl);
+
+   //cache_assert_free(cc);
+   platform_log("%s return at %d\n", __func__, __LINE__);
    return;
 }
 
@@ -4364,9 +4518,19 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    /*
     * 1. Acquire node read lock
     */
-   page_handle *node;
-   rc = trunk_compact_bundle_node_get(spl, req, &node);
-   platform_assert_status_ok(rc);
+   //page_handle *node;
+   //rc = trunk_compact_bundle_node_get(spl, req, &node);
+   //platform_assert_status_ok(rc);
+   platform_log("%s is called\n", __func__);
+   trunk_update_lock(spl);
+   page_handle *node_path[TRUNK_MAX_HEIGHT] = { NULL };
+   int idx[TRUNK_MAX_HEIGHT] = { TRUNK_MAX_PIVOTS };
+   uint64 addr_array[TRUNK_MAX_HEIGHT] = {0};
+   int root_height;
+   trunk_get_cow_path(spl, spl->root_addr, req->start_key, node_path, addr_array, idx, &root_height, req->height);
+   uint64 new_root_addr = addr_array[root_height];
+   uint64 node_addr = addr_array[req->height];
+   page_handle *node = trunk_node_get(spl, node_addr);
 
    /*
     * 2. Flush if node is full (acquires write lock)
@@ -4430,6 +4594,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
             spl->stats[tid].compaction_time_wasted_ns[height] +=
                platform_timestamp_elapsed(compaction_start);
          }
+         // FIXME: release node in node_path
+         trunk_update_unlock(spl);
          return;
       }
    }
@@ -4455,6 +4621,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl->stats[tid].compaction_time_wasted_ns[height] +=
             platform_timestamp_elapsed(compaction_start);
       }
+      // FIXME: release node in node_path
+      trunk_update_unlock(spl);
       return;
    }
 
@@ -4515,6 +4683,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    /*
     * 7. Release read lock
     */
+   platform_assert(node_addr == node->disk_addr);
    trunk_node_unget(spl, &node);
 
    /*
@@ -4570,8 +4739,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    /*
     * 11. Reacquire read lock
     */
-   rc = trunk_compact_bundle_node_get(spl, req, &node);
-   platform_assert_status_ok(rc);
+   //rc = trunk_compact_bundle_node_get(spl, req, &node);
+   //platform_assert_status_ok(rc);
+   // FIXME: For cow, node is a newly-created node
+   // Need more think about how to handle this
+   node = trunk_node_get(spl, node_addr);
+   uint64 old_new_root_addr = new_root_addr;
 
    /*
     * 12. For each newly split sibling replace bundle with new branch
@@ -4614,6 +4787,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          trunk_dec_ref(spl, &new_branch, FALSE);
          platform_free(spl->heap_id, req->fp_arr);
          platform_free(spl->heap_id, req);
+         // FIXME: release the node in node_path
+         // Use the old_new_root_addr for new_root_addr
+         new_root_addr = old_new_root_addr;
          goto out;
       }
 
@@ -4653,8 +4829,22 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_node_unclaim(spl, node);
       trunk_node_unget(spl, &node);
       if (should_continue) {
-         rc = trunk_compact_bundle_node_get(spl, req, &node);
-         platform_assert_status_ok(rc);
+         // FIXME: This is to get the sibling node to replace its bundle
+         //  Do we need to path-copying again here
+         // I guess so. We need to do path copying on top of the new tree
+         // page_handle *node_path[TRUNK_MAX_HEIGHT] = { NULL };
+         // int idx[TRUNK_MAX_HEIGHT] = { TRUNK_MAX_PIVOTS };
+         // int root_height;
+         old_new_root_addr = new_root_addr;
+         memset(node_path, 0, sizeof(node_path));
+         memset(idx, 0, sizeof(idx));
+         memset(addr_array, 0, sizeof(addr_array));
+         trunk_get_cow_path(spl, new_root_addr, req->start_key, node_path, addr_array, idx, &root_height, req->height);
+         new_root_addr = addr_array[root_height];
+         node_addr = addr_array[req->height];
+         node = trunk_node_get(spl, node_addr);
+         //rc = trunk_compact_bundle_node_get(spl, req, &node);
+         //platform_assert_status_ok(rc);
       }
    }
 
@@ -4697,6 +4887,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
    }
 out:
+   spl->root_addr = new_root_addr;
+   trunk_update_unlock(spl)
+
    trunk_log_stream("\n");
    trunk_close_log_stream();
 }
@@ -6042,7 +6235,6 @@ trunk_lookup(trunk_handle *spl, char *key, writable_buffer *data)
 {
    data_config *data_cfg = spl->cfg.data_cfg;
    message_type type;
-
    // look in memtables
 
    // 1. get read lock on lookup lock
@@ -6825,6 +7017,10 @@ trunk_create(trunk_config     *cfg,
    trunk_node_unclaim(spl, root);
    trunk_node_unget(spl, &root);
 
+   // initialize trunk update lock
+   platform_mutex_init(
+      &spl->update_lock, platform_get_module_id(), spl->heap_id);
+
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
       platform_assert(spl->stats);
@@ -6911,6 +7107,10 @@ trunk_mount(trunk_config     *cfg,
    }
 
    trunk_set_super_block(spl, FALSE, FALSE, FALSE);
+
+   // initialize trunk update lock
+   platform_mutex_init(
+      &spl->update_lock, platform_get_module_id(), spl->heap_id);
 
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
@@ -7036,6 +7236,7 @@ trunk_destroy(trunk_handle *spl)
 {
    srq_deinit(&spl->srq);
 
+   //platform_log("%s: spl->root_addr=%lu\n", __func__, spl->root_addr);
    trunk_prepare_for_shutdown(spl);
 
    trunk_for_each_node(spl, trunk_node_destroy, NULL);
@@ -7044,6 +7245,9 @@ trunk_destroy(trunk_handle *spl)
 
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
+
+   // destroy trunk update lock
+   platform_mutex_destroy(&spl->update_lock);
 
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
@@ -7066,9 +7270,15 @@ trunk_destroy(trunk_handle *spl)
 void
 trunk_dismount(trunk_handle *spl)
 {
+   //platform_log("%s: spl->root_addr=%lu\n", __func__, spl->root_addr);
    srq_deinit(&spl->srq);
-   trunk_set_super_block(spl, FALSE, TRUE, FALSE);
+   //platform_log("%s: spl->root_addr=%lu\n", __func__, spl->root_addr);
    trunk_prepare_for_shutdown(spl);
+   trunk_set_super_block(spl, FALSE, TRUE, FALSE);
+
+   // destroy trunk update lock
+   platform_mutex_destroy(&spl->update_lock);
+
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,

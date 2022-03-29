@@ -251,12 +251,16 @@ platform_status_to_string(const platform_status status)
    do {                                                                        \
       fprintf(stream, __VA_ARGS__);                                            \
    } while (0)
-
+#if 0
 #define platform_log(...)                                                      \
    do {                                                                        \
       fprintf(Platform_stdout_fh, __VA_ARGS__);                                \
       fflush(Platform_stdout_fh);                                              \
    } while (0)
+#else
+#define platform_log printf
+
+#endif
 
 #define platform_throttled_log(sec, ...)                                       \
    do {                                                                        \

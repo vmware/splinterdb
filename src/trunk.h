@@ -178,6 +178,9 @@ struct trunk_handle {
    trunk_config     cfg;
    platform_heap_id heap_id;
 
+   // Trunk update lock
+   platform_mutex   update_lock;
+
    // space reclamation
    uint64 est_tuples_in_compaction;
 
@@ -474,6 +477,18 @@ trunk_async_ctxt_init(trunk_async_ctxt *ctxt, trunk_async_cb cb)
    ZERO_CONTENTS(ctxt);
    ctxt->state = async_state_start;
    ctxt->cb    = cb;
+}
+
+static inline void
+trunk_update_lock(trunk_handle *spl)
+{
+   platform_mutex_lock(&spl->update_lock);
+}
+
+static inline void
+trunk_update_unlock(trunk_handle *spl)
+{
+   platform_mutex_unlock(&spl->update_lock);
 }
 
 uint64

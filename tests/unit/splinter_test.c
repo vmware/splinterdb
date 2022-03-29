@@ -533,8 +533,8 @@ splinter_do_inserts(void         *datap,
    // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
       (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
-   int num_inserts =
-      data->splinter_cfg[0].max_tuples_per_node * data->splinter_cfg[0].fanout;
+   int num_inserts = 129888;
+   //   data->splinter_cfg[0].max_tuples_per_node * data->splinter_cfg[0].fanout;
 
    // Debug hook: Override this to smaller value for faster test execution,
    // while doing test-dev / debugging. Default is some big value, like
