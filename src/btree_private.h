@@ -48,10 +48,16 @@ struct ONDISK btree_hdr {
  * BTree Node index entries: Disk-resident structure
  * *************************************************************************
  */
+#define INDIRECT_FLAG_BITS (1)
 typedef struct ONDISK index_entry {
-   btree_pivot_data pivot_data;
-   inline_key_size  key_size;
-   char             key[];
+   // clang-format off
+   btree_pivot_data     pivot_data;
+   inline_key_size      key_size     : bitsizeof(inline_key_size) - INDIRECT_FLAG_BITS;
+   /* Indirect keys are not currently implemented, but this field is
+      here so the on-disk format is ready when we add support. */
+   inline_key_size      key_indirect : INDIRECT_FLAG_BITS;
+   char                 key[];
+   // clang-format on
 } index_entry;
 
 _Static_assert(sizeof(index_entry)
@@ -71,10 +77,23 @@ _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
  * the concatenated [<key>, <message>] datum.
  * *************************************************************************
  */
+#define MESSAGE_TYPE_BITS (2)
+_Static_assert(MESSAGE_TYPE_INVALID < (1ULL << MESSAGE_TYPE_BITS),
+               "MESSAGE_TYPE_BITS is too small");
+
 typedef struct ONDISK leaf_entry {
-   inline_key_size     key_size;
-   inline_message_size message_size;
-   char                key_and_message[];
+   // clang-format off
+   inline_key_size      key_size         : bitsizeof(inline_key_size) - INDIRECT_FLAG_BITS;
+   /* Indirect keys are not currently implemented, but this field is
+      here so the on-disk format is ready when we add support. */
+   inline_key_size      key_indirect     : INDIRECT_FLAG_BITS;
+   inline_message_size  message_size     : bitsizeof(inline_message_size) - MESSAGE_TYPE_BITS - INDIRECT_FLAG_BITS;
+   inline_message_size  type             : MESSAGE_TYPE_BITS;
+   /* Indirect messages are not currently implemented, but this field is
+      here so the on-disk format is ready when we add support. */
+   inline_message_size  message_indirect : INDIRECT_FLAG_BITS;
+   char                 key_and_message[];
+   // clang-format on
 } leaf_entry;
 
 _Static_assert(sizeof(leaf_entry)
@@ -93,8 +112,8 @@ typedef struct leaf_incorporate_spec {
    } old_entry_state;
    union {
       /* "old_entry_state" is the tag on this union. */
-      slice           new_message; /* old_entry_state == ENTRY_DID_NOT_EXIST */
-      writable_buffer merged_message; /* otherwise */
+      message           new_message; // old_entry_state == ENTRY_DID_NOT_EXIST
+      merge_accumulator merged_message; // otherwise
    } msg;
 } leaf_incorporate_spec;
 
@@ -103,7 +122,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    platform_heap_id       heap_id,
                                    btree_hdr             *hdr,
                                    slice                  key,
-                                   slice                  message,
+                                   message                message,
                                    leaf_incorporate_spec *spec);
 
 bool
@@ -144,7 +163,7 @@ btree_set_leaf_entry(const btree_config *cfg,
                      btree_hdr          *hdr,
                      table_index         k,
                      slice               new_key,
-                     slice               new_message);
+                     message             new_message);
 
 void
 btree_defragment_leaf(const btree_config    *cfg, // IN
@@ -198,38 +217,57 @@ btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 static inline uint64
 sizeof_index_entry(const index_entry *entry)
 {
+   debug_assert(entry->key_indirect == FALSE);
    return sizeof(*entry) + entry->key_size;
 }
 
 static inline uint64
 sizeof_leaf_entry(const leaf_entry *entry)
 {
+   debug_assert(entry->key_indirect == FALSE);
+   debug_assert(entry->message_indirect == FALSE);
    return sizeof(*entry) + entry->key_size + entry->message_size;
 }
 
 static inline slice
 index_entry_key_slice(const index_entry *entry)
 {
+   debug_assert(entry->key_indirect == FALSE);
    return slice_create(entry->key_size, entry->key);
 }
 
 static inline uint64
 index_entry_child_addr(const index_entry *entry)
 {
+   debug_assert(entry->key_indirect == FALSE);
    return entry->pivot_data.child_addr;
 }
 
 static inline slice
 leaf_entry_key_slice(leaf_entry *entry)
 {
+   debug_assert(entry->key_indirect == FALSE);
+   debug_assert(entry->message_indirect == FALSE);
    return slice_create(entry->key_size, entry->key_and_message);
 }
 
-static inline slice
-leaf_entry_message_slice(leaf_entry *entry)
+static inline message
+leaf_entry_message(leaf_entry *entry)
 {
-   return slice_create(entry->message_size,
-                       entry->key_and_message + entry->key_size);
+   debug_assert(entry->key_indirect == FALSE);
+   debug_assert(entry->message_indirect == FALSE);
+   return message_create(
+      entry->type,
+      slice_create(entry->message_size,
+                   entry->key_and_message + entry->key_size));
+}
+
+static inline message_type
+leaf_entry_message_type(leaf_entry *entry)
+{
+   debug_assert(entry->key_indirect == FALSE);
+   debug_assert(entry->message_indirect == FALSE);
+   return entry->type;
 }
 
 static inline leaf_entry *
@@ -247,6 +285,8 @@ btree_get_leaf_entry(const btree_config *cfg,
       (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
    debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
                 <= btree_page_size(cfg));
+   debug_assert(entry->key_indirect == FALSE);
+   debug_assert(entry->message_indirect == FALSE);
    return entry;
 }
 
@@ -258,13 +298,22 @@ btree_get_tuple_key(const btree_config *cfg,
    return leaf_entry_key_slice(btree_get_leaf_entry(cfg, hdr, k));
 }
 
-static inline slice
+static inline message
 btree_get_tuple_message(const btree_config *cfg,
                         const btree_hdr    *hdr,
                         table_index         k)
 {
-   return leaf_entry_message_slice(btree_get_leaf_entry(cfg, hdr, k));
+   return leaf_entry_message(btree_get_leaf_entry(cfg, hdr, k));
 }
+
+static inline message_type
+btree_get_tuple_message_type(const btree_config *cfg,
+                             const btree_hdr    *hdr,
+                             table_index         k)
+{
+   return leaf_entry_message_type(btree_get_leaf_entry(cfg, hdr, k));
+}
+
 
 static inline index_entry *
 btree_get_index_entry(const btree_config *cfg,
@@ -297,6 +346,7 @@ btree_get_index_entry(const btree_config *cfg,
                 hdr->offsets[k],
                 sizeof_index_entry(entry),
                 btree_page_size(cfg));
+   debug_assert(entry->key_indirect == FALSE);
    return entry;
 }
 
