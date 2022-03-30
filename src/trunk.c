@@ -90,6 +90,15 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
 #define TRUNK_SINGLE_LEAF_THRESHOLD_PCT (75)
 
 /*
+ * During Splinter configuration, the fanout parameter is provided by the user.
+ * SplinterDB defers internal node splitting in order to use hand-over-hand
+ * locking. As a result, index nodes may temporarily have more pivots than the
+ * fanout. Therefore, the number of pivot keys is over-provisioned by this
+ * value.
+ */
+#define TRUNK_EXTRA_PIVOT_KEYS (6)
+
+/*
  * Trunk logging functions.
  *
  * If verbose_logging_enabled is enabled in trunk_config, these functions print
@@ -335,21 +344,21 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
 
 /*
  *-----------------------------------------------------------------------------
- * Trunk Nodes: splinter_trunk_hdr{}: Disk-resident structure
+ * Trunk Nodes: splinter trunk_hdr{}: Disk-resident structure
  *
  *   A trunk node, on pages of PAGE_TYPE_TRUNK type, consists of the following:
  *
- *       header
+ *       Header
  *          meta data
  *       ---------
- *       array of bundles
+ *       Array of bundles
  *          When a collection of branches are flushed into a node, they are
  *          organized into a bundle. This bundle will be compacted into a
  *          single branch by a call to trunk_compact_bundle. Bundles are
  *          implemented as a collection of subbundles, each of which covers a
  *          range of branches.
  *       ----------
- *       array of subbundles
+ *       Array of subbundles
  *          A subbundle consists of the branches from a single ancestor (really
  *          that ancestor's pivot). During a flush, all the whole branches in
  *          the parent are collected into a subbundle in the child and any
@@ -358,7 +367,7 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *          Subbundles function properly in the current design, but are not
  *          used for anything. They are going to be used for routing filters.
  *       ----------
- *       array of pivots: Each node has a pivot corresponding to each
+ *       Array of pivots: Each node has a pivot corresponding to each
  *          child as well as an additional last pivot which contains
  *          an exclusive upper bound key for the node. Each pivot has
  *          a key which is an inclusive lower bound for the keys in
@@ -369,31 +378,38 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *          determine which branches have tuples for that pivot (the
  *          range start_branch to end_branch).
  *
- *          Each pivot's key is accessible via a call to trunk_get_pivot and
+ *          Each pivot's key is accessible via a call to trunk_get_pivot() and
  *          the remaining data is accessible via a call to
- *          trunk_get_pivot_data.
+ *          trunk_get_pivot_data().
  *
- *          The number of pivots has two different limits: a soft limit
- *          (fanout) and a hard limit (max_pivot_keys). When the soft limit is
- *          reached, it will cause the node to split the next time it is
- *          flushed into (see internal node splits above). Note that multiple
- *          pivots can be added to the parent of a leaf during a split and
- *          multiple splits could theoretically occur before the node is
- *          flushed into again, so the fanout limit may temporarily be exceeded
- *          by multiple pivots. The hard limit is the amount of physical space
- *          in the node which can be used for pivots and cannot be exceeded. By
- *          default the fanout is 8 and the hard limit is 3x the fanout. Note
+ *          The number of pivots on a trunk page has two different limits:
+ *           - A user-configurable static soft limit (fanout)
+ *           - An internally determined hard limit (max_pivot_keys), based on
+ *             the specified 'fanout' setting.
+ *
+ *          When the soft limit is reached, it will cause the node to split the
+ *          next time it is flushed into (see internal node splits above).
+ *          Note that multiple pivots can be added to the parent of a leaf
+ *          during a split and multiple splits could theoretically occur before
+ *          the node is flushed into again, so the fanout limit may temporarily
+ *          be exceeded by multiple pivots.
+ *
+ *          The hard limit is the amount of physical space in the node which can
+ *          be used for pivots and cannot be exceeded.
+ *
+ *  Limits: The default fanout is 8 and the hard limit is 3x the fanout. Note
  *          that the additional last pivot (containing the exclusive upper
  *          bound to the node) counts towards the hard limit (because it uses
  *          physical space), but not the soft limit.
  *       ----------
- *       array of branches
- *          whole branches: the branches from hdr->start_branch to
+ *       Array of branches
+ *          Whole branches: The branches from hdr->start_branch to
  *             hdr->start_frac_branch are "whole" branches, each of which is
  *             the output of a compaction or incorporation.
- *          fractional branches: from hdr->start_frac_branch to hdr->end_branch
+ *          Fractional branches: From hdr->start_frac_branch to hdr->end_branch
  *             are "fractional" branches that are part of bundles and are in
  *             the process of being compacted into whole branches.
+ *
  *          Logically, each whole branch and each bundle counts toward the
  *          number of branches in the node (or pivot), since each bundle
  *          represents a single branch after compaction.
@@ -406,7 +422,7 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *          soft limit. The hard limit (hard_max_branches_per_node) is the
  *          number of branches (whole and fractional) for which there is
  *          physical room in the node, and as a result cannot be exceeded. An
- *          attempt to flush into a node which is at the hard limit will fail.
+ *          attempt to flush _into_ a node which is at the hard limit will fail.
  *-----------------------------------------------------------------------------
  */
 
@@ -529,7 +545,9 @@ typedef struct ONDISK trunk_hdr {
  * Splinter Pivot Data: Disk-resident structure on Trunk pages
  *
  * A pivot consists of the pivot key (of size cfg.key_size) followed by a
- * trunk_pivot_data
+ * trunk_pivot_data. An array of this ( <pivot-key>, <trunk_pivot_data> )
+ * pair appears on trunk pages, following the end of struct trunk_hdr{}.
+ * This array is sized by configured max_pivot_keys hard-limit.
  *
  * The generation is used by asynchronous processes to determine when a pivot
  * has split
@@ -701,6 +719,8 @@ void                               trunk_split_leaf                (trunk_handle
 int                                trunk_split_root                (trunk_handle *spl, page_handle     *root);
 void                               trunk_print                     (platform_log_handle *log_handle, trunk_handle *spl);
 void                               trunk_print_node                (platform_log_handle *log_handle, trunk_handle *spl, uint64 addr);
+static void                        trunk_print_pivots              (platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
+static void                        trunk_print_branches_and_bundles(platform_log_handle *log_handle, trunk_handle *spl, page_handle *node);
 static void                        trunk_btree_skiperator_init     (trunk_handle *spl, trunk_btree_skiperator *skip_itor, page_handle *node, uint16 branch_idx, key_buffer pivots[static TRUNK_MAX_PIVOTS]);
 void                               trunk_btree_skiperator_get_curr (iterator *itor, slice *key, message *data);
 platform_status                    trunk_btree_skiperator_advance  (iterator *itor);
@@ -1104,6 +1124,10 @@ trunk_subtract_subbundle_filter_number(trunk_handle *spl,
  *-----------------------------------------------------------------------------
  */
 
+/*
+ * Return the start address of the pivot_no'th pivot in the array of pivots
+ * residing on the trunk page past the end of the trunk header.
+ */
 static inline char *
 trunk_get_pivot(trunk_handle *spl, page_handle *node, uint16 pivot_no)
 {
@@ -1186,18 +1210,30 @@ trunk_inc_pivot_generation(trunk_handle *spl, page_handle *node)
    return hdr->pivot_generation++;
 }
 
+/*
+ * A pivot consists of the pivot key (of size cfg.key_size) followed by
+ * a struct trunk_pivot_data. Return the total size of a pivot.
+ */
 uint64
 trunk_pivot_size(trunk_handle *spl)
 {
    return trunk_key_size(spl) + sizeof(trunk_pivot_data);
 }
 
+/*
+ * From trunk_pivot_size(): The data following the pivot key is the message.
+ * Return the message size as the sizeof() the struct describing this data.
+ */
 uint64
 trunk_pivot_message_size()
 {
    return sizeof(trunk_pivot_data);
 }
 
+/*
+ * Return the start of the pivot_no'th pivot_data, which begins just past
+ * the key.
+ */
 static inline trunk_pivot_data *
 trunk_get_pivot_data(trunk_handle *spl, page_handle *node, uint16 pivot_no)
 {
@@ -1244,6 +1280,7 @@ trunk_copy_pivot_data_from_pred(trunk_handle *spl,
    platform_assert(pdata->srq_idx == -1);
 }
 
+// Return the start branch number for the pivot_no'th pivot entry
 static inline uint16
 trunk_pivot_start_branch(trunk_handle *spl, page_handle *node, uint16 pivot_no)
 {
@@ -1780,7 +1817,9 @@ trunk_reset_start_branch(trunk_handle *spl, page_handle *node)
       if (trunk_subtract_branch_number(
              spl, hdr->end_branch, pdata->start_branch)
           > trunk_subtract_branch_number(spl, hdr->end_branch, start_branch))
+      {
          start_branch = pdata->start_branch;
+      }
    }
 
    // reset the start branch (and maybe the fractional branch)
@@ -7866,10 +7905,12 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
    uint64 bytes_used_by_level[TRUNK_MAX_HEIGHT] = {0};
    trunk_for_each_node(spl, trunk_node_space_use, bytes_used_by_level);
 
-   platform_log(log_handle, "Space used by level:\n");
+   platform_log(log_handle,
+                "Space used by level: trunk_tree_height=%d\n",
+                trunk_tree_height(spl));
    for (uint16 i = 0; i <= trunk_tree_height(spl); i++) {
       platform_log(
-         log_handle, "%u: %8luMiB\n", i, B_TO_MiB(bytes_used_by_level[i]));
+         log_handle, "%u: %8lu MiB\n", i, B_TO_MiB(bytes_used_by_level[i]));
    }
    platform_log(log_handle, "\n");
 }
@@ -7881,21 +7922,40 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 {
    uint16 height = trunk_height(spl, node);
    // clang-format off
-   platform_log(log_handle, "---------------------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                           |\n");
-   platform_log(log_handle, "|  HEADER  |--------------|--------------|--------|---------|---------|---------------------------|\n");
-   platform_log(log_handle, "|          | %12lu | %12lu | %6u | %7lu | %7lu |                           |\n",
+   platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                            |\n");
+   platform_log(log_handle, "|  HEADER  |--------------|--------------|--------|---------|---------|----------------------------|\n");
+   platform_log(log_handle, "|          | %12lu | %12lu | %6u | %7lu | %7lu |                            |\n",
       node->disk_addr,
       trunk_next_addr(spl, node),
       height,
       trunk_generation(spl, node),
       trunk_pivot_generation(spl, node));
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|                                       PIVOTS                                                    |\n");
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes |  srq  |  gen  |\n");
-   platform_log(log_handle, "|--------------------------|--------------|--------------|-------------|----------|-------|-------|\n");
    // clang-format on
+
+   trunk_print_pivots(log_handle, spl, node);
+
+   trunk_print_branches_and_bundles(log_handle, spl, node);
+
+   platform_log(log_handle, "}\n");
+}
+
+/*
+ * trunk_print_pivots() -- Print pivot array information.
+ */
+static void
+trunk_print_pivots(platform_log_handle *log_handle,
+                   trunk_handle        *spl,
+                   page_handle         *node)
+{
+   // clang-format off
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|                                       PIVOTS                                                     |\n");
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|         pivot key        |  child addr  |  filter addr | tuple count | kv bytes  |  srq  |  gen  |\n");
+   platform_log(log_handle, "|--------------------------|--------------|--------------|-------------|-----------|-------|-------|\n");
+   // clang-format on
+
    for (uint16 pivot_no = 0; pivot_no < trunk_num_pivot_keys(spl, node);
         pivot_no++)
    {
@@ -7905,7 +7965,8 @@ trunk_print_locked_node(platform_log_handle *log_handle,
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
          platform_log(log_handle,
-                      "| %24s | %12s | %12s | %11s | %8s | %5s | %5s |\n",
+                      "| %.*s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
+                      24,
                       key_string,
                       "",
                       "",
@@ -7913,9 +7974,14 @@ trunk_print_locked_node(platform_log_handle *log_handle,
                       "",
                       "",
                       "");
+         platform_log(log_handle,
+                      "| Full key: '%.*s'\n",
+                      (int)sizeof(key_string),
+                      key_string);
       } else {
          platform_log(log_handle,
-                      "| %24s | %12lu | %12lu | %11lu | %8lu | %5ld | %5lu |\n",
+                      "| %.*s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
+                      24,
                       key_string,
                       pdata->addr,
                       pdata->filter.addr,
@@ -7923,50 +7989,85 @@ trunk_print_locked_node(platform_log_handle *log_handle,
                       pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
                       pdata->srq_idx,
                       pdata->generation);
+         platform_log(log_handle,
+                      "| Full key: '%.*s'\n",
+                      (int)sizeof(key_string),
+                      key_string);
       }
    }
-   // clang-format off
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|                              BRANCHES AND [SUB]BUNDLES                                          |\n");
-   platform_log(log_handle, "|-------------------------------------------------------------------------------------------------|\n");
-   platform_log(log_handle, "|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                |\n");
-   platform_log(log_handle, "|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                |\n");
-   platform_log(log_handle, "|-----|--------------|--------------|--------------|--------------|--------------|----------------|\n");
-   // clang-format on
+}
+
+/*
+ * trunk_print_branches_and_bundles() --
+ *
+ * Iterate through arrays of bundles and sub-bundles on a trunk page.
+ * Print contents of those structures.
+ */
+static void
+trunk_print_branches_and_bundles(platform_log_handle *log_handle,
+                                 trunk_handle        *spl,
+                                 page_handle         *node)
+{
    uint16 start_branch = trunk_start_branch(spl, node);
    uint16 end_branch   = trunk_end_branch(spl, node);
    uint16 start_bundle = trunk_start_bundle(spl, node);
    uint16 end_bundle   = trunk_end_bundle(spl, node);
    uint16 start_sb     = trunk_start_subbundle(spl, node);
    uint16 end_sb       = trunk_end_subbundle(spl, node);
+
+   // clang-format off
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|                              BRANCHES AND [SUB]BUNDLES                                           |\n");
+   platform_log(log_handle, "|start_branch=%-2u end_branch=%-2u start_bundle=%-2u end_bundle=%-2u start_sb=%-2u end_sb=%-2u%-17s|\n",
+                start_branch,
+                end_branch,
+                start_bundle,
+                end_bundle,
+                start_sb,
+                end_sb,
+                " ");
+   platform_log(log_handle, "|--------------------------------------------------------------------------------------------------|\n");
+   platform_log(log_handle, "|   # |          point addr         | filter1 addr | filter2 addr | filter3 addr |                 |\n");
+   platform_log(log_handle, "|     |    pivot/bundle/subbundle   |  num tuples  |              |              |                 |\n");
+   platform_log(log_handle, "|-----|--------------|--------------|--------------|--------------|--------------|-----------------|\n");
+   // clang-format on
+
+   // Iterate through all the branches ...
    for (uint16 branch_no = start_branch; branch_no != end_branch;
         branch_no        = trunk_add_branch_number(spl, branch_no, 1))
    {
+      // Generate marker line if current branch is a pivot's start branch
       for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
            pivot_no++) {
          if (branch_no == trunk_pivot_start_branch(spl, node, pivot_no)) {
             // clang-format off
-            platform_log(log_handle, "|     |        -- pivot %2u --       |              |              |              |                |\n",
-                                pivot_no);
+            platform_log(log_handle, "|     |        -- pivot %2u --       |              |              |              |                 |\n",
+                         pivot_no);
             // clang-format on
          }
       }
+
+      // Search for bundles that start at this branch.
       for (uint16 bundle_no = start_bundle; bundle_no != end_bundle;
            bundle_no        = trunk_add_bundle_number(spl, bundle_no, 1))
       {
          trunk_bundle *bundle = trunk_get_bundle(spl, node, bundle_no);
+         // Generate marker line if current branch is a bundle's start branch
          if (branch_no == trunk_bundle_start_branch(spl, node, bundle)) {
             // clang-format off
-            platform_log(log_handle, "|     |       -- bundle %2u --       | %12lu |              |              |                |\n",
-                                bundle_no,
-                                bundle->num_tuples);
+            platform_log(log_handle, "|     |       -- bundle %2u --       | %12lu |              |              |                 |\n",
+                         bundle_no,
+                         bundle->num_tuples);
             // clang-format on
          }
       }
+
+      // Iterate through all the sub-bundles ...
       for (uint16 sb_no = start_sb; sb_no != end_sb;
            sb_no        = trunk_add_subbundle_number(spl, sb_no, 1))
       {
          trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
+         // Generate marker line if curr branch is a sub-bundle's start branch
          if (branch_no == sb->start_branch) {
             uint16 filter_count = trunk_subbundle_filter_count(spl, node, sb);
             // clang-format off
@@ -7984,16 +8085,17 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 
       trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
       // clang-format off
-      platform_log(log_handle, "| %3u |         %12lu        |              |              |              |                |\n",
+      platform_log(log_handle, "| %3u |         %12lu        |              |              |              |                 |\n",
                           branch_no,
                           branch->root_addr);
       // clang-format on
    }
    // clang-format off
-   platform_log(log_handle, "---------------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
    // clang-format on
    platform_log(log_handle, "\n");
 }
+// clang-format on
 
 void
 trunk_print_node(platform_log_handle *log_handle,
@@ -8013,10 +8115,16 @@ trunk_print_node(platform_log_handle *log_handle,
    cache_unget(spl->cc, node);
 }
 
+/*
+ * trunk_print_subtree() --
+ *
+ * Print the Trunk node at given 'addr'. Iterate down to all its children and
+ * print each sub-tree.
+ */
 void
-trunk_print_subtree(trunk_handle        *spl,
-                    uint64               addr,
-                    platform_log_handle *log_handle)
+trunk_print_subtree(platform_log_handle *log_handle,
+                    trunk_handle        *spl,
+                    uint64               addr)
 {
    trunk_print_node(log_handle, spl, addr);
    page_handle *node = trunk_node_get(spl, addr);
@@ -8025,14 +8133,21 @@ trunk_print_subtree(trunk_handle        *spl,
    if (hdr->height != 0) {
       for (uint32 i = 0; i < trunk_num_children(spl, node); i++) {
          trunk_pivot_data *data = trunk_get_pivot_data(spl, node, i);
-         trunk_print_subtree(spl, data->addr, log_handle);
+         trunk_print_subtree(log_handle, spl, data->addr);
       }
    }
    cache_unget(spl->cc, node);
 }
 
+/*
+ * trunk_print_memtable() --
+ *
+ * Print the currently active Memtable, and the other Memtables being processed.
+ * Memtable printing will drill-down to BTree printing which will keep
+ * recursing.
+ */
 void
-trunk_print_memtable(trunk_handle *spl, platform_log_handle *log_handle)
+trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
 {
    uint64 curr_memtable =
       memtable_generation(spl->mt_ctxt) % TRUNK_NUM_MEMTABLES;
@@ -8046,20 +8161,57 @@ trunk_print_memtable(trunk_handle *spl, platform_log_handle *log_handle)
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       memtable *mt = trunk_get_memtable(spl, mt_gen);
       platform_log(log_handle,
-                   "%lu: gen %lu ref_count %u state %d\n",
+                   "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
                    mt_gen,
                    mt->root_addr,
                    allocator_get_ref(spl->al, mt->root_addr),
                    mt->state);
+
+      memtable_print(log_handle, spl->cc, mt);
    }
    platform_log(log_handle, "\n");
 }
 
+/*
+ * trunk_print()
+ *
+ * Driver routine to print a SplinterDB trunk, and all its sub-pages.
+ */
 void
 trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
 {
-   trunk_print_memtable(spl, log_handle);
-   trunk_print_subtree(spl, spl->root_addr, log_handle);
+   trunk_print_memtable(log_handle, spl);
+   trunk_print_subtree(log_handle, spl, spl->root_addr);
+}
+
+/*
+ * trunk_print_super_block()
+ *
+ * Fetch a super-block for a running Splinter instance, and print its
+ * contents.
+ */
+void
+trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl)
+{
+   page_handle       *super_page;
+   trunk_super_block *super = trunk_get_super_block_if_valid(spl, &super_page);
+   if (super == NULL) {
+      return;
+   }
+
+   platform_log(log_handle, "Superblock root_addr=%lu {\n", super->root_addr);
+   platform_log(log_handle,
+                "meta_tail=%lu log_addr=%lu log_meta_addr=%lu\n",
+                super->meta_tail,
+                super->meta_tail,
+                super->log_meta_addr);
+   platform_log(log_handle,
+                "timestamp=%lu, checkpointed=%d, dismounted=%d\n",
+                super->timestamp,
+                super->checkpointed,
+                super->dismounted);
+   platform_log(log_handle, "}\n\n");
+   trunk_release_super_block(spl, super_page);
 }
 
 // clang-format off
@@ -8808,9 +8960,11 @@ trunk_config_init(trunk_config        *trunk_cfg,
    trunk_cfg->verbose_logging_enabled = verbose_logging;
    trunk_cfg->log_handle              = log_handle;
 
+   // Inline what we would get from trunk_pivot_size(trunk_handle *).
    trunk_pivot_size = data_cfg->key_size + trunk_pivot_message_size();
+
    // Setting hard limit and over overprovisioning
-   trunk_cfg->max_pivot_keys = trunk_cfg->fanout + 6;
+   trunk_cfg->max_pivot_keys = trunk_cfg->fanout + TRUNK_EXTRA_PIVOT_KEYS;
    uint64 header_bytes       = sizeof(trunk_hdr);
 
    uint64 pivot_bytes = (trunk_cfg->max_pivot_keys
@@ -8839,8 +8993,14 @@ trunk_config_init(trunk_config        *trunk_cfg,
                    sizeof(trunk_branch),
                    available_bytes_per_pivot_key);
 
+   // Space left for branches past end of pivot array of [max_pivot_keys]
    bytes_for_branches = (trunk_page_size(trunk_cfg) - trunk_hdr_size()
                          - trunk_cfg->max_pivot_keys * trunk_pivot_size);
+
+   // Internally determined hard-limit, which effectively depends on the
+   // - configured page size and trunk header size
+   // - user-specified configured key size
+   // - user-specified fanout
    trunk_cfg->hard_max_branches_per_node =
       bytes_for_branches / sizeof(trunk_branch) - 1;
 

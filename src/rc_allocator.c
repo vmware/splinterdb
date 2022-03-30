@@ -161,13 +161,13 @@ rc_allocator_print_stats_virtual(allocator *a)
 }
 
 void
-rc_allocator_debug_print(rc_allocator *al);
+rc_allocator_print_allocated(rc_allocator *al);
 
 void
-rc_allocator_debug_print_virtual(allocator *a)
+rc_allocator_print_allocated_virtual(allocator *a)
 {
    rc_allocator *al = (rc_allocator *)a;
-   rc_allocator_debug_print(al);
+   rc_allocator_print_allocated(al);
 }
 
 const static allocator_ops rc_allocator_ops = {
@@ -181,7 +181,7 @@ const static allocator_ops rc_allocator_ops = {
    .get_capacity      = rc_allocator_get_capacity_virtual,
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
    .print_stats       = rc_allocator_print_stats_virtual,
-   .debug_print       = rc_allocator_debug_print_virtual,
+   .debug_print       = rc_allocator_print_allocated_virtual,
 };
 
 static platform_status
@@ -396,7 +396,8 @@ rc_allocator_mount(rc_allocator        *al,
       }
    }
    platform_default_log(
-      "Allocated at mount: %lu MiB\n",
+      "Allocated %lu extents at mount: (%lu MiB)\n",
+      al->stats.curr_allocated,
       B_TO_MiB(al->stats.curr_allocated * cfg->io_cfg->extent_size));
    return STATUS_OK;
 }
@@ -680,7 +681,7 @@ rc_allocator_assert_noleaks(rc_allocator *al)
          platform_default_log("assert_noleaks: leak found\n");
          platform_default_log("\n");
          rc_allocator_print_stats(al);
-         rc_allocator_debug_print(al);
+         rc_allocator_print_allocated(al);
          platform_assert(0);
       }
    }
@@ -688,7 +689,7 @@ rc_allocator_assert_noleaks(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_print_stats --
+ * rc_allocator_print_stats() --
  *
  *      Prints basic statistics about the allocator state.
  *
@@ -721,13 +722,17 @@ rc_allocator_print_stats(rc_allocator *al)
       "| Page Type | Allocations | Deallocations | Footprint (bytes)  |\n");
    platform_default_log(
       "|--------------------------------------------------------------|\n");
+   int64 exp_allocated_count = 0;
    for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
       const char *str           = page_type_str[type];
       int64       allocs        = al->stats.extent_allocs[type];
       int64       deallocs      = al->stats.extent_deallocs[type];
       int64       footprint     = allocs - deallocs;
       int64       footprint_gib = footprint / divider;
-      platform_default_log("| %9s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
+
+      exp_allocated_count += footprint;
+
+      platform_default_log("| %-10s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
                            str,
                            allocs,
                            deallocs,
@@ -736,25 +741,44 @@ rc_allocator_print_stats(rc_allocator *al)
    }
    platform_default_log(
       "----------------------------------------------------------------\n");
+   platform_default_log("Expected allocation count from footprint = %ld\n",
+                        exp_allocated_count);
 }
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_debug_print --
+ * rc_allocator_print_allocated() --
  *
- *      Prints the base addrs of all allocated extents.
+ *      Prints the base addresses of all allocated extents to the default
+ *      log handle.
  *----------------------------------------------------------------------
  */
 void
-rc_allocator_debug_print(rc_allocator *al)
+rc_allocator_print_allocated(rc_allocator *al)
 {
    uint64 i;
    uint8  ref;
-   platform_default_log("Allocated: %lu\n", al->stats.curr_allocated);
+   uint64 nallocated = al->stats.curr_allocated;
+
+   // For more than a few allocated extents, print enclosing { } tags.
+   bool print_curly = (nallocated > 20);
+
+   platform_default_log(
+      "Allocated extents: %lu\n%s", nallocated, (print_curly ? "{\n" : ""));
+   platform_default_log("   Index  ExtentAddr  Count\n");
+
+   // # of extents with non-zero referenced page-count found
+   uint64 found = 0;
+
    for (i = 0; i < al->cfg->extent_capacity; i++) {
       ref = al->ref_count[i];
-      if (ref != 0)
-         platform_default_log(
-            "%lu -- %u\n", i * al->cfg->io_cfg->extent_size, ref);
+      if (ref != 0) {
+         found++;
+         uint64 ext_addr = (i * al->cfg->io_cfg->extent_size);
+         platform_default_log("%8lu %12lu     %u\n", i, ext_addr, ref);
+      }
    }
+   platform_default_log("%sFound %lu extents with allocated pages.\n",
+                        (print_curly ? "}\n" : ""),
+                        found);
 }

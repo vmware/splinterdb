@@ -596,6 +596,9 @@ run_with_timing "Splinter inserts test" "$BINDIR"/unit/splinter_test test_insert
 run_with_timing "Splinter lookups test" \
         "$BINDIR"/unit/splinter_test --num-inserts 2000000 test_lookups
 
+run_with_timing "Splinter print diagnostics test" \
+        "$BINDIR"/unit/splinter_test test_splinter_print_diags
+
 UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then
     rm ${UNIT_TESTS_DB_DEV}

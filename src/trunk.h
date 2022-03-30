@@ -396,6 +396,10 @@ trunk_reset_stats(trunk_handle *spl);
 
 void
 trunk_print(platform_log_handle *log_handle, trunk_handle *spl);
+
+void
+trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl);
+
 void
 trunk_print_lookup(trunk_handle        *spl,
                    const char          *key,

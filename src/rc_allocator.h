@@ -115,4 +115,4 @@ rc_allocator_mount(rc_allocator        *al,
 void
 rc_allocator_dismount(rc_allocator *al);
 
-#endif
+#endif /* __RC_ALLOCATOR_H */
