@@ -71,15 +71,13 @@ DEPFLAGS  = -MMD -MP
 
 help::
 	@echo Environment variables controlling the build:
-	@echo '  BUILD_DIR: Base dir name for build outputs (Default: "build").'
-	@echo '    $$(BUILD_DIR)/obj: object files'
-	@echo '    $$(BUILD_DIR)/lib: libraries'
-	@echo '    $$(BUILD_DIR)/bin: executables'
-	@echo '  Note: setting BUILD_MODE and other flags may further modify BUILD_DIR'
+	@echo '  BUILD_ROOT: Base dir name for build outputs (Default: "build").'
+	@echo '              Build artifacts are created in '
+	@echo '                  $$(BUILD_ROOT)/$$(BUILD_MODE)[-asan][-msan]'
 	@echo
 
-ifndef BUILD_DIR
-   BUILD_DIR := build
+ifndef BUILD_ROOT
+   BUILD_ROOT := build
 endif
 
 #
@@ -88,18 +86,17 @@ endif
 ifndef BUILD_MODE
    BUILD_MODE=release
 endif
+BUILD_DIR := $(BUILD_MODE)
 
 ifeq "$(BUILD_MODE)" "debug"
-   CFLAGS  += -DSPLINTER_DEBUG
-   BUILD_DIR:=$(BUILD_DIR)-debug
+   CFLAGS    += -DSPLINTER_DEBUG
 else ifeq "$(BUILD_MODE)" "release"
-   CFLAGS   += -Ofast -flto
-   LDFLAGS  += -Ofast -flto
+   CFLAGS    += -Ofast -flto
+   LDFLAGS   += -Ofast -flto
 else ifeq "$(BUILD_MODE)" "optimized-debug"
-   CFLAGS  += -DSPLINTER_DEBUG
-   CFLAGS  += -Ofast -flto
-   LDFLAGS += -Ofast -flto
-   BUILD_DIR := $(BUILD_DIR)-optimized-debug
+   CFLAGS    += -DSPLINTER_DEBUG
+   CFLAGS    += -Ofast -flto
+   LDFLAGS   += -Ofast -flto
 else
    $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif
@@ -174,14 +171,35 @@ endif
 help::
 	@echo '  BUILD_VERBOSE={0,1}: Disable/enable verbose output (Default: disabled)'
 
+ifeq "$(BUILD_VERBOSE)" "1"
+
+	@echo '  '
+	@echo 'Examples:'
+	@echo '  - Default release build, artifacts created under build/release:'
+	@echo '     $$ make'
+	@echo '  '
+	@echo '  - Default debug build, artifacts created under build/debug:'
+	@echo '     $$ BUILD_DEBUG=1 make'
+	@echo '  '
+	@echo '  - Build release binary and run all tests:'
+	@echo '     $$ make all run-tests'
+	@echo '     $$ make run-tests'
+	@echo '  '
+	@echo '  - Debug ASAN build, artifacts created under /tmp/build/debug-asan:'
+	@echo '     $$ BUILD_ROOT=/tmp/build BUILD_MODE=debug BUILD_ASAN=1 make'
+	@echo '  '
+endif
+
 
 ###################################################################
 # BUILD DIRECTORIES AND FILES
 #
 
-OBJDIR = $(BUILD_DIR)/obj
-BINDIR = $(BUILD_DIR)/bin
-LIBDIR = $(BUILD_DIR)/lib
+BUILD_PATH=$(BUILD_ROOT)/$(BUILD_DIR)
+
+OBJDIR = $(BUILD_PATH)/obj
+BINDIR = $(BUILD_PATH)/bin
+LIBDIR = $(BUILD_PATH)/lib
 
 OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
@@ -220,17 +238,17 @@ all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 # accidentially build using a mixture of configs
 
 CONFIG_HASH = $(shell echo $(CC) $(DEPFLAGS) $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) $(LD) $(LDFLAGS) $(LIBS) $(AR) | md5sum | cut -f1 -d" ")
-CONFIG_FILE_PREFIX = $(BUILD_DIR)/build-config.
+CONFIG_FILE_PREFIX = $(BUILD_PATH)/build-config.
 CONFIG_FILE = $(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
 
 .PHONY: mismatched_config_file_check
-mismatched_config_file_check: | $(BUILD_DIR)/.
+mismatched_config_file_check: | $(BUILD_PATH)/.
 	$(BRIEF_PARTIAL) Checking for mismatched config...
 	$(COMMAND) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | grep -v $(CONFIG_FILE) | xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  You need to \"make clean\"."; false'
 	$(BRIEF) No mismatched config found
 
 
-$(CONFIG_FILE): | $(BUILD_DIR)/. mismatched_config_file_check
+$(CONFIG_FILE): | $(BUILD_PATH)/. mismatched_config_file_check
 	$(BRIEF) Saving config to $@
 	$(COMMAND) env | grep -E "BUILD_|CC"         >  $@
 	$(COMMAND) echo CC          = $(CC)          >> $@
@@ -405,7 +423,7 @@ unit_test:                         $(BINDIR)/unit_test
 # we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_ROOT)
 	uname -a
 	$(CC) --version
 tags:
@@ -426,7 +444,7 @@ test-results: all-tests
 
 INSTALL_PATH ?= /usr/local
 
-install: libs
+install:
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
