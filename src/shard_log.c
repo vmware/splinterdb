@@ -22,7 +22,7 @@
 static uint64 shard_log_magic_idx = 0;
 
 int
-shard_log_write(log_handle *log, slice key, slice data, uint64 generation);
+shard_log_write(log_handle *log, slice key, message msg, uint64 generation);
 uint64
 shard_log_addr(log_handle *log);
 uint64
@@ -38,7 +38,7 @@ static log_ops shard_log_ops = {
 };
 
 void
-shard_log_iterator_get_curr(iterator *itor, slice *key, slice *data);
+shard_log_iterator_get_curr(iterator *itor, slice *key, message *msg);
 platform_status
 shard_log_iterator_at_end(iterator *itor, bool *at_end);
 platform_status
@@ -114,7 +114,8 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
                          1,
                          PAGE_TYPE_LOG,
                          FALSE);
-   // platform_log("addr: %lu meta_head: %lu\n", log->addr, log->meta_head);
+   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
+   // log->meta_head);
 
    return STATUS_OK;
 }
@@ -143,6 +144,7 @@ struct ONDISK log_entry {
    uint64 generation;
    uint16 keylen;
    uint16 messagelen;
+   uint8  msg_type;
    char   contents[];
 };
 
@@ -164,16 +166,17 @@ log_entry_key(log_entry *le)
    return slice_create(le->keylen, le->contents);
 }
 
-static slice
+static message
 log_entry_message(log_entry *le)
 {
-   return slice_create(le->messagelen, le->contents + le->keylen);
+   return message_create(
+      le->msg_type, slice_create(le->messagelen, le->contents + le->keylen));
 }
 
 static uint64
-log_entry_size(const slice key, const slice message)
+log_entry_size(slice key, message msg)
 {
-   return sizeof(log_entry) + slice_length(key) + slice_length(message);
+   return sizeof(log_entry) + slice_length(key) + message_length(msg);
 }
 
 static uint64
@@ -219,10 +222,7 @@ get_new_page_for_thread(shard_log             *log,
 }
 
 int
-shard_log_write(log_handle *logh,
-                const slice key,
-                const slice message,
-                uint64      generation)
+shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
 {
    shard_log             *log = (shard_log *)logh;
    cache                 *cc  = log->cc;
@@ -246,7 +246,7 @@ shard_log_write(log_handle *logh,
 
    shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
    log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
-   uint64         new_entry_size = log_entry_size(key, message);
+   uint64         new_entry_size = log_entry_size(key, msg);
    uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
    debug_assert(new_entry_size
                 <= shard_log_page_size(log->cfg) - sizeof(shard_log_hdr));
@@ -269,11 +269,11 @@ shard_log_write(log_handle *logh,
 
    cursor->generation = generation;
    cursor->keylen     = slice_length(key);
-   cursor->messagelen = slice_length(message);
+   cursor->messagelen = message_length(msg);
+   cursor->msg_type   = message_class(msg);
    memmove(log_entry_key_cursor(cursor), slice_data(key), slice_length(key));
-   memmove(log_entry_message_cursor(cursor),
-           slice_data(message),
-           slice_length(message));
+   memmove(
+      log_entry_message_cursor(cursor), message_data(msg), message_length(msg));
    hdr->num_entries++;
 
    thread_data->offset += new_entry_size;
@@ -430,12 +430,11 @@ shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 }
 
 void
-shard_log_iterator_get_curr(iterator *itorh, slice *key, slice *message)
+shard_log_iterator_get_curr(iterator *itorh, slice *key, message *msg)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *key                     = log_entry_key(itor->entries[itor->pos]);
-   *message                 = log_entry_message(itor->entries[itor->pos]);
-   // FIXME: what about type?
+   *msg                     = log_entry_message(itor->entries[itor->pos]);
 }
 
 platform_status
@@ -495,10 +494,10 @@ shard_log_print(shard_log *log)
                  !terminal_log_entry(cfg, page->data, le);
                  le = log_entry_next(le))
             {
-               platform_log("%s -- %s : %lu\n",
-                            key_string(dcfg, log_entry_key(le)),
-                            message_string(dcfg, log_entry_message(le)),
-                            le->generation);
+               platform_default_log("%s -- %s : %lu\n",
+                                    key_string(dcfg, log_entry_key(le)),
+                                    message_string(dcfg, log_entry_message(le)),
+                                    le->generation);
             }
          }
          cache_unget(cc, page);

@@ -1292,30 +1292,30 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
 {
    uint64 next_meta_addr = meta_head;
 
-   platform_log("---------------------------------------------\n");
-   platform_log("| Mini Allocator -- meta_head: %12lu |\n", meta_head);
-   platform_log("|-------------------------------------------|\n");
-   platform_log("| idx | %35s |\n", "extent_addr");
-   platform_log("|-------------------------------------------|\n");
+   platform_default_log("---------------------------------------------\n");
+   platform_default_log("| Mini Allocator -- meta_head: %12lu |\n", meta_head);
+   platform_default_log("|-------------------------------------------|\n");
+   platform_default_log("| idx | %35s |\n", "extent_addr");
+   platform_default_log("|-------------------------------------------|\n");
 
    do {
       page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
 
-      platform_log("| meta addr %31lu |\n", next_meta_addr);
-      platform_log("|-------------------------------------------|\n");
+      platform_default_log("| meta addr %31lu |\n", next_meta_addr);
+      platform_default_log("|-------------------------------------------|\n");
 
       uint64              num_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry       = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-         platform_log("| %3lu | %35lu |\n", i, entry->extent_addr);
+         platform_default_log("| %3lu | %35lu |\n", i, entry->extent_addr);
          entry = unkeyed_next_entry(entry);
       }
-      platform_log("|-------------------------------------------|\n");
+      platform_default_log("|-------------------------------------------|\n");
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
    } while (next_meta_addr != 0);
-   platform_log("\n");
+   platform_default_log("\n");
 }
 
 void

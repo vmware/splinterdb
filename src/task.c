@@ -26,8 +26,6 @@ void
 task_system_io_register_thread(task_system *ts);
 // end forward declarations
 
-#define INVALID_TID (MAX_THREADS)
-
 void
 task_init_tid_bitmask(uint64 *tid_bitmask)
 {
@@ -342,6 +340,7 @@ task_group_deinit(task_group *group)
    if (task_system_use_bg_threads(group->ts)) {
       platform_condvar_destroy(&group->bg.cv);
    } else {
+      platform_mutex_unlock(&group->fg.mutex);
       platform_mutex_destroy(&group->fg.mutex);
    }
 }
@@ -684,9 +683,9 @@ task_wait_for_completion(task_system *ts)
       uint64      outstanding_tasks = 0;
       while (group->current_outstanding_tasks != 0) {
          if (group->current_outstanding_tasks != outstanding_tasks) {
-            platform_log("waiting for %lu tasks of type %d\n",
-                         group->current_outstanding_tasks,
-                         type);
+            platform_default_log("waiting for %lu tasks of type %d\n",
+                                 group->current_outstanding_tasks,
+                                 type);
             outstanding_tasks = group->current_outstanding_tasks;
          }
          platform_sleep(1000);
@@ -698,7 +697,7 @@ static void
 task_group_print_stats(task_group *group, task_type type)
 {
    if (!group->use_stats) {
-      platform_log("no stats\n");
+      platform_default_log("no stats\n");
       return;
    }
 
@@ -717,26 +716,30 @@ task_group_print_stats(task_group *group, task_type type)
 
    switch (type) {
       case TASK_TYPE_NORMAL:
-         platform_log("\nMain Task Group Statistics\n");
+         platform_default_log("\nMain Task Group Statistics\n");
          break;
       case TASK_TYPE_MEMTABLE:
-         platform_log("\nMemtable Task Group Statistics\n");
+         platform_default_log("\nMemtable Task Group Statistics\n");
          break;
       default:
          platform_assert(0);
          break;
    }
-   platform_log("--------------------------------\n");
-   platform_log("| max runtime (ns)     : %10lu\n", global.max_runtime_ns);
-   platform_log("| max runtime func     : %10p\n", global.max_runtime_func);
-   platform_log("| total latency (ns)   : %10lu\n", global.total_latency_ns);
-   platform_log("| max latency (ns)     : %10lu\n", global.max_latency_ns);
-   platform_log("| total tasks run      : %10lu\n", global.total_tasks);
-   platform_log("| current outstanding tasks : %lu\n",
-                group->current_outstanding_tasks);
-   platform_log("| max outstanding tasks : %lu\n",
-                group->max_outstanding_tasks);
-   platform_log("\n");
+   platform_default_log("--------------------------------\n");
+   platform_default_log("| max runtime (ns)     : %10lu\n",
+                        global.max_runtime_ns);
+   platform_default_log("| max runtime func     : %10p\n",
+                        global.max_runtime_func);
+   platform_default_log("| total latency (ns)   : %10lu\n",
+                        global.total_latency_ns);
+   platform_default_log("| max latency (ns)     : %10lu\n",
+                        global.max_latency_ns);
+   platform_default_log("| total tasks run      : %10lu\n", global.total_tasks);
+   platform_default_log("| current outstanding tasks : %lu\n",
+                        group->current_outstanding_tasks);
+   platform_default_log("| max outstanding tasks : %lu\n",
+                        group->max_outstanding_tasks);
+   platform_default_log("\n");
 }
 
 void

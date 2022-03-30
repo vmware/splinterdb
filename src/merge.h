@@ -21,7 +21,7 @@ typedef struct ordered_iterator {
    iterator *itor;
    int       seq;
    slice     key;
-   slice     data;
+   message   data;
    bool      next_key_equal;
 } ordered_iterator;
 
@@ -67,7 +67,7 @@ typedef struct merge_iterator {
    int          num_remaining; // number of ritors not at end
    data_config *cfg;           // point message tree data config
    slice        key;           // next key
-   slice        data;          // next data
+   message      data;          // next data
 
    // Padding so ordered_iterators[-1] is valid
    ordered_iterator ordered_iterator_stored_pad;
@@ -81,7 +81,7 @@ typedef struct merge_iterator {
    uint64 discarded_deletes;
 
    // space for merging data together
-   writable_buffer merge_buffer;
+   merge_accumulator merge_buffer;
 } merge_iterator;
 
 // Statically enforce that the padding variables act as index -1 for both arrays

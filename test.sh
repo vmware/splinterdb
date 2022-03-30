@@ -321,6 +321,51 @@ function run_nightly_perf_tests() {
 
 }
 
+# Method to check that the command actually does fail; Otherwise it's an error.
+function run_check_rc() {
+    echo
+    set +e
+    "$@"
+    local rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+        echo "$Me: Test is expected to fail, but did not:" "$@"
+        exit 1
+   fi
+}
+
+# ##################################################################
+# Exercise some common testing programs to validate that certain
+# hard-limits are being correctly enforced. These don't change
+# very often, so it's sufficient to test them in nightly runs.
+# ##################################################################
+function nightly_test_limitations() {
+
+    # All these invocations are expected to raise an error. If they
+    # sneak-through that's a test failure.
+    run_check_rc "${BINDIR}"/driver_test splinter_test --page-size 1024
+    run_check_rc "${BINDIR}"/driver_test splinter_test --page-size 2000
+    run_check_rc "${BINDIR}"/driver_test splinter_test --page-size 2048
+    run_check_rc "${BINDIR}"/driver_test splinter_test --page-size 8192
+
+    # Only --extent-size 131072 (i.e. 32 pages/extent) is valid.
+    run_check_rc "${BINDIR}"/driver_test splinter_test --extent-size 2048
+    run_check_rc "${BINDIR}"/driver_test splinter_test --extent-size 4096
+    run_check_rc "${BINDIR}"/driver_test splinter_test --extent-size 40960
+    run_check_rc "${BINDIR}"/driver_test splinter_test --extent-size 8192
+    run_check_rc "${BINDIR}"/driver_test splinter_test --extent-size 135168
+    run_check_rc "${BINDIR}"/driver_test splinter_test --extent-size 262144
+
+    # Validate that test-configs honor min / max key-sizes
+    run_check_rc "${BINDIR}"/driver_test splinter_test --key-size 0
+    run_check_rc "${BINDIR}"/driver_test splinter_test --key-size 7
+    run_check_rc "${BINDIR}"/driver_test splinter_test --key-size 122
+    run_check_rc "${BINDIR}"/driver_test splinter_test --key-size 200
+
+    # Invoke help usage; to confirm that it still works.
+    "${BINDIR}"/driver_test splinter_test --help
+}
+
 # ##################################################################
 # main() begins here
 # ##################################################################
@@ -353,6 +398,8 @@ echo >> "${test_exec_log_file}"
 if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
 
     set +e
+    run_with_timing "Check limits, error conditions." nightly_test_limitations
+
     run_nightly_stress_tests
 
     run_nightly_perf_tests
@@ -386,6 +433,7 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    "$BINDIR"/unit/btree_test
    "$BINDIR"/unit/util_test
    "$BINDIR"/unit/misc_test
+   "$BINDIR"/unit/limitations_test
    set +x
 
    echo "Fast tests passed"

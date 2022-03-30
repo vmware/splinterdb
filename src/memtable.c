@@ -117,7 +117,7 @@ memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
                 platform_heap_id  heap_id,
                 const char       *key,
-                slice             message,
+                message           msg,
                 uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
@@ -131,7 +131,7 @@ memtable_insert(memtable_context *ctxt,
                                      mt->root_addr,
                                      &mt->mini,
                                      key_slice,
-                                     message,
+                                     msg,
                                      leaf_generation,
                                      &was_unique);
    if (!SUCCESS(rc)) {

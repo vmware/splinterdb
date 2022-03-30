@@ -4,11 +4,12 @@
 #ifndef __ITERATOR_H
 #define __ITERATOR_H
 
+#include "splinterdb/data.h"
 #include "util.h"
 
 typedef struct iterator iterator;
 
-typedef void (*iterator_get_curr_fn)(iterator *itor, slice *key, slice *data);
+typedef void (*iterator_get_curr_fn)(iterator *itor, slice *key, message *msg);
 typedef platform_status (*iterator_at_end_fn)(iterator *itor, bool *at_end);
 typedef platform_status (*iterator_advance_fn)(iterator *itor);
 typedef void (*iterator_print_fn)(iterator *itor);
@@ -27,9 +28,9 @@ struct iterator {
 };
 
 static inline void
-iterator_get_curr(iterator *itor, slice *key, slice *data)
+iterator_get_curr(iterator *itor, slice *key, message *msg)
 {
-   itor->ops->get_curr(itor, key, data);
+   itor->ops->get_curr(itor, key, msg);
 }
 
 static inline platform_status
