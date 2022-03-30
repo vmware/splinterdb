@@ -392,12 +392,12 @@ function run_build_and_test() {
         san="asan"
         outfile="${outfile}.${san}"
         binroot="${binroot}-${san}"
-    elif [ "${msan_mode}" == 1 ]; then
+   elif  [ "${msan_mode}" == 1 ]; then
         san="msan"
         outfile="${outfile}.${san}"
         binroot="${binroot}-${san}"
         compiler="clang"
-    fi
+   fi
     local bindir="${build_root}/${binroot}/bin"
     outfile="${outfile}.out"
     echo "${Me}: Test ${build_mode} ${san} build; tail -f $outfile"
@@ -414,21 +414,21 @@ function run_build_and_test() {
     # --------------------------------------------------------------------------
     {
         INCLUDE_SLOW_TESTS=false \
-        RUN_MAKE_TESTS=false \
-        BUILD_ROOT=${build_root} \
-        BUILD_MODE=${build_mode} \
-        CC=${compiler} \
-        LD=${compiler} \
-        BUILD_ASAN=${asan_mode} \
-        BUILD_MSAN=${msan_mode} \
-        make all
+         RUN_MAKE_TESTS=false \
+         BUILD_ROOT=${build_root} \
+         BUILD_MODE=${build_mode} \
+         CC=${compiler} \
+         LD=${compiler} \
+         BUILD_ASAN=${asan_mode} \
+         BUILD_MSAN=${msan_mode} \
+         make all
 
         echo "${Me}: Basic checks to verify few build artifacts:"
         ls -l "${bindir}"/driver_test
         "${bindir}"/unit_test --help
         "${bindir}"/unit/splinter_test --help
 
-    } >> "${outfile}" 2>&1
+   }  >> "${outfile}" 2>&1
 
 }
 
@@ -451,7 +451,7 @@ function test_make_all_build_modes() {
         run_build_and_test "${build_root}" "${build_mode}"  0    0 &
         run_build_and_test "${build_root}" "${build_mode}"  1    0 &
         run_build_and_test "${build_root}" "${build_mode}"  0    1 &
-    done
+   done
     wait
 }
 
