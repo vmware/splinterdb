@@ -8858,7 +8858,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
    // Has to be set after btree_config_init is called
    trunk_cfg->max_kv_bytes_per_node =
       trunk_cfg->fanout * trunk_cfg->mt_cfg.max_extents_per_memtable
-      * cache_config_extent_size(cache_cfg);
+      * cache_config_extent_size(cache_cfg) / MEMTABLE_SPACE_OVERHEAD_FACTOR;
    trunk_cfg->target_leaf_kv_bytes = trunk_cfg->max_kv_bytes_per_node / 2;
    trunk_cfg->max_tuples_per_node  = trunk_cfg->max_kv_bytes_per_node / 32;
 
