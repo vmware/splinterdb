@@ -255,57 +255,57 @@ srq_print(srq *queue)
 {
    return;
    platform_mutex_lock(&queue->mutex);
-   platform_log("INDEX\n");
-   platform_log("-----------\n");
+   platform_default_log("INDEX\n");
+   platform_default_log("-----------\n");
    for (uint64 i = 0; i < SRQ_MAX_ENTRIES; i++) {
       if (queue->index[i] != SRQ_INDEX_AVAILABLE) {
-         platform_log("%4lu: %4lu\n", i, queue->index[i]);
+         platform_default_log("%4lu: %4lu\n", i, queue->index[i]);
       }
    }
 
-   platform_log("HEAP:\n");
-   platform_log("-----------\n");
+   platform_default_log("HEAP:\n");
+   platform_default_log("-----------\n");
    for (uint64 i = 0; i < queue->num_entries; i++) {
       srq_data data = queue->heap[i];
-      platform_log("%4lu: %12lu-%lu %8lu",
-                   i,
-                   data.addr,
-                   data.pivot_generation,
-                   data.priority);
+      platform_default_log("%4lu: %12lu-%lu %8lu",
+                           i,
+                           data.addr,
+                           data.pivot_generation,
+                           data.priority);
       if (queue->num_entries != 1) {
-         platform_log(" (");
+         platform_default_log(" (");
       }
       if (i != 0) {
          data = queue->heap[srq_parent(i)];
-         platform_log("parent %4lu: %12lu-%lu %8lu",
-                      srq_parent(i),
-                      data.addr,
-                      data.pivot_generation,
-                      data.priority);
+         platform_default_log("parent %4lu: %12lu-%lu %8lu",
+                              srq_parent(i),
+                              data.addr,
+                              data.pivot_generation,
+                              data.priority);
          if (srq_lchild(i) < queue->num_entries) {
-            platform_log(" ");
+            platform_default_log(" ");
          }
       }
       if (srq_lchild(i) < queue->num_entries) {
          data = queue->heap[srq_lchild(i)];
-         platform_log("lchild %4lu: %12lu-%lu %8lu",
-                      srq_lchild(i),
-                      data.addr,
-                      data.pivot_generation,
-                      data.priority);
+         platform_default_log("lchild %4lu: %12lu-%lu %8lu",
+                              srq_lchild(i),
+                              data.addr,
+                              data.pivot_generation,
+                              data.priority);
       }
       if (srq_rchild(i) < queue->num_entries) {
          data = queue->heap[srq_rchild(i)];
-         platform_log(" rchild %4lu: %12lu-%lu %8lu",
-                      srq_rchild(i),
-                      data.addr,
-                      data.pivot_generation,
-                      data.priority);
+         platform_default_log(" rchild %4lu: %12lu-%lu %8lu",
+                              srq_rchild(i),
+                              data.addr,
+                              data.pivot_generation,
+                              data.priority);
       }
       if (queue->num_entries != 1) {
-         platform_log(")");
+         platform_default_log(")");
       }
-      platform_log("\n");
+      platform_default_log("\n");
    }
    platform_mutex_unlock(&queue->mutex);
 }

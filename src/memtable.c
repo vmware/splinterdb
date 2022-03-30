@@ -117,7 +117,7 @@ memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
                 platform_heap_id  heap_id,
                 const char       *key,
-                slice             message,
+                message           msg,
                 uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
@@ -131,7 +131,7 @@ memtable_insert(memtable_context *ctxt,
                                      mt->root_addr,
                                      &mt->mini,
                                      key_slice,
-                                     message,
+                                     msg,
                                      leaf_generation,
                                      &was_unique);
    if (!SUCCESS(rc)) {
@@ -345,5 +345,6 @@ memtable_config_init(memtable_config *cfg,
    cfg->btree_cfg     = btree_cfg;
    cfg->max_memtables = max_memtables;
    cfg->max_extents_per_memtable =
-      memtable_capacity / cache_config_extent_size(btree_cfg->cache_cfg);
+      MEMTABLE_SPACE_OVERHEAD_FACTOR * memtable_capacity
+      / cache_config_extent_size(btree_cfg->cache_cfg);
 }

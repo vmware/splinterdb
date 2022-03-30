@@ -31,55 +31,107 @@ typedef enum message_type {
    MESSAGE_TYPE_INVALID,
 } message_type;
 
+/*
+ * Messages
+ */
+typedef struct message {
+   message_type type;
+   slice        data;
+} message;
+
+static inline message_type
+message_class(message msg)
+{
+   return msg.type;
+}
+
+static inline slice
+message_slice(message msg)
+{
+   return msg.data;
+}
+
+static inline uint64
+message_length(message msg)
+{
+   return slice_length(msg.data);
+}
+
+static inline const void *
+message_data(message msg)
+{
+   return slice_data(msg.data);
+}
+
+/*
+ * Merge accumulators
+ */
+
+typedef struct merge_accumulator merge_accumulator;
+
+message_type
+merge_accumulator_message_class(const merge_accumulator *ma);
+
+void *
+merge_accumulator_data(const merge_accumulator *ma);
+
+uint64
+merge_accumulator_length(const merge_accumulator *ma);
+
+slice
+merge_accumulator_to_slice(const merge_accumulator *ma);
+
+bool
+merge_accumulator_copy_message(merge_accumulator *ma, message msg);
+
+bool
+merge_accumulator_resize(merge_accumulator *ma, uint64 newsize);
+
+void
+merge_accumulator_set_class(merge_accumulator *ma, message_type type);
+
+/*
+ * Data configuration callback function types
+ */
+
 typedef struct data_config data_config;
 
 typedef int (*key_compare_fn)(const data_config *cfg, slice key1, slice key2);
 
 typedef uint32 (*key_hash_fn)(const void *input, size_t length, uint32 seed);
 
-typedef message_type (*message_class_fn)(const data_config *cfg,
-                                         slice              raw_message);
-
 // Given two messages, old_message and new_message, merge them
-// and return the result in new_raw_message.
+// and return the result in new_message.
 //
-// Returns 0 on success.  non-zero indicates an internal error.
+// Upon entry, new_message is guaranteed to be an UPDATE and
+// old_messge is guaranteed to be an INSERT or an UPDATE.
+//
+// Returns 0 on success.  Non-zero indicates an internal error.
 typedef int (*merge_tuple_fn)(const data_config *cfg,
-                              slice              key,         // IN
-                              slice              old_message, // IN
-                              writable_buffer   *new_message);  // IN/OUT
+                              slice              key,          // IN
+                              message            old_message,  // IN
+                              merge_accumulator *new_message); // IN/OUT
 
-// Called for non-MESSAGE_TYPE_INSERT messages when they are
-// determined to be the oldest message Can change data_class or
-// contents.  If necessary, update new_data.
+// Called for MESSAGE_TYPE_UPDATE messages when there is no older
+// record to apply the update to.
+//
+// Upon return, merge_accumulator_message_class(old_message) must be
+// either MESSAGE_TYPE_INSERT or MESSAGE_TYPE_DELETE.
 //
 // Returns 0 on success.  non-zero indicates an internal error.
 typedef int (*merge_tuple_final_fn)(const data_config *cfg,
-                                    uint64             key_len,
-                                    const void        *key,
-                                    writable_buffer   *oldest_message);
+                                    slice              key,
+                                    merge_accumulator *oldest_message);
 
-typedef void (*key_or_message_to_str_fn)(const data_config *cfg,
-                                         slice              key_or_msg,
-                                         char              *str,
-                                         uint64             max_len);
+typedef void (*key_to_str_fn)(const data_config *cfg,
+                              slice              key,
+                              char              *str,
+                              uint64             max_len);
 
-
-// Encodes a message from a type and (optionally) a value
-// Returns the length of the fully-encoded message via out_encoded_len
-// Is allowed to fail by returning a non-zero exit code
-typedef int (*encode_message_fn)(message_type type,
-                                 slice        in_value,
-                                 uint64       dst_msg_buffer_len,
-                                 void        *dst_msg_buffer,
-                                 uint64      *out_encoded_len);
-
-// Extract the value from a message
-// This shouldn't need to do any allocation or copying, just pointer arithmetic
-// Is allowed to fail by returning a non-zero exit code
-typedef int (*decode_message_fn)(slice        in_buffer,
-                                 uint64      *out_value_len,
-                                 const char **out_value);
+typedef void (*message_to_str_fn)(const data_config *cfg,
+                                  message            msg,
+                                  char              *str,
+                                  uint64             max_len);
 
 /*
  * data_config: This structure defines the handshake between an
@@ -108,20 +160,12 @@ struct data_config {
    char   max_key[MAX_KEY_SIZE];
    uint64 max_key_length;
 
-   key_compare_fn           key_compare;
-   key_hash_fn              key_hash;
-   message_class_fn         message_class;
-   merge_tuple_fn           merge_tuples;
-   merge_tuple_final_fn     merge_tuples_final;
-   key_or_message_to_str_fn key_to_string;
-   key_or_message_to_str_fn message_to_string;
-
-   // required by splinterdb_insert and splinterdb_delete
-   encode_message_fn encode_message;
-
-   // required by splinterdb_lookup_result_parse and
-   // splinterdb_iterator_get_current
-   decode_message_fn decode_message;
+   key_compare_fn       key_compare;
+   key_hash_fn          key_hash;
+   merge_tuple_fn       merge_tuples;
+   merge_tuple_final_fn merge_tuples_final;
+   key_to_str_fn        key_to_string;
+   message_to_str_fn    message_to_string;
 };
 
 #endif // __DATA_H

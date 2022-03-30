@@ -214,7 +214,7 @@ void
 clockcache_assert_no_locks_held(clockcache *cc);
 
 void
-clockcache_print(clockcache *cc);
+clockcache_print(platform_log_handle *log_handle, clockcache *cc);
 
 bool
 clockcache_page_valid(clockcache *cc, uint64 addr);
@@ -223,7 +223,7 @@ void
 clockcache_validate_page(clockcache *cc, page_handle *page, uint64 addr);
 
 void
-clockcache_print_stats(clockcache *cc);
+clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc);
 
 void
 clockcache_io_stats(clockcache *cc, uint64 *read_bytes, uint64 *write_bytes);
@@ -447,10 +447,10 @@ clockcache_assert_no_locks_held_virtual(cache *c)
 }
 
 void
-clockcache_print_virtual(cache *c)
+clockcache_print_virtual(platform_log_handle *log_handle, cache *c)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_print(cc);
+   clockcache_print(log_handle, cc);
 }
 
 bool
@@ -468,10 +468,10 @@ clockcache_validate_page_virtual(cache *c, page_handle *page, uint64 addr)
 }
 
 void
-clockcache_print_stats_virtual(cache *c)
+clockcache_print_stats_virtual(platform_log_handle *log_handle, cache *c)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_print_stats(cc);
+   clockcache_print_stats(log_handle, cc);
 }
 
 void
@@ -1691,10 +1691,10 @@ clockcache_get_free_page(clockcache *cc,
       max_hand = cc->per_thread[tid].free_hand;
    }
    if (blocking) {
-      platform_log("cache locked (num_passes=%lu time=%lu nsecs)\n",
-                   num_passes,
-                   platform_timestamp_elapsed(wait_start));
-      clockcache_print(cc);
+      platform_default_log("cache locked (num_passes=%lu time=%lu nsecs)\n",
+                           num_passes,
+                           platform_timestamp_elapsed(wait_start));
+      clockcache_print(Platform_default_log_handle, cc);
       platform_assert(0);
    }
 
@@ -3002,36 +3002,36 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
  *----------------------------------------------------------------------
  */
 void
-clockcache_print(clockcache *cc)
+clockcache_print(platform_log_handle *log_handle, clockcache *cc)
 {
    uint64   i;
    uint32   status;
    uint16   refcount;
    threadid thr_i;
 
-   platform_open_log_stream();
-   platform_log_stream("************************** CACHE CONTENTS "
-                       "**************************\n");
+   platform_log(log_handle,
+                "************************** CACHE CONTENTS "
+                "**************************\n");
    for (i = 0; i < cc->cfg->page_capacity; i++) {
       if (i != 0 && i % 16 == 0) {
-         platform_log_stream("\n");
+         platform_log(log_handle, "\n");
       }
       if (i % CC_ENTRIES_PER_BATCH == 0) {
-         platform_log_stream("Word %lu entries %lu-%lu\n",
-                             (i / CC_ENTRIES_PER_BATCH),
-                             i,
-                             i + 63);
+         platform_log(log_handle,
+                      "Word %lu entries %lu-%lu\n",
+                      (i / CC_ENTRIES_PER_BATCH),
+                      i,
+                      i + 63);
       }
       status   = cc->entry[i].status;
       refcount = 0;
       for (thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
          refcount += clockcache_get_ref(cc, i, thr_i);
       }
-      platform_log_stream("0x%02x-%u ", status, refcount);
+      platform_log(log_handle, "0x%02x-%u ", status, refcount);
    }
 
-   platform_log_stream("\n\n");
-   platform_close_log_stream(stdout);
+   platform_log(log_handle, "\n\n");
    return;
 }
 
@@ -3093,7 +3093,7 @@ clockcache_io_stats(clockcache *cc, uint64 *read_bytes, uint64 *write_bytes)
 }
 
 void
-clockcache_print_stats(clockcache *cc)
+clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
 {
    uint64      i;
    page_type   type;
@@ -3136,25 +3136,25 @@ clockcache_print_stats(clockcache *cc)
                                    global_stats.writes_issued);
 
    // clang-format off
-   platform_log("Cache Statistics\n");
-   platform_log("-----------------------------------------------------------------------------------------------\n");
-   platform_log("page type       |      trunk |     branch |   memtable |     filter |        log |       misc |\n");
-   platform_log("----------------|------------|------------|------------|------------|------------|------------|\n");
-   platform_log("cache hits      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log(log_handle, "Cache Statistics\n");
+   platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "page type       |      trunk |     branch |   memtable |     filter |        log |       misc |\n");
+   platform_log(log_handle, "----------------|------------|------------|------------|------------|------------|------------|\n");
+   platform_log(log_handle, "cache hits      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_hits[PAGE_TYPE_TRUNK],
          global_stats.cache_hits[PAGE_TYPE_BRANCH],
          global_stats.cache_hits[PAGE_TYPE_MEMTABLE],
          global_stats.cache_hits[PAGE_TYPE_FILTER],
          global_stats.cache_hits[PAGE_TYPE_LOG],
          global_stats.cache_hits[PAGE_TYPE_SUPERBLOCK]);
-   platform_log("cache misses    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log(log_handle, "cache misses    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_misses[PAGE_TYPE_TRUNK],
          global_stats.cache_misses[PAGE_TYPE_BRANCH],
          global_stats.cache_misses[PAGE_TYPE_MEMTABLE],
          global_stats.cache_misses[PAGE_TYPE_FILTER],
          global_stats.cache_misses[PAGE_TYPE_LOG],
          global_stats.cache_misses[PAGE_TYPE_SUPERBLOCK]);
-   platform_log("cache miss time | " FRACTION_FMT(9, 2)"s | "
+   platform_log(log_handle, "cache miss time | " FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s |\n",
@@ -3164,21 +3164,21 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(miss_time[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_SUPERBLOCK]));
-   platform_log("pages written   | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log(log_handle, "pages written   | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_writes[PAGE_TYPE_TRUNK],
          global_stats.page_writes[PAGE_TYPE_BRANCH],
          global_stats.page_writes[PAGE_TYPE_MEMTABLE],
          global_stats.page_writes[PAGE_TYPE_FILTER],
          global_stats.page_writes[PAGE_TYPE_LOG],
          global_stats.page_writes[PAGE_TYPE_SUPERBLOCK]);
-   platform_log("pages read      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
+   platform_log(log_handle, "pages read      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_reads[PAGE_TYPE_TRUNK],
          global_stats.page_reads[PAGE_TYPE_BRANCH],
          global_stats.page_reads[PAGE_TYPE_MEMTABLE],
          global_stats.page_reads[PAGE_TYPE_FILTER],
          global_stats.page_reads[PAGE_TYPE_LOG],
          global_stats.page_reads[PAGE_TYPE_SUPERBLOCK]);
-   platform_log("avg prefetch pg |  " FRACTION_FMT(9, 2)" |  "
+   platform_log(log_handle, "avg prefetch pg |  " FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |\n",
@@ -3188,8 +3188,8 @@ clockcache_print_stats(clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_SUPERBLOCK]));
-   platform_default_log("-----------------------------------------------------------------------------------------------\n");
-   platform_log("avg write pgs: "FRACTION_FMT(9,2)"\n",
+   platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
+   platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)"\n",
          FRACTION_ARGS(avg_write_pages));
    // clang-format on
 

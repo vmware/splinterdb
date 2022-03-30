@@ -157,7 +157,7 @@ typedef struct test_message_generator {
 static inline void
 generate_test_message(const test_message_generator *generator,
                       uint64                        idx,
-                      writable_buffer              *msg)
+                      merge_accumulator            *msg)
 {
    debug_assert(generator->min_payload_size <= generator->max_payload_size,
                 "generator min_payload_size=%lu should be less than generator "
@@ -173,11 +173,11 @@ generate_test_message(const test_message_generator *generator,
       generator->min_payload_size
       + (idx % (generator->max_payload_size - generator->min_payload_size + 1));
    uint64 total_size = sizeof(data_handle) + payload_size;
-   writable_buffer_resize(msg, total_size);
-   data_handle *raw_data = writable_buffer_data(msg);
+   merge_accumulator_set_class(msg, generator->type);
+   merge_accumulator_resize(msg, total_size);
+   data_handle *raw_data = merge_accumulator_data(msg);
    memset(raw_data, idx, total_size);
-   raw_data->message_type = generator->type;
-   raw_data->ref_count    = 1;
+   raw_data->ref_count = 1;
    memcpy(raw_data->data, &idx, sizeof(idx));
 }
 
@@ -248,7 +248,9 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                      master_cfg->filter_index_size,
                      master_cfg->reclaim_threshold,
                      master_cfg->use_log,
-                     master_cfg->use_stats);
+                     master_cfg->use_stats,
+                     master_cfg->verbose_logging_enabled,
+                     master_cfg->log_handle);
 
    gen->type             = MESSAGE_TYPE_INSERT;
    gen->min_payload_size = GENERATOR_MIN_PAYLOAD_SIZE;

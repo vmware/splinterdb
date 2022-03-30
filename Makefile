@@ -49,9 +49,10 @@ CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
 
-# track git ref in the built library
+# track git ref in the built library. We don't put this into CFLAGS
+# directly because it causes false-positives in our config tracking.
 GIT_VERSION := "$(shell git describe --abbrev=8 --dirty --always --tags)"
-CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
+GIT_VERSION_CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
 
 cpu_arch := $(shell uname -p)
 ifeq ($(cpu_arch),x86_64)
@@ -268,7 +269,7 @@ $(BINDIR)/%/.:
 # RECIPES
 #
 
-COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
+COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
 $(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@
@@ -385,6 +386,10 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
 
 $(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
 
+$(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)            \
+                                       $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                       $(LIBDIR)/libsplinterdb.so
+
 ########################################
 # Convenience targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
@@ -433,4 +438,4 @@ install:
 # to support clangd: https://clangd.llvm.org/installation.html#compile_flagstxt
 .PHONY: compile_flags.txt
 compile_flags.txt:
-	echo "$(CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
+	echo "$(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt

@@ -22,6 +22,22 @@ extern const char *BUILD_VERSION;
 
 /*
  * --------------------------------------------------------------------------
+ * Default test configuration settings. These will be used by
+ * config_set_defaults() to initialize test-execution configuration in the
+ * master_config used to run tests.
+ * --------------------------------------------------------------------------
+ */
+#define TEST_CONFIG_DEFAULT_PAGE_SIZE LAIO_DEFAULT_PAGE_SIZE // bytes
+
+#define TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT LAIO_DEFAULT_PAGES_PER_EXTENT
+_Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
+               "Invalid TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT value");
+
+#define TEST_CONFIG_DEFAULT_EXTENT_SIZE                                        \
+   (TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT * TEST_CONFIG_DEFAULT_PAGE_SIZE)
+
+/*
+ * --------------------------------------------------------------------------
  * Convenience structure to hold configuration options for all sub-systems.
  * Command-line parsing routines parse config params into these structs.
  * Mostly needed for testing interfaces.
@@ -56,11 +72,13 @@ typedef struct master_config {
    bool use_log;
 
    // splinter
-   uint64 memtable_capacity;
-   uint64 fanout;
-   uint64 max_branches_per_node;
-   uint64 use_stats;
-   uint64 reclaim_threshold;
+   uint64               memtable_capacity;
+   uint64               fanout;
+   uint64               max_branches_per_node;
+   uint64               use_stats;
+   uint64               reclaim_threshold;
+   bool                 verbose_logging_enabled;
+   platform_log_handle *log_handle;
 
    // data
    uint64 key_size;
