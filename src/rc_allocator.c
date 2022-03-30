@@ -689,7 +689,7 @@ rc_allocator_assert_noleaks(rc_allocator *al)
 
 /*
  *----------------------------------------------------------------------
- * rc_allocator_print_stats --
+ * rc_allocator_print_stats() --
  *
  *      Prints basic statistics about the allocator state.
  *
