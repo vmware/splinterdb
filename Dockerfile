@@ -41,13 +41,13 @@ COPY --from=build /splinterdb-install/include/splinterdb/ /usr/local/include/spl
 
 # Copy over the test binaries under bin/ (recursively) and the test script
 # (Default BUILD_DIR is 'build'.)
-COPY --from=build /splinterdb-src/build/bin/ /splinterdb/build/bin/
+COPY --from=build /splinterdb-src/build/release/bin/ /splinterdb/build/release/bin/
 COPY --from=build /splinterdb-src/test.sh /splinterdb/test.sh
 
 # TODO: Currently driver_test dynamically links against the relative path lib/libsplinterdb.so
 # Instead we should link driver_test statically against libsplinterdb.a so that this hack isn't necessary
 # As all test binaries are linked against the libraries produced during the build,
 # adjust the lib-paths to drive off of default $BUILD_DIR dir; i.e. 'build'.
-RUN mkdir -p /splinterdb/build/lib && ln -s /usr/local/lib/libsplinterdb.so /splinterdb/build/lib/libsplinterdb.so
+RUN mkdir -p /splinterdb/build/release/lib && ln -s /usr/local/lib/libsplinterdb.so /splinterdb/build/release/lib/libsplinterdb.so
 
 WORKDIR "/splinterdb"
