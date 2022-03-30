@@ -3165,13 +3165,7 @@ btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
 
    uint64 nentries = btree_num_entries(hdr);
    char   fmtstr[30];
-   snprintf(fmtstr,
-            sizeof(fmtstr),
-            "[%%%s] %%-8u",
-            ((nentries < 10)     ? "d"
-             : (nentries < 100)  ? "2d"
-             : (nentries < 1000) ? "3d"
-                                 : "4d"));
+   snprintf(fmtstr, sizeof(fmtstr), "[%%%s] %%-8u", PRInd(nentries));
 
    for (int i = 0; i < btree_num_entries(hdr); i++) {
       // New-line every n-offset entries
@@ -3191,7 +3185,7 @@ btree_print_index_node(platform_log_handle *log_handle,
 {
    data_config *dcfg = cfg->data_cfg;
    platform_log(log_handle, "**  INDEX NODE \n");
-   platform_log(log_handle, "**  hdrptr: %p\n", hdr);
+   platform_log(log_handle, "**  Header ptr: %p\n", hdr);
    platform_log(log_handle, "**  addr: %lu \n", addr);
    platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
    platform_log(

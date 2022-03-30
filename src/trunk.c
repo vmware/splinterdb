@@ -1220,7 +1220,10 @@ trunk_pivot_size(trunk_handle *spl)
    return trunk_key_size(spl) + sizeof(trunk_pivot_data);
 }
 
-/* struct trunk_pivot_data{} itself is the message. Return its size */
+/*
+ * From trunk_pivot_size(): The data following the pivot key is the message.
+ * Return the message size as the sizeof() the struct describing this data.
+ */
 uint64
 trunk_pivot_message_size()
 {
@@ -1229,7 +1232,7 @@ trunk_pivot_message_size()
 
 /*
  * Return the start of the pivot_no'th pivot_data, which begins just past
- * the key. (Key size is effectively a statically configured limit.)
+ * the key.
  */
 static inline trunk_pivot_data *
 trunk_get_pivot_data(trunk_handle *spl, page_handle *node, uint16 pivot_no)

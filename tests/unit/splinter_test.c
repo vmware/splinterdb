@@ -699,7 +699,9 @@ splinter_do_inserts(void         *datap,
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
       (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
 
-   // First see if test was invoked with --num-inserts execution parameter
+   // First see if test was invoked with --num-inserts execution parameter.
+   // (Override the default, which is some big value, like 12988800, with this
+   // hook for faster test execution.)
    int num_inserts = data->test_exec_cfg.num_inserts;
 
    // If not, derive total # of rows to be inserted
@@ -717,10 +719,6 @@ splinter_do_inserts(void         *datap,
                         data->splinter_cfg[0].fanout,
                         data->splinter_cfg[0].mt_cfg.max_extents_per_memtable,
                         num_inserts);
-
-   // Debug hook: Override this to smaller value for faster test execution,
-   // while doing test-dev / debugging. Default is some big value, like
-   // 12988800; num_inserts = (100 * 100 * 100);
 
    uint64       start_time = platform_get_timestamp();
    uint64       insert_num;
