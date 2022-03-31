@@ -20,4 +20,6 @@
 #   define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif /* MIN */
 
+#define ARRAY_LEN(a) (int)(sizeof(a) / sizeof(*a))
+
 #endif /* __EXAMPLE_COMMON_H__ */
