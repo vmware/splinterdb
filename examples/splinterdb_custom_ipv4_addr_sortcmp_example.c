@@ -2,11 +2,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * SplinterDB Basic Iterators Example Program.
+ * ----------------------------------------------------------------------------
+ * SplinterDB Advanced Iterators Example Program with custom sort-comparison.
+ *
+ * What's new beyond previous splinterdb_iterators_example.c?
+ *
+ * In this program, we show the application of user-specified custom
+ * key-comparison routines. The 'key' here the 4-part IP-address, which
+ * is stored as the string seen from 'ping'; i.e. "208.80.154.232"
+ * To illustrate the use of user-defined keys, we then provide a
+ * sort-comparison routine, which splits up the IP-address to its
+ * constituent parts, and does a numeric comparison of each 1-byte value.
+ *
+ * See:
+ * - The definition of custom splinter_data_cfg.key_compare to the
+ *   user-provided comparison function, custom_key_compare()
+ * - The ip4_ipaddr_keycmp() and ip4_split() functions that show one
+ *   can deal with application-specified key formats.
+ * ----------------------------------------------------------------------------
  */
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "splinterdb/default_data_config.h"
@@ -34,10 +52,20 @@
 // Max # of chars in a well-formed IP4 address, including null-terminator byte
 #define APP_IPV4_MAX_KEY_BUF_SIZE (APP_MAX_KEY_SIZE + 1)
 
-// Declare a struct to build a key/value pair
+// Key is a 4-part inet-address string, whose value is a description of
+// the IP-address: its www-name, and some ping metrics.
+typedef struct www_ping_metrics {
+   uint32     ttl_ms;   // Time-to-live
+   uint32     rtt_ms;   // Round trip time
+   const char www_name[30];
+} www_ping_metrics;
+
+#define WWW_PING_SIZE(p)                                                       \
+   (size_t)(offsetof(www_ping_metrics, www_name) + strlen((p)->www_name))
+
 typedef struct kv_pair {
-   char *kv_key;
-   char *kv_val;
+   char            *kv_key;
+   www_ping_metrics kv_val;
 } kv_pair;
 
 // clang-format off
@@ -45,16 +73,17 @@ typedef struct kv_pair {
 // Mapping from inet-IP address to www.address etc.
 kv_pair inet_addr_info[] =
 {
-      { "5.79.89.114"       , "www.acm.org, ttl=47 time=171.147 ms" }
-    , { "208.80.154.232"    , "www.wikidpedia.org, ttl=52 time=99.427 ms" }
-    , { "151.101.188.81"    , "www.bbc.com, ttl=57 time=28.620 ms" }
-    , { "99.84.238.130"     , "www.worldbank.org, ttl=240 time=46.452 ms" }
-    , { "10.113.78.20"      , "www.vmware.com, ttl=57 time=31.888 ms" }
-    , { "34.102.136.180"    , "www.eiffeltower.com, ttl=116 time=33.266 ms" }
-    , { "184.26.53.176"     , "www.rediff.com, ttl=56 time=33.587 ms" }
-    , { "151.101.190.154"   , "www.cnet.com, ttl=58 time=37.691 ms" }
-    , { "104.244.42.129"    , "www.twitter.com, ttl=52 time=74.215 ms" }
-    , { "104.143.9.110"     , "www.hongkongair.com, ttl=49 time=91.059 ms" }
+    //   ip-address             ttl  rtt   www-address
+      { "5.79.89.114"       , {  47, 171, "www.acm.org" } }
+    , { "208.80.154.232"    , {  52,  99, "www.wikidpedia.org" } }
+    , { "151.101.188.81"    , {  57,  28, "www.bbc.com" } }
+    , { "99.84.238.130"     , { 240,  46, "www.worldbank.org" } }
+    , { "10.113.78.20"      , {  57,  32, "www.vmware.com" } }
+    , { "34.102.136.180"    , {  116, 33, "www.eiffeltower.com" } }
+    , { "184.26.53.176"     , {  56,  33, "www.rediff.com" } }
+    , { "151.101.190.154"   , {  58,  37, "www.cnet.com" } }
+    , { "104.244.42.129"    , {  52,  74, "www.twitter.com" } }
+    , { "104.143.9.110"     , {  49,  91, "www.hongkongair.com" } }
 };
 
 int num_inet_addrs = (sizeof(inet_addr_info) / sizeof(*inet_addr_info));
@@ -96,6 +125,9 @@ do_iterate_all(splinterdb *spl_handle, int num_keys);
 
 static int
 do_iterate_from(splinterdb *spl_handle, const char *from_key);
+
+static void
+print_ping_metrics(int kctr, slice key, slice value);
 
 /*
  * -----------------------------------------------------------------------------
@@ -301,8 +333,9 @@ do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs)
       do_insert(spl_handle,
                 kv_pairs[ictr].kv_key,
                 strlen(kv_pairs[ictr].kv_key),
-                kv_pairs[ictr].kv_val,
-                strlen(kv_pairs[ictr].kv_val));
+                (const char *)&kv_pairs[ictr].kv_val,
+                // strlen(kv_pairs[ictr].kv_val));
+                WWW_PING_SIZE(&kv_pairs[ictr].kv_val));
    }
    ex_msg("Inserted %d key-value pairs for inet-addr ping times.\n\n", ictr);
 }
@@ -346,14 +379,11 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
    int i = 0;
 
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
-      slice key, value;
+      slice key;
+      slice value;
+
       splinterdb_iterator_get_current(it, &key, &value);
-      ex_msg("[%d] key='%.*s', value='%.*s'\n",
-             i,
-             (int)slice_length(key),
-             (char *)slice_data(key),
-             (int)slice_length(value),
-             (char *)slice_data(value));
+      print_ping_metrics(i, key, value);
       i++;
    }
    rc = splinterdb_iterator_status(it);
@@ -386,12 +416,7 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key)
    for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
       slice key, value;
       splinterdb_iterator_get_current(it, &key, &value);
-      ex_msg("[%d] key='%.*s', value='%.*s'\n",
-             i,
-             (int)slice_length(key),
-             (char *)slice_data(key),
-             (int)slice_length(value),
-             (char *)slice_data(value));
+      print_ping_metrics(i, key, value);
       i++;
    }
    rc = splinterdb_iterator_status(it);
@@ -399,4 +424,26 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key)
 
    ex_msg("Found %d key-value pairs\n\n", i);
    return rc;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * print_ping_metrics()
+ *
+ * Decode a key/value pair and print ping-metrics.
+ * ----------------------------------------------------------------------------
+ */
+static void
+print_ping_metrics(int kctr, slice key, slice value)
+{
+   www_ping_metrics *ping_value;
+   ping_value = ((www_ping_metrics *)slice_data(value));
+   ex_msg("[%d] key='%.*s', value=[ttl=%u, time=%u, name='%.*s']\n",
+          kctr,
+          (int)slice_length(key),
+          (char *)slice_data(key),
+          ping_value->ttl_ms,
+          ping_value->rtt_ms,
+          (int)(slice_length(value) - 8),
+          ping_value->www_name);
 }
