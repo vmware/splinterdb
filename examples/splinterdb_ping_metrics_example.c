@@ -108,11 +108,10 @@ const char *www_sites[] = {  "www.acm.org"
 /*
  * Following definitions etc. needed for 'ping' facility
  */
-// Consolidate stuff we need to establish a socket and do a ping
+// Consolidate stuff we need in order to do a ping
 typedef struct www_conn_hdlr {
-   int                sock_fd;
    struct sockaddr_in addr_conn;
-   const char        *ip_addr;
+   char               ip_addr[NI_MAXHOST];
 } www_conn_hdlr;
 
 // Ping packet size
@@ -173,11 +172,14 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key);
 static void
 print_ping_metrics(int kctr, slice key, slice value);
 
-char *
-dns_lookup(const char *addr_host, struct sockaddr_in *addr_con);
+static void
+do_dns_lookups(www_conn_hdlr *conns, const char **www_sites, int num_sites);
+
+static char *
+dns_lookup(www_conn_hdlr *conn, const char *addr_host);
 
 void
-do_ping(int loopctr, const char *www_addr, www_conn_hdlr *conn);
+do_ping(int sockfd, int loopctr, const char *www_addr, www_conn_hdlr *conn);
 
 unsigned short
 checksum(void *b, int len);
@@ -229,15 +231,17 @@ main()
    int           max_loops           = 3;
    www_conn_hdlr conn[NUM_WWW_SITES] = {0};
 
+   // Do DNS-lookups, and cache ip-addr for all www-sites we'll ping below
+   do_dns_lookups(conn, www_sites, NUM_WWW_SITES);
+
    // if (!conn[wctr].sock_fd) {
    do {
       for (int wctr = 0; wctr < ARRAY_LEN(www_sites); wctr++) {
 
          // Establish a new socket fd for each www-site, first time
-         int sockfd = conn[wctr].sock_fd;
+         int sockfd = 0;
          if (!sockfd) {
-            sockfd             = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-            conn[wctr].sock_fd = sockfd;
+            sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
          }
 
          int ttl_val = 64;
@@ -259,17 +263,13 @@ main()
                     (const char *)&tv_out,
                     sizeof tv_out);
 
-         const char *ip_addr =
-            dns_lookup(www_sites[wctr], &conn[wctr].addr_conn);
-         conn[wctr].ip_addr = ip_addr;
-
          // for (int pctr = 0; pctr < 5; pctr++) {
-         do_ping((loopctr), www_sites[wctr], &conn[wctr]);
+         do_ping(sockfd, (loopctr), www_sites[wctr], &conn[wctr]);
          // sleep(1);
          // }
 
          close(sockfd);
-         conn[wctr].sock_fd = 0;
+         sockfd = 0;
       }
       loopctr++;
       sleep(APP_PING_EVERY_S);
@@ -283,32 +283,47 @@ main()
    return rc;
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * do_dns_lookups() - On an array of www-sites, caching in IP-addresses
+ * -----------------------------------------------------------------------------
+ */
+static void
+do_dns_lookups(www_conn_hdlr *conns, const char **www_sites, int num_sites)
+{
+   for (int wctr = 0; wctr < num_sites; wctr++) {
+      if (!dns_lookup(&conns[wctr], www_sites[wctr])) {
+         ex_err("DNS lookup failed for %s\n", www_sites[wctr]);
+      }
+   }
+}
+
+
 // Performs a DNS lookup
-char *
-dns_lookup(const char *addr_host, struct sockaddr_in *addr_con)
+static char *
+dns_lookup(www_conn_hdlr *conn, const char *addr_host)
 {
    struct hostent *host_entity;
-   char           *ip = (char *)malloc(NI_MAXHOST * sizeof(char));
-
    if ((host_entity = gethostbyname(addr_host)) == NULL) {
       // No ip found for hostname
       return NULL;
    }
 
    // Filling up address structure
+   char *ip = (char *)&conn->ip_addr;
    strcpy(ip, inet_ntoa(*(struct in_addr *)host_entity->h_addr));
 
-   (*addr_con).sin_family      = host_entity->h_addrtype;
-   (*addr_con).sin_port        = htons(AUTO_PORT_NO);
-   (*addr_con).sin_addr.s_addr = *(long *)host_entity->h_addr;
+   struct sockaddr_in *addr_conn = &conn->addr_conn;
+   addr_conn->sin_family         = host_entity->h_addrtype;
+   addr_conn->sin_port           = htons(AUTO_PORT_NO);
+   addr_conn->sin_addr.s_addr    = *(long *)host_entity->h_addr;
    return ip;
 }
 
 // make a ping request
 void
-do_ping(int loopctr, const char *www_addr, www_conn_hdlr *conn)
+do_ping(int sockfd, int loopctr, const char *www_addr, www_conn_hdlr *conn)
 {
-   int              sockfd    = conn->sock_fd;
    struct sockaddr *ping_addr = (struct sockaddr *)&conn->addr_conn;
 
    // int    msg_count = 0;
