@@ -236,43 +236,6 @@ main()
 
    // if (!conn[wctr].sock_fd) {
    do {
-      for (int wctr = 0; wctr < ARRAY_LEN(www_sites); wctr++) {
-
-         // Establish a new socket fd for each www-site, first time
-         int sockfd = 0;
-         if (!sockfd) {
-            sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-         }
-
-         int ttl_val = 64;
-         // set socket options at ip to TTL and value to 64,
-         // change to what you want by setting ttl_val
-         if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0)
-         {
-            printf("\nSetting socket options to TTL failed!\n");
-            return -1;
-         }
-         struct timeval tv_out;
-         tv_out.tv_sec  = RECV_TIMEOUT;
-         tv_out.tv_usec = 0;
-
-         // setting timeout of recv setting
-         setsockopt(sockfd,
-                    SOL_SOCKET,
-                    SO_RCVTIMEO,
-                    (const char *)&tv_out,
-                    sizeof tv_out);
-
-         // for (int pctr = 0; pctr < 5; pctr++) {
-         do_ping(sockfd, (loopctr), www_sites[wctr], &conn[wctr]);
-         // sleep(1);
-         // }
-
-         close(sockfd);
-         sockfd = 0;
-      }
-      loopctr++;
-      sleep(APP_PING_EVERY_S);
    } while (loopctr < max_loops);
 
    do_iterate_all(spl_handle, 0);
@@ -299,7 +262,11 @@ do_dns_lookups(www_conn_hdlr *conns, const char **www_sites, int num_sites)
 }
 
 
-// Performs a DNS lookup
+/*
+ * -----------------------------------------------------------------------------
+ * Performs a DNS on one www-addr, populating output www_conn_hdlr *conn handle
+ * -----------------------------------------------------------------------------
+ */
 static char *
 dns_lookup(www_conn_hdlr *conn, const char *addr_host)
 {
@@ -318,6 +285,48 @@ dns_lookup(www_conn_hdlr *conn, const char *addr_host)
    addr_conn->sin_port           = htons(AUTO_PORT_NO);
    addr_conn->sin_addr.s_addr    = *(long *)host_entity->h_addr;
    return ip;
+}
+
+ping_all_www_sites()
+{
+
+  for (int wctr = 0; wctr < ARRAY_LEN(www_sites); wctr++) {
+
+     // Establish a new socket fd for each www-site, first time
+     int sockfd = 0;
+     if (!sockfd) {
+        sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+     }
+
+     int ttl_val = 64;
+     // set socket options at ip to TTL and value to 64,
+     // change to what you want by setting ttl_val
+     if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0)
+     {
+        printf("\nSetting socket options to TTL failed!\n");
+        return -1;
+     }
+     struct timeval tv_out;
+     tv_out.tv_sec  = RECV_TIMEOUT;
+     tv_out.tv_usec = 0;
+
+     // setting timeout of recv setting
+     setsockopt(sockfd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                (const char *)&tv_out,
+                sizeof tv_out);
+
+     // for (int pctr = 0; pctr < 5; pctr++) {
+     do_ping(sockfd, (loopctr), www_sites[wctr], &conn[wctr]);
+     // sleep(1);
+     // }
+
+     close(sockfd);
+     sockfd = 0;
+  }
+  loopctr++;
+  sleep(APP_PING_EVERY_S);
 }
 
 // make a ping request
