@@ -1010,6 +1010,23 @@ trunk_node_copy(trunk_handle *spl, page_handle *node)
 }
 
 /*
+ * Makes a copy of the child indicated by pdata and replaces the parent's
+ * pointer with one to the new child. Returns the new child's page_handle *.
+ */
+page_handle *
+trunk_copy_node_and_add_to_parent(trunk_handle     *spl,
+                                  page_handle      *parent,
+                                  trunk_pivot_data *pdata)
+{
+   page_handle *old_child = trunk_node_get(spl, pdata->addr);
+   page_handle *new_child = trunk_node_copy(spl, old_child);
+   trunk_node_unget(spl, &old_child);
+   pdata->addr = new_child->disk_addr;
+   return new_child;
+}
+
+
+/*
  *-----------------------------------------------------------------------------
  * Trunk Modification Lock
  *
@@ -1072,6 +1089,45 @@ error:
    return STATUS_BAD_PARAM;
 }
 
+platform_status
+trunk_node_copy_path_by_key_and_height(trunk_handle *spl,      // IN
+                                       const char   *key,      // IN
+                                       uint16        height,   // IN
+                                       page_handle **out_node, // OUT
+                                       uint64       *out_root_addr)  // OUT
+{
+   page_handle *root        = trunk_node_get(spl, spl->root_addr);
+   page_handle *node        = trunk_node_copy(spl, root);
+   uint16       root_height = trunk_height(spl, root);
+   trunk_node_unget(spl, &root);
+   *out_root_addr = node->disk_addr;
+   if (height > root_height) {
+      goto error;
+   }
+
+   for (uint16 h = root_height; h > height; h--) {
+      debug_assert(trunk_height(spl, node) == h);
+      uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
+      debug_assert(pivot_no < trunk_num_children(spl, node));
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+      page_handle *child = trunk_copy_node_and_add_to_parent(spl, node, pdata);
+      trunk_node_unlock(spl, node);
+      trunk_node_unclaim(spl, node);
+      trunk_node_unget(spl, &node);
+      node = child;
+   }
+
+   debug_assert(trunk_height(spl, node) == height);
+   debug_assert(trunk_key_compare(spl, trunk_min_key(spl, node), key) <= 0);
+   debug_assert(trunk_key_compare(spl, key, trunk_max_key(spl, node)) < 0);
+
+   *out_node = node;
+   return STATUS_OK;
+
+error:
+   trunk_node_unget(spl, &node);
+   return STATUS_BAD_PARAM;
+}
 
 /*
  *-----------------------------------------------------------------------------
@@ -2680,6 +2736,9 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
          if (trunk_bundle_live_for_pivot(spl, node, bundle_no, pivot_no)) {
             const char *start_key = trunk_get_pivot(spl, node, pivot_no);
             const char *end_key   = trunk_get_pivot(spl, node, pivot_no + 1);
+            platform_default_log("zapping old branch %lu in node %lu\n",
+                                 branch->root_addr,
+                                 node->disk_addr);
             trunk_zap_branch_range(
                spl, branch, start_key, end_key, PAGE_TYPE_BRANCH);
          }
@@ -2707,6 +2766,9 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
          if (!trunk_bundle_live_for_pivot(spl, node, bundle_no, pivot_no)) {
             const char *start_key = trunk_get_pivot(spl, node, pivot_no);
             const char *end_key   = trunk_get_pivot(spl, node, pivot_no + 1);
+            platform_default_log("zapping new branch %lu in node %lu\n",
+                                 new_branch->root_addr,
+                                 node->disk_addr);
             trunk_zap_branch_range(
                spl, new_branch, start_key, end_key, PAGE_TYPE_BRANCH);
          }
@@ -3688,6 +3750,16 @@ trunk_compact_bundle_node_get(trunk_handle             *spl,
 }
 
 static inline platform_status
+trunk_compact_bundle_node_copy_path(trunk_handle             *spl,
+                                    trunk_compact_bundle_req *req,
+                                    page_handle             **node,
+                                    uint64                   *new_root_addr)
+{
+   return trunk_node_copy_path_by_key_and_height(
+      spl, req->start_key, req->height, node, new_root_addr);
+}
+
+static inline platform_status
 trunk_filter_build_node_get_and_claim(trunk_handle         *spl,
                                       trunk_filter_scratch *req,
                                       page_handle         **node)
@@ -4018,6 +4090,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
 
       bool should_continue_replacing_filters = TRUE;
       while (should_continue_replacing_filters) {
+         trunk_modification_lock(spl);
          rc =
             trunk_filter_build_node_get_and_claim(spl, &filter_scratch, &node);
          platform_assert_status_ok(rc);
@@ -4032,7 +4105,6 @@ trunk_bundle_build_filters(void *arg, void *scratch)
             }
             goto out;
          }
-         trunk_modification_lock(spl);
          trunk_node_lock(spl, node);
          trunk_replace_routing_filter(spl, compact_req, &filter_scratch, node);
          if (trunk_bundle_live(spl, node, compact_req->bundle_no)) {
@@ -4292,22 +4364,6 @@ trunk_room_to_flush(trunk_handle     *spl,
    return child_branches + flush_branches < spl->cfg.hard_max_branches_per_node
           && child_bundles + 2 <= TRUNK_MAX_BUNDLES
           && child_subbundles + flush_subbundles + 1 < TRUNK_MAX_SUBBUNDLES;
-}
-
-/*
- * Makes a copy of the child indicated by pdata and replaces the parent's
- * pointer with one to the new child. Returns the new child's page_handle *.
- */
-page_handle *
-trunk_copy_node_and_add_to_parent(trunk_handle     *spl,
-                                  page_handle      *parent,
-                                  trunk_pivot_data *pdata)
-{
-   page_handle *old_child = trunk_node_get(spl, pdata->addr);
-   page_handle *new_child = trunk_node_copy(spl, old_child);
-   trunk_node_unget(spl, &old_child);
-   pdata->addr = new_child->disk_addr;
-   return new_child;
 }
 
 /*
@@ -4992,21 +5048,18 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    /*
-    * 10. Reacquire read lock
-    */
-   rc = trunk_compact_bundle_node_get(spl, req, &node);
-   platform_assert_status_ok(rc);
-
-   /*
     * 11. For each newly split sibling replace bundle with new branch
     */
    uint64 num_replacements = 0;
    bool   should_continue  = TRUE;
    while (should_continue) {
-      platform_assert(node != NULL);
-      trunk_node_claim(spl, &node);
       trunk_modification_lock(spl);
-      trunk_node_lock(spl, node);
+      uint64 new_root_addr = 0;
+      rc = trunk_compact_bundle_node_copy_path(spl, req, &node, &new_root_addr);
+      platform_assert_status_ok(rc);
+      platform_assert(node != NULL);
+      platform_assert(new_root_addr != 0);
+      platform_assert(new_root_addr != spl->root_addr);
 
       trunk_log_node_if_enabled(&stream, spl, node);
 
@@ -5074,20 +5127,26 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                      node->disk_addr);
       }
       trunk_log_node_if_enabled(&stream, spl, node);
-      debug_assert(trunk_verify_node(spl, node));
 
       should_continue = trunk_compact_bundle_node_has_split(spl, req, node);
       if (!should_continue && num_replacements != 0 && pack_req.num_tuples != 0)
       {
          const char *max_key = trunk_max_key(spl, node);
+         platform_default_log(
+            "zapping extra ref in new branch %lu in node %lu\n",
+            new_branch.root_addr,
+            node->disk_addr);
          trunk_zap_branch_range(
             spl, &new_branch, max_key, NULL, PAGE_TYPE_BRANCH);
       }
+
+      debug_assert(trunk_verify_node(spl, node));
 
       if (should_continue) {
          debug_assert(height != 0);
          trunk_key_copy(spl, req->start_key, trunk_max_key(spl, node));
       }
+      spl->root_addr = new_root_addr;
       trunk_node_unlock(spl, node);
       trunk_modification_unlock(spl);
       trunk_node_unclaim(spl, node);
@@ -9052,7 +9111,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
    // Has to be set after btree_config_init is called
    trunk_cfg->max_kv_bytes_per_node =
       trunk_cfg->fanout * trunk_cfg->mt_cfg.max_extents_per_memtable
-      * cache_config_extent_size(cache_cfg);
+      * cache_config_extent_size(cache_cfg) / 2;
    trunk_cfg->target_leaf_kv_bytes = trunk_cfg->max_kv_bytes_per_node / 2;
    trunk_cfg->max_tuples_per_node  = trunk_cfg->max_kv_bytes_per_node / 32;
 
