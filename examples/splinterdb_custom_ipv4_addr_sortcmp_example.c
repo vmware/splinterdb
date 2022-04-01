@@ -334,7 +334,6 @@ do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs)
                 kv_pairs[ictr].kv_key,
                 strlen(kv_pairs[ictr].kv_key),
                 (const char *)&kv_pairs[ictr].kv_val,
-                // strlen(kv_pairs[ictr].kv_val));
                 WWW_PING_SIZE(&kv_pairs[ictr].kv_val));
    }
    ex_msg("Inserted %d key-value pairs for inet-addr ping times.\n\n", ictr);
