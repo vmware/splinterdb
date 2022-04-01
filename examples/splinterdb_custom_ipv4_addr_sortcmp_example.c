@@ -55,8 +55,8 @@
 // Key is a 4-part inet-address string, whose value is a description of
 // the IP-address: its www-name, and some ping metrics.
 typedef struct www_ping_metrics {
-   uint32     ttl_ms;   // Time-to-live
-   uint32     rtt_ms;   // Round trip time
+   uint32     ttl_ms; // Time-to-live
+   uint32     rtt_ms; // Round trip time
    const char www_name[30];
 } www_ping_metrics;
 

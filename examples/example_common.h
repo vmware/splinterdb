@@ -7,6 +7,8 @@
 #ifndef __EXAMPLE_COMMON_H__
 #define __EXAMPLE_COMMON_H__
 
+#include <time.h>
+
 // #define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, "" __VA_ARGS__)
 #define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, __VA_ARGS__)
 
@@ -21,5 +23,16 @@
 #endif /* MIN */
 
 #define ARRAY_LEN(a) (int)(sizeof(a) / sizeof(*a))
+
+// Time unit constants
+#define THOUSAND (1000UL)
+#define MILLION  (THOUSAND * THOUSAND)
+#define BILLION  (THOUSAND * MILLION)
+
+#define NSEC_TO_MSEC(x) ((x) / MILLION)
+#define SEC_TO_NSEC(x)  ((x)*BILLION)
+
+/* Convert timespec quantity into units of nanoseconds */
+#define TIMESPEC_TO_NS(ts) ((uint64)SEC_TO_NSEC((ts)->tv_sec) + (ts)->tv_nsec)
 
 #endif /* __EXAMPLE_COMMON_H__ */

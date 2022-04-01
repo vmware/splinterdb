@@ -50,7 +50,7 @@
 #include "example_common.h"
 
 /* Tag to identify messages from application program */
-#define APP_ME "App-IPV4-sortcmp"
+#define APP_ME "App-ping-metrics"
 
 /*
  * App-specific 'defaults' that can be parameterized, eventually.
@@ -88,16 +88,20 @@ typedef struct kv_pair {
    www_ping_metrics kv_val;
 } kv_pair;
 
-const char *www_sites[] = {"www.acm.org",
-                           "www.wikidpedia.org",
-                           "www.bbc.com",
-                           "www.vmware.com",
-                           "www.worldbank.org",
-                           "www.eiffeltower.com",
-                           "www.rediff.com",
-                           "www.cnet.com",
-                           "www.twitter.com",
-                           "www.hongkongair.com"};
+// clang-format off
+const char *www_sites[] = {  "www.acm.org"
+                           , "www.wikidpedia.org"
+                           , "www.vmware.com"
+                           , "www.bbc.com"
+                           , "www.worldbank.org"
+                           , "www.eiffeltower.com"
+                           , "www.rediff.com"
+                           , "www.cnet.com"
+                           , "www.twitter.com"
+                           , "www.hongkongair.com"
+                          };
+
+// clang-format on
 
 #define NUM_WWW_SITES ARRAY_LEN(www_sites)
 
@@ -114,7 +118,7 @@ typedef struct www_conn_hdlr {
 // Ping packet size
 #define PING_PKT_S 64
 
-// ping packet structure
+// Ping packet structure
 struct ping_pkt {
    struct icmphdr hdr;
    char           msg[PING_PKT_S - sizeof(struct icmphdr)];
@@ -125,27 +129,6 @@ struct ping_pkt {
 
 // Gives the timeout delay for receiving packets in seconds
 #define RECV_TIMEOUT 1
-
-// clang-format off
-// Define an array of key-value pairs to load
-// Mapping from inet-IP address to www.address etc.
-kv_pair inet_addr_info[] =
-{
-      { "5.79.89.114"       , { 47, 171, "www.acm.org" } }
-    , { "208.80.154.232"    , { 5e2, 99, "www.wikidpedia.org" } }
-    , { "151.101.188.81"    , { 57, 28, "www.bbc.com" } }
-    , { "99.84.238.130"     , { 240, 46, "www.worldbank.org" } }
-    , { "10.113.78.20"      , { 57, 32, "www.vmware.com" } }
-    , { "34.102.136.180"    , { 116, 33, "www.eiffeltower.com" } }
-    , { "184.26.53.176"     , { 56, 33, "www.rediff.com" } }
-    , { "151.101.190.154"   , { 58, 37, "www.cnet.com" } }
-    , { "104.244.42.129"    , { 52, 74, "www.twitter.com" } }
-    , { "104.143.9.110"     , { 49, 91, "www.hongkongair.com" } }
-};
-
-int num_inet_addrs = (sizeof(inet_addr_info) / sizeof(*inet_addr_info));
-
-// clang-format on
 
 // Function Prototypes
 static void
@@ -167,6 +150,7 @@ ip4_ipaddr_keycmp(const char  *key1,
 int
 ip4_split(int *key_fields, const char *key, const size_t key_len);
 
+/*
 static void
 do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs);
 
@@ -176,12 +160,15 @@ do_insert(splinterdb  *spl_handle,
           const size_t key_len,
           const char  *value_data,
           const size_t value_len);
+*/
 
 static int
 do_iterate_all(splinterdb *spl_handle, int num_keys);
 
+/*
 static int
 do_iterate_from(splinterdb *spl_handle, const char *from_key);
+*/
 
 static void
 print_ping_metrics(int kctr, slice key, slice value);
@@ -190,10 +177,13 @@ char *
 dns_lookup(const char *addr_host, struct sockaddr_in *addr_con);
 
 void
-do_ping(const char *www_addr, www_conn_hdlr *conn);
+do_ping(int loopctr, const char *www_addr, www_conn_hdlr *conn);
 
 unsigned short
 checksum(void *b, int len);
+
+static uint64
+get_elapsed_ns(struct timespec *start, struct timespec *end);
 
 /*
  * -----------------------------------------------------------------------------
@@ -235,70 +225,57 @@ main()
       return rc;
    }
 
-   int           num_loops           = 0;
-   int           max_loops           = 10;
+   int           loopctr             = 0;
+   int           max_loops           = 3;
    www_conn_hdlr conn[NUM_WWW_SITES] = {0};
 
+   // if (!conn[wctr].sock_fd) {
    do {
       for (int wctr = 0; wctr < ARRAY_LEN(www_sites); wctr++) {
 
          // Establish a new socket fd for each www-site, first time
-         if (!conn[wctr].sock_fd) {
-            int sockfd         = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+         int sockfd = conn[wctr].sock_fd;
+         if (!sockfd) {
+            sockfd             = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
             conn[wctr].sock_fd = sockfd;
-
-            int ttl_val = 64;
-            // set socket options at ip to TTL and value to 64,
-            // change to what you want by setting ttl_val
-            if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val))
-                != 0) {
-               printf("\nSetting socket options to TTL failed!\n");
-               return -1;
-            }
-            struct timeval tv_out;
-            tv_out.tv_sec  = RECV_TIMEOUT;
-            tv_out.tv_usec = 0;
-
-            // setting timeout of recv setting
-            setsockopt(sockfd,
-                       SOL_SOCKET,
-                       SO_RCVTIMEO,
-                       (const char *)&tv_out,
-                       sizeof tv_out);
-
-         } else {
          }
+
+         int ttl_val = 64;
+         // set socket options at ip to TTL and value to 64,
+         // change to what you want by setting ttl_val
+         if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0)
+         {
+            printf("\nSetting socket options to TTL failed!\n");
+            return -1;
+         }
+         struct timeval tv_out;
+         tv_out.tv_sec  = RECV_TIMEOUT;
+         tv_out.tv_usec = 0;
+
+         // setting timeout of recv setting
+         setsockopt(sockfd,
+                    SOL_SOCKET,
+                    SO_RCVTIMEO,
+                    (const char *)&tv_out,
+                    sizeof tv_out);
 
          const char *ip_addr =
             dns_lookup(www_sites[wctr], &conn[wctr].addr_conn);
          conn[wctr].ip_addr = ip_addr;
 
-         do_ping(www_sites[wctr], &conn[wctr]);
+         // for (int pctr = 0; pctr < 5; pctr++) {
+         do_ping((loopctr), www_sites[wctr], &conn[wctr]);
+         // sleep(1);
+         // }
 
-         sleep(APP_PING_EVERY_S);
+         close(sockfd);
+         conn[wctr].sock_fd = 0;
       }
-      num_loops++;
-   } while (num_loops < max_loops);
+      loopctr++;
+      sleep(APP_PING_EVERY_S);
+   } while (loopctr < max_loops);
 
-   ex_msg("Insert and iterate through %d {ipaddr} -> {www-url, metrics} "
-          "mapping table:\n",
-          num_inet_addrs);
-   do_inserts(spl_handle, inet_addr_info, num_inet_addrs);
-
-   do_iterate_all(spl_handle, num_inet_addrs);
-
-   const char *start_key = "99.84.238.130";
-   do_iterate_from(spl_handle, start_key);
-
-   start_key = "5.79.89.114";
-   do_iterate_from(spl_handle, start_key);
-
-   start_key = "10.113.78.20";
-   do_iterate_from(spl_handle, start_key);
-
-   // Specify a non-existent start key; Scan should return from 104.143.9.110
-   start_key = "100.101.102.103";
-   do_iterate_from(spl_handle, start_key);
+   do_iterate_all(spl_handle, 0);
 
    splinterdb_close(&spl_handle);
    ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
@@ -328,27 +305,34 @@ dns_lookup(const char *addr_host, struct sockaddr_in *addr_con)
 }
 
 // make a ping request
-/*
-do_ping(int ping_sockfd, struct sockaddr_in *ping_addr,
-        char *ping_dom, char *ping_ip, char *rev_host)
-    */
 void
-do_ping(const char *www_addr, www_conn_hdlr *conn)
+do_ping(int loopctr, const char *www_addr, www_conn_hdlr *conn)
 {
    int              sockfd    = conn->sock_fd;
    struct sockaddr *ping_addr = (struct sockaddr *)&conn->addr_conn;
 
-   int    msg_count = 0;
-   int    i;
-   uint32 addr_len;
+   // int    msg_count = 0;
+   int i;
 
    struct ping_pkt    pckt;
    struct sockaddr_in r_addr;
-   struct timespec    time_start;
    struct timespec    tfs;
    struct timespec    tfe;
 
-   clock_gettime(CLOCK_MONOTONIC, &tfs);
+   int ttl_val = 64;
+   // set socket options at ip to TTL and value to 64,
+   // change to what you want by setting ttl_val
+   if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
+      printf("\nSetting socket options to TTL failed!\n");
+      return;
+   }
+   struct timeval tv_out;
+   tv_out.tv_sec  = RECV_TIMEOUT;
+   tv_out.tv_usec = 0;
+
+   // setting timeout of recv setting
+   setsockopt(
+      sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv_out, sizeof tv_out);
 
    // filling packet
    bzero(&pckt, sizeof(pckt));
@@ -356,35 +340,51 @@ do_ping(const char *www_addr, www_conn_hdlr *conn)
    pckt.hdr.un.echo.id = getpid();
 
    for (i = 0; i < sizeof(pckt.msg) - 1; i++) {
-      pckt.msg[i] = i + '0';
+      pckt.msg[i] = i + loopctr + '0';
    }
 
    pckt.msg[i]               = 0;
-   pckt.hdr.un.echo.sequence = msg_count++;
+   pckt.hdr.un.echo.sequence = loopctr;
    pckt.hdr.checksum         = checksum(&pckt, sizeof(pckt));
 
-   // send packet
-   clock_gettime(CLOCK_MONOTONIC, &time_start);
+   uint32 addr_len         = sizeof(r_addr);
    size_t sizeof_ping_addr = sizeof(conn->addr_conn);
+
+   // send packet
+   clock_gettime(CLOCK_MONOTONIC, &tfs);
    if (sendto(sockfd, &pckt, sizeof(pckt), 0, ping_addr, sizeof_ping_addr) <= 0)
    {
-      printf("\nPacket Sending Failed!\n");
+      ex_err("[%d] Ping to %s ... Packet Sending Failed!\n", loopctr, www_addr);
    }
 
    // receive packet
-   addr_len = sizeof(r_addr);
-
    if (recvfrom(
           sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr *)&r_addr, &addr_len)
        <= 0)
    {
-      printf("\nPacket receive failed!\n");
+      ex_err("[%d] Ping to %s ... Packet receive failed!\n", loopctr, www_addr);
    }
 
    clock_gettime(CLOCK_MONOTONIC, &tfe);
-   uint32 elapsed_ms = (tfe.tv_nsec - tfs.tv_nsec) / (1000 * 1000);
+   uint64 elapsed_ns = get_elapsed_ns(&tfs, &tfe);
+   uint64 elapsed_ms = NSEC_TO_MSEC(elapsed_ns);
 
-   ex_msg("Ping to %s ... took %dms\n", www_addr, elapsed_ms);
+   ex_msg("[%d] Ping %d bytes to %s took %lu ns (%lu ms)\n",
+          loopctr,
+          (int)sizeof(pckt),
+          www_addr,
+          elapsed_ns,
+          elapsed_ms);
+}
+
+/* Compute the elapsed time delta in ns between two clock_gettime() values */
+static uint64
+get_elapsed_ns(struct timespec *start, struct timespec *end)
+{
+   // return(TIMESPEC_TO_NS(end) - TIMESPEC_TO_NS(start));
+   uint64 end_ns   = TIMESPEC_TO_NS(end);
+   uint64 start_ns = TIMESPEC_TO_NS(start);
+   return (end_ns - start_ns);
 }
 
 /*
@@ -510,6 +510,7 @@ ip4_split(int *key_fields, const char *key, const size_t key_len)
    return fctr;
 }
 
+#if UNDEF
 /*
  * -----------------------------------------------------------------------------
  * do_inserts()
@@ -551,6 +552,7 @@ do_insert(splinterdb  *spl_handle,
    int   rc    = splinterdb_insert(spl_handle, key, value);
    return rc;
 }
+#endif // UNDEF
 
 /*
  * ---------------------------------------------------------------------------
@@ -585,6 +587,7 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
    return rc;
 }
 
+#if UNDEF
 /*
  * ---------------------------------------------------------------------------
  * do_iterate_from()
@@ -617,6 +620,8 @@ do_iterate_from(splinterdb *spl_handle, const char *from_key)
    ex_msg("Found %d key-value pairs\n\n", i);
    return rc;
 }
+
+#endif /* UNDEF */
 
 /*
  * ---------------------------------------------------------------------------
