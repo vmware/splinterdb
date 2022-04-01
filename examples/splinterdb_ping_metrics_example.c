@@ -106,12 +106,18 @@ const char *www_sites[] = {  "www.acm.org"
 #define NUM_WWW_SITES ARRAY_LEN(www_sites)
 
 /*
- * Following definitions etc. needed for 'ping' facility
+ * **************************************************************
+ * Following definitions etc. are needed for 'ping' facility
+ * **************************************************************
  */
 // Consolidate stuff we need in order to do a ping
 typedef struct www_conn_hdlr {
    struct sockaddr_in addr_conn;
    char               ip_addr[NI_MAXHOST];
+
+   // Ping-metrics returned for each www-connection by one do_ping() call.
+   uint64 ping_elapsed_ms;
+
 } www_conn_hdlr;
 
 // Ping packet size
@@ -178,8 +184,11 @@ do_dns_lookups(www_conn_hdlr *conns, const char **www_sites, int num_sites);
 static char *
 dns_lookup(www_conn_hdlr *conn, const char *addr_host);
 
-void
-do_ping(int sockfd, int loopctr, const char *www_addr, www_conn_hdlr *conn);
+static void
+ping_all_www_sites(www_conn_hdlr *conns, const char **www_sites, int num_sites);
+
+static void
+do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn);
 
 unsigned short
 checksum(void *b, int len);
@@ -234,8 +243,10 @@ main()
    // Do DNS-lookups, and cache ip-addr for all www-sites we'll ping below
    do_dns_lookups(conn, www_sites, NUM_WWW_SITES);
 
-   // if (!conn[wctr].sock_fd) {
    do {
+      ping_all_www_sites(conn, www_sites, NUM_WWW_SITES);
+      loopctr++;
+      sleep(APP_PING_EVERY_S);
    } while (loopctr < max_loops);
 
    do_iterate_all(spl_handle, 0);
@@ -287,51 +298,54 @@ dns_lookup(www_conn_hdlr *conn, const char *addr_host)
    return ip;
 }
 
-ping_all_www_sites()
+/*
+ * -----------------------------------------------------------------------------
+ * ping_all_www_sites()
+ *
+ * Cycle thru a known list of www-sites (whose DNS-lookup has been done).
+ * Ping each site, collect and return the ping metrics through conn_hdlr struct.
+ * -----------------------------------------------------------------------------
+ */
+static void
+ping_all_www_sites(www_conn_hdlr *conns, const char **www_sites, int num_sites)
 {
+   for (int wctr = 0; wctr < num_sites; wctr++) {
 
-  for (int wctr = 0; wctr < ARRAY_LEN(www_sites); wctr++) {
+      // Establish a new socket fd for each www-site, first time
+      int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 
-     // Establish a new socket fd for each www-site, first time
-     int sockfd = 0;
-     if (!sockfd) {
-        sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-     }
+      int ttl_val = 64;
+      // set socket options at ip to TTL and value to 64,
+      // change to what you want by setting ttl_val
+      if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
+         ex_err("\nSetting socket options for sockfd=%d to TTL failed!\n",
+                sockfd);
+         return;
+      }
+      struct timeval tv_out;
+      tv_out.tv_sec  = RECV_TIMEOUT;
+      tv_out.tv_usec = 0;
 
-     int ttl_val = 64;
-     // set socket options at ip to TTL and value to 64,
-     // change to what you want by setting ttl_val
-     if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0)
-     {
-        printf("\nSetting socket options to TTL failed!\n");
-        return -1;
-     }
-     struct timeval tv_out;
-     tv_out.tv_sec  = RECV_TIMEOUT;
-     tv_out.tv_usec = 0;
+      // setting timeout of recv setting
+      setsockopt(
+         sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv_out, sizeof tv_out);
 
-     // setting timeout of recv setting
-     setsockopt(sockfd,
-                SOL_SOCKET,
-                SO_RCVTIMEO,
-                (const char *)&tv_out,
-                sizeof tv_out);
+      do_ping(sockfd, wctr, www_sites[wctr], &conns[wctr]);
 
-     // for (int pctr = 0; pctr < 5; pctr++) {
-     do_ping(sockfd, (loopctr), www_sites[wctr], &conn[wctr]);
-     // sleep(1);
-     // }
-
-     close(sockfd);
-     sockfd = 0;
-  }
-  loopctr++;
-  sleep(APP_PING_EVERY_S);
+      close(sockfd);
+   }
 }
 
-// make a ping request
-void
-do_ping(int sockfd, int loopctr, const char *www_addr, www_conn_hdlr *conn)
+/*
+ * -----------------------------------------------------------------------------
+ * do_ping()
+ *
+ * Make a 'ping' request to one www-site. Return the ping-metrics
+ * through ping-metrics fields in output www_conn_hdlr *conn struct.
+ * -----------------------------------------------------------------------------
+ */
+static void
+do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
 {
    struct sockaddr *ping_addr = (struct sockaddr *)&conn->addr_conn;
 
@@ -347,7 +361,7 @@ do_ping(int sockfd, int loopctr, const char *www_addr, www_conn_hdlr *conn)
    // set socket options at ip to TTL and value to 64,
    // change to what you want by setting ttl_val
    if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
-      printf("\nSetting socket options to TTL failed!\n");
+      ex_err("\nSetting TTL options for sockfd=%d failed!\n", sockfd);
       return;
    }
    struct timeval tv_out;
@@ -364,21 +378,24 @@ do_ping(int sockfd, int loopctr, const char *www_addr, www_conn_hdlr *conn)
    pckt.hdr.un.echo.id = getpid();
 
    for (i = 0; i < sizeof(pckt.msg) - 1; i++) {
-      pckt.msg[i] = i + loopctr + '0';
+      pckt.msg[i] = i + '0';
    }
 
    pckt.msg[i]               = 0;
-   pckt.hdr.un.echo.sequence = loopctr;
+   pckt.hdr.un.echo.sequence = wctr;
    pckt.hdr.checksum         = checksum(&pckt, sizeof(pckt));
 
    uint32 addr_len         = sizeof(r_addr);
    size_t sizeof_ping_addr = sizeof(conn->addr_conn);
 
+   // Clear out returned ping-metrics, from previous call
+   conn->ping_elapsed_ms = 0;
+
    // send packet
    clock_gettime(CLOCK_MONOTONIC, &tfs);
    if (sendto(sockfd, &pckt, sizeof(pckt), 0, ping_addr, sizeof_ping_addr) <= 0)
    {
-      ex_err("[%d] Ping to %s ... Packet Sending Failed!\n", loopctr, www_addr);
+      ex_err("[%d] Ping to %s ... Packet Sending Failed!\n", wctr, www_addr);
    }
 
    // receive packet
@@ -386,19 +403,20 @@ do_ping(int sockfd, int loopctr, const char *www_addr, www_conn_hdlr *conn)
           sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr *)&r_addr, &addr_len)
        <= 0)
    {
-      ex_err("[%d] Ping to %s ... Packet receive failed!\n", loopctr, www_addr);
+      ex_err("[%d] Ping to %s ... Packet receive failed!\n", wctr, www_addr);
    }
 
    clock_gettime(CLOCK_MONOTONIC, &tfe);
    uint64 elapsed_ns = get_elapsed_ns(&tfs, &tfe);
    uint64 elapsed_ms = NSEC_TO_MSEC(elapsed_ns);
 
+   conn->ping_elapsed_ms = elapsed_ms;
    ex_msg("[%d] Ping %d bytes to %s took %lu ns (%lu ms)\n",
-          loopctr,
+          wctr,
           (int)sizeof(pckt),
           www_addr,
           elapsed_ns,
-          elapsed_ms);
+          conn->ping_elapsed_ms);
 }
 
 /* Compute the elapsed time delta in ns between two clock_gettime() values */
