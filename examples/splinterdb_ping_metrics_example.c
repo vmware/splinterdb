@@ -73,6 +73,7 @@
 #define APP_PING_EVERY_S 1 // interval between pings
 
 /*
+ * --------------------------------------------------------------------------
  * -- ACTION IS HERE --
  * A new INSERT will be done for the 1st time a www-site is added to the
  * telemetry collection.
@@ -86,6 +87,7 @@
  *  - [min, avg, max] ping metric
  *  - this ping's elapsed-time
  *  - www-site name to which ping was done.
+ * --------------------------------------------------------------------------
  */
 typedef struct www_ping_metrics {
    uint32 min_ping_ms;
@@ -107,14 +109,17 @@ typedef struct www_ping_metrics {
    ((val_length)-offsetof(www_ping_metrics, www_name))
 
 /*
+ * --------------------------------------------------------------------------
  * -- ACTION IS HERE --
  * An UPDATE message will be inserted for every subsequent ping metric.
  * The key remains the same as for the INSERT; i.e. the ip-address.
+ *
  * Here, the "value" is just the new ping-time gathered.
  * Over-time we will see multiple such new-metric UPDATE messages recorded
  * in the db. Upon a lookup, the user-specified merge-method will aggregate
  * the metrics, to return the consolidate metric, as in:
  * <key> - {min, avg, max}-ping-elapsed-ms, # pings-done, www-name
+ * --------------------------------------------------------------------------
  */
 typedef struct ping_metric {
    uint32 this_ping_ms;
@@ -122,16 +127,10 @@ typedef struct ping_metric {
 
 #define WWW_PING_SIZE() sizeof(ping_metric)
 
-typedef struct kv_pair {
-   char            *kv_key;
-   www_ping_metrics kv_val;
-} kv_pair;
-
 // clang-format off
 const char *www_sites[] = {  "www.acm.org"
                            , "www.wikidpedia.org"
                            , "www.vmware.com"
-    /*
                            , "www.bbc.com"
                            , "www.worldbank.org"
                            , "www.eiffeltower.com"
@@ -139,7 +138,6 @@ const char *www_sites[] = {  "www.acm.org"
                            , "www.cnet.com"
                            , "www.twitter.com"
                            , "www.hongkongair.com"
-                           */
                           };
 // clang-format on
 
@@ -183,16 +181,16 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
                             uint64             dev_size,
                             uint64             cache_size);
 
-int
+static int
 custom_key_compare(const data_config *cfg, slice key1, slice key2);
 
-int
+static int
 ip4_ipaddr_keycmp(const char  *key1,
                   const size_t key1_len,
                   const char  *key2,
                   const size_t key2_len);
 
-int
+static int
 ip4_split(int *key_fields, const char *key, const size_t key_len);
 
 static int
@@ -205,11 +203,6 @@ static int
 ping_metrics_final(const data_config *cfg,
                    slice              key,
                    merge_accumulator *oldest_raw_data);
-
-/*
-static void
-do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs);
-*/
 
 static int
 do_insert(splinterdb  *spl_handle,
@@ -227,11 +220,6 @@ do_update(splinterdb  *spl_handle,
 
 static int
 do_iterate_all(splinterdb *spl_handle, int num_keys);
-
-/*
-static int
-do_iterate_from(splinterdb *spl_handle, const char *from_key);
-*/
 
 static void
 print_ping_metrics(int kctr, slice key, slice value);
@@ -262,14 +250,13 @@ get_elapsed_ns(struct timespec *start, struct timespec *end);
 int
 main(int argv, char *argc[])
 {
-   printf("     **** SplinterDB Iterators Example program: "
-          "Custom sort comparison  ****\n\n");
+   printf("     **** SplinterDB Example Ping program: "
+          "Update telemetry metrics with UPDATE messages ****\n\n");
 
    // Initialize data configuration, describing your key-value properties
    data_config splinter_data_cfg;
    default_data_config_init(APP_MAX_KEY_SIZE, &splinter_data_cfg);
 
-   // -- ACTION IS HERE --
    // Customize key-comparison with our implementation for IP4 addresses
    // **** NOTE **** Custom key-comparision function needs to be provided
    // up-front. Every insert will invoke this method to insert the new key
@@ -277,9 +264,12 @@ main(int argv, char *argc[])
    sprintf(splinter_data_cfg.min_key, "%s", "0.0.0.0");
    sprintf(splinter_data_cfg.max_key, "%s", "255.255.255.255");
 
-   splinter_data_cfg.min_key_length     = strlen(splinter_data_cfg.min_key);
-   splinter_data_cfg.max_key_length     = strlen(splinter_data_cfg.max_key);
-   splinter_data_cfg.key_compare        = custom_key_compare;
+   splinter_data_cfg.min_key_length = strlen(splinter_data_cfg.min_key);
+   splinter_data_cfg.max_key_length = strlen(splinter_data_cfg.max_key);
+   splinter_data_cfg.key_compare    = custom_key_compare;
+
+   // -- ACTION IS HERE --
+   // Provide user-defined merge methods, which will do the metrics aggregation.
    splinter_data_cfg.merge_tuples       = aggregate_ping_metrics;
    splinter_data_cfg.merge_tuples_final = ping_metrics_final;
 
@@ -299,9 +289,9 @@ main(int argv, char *argc[])
       return rc;
    }
 
-   int           max_loops            = 3;
    www_conn_hdlr conns[NUM_WWW_SITES] = {0};
 
+   int max_loops = 3;
    // Extract max-loops arg, if provided.
    if (argv > 1) {
       max_loops = atoi(argc[1]);
@@ -314,13 +304,15 @@ main(int argv, char *argc[])
 
    // Ping all sites, and initialize the base key-value pair for 1st ping
    ping_all_www_sites(conns, www_sites, NUM_WWW_SITES);
-   ex_msg("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
+   ex_msg("-- Finished 1st ping to all sites, loop %d.\n\n", loopctr);
 
    // -- ACTION IS HERE --
    // Declare an array of ping-metrics for all www-sites probed
    www_ping_metrics metrics[NUM_WWW_SITES] = {0};
 
-   // Register the base metric, definining the www-site's name etc.
+   // ---------------------------------------------------------------------
+   // INSERT message: Register the base metric, definining the www-site's
+   // name and associated ping metrics
    for (int wctr = 0; wctr < NUM_WWW_SITES; wctr++) {
       www_ping_metrics *metric = &metrics[wctr];
       sprintf(metric->www_name, "%s", www_sites[wctr]);
@@ -330,6 +322,7 @@ main(int argv, char *argc[])
       metric->this_ping_ms = conn->ping_elapsed_ms;
       metric->num_pings    = 1;
 
+      // Construct the key/value pair, to drive the INSERT into SplinterDB
       const char  *key_data   = conn->ip_addr;
       const size_t key_len    = strlen(conn->ip_addr);
       const char  *value_data = (const char *)metric;
@@ -342,8 +335,12 @@ main(int argv, char *argc[])
       }
    }
 
-   // loopctr = max_loops; //++;
    loopctr++;
+   // ---------------------------------------------------------------------
+   // Run n-more pings, collecting elapsed time for each ping. Store this
+   // in SplinterDB as an UPDATE message, which slams-in just the new
+   // elapsed-time metric, associated with www-site's IP-address as the key.
+   // ---------------------------------------------------------------------
    while (loopctr < max_loops) {
       ping_all_www_sites(conns, www_sites, NUM_WWW_SITES);
       ex_msg("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
@@ -353,10 +350,16 @@ main(int argv, char *argc[])
          ping_metric metric = {0};
 
          // Establish this www-site's connection handler
-         www_conn_hdlr *conn     = &conns[wctr];
-         metric.this_ping_ms     = conn->ping_elapsed_ms;
-         const char  *key_data   = conn->ip_addr;
-         const size_t key_len    = strlen(conn->ip_addr);
+         www_conn_hdlr *conn = &conns[wctr];
+         metric.this_ping_ms = conn->ping_elapsed_ms;
+
+         // Construct the key/value pair, to drive the UPDATE into SplinterDB
+         const char  *key_data = conn->ip_addr;
+         const size_t key_len  = strlen(conn->ip_addr);
+
+         // NOTE: As we are only updating the single metric, the length of the
+         //       value's data is shorter than that what was inserted
+         //       previously.
          const char  *value_data = (const char *)&metric;
          const size_t value_len  = WWW_PING_SIZE();
          int          rc =
@@ -371,6 +374,7 @@ main(int argv, char *argc[])
       sleep(APP_PING_EVERY_S);
    }
 
+   // Process all key/value pairs, and examine the aggregated metrics.
    do_iterate_all(spl_handle, NUM_WWW_SITES);
 
    splinterdb_close(&spl_handle);
@@ -394,7 +398,6 @@ do_dns_lookups(www_conn_hdlr *conns, const char **www_sites, int num_sites)
    }
 }
 
-
 /*
  * -----------------------------------------------------------------------------
  * Performs a DNS on one www-addr, populating output www_conn_hdlr *conn handle
@@ -406,14 +409,13 @@ dns_lookup(www_conn_hdlr *conn, const char *addr_host)
    struct hostent *host_entity;
    if ((host_entity = gethostbyname(addr_host)) == NULL) {
       // No ip found for hostname
+      ex_err("Warning! No IP found by gethostbyname() for '%s'\n", addr_host);
       return NULL;
    }
 
    // Filling up address structure
    char *ip = (char *)&conn->ip_addr;
    strcpy(ip, inet_ntoa(*(struct in_addr *)host_entity->h_addr));
-   // ex_msg("addr_host = '%s', ip_addr = '%s' (%lu)\n", addr_host, ip,
-   // strlen(ip));
 
    struct sockaddr_in *addr_conn = &conn->addr_conn;
    addr_conn->sin_family         = host_entity->h_addrtype;
@@ -473,8 +475,6 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
 {
    struct sockaddr *ping_addr = (struct sockaddr *)&conn->addr_conn;
 
-   int i;
-
    struct ping_pkt    pckt;
    struct sockaddr_in r_addr;
    struct timespec    tfs;
@@ -493,10 +493,10 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
    pckt.hdr.type       = ICMP_ECHO;
    pckt.hdr.un.echo.id = getpid();
 
+   int i;
    for (i = 0; i < sizeof(pckt.msg) - 1; i++) {
       pckt.msg[i] = i + '0';
    }
-
    pckt.msg[i]               = 0;
    pckt.hdr.un.echo.sequence = wctr;
    pckt.hdr.checksum         = checksum(&pckt, sizeof(pckt));
@@ -507,14 +507,14 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
    // Clear out returned ping-metrics, from previous call
    conn->ping_elapsed_ms = 0;
 
-   // send packet
+   // Send packet
    clock_gettime(CLOCK_MONOTONIC, &tfs);
    if (sendto(sockfd, &pckt, sizeof(pckt), 0, ping_addr, sizeof_ping_addr) <= 0)
    {
       ex_err("[%d] Ping to %s ... Packet Sending Failed!\n", wctr, www_addr);
    }
 
-   // receive packet
+   // Receive packet
    if (recvfrom(
           sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr *)&r_addr, &addr_len)
        <= 0)
@@ -540,10 +540,12 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
 static uint64
 get_elapsed_ns(struct timespec *start, struct timespec *end)
 {
-   // return(TIMESPEC_TO_NS(end) - TIMESPEC_TO_NS(start));
+   /*
    uint64 end_ns   = TIMESPEC_TO_NS(end);
    uint64 start_ns = TIMESPEC_TO_NS(start);
    return (end_ns - start_ns);
+   */
+   return (TIMESPEC_TO_NS(end) - TIMESPEC_TO_NS(start));
 }
 
 /*
@@ -574,7 +576,7 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
  * custom_key_compare() - Implement custom key-comparison function
  * -----------------------------------------------------------------------------
  */
-int
+static int
 custom_key_compare(const data_config *cfg, slice key1, slice key2)
 {
    // ex_msg("%s() ...\n", __FUNCTION__);
@@ -602,7 +604,7 @@ custom_key_compare(const data_config *cfg, slice key1, slice key2)
 #define KEYCMP_RV_KEY1_EQ_KEY2 ((int)0)
 #define KEYCMP_RV_KEY1_GT_KEY2 ((int)1)
 
-int
+static int
 ip4_ipaddr_keycmp(const char  *key1,
                   const size_t key1_len,
                   const char  *key2,
@@ -644,7 +646,7 @@ ip4_ipaddr_keycmp(const char  *key1,
  * Returns: Output array key_fields[], populated with each piece of IP-address.
  * -----------------------------------------------------------------------------
  */
-int
+static int
 ip4_split(int *key_fields, const char *key, const size_t key_len)
 {
    assert(key_len < APP_IPV4_MAX_KEY_BUF_SIZE);
@@ -675,7 +677,7 @@ ip4_split(int *key_fields, const char *key, const size_t key_len)
  * aggregate_ping_metrics()
  *
  * User-supplied merge-callback function, which understands the semantics of
- * the "value" -- which are ping-metrics -- And implements the 'merge' operation
+ * the "value" -- which are ping-metrics. And implements the 'merge' operation
  * to aggregate ping-metrics across multiple messages.
  * -----------------------------------------------------------------------------
  */
@@ -734,18 +736,23 @@ aggregate_ping_metrics(const data_config *cfg,
    } else if (result_type == MESSAGE_TYPE_UPDATE) {
       msgtype = "MESSAGE_TYPE_UPDATE";
    }
-   // if (0)
-   ex_msg("%s: %s: old_msg_len=%lu, new_msg_len=%lu\n",
-          __FUNCTION__,
-          msgtype,
-          old_msg_len,
-          new_msg_len);
+   if (0)
+      ex_msg("%s: %s: old_msg_len=%lu, new_msg_len=%lu\n",
+             __FUNCTION__,
+             msgtype,
+             old_msg_len,
+             new_msg_len);
    /*
    print_ping_metrics(0, key, old_raw_message.data);
    */
    return 0;
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * ping_metrics_final() -- RESOLVE: Document this.
+ * -----------------------------------------------------------------------------
+ */
 static int
 ping_metrics_final(const data_config *cfg,
                    slice              key,
@@ -768,29 +775,6 @@ ping_metrics_final(const data_config *cfg,
    // print_ping_metrics(0, key, old_raw_message.data);
    return 0;
 }
-
-#if UNDEF
-/*
- * -----------------------------------------------------------------------------
- * do_inserts()
- *
- * Insert a small number of key-value pairs.
- * -----------------------------------------------------------------------------
- */
-static void
-do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs)
-{
-   int ictr = 0;
-   for (; ictr < num_kv_pairs; ictr++) {
-      do_insert(spl_handle,
-                kv_pairs[ictr].kv_key,
-                strlen(kv_pairs[ictr].kv_key),
-                (const char *)&kv_pairs[ictr].kv_val,
-                WWW_PING_METRICS_SIZE(&kv_pairs[ictr].kv_val));
-   }
-   ex_msg("Inserted %d key-value pairs for inet-addr ping times.\n\n", ictr);
-}
-#endif // UNDEF
 
 /*
  * ---------------------------------------------------------------------------
@@ -864,42 +848,6 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
    ex_msg("Found %d key-value pairs\n\n", i);
    return rc;
 }
-
-#if UNDEF
-/*
- * ---------------------------------------------------------------------------
- * do_iterate_from()
- *
- * Implement basic iterator interfaces to scan through all key-value pairs,
- * starting from an initial search key..
- * ----------------------------------------------------------------------------
- */
-static int
-do_iterate_from(splinterdb *spl_handle, const char *from_key)
-{
-   ex_msg("Iterate through all the keys starting from '%s':\n", from_key);
-
-   splinterdb_iterator *it = NULL;
-
-   slice start_key = slice_create(strlen(from_key), from_key);
-   int   rc        = splinterdb_iterator_init(spl_handle, &it, start_key);
-
-   int i = 0;
-
-   for (; splinterdb_iterator_valid(it); splinterdb_iterator_next(it)) {
-      slice key, value;
-      splinterdb_iterator_get_current(it, &key, &value);
-      print_ping_metrics(i, key, value);
-      i++;
-   }
-   rc = splinterdb_iterator_status(it);
-   splinterdb_iterator_deinit(it);
-
-   ex_msg("Found %d key-value pairs\n\n", i);
-   return rc;
-}
-
-#endif /* UNDEF */
 
 /*
  * ---------------------------------------------------------------------------
