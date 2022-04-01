@@ -22,6 +22,14 @@
 #   define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif /* MIN */
 
+#ifndef MAX
+#   define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#endif /* MAX */
+
+#ifndef MEMMOVE
+#   define MEMMOVE(d, s, l) memmove((void *)(d), (void *)(s), (size_t)(l))
+#endif /* MEMMOVE */
+
 #define ARRAY_LEN(a) (int)(sizeof(a) / sizeof(*a))
 
 // Time unit constants

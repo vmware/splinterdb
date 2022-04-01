@@ -55,7 +55,7 @@
 /*
  * App-specific 'defaults' that can be parameterized, eventually.
  */
-#define APP_DB_NAME "splinterdb_custom_ipv4_sortcmp_example_db"
+#define APP_DB_NAME "splinterdb_ping_metrics_example_db"
 
 #define APP_DEVICE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
 #define APP_CACHE_SIZE_MB  64   // Size of cache; can be changed across boots
@@ -131,6 +131,7 @@ typedef struct kv_pair {
 const char *www_sites[] = {  "www.acm.org"
                            , "www.wikidpedia.org"
                            , "www.vmware.com"
+    /*
                            , "www.bbc.com"
                            , "www.worldbank.org"
                            , "www.eiffeltower.com"
@@ -138,6 +139,7 @@ const char *www_sites[] = {  "www.acm.org"
                            , "www.cnet.com"
                            , "www.twitter.com"
                            , "www.hongkongair.com"
+                           */
                           };
 // clang-format on
 
@@ -199,6 +201,11 @@ aggregate_ping_metrics(const data_config *cfg,
                        message            old_raw_message,
                        merge_accumulator *new_data);
 
+static int
+ping_metrics_final(const data_config *cfg,
+                   slice              key,
+                   merge_accumulator *oldest_raw_data);
+
 /*
 static void
 do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs);
@@ -206,6 +213,13 @@ do_inserts(splinterdb *spl_handle, kv_pair *kv_pairs, int num_kv_pairs);
 
 static int
 do_insert(splinterdb  *spl_handle,
+          const char  *key_data,
+          const size_t key_len,
+          const char  *value_data,
+          const size_t value_len);
+
+static int
+do_update(splinterdb  *spl_handle,
           const char  *key_data,
           const size_t key_len,
           const char  *value_data,
@@ -262,8 +276,12 @@ main(int argv, char *argc[])
    // in custom-sorted order.
    sprintf(splinter_data_cfg.min_key, "%s", "0.0.0.0");
    sprintf(splinter_data_cfg.max_key, "%s", "255.255.255.255");
-   splinter_data_cfg.key_compare  = custom_key_compare;
-   splinter_data_cfg.merge_tuples = aggregate_ping_metrics;
+
+   splinter_data_cfg.min_key_length     = strlen(splinter_data_cfg.min_key);
+   splinter_data_cfg.max_key_length     = strlen(splinter_data_cfg.max_key);
+   splinter_data_cfg.key_compare        = custom_key_compare;
+   splinter_data_cfg.merge_tuples       = aggregate_ping_metrics;
+   splinter_data_cfg.merge_tuples_final = ping_metrics_final;
 
    // Basic configuration of a SplinterDB instance
    splinterdb_config splinterdb_cfg;
@@ -310,6 +328,7 @@ main(int argv, char *argc[])
       // Establish this www-site's connection handler
       www_conn_hdlr *conn  = &conns[wctr];
       metric->this_ping_ms = conn->ping_elapsed_ms;
+      metric->num_pings    = 1;
 
       const char  *key_data   = conn->ip_addr;
       const size_t key_len    = strlen(conn->ip_addr);
@@ -323,10 +342,31 @@ main(int argv, char *argc[])
       }
    }
 
-   loopctr = max_loops; //++;
+   // loopctr = max_loops; //++;
+   loopctr++;
    while (loopctr < max_loops) {
       ping_all_www_sites(conns, www_sites, NUM_WWW_SITES);
       ex_msg("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
+
+      // Register the new ping metric as an update message for the ipaddr
+      for (int wctr = 0; wctr < NUM_WWW_SITES; wctr++) {
+         ping_metric metric = {0};
+
+         // Establish this www-site's connection handler
+         www_conn_hdlr *conn     = &conns[wctr];
+         metric.this_ping_ms     = conn->ping_elapsed_ms;
+         const char  *key_data   = conn->ip_addr;
+         const size_t key_len    = strlen(conn->ip_addr);
+         const char  *value_data = (const char *)&metric;
+         const size_t value_len  = WWW_PING_SIZE();
+         int          rc =
+            do_update(spl_handle, key_data, key_len, value_data, value_len);
+         if (rc) {
+            ex_err("Update of new metric for ip-addr '%s' failed, rc=%d\n",
+                   key_data,
+                   rc);
+         }
+      }
       loopctr++;
       sleep(APP_PING_EVERY_S);
    }
@@ -645,14 +685,87 @@ aggregate_ping_metrics(const data_config *cfg,
                        message            old_raw_message,
                        merge_accumulator *new_raw_message)
 {
-   ex_msg("%s() ...\n", __FUNCTION__);
    message_type result_type = message_class(old_raw_message);
+   uint64       old_msg_len = message_length(old_raw_message);
+   uint64       new_msg_len = merge_accumulator_length(new_raw_message);
+
+   // ex_msg("%s(), result_type=%d ...\n", __FUNCTION__, result_type);
+   const char *msgtype = "UNKNOWN";
+
    if (result_type == MESSAGE_TYPE_INSERT) {
-      // Payload of the old-message is the ping-metric we stashed away.
-      const www_ping_metrics *old_metric = message_data(old_raw_message);
-      if (old_metric == old_metric + 1)
-         return -1;
+      msgtype                           = "MESSAGE_TYPE_INSERT";
+      www_ping_metrics *old_metrics     = NULL;
+      ping_metric      *new_ping_metric = NULL;
+
+      old_metrics     = (www_ping_metrics *)slice_data(old_raw_message.data);
+      new_ping_metric = (ping_metric *)merge_accumulator_data(new_raw_message);
+
+      // Aggregate ping-metrics in a new output struct
+      www_ping_metrics agg_metrics = {0};
+
+      uint64 new_metric = new_ping_metric->this_ping_ms;
+      if (old_metrics->num_pings == 1) {
+         old_metrics->min_ping_ms = old_metrics->this_ping_ms;
+         old_metrics->avg_ping_ms = old_metrics->this_ping_ms;
+         old_metrics->max_ping_ms = old_metrics->this_ping_ms;
+      }
+      agg_metrics.min_ping_ms = MIN(old_metrics->min_ping_ms, new_metric);
+      agg_metrics.max_ping_ms = MAX(old_metrics->max_ping_ms, new_metric);
+      agg_metrics.num_pings   = (old_metrics->num_pings + 1);
+      agg_metrics.avg_ping_ms =
+         ((old_metrics->avg_ping_ms * old_metrics->num_pings) + new_metric)
+         / agg_metrics.num_pings;
+
+      agg_metrics.this_ping_ms = new_metric;
+
+      // Move-over the www-name field over to new aggregated metrics struct
+      size_t old_msg_len = slice_length(old_raw_message.data);
+      MEMMOVE(agg_metrics.www_name,
+              old_metrics->www_name,
+              WWW_PING_NAME_SIZE(old_msg_len));
+
+      // Merge the new message with the old (aggregated) message
+      message newmsg;
+      newmsg.type = message_class(old_raw_message);
+      newmsg.data = slice_create(old_msg_len, (void *)&agg_metrics);
+
+      merge_accumulator_copy_message(new_raw_message, newmsg);
+
+   } else if (result_type == MESSAGE_TYPE_UPDATE) {
+      msgtype = "MESSAGE_TYPE_UPDATE";
    }
+   // if (0)
+   ex_msg("%s: %s: old_msg_len=%lu, new_msg_len=%lu\n",
+          __FUNCTION__,
+          msgtype,
+          old_msg_len,
+          new_msg_len);
+   /*
+   print_ping_metrics(0, key, old_raw_message.data);
+   */
+   return 0;
+}
+
+static int
+ping_metrics_final(const data_config *cfg,
+                   slice              key,
+                   merge_accumulator *oldest_raw_data) // IN/OUT
+{
+   ex_msg("%s() ...\n", __FUNCTION__);
+   message_type result_type = merge_accumulator_message_class(oldest_raw_data);
+   size_t       msg_len     = merge_accumulator_length(oldest_raw_data);
+   if (result_type == MESSAGE_TYPE_INSERT) {
+      ex_msg("[%d]: MESSAGE_TYPE_INSERT:\n", __LINE__);
+   } else if (result_type == MESSAGE_TYPE_UPDATE) {
+      ex_msg("[%d]: MESSAGE_TYPE_UPDATE: key='%.*s', msg_len=%lu\n",
+             __LINE__,
+             (int)slice_length(key),
+             (char *)slice_data(key),
+             msg_len);
+   } else {
+      ex_msg("[%d]: Unknown MESSAGE_TYPE=%d:\n", __LINE__, result_type);
+   }
+   // print_ping_metrics(0, key, old_raw_message.data);
    return 0;
 }
 
@@ -696,6 +809,26 @@ do_insert(splinterdb  *spl_handle,
    slice key   = slice_create(key_len, key_data);
    slice value = slice_create(value_len, value_data);
    int   rc    = splinterdb_insert(spl_handle, key, value);
+   return rc;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * do_update()
+ *
+ * Update the value portion for an existing key in a SplinterDB instance.
+ * ----------------------------------------------------------------------------
+ */
+static int
+do_update(splinterdb  *spl_handle,
+          const char  *key_data,
+          const size_t key_len,
+          const char  *value_data,
+          const size_t value_len)
+{
+   slice key   = slice_create(key_len, key_data);
+   slice value = slice_create(value_len, value_data);
+   int   rc    = splinterdb_update(spl_handle, key, value);
    return rc;
 }
 

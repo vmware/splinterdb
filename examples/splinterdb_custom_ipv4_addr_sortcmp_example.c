@@ -151,7 +151,10 @@ main()
    // in custom-sorted order.
    sprintf(splinter_data_cfg.min_key, "%s", "0.0.0.0");
    sprintf(splinter_data_cfg.max_key, "%s", "255.255.255.255");
-   splinter_data_cfg.key_compare = custom_key_compare;
+
+   splinter_data_cfg.min_key_length = strlen(splinter_data_cfg.min_key);
+   splinter_data_cfg.max_key_length = strlen(splinter_data_cfg.max_key);
+   splinter_data_cfg.key_compare    = custom_key_compare;
 
    // Basic configuration of a SplinterDB instance
    splinterdb_config splinterdb_cfg;
