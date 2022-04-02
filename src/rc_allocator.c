@@ -238,6 +238,45 @@ rc_allocator_config_init(rc_allocator_config *allocator_cfg,
 
 /*
  *----------------------------------------------------------------------
+ * rc_allocator_valid_config() --
+ *
+ * Do minimal validation of RC-allocator cofiguration.
+ *----------------------------------------------------------------------
+ */
+platform_status
+rc_allocator_valid_config(rc_allocator_config *cfg)
+{
+   platform_status rc = STATUS_OK;
+   rc                 = laio_config_valid(cfg->io_cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   if (cfg->capacity == 0) {
+      platform_error_log("Configured disk size %lu bytes is invalid.\n",
+                         cfg->capacity);
+      return STATUS_BAD_PARAM;
+   }
+   if (cfg->extent_capacity == 0) {
+      platform_error_log("Configured extent capacity %lu bytes is invalid.\n",
+                         cfg->extent_capacity);
+      return STATUS_BAD_PARAM;
+   }
+   if (cfg->capacity != (cfg->io_cfg->extent_size * cfg->extent_capacity)) {
+      platform_error_log("Configured disk size, %lu bytes, is not an integral"
+                         " multiple of extent capacity, %lu"
+                         ", for extent size of %lu bytes.\n",
+                         cfg->capacity,
+                         cfg->extent_capacity,
+                         cfg->io_cfg->extent_size);
+      return STATUS_BAD_PARAM;
+   }
+   return rc;
+}
+
+
+/*
+ *----------------------------------------------------------------------
  * rc_allocator_[de]init --
  *
  *      [de]initialize an allocator
@@ -262,9 +301,17 @@ rc_allocator_init(rc_allocator        *al,
    al->heap_handle = hh;
    al->heap_id     = hid;
 
+   rc = rc_allocator_valid_config(cfg);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
    platform_assert(cfg->io_cfg->page_size % 4096 == 0);
    platform_assert(cfg->capacity
-                   == cfg->io_cfg->extent_size * cfg->extent_capacity);
+                      == cfg->io_cfg->extent_size * cfg->extent_capacity,
+                   "capacity=%lu, io_cfg->extent_size=%lu, extent_capacity=%lu",
+                   cfg->capacity,
+                   cfg->io_cfg->extent_size,
+                   cfg->extent_capacity);
    platform_assert(cfg->capacity
                    == cfg->io_cfg->page_size * cfg->page_capacity);
 

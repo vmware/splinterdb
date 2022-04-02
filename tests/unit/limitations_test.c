@@ -391,6 +391,80 @@ CTEST2(limitations, test_trunk_mount_invalid_key_size)
 }
 
 /*
+ * Negative test-case to verify that we are properly detecting an
+ * insufficient disk-size. (This was discovered while building C-sample
+ * programs; basically a user-error.)
+ */
+CTEST2(limitations, test_create_zero_disk_size)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Hard-fix this, to see if an error is raised.
+   cfg.disk_size = 0;
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+CTEST2(limitations, test_create_zero_extent_capacity)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Hard-fix this to some non-zero value, to see if an error is raised.
+   cfg.disk_size = 256; // bytes
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+CTEST2(limitations, test_disk_size_not_integral_multiple_of_extents)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Hard-fix this to some non-integral multiple of configured extent-size.
+   // Will trip an internal check that validates that disk-capacity specified
+   // can be carved up into exact # of extents.
+   cfg.disk_size = (cfg.extent_size * 100) + (2 * Kilo);
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+CTEST2(limitations, test_zero_cache_size)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Hard-fix this to an illegal value.
+   // We need more error checking in clockcache_init(), for totally bogus
+   // configured cache sizes; like, say, 256 or some random number. Leave all
+   // that for another day.
+   cfg.cache_size = 0;
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
+/*
  * Helper routine to create a valid Splinter configuration using default
  * page- and extent-size.
  */
