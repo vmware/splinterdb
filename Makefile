@@ -460,6 +460,9 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_ping_metrics_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_ping_metrics_example.o \
                                                            $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_ping_threads_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_ping_threads_example.o \
+                                                           $(LIBDIR)/libsplinterdb.so
+
 #*************************************************************#
 
 # Report build machine details and compiler version for troubleshooting, so
