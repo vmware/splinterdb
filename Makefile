@@ -449,13 +449,16 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_admin_config_example: $(OBJDIR)/$(EXAMPLES_
                                                            $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_apis_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_apis_example.o \
-                                                   $(LIBDIR)/libsplinterdb.so
+                                                           $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example.o \
-                                                        $(LIBDIR)/libsplinterdb.so
+                                                           $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example.o \
-                                                                       $(LIBDIR)/libsplinterdb.so
+                                                                         $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/splinterdb_ping_metrics_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_ping_metrics_example.o \
+                                                           $(LIBDIR)/libsplinterdb.so
 
 #*************************************************************#
 

@@ -9,7 +9,7 @@
 
 #include <time.h>
 
-/* Wrapper macros to print msg (w/args) to stdout / stderr */
+// #define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, "" __VA_ARGS__)
 #define ex_msg(msg, ...) fprintf(stdout, "%s: " msg, APP_ME, __VA_ARGS__)
 
 #define ex_err(msg, ...) fprintf(stderr, "%s: Error: " msg, APP_ME, __VA_ARGS__)
@@ -21,6 +21,14 @@
 #ifndef MIN
 #   define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif /* MIN */
+
+#ifndef MAX
+#   define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#endif /* MAX */
+
+#ifndef MEMMOVE
+#   define MEMMOVE(d, s, l) memmove((void *)(d), (void *)(s), (size_t)(l))
+#endif /* MEMMOVE */
 
 #define ARRAY_LEN(a) (int)(sizeof(a) / sizeof(*a))
 
