@@ -51,7 +51,7 @@
 #include "example_common.h"
 
 /* Tag to identify messages from application program */
-#define APP_ME "App-ping-metrics"
+#define APP_ME "App-ping-thread"
 
 /*
  * App-specific 'defaults' that can be parameterized, eventually.
@@ -75,7 +75,6 @@
 
 /*
  * --------------------------------------------------------------------------
- * -- ACTION IS HERE --
  * A new INSERT will be done for the 1st time a www-site is added to the
  * telemetry collection.
  *
@@ -111,7 +110,6 @@ typedef struct www_ping_metrics {
 
 /*
  * --------------------------------------------------------------------------
- * -- ACTION IS HERE --
  * An UPDATE message will be inserted for every subsequent ping metric.
  * The key remains the same as for the INSERT; i.e. the ip-address.
  *
@@ -158,6 +156,27 @@ typedef struct www_conn_hdlr {
    uint64 ping_elapsed_ms;
 
 } www_conn_hdlr;
+
+/*
+ * Structure to package-up parameters needed by 'ping' thread to run 'ping' on
+ * all known www-sites to track.
+ */
+typedef struct ping_thread_params {
+   splinterdb    *spl_handle;
+   www_conn_hdlr *conns;         // Ptr to array of www-connection handlers
+   const char   **www_sites;     // Ptr to array of www-url names
+   int            num_www_sites; // Length of www_sites[] & conns[] arrays.
+   int            max_loops;     // # of times to ping each site
+} ping_thread_params;
+
+/*
+ * Structure to package-up parameters needed by 'lookup' thread to report the
+ * aggregated 'ping' metrics from all known www-sites we track.
+ */
+typedef struct lookup_thread_params {
+   splinterdb *spl_handle;
+   int         num_www_sites; // Length of www_sites[] & conns[] arrays.
+} lookup_thread_params;
 
 // Ping packet size
 #define PING_PKT_S 64
@@ -219,8 +238,8 @@ do_update(splinterdb  *spl_handle,
           const char  *value_data,
           const size_t value_len);
 
-static int
-do_iterate_all(splinterdb *spl_handle, int num_keys);
+static void
+do_iterate_all(void *arg);
 
 static void
 print_ping_metrics(int kctr, slice key, slice value);
@@ -230,6 +249,9 @@ do_dns_lookups(www_conn_hdlr *conns, const char **www_sites, int num_sites);
 
 static char *
 dns_lookup(www_conn_hdlr *conn, const char *addr_host);
+
+static void
+do_ping_all_www_sites(void *arg);
 
 static void
 ping_all_www_sites(www_conn_hdlr *conns, const char **www_sites, int num_sites);
@@ -301,82 +323,22 @@ main(int argv, char *argc[])
    // Do DNS-lookups, and cache ip-addr for all www-sites we'll ping below
    do_dns_lookups(conns, www_sites, NUM_WWW_SITES);
 
-   int loopctr = 0;
+   // Package up the structs needed by thread to 'ping' all www-sites in a loop.
+   ping_thread_params ping_param;
+   ping_param.spl_handle    = spl_handle;
+   ping_param.conns         = conns;
+   ping_param.www_sites     = www_sites;
+   ping_param.num_www_sites = NUM_WWW_SITES;
+   ping_param.max_loops     = max_loops;
 
-   // Ping all sites, and initialize the base key-value pair for 1st ping
-   ping_all_www_sites(conns, www_sites, NUM_WWW_SITES);
-   ex_msg("-- Finished 1st ping to all sites, loop %d.\n\n", loopctr);
+   do_ping_all_www_sites(&ping_param);
 
-   // -- ACTION IS HERE --
-   // Declare an array of ping-metrics for all www-sites probed
-   www_ping_metrics metrics[NUM_WWW_SITES] = {0};
-
-   // ---------------------------------------------------------------------
-   // INSERT message: Register the base metric, definining the www-site's
-   // name and associated ping metrics
-   for (int wctr = 0; wctr < NUM_WWW_SITES; wctr++) {
-      www_ping_metrics *metric = &metrics[wctr];
-      sprintf(metric->www_name, "%s", www_sites[wctr]);
-
-      // Establish this www-site's connection handler
-      www_conn_hdlr *conn  = &conns[wctr];
-      metric->this_ping_ms = conn->ping_elapsed_ms;
-      metric->num_pings    = 1;
-
-      // Construct the key/value pair, to drive the INSERT into SplinterDB
-      const char  *key_data   = conn->ip_addr;
-      const size_t key_len    = strlen(conn->ip_addr);
-      const char  *value_data = (const char *)metric;
-      const size_t value_len  = WWW_PING_METRICS_SIZE(metric);
-      int rc = do_insert(spl_handle, key_data, key_len, value_data, value_len);
-      if (rc) {
-         ex_err("Insert of base metric for '%s' failed, rc=%d\n",
-                metric->www_name,
-                rc);
-      }
-   }
-
-   loopctr++;
-   // ---------------------------------------------------------------------
-   // Run n-more pings, collecting elapsed time for each ping. Store this
-   // in SplinterDB as an UPDATE message, which slams-in just the new
-   // elapsed-time metric, associated with www-site's IP-address as the key.
-   // ---------------------------------------------------------------------
-   while (loopctr < max_loops) {
-      ping_all_www_sites(conns, www_sites, NUM_WWW_SITES);
-      ex_msg("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
-
-      // Register the new ping metric as an update message for the ipaddr
-      for (int wctr = 0; wctr < NUM_WWW_SITES; wctr++) {
-         ping_metric metric = {0};
-
-         // Establish this www-site's connection handler
-         www_conn_hdlr *conn = &conns[wctr];
-         metric.this_ping_ms = conn->ping_elapsed_ms;
-
-         // Construct the key/value pair, to drive the UPDATE into SplinterDB
-         const char  *key_data = conn->ip_addr;
-         const size_t key_len  = strlen(conn->ip_addr);
-
-         // NOTE: As we are only updating the single metric, the length of the
-         //       value's data is shorter than that what was inserted
-         //       previously.
-         const char  *value_data = (const char *)&metric;
-         const size_t value_len  = WWW_PING_SIZE();
-         int          rc =
-            do_update(spl_handle, key_data, key_len, value_data, value_len);
-         if (rc) {
-            ex_err("Update of new metric for ip-addr '%s' failed, rc=%d\n",
-                   key_data,
-                   rc);
-         }
-      }
-      loopctr++;
-      sleep(APP_PING_EVERY_S);
-   }
+   lookup_thread_params lookup_param;
+   lookup_param.spl_handle    = spl_handle;
+   lookup_param.num_www_sites = NUM_WWW_SITES;
 
    // Process all key/value pairs, and examine the aggregated metrics.
-   do_iterate_all(spl_handle, NUM_WWW_SITES);
+   do_iterate_all(&lookup_param);
 
    splinterdb_close(&spl_handle);
    ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
@@ -424,6 +386,103 @@ dns_lookup(www_conn_hdlr *conn, const char *addr_host)
    addr_conn->sin_addr.s_addr    = *(long *)host_entity->h_addr;
    return ip;
 }
+
+/*
+ * -----------------------------------------------------------------------------
+ * do_ping_all_www_sites()
+ *
+ * Method to do 'ping' to all www-sites, in a loop, and insert / update the
+ * ping metrics in SplinterDB.
+ * -----------------------------------------------------------------------------
+ */
+static void
+do_ping_all_www_sites(void *arg)
+{
+   ping_thread_params *ping_param    = (ping_thread_params *)arg;
+   splinterdb         *spl_handle    = ping_param->spl_handle;
+   www_conn_hdlr      *conns         = ping_param->conns;
+   const char        **www_sites     = ping_param->www_sites;
+   int                 num_www_sites = ping_param->num_www_sites;
+   int                 max_loops     = ping_param->max_loops;
+
+   int loopctr = 0;
+
+   // Ping all sites, and initialize the base key-value pair for 1st ping
+   ping_all_www_sites(conns, www_sites, num_www_sites);
+   ex_msg("-- Finished 1st ping to all sites, loop %d.\n\n", loopctr);
+
+   // -- ACTION IS HERE --
+   // Declare an array of ping-metrics for all www-sites probed
+   // www_ping_metrics metrics[num_www_sites] = {0};
+   size_t            nbytes  = (num_www_sites * sizeof(www_ping_metrics));
+   www_ping_metrics *metrics = (www_ping_metrics *)malloc(nbytes);
+   bzero(metrics, nbytes);
+
+   // ---------------------------------------------------------------------
+   // INSERT message: Register the base metric, definining the www-site's
+   // name and associated ping metrics
+   for (int wctr = 0; wctr < num_www_sites; wctr++) {
+      www_ping_metrics *metric = &metrics[wctr];
+      sprintf(metric->www_name, "%s", www_sites[wctr]);
+
+      // Establish this www-site's connection handler
+      www_conn_hdlr *conn  = &conns[wctr];
+      metric->this_ping_ms = conn->ping_elapsed_ms;
+      metric->num_pings    = 1;
+
+      // Construct the key/value pair, to drive the INSERT into SplinterDB
+      const char  *key_data   = conn->ip_addr;
+      const size_t key_len    = strlen(conn->ip_addr);
+      const char  *value_data = (const char *)metric;
+      const size_t value_len  = WWW_PING_METRICS_SIZE(metric);
+      int rc = do_insert(spl_handle, key_data, key_len, value_data, value_len);
+      if (rc) {
+         ex_err("Insert of base metric for '%s' failed, rc=%d\n",
+                metric->www_name,
+                rc);
+      }
+   }
+
+   loopctr++;
+   // ---------------------------------------------------------------------
+   // Run n-more pings, collecting elapsed time for each ping. Store this
+   // in SplinterDB as an UPDATE message, which slams-in just the new
+   // elapsed-time metric, associated with www-site's IP-address as the key.
+   // ---------------------------------------------------------------------
+   while (loopctr < max_loops) {
+      ping_all_www_sites(conns, www_sites, num_www_sites);
+      ex_msg("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
+
+      // Register the new ping metric as an update message for the ipaddr
+      for (int wctr = 0; wctr < num_www_sites; wctr++) {
+         ping_metric metric = {0};
+
+         // Establish this www-site's connection handler
+         www_conn_hdlr *conn = &conns[wctr];
+         metric.this_ping_ms = conn->ping_elapsed_ms;
+
+         // Construct the key/value pair, to drive the UPDATE into SplinterDB
+         const char  *key_data = conn->ip_addr;
+         const size_t key_len  = strlen(conn->ip_addr);
+
+         // NOTE: As we are only updating the single metric, the length of the
+         //       value's data is shorter than that what was inserted
+         //       previously.
+         const char  *value_data = (const char *)&metric;
+         const size_t value_len  = WWW_PING_SIZE();
+         int          rc =
+            do_update(spl_handle, key_data, key_len, value_data, value_len);
+         if (rc) {
+            ex_err("Update of new metric for ip-addr '%s' failed, rc=%d\n",
+                   key_data,
+                   rc);
+         }
+      }
+      loopctr++;
+      sleep(APP_PING_EVERY_S);
+   }
+}
+
 
 /*
  * -----------------------------------------------------------------------------
@@ -592,7 +651,6 @@ custom_key_compare(const data_config *cfg, slice key1, slice key2)
  * -----------------------------------------------------------------------------
  * ipaddr_keycmp() - Custom IPV4 IP-address key-comparison routine.
  *
- // -- ACTION IS HERE --
  * 'key1' and 'key2' are expected to be well-formed IP4 addresses.
  * - Extract each of the 4 parts of the IP-address
  * - Implement comparison by numerical sort-order of each part.
@@ -824,14 +882,21 @@ do_update(splinterdb  *spl_handle,
  * Implement basic iterator interfaces to scan through all key-value pairs.
  * ----------------------------------------------------------------------------
  */
-static int
-do_iterate_all(splinterdb *spl_handle, int num_keys)
+static void
+do_iterate_all(void *arg)
 {
-   ex_msg("Iterate through all the %d keys:\n", num_keys);
+   lookup_thread_params *lookup_param = (lookup_thread_params *)arg;
+   splinterdb           *spl_handle   = lookup_param->spl_handle;
+   int                   num_keys     = lookup_param->num_www_sites;
+
+   ex_msg("Iterate through all the %d sites:\n", num_keys);
 
    splinterdb_iterator *it = NULL;
 
    int rc = splinterdb_iterator_init(spl_handle, &it, NULL_SLICE);
+   if (rc) {
+      return;
+   }
 
    int i = 0;
 
@@ -847,7 +912,7 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
    splinterdb_iterator_deinit(it);
 
    ex_msg("Found %d key-value pairs\n\n", i);
-   return rc;
+   // return rc;
 }
 
 /*
