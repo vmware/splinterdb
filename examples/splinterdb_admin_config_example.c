@@ -76,7 +76,7 @@ main()
       return rc;
    }
 
-   splinterdb_close(spl_handle);
+   splinterdb_close(&spl_handle);
    ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
 
    return rc;
@@ -120,7 +120,7 @@ reboot_splinter_instance(const splinterdb_config *splinterdb_cfg,
    splinterdb *spl_handle = *spl_handle_out;
 
    // -- ACTION IS HERE --
-   splinterdb_close(spl_handle);
+   splinterdb_close(&spl_handle);
    ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
 
    int rc = splinterdb_open(splinterdb_cfg, spl_handle_out);

@@ -102,7 +102,7 @@ main()
    // -- ACTION IS HERE --
    do_lookups_with_output_buf(spl_handle);
 
-   splinterdb_close(spl_handle);
+   splinterdb_close(&spl_handle);
    ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
 
    return rc;
