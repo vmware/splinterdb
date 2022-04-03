@@ -1437,6 +1437,19 @@ destroy_splinter:
    return rc;
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * test_splinter_periodic() --
+ *
+ * SplinterDB Periodic Performance exerciser. For a specified # of threads of
+ * each type, execute:
+ *  - Inserts
+ *  - Lookups
+ *  - Range queries, of 3 diff ranges { small, medium, large }
+ *
+ * Similar to test_splinter_perf()
+ * -----------------------------------------------------------------------------
+ */
 platform_status
 test_splinter_periodic(trunk_config    *cfg,
                        test_config     *test_cfg,
@@ -1467,117 +1480,47 @@ test_splinter_periodic(trunk_config    *cfg,
       return rc;
    }
 
-   uint64  tuple_size, num_inserts;
    uint64 *per_table_inserts =
       TYPED_ARRAY_MALLOC(hid, per_table_inserts, num_tables);
    uint64 *per_table_ranges =
       TYPED_ARRAY_MALLOC(hid, per_table_ranges, num_tables);
-   uint64 *curr_op       = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
-   uint64  total_inserts = 0;
+   uint64 *curr_op = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
 
-   for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size = cfg[i].data_cfg->key_size
-                   + generator_average_message_size(test_cfg->gen);
-      num_inserts = test_cfg[i].tree_size / tuple_size;
-      if (test_cfg[i].key_type == TEST_PERIODIC) {
-         test_cfg[i].period = num_inserts;
-         num_inserts *= test_cfg[i].num_periods;
-      }
-      per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);
-      total_inserts += per_table_inserts[i];
-   }
-
-   uint64 num_threads = num_insert_threads;
-
-   if (num_lookup_threads > num_threads) {
-      num_threads = num_lookup_threads;
-   }
-   if (num_range_threads > num_threads) {
-      num_threads = num_range_threads;
-   }
+   uint64 num_threads = MAX(num_insert_threads, num_lookup_threads);
+   num_threads        = MAX(num_threads, num_range_threads);
 
    test_splinter_thread_params *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_threads);
-   for (uint64 i = 0; i < num_threads; i++) {
-      params[i].spl            = spl_tables;
-      params[i].test_cfg       = test_cfg;
-      params[i].total_ops      = per_table_inserts;
-      params[i].curr_op        = curr_op;
-      params[i].op_granularity = TEST_INSERT_GRANULARITY;
-      params[i].thread_number  = i;
-      params[i].expected_found = TRUE;
-      params[i].num_tables     = num_tables;
-      params[i].ts             = ts;
-      params[i].insert_rate    = insert_rate / num_insert_threads;
-      params[i].expected_found = TRUE;
-   }
-   uint64 start_time = platform_get_timestamp();
 
-   for (uint64 i = 0; i < num_insert_threads; i++) {
-      platform_status ret;
-      ret = task_thread_create("insert_thread",
-                               test_trunk_insert_thread,
-                               &params[i],
-                               trunk_get_scratch_size(),
-                               ts,
-                               hid,
-                               &params[i].thread);
-      if (!SUCCESS(ret)) {
-         return ret;
-      }
-   }
-   for (uint64 i = 0; i < num_insert_threads; i++) {
-      platform_thread_join(params[i].thread);
-   }
+   uint64 total_inserts = 0;
 
-   for (uint64 i = 0; i < num_tables; i++) {
-      task_wait_for_completion(ts);
-   }
+   // It is meaningless to execute lookup / range-query performance runs
+   // if nothing is being inserted.
+   platform_assert(num_insert_threads > 0);
 
-   uint64    total_time         = platform_timestamp_elapsed(start_time);
-   timestamp insert_latency_max = 0;
-   uint64    read_io_bytes, write_io_bytes;
-   cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
-   uint64 io_mib    = (read_io_bytes + write_io_bytes) / MiB;
-   uint64 bandwidth = io_mib / NSEC_TO_SEC(total_time);
-
-   for (uint64 i = 0; i < num_insert_threads; i++) {
-      if (!SUCCESS(params[i].rc)) {
-         rc = params[i].rc;
-         goto destroy_splinter;
-      }
-      if (params[i].insert_stats.latency_max > insert_latency_max) {
-         insert_latency_max = params[i].insert_stats.latency_max;
-      }
-   }
-
-   rc = STATUS_OK;
-
-   if (total_inserts > 0) {
-      platform_default_log(
-         "\nper-splinter per-thread insert time per tuple %lu ns\n",
-         total_time * num_insert_threads / total_inserts);
-      platform_default_log(
-         "splinter total insertion rate: %lu insertions/second\n",
-         SEC_TO_NSEC(total_inserts) / total_time);
-      platform_default_log("splinter bandwidth: %lu megabytes/second\n",
-                           bandwidth);
-      platform_default_log("splinter max insert latency: %lu msec\n",
-                           NSEC_TO_MSEC(insert_latency_max));
-   }
-
-   for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      trunk_handle *spl = spl_tables[spl_idx];
-      cache_assert_free(spl->cc);
-      platform_assert(trunk_verify_tree(spl));
-      trunk_print_insertion_stats(Platform_default_log_handle, spl);
-      cache_print_stats(Platform_default_log_handle, spl->cc);
-      trunk_print_space_use(Platform_default_log_handle, spl);
-      cache_reset_stats(spl->cc);
+   rc = splinter_perf_inserts(hid,
+                              cfg,
+                              test_cfg,
+                              spl_tables,
+                              cc,
+                              ts,
+                              params,
+                              per_table_inserts,
+                              curr_op,
+                              num_insert_threads,
+                              num_threads,
+                              num_tables,
+                              insert_rate,
+                              &total_inserts);
+   if (!SUCCESS(rc)) {
+      goto destroy_splinter;
    }
 
    ZERO_CONTENTS_N(curr_op, num_tables);
 
+   timestamp insert_latency_max = 0;
+   uint64    start_time         = platform_get_timestamp();
+   uint64    total_time         = 0;
    for (uint64 repeat_round = 0; repeat_round < 10; repeat_round++) {
       platform_default_log("Beginning repeat round %lu\n", repeat_round);
       platform_error_log("Beginning repeat round %lu\n", repeat_round);
@@ -1607,18 +1550,19 @@ test_splinter_periodic(trunk_config    *cfg,
 
       total_time         = platform_timestamp_elapsed(start_time);
       insert_latency_max = 0;
+      uint64 read_io_bytes, write_io_bytes;
       cache_io_stats(cc[0], &read_io_bytes, &write_io_bytes);
-      io_mib    = (read_io_bytes + write_io_bytes) / MiB;
-      bandwidth = io_mib / NSEC_TO_SEC(total_time);
+      uint64 io_mib = (read_io_bytes + write_io_bytes) / MiB;
+      uint64 bandwidth =
+         (NSEC_TO_SEC(total_time) ? (io_mib / NSEC_TO_SEC(total_time)) : 0);
 
       for (uint64 i = 0; i < num_insert_threads; i++) {
-         if (!SUCCESS(params[i].rc)) {
-            rc = params[i].rc;
+         rc = params[i].rc;
+         if (!SUCCESS(rc)) {
             goto destroy_splinter;
          }
-         if (params[i].insert_stats.latency_max > insert_latency_max) {
-            insert_latency_max = params[i].insert_stats.latency_max;
-         }
+         insert_latency_max =
+            MAX(insert_latency_max, params[i].insert_stats.latency_max);
       }
 
       rc = STATUS_OK;
@@ -1981,22 +1925,14 @@ test_splinter_parallel_perf(trunk_config    *cfg,
                       curr_insert_op,
                       num_tables,
                       ts,
+                      (uint64)0, // unused insert_rate
                       (uint64)0, // unused num_insert_threads
-                      (uint64)0, // unused num_threads
                       num_threads,
                       TRUE); // ... unused, for parallel-perf workloads
 
    // Load thread-specific execution parameters for the parallelism between
    // inserts & lookups in the workload
    for (uint64 i = 0; i < num_threads; i++) {
-      params[i].spl                           = spl_tables;
-      params[i].test_cfg                      = test_cfg;
-      params[i].total_ops                     = per_table_inserts;
-      params[i].op_granularity                = TEST_INSERT_GRANULARITY;
-      params[i].thread_number                 = i;
-      params[i].num_tables                    = num_tables;
-      params[i].ts                            = ts;
-      params[i].curr_op                       = curr_insert_op;
       params[i].num_ops_per_thread[OP_INSERT] = num_inserts_per_thread;
       params[i].num_ops_per_thread[OP_LOOKUP] = num_lookups_per_thread;
       params[i].lookup_positive_pct           = lookup_positive_pct;
