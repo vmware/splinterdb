@@ -159,7 +159,7 @@ typedef struct www_conn_hdlr {
 } www_conn_hdlr;
 
 // We have 2 types of threads whose params structs are defined below
-#define APP_PING_NUM_THREADS 2
+#define APP_PING_NUM_THREADS 3
 
 /*
  * Structure to package-up parameters needed by 'ping' thread to run 'ping' on
@@ -171,6 +171,7 @@ typedef struct ping_thread_params {
    const char   **www_sites;     // Ptr to array of www-url names
    int            num_www_sites; // Length of www_sites[] & conns[] arrays.
    int            max_loops;     // # of times to ping each site
+   int            thread_idx;    // into array of pthreads[]
 } ping_thread_params;
 
 /*
@@ -180,6 +181,7 @@ typedef struct ping_thread_params {
 typedef struct lookup_thread_params {
    splinterdb *spl_handle;
    int         num_www_sites; // Length of www_sites[] & conns[] arrays.
+   int         thread_idx;    // into array of pthreads[]
 } lookup_thread_params;
 
 // Ping packet size
@@ -330,24 +332,29 @@ main(int argv, char *argc[])
    pthread_t thread_ids[APP_PING_NUM_THREADS];
 
    lookup_thread_params lookup_param;
+   lookup_param.thread_idx    = 0;
    lookup_param.spl_handle    = spl_handle;
    lookup_param.num_www_sites = NUM_WWW_SITES;
 
    // Process all key/value pairs, and examine the aggregated metrics.
-   // do_iterate_all(&lookup_param);
    rc = pthread_create(&thread_ids[0], NULL, &do_iterate_all, &lookup_param);
 
    // Package up the structs needed by thread to 'ping' all www-sites in a loop.
    ping_thread_params ping_param;
+   ping_param.thread_idx    = 1;
    ping_param.spl_handle    = spl_handle;
    ping_param.conns         = conns;
    ping_param.www_sites     = www_sites;
    ping_param.num_www_sites = NUM_WWW_SITES;
    ping_param.max_loops     = max_loops;
 
-   // do_ping_all_www_sites(&ping_param);
+   // Run the ping thread to ping all www-url sites a few times (max_loops).
    rc =
       pthread_create(&thread_ids[1], NULL, &do_ping_all_www_sites, &ping_param);
+
+   ping_param.thread_idx = 2;
+   rc =
+      pthread_create(&thread_ids[2], NULL, &do_ping_all_www_sites, &ping_param);
 
    ex_msg("Waiting for %d threads to complete:\n", APP_PING_NUM_THREADS);
    for (int tctr = 0; tctr < APP_PING_NUM_THREADS; tctr++) {
@@ -429,17 +436,19 @@ do_ping_all_www_sites(void *arg)
    const char        **www_sites     = ping_param->www_sites;
    int                 num_www_sites = ping_param->num_www_sites;
    int                 max_loops     = ping_param->max_loops;
+   int                 thread_idx    = ping_param->thread_idx;
 
    sleep(1);
    int loopctr = 0;
 
    // Ping all sites, and initialize the base key-value pair for 1st ping
    ping_all_www_sites(conns, www_sites, num_www_sites);
-   ex_msg("-- Finished 1st ping to all sites, loop %d.\n\n", loopctr);
+   ex_msg("-- Thread %d: Finished 1st ping to all sites, loop %d.\n\n",
+          thread_idx,
+          loopctr);
 
    // -- ACTION IS HERE --
    // Declare an array of ping-metrics for all www-sites probed
-   // www_ping_metrics metrics[num_www_sites] = {0};
    size_t            nbytes  = (num_www_sites * sizeof(www_ping_metrics));
    www_ping_metrics *metrics = (www_ping_metrics *)malloc(nbytes);
    bzero(metrics, nbytes);
@@ -477,7 +486,9 @@ do_ping_all_www_sites(void *arg)
    // ---------------------------------------------------------------------
    while (loopctr < max_loops) {
       ping_all_www_sites(conns, www_sites, num_www_sites);
-      ex_msg("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
+      ex_msg("-- Thread %d: Finished Ping to all sites, loop %d.\n\n",
+             thread_idx,
+             loopctr);
 
       // Register the new ping metric as an update message for the ipaddr
       for (int wctr = 0; wctr < num_www_sites; wctr++) {
@@ -918,10 +929,14 @@ do_iterate_all(void *arg)
    lookup_thread_params *lookup_param = (lookup_thread_params *)arg;
    splinterdb           *spl_handle   = lookup_param->spl_handle;
    int                   num_keys     = lookup_param->num_www_sites;
+   int                   thread_idx   = lookup_param->thread_idx;
 
+   sleep(1);
    int ictr = 0;
    do {
-      ex_msg("Iterate through all the %d sites:\n", num_keys);
+      ex_msg("Thread %d: Iterate through all the %d sites:\n",
+             thread_idx,
+             num_keys);
 
       splinterdb_iterator *it = NULL;
 
@@ -941,7 +956,7 @@ do_iterate_all(void *arg)
       rc = splinterdb_iterator_status(it);
       splinterdb_iterator_deinit(it);
 
-      ex_msg("Found %d key-value pairs\n\n", ictr);
+      ex_msg("Thread %d: Found %d key-value pairs\n\n", thread_idx, ictr);
       sleep(1);
    } while (ictr != num_keys);
 
