@@ -940,28 +940,27 @@ do_n_async_ctxt_deinits(platform_heap_id             hid,
 
 /*
  * -----------------------------------------------------------------------------
- * splinter_perf_inserts() --
+ * splinter_setup_perf_inserts()
  *
- * Work-horse routine to run n-threads to exercise insert performance.
+ * Setup tables and thread-parameters in preparation for insert performance
+ * workload. Computes the per-table insert workloads, and returns total_inserts.
  * -----------------------------------------------------------------------------
  */
-static platform_status
-splinter_perf_inserts(platform_heap_id             hid,
-                      trunk_config                *cfg,
-                      test_config                 *test_cfg,
-                      trunk_handle               **spl_tables,
-                      cache                       *cc[],
-                      task_system                 *ts,
-                      test_splinter_thread_params *params,
-                      uint64                      *per_table_inserts,
-                      uint64                      *curr_op,
-                      uint64                       num_insert_threads,
-                      uint64                       num_threads,
-                      uint8                        num_tables,
-                      uint64                       insert_rate,
-                      uint64                      *total_inserts)
+static void
+splinter_setup_perf_inserts(trunk_handle               **spl_tables,
+                            trunk_config                *cfg,
+                            test_config                 *test_cfg,
+                            task_system                 *ts,
+                            test_splinter_thread_params *params,
+                            uint64                      *per_table_inserts,
+                            uint64                      *curr_op,
+                            uint64                       num_insert_threads,
+                            uint64                       num_threads,
+                            uint8                        num_tables,
+                            uint64                       insert_rate,
+                            uint64                      *total_inserts) // OUT
 {
-   platform_status rc;
+
    *total_inserts =
       compute_per_table_inserts(per_table_inserts, cfg, test_cfg, num_tables);
 
@@ -984,9 +983,47 @@ splinter_perf_inserts(platform_heap_id             hid,
                       num_insert_threads,
                       num_threads,
                       FALSE);
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * splinter_perf_inserts() --
+ *
+ * Work-horse routine to run n-threads to exercise insert performance.
+ * -----------------------------------------------------------------------------
+ */
+static platform_status
+splinter_perf_inserts(platform_heap_id             hid,
+                      trunk_config                *cfg,
+                      test_config                 *test_cfg,
+                      trunk_handle               **spl_tables,
+                      cache                       *cc[],
+                      task_system                 *ts,
+                      test_splinter_thread_params *params,
+                      uint64                      *per_table_inserts,
+                      uint64                      *curr_op,
+                      uint64                       num_insert_threads,
+                      uint64                       num_threads,
+                      uint8                        num_tables,
+                      uint64                       insert_rate,
+                      uint64                      *total_inserts)
+{
+   splinter_setup_perf_inserts(spl_tables,
+                               cfg,
+                               test_cfg,
+                               ts,
+                               params,
+                               per_table_inserts,
+                               curr_op,
+                               num_insert_threads,
+                               num_threads,
+                               num_tables,
+                               insert_rate,
+                               total_inserts);
 
    uint64 start_time = platform_get_timestamp();
 
+   platform_status rc;
    rc = do_n_thread_creates("insert_thread",
                             num_insert_threads,
                             params,
@@ -1527,19 +1564,16 @@ test_splinter_periodic(trunk_config    *cfg,
       /*
        * **********
        */
-      for (uint64 i = 0; i < num_insert_threads; i++) {
-         platform_status ret;
-         ret = task_thread_create("insert_thread",
-                                  test_trunk_insert_thread,
-                                  &params[i],
-                                  trunk_get_scratch_size(),
-                                  ts,
-                                  hid,
-                                  &params[i].thread);
-         if (!SUCCESS(ret)) {
-            return ret;
-         }
+      rc = do_n_thread_creates("insert_thread",
+                               num_insert_threads,
+                               params,
+                               ts,
+                               hid,
+                               test_trunk_insert_thread);
+      if (!SUCCESS(rc)) {
+         return rc;
       }
+
       for (uint64 i = 0; i < num_insert_threads; i++) {
          platform_thread_join(params[i].thread);
       }
