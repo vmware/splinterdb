@@ -986,41 +986,19 @@ splinter_setup_perf_inserts(trunk_handle               **spl_tables,
 }
 
 /*
- * -----------------------------------------------------------------------------
- * splinter_perf_inserts() --
- *
- * Work-horse routine to run n-threads to exercise insert performance.
- * -----------------------------------------------------------------------------
+ * splinter_do_perf_inserts()
  */
 static platform_status
-splinter_perf_inserts(platform_heap_id             hid,
-                      trunk_config                *cfg,
-                      test_config                 *test_cfg,
-                      trunk_handle               **spl_tables,
-                      cache                       *cc[],
-                      task_system                 *ts,
-                      test_splinter_thread_params *params,
-                      uint64                      *per_table_inserts,
-                      uint64                      *curr_op,
-                      uint64                       num_insert_threads,
-                      uint64                       num_threads,
-                      uint8                        num_tables,
-                      uint64                       insert_rate,
-                      uint64                      *total_inserts)
+splinter_do_perf_inserts(platform_heap_id             hid,
+                         test_config                 *test_cfg,
+                         trunk_handle               **spl_tables,
+                         cache                       *cc[],
+                         task_system                 *ts,
+                         test_splinter_thread_params *params,
+                         uint64                       num_insert_threads,
+                         uint8                        num_tables,
+                         uint64                       total_inserts)
 {
-   splinter_setup_perf_inserts(spl_tables,
-                               cfg,
-                               test_cfg,
-                               ts,
-                               params,
-                               per_table_inserts,
-                               curr_op,
-                               num_insert_threads,
-                               num_threads,
-                               num_tables,
-                               insert_rate,
-                               total_inserts);
-
    uint64 start_time = platform_get_timestamp();
 
    platform_status rc;
@@ -1069,14 +1047,14 @@ splinter_perf_inserts(platform_heap_id             hid,
 
    rc = STATUS_OK;
 
-   if (*total_inserts > 0) {
+   if (total_inserts > 0) {
       platform_default_log("\nTotal time=%lus, per-splinter per-thread "
                            "insert time per tuple %lu ns\n",
                            NSEC_TO_SEC(total_time),
-                           (total_time * num_insert_threads) / *total_inserts);
+                           (total_time * num_insert_threads) / total_inserts);
       platform_default_log(
          "splinter total insertion rate: %lu insertions/second\n",
-         (total_time ? SEC_TO_NSEC(*total_inserts) / total_time : 0));
+         (total_time ? SEC_TO_NSEC(total_inserts) / total_time : 0));
       platform_default_log("splinter bandwidth: %lu megabytes/second\n",
                            bandwidth);
       platform_default_log("splinter max insert latency: %lu msec\n",
@@ -1094,6 +1072,55 @@ splinter_perf_inserts(platform_heap_id             hid,
       // trunk_print(Platform_default_log_handle, spl);
    }
    platform_default_log("%s() completed.\n\n", __FUNCTION__);
+   return rc;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * splinter_perf_inserts() --
+ *
+ * Work-horse routine to run n-threads to exercise insert performance.
+ * -----------------------------------------------------------------------------
+ */
+static platform_status
+splinter_perf_inserts(platform_heap_id             hid,
+                      trunk_config                *cfg,
+                      test_config                 *test_cfg,
+                      trunk_handle               **spl_tables,
+                      cache                       *cc[],
+                      task_system                 *ts,
+                      test_splinter_thread_params *params,
+                      uint64                      *per_table_inserts,
+                      uint64                      *curr_op,
+                      uint64                       num_insert_threads,
+                      uint64                       num_threads,
+                      uint8                        num_tables,
+                      uint64                       insert_rate,
+                      uint64                      *total_inserts)
+{
+   splinter_setup_perf_inserts(spl_tables,
+                               cfg,
+                               test_cfg,
+                               ts,
+                               params,
+                               per_table_inserts,
+                               curr_op,
+                               num_insert_threads,
+                               num_threads,
+                               num_tables,
+                               insert_rate,
+                               total_inserts);
+
+   platform_status rc;
+   rc = splinter_do_perf_inserts(hid,
+                                 test_cfg,
+                                 spl_tables,
+                                 cc,
+                                 ts,
+                                 params,
+                                 num_insert_threads,
+                                 num_tables,
+                                 *total_inserts);
    return rc;
 }
 
