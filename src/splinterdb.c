@@ -330,7 +330,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
        || kvs_cfg->disk_size == 0)
    {
       platform_error_log(
-         "expect filename, cache_size and disk_size to be set\n");
+         "Expect filename, cache_size and disk_size to be set.\n");
       return STATUS_BAD_PARAM;
    }
 
@@ -423,7 +423,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init io handle: %s\n",
+      platform_error_log("Failed to initalize IO handle: %s\n",
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
@@ -438,8 +438,9 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                                num_bg_threads,
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init Splinter task system state: %s\n",
-                         platform_status_to_string(status));
+      platform_error_log(
+         "Failed to initalize SplinterDB task system state: %s\n",
+         platform_status_to_string(status));
       goto deinit_iohandle;
    }
 
@@ -459,7 +460,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                                  platform_get_module_id());
    }
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init allocator: %s\n",
+      platform_error_log("Failed to initalize SplinterDB allocator: %s\n",
                          platform_status_to_string(status));
       goto deinit_system;
    }
@@ -474,7 +475,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             kvs->heap_id,
                             platform_get_module_id());
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to init cache: %s\n",
+      platform_error_log("Failed to initalize SplinterDB cache: %s\n",
                          platform_status_to_string(status));
       goto deinit_allocator;
    }
@@ -496,7 +497,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                               kvs->heap_id);
    }
    if (kvs->spl == NULL) {
-      platform_error_log("Failed to %s Splinter instance.\n",
+      platform_error_log("Failed to %s SplinterDB instance.\n",
                          (open_existing ? "mount existing" : "initialize"));
 
       // Return a generic 'something went wrong' error
@@ -536,7 +537,6 @@ splinterdb_open(const splinterdb_config *cfg, // IN
 {
    return splinterdb_create_or_open(cfg, kvs, TRUE);
 }
-
 
 /*
  *-----------------------------------------------------------------------------

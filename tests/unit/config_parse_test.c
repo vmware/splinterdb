@@ -20,7 +20,6 @@
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "shard_log.h"
-#include "platform.h"
 #include "task.h"
 #include "functional/test.h"
 #include "functional/test_async.h"

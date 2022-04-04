@@ -22,7 +22,6 @@
 #include "trunk.h"
 #include "clockcache.h"
 #include "allocator.h"
-#include "platform.h"
 #include "task.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
