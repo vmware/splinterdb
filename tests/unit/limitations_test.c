@@ -15,7 +15,6 @@
 #include "trunk.h"
 #include "clockcache.h"
 #include "allocator.h"
-#include "platform.h"
 #include "task.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
@@ -427,6 +426,24 @@ CTEST2(limitations, test_create_zero_extent_capacity)
    ASSERT_NOT_EQUAL(0, rc);
 }
 
+CTEST2(limitations, test_disk_size_not_integral_multiple_of_page_size)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Hard-fix this to some non-integral multiple of configured page-size.
+   // Will trip an internal check that validates that disk-capacity specified
+   // can be carved up into exact # of pages.
+   cfg.disk_size = (cfg.page_size * 100) + (cfg.page_size / 2);
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+}
+
 CTEST2(limitations, test_disk_size_not_integral_multiple_of_extents)
 {
    splinterdb       *kvsb;
@@ -438,8 +455,10 @@ CTEST2(limitations, test_disk_size_not_integral_multiple_of_extents)
 
    // Hard-fix this to some non-integral multiple of configured extent-size.
    // Will trip an internal check that validates that disk-capacity specified
-   // can be carved up into exact # of extents.
-   cfg.disk_size = (cfg.extent_size * 100) + (2 * Kilo);
+   // can be carved up into exact # of extents. Configure the disk-size so
+   // that it _is_ a multiple of page-size, thereby, moving past the checks
+   // verified by test_disk_size_not_integral_multiple_of_page_size() case.
+   cfg.disk_size = (cfg.extent_size * 100) + (cfg.page_size);
 
    int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_NOT_EQUAL(0, rc);

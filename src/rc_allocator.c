@@ -262,9 +262,22 @@ rc_allocator_valid_config(rc_allocator_config *cfg)
                          cfg->extent_capacity);
       return STATUS_BAD_PARAM;
    }
+
+   // Assert: Disk size == (page-size * #-of-pages)
+   if (cfg->capacity != (cfg->io_cfg->page_size * cfg->page_capacity)) {
+      platform_error_log("Configured disk size, %lu bytes, is not an integral"
+                         " multiple of page capacity, %lu pages"
+                         ", for page size of %lu bytes.\n",
+                         cfg->capacity,
+                         cfg->page_capacity,
+                         cfg->io_cfg->page_size);
+      return STATUS_BAD_PARAM;
+   }
+
+   // Assert: Disk size == (extent-size * #-of-extents)
    if (cfg->capacity != (cfg->io_cfg->extent_size * cfg->extent_capacity)) {
       platform_error_log("Configured disk size, %lu bytes, is not an integral"
-                         " multiple of extent capacity, %lu"
+                         " multiple of extent capacity, %lu extents"
                          ", for extent size of %lu bytes.\n",
                          cfg->capacity,
                          cfg->extent_capacity,
@@ -305,15 +318,6 @@ rc_allocator_init(rc_allocator        *al,
    if (!SUCCESS(rc)) {
       return rc;
    }
-   platform_assert(cfg->io_cfg->page_size % 4096 == 0);
-   platform_assert(cfg->capacity
-                      == cfg->io_cfg->extent_size * cfg->extent_capacity,
-                   "capacity=%lu, io_cfg->extent_size=%lu, extent_capacity=%lu",
-                   cfg->capacity,
-                   cfg->io_cfg->extent_size,
-                   cfg->extent_capacity);
-   platform_assert(cfg->capacity
-                   == cfg->io_cfg->page_size * cfg->page_capacity);
 
    rc = platform_mutex_init(&al->lock, mid, al->heap_id);
    if (!SUCCESS(rc)) {
