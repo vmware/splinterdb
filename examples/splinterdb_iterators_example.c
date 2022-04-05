@@ -119,7 +119,7 @@ main()
    const char *start_key = "www.eiffeltower.com";
    do_iterate_from(spl_handle, start_key);
 
-   start_key = "www.twitter.com";
+   start_key = "www.slashdot.org";
    do_iterate_from(spl_handle, start_key);
 
    splinterdb_close(&spl_handle);
