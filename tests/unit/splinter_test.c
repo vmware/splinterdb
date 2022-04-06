@@ -661,7 +661,7 @@ CTEST2(splinter, test_splinter_print_diags)
 
    platform_default_log("\n** Allocator stats **\n");
    allocator_print_stats(alp);
-   allocator_debug_print(alp);
+   allocator_print_allocated(alp);
 
    trunk_destroy(spl);
 }

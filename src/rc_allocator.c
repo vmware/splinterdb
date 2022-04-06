@@ -34,7 +34,6 @@
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything
 
-
 /*
  *------------------------------------------------------------------------------
  * Function declarations
@@ -140,6 +139,16 @@ rc_allocator_get_capacity_virtual(allocator *a)
    return rc_allocator_get_capacity(al);
 }
 
+uint64
+rc_allocator_get_extent_num(rc_allocator *al, uint64 page_addr);
+
+uint64
+rc_allocator_get_extent_num_virtual(allocator *a, uint64 page_addr)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_get_extent_num(al, page_addr);
+}
+
 void
 rc_allocator_assert_noleaks(rc_allocator *al);
 
@@ -179,9 +188,10 @@ const static allocator_ops rc_allocator_ops = {
    .alloc_super_addr  = rc_allocator_alloc_super_addr_virtual,
    .remove_super_addr = rc_allocator_remove_super_addr_virtual,
    .get_capacity      = rc_allocator_get_capacity_virtual,
+   .get_extent_num    = rc_allocator_get_extent_num_virtual,
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
    .print_stats       = rc_allocator_print_stats_virtual,
-   .debug_print       = rc_allocator_print_allocated_virtual,
+   .print_allocated   = rc_allocator_print_allocated_virtual,
 };
 
 static platform_status
@@ -530,8 +540,8 @@ rc_allocator_get_ref(rc_allocator *al, uint64 addr)
 {
    uint64 extent_no;
 
-   debug_assert(addr % al->cfg->io_cfg->extent_size == 0);
-   extent_no = addr / al->cfg->io_cfg->extent_size;
+   debug_assert(rc_allocator_valid_extent_addr(al, addr));
+   extent_no = rc_allocator_extent_num(al, addr);
    debug_assert(extent_no < al->cfg->extent_capacity);
    return al->ref_count[extent_no];
 }
@@ -548,6 +558,16 @@ uint64
 rc_allocator_get_capacity(rc_allocator *al)
 {
    return al->cfg->capacity;
+}
+
+/*
+ * Given a page-address, compute and return the holding extent's number (i.e.
+ * index into the allocated extents reference count array.
+ */
+uint64
+rc_allocator_get_extent_num(rc_allocator *al, uint64 page_addr)
+{
+   return rc_allocator_extent_num(al, page_addr);
 }
 
 
@@ -673,7 +693,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
    if (!extent_is_free) {
       platform_default_log(
          "Out of Space, while allocating an extent of type=%d (%s):"
-         " allocated %lu out of %lu addrs.\n",
+         " allocated %lu out of %lu extents.\n",
          type,
          page_type_str[type],
          al->stats.curr_allocated,
