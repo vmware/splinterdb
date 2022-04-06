@@ -139,16 +139,6 @@ rc_allocator_get_capacity_virtual(allocator *a)
    return rc_allocator_get_capacity(al);
 }
 
-uint64
-rc_allocator_get_extent_num(rc_allocator *al, uint64 page_addr);
-
-uint64
-rc_allocator_get_extent_num_virtual(allocator *a, uint64 page_addr)
-{
-   rc_allocator *al = (rc_allocator *)a;
-   return rc_allocator_get_extent_num(al, page_addr);
-}
-
 void
 rc_allocator_assert_noleaks(rc_allocator *al);
 
@@ -188,7 +178,6 @@ const static allocator_ops rc_allocator_ops = {
    .alloc_super_addr  = rc_allocator_alloc_super_addr_virtual,
    .remove_super_addr = rc_allocator_remove_super_addr_virtual,
    .get_capacity      = rc_allocator_get_capacity_virtual,
-   .get_extent_num    = rc_allocator_get_extent_num_virtual,
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
    .print_stats       = rc_allocator_print_stats_virtual,
    .print_allocated   = rc_allocator_print_allocated_virtual,
@@ -559,17 +548,6 @@ rc_allocator_get_capacity(rc_allocator *al)
 {
    return al->cfg->capacity;
 }
-
-/*
- * Given a page-address, compute and return the holding extent's number (i.e.
- * index into the allocated extents reference count array.
- */
-uint64
-rc_allocator_get_extent_num(rc_allocator *al, uint64 page_addr)
-{
-   return rc_allocator_extent_num(al, page_addr);
-}
-
 
 platform_status
 rc_allocator_get_super_addr(rc_allocator     *al,

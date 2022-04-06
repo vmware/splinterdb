@@ -2144,7 +2144,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
                 type,
                 page_type_str[type],
                 base_addr,
-                allocator_get_extent_num(cc->al, base_addr),
+                (base_addr / clockcache_extent_size(cc)),
                 extent_ref_count);
 #endif // SPLINTER_DEBUG
 

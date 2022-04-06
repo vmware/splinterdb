@@ -90,7 +90,6 @@ typedef platform_status (*alloc_super_addr_fn)(allocator        *al,
                                                uint64           *addr);
 typedef void (*remove_super_addr_fn)(allocator *al, allocator_root_id spl_id);
 typedef uint64 (*get_size_fn)(allocator *al);
-typedef uint64 (*get_num_fn)(allocator *al, uint64 addr);
 
 typedef void (*print_fn)(allocator *al);
 typedef void (*assert_fn)(allocator *al);
@@ -113,8 +112,6 @@ typedef struct allocator_ops {
    get_size_fn in_use;
 
    get_size_fn get_capacity;
-
-   get_num_fn get_extent_num;
 
    assert_fn assert_noleaks;
 
@@ -182,12 +179,6 @@ static inline uint64
 allocator_get_capacity(allocator *al)
 {
    return al->ops->get_capacity(al);
-}
-
-static inline uint64
-allocator_get_extent_num(allocator *al, uint64 page_addr)
-{
-   return al->ops->get_extent_num(al, page_addr);
 }
 
 static inline void

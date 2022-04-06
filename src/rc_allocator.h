@@ -88,14 +88,17 @@ typedef struct rc_allocator {
 } rc_allocator;
 
 
-/* Is page address 'addr' is a valid extent address */
+/* Is page address 'addr' a valid extent address? */
 static inline bool
 rc_allocator_valid_extent_addr(rc_allocator *al, uint64 addr)
 {
-   return (addr % al->cfg->io_cfg->extent_size == 0);
+   return ((addr % al->cfg->io_cfg->extent_size) == 0);
 }
 
-/* Convert page-address to the extent number of extent containing this page */
+/*
+ * Convert page-address to the extent number of extent containing this page.
+ * Returns the index into the allocated extents reference count array.
+ */
 static inline uint64
 rc_allocator_extent_num(rc_allocator *al, uint64 addr)
 {
