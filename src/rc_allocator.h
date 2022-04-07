@@ -87,7 +87,6 @@ typedef struct rc_allocator {
    rc_allocator_stats stats;
 } rc_allocator;
 
-
 void
 rc_allocator_config_init(rc_allocator_config *allocator_cfg,
                          io_config           *io_cfg,

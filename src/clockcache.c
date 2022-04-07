@@ -2128,7 +2128,25 @@ clockcache_get_internal(clockcache   *cc,       // IN
    platform_status   status;
    uint64            start, elapsed;
 
-   debug_assert(allocator_get_ref(cc->al, base_addr) > 1);
+#if SPLINTER_DEBUG
+   uint8 extent_ref_count = allocator_get_ref(cc->al, base_addr);
+
+   // Dump allocated extents info for deeper debugging.
+   if (extent_ref_count <= 1) {
+      allocator_print_allocated(cc->al);
+   }
+   debug_assert((extent_ref_count > 1),
+                "Attempt to get a buffer for page addr=%lu"
+                ", page type=%d ('%s'),"
+                " from extent addr=%lu, (extent number=%lu)"
+                ", which is an unallocated extent, extent_ref_count=%u.",
+                addr,
+                type,
+                page_type_str[type],
+                base_addr,
+                (base_addr / clockcache_extent_size(cc)),
+                extent_ref_count);
+#endif // SPLINTER_DEBUG
 
    // We expect entry_number to be valid, but it's still validated below
    // in case some arithmetic goes wrong.

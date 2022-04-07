@@ -116,7 +116,7 @@ typedef struct allocator_ops {
    assert_fn assert_noleaks;
 
    print_fn print_stats;
-   print_fn debug_print;
+   print_fn print_allocated;
 } allocator_ops;
 
 // To sub-class cache, make a cache your first field;
@@ -194,9 +194,9 @@ allocator_print_stats(allocator *al)
 }
 
 static inline void
-allocator_debug_print(allocator *al)
+allocator_print_allocated(allocator *al)
 {
-   return al->ops->debug_print(al);
+   return al->ops->print_allocated(al);
 }
 
 #endif // __ALLOCATOR_H

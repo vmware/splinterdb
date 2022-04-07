@@ -34,7 +34,6 @@
  */
 #define SHOULD_TRACE(addr) (0) // Do not trace anything
 
-
 /*
  *------------------------------------------------------------------------------
  * Function declarations
@@ -181,8 +180,34 @@ const static allocator_ops rc_allocator_ops = {
    .get_capacity      = rc_allocator_get_capacity_virtual,
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
    .print_stats       = rc_allocator_print_stats_virtual,
-   .debug_print       = rc_allocator_print_allocated_virtual,
+   .print_allocated   = rc_allocator_print_allocated_virtual,
 };
+
+/*
+ * Helper methods
+ */
+/*
+ * Is page address 'base_addr' a valid extent address? I.e. it is the address
+ * of the 1st page in an extent.
+ */
+__attribute__((unused)) static inline bool
+rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
+{
+   return ((base_addr % al->cfg->io_cfg->extent_size) == 0);
+}
+
+/*
+ * Convert page-address to the extent number of extent containing this page.
+ * Returns the index into the allocated extents reference count array.
+ * This function can be used on any page-address to map it to the holding
+ * extent's number. 'addr' need not be just the base_addr; i.e. the address
+ * of the 1st page in an extent.
+ */
+static inline uint64
+rc_allocator_extent_number(rc_allocator *al, uint64 addr)
+{
+   return (addr / al->cfg->io_cfg->extent_size);
+}
 
 static platform_status
 rc_allocator_init_meta_page(rc_allocator *al)
@@ -485,7 +510,7 @@ rc_allocator_unmount(rc_allocator *al)
 uint8
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
-   debug_assert(addr % al->cfg->io_cfg->extent_size == 0);
+   debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
@@ -504,7 +529,7 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 uint8
 rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
 {
-   debug_assert(addr % al->cfg->io_cfg->extent_size == 0);
+   debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
@@ -530,8 +555,8 @@ rc_allocator_get_ref(rc_allocator *al, uint64 addr)
 {
    uint64 extent_no;
 
-   debug_assert(addr % al->cfg->io_cfg->extent_size == 0);
-   extent_no = addr / al->cfg->io_cfg->extent_size;
+   debug_assert(rc_allocator_valid_extent_addr(al, addr));
+   extent_no = rc_allocator_extent_number(al, addr);
    debug_assert(extent_no < al->cfg->extent_capacity);
    return al->ref_count[extent_no];
 }
@@ -549,7 +574,6 @@ rc_allocator_get_capacity(rc_allocator *al)
 {
    return al->cfg->capacity;
 }
-
 
 platform_status
 rc_allocator_get_super_addr(rc_allocator     *al,
@@ -673,7 +697,7 @@ rc_allocator_alloc(rc_allocator *al,   // IN
    if (!extent_is_free) {
       platform_default_log(
          "Out of Space, while allocating an extent of type=%d (%s):"
-         " allocated %lu out of %lu addrs.\n",
+         " allocated %lu out of %lu extents.\n",
          type,
          page_type_str[type],
          al->stats.curr_allocated,
