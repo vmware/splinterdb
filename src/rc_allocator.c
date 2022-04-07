@@ -190,7 +190,7 @@ const static allocator_ops rc_allocator_ops = {
  * Is page address 'base_addr' a valid extent address? I.e. it is the address
  * of the 1st page in an extent.
  */
-static inline bool
+__attribute__((unused)) static inline bool
 rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 {
    return ((base_addr % al->cfg->io_cfg->extent_size) == 0);
@@ -510,7 +510,7 @@ rc_allocator_unmount(rc_allocator *al)
 uint8
 rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 {
-   debug_assert(addr % al->cfg->io_cfg->extent_size == 0);
+   debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
@@ -529,7 +529,7 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 uint8
 rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
 {
-   debug_assert(addr % al->cfg->io_cfg->extent_size == 0);
+   debug_assert(rc_allocator_valid_extent_addr(al, addr));
 
    uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
    debug_assert(extent_no < al->cfg->extent_capacity);
