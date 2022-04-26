@@ -2699,34 +2699,52 @@ trunk_process_generation_to_pos(trunk_handle             *spl,
 }
 
 /*
- * replace_bundle_branches replaces the branches of an uncompacted bundle with
- * a newly compacted branch.
- *
- * This process is:
- * 1. de-ref the old branches of the bundle
- * 2. add the new branch (unless replacement_branch == NULL)
- * 3. move any remaining branches to maintain a contiguous array
- * 4. adjust pivot start branches if necessary
- * 5. mark bundle as compacted and remove all by its first subbundle
- * 6. move any remaining subbundles to maintain a contiguous array (and adjust
- *    any remaining bundles to account)
+ * garbage_collect_bundle dereferences the branches for the specified bundle
  */
-void
-trunk_replace_bundle_branches(trunk_handle             *spl,
-                              page_handle              *node,
-                              trunk_branch             *repl_branch,
-                              trunk_compact_bundle_req *req)
+platform_status
+trunk_garbage_collect_bundle(trunk_handle             *spl,
+                             uint64                   old_root_addr,
+                             trunk_compact_bundle_req *req)
 {
-   trunk_hdr *hdr = (trunk_hdr *)node->data;
+   platform_status rc = STATUS_OK;
+   uint16 height = req->height;
+   const char *key = req->start_key;
+   page_handle *node        = trunk_node_get(spl, spl->root_addr);
+   uint16       root_height = trunk_height(spl, node);
+   trunk_node_claim(spl, &node);
+   trunk_node_lock(spl, node);
+   if (height > root_height) {
+      rc = STATUS_BAD_PARAM;
+      goto unlock_out;
+   }
+
+   for (uint16 h = root_height; h > height; h--) {
+      debug_assert(trunk_height(spl, node) == h);
+      uint16 pivot_no = trunk_find_pivot(spl, node, key, less_than_or_equal);
+      debug_assert(pivot_no < trunk_num_children(spl, node));
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+      page_handle      *child = trunk_node_get(spl, pdata->addr);
+      // Here is where we would deallocate the trunk node
+      trunk_node_unlock(spl, node);
+      trunk_node_unclaim(spl, node);
+      trunk_node_unget(spl, &node);
+      node = child;
+      trunk_node_claim(spl, &node);
+      trunk_node_lock(spl, node);
+   }
+
+   debug_assert(trunk_height(spl, node) == height);
+   debug_assert(trunk_key_compare(spl, trunk_min_key(spl, node), key) <= 0);
+   debug_assert(trunk_key_compare(spl, key, trunk_max_key(spl, node)) < 0);
+
+   // have the desired node with a write lock
    debug_assert(req->height == trunk_height(spl, node));
 
    uint16        bundle_no    = req->bundle_no;
    trunk_bundle *bundle       = trunk_get_bundle(spl, node, bundle_no);
    uint16 bundle_start_branch = trunk_bundle_start_branch(spl, node, bundle);
    uint16 bundle_end_branch   = trunk_bundle_end_branch(spl, node, bundle);
-   uint16 branch_diff         = trunk_bundle_branch_count(spl, node, bundle);
 
-   // de-ref the dead branches
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 branch_no = bundle_start_branch; branch_no != bundle_end_branch;
         branch_no        = trunk_add_branch_number(spl, branch_no, 1))
@@ -2744,6 +2762,41 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
          }
       }
    }
+
+unlock_out:
+   trunk_node_unlock(spl, node);
+   trunk_node_unclaim(spl, node);
+   trunk_node_unget(spl, &node);
+   return rc;
+}
+
+/*
+ * replace_bundle_branches replaces the branches of an uncompacted bundle with
+ * a newly compacted branch.
+ *
+ * This process is:
+ * 1. add the new branch (unless replacement_branch == NULL)
+ * 2. move any remaining branches to maintain a contiguous array
+ * 3. adjust pivot start branches if necessary
+ * 4. mark bundle as compacted and remove all by its first subbundle
+ * 5. move any remaining subbundles to maintain a contiguous array (and adjust
+ *    any remaining bundles to account)
+ */
+void
+trunk_replace_bundle_branches(trunk_handle             *spl,
+                              page_handle              *node,
+                              trunk_branch             *repl_branch,
+                              trunk_compact_bundle_req *req)
+{
+   trunk_hdr *hdr = (trunk_hdr *)node->data;
+   debug_assert(req->height == trunk_height(spl, node));
+
+   uint16        bundle_no    = req->bundle_no;
+   trunk_bundle *bundle       = trunk_get_bundle(spl, node, bundle_no);
+   uint16 bundle_start_branch = trunk_bundle_start_branch(spl, node, bundle);
+   uint16 bundle_end_branch   = trunk_bundle_end_branch(spl, node, bundle);
+   uint16 branch_diff         = trunk_bundle_branch_count(spl, node, bundle);
+   uint16 num_children = trunk_num_children(spl, node);
 
    // add new branch
    uint16 new_branch_no = UINT16_MAX;
@@ -5055,6 +5108,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    while (should_continue) {
       trunk_modification_lock(spl);
       uint64 new_root_addr = 0;
+      uint64 old_root_addr = spl->root_addr;
       rc = trunk_compact_bundle_node_copy_path(spl, req, &node, &new_root_addr);
       platform_assert_status_ok(rc);
       platform_assert(node != NULL);
@@ -5116,6 +5170,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
             trunk_log_stream_if_enabled(
                spl, &stream, "compact_bundle empty %lu\n", node->disk_addr);
          }
+
       } else {
          /*
           * 11b. ...unless node is internal and bundle has been flushed
@@ -5151,6 +5206,11 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_modification_unlock(spl);
       trunk_node_unclaim(spl, node);
       trunk_node_unget(spl, &node);
+
+      // garbage collect the old path and bundle
+      rc = trunk_garbage_collect_bundle(spl, old_root_addr, req);
+      platform_assert_status_ok(rc);
+
       if (should_continue) {
          rc = trunk_compact_bundle_node_get(spl, req, &node);
          platform_assert_status_ok(rc);
