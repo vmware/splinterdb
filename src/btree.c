@@ -1223,10 +1223,6 @@ btree_inc_ref_range(cache              *cc,
                     const slice         start_key,
                     const slice         end_key)
 {
-   platform_default_log("inc_ref root: %lu, start_key: %s, end_key: %s\n",
-                        root_addr,
-                        key_string(cfg->data_cfg, start_key),
-                        key_string(cfg->data_cfg, end_key));
    uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
    if (!slice_is_null(start_key) && !slice_is_null(end_key)) {
       debug_assert(btree_key_compare(cfg, start_key, end_key) < 0);
@@ -1243,10 +1239,6 @@ btree_dec_ref_range(cache              *cc,
                     const slice         end_key,
                     page_type           type)
 {
-   platform_default_log("dec_ref root: %lu, start_key: %s, end_key: %s\n",
-                        root_addr,
-                        key_string(cfg->data_cfg, start_key),
-                        key_string(cfg->data_cfg, end_key));
    debug_assert(type == PAGE_TYPE_BRANCH);
 
    if (!slice_is_null(start_key) && !slice_is_null(end_key)) {

@@ -2709,7 +2709,7 @@ trunk_garbage_collect_bundle(trunk_handle             *spl,
    platform_status rc = STATUS_OK;
    uint16 height = req->height;
    const char *key = req->start_key;
-   page_handle *node        = trunk_node_get(spl, spl->root_addr);
+   page_handle *node        = trunk_node_get(spl, old_root_addr);
    uint16       root_height = trunk_height(spl, node);
    trunk_node_claim(spl, &node);
    trunk_node_lock(spl, node);
