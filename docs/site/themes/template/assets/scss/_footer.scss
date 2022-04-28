@@ -1,54 +1,17 @@
-@import 'variables';
-@import 'mixins';
-@import 'base';
-
 footer {
-    .top-links {
-        min-height: 52px;
+    .footer-links {
+        padding: 0 20px;
+    }
+    .bottom-bar {
+        min-height: 46px;
         display: flex;
         align-items: center;
         justify-content: space-between;
     }
-    .left-links {
-        padding: 0px;
-        li {
-            img {
-                vertical-align: bottom;
-                margin-right: 10px;
-            }
-            a {
-                color: $darkgrey;
-                font-weight: 300;
-                font-size: 12px;
-                font-family: $metropolis-light;
-            }
-        }
-        .mobile {
-            display: none;
-        }
-    }
-    .right-links {
+    .copyright {
         p {
-            margin: 0px;
-        }
-        .copywrite {
             font-size: 12px;
             padding-right: 10px;
-            a {
-                font-size: 12px;
-                color: $darkgrey;
-                font-family: $metropolis-light;
-            }
-        }
-        a {
-            vertical-align: middle;
-        }
-    }
-    .bottom-links {
-        margin: 10px 0px 30px 0px;
-        float: right;
-        p {
-            font-size: 12px;
         }
         a {
             font-size: 12px;
@@ -60,34 +23,49 @@ footer {
             margin-left: 30px;
         }
     }
-    @include breakpoint(small) {
-        .footer-links {
-            display: block;
-            .right-links {
-                display: none;
+    .service-links {
+        a {
+            color: $grey;
+            font-size: 12px;
+            font-family: $metropolis-light;
+        }
+    }
+    .top-links {
+        min-height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .social-links {
+        padding: 0px;
+        li {
+            padding-right: 18px;
+            img {
+                vertical-align: bottom;
+                margin-right: 6px;
             }
-            .left-links {
-                float: none;
-                margin: 10px 0px;
-                .desktop {
-                    display: none;
-                }
-                .mobile {
-                    display: inline;
-                }
-                .copywrite {
-                    display: block;
-                    margin-top:20px;
-                }
+            a {
+                color: $grey;
+                font-weight: 300;
+                font-size: 12px;
+                font-family: $metropolis-light;
             }
         }
-        .bottom-links {
-            margin: 10px 0px 20px 0px;
-            float: none;
-            img {
-                margin-left: 0px;
+        .mobile {
+            display: none;
+        }
+    }
+    @include breakpoint(small) {
+        .top-links {
+            display: block;
+        }
+        .bottom-bar {
+            display: block;
+            padding: 10px 20px;
+        }
+        .copyright {
+            a {
                 display: block;
-                margin-top: 10px;
             }
         }
     }
