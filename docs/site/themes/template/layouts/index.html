@@ -1,20 +1,29 @@
 {{ define "main" }}
 	<main>
-		{{ partial "hero.html" . }}
-		{{ partial "homepage-grid.html" . }}
-		<div class="bg-grey introduction">
+		<div class="home-hero-bg">
+			{{ partial "hero.html" . }}
+			{{ partial "homepage-grid.html" . }}
+		</div>
+		<div class="introduction">
 			<div class="wrapper grid two">
-				<div class="col">
-					<p class="strong">Egestas pretium aenean</p>
-					<p><a href="#">Vitae proin sagittis</a> pharetra magna ac placerat vestibulum.</p>
-				</div>
-				<div class="col">
-					<p class="strong">Rhoncus mattis rhoncus</p>
-					<p>Ante in nibh mauris cursus mattis elementum <a href="#">eu facilisis sed odio</a>.</p>
-				</div>
+				<a href="#" target="_blank">
+					<div class="col">
+						<div class="content-wrap">
+							<h3>Getting Started</h3>
+							<p>Use the SplinterDB in a sample program.</p>
+						</div>
+					</div>
+				</a>
+				<a href="#">
+					<div class="col">
+						<div class="content-wrap">
+							<h3>Join the SplinterDB Community</h3>
+							<p>Your thoughts, experiences, and contributions matter. Share them and help guide the direction of SplinterDB.</p>
+						</div>
+					</div>
+				</a>
 			</div>
 		</div>
 		{{ partial "use-cases.html" . }}
-		{{ partial "contributors.html" . }}
 	</main>
 {{ end }}
