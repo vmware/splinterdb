@@ -546,3 +546,31 @@
         }
     }
 }
+
+.bg-tree-rings {
+    position: relative;
+
+    &::after {
+        content: '';
+        background-image: url(/img/bg-tree-rings.svg);
+        background-repeat: no-repeat;
+        height: 100%;
+        left: 0;
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 100%;
+
+        @include breakpoint(medium-up) {
+            background-size: contain;
+        }
+    }
+
+    &.bg-right {
+        &::after {
+            left: auto;
+            right: 0;
+            transform: scaleX(-1);
+        }
+    }
+}
