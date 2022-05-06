@@ -1,7 +1,7 @@
 {{ $latest := (cond (.Site.Params.docs_versioning) .Site.Params.docs_latest "") }}
 <header>
 	<div class="wrapper">
-		<a href="{{ .Site.BaseURL }}"><img class="image" src="/img/vmware-logo.svg" alt="Logo" /></a>
+		<a href="{{ .Site.BaseURL }}"><img class="image" src="/img/splinterdb-logo.svg" alt="Logo" width="245" /></a>
 		<ul class="desktop-links">
 			<li><a href="/" {{ if (eq .RelPermalink "/")  }}class="active"{{ end }}>Home</a></li>
 			<li><a href="/plugins/" {{ if (eq .RelPermalink "/plugins/")  }}class="active"{{ end }}>Plugins</a></li>
@@ -24,9 +24,10 @@
 				<li><a href="/docs/{{ $latest }}" {{ if (eq .Page.Section "docs") }}class="active"{{ end }}>Documentation</a></li>
 			</ul>
 			<div class="social">
-				<a href="#"><img src="/img/twitter.png" />Twitter</a>
-				<a href="#"><img src="/img/github.svg" />GitHub</a>
-				<a href="#"><img src="/img/slack.png" />Slack</a>
+				<a href="{{ .Site.Params.twitter_url }}"><img src="/img/twitter.svg" alt="Twitter logo" height="21" /><span class="sr-only">Twitter</span></a>
+				<a href="{{ .Site.Params.github_url }}"><img src="/img/github.svg" alt="GitHub logo" /><span class="sr-only">GitHub</span></a>
+				<a href="{{ .Site.Params.slack_url }}"><img src="/img/slack.svg" alt="Slack logo" height="21" /><span class="sr-only">#Slack</span></a>
+				<a href="{{ .Site.Params.google_group_url }}"><img src="/img/google-groups.png" alt="Google Groups logo" height="21" /><span class="sr-only">Google Groups</span></a>
 			</div>
 		</div>
 	</div>

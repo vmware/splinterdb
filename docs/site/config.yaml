@@ -1,6 +1,6 @@
-baseURL: "https://template.dev/"
+baseURL: "/"
 languageCode: "en-us"
-title: "Template"
+title: "SplinterDB"
 theme: "template"
 outputs:
   home: [ "HTML", "REDIRECTS" ]
@@ -33,10 +33,11 @@ menu:
   - name: Update Images
     url: /docs/contributing/
 params:
-  twitter_url: "https://twitter.com/"
-  github_url: "https://github.com/"
-  slack_url: "https://slack.com/"
-  github_base_url: "https://github.com/smalltalk-ai/vmware-open-source-template"
+  twitter_url: "https://twitter.com/splinterdbnews"
+  github_url: "https://github.com/vmware/splinterdb"
+  slack_url: "https://splinterdb.slack.com"
+  googlegroups_url: "https://groups.google.com/g/splinterdb"
+  github_base_url: "https://github.com/vmware/splinterdb"
   use_advanced_docs: true
   docs_right_sidebar: true
   docs_search: false
