@@ -644,6 +644,78 @@ mini_release(mini_allocator *mini, const slice key)
 
 /*
  *-----------------------------------------------------------------------------
+ * mini_deinit --
+ *
+ *      Cleanup function to deallocate the metadata extents of the mini
+ *      allocator. Does not deallocate or otherwise access the data extents.
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      Disk deallocation, standard cache side effects.
+ *-----------------------------------------------------------------------------
+ */
+
+void
+mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
+{
+   allocator *al        = cache_allocator(cc);
+   uint64     meta_addr = meta_head;
+   do {
+      page_handle *meta_page      = cache_get(cc, meta_addr, TRUE, type);
+      uint64       last_meta_addr = meta_addr;
+      meta_addr                   = mini_get_next_meta_addr(meta_page);
+      cache_unget(cc, meta_page);
+
+      if (!cache_pages_share_extent(cc, last_meta_addr, meta_addr)) {
+         uint64 last_meta_base_addr =
+            cache_extent_base_addr(cc, last_meta_addr);
+         uint8 ref = allocator_dec_ref(al, last_meta_base_addr, type);
+         platform_assert(ref == AL_NO_REFS);
+         cache_hard_evict_extent(cc, last_meta_base_addr, type);
+         ref = allocator_dec_ref(al, last_meta_base_addr, type);
+         platform_assert(ref == AL_FREE);
+      }
+   } while (meta_addr != 0);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * mini_destroy_unused --
+ *
+ *      Called to destroy a mini_allocator that was created but never used to
+ *      allocate an extent. Can only be called on a keyed mini allocator.
+ *
+ * Results:
+ *      None.
+ *
+ * Side effects:
+ *      Disk deallocation, standard cache side effects.
+ *-----------------------------------------------------------------------------
+ */
+
+void
+mini_destroy_unused(mini_allocator *mini)
+{
+   debug_assert(mini->keyed);
+   debug_assert(mini->num_extents == mini->num_batches);
+
+   for (uint64 batch = 0; batch < mini->num_batches; batch++) {
+      // Dealloc the next extent
+      uint8 ref =
+         allocator_dec_ref(mini->al, mini->next_extent[batch], mini->type);
+      platform_assert(ref == AL_NO_REFS);
+      ref = allocator_dec_ref(mini->al, mini->next_extent[batch], mini->type);
+      platform_assert(ref == AL_FREE);
+   }
+
+   mini_deinit(mini->cc, mini->meta_head, mini->type, FALSE);
+}
+
+
+/*
+ *-----------------------------------------------------------------------------
  * mini_[keyed,unkeyed]_for_each(_self_exclusive) --
  *
  *      Calls func on each extent_addr in the mini_allocator.
@@ -740,7 +812,7 @@ state(data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- * Apply func to every exent whose key range intersects [start_key, _end_key].
+ * Apply func to every extent whose key range intersects [start_key, _end_key].
  *
  * Note: if start_key is null, then so must be _end_key, and func is
  * applied to all extents.
@@ -826,8 +898,7 @@ mini_keyed_for_each(cache           *cc,
 }
 
 /*
- *-----------------------------------------------------------------------------
- * Apply func to every exent whose key range intersects [start_key, _end_key].
+ * Apply func to every extent whose key range intersects [start_key, _end_key].
  *
  * Note: if start_key is null, then so must be _end_key, and func is
  * applied to all extents.
@@ -924,7 +995,7 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
  * mini_unkeyed_[inc,dec]_ref --
  *
  *      Increments or decrements the ref count of the unkeyed allocator. When
- *      the external ref count reaches 0 (actual ref count reachs
+ *      the external ref count reaches 0 (actual ref count reaches
  *      MINI_NO_REFS), the mini allocator is destroyed.
  *
  * Results:
@@ -942,36 +1013,6 @@ mini_unkeyed_inc_ref(cache *cc, uint64 meta_head)
    uint8      ref       = allocator_inc_ref(al, base_addr);
    platform_assert(ref > MINI_NO_REFS);
    return ref - MINI_NO_REFS;
-}
-
-static inline bool
-mini_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
-{
-   uint64 extent_size = cache_extent_size(cc);
-   return right_addr / extent_size == left_addr / extent_size;
-}
-
-void
-mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
-{
-   allocator *al        = cache_allocator(cc);
-   uint64     meta_addr = meta_head;
-   do {
-      page_handle *meta_page      = cache_get(cc, meta_addr, TRUE, type);
-      uint64       last_meta_addr = meta_addr;
-      meta_addr                   = mini_get_next_meta_addr(meta_page);
-      cache_unget(cc, meta_page);
-
-      if (!mini_addrs_share_extent(cc, last_meta_addr, meta_addr)) {
-         uint64 last_meta_base_addr =
-            cache_extent_base_addr(cc, last_meta_addr);
-         uint8 ref = allocator_dec_ref(al, last_meta_base_addr, type);
-         platform_assert(ref == AL_NO_REFS);
-         cache_hard_evict_extent(cc, last_meta_base_addr, type);
-         ref = allocator_dec_ref(al, last_meta_base_addr, type);
-         platform_assert(ref == AL_FREE);
-      }
-   } while (meta_addr != 0);
 }
 
 static bool
@@ -1032,7 +1073,7 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *      mini_keyed_dec_ref from deallocating while they are reading,
  *      mini_keyed_dec_ref must see no additional refs (blockers) on the
  *      meta_head before proceeding. After starting, they do not need to check
- *      again, since a range query cannot have gotten a refernce to their range
+ *      again, since a range query cannot have gotten a reference to their range
  *      after the call to dec_ref is made.
  *
  * Results:
@@ -1251,30 +1292,30 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
 {
    uint64 next_meta_addr = meta_head;
 
-   platform_log("---------------------------------------------\n");
-   platform_log("| Mini Allocator -- meta_head: %12lu |\n", meta_head);
-   platform_log("|-------------------------------------------|\n");
-   platform_log("| idx | %35s |\n", "extent_addr");
-   platform_log("|-------------------------------------------|\n");
+   platform_default_log("---------------------------------------------\n");
+   platform_default_log("| Mini Allocator -- meta_head: %12lu |\n", meta_head);
+   platform_default_log("|-------------------------------------------|\n");
+   platform_default_log("| idx | %35s |\n", "extent_addr");
+   platform_default_log("|-------------------------------------------|\n");
 
    do {
       page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
 
-      platform_log("| meta addr %31lu |\n", next_meta_addr);
-      platform_log("|-------------------------------------------|\n");
+      platform_default_log("| meta addr %31lu |\n", next_meta_addr);
+      platform_default_log("|-------------------------------------------|\n");
 
       uint64              num_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry       = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-         platform_log("| %3lu | %35lu |\n", i, entry->extent_addr);
+         platform_default_log("| %3lu | %35lu |\n", i, entry->extent_addr);
          entry = unkeyed_next_entry(entry);
       }
-      platform_log("|-------------------------------------------|\n");
+      platform_default_log("|-------------------------------------------|\n");
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
    } while (next_meta_addr != 0);
-   platform_log("\n");
+   platform_default_log("\n");
 }
 
 void

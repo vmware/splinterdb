@@ -1,0 +1,86 @@
+/* Homepage Hero */
+.home-hero-bg {
+    overflow: hidden;
+    position: relative;
+    
+    @include breakpoint(small-up) {
+        padding-top: 70px;
+    }
+    
+    .logo-overlay {
+        display: none;
+
+        @include breakpoint(medium-up) {
+            display: block;
+            height: auto;
+            left: 57%;
+            position: absolute;
+            top: 30px;
+            width: 600px;
+            z-index: 1;
+        }
+    }
+}
+
+.hero {
+    background-color: $mainblue;
+    color: $white;
+    .text-block {
+        max-width: 550px;
+        padding: 0px 0px 10px 0px;
+        p {
+            margin-bottom: 20px;
+            font-size: 18px;
+            color: $white;
+        }
+        h2 {
+            font-size: 36px;
+        }
+    }
+    &.homepage {
+        background-color: transparent;
+        color: $darkgrey;
+        padding-bottom: 20px;
+        position: relative;
+        z-index: 2;
+        h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+        p {
+            color: $black;
+            margin: 10px 0 30px;
+        }
+    }
+    @include breakpoint(small) {
+        .text-block {
+            max-width: unset;
+            margin-right: 0px;
+        }
+        .button {
+            display: block;
+            text-align: center;
+        }
+    }
+}
+
+.hero.subpage-hero {
+    background-image: url('/img/bg-hero-subpage.png');
+    background-color: #1a408c;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+    padding-bottom: 90px;
+
+    .wrapper {
+        position: relative;
+        z-index: 2;
+    }
+
+    h1 {
+        font-size: 36px;
+        @include breakpoint(small) {
+            font-size: 26px;
+        }
+    }
+}

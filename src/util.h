@@ -7,6 +7,8 @@
 #include "platform.h"
 #include "splinterdb/public_util.h"
 
+#define bitsizeof(x) (8 * sizeof(x))
+
 // Macros
 #ifdef IMPLIES
 // Replace any existing implementation if it exists (for consistency)
@@ -33,12 +35,12 @@ pointer_byte_offset(void *base, int64 offset)
  *-----------------------------------------------------------------------------
  * int64abs --
  *
- *    This function takes an int64 value and it returns the abolute value.
+ *    This function takes an int64 value and it returns the absolute value.
  *    Note the return type is uint64, therefore it can return the absolute
  *    value of the smallest negative number as well.
  *
  * Results:
- *      Returns abolute value of the given value
+ *      Returns absolute value of the given value
  *
  * Side effects:
  *      None.
@@ -118,13 +120,39 @@ slice_lex_cmp(const slice a, const slice b)
  * buffer for it to use.  The writable_buffer will _never_ free the
  * buffer you give it during initialization.
  */
-struct writable_buffer {
+typedef struct writable_buffer {
    platform_heap_id heap_id;
    void            *buffer;
    uint64           buffer_capacity;
    uint64           length;
    bool             can_free;
-};
+} writable_buffer;
+
+#define WRITABLE_BUFFER_NULL_LENGTH UINT64_MAX
+
+/* Returns 0 if wb is in the null state */
+static inline uint64
+writable_buffer_length(const writable_buffer *wb)
+{
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return 0;
+   }
+   return wb->length;
+}
+
+/* May allocate memory */
+platform_status
+writable_buffer_resize(writable_buffer *wb, uint64 newlength);
+
+static inline void *
+writable_buffer_data(const writable_buffer *wb)
+{
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return NULL;
+   } else {
+      return wb->buffer;
+   }
+}
 
 static inline bool
 writable_buffer_is_null(const writable_buffer *wb)
@@ -172,11 +200,12 @@ writable_buffer_deinit(writable_buffer *wb)
 static inline platform_status
 writable_buffer_copy_slice(writable_buffer *wb, slice src)
 {
-   if (!writable_buffer_resize(wb, slice_length(src))) {
-      return STATUS_NO_MEMORY;
+   platform_status rc = writable_buffer_resize(wb, slice_length(src));
+   if (!SUCCESS(rc)) {
+      return rc;
    }
    memcpy(wb->buffer, slice_data(src), slice_length(src));
-   return STATUS_OK;
+   return rc;
 }
 
 static inline platform_status
@@ -203,7 +232,7 @@ static inline uint64
 writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 {
    uint64 oldsize = writable_buffer_length(wb);
-   writable_buffer_resize(wb, oldsize + length);
+   platform_assert(SUCCESS(writable_buffer_resize(wb, oldsize + length)));
    char *data = writable_buffer_data(wb);
    memcpy(data + oldsize, newdata, length);
    return oldsize;
@@ -294,5 +323,15 @@ try_string_to_int8(const char *nptr, // IN
 // To avoid truncation, ensure dst_len >= 3 + 2 * data_len.
 void
 debug_hex_encode(char *dst, size_t dst_len, const char *data, size_t data_len);
+
+/*
+ * Evaluates to a print format specifier based on the value being printed.
+ * (Modeled after similar PRIxx #defines seen in inttypes.h .)
+ */
+#define DECIMAL_STRING_WIDTH(intval)                                           \
+   (((intval) < 10)     ? "d"                                                  \
+    : ((intval) < 100)  ? "2d"                                                 \
+    : ((intval) < 1000) ? "3d"                                                 \
+                        : "4d")
 
 #endif // _SPLINTER_UTIL_H_

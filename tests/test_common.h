@@ -9,6 +9,9 @@
  * in test_common.c, that are shared between functional/ and unit/ test sources.
  * -----------------------------------------------------------------------------
  */
+#ifndef __TEST_COMMON_H__
+#define __TEST_COMMON_H__
+
 #include "trunk.h"
 #include "functional/test.h"
 
@@ -32,7 +35,7 @@ verify_tuple(trunk_handle           *spl,
              test_message_generator *gen,
              uint64                  lookup_num,
              char                   *key,
-             slice                   data,
+             message                 data,
              bool                    expected_found);
 
 void
@@ -47,3 +50,11 @@ test_async_ctxt *
 test_async_ctxt_get(trunk_handle      *spl,
                     test_async_lookup *async_lookup,
                     verify_tuple_arg  *vtarg);
+
+static inline bool
+test_show_verbose_progress(test_exec_config *test_exec_cfg)
+{
+   return (test_exec_cfg->verbose_progress);
+}
+
+#endif /* __TEST_COMMON_H__ */

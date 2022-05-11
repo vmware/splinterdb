@@ -1,0 +1,30 @@
+{{ define "main" }}
+	<main>
+		<div class="home-hero-bg bg-tree-rings bg-right">
+			<img class="logo-overlay" src="/img/bg-hero-home.svg" alt="" />
+			{{ partial "hero.html" . }}
+			{{ partial "homepage-grid.html" . }}
+		</div>
+		<div class="introduction">
+			<div class="wrapper grid two">
+				<a href="#" target="_blank">
+					<div class="col">
+						<div class="content-wrap">
+							<h3>Getting Started</h3>
+							<p>Follow our sample programs to get started with SplinterDB.</p>
+						</div>
+					</div>
+				</a>
+				<a href="#">
+					<div class="col">
+						<div class="content-wrap">
+							<h3>Join the SplinterDB Community</h3>
+							<p>Your thoughts, experiences, and contributions matter. Share them and help guide the direction of SplinterDB.</p>
+						</div>
+					</div>
+				</a>
+			</div>
+		</div>
+		{{ partial "use-cases.html" . }}
+	</main>
+{{ end }}

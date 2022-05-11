@@ -1,0 +1,67 @@
+// default
+.button {
+    color: $blue;
+    font-size: 12px;
+    font-weight: 600;
+    background-color: $white;
+    border-radius: 4px;
+    padding: 14px 10px;
+    min-width: 200px;
+    text-transform: uppercase;
+    border: 1px solid $white;
+    &.secondary {
+        background-color: $mainblue;
+        color: $white;
+    }
+    &.tertiary {
+        border: 1px solid $blue;
+    }
+    &.navy-blue {
+        background-color: $navyblue;
+        border: 1px solid $navyblue;
+        color: $white;
+        font-weight: normal;
+        padding: 14px 20px;
+
+        &:hover {
+            background-color: $white;
+            color: $navyblue;
+        }
+    }
+    &:hover {
+        text-decoration: none;
+    }
+    .icon-play {
+        background-color: $white;
+        border: 1px solid $navyblue;
+        border-radius: 50%;
+        display: inline-block;
+        height: 12px;
+        margin-right: 5px;
+        margin-top: -2px;
+        position: relative;
+        width: 12px;
+        vertical-align: middle;
+        &::before {
+            content: '';
+            border-top: 3px solid transparent;
+            border-bottom: 3px solid transparent;
+            border-left: 6px solid $navyblue;
+            display: block;
+            height: 0;
+            left: 4px;
+            position: absolute;
+            top: 3px;
+            width: 0;
+        }
+    }
+}
+.buttons {
+    margin-top: 40px;
+    .button:first-of-type {
+        margin-right: 30px;
+        @include breakpoint(small) {
+            margin: 0px 0px 20px 0px;
+        }
+    }
+}

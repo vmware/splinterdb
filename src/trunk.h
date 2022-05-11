@@ -66,11 +66,14 @@ typedef struct trunk_config {
    bool            use_stats;   // stats
    memtable_config mt_cfg;
    btree_config    btree_cfg;
-   routing_config  index_filter_cfg;
-   routing_config  leaf_filter_cfg;
+   routing_config  filter_cfg;
    data_config    *data_cfg;
    bool            use_log;
    log_config     *log_cfg;
+
+   // verbose logging
+   bool                 verbose_logging_enabled;
+   platform_log_handle *log_handle;
 } trunk_config;
 
 typedef struct trunk_stats {
@@ -327,22 +330,22 @@ typedef struct {
  */
 
 platform_status
-trunk_insert(trunk_handle *spl, char *key, slice data);
+trunk_insert(trunk_handle *spl, char *key, message data);
 
 platform_status
-trunk_lookup(trunk_handle *spl, char *key, writable_buffer *result);
+trunk_lookup(trunk_handle *spl, char *key, merge_accumulator *result);
 
 static inline bool
-trunk_lookup_found(writable_buffer *result)
+trunk_lookup_found(merge_accumulator *result)
 {
-   return !writable_buffer_is_null(result);
+   return !merge_accumulator_is_null(result);
 }
 
 cache_async_result
-trunk_lookup_async(trunk_handle     *spl,
-                   char             *key,
-                   writable_buffer  *data,
-                   trunk_async_ctxt *ctxt);
+trunk_lookup_async(trunk_handle      *spl,
+                   char              *key,
+                   merge_accumulator *data,
+                   trunk_async_ctxt  *ctxt);
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
@@ -352,7 +355,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 
-typedef void (*tuple_function)(slice key, slice value, void *arg);
+typedef void (*tuple_function)(slice key, message value, void *arg);
 platform_status
 trunk_range(trunk_handle  *spl,
             const char    *start_key,
@@ -377,7 +380,7 @@ trunk_mount(trunk_config     *cfg,
             allocator_root_id id,
             platform_heap_id  hid);
 void
-trunk_dismount(trunk_handle *spl);
+trunk_unmount(trunk_handle **spl);
 
 void
 trunk_perform_tasks(trunk_handle *spl);
@@ -385,22 +388,28 @@ trunk_perform_tasks(trunk_handle *spl);
 void
 trunk_force_flush(trunk_handle *spl);
 void
-trunk_print_insertion_stats(trunk_handle *spl);
+trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl);
 void
-trunk_print_lookup_stats(trunk_handle *spl);
+trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl);
 void
 trunk_reset_stats(trunk_handle *spl);
 
 void
-trunk_print(trunk_handle *spl);
+trunk_print(platform_log_handle *log_handle, trunk_handle *spl);
+
 void
-trunk_print_lookup(trunk_handle *spl, const char *key);
+trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl);
+
 void
-trunk_print_branches(trunk_handle *spl);
+trunk_print_lookup(trunk_handle        *spl,
+                   const char          *key,
+                   platform_log_handle *log_handle);
 void
-trunk_print_extent_counts(trunk_handle *spl);
+trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
 void
-trunk_print_space_use(trunk_handle *spl);
+trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
+void
+trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
 bool
 trunk_verify_tree(trunk_handle *spl);
 
@@ -436,9 +445,9 @@ trunk_key_to_string(trunk_handle *spl, const char *key, char str[static 128])
 }
 
 static inline void
-trunk_message_to_string(trunk_handle *spl, slice message, char str[static 128])
+trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
 {
-   btree_message_to_string(&spl->cfg.btree_cfg, message, str);
+   btree_message_to_string(&spl->cfg.btree_cfg, msg, str);
 }
 
 static inline void
@@ -459,19 +468,21 @@ uint64
 trunk_hdr_size();
 
 void
-trunk_config_init(trunk_config *trunk_cfg,
-                  cache_config *cache_cfg,
-                  data_config  *data_cfg,
-                  log_config   *log_cfg,
-                  uint64        memtable_capacity,
-                  uint64        fanout,
-                  uint64        max_branches_per_node,
-                  uint64        btree_rough_count_height,
-                  uint64        filter_remainder_size,
-                  uint64        filter_index_size,
-                  uint64        reclaim_threshold,
-                  uint64        use_log,
-                  uint64        use_stats);
+trunk_config_init(trunk_config        *trunk_cfg,
+                  cache_config        *cache_cfg,
+                  data_config         *data_cfg,
+                  log_config          *log_cfg,
+                  uint64               memtable_capacity,
+                  uint64               fanout,
+                  uint64               max_branches_per_node,
+                  uint64               btree_rough_count_height,
+                  uint64               filter_remainder_size,
+                  uint64               filter_index_size,
+                  uint64               reclaim_threshold,
+                  bool                 use_log,
+                  bool                 use_stats,
+                  bool                 verbose_logging,
+                  platform_log_handle *log_handle);
 size_t
 trunk_get_scratch_size();
 

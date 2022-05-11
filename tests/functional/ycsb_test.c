@@ -177,20 +177,21 @@ latency_percentile(latency_table table, float percent)
 }
 
 void
-print_latency_table(platform_stream_handle stream, latency_table table)
+print_latency_table(latency_table table, platform_log_handle *log_handle)
 {
    uint64_t exponent;
    uint64_t mantissa;
    bool     started = 0;
    uint64_t max     = max_latency(table);
 
-   platform_log_stream("latency count\n");
+   platform_log(log_handle, "latency count\n");
    for (exponent = 0; exponent < LATENCY_EXPONENT_LIMIT; exponent++)
       for (mantissa = 0; mantissa < LATENCY_MANTISSA_LIMIT; mantissa++)
          if (started || table[exponent][mantissa]) {
-            platform_log_stream("%20lu %20lu\n",
-                                compute_latency(exponent, mantissa),
-                                table[exponent][mantissa]);
+            platform_log(log_handle,
+                         "%20lu %20lu\n",
+                         compute_latency(exponent, mantissa),
+                         table[exponent][mantissa]);
             started = 1;
             if (max == compute_latency(exponent, mantissa))
                return;
@@ -202,12 +203,12 @@ write_latency_table(char *filename, latency_table table)
 {
    FILE *stream = fopen(filename, "w");
    platform_assert(stream != NULL);
-   print_latency_table(stream, table);
+   print_latency_table(table, stream);
    fclose(stream);
 }
 
 void
-print_latency_cdf(platform_stream_handle stream, latency_table table)
+print_latency_cdf(platform_log_handle *log_handle, latency_table table)
 {
    uint64_t count_so_far = 0;
    uint64_t exponent;
@@ -217,14 +218,15 @@ print_latency_cdf(platform_stream_handle stream, latency_table table)
    if (total == 0)
       total = 1;
 
-   platform_log_stream("latency count\n");
+   platform_log(log_handle, "latency count\n");
    for (exponent = 0; exponent < LATENCY_EXPONENT_LIMIT; exponent++)
       for (mantissa = 0; mantissa < LATENCY_MANTISSA_LIMIT; mantissa++) {
          count_so_far += table[exponent][mantissa];
          if (count_so_far)
-            platform_log_stream("%20lu %f\n",
-                                compute_latency(exponent, mantissa),
-                                1.0 * count_so_far / total);
+            platform_log(log_handle,
+                         "%20lu %f\n",
+                         compute_latency(exponent, mantissa),
+                         1.0 * count_so_far / total);
          if (count_so_far == total)
             return;
       }
@@ -304,21 +306,21 @@ typedef struct ycsb_phase {
 } ycsb_phase;
 
 static void
-nop_tuple_func(slice key, slice value, void *arg)
+nop_tuple_func(slice key, message value, void *arg)
 {}
 
 static void
 ycsb_thread(void *arg)
 {
-   platform_status  rc;
-   uint64           i;
-   ycsb_log_params *params     = (ycsb_log_params *)arg;
-   trunk_handle    *spl        = params->spl;
-   uint64           num_ops    = params->total_ops;
-   uint64           batch_size = params->batch_size;
-   uint64           my_batch;
-   writable_buffer  value;
-   writable_buffer_init(&value, NULL);
+   platform_status   rc;
+   uint64            i;
+   ycsb_log_params  *params     = (ycsb_log_params *)arg;
+   trunk_handle     *spl        = params->spl;
+   uint64            num_ops    = params->total_ops;
+   uint64            batch_size = params->batch_size;
+   uint64            my_batch;
+   merge_accumulator value;
+   merge_accumulator_init(&value, NULL);
 
    uint64_t start_time = platform_get_timestamp();
    __sync_val_compare_and_swap(
@@ -343,7 +345,7 @@ ycsb_thread(void *arg)
                // if (!ops->found) {
                //   char key_str[128];
                //   trunk_key_to_string(spl, ops->key, key_str);
-               //   platform_log("Key %s not found\n", key_str);
+               //   platform_default_log("Key %s not found\n", key_str);
                //   trunk_print_lookup(spl, ops->key);
                //   platform_assert(0);
                //}
@@ -353,8 +355,10 @@ ycsb_thread(void *arg)
             case 'i':
             case 'u':
             {
-               slice value_slice = slice_create(YCSB_DATA_SIZE, ops->value);
-               rc                = trunk_insert(spl, ops->key, value_slice);
+               message val =
+                  message_create(MESSAGE_TYPE_INSERT,
+                                 slice_create(YCSB_DATA_SIZE, ops->value));
+               rc = trunk_insert(spl, ops->key, val);
                platform_assert_status_ok(rc);
                break;
             }
@@ -402,7 +406,7 @@ ycsb_thread(void *arg)
       SEC_TO_NSEC(end_thread_cputime.tv_sec) + end_thread_cputime.tv_nsec
       - SEC_TO_NSEC(start_thread_cputime.tv_sec) - start_thread_cputime.tv_nsec;
    __sync_fetch_and_add(&params->times.sum_of_cpu_times, thread_cputime);
-   writable_buffer_deinit(&value);
+   merge_accumulator_deinit(&value);
 }
 
 static int
@@ -506,15 +510,15 @@ run_all_ycsb_phases(trunk_handle    *spl,
 {
    uint64 i;
    for (i = 0; i < nphases; i++) {
-      platform_log("Beginning phase %lu\n", i);
+      platform_default_log("Beginning phase %lu\n", i);
       if (run_ycsb_phase(spl, &phase[i], ts, hid) < 0)
          return -1;
-      trunk_print_insertion_stats(spl);
-      trunk_print_lookup_stats(spl);
-      cache_print_stats(spl->cc);
+      trunk_print_insertion_stats(Platform_default_log_handle, spl);
+      trunk_print_lookup_stats(Platform_default_log_handle, spl);
+      cache_print_stats(Platform_default_log_handle, spl->cc);
       // trunk_reset_stats(spl);
       cache_reset_stats(spl->cc);
-      platform_log("Phase %s complete\n", phase[i].name);
+      platform_default_log("Phase %s complete\n", phase[i].name);
    }
    return 0;
 }
@@ -543,7 +547,7 @@ parse_ycsb_log_file(void *arg)
    char *filename = req->filename;
    FILE *fp       = fopen(filename, "r");
    if (fp == NULL) {
-      platform_log("failed to open file\n");
+      platform_default_log("failed to open file\n");
       *req->ycsb_ops = NULL;
       return;
    }
@@ -580,15 +584,12 @@ parse_ycsb_log_file(void *arg)
          platform_assert(ret == 2);
       } else if (result[i].cmd == 'd') {
          platform_assert(ret == 2);
-         test_data_set_delete_flag(dh);
       } else if (result[i].cmd == 'u') {
          platform_assert(ret == 2);
          random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
-         test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 'i') {
          platform_assert(ret == 2);
          random_bytes(&rs, (char *)dh->data, YCSB_DATA_SIZE - 2);
-         test_data_set_insert_flag(dh);
       } else if (result[i].cmd == 's') {
          ret = sscanf(buffer,
                       "%c %64s %lu\n",
@@ -1017,73 +1018,72 @@ write_phase_latency_tables(ycsb_phase *phase)
 }
 
 void
-print_operation_statistics(platform_log_handle output,
-                           char               *operation_name,
-                           latency_table       table)
+print_operation_statistics(platform_log_handle *output,
+                           char                *operation_name,
+                           latency_table        table)
 {
-   platform_handle_log(
+   platform_log(
       output, "%s_count: %lu\n", operation_name, num_latencies(table));
-   platform_handle_log(
+   platform_log(
       output, "%s_total_latency: %lu\n", operation_name, total_latency(table));
-   platform_handle_log(
+   platform_log(
       output, "%s_min_latency: %lu\n", operation_name, min_latency(table));
-   platform_handle_log(
+   platform_log(
       output, "%s_mean_latency: %lf\n", operation_name, mean_latency(table));
-   platform_handle_log(output,
-                       "%s_median_latency: %lu\n",
-                       operation_name,
-                       latency_percentile(table, 50.0));
-   platform_handle_log(output,
-                       "%s_99.0_latency: %lu\n",
-                       operation_name,
-                       latency_percentile(table, 99));
-   platform_handle_log(output,
-                       "%s_99.5_latency: %lu\n",
-                       operation_name,
-                       latency_percentile(table, 99.5));
-   platform_handle_log(output,
-                       "%s_99.9_latency: %lu\n",
-                       operation_name,
-                       latency_percentile(table, 99.9));
-   platform_handle_log(
+   platform_log(output,
+                "%s_median_latency: %lu\n",
+                operation_name,
+                latency_percentile(table, 50.0));
+   platform_log(output,
+                "%s_99.0_latency: %lu\n",
+                operation_name,
+                latency_percentile(table, 99));
+   platform_log(output,
+                "%s_99.5_latency: %lu\n",
+                operation_name,
+                latency_percentile(table, 99.5));
+   platform_log(output,
+                "%s_99.9_latency: %lu\n",
+                operation_name,
+                latency_percentile(table, 99.9));
+   platform_log(
       output, "%s_max_latency: %lu\n", operation_name, max_latency(table));
 
-   platform_handle_log(
+   platform_log(
       output, "%s_000_latency: %lu\n", operation_name, min_latency(table));
    int i;
    for (i = 5; i < 100; i += 5) {
-      platform_handle_log(output,
-                          "%s_%03d_latency: %lu\n",
-                          operation_name,
-                          i,
-                          latency_percentile(table, i));
+      platform_log(output,
+                   "%s_%03d_latency: %lu\n",
+                   operation_name,
+                   i,
+                   latency_percentile(table, i));
    }
-   platform_handle_log(
+   platform_log(
       output, "%s_100_latency: %lu\n", operation_name, max_latency(table));
 }
 
 void
-print_statistics_file(platform_log_handle output,
-                      uint64_t            total_ops,
-                      running_times      *times,
-                      latency_tables     *tables)
+print_statistics_file(platform_log_handle *output,
+                      uint64_t             total_ops,
+                      running_times       *times,
+                      latency_tables      *tables)
 {
    uint64_t wall_clock_time =
       times->last_thread_finish_time - times->earliest_thread_start_time;
-   platform_handle_log(output, "total_operations: %lu\n", total_ops);
-   platform_handle_log(output, "wall_clock_time: %lu\n", wall_clock_time);
-   platform_handle_log(
+   platform_log(output, "total_operations: %lu\n", total_ops);
+   platform_log(output, "wall_clock_time: %lu\n", wall_clock_time);
+   platform_log(
       output, "sum_of_wall_clock_times: %lu\n", times->sum_of_wall_clock_times);
-   platform_handle_log(
-      output, "sum_of_cpu_times: %ld\n", times->sum_of_cpu_times);
-   platform_handle_log(
-      output,
-      "mean_overall_latency: %f\n",
-      total_ops ? 1.0 * times->sum_of_wall_clock_times / total_ops : 0);
-   platform_handle_log(
-      output,
-      "mean_overall_throughput: %f\n",
-      wall_clock_time ? 1000000000.0 * total_ops / wall_clock_time : 0);
+   platform_log(output, "sum_of_cpu_times: %ld\n", times->sum_of_cpu_times);
+   platform_log(output,
+                "mean_overall_latency: %f\n",
+                total_ops ? 1.0 * times->sum_of_wall_clock_times / total_ops
+                          : 0);
+   platform_log(output,
+                "mean_overall_throughput: %f\n",
+                wall_clock_time ? 1000000000.0 * total_ops / wall_clock_time
+                                : 0);
 
    print_operation_statistics(output, "pos_query", tables->pos_queries);
    print_operation_statistics(output, "neg_query", tables->neg_queries);
@@ -1168,10 +1168,10 @@ ycsb_test(int argc, char *argv[])
                        &log_size_bytes,
                        &memory_bytes);
    if (!SUCCESS(rc) || phases == NULL) {
-      platform_log("Failed to load ycsb logs\n");
+      platform_default_log("Failed to load ycsb logs\n");
       return -1;
    }
-   platform_log("Log size: %luMiB\n", B_TO_MiB(log_size_bytes));
+   platform_default_log("Log size: %luMiB\n", B_TO_MiB(log_size_bytes));
 
    config_argc = argc - args_consumed;
    config_argv = argv + args_consumed;
@@ -1221,9 +1221,9 @@ ycsb_test(int argc, char *argv[])
    // int64 buffer_bytes = use_existing ? MiB_TO_B(768) : MiB_TO_B(1280);
    buffer_bytes += overhead_bytes;
    buffer_bytes = ROUNDUP(buffer_bytes, 2 * MiB);
-   platform_log("overhead %lu MiB buffer %lu MiB\n",
-                B_TO_MiB(overhead_bytes),
-                B_TO_MiB(buffer_bytes));
+   platform_default_log("overhead %lu MiB buffer %lu MiB\n",
+                        B_TO_MiB(overhead_bytes),
+                        B_TO_MiB(buffer_bytes));
    cache_cfg.capacity      = memory_bytes - buffer_bytes;
    cache_cfg.page_capacity = cache_cfg.capacity / cache_cfg.io_cfg->page_size;
 
@@ -1235,10 +1235,10 @@ ycsb_test(int argc, char *argv[])
    // uint64 huge_tlb_pages = huge_tlb_memory_bytes / (2 * MiB);
    // uint64 remaining_memory_bytes =
    //   memory_bytes + log_size_bytes - huge_tlb_memory_bytes;
-   platform_log("memory: %lu MiB hugeTLB: %lu MiB cache: %lu MiB\n",
-                B_TO_MiB(memory_bytes),
-                B_TO_MiB(huge_tlb_memory_bytes),
-                B_TO_MiB(cache_cfg.capacity));
+   platform_default_log("memory: %lu MiB hugeTLB: %lu MiB cache: %lu MiB\n",
+                        B_TO_MiB(memory_bytes),
+                        B_TO_MiB(huge_tlb_memory_bytes),
+                        B_TO_MiB(cache_cfg.capacity));
 
    // char *resize_cgroup_command =
    //   TYPED_ARRAY_MALLOC(hid, resize_cgroup_command, 1024);
@@ -1336,19 +1336,19 @@ ycsb_test(int argc, char *argv[])
 
    run_all_ycsb_phases(spl, phases, nphases, ts, hid);
 
-   trunk_dismount(spl);
+   trunk_unmount(&spl);
    clockcache_deinit(cc);
    platform_free(hid, cc);
-   rc_allocator_dismount(&al);
-   test_deinit_task_system(hid, ts);
+   rc_allocator_unmount(&al);
+   test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 
    // struct rusage usage;
    // sys_rc = getrusage(RUSAGE_SELF, &usage);
    // platform_assert(sys_rc == 0);
-   // platform_log("max memory usage:             %8luMiB\n",
+   // platform_default_log("max memory usage:             %8luMiB\n",
    //      B_TO_MiB(usage.ru_maxrss * KiB));
-   // platform_log("over provision for op buffer: %8luMiB\n",
+   // platform_default_log("over provision for op buffer: %8luMiB\n",
    //      B_TO_MiB(usage.ru_maxrss * KiB - log_size_bytes));
 
    compute_all_report_data(phases, nphases);

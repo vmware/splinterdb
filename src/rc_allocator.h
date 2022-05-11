@@ -87,7 +87,6 @@ typedef struct rc_allocator {
    rc_allocator_stats stats;
 } rc_allocator;
 
-
 void
 rc_allocator_config_init(rc_allocator_config *allocator_cfg,
                          io_config           *io_cfg,
@@ -113,6 +112,6 @@ rc_allocator_mount(rc_allocator        *al,
                    platform_module_id   mid);
 
 void
-rc_allocator_dismount(rc_allocator *al);
+rc_allocator_unmount(rc_allocator *al);
 
-#endif
+#endif /* __RC_ALLOCATOR_H */

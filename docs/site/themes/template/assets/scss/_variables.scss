@@ -1,0 +1,33 @@
+$white: #ffffff;
+$blue: #0095D3;
+$darkgrey: #333333;
+$grey: #777777;
+$lightgrey: #F2F2F2;
+$darkblue: #002538;
+$purple: #7F35B2;
+$black: #111111;
+$mainblue: #0091DA;
+$navyblue: #1D428A;
+$lightblue: #DAE4EA;
+$aqua: #49AFD9;
+$turquoise: #00C1D5;
+$lighterblue: #eff4f6;
+$blackblue: #1b3951;
+
+// table vars
+$table-border: $lightblue;
+$table-head-bg: #eff4f6;
+
+// helper classes
+.text-color-navy-blue {
+    color: $navyblue;
+} 
+.bg-grey {
+    background-color: $lightgrey;
+}
+.bg-navy-blue {
+    background-color: $navyblue;
+}
+.bg-lighter-blue {
+    background-color: $lighterblue;
+}

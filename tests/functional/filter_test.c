@@ -27,12 +27,12 @@ test_filter_basic(cache           *cc,
                   uint64           num_fingerprints,
                   uint64           num_values)
 {
-   platform_log("filter_test: routing filter basic test started\n");
+   platform_default_log("filter_test: routing filter basic test started\n");
    platform_status rc = STATUS_OK;
 
    const uint64 key_size = cfg->data_cfg->key_size;
    if (key_size < sizeof(uint64)) {
-      platform_log("key_size %lu too small\n", key_size);
+      platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
    }
 
@@ -75,23 +75,23 @@ test_filter_basic(cache           *cc,
                               fp_arr[i],
                               num_fingerprints,
                               i);
-      // platform_log("FILTER %lu\n", i);
+      // platform_default_log("FILTER %lu\n", i);
       // routing_filter_print(cc, cfg, &filter);
       uint32 estimated_input_keys =
          routing_filter_estimate_unique_keys(&filter[i + 1], cfg);
 
-      platform_log("num input keys %8u estimate %8u num_unique %u\n",
-                   num_input_keys[i],
-                   estimated_input_keys,
-                   filter[i + 1].num_unique);
+      platform_default_log("num input keys %8u estimate %8u num_unique %u\n",
+                           num_input_keys[i],
+                           estimated_input_keys,
+                           filter[i + 1].num_unique);
    }
 
    uint32 num_unique =
       routing_filter_estimate_unique_fp(cc, cfg, hid, filter + 1, num_values);
    num_unique = routing_filter_estimate_unique_keys_from_count(cfg, num_unique);
-   platform_log("across filters: num input keys %8u estimate %8u\n",
-                num_input_keys[num_values - 1],
-                num_unique);
+   platform_default_log("across filters: num input keys %8u estimate %8u\n",
+                        num_input_keys[num_values - 1],
+                        num_unique);
 
    platform_free(hid, num_input_keys);
 
@@ -104,9 +104,10 @@ test_filter_basic(cache           *cc,
             cc, cfg, &filter[i + 1], key_slice, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i)) {
-            platform_log("key-value pair (%lu, %lu) not found in filter\n",
-                         (i + 1) * j,
-                         i);
+            platform_default_log(
+               "key-value pair (%lu, %lu) not found in filter\n",
+               (i + 1) * j,
+               i);
             rc = STATUS_NOT_FOUND;
             goto out;
          }
@@ -128,7 +129,7 @@ test_filter_basic(cache           *cc,
 
    fraction false_positive_rate =
       init_fraction(false_positives, num_fingerprints);
-   platform_log(
+   platform_default_log(
       "routing filter basic test: false positive rate " FRACTION_FMT(1, 4) "\n",
       FRACTION_ARGS(false_positive_rate));
 
@@ -154,12 +155,12 @@ test_filter_perf(cache           *cc,
                  uint64           num_values,
                  uint64           num_trees)
 {
-   platform_log("filter_test: routing filter perf test started\n");
+   platform_default_log("filter_test: routing filter perf test started\n");
    platform_status rc = STATUS_OK;
 
    const uint64 key_size = cfg->data_cfg->key_size;
    if (key_size < sizeof(uint64)) {
-      platform_log("key_size %lu too small\n", key_size);
+      platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
    }
 
@@ -201,9 +202,9 @@ test_filter_perf(cache           *cc,
          filter[k] = new_filter;
       }
    }
-   platform_log("filter insert time per key %lu\n",
-                platform_timestamp_elapsed(start_time)
-                   / (num_fingerprints * num_values * num_trees));
+   platform_default_log("filter insert time per key %lu\n",
+                        platform_timestamp_elapsed(start_time)
+                           / (num_fingerprints * num_values * num_trees));
 
    start_time = platform_get_timestamp();
    for (uint64 k = 0; k < num_trees; k++) {
@@ -216,7 +217,7 @@ test_filter_perf(cache           *cc,
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i / num_fingerprints))
          {
-            platform_log(
+            platform_default_log(
                "key-value pair (%lu, %lu) not found in filter %lu (%lu)\n",
                k * num_values * num_fingerprints + i,
                i / num_fingerprints,
@@ -231,9 +232,9 @@ test_filter_perf(cache           *cc,
          }
       }
    }
-   platform_log("filter positive lookup time per key %lu\n",
-                platform_timestamp_elapsed(start_time)
-                   / (num_fingerprints * num_trees * num_values));
+   platform_default_log("filter positive lookup time per key %lu\n",
+                        platform_timestamp_elapsed(start_time)
+                           / (num_fingerprints * num_trees * num_values));
 
    start_time             = platform_get_timestamp();
    uint64 unused_key      = num_values * num_fingerprints * num_trees;
@@ -252,17 +253,17 @@ test_filter_perf(cache           *cc,
       }
    }
 
-   platform_log("filter negative lookup time per key %lu\n",
-                platform_timestamp_elapsed(start_time)
-                   / (num_fingerprints * num_trees * num_values));
+   platform_default_log("filter negative lookup time per key %lu\n",
+                        platform_timestamp_elapsed(start_time)
+                           / (num_fingerprints * num_trees * num_values));
    fraction false_positive_rate =
       init_fraction(false_positives, num_fingerprints * num_trees * num_values);
-   platform_log("filter_basic_test: false positive rate " FRACTION_FMT(
-                   1, 4) " for %lu trees\n",
-                FRACTION_ARGS(false_positive_rate),
-                num_trees);
+   platform_default_log("filter_basic_test: false positive rate " FRACTION_FMT(
+                           1, 4) " for %lu trees\n",
+                        FRACTION_ARGS(false_positive_rate),
+                        num_trees);
 
-   cache_print_stats(cc);
+   cache_print_stats(Platform_default_log_handle, cc);
 
 out:
    for (uint64 i = 0; i < num_trees; i++) {
@@ -385,53 +386,37 @@ filter_test(int argc, char *argv[])
 
    if (run_perf_test) {
       rc = test_filter_perf((cache *)cc,
-                            &cfg->leaf_filter_cfg,
+                            &cfg->filter_cfg,
                             hid,
                             max_tuples_per_memtable,
                             cfg->fanout,
                             100);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_perf((cache *)cc,
-                            &cfg->index_filter_cfg,
-                            hid,
-                            max_tuples_per_memtable / 5,
-                            cfg->fanout,
-                            100);
-      platform_assert(SUCCESS(rc));
    } else {
       rc = test_filter_basic((cache *)cc,
-                             &cfg->leaf_filter_cfg,
+                             &cfg->filter_cfg,
                              hid,
                              max_tuples_per_memtable,
                              cfg->fanout);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc,
-                             &cfg->index_filter_cfg,
-                             hid,
-                             max_tuples_per_memtable / 5,
-                             cfg->fanout);
+      rc = test_filter_basic(
+         (cache *)cc, &cfg->filter_cfg, hid, 100, cfg->fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic(
-         (cache *)cc, &cfg->leaf_filter_cfg, hid, 100, cfg->fanout);
+         (cache *)cc, &cfg->filter_cfg, hid, 50, cfg->max_branches_per_node);
       platform_assert(SUCCESS(rc));
-      rc = test_filter_basic((cache *)cc,
-                             &cfg->leaf_filter_cfg,
-                             hid,
-                             50,
-                             cfg->max_branches_per_node);
+      rc =
+         test_filter_basic((cache *)cc, &cfg->filter_cfg, hid, 1, cfg->fanout);
       platform_assert(SUCCESS(rc));
       rc = test_filter_basic(
-         (cache *)cc, &cfg->leaf_filter_cfg, hid, 1, cfg->fanout);
-      platform_assert(SUCCESS(rc));
-      rc = test_filter_basic(
-         (cache *)cc, &cfg->leaf_filter_cfg, hid, 1, 2 * cfg->fanout);
+         (cache *)cc, &cfg->filter_cfg, hid, 1, 2 * cfg->fanout);
       platform_assert(SUCCESS(rc));
    }
 
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, ts);
+   test_deinit_task_system(hid, &ts);
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:

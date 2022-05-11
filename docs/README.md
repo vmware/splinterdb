@@ -8,6 +8,10 @@
 
 [Testing SplinterDB](./testing.md)
 
+[Limitations](./limitations.md)
+
+[Diagnostics](./diagnostics.md)
+
 [Contributing](../CONTRIBUTING.md)
 
 [Code of Conduct](../CODE-OF-CONDUCT.md)

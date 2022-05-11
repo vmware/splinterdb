@@ -7,18 +7,10 @@
  * --------------------------------------------------------------------------
  * Default test configuration settings. These will be used by
  * config_set_defaults() to initialize test-execution configuration in the
- * master_config used to run tests.
+ * master_config used to run tests. See also config.h, where few default
+ * config limits used outside this file are defined.
  * --------------------------------------------------------------------------
  */
-#define TEST_CONFIG_DEFAULT_PAGE_SIZE 4096 // bytes
-
-#define TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT 32
-_Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
-               "Invalid TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT value");
-
-#define TEST_CONFIG_DEFAULT_EXTENT_SIZE                                        \
-   (TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT * TEST_CONFIG_DEFAULT_PAGE_SIZE)
-
 // Determined empirically ... nothing scientific here
 #define TEST_CONFIG_DEFAULT_IO_ASYNC_Q_DEPTH 256
 
@@ -34,6 +26,9 @@ _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
 #define TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE 24
 
 // Deal with reasonable key / message sizes for tests
+// There are open issues in some tests for smaller key-sizes.
+// For now, restrict tests to use this minimum key-size.
+#define TEST_CONFIG_MIN_KEY_SIZE         ((int)sizeof(uint64))
 #define TEST_CONFIG_DEFAULT_KEY_SIZE     24
 #define TEST_CONFIG_DEFAULT_MESSAGE_SIZE 100
 
@@ -64,6 +59,9 @@ config_set_defaults(master_config *cfg)
       .max_branches_per_node    = TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE,
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
+      .verbose_logging_enabled  = FALSE,
+      .verbose_progress         = FALSE,
+      .log_handle               = NULL,
       .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
@@ -76,8 +74,8 @@ void
 config_usage()
 {
    platform_error_log("Configuration: (default)\n");
-   platform_error_log("\t--page_size (%d)\n", TEST_CONFIG_DEFAULT_PAGE_SIZE);
-   platform_error_log("\t--extent_size (%d)\n",
+   platform_error_log("\t--page-size (%d)\n", TEST_CONFIG_DEFAULT_PAGE_SIZE);
+   platform_error_log("\t--extent-size (%d)\n",
                       TEST_CONFIG_DEFAULT_EXTENT_SIZE);
    platform_error_log("\t--set-hugetlb\n");
    platform_error_log("\t--unset-hugetlb\n");
@@ -111,6 +109,9 @@ config_usage()
    platform_error_log("\t--no-stats\n");
    platform_error_log("\t--log\n");
    platform_error_log("\t--no-log\n");
+   platform_error_log("\t--verbose-logging\n");
+   platform_error_log("\t--no-verbose-logging\n");
+   platform_error_log("\t--verbose-progress\n");
    platform_error_log("\t--key-size (%d)\n", TEST_CONFIG_DEFAULT_KEY_SIZE);
    platform_error_log("\t--data-size (%d)\n", TEST_CONFIG_DEFAULT_MESSAGE_SIZE);
    platform_error_log("\t--num-inserts (%d)\n",
@@ -129,27 +130,42 @@ platform_status
 config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
 {
    uint64 i;
-   uint8  cfg_idx;
    for (i = 0; i < argc; i++) {
       // Don't be mislead; this is not dead-code. See the config macro expansion
       if (0) {
          config_set_uint64("page-size", cfg, page_size)
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                if (cfg[cfg_idx].page_size != TEST_CONFIG_DEFAULT_PAGE_SIZE) {
-                  platform_error_log("page_size must be %d for now\n",
+                  platform_error_log("Currently, configuration parameter '%s' "
+                                     "is restricted to %d bytes.\n",
+                                     "--page-size",
                                      TEST_CONFIG_DEFAULT_PAGE_SIZE);
                   platform_error_log("config: failed to parse page-size\n");
                   return STATUS_BAD_PARAM;
                }
+               // Really dead-code for now; Leave it for future enablement.
                if (!IS_POWER_OF_2(cfg[cfg_idx].page_size)) {
-                  platform_error_log("page_size must be a power of 2\n");
+                  platform_error_log("Configuration parameter '%s' must be "
+                                     "a power of 2.\n",
+                                     "--page-size");
                   platform_error_log("config: failed to parse page-size\n");
                   return STATUS_BAD_PARAM;
                }
             }
          }
-         config_set_uint64("extent-size", cfg, extent_size) {}
+         config_set_uint64("extent-size", cfg, extent_size)
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               if (!IS_POWER_OF_2(cfg[cfg_idx].extent_size)) {
+                  platform_error_log("Configuration parameter '%s' must be "
+                                     "a power of 2.\n",
+                                     "--extent-size");
+                  platform_error_log("config: failed to parse page-size\n");
+                  return STATUS_BAD_PARAM;
+               }
+            }
+         }
          config_has_option("set-hugetlb")
          {
             platform_use_hugetlb = TRUE;
@@ -169,25 +185,25 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_string("db-location", cfg, io_filename) {}
          config_has_option("set-O_DIRECT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags |= O_DIRECT;
             }
          }
          config_has_option("unset-O_DIRECT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags &= ~O_DIRECT;
             }
          }
          config_has_option("set-O_CREAT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags |= O_CREAT;
             }
          }
          config_has_option("unset-O_CREAT")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].io_flags &= ~O_CREAT;
             }
          }
@@ -211,22 +227,49 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {}
          config_has_option("stats")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_stats = TRUE;
             }
          }
          config_has_option("no-stats")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_stats = FALSE;
             }
          }
          config_has_option("log")
          {
-            for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_log = TRUE;
             }
          }
+         config_has_option("no-log")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].use_log = FALSE;
+            }
+         }
+         config_has_option("verbose-logging")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].verbose_logging_enabled = TRUE;
+               cfg[cfg_idx].log_handle = Platform_default_log_handle;
+            }
+         }
+         config_has_option("no-verbose-logging")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].verbose_logging_enabled = FALSE;
+               cfg[cfg_idx].log_handle              = NULL;
+            }
+         }
+         config_has_option("verbose-progress")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].verbose_progress = TRUE;
+            }
+         }
+
          config_set_uint64("key-size", cfg, key_size) {}
          config_set_uint64("data-size", cfg, message_size) {}
 
@@ -240,23 +283,42 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             return STATUS_BAD_PARAM;
          }
       }
-      for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+      for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
          if (cfg[cfg_idx].extent_size % cfg[cfg_idx].page_size != 0) {
-            platform_error_log(
-               "config: extent_size is not a multiple of page_size\n");
+            platform_error_log("Configured extent-size, %lu, is not a multiple "
+                               "of page-size, %lu bytes.\n",
+                               cfg[cfg_idx].extent_size,
+                               cfg[cfg_idx].page_size);
             return STATUS_BAD_PARAM;
          }
          if (cfg[cfg_idx].extent_size / cfg[cfg_idx].page_size
-             > MAX_PAGES_PER_EXTENT) {
-            platform_error_log("config: pages per extent too high: %lu > %lu\n",
-                               cfg[cfg_idx].extent_size
-                                  / cfg[cfg_idx].page_size,
-                               MAX_PAGES_PER_EXTENT);
+             != MAX_PAGES_PER_EXTENT) {
+            int npages = (cfg[cfg_idx].extent_size / cfg[cfg_idx].page_size);
+            platform_error_log("For the configured page-size, %lu bytes, "
+                               "the '%s' argument, %lu, results in %d "
+                               "pages per extent which is not the "
+                               "supported value, %lu. "
+                               "Valid value for %s is %lu.\n",
+                               cfg[cfg_idx].page_size,
+                               "--extent-size",
+                               cfg[cfg_idx].extent_size,
+                               npages,
+                               MAX_PAGES_PER_EXTENT,
+                               "--extent-size",
+                               (MAX_PAGES_PER_EXTENT * cfg[cfg_idx].page_size));
+            return STATUS_BAD_PARAM;
+         }
+         if (cfg[cfg_idx].key_size < TEST_CONFIG_MIN_KEY_SIZE) {
+            platform_error_log("Configured key-size, %lu, should be at least "
+                               "%d bytes. Support for smaller key-sizes is "
+                               "experimental.\n",
+                               cfg[cfg_idx].key_size,
+                               TEST_CONFIG_MIN_KEY_SIZE);
             return STATUS_BAD_PARAM;
          }
          if (cfg[cfg_idx].key_size > MAX_KEY_SIZE) {
             platform_error_log("Configured key-size, %lu bytes, is larger than "
-                               "the MAX_KEY_SIZE=%d.\n",
+                               "the MAX_KEY_SIZE=%d bytes.\n",
                                cfg[cfg_idx].key_size,
                                MAX_KEY_SIZE);
             return STATUS_BAD_PARAM;

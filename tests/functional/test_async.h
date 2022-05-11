@@ -27,8 +27,8 @@ typedef struct {
       int8   refcount;   // Used by functionality test
       uint64 lookup_num; // Used by rest
    };
-   char            key[MAX_KEY_SIZE];
-   writable_buffer data;
+   char              key[MAX_KEY_SIZE];
+   merge_accumulator data;
 } test_async_ctxt;
 
 /*

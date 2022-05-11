@@ -22,7 +22,6 @@
 #include "trunk.h"
 #include "clockcache.h"
 #include "allocator.h"
-#include "platform.h"
 #include "task.h"
 #include "functional/test.h"
 #include "functional/test_async.h"
@@ -105,14 +104,15 @@ CTEST_DATA(splinter)
 };
 
 /*
- * Setup Splinter configuration: Extracted from functional/splinter_test.c:
- * splinter_test().
+ * -------------------------------------------------------------------------
+ * Setup Splinter configuration:
+ * -------------------------------------------------------------------------
  */
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   Platform_stdout_fh = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_stderr_fh = fopen("/tmp/unit_test.stderr", "a+");
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle = fopen("/tmp/unit_test.stderr", "a+");
 
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
@@ -138,11 +138,7 @@ CTEST_SETUP(splinter)
    data->splinter_cfg = TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg,
                                           num_tables);
 
-   data->data_cfg = TYPED_ARRAY_MALLOC(data->hid, data->data_cfg,
-                                       num_tables);
-
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg,
-                                        num_tables);
+   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
@@ -169,12 +165,12 @@ CTEST_SETUP(splinter)
    io_config * io_cfgp = &data->io_cfg;
    if (io_cfgp->async_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->async_queue_size = ROUNDUP(total_threads * data->max_async_inflight, 32);
-      platform_log("Bumped up IO queue size to %lu\n", io_cfgp->async_queue_size);
+      platform_default_log("Bumped up IO queue size to %lu\n", io_cfgp->async_queue_size);
    }
    if (io_cfgp->kernel_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->kernel_queue_size =
          ROUNDUP(total_threads * data->max_async_inflight, 32);
-      platform_log("Bumped up IO queue size to %lu\n",
+      platform_default_log("Bumped up IO queue size to %lu\n",
                    io_cfgp->kernel_queue_size);
    }
 
@@ -215,7 +211,6 @@ CTEST_SETUP(splinter)
 
       ASSERT_TRUE(SUCCESS(rc), "clockcache_init() failed for index=%d. ", idx);
    }
-
 }
 
 // clang-format on
@@ -232,7 +227,7 @@ CTEST_TEARDOWN(splinter)
    allocator_assert_noleaks(alp);
 
    rc_allocator_deinit(&data->al);
-   test_deinit_task_system(data->hid, data->tasks);
+   test_deinit_task_system(data->hid, &data->tasks);
 
    io_handle_deinit(data->io);
    platform_free(data->hid, data->io);
@@ -306,16 +301,17 @@ trunk_shadow_reinit(trunk_shadow *shadow)
  * rows will be used later during lookup-validation using range searches.
  */
 static void
-trunk_shadow_append(trunk_shadow *shadow, slice key, slice value)
+trunk_shadow_append(trunk_shadow *shadow, slice key, message value)
 {
+   platform_assert(message_class(value) == MESSAGE_TYPE_INSERT);
    uint64 key_offset =
       writable_buffer_append(&shadow->data, slice_length(key), slice_data(key));
    writable_buffer_append(
-      &shadow->data, slice_length(value), slice_data(value));
+      &shadow->data, message_length(value), message_data(value));
 
    shadow_entry new_entry = {.key_offset   = key_offset,
                              .key_length   = slice_length(key),
-                             .value_length = slice_length(value)};
+                             .value_length = message_length(value)};
    writable_buffer_append(&shadow->entries, sizeof(new_entry), &new_entry);
    shadow->sorted = FALSE;
 }
@@ -326,11 +322,13 @@ shadow_entry_key(const shadow_entry *entry, char *data)
    return slice_create(entry->key_length, data + entry->key_offset);
 }
 
-static slice
+static message
 shadow_entry_value(const shadow_entry *entry, char *data)
 {
-   return slice_create(entry->value_length,
-                       data + entry->key_offset + entry->key_length);
+   return message_create(
+      MESSAGE_TYPE_INSERT,
+      slice_create(entry->value_length,
+                   data + entry->key_offset + entry->key_length));
 }
 
 static int
@@ -361,7 +359,7 @@ trunk_shadow_sort(trunk_shadow *shadow)
 }
 
 static void
-trunk_shadow_get(trunk_shadow *shadow, uint64 i, slice *key, slice *value)
+trunk_shadow_get(trunk_shadow *shadow, uint64 i, slice *key, message *value)
 {
 
    if (!shadow->sorted) {
@@ -386,9 +384,9 @@ test_splinter_bsearch(trunk_shadow *shadow, slice key)
    while (lo < hi) {
       // invariant: forall i | i < lo  :: s[i] < key
       // invariant: forall i | hi <= i :: key <= s[i]
-      slice  ckey;
-      slice  cvalue;
-      uint64 mid = (lo + hi) / 2;
+      slice   ckey;
+      message cvalue;
+      uint64  mid = (lo + hi) / 2;
       trunk_shadow_get(shadow, mid, &ckey, &cvalue);
       int cmp = slice_lex_cmp(key, ckey);
       if (cmp <= 0) {
@@ -435,8 +433,8 @@ CTEST2(splinter, test_lookups)
                     "Expected to have inserted non-zero rows, num_inserts=%lu.",
                     num_inserts);
 
-   writable_buffer qdata;
-   writable_buffer_init(&qdata, NULL);
+   merge_accumulator qdata;
+   merge_accumulator_init(&qdata, NULL);
    char         key[MAX_KEY_SIZE];
    const size_t key_size = trunk_key_size(spl);
 
@@ -456,7 +454,7 @@ CTEST2(splinter, test_lookups)
          insert_num, num_inserts, "Verify positive lookups %3lu%% complete");
 
       test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
-      writable_buffer_set_to_null(&qdata);
+      merge_accumulator_set_to_null(&qdata);
 
       rc = trunk_lookup(spl, key, &qdata);
       ASSERT_TRUE(SUCCESS(rc),
@@ -468,7 +466,7 @@ CTEST2(splinter, test_lookups)
                    &data->gen,
                    insert_num,
                    key,
-                   writable_buffer_to_slice(&qdata),
+                   merge_accumulator_to_message(&qdata),
                    TRUE);
    }
 
@@ -505,7 +503,7 @@ CTEST2(splinter, test_lookups)
                    &data->gen,
                    insert_num,
                    key,
-                   writable_buffer_to_slice(&qdata),
+                   merge_accumulator_to_message(&qdata),
                    FALSE);
    }
 
@@ -622,6 +620,58 @@ CTEST2(splinter, test_lookups)
 }
 
 /*
+ * -----------------------------------------------------------------------------
+ * Simple test cases to exercise print / diagnostic functions provided
+ * by various sub-systems.  Test is now readily useful as an educational tool.
+ *
+ * NOTE: This test case is mentioned in external docs. Be careful what
+ *  changes you bring in here.
+ * -----------------------------------------------------------------------------
+ */
+CTEST2(splinter, test_splinter_print_diags)
+{
+   allocator *alp = (allocator *)&data->al;
+
+   trunk_handle *spl = trunk_create(data->splinter_cfg,
+                                    alp,
+                                    (cache *)data->clock_cache,
+                                    data->tasks,
+                                    test_generate_allocator_root_id(),
+                                    data->hid);
+   ASSERT_TRUE(spl != NULL);
+
+   uint64 num_inserts = splinter_do_inserts(data, spl, FALSE, NULL);
+   ASSERT_NOT_EQUAL(0,
+                    num_inserts,
+                    "Expected to have inserted non-zero rows, num_inserts=%lu",
+                    num_inserts);
+
+   platform_default_log("**** Splinter Diagnostics ****\n"
+                        "Generated by %s:%d:%s ****\n",
+                        __FILE__,
+                        __LINE__,
+                        __FUNCTION__);
+
+   trunk_print_super_block(Platform_default_log_handle, spl);
+
+   trunk_print_space_use(Platform_default_log_handle, spl);
+
+   platform_default_log("\n** trunk_print() **\n");
+   trunk_print(Platform_default_log_handle, spl);
+
+   platform_default_log("\n** Allocator stats **\n");
+   allocator_print_stats(alp);
+   allocator_print_allocated(alp);
+
+   trunk_destroy(spl);
+}
+
+/*
+ * ----------------------------------
+ * Helper and minions live here.
+ * ----------------------------------
+ */
+/*
  * Work-horse function to drive inserts into Splinter. # of inserts is
  * determined by config parameters, and computed below.
  *
@@ -629,7 +679,7 @@ CTEST2(splinter, test_lookups)
  *  datap       - Ptr to global data struct { }
  *  spl         - Ptr to splinter handle, established by caller.
  *  verify      - Boolean; periodically verify splinter tree consistency
- *  shadowpp    - Addr of ptr to shadow buffer, which will be allocated
+ *  shadow      - Ptr to shadow buffer, which will be re-initialized
  *                and filled-out in this function, if supplied.
  *
  * Returns the # of rows inserted.
@@ -644,7 +694,9 @@ splinter_do_inserts(void         *datap,
    struct CTEST_IMPL_DATA_SNAME(splinter) *data =
       (struct CTEST_IMPL_DATA_SNAME(splinter) *)datap;
 
-   // First see if test was invoked with --num-inserts execution parameter
+   // First see if test was invoked with --num-inserts execution parameter.
+   // (Override the default, which is some big value, like 12988800, with this
+   // hook for faster test execution.)
    int num_inserts = data->test_exec_cfg.num_inserts;
 
    // If not, derive total # of rows to be inserted
@@ -663,10 +715,6 @@ splinter_do_inserts(void         *datap,
                         data->splinter_cfg[0].mt_cfg.max_extents_per_memtable,
                         num_inserts);
 
-   // Debug hook: Override this to smaller value for faster test execution,
-   // while doing test-dev / debugging. Default is some big value, like
-   // 12988800; num_inserts = (100 * 100 * 100);
-
    uint64       start_time = platform_get_timestamp();
    uint64       insert_num;
    char         key[MAX_KEY_SIZE];
@@ -683,8 +731,8 @@ splinter_do_inserts(void         *datap,
    platform_default_log("trunk_insert() test with %d inserts %s ...\n",
                         num_inserts,
                         (verify ? "and verify" : ""));
-   writable_buffer msg;
-   writable_buffer_init(&msg, NULL);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, NULL);
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
 
       // Show progress message in %age-completed to stdout
@@ -699,7 +747,7 @@ splinter_do_inserts(void         *datap,
       }
       test_key(key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       generate_test_message(&data->gen, insert_num, &msg);
-      rc = trunk_insert(spl, key, writable_buffer_to_slice(&msg));
+      rc = trunk_insert(spl, key, merge_accumulator_to_message(&msg));
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_insert() FAILURE: %s\n",
                   platform_status_to_string(rc));
@@ -707,8 +755,9 @@ splinter_do_inserts(void         *datap,
       // Caller is interested in using a copy of the rows inserted for
       // verification; e.g. by range-search lookups.
       if (shadow) {
-         trunk_shadow_append(
-            shadow, trunk_key_slice(spl, key), writable_buffer_to_slice(&msg));
+         trunk_shadow_append(shadow,
+                             trunk_key_slice(spl, key),
+                             merge_accumulator_to_message(&msg));
       }
    }
 
@@ -729,7 +778,7 @@ splinter_do_inserts(void         *datap,
    cache_assert_free((cache *)data->clock_cache);
 
    // Cleanup memory allocated in this test case
-   writable_buffer_deinit(&msg);
+   merge_accumulator_deinit(&msg);
    return num_inserts;
 }
 
@@ -741,14 +790,14 @@ typedef struct shadow_check_tuple_arg {
 } shadow_check_tuple_arg;
 
 static void
-shadow_check_tuple_func(slice key, slice value, void *varg)
+shadow_check_tuple_func(slice key, message value, void *varg)
 {
    shadow_check_tuple_arg *arg = varg;
 
-   slice shadow_key;
-   slice shadow_value;
+   slice   shadow_key;
+   message shadow_value;
    trunk_shadow_get(arg->shadow, arg->pos, &shadow_key, &shadow_value);
-   if (slice_lex_cmp(key, shadow_key) || slice_lex_cmp(value, shadow_value)) {
+   if (slice_lex_cmp(key, shadow_key) || message_lex_cmp(value, shadow_value)) {
       char expected_key[128];
       char actual_key[128];
       char expected_value[128];
@@ -760,8 +809,9 @@ shadow_check_tuple_func(slice key, slice value, void *varg)
       trunk_message_to_string(arg->spl, shadow_value, expected_value);
       trunk_message_to_string(arg->spl, value, actual_value);
 
-      platform_log("expected: '%s' | '%s'\n", expected_key, expected_value);
-      platform_log("actual  : '%s' | '%s'\n", actual_key, actual_value);
+      platform_default_log(
+         "expected: '%s' | '%s'\n", expected_key, expected_value);
+      platform_default_log("actual  : '%s' | '%s'\n", actual_key, actual_value);
       arg->errors++;
    }
 
@@ -769,6 +819,7 @@ shadow_check_tuple_func(slice key, slice value, void *varg)
 }
 
 /*
+ * -----------------------------------------------------------------------------
  * Driver routine to verify Splinter lookup by range searches.
  *
  * Parameters:
@@ -777,6 +828,7 @@ shadow_check_tuple_func(slice key, slice value, void *varg)
  *  num_inserts - # of inserts that we want ranges to span
  *  shadow      - Shadow buffer allocated by caller, while inserting rows.
  *  num_ranges  - # of range searches to do in this run
+ * -----------------------------------------------------------------------------
  */
 static platform_status
 test_lookup_by_range(void         *datap,

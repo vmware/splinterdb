@@ -97,7 +97,7 @@ cache_test_alloc_extents(cache             *cc,
 platform_status
 test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 {
-   platform_log("cache_test: basic test started\n");
+   platform_default_log("cache_test: basic test started\n");
    platform_status rc       = STATUS_OK;
    page_handle   **page_arr = NULL;
    uint64         *addr_arr = NULL;
@@ -286,9 +286,9 @@ exit:
    }
 
    if (SUCCESS(rc)) {
-      platform_log("cache_test: basic test passed\n");
+      platform_default_log("cache_test: basic test passed\n");
    } else {
-      platform_log("cache_test: basic test failed\n");
+      platform_default_log("cache_test: basic test failed\n");
    }
 
    return rc;
@@ -402,7 +402,7 @@ cache_test_dirty_flush(cache                 *cc,
    platform_status rc = STATUS_OK;
    timestamp       t_start;
 
-   platform_log("Running Flush %s test case ... ", testname);
+   platform_error_log("Running Flush %s test case ... ", testname);
    /*
     * Get all entries for write, mark dirty, release, and
     * flush. Verify that there are no dirty entries afterwards.
@@ -440,10 +440,11 @@ cache_test_dirty_flush(cache                 *cc,
    t_start = platform_get_timestamp();
    cache_flush(cc);
    t_start = NSEC_TO_MSEC(platform_timestamp_elapsed(t_start));
-   platform_log("took %lu msec (%lu MiB/sec)\n",
-                t_start,
-                (cfg->page_capacity << cfg->log_page_size) / MiB
-                   * SEC_TO_MSEC(1) / t_start);
+   platform_default_log("Flush %s took %lu msec (%lu MiB/sec)\n",
+                        testname,
+                        t_start,
+                        (cfg->page_capacity << cfg->log_page_size) / MiB
+                           * SEC_TO_MSEC(1) / t_start);
    uint32 dirty_count = cache_count_dirty(cc);
    if (dirty_count != 0) {
       platform_error_log("Expected no dirty entries but found: %u",
@@ -461,7 +462,7 @@ test_cache_flush(cache             *cc,
                  platform_heap_id   hid,
                  uint64             al_extent_capacity)
 {
-   platform_log("cache_test: flush test started\n");
+   platform_default_log("cache_test: flush test started\n");
    platform_status rc       = STATUS_OK;
    uint64         *addr_arr = NULL;
    timestamp       t_start;
@@ -479,18 +480,18 @@ test_cache_flush(cache             *cc,
    }
    uint32 extents_to_allocate = factor * extent_capacity;
    uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
-   platform_log("Allocate %d extents ... ", extents_to_allocate);
+   platform_default_log("Allocate %d extents ... ", extents_to_allocate);
 
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    t_start  = platform_get_timestamp();
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
-      platform_log("failed.\n");
+      platform_error_log("failed.\n");
       /* no need to set status because we got here from an error status */
       goto exit;
    }
-   platform_log("took %lu secs.\n",
-                NSEC_TO_SEC(platform_timestamp_elapsed(t_start)));
+   platform_default_log("Allocation took %lu secs\n",
+                        NSEC_TO_SEC(platform_timestamp_elapsed(t_start)));
 
    cache_test_index_itor itor;
 
@@ -551,8 +552,8 @@ test_cache_flush(cache             *cc,
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
-   platform_log("Dealloc took %lu secs\n",
-                NSEC_TO_SEC(platform_timestamp_elapsed(t_start)));
+   platform_default_log("Dealloc took %lu secs\n",
+                        NSEC_TO_SEC(platform_timestamp_elapsed(t_start)));
 
 exit:
    if (addr_arr) {
@@ -560,9 +561,9 @@ exit:
    }
 
    if (SUCCESS(rc)) {
-      platform_log("cache_test: flush test passed\n");
+      platform_default_log("cache_test: flush test passed\n");
    } else {
-      platform_log("cache_test: flush test failed\n");
+      platform_default_log("cache_test: flush test failed\n");
    }
 
    return rc;
@@ -854,17 +855,17 @@ test_cache_async(cache             *cc,
        */
       platform_assert(num_writer_threads == 0);
    }
-   platform_log("cache_test: async test started with %u reader"
-                ", %u writer threads (working set=%u%%)\n",
-                num_reader_threads,
-                num_writer_threads,
-                working_set_percent);
+   platform_default_log(
+      "cache_test: async test started with %u+%u threads (ws=%u%%)\n",
+      num_reader_threads,
+      num_writer_threads,
+      working_set_percent);
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
       return rc;
    }
-   platform_log("cache_test: %lu pages allocated\n", pages_to_allocate);
+   platform_default_log("cache_test: %lu pages allocated\n", pages_to_allocate);
    // Start cache with a clean slate
    cache_flush(cc);
    cache_evict(cc, TRUE);
@@ -939,8 +940,8 @@ test_cache_async(cache             *cc,
    }
    platform_free(hid, addr_arr);
    platform_free(hid, params);
-   cache_print_stats(cc);
-   platform_log("\n");
+   cache_print_stats(Platform_default_log_handle, cc);
+   platform_default_log("\n");
 
    return rc;
 }
@@ -982,10 +983,10 @@ cache_test(int argc, char *argv[])
       }
    }
 
-   platform_log("\nStarted cache_test %s\n",
-                ((argc == 1) ? "basic"
-                 : benchmark ? "performance benchmarking."
-                             : "async performance."));
+   platform_default_log("\nStarted cache_test %s\n",
+                        ((argc == 1) ? "basic"
+                         : benchmark ? "performance benchmarking."
+                                     : "async performance."));
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
@@ -1124,7 +1125,7 @@ cache_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, ts);
+   test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);

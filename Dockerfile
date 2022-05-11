@@ -13,8 +13,6 @@
 #
 # To build the image from a local source checkout:
 # $ docker build -t splinterdb .
-# To then run the splinterdb-cli within the build image:
-# $ docker run --rm splinterdb bin/splinterdb-cli --help
 # or to run tests:
 # $ docker run --rm splinterdb ./test.sh
 
@@ -42,10 +40,14 @@ COPY --from=build /splinterdb-install/lib/ /usr/local/lib/
 COPY --from=build /splinterdb-install/include/splinterdb/ /usr/local/include/splinterdb/
 
 # Copy over the test binaries under bin/ (recursively) and the test script
-COPY --from=build /splinterdb-src/bin/ /splinterdb/bin/
+# (Default BUILD_DIR is 'build'.)
+COPY --from=build /splinterdb-src/build/release/bin/ /splinterdb/build/release/bin/
 COPY --from=build /splinterdb-src/test.sh /splinterdb/test.sh
+
 # TODO: Currently driver_test dynamically links against the relative path lib/libsplinterdb.so
 # Instead we should link driver_test statically against libsplinterdb.a so that this hack isn't necessary
-RUN mkdir /splinterdb/lib && ln -s /usr/local/lib/libsplinterdb.so /splinterdb/lib/libsplinterdb.so
+# As all test binaries are linked against the libraries produced during the build,
+# adjust the lib-paths to drive off of default $BUILD_DIR dir; i.e. 'build'.
+RUN mkdir -p /splinterdb/build/release/lib && ln -s /usr/local/lib/libsplinterdb.so /splinterdb/build/release/lib/libsplinterdb.so
 
 WORKDIR "/splinterdb"

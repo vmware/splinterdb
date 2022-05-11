@@ -99,7 +99,7 @@ splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 //
 // This will flush all data to disk and release all resources
 void
-splinterdb_close(splinterdb *kvs);
+splinterdb_close(splinterdb **kvs);
 
 // Register the current thread so that it can be used with splinterdb.
 // This causes scratch space to be allocated for the thread.
@@ -130,21 +130,14 @@ splinterdb_deregister_thread(splinterdb *kvs);
 int
 splinterdb_insert(const splinterdb *kvsb, slice key, slice value);
 
-// Insert a raw message at the given key.
-//
-// Custom message types can be used to encode non-overwriting
-// "blind mutations" like "increment" or "append" via the MESSAGE_TYPE_UPDATE.
-// These can be stored without doing a read of the current value.
-int
-splinterdb_insert_raw_message(const splinterdb *kvs,
-                              slice             key,
-                              slice             raw_message);
-
-
 // Delete a given key and any associated value / messages
 int
 splinterdb_delete(const splinterdb *kvsb, slice key);
 
+// Insert a key and value.
+// Relies on data_config->encode_message
+int
+splinterdb_update(const splinterdb *kvsb, slice key, slice delta);
 
 // Lookups
 
