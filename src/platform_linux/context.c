@@ -124,6 +124,9 @@ void end_nontx(ThreadContext *ctx){
    ctx->trackTxnum--;
    if(ctx->trackTxnum == 0)   
    ctx->trackTxs = TRUE;
+#ifdef PMEM_FLUSH
+   pmem_drain();
+#endif
 }
 
 

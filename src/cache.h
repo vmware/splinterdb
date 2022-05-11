@@ -157,6 +157,7 @@ typedef allocator *(*cache_allocator_fn)(cache *cc);
 typedef ThreadContext* (*cache_get_context_fn) (cache *cc);
 
 typedef cache * (*cache_get_volatile_cache_fn)(cache *cc);
+typedef cache * (*cache_get_persistent_cache_fn)(cache *cc);
 typedef bool (*cache_if_volatile_page_fn)(cache *cc, page_handle *page);
 typedef bool (*cache_if_volatile_addr_fn)(cache *cc, uint64 addr);
 typedef bool (*cache_if_diskaddr_in_volatile_cache_fn)(cache *cc, uint64 disk_addr);
@@ -201,6 +202,7 @@ typedef struct cache_ops {
    cache_allocator_fn   cache_allocator;
    cache_get_context_fn cache_get_context;
    cache_get_volatile_cache_fn cache_get_volatile_cache;
+   cache_get_persistent_cache_fn cache_get_persistent_cache;
    cache_if_volatile_page_fn   cache_if_volatile_page;
    cache_if_volatile_addr_fn   cache_if_volatile_addr;
    cache_if_diskaddr_in_volatile_cache_fn cache_if_diskaddr_in_volatile_cache;
@@ -216,6 +218,12 @@ static inline cache *
 cache_get_volatile_cache(cache *cc)
 {
   return cc->ops->cache_get_volatile_cache(cc);
+}
+
+static inline cache *
+cache_get_persistent_cache(cache *cc)
+{
+  return cc->ops->cache_get_persistent_cache(cc);
 }
 
 
@@ -652,6 +660,11 @@ cache_allocator(cache *cc)
 static inline ThreadContext *
 cache_get_context(cache *cc)
 {
+   // use the persistent cache ctx to track non-tx
+   cache *pcc = cache_get_persistent_cache(cc);
+   if(pcc != NULL)
+      cc = pcc;
+
    return cc->ops->cache_get_context(cc);
 }
 

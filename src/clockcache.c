@@ -149,6 +149,7 @@ static void  clockcache_enable_sync_get      (clockcache *cc, bool enabled);
 allocator *  clockcache_allocator            (clockcache *cc);
 ThreadContext * clockcache_get_context       (clockcache *cc);
 cache *	     clockcache_get_volatile_cache   (clockcache *cc);
+cache *      clockcache_get_persistent_cache   (clockcache *cc);
 bool	     clockcache_if_volatile_page     (clockcache *cc, page_handle *page);
 bool	     clockcache_if_volatile_addr     (clockcache *cc, uint64 addr);
 bool	     clockcache_if_diskaddr_in_volatile_cache (clockcache *cc, uint64 disk_addr);
@@ -194,6 +195,7 @@ static cache_ops clockcache_ops = {
    .cache_allocator   = (cache_allocator_fn)   clockcache_allocator,
    .cache_get_context = (cache_get_context_fn) clockcache_get_context,
    .cache_get_volatile_cache            = (cache_get_volatile_cache_fn)            clockcache_get_volatile_cache,
+   .cache_get_persistent_cache            = (cache_get_persistent_cache_fn)            clockcache_get_persistent_cache,
    .cache_if_volatile_page              = (cache_if_volatile_page_fn)              clockcache_if_volatile_page,
    .cache_if_volatile_addr              = (cache_if_volatile_addr_fn)              clockcache_if_volatile_addr,
    .cache_if_diskaddr_in_volatile_cache = (cache_if_diskaddr_in_volatile_cache_fn) clockcache_if_diskaddr_in_volatile_cache,
@@ -1426,8 +1428,15 @@ set_migration:
    *page = &new_entry->page;
 
 #ifdef PMEM_FLUSH
-   if (write_unlock){
-      pmem_persist(new_entry->page.data, dest_cc->cfg->page_size);
+   if(istracking(clockcache_get_context(dest_cc))){
+      if (write_unlock){
+         pmem_persist(new_entry->page.data, dest_cc->cfg->page_size);
+      }
+   }
+   else{
+      if (write_unlock){
+	 pmem_flush(new_entry->page.data, dest_cc->cfg->page_size);
+      }
    }
 #endif
 
@@ -4245,6 +4254,12 @@ clockcache_get_volatile_cache(clockcache *cc)
    return (cache*)cc->volatile_cache;
 }
 
+
+cache *
+clockcache_get_persistent_cache(clockcache *cc)
+{
+   return (cache*)cc->persistent_cache;
+}
 
 
 
