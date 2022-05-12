@@ -56,11 +56,9 @@ _Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
 
 /*
  * Size of messages are limited so that a single split will always enable an
- * index insertion to succeed. Defined currently to serve for default 4K page
- * sizes. (This limit does not factor in the choice of pre-emptive splitting.
- * In future, this may need be made a function of the configured page size.)
+ * index insertion to succeed.
  */
-#define MAX_INLINE_MESSAGE_SIZE(page_size) (4 * (page_size) / 10) // Bytes
+#define MAX_INLINE_MESSAGE_SIZE(page_size) (35 * (page_size) / 100) // Bytes
 
 /*
  * Used in-memory to allocate scratch buffer space for BTree splits &

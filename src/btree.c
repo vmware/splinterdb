@@ -3575,4 +3575,11 @@ btree_config_init(btree_config *btree_cfg,
    btree_cfg->cache_cfg          = cache_cfg;
    btree_cfg->data_cfg           = data_cfg;
    btree_cfg->rough_count_height = rough_count_height;
+
+   uint64 page_size           = btree_page_size(btree_cfg);
+   uint64 max_inline_key_size = MAX_INLINE_KEY_SIZE(page_size);
+   uint64 max_inline_msg_size = MAX_INLINE_MESSAGE_SIZE(page_size);
+   uint64 max_entry_space     = sizeof(leaf_entry) + max_inline_key_size
+                            + max_inline_msg_size + sizeof(table_entry);
+   platform_assert(max_entry_space < (page_size - sizeof(btree_hdr)) / 2);
 }
