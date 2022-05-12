@@ -1,0 +1,21 @@
+toc:
+  - title: Documentation
+    subfolderitems:
+      - page: Introduction
+        url: /
+      - page: Building SplinterDB
+        url: /build
+      - page: Docker-based Development
+        url: /docker
+      - page: User's Guide
+        url: /usage
+      - page: Testing SplinterDB
+        url: /testing
+      - page: Limitations
+        url: /limitations
+      - page: Diagnostics
+        url: /diagnostics
+      - page: Contributing
+        url: /contributing
+      - page: Code of Conduct
+        url: /code-of-conduct

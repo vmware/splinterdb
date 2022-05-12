@@ -1,0 +1,15 @@
+version: V0.0.1
+date: 2022-04-18
+release_notes_link: https://github.com/vmware-tanzu/community-edition/releases/tag/v0.10.0
+license_link: https://github.com/vmware-tanzu/community-edition/blob/main/LICENSE
+source:
+  - client: tar.gz
+    file_link: https://github.com/vmware-tanzu/community-edition/archive/refs/tags/v0.10.0.tar.gz
+    file_name: v0.10.0.tar.gz
+    checksum: ''
+    size: ''
+  - client: zip
+    file_link: https://github.com/vmware-tanzu/community-edition/archive/refs/tags/v0.10.0.zip
+    file_name: v0.10.0.zip
+    checksum: ''
+    size: ''
