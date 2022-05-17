@@ -1,0 +1,16 @@
+{{ define "main" }}
+    <main>
+        <div class="hero subpage-hero">
+            <div class="wrapper">
+                <h1>Download</h1>
+            </div>
+        </div>
+        <div class="wrapper subpage download">
+            <p>Download the SplinterDB releases:<p>
+            
+            {{ partial "download-table.html" . }}
+
+            <p>You can download older versions of SplinterDB from <a href="https://github.com/vmware/splinterdb/releases">GitHub</a>.</p>
+        </div>
+    </main>
+{{ end }}
