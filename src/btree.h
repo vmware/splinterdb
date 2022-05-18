@@ -50,24 +50,21 @@ _Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
  * therefore, may pre-emptively split the child to provision for this much of
  * available space to absorb inserts from the split of a grand-child.
  *
- * (This limit is indirectly 'disk-resident' as it affects the node's layout.
- *  In future, this may need be made a function of the configured page size.)
+ * (This limit is indirectly 'disk-resident' as it affects the node's layout.)
  */
-#define MAX_INLINE_KEY_SIZE (512) // Bytes
+#define MAX_INLINE_KEY_SIZE(page_size) ((page_size) / 8) // Bytes
 
 /*
  * Size of messages are limited so that a single split will always enable an
- * index insertion to succeed. Defined currently to serve for default 4K page
- * sizes. (This limit does not factor in the choice of pre-emptive splitting.
- * In future, this may need be made a function of the configured page size.)
+ * index insertion to succeed.
  */
-#define MAX_INLINE_MESSAGE_SIZE (2048) // Bytes
+#define MAX_INLINE_MESSAGE_SIZE(page_size) (35 * (page_size) / 100) // Bytes
 
 /*
  * Used in-memory to allocate scratch buffer space for BTree splits &
  * defragmentation.
  */
-#define MAX_NODE_SIZE (1ULL << 16) // Bytes
+#define MAX_PAGE_SIZE (1ULL << 16) // Bytes
 
 /*
  *----------------------------------------------------------------------
@@ -94,11 +91,11 @@ typedef struct btree_node {
 } btree_node;
 
 typedef struct {
-   char merged_data[MAX_INLINE_MESSAGE_SIZE];
+   char merged_data[MAX_INLINE_MESSAGE_SIZE(MAX_PAGE_SIZE)];
 } scratch_btree_add_tuple;
 
 typedef struct {
-   char scratch_node[MAX_NODE_SIZE];
+   char scratch_node[MAX_PAGE_SIZE];
 } scratch_btree_defragment_node;
 
 typedef struct { // Note: not a union
