@@ -55,7 +55,7 @@ volumes of data. These are generally named as stress tests.
 
 You can run them standalone as follows: `$ ./bin/unit/btree_stress_test`
 
-See [Unit testing](../tests/unit/README.md)
+See [Unit testing](./unit-testing.md)
 for more details on unit test development and unit testing.
 
 
