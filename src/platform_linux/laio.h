@@ -20,7 +20,7 @@
  * size currently supported.
  */
 #define LAIO_MIN_PAGE_SIZE (4096)
-#define LAIO_MAX_PAGE_SIZE (4096)
+#define LAIO_MAX_PAGE_SIZE (8192)
 
 #define LAIO_DEFAULT_PAGE_SIZE        LAIO_MIN_PAGE_SIZE
 #define LAIO_DEFAULT_PAGES_PER_EXTENT 32
