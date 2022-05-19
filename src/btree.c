@@ -915,7 +915,8 @@ btree_index_is_full(const btree_config *cfg, // IN
                     const btree_hdr    *hdr)    // IN
 {
    return hdr->next_entry < diff_ptr(hdr, &hdr->offsets[hdr->num_entries + 2])
-                               + sizeof(index_entry) + MAX_INLINE_KEY_SIZE;
+                               + sizeof(index_entry)
+                               + MAX_INLINE_KEY_SIZE(btree_page_size(cfg));
 }
 
 static inline uint64
@@ -1704,11 +1705,11 @@ btree_insert(cache              *cc,         // IN
    leaf_incorporate_spec spec;
    uint64                leaf_wait = 1;
 
-   if (MAX_INLINE_KEY_SIZE < slice_length(key)) {
+   if (MAX_INLINE_KEY_SIZE(btree_page_size(cfg)) < slice_length(key)) {
       return STATUS_BAD_PARAM;
    }
 
-   if (MAX_INLINE_MESSAGE_SIZE < message_length(msg)) {
+   if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg)) < message_length(msg)) {
       return STATUS_BAD_PARAM;
    }
 
@@ -3574,4 +3575,11 @@ btree_config_init(btree_config *btree_cfg,
    btree_cfg->cache_cfg          = cache_cfg;
    btree_cfg->data_cfg           = data_cfg;
    btree_cfg->rough_count_height = rough_count_height;
+
+   uint64 page_size           = btree_page_size(btree_cfg);
+   uint64 max_inline_key_size = MAX_INLINE_KEY_SIZE(page_size);
+   uint64 max_inline_msg_size = MAX_INLINE_MESSAGE_SIZE(page_size);
+   uint64 max_entry_space     = sizeof(leaf_entry) + max_inline_key_size
+                            + max_inline_msg_size + sizeof(table_entry);
+   platform_assert(max_entry_space < (page_size - sizeof(btree_hdr)) / 2);
 }
