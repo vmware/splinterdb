@@ -482,7 +482,7 @@ task_perform_all(task_system *ts)
 
    } else {
       // wait for bg threads to finish running all the queued up tasks.
-      for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
+      for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
          task_group *group = &ts->group[type];
          while (group->current_outstanding_tasks != 0) {
             platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
@@ -571,7 +571,7 @@ task_perform_one(task_system *ts)
 {
    platform_assert(!ts->use_bg_threads);
    platform_status rc = STATUS_OK;
-   for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
+   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       rc = task_group_perform_one(&ts->group[type]);
       if (STATUS_IS_NE(rc, STATUS_TIMEDOUT)) {
          return rc;
@@ -614,7 +614,7 @@ task_system_create(platform_heap_id    hid,
    ts->scratch_size   = scratch_size;
    ts->init_tid       = INVALID_TID;
 
-   for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
+   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type],
                                            ts,
                                            use_stats,
@@ -652,7 +652,7 @@ void
 task_system_destroy(platform_heap_id hid, task_system **ts_in)
 {
    task_system *ts = *ts_in;
-   for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
+   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       task_group_deinit(&ts->group[type]);
    }
    platform_free(hid, ts);
@@ -680,7 +680,7 @@ task_system_get_thread_scratch(task_system *ts, const threadid tid)
 void
 task_wait_for_completion(task_system *ts)
 {
-   for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
+   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       task_group *group             = &ts->group[type];
       uint64      outstanding_tasks = 0;
       while (group->current_outstanding_tasks != 0) {
@@ -747,7 +747,7 @@ task_group_print_stats(task_group *group, task_type type)
 void
 task_print_stats(task_system *ts)
 {
-   for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
+   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       task_group_print_stats(&ts->group[type], type);
    }
 }

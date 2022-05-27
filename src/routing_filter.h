@@ -60,6 +60,7 @@ typedef void (*routing_async_cb)(struct routing_async_ctxt *ctxt);
 
 // States for the filter async lookup.
 typedef enum {
+   routing_async_state_invalid = 0,
    routing_async_state_start,
    routing_async_state_get_index,  // re-entrant state
    routing_async_state_get_filter, // re-entrant state
