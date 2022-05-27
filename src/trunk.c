@@ -460,7 +460,8 @@ typedef struct ONDISK trunk_super_block {
  */
 typedef uint16 trunk_subbundle_state_t;
 typedef enum trunk_subbundle_state {
-   SB_STATE_UNCOMPACTED_INDEX = 0,
+   SB_STATE_INVALID = 0,
+   SB_STATE_UNCOMPACTED_INDEX,
    SB_STATE_UNCOMPACTED_LEAF,
    SB_STATE_COMPACTED, // compacted subbundles are always index
 } trunk_subbundle_state;
@@ -610,6 +611,7 @@ typedef struct trunk_btree_skiperator {
 
 // for find_pivot
 typedef enum lookup_type {
+   invalid = 0,
    less_than,
    less_than_or_equal,
    greater_than,
@@ -1376,6 +1378,8 @@ trunk_find_pivot(trunk_handle *spl,
             return cmp > 0 ? 0 : 1;
          case greater_than_or_equal:
             return cmp >= 0 ? 0 : 1;
+         default:
+            platform_assert(0);
       }
    }
 
@@ -6803,6 +6807,10 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                   }
                   branch_no = ctxt->sb->start_branch;
                   break;
+               default:
+                  platform_error_log("Invalid async_lookup_state=%d\n",
+                                     ctxt->lookup_state);
+                  platform_assert(0);
             }
             ctxt->branch = trunk_get_branch(spl, node, branch_no);
             btree_ctxt_init(&ctxt->btree_ctxt,
@@ -6896,6 +6904,10 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                   }
                   trunk_async_set_state(ctxt, async_state_subbundle_lookup);
                   continue;
+               default:
+                  platform_error_log("Invalid async_lookup_state=%d\n",
+                                     ctxt->lookup_state);
+                  platform_assert(0);
             }
             break;
          }
@@ -8070,8 +8082,11 @@ trunk_print_branches_and_bundles(platform_log_handle *log_handle,
       {
          trunk_subbundle *sb = trunk_get_subbundle(spl, node, sb_no);
          // Generate marker line if curr branch is a sub-bundle's start branch
+         platform_assert(sb->state != SB_STATE_INVALID);
+
          if (branch_no == sb->start_branch) {
             uint16 filter_count = trunk_subbundle_filter_count(spl, node, sb);
+
             // clang-format off
             platform_log(log_handle,
                "|     |  -- %2scomp subbundle %2u --  | %12lu | %12lu | %12lu | %14s |\n",

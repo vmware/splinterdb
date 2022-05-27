@@ -71,10 +71,11 @@ typedef struct task_group {
 } task_group;
 
 typedef enum task_type {
-   TASK_TYPE_FIRST    = 0,
-   TASK_TYPE_MEMTABLE = TASK_TYPE_FIRST,
+   TASK_TYPE_INVALID = 0,
+   TASK_TYPE_MEMTABLE,
    TASK_TYPE_NORMAL,
    NUM_TASK_TYPES,
+   TASK_TYPE_FIRST = TASK_TYPE_MEMTABLE
 } task_type;
 
 /*

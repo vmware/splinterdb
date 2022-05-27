@@ -18,6 +18,7 @@
 #define MEMTABLE_SPACE_OVERHEAD_FACTOR (2)
 
 typedef enum memtable_state {
+   MEMTABLE_STATE_INVALID = 0,
    MEMTABLE_STATE_READY, // if it's the correct one, go ahead and insert
    MEMTABLE_STATE_FINALIZED,
    MEMTABLE_STATE_COMPACTED,

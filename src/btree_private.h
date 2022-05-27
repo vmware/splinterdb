@@ -80,7 +80,7 @@ _Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
  * *************************************************************************
  */
 #define MESSAGE_TYPE_BITS (2)
-_Static_assert(MESSAGE_TYPE_INVALID < (1ULL << MESSAGE_TYPE_BITS),
+_Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE < (1ULL << MESSAGE_TYPE_BITS),
                "MESSAGE_TYPE_BITS is too small");
 
 typedef struct ONDISK leaf_entry {

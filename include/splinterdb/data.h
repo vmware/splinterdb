@@ -24,11 +24,17 @@
 #include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
 
+/*
+ * Message type up to MESSAGE_TYPE_MAX_VALID_USER_TYPE is a
+ * disk-resident value (not including MESSAGE_TYPE_INVALID).
+ */
 typedef enum message_type {
+   MESSAGE_TYPE_INVALID = 0,
    MESSAGE_TYPE_INSERT,
    MESSAGE_TYPE_UPDATE,
    MESSAGE_TYPE_DELETE,
-   MESSAGE_TYPE_INVALID,
+   MESSAGE_TYPE_MAX_VALID_USER_TYPE = MESSAGE_TYPE_DELETE,
+   MESSAGE_TYPE_PIVOT_DATA          = 1000
 } message_type;
 
 /*
