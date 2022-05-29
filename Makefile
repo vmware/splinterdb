@@ -247,7 +247,7 @@ CONFIG_FILE = $(CONFIG_FILE_PREFIX)$(CONFIG_HASH)
 .PHONY: mismatched_config_file_check
 mismatched_config_file_check: | $(BUILD_PATH)/.
 	$(BRIEF_PARTIAL) Checking for mismatched config...
-	$(COMMAND) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | grep -v $(CONFIG_FILE) | xargs -ri sh -c 'echo "Mismatched config file \"{}\" detected.  You need to \"make clean\"."; false'
+	$(COMMAND) ls $(CONFIG_FILE_PREFIX)* 2>/dev/null | grep -v $(CONFIG_FILE) | xargs -rI{} sh -c 'echo "Mismatched config file \"{}\" detected.  You need to \"make clean\"."; false'
 	$(BRIEF) No mismatched config found
 
 
