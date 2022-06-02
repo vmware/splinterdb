@@ -13,12 +13,12 @@ Please search through our [GitHub Issues](https://github.com/vmware/splinterdb/i
 ## Contributing code or documentation
 For small obvious fixes, follow the steps below.  For larger changes, please first [open an Issue](https://github.com/vmware/splinterdb/issues/new) that describes your need ([*talk, then code*](https://dave.cheney.net/2019/02/18/talk-then-code)).
 
-1. Follow [build](docs/build.md) for instructions on building from source
-and follow [testing](docs/testing.md) for instructions on testing your changes.
+1. Follow [build](build.md) for instructions on building from source
+and follow [testing](testing.md) for instructions on testing your changes.
 
 2. Before submitting code, please ensure that:
     - Code builds: `$ make`
-    - [All Tests pass](./Makefile#:~:text=test%2Dresults): `$ make test-results`
+    - [All Tests pass](https://github.com/vmware/splinterdb/blob/main/Makefile#:~:text=test%2Dresults): `$ make test-results`
     - Code is formatted properly: `$ ./format-check.sh fixall`
 
         To get an automatic format check on every git commit, add a pre-commit hook:

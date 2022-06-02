@@ -18,8 +18,8 @@ In CI, we execute these tests against the following build modes
 To run a small collection of unit-tests to give you a very quick
 baseline stability of the library, do: `$ make run-tests`
 
-The [`make run-tests`](../Makefile#:~:text=run%2Dtests) target invokes the
-underlying [`test.sh`](../test.sh) script to run quick tests.
+The [`make run-tests`](https://github.com/vmware/splinterdb/blob/main/Makefile#:~:text=run%2Dtests) target invokes the
+underlying [`test.sh`](https://github.com/vmware/splinterdb/blob/main/test.sh) script to run quick tests.
 
 To execute a larger set of tests, including functional and performance tests,
 you can do one of the following:
@@ -30,7 +30,7 @@ $ INCLUDE_SLOW_TESTS=true make run-tests
 $ INCLUDE_SLOW_TESTS=true ./test.sh
 ```
 
-In CI, all test execution is driven by the top-level [test.sh](../test.sh)
+In CI, all test execution is driven by the top-level [test.sh](https://github.com/vmware/splinterdb/blob/main/test.sh)
 script, which exercises individual build artifacts produced for testing, as
 described below.
 
@@ -55,7 +55,7 @@ volumes of data. These are generally named as stress tests.
 
 You can run them standalone as follows: `$ ./bin/unit/btree_stress_test`
 
-See [Unit testing](../tests/unit/README.md)
+See [Unit testing](https://github.com/vmware/splinterdb/blob/main/tests/unit/README.md)
 for more details on unit test development and unit testing.
 
 
@@ -101,5 +101,5 @@ These can be found using:
  ```$ ./bin/driver_test splinter_test --help```
 
  An example usage of performance tests that are executed in our CI runs can be found
- [here in test.sh](../test.sh#:~:text=%2D%2Dperf%20%2D%2Dmax%2Dasync%2Dinflight)
+ [here in test.sh](https://github.com/vmware/splinterdb/blob/main/test.sh#:~:text=%2D%2Dperf%20%2D%2Dmax%2Dasync%2Dinflight)
 
