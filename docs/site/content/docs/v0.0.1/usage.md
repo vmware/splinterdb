@@ -3,22 +3,22 @@
 SplinterDB is an embedded key-value store.  It is currently Linux-only.
 
 To use SplinterDB, you must link your program to the library and call
-the C functions declared in the [`include/splinterdb`](../include/splinterdb)
+the C functions declared in the [`include/splinterdb`](https://github.com/vmware/splinterdb/tree/main/include/splinterdb)
 headers.  More details on our build process are [here](build.md).
 
 This document is a high-level overview, but the code comments in the
-[header files](../include/splinterdb) are the definitive API reference.
+[header files](https://github.com/vmware/splinterdb/tree/main/include/splinterdb) are the definitive API reference.
 We're actively evolving our public API surface right now, and will do our
 best to keep this document up to date as details change.  If something
 looks out-of-date, please open an issue or pull request.
 
 ## Program flow
 
-- Choose values for [configuration options](../include/splinterdb/splinterdb.h#:~:text=Configuration%20options%20for%20SplinterDB)
+- Choose values for [configuration options](https://github.com/vmware/splinterdb/tree/main/include/splinterdb/splinterdb.h#:~:text=Configuration%20options%20for%20SplinterDB)
   defined in the `splinterdb_config{}` structure.
   For the `data_cfg` field, simple applications may opt to use
   the `default_data_config_init()`
-  [initializer method](../src/default_data_config.c#:~:text=default%5Fdata%5Fconfig%5Finit)
+  [initializer method](https://github.com/vmware/splinterdb/tree/main/src/default_data_config.c#:~:text=default%5Fdata%5Fconfig%5Finit)
   which provides a basic key / value interface with lexicographical
   sorting of keys.
 
@@ -32,7 +32,7 @@ looks out-of-date, please open an issue or pull request.
 
 - Basic key/value operations like `insert`, `delete`, point `lookup` and
   range scan using an `iterator` are available.  See the code comments
-  in [`splinterdb.h`](../include/splinterdb/splinterdb.h).
+  in [`splinterdb.h`](https://github.com/vmware/splinterdb/tree/main/include/splinterdb/splinterdb.h).
 
 - If an application frequently makes small modifications to existing values,
   better performance may be possible by using a custom `data_config` object
@@ -42,7 +42,7 @@ looks out-of-date, please open an issue or pull request.
   Some applications may be able to avoid a read-modify-write sequence this way.
   To use the message-oriented API, the application implements the `data_config`
   interface defined in
-  [`data.h`](../include/splinterdb/data.h#:~:text=struct%20data%5Fconfig%20{))
+  [`data.h`](https://github.com/vmware/splinterdb/tree/main/include/splinterdb/data.h#:~:text=struct%20data%5Fconfig%20{))
   and sets it on `splinterdb_config` when creating/opening a database.
 
 - SplinterDB is designed to deliver high-performance for multi-threaded
@@ -75,12 +75,12 @@ looks out-of-date, please open an issue or pull request.
 
 
 ## Example programs
-- [`tests/unit/splinterdb_quick_test.c`](../tests/unit/splinterdb_quick_test.c) covers
+- [`tests/unit/splinterdb_quick_test.c`](https://github.com/vmware/splinterdb/tree/main/tests/unit/splinterdb_quick_test.c) covers
    various basic operations on a single thread. The
-   [setup step](../tests/unit/splinterdb_quick_test.c#:~:text=CTEST%5FSETUP\(splinterdb%5Fquick)
+   [setup step](https://github.com/vmware/splinterdb/tree/main/tests/unit/splinterdb_quick_test.c#:~:text=CTEST%5FSETUP\(splinterdb%5Fquick)
    shows how to specify a default configuration and then create a new instance.
-- [`tests/unit/splinterdb_stress_test.c`](../tests/unit/splinterdb_stress_test.c) uses multiple threads
-- [`tests/unit/splinter_test.c`](../tests/unit/splinter_test.c#:~:text=CTEST%5FSETUP\(splinter)
+- [`tests/unit/splinterdb_stress_test.c`](https://github.com/vmware/splinterdb/tree/main/tests/unit/splinterdb_stress_test.c) uses multiple threads
+- [`tests/unit/splinter_test.c`](https://github.com/vmware/splinterdb/tree/main/tests/unit/splinter_test.c#:~:text=CTEST%5FSETUP\(splinter)
   covers slightly advanced steps to create a SplinterDB instance. It covers
   configuration of a SplinterDB instance, creating heap memory, allocating
   memory for various sub-system configurations, and initialization of

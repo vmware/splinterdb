@@ -6,7 +6,7 @@ This document assumes some existing proficiency with Docker workflows.
 > Beware: While our CI system produces and uses the container images described here, the SplinterDB maintainers do not use these exact workflows for daily development, so there may be rough edges.  Please report any issues (or submit pull-requests) and we'll do our best to keep this working.
 
 ## Building SplinterDB from source in a Docker container
-Our continuous-integration system publishes (and uses) a container image called `build-env` that has all build-time dependencies.  It is built from [Dockerfile.build-env](../Dockerfile.build-env) and can be pulled directly via
+Our continuous-integration system publishes (and uses) a container image called `build-env` that has all build-time dependencies.  It is built from [Dockerfile.build-env](https://github.com/vmware/splinterdb/blob/main/Dockerfile.build-env) and can be pulled directly via
 ```
 docker pull projects.registry.vmware.com/splinterdb/build-env
 ```
@@ -35,7 +35,7 @@ docker$ make install
 
 
 ## Using pre-built SplinterDB
-In addition to the build-environment described above, our continuous integration system also publishes a minimal container image called `splinterdb` that contains only the build _outputs_ and dependencies for _run-time_ usage of SplinterDB.  It is built from [this Dockerfile](../Dockerfile) and may be pulled as
+In addition to the build-environment described above, our continuous integration system also publishes a minimal container image called `splinterdb` that contains only the build _outputs_ and dependencies for _run-time_ usage of SplinterDB.  It is built from [this Dockerfile](https://github.com/vmware/splinterdb/blob/main/Dockerfile) and may be pulled as
 ```
 docker pull projects.registry.vmware.com/splinterdb/splinterdb
 ```

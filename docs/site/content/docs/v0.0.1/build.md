@@ -42,8 +42,8 @@ $ make help
 
 ### Code formatting
 Our CI system enforces code formatting rules.  If you're making code changes
-that you wish to [contribute back to the project](../CONTRIBUTING.md), please
-format the code using the [format-check.sh](../format-check.sh) script:
+that you wish to [contribute back to the project](CONTRIBUTING.md), please
+format the code using the [format-check.sh](https://github.com/vmware/splinterdb/blob/main/format-check.sh) script:
 
 ```shell
 $ format-check.sh fixall
