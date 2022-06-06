@@ -963,7 +963,7 @@ btree_defragment_index(const btree_config *cfg, // IN
    memcpy(scratch_hdr, hdr, btree_page_size(cfg));
    btree_reset_node_entries(cfg, hdr);
    for (uint64 i = 0; i < btree_num_entries(scratch_hdr); i++) {
-      index_entry *entry = btree_get_index_entry(cfg, scratch_hdr, i);
+      index_entry *entry     = btree_get_index_entry(cfg, scratch_hdr, i);
       bool         succeeded = btree_set_index_entry(cfg,
                                              hdr,
                                              i,
@@ -1719,8 +1719,8 @@ start_over:
       btree_node_lock(cc, cfg, &root_node);
       bool need_to_set_min_key = FALSE;
       if (child_idx < 0) {
-         child_idx           = 0;
-         parent_entry        = btree_get_index_entry(cfg, root_node.hdr, 0);
+         child_idx    = 0;
+         parent_entry = btree_get_index_entry(cfg, root_node.hdr, 0);
          need_to_set_min_key =
             !btree_set_index_entry(cfg,
                                    root_node.hdr,
