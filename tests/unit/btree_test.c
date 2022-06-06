@@ -341,8 +341,8 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
    char *leaf_buffer =
       TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
-   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int        nkvs = 256;
+   btree_hdr        *hdr  = (btree_hdr *)leaf_buffer;
+   int               nkvs = 256;
    btree_pivot_stats stats;
    memset(&stats, 0, sizeof(stats));
 

@@ -1741,7 +1741,7 @@ trunk_pivot_btree_tuple_counts(trunk_handle *spl,
                                uint64       *num_tuples,
                                uint64       *num_kv_bytes)
 {
-   char  *min_key = trunk_get_pivot(spl, node, pivot_no);
+   char             *min_key = trunk_get_pivot(spl, node, pivot_no);
    char             *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
    btree_pivot_stats stats;
    btree_count_in_range(spl->cc,
@@ -1773,8 +1773,8 @@ trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
                                   uint16        pivot_no,
                                   uint16        branch_no)
 {
-   trunk_branch *branch  = trunk_get_branch(spl, node, branch_no);
-   char         *min_key = trunk_get_pivot(spl, node, pivot_no);
+   trunk_branch     *branch  = trunk_get_branch(spl, node, branch_no);
+   char             *min_key = trunk_get_pivot(spl, node, pivot_no);
    char             *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
    btree_pivot_stats stats;
    btree_count_in_range_by_iterator(spl->cc,
