@@ -1742,20 +1742,16 @@ trunk_pivot_btree_tuple_counts(trunk_handle *spl,
                                uint64       *num_kv_bytes)
 {
    char  *min_key = trunk_get_pivot(spl, node, pivot_no);
-   char  *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
-   uint32 local_num_tuples;
-   uint32 key_bytes;
-   uint32 message_bytes;
+   char             *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
+   btree_pivot_stats stats;
    btree_count_in_range(spl->cc,
                         trunk_btree_config(spl),
                         root_addr,
                         trunk_key_slice(spl, min_key),
                         trunk_key_slice(spl, max_key),
-                        &local_num_tuples,
-                        &key_bytes,
-                        &message_bytes);
-   *num_tuples   = local_num_tuples;
-   *num_kv_bytes = key_bytes + message_bytes;
+                        &stats);
+   *num_tuples   = stats.num_kvs;
+   *num_kv_bytes = stats.key_bytes + stats.message_bytes;
 }
 
 static inline void
@@ -1779,19 +1775,15 @@ trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
 {
    trunk_branch *branch  = trunk_get_branch(spl, node, branch_no);
    char         *min_key = trunk_get_pivot(spl, node, pivot_no);
-   char         *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
-   uint32        num_tuples;
-   uint32        key_bytes;
-   uint32        message_bytes;
+   char             *max_key = trunk_get_pivot(spl, node, pivot_no + 1);
+   btree_pivot_stats stats;
    btree_count_in_range_by_iterator(spl->cc,
                                     trunk_btree_config(spl),
                                     branch->root_addr,
                                     trunk_key_slice(spl, min_key),
                                     trunk_key_slice(spl, max_key),
-                                    &num_tuples,
-                                    &key_bytes,
-                                    &message_bytes);
-   return num_tuples;
+                                    &stats);
+   return stats.num_kvs;
 }
 
 
@@ -5409,9 +5401,9 @@ trunk_split_leaf(trunk_handle *spl,
 
             const btree_pivot_data *pivot_data =
                message_data(pivot_data_message);
-            rough_count_num_tuples += pivot_data->num_kvs_in_subtree;
-            rough_count_kv_bytes += pivot_data->key_bytes_in_subtree
-                                    + pivot_data->message_bytes_in_subtree;
+            rough_count_num_tuples += pivot_data->stats.num_kvs;
+            rough_count_kv_bytes +=
+               pivot_data->stats.key_bytes + pivot_data->stats.message_bytes;
             iterator_advance(&rough_merge_itor->super);
             iterator_at_end(&rough_merge_itor->super, &at_end);
          }

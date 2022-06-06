@@ -1178,19 +1178,13 @@ test_btree_count_in_range(cache             *cc,
                btree_cfg->data_cfg->key_size,
                0);
 
-      uint32 count;
-      uint32 key_bytes;
-      uint32 message_bytes;
-      btree_count_in_range(cc,
-                           btree_cfg,
-                           root_addr,
-                           min_key,
-                           max_key,
-                           &count,
-                           &key_bytes,
-                           &message_bytes);
+      btree_pivot_stats stats;
+      btree_count_in_range(cc, btree_cfg, root_addr, min_key, max_key, &stats);
       if (btree_key_compare(btree_cfg, min_key, max_key) > 0) {
-         if (count != 0) {
+         if (stats.num_kvs != 0) {
+            platform_default_log("btree_count_in_range did not return 0 for "
+                                 "out-of-order keys.  Returned count: %d\n",
+                                 stats.num_kvs);
             rc = STATUS_TEST_FAILED;
             goto destroy_btree;
          } else {
@@ -1208,7 +1202,12 @@ test_btree_count_in_range(cache             *cc,
                                       max_key,
                                       &iterator_count);
       platform_assert_status_ok(rc);
-      if (count != iterator_count) {
+      if (stats.num_kvs != iterator_count) {
+         platform_default_log(
+            "btree_count_in_range returned different number of keys from "
+            "iterator count.  Returned: %d, iterator count: %ld\n",
+            stats.num_kvs,
+            iterator_count);
          rc = STATUS_TEST_FAILED;
          goto destroy_btree;
       }

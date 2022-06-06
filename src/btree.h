@@ -114,11 +114,15 @@ typedef struct { // Note: not a union
  * Iterators at (height > 0) return this struct as a value for each pivot.
  * *************************************************************************
  */
+typedef struct ONDISK btree_pivot_stats {
+   uint32 num_kvs;
+   uint32 key_bytes;
+   uint32 message_bytes;
+} btree_pivot_stats;
+
 typedef struct ONDISK btree_pivot_data {
-   uint64 child_addr;
-   uint32 num_kvs_in_subtree;
-   uint32 key_bytes_in_subtree;
-   uint32 message_bytes_in_subtree;
+   uint64            child_addr;
+   btree_pivot_stats stats;
 } btree_pivot_data;
 
 /*
@@ -159,9 +163,11 @@ typedef struct btree_pack_req {
    uint32       *fingerprint_arr; // IN/OUT: hashes of the keys in the tree
 
    // internal data
-   uint64         next_extent;
-   uint16         height;
-   btree_node     edge[BTREE_MAX_HEIGHT];
+   uint16            height;
+   btree_node        edge[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
+   btree_pivot_stats edge_stats[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
+   uint32            num_edges[BTREE_MAX_HEIGHT];
+
    mini_allocator mini;
 
    // output of the compaction
@@ -361,24 +367,20 @@ platform_status
 btree_pack(btree_pack_req *req);
 
 void
-btree_count_in_range(cache        *cc,
-                     btree_config *cfg,
-                     uint64        root_addr,
-                     const slice   min_key,
-                     const slice   max_key,
-                     uint32       *kv_rank,
-                     uint32       *key_bytes_rank,
-                     uint32       *message_bytes_rank);
+btree_count_in_range(cache             *cc,
+                     btree_config      *cfg,
+                     uint64             root_addr,
+                     const slice        min_key,
+                     const slice        max_key,
+                     btree_pivot_stats *stats);
 
 void
-btree_count_in_range_by_iterator(cache        *cc,
-                                 btree_config *cfg,
-                                 uint64        root_addr,
-                                 const slice   min_key,
-                                 const slice   max_key,
-                                 uint32       *kv_rank,
-                                 uint32       *key_bytes_rank,
-                                 uint32       *message_bytes_rank);
+btree_count_in_range_by_iterator(cache             *cc,
+                                 btree_config      *cfg,
+                                 uint64             root_addr,
+                                 const slice        min_key,
+                                 const slice        max_key,
+                                 btree_pivot_stats *stats);
 
 uint64
 btree_rough_count(cache        *cc,
