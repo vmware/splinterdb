@@ -55,6 +55,13 @@ message_is_definitive(message msg)
    return msg.type == MESSAGE_TYPE_INSERT || msg.type == MESSAGE_TYPE_DELETE;
 }
 
+static inline bool
+message_is_invalid_user_type(message msg)
+{
+   return msg.type == MESSAGE_TYPE_INVALID
+          || msg.type > MESSAGE_TYPE_MAX_VALID_USER_TYPE;
+}
+
 /* Define an arbitrary ordering on messages.  In practice, all we care
  * about is equality, but this is written to follow the same
  * comparison interface as for ordered types. */

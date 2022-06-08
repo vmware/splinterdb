@@ -3186,7 +3186,12 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
       spl->stats[tid].root_compactions++;
       pack_start = platform_get_timestamp();
    }
-   btree_pack(&req);
+
+   platform_status pack_status = btree_pack(&req);
+   platform_assert(SUCCESS(pack_status),
+                   "platform_status of btree_pack: %d\n",
+                   pack_status.r);
+
    platform_assert(req.num_tuples <= spl->cfg.max_tuples_per_node);
    if (spl->cfg.use_stats) {
       spl->stats[tid].root_compaction_pack_time_ns +=
@@ -4835,7 +4840,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    if (spl->cfg.use_stats) {
       pack_start = platform_get_timestamp();
    }
-   btree_pack(&pack_req);
+
+   platform_status pack_status = btree_pack(&pack_req);
+   platform_assert(SUCCESS(pack_status),
+                   "platform_status of btree_pack: %d\n",
+                   pack_status.r);
+
    if (spl->cfg.use_stats) {
       spl->stats[tid].compaction_pack_time_ns[height] +=
          platform_timestamp_elapsed(pack_start);
