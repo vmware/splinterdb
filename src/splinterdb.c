@@ -632,6 +632,43 @@ validate_key_length(const splinterdb *kvs, uint64 key_length)
 }
 
 /*
+ * Validate that a key being inserted is within [min, max]-key range.
+ */
+bool
+splinterdb_validate_key_in_range(const splinterdb *kvs, slice key)
+{
+   const data_config *cfg = kvs->shim_data_cfg.app_data_cfg;
+
+   int cmp_rv = 0;
+
+   // key to-be-inserted should be >= min-key
+   cmp_rv = cfg->key_compare(
+      cfg, slice_create(cfg->min_key_length, cfg->min_key), key);
+   if (cmp_rv > 0) {
+      platform_error_log("Key '%.*s' is less than configured min-key '%.*s'.\n",
+                         (int)slice_length(key),
+                         (char *)slice_data(key),
+                         (int)cfg->min_key_length,
+                         cfg->min_key);
+      return FALSE;
+   }
+
+   // key to-be-inserted should be <= max-key
+   cmp_rv = cfg->key_compare(
+      cfg, key, slice_create(cfg->max_key_length, cfg->max_key));
+   if (cmp_rv > 0) {
+      platform_error_log(
+         "Key '%.*s' is greater than configured max-key '%.*s'.\n",
+         (int)slice_length(key),
+         (char *)slice_data(key),
+         (int)cfg->max_key_length,
+         cfg->max_key);
+      return FALSE;
+   }
+   return TRUE;
+}
+
+/*
  *-----------------------------------------------------------------------------
  * splinterdb_insert_raw_message --
  *
@@ -655,6 +692,9 @@ splinterdb_insert_message(const splinterdb *kvs, // IN
    if (rc != 0) {
       return rc;
    }
+
+   debug_assert(splinterdb_validate_key_in_range(kvs, key),
+                "Attempt to insert key outside configured min/max key-range");
 
    char key_buffer[MAX_KEY_SIZE] = {0};
    rc = encode_key(sizeof(key_buffer), key_buffer, key);
@@ -812,15 +852,20 @@ splinterdb_iterator_init(const splinterdb     *kvs,      // IN
    trunk_range_iterator *range_itor = &(it->sri);
 
    char start_key_buffer[MAX_KEY_SIZE] = {0};
-   if (!slice_is_null(start_key)) {
+   bool start_key_is_null              = slice_is_null(start_key);
+   if (!start_key_is_null) {
       int rc = encode_key(MAX_KEY_SIZE, start_key_buffer, start_key);
       if (rc != 0) {
          return rc;
       }
    }
 
-   platform_status rc = trunk_range_iterator_init(
-      kvs->spl, range_itor, start_key_buffer, NULL, UINT64_MAX);
+   platform_status rc =
+      trunk_range_iterator_init(kvs->spl,
+                                range_itor,
+                                (start_key_is_null ? NULL : start_key_buffer),
+                                NULL,
+                                UINT64_MAX);
    if (!SUCCESS(rc)) {
       trunk_range_iterator_deinit(range_itor);
       platform_free(kvs->spl->heap_id, *iter);

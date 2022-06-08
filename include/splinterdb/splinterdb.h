@@ -292,4 +292,7 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
 int
 splinterdb_iterator_status(const splinterdb_iterator *iter);
 
+bool
+splinterdb_validate_key_in_range(const splinterdb *kvs, slice key);
+
 #endif // _SPLINTERDB_H_
