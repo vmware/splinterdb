@@ -1713,6 +1713,10 @@ btree_insert(cache              *cc,         // IN
       return STATUS_BAD_PARAM;
    }
 
+   if (message_is_invalid_user_type(msg)) {
+      return STATUS_BAD_PARAM;
+   }
+
    btree_node root_node;
    root_node.addr = root_addr;
 
@@ -2806,13 +2810,17 @@ btree_pack_setup_finish(btree_pack_req *req, slice first_key)
    btree_pack_node_init_hdr(req->cfg, req->edge[0].hdr, req->next_extent, 0);
 }
 
-static inline void
+static inline platform_status
 btree_pack_loop(btree_pack_req *req, // IN/OUT
                 slice           key, // IN
                 message         msg, // IN
                 bool           *at_end)        // IN/OUT
 {
    log_trace_key(key, "btree_pack_loop");
+
+   if (message_is_invalid_user_type(msg)) {
+      return STATUS_INVALID_STATE;
+   }
 
    if (!btree_set_leaf_entry(req->cfg,
                              req->edge[0].hdr,
@@ -2929,6 +2937,8 @@ btree_pack_loop(btree_pack_req *req, // IN/OUT
 
    iterator_advance(req->itor);
    iterator_at_end(req->itor, at_end);
+
+   return STATUS_OK;
 }
 
 
@@ -2990,6 +3000,21 @@ btree_pack_can_fit_tuple(btree_pack_req *req, slice key, message data)
                 <= req->max_kv_bytes;
 }
 
+static void
+btree_pack_abort(btree_pack_req *req)
+{
+   for (uint16 i = 0; i <= req->height; i++) {
+      btree_node_full_unlock(req->cc, req->cfg, &req->edge[i]);
+   }
+
+   btree_dec_ref_range(req->cc,
+                       req->cfg,
+                       req->root_addr,
+                       NULL_SLICE,
+                       NULL_SLICE,
+                       PAGE_TYPE_BRANCH);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * btree_pack --
@@ -3020,7 +3045,12 @@ btree_pack(btree_pack_req *req)
           && btree_pack_can_fit_tuple(req, key, data))
    {
       iterator_get_curr(req->itor, &key, &data);
-      btree_pack_loop(req, key, data, &at_end);
+      platform_status rc = btree_pack_loop(req, key, data, &at_end);
+      if (!SUCCESS(rc)) {
+         platform_error_log("%s error status: %d\n", __func__, rc.r);
+         btree_pack_abort(req);
+         return rc;
+      }
    }
 
    btree_pack_post_loop(req, key);
