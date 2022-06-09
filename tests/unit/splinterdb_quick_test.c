@@ -32,6 +32,7 @@
 #include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
+#include "splinterdb_private.h"
 #include "unit_tests.h"
 #include "util.h"
 #include "test_data.h"
@@ -66,10 +67,6 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i);
 
 static int
 custom_key_comparator(const data_config *cfg, slice key1, slice key2);
-
-// Extern prototype defined in the library.
-bool
-validate_key_in_range(const splinterdb *kvs, slice key);
 
 typedef struct {
    data_config super;
