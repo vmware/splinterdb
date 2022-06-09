@@ -635,7 +635,7 @@ validate_key_length(const splinterdb *kvs, uint64 key_length)
  * Validate that a key being inserted is within [min, max]-key range.
  */
 bool
-splinterdb_validate_key_in_range(const splinterdb *kvs, slice key)
+validate_key_in_range(const splinterdb *kvs, slice key)
 {
    const data_config *cfg = kvs->shim_data_cfg.app_data_cfg;
 
@@ -645,11 +645,10 @@ splinterdb_validate_key_in_range(const splinterdb *kvs, slice key)
    cmp_rv = cfg->key_compare(
       cfg, slice_create(cfg->min_key_length, cfg->min_key), key);
    if (cmp_rv > 0) {
-      platform_error_log("Key '%.*s' is less than configured min-key '%.*s'.\n",
-                         (int)slice_length(key),
-                         (char *)slice_data(key),
-                         (int)cfg->min_key_length,
-                         cfg->min_key);
+      platform_error_log(
+         "Key '%s' is less than configured min-key '%s'.\n",
+         key_string(cfg, key),
+         key_string(cfg, slice_create(cfg->min_key_length, cfg->min_key)));
       return FALSE;
    }
 
@@ -658,11 +657,9 @@ splinterdb_validate_key_in_range(const splinterdb *kvs, slice key)
       cfg, key, slice_create(cfg->max_key_length, cfg->max_key));
    if (cmp_rv > 0) {
       platform_error_log(
-         "Key '%.*s' is greater than configured max-key '%.*s'.\n",
-         (int)slice_length(key),
-         (char *)slice_data(key),
-         (int)cfg->max_key_length,
-         cfg->max_key);
+         "Key '%s' is greater than configured max-key '%s'.\n",
+         key_string(cfg, key),
+         key_string(cfg, slice_create(cfg->max_key_length, cfg->max_key)));
       return FALSE;
    }
    return TRUE;
@@ -693,7 +690,7 @@ splinterdb_insert_message(const splinterdb *kvs, // IN
       return rc;
    }
 
-   debug_assert(splinterdb_validate_key_in_range(kvs, key),
+   debug_assert(validate_key_in_range(kvs, key),
                 "Attempt to insert key outside configured min/max key-range");
 
    char key_buffer[MAX_KEY_SIZE] = {0};

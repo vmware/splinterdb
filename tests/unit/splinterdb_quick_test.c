@@ -67,6 +67,10 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i);
 static int
 custom_key_comparator(const data_config *cfg, slice key1, slice key2);
 
+// Extern prototype defined in the library.
+bool
+validate_key_in_range(const splinterdb *kvs, slice key);
+
 typedef struct {
    data_config super;
    uint64      num_comparisons;
@@ -836,26 +840,26 @@ CTEST2(splinterdb_quick, test_validate_key_in_range)
    bool  is_valid = FALSE;
    char *test_key = "jkey-000"; // Invalid; key < min-key
 
-   is_valid = splinterdb_validate_key_in_range(
-      data->kvsb, slice_create(strlen(test_key), test_key));
+   is_valid = validate_key_in_range(data->kvsb,
+                                    slice_create(strlen(test_key), test_key));
    ASSERT_FALSE(is_valid);
 
    test_key = "key-000"; // Valid key
 
-   is_valid = splinterdb_validate_key_in_range(
-      data->kvsb, slice_create(strlen(test_key), test_key));
+   is_valid = validate_key_in_range(data->kvsb,
+                                    slice_create(strlen(test_key), test_key));
    ASSERT_TRUE(is_valid);
 
    test_key = "key-9999999"; // Invalid; key > max-key
 
-   is_valid = splinterdb_validate_key_in_range(
-      data->kvsb, slice_create(strlen(test_key), test_key));
+   is_valid = validate_key_in_range(data->kvsb,
+                                    slice_create(strlen(test_key), test_key));
    ASSERT_FALSE(is_valid);
 
    test_key = "lkey-000"; // Invalid; key > max-key
 
-   is_valid = splinterdb_validate_key_in_range(
-      data->kvsb, slice_create(strlen(test_key), test_key));
+   is_valid = validate_key_in_range(data->kvsb,
+                                    slice_create(strlen(test_key), test_key));
    ASSERT_FALSE(is_valid);
 }
 
