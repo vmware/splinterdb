@@ -11,6 +11,8 @@
 #ifndef __SPLINTERDB_PRIVATE_H__
 #define __SPLINTERDB_PRIVATE_H__
 
+#include "splinterdb/splinterdb.h"
+
 bool
 validate_key_in_range(const splinterdb *kvs, slice key);
 
