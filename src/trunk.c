@@ -1372,7 +1372,13 @@ trunk_find_pivot(trunk_handle *spl,
             debug_assert(cmp < 0);
             return 0;
          case less_than_or_equal:
-            debug_assert(cmp <= 0);
+            debug_assert(cmp <= 0,
+                         "cmp=%d, key='%.*s' ['%.*s']",
+                         cmp,
+                         (int)trunk_key_size(spl),
+                         key,
+                         (int)*key,
+                         (key + 1));
             return 0;
          case greater_than:
             return cmp > 0 ? 0 : 1;
@@ -1496,7 +1502,8 @@ trunk_add_pivot_new_root(trunk_handle *spl,
 {
    const char *pivot_key                       = trunk_get_pivot(spl, child, 0);
    __attribute__((unused)) const char *min_key = spl->cfg.data_cfg->min_key;
-   debug_assert(trunk_key_compare(spl, pivot_key, min_key) == 0);
+   debug_only const int key_cmp_rv = trunk_key_compare(spl, pivot_key, min_key);
+   debug_assert((key_cmp_rv == 0), "key_cmp_rv=%d\n", key_cmp_rv);
 
    const char *max_key = spl->cfg.data_cfg->max_key;
    trunk_set_initial_pivots(spl, parent, pivot_key, max_key);
