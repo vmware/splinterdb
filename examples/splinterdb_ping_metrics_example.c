@@ -47,30 +47,22 @@
 
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
-#include "example_common.h"
 
-/* Tag to identify messages from application program */
-#define APP_ME "App-ping-metrics"
-
-/*
- * App-specific 'defaults' that can be parameterized, eventually.
- */
-#define APP_DB_NAME "splinterdb_ping_metrics_example_db"
-
-#define APP_DEVICE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
-#define APP_CACHE_SIZE_MB  64   // Size of cache; can be changed across boots
+#define DB_FILE_NAME "splinterdb_ping_metrics_example_db"
+#define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
+#define CACHE_SIZE_MB  64   // Size of cache; can be changed across boots
 
 // Describe the layout of fields in an IP4-address
-#define APP_IPV4_NUM_FIELDS 4
-#define APP_IPV4_NUM_DOTS   (APP_IPV4_NUM_FIELDS - 1)
+#define IPV4_NUM_FIELDS 4
+#define IPV4_NUM_DOTS   (IPV4_NUM_FIELDS - 1)
 
 // Application declares the limit of key-sizes it intends to use
-#define APP_MAX_KEY_SIZE ((3 * APP_IPV4_NUM_FIELDS) + APP_IPV4_NUM_DOTS)
+#define IP4_MAX_KEY_SIZE ((3 * IPV4_NUM_FIELDS) + IPV4_NUM_DOTS)
 
 // Max # of chars in a well-formed IP4 address, including null-terminator byte
-#define APP_IPV4_MAX_KEY_BUF_SIZE (APP_MAX_KEY_SIZE + 1)
+#define IPV4_MAX_KEY_BUF_SIZE (IP4_MAX_KEY_SIZE + 1)
 
-#define APP_PING_EVERY_S 1 // interval between pings
+#define PING_EVERY_S 1 // interval between pings
 
 /*
  * --------------------------------------------------------------------------
@@ -141,7 +133,32 @@ const char *www_sites[] = {  "www.acm.org"
                           };
 // clang-format on
 
+/* Bunch of utility macros */
+#define ARRAY_LEN(a) (int)(sizeof(a) / sizeof(*a))
 #define NUM_WWW_SITES ARRAY_LEN(www_sites)
+
+#ifndef MIN
+#   define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#endif /* MIN */
+
+#ifndef MAX
+#   define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#endif /* MAX */
+
+#ifndef MEMMOVE
+#   define MEMMOVE(d, s, l) memmove((void *)(d), (void *)(s), (size_t)(l))
+#endif /* MEMMOVE */
+
+// Time unit constants
+#define THOUSAND (1000UL)
+#define MILLION  (THOUSAND * THOUSAND)
+#define BILLION  (THOUSAND * MILLION)
+
+#define NSEC_TO_MSEC(x) ((x) / MILLION)
+#define SEC_TO_NSEC(x)  ((x)*BILLION)
+
+/* Convert timespec quantity into units of nanoseconds */
+#define TIMESPEC_TO_NS(ts) ((uint64)SEC_TO_NSEC((ts)->tv_sec) + (ts)->tv_nsec)
 
 /*
  * **************************************************************
@@ -255,7 +272,7 @@ main(int argv, char *argc[])
 
    // Initialize data configuration, describing your key-value properties
    data_config splinter_data_cfg;
-   default_data_config_init(APP_MAX_KEY_SIZE, &splinter_data_cfg);
+   default_data_config_init(IP4_MAX_KEY_SIZE, &splinter_data_cfg);
 
    // Customize key-comparison with our implementation for IP4 addresses
    // **** NOTE **** Custom key-comparision function needs to be provided
@@ -277,15 +294,15 @@ main(int argv, char *argc[])
    splinterdb_config splinterdb_cfg;
    configure_splinter_instance(&splinterdb_cfg,
                                &splinter_data_cfg,
-                               APP_DB_NAME,
-                               (APP_DEVICE_SIZE_MB * K_MiB),
-                               (APP_CACHE_SIZE_MB * K_MiB));
+                               DB_FILE_NAME,
+                               (DB_FILE_SIZE_MB * 1024 * 1024),
+                               (CACHE_SIZE_MB * 1024 * 1024));
 
    splinterdb *spl_handle = NULL; // To a running SplinterDB instance
 
    int rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
    if (rc) {
-      ex_err("SplinterDB creation failed. (rc=%d)\n", rc);
+      printf("SplinterDB creation failed. (rc=%d)\n", rc);
       return rc;
    }
 
@@ -304,7 +321,7 @@ main(int argv, char *argc[])
 
    // Ping all sites, and initialize the base key-value pair for 1st ping
    ping_all_www_sites(conns, www_sites, NUM_WWW_SITES);
-   ex_msg("-- Finished 1st ping to all sites, loop %d.\n\n", loopctr);
+   printf("-- Finished 1st ping to all sites, loop %d.\n\n", loopctr);
 
    // -- ACTION IS HERE --
    // Declare an array of ping-metrics for all www-sites probed
@@ -329,7 +346,7 @@ main(int argv, char *argc[])
       const size_t value_len  = WWW_PING_METRICS_SIZE(metric);
       int rc = do_insert(spl_handle, key_data, key_len, value_data, value_len);
       if (rc) {
-         ex_err("Insert of base metric for '%s' failed, rc=%d\n",
+         printf("Insert of base metric for '%s' failed, rc=%d\n",
                 metric->www_name,
                 rc);
       }
@@ -343,7 +360,7 @@ main(int argv, char *argc[])
    // ---------------------------------------------------------------------
    while (loopctr < max_loops) {
       ping_all_www_sites(conns, www_sites, NUM_WWW_SITES);
-      ex_msg("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
+      printf("-- Finished Ping to all sites, loop %d.\n\n", loopctr);
 
       // Register the new ping metric as an update message for the ipaddr
       for (int wctr = 0; wctr < NUM_WWW_SITES; wctr++) {
@@ -365,20 +382,20 @@ main(int argv, char *argc[])
          int          rc =
             do_update(spl_handle, key_data, key_len, value_data, value_len);
          if (rc) {
-            ex_err("Update of new metric for ip-addr '%s' failed, rc=%d\n",
+            printf("Update of new metric for ip-addr '%s' failed, rc=%d\n",
                    key_data,
                    rc);
          }
       }
       loopctr++;
-      sleep(APP_PING_EVERY_S);
+      sleep(PING_EVERY_S);
    }
 
    // Process all key/value pairs, and examine the aggregated metrics.
    do_iterate_all(spl_handle, NUM_WWW_SITES);
 
    splinterdb_close(&spl_handle);
-   ex_msg("Shutdown SplinterDB instance, dbname '%s'.\n\n", APP_DB_NAME);
+   printf("Shutdown SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
    return rc;
 }
@@ -393,7 +410,7 @@ do_dns_lookups(www_conn_hdlr *conns, const char **www_sites, int num_sites)
 {
    for (int wctr = 0; wctr < num_sites; wctr++) {
       if (!dns_lookup(&conns[wctr], www_sites[wctr])) {
-         ex_err("DNS lookup failed for %s\n", www_sites[wctr]);
+         printf("DNS lookup failed for %s\n", www_sites[wctr]);
       }
    }
 }
@@ -409,7 +426,7 @@ dns_lookup(www_conn_hdlr *conn, const char *addr_host)
    struct hostent *host_entity;
    if ((host_entity = gethostbyname(addr_host)) == NULL) {
       // No ip found for hostname
-      ex_err("Warning! No IP found by gethostbyname() for '%s'\n", addr_host);
+      printf("Warning! No IP found by gethostbyname() for '%s'\n", addr_host);
       return NULL;
    }
 
@@ -443,9 +460,11 @@ ping_all_www_sites(www_conn_hdlr *conns, const char **www_sites, int num_sites)
       int ttl_val = 64;
       // set socket options at ip to TTL and value to 64,
       // change to what you want by setting ttl_val
-      if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
-         ex_err("\nSetting socket options for sockfd=%d to TTL failed!\n",
-                sockfd);
+      int rc = setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val));
+      // if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
+      if (rc != 0) {
+         printf("\nSetting socket options for sockfd=%d to TTL failed, rc=%d!\n",
+                sockfd, rc);
          return;
       }
       struct timeval tv_out;
@@ -511,7 +530,7 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
    clock_gettime(CLOCK_MONOTONIC, &tfs);
    if (sendto(sockfd, &pckt, sizeof(pckt), 0, ping_addr, sizeof_ping_addr) <= 0)
    {
-      ex_err("[%d] Ping to %s ... Packet Sending Failed!\n", wctr, www_addr);
+      printf("[%d] Ping to %s ... Packet Sending Failed!\n", wctr, www_addr);
    }
 
    // Receive packet
@@ -519,7 +538,7 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
           sockfd, &pckt, sizeof(pckt), 0, (struct sockaddr *)&r_addr, &addr_len)
        <= 0)
    {
-      ex_err("[%d] Ping to %s ... Packet receive failed!\n", wctr, www_addr);
+      printf("[%d] Ping to %s ... Packet receive failed!\n", wctr, www_addr);
    }
 
    clock_gettime(CLOCK_MONOTONIC, &tfe);
@@ -527,7 +546,7 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
    uint64 elapsed_ms = NSEC_TO_MSEC(elapsed_ns);
 
    conn->ping_elapsed_ms = elapsed_ms;
-   ex_msg("[%d] Ping %d bytes to %s (%s) took %lu ns (%lu ms)\n",
+   printf("[%d] Ping %d bytes to %s (%s) took %lu ns (%lu ms)\n",
           wctr,
           (int)sizeof(pckt),
           www_addr,
@@ -579,7 +598,7 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
 static int
 custom_key_compare(const data_config *cfg, slice key1, slice key2)
 {
-   // ex_msg("%s() ...\n", __FUNCTION__);
+   // printf("%s() ...\n", __FUNCTION__);
    return ip4_ipaddr_keycmp((const char *)slice_data(key1),
                             slice_length(key1),
                             (const char *)slice_data(key2),
@@ -610,8 +629,8 @@ ip4_ipaddr_keycmp(const char  *key1,
                   const char  *key2,
                   const size_t key2_len)
 {
-   int key1_fields[APP_IPV4_NUM_FIELDS];
-   int key2_fields[APP_IPV4_NUM_FIELDS];
+   int key1_fields[IPV4_NUM_FIELDS];
+   int key2_fields[IPV4_NUM_FIELDS];
 
    ip4_split(key1_fields, key1, key1_len);
    ip4_split(key2_fields, key2, key2_len);
@@ -634,7 +653,7 @@ ip4_ipaddr_keycmp(const char  *key1,
       } else {
          return KEYCMP_RV_KEY1_GT_KEY2;
       }
-   } while (fctr < APP_IPV4_NUM_FIELDS);
+   } while (fctr < IPV4_NUM_FIELDS);
 
    return rv;
 }
@@ -649,10 +668,10 @@ ip4_ipaddr_keycmp(const char  *key1,
 static int
 ip4_split(int *key_fields, const char *key, const size_t key_len)
 {
-   assert(key_len < APP_IPV4_MAX_KEY_BUF_SIZE);
+   assert(key_len < IPV4_MAX_KEY_BUF_SIZE);
 
    // Process on-stack copy of key, so as to not trash user's data
-   char keybuf[APP_IPV4_MAX_KEY_BUF_SIZE];
+   char keybuf[IPV4_MAX_KEY_BUF_SIZE];
    snprintf(keybuf, sizeof(keybuf), "%.*s", (int)key_len, key);
 
    char *cp   = (char *)keybuf;
@@ -691,7 +710,7 @@ aggregate_ping_metrics(const data_config *cfg,
    uint64       old_msg_len = message_length(old_raw_message);
    uint64       new_msg_len = merge_accumulator_length(new_raw_message);
 
-   // ex_msg("%s(), result_type=%d ...\n", __FUNCTION__, result_type);
+   // printf("%s(), result_type=%d ...\n", __FUNCTION__, result_type);
    const char *msgtype = "UNKNOWN";
 
    if (result_type == MESSAGE_TYPE_INSERT) {
@@ -737,7 +756,7 @@ aggregate_ping_metrics(const data_config *cfg,
       msgtype = "MESSAGE_TYPE_UPDATE";
    }
    if (0)
-      ex_msg("%s: %s: old_msg_len=%lu, new_msg_len=%lu\n",
+      printf("%s: %s: old_msg_len=%lu, new_msg_len=%lu\n",
              __FUNCTION__,
              msgtype,
              old_msg_len,
@@ -758,19 +777,19 @@ ping_metrics_final(const data_config *cfg,
                    slice              key,
                    merge_accumulator *oldest_raw_data) // IN/OUT
 {
-   ex_msg("%s() ...\n", __FUNCTION__);
+   printf("%s() ...\n", __FUNCTION__);
    message_type result_type = merge_accumulator_message_class(oldest_raw_data);
    size_t       msg_len     = merge_accumulator_length(oldest_raw_data);
    if (result_type == MESSAGE_TYPE_INSERT) {
-      ex_msg("[%d]: MESSAGE_TYPE_INSERT:\n", __LINE__);
+      printf("[%d]: MESSAGE_TYPE_INSERT:\n", __LINE__);
    } else if (result_type == MESSAGE_TYPE_UPDATE) {
-      ex_msg("[%d]: MESSAGE_TYPE_UPDATE: key='%.*s', msg_len=%lu\n",
+      printf("[%d]: MESSAGE_TYPE_UPDATE: key='%.*s', msg_len=%lu\n",
              __LINE__,
              (int)slice_length(key),
              (char *)slice_data(key),
              msg_len);
    } else {
-      ex_msg("[%d]: Unknown MESSAGE_TYPE=%d:\n", __LINE__, result_type);
+      printf("[%d]: Unknown MESSAGE_TYPE=%d:\n", __LINE__, result_type);
    }
    // print_ping_metrics(0, key, old_raw_message.data);
    return 0;
@@ -826,7 +845,7 @@ do_update(splinterdb  *spl_handle,
 static int
 do_iterate_all(splinterdb *spl_handle, int num_keys)
 {
-   ex_msg("Iterate through all the %d keys:\n", num_keys);
+   printf("Iterate through all the %d keys:\n", num_keys);
 
    splinterdb_iterator *it = NULL;
 
@@ -845,7 +864,7 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
    rc = splinterdb_iterator_status(it);
    splinterdb_iterator_deinit(it);
 
-   ex_msg("Found %d key-value pairs\n\n", i);
+   printf("Found %d key-value pairs\n\n", i);
    return rc;
 }
 
@@ -861,7 +880,7 @@ print_ping_metrics(int kctr, slice key, slice value)
 {
    www_ping_metrics *ping_value;
    ping_value = ((www_ping_metrics *)slice_data(value));
-   ex_msg("[%d] key='%.*s'"
+   printf("[%d] key='%.*s'"
           ", value=[count=%u, min=%u, avg=%u, max=%u, elapsed=%u"
           ", name='%.*s']\n",
           kctr,
