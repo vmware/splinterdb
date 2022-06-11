@@ -48,9 +48,9 @@
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 
-#define DB_FILE_NAME "splinterdb_ping_metrics_example_db"
+#define DB_FILE_NAME    "splinterdb_ping_metrics_example_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
-#define CACHE_SIZE_MB  64   // Size of cache; can be changed across boots
+#define CACHE_SIZE_MB   64   // Size of cache; can be changed across boots
 
 // Describe the layout of fields in an IP4-address
 #define IPV4_NUM_FIELDS 4
@@ -90,6 +90,10 @@ typedef struct www_ping_metrics {
    char   www_name[30];
 } www_ping_metrics;
 
+/*
+ * Size of a ping-metrics structure accounting for a null-terminated
+ * www-site's name which could be less than sizeof(www_name) field.
+ */
 #define WWW_PING_METRICS_SIZE(p)                                               \
    (size_t)(offsetof(www_ping_metrics, www_name) + strlen((p)->www_name))
 
@@ -104,20 +108,18 @@ typedef struct www_ping_metrics {
  * --------------------------------------------------------------------------
  * -- ACTION IS HERE --
  * An UPDATE message will be inserted for every subsequent ping metric.
- * The key remains the same as for the INSERT; i.e. the ip-address.
+ *  - The key remains the same as for the INSERT; i.e. the ip-address.
+ *  - The "value" is just the new ping-time monitored.
  *
- * Here, the "value" is just the new ping-time gathered.
  * Over-time we will see multiple such new-metric UPDATE messages recorded
  * in the db. Upon a lookup, the user-specified merge-method will aggregate
- * the metrics, to return the consolidate metric, as in:
+ * the metrics, to return the consolidated metric, as in:
  * <key> - {min, avg, max}-ping-elapsed-ms, # pings-done, www-name
  * --------------------------------------------------------------------------
  */
 typedef struct ping_metric {
    uint32 this_ping_ms;
 } ping_metric;
-
-#define WWW_PING_SIZE() sizeof(ping_metric)
 
 // clang-format off
 const char *www_sites[] = {  "www.acm.org"
@@ -134,7 +136,7 @@ const char *www_sites[] = {  "www.acm.org"
 // clang-format on
 
 /* Bunch of utility macros */
-#define ARRAY_LEN(a) (int)(sizeof(a) / sizeof(*a))
+#define ARRAY_LEN(a)  (int)(sizeof(a) / sizeof(*a))
 #define NUM_WWW_SITES ARRAY_LEN(www_sites)
 
 #ifndef MIN
@@ -222,20 +224,6 @@ ping_metrics_final(const data_config *cfg,
                    merge_accumulator *oldest_raw_data);
 
 static int
-do_insert(splinterdb  *spl_handle,
-          const char  *key_data,
-          const size_t key_len,
-          const char  *value_data,
-          const size_t value_len);
-
-static int
-do_update(splinterdb  *spl_handle,
-          const char  *key_data,
-          const size_t key_len,
-          const char  *value_data,
-          const size_t value_len);
-
-static int
 do_iterate_all(splinterdb *spl_handle, int num_keys);
 
 static void
@@ -267,8 +255,10 @@ get_elapsed_ns(struct timespec *start, struct timespec *end);
 int
 main(int argv, char *argc[])
 {
-   printf("     **** SplinterDB Example Ping program: "
-          "Update telemetry metrics with UPDATE messages ****\n\n");
+   printf("     **** SplinterDB Example Ping program:"
+          " Monitor ping time metrics with UPDATE messages ****\n");
+   printf("         **** NOTE: You must run this with 'sudo' to"
+          " get ping to work reliably. ****\n\n");
 
    // Initialize data configuration, describing your key-value properties
    data_config splinter_data_cfg;
@@ -314,7 +304,7 @@ main(int argv, char *argc[])
       max_loops = atoi(argc[1]);
    }
 
-   // Do DNS-lookups, and cache ip-addr for all www-sites we'll ping below
+   // Do DNS-lookups, and cache ip-addr for all www-sites we will ping below
    do_dns_lookups(conns, www_sites, NUM_WWW_SITES);
 
    int loopctr = 0;
@@ -344,7 +334,10 @@ main(int argv, char *argc[])
       const size_t key_len    = strlen(conn->ip_addr);
       const char  *value_data = (const char *)metric;
       const size_t value_len  = WWW_PING_METRICS_SIZE(metric);
-      int rc = do_insert(spl_handle, key_data, key_len, value_data, value_len);
+
+      slice key   = slice_create(key_len, key_data);
+      slice value = slice_create(value_len, value_data);
+      int   rc    = splinterdb_insert(spl_handle, key, value);
       if (rc) {
          printf("Insert of base metric for '%s' failed, rc=%d\n",
                 metric->www_name,
@@ -355,7 +348,7 @@ main(int argv, char *argc[])
    loopctr++;
    // ---------------------------------------------------------------------
    // Run n-more pings, collecting elapsed time for each ping. Store this
-   // in SplinterDB as an UPDATE message, which slams-in just the new
+   // in SplinterDB as an UPDATE message, which stores just the new
    // elapsed-time metric, associated with www-site's IP-address as the key.
    // ---------------------------------------------------------------------
    while (loopctr < max_loops) {
@@ -374,13 +367,15 @@ main(int argv, char *argc[])
          const char  *key_data = conn->ip_addr;
          const size_t key_len  = strlen(conn->ip_addr);
 
-         // NOTE: As we are only updating the single metric, the length of the
+         // NOTE: As we are only recording the single metric, the length of the
          //       value's data is shorter than that what was inserted
          //       previously.
          const char  *value_data = (const char *)&metric;
-         const size_t value_len  = WWW_PING_SIZE();
-         int          rc =
-            do_update(spl_handle, key_data, key_len, value_data, value_len);
+         const size_t value_len  = sizeof(metric);
+
+         slice key   = slice_create(key_len, key_data);
+         slice value = slice_create(value_len, value_data);
+         int   rc    = splinterdb_update(spl_handle, key, value);
          if (rc) {
             printf("Update of new metric for ip-addr '%s' failed, rc=%d\n",
                    key_data,
@@ -391,7 +386,7 @@ main(int argv, char *argc[])
       sleep(PING_EVERY_S);
    }
 
-   // Process all key/value pairs, and examine the aggregated metrics.
+   // Examine the aggregated metrics across all key/value pairs
    do_iterate_all(spl_handle, NUM_WWW_SITES);
 
    splinterdb_close(&spl_handle);
@@ -461,10 +456,11 @@ ping_all_www_sites(www_conn_hdlr *conns, const char **www_sites, int num_sites)
       // set socket options at ip to TTL and value to 64,
       // change to what you want by setting ttl_val
       int rc = setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val));
-      // if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
       if (rc != 0) {
-         printf("\nSetting socket options for sockfd=%d to TTL failed, rc=%d!\n",
-                sockfd, rc);
+         printf(
+            "\nSetting socket options for sockfd=%d to TTL failed, rc=%d!\n",
+            sockfd,
+            rc);
          return;
       }
       struct timeval tv_out;
@@ -559,11 +555,6 @@ do_ping(int sockfd, int wctr, const char *www_addr, www_conn_hdlr *conn)
 static uint64
 get_elapsed_ns(struct timespec *start, struct timespec *end)
 {
-   /*
-   uint64 end_ns   = TIMESPEC_TO_NS(end);
-   uint64 start_ns = TIMESPEC_TO_NS(start);
-   return (end_ns - start_ns);
-   */
    return (TIMESPEC_TO_NS(end) - TIMESPEC_TO_NS(start));
 }
 
@@ -598,7 +589,6 @@ configure_splinter_instance(splinterdb_config *splinterdb_cfg,
 static int
 custom_key_compare(const data_config *cfg, slice key1, slice key2)
 {
-   // printf("%s() ...\n", __FUNCTION__);
    return ip4_ipaddr_keycmp((const char *)slice_data(key1),
                             slice_length(key1),
                             (const char *)slice_data(key2),
@@ -610,7 +600,6 @@ custom_key_compare(const data_config *cfg, slice key1, slice key2)
  * -----------------------------------------------------------------------------
  * ipaddr_keycmp() - Custom IPV4 IP-address key-comparison routine.
  *
- // -- ACTION IS HERE --
  * 'key1' and 'key2' are expected to be well-formed IP4 addresses.
  * - Extract each of the 4 parts of the IP-address
  * - Implement comparison by numerical sort-order of each part.
@@ -695,6 +684,7 @@ ip4_split(int *key_fields, const char *key, const size_t key_len)
  * -----------------------------------------------------------------------------
  * aggregate_ping_metrics()
  *
+ * -- ACTION IS HERE --
  * User-supplied merge-callback function, which understands the semantics of
  * the "value" -- which are ping-metrics. And implements the 'merge' operation
  * to aggregate ping-metrics across multiple messages.
@@ -710,7 +700,7 @@ aggregate_ping_metrics(const data_config *cfg,
    uint64       old_msg_len = message_length(old_raw_message);
    uint64       new_msg_len = merge_accumulator_length(new_raw_message);
 
-   // printf("%s(), result_type=%d ...\n", __FUNCTION__, result_type);
+   printf("%s(), result_type=%d ...\n", __FUNCTION__, result_type);
    const char *msgtype = "UNKNOWN";
 
    if (result_type == MESSAGE_TYPE_INSERT) {
@@ -755,15 +745,15 @@ aggregate_ping_metrics(const data_config *cfg,
    } else if (result_type == MESSAGE_TYPE_UPDATE) {
       msgtype = "MESSAGE_TYPE_UPDATE";
    }
-   if (0)
+   if (0) {
       printf("%s: %s: old_msg_len=%lu, new_msg_len=%lu\n",
              __FUNCTION__,
              msgtype,
              old_msg_len,
              new_msg_len);
-   /*
-   print_ping_metrics(0, key, old_raw_message.data);
-   */
+
+      print_ping_metrics(0, key, old_raw_message.data);
+   }
    return 0;
 }
 
@@ -793,46 +783,6 @@ ping_metrics_final(const data_config *cfg,
    }
    // print_ping_metrics(0, key, old_raw_message.data);
    return 0;
-}
-
-/*
- * ---------------------------------------------------------------------------
- * do_insert()
- *
- * Insert a new key/value pair to a SplinterDB instance.
- * ----------------------------------------------------------------------------
- */
-static int
-do_insert(splinterdb  *spl_handle,
-          const char  *key_data,
-          const size_t key_len,
-          const char  *value_data,
-          const size_t value_len)
-{
-   slice key   = slice_create(key_len, key_data);
-   slice value = slice_create(value_len, value_data);
-   int   rc    = splinterdb_insert(spl_handle, key, value);
-   return rc;
-}
-
-/*
- * ---------------------------------------------------------------------------
- * do_update()
- *
- * Update the value portion for an existing key in a SplinterDB instance.
- * ----------------------------------------------------------------------------
- */
-static int
-do_update(splinterdb  *spl_handle,
-          const char  *key_data,
-          const size_t key_len,
-          const char  *value_data,
-          const size_t value_len)
-{
-   slice key   = slice_create(key_len, key_data);
-   slice value = slice_create(value_len, value_data);
-   int   rc    = splinterdb_update(spl_handle, key, value);
-   return rc;
 }
 
 /*
