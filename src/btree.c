@@ -2731,49 +2731,34 @@ btree_pack_setup_start(btree_pack_req *req)
 }
 
 
-static inline void
-btree_pack_setup_finish(btree_pack_req *req, slice first_key)
+static inline btree_node *
+btree_pack_get_current_node(btree_pack_req *req, uint64 height)
 {
-   uint64 next_extent;
-   // set up the first leaf
-   btree_alloc(req->cc,
-               &req->mini,
-               0,
-               first_key,
-               &next_extent,
-               PAGE_TYPE_BRANCH,
-               &req->edge[0][0]);
-   debug_assert(cache_page_valid(req->cc, next_extent));
-   btree_pack_node_init_hdr(req->cfg, req->edge[0][0].hdr, next_extent, 0);
-   req->num_edges[0] = 1;
-}
-
-static inline void
-btree_pack_complete_node(btree_pack_req *req,
-                         uint64          height,
-                         uint64          offset,
-                         uint64          next_extent_addr);
-
-static inline void
-btree_pack_complete_extent(btree_pack_req *req,
-                           uint64          height,
-                           uint64          next_extent_addr)
-{
-   for (int i = 0; i < req->num_edges[height]; i++) {
-      btree_pack_complete_node(req, height, i, next_extent_addr);
+   if (0 < req->num_edges[height]) {
+      return &req->edge[height][req->num_edges[height] - 1];
+   } else {
+      return NULL;
    }
-   req->num_edges[height] = 0;
 }
 
-static inline void
-btree_pack_complete_node(btree_pack_req *req,
-                         uint64          height,
-                         uint64          offset,
-                         uint64          next_extent_addr)
+static inline btree_pivot_stats *
+btree_pack_get_current_node_stats(btree_pack_req *req, uint64 height)
 {
-   debug_assert(height <= req->height);
-   debug_assert(offset < req->num_edges[height]);
+   debug_assert(0 < req->num_edges[height]);
+   return &req->edge_stats[height][req->num_edges[height] - 1];
+}
 
+static inline btree_node *
+btree_pack_create_next_node(btree_pack_req *req, uint64 height, slice pivot);
+
+/* Add the specified node to its parent. Creates a parent if
+   necessary.  */
+static inline void
+btree_pack_link_node(btree_pack_req *req,
+                     uint64          height,
+                     uint64          offset,
+                     uint64          next_extent_addr)
+{
    btree_node        *edge       = &req->edge[height][offset];
    btree_pivot_stats *edge_stats = &req->edge_stats[height][offset];
    slice              pivot = height ? btree_get_pivot(req->cfg, edge->hdr, 0)
@@ -2781,70 +2766,73 @@ btree_pack_complete_node(btree_pack_req *req,
    edge->hdr->next_extent_addr = next_extent_addr;
    btree_node_unlock(req->cc, req->cfg, edge);
    btree_node_unclaim(req->cc, req->cfg, edge);
-   // Cannot fully unlock edge yet because pivot may point into it.
+   // Cannot fully unlock edge yet because the slice "pivot" may point into it.
 
-   if (height < req->height) {
-      btree_node *parent =
-         &req->edge[height + 1][req->num_edges[height + 1] - 1];
+   btree_node *parent = btree_pack_get_current_node(req, height + 1);
 
-      if (!btree_set_index_entry(req->cfg,
+   if (!parent
+       || !btree_set_index_entry(req->cfg,
                                  parent->hdr,
                                  btree_num_entries(parent->hdr),
                                  pivot,
                                  edge->addr,
                                  *edge_stats))
-      {
-         btree_node new_parent;
-         uint64     parent_next_extent;
-         btree_alloc(req->cc,
-                     &req->mini,
-                     height + 1,
-                     pivot,
-                     &parent_next_extent,
-                     PAGE_TYPE_BRANCH,
-                     &new_parent);
-         parent->hdr->next_addr = new_parent.addr;
-         if (!btree_addrs_share_extent(req->cfg, parent->addr, new_parent.addr))
-         {
-            btree_pack_complete_extent(req, height + 1, new_parent.addr);
-         }
-
-         btree_pack_node_init_hdr(req->cfg, new_parent.hdr, 0, height + 1);
-         req->edge[height + 1][req->num_edges[height + 1]] = new_parent;
-         req->num_edges[height + 1]++;
-         debug_assert(
-            req->edge_stats[height + 1][req->num_edges[height + 1] - 1].num_kvs
-            == 0);
-
-         btree_set_index_entry(
-            req->cfg, new_parent.hdr, 0, pivot, edge->addr, *edge_stats);
-      }
-
-   } else {
-      btree_node new_root;
-      uint64     root_next_extent;
-      btree_alloc(req->cc,
-                  &req->mini,
-                  height + 1,
-                  pivot,
-                  &root_next_extent,
-                  PAGE_TYPE_BRANCH,
-                  &new_root);
-      btree_pack_node_init_hdr(req->cfg, new_root.hdr, 0, height + 1);
-      req->edge[height + 1][req->num_edges[height + 1]] = new_root;
-      req->num_edges[height + 1]++;
-      req->height++;
-
-      btree_set_index_entry(
-         req->cfg, new_root.hdr, 0, pivot, edge->addr, *edge_stats);
+   {
+      btree_pack_create_next_node(req, height + 1, pivot);
+      parent = btree_pack_get_current_node(req, height + 1);
+      bool success = btree_set_index_entry(
+         req->cfg, parent->hdr, 0, pivot, edge->addr, *edge_stats);
+      platform_assert(success);
    }
 
    btree_accumulate_pivot_stats(
-      &req->edge_stats[height + 1][req->num_edges[height + 1] - 1],
-      *edge_stats);
+      btree_pack_get_current_node_stats(req, height + 1), *edge_stats);
 
    btree_node_unget(req->cc, req->cfg, edge);
    memset(edge_stats, 0, sizeof(*edge_stats));
+}
+
+static inline void
+btree_pack_link_extent(btree_pack_req *req,
+                       uint64          height,
+                       uint64          next_extent_addr)
+{
+   for (int i = 0; i < req->num_edges[height]; i++) {
+      btree_pack_link_node(req, height, i, next_extent_addr);
+   }
+   req->num_edges[height] = 0;
+}
+
+static inline btree_node *
+btree_pack_create_next_node(btree_pack_req *req, uint64 height, slice pivot)
+{
+   btree_node new_node;
+   uint64     node_next_extent;
+   btree_alloc(req->cc,
+               &req->mini,
+               height,
+               pivot,
+               &node_next_extent,
+               PAGE_TYPE_BRANCH,
+               &new_node);
+   btree_pack_node_init_hdr(req->cfg, new_node.hdr, 0, height);
+
+   if (0 < req->num_edges[height]) {
+      btree_node *old_node     = btree_pack_get_current_node(req, height);
+      old_node->hdr->next_addr = new_node.addr;
+      if (!btree_addrs_share_extent(req->cfg, old_node->addr, new_node.addr)) {
+         btree_pack_link_extent(req, height, new_node.addr);
+      }
+   }
+
+   if (req->height < height) {
+      req->height = height;
+   }
+
+   req->edge[height][req->num_edges[height]] = new_node;
+   req->num_edges[height]++;
+   debug_assert(btree_pack_get_current_node_stats(req, height)->num_kvs == 0);
+   return &req->edge[height][req->num_edges[height] - 1];
 }
 
 static inline void
@@ -2854,39 +2842,18 @@ btree_pack_loop(btree_pack_req *req, // IN/OUT
 {
    log_trace_key(key, "btree_pack_loop");
 
-   uint64             leaf_offset = req->num_edges[0] - 1;
-   btree_node        *leaf        = &req->edge[0][leaf_offset];
-   btree_pivot_stats *leaf_stats  = &req->edge_stats[0][leaf_offset];
+   btree_node *leaf = btree_pack_get_current_node(req, 0);
 
-   if (!btree_set_leaf_entry(
+   if (!leaf
+       || !btree_set_leaf_entry(
           req->cfg, leaf->hdr, btree_num_entries(leaf->hdr), key, msg))
    {
-      btree_node new_leaf;
-      uint64     next_extent;
-      btree_alloc(req->cc,
-                  &req->mini,
-                  0,
-                  key,
-                  &next_extent,
-                  PAGE_TYPE_BRANCH,
-                  &new_leaf);
-
-      leaf->hdr->next_addr = new_leaf.addr;
-      if (!btree_addrs_share_extent(req->cfg, leaf->addr, new_leaf.addr)) {
-         btree_pack_complete_extent(req, 0, new_leaf.addr);
-      }
-
-      btree_pack_node_init_hdr(req->cfg, new_leaf.hdr, 0, 0);
-      bool result = btree_set_leaf_entry(req->cfg, new_leaf.hdr, 0, key, msg);
+      leaf        = btree_pack_create_next_node(req, 0, key);
+      bool result = btree_set_leaf_entry(req->cfg, leaf->hdr, 0, key, msg);
       platform_assert(result);
-
-      leaf_offset               = req->num_edges[0];
-      req->edge[0][leaf_offset] = new_leaf;
-      leaf_stats                = &req->edge_stats[0][leaf_offset];
-      debug_assert(leaf_stats->num_kvs == 0);
-      req->num_edges[0]++;
    }
 
+   btree_pivot_stats *leaf_stats = btree_pack_get_current_node_stats(req, 0);
    leaf_stats->num_kvs++;
    leaf_stats->key_bytes += slice_length(key);
    leaf_stats->message_bytes += message_length(msg);
@@ -2923,7 +2890,7 @@ btree_pack_post_loop(btree_pack_req *req, slice last_key)
 
    int h = 0;
    while (h < req->height || 1 < req->num_edges[h]) {
-      btree_pack_complete_extent(req, h, 0);
+      btree_pack_link_extent(req, h, 0);
       h++;
    }
 
@@ -2968,22 +2935,13 @@ btree_pack(btree_pack_req *req)
    message data;
    bool    at_end;
 
-   iterator_at_end(req->itor, &at_end);
-
-   if (!at_end) {
+   while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
       iterator_get_curr(req->itor, &key, &data);
-      if (btree_pack_can_fit_tuple(req, key, data)) {
-         btree_pack_setup_finish(req, key);
+      if (!btree_pack_can_fit_tuple(req, key, data)) {
+         break;
       }
-   }
-
-   while (!at_end && req->num_tuples < req->max_tuples
-          && btree_pack_can_fit_tuple(req, key, data))
-   {
-      iterator_get_curr(req->itor, &key, &data);
       btree_pack_loop(req, key, data);
       iterator_advance(req->itor);
-      iterator_at_end(req->itor, &at_end);
    }
 
    btree_pack_post_loop(req, key);
