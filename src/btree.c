@@ -1670,6 +1670,10 @@ btree_insert(cache              *cc,         // IN
       return STATUS_BAD_PARAM;
    }
 
+   if (message_is_invalid_user_type(msg)) {
+      return STATUS_BAD_PARAM;
+   }
+
    btree_node root_node;
    root_node.addr = root_addr;
 
@@ -2394,7 +2398,7 @@ btree_iterator_get_curr(iterator *base_itor, slice *key, message *data)
          btree_get_index_entry(itor->cfg, itor->curr.hdr, itor->idx);
       *key  = index_entry_key_slice(entry);
       *data = message_create(
-         MESSAGE_TYPE_INVALID,
+         MESSAGE_TYPE_PIVOT_DATA,
          slice_create(sizeof(entry->pivot_data), &entry->pivot_data));
    }
 }
@@ -2835,12 +2839,16 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, slice pivot)
    return &req->edge[height][req->num_edges[height] - 1];
 }
 
-static inline void
+static inline platform_status
 btree_pack_loop(btree_pack_req *req, // IN/OUT
                 slice           key, // IN
                 message         msg)         // IN
 {
    log_trace_key(key, "btree_pack_loop");
+
+   if (message_is_invalid_user_type(msg)) {
+      return STATUS_INVALID_STATE;
+   }
 
    btree_node *leaf = btree_pack_get_current_node(req, 0);
 
@@ -2869,6 +2877,7 @@ btree_pack_loop(btree_pack_req *req, // IN/OUT
    req->num_tuples++;
    req->key_bytes += slice_length(key);
    req->message_bytes += message_length(msg);
+   return STATUS_OK;
 }
 
 
@@ -2918,6 +2927,23 @@ btree_pack_can_fit_tuple(btree_pack_req *req, slice key, message data)
                 <= req->max_kv_bytes;
 }
 
+static void
+btree_pack_abort(btree_pack_req *req)
+{
+   for (uint16 i = 0; i <= req->height; i++) {
+      for (uint16 j = 0; j < req->num_edges[i]; j++) {
+         btree_node_full_unlock(req->cc, req->cfg, &req->edge[i][j]);
+      }
+   }
+
+   btree_dec_ref_range(req->cc,
+                       req->cfg,
+                       req->root_addr,
+                       NULL_SLICE,
+                       NULL_SLICE,
+                       PAGE_TYPE_BRANCH);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * btree_pack --
@@ -2940,7 +2966,12 @@ btree_pack(btree_pack_req *req)
       if (!btree_pack_can_fit_tuple(req, key, data)) {
          break;
       }
-      btree_pack_loop(req, key, data);
+      platform_status rc = btree_pack_loop(req, key, data);
+      if (!SUCCESS(rc)) {
+         platform_error_log("%s error status: %d\n", __func__, rc.r);
+         btree_pack_abort(req);
+         return rc;
+      }
       iterator_advance(req->itor);
    }
 

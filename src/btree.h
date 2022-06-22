@@ -182,6 +182,7 @@ typedef void (*btree_async_cb)(struct btree_async_ctxt *ctxt);
 
 // States for the btree async lookup.
 typedef enum {
+   btree_async_state_invalid = 0,
    btree_async_state_start,
    btree_async_state_get_node, // re-entrant state
    btree_async_state_get_index_complete,

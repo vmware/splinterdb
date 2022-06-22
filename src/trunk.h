@@ -244,6 +244,7 @@ typedef struct trunk_range_iterator {
 
 
 typedef enum {
+   async_state_invalid = 0,
    async_state_start,
    async_state_lookup_memtable,
    async_state_get_root_reentrant,
@@ -263,6 +264,7 @@ typedef enum {
 } trunk_async_state;
 
 typedef enum {
+   async_lookup_state_invalid = 0,
    async_lookup_state_pivot,
    async_lookup_state_subbundle,
    async_lookup_state_compacted_subbundle

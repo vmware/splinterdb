@@ -12,6 +12,8 @@
 
 [Diagnostics](./diagnostics.md)
 
+[Example C-programs](../examples/README.md)
+
 [Contributing](../CONTRIBUTING.md)
 
 [Code of Conduct](../CODE-OF-CONDUCT.md)

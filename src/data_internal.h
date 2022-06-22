@@ -23,8 +23,11 @@ message_type_string(message_type type)
          return "update";
       case MESSAGE_TYPE_DELETE:
          return "delete";
+      case MESSAGE_TYPE_PIVOT_DATA:
+         return "pivot_data";
+      case MESSAGE_TYPE_INVALID:
       default:
-         debug_assert(FALSE, "Invalid message type");
+         debug_assert(FALSE, "Invalid message type=%d", type);
          return "invalid";
    }
 }
@@ -50,6 +53,13 @@ static inline bool
 message_is_definitive(message msg)
 {
    return msg.type == MESSAGE_TYPE_INSERT || msg.type == MESSAGE_TYPE_DELETE;
+}
+
+static inline bool
+message_is_invalid_user_type(message msg)
+{
+   return msg.type == MESSAGE_TYPE_INVALID
+          || msg.type > MESSAGE_TYPE_MAX_VALID_USER_TYPE;
 }
 
 /* Define an arbitrary ordering on messages.  In practice, all we care

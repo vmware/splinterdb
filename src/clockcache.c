@@ -970,7 +970,7 @@ clockcache_assert_clean(clockcache *cc)
  */
 
 typedef enum {
-   GET_RC_SUCCESS,
+   GET_RC_SUCCESS = 0,
    GET_RC_CONFLICT,
    GET_RC_EVICTED,
    GET_RC_FLUSHING,
