@@ -2783,7 +2783,7 @@ btree_pack_link_node(btree_pack_req *req,
                                  *edge_stats))
    {
       btree_pack_create_next_node(req, height + 1, pivot);
-      parent = btree_pack_get_current_node(req, height + 1);
+      parent       = btree_pack_get_current_node(req, height + 1);
       bool success = btree_set_index_entry(
          req->cfg, parent->hdr, 0, pivot, edge->addr, *edge_stats);
       platform_assert(success);
