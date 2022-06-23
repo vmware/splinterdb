@@ -80,13 +80,15 @@
  *  - this ping's elapsed-time
  *  - www-site name to which ping was done.
  * --------------------------------------------------------------------------
+ (robj): Life will be lot easier if you insert one of these structs for each
+ measurement.
  */
 typedef struct www_ping_metrics {
    uint32 min_ping_ms;
-   uint32 avg_ping_ms;
+   uint32 avg_ping_ms;  // Keep this as sum() and synthesize avg() on return
    uint32 max_ping_ms;
    uint32 num_pings;
-   uint32 this_ping_ms;
+   uint32 this_ping_ms;  // get rid of this.
    char   www_name[30];
 } www_ping_metrics;
 
@@ -337,6 +339,8 @@ main(int argv, char *argc[])
 
       slice key   = slice_create(key_len, key_data);
       slice value = slice_create(value_len, value_data);
+      // If you change this to splinterdb_update() initially, then the
+      // merge_tuples_final() will come into play.
       int   rc    = splinterdb_insert(spl_handle, key, value);
       if (rc) {
          printf("Insert of base metric for '%s' failed, rc=%d\n",
@@ -357,6 +361,10 @@ main(int argv, char *argc[])
 
       // Register the new ping metric as an update message for the ipaddr
       for (int wctr = 0; wctr < NUM_WWW_SITES; wctr++) {
+         /* *(robj) Don't fil out this single metric. use the current ping ts
+         ** and fill out an instance of www_ping_metrics{} and feed that as the
+         ** value to the splinterdb_update() below.
+         */
          ping_metric metric = {0};
 
          // Establish this www-site's connection handler
@@ -703,6 +711,10 @@ aggregate_ping_metrics(const data_config *cfg,
    printf("%s(), result_type=%d ...\n", __FUNCTION__, result_type);
    const char *msgtype = "UNKNOWN";
 
+   /* (robj) There is no insert vs update case. Just do like so below ...
+   ** All you need to do is ... handle www_ping_metrics{} from old / new msg
+   ** Do the operation on each field. Set msgtype for new msg == oldmsg.msgtype.
+   */
    if (result_type == MESSAGE_TYPE_INSERT) {
       msgtype                           = "MESSAGE_TYPE_INSERT";
       www_ping_metrics *old_metrics     = NULL;
@@ -760,6 +772,10 @@ aggregate_ping_metrics(const data_config *cfg,
 /*
  * -----------------------------------------------------------------------------
  * ping_metrics_final() -- RESOLVE: Document this.
+ Invoked when insert UPDATE msgs into splinter, and splinter during a query adds
+ these together to get UPDATE-3. merge_tuples_final() will deal with UPDATE-3.
+
+ merge_tuples_final() will be handled a single delta -- and you have to handle it.
  * -----------------------------------------------------------------------------
  */
 static int
@@ -799,6 +815,7 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
 
    splinterdb_iterator *it = NULL;
 
+   // Add error checking
    int rc = splinterdb_iterator_init(spl_handle, &it, NULL_SLICE);
 
    int i = 0;
@@ -811,7 +828,9 @@ do_iterate_all(splinterdb *spl_handle, int num_keys)
       print_ping_metrics(i, key, value);
       i++;
    }
+   // Add error checking
    rc = splinterdb_iterator_status(it);
+   // Add error checking
    splinterdb_iterator_deinit(it);
 
    printf("Found %d key-value pairs\n\n", i);
