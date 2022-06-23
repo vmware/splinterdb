@@ -290,9 +290,11 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    btree_init_hdr(cfg, hdr);
    hdr->height = 1;
 
+   btree_pivot_stats stats;
+   memset(&stats, 0, sizeof(stats));
    for (uint32 i = 0; i < nkvs; i++) {
       rv = btree_set_index_entry(
-         cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0);
+         cfg, hdr, i, slice_create(i % sizeof(i), &i), i, stats);
       ASSERT_TRUE(rv, "Failed to insert 4-byte %d\n", i);
    }
 
@@ -307,7 +309,7 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    for (uint64 i = 0; i < nkvs; i++) {
       rv = btree_set_index_entry(
-         cfg, hdr, i, slice_create(i % sizeof(i), &i), i, 0, 0, 0);
+         cfg, hdr, i, slice_create(i % sizeof(i), &i), i, stats);
       ASSERT_TRUE(rv, "Failed to insert 8-byte %ld\n", i);
    }
 
@@ -339,8 +341,10 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
    char *leaf_buffer =
       TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
-   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int        nkvs = 256;
+   btree_hdr        *hdr  = (btree_hdr *)leaf_buffer;
+   int               nkvs = 256;
+   btree_pivot_stats stats;
+   memset(&stats, 0, sizeof(stats));
 
    btree_init_hdr(cfg, hdr);
 
@@ -350,7 +354,7 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       keybuf[0] = i;
       slice key = slice_create(1, &keybuf);
 
-      rv = btree_set_index_entry(cfg, hdr, i / 2, key, i, 0, 0, 0);
+      rv = btree_set_index_entry(cfg, hdr, i / 2, key, i, stats);
       ASSERT_TRUE(rv, "Could not insert pivot %d\n", i);
    }
 

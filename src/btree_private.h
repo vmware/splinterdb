@@ -156,9 +156,7 @@ btree_set_index_entry(const btree_config *cfg,
                       table_index         k,
                       slice               new_pivot_key,
                       uint64              new_addr,
-                      int64               kv_pairs,
-                      int64               key_bytes,
-                      int64               message_bytes);
+                      btree_pivot_stats   stats);
 
 bool
 btree_set_leaf_entry(const btree_config *cfg,
