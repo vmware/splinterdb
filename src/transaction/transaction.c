@@ -50,8 +50,8 @@ splinterdb_transaction_begin()
 }
 
 
-int
-splinterdb_transaction_can_commit(transaction_id txn_id)
+static int
+_can_commit(transaction_id txn_id)
 {
    return TRUE;
 }
