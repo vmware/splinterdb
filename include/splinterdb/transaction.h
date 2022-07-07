@@ -10,42 +10,47 @@
 
 #include "splinterdb/splinterdb.h"
 
-void
-splinterdb_transaction_init();
+typedef struct transaction_handle transaction_handle;
+
+transaction_handle *
+splinterdb_transaction_init(const splinterdb *kvsb);
 
 void
-splinterdb_transaction_deinit();
+splinterdb_transaction_deinit(transaction_handle *txn_hdl);
 
 transaction_id
-splinterdb_transaction_begin();
+splinterdb_transaction_begin(transaction_handle *txn_hdl);
 
 int
-splinterdb_transaction_commit(transaction_id txn_id);
+splinterdb_transaction_commit(transaction_handle *txn_hdl,
+                              transaction_id      txn_id);
 
 int
-splinterdb_transaction_abort(transaction_id txn_id);
+splinterdb_transaction_abort(transaction_handle *txn_hdl,
+                             transaction_id      txn_id);
 
 int
-splinterdb_transaction_insert(const splinterdb *kvsb,
-                              slice             key,
-                              slice             value,
-                              transaction_id    txn_id);
+splinterdb_transaction_insert(transaction_handle *txn_hdl,
+                              transaction_id      txn_id,
+                              slice               key,
+                              slice               value);
 
 int
-splinterdb_transaction_delete(const splinterdb *kvsb,
-                              slice             key,
-                              transaction_id    txn_id);
+splinterdb_transaction_delete(transaction_handle *txn_hdl,
+                              transaction_id      txn_id,
+                              slice               key);
 
 int
-splinterdb_transaction_update(const splinterdb *kvsb,
-                              slice             key,
-                              slice             delta,
-                              transaction_id    txn_id);
+splinterdb_transaction_update(transaction_handle *txn_hdl,
+                              transaction_id      txn_id,
+                              slice               key,
+                              slice               delta);
+
 
 int
-splinterdb_transaction_lookup(const splinterdb         *kvsb,
+splinterdb_transaction_lookup(transaction_handle       *txn_hdl,
+                              transaction_id            txn_id,
                               slice                     key,
-                              splinterdb_lookup_result *result,
-                              transaction_id            txn_id);
+                              splinterdb_lookup_result *result);
 
 #endif // _TRANSACTION_H_

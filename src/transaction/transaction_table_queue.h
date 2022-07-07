@@ -29,4 +29,7 @@ transaction_table_queue_update(transaction_table            *txn_tbl,
                                transaction_id                txn_id,
                                transaction_table_update_func do_update);
 
+transaction_table_tuple *
+transaction_table_queue_first(transaction_table *txn_tbl);
+
 #endif // _TRANSACTION_TABLE_QUEUE_H_

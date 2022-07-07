@@ -33,6 +33,8 @@ transaction_table_queue_init()
    txn_tbl->update            = transaction_table_queue_update;
    txn_tbl->deinit            = transaction_table_queue_deinit;
 
+   txn_tbl->first = transaction_table_queue_first;
+
    queue->head = 0;
    queue->tail = 0;
 
@@ -70,8 +72,9 @@ transaction_table_queue_insert(transaction_table *txn_tbl,
 
    transaction_table_tuple_init(&new_entry->tuple, txn_id);
 
-   new_entry->prev = queue->tail;
-   new_entry->next = 0;
+   new_entry->prev             = queue->tail;
+   new_entry->next             = 0;
+   new_entry->next->tuple.next = 0;
 
    if (txn_tbl->size == 0) {
       queue->head = new_entry;
@@ -87,8 +90,9 @@ transaction_table_queue_insert(transaction_table *txn_tbl,
    /*                                   &queue->head->tuple.txn_id); */
    /* } */
 
-   queue->tail->next = new_entry;
-   queue->tail       = new_entry;
+   queue->tail->next       = new_entry;
+   queue->tail->tuple.next = &new_entry->tuple;
+   queue->tail             = new_entry;
 
    ++txn_tbl->size;
 
@@ -125,11 +129,13 @@ transaction_table_queue_delete(transaction_table *txn_tbl,
             queue->head       = entry->next;
             queue->head->prev = 0;
          } else if (entry == queue->tail) {
-            queue->tail       = entry->prev;
-            queue->tail->next = 0;
+            queue->tail             = entry->prev;
+            queue->tail->next       = 0;
+            queue->tail->tuple.next = 0;
          } else {
-            entry->prev->next = entry->next;
-            entry->next->prev = entry->prev;
+            entry->prev->next       = entry->next;
+            entry->prev->tuple.next = &entry->next->tuple;
+            entry->next->prev       = entry->prev;
          }
 
          // FIXME: use the allocator in SplinterDB
@@ -184,4 +190,11 @@ transaction_table_queue_update(transaction_table            *txn_tbl,
    }
 
    return 1;
+}
+
+transaction_table_tuple *
+transaction_table_queue_first(transaction_table *txn_tbl)
+{
+   transaction_table_queue *queue = (transaction_table_queue *)txn_tbl;
+   return queue->head ? &queue->head->tuple : 0;
 }

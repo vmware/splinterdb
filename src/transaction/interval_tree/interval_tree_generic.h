@@ -39,8 +39,15 @@
  * (interval_tree.h) would work for you...
  */
 
-#define INTERVAL_TREE_DEFINE(                                                  \
-   ITSTRUCT, ITRB, ITTYPE, ITSUBTREE, ITSTART, ITLAST, ITSTATIC, ITPREFIX)     \
+#define INTERVAL_TREE_DEFINE(ITSTRUCT,                                         \
+                             ITRB,                                             \
+                             ITTYPE,                                           \
+                             ITSUBTREE,                                        \
+                             ITSTART,                                          \
+                             ITLAST,                                           \
+                             ITSTATIC,                                         \
+                             ITPREFIX,                                         \
+                             ITCOMP)                                           \
                                                                                \
    /* Callbacks for augmented rbtree insert and remove */                      \
                                                                                \
@@ -50,13 +57,13 @@
       if (node->ITRB.rb_left) {                                                \
          subtree_last =                                                        \
             rb_entry(node->ITRB.rb_left, ITSTRUCT, ITRB)->ITSUBTREE;           \
-         if (max < subtree_last)                                               \
+         if (ITCOMP(max, subtree_last) < 0)                                    \
             max = subtree_last;                                                \
       }                                                                        \
       if (node->ITRB.rb_right) {                                               \
          subtree_last =                                                        \
             rb_entry(node->ITRB.rb_right, ITSTRUCT, ITRB)->ITSUBTREE;          \
-         if (max < subtree_last)                                               \
+         if (ITCOMP(max, subtree_last) < 0)                                    \
             max = subtree_last;                                                \
       }                                                                        \
       return max;                                                              \
@@ -68,7 +75,8 @@
                         ITRB,                                                  \
                         ITTYPE,                                                \
                         ITSUBTREE,                                             \
-                        ITPREFIX##_compute_subtree_last)                       \
+                        ITPREFIX##_compute_subtree_last,                       \
+                        ITCOMP)                                                \
                                                                                \
    /* Insert / remove interval nodes from the tree */                          \
                                                                                \
@@ -81,9 +89,9 @@
       while (*link) {                                                          \
          rb_parent = *link;                                                    \
          parent    = rb_entry(rb_parent, ITSTRUCT, ITRB);                      \
-         if (parent->ITSUBTREE < last)                                         \
+         if (ITCOMP(parent->ITSUBTREE, last) < 0)                              \
             parent->ITSUBTREE = last;                                          \
-         if (start < ITSTART(parent))                                          \
+         if (ITCOMP(start, ITSTART(parent)) < 0)                               \
             link = &parent->ITRB.rb_left;                                      \
          else                                                                  \
             link = &parent->ITRB.rb_right;                                     \
@@ -118,7 +126,7 @@
           */                                                                   \
          if (node->ITRB.rb_left) {                                             \
             ITSTRUCT *left = rb_entry(node->ITRB.rb_left, ITSTRUCT, ITRB);     \
-            if (start <= left->ITSUBTREE) {                                    \
+            if (ITCOMP(start, left->ITSUBTREE) <= 0) {                         \
                /*                                                              \
                 * Some nodes in left subtree satisfy Cond2.                    \
                 * Iterate to find the leftmost such node N.                    \
@@ -131,12 +139,12 @@
                continue;                                                       \
             }                                                                  \
          }                                                                     \
-         if (ITSTART(node) <= last) {  /* Cond1 */                             \
-            if (start <= ITLAST(node)) /* Cond2 */                             \
-               return node;            /* node is leftmost match */            \
+         if (ITCOMP(ITSTART(node), last) <= 0) {  /* Cond1 */                  \
+            if (ITCOMP(start, ITLAST(node)) <= 0) /* Cond2 */                  \
+               return node;                       /* node is leftmost match */ \
             if (node->ITRB.rb_right) {                                         \
                node = rb_entry(node->ITRB.rb_right, ITSTRUCT, ITRB);           \
-               if (start <= node->ITSUBTREE)                                   \
+               if (ITCOMP(start, node->ITSUBTREE) <= 0)                        \
                   continue;                                                    \
             }                                                                  \
          }                                                                     \
@@ -152,7 +160,7 @@
       if (!root->rb_node)                                                      \
          return NULL;                                                          \
       node = rb_entry(root->rb_node, ITSTRUCT, ITRB);                          \
-      if (node->ITSUBTREE < start)                                             \
+      if (ITCOMP(node->ITSUBTREE, start) < 0)                                  \
          return NULL;                                                          \
       return ITPREFIX##_subtree_search(node, start, last);                     \
    }                                                                           \
@@ -172,7 +180,7 @@
           */                                                                   \
          if (rb) {                                                             \
             ITSTRUCT *right = rb_entry(rb, ITSTRUCT, ITRB);                    \
-            if (start <= right->ITSUBTREE)                                     \
+            if (ITCOMP(start, right->ITSUBTREE) <= 0)                          \
                return ITPREFIX##_subtree_search(right, start, last);           \
          }                                                                     \
                                                                                \
@@ -187,9 +195,9 @@
          } while (prev == rb);                                                 \
                                                                                \
          /* Check if the node intersects [start;last] */                       \
-         if (last < ITSTART(node)) /* !Cond1 */                                \
+         if (ITCOMP(last, ITSTART(node)) < 0) /* !Cond1 */                     \
             return NULL;                                                       \
-         else if (start <= ITLAST(node)) /* Cond2 */                           \
+         else if (ITCOMP(start, ITLAST(node)) <= 0) /* Cond2 */                \
             return node;                                                       \
       }                                                                        \
    }

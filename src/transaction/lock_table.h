@@ -6,13 +6,7 @@
 
 #include "splinterdb/data.h"
 #include "platform.h"
-
-#include "interval_tree/interval_tree_generic.h"
-
-typedef struct lock_table_entry {
-   transaction_id txn_id;
-   message_type   op;
-} lock_table_entry;
+#include "mvcc_data.h"
 
 typedef struct lock_table lock_table;
 
@@ -23,16 +17,15 @@ void
 lock_table_destroy(lock_table *lock_tbl);
 
 void
-lock_table_insert(lock_table    *lock_tbl,
-                  uint64         start,
-                  uint64         last,
-                  transaction_id txn_id,
-                  message_type   op);
+lock_table_insert(lock_table          *lock_tbl,
+                  slice                start,
+                  slice                last,
+                  transaction_op_meta *meta);
 
-lock_table_entry *
-lock_table_lookup(lock_table *lock_tbl, uint64 start, uint64 last);
+transaction_op_meta *
+lock_table_lookup(lock_table *lock_tbl, slice start, slice last);
 
 void
-lock_table_delete(lock_table *lock_tbl, uint64 start, uint64 last);
+lock_table_delete(lock_table *lock_tbl, slice start, slice last);
 
 #endif // _LOCK_TABLE_H_

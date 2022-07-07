@@ -65,15 +65,21 @@ rb_insert_augmented(struct rb_node                    *node,
    __rb_insert_augmented(node, root, augment->rotate);
 }
 
-#define RB_DECLARE_CALLBACKS(                                                  \
-   rbstatic, rbname, rbstruct, rbfield, rbtype, rbaugmented, rbcompute)        \
+#define RB_DECLARE_CALLBACKS(rbstatic,                                         \
+                             rbname,                                           \
+                             rbstruct,                                         \
+                             rbfield,                                          \
+                             rbtype,                                           \
+                             rbaugmented,                                      \
+                             rbcompute,                                        \
+                             rbcompare)                                        \
    static inline void rbname##_propagate(struct rb_node *rb,                   \
                                          struct rb_node *stop)                 \
    {                                                                           \
       while (rb != stop) {                                                     \
          rbstruct *node      = rb_entry(rb, rbstruct, rbfield);                \
          rbtype    augmented = rbcompute(node);                                \
-         if (node->rbaugmented == augmented)                                   \
+         if (rbcompare(node->rbaugmented, augmented) == 0)                     \
             break;                                                             \
          node->rbaugmented = augmented;                                        \
          rb                = rb_parent(&node->rbfield);                        \

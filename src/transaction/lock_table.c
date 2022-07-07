@@ -1,26 +1,24 @@
 #include "lock_table.h"
 
+#include "interval_tree/interval_tree_generic.h"
+
 typedef struct interval_tree_node {
-   struct rb_node   rb;
-   uint64           start;
-   uint64           last;
-   uint64           __subtree_last;
-   lock_table_entry entry;
+   struct rb_node       rb;
+   slice                start;
+   slice                last;
+   slice                __subtree_last;
+   transaction_op_meta *meta;
 } interval_tree_node;
 
 interval_tree_node *
-interval_tree_node_create(uint64         start,
-                          uint64         last,
-                          transaction_id txn_id,
-                          message_type   op)
+interval_tree_node_create(slice start, slice last, transaction_op_meta *meta)
 {
    interval_tree_node *node =
       (interval_tree_node *)malloc(sizeof(interval_tree_node));
    RB_CLEAR_NODE(&node->rb);
-   node->start        = start;
-   node->last         = last;
-   node->entry.txn_id = txn_id;
-   node->entry.op     = op;
+   node->start = start;
+   node->last  = last;
+   node->meta  = meta;
 
    return node;
 }
@@ -30,12 +28,13 @@ interval_tree_node_create(uint64         start,
 
 INTERVAL_TREE_DEFINE(interval_tree_node,
                      rb,
-                     uint64,
+                     slice,
                      __subtree_last,
                      GET_ITSTART,
                      GET_ITLAST,
                      static,
-                     interval_tree);
+                     interval_tree,
+                     slice_lex_cmp);
 
 
 typedef struct lock_table {
@@ -59,38 +58,40 @@ lock_table_destroy(lock_table *lock_tbl)
 }
 
 void
-lock_table_insert(lock_table    *lock_tbl,
-                  uint64         start,
-                  uint64         last,
-                  transaction_id txn_id,
-                  message_type   op)
+lock_table_insert(lock_table          *lock_tbl,
+                  slice                start,
+                  slice                last,
+                  transaction_op_meta *meta)
 {
-   interval_tree_node *new_node =
-      interval_tree_node_create(start, last, txn_id, op);
+   interval_tree_node *new_node = interval_tree_node_create(start, last, meta);
    interval_tree_insert(new_node, &lock_tbl->root);
+   transaction_op_meta_inc_ref(meta);
 }
 
-lock_table_entry *
-lock_table_lookup(lock_table *lock_tbl, uint64 start, uint64 last)
+transaction_op_meta *
+lock_table_lookup(lock_table *lock_tbl, slice start, slice last)
 {
    interval_tree_node *node =
       interval_tree_iter_first(&lock_tbl->root, start, last);
    while (node) {
-
+      // TODO: do something to find what we want
       node = interval_tree_iter_next(node, start, last);
    }
 
-   return (node ? &node->entry : 0);
+   return (node ? node->meta : 0);
 }
 
 void
-lock_table_delete(lock_table *lock_tbl, uint64 start, uint64 last)
+lock_table_delete(lock_table *lock_tbl, slice start, slice last)
 {
    interval_tree_node *node =
       interval_tree_iter_first(&lock_tbl->root, start, last);
-   while (node)
+   while (node) {
       node = interval_tree_iter_next(node, start, last);
+   }
 
-   if (node)
+   if (node) {
       interval_tree_remove(node, &lock_tbl->root);
+      transaction_op_meta_dec_ref(node->meta);
+   }
 }

@@ -1,49 +1,5 @@
 #include "transaction_data_config.h"
-#include "util.h"
-#include "data_internal.h"
-
-typedef struct ONDISK mvcc_entry {
-   transaction_id tid;
-   message_type   op;
-   uint64         len;
-   char           data[];
-} mvcc_entry;
-
-typedef struct ONDISK mvcc_message {
-   uint64     num_values;
-   mvcc_entry entries[];
-} mvcc_message;
-
-static uint64
-sizeof_mvcc_entry(const mvcc_entry *entry)
-{
-   return sizeof(*entry) + entry->len;
-}
-
-static const mvcc_entry *
-next_mvcc_entry(const mvcc_entry *entry)
-{
-   return (const mvcc_entry *)((const char *)entry + sizeof_mvcc_entry(entry));
-}
-
-static message
-mvcc_entry_message(const mvcc_entry *entry)
-{
-   message out_message;
-   out_message.type = entry->op;
-   out_message.data = slice_create(entry->len, entry->data);
-   return out_message;
-}
-
-static mvcc_entry
-mvcc_create_header(transaction_id tid, message msg)
-{
-   mvcc_entry entry;
-   entry.tid = tid;
-   entry.op  = message_class(msg);
-   entry.len = message_length(msg);
-   return entry;
-}
+#include "mvcc_data.h"
 
 typedef struct transaction_data_config {
    data_config  super;
@@ -83,12 +39,12 @@ merge_mvcc_message(const data_config *cfg,
    while (old_entry_index < old_mvcc_message->num_values
           && new_entry_index < new_mvcc_message->num_values)
    {
-      if (old_entry->tid < new_entry->tid) {
+      if (old_entry->txn_id < new_entry->txn_id) {
          writable_buffer_append(
             &out_message.data, sizeof_mvcc_entry(old_entry), old_entry);
          old_entry = next_mvcc_entry(old_entry);
          ++old_entry_index;
-      } else if (old_entry->tid > new_entry->tid) {
+      } else if (old_entry->txn_id > new_entry->txn_id) {
          writable_buffer_append(
             &out_message.data, sizeof_mvcc_entry(new_entry), new_entry);
          new_entry = next_mvcc_entry(new_entry);
@@ -103,7 +59,7 @@ merge_mvcc_message(const data_config *cfg,
                            &tmp_new_message);
 
          mvcc_entry new_entry_header = mvcc_create_header(
-            new_entry->tid, merge_accumulator_to_message(&tmp_new_message));
+            new_entry->txn_id, merge_accumulator_to_message(&tmp_new_message));
 
          writable_buffer_append(
             &out_message.data, sizeof(new_entry_header), &new_entry_header);
@@ -185,8 +141,9 @@ merge_mvcc_message_final(const data_config *cfg,
       data_merge_tuples_final(
          tcfg->application_data_config, key, &tmp_oldest_message);
 
-      mvcc_entry oldest_entry_header = mvcc_create_header(
-         oldest_entry->tid, merge_accumulator_to_message(&tmp_oldest_message));
+      mvcc_entry oldest_entry_header =
+         mvcc_create_header(oldest_entry->txn_id,
+                            merge_accumulator_to_message(&tmp_oldest_message));
 
       writable_buffer_append(
          &out_message.data, sizeof(oldest_entry_header), &oldest_entry_header);
