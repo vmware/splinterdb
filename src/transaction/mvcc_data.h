@@ -50,4 +50,8 @@ transaction_op_meta_inc_ref(transaction_op_meta *meta);
 void
 transaction_op_meta_dec_ref(transaction_op_meta *meta);
 
+bool
+transaction_op_meta_is_key_equal(transaction_op_meta *m1,
+                                 transaction_op_meta *m2);
+
 #endif // _MVCC_DATA_H_

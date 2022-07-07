@@ -58,12 +58,12 @@ transaction_op_meta_create(transaction_id txn_id, slice key, message_type op)
 int
 transaction_op_meta_destroy(transaction_op_meta *meta)
 {
-  if (meta->ref_cnt == 0) {
-    writable_buffer_deinit((writable_buffer *)meta);
-    return 0;
-  }
+   if (meta->ref_cnt == 0) {
+      writable_buffer_deinit((writable_buffer *)meta);
+      return 0;
+   }
 
-  return -1;
+   return -1;
 }
 
 void
@@ -77,4 +77,12 @@ transaction_op_meta_dec_ref(transaction_op_meta *meta)
 {
    --meta->ref_cnt;
    transaction_op_meta_destroy(meta);
+}
+
+
+int
+transaction_op_meta_is_key_equal(transaction_op_meta *m1,
+                                 transaction_op_meta *m2)
+{
+   return slice_lex_cmp(m1->key, m2->key);
 }

@@ -37,7 +37,7 @@ simple_set_insert(simple_set *set, transaction_op_meta *meta)
 
    uint64 start_idx = idx;
    while (set->nodes[idx].meta) {
-      if (set->nodes[idx].meta == meta) {
+      if (transaction_op_meta_is_key_equal(set->nodes[idx].meta, meta) == 0) {
          return 0;
       }
 
@@ -66,7 +66,7 @@ simple_set_delete(simple_set *set, transaction_op_meta *meta)
 
    uint64 start_idx = idx;
    do {
-      if (set->nodes[idx].meta == meta) {
+      if (transaction_op_meta_is_key_equal(set->nodes[idx].meta, meta) == 0) {
          set->nodes[idx].meta = 0;
          transaction_op_meta_dec_ref(meta);
          --set->size;
@@ -82,14 +82,28 @@ simple_set_delete(simple_set *set, transaction_op_meta *meta)
 bool
 simple_set_is_overlap(simple_set *s1, simple_set *s2)
 {
-   // TODO: Implement
-   return TRUE;
+   for (int i = 0; i < s1->size; ++i) {
+      for (int j = 0; j < s2->size; ++j) {
+         if (s1->nodes[i].meta && s2->nodes[j].meta
+             && transaction_op_meta_is_key_equal(s1->nodes[i].meta,
+                                                 s2->nodes[j].meta)
+                   == 0)
+         {
+            return TRUE;
+         }
+      }
+   }
+
+   return FALSE;
 }
 
 simple_set_iter
 simple_set_first(simple_set *set)
 {
    simple_set_iter it = {.set = set, .i = 0};
+   while (!set->nodes[it.i].meta) {
+      ++it.i;
+   }
 
    return it;
 }
@@ -97,7 +111,10 @@ simple_set_first(simple_set *set)
 simple_set_iter
 simple_set_iter_next(simple_set_iter it)
 {
-   ++it.i;
+   do {
+      ++it.i;
+   } while (!it.set->nodes[it.i].meta);
+
    return it;
 }
 
