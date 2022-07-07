@@ -8,11 +8,11 @@ typedef struct ONDISK mvcc_entry {
    transaction_id txn_id;
    message_type   op;
    uint64         len;
-   char           data[];
+   char           data[]; // user value
 } mvcc_entry;
 
 typedef struct ONDISK mvcc_message {
-   uint64     num_values;
+   uint64     num_entries;
    mvcc_entry entries[];
 } mvcc_message;
 

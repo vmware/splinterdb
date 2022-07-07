@@ -13,7 +13,7 @@
 typedef struct transaction_handle transaction_handle;
 
 transaction_handle *
-splinterdb_transaction_init(const splinterdb *kvsb);
+splinterdb_transaction_init(const splinterdb *kvsb, data_config *cfg);
 
 void
 splinterdb_transaction_deinit(transaction_handle *txn_hdl);

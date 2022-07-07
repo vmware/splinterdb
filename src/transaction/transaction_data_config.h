@@ -6,7 +6,10 @@
 
 #include "splinterdb/data.h"
 
-typedef struct transaction_data_config transaction_data_config;
+typedef struct transaction_data_config {
+   data_config  super;
+   data_config *application_data_config;
+} transaction_data_config;
 
 void
 transaction_data_config_init(data_config             *in_cfg, // IN

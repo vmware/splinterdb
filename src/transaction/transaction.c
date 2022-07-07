@@ -1,4 +1,5 @@
 #include "splinterdb/transaction.h"
+#include "transaction_data_config.h"
 #include "transaction_table.h"
 #include "lock_table.h"
 #include "atomic_counter.h"
@@ -7,18 +8,25 @@
 // TODO: implement these functions
 
 typedef struct transaction_handle {
-   splinterdb        *kvsb;
-   transaction_table *txn_tbl;
-   lock_table        *lock_tbl;
-   atomic_counter    *g_counter;
-   pthread_mutex_t   *lock;
+   const splinterdb        *kvsb;
+   transaction_data_config *tcfg;
+   transaction_table       *txn_tbl;
+   lock_table              *lock_tbl;
+   atomic_counter          *g_counter;
+   pthread_mutex_t         *lock;
 } transaction_handle;
 
 transaction_handle *
-splinterdb_transaction_init(const splinterdb *kvsb)
+splinterdb_transaction_init(const splinterdb *kvsb, data_config *cfg)
 {
    transaction_handle *txn_hdl =
       (transaction_handle *)malloc(sizeof(transaction_handle));
+
+   txn_hdl->kvsb = kvsb;
+   txn_hdl->tcfg =
+      (transaction_data_config *)malloc(sizeof(transaction_data_config));
+   transaction_data_config_init(cfg, txn_hdl->tcfg);
+
    txn_hdl->txn_tbl = transaction_table_create(TRANSACTION_TABLE_TYPE_QUEUE);
 
    txn_hdl->lock_tbl = lock_table_create();
@@ -151,7 +159,7 @@ singleton_mvcc_message(transaction_id txn_id, message msg, writable_buffer *wb)
    }
 
    mvcc_message *msg_data = writable_buffer_data(wb);
-   msg_data->num_values   = 1;
+   msg_data->num_entries  = 1;
 
    mvcc_entry *entry = msg_data->entries;
    entry->txn_id     = txn_id;
@@ -245,28 +253,64 @@ splinterdb_transaction_lookup(transaction_handle       *txn_hdl,
       transaction_table_lookup(txn_hdl->txn_tbl, txn_id);
    simple_set_insert(&tuple->read_set, meta);
 
-   splinterdb_lookup(
-      txn_hdl->kvsb,
-      key,
-      result); // return a single mvcc_message, which contains multiple entries
+   // return a single mvcc_message, which contains multiple entries
+   splinterdb_lookup(txn_hdl->kvsb, key, result);
 
-   if (!splinterdb_lookup_found(result)) {
-      return 0;
-   }
 
    // Do not allocate a buffer on a stack
    writable_buffer values;
    writable_buffer_init(&values, 0); // FIXME: use a valid heap_id
-
-   char  value_buf[SPLINTERDB_LOOKUP_BUFSIZE];
-   slice value = slice_create(SPLINTERDB_LOOKUP_BUFSIZE, value_buf);
-   splinterdb_lookup_result_value(txn_hdl->kvsb, result, &value);
-
-   // FIXME: Not implemented yet
+   writable_buffer_resize(&values, SPLINTERDB_LOOKUP_BUFSIZE);
+   slice values_slice = writable_buffer_to_slice(&values);
+   int   rc =
+      splinterdb_lookup_result_value(txn_hdl->kvsb, result, &values_slice);
+   if (rc == EINVAL) {
+      // Not found
+      writable_buffer_deinit(&values);
+      simple_set_delete(&tuple->read_set, meta);
+      lock_table_delete(txn_hdl->lock_tbl, key, key);
+      return 0;
+   }
 
    // TODO: choose one from results based on isolation lavel (READ_COMMITTED)
    // TODO: do the same thing like the merge function
 
+   const mvcc_message *msg   = (const mvcc_message *)slice_data(values_slice);
+   const mvcc_entry   *entry = (const mvcc_entry *)msg->entries;
+   transaction_id      max_txn_id = 0;
+   for (uint64 i = 0; i < msg->num_entries; ++i) {
+      transaction_table_tuple *tp =
+         transaction_table_lookup(txn_hdl->txn_tbl, entry->txn_id);
+      if (tp->state == TRANSACTION_STATE_COMMITTED) {
+         if (tp->txn_id < txn_id) {
+            if (max_txn_id < tp->txn_id) {
+               max_txn_id = tp->txn_id;
+            }
+         }
+      }
+      entry = next_mvcc_entry(entry);
+   }
+
+   merge_accumulator final_result_msg;
+   merge_accumulator_init(&final_result_msg, 0);
+   merge_accumulator_resize(&final_result_msg, SPLINTERDB_LOOKUP_BUFSIZE);
+
+   entry = msg->entries;
+   for (uint64 i = 0; i < msg->num_entries; ++i) {
+      if (entry->txn_id == max_txn_id) {
+         data_merge_tuples(txn_hdl->tcfg->application_data_config,
+                           key,
+                           mvcc_entry_message(entry),
+                           &final_result_msg);
+      }
+      entry = next_mvcc_entry(entry);
+   }
+
+   // result has only one merge_accumulator
+   memcpy((void *)result, &final_result_msg, SPLINTERDB_LOOKUP_BUFSIZE);
+
+   merge_accumulator_deinit(&final_result_msg);
+   writable_buffer_deinit(&values);
 
    return 0;
 }

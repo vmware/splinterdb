@@ -1,11 +1,6 @@
 #include "transaction_data_config.h"
 #include "mvcc_data.h"
 
-typedef struct transaction_data_config {
-   data_config  super;
-   data_config *application_data_config;
-} transaction_data_config;
-
 static int
 merge_mvcc_message(const data_config *cfg,
                    slice              key,         // IN
@@ -34,10 +29,10 @@ merge_mvcc_message(const data_config *cfg,
    uint64 old_entry_index = 0;
    uint64 new_entry_index = 0;
 
-   uint64 num_values = 0;
+   uint64 num_entries = 0;
 
-   while (old_entry_index < old_mvcc_message->num_values
-          && new_entry_index < new_mvcc_message->num_values)
+   while (old_entry_index < old_mvcc_message->num_entries
+          && new_entry_index < new_mvcc_message->num_entries)
    {
       if (old_entry->txn_id < new_entry->txn_id) {
          writable_buffer_append(
@@ -75,29 +70,29 @@ merge_mvcc_message(const data_config *cfg,
          ++new_entry_index;
       }
 
-      ++num_values;
+      ++num_entries;
    }
 
-   while (old_entry_index < old_mvcc_message->num_values) {
+   while (old_entry_index < old_mvcc_message->num_entries) {
       writable_buffer_append(
          &out_message.data, sizeof_mvcc_entry(old_entry), old_entry);
       old_entry = next_mvcc_entry(old_entry);
       ++old_entry_index;
 
-      ++num_values;
+      ++num_entries;
    }
 
-   while (new_entry_index < new_mvcc_message->num_values) {
+   while (new_entry_index < new_mvcc_message->num_entries) {
       writable_buffer_append(
          &out_message.data, sizeof_mvcc_entry(new_entry), new_entry);
       new_entry = next_mvcc_entry(new_entry);
       ++new_entry_index;
 
-      ++num_values;
+      ++num_entries;
    }
 
    mvcc_message *out_message_header = merge_accumulator_data(&out_message);
-   out_message_header->num_values   = num_values;
+   out_message_header->num_entries  = num_entries;
 
    merge_accumulator_copy_message(new_message,
                                   merge_accumulator_to_message(&out_message));
@@ -134,7 +129,7 @@ merge_mvcc_message_final(const data_config *cfg,
 
    uint64 oldest_entry_index = 0;
 
-   while (oldest_entry_index < oldest_mvcc_message->num_values) {
+   while (oldest_entry_index < oldest_mvcc_message->num_entries) {
       merge_accumulator_copy_message(&tmp_oldest_message,
                                      mvcc_entry_message(oldest_entry));
 
@@ -157,7 +152,7 @@ merge_mvcc_message_final(const data_config *cfg,
    }
 
    mvcc_message *out_message_header = merge_accumulator_data(&out_message);
-   out_message_header->num_values   = oldest_entry_index;
+   out_message_header->num_entries  = oldest_entry_index;
 
    merge_accumulator_copy_message(oldest_message,
                                   merge_accumulator_to_message(&out_message));
