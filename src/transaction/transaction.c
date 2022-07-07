@@ -68,6 +68,28 @@ splinterdb_transaction_begin(transaction_handle *txn_hdl)
    return txn_id;
 }
 
+static platform_status
+singleton_mvcc_message(transaction_id txn_id, message msg, writable_buffer *wb)
+{
+   slice           value = message_slice(msg);
+   platform_status rc =
+      writable_buffer_resize(wb, sizeof(mvcc_message) + mvcc_entry_size(value));
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   mvcc_message *msg_data = writable_buffer_data(wb);
+   msg_data->num_entries  = 1;
+
+   mvcc_entry *entry = msg_data->entries;
+   entry->txn_id     = txn_id;
+   entry->op         = message_class(msg);
+   entry->len        = slice_length(value);
+   memcpy(entry->data, slice_data(value), entry->len);
+
+   return STATUS_OK;
+}
+
 inline static bool
 can_commit(transaction_handle *txn_hdl, transaction_table_tuple *curr_txn_tuple)
 {
@@ -102,15 +124,27 @@ abort_with_tuple(transaction_handle *txn_hdl, transaction_table_tuple *tuple)
 {
    // TODO: Log this abort and make it durable here
 
-   // TODO: iterate all keys in T[txn_id].write_set and send an abort msg using
-   // upsert
+   writable_buffer wb;
+   writable_buffer_init(&wb, 0); // FIXME: use a valid heap_id
+
    simple_set_iter it = simple_set_first(&tuple->write_set);
    while (simple_set_iter_is_valid(it)) {
       transaction_op_meta *meta = simple_set_iter_data(it);
-      // How to call upsert?
+
+      // FIXME: How to call upsert only for changes by this txn?
+      platform_status rc =
+         singleton_mvcc_message(meta->txn_id, DELETE_MESSAGE, &wb);
+      if (!SUCCESS(rc)) {
+         return -1;
+      }
+
+      splinterdb_update(
+         txn_hdl->kvsb, meta->key, writable_buffer_to_slice(&wb));
 
       lock_table_delete(txn_hdl->lock_tbl, meta->key, meta->key);
    }
+
+   writable_buffer_deinit(&wb);
 
    // TODO: remove the tuple from txn table? Or just mark it as aborted
    transaction_table_tuple_state_aborted(tuple);
@@ -146,28 +180,6 @@ splinterdb_transaction_abort(transaction_handle *txn_hdl, transaction_id txn_id)
 {
    return abort_with_tuple(txn_hdl,
                            transaction_table_lookup(txn_hdl->txn_tbl, txn_id));
-}
-
-static platform_status
-singleton_mvcc_message(transaction_id txn_id, message msg, writable_buffer *wb)
-{
-   slice           value = message_slice(msg);
-   platform_status rc =
-      writable_buffer_resize(wb, sizeof(mvcc_message) + mvcc_entry_size(value));
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   mvcc_message *msg_data = writable_buffer_data(wb);
-   msg_data->num_entries  = 1;
-
-   mvcc_entry *entry = msg_data->entries;
-   entry->txn_id     = txn_id;
-   entry->op         = message_class(msg);
-   entry->len        = slice_length(value);
-   memcpy(entry->data, slice_data(value), entry->len);
-
-   return STATUS_OK;
 }
 
 static int
