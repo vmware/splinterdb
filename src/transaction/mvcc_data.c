@@ -6,7 +6,6 @@ sizeof_mvcc_entry(const mvcc_entry *entry)
    return sizeof(*entry) + entry->len;
 }
 
-
 uint64
 mvcc_entry_size(slice value)
 {
@@ -78,7 +77,6 @@ transaction_op_meta_dec_ref(transaction_op_meta *meta)
    --meta->ref_cnt;
    transaction_op_meta_destroy(meta);
 }
-
 
 int
 transaction_op_meta_is_key_equal(transaction_op_meta *m1,

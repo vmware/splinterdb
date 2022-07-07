@@ -69,8 +69,7 @@ splinterdb_transaction_begin(transaction_handle *txn_hdl)
 }
 
 inline static bool
-_can_commit(transaction_handle      *txn_hdl,
-            transaction_table_tuple *curr_txn_tuple)
+can_commit(transaction_handle *txn_hdl, transaction_table_tuple *curr_txn_tuple)
 {
    transaction_table_tuple *tp = transaction_table_first(txn_hdl->txn_tbl);
    while (tp) {
@@ -99,7 +98,7 @@ _can_commit(transaction_handle      *txn_hdl,
 }
 
 inline static int
-_abort(transaction_handle *txn_hdl, transaction_table_tuple *tuple)
+abort_with_tuple(transaction_handle *txn_hdl, transaction_table_tuple *tuple)
 {
    // TODO: Log this abort and make it durable here
 
@@ -128,8 +127,8 @@ splinterdb_transaction_commit(transaction_handle *txn_hdl,
    transaction_table_tuple *tuple =
       transaction_table_lookup(txn_hdl->txn_tbl, txn_id);
 
-   if (!_can_commit(txn_hdl, tuple)) {
-      _abort(txn_hdl, tuple);
+   if (!can_commit(txn_hdl, tuple)) {
+      abort_with_tuple(txn_hdl, tuple);
       return -1;
    }
 
@@ -145,7 +144,8 @@ splinterdb_transaction_commit(transaction_handle *txn_hdl,
 int
 splinterdb_transaction_abort(transaction_handle *txn_hdl, transaction_id txn_id)
 {
-   return _abort(txn_hdl, transaction_table_lookup(txn_hdl->txn_tbl, txn_id));
+   return abort_with_tuple(txn_hdl,
+                           transaction_table_lookup(txn_hdl->txn_tbl, txn_id));
 }
 
 static platform_status
@@ -281,10 +281,10 @@ splinterdb_transaction_lookup(transaction_handle       *txn_hdl,
    for (uint64 i = 0; i < msg->num_entries; ++i) {
       transaction_table_tuple *tp =
          transaction_table_lookup(txn_hdl->txn_tbl, entry->txn_id);
-      if (tp->state == TRANSACTION_STATE_COMMITTED) {
-         if (tp->txn_id < txn_id) {
-            if (max_txn_id < tp->txn_id) {
-               max_txn_id = tp->txn_id;
+      if (!tp || (tp && tp->state == TRANSACTION_STATE_COMMITTED)) {
+         if (entry->txn_id < txn_id) {
+            if (max_txn_id < entry->txn_id) {
+               max_txn_id = entry->txn_id;
             }
          }
       }
@@ -293,15 +293,19 @@ splinterdb_transaction_lookup(transaction_handle       *txn_hdl,
 
    merge_accumulator final_result_msg;
    merge_accumulator_init(&final_result_msg, 0);
-   merge_accumulator_resize(&final_result_msg, SPLINTERDB_LOOKUP_BUFSIZE);
 
    entry = msg->entries;
    for (uint64 i = 0; i < msg->num_entries; ++i) {
       if (entry->txn_id == max_txn_id) {
-         data_merge_tuples(txn_hdl->tcfg->application_data_config,
-                           key,
-                           mvcc_entry_message(entry),
-                           &final_result_msg);
+         if (merge_accumulator_is_null(&final_result_msg)) {
+            merge_accumulator_copy_message(&final_result_msg,
+                                           mvcc_entry_message(entry));
+         } else {
+            data_merge_tuples(txn_hdl->tcfg->application_data_config,
+                              key,
+                              mvcc_entry_message(entry),
+                              &final_result_msg);
+         }
       }
       entry = next_mvcc_entry(entry);
    }
