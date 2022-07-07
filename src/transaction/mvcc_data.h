@@ -38,11 +38,11 @@ typedef struct transaction_op_meta {
    uint64         ref_cnt;
 } transaction_op_meta;
 
-void
-transaction_op_meta_init(transaction_op_meta *meta,
-                         transaction_id       txn_id,
-                         slice                key,
-                         message_type         op);
+transaction_op_meta *
+transaction_op_meta_create(transaction_id txn_id, slice key, message_type op);
+
+int
+transaction_op_meta_destroy(transaction_op_meta *meta);
 
 void
 transaction_op_meta_inc_ref(transaction_op_meta *meta);

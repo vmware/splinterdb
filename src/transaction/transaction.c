@@ -176,11 +176,8 @@ splinterdb_transaction_insert_message(transaction_handle *txn_hdl,
       return -1;
    }
 
-   writable_buffer meta_buf;
-   writable_buffer_init(&meta_buf, 0); // FIXME: use a valid heap_id
-   writable_buffer_resize(&meta_buf, sizeof(transaction_op_meta));
-   transaction_op_meta *meta = writable_buffer_data(&meta_buf);
-   transaction_op_meta_init(meta, txn_id, key, message_class(msg));
+   transaction_op_meta *meta =
+      transaction_op_meta_create(txn_id, key, message_class(msg));
 
    lock_table_insert(txn_hdl->lock_tbl, key, key, meta);
    transaction_table_tuple *tuple =
@@ -239,12 +236,8 @@ splinterdb_transaction_lookup(transaction_handle       *txn_hdl,
                               slice                     key,
                               splinterdb_lookup_result *result)
 {
-   writable_buffer meta_buf;
-   writable_buffer_init(&meta_buf, 0); // FIXME: use a valid heap_id
-   writable_buffer_resize(&meta_buf, sizeof(transaction_op_meta));
-   transaction_op_meta *meta = writable_buffer_data(&meta_buf);
-   transaction_op_meta_init(
-      meta, txn_id, key, MESSAGE_TYPE_PIVOT_DATA); // FIXME: use a correct type
+   transaction_op_meta *meta = transaction_op_meta_create(
+      txn_id, key, MESSAGE_TYPE_PIVOT_DATA); // FIXME: use a correct type
 
    lock_table_insert(txn_hdl->lock_tbl, key, key, meta);
 

@@ -39,16 +39,31 @@ mvcc_create_header(transaction_id txn_id, message msg)
 }
 
 
-void
-transaction_op_meta_init(transaction_op_meta *meta,
-                         transaction_id       txn_id,
-                         slice                key,
-                         message_type         op)
+transaction_op_meta *
+transaction_op_meta_create(transaction_id txn_id, slice key, message_type op)
 {
+   writable_buffer meta_buf;
+   writable_buffer_init(&meta_buf, 0); // FIXME: use a valid heap_id
+   writable_buffer_resize(&meta_buf, sizeof(transaction_op_meta));
+   transaction_op_meta *meta = writable_buffer_data(&meta_buf);
+
    meta->key     = key;
    meta->txn_id  = txn_id;
    meta->op      = op;
    meta->ref_cnt = 0;
+
+   return meta;
+}
+
+int
+transaction_op_meta_destroy(transaction_op_meta *meta)
+{
+  if (meta->ref_cnt == 0) {
+    writable_buffer_deinit((writable_buffer *)meta);
+    return 0;
+  }
+
+  return -1;
 }
 
 void
@@ -61,7 +76,5 @@ void
 transaction_op_meta_dec_ref(transaction_op_meta *meta)
 {
    --meta->ref_cnt;
-   if (meta->ref_cnt == 0) {
-      writable_buffer_deinit((writable_buffer *)meta);
-   }
+   transaction_op_meta_destroy(meta);
 }
