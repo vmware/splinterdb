@@ -93,11 +93,12 @@ singleton_mvcc_message(transaction_id txn_id, message msg, writable_buffer *wb)
 inline static bool
 can_commit(transaction_handle *txn_hdl, transaction_table_tuple *curr_txn_tuple)
 {
+   timestamp commit_ts         = atomic_counter_get_next(txn_hdl->g_counter);
    transaction_table_tuple *tp = transaction_table_first(txn_hdl->txn_tbl);
    while (tp) {
-      // FIXME: filter transactions that committed during the execution of this
-      // transaction
-      if (tp->state == TRANSACTION_STATE_COMMITTED) {
+      if (tp->state == TRANSACTION_STATE_COMMITTED
+          && curr_txn_tuple->txn_id < tp->end_ts < commit_ts)
+      {
          if (tp->txn_id < curr_txn_tuple->txn_id
              && simple_set_is_overlap(&curr_txn_tuple->read_set,
                                       &tp->write_set))
@@ -114,6 +115,7 @@ can_commit(transaction_handle *txn_hdl, transaction_table_tuple *curr_txn_tuple)
       tp = tp->next;
    }
 
+   curr_txn_tuple->end_ts = commit_ts;
    transaction_table_tuple_state_partially_committed(curr_txn_tuple);
 
    return TRUE;
@@ -211,8 +213,6 @@ splinterdb_transaction_insert_message(transaction_handle *txn_hdl,
    return 0;
 }
 
-// TODO: make transaction_handle
-
 int
 splinterdb_transaction_insert(transaction_handle *txn_hdl,
                               transaction_id      txn_id,
@@ -231,7 +231,6 @@ splinterdb_transaction_delete(transaction_handle *txn_hdl,
    return splinterdb_transaction_insert_message(
       txn_hdl, txn_id, key, DELETE_MESSAGE);
 }
-
 
 int
 splinterdb_transaction_update(transaction_handle *txn_hdl,
@@ -267,7 +266,6 @@ splinterdb_transaction_lookup(transaction_handle       *txn_hdl,
 
    // return a single mvcc_message, which contains multiple entries
    splinterdb_lookup(txn_hdl->kvsb, key, result);
-
 
    // Do not allocate a buffer on a stack
    writable_buffer values;
