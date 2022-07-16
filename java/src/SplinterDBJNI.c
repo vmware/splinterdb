@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "SplinterDBJNI.h"
+#include "org_splinterdb_SplinterDBJNI.h"
 #include "splinterdb/data.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/public_platform.h"
@@ -17,7 +17,7 @@ data_config default_data_config;
 
 
 JNIEXPORT jint JNICALL 
-Java_SplinterDBJNI_createOrOpen
+Java_org_splinterdb_SplinterDBJNI_createOrOpen
   (JNIEnv *env, jobject obj, jstring filename, jlong cache_size, jlong disk_size, jint max_key_size, jint max_value_size, jint open_existing) {
 
 
@@ -48,7 +48,8 @@ Java_SplinterDBJNI_createOrOpen
 	return rc;
 }
 
-JNIEXPORT jint JNICALL Java_SplinterDBJNI_insert
+JNIEXPORT jint JNICALL 
+Java_org_splinterdb_SplinterDBJNI_insert
   (JNIEnv *env, jobject obj, jint id, jbyteArray key, jbyteArray value) {
  
 
@@ -67,7 +68,8 @@ JNIEXPORT jint JNICALL Java_SplinterDBJNI_insert
 
 }
 
-JNIEXPORT jbyteArray JNICALL Java_SplinterDBJNI_lookup
+JNIEXPORT jbyteArray JNICALL 
+Java_org_splinterdb_SplinterDBJNI_lookup
   (JNIEnv *env, jobject obj, jint id, jbyteArray key) {
 
 	jboolean isCopy;
@@ -100,7 +102,8 @@ JNIEXPORT jbyteArray JNICALL Java_SplinterDBJNI_lookup
 	return value_array;
 }
 
-JNIEXPORT jint JNICALL Java_SplinterDBJNI_delete
+JNIEXPORT jint 
+Java_org_splinterdb_SplinterDBJNI_delete
   (JNIEnv *env, jobject obj, jint id, jbyteArray key) {
 
 	jboolean isCopy;
@@ -116,7 +119,8 @@ JNIEXPORT jint JNICALL Java_SplinterDBJNI_delete
 }
 
 
-JNIEXPORT jint JNICALL Java_SplinterDBJNI_close
+JNIEXPORT jint JNICALL 
+Java_org_splinterdb_SplinterDBJNI_close
   (JNIEnv *env, jobject obj, jint id) {
 
 	splinterdb_close(&splinter);
@@ -125,11 +129,12 @@ JNIEXPORT jint JNICALL Java_SplinterDBJNI_close
 
 }
 
-JNIEXPORT jstring JNICALL Java_SplinterDBJNI_version
+JNIEXPORT jstring JNICALL 
+Java_org_splinterdb_SplinterDBJNI_version
   (JNIEnv *env, jobject object)
 {	
 	const char *versionChar = splinterdb_get_version();
-	
+
 	jstring version;
    version = (*env)->NewStringUTF(env,versionChar);
 
