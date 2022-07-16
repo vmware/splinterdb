@@ -8,13 +8,13 @@ public class JavaJNITest {
 
 	@Test
 	public void testSplinterDB() {
-		/*try {
+		try {
 
                         SplinterDBJNI splinter = new SplinterDBJNI();
 
                         System.out.println(splinter.version());
 
-                        int id = splinter.createOrOpen("mydb", 64, 1024, 100, 5, 1);
+                        int id = splinter.createOrOpen("mydb", 64, 1024, 100, 5, 0);
 
                         String keyStr = "key1";
                         byte[] keyBytes = keyStr.getBytes();
@@ -38,7 +38,7 @@ public class JavaJNITest {
                         System.out.println(ex.toString());
 
 			assertTrue(false);
-                }*/
+                }
 		assertTrue(true);
 
 	}	

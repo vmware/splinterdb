@@ -44,6 +44,7 @@
                                                 <propertyName>java.library.path</propertyName>
                                                 <buildDirectory>build</buildDirectory>
 					</systemPropertyVariables>
+					<argLine>-Djava.library.path=build</argLine>
 				</configuration>
 			</plugin>
 		</plugins>
