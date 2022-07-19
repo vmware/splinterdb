@@ -1,7 +1,6 @@
 #include "transaction.h"
 #include "platform_linux/platform.h"
 #include "data_internal.h"
-#include "util.h"
 #include "tictoc_data.h"
 #include "lock_table.h"
 #include "transaction_data_config.h"
@@ -160,10 +159,14 @@ entry_is_not_in_write_set(tictoc_transaction *tt_txn, entry *e)
    return TRUE;
 }
 
+static int
+entry_key_comp(const void *elem1, const void *elem2)
+{
+   entry *a = (entry *)elem1;
+   entry *b = (entry *)elem2;
 
-static void
-sort_write_set(tictoc_transaction *tt_txn)
-{}
+   return slice_lex_cmp(a->key, b->key);
+}
 
 /*
  * Algorithm 2: Validation Phase
@@ -172,7 +175,10 @@ char
 tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
 {
    // Step 1: Lock Write Set
-   sort_write_set(tt_txn);
+   qsort(tt_txn->write_set,
+         tt_txn->write_cnt * sizeof(entry),
+         sizeof(entry),
+         entry_key_comp);
 
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
       entry *we = &tt_txn->write_set[i];
@@ -216,20 +222,16 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
          {
             return 0;
          } else {
-            writable_buffer ts;
-            writable_buffer_init(&ts, 0); // FIXME: use a correct heap_id
-            writable_buffer_resize(&ts, sizeof(TS_word));
+            uint32 new_rts = MAX(tt_txn->commit_ts, tuple_ts.rts);
 
-            TS_word *ts_ptr = writable_buffer_data(&ts);
-            ts_ptr->rts     = MAX(tt_txn->commit_ts, tuple_ts.rts);
-            ts_ptr->wts     = tuple_ts.wts;
-
-            if (ts_ptr->rts != tuple_ts.rts) {
+            if (new_rts != tuple_ts.rts) {
+               writable_buffer ts;
+               writable_buffer_init(&ts, 0); // FIXME: use a correct heap_id
+               writable_buffer_append(&ts, TIMESTAMP_SIZE, &new_rts);
                splinterdb_update(
                   txn_hdl->kvsb, r->key, writable_buffer_to_slice(&ts));
+               writable_buffer_deinit(&ts);
             }
-
-            writable_buffer_deinit(&ts);
          }
          // TODO: End atomic section
       }

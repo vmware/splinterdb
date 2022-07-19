@@ -3,6 +3,9 @@
 
 #include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
+#include "util.h"
+
+#define TIMESTAMP_SIZE sizeof(uint32)
 
 typedef struct TS_word {
    uint32 rts;
