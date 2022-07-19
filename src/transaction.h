@@ -24,33 +24,31 @@ transaction *
 splinterdb_transaction_begin(transaction_handle *txn_hdl);
 
 int
-splinterdb_transaction_commit(transaction_handle *txn_hdl,
-                              transaction *txn);
+splinterdb_transaction_commit(transaction_handle *txn_hdl, transaction *txn);
 
 int
-splinterdb_transaction_abort(transaction_handle *txn_hdl,
-                             transaction *txn);
+splinterdb_transaction_abort(transaction_handle *txn_hdl, transaction *txn);
 
 int
 splinterdb_transaction_insert(transaction_handle *txn_hdl,
-                              transaction *txn,
+                              transaction        *txn,
                               slice               key,
                               slice               value);
 
 int
 splinterdb_transaction_delete(transaction_handle *txn_hdl,
-                              transaction *txn,
+                              transaction        *txn,
                               slice               key);
 
 int
 splinterdb_transaction_update(transaction_handle *txn_hdl,
-                              transaction *txn,
+                              transaction        *txn,
                               slice               key,
                               slice               delta);
 
 int
 splinterdb_transaction_lookup(transaction_handle       *txn_hdl,
-                              transaction *txn,
+                              transaction              *txn,
                               slice                     key,
                               splinterdb_lookup_result *result);
 
