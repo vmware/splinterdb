@@ -6,10 +6,14 @@
 #include "transaction_data_config.h"
 #include <stdlib.h>
 
+TS_word ZERO_TS_WORD = {.rts = 0, .wts = 0};
+
+
 typedef struct transaction_handle {
    const splinterdb        *kvsb;
    transaction_data_config *tcfg;
    lock_table              *lock_tbl;
+   pthread_mutex_t         *g_lock;
 } transaction_handle;
 
 transaction_handle *
@@ -26,6 +30,9 @@ splinterdb_transaction_init(const splinterdb *kvsb, data_config *cfg)
 
    txn_hdl->lock_tbl = lock_table_create();
 
+   txn_hdl->g_lock = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
+   pthread_mutex_init(txn_hdl->g_lock, 0);
+
    return txn_hdl;
 }
 
@@ -35,6 +42,8 @@ splinterdb_transaction_deinit(transaction_handle *txn_hdl)
    if (!txn_hdl) {
       return;
    }
+
+   free(txn_hdl->g_lock);
 
    lock_table_destroy(txn_hdl->lock_tbl);
 
@@ -104,8 +113,6 @@ tictoc_read(transaction_handle       *txn_hdl,
       splinterdb_lookup_result_deinit(result);
       splinterdb_lookup_result_init(
          txn_hdl->kvsb, result, strlen(tuple->value), tuple->value);
-   } else {
-      // TODO: handle this case: NOT FOUND
    }
 
    splinterdb_lookup_result_deinit(&tuple_result);
@@ -211,7 +218,7 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
       TS_word read_entry_ts = get_ts_from_entry(r);
 
       if (read_entry_ts.rts < tt_txn->commit_ts) {
-         // TODO: Begin atomic section
+         pthread_mutex_lock(txn_hdl->g_lock);
          TS_word tuple_ts;
          get_ts_from_splinterdb(txn_hdl->kvsb, r->key, &tuple_ts);
 
@@ -233,7 +240,7 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
                writable_buffer_deinit(&ts);
             }
          }
-         // TODO: End atomic section
+         pthread_mutex_unlock(txn_hdl->g_lock);
       }
    }
 
@@ -261,9 +268,26 @@ tictoc_write(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
          memcpy(&tuple->ts_word, &write_entry_ts, sizeof(TS_word));
       }
 
-      splinterdb_update(kvsb, w->key, writable_buffer_to_slice(&w->tuple));
-      writable_buffer_deinit(&w->tuple);
       // TODO: merge messages in the write set and write to splinterdb
+      switch (w->op) {
+         case MESSAGE_TYPE_INSERT:
+            splinterdb_insert(
+               kvsb, w->key, writable_buffer_to_slice(&w->tuple));
+            break;
+         case MESSAGE_TYPE_UPDATE:
+            splinterdb_update(
+               kvsb, w->key, writable_buffer_to_slice(&w->tuple));
+            break;
+         case MESSAGE_TYPE_DELETE:
+            // TODO: Mark the tuple as absent and GC later
+            splinterdb_delete(kvsb, w->key);
+            break;
+         default:
+            break;
+      }
+
+
+      writable_buffer_deinit(&w->tuple);
 
       lock_table_unlock(txn_hdl->lock_tbl, w->key, w->key);
    }
@@ -292,23 +316,23 @@ splinterdb_transaction_abort(transaction_handle *txn_hdl, transaction *txn)
 
 static void
 tictoc_local_write(tictoc_transaction *txn,
-                   uint32              rts,
-                   uint32              wts,
+                   TS_word             ts_word,
                    slice               key,
-                   slice               value)
+                   message             msg)
 {
    entry *w = tictoc_get_new_write_set_entry(txn);
 
+   w->op  = message_class(msg);
    w->key = slice_create(slice_length(key), slice_data(key));
+
+   slice value = message_slice(msg);
 
    writable_buffer_init(&w->tuple, 0); // FIXME: use a correct heap_id
    writable_buffer_resize(&w->tuple, sizeof(TS_word) + slice_length(value));
 
    tictoc_tuple *tuple = writable_buffer_data(&w->tuple);
 
-   TS_word write_entry_ts = {.rts = rts, .wts = wts};
-
-   memcpy(&tuple->ts_word, &write_entry_ts, sizeof(TS_word));
+   memcpy(&tuple->ts_word, &ts_word, sizeof(TS_word));
    memcpy(tuple->value, slice_data(value), slice_length(value));
 }
 
@@ -318,37 +342,17 @@ splinterdb_transaction_insert(transaction_handle *txn_hdl,
                               slice               key,
                               slice               value)
 {
-#if 0
-  // Lock by inserting an empty record
-  writable_buffer wb;
-  writable_buffer_init(&wb, 0); // FIXME: use a correct heap id
-  writable_buffer_resize(&wb, sizeof(tictoc_tuple));
-  
-  // TODO: It seems that I need a seperate lock table
-  tictoc_tuple *tuple = writable_buffer_data(&wb);
-  const uint8 locked = 1;
-  tictoc_tuple_init(tuple, locked);
-
-  slice tictoc_value = writable_buffer_to_slice(&wb);
-
-  // TODO: Can we get the address of this record so that we can access
-  // it directly later?
-  int rc = splinterdb_insert(txn->hdl->kvsb, key, tictoc_value);
-  if (rc != 0) {
-    // TODO: How to know if there is existing key in splinterdb?
-    return rc;
-  }
-
-  tictoc_local_write(&txn->tictoc, tuple, value);
-
-  writable_buffer_deinit(&wb);
-  
-  return rc;
-#else
-   tictoc_local_write(&txn->tictoc, 0, 0, key, value);
-
+   tictoc_local_write(&txn->tictoc,
+                      ZERO_TS_WORD,
+                      key,
+                      message_create(MESSAGE_TYPE_INSERT, value));
    return 0;
-#endif
+}
+
+static inline char
+ts_word_is_nonzero(TS_word ts_word)
+{
+   return ts_word.rts == 0 && ts_word.wts == 0;
 }
 
 int
@@ -356,7 +360,12 @@ splinterdb_transaction_delete(transaction_handle *txn_hdl,
                               transaction        *txn,
                               slice               key)
 {
-   // TODO: implement this
+   TS_word ts_word = ZERO_TS_WORD;
+   get_ts_from_splinterdb(txn_hdl->kvsb, key, &ts_word);
+
+   if (ts_word_is_nonzero(ts_word)) {
+      tictoc_local_write(&txn->tictoc, ts_word, key, DELETE_MESSAGE);
+   }
    return 0;
 }
 
@@ -366,7 +375,11 @@ splinterdb_transaction_update(transaction_handle *txn_hdl,
                               slice               key,
                               slice               delta)
 {
-   // TODO: implement this
+   TS_word ts_word = ZERO_TS_WORD;
+   get_ts_from_splinterdb(txn_hdl->kvsb, key, &ts_word);
+
+   tictoc_local_write(
+      &txn->tictoc, ts_word, key, message_create(MESSAGE_TYPE_UPDATE, delta));
    return 0;
 }
 
