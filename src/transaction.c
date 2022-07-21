@@ -8,7 +8,6 @@
 
 TS_word ZERO_TS_WORD = {.rts = 0, .wts = 0};
 
-
 typedef struct transaction_handle {
    const splinterdb        *kvsb;
    transaction_data_config *tcfg;
@@ -16,59 +15,9 @@ typedef struct transaction_handle {
    pthread_mutex_t         *g_lock;
 } transaction_handle;
 
-transaction_handle *
-splinterdb_transaction_init(const splinterdb *kvsb, data_config *cfg)
-{
-   transaction_handle *txn_hdl =
-      (transaction_handle *)malloc(sizeof(transaction_handle));
-
-   txn_hdl->kvsb = kvsb;
-
-   txn_hdl->tcfg =
-      (transaction_data_config *)malloc(sizeof(transaction_data_config));
-   transaction_data_config_init(cfg, txn_hdl->tcfg);
-
-   txn_hdl->lock_tbl = lock_table_create();
-
-   txn_hdl->g_lock = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
-   pthread_mutex_init(txn_hdl->g_lock, 0);
-
-   return txn_hdl;
-}
-
-void
-splinterdb_transaction_deinit(transaction_handle *txn_hdl)
-{
-   if (!txn_hdl) {
-      return;
-   }
-
-   free(txn_hdl->g_lock);
-
-   lock_table_destroy(txn_hdl->lock_tbl);
-
-   free(txn_hdl);
-}
-
 typedef struct transaction {
    tictoc_transaction tictoc;
 } transaction;
-
-transaction *
-splinterdb_transaction_begin(transaction_handle *txn_hdl)
-{
-   transaction *txn = (transaction *)malloc(sizeof(transaction));
-
-   tictoc_transaction *tt_txn = &txn->tictoc;
-
-   tt_txn->read_set  = &tt_txn->entries[0];
-   tt_txn->write_set = &tt_txn->entries[SET_SIZE_LIMIT];
-   tt_txn->read_cnt  = 0;
-   tt_txn->write_cnt = 0;
-   tt_txn->commit_ts = 0;
-
-   return txn;
-}
 
 static entry *
 tictoc_get_new_read_set_entry(tictoc_transaction *tt_txn)
@@ -293,27 +242,6 @@ tictoc_write(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
    }
 }
 
-int
-splinterdb_transaction_commit(transaction_handle *txn_hdl, transaction *txn)
-{
-   int rc = 0;
-   if (tictoc_validation(txn_hdl, &txn->tictoc)) {
-      tictoc_write(txn_hdl, &txn->tictoc);
-   } else {
-      rc = -1;
-      splinterdb_transaction_abort(txn_hdl, txn);
-   }
-
-   return rc;
-}
-
-int
-splinterdb_transaction_abort(transaction_handle *txn_hdl, transaction *txn)
-{
-   return 0;
-}
-
-
 static void
 tictoc_local_write(tictoc_transaction *txn,
                    TS_word             ts_word,
@@ -336,6 +264,83 @@ tictoc_local_write(tictoc_transaction *txn,
    memcpy(tuple->value, slice_data(value), slice_length(value));
 }
 
+static inline char
+ts_word_is_nonzero(TS_word ts_word)
+{
+   return ts_word.rts == 0 && ts_word.wts == 0;
+}
+
+transaction_handle *
+splinterdb_transaction_init(const splinterdb *kvsb, data_config *cfg)
+{
+   transaction_handle *txn_hdl =
+      (transaction_handle *)malloc(sizeof(transaction_handle));
+
+   txn_hdl->kvsb = kvsb;
+
+   txn_hdl->tcfg =
+      (transaction_data_config *)malloc(sizeof(transaction_data_config));
+   transaction_data_config_init(cfg, txn_hdl->tcfg);
+
+   txn_hdl->lock_tbl = lock_table_create();
+
+   txn_hdl->g_lock = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
+   pthread_mutex_init(txn_hdl->g_lock, 0);
+
+   return txn_hdl;
+}
+
+void
+splinterdb_transaction_deinit(transaction_handle *txn_hdl)
+{
+   if (!txn_hdl) {
+      return;
+   }
+
+   free(txn_hdl->g_lock);
+
+   lock_table_destroy(txn_hdl->lock_tbl);
+
+   free(txn_hdl);
+}
+
+transaction *
+splinterdb_transaction_begin(transaction_handle *txn_hdl)
+{
+   transaction *txn = (transaction *)malloc(sizeof(transaction));
+
+   tictoc_transaction *tt_txn = &txn->tictoc;
+
+   tt_txn->read_set  = &tt_txn->entries[0];
+   tt_txn->write_set = &tt_txn->entries[SET_SIZE_LIMIT];
+   tt_txn->read_cnt  = 0;
+   tt_txn->write_cnt = 0;
+   tt_txn->commit_ts = 0;
+
+   return txn;
+}
+
+int
+splinterdb_transaction_commit(transaction_handle *txn_hdl, transaction *txn)
+{
+   int rc = 0;
+   if (tictoc_validation(txn_hdl, &txn->tictoc)) {
+      tictoc_write(txn_hdl, &txn->tictoc);
+   } else {
+      rc = -1;
+      splinterdb_transaction_abort(txn_hdl, txn);
+   }
+
+   return rc;
+}
+
+int
+splinterdb_transaction_abort(transaction_handle *txn_hdl, transaction *txn)
+{
+   // TODO: Implement
+   return 0;
+}
+
 int
 splinterdb_transaction_insert(transaction_handle *txn_hdl,
                               transaction        *txn,
@@ -347,12 +352,6 @@ splinterdb_transaction_insert(transaction_handle *txn_hdl,
                       key,
                       message_create(MESSAGE_TYPE_INSERT, value));
    return 0;
-}
-
-static inline char
-ts_word_is_nonzero(TS_word ts_word)
-{
-   return ts_word.rts == 0 && ts_word.wts == 0;
 }
 
 int
