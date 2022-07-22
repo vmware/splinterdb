@@ -2,15 +2,15 @@
 #! SPDX-License-Identifier: Apache-2.0
 
 
-#@ def get_task_timeout(quick=False, sanitize="", is_nightly=False):
+#@ def get_task_timeout(quick=False, sanitize="", test_nightly=False):
 #@   if sanitize:
-#@     return "3h"
+#@     return "6h"
 #@   elif quick:
-#@     return "5m"
-#@   elif is_nightly:
+#@     return "10m"
+#@   elif test_nightly:
 #@     return "6h"
 #@   else:
-#@     return "1h"
+#@     return "2h"
 #@   end
 #@ end
 
@@ -87,13 +87,13 @@ config:
 
 ---
 
-#@ def step_build_test(compiler, input_name, is_debug=True, quick=False, sanitize="", is_nightly=False):
+#@ def step_build_test(compiler, input_name, is_debug=True, quick=False, sanitize="", test_nightly=False):
 #@ if is_debug:
 task: debug-build-test
 #@ else:
 task: release-build-test
 #@ end
-timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize, is_nightly=is_nightly)
+timeout: #@ get_task_timeout(quick=quick, sanitize=sanitize, test_nightly=test_nightly)
 image: build-env-image-latest
 config:
   platform: linux
@@ -103,7 +103,7 @@ config:
     CC: #@ compiler
     LD: #@ compiler
     INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
-    RUN_NIGHTLY_TESTS: #@ str(is_nightly).lower()
+    RUN_NIGHTLY_TESTS: #@ str(test_nightly).lower()
     BUILD_VERBOSE: "1"
 
     #! Exercise 'make help' in quick tests mode, to ensure 'help' still works.

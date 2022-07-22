@@ -67,8 +67,8 @@ plan:
 
 
 #! Build, test and publish container images
-#@ def job_main_build_test_push(compiler, also_latest=False):
-name: #@ "main-build-test-" + compiler
+#@ def job_main_push(compiler, also_latest=False):
+name: #@ "main-push-" + compiler
 public: true
 on_success: #@ step_set_commit_status("success", compiler)
 on_failure: #@ step_set_commit_status("failure", compiler)
@@ -109,23 +109,42 @@ plan:
 
 ---
 
+#@ def friendly_name(compiler, debug, sanitize, nightly_test):
+#@   ret = ""
+#@   if debug:
+#@     ret += "debug-"
+#@   end
+#@   if sanitize:
+#@     ret += sanitize + "-"
+#@   end
+#@   if nightly_test:
+#@     ret += "nightly-test-"
+#@   end
+#@   return ret + compiler
+#@ end
+
+
 #! Debug build and test
-#@ def job_debug_main_build_test(compiler):
-name: #@ "main-debug-build-test-" + compiler
+#@ def job_main(compiler, sanitize="", trigger="main", is_debug=False, test_nightly=False):
+#@   name = friendly_name(compiler, is_debug, sanitize, test_nightly)
+name: #@ "main-" + name
 public: true
-on_success: #@ step_set_commit_status("success", compiler + "-debug")
-on_failure: #@ step_set_commit_status("failure", compiler + "-debug")
-on_error: #@ step_set_commit_status("error", compiler + "-debug")
+on_success: #@ step_set_commit_status("success", name)
+on_failure: #@ step_set_commit_status("failure", name)
+on_error: #@ step_set_commit_status("error", name)
 plan:
 - in_parallel:
   - get: branch-main
-    trigger: true
+    trigger: #@ (trigger == "main")
   - get: build-env-image-latest
     passed: [ recreate-build-env ]
     trigger: true
-- #@ step_set_commit_status("pending", compiler + "-debug")
-- #@ step_build_test(compiler, "branch-main", is_debug=True)
-
+#@ if trigger == "nightly":
+  - get: nightly-timer
+    trigger: true
+#@ end
+- #@ step_set_commit_status("pending", name)
+- #@ step_build_test(compiler, "branch-main", is_debug=is_debug, sanitize=sanitize, test_nightly=test_nightly)
 #@ end
 
 ---
@@ -150,27 +169,3 @@ plan:
 - #@ step_set_pr_status(job_name, "pending", description)
 - #@ template.replace(sequence)
 #@ end
-
----
-
-#! Release build and test run nightly, for extended testing
-#@ def job_nightly_main_build_test(compiler="gcc"):
-name: #@ "main-nightly-build-test-" + compiler
-public: true
-on_success: #@ step_set_commit_status("success", compiler + "-nightly")
-on_failure: #@ step_set_commit_status("failure", compiler + "-nightly")
-on_error: #@ step_set_commit_status("error", compiler + "-nightly")
-plan:
-- in_parallel:
-  - get: branch-main
-    trigger: false  #! Do not trigger on every push / commit
-  - get: build-env-image-latest
-    passed: [ recreate-build-env ]
-    trigger: false  #! Do not trigger on every change of the build-env
-  - get: nightly-timer
-    trigger: true  #! -Do- trigger every night
-- #@ step_set_commit_status("pending", compiler + "-nightly")
-- #@ step_build_test(compiler, "branch-main", is_debug=False, is_nightly=True)
-
-#@ end
-
