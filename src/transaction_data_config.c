@@ -18,17 +18,19 @@ merge_tictoc_tuple(const data_config *cfg,
    tictoc_tuple *new_tuple =
       (tictoc_tuple *)merge_accumulator_data(new_message);
 
-   if (old_message_size == TIMESTAMP_SIZE) {
-      memcpy(
-         &new_tuple->ts_word.rts, message_data(old_message), TIMESTAMP_SIZE);
-   } else if (new_message_size == TIMESTAMP_SIZE) {
-      TS_word ts_word;
+   if (old_message_size == sizeof(tictoc_timestamp)) {
+      memcpy(&new_tuple->ts_word.rts,
+             message_data(old_message),
+             sizeof(tictoc_timestamp));
+   } else if (new_message_size == sizeof(tictoc_timestamp)) {
+      tictoc_timestamp_set ts_word;
       ts_word.rts = MAX(old_tuple->ts_word.rts, new_tuple->ts_word.rts);
       ts_word.wts = new_tuple->ts_word.wts;
 
       merge_accumulator_resize(new_message, message_length(old_message));
-      new_tuple         = merge_accumulator_data(new_message);
-      uint64 value_size = message_length(old_message) - sizeof(TS_word);
+      new_tuple = merge_accumulator_data(new_message);
+      uint64 value_size =
+         message_length(old_message) - sizeof(tictoc_timestamp_set);
       memcpy(&new_tuple->ts_word, &ts_word, sizeof(ts_word));
       memcpy(new_tuple->value, old_tuple->value, value_size);
    } else {
@@ -37,8 +39,10 @@ merge_tictoc_tuple(const data_config *cfg,
          &new_value_ma,
          new_message->data.heap_id); // FIXME: use a correct heap_id
 
-      uint64 old_message_value_size = old_message_size - sizeof(TS_word);
-      uint64 new_message_value_size = new_message_size - sizeof(TS_word);
+      uint64 old_message_value_size =
+         old_message_size - sizeof(tictoc_timestamp_set);
+      uint64 new_message_value_size =
+         new_message_size - sizeof(tictoc_timestamp_set);
 
       merge_accumulator_resize(&new_value_ma, new_message_value_size);
 
@@ -52,7 +56,7 @@ merge_tictoc_tuple(const data_config *cfg,
       data_merge_tuples(
          tcfg->application_data_config, key, old_value_message, &new_value_ma);
 
-      TS_word ts_word;
+      tictoc_timestamp_set ts_word;
       ts_word.rts = MAX(old_tuple->ts_word.rts, new_tuple->ts_word.rts);
       ts_word.wts = MAX(old_tuple->ts_word.wts, new_tuple->ts_word.wts);
 
@@ -81,7 +85,7 @@ merge_tictoc_tuple_final(const data_config *cfg,
 
    uint64 oldest_message_size = merge_accumulator_length(oldest_message);
 
-   if (oldest_message_size == TIMESTAMP_SIZE) {
+   if (oldest_message_size == sizeof(tictoc_timestamp)) {
       // Do nothing
       return 0;
    }
@@ -91,7 +95,8 @@ merge_tictoc_tuple_final(const data_config *cfg,
    merge_accumulator app_oldest_message;
    merge_accumulator_init(&app_oldest_message, app_oldest_message.data.heap_id);
 
-   uint64 oldest_message_value_size = oldest_message_size - sizeof(TS_word);
+   uint64 oldest_message_value_size =
+      oldest_message_size - sizeof(tictoc_timestamp_set);
    merge_accumulator_resize(&app_oldest_message, oldest_message_value_size);
 
    message oldest_message_value =
@@ -102,7 +107,7 @@ merge_tictoc_tuple_final(const data_config *cfg,
    data_merge_tuples_final(
       tcfg->application_data_config, key, &app_oldest_message);
 
-   TS_word ts_word = tuple->ts_word;
+   tictoc_timestamp_set ts_word = tuple->ts_word;
 
    uint64 new_tuple_size =
       sizeof(ts_word) + merge_accumulator_length(&app_oldest_message);
