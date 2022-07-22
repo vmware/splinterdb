@@ -138,7 +138,7 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
 
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
       entry *we = &tt_txn->write_set[i];
-      lock_table_lock(txn_hdl->lock_tbl, we->key, we->key);
+      we->latch = lock_table_lock_range(txn_hdl->lock_tbl, we->key, we->key);
    }
 
    // Step 2: Compute the Commit Timestamp
@@ -173,7 +173,8 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
 
          if ((read_entry_ts.wts != tuple_ts.wts)
              || (tuple_ts.rts <= tt_txn->commit_ts
-                 && lock_table_is_locked(txn_hdl->lock_tbl, r->key, r->key)
+                 && lock_table_is_range_locked(
+                    txn_hdl->lock_tbl, r->key, r->key)
                  && entry_is_not_in_write_set(tt_txn, r)))
          {
             return 0;
@@ -235,10 +236,9 @@ tictoc_write(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
             break;
       }
 
-
       writable_buffer_deinit(&w->tuple);
 
-      lock_table_unlock(txn_hdl->lock_tbl, w->key, w->key);
+      lock_table_unlock_latch(txn_hdl->lock_tbl, w->latch);
    }
 }
 

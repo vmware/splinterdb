@@ -32,6 +32,7 @@ typedef struct entry {
    message_type    op;
    slice           key;
    writable_buffer tuple;
+   void           *latch;
 } entry;
 
 #define SET_SIZE_LIMIT 1024

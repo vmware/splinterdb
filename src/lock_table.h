@@ -14,12 +14,13 @@ lock_table_create();
 void
 lock_table_destroy(lock_table *lock_tbl);
 
+void *
+lock_table_lock_range(lock_table *lock_tbl, slice start, slice last);
+
 void
-lock_table_lock(lock_table *lock_tbl, slice start, slice last);
-void
-lock_table_unlock(lock_table *lock_tbl, slice start, slice last);
+lock_table_unlock_latch(lock_table *lock_tbl, void *latch);
 
 int
-lock_table_is_locked(lock_table *lock_tbl, slice start, slice last);
+lock_table_is_range_locked(lock_table *lock_tbl, slice start, slice last);
 
 #endif // _LOCK_TABLE_H_

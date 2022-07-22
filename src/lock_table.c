@@ -3,6 +3,7 @@
 #include "interval_tree/interval_tree_generic.h"
 #include "platform.h"
 #include "util.h"
+#include "poison.h"
 
 typedef struct interval_tree_node {
    struct rb_node rb;
@@ -11,16 +12,43 @@ typedef struct interval_tree_node {
    slice          __subtree_last;
 } interval_tree_node;
 
-interval_tree_node *
+static inline bool
+is_point_key(slice start, slice last)
+{
+   return slices_equal(start, last);
+}
+
+static interval_tree_node *
 interval_tree_node_create(slice start, slice last)
 {
-   interval_tree_node *node =
-      (interval_tree_node *)malloc(sizeof(interval_tree_node));
+   interval_tree_node *node = (interval_tree_node *)platform_aligned_malloc(
+      0, 64, sizeof(interval_tree_node));
    RB_CLEAR_NODE(&node->rb);
-   node->start = start;
-   node->last  = last;
+
+   if (is_point_key(start, last)) {
+      void *key   = platform_aligned_malloc(0, 64, slice_length(start));
+      node->start = node->last = slice_copy_contents(key, start);
+   } else {
+      void *start_key = platform_aligned_malloc(0, 64, slice_length(start));
+      void *last_key  = platform_aligned_malloc(0, 64, slice_length(last));
+      node->start     = slice_copy_contents(start_key, start);
+      node->last      = slice_copy_contents(last_key, last);
+   }
 
    return node;
+}
+
+static void
+interval_tree_node_destroy(interval_tree_node *node)
+{
+   if (is_point_key(node->start, node->last)) {
+      platform_free_from_heap(0, (void *)slice_data(node->start));
+   } else {
+      platform_free_from_heap(0, (void *)slice_data(node->start));
+      platform_free_from_heap(0, (void *)slice_data(node->last));
+   }
+
+   platform_free_from_heap(0, node);
 }
 
 #define GET_ITSTART(n) (n->start)
@@ -36,16 +64,56 @@ INTERVAL_TREE_DEFINE(interval_tree_node,
                      interval_tree,
                      slice_lex_cmp);
 
+// To make a compiler quiet
+#define SUPPRESS_UNUSED_WARN(var)                                              \
+   void _dummy_tmp_##var(void)                                                 \
+   {                                                                           \
+      (void)(var);                                                             \
+   }
+
+SUPPRESS_UNUSED_WARN(interval_tree_iter_next);
 
 typedef struct lock_table {
    struct rb_root root;
+   platform_mutex lock;
 } lock_table;
+
+static interval_tree_node *
+lock_table_insert(lock_table *lock_tbl, slice start, slice last)
+{
+   interval_tree_node *new_node = interval_tree_node_create(start, last);
+   platform_mutex_lock(&lock_tbl->lock);
+   interval_tree_insert(new_node, &lock_tbl->root);
+   platform_mutex_unlock(&lock_tbl->lock);
+   return new_node;
+}
+
+static bool
+lock_table_exist_overlap(lock_table *lock_tbl, slice start, slice last)
+{
+   platform_mutex_lock(&lock_tbl->lock);
+   bool exist =
+      interval_tree_iter_first(&lock_tbl->root, start, last) ? TRUE : FALSE;
+   platform_mutex_unlock(&lock_tbl->lock);
+   return exist;
+}
+
+static void
+lock_table_delete(lock_table *lock_tbl, interval_tree_node *node_to_be_deleted)
+{
+   platform_mutex_lock(&lock_tbl->lock);
+   interval_tree_remove(node_to_be_deleted, &lock_tbl->root);
+   interval_tree_node_destroy(node_to_be_deleted);
+   platform_mutex_unlock(&lock_tbl->lock);
+}
 
 lock_table *
 lock_table_create()
 {
-   lock_table *lt = (lock_table *)malloc(sizeof(lock_table));
-   lt->root       = RB_ROOT;
+   lock_table *lt =
+      (lock_table *)platform_aligned_malloc(0, 64, sizeof(lock_table));
+   lt->root = RB_ROOT;
+   platform_mutex_init(&lt->lock, 0, 0);
    return lt;
 }
 
@@ -53,62 +121,30 @@ void
 lock_table_destroy(lock_table *lock_tbl)
 {
    // TODO: destroy all elements
-
-   free(lock_tbl);
+   platform_mutex_destroy(&lock_tbl->lock);
+   platform_free_from_heap(0, lock_tbl);
 }
 
-static void
-lock_table_insert(lock_table *lock_tbl, slice start, slice last)
+// Lock returns the interval tree node pointer, and the pointer will
+// be used on deletion
+void *
+lock_table_lock_range(lock_table *lock_tbl, slice start, slice last)
 {
-   interval_tree_node *new_node = interval_tree_node_create(start, last);
-   interval_tree_insert(new_node, &lock_tbl->root);
-}
-
-static bool
-lock_table_is_exist(lock_table *lock_tbl, slice start, slice last)
-{
-   interval_tree_node *node =
-      interval_tree_iter_first(&lock_tbl->root, start, last);
-   while (node) {
-      // TODO: do something to find what we want
-      node = interval_tree_iter_next(node, start, last);
+   while (lock_table_exist_overlap(lock_tbl, start, last)) {
+      platform_pause();
    }
 
-   return (node ? TRUE : FALSE);
-}
-
-static void
-lock_table_delete(lock_table *lock_tbl, slice start, slice last)
-{
-   interval_tree_node *node =
-      interval_tree_iter_first(&lock_tbl->root, start, last);
-   while (node) {
-      node = interval_tree_iter_next(node, start, last);
-   }
-
-   if (node) {
-      interval_tree_remove(node, &lock_tbl->root);
-   }
-}
-
-
-void
-lock_table_lock(lock_table *lock_tbl, slice start, slice last)
-{
-   while (lock_table_is_exist(lock_tbl, start, last)) {
-   }
-
-   lock_table_insert(lock_tbl, start, last);
+   return (void *)lock_table_insert(lock_tbl, start, last);
 }
 
 void
-lock_table_unlock(lock_table *lock_tbl, slice start, slice last)
+lock_table_unlock_latch(lock_table *lock_tbl, void *ptr_to_be_deleted)
 {
-   lock_table_delete(lock_tbl, start, last);
+   lock_table_delete(lock_tbl, (interval_tree_node *)ptr_to_be_deleted);
 }
 
 int
-lock_table_is_locked(lock_table *lock_tbl, slice start, slice last)
+lock_table_is_range_locked(lock_table *lock_tbl, slice start, slice last)
 {
-   return lock_table_is_exist(lock_tbl, start, last);
+   return lock_table_exist_overlap(lock_tbl, start, last);
 }
