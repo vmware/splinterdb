@@ -273,6 +273,7 @@ clean_up_dirty_writes(transactional_splinterdb *txn_kvsb,
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
       entry *w = tictoc_get_write_set_entry(tt_txn, i);
       if (w->written) {
+	// FIXME: delete only changes by this transaction
          splinterdb_delete(txn_kvsb->kvsb, w->key);
       }
    }
