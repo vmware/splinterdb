@@ -42,7 +42,6 @@ typedef int64_t       int64;
 typedef uint64_t      uint64;
 typedef uint64        timestamp;
 typedef uint64        threadid;
-typedef uint64        transaction_id;
 
 #include <assert.h>
 static_assert(sizeof(int8) == 1, "incorrect type");
