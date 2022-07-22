@@ -8,7 +8,9 @@ bin/
 obj/
 lib/
 db
+splinterdb_*_db
 cache-log
 tags
 unit_tests_db
 compile_flags.txt
+build
