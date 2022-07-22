@@ -5,17 +5,17 @@
 #include "splinterdb/public_util.h"
 #include "util.h"
 
-#define TIMESTAMP_SIZE sizeof(uint32)
+typedef uint32 tictoc_timestamp;
 
-typedef struct ONDISK TS_word {
-   uint32 rts;
-   uint32 wts;
-} TS_word;
+typedef struct ONDISK tictoc_timestamp_set {
+   tictoc_timestamp rts;
+   tictoc_timestamp wts;
+} tictoc_timestamp_set;
 
-extern TS_word ZERO_TS_WORD;
+extern tictoc_timestamp_set ZERO_TICTOC_TIMESTAMP_SET;
 
 typedef struct ONDISK tictoc_tuple {
-   TS_word ts_word;
+   tictoc_timestamp_set ts_word;
    // char absent; // to indicate whether this tuple is deleted or not
    char value[]; // value provided by application
 } tictoc_tuple;

@@ -6,7 +6,7 @@
 #include "transaction_data_config.h"
 #include <stdlib.h>
 
-TS_word ZERO_TS_WORD = {.rts = 0, .wts = 0};
+tictoc_timestamp_set ZERO_TICTOC_TIMESTAMP_SET = {.rts = 0, .wts = 0};
 
 typedef struct transaction_handle {
    const splinterdb        *kvsb;
@@ -70,7 +70,9 @@ tictoc_read(transaction_handle       *txn_hdl,
 }
 
 static int
-get_ts_from_splinterdb(const splinterdb *kvsb, slice key, TS_word *ts)
+get_ts_from_splinterdb(const splinterdb     *kvsb,
+                       slice                 key,
+                       tictoc_timestamp_set *ts)
 {
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(kvsb, &result, SPLINTERDB_LOOKUP_BUFSIZE, 0);
@@ -81,7 +83,7 @@ get_ts_from_splinterdb(const splinterdb *kvsb, slice key, TS_word *ts)
 
    if (splinterdb_lookup_found(&result)) {
       splinterdb_lookup_result_value(kvsb, &result, &value);
-      memcpy(ts, slice_data(value), sizeof(TS_word));
+      memcpy(ts, slice_data(value), sizeof(tictoc_timestamp_set));
    } else {
       ts->wts = 0;
       ts->rts = 0;
@@ -92,10 +94,10 @@ get_ts_from_splinterdb(const splinterdb *kvsb, slice key, TS_word *ts)
    return 0;
 }
 
-static TS_word
+static tictoc_timestamp_set
 get_ts_from_entry(entry *entry)
 {
-   TS_word ts;
+   tictoc_timestamp_set ts;
    memcpy(&ts, writable_buffer_data(&entry->tuple), sizeof(ts));
    return ts;
 }
@@ -148,7 +150,7 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
    for (uint64 i = 0; i < total_size; ++i) {
       entry *e = &tt_txn->entries[i];
 
-      TS_word tuple_ts;
+      tictoc_timestamp_set tuple_ts;
       get_ts_from_splinterdb(txn_hdl->kvsb, e->key, &tuple_ts);
 
       if (e->type == ENTRY_TYPE_WRITE) {
@@ -164,11 +166,11 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
    for (uint64 i = 0; i < tt_txn->read_cnt; ++i) {
       entry *r = &tt_txn->read_set[i];
 
-      TS_word read_entry_ts = get_ts_from_entry(r);
+      tictoc_timestamp_set read_entry_ts = get_ts_from_entry(r);
 
       if (read_entry_ts.rts < tt_txn->commit_ts) {
          pthread_mutex_lock(txn_hdl->g_lock);
-         TS_word tuple_ts;
+         tictoc_timestamp_set tuple_ts;
          get_ts_from_splinterdb(txn_hdl->kvsb, r->key, &tuple_ts);
 
          if ((read_entry_ts.wts != tuple_ts.wts)
@@ -184,7 +186,7 @@ tictoc_validation(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
             if (new_rts != tuple_ts.rts) {
                writable_buffer ts;
                writable_buffer_init(&ts, 0); // FIXME: use a correct heap_id
-               writable_buffer_append(&ts, TIMESTAMP_SIZE, &new_rts);
+               writable_buffer_append(&ts, sizeof(tictoc_timestamp), &new_rts);
                splinterdb_update(
                   txn_hdl->kvsb, r->key, writable_buffer_to_slice(&ts));
                writable_buffer_deinit(&ts);
@@ -206,8 +208,8 @@ tictoc_write(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
    const splinterdb *kvsb = txn_hdl->kvsb;
 
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
-      entry  *w              = &tt_txn->write_set[i];
-      TS_word write_entry_ts = get_ts_from_entry(w);
+      entry               *w              = &tt_txn->write_set[i];
+      tictoc_timestamp_set write_entry_ts = get_ts_from_entry(w);
       if (write_entry_ts.wts != tt_txn->commit_ts
           || write_entry_ts.rts != tt_txn->commit_ts)
       {
@@ -215,7 +217,7 @@ tictoc_write(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
          write_entry_ts.rts = tt_txn->commit_ts;
 
          tictoc_tuple *tuple = writable_buffer_data(&w->tuple);
-         memcpy(&tuple->ts_word, &write_entry_ts, sizeof(TS_word));
+         memcpy(&tuple->ts_word, &write_entry_ts, sizeof(tictoc_timestamp_set));
       }
 
       // TODO: merge messages in the write set and write to splinterdb
@@ -243,10 +245,10 @@ tictoc_write(transaction_handle *txn_hdl, tictoc_transaction *tt_txn)
 }
 
 static void
-tictoc_local_write(tictoc_transaction *txn,
-                   TS_word             ts_word,
-                   slice               key,
-                   message             msg)
+tictoc_local_write(tictoc_transaction  *txn,
+                   tictoc_timestamp_set ts_word,
+                   slice                key,
+                   message              msg)
 {
    entry *w = tictoc_get_new_write_set_entry(txn);
 
@@ -256,16 +258,17 @@ tictoc_local_write(tictoc_transaction *txn,
    slice value = message_slice(msg);
 
    writable_buffer_init(&w->tuple, 0); // FIXME: use a correct heap_id
-   writable_buffer_resize(&w->tuple, sizeof(TS_word) + slice_length(value));
+   writable_buffer_resize(&w->tuple,
+                          sizeof(tictoc_timestamp_set) + slice_length(value));
 
    tictoc_tuple *tuple = writable_buffer_data(&w->tuple);
 
-   memcpy(&tuple->ts_word, &ts_word, sizeof(TS_word));
+   memcpy(&tuple->ts_word, &ts_word, sizeof(tictoc_timestamp_set));
    memcpy(tuple->value, slice_data(value), slice_length(value));
 }
 
 static inline char
-ts_word_is_nonzero(TS_word ts_word)
+ts_word_is_nonzero(tictoc_timestamp_set ts_word)
 {
    return ts_word.rts == 0 && ts_word.wts == 0;
 }
@@ -348,7 +351,7 @@ splinterdb_transaction_insert(transaction_handle *txn_hdl,
                               slice               value)
 {
    tictoc_local_write(&txn->tictoc,
-                      ZERO_TS_WORD,
+                      ZERO_TICTOC_TIMESTAMP_SET,
                       key,
                       message_create(MESSAGE_TYPE_INSERT, value));
    return 0;
@@ -359,7 +362,7 @@ splinterdb_transaction_delete(transaction_handle *txn_hdl,
                               transaction        *txn,
                               slice               key)
 {
-   TS_word ts_word = ZERO_TS_WORD;
+   tictoc_timestamp_set ts_word = ZERO_TICTOC_TIMESTAMP_SET;
    get_ts_from_splinterdb(txn_hdl->kvsb, key, &ts_word);
 
    if (ts_word_is_nonzero(ts_word)) {
@@ -374,7 +377,7 @@ splinterdb_transaction_update(transaction_handle *txn_hdl,
                               slice               key,
                               slice               delta)
 {
-   TS_word ts_word = ZERO_TS_WORD;
+   tictoc_timestamp_set ts_word = ZERO_TICTOC_TIMESTAMP_SET;
    get_ts_from_splinterdb(txn_hdl->kvsb, key, &ts_word);
 
    tictoc_local_write(
