@@ -20,6 +20,12 @@ typedef struct ONDISK tictoc_tuple {
    char value[]; // value provided by application
 } tictoc_tuple;
 
+inline uint64
+tictoc_tuple_header_size()
+{
+   return sizeof(tictoc_timestamp_set);
+}
+
 typedef enum entry_type {
    ENTRY_TYPE_INVALID = 0,
    ENTRY_TYPE_WRITE,
