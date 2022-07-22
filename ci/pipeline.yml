@@ -21,10 +21,9 @@
 
 #@ load("jobs.lib.yml",
 #@         "job_recreate_image",
-#@         "job_main_build_test_push",
-#@         "job_debug_main_build_test",
+#@         "job_main_push",
+#@         "job_main",
 #@         "job_pr_check",
-#@         "job_nightly_main_build_test",
 #@ )
 ---
 
@@ -100,15 +99,18 @@ jobs:
 - #@ job_recreate_image("build-env")
 - #@ job_recreate_image("run-env")
 
-#! Build, test and publish container images
-- #@ job_main_build_test_push("clang")
-- #@ job_main_build_test_push("gcc", also_latest=True)
+#! Commits to main will build, test and publish container images
+- #@ job_main_push("clang")
+- #@ job_main_push("gcc", also_latest=True)
+- #@ job_main("clang", is_debug=True)
+- #@ job_main("gcc", is_debug=True)
 
-- #@ job_debug_main_build_test("clang")
-- #@ job_debug_main_build_test("gcc")
-- #@ job_nightly_main_build_test("gcc")
+#! Nightly jobs which take too long to run per-PR
+- #@ job_main("gcc", trigger="nightly", test_nightly=True)
+- #@ job_main("gcc", trigger="nightly", sanitize="asan")
+- #@ job_main("gcc", trigger="nightly", sanitize="msan")
 
-#! first stage of pipeline, runs a few quick jobs
+#! Pull requests go through a fast stage and fan out to a slow stage
 #@ stage_one = ["pr-quick-check", "pr-clang-format", "pr-shell-scripts"]
 - #@ job_pr_check("clang-format", sequence_pr_clang_format(), description="check C source formatting")
 - #@ job_pr_check("shell-scripts", sequence_pr_shell_scripts(), description="lint and format any shell scripts")
@@ -117,22 +119,18 @@ jobs:
 #! second stage of pipeline, only triggers if all of the first-stage passes
 - #@ job_pr_check("clang", sequence_pr_build_test("clang"), depends_on=stage_one, description="build and test")
 - #@ job_pr_check("gcc", sequence_pr_build_test("gcc"), depends_on=stage_one, description="build and test")
-
 - #@ job_pr_check("debug-clang", sequence_pr_debug_build_test("clang"), depends_on=stage_one, description="debug build and test")
 - #@ job_pr_check("debug-gcc", sequence_pr_debug_build_test("gcc"), depends_on=stage_one, description="debug build and test")
 
-- #@ job_pr_check("asan", sequence_pr_debug_build_test("gcc", sanitize="asan"), depends_on=stage_one, description="address sanitizer")
-- #@ job_pr_check("msan", sequence_pr_debug_build_test("clang", sanitize="msan"), depends_on=stage_one, description="memory sanitizer")
 
 #! List of CI-groups of jobs
 groups:
 - name: main_branch
   jobs:
-  - main-build-test-clang
-  - main-build-test-gcc
-  - main-debug-build-test-clang
-  - main-debug-build-test-gcc
-  - main-nightly-build-test-gcc
+  - main-push-clang
+  - main-push-gcc
+  - main-debug-clang
+  - main-debug-gcc
 
 - name: pull_requests
   jobs:
@@ -143,8 +141,12 @@ groups:
   - pr-debug-gcc
   - pr-clang-format
   - pr-shell-scripts
-  - pr-asan
-  - pr-msan
+
+- name: nightly
+  jobs:
+  - main-nightly-test-gcc
+  - main-asan-gcc
+  - main-msan-gcc
 
 - name: env_images
   jobs:
