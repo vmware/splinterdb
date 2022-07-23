@@ -2814,7 +2814,7 @@ trunk_replace_bundle_branches(trunk_handle             *spl,
          uint64 kv_bytes_reclaimed = req->input_pivot_kv_byte_count[pos]
                                      - req->output_pivot_kv_byte_count[pos];
          req->kv_bytes_reclaimed += kv_bytes_reclaimed;
-         pdata->num_kv_bytes_bundle -= req->kv_bytes_reclaimed;
+         pdata->num_kv_bytes_bundle -= kv_bytes_reclaimed;
       }
    }
 
