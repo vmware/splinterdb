@@ -107,8 +107,8 @@ jobs:
 
 #! Nightly jobs which take too long to run per-PR
 - #@ job_main("gcc", trigger="nightly", test_nightly=True)
-- #@ job_main("gcc", trigger="nightly", sanitize="asan")
-- #@ job_main("gcc", trigger="nightly", sanitize="msan")
+- #@ job_main("clang", trigger="nightly", sanitize="asan")
+- #@ job_main("clang", trigger="nightly", sanitize="msan")
 
 #! Pull requests go through a fast stage and fan out to a slow stage
 #@ stage_one = ["pr-quick-check", "pr-clang-format", "pr-shell-scripts"]
@@ -145,8 +145,8 @@ groups:
 - name: nightly
   jobs:
   - main-nightly-test-gcc
-  - main-asan-gcc
-  - main-msan-gcc
+  - main-asan-clang
+  - main-msan-clang
 
 - name: env_images
   jobs:
