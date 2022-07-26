@@ -9,9 +9,17 @@ get_ts_from_entry(entry *entry)
 }
 
 bool
-entry_is_invalid(entry *entry)
+tictoc_entry_is_invalid(entry *entry)
 {
    return entry == 0;
+}
+
+static void
+tictoc_entry_deinit(entry *e)
+{
+   writable_buffer_deinit(&e->key);
+   writable_buffer_deinit(&e->tuple);
+   e->latch = 0;
 }
 
 entry *
@@ -68,13 +76,29 @@ tictoc_transaction_init(tictoc_transaction *tt_txn)
    tt_txn->commit_ts = 0;
 }
 
+void
+tictoc_transaction_deinit(tictoc_transaction *tt_txn, lock_table *lock_tbl)
+{
+   for (uint64 i = 0; i < tt_txn->read_cnt; ++i) {
+      tictoc_entry_deinit(tictoc_get_read_set_entry(tt_txn, i));
+   }
+
+   for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
+      tictoc_entry_deinit(tictoc_get_write_set_entry(tt_txn, i));
+   }
+}
+
 static int
 entry_key_comp(const void *elem1, const void *elem2)
 {
    entry *a = (entry *)elem1;
    entry *b = (entry *)elem2;
 
-   return slice_lex_cmp(a->key, b->key);
+   slice akey = writable_buffer_to_slice(&a->key);
+   slice bkey = writable_buffer_to_slice(&b->key);
+
+   // FIXME: use user-defined key-comapare function
+   return slice_lex_cmp(akey, bkey);
 }
 
 void
@@ -91,8 +115,9 @@ tictoc_transaction_lock_all_write_set(tictoc_transaction *tt_txn,
                                       lock_table         *lock_tbl)
 {
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
-      entry *we = &tt_txn->write_set[i];
-      we->latch = lock_table_lock_range(lock_tbl, we->key, we->key);
+      entry *we   = &tt_txn->write_set[i];
+      slice  wkey = writable_buffer_to_slice(&we->key);
+      we->latch   = lock_table_lock_range(lock_tbl, wkey, wkey);
    }
 }
 
@@ -103,5 +128,6 @@ tictoc_transaction_unlock_all_write_set(tictoc_transaction *tt_txn,
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
       entry *we = &tt_txn->write_set[i];
       lock_table_unlock_latch(lock_tbl, we->latch);
+      we->latch = 0;
    }
 }

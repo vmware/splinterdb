@@ -13,50 +13,69 @@
 
 typedef struct transactional_splinterdb transactional_splinterdb;
 
+// Create a new SplinterDB instance, erasing any existing file or block device.
+//
+// The library will allocate and own the memory for splinterdb
+// and will free it on splinterdb_close().
+//
+// It is ok for the caller to stack-allocate cfg, since it is not retained
 int
-splinterdb_transaction_init(const splinterdb          *kvsb,
-                            transactional_splinterdb **txn_kvsb);
+transactional_splinterdb_create(const splinterdb_config   *kvsb_cfg,
+                                transactional_splinterdb **txn_kvsb);
 
+// Open an existing splinterdb from a file/device on disk
+//
+// The library will allocate and own the memory for splinterdb
+// and will free it on splinterdb_close().
+//
+// It is ok for the caller to stack-allocate cfg, since it is not retained
+int
+transactional_splinterdb_open(const splinterdb_config   *kvsb_cfg,
+                              transactional_splinterdb **txn_kvsb);
+
+// Close a splinterdb
+//
+// This will flush all data to disk and release all resources
 void
-splinterdb_transaction_deinit(transactional_splinterdb *txn_kvsb);
+transactional_splinterdb_close(transactional_splinterdb **txn_kvsb);
 
 typedef struct transaction {
    tictoc_transaction tictoc;
 } transaction;
 
 int
-splinterdb_transaction_begin(transactional_splinterdb *txn_kvsb,
-                             transaction              *txn);
+transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
+                               transaction              *txn);
 
 int
-splinterdb_transaction_commit(transactional_splinterdb *txn_kvsb,
-                              transaction              *txn);
+transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
+                                transaction              *txn);
 
 int
-splinterdb_transaction_abort(transactional_splinterdb *txn_kvsb,
-                             transaction              *txn);
+transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
+                               transaction              *txn);
 
 int
-splinterdb_transaction_insert(transactional_splinterdb *txn_kvsb,
-                              transaction              *txn,
-                              slice                     key,
-                              slice                     value);
+transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
+                                transaction              *txn,
+                                slice                     key,
+                                slice                     value);
 
 int
-splinterdb_transaction_delete(transactional_splinterdb *txn_kvsb,
-                              transaction              *txn,
-                              slice                     key);
+transactional_splinterdb_delete(transactional_splinterdb *txn_kvsb,
+                                transaction              *txn,
+                                slice                     key);
 
 int
-splinterdb_transaction_update(transactional_splinterdb *txn_kvsb,
-                              transaction              *txn,
-                              slice                     key,
-                              slice                     delta);
+transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
+                                transaction              *txn,
+                                slice                     key,
+                                slice                     delta);
 
 int
-splinterdb_transaction_lookup(transactional_splinterdb *txn_kvsb,
-                              transaction              *txn,
-                              slice                     key,
-                              splinterdb_lookup_result *result);
+transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
+                                transaction              *txn,
+                                slice                     key,
+                                splinterdb_lookup_result *result);
 
 #endif // _TRANSACTION_H_

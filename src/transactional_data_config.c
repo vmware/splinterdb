@@ -1,4 +1,4 @@
-#include "transaction_data_config.h"
+#include "transactional_data_config.h"
 #include "data_internal.h"
 #include "tictoc_data.h"
 #include <string.h>
@@ -65,7 +65,7 @@ merge_tictoc_tuple(const data_config *cfg,
       new_value_message); // FIXME: use a correct heap_id
 
    data_merge_tuples(
-      ((const transaction_data_config *)cfg)->application_data_config,
+      ((const transactional_data_config *)cfg)->application_data_config,
       key,
       old_value_message,
       &new_value_ma);
@@ -103,7 +103,7 @@ merge_tictoc_tuple_final(const data_config *cfg,
       oldest_message_value);
 
    data_merge_tuples_final(
-      ((const transaction_data_config *)cfg)->application_data_config,
+      ((const transactional_data_config *)cfg)->application_data_config,
       key,
       &app_oldest_message);
 
@@ -120,14 +120,14 @@ merge_tictoc_tuple_final(const data_config *cfg,
    return 0;
 }
 
-/* static transaction_data_config template_cfg = { */
+/* static transactional_data_config template_cfg = { */
 /*    .super = {.merge_tuples       = merge_tictoc_tuple, */
 /*              .merge_tuples_final = merge_tictoc_tuple_final}, */
 /* }; */
 
 void
-transaction_data_config_init(data_config             *in_cfg, // IN
-                             transaction_data_config *out_cfg // OUT
+transactional_data_config_init(data_config               *in_cfg, // IN
+                               transactional_data_config *out_cfg // OUT
 )
 {
    memcpy(&out_cfg->super, in_cfg, sizeof(out_cfg->super));

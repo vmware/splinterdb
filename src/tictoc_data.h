@@ -37,7 +37,7 @@ tictoc_tuple_header_size()
 // read_set and write_set entry stored locally
 typedef struct entry {
    message_type    op;
-   slice           key;
+   writable_buffer key;
    writable_buffer tuple;
    void           *latch;
    bool            written;
@@ -47,7 +47,7 @@ tictoc_timestamp_set
 get_ts_from_entry(entry *entry);
 
 bool
-entry_is_invalid(entry *entry);
+tictoc_entry_is_invalid(entry *entry);
 
 #define SET_SIZE_LIMIT 1024
 
@@ -65,6 +65,9 @@ tictoc_entry_is_not_in_write_set(tictoc_transaction *tt_txn, entry *e);
 
 void
 tictoc_transaction_init(tictoc_transaction *tt_txn);
+
+void
+tictoc_transaction_deinit(tictoc_transaction *tt_txn, lock_table *lock_tbl);
 
 entry *
 tictoc_get_new_read_set_entry(tictoc_transaction *tt_txn);
