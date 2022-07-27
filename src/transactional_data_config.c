@@ -89,8 +89,8 @@ merge_tictoc_tuple_final(const data_config *cfg,
                          slice              key,
                          merge_accumulator *oldest_message)
 {
-   platform_assert(is_merge_accumulator_rts_update(oldest_message),
-                   "oldest_message cannot be a rts update\n");
+   platform_assert(!is_merge_accumulator_rts_update(oldest_message),
+                   "oldest_message shouldn't be a rts update\n");
 
    message oldest_message_value =
       get_app_value_from_merge_accumulator(oldest_message);
