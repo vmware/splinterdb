@@ -7,8 +7,8 @@
 #include "splinterdb/data.h"
 
 typedef struct transactional_data_config {
-   data_config  super;
-   data_config *application_data_config;
+   data_config        super;
+   const data_config *application_data_config;
 } transactional_data_config;
 
 void

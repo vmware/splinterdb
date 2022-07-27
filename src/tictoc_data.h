@@ -35,33 +35,34 @@ tictoc_tuple_header_size()
 }
 
 // read_set and write_set entry stored locally
-typedef struct entry {
+typedef struct tictoc_rw_entry {
    message_type    op;
    writable_buffer key;
    writable_buffer tuple;
-   void           *latch;
+   range_lock      rng_lock;
    bool            written;
-} entry;
+} tictoc_rw_entry;
 
 tictoc_timestamp_set
-get_ts_from_entry(entry *entry);
+get_ts_from_tictoc_rw_entry(tictoc_rw_entry *entry);
 
 bool
-tictoc_entry_is_invalid(entry *entry);
+tictoc_rw_entry_is_invalid(tictoc_rw_entry *entry);
 
 #define SET_SIZE_LIMIT 1024
 
 typedef struct tictoc_transaction {
-   entry  entries[2 * SET_SIZE_LIMIT];
-   entry *read_set;
-   entry *write_set;
-   uint64 read_cnt;
-   uint64 write_cnt;
-   uint64 commit_ts;
+   tictoc_rw_entry  entries[2 * SET_SIZE_LIMIT];
+   tictoc_rw_entry *read_set;
+   tictoc_rw_entry *write_set;
+   uint64           read_cnt;
+   uint64           write_cnt;
+   uint64           commit_ts;
 } tictoc_transaction;
 
 bool
-tictoc_entry_is_not_in_write_set(tictoc_transaction *tt_txn, entry *e);
+tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
+                                    tictoc_rw_entry    *entry);
 
 void
 tictoc_transaction_init(tictoc_transaction *tt_txn);
@@ -69,20 +70,21 @@ tictoc_transaction_init(tictoc_transaction *tt_txn);
 void
 tictoc_transaction_deinit(tictoc_transaction *tt_txn, lock_table *lock_tbl);
 
-entry *
+tictoc_rw_entry *
 tictoc_get_new_read_set_entry(tictoc_transaction *tt_txn);
 
-entry *
+tictoc_rw_entry *
 tictoc_get_read_set_entry(tictoc_transaction *tt_txn, uint64 i);
 
-entry *
+tictoc_rw_entry *
 tictoc_get_new_write_set_entry(tictoc_transaction *tt_txn);
 
-entry *
+tictoc_rw_entry *
 tictoc_get_write_set_entry(tictoc_transaction *tt_txn, uint64 i);
 
 void
-tictoc_transaction_sort_write_set(tictoc_transaction *tt_txn);
+tictoc_transaction_sort_write_set(tictoc_transaction *tt_txn,
+                                  const data_config  *cfg);
 
 void
 tictoc_transaction_lock_all_write_set(tictoc_transaction *tt_txn,

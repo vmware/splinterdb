@@ -127,8 +127,8 @@ lock_table_destroy(lock_table *lock_tbl)
 
 // Lock returns the interval tree node pointer, and the pointer will
 // be used on deletion
-void *
-lock_table_lock_range(lock_table *lock_tbl, slice start, slice last)
+range_lock
+lock_table_acquire_range_lock(lock_table *lock_tbl, slice start, slice last)
 {
    while (lock_table_exist_overlap(lock_tbl, start, last)) {
       platform_pause();
@@ -138,9 +138,9 @@ lock_table_lock_range(lock_table *lock_tbl, slice start, slice last)
 }
 
 void
-lock_table_unlock_latch(lock_table *lock_tbl, void *ptr_to_be_deleted)
+lock_table_release_range_lock(lock_table *lock_tbl, range_lock rng_lock)
 {
-   lock_table_delete(lock_tbl, (interval_tree_node *)ptr_to_be_deleted);
+   lock_table_delete(lock_tbl, (interval_tree_node *)rng_lock);
 }
 
 int

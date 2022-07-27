@@ -89,10 +89,8 @@ merge_tictoc_tuple_final(const data_config *cfg,
                          slice              key,
                          merge_accumulator *oldest_message)
 {
-   if (is_merge_accumulator_rts_update(oldest_message)) {
-      // Do nothing
-      return 0;
-   }
+   platform_assert(is_merge_accumulator_rts_update(oldest_message),
+                   "oldest_message cannot be a rts update\n");
 
    message oldest_message_value =
       get_app_value_from_merge_accumulator(oldest_message);
@@ -119,11 +117,6 @@ merge_tictoc_tuple_final(const data_config *cfg,
 
    return 0;
 }
-
-/* static transactional_data_config template_cfg = { */
-/*    .super = {.merge_tuples       = merge_tictoc_tuple, */
-/*              .merge_tuples_final = merge_tictoc_tuple_final}, */
-/* }; */
 
 void
 transactional_data_config_init(data_config               *in_cfg, // IN
