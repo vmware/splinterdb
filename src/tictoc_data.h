@@ -38,6 +38,7 @@ tictoc_rw_entry_is_invalid(tictoc_rw_entry *entry);
 
 #define SET_SIZE_LIMIT 1024
 
+// TODO: use interval_tree_node for tictoc_rw_entry
 typedef struct tictoc_transaction {
    tictoc_rw_entry  entries[2 * SET_SIZE_LIMIT];
    tictoc_rw_entry *read_set;
@@ -62,6 +63,9 @@ tictoc_get_new_read_set_entry(tictoc_transaction *tt_txn);
 
 tictoc_rw_entry *
 tictoc_get_read_set_entry(tictoc_transaction *tt_txn, uint64 i);
+
+void
+tictoc_delete_last_read_set_entry(tictoc_transaction *tt_txn);
 
 tictoc_rw_entry *
 tictoc_get_new_write_set_entry(tictoc_transaction *tt_txn);

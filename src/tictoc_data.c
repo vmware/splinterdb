@@ -38,6 +38,13 @@ tictoc_get_read_set_entry(tictoc_transaction *tt_txn, uint64 i)
    return i < tt_txn->read_cnt ? &tt_txn->read_set[i] : NULL;
 }
 
+void
+tictoc_delete_last_read_set_entry(tictoc_transaction *tt_txn)
+{
+  platform_assert(tt_txn->read_cnt > 0);
+  --tt_txn->read_cnt;
+}
+
 tictoc_rw_entry *
 tictoc_get_new_write_set_entry(tictoc_transaction *tt_txn)
 {
@@ -110,7 +117,7 @@ tictoc_transaction_sort_write_set(tictoc_transaction *tt_txn,
                                   const data_config  *cfg)
 {
    platform_sort_slow(tt_txn->write_set,
-                      tt_txn->write_cnt * sizeof(tictoc_rw_entry),
+                      tt_txn->write_cnt,
                       sizeof(tictoc_rw_entry),
                       tictoc_rw_entry_key_comp,
                       (void *)cfg,

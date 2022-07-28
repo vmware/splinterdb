@@ -78,4 +78,18 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 slice                     key,
                                 splinterdb_lookup_result *result);
 
+// XXX: These functions wouldn't be necessary if txn_kvsb were public
+void
+transactional_splinterdb_lookup_result_init(transactional_splinterdb         *txn_kvsb,        // IN
+                              splinterdb_lookup_result *result,     // IN/OUT
+                              uint64                    buffer_len, // IN
+                              char                     *buffer      // IN
+);
+
+int
+transactional_splinterdb_lookup_result_value(transactional_splinterdb               *txn_kvsb,
+                               const splinterdb_lookup_result *result, // IN
+                               slice                          *value   // OUT
+);
+
 #endif // _TRANSACTION_H_

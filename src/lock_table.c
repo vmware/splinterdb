@@ -35,8 +35,8 @@ interval_tree_node_create(slice              start,
                           slice              last,
                           const data_config *app_data_cfg)
 {
-   interval_tree_node *node = (interval_tree_node *)platform_aligned_malloc(
-      0, 64, sizeof(interval_tree_node));
+  interval_tree_node *node;
+  node = TYPED_ZALLOC(0, node);
    RB_CLEAR_NODE(&node->rb);
 
    if (is_point_key(start, last)) {
@@ -143,8 +143,8 @@ lock_table_delete(lock_table *lock_tbl, interval_tree_node *node_to_be_deleted)
 lock_table *
 lock_table_create(const data_config *app_data_cfg)
 {
-   lock_table *lt =
-      (lock_table *)platform_aligned_malloc(0, 64, sizeof(lock_table));
+  lock_table *lt;
+  lt = TYPED_ZALLOC(0, lt);
    lt->root = RB_ROOT;
    platform_mutex_init(&lt->lock, 0, 0);
    lt->app_data_cfg = app_data_cfg;
