@@ -60,14 +60,11 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
       return -1;
    }
 
-   splinterdb_lookup_result tuple_result;
-   splinterdb_lookup_result_init(txn_kvsb->kvsb, &tuple_result, 0, NULL);
+   int rc = splinterdb_lookup(txn_kvsb->kvsb, key, result);
 
-   int rc = splinterdb_lookup(txn_kvsb->kvsb, key, &tuple_result);
-
-   if (splinterdb_lookup_found(&tuple_result)) {
+   if (splinterdb_lookup_found(result)) {
       slice value;
-      splinterdb_lookup_result_value(txn_kvsb->kvsb, &tuple_result, &value);
+      splinterdb_lookup_result_value(txn_kvsb->kvsb, result, &value);
       writable_buffer_init_from_slice(&r->tuple,
                                       0,
                                       value); // FIXME: use a correct heap_id
@@ -76,21 +73,14 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
 
       tictoc_tuple_header       *tuple   = writable_buffer_data(&r->tuple);
       _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-      _splinterdb_lookup_result *_tuple_result =
-         (_splinterdb_lookup_result *)&tuple_result;
-      uint64 app_value_size = merge_accumulator_length(&_tuple_result->value)
+      uint64 app_value_size = merge_accumulator_length(&_result->value)
                               - sizeof(tictoc_tuple_header);
-      merge_accumulator_resize(&_result->value, app_value_size);
-      merge_accumulator_set_class(
-         &_result->value,
-         merge_accumulator_message_class(&_tuple_result->value));
-      memcpy(
+      memmove(
          merge_accumulator_data(&_result->value), tuple->value, app_value_size);
+      merge_accumulator_resize(&_result->value, app_value_size);
    } else {
       tictoc_delete_last_read_set_entry(tt_txn);
    }
-
-   splinterdb_lookup_result_deinit(&tuple_result);
 
    return rc;
 }
