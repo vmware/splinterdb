@@ -22,17 +22,11 @@ ts_set_is_nonzero(tictoc_timestamp_set ts_set)
 
 extern tictoc_timestamp_set ZERO_TICTOC_TIMESTAMP_SET;
 
-typedef struct ONDISK tictoc_tuple {
+typedef struct ONDISK tictoc_tuple_header {
    tictoc_timestamp_set ts_set;
    // char absent; // to indicate whether this tuple is deleted or not
    char value[]; // value provided by application
-} tictoc_tuple;
-
-inline uint64
-tictoc_tuple_header_size()
-{
-   return sizeof(tictoc_timestamp_set);
-}
+} tictoc_tuple_header;
 
 // read_set and write_set entry stored locally
 typedef struct tictoc_rw_entry {

@@ -20,8 +20,8 @@ get_app_value_from_message(message msg)
 {
    return message_create(
       message_class(msg),
-      slice_create(message_length(msg) - tictoc_tuple_header_size(),
-                   message_data(msg) + tictoc_tuple_header_size()));
+      slice_create(message_length(msg) - sizeof(tictoc_tuple_header),
+                   message_data(msg) + sizeof(tictoc_tuple_header)));
 }
 
 static inline message
@@ -29,8 +29,8 @@ get_app_value_from_merge_accumulator(merge_accumulator *ma)
 {
    return message_create(
       merge_accumulator_message_class(ma),
-      slice_create(merge_accumulator_length(ma) - tictoc_tuple_header_size(),
-                   merge_accumulator_data(ma) + tictoc_tuple_header_size()));
+      slice_create(merge_accumulator_length(ma) - sizeof(tictoc_tuple_header),
+                   merge_accumulator_data(ma) + sizeof(tictoc_tuple_header)));
 }
 
 static int
@@ -45,10 +45,10 @@ merge_tictoc_tuple(const data_config *cfg,
    }
 
    if (is_merge_accumulator_rts_update(new_message)) {
-      tictoc_tuple *new_tuple = merge_accumulator_data(new_message);
-      timestamp     new_rts   = new_tuple->ts_set.rts;
+      tictoc_tuple_header *new_tuple = merge_accumulator_data(new_message);
+      timestamp            new_rts   = new_tuple->ts_set.rts;
       merge_accumulator_copy_message(new_message, old_message);
-      new_tuple = (tictoc_tuple *)merge_accumulator_data(new_message);
+      new_tuple = (tictoc_tuple_header *)merge_accumulator_data(new_message);
       new_tuple->ts_set.rts = new_rts;
 
       return 0;
@@ -71,10 +71,10 @@ merge_tictoc_tuple(const data_config *cfg,
       &new_value_ma);
 
    merge_accumulator_resize(new_message,
-                            tictoc_tuple_header_size()
+                            sizeof(tictoc_tuple_header)
                                + merge_accumulator_length(&new_value_ma));
 
-   tictoc_tuple *new_tuple = merge_accumulator_data(new_message);
+   tictoc_tuple_header *new_tuple = merge_accumulator_data(new_message);
    memcpy(&new_tuple->value,
           merge_accumulator_data(&new_value_ma),
           merge_accumulator_length(&new_value_ma));
@@ -106,9 +106,9 @@ merge_tictoc_tuple_final(const data_config *cfg,
       &app_oldest_message);
 
    merge_accumulator_resize(oldest_message,
-                            tictoc_tuple_header_size()
+                            sizeof(tictoc_tuple_header)
                                + merge_accumulator_length(&app_oldest_message));
-   tictoc_tuple *tuple = merge_accumulator_data(oldest_message);
+   tictoc_tuple_header *tuple = merge_accumulator_data(oldest_message);
    memcpy(&tuple->value,
           merge_accumulator_data(&app_oldest_message),
           merge_accumulator_length(&app_oldest_message));

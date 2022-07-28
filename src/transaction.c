@@ -72,14 +72,17 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
       splinterdb_lookup_result_value(txn_kvsb->kvsb, &tuple_result, &value);
       writable_buffer_init_from_slice(
          &r->tuple, 0, value); // FIXME: use a correct heap_id
-
       writable_buffer_init_from_slice(&r->key, 0, key);
 
-      tictoc_tuple              *tuple   = writable_buffer_data(&r->tuple);
+      tictoc_tuple_header       *tuple   = writable_buffer_data(&r->tuple);
       _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-      memcpy(merge_accumulator_data(&_result->value),
-             tuple->value,
-             sizeof(tictoc_tuple));
+      _splinterdb_lookup_result *_tuple_result =
+         (_splinterdb_lookup_result *)&tuple_result;
+      uint64 app_value_size = merge_accumulator_length(&_tuple_result->value)
+                              - sizeof(tictoc_tuple_header);
+      merge_accumulator_resize(&_result->value, app_value_size);
+      memcpy(
+         merge_accumulator_data(&_result->value), tuple->value, app_value_size);
    }
 
    splinterdb_lookup_result_deinit(&tuple_result);
@@ -174,7 +177,7 @@ tictoc_write(transactional_splinterdb *txn_kvsb, tictoc_transaction *tt_txn)
          write_entry_ts.wts = tt_txn->commit_ts;
          write_entry_ts.rts = tt_txn->commit_ts;
 
-         tictoc_tuple *tuple = writable_buffer_data(&w->tuple);
+         tictoc_tuple_header *tuple = writable_buffer_data(&w->tuple);
          memcpy(&tuple->ts_set, &write_entry_ts, sizeof(tictoc_timestamp_set));
       }
 
@@ -229,7 +232,7 @@ tictoc_local_write(tictoc_transaction  *txn,
    writable_buffer_resize(&w->tuple,
                           sizeof(tictoc_timestamp_set) + slice_length(value));
 
-   tictoc_tuple *tuple = writable_buffer_data(&w->tuple);
+   tictoc_tuple_header *tuple = writable_buffer_data(&w->tuple);
 
    memcpy(&tuple->ts_set, &ts_set, sizeof(tictoc_timestamp_set));
    memcpy(tuple->value, slice_data(value), slice_length(value));
