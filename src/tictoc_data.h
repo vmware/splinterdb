@@ -14,18 +14,11 @@ typedef struct ONDISK tictoc_timestamp_set {
    tictoc_timestamp wts;
 } tictoc_timestamp_set;
 
-inline bool
-ts_set_is_nonzero(tictoc_timestamp_set ts_set)
-{
-   return ts_set.rts == 0 && ts_set.wts == 0;
-}
-
 extern tictoc_timestamp_set ZERO_TICTOC_TIMESTAMP_SET;
 
 typedef struct ONDISK tictoc_tuple_header {
    tictoc_timestamp_set ts_set;
-   // char absent; // to indicate whether this tuple is deleted or not
-   char value[]; // value provided by application
+   char                 value[]; // value provided by application
 } tictoc_tuple_header;
 
 // read_set and write_set entry stored locally

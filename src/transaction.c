@@ -273,7 +273,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       return rc;
    }
 
-   _txn_kvsb->lock_tbl = lock_table_create();
+   _txn_kvsb->lock_tbl = lock_table_create(kvsb_cfg->data_cfg);
 
    platform_mutex_init(&_txn_kvsb->g_lock, 0, 0);
 

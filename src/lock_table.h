@@ -11,7 +11,7 @@ typedef struct lock_table lock_table;
 typedef void *range_lock;
 
 lock_table *
-lock_table_create();
+lock_table_create(const data_config *app_data_cfg);
 
 void
 lock_table_destroy(lock_table *lock_tbl);

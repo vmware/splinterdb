@@ -4,12 +4,24 @@
 #include "platform.h"
 #include "util.h"
 #include "poison.h"
+#include "data_internal.h"
+
+typedef struct interval_tree_node_key {
+   slice              data;
+   const data_config *app_data_cfg;
+} interval_tree_node_key;
+
+static interval_tree_node_key
+interval_tree_node_key_create(slice data, const data_config *app_data_cfg)
+{
+   return (interval_tree_node_key){.data = data, .app_data_cfg = app_data_cfg};
+}
 
 typedef struct interval_tree_node {
-   struct rb_node rb;
-   slice          start;
-   slice          last;
-   slice          __subtree_last;
+   struct rb_node         rb;
+   interval_tree_node_key start;
+   interval_tree_node_key last;
+   interval_tree_node_key __subtree_last;
 } interval_tree_node;
 
 static inline bool
@@ -19,21 +31,25 @@ is_point_key(slice start, slice last)
 }
 
 static interval_tree_node *
-interval_tree_node_create(slice start, slice last)
+interval_tree_node_create(slice              start,
+                          slice              last,
+                          const data_config *app_data_cfg)
 {
    interval_tree_node *node = (interval_tree_node *)platform_aligned_malloc(
       0, 64, sizeof(interval_tree_node));
    RB_CLEAR_NODE(&node->rb);
 
    if (is_point_key(start, last)) {
-      void *key   = platform_aligned_malloc(0, 64, slice_length(start));
-      node->start = node->last = slice_copy_contents(key, start);
+      void *key        = platform_aligned_malloc(0, 64, slice_length(start));
+      node->start.data = node->last.data = slice_copy_contents(key, start);
    } else {
-      void *start_key = platform_aligned_malloc(0, 64, slice_length(start));
-      void *last_key  = platform_aligned_malloc(0, 64, slice_length(last));
-      node->start     = slice_copy_contents(start_key, start);
-      node->last      = slice_copy_contents(last_key, last);
+      void *start_key  = platform_aligned_malloc(0, 64, slice_length(start));
+      void *last_key   = platform_aligned_malloc(0, 64, slice_length(last));
+      node->start.data = slice_copy_contents(start_key, start);
+      node->last.data  = slice_copy_contents(last_key, last);
    }
+
+   node->start.app_data_cfg = node->last.app_data_cfg = app_data_cfg;
 
    return node;
 }
@@ -41,11 +57,11 @@ interval_tree_node_create(slice start, slice last)
 static void
 interval_tree_node_destroy(interval_tree_node *node)
 {
-   if (is_point_key(node->start, node->last)) {
-      platform_free_from_heap(0, (void *)slice_data(node->start));
+   if (is_point_key(node->start.data, node->last.data)) {
+      platform_free_from_heap(0, (void *)slice_data(node->start.data));
    } else {
-      platform_free_from_heap(0, (void *)slice_data(node->start));
-      platform_free_from_heap(0, (void *)slice_data(node->last));
+      platform_free_from_heap(0, (void *)slice_data(node->start.data));
+      platform_free_from_heap(0, (void *)slice_data(node->last.data));
    }
 
    platform_free_from_heap(0, node);
@@ -54,15 +70,24 @@ interval_tree_node_destroy(interval_tree_node *node)
 #define GET_ITSTART(n) (n->start)
 #define GET_ITLAST(n)  (n->last)
 
+static int
+interval_tree_node_compare(interval_tree_node_key key1,
+                           interval_tree_node_key key2)
+{
+   platform_assert(key1.app_data_cfg == key2.app_data_cfg);
+
+   return data_key_compare(key1.app_data_cfg, key1.data, key2.data);
+}
+
 INTERVAL_TREE_DEFINE(interval_tree_node,
                      rb,
-                     slice,
+                     interval_tree_node_key,
                      __subtree_last,
                      GET_ITSTART,
                      GET_ITLAST,
                      static,
                      interval_tree,
-                     slice_lex_cmp);
+                     interval_tree_node_compare);
 
 // To make a compiler quiet
 #define SUPPRESS_UNUSED_WARN(var)                                              \
@@ -76,12 +101,15 @@ SUPPRESS_UNUSED_WARN(interval_tree_iter_next);
 typedef struct lock_table {
    struct rb_root root;
    platform_mutex lock;
+
+   const data_config *app_data_cfg;
 } lock_table;
 
 static interval_tree_node *
 lock_table_insert(lock_table *lock_tbl, slice start, slice last)
 {
-   interval_tree_node *new_node = interval_tree_node_create(start, last);
+   interval_tree_node *new_node =
+      interval_tree_node_create(start, last, lock_tbl->app_data_cfg);
    platform_mutex_lock(&lock_tbl->lock);
    interval_tree_insert(new_node, &lock_tbl->root);
    platform_mutex_unlock(&lock_tbl->lock);
@@ -92,8 +120,13 @@ static bool
 lock_table_exist_overlap(lock_table *lock_tbl, slice start, slice last)
 {
    platform_mutex_lock(&lock_tbl->lock);
-   bool exist =
-      interval_tree_iter_first(&lock_tbl->root, start, last) ? TRUE : FALSE;
+   interval_tree_node_key start_key =
+      interval_tree_node_key_create(start, lock_tbl->app_data_cfg);
+   interval_tree_node_key last_key =
+      interval_tree_node_key_create(last, lock_tbl->app_data_cfg);
+   bool exist = interval_tree_iter_first(&lock_tbl->root, start_key, last_key)
+                   ? TRUE
+                   : FALSE;
    platform_mutex_unlock(&lock_tbl->lock);
    return exist;
 }
@@ -108,12 +141,13 @@ lock_table_delete(lock_table *lock_tbl, interval_tree_node *node_to_be_deleted)
 }
 
 lock_table *
-lock_table_create()
+lock_table_create(const data_config *app_data_cfg)
 {
    lock_table *lt =
       (lock_table *)platform_aligned_malloc(0, 64, sizeof(lock_table));
    lt->root = RB_ROOT;
    platform_mutex_init(&lt->lock, 0, 0);
+   lt->app_data_cfg = app_data_cfg;
    return lt;
 }
 
