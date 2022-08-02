@@ -43,10 +43,12 @@ main()
    splinterdb_cfg.cache_size = (CACHE_SIZE_MB * 1024 * 1024);
    splinterdb_cfg.data_cfg   = &splinter_data_cfg;
 
-   transactional_splinterdb *spl_handle = NULL; // To a running SplinterDB instance
+   transactional_splinterdb *spl_handle =
+      NULL; // To a running SplinterDB instance
 
    int rc = transactional_splinterdb_create(&splinterdb_cfg, &spl_handle);
-   printf("Created Transactional SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
+   printf("Created Transactional SplinterDB instance, dbname '%s'.\n\n",
+          DB_FILE_NAME);
 
    // Insert a few kv-pairs, describing properties of fruits.
    const char *fruit = "apple";
@@ -79,9 +81,9 @@ main()
    printf("Inserted key '%s'\n", fruit);
 
    transactional_splinterdb_commit(spl_handle, &txn);
-   
+
    transactional_splinterdb_begin(spl_handle, &txn);
-   
+
    // Retrieve a key-value pair.
    splinterdb_lookup_result result;
    transactional_splinterdb_lookup_result_init(spl_handle, &result, 0, NULL);
@@ -89,7 +91,8 @@ main()
    fruit = "Orange";
    key   = slice_create((size_t)strlen(fruit), fruit);
    rc    = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
-   rc    = transactional_splinterdb_lookup_result_value(spl_handle, &result, &value);
+   rc =
+      transactional_splinterdb_lookup_result_value(spl_handle, &result, &value);
    if (!rc) {
       printf("Found key: '%s', value: '%.*s'\n",
              fruit,
@@ -101,7 +104,8 @@ main()
    fruit = "Banana";
    key   = slice_create((size_t)strlen(fruit), fruit);
    rc    = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
-   rc    = transactional_splinterdb_lookup_result_value(spl_handle, &result, &value);
+   rc =
+      transactional_splinterdb_lookup_result_value(spl_handle, &result, &value);
    if (rc) {
       printf("Key: '%s' not found. (rc=%d)\n", fruit, rc);
    }

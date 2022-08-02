@@ -1,24 +1,12 @@
 #include "splinterdb/transaction.h"
+#include "transaction_private.h"
 #include "splinterdb_private.h"
 #include "platform_linux/platform.h"
 #include "data_internal.h"
-#include "transactional_data_config.h"
 #include "poison.h"
 #include <stdlib.h>
 
 tictoc_timestamp_set ZERO_TICTOC_TIMESTAMP_SET = {.rts = 0, .wts = 0};
-
-typedef struct transactional_splinterdb_config {
-   splinterdb_config          kvsb_cfg;
-   transactional_data_config *txn_data_cfg;
-} transactional_splinterdb_config;
-
-typedef struct transactional_splinterdb {
-   splinterdb                      *kvsb;
-   transactional_splinterdb_config *tcfg;
-   lock_table                      *lock_tbl;
-   platform_mutex                   g_lock;
-} transactional_splinterdb;
 
 static int
 get_ts_from_splinterdb(const splinterdb     *kvsb,
@@ -199,8 +187,6 @@ tictoc_write(transactional_splinterdb *txn_kvsb, tictoc_transaction *tt_txn)
 
       platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
 
-      w->written = TRUE;
-
       writable_buffer_deinit(&w->tuple);
    }
 }
@@ -221,7 +207,6 @@ tictoc_local_write(transactional_splinterdb *txn_kvsb,
    writable_buffer_init_from_slice(&w->key,
                                    0,
                                    key); // FIXME: Use a correct heap id
-   w->written = FALSE;
 
    slice value = message_slice(msg);
 
@@ -262,9 +247,9 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       &txn_splinterdb_cfg->kvsb_cfg, &_txn_kvsb->kvsb, open_existing);
    bool fail_to_create_splinterdb = (rc != 0);
    if (fail_to_create_splinterdb) {
-      platform_free_from_heap(0, _txn_kvsb);
-      platform_free_from_heap(0, txn_splinterdb_cfg->txn_data_cfg);
-      platform_free_from_heap(0, txn_splinterdb_cfg);
+      platform_free(0, _txn_kvsb);
+      platform_free(0, txn_splinterdb_cfg->txn_data_cfg);
+      platform_free(0, txn_splinterdb_cfg);
       return rc;
    }
 
@@ -302,9 +287,9 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 
    lock_table_destroy(_txn_kvsb->lock_tbl);
 
-   platform_free_from_heap(0, _txn_kvsb->tcfg->txn_data_cfg);
-   platform_free_from_heap(0, _txn_kvsb->tcfg);
-   platform_free_from_heap(0, _txn_kvsb);
+   platform_free(0, _txn_kvsb->tcfg->txn_data_cfg);
+   platform_free(0, _txn_kvsb->tcfg);
+   platform_free(0, _txn_kvsb);
 
    *txn_kvsb = NULL;
 }
@@ -417,4 +402,10 @@ transactional_splinterdb_lookup_result_value(
 )
 {
    return splinterdb_lookup_result_value(txn_kvsb->kvsb, result, value);
+}
+
+uint64
+transactional_splinterdb_key_size(transactional_splinterdb *txn_kvsb)
+{
+   return txn_kvsb->tcfg->kvsb_cfg.data_cfg->key_size;
 }

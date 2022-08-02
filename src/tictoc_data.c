@@ -2,6 +2,8 @@
 
 #include "data_internal.h"
 
+#define SET_SIZE_LIMIT 1024
+
 tictoc_timestamp_set
 get_ts_from_tictoc_rw_entry(tictoc_rw_entry *entry)
 {
@@ -41,8 +43,8 @@ tictoc_get_read_set_entry(tictoc_transaction *tt_txn, uint64 i)
 void
 tictoc_delete_last_read_set_entry(tictoc_transaction *tt_txn)
 {
-  platform_assert(tt_txn->read_cnt > 0);
-  --tt_txn->read_cnt;
+   platform_assert(tt_txn->read_cnt > 0);
+   --tt_txn->read_cnt;
 }
 
 tictoc_rw_entry *
@@ -79,9 +81,10 @@ tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
 void
 tictoc_transaction_init(tictoc_transaction *tt_txn)
 {
-   memset(tt_txn->entries, 0, 2 * SET_SIZE_LIMIT * sizeof(tictoc_rw_entry));
-   tt_txn->read_set  = &tt_txn->entries[0];
-   tt_txn->write_set = &tt_txn->entries[SET_SIZE_LIMIT];
+   tt_txn->read_write_set =
+      TYPED_ARRAY_ZALLOC(0, tt_txn->read_write_set, 2 * SET_SIZE_LIMIT);
+   tt_txn->read_set  = &tt_txn->read_write_set[0];
+   tt_txn->write_set = &tt_txn->read_write_set[SET_SIZE_LIMIT];
    tt_txn->read_cnt  = 0;
    tt_txn->write_cnt = 0;
    tt_txn->commit_ts = 0;
@@ -97,6 +100,8 @@ tictoc_transaction_deinit(tictoc_transaction *tt_txn, lock_table *lock_tbl)
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
       tictoc_rw_entry_deinit(tictoc_get_write_set_entry(tt_txn, i));
    }
+
+   platform_free(0, tt_txn->read_write_set);
 }
 
 static int

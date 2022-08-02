@@ -4,6 +4,7 @@
 #include "splinterdb/data.h"
 #include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
+#include "splinterdb/transaction.h"
 #include "lock_table.h"
 #include "util.h"
 
@@ -27,7 +28,6 @@ typedef struct tictoc_rw_entry {
    writable_buffer key;
    writable_buffer tuple;
    range_lock      rng_lock;
-   bool            written;
 } tictoc_rw_entry;
 
 tictoc_timestamp_set
@@ -35,18 +35,6 @@ get_ts_from_tictoc_rw_entry(tictoc_rw_entry *entry);
 
 bool
 tictoc_rw_entry_is_invalid(tictoc_rw_entry *entry);
-
-#define SET_SIZE_LIMIT 1024
-
-// TODO: use interval_tree_node for tictoc_rw_entry
-typedef struct tictoc_transaction {
-   tictoc_rw_entry  entries[2 * SET_SIZE_LIMIT];
-   tictoc_rw_entry *read_set;
-   tictoc_rw_entry *write_set;
-   uint64           read_cnt;
-   uint64           write_cnt;
-   uint64           commit_ts;
-} tictoc_transaction;
 
 bool
 tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
