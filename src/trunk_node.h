@@ -102,7 +102,7 @@ typedef struct ONDISK trunk_bundle {
  *       all the created leaves.
  *-----------------------------------------------------------------------------
  */
-typedef struct ONDISK trunk_hdr {
+struct ONDISK trunk_hdr {
    uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
    uint16 height;           // height of the node
    uint64 next_addr;        // PBN of the node's successor (0 if no successor)
@@ -122,7 +122,7 @@ typedef struct ONDISK trunk_hdr {
    trunk_bundle    bundle[TRUNK_MAX_BUNDLES];
    trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
    routing_filter  sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
-} trunk_hdr;
+};
 
 /*
  *-----------------------------------------------------------------------------
@@ -151,19 +151,6 @@ typedef struct ONDISK trunk_pivot_data {
 } trunk_pivot_data;
 
 /*
- *----------------------------------------------------------------------------- * Trunk Node:
- *
- * In-memory structure for handling trunk nodes.
- *-----------------------------------------------------------------------------
- */
-
-typedef struct trunk_node {
-   uint64       addr;
-   page_handle *page;
-   trunk_hdr   *hdr;
-} trunk_node;
-
-/*
  *-----------------------------------------------------------------------------
  * Trunk Node Access Wrappers
  *-----------------------------------------------------------------------------
@@ -179,9 +166,9 @@ trunk_node_get(cache *cc, uint64 addr, trunk_node *node)
 }
 
 static inline void
-trunk_node_unget(cache *cc, trunk_node *node);
+trunk_node_unget(cache *cc, trunk_node *node)
 {
-   cache_unget(cc, *node);
+   cache_unget(cc, node->page);
    node->page = NULL;
    node->hdr = NULL;
 }
@@ -191,11 +178,11 @@ trunk_node_claim(cache *cc, trunk_node *node)
 {
    uint64 wait = 1;
    while (!cache_claim(cc, node->page)) {
-      uint64 addrr = node->addr;
+      uint64 addr = node->addr;
       trunk_node_unget(cc, node);
       platform_sleep(wait);
       wait  = wait > 2048 ? wait : 2 * wait;
-      *node = trunk_node_get(cc, addr, node);
+      trunk_node_get(cc, addr, node);
    }
 }
 
@@ -218,13 +205,25 @@ trunk_node_unlock(cache *cc, trunk_node *node)
    cache_unlock(cc, node->page);
 }
 
-static
-trunk_alloc(cache *cc, uint64 height, trunk_node *node)
+static inline void
+trunk_alloc(cache *cc, mini_allocator *mini, uint64 height, trunk_node *node)
 {
-   node->addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
+   node->addr = mini_alloc(mini, height, NULL_SLICE, NULL);
    debug_assert(node->addr != 0);
-   node->page = cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
+   node->page = cache_alloc(cc, node->addr, PAGE_TYPE_TRUNK);
    node->hdr = (trunk_hdr *)(node->page->data);
+}
+
+static inline cache_async_result
+trunk_node_get_async(cache *cc, uint64 addr, trunk_async_ctxt *ctxt)
+{
+   return cache_get_async(cc, addr, PAGE_TYPE_TRUNK, &ctxt->cache_ctxt);
+}
+
+static inline void
+trunk_node_async_done(trunk_handle *spl, trunk_async_ctxt *ctxt)
+{
+   cache_async_done(spl->cc, PAGE_TYPE_TRUNK, &ctxt->cache_ctxt);
 }
 
 
@@ -253,56 +252,15 @@ trunk_is_index(trunk_node *node)
 }
 
 static inline uint64
-trunk_next_addr(trunk_handle *spl, page_handle *node)
+trunk_next_addr(trunk_node *node)
 {
-   trunk_hdr *hdr = (trunk_hdr *)node->data;
-   return hdr->next_addr;
+   return node->hdr->next_addr;
 }
 
 static inline void
-trunk_set_next_addr(trunk_handle *spl, page_handle *node, uint64 addr)
+trunk_set_next_addr(trunk_node *node, uint64 addr)
 {
-   trunk_hdr *hdr = (trunk_hdr *)node->data;
-   hdr->next_addr = addr;
-}
-
-/*
- *-----------------------------------------------------------------------------
- * Higher-level Branch and Bundle Functions
- *-----------------------------------------------------------------------------
- */
-/*
- * The logical branch count is the number of branches the node would have if
- * all compactions completed. This is the number of whole branches plus the
- * number of bundles.
- */
-static inline uint16
-trunk_logical_branch_count(cache *cc, trunk_node *node)
-{
-   // whole branches
-   uint16 num_branches = trunk_subtract_branch_number(
-      spl, node->hdr->start_frac_branch, node->hdr->start_branch);
-   // bundles
-   uint16 num_bundles =
-      trunk_subtract_bundle_number(spl, node->hdr->end_bundle, node->hdr->start_bundle);
-   return num_branches + num_bundles;
-}
-
-/*
- * A node is full if either it has too many tuples or if it has too many
- * logical branches.
- */
-static inline bool
-trunk_node_is_full(cache *cc, trunk_node *node)
-{
-   uint64 num_kv_bytes = 0;
-   if (trunk_logical_branch_count(spl, node) > spl->cfg.max_branches_per_node) {
-      return TRUE;
-   }
-   for (uint16 i = 0; i < trunk_num_children(spl, node); i++) {
-      num_kv_bytes += trunk_pivot_kv_bytes(spl, node, i);
-   }
-   return num_kv_bytes > spl->cfg.max_kv_bytes_per_node;
+   node->hdr->next_addr = addr;
 }
 
 #endif // __TRUNK_NODE_H

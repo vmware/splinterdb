@@ -10,6 +10,9 @@
 #ifndef __SUPERBLOCK_H
 #define __SUPERBLOCK_H
 
+/* Some randomly chosen Splinter super-block checksum seed. */
+#define TRUNK_SUPER_CSUM_SEED (42)
+
 /*
  *-----------------------------------------------------------------------------
  * Splinter Super Block: Disk-resident structure.

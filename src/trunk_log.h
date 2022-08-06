@@ -67,12 +67,12 @@ trunk_close_log_stream_if_enabled(trunk_handle           *spl,
 void
 trunk_print_locked_node(platform_log_handle *log_handle,
                         trunk_handle        *spl,
-                        page_handle         *node);
+                        trunk_node          *node);
 
 static inline void
 trunk_log_node_if_enabled(platform_stream_handle *stream,
                           trunk_handle           *spl,
-                          page_handle            *node)
+                          trunk_node            *node)
 {
    if (trunk_verbose_logging_enabled(spl)) {
       platform_log_handle *log_handle =
