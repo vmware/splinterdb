@@ -21,9 +21,6 @@
  * PAGE_TYPE_TRUNK. So these constants do affect disk-resident structures.
  */
 #define TRUNK_MAX_PIVOTS            (20)
-#define TRUNK_MAX_BUNDLES           (12)
-#define TRUNK_MAX_SUBBUNDLES        (24)
-#define TRUNK_MAX_SUBBUNDLE_FILTERS (24U)
 
 /*
  * During Splinter configuration, the fanout parameter is provided by the user.
@@ -35,54 +32,22 @@
 #define TRUNK_EXTRA_PIVOT_KEYS (6)
 
 /*
- * A subbundle is a collection of branches which originated in the same node.
- * It is used to organize branches with their routing filters when they are
- * flushed or otherwise moved or reorganized. A query to the node uses the
- * routing filter to filter the branches in the subbundle.
- * Disk-resident artifact.
- */
-typedef uint16 trunk_subbundle_state_t;
-typedef enum trunk_subbundle_state {
-   SB_STATE_INVALID = 0,
-   SB_STATE_UNCOMPACTED_INDEX,
-   SB_STATE_UNCOMPACTED_LEAF,
-   SB_STATE_COMPACTED, // compacted subbundles are always index
-} trunk_subbundle_state;
-
-/*
  *-----------------------------------------------------------------------------
- * Splinter Sub-bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
- *-----------------------------------------------------------------------------
- */
-typedef struct ONDISK trunk_subbundle {
-   trunk_subbundle_state_t state;
-   uint16                  start_branch;
-   uint16                  end_branch;
-   uint16                  start_filter;
-   uint16                  end_filter;
-} trunk_subbundle;
-
-/*
- *-----------------------------------------------------------------------------
- * Splinter Bundle: Disk-resident structure on PAGE_TYPE_TRUNK pages.
+ * Trunk Bundle:  structure on PAGE_TYPE_TRUNK pages.
  *
  * A flush moves branches from the parent to a bundle in the child. The bundle
  * is then compacted with a compact_bundle job.
  *
- * Branches are organized into subbundles.
- *
  * When a compact_bundle job completes, the branches in the bundle are replaced
- * with the outputted branch of the compaction and the bundle is marked
- * compacted. If there is not an earlier uncompacted bundle, the bundle can be
- * released and the compacted branch can become a whole branch. This is to
- * maintain the invariant that the outstanding bundles form a contiguous range.
+ * with the output branch of the compaction. Bundles are then added to the
+ * pivot routing filters in order, at which point the bundle structure is
+ * dropped and the output branch becomes a whole branch.
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK trunk_bundle {
-   uint16 start_subbundle;
-   uint16 end_subbundle;
-   uint64 num_tuples;
-   uint64 num_kv_bytes;
+   uint64 generation;
+   routing_filter filter;
+   trunk_branch branch[];
 } trunk_bundle;
 
 /*
@@ -109,19 +74,10 @@ struct ONDISK trunk_hdr {
    uint64 generation;       // counter incremented on a node split
    uint64 pivot_generation; // counter incremented when new pivots are added
 
-   uint16 start_branch;      // first live branch
-   uint16 start_frac_branch; // first fractional branch (branch in a bundle)
-   uint16 end_branch;        // successor to the last live branch
-   uint16 start_bundle;      // first live bundle
-   uint16 end_bundle;        // successor to the last live bundle
-   uint16 start_subbundle;   // first live subbundle
-   uint16 end_subbundle;     // successor to the last live subbundle
-   uint16 start_sb_filter;   // first subbundle filter
-   uint16 end_sb_filter;     // successor to the last sb filter
+   // start_bundle_offset is computed as the end of the pivot array
+   uint64 end_bundle_offset;
 
-   trunk_bundle    bundle[TRUNK_MAX_BUNDLES];
-   trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
-   routing_filter  sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
+   uint64 num_whole_branches;
 };
 
 /*
