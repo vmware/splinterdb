@@ -72,7 +72,7 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 static inline void
 trunk_log_node_if_enabled(platform_stream_handle *stream,
                           trunk_handle           *spl,
-                          trunk_node            *node)
+                          trunk_node             *node)
 {
    if (trunk_verbose_logging_enabled(spl)) {
       platform_log_handle *log_handle =

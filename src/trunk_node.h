@@ -162,7 +162,7 @@ trunk_node_get(cache *cc, uint64 addr, trunk_node *node)
    debug_assert(addr != 0);
    node->addr = addr;
    node->page = cache_get(cc, node->addr, TRUE, PAGE_TYPE_TRUNK);
-   node->hdr = (trunk_hdr *)(node->page->data);
+   node->hdr  = (trunk_hdr *)(node->page->data);
 }
 
 static inline void
@@ -170,7 +170,7 @@ trunk_node_unget(cache *cc, trunk_node *node)
 {
    cache_unget(cc, node->page);
    node->page = NULL;
-   node->hdr = NULL;
+   node->hdr  = NULL;
 }
 
 static inline void
@@ -181,7 +181,7 @@ trunk_node_claim(cache *cc, trunk_node *node)
       uint64 addr = node->addr;
       trunk_node_unget(cc, node);
       platform_sleep(wait);
-      wait  = wait > 2048 ? wait : 2 * wait;
+      wait = wait > 2048 ? wait : 2 * wait;
       trunk_node_get(cc, addr, node);
    }
 }
@@ -211,7 +211,7 @@ trunk_alloc(cache *cc, mini_allocator *mini, uint64 height, trunk_node *node)
    node->addr = mini_alloc(mini, height, NULL_SLICE, NULL);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, PAGE_TYPE_TRUNK);
-   node->hdr = (trunk_hdr *)(node->page->data);
+   node->hdr  = (trunk_hdr *)(node->page->data);
 }
 
 static inline cache_async_result
