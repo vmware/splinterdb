@@ -38,6 +38,32 @@ transactional_splinterdb_open(const splinterdb_config   *kvsb_cfg,
 void
 transactional_splinterdb_close(transactional_splinterdb **txn_kvsb);
 
+
+// Register the current thread so that it can be used with splinterdb.
+// This causes scratch space to be allocated for the thread.
+//
+// Any thread that uses a splinterdb must first be registered with it.
+//
+// The only exception is the initial thread which called create or open,
+// as that thread is implicitly registered.  Re-registering it will leak memory.
+//
+// A thread should not be registered more than once; that would leak memory.
+//
+// splinterdb_close will use scratch space, so the thread that calls it must
+// have been registered (or implicitly registered by being the initial thread).
+//
+// Note: There is currently a limit of MAX_THREADS registered at a given time
+void
+transactional_splinterdb_register_thread(transactional_splinterdb *kvs);
+
+// Deregister the current thread and free its scratch space.
+//
+// Call this function before exiting a registered thread.
+// Otherwise, you'll leak memory.
+void
+transactional_splinterdb_deregister_thread(transactional_splinterdb *kvs);
+
+
 typedef struct tictoc_rw_entry tictoc_rw_entry;
 
 // TODO: use interval_tree_node for tictoc_rw_entry
