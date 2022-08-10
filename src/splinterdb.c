@@ -258,7 +258,7 @@ splinterdb_shim_key_to_string(const data_config *cfg,
 
 
 // create a shim data_config that handles variable-length key encoding
-// the output retains a reference to app_cfg (via the context field)
+// the output retains a reference to app_cfg
 // so the lifetime of app_cfg must be at least as long as out_shim
 static int
 splinterdb_shim_data_config(const data_config *app_cfg,
@@ -307,6 +307,9 @@ splinterdb_shim_data_config(const data_config *app_cfg,
  *
  *      Translate splinterdb_config to configs for individual subsystems.
  *
+ *      The resulting splinterdb object will retain a reference to data_config
+ *      So kvs_cfg->data_config must live at least that long.
+ *
  * Results:
  *      STATUS_OK on success, appropriate error on failure.
  *
@@ -339,6 +342,8 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    memcpy(&cfg, kvs_cfg, sizeof(cfg));
    splinterdb_config_set_defaults(&cfg);
 
+   // this line carries a reference, so kvs_cfg->data_cfg must live
+   // at least as long as kvs does
    platform_assert(
       0 == splinterdb_shim_data_config(kvs_cfg->data_cfg, &kvs->shim_data_cfg),
       "error shimming data_config.  This is probably an invalid data_config");
