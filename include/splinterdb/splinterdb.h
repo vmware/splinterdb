@@ -82,7 +82,9 @@ typedef struct splinterdb splinterdb;
 // The library will allocate and own the memory for splinterdb
 // and will free it on splinterdb_close().
 //
-// It is ok for the caller to stack-allocate cfg, since it is not retained
+// It is ok for the caller to stack-allocate cfg, since it is not retained.
+// But cfg->data_cfg will be referenced by the returned splinterdb object
+// So it must live at least as long as the splinterdb
 int
 splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
 
@@ -91,7 +93,9 @@ splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
 // The library will allocate and own the memory for splinterdb
 // and will free it on splinterdb_close().
 //
-// It is ok for the caller to stack-allocate cfg, since it is not retained
+// It is ok for the caller to stack-allocate cfg, since it is not retained.
+// But cfg->data_cfg will be referenced by the returned splinterdb object
+// So it must live at least as long as the splinterdb
 int
 splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
 
