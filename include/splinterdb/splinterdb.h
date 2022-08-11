@@ -194,8 +194,7 @@ splinterdb_lookup_found(const splinterdb_lookup_result *result); // IN
 //
 // Do not modify the memory pointed at by *value
 int
-splinterdb_lookup_result_value(const splinterdb               *kvs,
-                               const splinterdb_lookup_result *result, // IN
+splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
                                slice                          *value   // OUT
 );
 

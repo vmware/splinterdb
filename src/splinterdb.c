@@ -772,8 +772,7 @@ splinterdb_lookup_found(const splinterdb_lookup_result *result) // IN
 }
 
 int
-splinterdb_lookup_result_value(const splinterdb               *kvs,
-                               const splinterdb_lookup_result *result, // IN
+splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
                                slice                          *value)
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
