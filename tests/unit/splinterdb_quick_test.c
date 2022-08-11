@@ -164,7 +164,7 @@ CTEST2(splinterdb_quick, test_basic_flow)
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    slice value;
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(to_insert_len, slice_length(value));
    ASSERT_STREQN(to_insert_data, slice_data(value), slice_length(value));
@@ -210,7 +210,7 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    slice value;
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
 
    ASSERT_EQUAL(strlen(to_insert_data), slice_length(value));
@@ -339,7 +339,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    rc = splinterdb_lookup(data->kvsb, key_empty, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(0, slice_length(value));
 
@@ -347,7 +347,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    rc = splinterdb_lookup(data->kvsb, key_short, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(1, slice_length(value));
 
@@ -355,7 +355,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    rc = splinterdb_lookup(data->kvsb, key_long, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(TEST_MAX_VALUE_SIZE - 1, slice_length(value));
    ASSERT_STREQN(
@@ -365,7 +365,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    rc = splinterdb_lookup(data->kvsb, key_max, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(TEST_MAX_VALUE_SIZE, slice_length(value));
    ASSERT_STREQN(max_length_string, slice_data(value), slice_length(value));
@@ -387,7 +387,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    // we get the full result back, because internally splinterdb did an
    // allocation
@@ -405,7 +405,7 @@ CTEST2(splinterdb_quick, test_variable_length_values)
    rc = splinterdb_lookup(data->kvsb, key_max, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    // we get the full result back, because internally splinterdb did an
    // allocation
@@ -659,7 +659,7 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    ASSERT_EQUAL(0, rc);
 
    ASSERT_TRUE(splinterdb_lookup_found(&result));
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(val_len, slice_length(value));
    ASSERT_STREQN(val,
@@ -725,7 +725,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    slice value;
-   rc = splinterdb_lookup_result_value(data->kvsb, &result, &value);
+   rc = splinterdb_lookup_result_value(&result, &value);
    ASSERT_EQUAL(0, rc);
    ASSERT_EQUAL(0, slice_lex_cmp(value, msg_slice));
 

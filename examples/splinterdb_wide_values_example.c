@@ -93,7 +93,7 @@ main()
       rc        = splinterdb_lookup(spl_handle, key, &result);
 
       slice value;
-      rc = splinterdb_lookup_result_value(spl_handle, &result, &value);
+      rc = splinterdb_lookup_result_value(&result, &value);
       if (!rc) {
          printf(
             "  [%d] Found key (key_len=%d): '%.*s', value length found = %lu\n",
