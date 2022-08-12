@@ -31,6 +31,7 @@
  */
 #define TRUNK_EXTRA_PIVOT_KEYS (6)
 
+#define TRUNK_BUNDLE_END_GENERATION (UINT64_MAX)
 /*
  *-----------------------------------------------------------------------------
  * Trunk Bundle:  structure on PAGE_TYPE_TRUNK pages.
@@ -46,6 +47,7 @@
  */
 typedef struct ONDISK trunk_bundle {
    uint64 generation;
+   uint64 num_branches;
    routing_filter filter;
    trunk_branch branch[];
 } trunk_bundle;
@@ -68,13 +70,14 @@ typedef struct ONDISK trunk_bundle {
  *-----------------------------------------------------------------------------
  */
 struct ONDISK trunk_hdr {
-   uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
-   uint16 height;           // height of the node
-   uint64 next_addr;        // PBN of the node's successor (0 if no successor)
-   uint64 generation;       // counter incremented on a node split
-   uint64 pivot_generation; // counter incremented when new pivots are added
+   uint16 num_pivot_keys;     // number of used pivot keys (== num_children + 1)
+   uint16 height;             // height of the node
+   uint64 next_addr;          // PBN of the node's successor (0 if no successor)
+   uint64 generation;         // counter incremented on a node split
+   uint64 pivot_generation;   // counter incremented when new pivots are added
+   uint64 bundle_generration; // counter incremented whenever a bundle is added
 
-   // start_bundle_offset is computed as the end of the pivot array
+   uint64 start_bundle_offset;
    uint64 end_bundle_offset;
 
    uint64 num_whole_branches;
@@ -100,8 +103,8 @@ typedef struct ONDISK trunk_pivot_data {
    uint64 num_tuples_whole;    // # tuples for this pivot in whole branches
    uint64 num_tuples_bundle;   // # tuples for this pivot in bundles
    uint64 generation;          // receives new higher number when pivot splits
-   uint16 start_branch;        // first branch live (not used in leaves)
-   uint16 start_bundle;        // first bundle live (not used in leaves)
+   uint64 start_branch;        // generation number of oldest live branch
+   uint64 start_bundle         // generation number of oldest live bundle
    routing_filter filter;      // routing filter for keys in this pivot
    int64          srq_idx;     // index in the space rec queue
 } trunk_pivot_data;
@@ -218,5 +221,106 @@ trunk_set_next_addr(trunk_node *node, uint64 addr)
 {
    node->hdr->next_addr = addr;
 }
+
+/*
+ *-----------------------------------------------------------------------------
+ * Bundle Manipulation and Access Functions
+ *-----------------------------------------------------------------------------
+ */
+
+/*
+ * Return a pointer to the first bundle in a node.
+ */
+static inline trunk_bundle *
+trunk_first_bundle(trunk_node *node)
+{
+   char *cursor = node->hdr;
+   cursor += &node->hdr->start_bundle_offset;
+   return (trunk_bundle *)cursor;
+}
+
+/*
+ * Given a pointer to a bundle, returns a pointer to the next bundle.
+ */
+static inline trunk_bundle *
+trunk_next_bundle(trunk_bundle *bundle)
+{
+   char *cursor = bundle;
+   cursor += sizeof(*bundle) + bundle->num_branches * sizeof(trunk_branch);
+   return (trunk_bundle *)cursor;
+}
+
+/*
+ * Returns a pointer to the bundle if the bundle is still live and NULL otherwise.
+ */
+static inline trunk_bundle *
+trunk_get_bundle(trunk_node *node, uint64 generation)
+{
+   trunk_bundle *bundle;
+   for (bundle = trunk_first_bundle(node);
+        bundle->generation != TRUNK_BUNDLE_END_GENERATION;
+        bundle = trunk_next_bundle(bundle))
+   {
+      if (bundle->generation == generation) {
+         return bundle;
+      }
+   }
+
+   // Bundle not found
+   return NULL;
+}
+
+/*
+ * Creates a new bundle in the node with the given routing filter and branch
+ * array. Returns the generation number of the bundle in the generation
+ * parameters.
+ */
+static inline platform_status
+trunk_create_new_bundle(trunk_handle   *spl,
+                        trunk_node     *node,
+                        routing_filter *filter,
+                        uint64          num_branches,
+                        trunk_branch   *branch,
+                        uint64         *generation)
+{
+   trunk_bundle *bundle;
+   for (bundle = trunk_first_bundle(node);
+        bundle->generation != TRUNK_BUNDLE_END_GENERATION;
+        bundle = trunk_next_bundle(bundle))
+   {
+      // No-op
+   }
+
+   uint64 bundle_size = sizeof(trunk_bundle) + num_branches * sizeof(trunk_branch);
+   char *cursor = bundle;
+   // Used size includes the size of the generation number in the end bundle
+   uint64 used_size = cursor - node->page->data + sizeof(uint64);
+   if (used_size + bundle_size > trunk_page_size(spl)) {
+      *generation = TRUNK_BUNDLE_END_GENERATION;
+      return STATUS_NO_SPACE;
+   }
+
+   bundle->generation = node->hdr->bundle_generation++;
+   bundle->num_branches = num_branches;
+   bundle->filter = rf;
+   memmove(bundle->branch, branch, num_branches * sizeof(trunk_branch));
+   *generation = bundle->generation;
+
+   // Set the past the end bundle generation to TRUNK_BUNDLE_END_GENERATION
+   cursor += sizeof(*bundle) + bundle->num_branches * sizeof(trunk_branch);
+   bundle = (trunk_bundle *)cursor;
+   bundle->generation = TRUNK_BUNDLE_END_GENERATION;
+
+   return STATUS_OK;
+}
+
+static inline bool
+trunk_remove_bundle(trunk_bundle *bundle)
+{
+   trunk_bundle *next_bundle = trunk_next_bundle(bundle);
+
+
+
+
 
 #endif // __TRUNK_NODE_H
