@@ -154,7 +154,7 @@ splinterdb_update(const splinterdb *kvsb, slice key, slice delta);
 // lookups. It is not safe to use from multiple threads.
 typedef struct {
    char opaque[SPLINTERDB_LOOKUP_BUFSIZE];
-} splinterdb_lookup_result;
+} __attribute__((__aligned__(8))) splinterdb_lookup_result;
 
 // Initialize a lookup result object.
 //
