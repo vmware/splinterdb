@@ -91,8 +91,7 @@ main()
    fruit = "Orange";
    key   = slice_create((size_t)strlen(fruit), fruit);
    rc    = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
-   rc =
-      transactional_splinterdb_lookup_result_value(spl_handle, &result, &value);
+   rc    = splinterdb_lookup_result_value(&result, &value);
    if (!rc) {
       printf("Found key: '%s', value: '%.*s'\n",
              fruit,
@@ -104,8 +103,7 @@ main()
    fruit = "Banana";
    key   = slice_create((size_t)strlen(fruit), fruit);
    rc    = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
-   rc =
-      transactional_splinterdb_lookup_result_value(spl_handle, &result, &value);
+   rc    = splinterdb_lookup_result_value(&result, &value);
    if (rc) {
       printf("Key: '%s' not found. (rc=%d)\n", fruit, rc);
    }

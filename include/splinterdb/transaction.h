@@ -124,11 +124,4 @@ transactional_splinterdb_lookup_result_init(
    char                     *buffer      // IN
 );
 
-int
-transactional_splinterdb_lookup_result_value(
-   transactional_splinterdb       *txn_kvsb,
-   const splinterdb_lookup_result *result, // IN
-   slice                          *value   // OUT
-);
-
 #endif // _TRANSACTION_H_

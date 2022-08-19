@@ -21,7 +21,7 @@ get_ts_from_splinterdb(const splinterdb     *kvsb,
    slice value;
 
    if (splinterdb_lookup_found(&result)) {
-      splinterdb_lookup_result_value(kvsb, &result, &value);
+      splinterdb_lookup_result_value(&result, &value);
       memcpy(ts, slice_data(value), sizeof(tictoc_timestamp_set));
    } else {
       ts->wts = 0;
@@ -50,7 +50,7 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
 
    if (splinterdb_lookup_found(result)) {
       slice value;
-      splinterdb_lookup_result_value(txn_kvsb->kvsb, result, &value);
+      splinterdb_lookup_result_value(result, &value);
       writable_buffer_init_from_slice(&r->tuple,
                                       0,
                                       value); // FIXME: use a correct heap_id
@@ -448,16 +448,6 @@ transactional_splinterdb_lookup_result_init(
 {
    return splinterdb_lookup_result_init(
       txn_kvsb->kvsb, result, buffer_len, buffer);
-}
-
-int
-transactional_splinterdb_lookup_result_value(
-   transactional_splinterdb       *txn_kvsb,
-   const splinterdb_lookup_result *result, // IN
-   slice                          *value   // OUT
-)
-{
-   return splinterdb_lookup_result_value(txn_kvsb->kvsb, result, value);
 }
 
 uint64
