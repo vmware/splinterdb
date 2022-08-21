@@ -477,7 +477,7 @@ run-tests: all-tests
 	BINDIR=$(BINDIR) ./test.sh
 
 test-results: all-tests
-	(INCLUDE_SLOW_TESTS=true BINDIR=$(BINDIR) ./test.sh > ./test-results.out 2>&1 &) && echo "tail -f ./test-results.out "
+	INCLUDE_SLOW_TESTS=true BINDIR=$(BINDIR) ./test.sh 2>&1 | tee ./test-results
 
 INSTALL_PATH ?= /usr/local
 
