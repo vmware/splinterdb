@@ -554,7 +554,9 @@ mini_append_entry(mini_allocator *mini,
  *-----------------------------------------------------------------------------
  * mini_alloc --
  *
- *      Allocate a next disk address from the mini_allocator.
+ *      Allocate up to num_pages at the next disk address from the
+ *      mini_allocator. The actual number of pages allocated is returned in
+ *      alloced_pages.
  *
  *      If the allocator is keyed, then the extent from which the allocation is
  *      made will include the given key.
@@ -571,10 +573,12 @@ mini_append_entry(mini_allocator *mini,
  *-----------------------------------------------------------------------------
  */
 uint64
-mini_alloc(mini_allocator *mini,
-           uint64          batch,
-           const slice     key,
-           uint64         *next_extent)
+mini_alloc_multi(mini_allocator *mini,
+                 uint64          batch,
+                 uint64          num_pages,
+                 const slice     key,
+                 uint64         *next_extent,
+                 uint64         *alloced_pages)
 {
    debug_assert(batch < mini->num_batches);
    debug_assert(!mini->keyed || !slice_is_null(key));
@@ -598,9 +602,28 @@ mini_alloc(mini_allocator *mini,
       *next_extent = mini->next_extent[batch];
    }
 
-   uint64 new_next_addr = next_addr + cache_page_size(mini->cc);
+   uint64 next_page_extent_offset =
+      (next_addr % cache_extent_size(mini->cc)) / cache_page_size(mini->cc);
+   uint64 max_pages =
+      cache_pages_per_extent(mini->cc) - next_page_extent_offset;
+   if (num_pages < max_pages) {
+      max_pages = num_pages;
+   }
+
+   uint64 new_next_addr = next_addr + max_pages * cache_page_size(mini->cc);
    mini_unlock_batch_set_next_addr(mini, batch, new_next_addr);
+   *alloced_pages = max_pages;
    return next_addr;
+}
+
+uint64
+mini_alloc(mini_allocator *mini,
+           uint64          batch,
+           const slice     key,
+           uint64         *next_extent)
+{
+   uint64 alloced_pages;
+   return mini_alloc_multi(mini, batch, 1, key, next_extent, &alloced_pages);
 }
 
 /*

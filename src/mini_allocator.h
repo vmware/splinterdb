@@ -69,6 +69,14 @@ void
 mini_destroy_unused(mini_allocator *mini);
 
 uint64
+mini_alloc_multi(mini_allocator *mini,
+                 uint64          batch,
+                 uint64          num_pages,
+                 const slice     key,
+                 uint64         *next_extent,
+                 uint64         *alloced_pages);
+
+uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,
            const slice     key,
