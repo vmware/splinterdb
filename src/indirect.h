@@ -10,11 +10,6 @@
 
 #define NUM_INDIRECTION_BATCHES (3)
 
-typedef struct indirection_layer {
-   mini_allocator *mini;
-   uint64          next_addr;
-} indirection_layer;
-
 /*
  * The length of the sequence of bytes represented by this
  * indirection.
@@ -31,20 +26,21 @@ indirection_materialize(cache           *cc,
                         writable_buffer *result);
 
 platform_status
-indirection_build(cache             *cc,
-                  indirection_layer *layer,
-                  slice              key,
-                  slice              data,
-                  page_type          type,
-                  writable_buffer   *result);
+indirection_build(cache           *cc,
+                  mini_allocator  *mini,
+                  slice            key,
+                  slice            data,
+                  page_type        type,
+                  writable_buffer *result);
 
 platform_status
-indirection_clone(cache             *cc,
-                  indirection_layer *layer,
-                  slice              key,
-                  slice              sindy,
-                  page_type          type,
-                  writable_buffer   *result);
+indirection_clone(cache           *cc,
+                  mini_allocator  *mini,
+                  slice            key,
+                  slice            sindy,
+                  page_type        src_type,
+                  page_type        dst_type,
+                  writable_buffer *result);
 
 platform_status
 indirection_issue_writebacks(cache *cc, slice sindy);

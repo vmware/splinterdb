@@ -69,7 +69,7 @@ void
 mini_destroy_unused(mini_allocator *mini);
 
 uint64
-mini_alloc_multi(mini_allocator *mini,
+mini_alloc_pages(mini_allocator *mini,
                  uint64          batch,
                  uint64          num_pages,
                  const slice     key,
@@ -82,6 +82,14 @@ mini_alloc(mini_allocator *mini,
            const slice     key,
            uint64         *next_extent);
 
+uint64
+mini_alloc_bytes(mini_allocator *mini,
+                 uint64          num_bytes,
+                 const slice     key,
+                 uint64         *next_extent);
+
+platform_status
+mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr);
 
 uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
