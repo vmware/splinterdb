@@ -5,9 +5,8 @@
 #include "poison.h"
 
 #define MIN_LIVE_PERCENTAGE         (90ULL)
-#define EXTENT_BATCH                (0)
+#define EXTENT_BATCH                (2)
 #define PAGE_BATCH                  (1)
-#define SUBPAGE_BATCH               (2)
 
 
 /* We break the value into parts as follows:
@@ -136,7 +135,7 @@ addr_for_offset(uint64                    extent_size,
 {
    uint64 byte_addr;
    uint64 entry_remainder;
-   debug_assert(offset < indy->length);
+   debug_assert(offset < pindy->length);
 
    if (offset / extent_size < pindy->num_extents) {
       byte_addr = pindy->extents[offset / extent_size] + (offset % extent_size);
@@ -304,26 +303,29 @@ allocate_leftover_entries(cache           *cc,
    uint64 page_size = cache_page_size(cc);
 
    /* Allocate the page entries */
-   while (page_size <= remainder) {
-      uint64 num_pages;
-      if (can_round_up(page_size, data_len)) {
-         num_pages = (remainder + page_size - 1) / page_size;
-      } else {
-         num_pages = remainder / page_size;
-      }
-      uint64 addr;
-      uint64 alloced_pages;
-      addr = mini_alloc_pages(
-         mini, PAGE_BATCH, num_pages, key, NULL, &alloced_pages);
-      if (addr == 0) {
-         return STATUS_NO_SPACE;
-      }
-      writable_buffer_append(result, sizeof(addr), &addr);
-      if (remainder < alloced_pages * page_size) {
-         remainder = 0;
-      } else {
-         remainder -= alloced_pages * page_size;
-      }
+   uint64 num_pages;
+   if (can_round_up(page_size, data_len)) {
+      num_pages = (remainder + page_size - 1) / page_size;
+   } else {
+      num_pages = remainder / page_size;
+   }
+   uint64          alloced_pages[2];
+   platform_status rc;
+   rc = mini_alloc_pages(mini, PAGE_BATCH, num_pages, key, alloced_pages, NULL);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+   if (alloced_pages[1]) {
+      writable_buffer_append(result, sizeof(alloced_pages), &alloced_pages);
+   } else {
+      writable_buffer_append(
+         result, sizeof(alloced_pages[0]), &alloced_pages[0]);
+   }
+
+   if (remainder < num_pages * page_size) {
+      remainder = 0;
+   } else {
+      remainder -= num_pages * page_size;
    }
 
    /* Allocate the sub-page entry */
@@ -365,15 +367,16 @@ build_indirection_table(cache           *cc,
    indy->length      = data_len;
 
    for (uint64 i = 0; i < num_extents; i++) {
-      uint64 alloced_pages;
-      indy->addrs[i] = mini_alloc_pages(mini,
-                                        EXTENT_BATCH,
-                                        extent_size / page_size,
-                                        key,
-                                        NULL,
-                                        &alloced_pages);
+      uint64          alloced_pages[2];
+      platform_status rc;
+      rc = mini_alloc_pages(
+         mini, EXTENT_BATCH, extent_size / page_size, key, alloced_pages, NULL);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      debug_assert(alloced_pages[1] == 0);
+      indy->addrs[i] = alloced_pages[0];
       platform_assert(indy->addrs[i]);
-      platform_assert(alloced_pages == extent_size / page_size);
    }
 
    return allocate_leftover_entries(cc, mini, key, data_len, remainder, result);

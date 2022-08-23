@@ -8,7 +8,7 @@
 #include "cache.h"
 #include "mini_allocator.h"
 
-#define NUM_INDIRECTION_BATCHES (3)
+#define NUM_INDIRECTION_BATCHES (2)
 
 /*
  * The length of the sequence of bytes represented by this

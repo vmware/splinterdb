@@ -31,6 +31,8 @@
  */
 #define MINI_MAX_BATCHES 8
 
+#define MINI_BYTE_BATCH (0)
+
 /*
  * mini_allocator: Mini-allocator context.
  */
@@ -68,13 +70,13 @@ mini_release(mini_allocator *mini, const slice key);
 void
 mini_destroy_unused(mini_allocator *mini);
 
-uint64
+platform_status
 mini_alloc_pages(mini_allocator *mini,
                  uint64          batch,
                  uint64          num_pages,
                  const slice     key,
-                 uint64         *next_extent,
-                 uint64         *alloced_pages);
+                 uint64          addrs[2],
+                 uint64         *next_extent);
 
 uint64
 mini_alloc(mini_allocator *mini,
