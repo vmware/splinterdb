@@ -552,11 +552,12 @@ mini_append_entry(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- * mini_alloc --
+ * mini_alloc_pages --
  *
  *      Allocate up to num_pages at the next disk address from the
- *      mini_allocator. The actual number of pages allocated is returned in
- *      alloced_pages.
+ *      mini_allocator. The actual number of pages allocated is
+ *      returned in alloced_pages.  Allocated pages are guaranteed to
+ *      be contiguous and live in a single extent.
  *
  *      If the allocator is keyed, then the extent from which the allocation is
  *      made will include the given key.
@@ -573,7 +574,7 @@ mini_append_entry(mini_allocator *mini,
  *-----------------------------------------------------------------------------
  */
 uint64
-mini_alloc_multi(mini_allocator *mini,
+mini_alloc_pages(mini_allocator *mini,
                  uint64          batch,
                  uint64          num_pages,
                  const slice     key,
@@ -623,7 +624,7 @@ mini_alloc(mini_allocator *mini,
            uint64         *next_extent)
 {
    uint64 alloced_pages;
-   return mini_alloc_multi(mini, batch, 1, key, next_extent, &alloced_pages);
+   return mini_alloc_pages(mini, batch, 1, key, next_extent, &alloced_pages);
 }
 
 /*
