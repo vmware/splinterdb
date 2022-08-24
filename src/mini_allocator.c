@@ -552,19 +552,24 @@ mini_append_entry(mini_allocator *mini,
 
 /*
  *-----------------------------------------------------------------------------
- * mini_alloc_pages --
+ * mini_alloc_bytes --
  *
- *      Allocate num_pages (<= pages-per-extent) at the next disk
- *      address from the mini_allocator.  Allocated pages are
- *      guaranteed to be allocated in at most two contiguous chunks.
+ *      Allocate num_bytes (<= extent_size) in at most two contiguous
+ *      chunks at disk addresses of the given alignment.
+ *      If boundary >= num_bytes, then the allocation
+ *      will be in one chunk that does not cross an address that is a
+ *      multiple of boundary.  Note that you must have
+ *         - alignment divides extent_size
+ *      and if num_bytes <= boundary, then you must have
+ *         - alignment divides boundary
+ *         - boundary divides extent_size
  *
  *      If the allocator is keyed, then the extent(s) from which the allocation
  *      is made will include the given key. NOTE: This requires keys provided be
  *      monotonically increasing.
  *
  *      The starting addresses of the chunks are returned in addrs[].
- *      If the pages are allocated in a single chunk, then addrs[1] ==
- *      0.
+ *      If the bytes are allocated in 1 chunk, then addrs[1] == 0.
  *
  * Results:
  *      platform_status indicating success or error.
@@ -574,23 +579,55 @@ mini_append_entry(mini_allocator *mini,
  *-----------------------------------------------------------------------------
  */
 platform_status
-mini_alloc_pages(mini_allocator *mini,
+mini_alloc_bytes(mini_allocator *mini,
                  uint64          batch,
-                 uint64          num_pages,
+                 uint64          num_bytes,
+                 uint64          alignment,
+                 uint64          boundary,
                  const slice     key,
                  uint64          addrs[2],
                  uint64         *next_extent)
 {
-   debug_assert(0 < batch);
+   uint64 extent_size = cache_extent_size(mini->cc);
+   debug_assert(batch < MINI_MAX_BATCHES);
    debug_assert(batch < mini->num_batches);
+   debug_assert(num_bytes <= extent_size);
+   debug_assert(boundary % alignment == 0);
+   debug_assert(boundary == 0 || extent_size % boundary == 0);
    debug_assert(!mini->keyed || !slice_is_null(key));
-   debug_assert(num_pages <= cache_pages_per_extent(mini->cc));
+
+   addrs[0] = 0;
+   addrs[1] = 0;
 
    uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
 
-   int num_allocs = 0;
-   while (num_pages) {
-      if (next_addr % cache_extent_size(mini->cc) == 0) {
+   /* Align next_addr */
+   if (next_addr % alignment) {
+      next_addr += alignment - (next_addr % alignment);
+   }
+
+   /* If next_addr would do a forbidden boundary crossing, advance
+    * next_addr to the next boundary. Since alignment must divide boundary, this
+    * will preserve any alignment constraints. */
+   if (num_bytes <= boundary
+       && next_addr / boundary != (next_addr + num_bytes - 1) / boundary)
+   {
+      next_addr += boundary - (next_addr % boundary);
+   }
+
+   int    num_allocs = 0;
+   uint64 remainder  = num_bytes;
+   while (remainder) {
+      /* On the first iteration, we are guaranteed to satisfy
+         alignment and boundary constraints (from above).
+         Furthermore, if we now allocate a new extent, then next_addr
+         will point to the beginning of an extent, which is also
+         guaranteed to satisfy alignment and boundary constraints.  On
+         a second iteration, we are guaranteed to allocate a new
+         extent and hence the second iteration will satisfy alignment
+         constraints.  And there cannot be any boundary constraint if
+         we perform two iterations. */
+      if (next_addr % extent_size == 0) {
          // need to allocate the next extent
 
          uint64          extent_addr = mini->next_extent[batch];
@@ -603,19 +640,14 @@ mini_alloc_pages(mini_allocator *mini,
          platform_assert(success);
       }
 
-      uint64 next_page_extent_offset =
-         (next_addr % cache_extent_size(mini->cc)) / cache_page_size(mini->cc);
-      uint64 max_pages =
-         cache_pages_per_extent(mini->cc) - next_page_extent_offset;
-      if (num_pages < max_pages) {
-         max_pages = num_pages;
-      }
+      uint64 this_alloc_size =
+         MIN(remainder, extent_size - (next_addr % extent_size));
 
       debug_assert(num_allocs < 2);
       addrs[num_allocs] = next_addr;
-      num_pages -= max_pages;
+      remainder -= this_alloc_size;
       num_allocs++;
-      next_addr += max_pages * cache_page_size(mini->cc);
+      next_addr += this_alloc_size;
    }
 
    if (next_extent) {
@@ -632,60 +664,23 @@ mini_alloc(mini_allocator *mini,
            const slice     key,
            uint64         *next_extent)
 {
-   uint64          alloced_pages[2] = {0, 0};
-   platform_status rc =
-      mini_alloc_pages(mini, batch, 1, key, alloced_pages, next_extent);
-   debug_assert(alloced_pages[1] == 0);
+   uint64          alloced_addrs[2] = {0, 0};
+   uint64          page_size        = cache_page_size(mini->cc);
+   platform_status rc               = mini_alloc_bytes(
+      mini, batch, page_size, page_size, 0, key, alloced_addrs, next_extent);
+   debug_assert(alloced_addrs[1] == 0);
    if (!SUCCESS(rc)) {
       return 0;
    }
-   return alloced_pages[0];
-}
-
-uint64
-mini_alloc_bytes(mini_allocator *mini,
-                 uint64          num_bytes,
-                 const slice     key,
-                 uint64         *next_extent)
-{
-   debug_assert(!mini->keyed || !slice_is_null(key));
-   debug_assert(num_bytes <= cache_page_size(mini->cc));
-
-   uint64 next_addr = mini_lock_batch_get_next_addr(mini, MINI_BYTE_BATCH);
-
-   uint64 remaining_capacity =
-      cache_extent_size(mini->cc) - (next_addr % cache_extent_size(mini->cc));
-   if (next_addr % cache_extent_size(mini->cc) == 0
-       || remaining_capacity < num_bytes)
-   {
-      // need to allocate the next extent
-
-      uint64          extent_addr = mini->next_extent[MINI_BYTE_BATCH];
-      platform_status rc          = mini_allocator_get_new_extent(
-         mini, &mini->next_extent[MINI_BYTE_BATCH]);
-      platform_assert_status_ok(rc);
-      next_addr = extent_addr;
-
-      bool success = mini_append_entry(mini, MINI_BYTE_BATCH, key, next_addr);
-      platform_assert(success);
-   }
-
-   uint64 new_next_addr = next_addr + num_bytes;
-
-   if (next_extent) {
-      *next_extent = mini->next_extent[MINI_BYTE_BATCH];
-   }
-
-   mini_unlock_batch_set_next_addr(mini, MINI_BYTE_BATCH, new_next_addr);
-   return next_addr;
+   return alloced_addrs[0];
 }
 
 platform_status
 mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr)
 {
    debug_assert(!mini->keyed || !slice_is_null(key));
-   uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
-   platform_assert(next_addr % cache_extent_size(mini->cc) == 0);
+   mini_lock_batch_get_next_addr(mini, batch);
+   allocator_inc_ref(mini->al, addr);
    bool success = mini_append_entry(mini, batch, key, addr);
    platform_assert(success);
    mini_unlock_batch_set_next_addr(

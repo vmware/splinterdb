@@ -7,6 +7,7 @@
 #define MIN_LIVE_PERCENTAGE         (90ULL)
 #define EXTENT_BATCH                (2)
 #define PAGE_BATCH                  (1)
+#define SUBPAGE_BATCH               (0)
 
 
 /* We break the value into parts as follows:
@@ -301,6 +302,7 @@ allocate_leftover_entries(cache           *cc,
                           writable_buffer *result)
 {
    uint64 page_size = cache_page_size(cc);
+   uint64 extent_size = cache_extent_size(cc);
 
    /* Allocate the page entries */
    uint64 num_pages;
@@ -311,7 +313,14 @@ allocate_leftover_entries(cache           *cc,
    }
    uint64          alloced_pages[2];
    platform_status rc;
-   rc = mini_alloc_pages(mini, PAGE_BATCH, num_pages, key, alloced_pages, NULL);
+   rc = mini_alloc_bytes(mini,
+                         PAGE_BATCH,
+                         num_pages * page_size,
+                         page_size,
+                         0,
+                         key,
+                         alloced_pages,
+                         NULL);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -330,11 +339,20 @@ allocate_leftover_entries(cache           *cc,
 
    /* Allocate the sub-page entry */
    if (remainder) {
-      uint64 addr = mini_alloc_bytes(mini, remainder, key, NULL);
-      if (addr == 0) {
-         return STATUS_NO_SPACE;
+      rc = mini_alloc_bytes(mini,
+                            SUBPAGE_BATCH,
+                            remainder,
+                            1,
+                            extent_size,
+                            key,
+                            alloced_pages,
+                            NULL);
+      if (!SUCCESS(rc)) {
+         return rc;
       }
-      writable_buffer_append(result, sizeof(addr), &addr);
+      platform_assert(alloced_pages[1] == 0);
+      writable_buffer_append(
+         result, sizeof(alloced_pages[0]), &alloced_pages[0]);
    }
 
    return STATUS_OK;
@@ -348,7 +366,6 @@ build_indirection_table(cache           *cc,
                         writable_buffer *result)
 {
    uint64 extent_size = cache_extent_size(cc);
-   uint64 page_size   = cache_page_size(cc);
 
    /* Allocate the extent entries */
    uint64 num_extents;
@@ -369,8 +386,14 @@ build_indirection_table(cache           *cc,
    for (uint64 i = 0; i < num_extents; i++) {
       uint64          alloced_pages[2];
       platform_status rc;
-      rc = mini_alloc_pages(
-         mini, EXTENT_BATCH, extent_size / page_size, key, alloced_pages, NULL);
+      rc = mini_alloc_bytes(mini,
+                            EXTENT_BATCH,
+                            extent_size,
+                            extent_size,
+                            extent_size,
+                            key,
+                            alloced_pages,
+                            NULL);
       if (!SUCCESS(rc)) {
          return rc;
       }

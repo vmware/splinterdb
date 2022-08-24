@@ -26,7 +26,7 @@
  * Finally, this is limited for convenience to allow for static allocation
  * of some nested arrays sized by this value.
  */
-#define BTREE_MAX_HEIGHT (8)
+#define BTREE_MAX_HEIGHT (MINI_MAX_BATCHES)
 
 /*
  * Mini-allocator uses separate batches for each height of the BTree.

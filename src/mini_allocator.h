@@ -29,9 +29,7 @@
  * extents. This batch-size is somewhat of an artificial limit to manage this
  * contiguity.
  */
-#define MINI_MAX_BATCHES 8
-
-#define MINI_BYTE_BATCH (0)
+#define MINI_MAX_BATCHES 16
 
 /*
  * mini_allocator: Mini-allocator context.
@@ -71,9 +69,11 @@ void
 mini_destroy_unused(mini_allocator *mini);
 
 platform_status
-mini_alloc_pages(mini_allocator *mini,
+mini_alloc_bytes(mini_allocator *mini,
                  uint64          batch,
-                 uint64          num_pages,
+                 uint64          num_bytes,
+                 uint64          alignment,
+                 uint64          boundary,
                  const slice     key,
                  uint64          addrs[2],
                  uint64         *next_extent);
@@ -83,12 +83,6 @@ mini_alloc(mini_allocator *mini,
            uint64          batch,
            const slice     key,
            uint64         *next_extent);
-
-uint64
-mini_alloc_bytes(mini_allocator *mini,
-                 uint64          num_bytes,
-                 const slice     key,
-                 uint64         *next_extent);
 
 platform_status
 mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr);
