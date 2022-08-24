@@ -9,7 +9,7 @@
  * -----------------------------------------------------------------------------
  */
 #include "ctest.h" // This is required for all test-case files.
-#include "btree_test_common.h"
+#include "cache_test_common.h"
 #include "test_data.h"
 #include "indirect.h"
 

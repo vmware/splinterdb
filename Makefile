@@ -395,17 +395,19 @@ $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)
 
-$(BINDIR)/$(UNITDIR)/indirect_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
+$(BINDIR)/$(UNITDIR)/indirect_test: $(OBJDIR)/$(UNIT_TESTSDIR)/cache_test_common.o \
                                     $(OBJDIR)/$(TESTS_DIR)/config.o                \
                                     $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
                                     $(INDIRECT_SYS)
 
-$(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
+$(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/cache_test_common.o \
+																 $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
                                  $(OBJDIR)/$(TESTS_DIR)/config.o                \
                                  $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
                                  $(BTREE_SYS)
 
-$(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
+$(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/cache_test_common.o \
+																 				$(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
                                         $(OBJDIR)/$(TESTS_DIR)/config.o                 \
                                         $(OBJDIR)/$(TESTS_DIR)/test_data.o              \
                                         $(BTREE_SYS)

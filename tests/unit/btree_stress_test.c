@@ -24,6 +24,7 @@
 #include "rc_allocator.h"
 #include "clockcache.h"
 #include "btree_private.h"
+#include "cache_test_common.h"
 #include "btree_test_common.h"
 
 typedef struct insert_thread_params {
