@@ -118,7 +118,7 @@ num_leftovers(parsed_indirection *pindy)
 }
 
 uint64
-indirection_data_length(slice sindy)
+indirection_length(slice sindy)
 {
    const indirection *indy = slice_data(sindy);
    debug_assert(sizeof(*indy) <= slice_length(sindy));
