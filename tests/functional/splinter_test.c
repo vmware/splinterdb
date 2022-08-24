@@ -2795,7 +2795,6 @@ splinter_test(int argc, char *argv[])
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
-                           ts,
                            hh,
                            hid,
                            platform_get_module_id());

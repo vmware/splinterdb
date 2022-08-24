@@ -204,7 +204,6 @@ CTEST_SETUP(splinter)
                            (io_handle *)data->io,
                            (allocator *)&data->al,
                            "test",
-                           data->tasks,
                            data->hh,
                            data->hid,
                            platform_get_module_id());
