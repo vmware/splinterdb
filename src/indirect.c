@@ -107,16 +107,6 @@ parse_indirection(uint64              extent_size,
    }
 }
 
-static inline uint64
-num_leftovers(parsed_indirection *pindy)
-{
-   int i = 0;
-   while (pindy->leftovers[i].length) {
-      i++;
-   }
-   return i;
-}
-
 uint64
 indirection_length(slice sindy)
 {
@@ -182,13 +172,16 @@ indirection_page_iterator_init(cache                     *cc,
    parse_indirection(
       iter->extent_size, iter->page_size, slice_data(sindy), &iter->pindy);
    iter->offset = offset;
-   addr_for_offset(iter->extent_size,
-                   iter->page_size,
-                   &iter->pindy,
-                   iter->offset,
-                   &iter->page_addr,
-                   &iter->page_offset,
-                   &iter->length);
+   if (offset < iter->pindy.length) {
+      addr_for_offset(iter->extent_size,
+                      iter->page_size,
+                      &iter->pindy,
+                      iter->offset,
+                      &iter->page_addr,
+                      &iter->page_offset,
+                      &iter->length);
+   }
+   iter->page = NULL;
    return STATUS_OK;
 }
 
@@ -207,7 +200,7 @@ indirection_page_iterator_get_curr(indirection_page_iterator *iter,
                                    slice                     *result)
 {
    if (iter->page == NULL) {
-      iter->page = cache_get(iter->cc, iter->page_addr, FALSE, iter->type);
+      iter->page = cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
    }
 
    *offset = iter->offset;
@@ -230,13 +223,15 @@ indirection_page_iterator_advance(indirection_page_iterator *iter)
    }
 
    iter->offset += iter->length;
-   addr_for_offset(iter->extent_size,
-                   iter->page_size,
-                   &iter->pindy,
-                   iter->offset,
-                   &iter->page_addr,
-                   &iter->page_offset,
-                   &iter->length);
+   if (iter->offset < iter->pindy.length) {
+      addr_for_offset(iter->extent_size,
+                      iter->page_size,
+                      &iter->pindy,
+                      iter->offset,
+                      &iter->page_addr,
+                      &iter->page_offset,
+                      &iter->length);
+   }
 }
 
 platform_status
@@ -313,28 +308,30 @@ allocate_leftover_entries(cache           *cc,
    }
    uint64          alloced_pages[2];
    platform_status rc;
-   rc = mini_alloc_bytes(mini,
-                         PAGE_BATCH,
-                         num_pages * page_size,
-                         page_size,
-                         0,
-                         key,
-                         alloced_pages,
-                         NULL);
-   if (!SUCCESS(rc)) {
-      return rc;
-   }
-   if (alloced_pages[1]) {
-      writable_buffer_append(result, sizeof(alloced_pages), &alloced_pages);
-   } else {
-      writable_buffer_append(
-         result, sizeof(alloced_pages[0]), &alloced_pages[0]);
-   }
+   if (num_pages) {
+      rc = mini_alloc_bytes(mini,
+                            PAGE_BATCH,
+                            num_pages * page_size,
+                            page_size,
+                            0,
+                            key,
+                            alloced_pages,
+                            NULL);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      if (alloced_pages[1]) {
+         writable_buffer_append(result, sizeof(alloced_pages), &alloced_pages);
+      } else {
+         writable_buffer_append(
+            result, sizeof(alloced_pages[0]), &alloced_pages[0]);
+      }
 
-   if (remainder < num_pages * page_size) {
-      remainder = 0;
-   } else {
-      remainder -= num_pages * page_size;
+      if (remainder < num_pages * page_size) {
+         remainder = 0;
+      } else {
+         remainder -= num_pages * page_size;
+      }
    }
 
    /* Allocate the sub-page entry */
@@ -463,9 +460,8 @@ clone_indirection_table(cache              *cc,
                         parsed_indirection *pindy,
                         writable_buffer    *result)
 {
-   uint64          naddrs = pindy->num_extents + num_leftovers(pindy);
-   platform_status rc     = writable_buffer_resize(
-      result, sizeof(indirection) + naddrs * sizeof(uint64));
+   platform_status rc = writable_buffer_resize(
+      result, sizeof(indirection) + pindy->num_extents * sizeof(uint64));
    if (!SUCCESS(rc)) {
       return rc;
    }

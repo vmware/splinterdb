@@ -95,17 +95,31 @@ CTEST_TEARDOWN(indirect)
 
 CTEST2(indirect, build_unkeyed)
 {
-   mini_allocator  mini;
+   mini_allocator  src;
+   uint64          src_addr;
+   mini_allocator  dst;
+   uint64          dst_addr;
    platform_status rc;
-   uint64          addr;
 
-   rc = allocator_alloc((allocator *)&data->al, &addr, PAGE_TYPE_MISC);
+   rc = allocator_alloc((allocator *)&data->al, &src_addr, PAGE_TYPE_MISC);
    platform_assert_status_ok(rc);
 
-   mini_init(&mini,
+   rc = allocator_alloc((allocator *)&data->al, &dst_addr, PAGE_TYPE_MISC);
+   platform_assert_status_ok(rc);
+
+   mini_init(&src,
              (cache *)&data->clock_cache,
              data->data_cfg,
-             addr,
+             src_addr,
+             0,
+             NUM_INDIRECTION_BATCHES,
+             PAGE_TYPE_MISC,
+             FALSE);
+
+   mini_init(&dst,
+             (cache *)&data->clock_cache,
+             data->data_cfg,
+             dst_addr,
              0,
              NUM_INDIRECTION_BATCHES,
              PAGE_TYPE_MISC,
@@ -113,10 +127,12 @@ CTEST2(indirect, build_unkeyed)
 
    writable_buffer original;
    writable_buffer indirection;
+   writable_buffer clone;
    writable_buffer materialized;
 
    writable_buffer_init(&original, NULL);
    writable_buffer_init(&indirection, NULL);
+   writable_buffer_init(&clone, NULL);
    writable_buffer_init(&materialized, NULL);
 
    for (int i = 0; i < 1000; i++) {
@@ -128,7 +144,7 @@ CTEST2(indirect, build_unkeyed)
       }
 
       rc = indirection_build((cache *)&data->clock_cache,
-                             &mini,
+                             &src,
                              NULL_SLICE,
                              writable_buffer_to_slice(&original),
                              PAGE_TYPE_MISC,
@@ -138,15 +154,47 @@ CTEST2(indirect, build_unkeyed)
       platform_assert(indirection_length(writable_buffer_to_slice(&indirection))
                       == writable_buffer_length(&original));
 
-      indirection_materialize((cache *)&data->clock_cache,
-                              writable_buffer_to_slice(&indirection),
-                              0,
-                              writable_buffer_length(&original),
-                              PAGE_TYPE_MISC,
-                              &materialized);
+      rc = indirection_materialize(
+         (cache *)&data->clock_cache,
+         writable_buffer_to_slice(&indirection),
+         0,
+         indirection_length(writable_buffer_to_slice(&indirection)),
+         PAGE_TYPE_MISC,
+         &materialized);
+      platform_assert_status_ok(rc);
+
+      platform_assert(slice_lex_cmp(writable_buffer_to_slice(&original),
+                                    writable_buffer_to_slice(&materialized))
+                      == 0);
+
+      rc = indirection_clone((cache *)&data->clock_cache,
+                             &dst,
+                             NULL_SLICE,
+                             writable_buffer_to_slice(&indirection),
+                             PAGE_TYPE_MISC,
+                             PAGE_TYPE_MISC,
+                             &clone);
+      platform_assert_status_ok(rc);
+
+      rc = indirection_materialize(
+         (cache *)&data->clock_cache,
+         writable_buffer_to_slice(&clone),
+         0,
+         indirection_length(writable_buffer_to_slice(&clone)),
+         PAGE_TYPE_MISC,
+         &materialized);
+      platform_assert_status_ok(rc);
 
       platform_assert(slice_lex_cmp(writable_buffer_to_slice(&original),
                                     writable_buffer_to_slice(&materialized))
                       == 0);
    }
+
+   mini_release(&src, NULL_SLICE);
+   mini_unkeyed_dec_ref(
+      (cache *)&data->clock_cache, src_addr, PAGE_TYPE_MISC, FALSE);
+
+   mini_release(&dst, NULL_SLICE);
+   mini_unkeyed_dec_ref(
+      (cache *)&data->clock_cache, dst_addr, PAGE_TYPE_MISC, FALSE);
 }
