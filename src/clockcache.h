@@ -142,8 +142,6 @@ struct clockcache {
 
    // Stats
    cache_stats stats[MAX_THREADS];
-
-   task_system *ts;
 };
 
 
@@ -166,7 +164,6 @@ clockcache_init(clockcache          *cc,   // OUT
                 io_handle           *io,   // IN
                 allocator           *al,   // IN
                 char                *name, // IN
-                task_system         *ts,   // IN
                 platform_heap_handle hh,   // IN
                 platform_heap_id     hid,  // IN
                 platform_module_id   mid);   // IN

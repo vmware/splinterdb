@@ -163,7 +163,6 @@ CTEST_SETUP(btree_stress)
                                    (io_handle *)&data->io,
                                    (allocator *)&data->al,
                                    "test",
-                                   data->ts,
                                    data->hh,
                                    data->hid,
                                    platform_get_module_id())))

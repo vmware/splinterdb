@@ -69,15 +69,8 @@ test_log_crash(clockcache             *cc,
 
    if (crash) {
       clockcache_deinit(cc);
-      rc = clockcache_init(cc,
-                           cache_cfg,
-                           io,
-                           al,
-                           "crashed",
-                           ts,
-                           hh,
-                           hid,
-                           platform_get_module_id());
+      rc = clockcache_init(
+         cc, cache_cfg, io, al, "crashed", hh, hid, platform_get_module_id());
       platform_assert_status_ok(rc);
    }
 
@@ -319,7 +312,6 @@ log_test(int argc, char *argv[])
                             (io_handle *)io,
                             (allocator *)&al,
                             "test",
-                            ts,
                             hh,
                             hid,
                             platform_get_module_id());

@@ -303,7 +303,6 @@ filter_test(int argc, char *argv[])
    bool                   run_perf_test;
    platform_status        rc;
    uint64                 seed;
-   task_system           *ts;
    test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
@@ -352,16 +351,6 @@ filter_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-
-   rc = test_init_task_system(
-      hid, io, &ts, cfg->use_stats, FALSE, num_bg_threads);
-   if (!SUCCESS(rc)) {
-      platform_error_log("Failed to init splinter ts: %s\n",
-                         platform_status_to_string(rc));
-      goto deinit_iohandle;
-   }
-
    rc = rc_allocator_init(
       &al, &allocator_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
@@ -373,7 +362,6 @@ filter_test(int argc, char *argv[])
                         (io_handle *)io,
                         (allocator *)&al,
                         "test",
-                        ts,
                         hh,
                         hid,
                         platform_get_module_id());
@@ -416,8 +404,6 @@ filter_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
-   test_deinit_task_system(hid, &ts);
-deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
    platform_free(hid, io);

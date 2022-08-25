@@ -1803,7 +1803,6 @@ clockcache_init(clockcache          *cc,   // OUT
                 io_handle           *io,   // IN
                 allocator           *al,   // IN
                 char                *name, // IN
-                task_system         *ts,   // IN
                 platform_heap_handle hh,   // IN
                 platform_heap_id     hid,  // IN
                 platform_module_id   mid)    // IN
@@ -1902,7 +1901,6 @@ clockcache_init(clockcache          *cc,   // OUT
    if (!cc->batch_busy) {
       goto alloc_error;
    }
-   cc->ts = ts;
 
    return STATUS_OK;
 

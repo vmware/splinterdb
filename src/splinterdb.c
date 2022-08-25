@@ -475,7 +475,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             (io_handle *)&kvs->io_handle,
                             (allocator *)&kvs->allocator_handle,
                             "splinterdb",
-                            kvs->task_sys,
                             kvs->heap_handle,
                             kvs->heap_id,
                             platform_get_module_id());
