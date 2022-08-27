@@ -38,6 +38,7 @@ typedef struct parsed_indirection {
 typedef struct indirection_page_iterator {
    cache             *cc;
    page_type          type;
+   bool               alloc;
    bool               do_prefetch;
    uint64             extent_size;
    uint64             page_size;
@@ -156,16 +157,38 @@ addr_for_offset(uint64                    extent_size,
    *length      = MIN(entry_remainder, page_size - *page_offset);
 }
 
+static void
+maybe_do_prefetch(indirection_page_iterator *iter)
+{
+   if (!iter->alloc && iter->offset + iter->length < iter->pindy.length) {
+      uint64 next_page_addr;
+      uint64 next_page_offset;
+      uint64 next_length;
+      addr_for_offset(iter->extent_size,
+                      iter->page_size,
+                      &iter->pindy,
+                      iter->offset + iter->length,
+                      &next_page_addr,
+                      &next_page_offset,
+                      &next_length);
+      uint64 next_extent_addr =
+         cache_extent_base_addr(iter->cc, next_page_addr);
+      cache_prefetch(iter->cc, next_extent_addr, iter->type);
+   }
+}
+
 platform_status
 indirection_page_iterator_init(cache                     *cc,
                                indirection_page_iterator *iter,
                                slice                      sindy,
                                uint64                     offset,
                                page_type                  type,
+                               bool                       alloc,
                                bool                       do_prefetch)
 {
    iter->cc                = cc;
    iter->type              = type;
+   iter->alloc             = alloc;
    iter->do_prefetch       = do_prefetch;
    iter->extent_size       = cache_extent_size(cc);
    iter->page_size         = cache_page_size(cc);
@@ -180,6 +203,7 @@ indirection_page_iterator_init(cache                     *cc,
                       &iter->page_addr,
                       &iter->page_offset,
                       &iter->length);
+      maybe_do_prefetch(iter);
    }
    iter->page = NULL;
    return STATUS_OK;
@@ -189,6 +213,12 @@ void
 indirection_page_iterator_deinit(indirection_page_iterator *iter)
 {
    if (iter->page) {
+      if (iter->alloc && iter->page_addr % iter->page_size == 0
+          && iter->page_offset == 0 && iter->page_size <= iter->length)
+      {
+         cache_unlock(iter->cc, iter->page);
+         cache_unclaim(iter->cc, iter->page);
+      }
       cache_unget(iter->cc, iter->page);
       iter->page = NULL;
    }
@@ -200,7 +230,13 @@ indirection_page_iterator_get_curr(indirection_page_iterator *iter,
                                    slice                     *result)
 {
    if (iter->page == NULL) {
-      iter->page = cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
+      if (iter->alloc && iter->page_addr % iter->page_size == 0
+          && iter->page_offset == 0 && iter->page_size <= iter->length)
+      {
+         iter->page = cache_alloc(iter->cc, iter->page_addr, iter->type);
+      } else {
+         iter->page = cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
+      }
    }
 
    *offset = iter->offset;
@@ -218,6 +254,12 @@ void
 indirection_page_iterator_advance(indirection_page_iterator *iter)
 {
    if (iter->page) {
+      if (iter->alloc && iter->page_addr % iter->page_size == 0
+          && iter->page_offset == 0 && iter->page_size <= iter->length)
+      {
+         cache_unlock(iter->cc, iter->page);
+         cache_unclaim(iter->cc, iter->page);
+      }
       cache_unget(iter->cc, iter->page);
       iter->page = NULL;
    }
@@ -231,6 +273,7 @@ indirection_page_iterator_advance(indirection_page_iterator *iter)
                       &iter->page_addr,
                       &iter->page_offset,
                       &iter->length);
+      maybe_do_prefetch(iter);
    }
 }
 
@@ -254,7 +297,8 @@ indirection_materialize(cache           *cc,
    }
 
    indirection_page_iterator iter;
-   rc = indirection_page_iterator_init(cc, &iter, sindy, start, type, TRUE);
+   rc = indirection_page_iterator_init(
+      cc, &iter, sindy, start, type, FALSE, TRUE);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -274,7 +318,7 @@ indirection_materialize(cache           *cc,
 
       indirection_page_iterator_advance(&iter);
       if (indirection_page_iterator_at_end(&iter)) {
-         goto out;
+         break;
       }
 
       rc = indirection_page_iterator_get_curr(&iter, &offset, &data);
@@ -419,7 +463,7 @@ indirection_build(cache           *cc,
 
    indirection_page_iterator iter;
    rc = indirection_page_iterator_init(
-      cc, &iter, writable_buffer_to_slice(result), 0, type, TRUE);
+      cc, &iter, writable_buffer_to_slice(result), 0, type, TRUE, TRUE);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -430,20 +474,12 @@ indirection_build(cache           *cc,
       slice  result;
       rc = indirection_page_iterator_get_curr(&iter, &offset, &result);
       if (!SUCCESS(rc)) {
-         return rc;
-      }
-
-      if (!cache_claim(cc, iter.page)) {
          goto out;
       }
-      cache_lock(cc, iter.page);
 
       memcpy(iter.page->data + iter.page_offset,
              raw_data + offset,
              slice_length(result));
-
-      cache_unlock(cc, iter.page);
-      cache_unclaim(cc, iter.page);
 
       indirection_page_iterator_advance(&iter);
    }
@@ -515,7 +551,7 @@ indirection_clone(cache           *cc,
       indirection_page_iterator src_iter;
       indirection_page_iterator dst_iter;
       rc = indirection_page_iterator_init(
-         cc, &src_iter, sindy, start, src_type, TRUE);
+         cc, &src_iter, sindy, start, src_type, FALSE, TRUE);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -524,6 +560,7 @@ indirection_clone(cache           *cc,
                                           writable_buffer_to_slice(result),
                                           start,
                                           dst_type,
+                                          TRUE,
                                           TRUE);
       if (!SUCCESS(rc)) {
          return rc;
@@ -539,28 +576,20 @@ indirection_clone(cache           *cc,
          rc = indirection_page_iterator_get_curr(
             &src_iter, &src_offset, &src_result);
          if (!SUCCESS(rc)) {
-            return rc;
+            goto out;
          }
          rc = indirection_page_iterator_get_curr(
             &dst_iter, &dst_offset, &dst_result);
          if (!SUCCESS(rc)) {
-            return rc;
+            goto out;
          }
 
          platform_assert(src_offset == dst_offset);
          platform_assert(slice_length(src_result) == slice_length(dst_result));
 
-         if (!cache_claim(cc, dst_iter.page)) {
-            goto out;
-         }
-         cache_lock(cc, dst_iter.page);
-
          memcpy(dst_iter.page->data + dst_iter.page_offset,
                 slice_data(src_result),
                 slice_length(src_result));
-
-         cache_unlock(cc, dst_iter.page);
-         cache_unclaim(cc, dst_iter.page);
 
          indirection_page_iterator_advance(&src_iter);
          indirection_page_iterator_advance(&dst_iter);

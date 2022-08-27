@@ -771,7 +771,8 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
  * mini_destroy_unused --
  *
  *      Called to destroy a mini_allocator that was created but never used to
- *      allocate an extent. Can only be called on a keyed mini allocator.
+ *      allocate an extent or to attach any extents. Can only be called on a
+ *      keyed mini allocator.
  *
  * Results:
  *      None.
@@ -929,8 +930,6 @@ mini_keyed_for_each(cache           *cc,
    if (slice_is_null(end_key))
       end_key = start_key;
 
-   // We return true for cleanup if every call to func returns TRUE.
-   bool should_cleanup = TRUE;
    // Should not be called if there are no intersecting ranges, we track with
    // did_work.
    debug_only bool did_work = FALSE;
@@ -939,9 +938,13 @@ mini_keyed_for_each(cache           *cc,
 
    boundary_state current_state[MINI_MAX_BATCHES];
    uint64         extent_addr[MINI_MAX_BATCHES];
+   bool           should_cleanup[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = before_start;
-      extent_addr[i]   = TERMINAL_EXTENT_ADDR;
+      extent_addr[i]    = TERMINAL_EXTENT_ADDR;
+      should_cleanup[i] = 2;
+      debug_assert(should_cleanup[i] != TRUE);
+      debug_assert(should_cleanup[i] != FALSE);
    }
 
    do {
@@ -965,7 +968,8 @@ mini_keyed_for_each(cache           *cc,
          if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
-            should_cleanup            = should_cleanup && entry_should_cleanup;
+            should_cleanup[batch] =
+               should_cleanup[batch] && entry_should_cleanup;
          }
 
          extent_addr[batch]   = entry->extent_addr;
@@ -980,7 +984,13 @@ mini_keyed_for_each(cache           *cc,
 
    debug_code(if (!did_work) { mini_keyed_print(cc, cfg, meta_head, type); });
    debug_assert(did_work);
-   return should_cleanup;
+
+   for (int i = MINI_MAX_BATCHES - 1; i >= 0; i--) {
+      if (should_cleanup[i] != 2) {
+         return should_cleanup[i];
+      }
+   }
+   platform_assert(FALSE);
 }
 
 /*
@@ -1016,8 +1026,6 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
       end_key = start_key;
    }
 
-   // We return true for cleanup if every call to func returns TRUE.
-   bool should_cleanup = TRUE;
    // Should not be called if there are no intersecting ranges, we track with
    // did_work.
    debug_only bool did_work = FALSE;
@@ -1027,9 +1035,13 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
 
    boundary_state current_state[MINI_MAX_BATCHES];
    uint64         extent_addr[MINI_MAX_BATCHES];
+   bool           should_cleanup[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = before_start;
-      extent_addr[i]   = TERMINAL_EXTENT_ADDR;
+      extent_addr[i]    = TERMINAL_EXTENT_ADDR;
+      should_cleanup[i] = 2;
+      debug_assert(should_cleanup[i] != TRUE);
+      debug_assert(should_cleanup[i] != FALSE);
    }
 
    do {
@@ -1052,7 +1064,8 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
          if (interval_intersects_range(current_state[batch], next_state)) {
             debug_code(did_work = TRUE);
             bool entry_should_cleanup = func(cc, type, extent_addr[batch], out);
-            should_cleanup            = should_cleanup && entry_should_cleanup;
+            should_cleanup[batch] =
+               should_cleanup[batch] && entry_should_cleanup;
          }
 
          extent_addr[batch]   = entry->extent_addr;
@@ -1073,7 +1086,13 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
 
    debug_code(if (!did_work) { mini_keyed_print(cc, cfg, meta_head, type); });
    debug_assert(did_work);
-   return should_cleanup;
+
+   for (int i = MINI_MAX_BATCHES - 1; i >= 0; i--) {
+      if (should_cleanup[i] != 2) {
+         return should_cleanup[i];
+      }
+   }
+   platform_assert(FALSE);
 }
 
 /*
@@ -1106,10 +1125,11 @@ mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
 {
    allocator *al  = cache_allocator(cc);
    uint8      ref = allocator_dec_ref(al, base_addr, type);
-   platform_assert(ref == AL_NO_REFS);
-   cache_hard_evict_extent(cc, base_addr, type);
-   ref = allocator_dec_ref(al, base_addr, type);
-   platform_assert(ref == AL_FREE);
+   if (ref == AL_NO_REFS) {
+      cache_hard_evict_extent(cc, base_addr, type);
+      ref = allocator_dec_ref(al, base_addr, type);
+      platform_assert(ref == AL_FREE);
+   }
    return TRUE;
 }
 

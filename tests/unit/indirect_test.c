@@ -190,6 +190,12 @@ CTEST2(indirect, build_unkeyed)
                       == 0);
    }
 
+   writable_buffer_deinit(&original);
+   writable_buffer_deinit(&indirection);
+   writable_buffer_deinit(&clone);
+   writable_buffer_deinit(&materialized);
+
+
    mini_release(&src, NULL_SLICE);
    mini_unkeyed_dec_ref(
       (cache *)&data->clock_cache, src_addr, PAGE_TYPE_MISC, FALSE);
