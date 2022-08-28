@@ -1,7 +1,7 @@
 // Copyright 2022 VMware, Inc. All rights reserved. -- VMware Confidential
 // SPDX-License-Identifier: Apache-2.0
 
-#include "indirect.h"
+#include "blob.h"
 #include "poison.h"
 
 #define MIN_LIVE_PERCENTAGE         (90ULL)
@@ -16,39 +16,39 @@
  * - less-than-page-sized segments (at most 1 -- page fragments are not split
  *   across extents)
  */
-typedef struct ONDISK indirection {
-   uint64 length; // length of the byte sequence represented by this indirection
+typedef struct ONDISK blob {
+   uint64 length; // length of the byte sequence represented by this blob
    uint64 addrs[];
-} indirection;
+} blob;
 
 /* This is used internally to avoid recomputing the number of extent entries,
  * etc. */
-typedef struct parsed_indirection_entry {
+typedef struct parsed_blob_entry {
    uint64 addr;
    uint64 length;
-} parsed_indirection_entry;
+} parsed_blob_entry;
 
-typedef struct parsed_indirection {
+typedef struct parsed_blob {
    uint64                   length;
    uint64                   num_extents; // == number of extent entries
-   const uint64            *extents; // extent entries in original indirection
-   parsed_indirection_entry leftovers[3]; // multi-page and sub-page entries
-} parsed_indirection;
+   const uint64            *extents;     // extent entries in original blob
+   parsed_blob_entry        leftovers[3]; // multi-page and sub-page entries
+} parsed_blob;
 
-typedef struct indirection_page_iterator {
+typedef struct blob_page_iterator {
    cache             *cc;
    page_type          type;
    bool               alloc;
    bool               do_prefetch;
    uint64             extent_size;
    uint64             page_size;
-   parsed_indirection pindy;
+   parsed_blob        pblob;
    uint64             offset;    // logical byte offset into entire sequence
    uint64             page_addr;
    uint64             page_offset;
    uint64             length;
    page_handle       *page;   // the page with the data in it.
-} indirection_page_iterator;
+} blob_page_iterator;
 
 /* If the data is large enough (or close enough to a whole number of
  * rounded_size pieces), then we just put it entirely into
@@ -64,92 +64,93 @@ can_round_up(uint64 rounded_size, uint64 length)
 }
 
 static inline void
-parse_indirection(uint64              extent_size,
-                  uint64              page_size,
-                  const indirection  *indy,
-                  parsed_indirection *pindy)
+parse_blob(uint64       extent_size,
+           uint64       page_size,
+           const blob  *blobby,
+           parsed_blob *pblobby)
 {
-   pindy->length    = indy->length;
-   pindy->extents   = indy->addrs;
-   uint64 remainder = pindy->length;
+   pblobby->length    = blobby->length;
+   pblobby->extents   = blobby->addrs;
+   uint64 remainder   = pblobby->length;
 
    if (can_round_up(extent_size, remainder)) {
-      pindy->num_extents         = (remainder + extent_size - 1) / extent_size;
-      pindy->leftovers[0].length = 0;
+      pblobby->num_extents = (remainder + extent_size - 1) / extent_size;
+      pblobby->leftovers[0].length = 0;
       return;
    }
 
-   pindy->num_extents = remainder / extent_size;
-   remainder -= pindy->num_extents * extent_size;
+   pblobby->num_extents = remainder / extent_size;
+   remainder -= pblobby->num_extents * extent_size;
 
-   memset(pindy->leftovers, 0, sizeof(pindy->leftovers));
-   uint64 entry           = pindy->num_extents;
+   memset(pblobby->leftovers, 0, sizeof(pblobby->leftovers));
+   uint64 entry           = pblobby->num_extents;
    uint64 leftovers_entry = 0;
    while (page_size <= remainder) {
-      pindy->leftovers[leftovers_entry].addr = indy->addrs[entry];
-      uint64 max_length = extent_size - (indy->addrs[entry] % extent_size);
+      pblobby->leftovers[leftovers_entry].addr = blobby->addrs[entry];
+      uint64 max_length = extent_size - (blobby->addrs[entry] % extent_size);
       if (max_length <= remainder) {
-         pindy->leftovers[leftovers_entry].length = max_length;
-      } else if (can_round_up(page_size, pindy->length)) {
-         pindy->leftovers[leftovers_entry].length = remainder;
+         pblobby->leftovers[leftovers_entry].length = max_length;
+      } else if (can_round_up(page_size, pblobby->length)) {
+         pblobby->leftovers[leftovers_entry].length = remainder;
       } else {
-         pindy->leftovers[leftovers_entry].length =
+         pblobby->leftovers[leftovers_entry].length =
             remainder - (remainder % page_size);
       }
 
-      remainder -= pindy->leftovers[leftovers_entry].length;
+      remainder -= pblobby->leftovers[leftovers_entry].length;
       entry++;
       leftovers_entry++;
    }
 
    if (remainder) {
-      pindy->leftovers[leftovers_entry].addr   = indy->addrs[entry];
-      pindy->leftovers[leftovers_entry].length = remainder;
+      pblobby->leftovers[leftovers_entry].addr   = blobby->addrs[entry];
+      pblobby->leftovers[leftovers_entry].length = remainder;
    }
 }
 
 uint64
-indirection_length(slice sindy)
+blob_length(slice sblobby)
 {
-   const indirection *indy = slice_data(sindy);
-   debug_assert(sizeof(*indy) <= slice_length(sindy));
-   return indy->length;
+   const blob *blobby = slice_data(sblobby);
+   debug_assert(sizeof(*blobby) <= slice_length(sblobby));
+   return blobby->length;
 }
 
 static void
-addr_for_offset(uint64                    extent_size,
-                uint64                    page_size,
-                const parsed_indirection *pindy,
-                uint64                    offset,
-                uint64                   *page_addr,
-                uint64                   *page_offset,
-                uint64                   *length)
+addr_for_offset(uint64             extent_size,
+                uint64             page_size,
+                const parsed_blob *pblobby,
+                uint64             offset,
+                uint64            *page_addr,
+                uint64            *page_offset,
+                uint64            *length)
 {
    uint64 byte_addr;
    uint64 entry_remainder;
-   debug_assert(offset < pindy->length);
+   debug_assert(offset < pblobby->length);
 
-   if (offset / extent_size < pindy->num_extents) {
-      byte_addr = pindy->extents[offset / extent_size] + (offset % extent_size);
+   if (offset / extent_size < pblobby->num_extents) {
+      byte_addr =
+         pblobby->extents[offset / extent_size] + (offset % extent_size);
       entry_remainder = extent_size - (offset % extent_size);
 
    } else {
 
-      offset -= pindy->num_extents * extent_size;
+      offset -= pblobby->num_extents * extent_size;
       int i;
-      for (i = 0;
-           i < ARRAY_SIZE(pindy->leftovers) && 0 < pindy->leftovers[i].length;
+      for (i = 0; i < ARRAY_SIZE(pblobby->leftovers)
+                  && 0 < pblobby->leftovers[i].length;
            i++)
       {
-         if (offset < pindy->leftovers[i].length) {
-            byte_addr             = pindy->leftovers[i].addr + offset;
-            entry_remainder       = pindy->leftovers[i].length - offset;
+         if (offset < pblobby->leftovers[i].length) {
+            byte_addr             = pblobby->leftovers[i].addr + offset;
+            entry_remainder       = pblobby->leftovers[i].length - offset;
             break;
          } else {
-            offset -= pindy->leftovers[i].length;
+            offset -= pblobby->leftovers[i].length;
          }
       }
-      platform_assert(i < ARRAY_SIZE(pindy->leftovers));
+      platform_assert(i < ARRAY_SIZE(pblobby->leftovers));
    }
 
    *page_offset = byte_addr % page_size;
@@ -158,15 +159,15 @@ addr_for_offset(uint64                    extent_size,
 }
 
 static void
-maybe_do_prefetch(indirection_page_iterator *iter)
+maybe_do_prefetch(blob_page_iterator *iter)
 {
-   if (!iter->alloc && iter->offset + iter->length < iter->pindy.length) {
+   if (!iter->alloc && iter->offset + iter->length < iter->pblob.length) {
       uint64 next_page_addr;
       uint64 next_page_offset;
       uint64 next_length;
       addr_for_offset(iter->extent_size,
                       iter->page_size,
-                      &iter->pindy,
+                      &iter->pblob,
                       iter->offset + iter->length,
                       &next_page_addr,
                       &next_page_offset,
@@ -178,13 +179,13 @@ maybe_do_prefetch(indirection_page_iterator *iter)
 }
 
 platform_status
-indirection_page_iterator_init(cache                     *cc,
-                               indirection_page_iterator *iter,
-                               slice                      sindy,
-                               uint64                     offset,
-                               page_type                  type,
-                               bool                       alloc,
-                               bool                       do_prefetch)
+blob_page_iterator_init(cache              *cc,
+                        blob_page_iterator *iter,
+                        slice               sblobby,
+                        uint64              offset,
+                        page_type           type,
+                        bool                alloc,
+                        bool                do_prefetch)
 {
    iter->cc                = cc;
    iter->type              = type;
@@ -192,13 +193,13 @@ indirection_page_iterator_init(cache                     *cc,
    iter->do_prefetch       = do_prefetch;
    iter->extent_size       = cache_extent_size(cc);
    iter->page_size         = cache_page_size(cc);
-   parse_indirection(
-      iter->extent_size, iter->page_size, slice_data(sindy), &iter->pindy);
+   parse_blob(
+      iter->extent_size, iter->page_size, slice_data(sblobby), &iter->pblob);
    iter->offset = offset;
-   if (offset < iter->pindy.length) {
+   if (offset < iter->pblob.length) {
       addr_for_offset(iter->extent_size,
                       iter->page_size,
-                      &iter->pindy,
+                      &iter->pblob,
                       iter->offset,
                       &iter->page_addr,
                       &iter->page_offset,
@@ -210,7 +211,7 @@ indirection_page_iterator_init(cache                     *cc,
 }
 
 void
-indirection_page_iterator_deinit(indirection_page_iterator *iter)
+blob_page_iterator_deinit(blob_page_iterator *iter)
 {
    if (iter->page) {
       if (iter->alloc && iter->page_addr % iter->page_size == 0
@@ -225,9 +226,9 @@ indirection_page_iterator_deinit(indirection_page_iterator *iter)
 }
 
 platform_status
-indirection_page_iterator_get_curr(indirection_page_iterator *iter,
-                                   uint64                    *offset,
-                                   slice                     *result)
+blob_page_iterator_get_curr(blob_page_iterator *iter,
+                            uint64             *offset,
+                            slice              *result)
 {
    if (iter->page == NULL) {
       if (iter->alloc && iter->page_addr % iter->page_size == 0
@@ -245,13 +246,13 @@ indirection_page_iterator_get_curr(indirection_page_iterator *iter,
 }
 
 bool
-indirection_page_iterator_at_end(indirection_page_iterator *iter)
+blob_page_iterator_at_end(blob_page_iterator *iter)
 {
-   return iter->pindy.length <= iter->offset;
+   return iter->pblob.length <= iter->offset;
 }
 
 void
-indirection_page_iterator_advance(indirection_page_iterator *iter)
+blob_page_iterator_advance(blob_page_iterator *iter)
 {
    if (iter->page) {
       if (iter->alloc && iter->page_addr % iter->page_size == 0
@@ -265,10 +266,10 @@ indirection_page_iterator_advance(indirection_page_iterator *iter)
    }
 
    iter->offset += iter->length;
-   if (iter->offset < iter->pindy.length) {
+   if (iter->offset < iter->pblob.length) {
       addr_for_offset(iter->extent_size,
                       iter->page_size,
-                      &iter->pindy,
+                      &iter->pblob,
                       iter->offset,
                       &iter->page_addr,
                       &iter->page_offset,
@@ -278,16 +279,16 @@ indirection_page_iterator_advance(indirection_page_iterator *iter)
 }
 
 platform_status
-indirection_materialize(cache           *cc,
-                        slice            sindy,
-                        uint64           start,
-                        uint64           end,
-                        page_type        type,
-                        writable_buffer *result)
+blob_materialize(cache           *cc,
+                 slice            sblobby,
+                 uint64           start,
+                 uint64           end,
+                 page_type        type,
+                 writable_buffer *result)
 {
-   const indirection *indy = slice_data(sindy);
+   const blob *blobby = slice_data(sblobby);
 
-   if (end < start || indy->length < end) {
+   if (end < start || blobby->length < end) {
       return STATUS_BAD_PARAM;
    }
 
@@ -296,16 +297,15 @@ indirection_materialize(cache           *cc,
       return rc;
    }
 
-   indirection_page_iterator iter;
-   rc = indirection_page_iterator_init(
-      cc, &iter, sindy, start, type, FALSE, TRUE);
+   blob_page_iterator iter;
+   rc = blob_page_iterator_init(cc, &iter, sblobby, start, type, FALSE, TRUE);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
    uint64 offset;
    slice  data;
-   rc = indirection_page_iterator_get_curr(&iter, &offset, &data);
+   rc = blob_page_iterator_get_curr(&iter, &offset, &data);
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -316,19 +316,19 @@ indirection_materialize(cache           *cc,
       uint64 length = end - offset < slen ? end - offset : slen;
       memcpy(dst + (offset - start), slice_data(data), length);
 
-      indirection_page_iterator_advance(&iter);
-      if (indirection_page_iterator_at_end(&iter)) {
+      blob_page_iterator_advance(&iter);
+      if (blob_page_iterator_at_end(&iter)) {
          break;
       }
 
-      rc = indirection_page_iterator_get_curr(&iter, &offset, &data);
+      rc = blob_page_iterator_get_curr(&iter, &offset, &data);
       if (!SUCCESS(rc)) {
          goto out;
       }
    }
 
 out:
-   indirection_page_iterator_deinit(&iter);
+   blob_page_iterator_deinit(&iter);
    return rc;
 }
 
@@ -400,11 +400,11 @@ allocate_leftover_entries(cache           *cc,
 }
 
 static platform_status
-build_indirection_table(cache           *cc,
-                        mini_allocator  *mini,
-                        slice            key,
-                        uint64           data_len,
-                        writable_buffer *result)
+build_blob_table(cache           *cc,
+                 mini_allocator  *mini,
+                 slice            key,
+                 uint64           data_len,
+                 writable_buffer *result)
 {
    uint64 extent_size = cache_extent_size(cc);
 
@@ -419,10 +419,9 @@ build_indirection_table(cache           *cc,
       remainder   = data_len - num_extents * extent_size;
    }
 
-   writable_buffer_resize(result,
-                          sizeof(indirection) + num_extents * sizeof(uint64));
-   indirection *indy = writable_buffer_data(result);
-   indy->length      = data_len;
+   writable_buffer_resize(result, sizeof(blob) + num_extents * sizeof(uint64));
+   blob *blobby        = writable_buffer_data(result);
+   blobby->length      = data_len;
 
    for (uint64 i = 0; i < num_extents; i++) {
       uint64          alloced_pages[2];
@@ -439,40 +438,40 @@ build_indirection_table(cache           *cc,
          return rc;
       }
       debug_assert(alloced_pages[1] == 0);
-      indy->addrs[i] = alloced_pages[0];
-      platform_assert(indy->addrs[i]);
+      blobby->addrs[i] = alloced_pages[0];
+      platform_assert(blobby->addrs[i]);
    }
 
    return allocate_leftover_entries(cc, mini, key, data_len, remainder, result);
 }
 
 platform_status
-indirection_build(cache           *cc,
-                  mini_allocator  *mini,
-                  slice            key,
-                  slice            data,
-                  page_type        type,
-                  writable_buffer *result)
+blob_build(cache           *cc,
+           mini_allocator  *mini,
+           slice            key,
+           slice            data,
+           page_type        type,
+           writable_buffer *result)
 {
    platform_status rc =
-      build_indirection_table(cc, mini, key, slice_length(data), result);
+      build_blob_table(cc, mini, key, slice_length(data), result);
 
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   indirection_page_iterator iter;
-   rc = indirection_page_iterator_init(
+   blob_page_iterator iter;
+   rc = blob_page_iterator_init(
       cc, &iter, writable_buffer_to_slice(result), 0, type, TRUE, TRUE);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
    const char *raw_data = slice_data(data);
-   while (!indirection_page_iterator_at_end(&iter)) {
+   while (!blob_page_iterator_at_end(&iter)) {
       uint64 offset;
       slice  result;
-      rc = indirection_page_iterator_get_curr(&iter, &offset, &result);
+      rc = blob_page_iterator_get_curr(&iter, &offset, &result);
       if (!SUCCESS(rc)) {
          goto out;
       }
@@ -481,105 +480,103 @@ indirection_build(cache           *cc,
              raw_data + offset,
              slice_length(result));
 
-      indirection_page_iterator_advance(&iter);
+      blob_page_iterator_advance(&iter);
    }
 
 out:
-   indirection_page_iterator_deinit(&iter);
+   blob_page_iterator_deinit(&iter);
    return rc;
 }
 
 static platform_status
-clone_indirection_table(cache              *cc,
-                        mini_allocator     *mini,
-                        slice               key,
-                        parsed_indirection *pindy,
-                        writable_buffer    *result)
+clone_blob_table(cache           *cc,
+                 mini_allocator  *mini,
+                 slice            key,
+                 parsed_blob     *pblobby,
+                 writable_buffer *result)
 {
    platform_status rc = writable_buffer_resize(
-      result, sizeof(indirection) + pindy->num_extents * sizeof(uint64));
+      result, sizeof(blob) + pblobby->num_extents * sizeof(uint64));
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   indirection *indy = writable_buffer_data(result);
+   blob *blobby = writable_buffer_data(result);
 
-   indy->length = pindy->length;
+   blobby->length = pblobby->length;
 
-   for (int i = 0; i < pindy->num_extents; i++) {
-      indy->addrs[i] = pindy->extents[i];
-      rc = mini_attach_extent(mini, EXTENT_BATCH, key, indy->addrs[i]);
+   for (int i = 0; i < pblobby->num_extents; i++) {
+      blobby->addrs[i] = pblobby->extents[i];
+      rc = mini_attach_extent(mini, EXTENT_BATCH, key, blobby->addrs[i]);
       if (!SUCCESS(rc)) {
          return rc;
       }
    }
 
    uint64 extent_size = cache_extent_size(cc);
-   if (pindy->num_extents * extent_size < pindy->length) {
-      uint64 remainder = pindy->length - pindy->num_extents * extent_size;
+   if (pblobby->num_extents * extent_size < pblobby->length) {
+      uint64 remainder = pblobby->length - pblobby->num_extents * extent_size;
       rc               = allocate_leftover_entries(
-         cc, mini, key, pindy->length, remainder, result);
+         cc, mini, key, pblobby->length, remainder, result);
    }
 
    return rc;
 }
 
 platform_status
-indirection_clone(cache           *cc,
-                  mini_allocator  *mini,
-                  slice            key,
-                  slice            sindy,
-                  page_type        src_type,
-                  page_type        dst_type,
-                  writable_buffer *result)
+blob_clone(cache           *cc,
+           mini_allocator  *mini,
+           slice            key,
+           slice            sblobby,
+           page_type        src_type,
+           page_type        dst_type,
+           writable_buffer *result)
 {
    uint64             extent_size = cache_extent_size(cc);
    uint64             page_size   = cache_page_size(cc);
-   const indirection *indy        = slice_data(sindy);
-   parsed_indirection pindy;
+   const blob        *blobby      = slice_data(sblobby);
+   parsed_blob        pblobby;
 
-   parse_indirection(extent_size, page_size, indy, &pindy);
+   parse_blob(extent_size, page_size, blobby, &pblobby);
 
-   platform_status rc = clone_indirection_table(cc, mini, key, &pindy, result);
+   platform_status rc = clone_blob_table(cc, mini, key, &pblobby, result);
    if (!SUCCESS(rc)) {
       return rc;
    }
 
-   if (pindy.num_extents * extent_size < pindy.length) {
-      uint64 start = pindy.num_extents * extent_size;
+   if (pblobby.num_extents * extent_size < pblobby.length) {
+      uint64 start = pblobby.num_extents * extent_size;
 
-      indirection_page_iterator src_iter;
-      indirection_page_iterator dst_iter;
-      rc = indirection_page_iterator_init(
-         cc, &src_iter, sindy, start, src_type, FALSE, TRUE);
+      blob_page_iterator src_iter;
+      blob_page_iterator dst_iter;
+      rc = blob_page_iterator_init(
+         cc, &src_iter, sblobby, start, src_type, FALSE, TRUE);
       if (!SUCCESS(rc)) {
          return rc;
       }
-      rc = indirection_page_iterator_init(cc,
-                                          &dst_iter,
-                                          writable_buffer_to_slice(result),
-                                          start,
-                                          dst_type,
-                                          TRUE,
-                                          TRUE);
+      rc = blob_page_iterator_init(cc,
+                                   &dst_iter,
+                                   writable_buffer_to_slice(result),
+                                   start,
+                                   dst_type,
+                                   TRUE,
+                                   TRUE);
       if (!SUCCESS(rc)) {
          return rc;
       }
 
-      while (!indirection_page_iterator_at_end(&src_iter)
-             && !indirection_page_iterator_at_end(&dst_iter))
+      while (!blob_page_iterator_at_end(&src_iter)
+             && !blob_page_iterator_at_end(&dst_iter))
       {
          uint64 src_offset;
          slice  src_result;
          uint64 dst_offset;
          slice  dst_result;
-         rc = indirection_page_iterator_get_curr(
-            &src_iter, &src_offset, &src_result);
+         rc = blob_page_iterator_get_curr(&src_iter, &src_offset, &src_result);
          if (!SUCCESS(rc)) {
             goto out;
          }
-         rc = indirection_page_iterator_get_curr(
-            &dst_iter, &dst_offset, &dst_result);
+         rc = blob_page_iterator_get_curr(&dst_iter, &dst_offset, &dst_result);
          if (!SUCCESS(rc)) {
             goto out;
          }
@@ -591,13 +588,13 @@ indirection_clone(cache           *cc,
                 slice_data(src_result),
                 slice_length(src_result));
 
-         indirection_page_iterator_advance(&src_iter);
-         indirection_page_iterator_advance(&dst_iter);
+         blob_page_iterator_advance(&src_iter);
+         blob_page_iterator_advance(&dst_iter);
       }
 
    out:
-      indirection_page_iterator_deinit(&src_iter);
-      indirection_page_iterator_deinit(&dst_iter);
+      blob_page_iterator_deinit(&src_iter);
+      blob_page_iterator_deinit(&dst_iter);
    }
 
    return rc;

@@ -3,20 +3,20 @@
 
 /*
  * -----------------------------------------------------------------------------
- * indirect_test.c --
+ * blob_test.c --
  *
- *  Exercises the indirect interfaces.
+ *  Exercises the blob interfaces.
  * -----------------------------------------------------------------------------
  */
 #include "ctest.h" // This is required for all test-case files.
 #include "cache_test_common.h"
 #include "test_data.h"
-#include "indirect.h"
+#include "blob.h"
 
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(indirect)
+CTEST_DATA(blob)
 {
    master_config       master_cfg;
    data_config        *data_cfg;
@@ -32,7 +32,7 @@ CTEST_DATA(indirect)
 };
 
 // Optional setup function for suite, called before every test in suite
-CTEST_SETUP(indirect)
+CTEST_SETUP(blob)
 {
    config_set_defaults(&data->master_cfg);
    data->data_cfg = test_data_config;
@@ -80,7 +80,7 @@ CTEST_SETUP(indirect)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(indirect)
+CTEST_TEARDOWN(blob)
 {
    clockcache_deinit(&data->clock_cache);
 
@@ -93,7 +93,7 @@ CTEST_TEARDOWN(indirect)
    platform_heap_destroy(&data->hh);
 }
 
-CTEST2(indirect, build_unkeyed)
+CTEST2(blob, build_unkeyed)
 {
    mini_allocator  src;
    uint64          src_addr;
@@ -112,7 +112,7 @@ CTEST2(indirect, build_unkeyed)
              data->data_cfg,
              src_addr,
              0,
-             NUM_INDIRECTION_BATCHES,
+             NUM_BLOB_BATCHES,
              PAGE_TYPE_MISC,
              FALSE);
 
@@ -121,17 +121,17 @@ CTEST2(indirect, build_unkeyed)
              data->data_cfg,
              dst_addr,
              0,
-             NUM_INDIRECTION_BATCHES,
+             NUM_BLOB_BATCHES,
              PAGE_TYPE_MISC,
              FALSE);
 
    writable_buffer original;
-   writable_buffer indirection;
+   writable_buffer blob;
    writable_buffer clone;
    writable_buffer materialized;
 
    writable_buffer_init(&original, NULL);
-   writable_buffer_init(&indirection, NULL);
+   writable_buffer_init(&blob, NULL);
    writable_buffer_init(&clone, NULL);
    writable_buffer_init(&materialized, NULL);
 
@@ -143,46 +143,44 @@ CTEST2(indirect, build_unkeyed)
          writable_buffer_append(&original, 19, "this test is great!");
       }
 
-      rc = indirection_build((cache *)&data->clock_cache,
-                             &src,
-                             NULL_SLICE,
-                             writable_buffer_to_slice(&original),
-                             PAGE_TYPE_MISC,
-                             &indirection);
+      rc = blob_build((cache *)&data->clock_cache,
+                      &src,
+                      NULL_SLICE,
+                      writable_buffer_to_slice(&original),
+                      PAGE_TYPE_MISC,
+                      &blob);
       platform_assert_status_ok(rc);
 
-      platform_assert(indirection_length(writable_buffer_to_slice(&indirection))
+      platform_assert(blob_length(writable_buffer_to_slice(&blob))
                       == writable_buffer_length(&original));
 
-      rc = indirection_materialize(
-         (cache *)&data->clock_cache,
-         writable_buffer_to_slice(&indirection),
-         0,
-         indirection_length(writable_buffer_to_slice(&indirection)),
-         PAGE_TYPE_MISC,
-         &materialized);
+      rc = blob_materialize((cache *)&data->clock_cache,
+                            writable_buffer_to_slice(&blob),
+                            0,
+                            blob_length(writable_buffer_to_slice(&blob)),
+                            PAGE_TYPE_MISC,
+                            &materialized);
       platform_assert_status_ok(rc);
 
       platform_assert(slice_lex_cmp(writable_buffer_to_slice(&original),
                                     writable_buffer_to_slice(&materialized))
                       == 0);
 
-      rc = indirection_clone((cache *)&data->clock_cache,
-                             &dst,
-                             NULL_SLICE,
-                             writable_buffer_to_slice(&indirection),
-                             PAGE_TYPE_MISC,
-                             PAGE_TYPE_MISC,
-                             &clone);
+      rc = blob_clone((cache *)&data->clock_cache,
+                      &dst,
+                      NULL_SLICE,
+                      writable_buffer_to_slice(&blob),
+                      PAGE_TYPE_MISC,
+                      PAGE_TYPE_MISC,
+                      &clone);
       platform_assert_status_ok(rc);
 
-      rc = indirection_materialize(
-         (cache *)&data->clock_cache,
-         writable_buffer_to_slice(&clone),
-         0,
-         indirection_length(writable_buffer_to_slice(&clone)),
-         PAGE_TYPE_MISC,
-         &materialized);
+      rc = blob_materialize((cache *)&data->clock_cache,
+                            writable_buffer_to_slice(&clone),
+                            0,
+                            blob_length(writable_buffer_to_slice(&clone)),
+                            PAGE_TYPE_MISC,
+                            &materialized);
       platform_assert_status_ok(rc);
 
       platform_assert(slice_lex_cmp(writable_buffer_to_slice(&original),
@@ -191,7 +189,7 @@ CTEST2(indirect, build_unkeyed)
    }
 
    writable_buffer_deinit(&original);
-   writable_buffer_deinit(&indirection);
+   writable_buffer_deinit(&blob);
    writable_buffer_deinit(&clone);
    writable_buffer_deinit(&materialized);
 
