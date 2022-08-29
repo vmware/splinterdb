@@ -90,10 +90,12 @@ test_log_crash(clockcache             *cc,
       {
          platform_default_log("log_test_basic: key or data mismatch\n");
          data_key_to_string(cfg->data_cfg, skey, key_str, 128);
-         data_message_to_string(cfg->data_cfg, mmessage, data_str, 128);
+         data_message_to_string(
+            cfg->data_cfg, (cache *)cc, mmessage, data_str, 128);
          platform_default_log("expected: %s -- %s\n", key_str, data_str);
          data_key_to_string(cfg->data_cfg, returned_key, key_str, 128);
-         data_message_to_string(cfg->data_cfg, returned_message, data_str, 128);
+         data_message_to_string(
+            cfg->data_cfg, (cache *)cc, returned_message, data_str, 128);
          platform_default_log("actual: %s -- %s\n", key_str, data_str);
          platform_assert(0);
       }

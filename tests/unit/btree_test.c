@@ -417,14 +417,14 @@ leaf_split_tests(btree_config    *cfg,
       bool success = btree_leaf_incorporate_tuple(
          cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
       if (success) {
-         btree_print_locked_node(Platform_error_log_handle, cfg, 0, hdr);
+         btree_print_locked_node(Platform_error_log_handle, cfg, NULL, 0, hdr);
          ASSERT_FALSE(success,
                       "Weird.  An incorporate that was supposed to fail "
                       "actually succeeded (nkvs=%d, realnkvs=%d, i=%d).\n",
                       nkvs,
                       realnkvs,
                       i);
-         btree_print_locked_node(Platform_error_log_handle, cfg, 0, hdr);
+         btree_print_locked_node(Platform_error_log_handle, cfg, NULL, 0, hdr);
          ASSERT_FALSE(success);
       }
       leaf_splitting_plan plan =

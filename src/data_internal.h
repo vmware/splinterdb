@@ -11,7 +11,9 @@
 #define __DATA_INTERNAL_H
 
 #include "splinterdb/data.h"
+#include "cache.h"
 #include "util.h"
+#include "blob.h"
 
 static inline char *
 message_type_string(message_type type)
@@ -226,19 +228,32 @@ data_key_to_string(const data_config *cfg, slice key, char *str, size_t size)
 
 static inline void
 data_message_to_string(const data_config *cfg,
+                       cache             *cc,
                        message            msg,
                        char              *str,
                        size_t             size)
 {
-   cfg->message_to_string(cfg, msg, str, size);
+   if (message_isblob(msg)) {
+      slice           sblob = message_slice(msg);
+      writable_buffer materialized;
+      writable_buffer_init(&materialized, NULL);
+      blob_materialize(
+         cc, sblob, 0, blob_length(sblob), PAGE_TYPE_MISC, &materialized);
+      message materialized_msg = message_create(
+         message_class(msg), writable_buffer_to_slice(&materialized));
+      cfg->message_to_string(cfg, materialized_msg, str, size);
+      writable_buffer_deinit(&materialized);
+   } else {
+      cfg->message_to_string(cfg, msg, str, size);
+   }
 }
 
-#define message_string(cfg, msg)                                               \
+#define message_string(cfg, cc, msg)                                           \
    (({                                                                         \
        struct {                                                                \
           char buffer[128];                                                    \
        } b;                                                                    \
-       data_message_to_string((cfg), (msg), b.buffer, 128);                    \
+       data_message_to_string((cfg), (cc), (msg), b.buffer, 128);              \
        b;                                                                      \
     }).buffer)
 

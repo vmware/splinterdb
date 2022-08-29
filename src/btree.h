@@ -399,6 +399,7 @@ btree_print_tree(platform_log_handle *log_handle,
 void
 btree_print_locked_node(platform_log_handle *log_handle,
                         btree_config        *cfg,
+                        cache               *cc,
                         uint64               addr,
                         btree_hdr           *hdr);
 
@@ -464,9 +465,12 @@ btree_key_to_string(btree_config *cfg, slice key, char str[static 128])
 }
 
 static inline void
-btree_message_to_string(btree_config *cfg, message data, char str[static 128])
+btree_message_to_string(btree_config *cfg,
+                        cache        *cc,
+                        message       data,
+                        char          str[static 128])
 {
-   return data_message_to_string(cfg->data_cfg, data, str, 128);
+   return data_message_to_string(cfg->data_cfg, cc, data, str, 128);
 }
 
 #endif // __BTREE_H__

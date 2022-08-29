@@ -3141,6 +3141,7 @@ btree_print_index_node(platform_log_handle *log_handle,
 static void
 btree_print_leaf_node(platform_log_handle *log_handle,
                       btree_config        *cfg,
+                      cache               *cc,
                       uint64               addr,
                       btree_hdr           *hdr)
 {
@@ -3167,7 +3168,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
                    "[%2lu]: %s -- %s\n",
                    i,
                    key_string(dcfg, leaf_entry_key_slice(entry)),
-                   message_string(dcfg, leaf_entry_message(entry)));
+                   message_string(dcfg, cc, leaf_entry_message(entry)));
    }
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "\n");
@@ -3184,6 +3185,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
 void
 btree_print_locked_node(platform_log_handle *log_handle,
                         btree_config        *cfg,
+                        cache               *cc,
                         uint64               addr,
                         btree_hdr           *hdr)
 {
@@ -3192,7 +3194,7 @@ btree_print_locked_node(platform_log_handle *log_handle,
    if (btree_height(hdr) > 0) {
       btree_print_index_node(log_handle, cfg, addr, hdr);
    } else {
-      btree_print_leaf_node(log_handle, cfg, addr, hdr);
+      btree_print_leaf_node(log_handle, cfg, cc, addr, hdr);
    }
    platform_log(log_handle, "} -- End BTree node at addr=%lu\n", addr);
 }
@@ -3212,7 +3214,7 @@ btree_print_node(platform_log_handle *log_handle,
       return;
    }
    btree_node_get(cc, cfg, node, PAGE_TYPE_BRANCH);
-   btree_print_locked_node(log_handle, cfg, node->addr, node->hdr);
+   btree_print_locked_node(log_handle, cfg, cc, node->addr, node->hdr);
    btree_node_unget(cc, cfg, node);
 }
 
@@ -3389,9 +3391,9 @@ btree_verify_node(cache        *cc,
                platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
                btree_print_locked_node(
-                  Platform_error_log_handle, cfg, node.addr, node.hdr);
+                  Platform_error_log_handle, cfg, cc, node.addr, node.hdr);
                btree_print_locked_node(
-                  Platform_error_log_handle, cfg, child.addr, child.hdr);
+                  Platform_error_log_handle, cfg, cc, child.addr, child.hdr);
                platform_assert(0);
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
@@ -3411,9 +3413,9 @@ btree_verify_node(cache        *cc,
                platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
                btree_print_locked_node(
-                  Platform_error_log_handle, cfg, node.addr, node.hdr);
+                  Platform_error_log_handle, cfg, cc, node.addr, node.hdr);
                btree_print_locked_node(
-                  Platform_error_log_handle, cfg, child.addr, child.hdr);
+                  Platform_error_log_handle, cfg, cc, child.addr, child.hdr);
                platform_assert(0);
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);

@@ -449,7 +449,7 @@ trunk_key_to_string(trunk_handle *spl, const char *key, char str[static 128])
 static inline void
 trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
 {
-   btree_message_to_string(&spl->cfg.btree_cfg, msg, str);
+   btree_message_to_string(&spl->cfg.btree_cfg, spl->cc, msg, str);
 }
 
 static inline void

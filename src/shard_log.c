@@ -13,6 +13,7 @@
 
 #include "shard_log.h"
 #include "data_internal.h"
+#include "blob_build.h"
 
 #include "poison.h"
 
@@ -79,7 +80,8 @@ shard_log_get_thread_data(shard_log *log, threadid thr_id)
 page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
-   uint64 addr = mini_alloc_page(&log->mini, 0, NULL_SLICE, next_extent);
+   uint64 addr =
+      mini_alloc_page(&log->mini, NUM_BLOB_BATCHES, NULL_SLICE, next_extent);
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
@@ -102,7 +104,8 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(log, thr_i);
       thread_data->addr   = SHARD_UNMAPPED;
-      thread_data->offset = 0;
+      thread_data->offset            = 0;
+      thread_data->pages_outstanding = 0;
    }
 
    // the log uses an unkeyed mini allocator
@@ -145,6 +148,7 @@ struct ONDISK log_entry {
    uint16 keylen;
    uint16 messagelen;
    uint8  msg_type;
+   bool   msg_isblob;
    char   contents[];
 };
 
@@ -271,6 +275,7 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
    cursor->keylen     = slice_length(key);
    cursor->messagelen = message_length(msg);
    cursor->msg_type   = message_class(msg);
+   cursor->msg_isblob = message_isblob(msg);
    memmove(log_entry_key_cursor(cursor), slice_data(key), slice_length(key));
    memmove(
       log_entry_message_cursor(cursor), message_data(msg), message_length(msg));
@@ -282,6 +287,10 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
    cache_unlock(cc, page);
    cache_unclaim(cc, page);
    cache_unget(cc, page);
+
+   if (message_isblob(msg)) {
+      blob_sync(cc, message_slice(msg), &thread_data->pages_outstanding);
+   }
 
    return 0;
 }
@@ -494,10 +503,11 @@ shard_log_print(shard_log *log)
                  !terminal_log_entry(cfg, page->data, le);
                  le = log_entry_next(le))
             {
-               platform_default_log("%s -- %s : %lu\n",
-                                    key_string(dcfg, log_entry_key(le)),
-                                    message_string(dcfg, log_entry_message(le)),
-                                    le->generation);
+               platform_default_log(
+                  "%s -- %s : %lu\n",
+                  key_string(dcfg, log_entry_key(le)),
+                  message_string(dcfg, cc, log_entry_message(le)),
+                  le->generation);
             }
          }
          cache_unget(cc, page);
