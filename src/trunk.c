@@ -1032,7 +1032,7 @@ trunk_node_unlock(trunk_handle *spl, page_handle *node)
 page_handle *
 trunk_alloc(trunk_handle *spl, uint64 height)
 {
-   uint64 addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
+   uint64 addr = mini_alloc_page(&spl->mini, height, NULL_SLICE, NULL);
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 

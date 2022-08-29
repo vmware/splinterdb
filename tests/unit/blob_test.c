@@ -148,6 +148,7 @@ CTEST2(blob, build_unkeyed)
                       NULL_SLICE,
                       writable_buffer_to_slice(&original),
                       PAGE_TYPE_MISC,
+                      1,
                       &blob);
       platform_assert_status_ok(rc);
 
@@ -172,6 +173,7 @@ CTEST2(blob, build_unkeyed)
                       writable_buffer_to_slice(&blob),
                       PAGE_TYPE_MISC,
                       PAGE_TYPE_MISC,
+                      1,
                       &clone);
       platform_assert_status_ok(rc);
 

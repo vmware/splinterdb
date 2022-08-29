@@ -589,6 +589,9 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64         *next_extent)
 {
    uint64 extent_size = cache_extent_size(mini->cc);
+   if (alignment == 0) {
+      alignment = 1;
+   }
    debug_assert(batch < MINI_MAX_BATCHES);
    debug_assert(batch < mini->num_batches);
    debug_assert(num_bytes <= extent_size);
@@ -659,15 +662,38 @@ mini_alloc_bytes(mini_allocator *mini,
 }
 
 uint64
-mini_alloc(mini_allocator *mini,
-           uint64          batch,
-           const slice     key,
-           uint64         *next_extent)
+mini_alloc_page(mini_allocator *mini,
+                uint64          batch,
+                const slice     key,
+                uint64         *next_extent)
 {
    uint64          alloced_addrs[2] = {0, 0};
    uint64          page_size        = cache_page_size(mini->cc);
    platform_status rc               = mini_alloc_bytes(
       mini, batch, page_size, page_size, 0, key, alloced_addrs, next_extent);
+   debug_assert(alloced_addrs[1] == 0);
+   if (!SUCCESS(rc)) {
+      return 0;
+   }
+   return alloced_addrs[0];
+}
+
+uint64
+mini_alloc_extent(mini_allocator *mini,
+                  uint64          batch,
+                  const slice     key,
+                  uint64         *next_extent)
+{
+   uint64          alloced_addrs[2] = {0, 0};
+   uint64          extent_size      = cache_extent_size(mini->cc);
+   platform_status rc               = mini_alloc_bytes(mini,
+                                         batch,
+                                         extent_size,
+                                         extent_size,
+                                         0,
+                                         key,
+                                         alloced_addrs,
+                                         next_extent);
    debug_assert(alloced_addrs[1] == 0);
    if (!SUCCESS(rc)) {
       return 0;

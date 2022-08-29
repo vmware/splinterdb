@@ -79,7 +79,7 @@ shard_log_get_thread_data(shard_log *log, threadid thr_id)
 page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
-   uint64 addr = mini_alloc(&log->mini, 0, NULL_SLICE, next_extent);
+   uint64 addr = mini_alloc_page(&log->mini, 0, NULL_SLICE, next_extent);
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 

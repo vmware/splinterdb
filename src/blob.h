@@ -99,9 +99,6 @@ blob_materialize(cache           *cc,
                  writable_buffer *result);
 
 platform_status
-blob_issue_writebacks(cache *cc, slice sblob);
-
-bool
-blob_is_durable(cache *cc, slice sblob);
+blob_sync(cache *cc, slice sblob, uint64 *pages_outstanding);
 
 #endif /* __BLOB_H */

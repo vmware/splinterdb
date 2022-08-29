@@ -1013,7 +1013,7 @@ btree_alloc(cache          *cc,
             page_type       type,
             btree_node     *node)
 {
-   node->addr = mini_alloc(mini, height, key, next_extent);
+   node->addr = mini_alloc_page(mini, height, key, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
    // If this btree is for a memetable

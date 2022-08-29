@@ -79,10 +79,16 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64         *next_extent);
 
 uint64
-mini_alloc(mini_allocator *mini,
-           uint64          batch,
-           const slice     key,
-           uint64         *next_extent);
+mini_alloc_page(mini_allocator *mini,
+                uint64          batch,
+                const slice     key,
+                uint64         *next_extent);
+
+uint64
+mini_alloc_extent(mini_allocator *mini,
+                  uint64          batch,
+                  const slice     key,
+                  uint64         *next_extent);
 
 platform_status
 mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr);

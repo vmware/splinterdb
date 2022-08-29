@@ -287,3 +287,28 @@ out:
    blob_page_iterator_deinit(&iter);
    return rc;
 }
+
+platform_status
+blob_sync(cache *cc, slice sblob, uint64 *pages_outstanding)
+{
+   uint64      page_size   = cache_page_size(cc);
+   uint64      extent_size = cache_extent_size(cc);
+   parsed_blob pblob;
+   parse_blob(extent_size, page_size, slice_data(sblob), &pblob);
+
+   for (int i = 0; i < pblob.num_extents; i++) {
+      cache_extent_sync(cc, pblob.extents[i], pages_outstanding);
+   }
+
+   for (int i = 0;
+        i < ARRAY_SIZE(pblob.leftovers) && 0 < pblob.leftovers[i].length;
+        i++)
+   {
+      uint64 extent_addr = cache_extent_base_addr(cc, pblob.leftovers[i].addr);
+      /* FIXME: [robj 2022-08-28] Would like to use cache_page_sync but it
+         doesn't support the pages_outstanding feedback mechanism. */
+      cache_extent_sync(cc, extent_addr, pages_outstanding);
+   }
+
+   return STATUS_OK;
+}
