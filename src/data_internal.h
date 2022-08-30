@@ -40,7 +40,7 @@ extern message DELETE_MESSAGE;
 static inline message
 message_create(message_type type, slice data)
 {
-   return (message){.type = type, .data = data};
+   return (message){.type = type, .isblob = FALSE, .data = data};
 }
 
 static inline bool

@@ -253,13 +253,13 @@ mini_allocator_get_new_extent(mini_allocator *mini, uint64 *addr)
  *        is overloaded onto the meta_head disk-allocator ref count.
  *
  * Results:
- *      The 0th batch next address to be allocated.
+ *      platform_status
  *
  * Side effects:
  *      None.
  *-----------------------------------------------------------------------------
  */
-uint64
+platform_status
 mini_init(mini_allocator *mini,
           cache          *cc,
           data_config    *cfg,
@@ -317,7 +317,7 @@ mini_init(mini_allocator *mini,
       platform_assert_status_ok(rc);
    }
 
-   return mini->next_extent[0];
+   return STATUS_OK;
 }
 
 /*

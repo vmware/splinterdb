@@ -382,9 +382,7 @@ BLOB_SYS = $(OBJDIR)/$(SRCDIR)/blob.o        \
 				 	 $(CLOCKCACHE_SYS)
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
-            $(OBJDIR)/$(SRCDIR)/data_internal.o   \
-            $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
-            $(CLOCKCACHE_SYS)
+						$(BLOB_SYS)
 
 #################################################################
 # The dependencies of each mini unit test.

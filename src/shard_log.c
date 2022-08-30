@@ -85,58 +85,6 @@ shard_log_alloc(shard_log *log, uint64 *next_extent)
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
 }
 
-platform_status
-shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
-{
-   memset(log, 0, sizeof(shard_log));
-   log->cc        = cc;
-   log->cfg       = cfg;
-   log->super.ops = &shard_log_ops;
-
-   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
-   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
-
-   allocator      *al = cache_allocator(cc);
-   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
-   platform_assert_status_ok(rc);
-
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data =
-         shard_log_get_thread_data(log, thr_i);
-      thread_data->addr   = SHARD_UNMAPPED;
-      thread_data->offset            = 0;
-      thread_data->pages_outstanding = 0;
-   }
-
-   // the log uses an unkeyed mini allocator
-   log->addr = mini_init(&log->mini,
-                         cc,
-                         log->cfg->data_cfg,
-                         log->meta_head,
-                         0,
-                         1,
-                         PAGE_TYPE_LOG,
-                         FALSE);
-   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
-   // log->meta_head);
-
-   return STATUS_OK;
-}
-
-void
-shard_log_zap(shard_log *log)
-{
-   cache *cc = log->cc;
-
-   for (threadid i = 0; i < MAX_THREADS; i++) {
-      shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
-      thread_data->addr                  = SHARD_UNMAPPED;
-      thread_data->offset                = 0;
-   }
-
-   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
-}
-
 /*
  * -------------------------------------------------------------------------
  * Header for a key/message pair stored in the sharded log: Disk-resident
@@ -224,6 +172,64 @@ get_new_page_for_thread(shard_log             *log,
    thread_data->offset   = sizeof(shard_log_hdr);
    return 0;
 }
+
+platform_status
+shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
+{
+   memset(log, 0, sizeof(shard_log));
+   log->cc        = cc;
+   log->cfg       = cfg;
+   log->super.ops = &shard_log_ops;
+
+   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
+   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
+
+   allocator      *al = cache_allocator(cc);
+   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
+   platform_assert_status_ok(rc);
+
+   // the log uses an unkeyed mini allocator
+   mini_init(&log->mini,
+             cc,
+             log->cfg->data_cfg,
+             log->meta_head,
+             0,
+             NUM_BLOB_BATCHES + 1,
+             PAGE_TYPE_LOG,
+             FALSE);
+   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
+   // log->meta_head);
+
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(log, thr_i);
+      page_handle *page;
+      get_new_page_for_thread(log, thread_data, &page);
+      cache_unlock(cc, page);
+      cache_unclaim(cc, page);
+      cache_unget(cc, page);
+      thread_data->pages_outstanding = 0;
+   }
+
+   log->addr = shard_log_get_thread_data(log, 0)->addr;
+
+   return STATUS_OK;
+}
+
+void
+shard_log_zap(shard_log *log)
+{
+   cache *cc = log->cc;
+
+   for (threadid i = 0; i < MAX_THREADS; i++) {
+      shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
+      thread_data->addr                  = SHARD_UNMAPPED;
+      thread_data->offset                = 0;
+   }
+
+   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
+}
+
 
 int
 shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)

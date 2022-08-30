@@ -50,7 +50,7 @@ typedef struct mini_allocator {
    uint64          next_extent[MINI_MAX_BATCHES];
 } mini_allocator;
 
-uint64
+platform_status
 mini_init(mini_allocator *mini,
           cache          *cc,
           data_config    *cfg,
