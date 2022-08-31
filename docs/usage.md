@@ -85,3 +85,5 @@ looks out-of-date, please open an issue or pull request.
   configuration of a SplinterDB instance, creating heap memory, allocating
   memory for various sub-system configurations, and initialization of
   individual sub-systems.
+- [`splinterdb-cli`](../rust/splinterdb-cli) is a small Rust program that demonstrates inserts, lookups, deletes and
+  range scans, and includes a multithreaded test of insert performance.

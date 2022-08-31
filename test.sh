@@ -41,6 +41,8 @@ echo "$Me: build_dir='${build_dir}', BINDIR='${BINDIR}'"
 INCLUDE_SLOW_TESTS="${INCLUDE_SLOW_TESTS:-false}"
 RUN_NIGHTLY_TESTS="${RUN_NIGHTLY_TESTS:-false}"
 RUN_MAKE_TESTS="${RUN_MAKE_TESTS:-false}"
+WITH_RUST="${WITH_RUST:-false}"
+TEST_RUST_CLI="${TEST_RUST_CLI:-${WITH_RUST}}"
 
 # Name of /tmp file to record test-execution times
 test_exec_log_file="/tmp/${Me}.$$.log"
@@ -729,6 +731,28 @@ run_splinter_perf_tests
 run_btree_tests
 
 run_other_driver_tests
+
+# ------------------------------------------------------------------------
+if [ "$WITH_RUST" = "true" ]; then
+   start_seconds=$SECONDS
+   echo
+   set -x
+   pushd rust
+      cargo fmt --all -- --check
+      cargo build
+      cargo test
+      cargo clippy -- -D warnings
+      cargo build --release
+      cargo test --release
+   popd
+   set +x
+   record_elapsed_time ${start_seconds} "Rust build"
+fi
+
+# ------------------------------------------------------------------------
+if [ "$TEST_RUST_CLI" = "true" ]; then
+   run_with_timing "Perf-test driven by splinterdb-cli" bin/splinterdb-cli -f /tmp/splinterdb-rust-test perf -t 4 -w 10000
+fi
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

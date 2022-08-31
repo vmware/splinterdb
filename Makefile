@@ -499,3 +499,9 @@ install: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 .PHONY: compile_flags.txt
 compile_flags.txt:
 	echo "$(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE)" | tr ' ' "\n" > compile_flags.txt
+
+$(BINDIR)/splinterdb-cli: $(LIBDIR)/libsplinterdb.a $(BINDIR)/. $(wildcard rust/**/*)
+	@($(CC) --version | grep clang || (echo "Rust builds require clang.  Set your CC env var." && exit 1))
+
+	(test -e .debug && (cd rust && cargo build)) || (cd rust && cargo build --release)
+	(test -e .debug && cp -p rust/target/debug/splinterdb-cli $@) || (cp -p rust/target/release/splinterdb-cli $@)
