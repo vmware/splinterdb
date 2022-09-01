@@ -165,6 +165,10 @@ typedef struct ONDISK {
    uint8 data[0];
 } var_len_key_encoding;
 
+static_assert((MAX_KEY_SIZE >= 8), "MAX_KEY_SIZE must be at least 8 bytes");
+static_assert((MAX_KEY_SIZE <= 105),
+              "Keys larger than 105 bytes are currently not supported");
+
 static_assert((SPLINTERDB_MAX_KEY_SIZE + sizeof(var_len_key_encoding)
                == MAX_KEY_SIZE),
               "Variable-length key encoding header size mismatch");
