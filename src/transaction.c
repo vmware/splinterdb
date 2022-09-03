@@ -97,7 +97,7 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
 
    // Step 3: Validate the Read Set
    for (uint64 i = 0; i < tt_txn->read_cnt; ++i) {
-      tictoc_rw_entry *r = &tt_txn->read_set[i];
+      tictoc_rw_entry *r = tictoc_get_read_set_entry(tt_txn, i);
 
       slice rkey = writable_buffer_to_slice(&r->key);
 
@@ -115,7 +115,11 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
          bool is_read_entry_locked_by_another =
             tuple_ts.rts <= tt_txn->commit_ts
             && lock_table_is_range_locked(txn_kvsb->lock_tbl, rkey, rkey)
-            && tictoc_rw_entry_is_not_in_write_set(tt_txn, r);
+            && tictoc_rw_entry_is_not_in_write_set(
+               tt_txn,
+               r,
+               txn_kvsb->tcfg->txn_data_cfg->application_data_config);
+
          bool need_to_abort =
             is_read_entry_written_by_another || is_read_entry_locked_by_another;
          if (need_to_abort) {

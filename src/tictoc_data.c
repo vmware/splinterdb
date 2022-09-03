@@ -2,7 +2,7 @@
 
 #include "data_internal.h"
 
-#define SET_SIZE_LIMIT 1024
+#define SET_SIZE_LIMIT 16
 
 tictoc_timestamp_set
 get_ts_from_tictoc_rw_entry(tictoc_rw_entry *entry)
@@ -63,14 +63,17 @@ tictoc_get_write_set_entry(tictoc_transaction *tt_txn, uint64 i)
 
 bool
 tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
-                                    tictoc_rw_entry    *entry)
+                                    tictoc_rw_entry    *entry,
+                                    const data_config  *cfg)
 {
+   slice entry_key = writable_buffer_to_slice(&entry->key);
+
    // TODO: feel free to implement binary search
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
-      tictoc_rw_entry *w = &tt_txn->write_set[i];
-      if (slices_equal(writable_buffer_to_slice(&w->tuple),
-                       writable_buffer_to_slice(&entry->tuple)))
-      {
+      tictoc_rw_entry *w    = &tt_txn->write_set[i];
+      slice            wkey = writable_buffer_to_slice(&w->key);
+
+      if (data_key_compare(cfg, entry_key, wkey) == 0) {
          return FALSE;
       }
    }

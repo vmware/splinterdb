@@ -38,7 +38,8 @@ tictoc_rw_entry_is_invalid(tictoc_rw_entry *entry);
 
 bool
 tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
-                                    tictoc_rw_entry    *entry);
+                                    tictoc_rw_entry    *entry,
+                                    const data_config  *cfg);
 
 void
 tictoc_transaction_init(tictoc_transaction *tt_txn);
