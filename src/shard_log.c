@@ -273,7 +273,6 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
       cache_lock(cc, page);
    }
 
-   shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
    log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
    uint64         new_entry_size = log_entry_size(key, msg);
    uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
@@ -292,7 +291,6 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
          return -1;
       }
       cursor = (log_entry *)(page->data + thread_data->offset);
-      hdr    = (shard_log_hdr *)page->data;
    }
 
    cursor->generation = generation;
@@ -399,13 +397,13 @@ shard_log_iterator_init(cache              *cc,
 
    // traverse the log extents and calculate the required space
    bool page_terminal = FALSE;
-   extent_addr = addr;
+   extent_addr        = addr;
    while (extent_addr != 0 && !page_terminal
           && cache_get_ref(cc, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent && !page_terminal; i++) {
-         page_addr = extent_addr + i * shard_log_page_size(cfg);
+         page_addr          = extent_addr + i * shard_log_page_size(cfg);
          page               = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          shard_log_hdr *hdr = (shard_log_hdr *)page->data;
          if (hdr->magic == magic) {
@@ -438,8 +436,8 @@ shard_log_iterator_init(cache              *cc,
       cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent && !page_terminal; i++) {
-         page_addr = extent_addr + i * shard_log_page_size(cfg);
-         page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         page_addr          = extent_addr + i * shard_log_page_size(cfg);
+         page               = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          shard_log_hdr *hdr = (shard_log_hdr *)page->data;
          if (hdr->magic == magic) {
             log_entry *le;
@@ -543,9 +541,9 @@ shard_log_print(shard_log *log)
       cache_prefetch(cc, extent_addr, PAGE_TYPE_FILTER);
       uint64 next_extent_addr = 0;
       for (uint64 i = 0; i < pages_per_extent && !page_terminal; i++) {
-         uint64       page_addr = extent_addr + i * shard_log_page_size(cfg);
-         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
-         shard_log_hdr *hdr       = (shard_log_hdr *)page->data;
+         uint64         page_addr = extent_addr + i * shard_log_page_size(cfg);
+         page_handle   *page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         shard_log_hdr *hdr  = (shard_log_hdr *)page->data;
          if (hdr->magic == log->magic) {
             next_extent_addr = shard_log_next_extent_addr(cfg, page);
             log_entry *le;

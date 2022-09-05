@@ -64,8 +64,8 @@ typedef struct shard_log_iterator {
  * ---------------------------------------------------------------
  */
 typedef struct ONDISK shard_log_hdr {
-   uint64      magic;
-   uint64      next_extent_addr;
+   uint64 magic;
+   uint64 next_extent_addr;
 } shard_log_hdr;
 
 platform_status
