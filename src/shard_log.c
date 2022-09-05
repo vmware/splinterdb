@@ -273,9 +273,9 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
       cache_lock(cc, page);
    }
 
-   log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
-   uint64         new_entry_size = log_entry_size(key, msg);
-   uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
+   log_entry *cursor         = (log_entry *)(page->data + thread_data->offset);
+   uint64     new_entry_size = log_entry_size(key, msg);
+   uint64     free_space = shard_log_page_size(log->cfg) - thread_data->offset;
    debug_assert(new_entry_size
                 <= shard_log_page_size(log->cfg) - sizeof(shard_log_hdr));
 
