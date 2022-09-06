@@ -492,7 +492,7 @@ test-results: all-tests
 
 INSTALL_PATH ?= /usr/local
 
-install:
+install: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib
