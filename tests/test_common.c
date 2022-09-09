@@ -55,6 +55,7 @@ verify_tuple(trunk_handle           *spl,
          platform_error_log("expected data: %s\n", data_str);
          platform_assert(FALSE);
       }
+      merge_accumulator_deinit(&expected_msg);
    }
 }
 
