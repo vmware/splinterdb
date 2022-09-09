@@ -21,7 +21,7 @@
 
 // Insecure or difficult to use string functions
 #pragma GCC poison strlen
-#pragma GCC poison strncpy
+// #pragma GCC poison strncpy
 
 /* String parsing functions we don't want to use */
 
