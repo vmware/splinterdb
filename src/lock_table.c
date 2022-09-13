@@ -171,6 +171,17 @@ lock_table_acquire_range_lock(lock_table *lock_tbl, slice start, slice last)
    return (void *)lock_table_insert(lock_tbl, start, last);
 }
 
+// If there is a lock owner, it returns NULL
+range_lock
+lock_table_try_acquire_range_lock(lock_table *lock_tbl, slice start, slice last)
+{
+   if (lock_table_exist_overlap(lock_tbl, start, last)) {
+      return NULL;
+   }
+
+   return (void *)lock_table_insert(lock_tbl, start, last);
+}
+
 void
 lock_table_release_range_lock(lock_table *lock_tbl, range_lock rng_lock)
 {

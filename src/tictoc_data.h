@@ -66,7 +66,7 @@ void
 tictoc_transaction_sort_write_set(tictoc_transaction *tt_txn,
                                   const data_config  *cfg);
 
-void
+bool
 tictoc_transaction_lock_all_write_set(tictoc_transaction *tt_txn,
                                       lock_table         *lock_tbl);
 

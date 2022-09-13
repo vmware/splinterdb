@@ -19,6 +19,11 @@ lock_table_destroy(lock_table *lock_tbl);
 range_lock
 lock_table_acquire_range_lock(lock_table *lock_tbl, slice start, slice last);
 
+range_lock
+lock_table_try_acquire_range_lock(lock_table *lock_tbl,
+                                  slice       start,
+                                  slice       last);
+
 void
 lock_table_release_range_lock(lock_table *lock_tbl, range_lock rng_lock);
 

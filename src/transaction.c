@@ -376,7 +376,12 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
    // Step 1: Lock Write Set
    tictoc_transaction_sort_write_set(
       tt_txn, txn_kvsb->tcfg->txn_data_cfg->application_data_config);
-   tictoc_transaction_lock_all_write_set(tt_txn, txn_kvsb->lock_tbl);
+
+   while (tictoc_transaction_lock_all_write_set(tt_txn, txn_kvsb->lock_tbl)
+          == FALSE)
+   {
+      platform_sleep(1000); // 1us is the value that is mentioned in the paper
+   }
 
    if (tictoc_validation(txn_kvsb, &txn->tictoc)) {
       tictoc_write(txn_kvsb, &txn->tictoc);

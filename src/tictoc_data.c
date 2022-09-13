@@ -132,15 +132,39 @@ tictoc_transaction_sort_write_set(tictoc_transaction *tt_txn,
                       NULL);
 }
 
-void
+bool
 tictoc_transaction_lock_all_write_set(tictoc_transaction *tt_txn,
                                       lock_table         *lock_tbl)
 {
+#if 0
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
       tictoc_rw_entry *we   = &tt_txn->write_set[i];
       slice            wkey = writable_buffer_to_slice(&we->key);
       we->rng_lock = lock_table_acquire_range_lock(lock_tbl, wkey, wkey);
    }
+#endif
+
+   uint64 locked_cnt = 0;
+   for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
+      tictoc_rw_entry *we   = &tt_txn->write_set[i];
+      slice            wkey = writable_buffer_to_slice(&we->key);
+      we->rng_lock = lock_table_try_acquire_range_lock(lock_tbl, wkey, wkey);
+
+      bool need_to_revert = (we->rng_lock == NULL);
+      if (need_to_revert) {
+         for (uint64 j = 0; j < locked_cnt; ++j) {
+            tictoc_rw_entry *e = tictoc_get_write_set_entry(tt_txn, j);
+            lock_table_release_range_lock(lock_tbl, e->rng_lock);
+            e->rng_lock = NULL;
+         }
+
+         return FALSE;
+      }
+
+      ++locked_cnt;
+   }
+
+   return TRUE;
 }
 
 void
