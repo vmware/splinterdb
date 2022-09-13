@@ -82,15 +82,18 @@ tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
 }
 
 void
-tictoc_transaction_init(tictoc_transaction *tt_txn)
+tictoc_transaction_init(tictoc_transaction         *tt_txn,
+                        transaction_isolation_level isol_level)
 {
    tt_txn->read_write_set =
       TYPED_ARRAY_ZALLOC(0, tt_txn->read_write_set, 2 * SET_SIZE_LIMIT);
-   tt_txn->read_set  = &tt_txn->read_write_set[0];
-   tt_txn->write_set = &tt_txn->read_write_set[SET_SIZE_LIMIT];
-   tt_txn->read_cnt  = 0;
-   tt_txn->write_cnt = 0;
-   tt_txn->commit_ts = 0;
+   tt_txn->read_set   = &tt_txn->read_write_set[0];
+   tt_txn->write_set  = &tt_txn->read_write_set[SET_SIZE_LIMIT];
+   tt_txn->read_cnt   = 0;
+   tt_txn->write_cnt  = 0;
+   tt_txn->commit_rts = 0;
+   tt_txn->commit_wts = 0;
+   tt_txn->isol_level = isol_level;
 }
 
 void

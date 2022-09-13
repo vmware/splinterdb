@@ -42,7 +42,8 @@ tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
                                     const data_config  *cfg);
 
 void
-tictoc_transaction_init(tictoc_transaction *tt_txn);
+tictoc_transaction_init(tictoc_transaction         *tt_txn,
+                        transaction_isolation_level isol_level);
 
 void
 tictoc_transaction_deinit(tictoc_transaction *tt_txn, lock_table *lock_tbl);

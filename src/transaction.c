@@ -33,6 +33,26 @@ get_ts_from_splinterdb(const splinterdb     *kvsb,
    return 0;
 }
 
+static inline bool
+is_serializable(tictoc_transaction *tt_txn)
+{
+   return (tt_txn->isol_level == TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE);
+}
+
+/* Uncomment if necessary
+static inline bool
+is_snapshot_isolation(tictoc_transaction *tt_txn)
+{
+   return (tt_txn->isol_level == TRANSACTION_ISOLATION_LEVEL_SNAPSHOT);
+}
+*/
+
+static inline bool
+is_repeatable_read(tictoc_transaction *tt_txn)
+{
+   return (tt_txn->isol_level == TRANSACTION_ISOLATION_LEVEL_REPEATABLE_READ);
+}
+
 /*
  * Algorithm 1: Read Phase
  */
@@ -79,20 +99,26 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
                   tictoc_transaction       *tt_txn)
 {
    // Step 2: Compute the Commit Timestamp
-   tt_txn->commit_ts = 0;
+   tt_txn->commit_wts = 0;
+   tt_txn->commit_rts = 0;
 
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
       tictoc_rw_entry     *w = tictoc_get_write_set_entry(tt_txn, i);
       tictoc_timestamp_set tuple_ts;
       get_ts_from_splinterdb(
          txn_kvsb->kvsb, writable_buffer_to_slice(&w->key), &tuple_ts);
-      tt_txn->commit_ts = MAX(tt_txn->commit_ts, tuple_ts.rts + 1);
+      tt_txn->commit_wts = MAX(tt_txn->commit_wts, tuple_ts.rts + 1);
    }
 
    for (uint64 i = 0; i < tt_txn->read_cnt; ++i) {
       tictoc_rw_entry     *r        = tictoc_get_read_set_entry(tt_txn, i);
       tictoc_timestamp_set entry_ts = get_ts_from_tictoc_rw_entry(r);
-      tt_txn->commit_ts             = MAX(tt_txn->commit_ts, entry_ts.wts);
+      tt_txn->commit_rts            = MAX(tt_txn->commit_rts, entry_ts.wts);
+   }
+
+   if (is_serializable(tt_txn) || is_repeatable_read(tt_txn)) {
+      tt_txn->commit_rts = tt_txn->commit_wts =
+         MAX(tt_txn->commit_rts, tt_txn->commit_wts);
    }
 
    // Step 3: Validate the Read Set
@@ -103,7 +129,7 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
 
       tictoc_timestamp_set read_entry_ts = get_ts_from_tictoc_rw_entry(r);
 
-      bool is_read_entry_invalid = read_entry_ts.rts < tt_txn->commit_ts;
+      bool is_read_entry_invalid = read_entry_ts.rts < tt_txn->commit_rts;
       if (is_read_entry_invalid) {
          platform_mutex_lock(&txn_kvsb->g_lock);
 
@@ -113,7 +139,7 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
          bool is_read_entry_written_by_another =
             read_entry_ts.wts != tuple_ts.wts;
          bool is_read_entry_locked_by_another =
-            tuple_ts.rts <= tt_txn->commit_ts
+            tuple_ts.rts <= tt_txn->commit_rts
             && lock_table_is_range_locked(txn_kvsb->lock_tbl, rkey, rkey)
             && tictoc_rw_entry_is_not_in_write_set(
                tt_txn,
@@ -127,8 +153,9 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
             return FALSE;
          }
 
-         uint32 new_rts            = MAX(tt_txn->commit_ts, tuple_ts.rts);
-         bool   need_to_update_rts = new_rts != tuple_ts.rts;
+         uint32 new_rts = MAX(tt_txn->commit_rts, tuple_ts.rts);
+         bool   need_to_update_rts =
+            (new_rts != tuple_ts.rts) && !is_repeatable_read(tt_txn);
          if (need_to_update_rts) {
             writable_buffer ts;
             writable_buffer_init(&ts, 0); // FIXME: use a correct heap_id
@@ -154,13 +181,13 @@ tictoc_write(transactional_splinterdb *txn_kvsb, tictoc_transaction *tt_txn)
    const splinterdb *kvsb = txn_kvsb->kvsb;
 
    for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
-      tictoc_rw_entry     *w              = &tt_txn->write_set[i];
+      tictoc_rw_entry     *w = tictoc_get_write_set_entry(tt_txn, i);
       tictoc_timestamp_set write_entry_ts = get_ts_from_tictoc_rw_entry(w);
-      if (write_entry_ts.wts != tt_txn->commit_ts
-          || write_entry_ts.rts != tt_txn->commit_ts)
+      if (write_entry_ts.wts != tt_txn->commit_wts
+          || write_entry_ts.rts != tt_txn->commit_wts)
       {
-         write_entry_ts.wts = tt_txn->commit_ts;
-         write_entry_ts.rts = tt_txn->commit_ts;
+         write_entry_ts.wts = tt_txn->commit_wts;
+         write_entry_ts.rts = tt_txn->commit_wts;
 
          tictoc_tuple_header *tuple = writable_buffer_data(&w->tuple);
          memcpy(&tuple->ts_set, &write_entry_ts, sizeof(tictoc_timestamp_set));
@@ -281,6 +308,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    transactional_splinterdb_config *txn_splinterdb_cfg;
    txn_splinterdb_cfg = TYPED_ZALLOC(0, txn_splinterdb_cfg);
    memcpy(txn_splinterdb_cfg, kvsb_cfg, sizeof(txn_splinterdb_cfg->kvsb_cfg));
+   txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
 
    txn_splinterdb_cfg->txn_data_cfg =
       TYPED_ZALLOC(0, txn_splinterdb_cfg->txn_data_cfg);
@@ -361,7 +389,7 @@ int
 transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
                                transaction              *txn)
 {
-   tictoc_transaction_init(&txn->tictoc);
+   tictoc_transaction_init(&txn->tictoc, txn_kvsb->tcfg->isol_level);
    return 0;
 }
 
@@ -463,4 +491,15 @@ uint64
 transactional_splinterdb_key_size(transactional_splinterdb *txn_kvsb)
 {
    return txn_kvsb->tcfg->kvsb_cfg.data_cfg->key_size;
+}
+
+void
+transactional_splinterdb_set_isolation_level(
+   transactional_splinterdb   *txn_kvsb,
+   transaction_isolation_level isol_level)
+{
+   platform_assert(isol_level > TRANSACTION_ISOLATION_LEVEL_INVALID);
+   platform_assert(isol_level < TRANSACTION_ISOLATION_LEVEL_MAX_VALID);
+
+   txn_kvsb->tcfg->isol_level = isol_level;
 }

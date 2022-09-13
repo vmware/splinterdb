@@ -38,7 +38,6 @@ transactional_splinterdb_open(const splinterdb_config   *kvsb_cfg,
 void
 transactional_splinterdb_close(transactional_splinterdb **txn_kvsb);
 
-
 // Register the current thread so that it can be used with splinterdb.
 // This causes scratch space to be allocated for the thread.
 //
@@ -63,17 +62,26 @@ transactional_splinterdb_register_thread(transactional_splinterdb *kvs);
 void
 transactional_splinterdb_deregister_thread(transactional_splinterdb *kvs);
 
+typedef enum {
+   TRANSACTION_ISOLATION_LEVEL_INVALID = 0,
+   TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE,
+   TRANSACTION_ISOLATION_LEVEL_SNAPSHOT,
+   TRANSACTION_ISOLATION_LEVEL_REPEATABLE_READ,
+   TRANSACTION_ISOLATION_LEVEL_MAX_VALID
+} transaction_isolation_level;
 
 typedef struct tictoc_rw_entry tictoc_rw_entry;
 
 // TODO: use interval_tree_node for tictoc_rw_entry
 typedef struct tictoc_transaction {
-   tictoc_rw_entry *read_write_set;
-   tictoc_rw_entry *read_set;
-   tictoc_rw_entry *write_set;
-   uint64           read_cnt;
-   uint64           write_cnt;
-   uint64           commit_ts;
+   tictoc_rw_entry            *read_write_set;
+   tictoc_rw_entry            *read_set;
+   tictoc_rw_entry            *write_set;
+   uint64                      read_cnt;
+   uint64                      write_cnt;
+   uint64                      commit_rts;
+   uint64                      commit_wts;
+   transaction_isolation_level isol_level;
 } tictoc_transaction;
 
 typedef struct transaction {
@@ -123,5 +131,10 @@ transactional_splinterdb_lookup_result_init(
    uint64                    buffer_len, // IN
    char                     *buffer      // IN
 );
+
+void
+transactional_splinterdb_set_isolation_level(
+   transactional_splinterdb   *txn_kvsb,
+   transaction_isolation_level isol_level);
 
 #endif // _TRANSACTION_H_
