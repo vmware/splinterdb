@@ -63,19 +63,18 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
             slice                     key,
             splinterdb_lookup_result *result)
 {
-   tictoc_rw_entry *r = tictoc_get_new_read_set_entry(tt_txn);
-   platform_assert(!tictoc_rw_entry_is_invalid(r));
-
    int rc = splinterdb_lookup(txn_kvsb->kvsb, key, result);
 
    if (splinterdb_lookup_found(result)) {
+      tictoc_rw_entry *r = tictoc_get_new_read_set_entry(tt_txn);
+      platform_assert(!tictoc_rw_entry_is_invalid(r));
+
       slice value;
       splinterdb_lookup_result_value(result, &value);
       writable_buffer_init_from_slice(&r->tuple,
                                       0,
                                       value); // FIXME: use a correct heap_id
-      writable_buffer_init_from_slice(
-         &r->key, 0, key); // FIXME: use a correct heap_id
+      tictoc_rw_entry_set_point_key(r, key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
 
       tictoc_tuple_header       *tuple   = writable_buffer_data(&r->tuple);
       _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
@@ -84,8 +83,6 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
       memmove(
          merge_accumulator_data(&_result->value), tuple->value, app_value_size);
       merge_accumulator_resize(&_result->value, app_value_size);
-   } else {
-      tictoc_delete_last_read_set_entry(tt_txn);
    }
 
    return rc;
@@ -140,7 +137,7 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
             read_entry_ts.wts != tuple_ts.wts;
          bool is_read_entry_locked_by_another =
             tuple_ts.rts <= tt_txn->commit_rts
-            && lock_table_is_range_locked(txn_kvsb->lock_tbl, rkey, rkey)
+            && lock_table_is_entry_locked(txn_kvsb->lock_tbl, r)
             && tictoc_rw_entry_is_not_in_write_set(
                tt_txn,
                r,
@@ -282,9 +279,7 @@ tictoc_local_write(transactional_splinterdb *txn_kvsb,
    platform_assert(!tictoc_rw_entry_is_invalid(w));
 
    w->op = message_class(msg);
-   writable_buffer_init_from_slice(&w->key,
-                                   0,
-                                   key); // FIXME: Use a correct heap id
+   tictoc_rw_entry_set_point_key(w, key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
 
    slice value = message_slice(msg);
 

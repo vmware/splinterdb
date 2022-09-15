@@ -72,11 +72,13 @@ typedef enum {
 
 typedef struct tictoc_rw_entry tictoc_rw_entry;
 
+#define TICTOC_RW_SET_SIZE_LIMIT 32
+
 // TODO: use interval_tree_node for tictoc_rw_entry
 typedef struct tictoc_transaction {
-   tictoc_rw_entry            *read_write_set;
-   tictoc_rw_entry            *read_set;
-   tictoc_rw_entry            *write_set;
+   tictoc_rw_entry            *read_write_set[TICTOC_RW_SET_SIZE_LIMIT];
+   tictoc_rw_entry           **read_set;
+   tictoc_rw_entry           **write_set;
    uint64                      read_cnt;
    uint64                      write_cnt;
    uint64                      commit_rts;

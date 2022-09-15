@@ -6,7 +6,6 @@
 #include "splinterdb/public_util.h"
 #include "splinterdb/transaction.h"
 #include "lock_table.h"
-#include "util.h"
 
 typedef uint32 tictoc_timestamp;
 
@@ -22,16 +21,20 @@ typedef struct ONDISK tictoc_tuple_header {
    char                 value[]; // value provided by application
 } tictoc_tuple_header;
 
-// read_set and write_set entry stored locally
-typedef struct tictoc_rw_entry {
-   message_type    op;
-   writable_buffer key;
-   writable_buffer tuple;
-   range_lock      rng_lock;
-} tictoc_rw_entry;
-
 tictoc_timestamp_set
 get_ts_from_tictoc_rw_entry(tictoc_rw_entry *entry);
+
+tictoc_rw_entry *
+tictoc_rw_entry_create();
+void
+tictoc_rw_entry_set_point_key(tictoc_rw_entry   *entry,
+                              slice              key,
+                              const data_config *app_data_cfg);
+void
+tictoc_rw_entry_set_range_key(tictoc_rw_entry   *entry,
+                              slice              key_start,
+                              slice              key_last,
+                              const data_config *app_data_cfg);
 
 bool
 tictoc_rw_entry_is_invalid(tictoc_rw_entry *entry);
@@ -53,9 +56,6 @@ tictoc_get_new_read_set_entry(tictoc_transaction *tt_txn);
 
 tictoc_rw_entry *
 tictoc_get_read_set_entry(tictoc_transaction *tt_txn, uint64 i);
-
-void
-tictoc_delete_last_read_set_entry(tictoc_transaction *tt_txn);
 
 tictoc_rw_entry *
 tictoc_get_new_write_set_entry(tictoc_transaction *tt_txn);
