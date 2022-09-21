@@ -138,8 +138,9 @@ void end_nontx_withlocks(ThreadContext *ctx){
 
 
 bool istracking(ThreadContext *ctx){
-#ifdef NO_TX
    return ctx->trackTxs;
+#ifdef NO_TX
+   return FALSE;
 #endif
 }
 
