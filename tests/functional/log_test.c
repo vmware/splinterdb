@@ -20,6 +20,42 @@
 
 #include "poison.h"
 
+platform_status
+log_write_maybe_blob(cache      *cc,
+                     log_handle *logh,
+                     slice       key,
+                     message     msg,
+                     uint64      generation)
+{
+   platform_status rc = STATUS_OK;
+   writable_buffer blob;
+   uint64          page_size  = cache_page_size(cc);
+   uint64          msg_length = message_length(msg);
+
+   if (page_size / 2 < msg_length) {
+      writable_buffer_init(&blob, NULL);
+
+      rc = log_create_blob(logh, message_slice(msg), &blob);
+      if (!SUCCESS(rc)) {
+         writable_buffer_deinit(&blob);
+         return rc;
+      }
+
+      msg.isblob = TRUE;
+      msg.data   = writable_buffer_to_slice(&blob);
+   }
+
+   if (log_write(logh, key, msg, generation)) {
+      rc = STATUS_TEST_FAILED;
+   }
+
+   if (page_size / 2 < msg_length) {
+      writable_buffer_deinit(&blob);
+   }
+
+   return rc;
+}
+
 int
 test_log_crash(clockcache             *cc,
                clockcache_config      *cache_cfg,
@@ -64,7 +100,8 @@ test_log_crash(clockcache             *cc,
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      log_write(logh, skey, merge_accumulator_to_message(&msg), i);
+      log_write_maybe_blob(
+         (cache *)cc, logh, skey, merge_accumulator_to_message(&msg), i);
    }
 
    if (crash) {
@@ -112,6 +149,7 @@ test_log_crash(clockcache             *cc,
 }
 
 typedef struct test_log_thread_params {
+   cache                  *cc;
    shard_log              *log;
    platform_thread         thread;
    int                     thread_id;
@@ -139,7 +177,8 @@ test_log_thread(void *arg)
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
-      log_write(logh, skey, merge_accumulator_to_message(&msg), i);
+      log_write_maybe_blob(
+         params->cc, logh, skey, merge_accumulator_to_message(&msg), i);
    }
 }
 
@@ -164,6 +203,7 @@ test_log_perf(cache                  *cc,
    platform_assert_status_ok(ret);
 
    for (uint64 i = 0; i < num_threads; i++) {
+      params[i].cc          = cc;
       params[i].log         = log;
       params[i].thread_id   = i;
       params[i].gen         = gen;

@@ -187,9 +187,8 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                             slice              *result)
 {
    if (iter->page == NULL) {
-      if (iter->alloc && iter->page_addr % iter->page_size == 0
-          && iter->page_offset == 0 && iter->page_size <= iter->length)
-      {
+      if (iter->alloc && iter->page_offset == 0
+          && iter->page_size <= iter->length) {
          iter->page = cache_alloc(iter->cc, iter->page_addr, iter->type);
       } else {
          iter->page = cache_get(iter->cc, iter->page_addr, TRUE, iter->type);

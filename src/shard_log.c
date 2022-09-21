@@ -24,6 +24,8 @@ static uint64 shard_log_magic_idx = 0;
 
 int
 shard_log_write(log_handle *log, slice key, message msg, uint64 generation);
+static platform_status
+shard_log_create_blob(log_handle *log, slice data, writable_buffer *result);
 uint64
 shard_log_addr(log_handle *log);
 uint64
@@ -32,10 +34,11 @@ uint64
 shard_log_magic(log_handle *log);
 
 static log_ops shard_log_ops = {
-   .write     = shard_log_write,
-   .addr      = shard_log_addr,
-   .meta_addr = shard_log_meta_addr,
-   .magic     = shard_log_magic,
+   .write       = shard_log_write,
+   .create_blob = shard_log_create_blob,
+   .addr        = shard_log_addr,
+   .meta_addr   = shard_log_meta_addr,
+   .magic       = shard_log_magic,
 };
 
 void
@@ -51,6 +54,11 @@ const static iterator_ops shard_log_iterator_ops = {
    .advance  = shard_log_iterator_advance,
    .print    = NULL,
 };
+
+blob_build_config blob_cfg = {.extent_batch  = 1,
+                              .page_batch    = 2,
+                              .subpage_batch = 3,
+                              .alignment     = 0};
 
 static inline uint64
 shard_log_page_size(shard_log_config *cfg)
@@ -80,9 +88,62 @@ shard_log_get_thread_data(shard_log *log, threadid thr_id)
 page_handle *
 shard_log_alloc(shard_log *log, uint64 *next_extent)
 {
-   uint64 addr =
-      mini_alloc_page(&log->mini, NUM_BLOB_BATCHES, NULL_SLICE, next_extent);
+   uint64 addr = mini_alloc_page(&log->mini, 0, NULL_SLICE, next_extent);
    return cache_alloc(log->cc, addr, PAGE_TYPE_LOG);
+}
+
+platform_status
+shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
+{
+   memset(log, 0, sizeof(shard_log));
+   log->cc        = cc;
+   log->cfg       = cfg;
+   log->super.ops = &shard_log_ops;
+
+   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
+   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
+
+   allocator      *al = cache_allocator(cc);
+   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
+   platform_assert_status_ok(rc);
+
+   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+      shard_log_thread_data *thread_data =
+         shard_log_get_thread_data(log, thr_i);
+      thread_data->addr              = SHARD_UNMAPPED;
+      thread_data->offset            = 0;
+      thread_data->pages_outstanding = 0;
+   }
+
+   // the log uses an unkeyed mini allocator
+   mini_init(&log->mini,
+             cc,
+             log->cfg->data_cfg,
+             log->meta_head,
+             0,
+             NUM_BLOB_BATCHES + 1,
+             PAGE_TYPE_LOG,
+             FALSE);
+   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
+   // log->meta_head);
+
+   log->addr = mini_next_addr(&log->mini, 0);
+
+   return STATUS_OK;
+}
+
+void
+shard_log_zap(shard_log *log)
+{
+   cache *cc = log->cc;
+
+   for (threadid i = 0; i < MAX_THREADS; i++) {
+      shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
+      thread_data->addr                  = SHARD_UNMAPPED;
+      thread_data->offset                = 0;
+   }
+
+   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
 }
 
 /*
@@ -170,66 +231,9 @@ get_new_page_for_thread(shard_log             *log,
    hdr->next_extent_addr = next_extent;
    hdr->num_entries      = 0;
    thread_data->offset   = sizeof(shard_log_hdr);
+   platform_default_log("Got page %lx\n", thread_data->addr);
    return 0;
 }
-
-platform_status
-shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
-{
-   memset(log, 0, sizeof(shard_log));
-   log->cc        = cc;
-   log->cfg       = cfg;
-   log->super.ops = &shard_log_ops;
-
-   uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
-   log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
-
-   allocator      *al = cache_allocator(cc);
-   platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
-   platform_assert_status_ok(rc);
-
-   // the log uses an unkeyed mini allocator
-   mini_init(&log->mini,
-             cc,
-             log->cfg->data_cfg,
-             log->meta_head,
-             0,
-             NUM_BLOB_BATCHES + 1,
-             PAGE_TYPE_LOG,
-             FALSE);
-   // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
-   // log->meta_head);
-
-   for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
-      shard_log_thread_data *thread_data =
-         shard_log_get_thread_data(log, thr_i);
-      page_handle *page;
-      get_new_page_for_thread(log, thread_data, &page);
-      cache_unlock(cc, page);
-      cache_unclaim(cc, page);
-      cache_unget(cc, page);
-      thread_data->pages_outstanding = 0;
-   }
-
-   log->addr = shard_log_get_thread_data(log, 0)->addr;
-
-   return STATUS_OK;
-}
-
-void
-shard_log_zap(shard_log *log)
-{
-   cache *cc = log->cc;
-
-   for (threadid i = 0; i < MAX_THREADS; i++) {
-      shard_log_thread_data *thread_data = shard_log_get_thread_data(log, i);
-      thread_data->addr                  = SHARD_UNMAPPED;
-      thread_data->offset                = 0;
-   }
-
-   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
-}
-
 
 int
 shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
@@ -301,6 +305,14 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
    return 0;
 }
 
+static platform_status
+shard_log_create_blob(log_handle *logh, slice data, writable_buffer *result)
+{
+   shard_log *log = (shard_log *)logh;
+   return blob_build(
+      &blob_cfg, log->cc, &log->mini, NULL_SLICE, data, PAGE_TYPE_LOG, result);
+}
+
 uint64
 shard_log_addr(log_handle *logh)
 {
@@ -326,6 +338,10 @@ bool
 shard_log_valid(shard_log_config *cfg, page_handle *page, uint64 magic)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
+   platform_default_log("Checking validity of page %lx %lx %lx\n",
+                        page->disk_addr,
+                        hdr->checksum.low64,
+                        hdr->checksum.high64);
    return hdr->magic == magic
           && platform_checksum_is_equal(hdr->checksum,
                                         shard_log_checksum(cfg, page));

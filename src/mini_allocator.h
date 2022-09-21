@@ -76,7 +76,15 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64          boundary,
                  const slice     key,
                  uint64          addrs[2],
+                 uint64         *txn_addr,
                  uint64         *next_extent);
+
+/*
+ * Users _must_ call this function after a successful call to
+ * mini_alloc_bytes.
+ */
+void
+mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch, uint64 txn_addr);
 
 uint64
 mini_alloc_page(mini_allocator *mini,
@@ -89,6 +97,17 @@ mini_alloc_extent(mini_allocator *mini,
                   uint64          batch,
                   const slice     key,
                   uint64         *next_extent);
+
+/*
+ * NOTE: If other threads perform allocations on this batch after you
+ * call this function, then the next_addr returned by this function
+ * may not be the next address you see allocated by _your_ thread.  This
+ * function is really useful only when your thread has sole access to the mini
+ * allocator (or at least to the specified batch).
+ */
+uint64
+mini_next_addr(mini_allocator *mini, uint64 batch);
+
 
 platform_status
 mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr);
@@ -147,6 +166,12 @@ static inline uint64
 mini_num_extents(mini_allocator *mini)
 {
    return mini->num_extents;
+}
+
+static inline page_type
+mini_page_type(mini_allocator *mini)
+{
+   return mini->type;
 }
 
 #endif // __MINI_ALLOCATOR_H

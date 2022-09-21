@@ -31,6 +31,11 @@ CTEST_DATA(blob)
    clockcache           clock_cache;
 };
 
+blob_build_config cfg = {.extent_batch  = 0,
+                         .page_batch    = 1,
+                         .subpage_batch = 2,
+                         .alignment     = 0};
+
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(blob)
 {
@@ -143,12 +148,12 @@ CTEST2(blob, build_unkeyed)
          writable_buffer_append(&original, 19, "this test is great!");
       }
 
-      rc = blob_build((cache *)&data->clock_cache,
+      rc = blob_build(&cfg,
+                      (cache *)&data->clock_cache,
                       &src,
                       NULL_SLICE,
                       writable_buffer_to_slice(&original),
                       PAGE_TYPE_MISC,
-                      1,
                       &blob);
       platform_assert_status_ok(rc);
 
@@ -167,13 +172,13 @@ CTEST2(blob, build_unkeyed)
                                     writable_buffer_to_slice(&materialized))
                       == 0);
 
-      rc = blob_clone((cache *)&data->clock_cache,
+      rc = blob_clone(&cfg,
+                      (cache *)&data->clock_cache,
                       &dst,
                       NULL_SLICE,
                       writable_buffer_to_slice(&blob),
                       PAGE_TYPE_MISC,
                       PAGE_TYPE_MISC,
-                      1,
                       &clone);
       platform_assert_status_ok(rc);
 

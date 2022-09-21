@@ -586,6 +586,7 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64          boundary,
                  const slice     key,
                  uint64          addrs[2],
+                 uint64         *txn_addr,
                  uint64         *next_extent)
 {
    uint64 extent_size = cache_extent_size(mini->cc);
@@ -657,8 +658,14 @@ mini_alloc_bytes(mini_allocator *mini,
       *next_extent = mini->next_extent[batch];
    }
 
-   mini_unlock_batch_set_next_addr(mini, batch, next_addr);
+   *txn_addr = next_addr;
    return STATUS_OK;
+}
+
+void
+mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch, uint64 txn_addr)
+{
+   mini_unlock_batch_set_next_addr(mini, batch, txn_addr);
 }
 
 uint64
@@ -668,13 +675,22 @@ mini_alloc_page(mini_allocator *mini,
                 uint64         *next_extent)
 {
    uint64          alloced_addrs[2] = {0, 0};
+   uint64          txn_addr;
    uint64          page_size        = cache_page_size(mini->cc);
-   platform_status rc               = mini_alloc_bytes(
-      mini, batch, page_size, page_size, 0, key, alloced_addrs, next_extent);
+   platform_status rc               = mini_alloc_bytes(mini,
+                                         batch,
+                                         page_size,
+                                         page_size,
+                                         0,
+                                         key,
+                                         alloced_addrs,
+                                         &txn_addr,
+                                         next_extent);
    debug_assert(alloced_addrs[1] == 0);
    if (!SUCCESS(rc)) {
       return 0;
    }
+   mini_alloc_bytes_finish(mini, batch, txn_addr);
    return alloced_addrs[0];
 }
 
@@ -685,6 +701,7 @@ mini_alloc_extent(mini_allocator *mini,
                   uint64         *next_extent)
 {
    uint64          alloced_addrs[2] = {0, 0};
+   uint64          txn_addr;
    uint64          extent_size      = cache_extent_size(mini->cc);
    platform_status rc               = mini_alloc_bytes(mini,
                                          batch,
@@ -693,11 +710,13 @@ mini_alloc_extent(mini_allocator *mini,
                                          0,
                                          key,
                                          alloced_addrs,
+                                         &txn_addr,
                                          next_extent);
    debug_assert(alloced_addrs[1] == 0);
    if (!SUCCESS(rc)) {
       return 0;
    }
+   mini_alloc_bytes_finish(mini, batch, txn_addr);
    return alloced_addrs[0];
 }
 
@@ -714,6 +733,15 @@ mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr)
    return STATUS_OK;
 }
 
+uint64
+mini_next_addr(mini_allocator *mini, uint64 batch)
+{
+   if (mini->next_addr[batch]) {
+      return mini->next_addr[batch];
+   } else {
+      return mini->next_extent[batch];
+   }
+}
 
 /*
  *-----------------------------------------------------------------------------
