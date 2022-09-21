@@ -423,6 +423,10 @@ $(BINDIR)/$(UNITDIR)/config_parse_test: $(UTIL_SYS)                             
                                         $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                         $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/task_system_test: $(COMMON_TESTOBJ)                             \
+                                       $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                       $(LIBDIR)/libsplinterdb.so
+
 ########################################
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
@@ -433,6 +437,8 @@ unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
 unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
+unit/config_parse_test:            $(BINDIR)/$(UNITDIR)/config_parse_test
+unit/task_system_test:             $(BINDIR)/$(UNITDIR)/task_system_test
 unit_test:                         $(BINDIR)/unit_test
 
 # -----------------------------------------------------------------------------

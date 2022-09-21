@@ -6,6 +6,8 @@
 
 #include <sys/mman.h>
 
+// Thread-local thread ID (read as: thread-index).
+// Used as an index into arrays of threads in the task system.
 __thread threadid xxxtid;
 
 bool platform_use_hugetlb = FALSE;

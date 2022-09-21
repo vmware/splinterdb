@@ -443,7 +443,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                                &kvs->io_handle,
                                &kvs->task_sys,
                                TRUE,
-                               FALSE,
+                               FALSE, // Don't use background threads
                                num_bg_threads,
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
