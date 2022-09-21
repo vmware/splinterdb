@@ -138,7 +138,9 @@ void end_nontx_withlocks(ThreadContext *ctx){
 
 
 bool istracking(ThreadContext *ctx){
+#ifdef NO_TX
    return ctx->trackTxs;
+#endif
 }
 
 bool isinTX(ThreadContext *ctx){
