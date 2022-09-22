@@ -25,8 +25,8 @@ typedef struct {
 } thread_config;
 
 // Function prototypes
-static void *
-exec_one_thread(void *arg);
+static void * exec_one_thread(void *arg);
+static void * exec_one_of_n_threads(void *arg);
 
 /*
  * Global data declaration macro:
@@ -77,7 +77,8 @@ CTEST_SETUP(task_system)
    }
 
    bool use_bg_threads = data->num_bg_threads[TASK_TYPE_NORMAL] != 0;
-   rc                  = task_system_create(data->hid,
+
+   rc = task_system_create(data->hid,
                            data->ioh,
                            &data->tasks,
                            TRUE,           // Use statistics,
@@ -105,8 +106,8 @@ CTEST2(task_system, test_basic_create_destroy)
 }
 
 /*
- * Test creation of one new thread which will do the required stuff to
- * start using Splinter interfaces (in a real application code-flow).
+ * Test creation of one new thread which will do the stuff required
+ * to start using Splinter interfaces (in a real application code-flow).
  */
 CTEST2(task_system, test_one_thread)
 {
@@ -138,6 +139,50 @@ CTEST2(task_system, test_one_thread)
    ASSERT_EQUAL(main_thread_idx, 0, "main_thread_idx=%lu", main_thread_idx);
 }
 
+/*
+ * Test creation and execution of multiple threads which will do the stuff
+ * required to start using Splinter interfaces (in a real application code-flow).
+ */
+CTEST2(task_system, test_multiple_threads)
+{
+   pthread_t     new_thread;
+   thread_config thread_cfg[MAX_THREADS];
+   thread_config *thread_cfgp = NULL;
+   int            tctr = 0;
+   int            rc = 0;
+
+   platform_default_log(" Before threads start, task_get_max_tid() = %lu ",
+                task_get_max_tid(data->tasks));
+
+   // Start-up n-threads, record their expected thread-IDs, which will be
+   // validated by the thread's execution function below.
+   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+        tctr < ARRAY_SIZE(thread_cfg);
+        tctr++, thread_cfgp++)
+   {
+      // These are independent of the new thread's creation.
+      thread_cfgp->tasks          = data->tasks;
+      thread_cfgp->exp_thread_idx = tctr;
+      thread_cfgp->this_thread_id = 0;
+
+      rc = pthread_create(&new_thread, NULL, exec_one_of_n_threads, thread_cfgp);
+      ASSERT_EQUAL(0, rc);
+
+      thread_cfgp->this_thread_id = new_thread;
+   }
+
+   // Complete execution of n-threads. Worker fn does the validation.
+   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+        tctr < ARRAY_SIZE(thread_cfg);
+        tctr++, thread_cfgp++)
+   {
+       void *thread_rc;
+       rc = pthread_join(thread_cfgp->this_thread_id, &thread_rc);
+       ASSERT_EQUAL(0, rc);
+   }
+}
+
+/* Worker routine executed by a single thread */
 static void *
 exec_one_thread(void *arg)
 {
@@ -168,5 +213,41 @@ exec_one_thread(void *arg)
                 " thread array, %lu ",
                 get_tid_after_deregister,
                 thread_cfg->exp_thread_idx);
+   return 0;
+}
+
+/* Worker routine executed by one of a set of multiple threads */
+static void *
+exec_one_of_n_threads(void *arg)
+{
+   thread_config *thread_cfg = (thread_config *)arg;
+
+   task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
+
+   threadid this_threads_index = platform_get_tid();
+
+   ASSERT_TRUE((this_threads_index < MAX_THREADS),
+               "Thread [%lu] Registered thread idx = %lu is invalid.",
+               thread_cfg->exp_thread_idx, this_threads_index);
+
+   // Test case is carefully constructed to fire-up n-threads. Wait for
+   // them to all start-up.
+   while (task_get_max_tid(thread_cfg->tasks) < MAX_THREADS) {
+      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+   }
+
+   task_deregister_this_thread(thread_cfg->tasks);
+
+   // Register / de-register of thread with SplinterDB's task system is just
+   // SplinterDB's jugglery to keep track of resources. get_tid() should still
+   // remain the thread-local storage variable, tracking the same index, seen
+   // earlier, into the threads[] array.
+   threadid get_tid_after_deregister = platform_get_tid();
+   ASSERT_EQUAL(this_threads_index,
+                get_tid_after_deregister,
+                "get_tid_after_deregister=%lu is != the index into"
+                " thread array, %lu ",
+                get_tid_after_deregister,
+                this_threads_index);
    return 0;
 }

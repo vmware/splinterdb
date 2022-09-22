@@ -13,19 +13,23 @@ static int       num_hooks      = 0;
 static task_hook hooks[MAX_HOOKS];
 
 // forward declarations that aren't part of the public API of the task system
-platform_status
+static platform_status
 task_register_hook(task_hook newhook);
 
-threadid *
+static threadid *
 task_system_get_max_tid(task_system *ts);
 
-uint64 *
+static uint64 *
 task_system_get_tid_bitmask(task_system *ts);
 
-void
+static void
 task_system_io_register_thread(task_system *ts);
 // end forward declarations
 
+/*
+ * task_init_tid_bitmask() - Initialize the global bitmask of active threads in the
+ * task system structure to indicate that no threads are currently active.
+ */
 void
 task_init_tid_bitmask(uint64 *tid_bitmask)
 {
@@ -40,6 +44,15 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
    }
 }
 
+/*
+ * init_threadid() - Initialize a new thread's thread ID (index).
+
+ * The first thing a newly started thread that wants to use Splinter is expected
+ * to do is to "register itself" with the task system. This function is
+ * defined as a thread's hook and gets run as part of the thread's
+ * registration. This function initializes each thread's thread-ID, which
+ * is really an index into the array of thread-specific data structures.
+ */
 static void
 init_threadid(task_system *ts)
 {
@@ -68,6 +81,8 @@ init_threadid(task_system *ts)
 
 out:
    debug_assert(tid != INVALID_TID);
+
+   // Sets thread-ID, tracked as thread-local storage.
    platform_set_tid(tid);
 }
 
@@ -88,7 +103,7 @@ task_get_max_tid(task_system *ts)
  * beginning of the main thread that uses the task, similar to how
  * __attribute__((constructor)) works.
  */
-void
+static void
 register_init_tid_hook(void)
 {
    // hooks need to be initialized only once.
@@ -121,7 +136,7 @@ task_clear_threadid(task_system *ts, threadid tid)
    }
 }
 
-platform_status
+static platform_status
 task_register_hook(task_hook newhook)
 {
    int my_hook_idx = __sync_fetch_and_add(&num_hooks, 1);
@@ -133,7 +148,13 @@ task_register_hook(task_hook newhook)
    return STATUS_OK;
 }
 
-// Register the calling thread and allocate scratch space for it
+/*
+ * task_register_this_thread(): Register a new thread with the task system.
+ *
+ * Registration implies:
+ *  - Acquire a new thread ID (index) for this to-be-active thread
+ *  - Allocate scratch space for this thread, and track this space..
+ */
 void
 task_register_this_thread(task_system *ts, uint64 scratch_size)
 {
@@ -149,7 +170,7 @@ task_register_this_thread(task_system *ts, uint64 scratch_size)
 void
 task_deregister_this_thread(task_system *ts)
 {
-   uint64 tid = platform_get_tid();
+   threadid tid = platform_get_tid();
 
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
@@ -583,7 +604,8 @@ task_perform_one(task_system *ts)
 /*
  * -----------------------------------------------------------------------------
  * Task system initializer. Makes sure that the initial thread has an
- * adequately sized scratch.
+ * adequately sized scratch space.
+ *
  * Needs to be called at the beginning of the main thread that uses splinter,
  * similar to how __attribute__((constructor)) works.
  * -----------------------------------------------------------------------------
@@ -636,13 +658,14 @@ task_system_create(platform_heap_id    hid,
    return STATUS_OK;
 }
 
+/* Is the task system currently setup to use background threads? */
 bool
 task_system_use_bg_threads(task_system *ts)
 {
    return ts->use_bg_threads;
 }
 
-void
+static void
 task_system_io_register_thread(task_system *ts)
 {
    io_thread_register(&ts->ioh->super);
@@ -659,13 +682,13 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
    *ts_in = (task_system *)NULL;
 }
 
-uint64 *
+static uint64 *
 task_system_get_tid_bitmask(task_system *ts)
 {
    return &ts->tid_bitmask;
 }
 
-threadid *
+static threadid *
 task_system_get_max_tid(task_system *ts)
 {
    return &ts->max_tid;
@@ -674,6 +697,7 @@ task_system_get_max_tid(task_system *ts)
 void *
 task_system_get_thread_scratch(task_system *ts, const threadid tid)
 {
+   platform_assert((tid < MAX_THREADS), "tid=%lu", tid);
    return ts->thread_scratch[tid];
 }
 

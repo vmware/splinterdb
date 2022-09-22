@@ -1,6 +1,14 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+/*
+ * task.h --
+ *
+ *  This file contains the public interfaces for the task sub-system.
+ *  Currently, SplinterDB supports MAX_THREADS (== 64) threads, driven
+ *  somewhat by the use of a 64 bit word for thread ID bitmap.
+ */
+
 #ifndef __TASK_H
 #define __TASK_H
 
@@ -81,9 +89,9 @@ typedef enum task_type {
 /*
  * ----------------------------------------------------------------------
  * Splinter specific state that gets created during initialization in
- * splinter_system_init(). Contains global state for splinter such as the
+ * splinterdb_create_or_open(). Contains global state for splinter such as the
  * init thread, init thread's scratch memory, thread_id counter and an array
- * of all the threads, which acts like a map that is accessed by thread id
+ * of all the threads, which acts like a map that is accessed by thread ID
  * to get the thread pointer.
  *
  * This structure is passed around like an opaque structure to all the
@@ -92,29 +100,31 @@ typedef enum task_type {
  * ----------------------------------------------------------------------
  */
 struct task_system {
-   // array of scratch space pointers for this system.
+   // Array of pointers to allocated scratch space for each task in the system.
+   // Register / de-registering a thread with the task system will allocate
+   // and free the memory for this scratch space.
    void *thread_scratch[MAX_THREADS];
+
    // IO handle (currently one splinter system has just one)
    platform_io_handle *ioh;
    /*
-    * bitmask used for generating and clearing thread id's.
-    * If a bit is set to 0, it means we have an in use thread id for that
-    * particular position, 1 means it is unset and that thread id is available
+    * bitmask used for generating and clearing thread IDs.
+    * If a bit is set to 0, it means we have an in-use thread ID for that
+    * particular position, 1 means it is unset and that thread ID is available
     * for use.
     */
    uint64 tid_bitmask;
-   // max thread id so far.
+   // max thread ID so far.
    threadid max_tid;
    // task groups
    task_group       group[NUM_TASK_TYPES];
-   bool             use_bg_threads;
+   bool             use_bg_threads; // Should we use background threads?
    platform_heap_id heap_id;
 
    // scratch memory for the init thread.
    uint64   scratch_size;
-   void    *init_scratch;
    threadid init_tid;
-   char     init_task_scratch[];
+   char     init_task_scratch[];    // Variable-sized scratch space buffer
 };
 
 platform_status
@@ -169,6 +179,9 @@ task_perform_all(task_system *ts);
 
 void
 task_wait_for_completion(task_system *ts);
+
+threadid
+task_get_max_tid(task_system *ts);
 
 void
 task_print_stats(task_system *ts);
