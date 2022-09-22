@@ -213,6 +213,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  *    TYPE *foo;
  *    ...
  *    foo = platform_malloc(sizeof(WRONG_TYPE));
+ *
  * WRONG_TYPE may have been the correct type and the code changed, or you may
  * have the wrong number of '*'s, or you may have copied and pasted and forgot
  * to change the type/size.
@@ -264,7 +265,6 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * Alternative solutions are to be careful with mallocs, and/or make ALL structs
  * be aligned.
  *
- *
  * Another common use case is if you have a struct with a flexible array member.
  * In that case you should use TYPED_FLEXIBLE_STRUCT_(M|Z)ALLOC
  *
@@ -272,18 +272,25 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * multiple mallocs by doing one larger malloc and setting pointers manually,
  * or the data type has a something[] or something[0] at the end) you should
  * instead use the TYPED_*ALLOC_MANUAL macros that allow you to provide the
- * exact size.  These macros currently assume (and in debug mode assert) that
+ * exact size.  These macros currently assume (and in debug mode, assert) that
  * you will never malloc LESS than the struct/type size.
  *
  * DO NOT USE these macros to assign to a void*.  The debug asserts will cause
  * a compile error when debug is on.  Assigning to a void* should be done by
  * calling aligned_alloc manually (or create a separate macro)
+ *
+ * Parameters:
+ *  id  - Platform heap-ID to allocate memory from.
+ *  v   - Structure to allocate memory for.
+ *  n   - Number of bytes of memory to allocate.
  */
 #define TYPED_MALLOC_MANUAL(id, v, n)                                          \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_malloc(id, PLATFORM_CACHELINE_SIZE, (n));    \
    })
+
+/* Same as TYPED_MALLOC_MANUAL(), but returns memory zero'ed out */
 #define TYPED_ZALLOC_MANUAL(id, v, n)                                          \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
@@ -291,25 +298,41 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
    })
 
 /*
+ * FLEXIBLE_STRUCT_SIZE(): Compute the size of a structure 'v' with a nested
+ * flexible array member, array_field_name, with 'n' members.
+ *
  * Flexible array members don't necessarily start after sizeof(v)
  * They can start within the padding at the end, so the correct size
  * needed to allocate a struct with a flexible array member is the
- * larger of sizeof(struct v) or (offset of flexible array +
- * n*sizeof(arraymember))
+ * larger of [ sizeof(struct v),
+ *             (offset of flexible array + (n * sizeof(arraymember)) ) ]
+ *
  * The only reasonable static assert we can do is check that the flexible array
  * member is actually an array.  We cannot check size==0 (compile error), and
  * since it doesn't necessarily start at the end we also cannot check
  * offset==sizeof.
+ *
+ * Parameters:
+ *  v                   - Structure to allocate memory for.
+ *  array_field_name    - Name of flexible array field nested in 'v'
+ *  n                   - Number of members in array_field_name[].
  */
 #define FLEXIBLE_STRUCT_SIZE(v, array_field_name, n)                           \
    ({                                                                          \
       _Static_assert(IS_ARRAY((v)->array_field_name),                          \
                      "flexible array members must be arrays");                 \
       max_size_t(sizeof(*(v)),                                                 \
-                 (n) * sizeof((v)->array_field_name[0])                        \
+                 ((n) * sizeof((v)->array_field_name[0]))                      \
                     + offsetof(typeof(*(v)), array_field_name));               \
    })
 
+/*
+ * Parameters:
+ *  id                  - Platform heap-ID to allocate memory from.
+ *  v                   - Structure to allocate memory for.
+ *  array_field_name    - Name of flexible array field nested in 'v'
+ *  n                   - Number of members in array_field_name[].
+ */
 #define TYPED_FLEXIBLE_STRUCT_MALLOC(id, v, array_field_name, n)               \
    TYPED_MALLOC_MANUAL(                                                        \
       id, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
@@ -320,6 +343,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
 #define TYPED_ARRAY_MALLOC(id, v, n)                                           \
    TYPED_MALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
+
 #define TYPED_ARRAY_ZALLOC(id, v, n)                                           \
    TYPED_ZALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
 

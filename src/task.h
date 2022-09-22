@@ -19,6 +19,9 @@ typedef struct task_system task_system;
 typedef void (*task_hook)(task_system *arg);
 typedef void (*task_fn)(void *arg, void *scratch);
 
+/*
+ * Definition of a single task in the task system's task groups.
+ */
 typedef struct task {
    struct task *next;
    struct task *prev;
@@ -57,7 +60,7 @@ typedef struct task_fg_thread_group {
 
 /*
  * Tasks are grouped into NUM_TASK_TYPES groups. Each group is described
- * by a structure of this type.
+ * by a structure of this type. A task group has a queue of tasks.
  */
 typedef struct task_group {
    task_system *ts;

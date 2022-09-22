@@ -118,7 +118,8 @@ splinterdb_close(splinterdb **kvs);
 // splinterdb_close will use scratch space, so the thread that calls it must
 // have been registered (or implicitly registered by being the initial thread).
 //
-// Note: There is currently a limit of MAX_THREADS registered at a given time
+// Note: There is currently a limit of MAX_THREADS that can be registered at
+//       any given time.
 void
 splinterdb_register_thread(splinterdb *kvs);
 
