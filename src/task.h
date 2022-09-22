@@ -127,7 +127,7 @@ struct task_system {
    // scratch memory for the init thread.
    uint64   scratch_size;
    threadid init_tid;
-   char     init_task_scratch[];    // Variable-sized scratch space buffer
+   char     init_task_scratch[]; // Variable-sized scratch space buffer
 };
 
 platform_status

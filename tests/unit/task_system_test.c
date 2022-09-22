@@ -25,8 +25,10 @@ typedef struct {
 } thread_config;
 
 // Function prototypes
-static void * exec_one_thread(void *arg);
-static void * exec_one_of_n_threads(void *arg);
+static void *
+exec_one_thread(void *arg);
+static void *
+exec_one_of_n_threads(void *arg);
 
 /*
  * Global data declaration macro:
@@ -141,18 +143,19 @@ CTEST2(task_system, test_one_thread)
 
 /*
  * Test creation and execution of multiple threads which will do the stuff
- * required to start using Splinter interfaces (in a real application code-flow).
+ * required to start using Splinter interfaces (in a real application
+ * code-flow).
  */
 CTEST2(task_system, test_multiple_threads)
 {
-   pthread_t     new_thread;
-   thread_config thread_cfg[MAX_THREADS];
+   pthread_t      new_thread;
+   thread_config  thread_cfg[MAX_THREADS];
    thread_config *thread_cfgp = NULL;
-   int            tctr = 0;
-   int            rc = 0;
+   int            tctr        = 0;
+   int            rc          = 0;
 
    platform_default_log(" Before threads start, task_get_max_tid() = %lu ",
-                task_get_max_tid(data->tasks));
+                        task_get_max_tid(data->tasks));
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
@@ -165,7 +168,8 @@ CTEST2(task_system, test_multiple_threads)
       thread_cfgp->exp_thread_idx = tctr;
       thread_cfgp->this_thread_id = 0;
 
-      rc = pthread_create(&new_thread, NULL, exec_one_of_n_threads, thread_cfgp);
+      rc =
+         pthread_create(&new_thread, NULL, exec_one_of_n_threads, thread_cfgp);
       ASSERT_EQUAL(0, rc);
 
       thread_cfgp->this_thread_id = new_thread;
@@ -176,9 +180,9 @@ CTEST2(task_system, test_multiple_threads)
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
-       void *thread_rc;
-       rc = pthread_join(thread_cfgp->this_thread_id, &thread_rc);
-       ASSERT_EQUAL(0, rc);
+      void *thread_rc;
+      rc = pthread_join(thread_cfgp->this_thread_id, &thread_rc);
+      ASSERT_EQUAL(0, rc);
    }
 }
 
@@ -228,7 +232,8 @@ exec_one_of_n_threads(void *arg)
 
    ASSERT_TRUE((this_threads_index < MAX_THREADS),
                "Thread [%lu] Registered thread idx = %lu is invalid.",
-               thread_cfg->exp_thread_idx, this_threads_index);
+               thread_cfg->exp_thread_idx,
+               this_threads_index);
 
    // Test case is carefully constructed to fire-up n-threads. Wait for
    // them to all start-up.

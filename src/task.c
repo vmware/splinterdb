@@ -27,8 +27,8 @@ task_system_io_register_thread(task_system *ts);
 // end forward declarations
 
 /*
- * task_init_tid_bitmask() - Initialize the global bitmask of active threads in the
- * task system structure to indicate that no threads are currently active.
+ * task_init_tid_bitmask() - Initialize the global bitmask of active threads in
+ * the task system structure to indicate that no threads are currently active.
  */
 void
 task_init_tid_bitmask(uint64 *tid_bitmask)
@@ -134,7 +134,8 @@ task_clear_threadid(task_system *ts, threadid tid)
    // Ensure that caller is only clearing for a thread that's in-use.
    platform_assert(!(bitmask_val & (1ULL << tid)),
                    "Thread [%lu] is expected to be in-use. Bitmap: 0x%lx",
-                   tid, bitmask_val);
+                   tid,
+                   bitmask_val);
 
    // set bit back to 1 to indicate a free slot.
    while (1) {
