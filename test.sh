@@ -530,17 +530,16 @@ function test_make_run_tests() {
 
 # ##################################################################
 # Smoke Tests: Run a small collection of fast-running unit-tests
+# This can be invoked w/ or w/o "--use-shmem" arg.
 # ##################################################################
 function run_fast_unit_tests() {
+   local use_shmem=$1
 
-   "$BINDIR"/unit/splinterdb_quick_test
-   "$BINDIR"/unit/btree_test
-   "$BINDIR"/unit/util_test
-   "$BINDIR"/unit/misc_test
-   "$BINDIR"/unit/limitations_test
-   "$BINDIR"/unit/task_system_test
-
-   "$BINDIR"/driver_test io_apis_test
+   "$BINDIR"/unit/splinterdb_quick_test "$use_shmem"
+   "$BINDIR"/unit/btree_test "$use_shmem"
+   "$BINDIR"/unit/util_test "$use_shmem"
+   "$BINDIR"/unit/misc_test "$use_shmem"
+   "$BINDIR"/unit/limitations_test "$use_shmem"
 }
 
 # ##################################################################
@@ -548,17 +547,34 @@ function run_fast_unit_tests() {
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been
 # found to provide the required coverage.
+# Execute this set w/ and w/o "--use-shmem" arg.
 # ##################################################################
 function run_slower_unit_tests() {
+    local use_shmem=$1
 
-    run_with_timing "Splinter inserts test" "$BINDIR"/unit/splinter_test test_inserts
+    local use_msg=
+    if [ "$use_shmem" != "" ]; then
+        use_msg="using shared memory"
+   fi
+
+    local msg="Splinter inserts test ${use_msg}"
+
+    # Allow $use_shmem to come w/o quotes. Otherwise for default execution, we
+    # end up with empty '' parameter, which causes the argument parsing routine
+    # in the program to cough-up an error.
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" "$BINDIR"/unit/splinter_test ${use_shmem} test_inserts
 
     # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
-    run_with_timing "Splinter lookups test" \
-        "$BINDIR"/unit/splinter_test --num-inserts 2000000 test_lookups
+    msg="Splinter lookups test ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/splinter_test ${use_shmem} --num-inserts 2000000 test_lookups
 
-    run_with_timing "Splinter print diagnostics test" \
-        "$BINDIR"/unit/splinter_test test_splinter_print_diags
+    msg="Splinter print diagnostics test ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/splinter_test ${use_shmem} test_splinter_print_diags
 }
 
 # ##################################################################
@@ -738,7 +754,8 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    start_seconds=$SECONDS
 
-   run_with_timing "Smoke tests" run_fast_unit_tests
+   run_with_timing "Smoke tests" run_fast_unit_tests ""
+   run_with_timing "Smoke tests using shared memory" run_fast_unit_tests "--use-shmem"
 
    if [ "$RUN_MAKE_TESTS" == "true" ]; then
       run_with_timing "Basic build-and-test tests" test_make_run_tests
@@ -774,12 +791,10 @@ run_with_timing "Fast unit tests" "$BINDIR"/unit_test
 # ------------------------------------------------------------------------
 # Run mini-unit-tests that were excluded from bin/unit_test binary:
 # ------------------------------------------------------------------------
-run_slower_unit_tests
+run_slower_unit_tests ""
 
 UNIT_TESTS_DB_DEV="unit_tests_db"
-if [ -f ${UNIT_TESTS_DB_DEV} ]; then
-    rm ${UNIT_TESTS_DB_DEV}
-fi
+if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
 
 run_splinter_functionality_tests
 
@@ -788,6 +803,16 @@ run_splinter_perf_tests
 run_btree_tests
 
 run_other_driver_tests
+
+# ------------------------------------------------------------------------
+# Re-run a collection of tests using shared-memory. Currently, not every
+# test works cleanly in this mode, so we will incrementally online stuff.
+# ------------------------------------------------------------------------
+# Run all the unit-tests first, to get basic coverage of shared-memory support.
+run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
+
+run_slower_unit_tests "--use-shmem"
+if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

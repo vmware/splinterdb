@@ -3,9 +3,9 @@
 
 #include <stdarg.h>
 #include <unistd.h>
-#include "platform.h"
-
 #include <sys/mman.h>
+#include "platform.h"
+#include "shmem.h"
 
 __thread threadid xxxtid = INVALID_TID;
 
@@ -49,10 +49,14 @@ platform_get_stdout_stream(void)
 
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
-                     uint32                max,
+                     size_t                max,
+                     bool                  use_shmem,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id)
 {
+   if (use_shmem) {
+      return platform_shmcreate(max, heap_handle, heap_id);
+   }
    *heap_handle = NULL;
    *heap_id     = NULL;
 
@@ -60,8 +64,13 @@ platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
 }
 
 void
-platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle))
-{}
+platform_heap_destroy(platform_heap_handle *heap_handle)
+{
+   // If shared segment was allocated, it's being tracked thru heap handle.
+   if (*heap_handle) {
+      return platform_shmdestroy(heap_handle);
+   }
+}
 
 /*
  * platform_buffer_init() - Initialize an input buffer_handle, bh.

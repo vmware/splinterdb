@@ -23,6 +23,7 @@
 #include "util.h"
 #include "ctest.h"
 #include "unit_tests.h"
+#include "test_misc_common.h"
 
 #define MSG_SIZE 4096
 
@@ -283,8 +284,11 @@ ctest_main(int argc, const char *argv[])
    if (!suite_name && (num_suites == 1)) {
       suite_name = curr_suite_name;
    }
-   printf("Running %d CTests, suite name '%s', test case '%s'.\n",
+   // Utility fn expects to see "--use-shmem" as the 1st arg.
+   bool use_shmem = (argc > 1) && test_using_shmem(argc, (char **)(argv + 1));
+   printf("Running %d CTests%s, suite name '%s', test case '%s'.\n",
           num_suites,
+          (use_shmem ? " using shared memory" : ""),
           (suite_name ? suite_name : "all"),
           (testcase_name ? testcase_name : "all"));
 
