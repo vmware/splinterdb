@@ -101,6 +101,9 @@
 #define B_TO_MiB(x) ((x) / MiB)
 #define B_TO_GiB(x) ((x) / GiB)
 
+// Return, as int, the fractional portion modulo a GiB for given x bytes.
+#define B_TO_GiB_FRACT(x) (int)((((x)-B_TO_GiB(x) * GiB) / (GiB * 1.0)) * 100)
+
 // Time unit constants
 #define THOUSAND (1000UL)
 #define MILLION  (THOUSAND * THOUSAND)

@@ -2637,9 +2637,7 @@ splinter_test(int argc, char *argv[])
       config_argv += 2;
    }
    if (config_argc > 0
-       && strncmp(
-             config_argv[0], "--use-shmem", sizeof("--use-shmem"))
-             == 0)
+       && strncmp(config_argv[0], "--use-shmem", sizeof("--use-shmem")) == 0)
    {
       use_shmem = TRUE;
       config_argc -= 1;
@@ -2690,11 +2688,13 @@ splinter_test(int argc, char *argv[])
    heap_capacity        = MAX(heap_capacity, 2 * GiB);
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   rc =
-      platform_heap_create(platform_get_module_id(), heap_capacity, use_shmem, &hh, &hid);
+   platform_heap_handle hh  = NULL;
+   platform_heap_id     hid = NULL;
+   rc                       = platform_heap_create(
+      platform_get_module_id(), heap_capacity, use_shmem, &hh, &hid);
    platform_assert_status_ok(rc);
+
+   goto heap_destroy;
 
    /*
     * 2. Parse test_config options, see test_config_usage()

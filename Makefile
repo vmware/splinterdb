@@ -363,7 +363,8 @@ $(foreach unit,$(UNIT_TESTBINS),$(eval $(call unit_test_self_dependency,$(unit))
 #
 # These will need to be fleshed out for filters, io subsystem, trunk,
 # etc. as we create mini unit test executables for those subsystems.
-PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o
+PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o \
+			   $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/shmem.o
 
 PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
