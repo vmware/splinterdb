@@ -15,6 +15,11 @@
 // SplinterDB's shared segment magic identifier
 #define SPLINTERDB_SHMEM_MAGIC (uint64)0xDEFACADE
 
+// Boolean globals controlling tracing of shared memory allocs / frees
+bool Trace_shmem_allocs = FALSE;
+bool Trace_shmem_frees  = FALSE;
+bool Trace_shmem        = FALSE;
+
 /*
  * -----------------------------------------------------------------------------
  * Core structure describing shared memory segment created. This lives right
@@ -121,6 +126,7 @@ platform_shmcreate(size_t                size,
       *heap_id = &shminfop->shm_id;
    }
 
+   // Always trace creation of shared memory segment.
    platform_default_log("Completed setup of shared memory of size "
                         "%lu bytes (%s), shmaddr=%p, shmid=%d,"
                         " available memory = %lu bytes (%s).\n",
@@ -200,6 +206,8 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
       shminfop->shm_id = shmid;
       return;
    }
+
+   // Always trace destroy of shared memory segment.
    platform_default_log(
       "Deallocated shared memory segment at %p, shmid=%d\n", shmaddr, shmid);
 }
@@ -251,6 +259,21 @@ platform_shm_alloc(platform_heap_id hid,
    shminfop->shm_used_bytes += size;
    shminfop->shm_free_bytes -= size;
 
+   // Trace shared memory allocation; then return memory ptr.
+   if (Trace_shmem || Trace_shmem_allocs) {
+      platform_default_log(" [%s:%d::%s()] -> %s: Allocated %lu bytes "
+                           "for object '%s', at %p, "
+                           "free bytes=%lu (~%s).\n",
+                           file,
+                           lineno,
+                           func,
+                           __func__,
+                           size,
+                           objname,
+                           retptr,
+                           shminfop->shm_free_bytes,
+                           size_str(shminfop->shm_free_bytes));
+   }
    return retptr;
 }
 
@@ -267,6 +290,16 @@ platform_shm_free(platform_heap_id hid,
                   const char      *file,
                   const int        lineno)
 {
+   if (Trace_shmem || Trace_shmem_frees) {
+      platform_default_log("  [%s:%d::%s()] -> %s: Request to free memory at "
+                           "%p for object '%s'.\n",
+                           file,
+                           lineno,
+                           func,
+                           __func__,
+                           ptr,
+                           objname);
+   }
    return;
 }
 
@@ -299,6 +332,68 @@ platform_shm_heap_handle_valid(platform_heap_handle heap_handle)
    }
 
    return TRUE;
+}
+
+/*
+ * Initialize tracing of shared memory allocs / frees. This is invoked as a
+ * result of parsing command-line args:
+ */
+void
+platform_shm_tracing_init(const bool trace_shmem,
+                          const bool trace_shmem_allocs,
+                          const bool trace_shmem_frees)
+{
+   if (trace_shmem) {
+      Trace_shmem = TRUE;
+   }
+   if (trace_shmem_allocs) {
+      Trace_shmem_allocs = TRUE;
+   }
+   if (trace_shmem_frees) {
+      Trace_shmem_frees = TRUE;
+   }
+}
+
+/*
+ * Action-methods to enable / disable tracing of shared memory operations:
+ *  ops == allocs & frees.
+ */
+void
+platform_enable_tracing_shm_ops()
+{
+   Trace_shmem = TRUE;
+}
+
+void
+platform_enable_tracing_shm_allocs()
+{
+   Trace_shmem_allocs = TRUE;
+}
+
+void
+platform_enable_tracing_shm_frees()
+{
+   Trace_shmem_frees = TRUE;
+}
+
+void
+platform_disable_tracing_shm_ops()
+{
+   Trace_shmem        = FALSE;
+   Trace_shmem_allocs = FALSE;
+   Trace_shmem_frees  = FALSE;
+}
+
+void
+platform_disable_tracing_shm_allocs()
+{
+   Trace_shmem_allocs = FALSE;
+}
+
+void
+platform_disable_tracing_shm_frees()
+{
+   Trace_shmem_frees = FALSE;
 }
 
 /* Size of control block at start of shared memory describing shared segment */

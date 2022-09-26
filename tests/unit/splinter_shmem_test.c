@@ -35,6 +35,9 @@ CTEST_SETUP(splinter_shmem)
                                              &data->hh,
                                              &data->hid);
    ASSERT_TRUE(SUCCESS(rc));
+
+   // Enable tracing all allocs / frees from shmem for this test.
+   platform_enable_tracing_shm_ops();
 }
 
 // Tear down the test shared segment.
