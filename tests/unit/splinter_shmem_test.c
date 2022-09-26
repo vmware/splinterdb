@@ -78,10 +78,21 @@ CTEST2(splinter_shmem, test_create_destroy_shmem)
  */
 CTEST2(splinter_shmem, test_aligned_allocations)
 {
-   int    keybuf_size = 64;
-   int    msgbuf_size = 128;
-   uint8 *keybuf      = TYPED_MALLOC_MANUAL(data->hid, keybuf, keybuf_size);
-   uint8 *msgbuf      = TYPED_MALLOC_MANUAL(data->hid, msgbuf, msgbuf_size);
+   int keybuf_size = 64;
+   int msgbuf_size = (2 * keybuf_size);
+
+   // Self-documenting assertion ... to future-proof this area.
+   ASSERT_EQUAL(keybuf_size, PLATFORM_CACHELINE_SIZE);
+
+   void  *next_free = platform_shm_next_free_addr(data->hid);
+   uint8 *keybuf    = TYPED_MALLOC_MANUAL(data->hid, keybuf, keybuf_size);
+
+   // Validate returned memory-ptrs, knowing that no pad bytes were needed.
+   ASSERT_TRUE((void *)keybuf == next_free);
+
+   next_free     = platform_shm_next_free_addr(data->hid);
+   uint8 *msgbuf = TYPED_MALLOC_MANUAL(data->hid, msgbuf, msgbuf_size);
+   ASSERT_TRUE((void *)msgbuf == next_free);
 
    // Sum of requested alloc-sizes == total # of used-bytes
    ASSERT_EQUAL((keybuf_size + msgbuf_size), platform_shmused(data->hid));
@@ -91,4 +102,45 @@ CTEST2(splinter_shmem, test_aligned_allocations)
    ASSERT_EQUAL((data->shmem_capacity
                  - (keybuf_size + msgbuf_size + platform_shm_ctrlblock_size())),
                 platform_shmfree(data->hid));
+}
+
+/*
+ * Test that used space and pad-bytes tracking is happening correctly
+ * when some allocation requests are not-fully aligned. Test verifies the
+ * tracking and computation of pad-bytes, free/used space.
+ */
+CTEST2(splinter_shmem, test_unaligned_allocations)
+{
+   void  *next_free   = platform_shm_next_free_addr(data->hid);
+   int    keybuf_size = 42;
+   uint8 *keybuf      = TYPED_MALLOC_MANUAL(data->hid, keybuf, keybuf_size);
+
+   int keybuf_pad = platform_alignment(PLATFORM_CACHELINE_SIZE, keybuf_size);
+
+   // Sum of requested allocation + pad-bytes == total # of used-bytes
+   ASSERT_EQUAL((keybuf_size + keybuf_pad), platform_shmused(data->hid));
+
+   ASSERT_TRUE((void *)keybuf == next_free);
+
+   // Validate returned memory-ptrs, knowing that pad bytes were needed.
+   next_free = platform_shm_next_free_addr(data->hid);
+   ASSERT_TRUE(next_free == (void *)keybuf + keybuf_size + keybuf_pad);
+
+   int    msgbuf_size = 100;
+   int    msgbuf_pad = platform_alignment(PLATFORM_CACHELINE_SIZE, msgbuf_size);
+   uint8 *msgbuf     = TYPED_MALLOC_MANUAL(data->hid, msgbuf, msgbuf_size);
+
+   // Next allocation will abut prev-allocation + pad-bytes
+   ASSERT_TRUE((void *)msgbuf == (void *)keybuf + keybuf_size + keybuf_pad);
+
+   // Sum of requested allocation + pad-bytes == total # of used-bytes
+   ASSERT_EQUAL((keybuf_size + keybuf_pad + msgbuf_size + msgbuf_pad),
+                platform_shmused(data->hid));
+
+   // After accounting for the control block, next-free-addr should be
+   // exactly past the 2 allocations + their pad-bytes.
+   next_free = platform_shm_next_free_addr(data->hid);
+   ASSERT_TRUE(next_free
+               == ((void *)data->hh + platform_shm_ctrlblock_size()
+                   + keybuf_size + keybuf_pad + msgbuf_size + msgbuf_pad));
 }

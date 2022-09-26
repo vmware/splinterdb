@@ -233,10 +233,17 @@ platform_shm_alloc(platform_heap_id hid, const size_t size)
       shminfop->shm_used_bytes,
       shminfop->shm_free_bytes);
 
+   if (shminfop->shm_free_bytes < size) {
+      return NULL;
+   }
+   void *retptr = shminfop->shm_next;
+
+   // Advance next-free-ptr and track memory usage metrics
+   shminfop->shm_next += size;
    shminfop->shm_used_bytes += size;
    shminfop->shm_free_bytes -= size;
 
-   return NULL;
+   return retptr;
 }
 
 /*
@@ -277,6 +284,9 @@ platform_shm_ctrlblock_size()
    return sizeof(shmem_info);
 }
 
+/*
+ * Shmem-accessor interfaces by heap_handle.
+ */
 size_t
 platform_shmsize_by_hh(platform_heap_handle heap_handle)
 {
@@ -301,6 +311,17 @@ platform_shmfree_by_hh(platform_heap_handle heap_handle)
               : 0);
 }
 
+void *
+platform_shm_next_free_addr_by_hh(platform_heap_handle heap_handle)
+{
+   return (platform_shm_heap_handle_valid(heap_handle)
+              ? ((shmem_info *)heap_handle)->shm_next
+              : NULL);
+}
+
+/*
+ * Shmem-accessor interfaces by heap_id.
+ */
 size_t
 platform_shmsize(platform_heap_id heap_id)
 {
@@ -316,4 +337,11 @@ size_t
 platform_shmfree(platform_heap_id heap_id)
 {
    return (platform_shmfree_by_hh(platform_heap_id_to_handle(heap_id)));
+}
+
+void *
+platform_shm_next_free_addr(platform_heap_id heap_id)
+{
+   return (
+      platform_shm_next_free_addr_by_hh(platform_heap_id_to_handle(heap_id)));
 }

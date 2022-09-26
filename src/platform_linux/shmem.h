@@ -44,6 +44,9 @@ platform_shmfree_by_hh(platform_heap_handle heap_handle);
 size_t
 platform_shmused_by_hh(platform_heap_handle heap_handle);
 
+void *
+platform_shm_next_free_addr_by_hh(platform_heap_handle heap_handle);
+
 /*
  * Interfaces to retrieve size(s) using heap_id, which is what's
  * known externally to memory allocation interfaces.
@@ -56,5 +59,8 @@ platform_shmfree(platform_heap_id heap_id);
 
 size_t
 platform_shmused(platform_heap_id heap_id);
+
+void *
+platform_shm_next_free_addr(platform_heap_id heap_id);
 
 #endif // __PLATFORM_SHMEM_H__
