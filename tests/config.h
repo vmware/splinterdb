@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "clockcache.h"
+#include "clockcache.h" // Nested #include's task.h and related tokens.
 #include "splinterdb/data.h"
 #include "io.h"
 #include "rc_allocator.h"
@@ -18,6 +18,9 @@
 #include "util.h"
 
 extern const char *BUILD_VERSION;
+
+// RESOLVE: This should be tied to SPLINTERDB_NUM_TASK_TYPES
+#define TEST_NUM_TASK_TYPES NUM_TASK_TYPES
 
 /*
  * --------------------------------------------------------------------------
@@ -75,14 +78,23 @@ typedef struct master_config {
    uint64 num_memtable_bg_threads; // for background threads to be enabled
 
    // splinter
-   uint64               memtable_capacity;
-   uint64               fanout;
-   uint64               max_branches_per_node;
-   uint64               use_stats;
-   uint64               reclaim_threshold;
-   uint64               queue_scale_percent;
-   bool                 verbose_logging_enabled;
-   bool                 verbose_progress;
+   uint64 memtable_capacity;
+   uint64 fanout;
+   uint64 max_branches_per_node;
+   uint64 use_stats;
+   uint64 reclaim_threshold;
+   uint64 queue_scale_percent;
+   bool   verbose_logging_enabled;
+   bool   verbose_progress;
+
+   // Shared memory suppot
+   uint64 shmem_size;
+   bool   use_shmem; // Memory allocation done from shared segment
+   bool   trace_shmem_allocs;
+   bool   trace_shmem_frees;
+   bool   trace_shmem; // Trace both allocs & frees from shared memory
+   bool   fork_child;  // Default is FALSE
+
    platform_log_handle *log_handle;
 
    // data
@@ -92,6 +104,8 @@ typedef struct master_config {
    // Test-execution configuration parameters
    uint64 seed;
    uint64 num_inserts;
+   uint64 num_threads;
+   bool   wait_for_gdb; // To debug child processes.
 } master_config;
 
 

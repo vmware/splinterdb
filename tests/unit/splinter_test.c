@@ -29,6 +29,7 @@
 #include "functional/test.h"
 #include "functional/test_async.h"
 #include "test_common.h"
+#include "test_misc_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -127,9 +128,15 @@ CTEST_SETUP(splinter)
    heap_capacity        = MIN(heap_capacity, UINT32_MAX);
    heap_capacity        = MAX(heap_capacity, 2 * GiB);
 
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+   if (use_shmem) {
+      platform_default_log("Run test using shared memory segment.\n");
+   }
+
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
                                              heap_capacity,
+                                             use_shmem,
                                              &data->hh,
                                              &data->hid);
    platform_assert_status_ok(rc);

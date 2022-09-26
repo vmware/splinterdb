@@ -825,7 +825,12 @@ static inline void                 trunk_inc_intersection          (trunk_handle
 void                               trunk_memtable_flush_virtual    (void *arg, uint64 generation);
 platform_status                    trunk_memtable_insert           (trunk_handle *spl, key tuple_key, message data);
 void                               trunk_bundle_build_filters      (void *arg, void *scratch);
-static inline void                 trunk_inc_filter                (trunk_handle *spl, routing_filter *filter);
+
+#define trunk_inc_filter(spl, filter)                     \
+        trunk_inc_filter_ref((spl), (filter), __LINE__)
+
+static inline void                 trunk_inc_filter_ref            (trunk_handle *spl, routing_filter *filter, uint32 lineno);
+
 static inline void                 trunk_dec_filter                (trunk_handle *spl, routing_filter *filter);
 void                               trunk_compact_bundle            (void *arg, void *scratch);
 platform_status                    trunk_flush                     (trunk_handle *spl, trunk_node *parent, trunk_pivot_data *pdata, bool is_space_rec);
@@ -3145,7 +3150,11 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
 
    new_branch->root_addr = req.root_addr;
 
-   platform_assert(req.num_tuples > 0);
+   platform_assert((req.num_tuples > 0),
+                   "num_tuples=%lu, generation=%lu, tid=%lu\n",
+                   generation,
+                   tid,
+                   req.num_tuples);
    uint64 filter_build_start;
    if (spl->cfg.use_stats) {
       filter_build_start = platform_get_timestamp();
@@ -3538,9 +3547,15 @@ trunk_routing_cfg(trunk_handle *spl)
 }
 
 static inline void
-trunk_inc_filter(trunk_handle *spl, routing_filter *filter)
+trunk_inc_filter_ref(trunk_handle *spl, routing_filter *filter, uint32 lineno)
 {
-   debug_assert(filter->addr != 0);
+   debug_assert((filter->addr != 0),
+                "From line=%d, addr=%lu, meta_head=%lu"
+                ", num_fingerprints=%u\n",
+                lineno,
+                filter->addr,
+                filter->meta_head,
+                filter->num_fingerprints);
    mini_unkeyed_inc_ref(spl->cc, filter->meta_head);
 }
 
@@ -3701,6 +3716,7 @@ trunk_prepare_build_filter(trunk_handle             *spl,
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+
       if (trunk_bundle_live_for_pivot(
              spl, node, compact_req->bundle_no, pivot_no)) {
          uint64 pos = trunk_process_generation_to_pos(
@@ -3967,6 +3983,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
 
 out:
    platform_free(spl->heap_id, compact_req->fp_arr);
+
    platform_free(spl->heap_id, compact_req);
    trunk_maybe_reclaim_space(spl);
    return;
@@ -4064,6 +4081,7 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
    if (trunk_pivot_bundle_count(spl, parent, pdata) != 0) {
       uint16 pivot_start_sb_no =
          trunk_pivot_start_subbundle(spl, parent, pdata);
+
       for (uint16 parent_sb_no = pivot_start_sb_no;
            parent_sb_no != trunk_end_subbundle(spl, parent);
            parent_sb_no = trunk_add_subbundle_number(spl, parent_sb_no, 1))
@@ -4081,6 +4099,7 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
                                      "subbundle %hu from subbundle %hu\n",
                                      trunk_subbundle_no(spl, child, child_sb),
                                      parent_sb_no);
+
          for (uint16 branch_no = parent_sb->start_branch;
               branch_no != parent_sb->end_branch;
               branch_no = trunk_add_branch_number(spl, branch_no, 1))
@@ -4092,7 +4111,9 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
             trunk_branch *new_branch = trunk_get_new_branch(spl, child);
             *new_branch              = *parent_branch;
          }
+
          child_sb->end_branch = trunk_end_branch(spl, child);
+
          for (uint16 i = 0; i < filter_count; i++) {
             routing_filter *child_filter =
                trunk_subbundle_filter(spl, child, child_sb, i);
@@ -4543,6 +4564,14 @@ trunk_btree_skiperator_deinit(trunk_handle           *spl,
  *-----------------------------------------------------------------------------
  */
 
+/*
+ * RESOLVE: btree_pack_req_init() may fail due to insufficient memory in
+ * the shared segment. We are not returning proper rc. It will be better
+ * if that fn and this fn were to return STATUS_NO_MEMORY. And teach the
+ * caller to handle it, exit gracefully.
+ *
+ * Can the trunk compact bundle action be retried when memory is available?
+ */
 static inline void
 trunk_btree_pack_req_init(trunk_handle   *spl,
                           iterator       *itor,
@@ -4674,6 +4703,17 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                       "compact_bundle split from %lu to %lu\n",
                                       req->addr,
                                       next_req->addr);
+         /*
+          * RESOLVE: How does this work that we enqueue a task giving one
+          * arg, 'next_req', but this fn takes 2 parameters. How do we
+          * pass-down scratch_buf arg via this enqueue?
+          *
+          * ? Seems like it's synthesized when this call-back fn is called
+          *    by task_group_perform_one(), which passes-in scratch space
+          *    retrieved by task_system_get_thread_scratch(, tid).
+          * ? What if the tid changes between enqueue'ing and de-queue'ing
+          *   process / thread?
+          */
          rc = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, next_req, FALSE);
          platform_assert_status_ok(rc);
@@ -5426,8 +5466,13 @@ trunk_split_leaf(trunk_handle *spl,
    key_buffer_init_from_key(
       &scratch->pivot[num_leaves], spl->heap_id, trunk_max_key(spl, leaf));
 
-   platform_assert(num_leaves + trunk_num_pivot_keys(spl, parent)
-                   <= spl->cfg.max_pivot_keys);
+   platform_assert((num_leaves + trunk_num_pivot_keys(spl, parent)
+                    <= spl->cfg.max_pivot_keys),
+                   "num_leaves=%u, trunk_num_pivot_keys()=%u"
+                   ", cfg.max_pivot_keys=%lu\n",
+                   num_leaves,
+                   trunk_num_pivot_keys(spl, parent),
+                   spl->cfg.max_pivot_keys);
 
    /*
     * 3. Clear old bundles from leaf and put all branches in a new bundle
@@ -7026,7 +7071,7 @@ trunk_range(trunk_handle  *spl,
             tuple_function func,
             void          *arg)
 {
-   trunk_range_iterator *range_itor = TYPED_MALLOC(spl->heap_id, range_itor);
+   trunk_range_iterator *range_itor = TYPED_MALLOC(NULL_HEAP_ID, range_itor);
    platform_status       rc         = trunk_range_iterator_init(
       spl, range_itor, start_key, POSITIVE_INFINITY_KEY, num_tuples);
    if (!SUCCESS(rc)) {
@@ -7047,7 +7092,7 @@ trunk_range(trunk_handle  *spl,
 
 destroy_range_itor:
    trunk_range_iterator_deinit(range_itor);
-   platform_free(spl->heap_id, range_itor);
+   platform_free(NULL_HEAP_ID, range_itor);
    return rc;
 }
 
@@ -7204,6 +7249,14 @@ trunk_mount(trunk_config     *cfg,
       trunk_release_super_block(spl, super_page);
    }
    if (spl->root_addr == 0) {
+      platform_error_log(
+         "SplinterDB device's root_addr=%lu, trunk super_block=%p."
+         " meta_tail=%lu, latest_timestamp=%lu."
+         " Cannot mount device.\n",
+         spl->root_addr,
+         super,
+         meta_tail,
+         latest_timestamp);
       platform_free(hid, spl);
       return (trunk_handle *)NULL;
    }

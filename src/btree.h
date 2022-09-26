@@ -342,17 +342,19 @@ btree_pack_req_init(btree_pack_req  *req,
    req->seed       = seed;
    if (hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
-         TYPED_ARRAY_MALLOC(hid, req->fingerprint_arr, max_tuples);
+         TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
    }
 }
 
-static inline void
-btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
-{
-   if (req->fingerprint_arr) {
-      platform_free(hid, req->fingerprint_arr);
-   }
-}
+/*
+ * Caller-macro to pass-through code-location to the underlying free method.
+ *
+ * btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
+ */
+#define btree_pack_req_deinit(req, hid)                                        \
+   if ((req)->fingerprint_arr) {                                               \
+      platform_free((hid), (req)->fingerprint_arr);                            \
+   } else
 
 platform_status
 btree_pack(btree_pack_req *req);

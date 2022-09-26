@@ -8,6 +8,7 @@
  *     This file contains the implementation for the splinter memtable.
  *-----------------------------------------------------------------------------
  */
+#include <unistd.h>
 
 #include "platform.h"
 #include "memtable.h"
@@ -288,6 +289,14 @@ memtable_context_create(platform_heap_id hid,
    cache_unlock(cc, lock_page);
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
+
+   platform_default_log("%s(): OS-Pid=%d, Thread-ID=%lu"
+                        ", insert_lock_addr=%lu, lookup_lock_addr=%lu\n",
+                        __FUNCTION__,
+                        getpid(),
+                        platform_get_tid(),
+                        ctxt->insert_lock_addr,
+                        ctxt->lookup_lock_addr);
 
    platform_spinlock_init(
       &ctxt->incorporation_lock, platform_get_module_id(), hid);

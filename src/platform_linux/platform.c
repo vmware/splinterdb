@@ -6,6 +6,7 @@
 #include "platform.h"
 
 #include <sys/mman.h>
+#include "shmem.h"
 
 __thread threadid xxxtid = INVALID_TID;
 
@@ -18,6 +19,15 @@ bool platform_use_mlock   = FALSE;
 // Use platform_set_log_streams() to send the log messages elsewhere.
 platform_log_handle *Platform_default_log_handle = NULL;
 platform_log_handle *Platform_error_log_handle   = NULL;
+
+/*
+ * Declare globals to track heap handle/ID that may have been created when
+ * using shared memory. We stash away these handles so that we can return the
+ * right handle via platform_get_heap_id() interface, in case shared segments
+ * are in use.
+ */
+platform_heap_handle Heap_handle = NULL;
+platform_heap_id     Heap_id     = NULL;
 
 // This function is run automatically at library-load time
 void __attribute__((constructor)) platform_init_log_file_handles(void)
@@ -49,10 +59,19 @@ platform_get_stdout_stream(void)
 
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
-                     uint32                max,
+                     size_t                max,
+                     bool                  use_shmem,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id)
 {
+   if (use_shmem) {
+      platform_status rc = platform_shmcreate(max, heap_handle, heap_id);
+      if (SUCCESS(rc)) {
+         Heap_handle = *heap_handle;
+         Heap_id     = *heap_id;
+      }
+      return rc;
+   }
    *heap_handle = NULL;
    *heap_id     = NULL;
 
@@ -60,8 +79,35 @@ platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
 }
 
 void
-platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle))
-{}
+platform_heap_destroy(platform_heap_handle *heap_handle)
+{
+   // If shared segment was allocated, it's being tracked thru heap handle.
+   if (*heap_handle) {
+      return platform_shmdestroy(heap_handle);
+   }
+}
+
+
+/*
+ * Warning! Testing interfaces, which are written to support verification of
+ * splinterdb handle from forked child processes when running Splinter
+ * configured with shared-segment.
+ */
+void
+platform_heap_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                    void                *addr)
+{
+   if (!heap_handle)
+      return;
+   platform_shm_set_splinterdb_handle(heap_handle, addr);
+}
+
+void *
+platform_heap_get_splinterdb_handle(platform_heap_handle heap_handle)
+{
+   return (heap_handle ? platform_shm_get_splinterdb_handle(heap_handle)
+                       : (void *)NULL);
+}
 
 /*
  * platform_buffer_init() - Initialize an input buffer_handle, bh.
@@ -76,7 +122,7 @@ platform_buffer_init(buffer_handle *bh, size_t length)
    platform_status rc = STATUS_NO_MEMORY;
 
    int prot  = PROT_READ | PROT_WRITE;
-   int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+   int flags = MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE;
    if (platform_use_hugetlb) {
       flags |= MAP_HUGETLB;
    }
@@ -181,9 +227,14 @@ platform_thread_id_self()
 platform_status
 platform_mutex_init(platform_mutex    *lock,
                     platform_module_id UNUSED_PARAM(module_id),
-                    platform_heap_id   UNUSED_PARAM(heap_id))
+                    platform_heap_id   heap_id)
 {
-   int ret     = pthread_mutex_init(&lock->mutex, NULL);
+   // Init mutex so it can be shared between processes
+   pthread_mutexattr_t mattr;
+   pthread_mutexattr_init(&mattr);
+   pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+
+   int ret     = pthread_mutex_init(&lock->mutex, (heap_id ? &mattr : NULL));
    lock->owner = INVALID_TID;
    return CONST_STATUS(ret);
 }
@@ -200,11 +251,12 @@ platform_mutex_destroy(platform_mutex *lock)
 platform_status
 platform_spinlock_init(platform_spinlock *lock,
                        platform_module_id UNUSED_PARAM(module_id),
-                       platform_heap_id   UNUSED_PARAM(heap_id))
+                       platform_heap_id   heap_id)
 {
    int ret;
 
-   ret = pthread_spin_init(lock, PTHREAD_PROCESS_PRIVATE);
+   ret = pthread_spin_init(
+      lock, (heap_id ? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE));
 
    return CONST_STATUS(ret);
 }
@@ -217,6 +269,61 @@ platform_spinlock_destroy(platform_spinlock *lock)
    ret = pthread_spin_destroy(lock);
 
    return CONST_STATUS(ret);
+}
+
+platform_status
+platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
+{
+   platform_status status;
+
+   // Init mutex so it can be shared between processes
+   pthread_mutexattr_t mattr;
+   pthread_mutexattr_init(&mattr);
+   pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+
+   status.r = pthread_mutex_init(&cv->lock, (heap_id ? &mattr : NULL));
+   if (!SUCCESS(status)) {
+      return status;
+   }
+
+   // Init condition so it can be shared between processes
+   pthread_condattr_t cattr;
+   pthread_condattr_init(&cattr);
+   pthread_condattr_setpshared(&cattr, PTHREAD_PROCESS_SHARED);
+
+   status.r = pthread_cond_init(&cv->cond, (heap_id ? &cattr : NULL));
+   if (!SUCCESS(status)) {
+      status.r = pthread_mutex_destroy(&cv->lock);
+   }
+
+   return status;
+}
+
+platform_status
+platform_condvar_wait(platform_condvar *cv)
+{
+   int status;
+
+   status = pthread_cond_wait(&cv->cond, &cv->lock);
+   return CONST_STATUS(status);
+}
+
+platform_status
+platform_condvar_signal(platform_condvar *cv)
+{
+   int status;
+
+   status = pthread_cond_signal(&cv->cond);
+   return CONST_STATUS(status);
+}
+
+platform_status
+platform_condvar_broadcast(platform_condvar *cv)
+{
+   int status;
+
+   status = pthread_cond_broadcast(&cv->cond);
+   return CONST_STATUS(status);
 }
 
 platform_status
@@ -297,51 +404,6 @@ platform_sort_slow(void               *base,
                    void               *temp)
 {
    return qsort_r(base, nmemb, size, cmpfn, cmparg);
-}
-
-platform_status
-platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
-{
-   platform_status status;
-
-   status.r = pthread_mutex_init(&cv->lock, NULL);
-   if (!SUCCESS(status)) {
-      return status;
-   }
-
-   status.r = pthread_cond_init(&cv->cond, NULL);
-   if (!SUCCESS(status)) {
-      status.r = pthread_mutex_destroy(&cv->lock);
-   }
-
-   return status;
-}
-
-platform_status
-platform_condvar_wait(platform_condvar *cv)
-{
-   int status;
-
-   status = pthread_cond_wait(&cv->cond, &cv->lock);
-   return CONST_STATUS(status);
-}
-
-platform_status
-platform_condvar_signal(platform_condvar *cv)
-{
-   int status;
-
-   status = pthread_cond_signal(&cv->cond);
-   return CONST_STATUS(status);
-}
-
-platform_status
-platform_condvar_broadcast(platform_condvar *cv)
-{
-   int status;
-
-   status = pthread_cond_broadcast(&cv->cond);
-   return CONST_STATUS(status);
 }
 
 /*

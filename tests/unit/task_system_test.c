@@ -32,6 +32,7 @@
 #include "task.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
+#include "test_misc_common.h"
 
 // Configuration for each worker thread
 typedef struct {
@@ -106,9 +107,15 @@ CTEST_SETUP(task_system)
    platform_status rc = STATUS_OK;
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
+
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+
    // Create a heap for io and task system to use.
-   rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+   rc = platform_heap_create(platform_get_module_id(),
+                             heap_capacity,
+                             use_shmem,
+                             &data->hh,
+                             &data->hid);
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
@@ -118,6 +125,10 @@ CTEST_SETUP(task_system)
    // Do minimal IO config setup, using default IO values.
    master_config master_cfg;
    config_set_defaults(&master_cfg);
+
+   // Expected args to parse: --num-bg-threads, --num-memtable-bg-threads
+   rc = config_parse(&master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
+   ASSERT_TRUE(SUCCESS(rc));
 
    io_config_init(&data->io_cfg,
                   master_cfg.page_size,
@@ -321,9 +332,13 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
                 "Before threads start, task_get_max_tid() = %lu",
                 task_get_max_tid(data->tasks));
 
+   // We may have started some background threads, if this test was so
+   // configured. So, start-up all the remaining threads.
+   threadid max_tid_so_far = task_get_max_tid(data->tasks);
+
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
@@ -336,6 +351,68 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
       ASSERT_TRUE(SUCCESS(rc));
 
       thread_cfgp->this_thread_id = new_thread;
+   }
+
+   // Complete execution of n-threads. Worker fn does the validation.
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
+        tctr < ARRAY_SIZE(thread_cfg);
+        tctr++, thread_cfgp++)
+   {
+      rc = platform_thread_join(thread_cfgp->this_thread_id);
+      ASSERT_TRUE(SUCCESS(rc));
+   }
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * This test case verifies the maximum number of threads we can start
+ * concurrently, with each thread doing some very basic Splinter activity.
+ *
+ * This test is a combination of test_multiple_threads() and
+ * test_one_thread_using_extern_apis(). We fire-up max-# of threads using
+ * external APIs and verify stability and basic functionality.
+ *
+ * RESOLVE: The shell of this test case is written but the worker function
+ * does not, yet, do anything interesting. Largely, this test case is
+ * similar to the test_multiple_threads(). We need to instantiate a
+ * Splinter instance, to make each thread do something useful. Future ...
+ * ------------------------------------------------------------------------
+ */
+CTEST2_SKIP(task_system, test_max_num_threads_using_extern_apis)
+{
+   platform_thread new_thread[MAX_THREADS];
+   thread_config   thread_cfg[MAX_THREADS];
+   thread_config  *thread_cfgp = NULL;
+   int             tctr        = 0;
+
+   ZERO_ARRAY(thread_cfg);
+
+   platform_status rc = STATUS_OK;
+
+   // Start-up n-max # of threads, to execute a worker fn that will do
+   // minimal Splinter work.
+   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+        tctr < ARRAY_SIZE(thread_cfg);
+        tctr++, thread_cfgp++)
+   {
+      // These are independent of the new thread's creation.
+      thread_cfgp->tasks          = data->tasks;
+      thread_cfgp->exp_thread_idx = tctr;
+
+      // This interface packages all the platform_thread_create() and
+      // register / deregister business, around the invocation of the
+      // user's worker function, exec_one_thread_use_extern_apis().
+      rc = task_thread_create("test_max_num_threads",
+                              exec_one_thread_use_extern_apis,
+                              thread_cfgp,
+                              trunk_get_scratch_size(),
+                              thread_cfgp->tasks,
+                              data->hid,
+                              &new_thread[tctr]);
+      ASSERT_TRUE(SUCCESS(rc));
+
+      // Record this thread's ID, for validation by worker fn.
+      thread_cfgp->this_thread_id = new_thread[tctr];
    }
 
    // Complete execution of n-threads. Worker fn does the validation.

@@ -8,6 +8,8 @@
 #include <string.h> // for memcpy, strerror
 #include <time.h>   // for nanosecond sleep api.
 
+#include "shmem.h"
+
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen)
 {
@@ -34,11 +36,13 @@ platform_checksum_is_equal(checksum128 left, checksum128 right)
    return XXH128_isEqual(left, right);
 }
 
-static inline void
-platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id), void *ptr)
-{
-   free(ptr);
-}
+static void
+platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
+                        void            *ptr,
+                        const char      *objname,
+                        const char      *func,
+                        const char      *file,
+                        int              lineno);
 
 static inline timestamp
 platform_get_timestamp(void)
@@ -109,9 +113,14 @@ platform_semaphore_destroy(platform_semaphore *sema)
 static inline void
 platform_semaphore_init(platform_semaphore *sema,
                         int                 value,
-                        platform_heap_id    UNUSED_PARAM(heap_id))
+                        platform_heap_id    heap_id)
 {
-   __attribute__((unused)) int err = sem_init(sema, 0, value);
+   // If we are running with a shared segment, it's likely that we
+   // may also fork child processes attaching to Splinter's shmem.
+   // Then, use 1 => spinlocks are shared across process boundaries.
+   // Else, use 0 => spinlocks are shared between threads in a process.
+   __attribute__((unused)) int err =
+      sem_init(sema, ((heap_id == NULL) ? 0 : 1), value);
    debug_assert(!err);
 }
 
@@ -261,7 +270,8 @@ platform_close_log_stream(platform_stream_handle *stream,
    fclose(stream->stream);
    fputs(stream->str, log_handle);
    fflush(log_handle);
-   platform_free_from_heap(NULL, stream->str);
+   platform_free_from_heap(
+      NULL, stream->str, "stream", __FUNCTION__, __FILE__, __LINE__);
 }
 
 static inline platform_log_handle *
@@ -390,7 +400,7 @@ static inline platform_heap_id
 platform_get_heap_id(void)
 {
    // void* NULL since we don't actually need a heap id
-   return NULL;
+   return Heap_id;
 }
 
 static inline platform_module_id
@@ -400,10 +410,31 @@ platform_get_module_id()
    return NULL;
 }
 
+/*
+ * Return # of bytes needed to align requested 'size' bytes at 'alignment'
+ * boundary.
+ */
+static inline size_t
+platform_alignment(const size_t alignment, const size_t size)
+{
+   return ((alignment - (size % alignment)) % alignment);
+}
+
+/*
+ * platform_aligned_malloc() -- Allocate n-bytes accounting for alignment.
+ *
+ * This interface will, by default, allocate using aligned_alloc().
+ * If Splinter is configured to run with shared memory, we will invoke the
+ * shmem-allocation function, working off of the (non-NULL) platform_heap_id.
+ */
 static inline void *
-platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
+platform_aligned_malloc(const platform_heap_id heap_id,
                         const size_t           alignment, // IN
-                        const size_t           size)                // IN
+                        const size_t           size,      // IN
+                        const char            *objname,
+                        const char            *func,
+                        const char            *file,
+                        const int              lineno)
 {
    // Requirement for aligned_alloc
    platform_assert(IS_POWER_OF_2(alignment));
@@ -415,19 +446,71 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
     * Note that since this is inlined, the compiler will turn the constant
     * (power of 2) alignment mod operations into bitwise &
     */
-   const size_t padding = (alignment - (size % alignment)) % alignment;
-   return aligned_alloc(alignment, size + padding);
+   const size_t padding  = platform_alignment(alignment, size);
+   const size_t required = (size + padding);
+
+   void *retptr = (heap_id ? splinter_shm_alloc(heap_id, required, objname)
+                           : aligned_alloc(alignment, required));
+
+   /*
+   platform_default_log(
+      "[%s:%d::%s()] Allocated %lu bytes at %p, with padding=%lu bytes.\n",
+      file,
+      lineno,
+      func,
+      size,
+      retptr,
+      padding);
+   */
+   return retptr;
 }
 
-/* Reallocing to size 0 must be equivalent to freeing.
-   Reallocing from NULL must be equivalent to allocing. */
+/*
+ * Reallocing to size 0 must be equivalent to freeing.
+ * Reallocing from NULL must be equivalent to allocing.
+ */
 static inline void *
 platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
                  void                  *ptr, // IN
                  const size_t           size)          // IN
 {
    /* FIXME: alignment? */
-   return realloc(ptr, size);
+   // Farm control off to shared-memory base realloc, if it's configured
+   if (heap_id) {
+      // The shmem-based allocator is expecting all memory requests to be of
+      // aligned sizes, as that's what platform_aligned_malloc() does. So, to
+      // keep that allocator happy, align this memory request if needed.
+      // As this is the case of realloc, we assume that it would suffice to
+      // align at platform's natural cacheline boundary.
+      const size_t padding  = platform_alignment(PLATFORM_CACHELINE_SIZE, size);
+      const size_t required = (size + padding);
+
+      return splinter_shm_realloc(heap_id, ptr, required);
+   } else {
+      return realloc(ptr, size);
+   }
+}
+
+static inline void
+platform_free_from_heap(platform_heap_id heap_id,
+                        void            *ptr,
+                        const char      *objname,
+                        const char      *func,
+                        const char      *file,
+                        int              lineno)
+{
+   debug_assert((ptr != NULL),
+                "[%s:%d::%s()] Attemping to free a NULL ptr for '%s'.\n",
+                file,
+                lineno,
+                func,
+                objname);
+
+   if (heap_id) {
+      splinter_shm_free(heap_id, ptr, objname);
+   } else {
+      free(ptr);
+   }
 }
 
 static inline platform_status
@@ -455,4 +538,4 @@ platform_condvar_destroy(platform_condvar *cv)
    pthread_cond_destroy(&cv->cond);
 }
 
-#endif
+#endif // PLATFORM_LINUX_INLINE_H

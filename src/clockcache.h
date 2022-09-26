@@ -132,6 +132,7 @@ struct clockcache {
    volatile bool  *batch_busy;
    uint64          cleaner_gap;
 
+   // Track per-thread batch of free pages to draw from and other tracking.
    volatile struct {
       volatile uint32 free_hand;
       bool            enable_sync_get;

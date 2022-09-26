@@ -3,6 +3,7 @@
 
 #include "platform.h"
 #include "task.h"
+#include "util.h"
 
 #include "poison.h"
 
@@ -165,6 +166,12 @@ task_system_io_register_thread(task_system *ts)
    io_thread_register(&ts->ioh->super);
 }
 
+static void
+task_system_io_deregister_thread(task_system *ts)
+{
+   io_thread_deregister(&ts->ioh->super);
+}
+
 /*
  * This is part of task initialization and needs to be called at the
  * beginning of the main thread that uses the task, similar to how
@@ -226,12 +233,7 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
-   platform_free(thread_started->ts->heap_id,
-                 thread_started->ts->thread_scratch[thread_started->tid]);
-
-   platform_set_tid(INVALID_TID);
-   task_deallocate_threadid(thread_started->ts, thread_started->tid);
-
+   task_deregister_thread(thread_started->ts, __FILE__, __LINE__, __FUNCTION__);
    platform_free(thread_started->heap_id, func_and_args);
 }
 
@@ -350,7 +352,11 @@ task_register_thread(task_system *ts,
    threadid thread_tid;
 
    thread_tid = platform_get_tid();
-   platform_assert(thread_tid == INVALID_TID,
+   // this check is relaxed compared to main, to allow for a pattern where
+   // a parent process creates the task system (and claims tid=0)
+   // and then forks where a child process will then want to register
+   // as an indepedent thread
+   platform_assert((thread_tid == INVALID_TID) || (thread_tid == 0),
                    "[%s:%d::%s()] Attempt to register thread that is already "
                    "registered as thread %lu\n",
                    file,
@@ -410,6 +416,7 @@ task_deregister_thread(task_system *ts,
       platform_free(ts->heap_id, scratch);
       ts->thread_scratch[tid] = NULL;
    }
+   task_system_io_deregister_thread(ts);
 
    platform_set_tid(INVALID_TID);
    task_deallocate_threadid(ts, tid); // allow thread id to be re-used
@@ -878,6 +885,7 @@ task_system_create(platform_heap_id          hid,
    // any background threads are created. (Those may grab their own tids.).
    task_register_this_thread(ts, cfg->scratch_size);
 
+   int nbg_threads_created = 0;
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type],
                                            ts,
@@ -890,7 +898,9 @@ task_system_create(platform_heap_id          hid,
          *system = NULL;
          return rc;
       }
+
       uint64 nbg_threads = cfg->num_background_threads[type];
+      nbg_threads_created += nbg_threads;
       if (nbg_threads) {
          platform_default_log("Splinter task system created %lu"
                               " background thread%sof type '%s'.\n",
@@ -902,6 +912,18 @@ task_system_create(platform_heap_id          hid,
    debug_assert((*system == NULL),
                 "Task system handle, %p, is expected to be NULL.\n",
                 *system);
+
+   // Wait-for all background threads to start-up and register. This is not
+   // really needed right now, but it allows for reliable unit-testing to verify
+   // state of the task system when bg threads are configured.
+   threadid *max_tid = task_system_get_max_tid(ts);
+   while (*max_tid < nbg_threads_created) {
+      platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
+      max_tid = task_system_get_max_tid(ts);
+      platform_default_log("nbg_threads_created=%d, max_tid=%lu\n",
+                           nbg_threads_created,
+                           *max_tid);
+   }
    *system = ts;
    return STATUS_OK;
 }
