@@ -17,4 +17,25 @@ platform_shmcreate(size_t                size,
 void
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
+static inline int
+platform_shm_alignment()
+{
+   return PLATFORM_CACHELINE_SIZE;
+}
+
+bool
+platform_shm_heap_handle_valid(platform_heap_handle *heap_handle);
+
+size_t
+platform_shm_ctrlblock_size();
+
+size_t
+platform_shmsize(platform_heap_handle *heap_handle);
+
+size_t
+platform_shmfree(platform_heap_handle *heap_handle);
+
+size_t
+platform_shmused(platform_heap_handle *heap_handle);
+
 #endif // __PLATFORM_SHMEM_H__

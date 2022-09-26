@@ -152,3 +152,57 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
       return;
    }
 }
+
+/*
+ * -----------------------------------------------------------------------------
+ * Accessor interfaces - mainly intended as testing / debugging hooks.
+ * -----------------------------------------------------------------------------
+ */
+bool
+platform_shm_heap_handle_valid(platform_heap_handle *heap_handle)
+{
+   // Establish shared memory handles and validate input addr to shared segment
+   const void *shmaddr = (void *)*heap_handle;
+
+   // Use a cached copy in case we are dealing with bogus input shmem address.
+   shmem_info shmem_info_struct;
+   memmove(&shmem_info_struct, shmaddr, sizeof(shmem_info_struct));
+
+   shmem_info *shminfop = &shmem_info_struct;
+
+   if (shminfop->shm_magic != SPLINTERDB_SHMEM_MAGIC) {
+      platform_error_log(
+         "Input heap handle, %p, does not seem to be a valid "
+         "SplinterDB shared segment's start address."
+         " Found magic 0x%lX does not match expected magic 0x%lX.\n",
+         heap_handle,
+         shminfop->shm_magic,
+         SPLINTERDB_SHMEM_MAGIC);
+      return FALSE;
+   }
+
+   return TRUE;
+}
+
+/* Size of control block at start of shared memory describing shared segment */
+size_t
+platform_shm_ctrlblock_size()
+{
+   return sizeof(shmem_info);
+}
+
+size_t
+platform_shmsize(platform_heap_handle *heap_handle)
+{
+   return (platform_shm_heap_handle_valid(heap_handle)
+              ? ((shmem_info *)heap_handle)->shm_total_bytes
+              : 0);
+}
+
+size_t
+platform_shmfree(platform_heap_handle *heap_handle)
+{
+   return (platform_shm_heap_handle_valid(heap_handle)
+              ? ((shmem_info *)heap_handle)->shm_free_bytes
+              : 0);
+}
