@@ -91,10 +91,7 @@ static io_ops laio_ops = {
  * structures and initialize the IO sub-system.
  */
 platform_status
-io_handle_init(laio_handle         *io,
-               io_config           *cfg,
-               platform_heap_handle hh,
-               platform_heap_id     hid)
+io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
 {
    int           status;
    uint64        req_size;

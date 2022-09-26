@@ -90,14 +90,13 @@ typedef struct routing_async_ctxt {
 } routing_async_ctxt;
 
 platform_status
-routing_filter_add(cache           *cc,
-                   routing_config  *cfg,
-                   platform_heap_id hid,
-                   routing_filter  *old_filter,
-                   routing_filter  *filter,
-                   uint32          *new_fp_arr,
-                   uint64           num_new_fingerprints,
-                   uint16           value);
+routing_filter_add(cache          *cc,
+                   routing_config *cfg,
+                   routing_filter *old_filter,
+                   routing_filter *filter,
+                   uint32         *new_fp_arr,
+                   uint64          num_new_fingerprints,
+                   uint16          value);
 
 platform_status
 routing_filter_lookup(cache          *cc,

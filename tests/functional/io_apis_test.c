@@ -59,8 +59,13 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 /* Device size; small one is good enough for IO APIs testing */
 #define DEVICE_SIZE_MB 128
 
-/*
- * Use small hard-coded # of threads to avoid allocating memory for
+#define HEAP_SIZE_MB 256
+
+/* SplinterDB device size; small one is good enough for IO APIs testing */
+#define SPLINTER_DEVICE_SIZE_MB 128
+
+
+/* Use small hard-coded # of threads to avoid allocating memory for
  * thread-specific arrays of parameters. It's sufficient to shake out the
  * IO sub-system APIs with just small # of threads.
  */
@@ -153,28 +158,31 @@ npages_per_thread(io_test_fn_args *io_test_param, int nthreads)
 int
 splinter_io_apis_test(int argc, char *argv[])
 {
-   uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
-
-   // Create a heap for io system's memory allocation.
-   platform_heap_handle hh  = NULL;
-   platform_heap_id     hid = NULL;
-   platform_status      rc =
-      platform_heap_create(platform_get_module_id(), heap_capacity, &hh, &hid);
-   platform_assert_status_ok(rc);
+   // Move past the 1st arg which will be the driving tag, 'io_apis_test'.
+   argc--;
+   argv++;
 
    // Do minimal IO config setup, using default IO values.
    master_config master_cfg;
 
    // Initialize the IO sub-system configuration.
-   ZERO_STRUCT(master_cfg);
    config_set_defaults(&master_cfg);
 
    // Parse config-related command-line arguments. Only expecting to support:
    // --verbose-progress
-   rc = config_parse(&master_cfg, 1, (argc - 1), (argv + 1));
+   platform_status rc = config_parse(&master_cfg, 1, argc, argv);
    if (!SUCCESS(rc)) {
       return -1;
    }
+
+   uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
+
+   // Create a heap for io system's memory allocation.
+   platform_heap_id hid = NULL;
+
+   rc = platform_heap_create(
+      platform_get_module_id(), heap_capacity, master_cfg.use_shmem, &hid);
+   platform_assert_status_ok(rc);
 
    Verbose_progress = master_cfg.verbose_progress;
 
@@ -215,7 +223,7 @@ splinter_io_apis_test(int argc, char *argv[])
 
    // Initialize the handle to the IO sub-system. A device with a small initial
    // size gets created here.
-   rc = io_handle_init(io_hdl, &io_cfg, hh, hid);
+   rc = io_handle_init(io_hdl, &io_cfg, hid);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to initialize IO handle: %s\n",
                          platform_status_to_string(rc));
@@ -278,11 +286,12 @@ splinter_io_apis_test(int argc, char *argv[])
    test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
 
    task_system_destroy(hid, &tasks);
-io_free:
    io_handle_deinit(io_hdl);
+
+io_free:
    platform_free(hid, io_hdl);
 heap_destroy:
-   platform_heap_destroy(&hh);
+   platform_heap_destroy(&hid);
 
    return (SUCCESS(rc) ? 0 : -1);
 }

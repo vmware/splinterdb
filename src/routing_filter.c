@@ -318,14 +318,13 @@ routing_get_bucket_counts(routing_config *cfg, routing_hdr *hdr, uint32 *count)
  *----------------------------------------------------------------------
  */
 platform_status
-routing_filter_add(cache           *cc,
-                   routing_config  *cfg,
-                   platform_heap_id hid,
-                   routing_filter  *old_filter,
-                   routing_filter  *filter,
-                   uint32          *new_fp_arr,
-                   uint64           num_new_fp,
-                   uint16           value)
+routing_filter_add(cache          *cc,
+                   routing_config *cfg,
+                   routing_filter *old_filter,
+                   routing_filter *filter,
+                   uint32         *new_fp_arr,
+                   uint64          num_new_fp,
+                   uint16          value)
 {
    ZERO_CONTENTS(filter);
 
@@ -396,7 +395,8 @@ routing_filter_add(cache           *cc,
                               ROUTING_FPS_PER_PAGE +      // old_fp_buffer
                               ROUTING_FPS_PER_PAGE / 32;  // encoding_buffer
    debug_assert(temp_buffer_count < 100000000);
-   uint32 *temp = TYPED_ARRAY_ZALLOC(hid, temp, temp_buffer_count);
+   uint32 *temp =
+      TYPED_ARRAY_ZALLOC(PROCESS_PRIVATE_HEAP_ID, temp, temp_buffer_count);
 
    if (temp == NULL) {
       return STATUS_NO_MEMORY;
@@ -505,7 +505,10 @@ routing_filter_add(cache           *cc,
                                           << old_remainder_and_value_size;
             }
          }
-         debug_assert(old_fp_no == old_index_count);
+         debug_assert((old_fp_no == old_index_count),
+                      "old_fp_no=%u, old_index_count=%u\n",
+                      old_fp_no,
+                      old_index_count);
 
          if (old_value_size != value_size) {
             for (old_fp_no = 0; old_fp_no < old_index_count; old_fp_no++) {
@@ -622,7 +625,7 @@ routing_filter_add(cache           *cc,
 
    mini_release(&mini, NULL_KEY);
 
-   platform_free(hid, temp);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, temp);
 
    return STATUS_OK;
 }
@@ -729,7 +732,11 @@ routing_filter_estimate_unique_fp(cache           *cc,
 
             uint32  index_bucket_start = index_no * index_size;
             uint32 *src_fp             = &fp_arr[src_fp_no];
-            platform_assert(src_fp_no + index_count <= buffer_size);
+            platform_assert((src_fp_no + index_count <= buffer_size),
+                            "src_fp_no=%u, index_count=%u, buffer_size=%u\n",
+                            src_fp_no,
+                            index_count,
+                            buffer_size);
             if (index_count != 0) {
                debug_only uint32 index_start = src_fp_no;
                PackedArray_unpack((uint32 *)block_start,

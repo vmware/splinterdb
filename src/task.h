@@ -30,6 +30,7 @@ typedef struct {
    uint64    total_queue_wait_time_ns;
    uint64    total_bg_task_executions;
    uint64    total_fg_task_executions;
+   uint64    total_tasks_enqueued;
 } PLATFORM_CACHELINE_ALIGNED task_stats;
 
 typedef struct task_queue {

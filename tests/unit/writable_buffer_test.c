@@ -10,6 +10,7 @@
  */
 #include "splinterdb/public_platform.h"
 #include "platform.h"
+#include "config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "util.h"
@@ -23,22 +24,24 @@
 CTEST_DATA(writable_buffer)
 {
    // Declare head handles for memory allocation.
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   platform_heap_id hid;
+   bool             use_shmem;
 };
 
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(writable_buffer)
 {
+   data->use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
+
    platform_status rc = platform_heap_create(
-      platform_get_module_id(), (1 * GiB), &data->hh, &data->hid);
+      platform_get_module_id(), (1 * GiB), data->use_shmem, &data->hid);
    platform_assert_status_ok(rc);
 }
 
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(writable_buffer)
 {
-   platform_heap_destroy(&data->hh);
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -129,7 +132,7 @@ CTEST2(writable_buffer, test_resize_empty_buffer_to_larger)
 }
 
 /*
- * Test basic usage, initializing to a user-provided buffer.
+ * Test basic usage, initializing to a user-provided on-stack buffer.
  */
 CTEST2(writable_buffer, test_basic_user_buffer)
 {
@@ -378,4 +381,88 @@ CTEST2(writable_buffer, test_resize_empty_buffer_then_check_apis_after_deinit)
 
    // RESOLVE - It's wrong that we still think something can be freed!
    ASSERT_FALSE(wb->can_free);
+}
+
+/*
+ * This test case is interesting as the append interfaces calls realloc
+ * below. For default heap-segment, 'realloc()' is a system-call, so stuff
+ * works ok. When we run with shared memory enabled, there were some bugs in
+ * the draft implementation of this shmem-based realloc() capability. This
+ * test case does minor verification of this behavior.
+ */
+CTEST2(writable_buffer, test_writable_buffer_append)
+{
+   writable_buffer  wb_data;
+   writable_buffer *wb = &wb_data;
+
+   writable_buffer_init(wb, data->hid);
+   const void *old_data = writable_buffer_data(wb);
+
+   const char *input_str = "Hello World!";
+   writable_buffer_append(wb, strlen(input_str), (const void *)input_str);
+   ASSERT_STREQN(writable_buffer_data(wb), input_str, strlen(input_str));
+
+   // append() should have reallocated new buffer space
+   const void *new_data = writable_buffer_data(wb);
+   ASSERT_TRUE((old_data != new_data));
+
+   input_str = "Another Hello World!";
+   writable_buffer_append(wb, strlen(input_str), (const void *)input_str);
+
+   const char *exp_str = "Hello World!Another Hello World!";
+   ASSERT_STREQN(writable_buffer_data(wb),
+                 exp_str,
+                 strlen(exp_str),
+                 "Unexpected data: '%s'\n",
+                 (char *)writable_buffer_data(wb));
+
+   // Currently, reallocation from shared-memory will not reuse the existing
+   // memory fragment, even if there is some room in it for the append. (That's
+   // an optimization which needs additional memory fragment-size info which
+   // is currently not available to the allocator.)
+   if (data->use_shmem) {
+      const void *new_data2 = writable_buffer_data(wb);
+      ASSERT_TRUE((new_data != new_data2));
+   }
+
+   writable_buffer_deinit(wb);
+}
+
+/*
+ * Variation of previous test case: Exercise append() interface to test how
+ * wb->length and capacity interact. When we have to resize the buffer to grow
+ * its capacity, it should be sufficient if we copy-over just the 'length'
+ * bytes of the original wb.
+ */
+CTEST2(writable_buffer, test_writable_buffer_append_beyond_orig_length)
+{
+   writable_buffer  wb_data;
+   writable_buffer *wb = &wb_data;
+
+   char buf[WB_ONSTACK_BUFSIZE];
+   sprintf(buf, "%s", "Hello ");
+   writable_buffer_init_with_buffer(
+      wb, data->hid, sizeof(buf), (void *)buf, strlen(buf));
+
+   // Ensure that newsg + existing message will exceed buffer's capacity.
+   const char *newmsg =
+      "World! And, Another Hello World to create long string.";
+   ASSERT_TRUE(strlen(buf) + strlen(newmsg) > sizeof(buf));
+
+   const void *old_data = writable_buffer_data(wb);
+
+   // Should have re-allocated a new buffer
+   writable_buffer_append(wb, strlen(newmsg), (const void *)newmsg);
+   const void *new_data = writable_buffer_data(wb);
+   ASSERT_TRUE((old_data != new_data));
+
+   const char *exp_str =
+      "Hello World! And, Another Hello World to create long string.";
+   ASSERT_STREQN(writable_buffer_data(wb),
+                 exp_str,
+                 strlen(exp_str),
+                 "Unexpected data: '%s'\n",
+                 (char *)writable_buffer_data(wb));
+
+   writable_buffer_deinit(wb);
 }

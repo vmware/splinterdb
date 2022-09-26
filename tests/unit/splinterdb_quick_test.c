@@ -37,6 +37,7 @@
 #include "test_data.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
+#include "config.h"
 
 #define TEST_MAX_KEY_SIZE 13
 
@@ -108,6 +109,8 @@ CTEST_SETUP(splinterdb_quick)
 {
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
+   data->cfg.use_shmem =
+      config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -696,7 +699,6 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    const char  *val      = "some-value";
    const size_t val_len  = strlen(val);
 
-
    int rc = splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val));
    ASSERT_EQUAL(0, rc);
 
@@ -965,6 +967,7 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
    *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
                                   .cache_size = 64 * Mega,
                                   .disk_size  = 127 * Mega,
+                                  .use_shmem  = FALSE,
                                   .data_cfg   = default_data_cfg};
 }
 
