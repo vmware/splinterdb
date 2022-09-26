@@ -27,11 +27,13 @@ CTEST_DATA(platform_api)
 
 CTEST_SETUP(platform_api)
 {
-   platform_status rc = STATUS_OK;
+   platform_status rc        = STATUS_OK;
+   bool            use_shmem = FALSE;
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    data->mid            = platform_get_module_id();
-   rc = platform_heap_create(data->mid, heap_capacity, &data->hh, &data->hid);
+   rc                   = platform_heap_create(
+      data->mid, heap_capacity, use_shmem, &data->hh, &data->hid);
    platform_assert_status_ok(rc);
 }
 

@@ -317,6 +317,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
       config_set_defaults(&master_cfg[i]);
    }
 
+   // Parse config-related command-line arguments
    rc = config_parse(master_cfg, num_config, argc, argv);
    if (!SUCCESS(rc)) {
       goto out;
@@ -336,6 +337,14 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
          goto out;
       }
    }
+
+   // Setup tracing of shared-memory mgmt, if so requested
+   for (i = 0; i < num_config; i++) {
+      platform_shm_tracing_init(master_cfg[i].trace_shmem,
+                                master_cfg[i].trace_shmem_allocs,
+                                master_cfg[i].trace_shmem_frees);
+   }
+
 
    // All the n-SplinterDB instances will work with the same set of
    // test execution parameters.
