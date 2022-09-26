@@ -69,6 +69,10 @@ message_to_string(const data_config *cfg,
 }
 
 
+/*
+ * Function to initialize application-specific data_config{} struct
+ * with default values.
+ */
 void
 default_data_config_init(const size_t max_key_size, // IN
                          data_config *out_cfg       // OUT

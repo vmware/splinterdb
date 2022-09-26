@@ -7047,7 +7047,7 @@ trunk_range(trunk_handle  *spl,
 
 destroy_range_itor:
    trunk_range_iterator_deinit(range_itor);
-   platform_free(spl->heap_id, range_itor);
+   platform_free(NULL_HEAP_ID, range_itor);
    return rc;
 }
 
