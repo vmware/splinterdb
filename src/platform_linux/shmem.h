@@ -17,6 +17,9 @@ platform_shmcreate(size_t                size,
 void
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
+void *
+platform_shm_alloc(platform_heap_id hid, const size_t size);
+
 static inline int
 platform_shm_alignment()
 {
@@ -24,18 +27,34 @@ platform_shm_alignment()
 }
 
 bool
-platform_shm_heap_handle_valid(platform_heap_handle *heap_handle);
+platform_shm_heap_handle_valid(platform_heap_handle heap_handle);
 
 size_t
 platform_shm_ctrlblock_size();
 
+/*
+ * Interfaces to retrieve size(s) using heap_handle.
+ */
 size_t
-platform_shmsize(platform_heap_handle *heap_handle);
+platform_shmsize_by_hh(platform_heap_handle heap_handle);
 
 size_t
-platform_shmfree(platform_heap_handle *heap_handle);
+platform_shmfree_by_hh(platform_heap_handle heap_handle);
 
 size_t
-platform_shmused(platform_heap_handle *heap_handle);
+platform_shmused_by_hh(platform_heap_handle heap_handle);
+
+/*
+ * Interfaces to retrieve size(s) using heap_id, which is what's
+ * known externally to memory allocation interfaces.
+ */
+size_t
+platform_shmsize(platform_heap_id heap_id);
+
+size_t
+platform_shmfree(platform_heap_id heap_id);
+
+size_t
+platform_shmused(platform_heap_id heap_id);
 
 #endif // __PLATFORM_SHMEM_H__

@@ -8,6 +8,8 @@
 #include <string.h> // for memcpy, strerror
 #include <time.h>   // for nanosecond sleep api.
 
+#include "shmem.h"
+
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen)
 {
@@ -401,6 +403,23 @@ platform_get_module_id()
    return NULL;
 }
 
+/*
+ * Return # of bytes needed to align requested 'size' bytes at 'alignment'
+ * boundary.
+ */
+static inline size_t
+platform_alignment(const size_t alignment, const size_t size)
+{
+   return ((alignment - (size % alignment)) % alignment);
+}
+
+/*
+ * platform_aligned_malloc() -- Allocate n-bytes accounting for alignment.
+ *
+ * This interface will, by default, allocate using aligned_alloc().
+ * If Splinter is configured to run with shared memory, we will invoke the
+ * shmem-allocation function, working off of the (non-NULL) platform_heap_id.
+ */
 static inline void *
 platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
                         const size_t           alignment, // IN
@@ -419,8 +438,12 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
     * Note that since this is inlined, the compiler will turn the constant
     * (power of 2) alignment mod operations into bitwise &
     */
-   const size_t padding = (alignment - (size % alignment)) % alignment;
-   void        *retptr  = aligned_alloc(alignment, size + padding);
+   const size_t padding  = platform_alignment(alignment, size);
+   const size_t required = (size + padding);
+
+   void *retptr = (heap_id ? platform_shm_alloc(heap_id, required)
+                           : aligned_alloc(alignment, required));
+
    platform_default_log(
       "[%s:%d::%s()] Allocated %lu bytes at %p, with padding=%lu bytes.\n",
       file,
