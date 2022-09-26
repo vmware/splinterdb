@@ -227,8 +227,12 @@ rc_allocator_init_meta_page(rc_allocator *al)
    platform_assert((1 + RC_ALLOCATOR_MAX_ROOT_IDS) * al->cfg->io_cfg->page_size
                    <= al->cfg->io_cfg->extent_size);
 
-   al->meta_page = platform_aligned_malloc(
-      al->heap_id, al->cfg->io_cfg->page_size, al->cfg->io_cfg->page_size);
+   al->meta_page = platform_aligned_malloc(al->heap_id,
+                                           al->cfg->io_cfg->page_size,
+                                           al->cfg->io_cfg->page_size,
+                                           __FUNCTION__,
+                                           __FILE__,
+                                           __LINE__);
    if (al->meta_page == NULL) {
       return STATUS_NO_MEMORY;
    }

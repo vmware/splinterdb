@@ -206,7 +206,13 @@ extern bool platform_use_mlock;
 typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
 /*
- * Utility macros to avoid common initialization mistakes.
+ * TYPED_MALLOC_MANUAL(), TYPED_ZALLOC_MANUAL() -
+ * TYPED_ARRAY_MALLOC(),  TYPED_ARRAY_ZALLOC() -
+ *
+ * NOTE: ZALLOC variants will also memset allocated memory chunk to 0.
+ *
+ * Utility macros to avoid common memory allocation / initialization mistakes.
+ *
  * Common mistake to make is:
  *    TYPE *foo = platform_malloc(sizeof(WRONG_TYPE));
  * or
@@ -243,14 +249,13 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  *    struct foo array[X()];
  * becomes
  *    struct foo *array = TYPED_ARRAY_MALLOC(array, X());
- * ZALLOC versions will also memset to 0.
  *
  * All mallocs here are cache aligned.
  * Consider the following types:
  * struct unaligned_foo {
  *   cache_aligned_type bar;
  * };
- * If you (unaligned) malloc a 'unaligned_foo', the compile is still allowed to
+ * If you (unaligned) malloc a 'unaligned_foo', the compiler is still allowed to
  * assume that bar is properly cache aligned.  It may do unsafe optimizations.
  * One known unsafe optimization is turning memset(...,0,...) into avx
  * instructions that crash if something is not aligned.
@@ -266,7 +271,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * be aligned.
  *
  * Another common use case is if you have a struct with a flexible array member.
- * In that case you should use TYPED_FLEXIBLE_STRUCT_(M|Z)ALLOC
+ * In that case you should use TYPED_FLEXIBLE_STRUCT_{MALLOC,ZALLOC}
  *
  * If you are doing memory size calculation manually (e.g. if you're avoiding
  * multiple mallocs by doing one larger malloc and setting pointers manually,
@@ -287,21 +292,23 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 #define TYPED_MALLOC_MANUAL(id, v, n)                                          \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(id, PLATFORM_CACHELINE_SIZE, (n));    \
+      (typeof(v))platform_aligned_malloc(                                      \
+         id, PLATFORM_CACHELINE_SIZE, (n), __FUNCTION__, __FILE__, __LINE__);  \
    })
 
 /* Same as TYPED_MALLOC_MANUAL(), but returns memory zero'ed out */
 #define TYPED_ZALLOC_MANUAL(id, v, n)                                          \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(id, PLATFORM_CACHELINE_SIZE, (n));    \
+      (typeof(v))platform_aligned_zalloc(                                      \
+         id, PLATFORM_CACHELINE_SIZE, (n), __FUNCTION__, __FILE__, __LINE__);  \
    })
 
 /*
  * FLEXIBLE_STRUCT_SIZE(): Compute the size of a structure 'v' with a nested
  * flexible array member, array_field_name, with 'n' members.
  *
- * Flexible array members don't necessarily start after sizeof(v)
+ * Flexible array members don't necessarily start after sizeof(v).
  * They can start within the padding at the end, so the correct size
  * needed to allocate a struct with a flexible array member is the
  * larger of [ sizeof(struct v),
@@ -327,6 +334,9 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
    })
 
 /*
+ * TYPED_FLEXIBLE_STRUCT_MALLOC(), TYPED_FLEXIBLE_STRUCT_ZALLOC() -
+ *    Allocate memory for a structure with a nested flexible array member.
+ *
  * Parameters:
  *  id                  - Platform heap-ID to allocate memory from.
  *  v                   - Structure to allocate memory for.
@@ -370,7 +380,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  */
 #define ZERO_ARRAY(v)                                                          \
    do {                                                                        \
-      _Static_assert(IS_ARRAY(v), "ZERO_ARRAY on non-array");                  \
+      _Static_assert(IS_ARRAY(v), "Use of ZERO_ARRAY on non-array object");    \
       memset((v), 0, sizeof(v));                                               \
    } while (0)
 
@@ -380,7 +390,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  */
 #define ZERO_CONTENTS_N(v, n)                                                  \
    do {                                                                        \
-      _Static_assert(!IS_ARRAY(v), "ZERO_CONTENTS on array");                  \
+      _Static_assert(!IS_ARRAY(v), "Use of ZERO_CONTENTS on array");           \
       debug_assert((v) != NULL);                                               \
       memset((v), 0, (n) * sizeof(*(v)));                                      \
    } while (0)
@@ -633,28 +643,39 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  */
 #define platform_free(id, p)                                                   \
    do {                                                                        \
-      platform_free_from_heap(id, (p));                                        \
+      platform_free_from_heap(id, (p), __FUNCTION__, __FILE__, __LINE__);      \
       (p) = NULL;                                                              \
    } while (0)
 
 #define platform_free_volatile(id, p)                                          \
    do {                                                                        \
-      platform_free_volatile_from_heap(id, (p));                               \
+      platform_free_volatile_from_heap(                                        \
+         id, (p), __FUNCTION__, __FILE__, __LINE__);                           \
       (p) = NULL;                                                              \
    } while (0)
 
 // Convenience function to free something volatile
 static inline void
-platform_free_volatile_from_heap(platform_heap_id heap_id, volatile void *ptr)
+platform_free_volatile_from_heap(platform_heap_id heap_id,
+                                 volatile void   *ptr,
+                                 const char      *func,
+                                 const char      *file,
+                                 int              lineno)
 {
    // Ok to discard volatile qualifier for free
-   platform_free_from_heap(heap_id, (void *)ptr);
+   platform_free_from_heap(heap_id, (void *)ptr, func, file, lineno);
 }
 
 static inline void *
-platform_aligned_zalloc(platform_heap_id heap_id, size_t alignment, size_t size)
+platform_aligned_zalloc(platform_heap_id heap_id,
+                        size_t           alignment,
+                        size_t           size,
+                        const char      *func,
+                        const char      *file,
+                        int              lineno)
 {
-   void *x = platform_aligned_malloc(heap_id, alignment, size);
+   void *x =
+      platform_aligned_malloc(heap_id, alignment, size, func, file, lineno);
    if (LIKELY(x)) {
       memset(x, 0, size);
    }
@@ -701,4 +722,4 @@ platform_backtrace(void **buffer, int size)
    return backtrace(buffer, size);
 }
 
-#endif
+#endif // PLATFORM_H

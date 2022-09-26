@@ -34,11 +34,22 @@ platform_checksum_is_equal(checksum128 left, checksum128 right)
    return XXH128_isEqual(left, right);
 }
 
+/*
 static inline void
-platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id), void *ptr)
+platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id), void *ptr,
+                        const char * func, const char *filename, int lineno)
 {
+   platform_default_log("[%s:%d::%s()] Request to free memory at %p.\n",
+                func, file, lineno, ptr);
    free(ptr);
 }
+*/
+static void
+platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
+                        void            *ptr,
+                        const char      *func,
+                        const char      *file,
+                        int              lineno);
 
 static inline timestamp
 platform_get_timestamp(void)
@@ -261,7 +272,7 @@ platform_close_log_stream(platform_stream_handle *stream,
    fclose(stream->stream);
    fputs(stream->str, log_handle);
    fflush(log_handle);
-   platform_free_from_heap(NULL, stream->str);
+   platform_free_from_heap(NULL, stream->str, __FUNCTION__, __FILE__, __LINE__);
 }
 
 static inline platform_log_handle *
@@ -403,7 +414,10 @@ platform_get_module_id()
 static inline void *
 platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
                         const size_t           alignment, // IN
-                        const size_t           size)                // IN
+                        const size_t           size,      // IN
+                        const char            *func,
+                        const char            *file,
+                        const int              lineno)
 {
    // Requirement for aligned_alloc
    platform_assert(IS_POWER_OF_2(alignment));
@@ -416,11 +430,22 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
     * (power of 2) alignment mod operations into bitwise &
     */
    const size_t padding = (alignment - (size % alignment)) % alignment;
-   return aligned_alloc(alignment, size + padding);
+   void        *retptr  = aligned_alloc(alignment, size + padding);
+   platform_default_log(
+      "[%s:%d::%s()] Allocated %lu bytes at %p, with padding=%lu bytes.\n",
+      file,
+      lineno,
+      func,
+      size,
+      retptr,
+      padding);
+   return retptr;
 }
 
-/* Reallocing to size 0 must be equivalent to freeing.
-   Reallocing from NULL must be equivalent to allocing. */
+/*
+ * Reallocing to size 0 must be equivalent to freeing.
+ * Reallocing from NULL must be equivalent to allocing.
+ */
 static inline void *
 platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
                  void                  *ptr, // IN
@@ -430,6 +455,17 @@ platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
    return realloc(ptr, size);
 }
 
+static inline void
+platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
+                        void            *ptr,
+                        const char      *func,
+                        const char      *file,
+                        int              lineno)
+{
+   platform_default_log(
+      "[%s:%d::%s()] Request to free memory at %p.\n", file, lineno, func, ptr);
+   free(ptr);
+}
 static inline platform_status
 platform_condvar_lock(platform_condvar *cv)
 {
@@ -455,4 +491,4 @@ platform_condvar_destroy(platform_condvar *cv)
    pthread_cond_destroy(&cv->cond);
 }
 
-#endif
+#endif // PLATFORM_LINUX_INLINE_H
