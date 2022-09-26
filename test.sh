@@ -83,15 +83,15 @@ function record_elapsed_time() {
    el_m=$((total_seconds % 3600 / 60))
    el_s=$((total_seconds % 60))
 
-   echo "${Me}: ${test_tag}: ${total_seconds} s [ ${el_h}h ${el_m}m ${el_s}s ]"
+   echo "${Me}: $(TZ="America/Los_Angeles" date) ${test_tag}: ${total_seconds} s [ ${el_h}h ${el_m}m ${el_s}s ]"
 
    # Construct print format string for use by awk
    local fmtstr=": %4ds [ %2dh %2dm %2ds ]\n"
    if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
       # Provide wider test-tag for nightly tests which print verbose descriptions
-      fmtstr="%-80s""${fmtstr}"
+      fmtstr="%-105s""${fmtstr}"
    else
-      fmtstr="%-70s""${fmtstr}"
+      fmtstr="%-85s""${fmtstr}"
    fi
 
    # Log a line in the /tmp log-file; for future cat of summary output
@@ -223,11 +223,47 @@ function nightly_functionality_stress_tests() {
 }
 
 # #############################################################################
+# Unit Stress Tests - Developed as part of shared-memory support for SplinterDB
+# This stress test was very useful to stabilize integration with process-model
+# of execution, especially to shake out AIO / thread registration issues.
+# #############################################################################
+function nightly_unit_stress_tests() {
+    local use_shmem=$1
+
+    local n_mills=10
+    local num_rows=$((n_mills * 1000 * 1000))
+    local nrows_h="${n_mills} mil"
+
+    # ----
+    local n_threads=32
+    local test_descr="${nrows_h} rows, ${n_threads} threads"
+    local test_name=large_inserts_bugs_stress_test
+
+    # FIXME: This stress test is currently unstable. We run into shmem-OOMs
+    # Need the fixes to configure shared segment size at create time.
+    # Also, we need a big machine with large # of cores to be able to run
+    # with this configuration. The config-params listed below -should- work but
+    # this combination has never been exercised successfull due to lack of hw.
+    echo "$Me: Run ${test_name} with ${n_mills} million rows, ${n_threads} threads"
+    # shellcheck disable=SC2086
+    run_with_timing "Large Inserts Stress test ${test_descr}" \
+            "$BINDIR"/unit/${test_name} \
+                               $use_shmem \
+                               --shmem-capacity-gib 8 \
+                               --num-inserts ${num_rows} \
+                               --num-threads ${n_threads} \
+                               --num-memtable-bg-threads 8 \
+                               --num-normal-bg-threads 20
+}
+
+# #############################################################################
 # Run through collection of nightly stress tests
 # #############################################################################
 function run_nightly_stress_tests() {
 
     nightly_functionality_stress_tests
+    nightly_unit_stress_tests ""
+    nightly_unit_stress_tests "--use-shmem"
 }
 
 # #############################################################################
@@ -530,17 +566,25 @@ function test_make_run_tests() {
 
 # ##################################################################
 # Smoke Tests: Run a small collection of fast-running unit-tests
+# This can be invoked w/ or w/o the "--use-shmem" arg.
 # ##################################################################
 function run_fast_unit_tests() {
+   local use_shmem=$1
 
-   "$BINDIR"/unit/splinterdb_quick_test
-   "$BINDIR"/unit/btree_test
-   "$BINDIR"/unit/util_test
-   "$BINDIR"/unit/misc_test
-   "$BINDIR"/unit/limitations_test
-   "$BINDIR"/unit/task_system_test
+   "$BINDIR"/unit/splinterdb_quick_test "$use_shmem"
+   "$BINDIR"/unit/btree_test "$use_shmem"
+   "$BINDIR"/unit/util_test "$use_shmem"
+   "$BINDIR"/unit/misc_test "$use_shmem"
+   "$BINDIR"/unit/limitations_test "$use_shmem"
+   "$BINDIR"/unit/task_system_test "$use_shmem"
 
-   "$BINDIR"/driver_test io_apis_test
+   # Just exercise with some combination of background threads to ensure
+   # that basic usage of background threads still works.
+   # shellcheck disable=SC2086
+   "$BINDIR"/unit/task_system_test $use_shmem --num-bg-threads 4 --num-memtable-bg-threads  2
+
+   # shellcheck disable=SC2086
+   "$BINDIR"/driver_test io_apis_test $use_shmem
 }
 
 # ##################################################################
@@ -548,52 +592,112 @@ function run_fast_unit_tests() {
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been
 # found to provide the required coverage.
+# Execute this set w/ and w/o the "--use-shmem" arg.
 # ##################################################################
 function run_slower_unit_tests() {
+    local use_shmem=$1
 
-    run_with_timing "Splinter inserts test" "$BINDIR"/unit/splinter_test test_inserts
+    local use_msg=
+    if [ "$use_shmem" != "" ]; then
+        use_msg="using shared memory"
+   fi
+
+    local msg="Splinter inserts test ${use_msg}"
+
+    # Allow $use_shmem to come w/o quotes. Otherwise for default execution, we
+    # end up with empty '' parameter, which causes the argument parsing routine
+    # in the program to cough-up an error.
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" "$BINDIR"/unit/splinter_test ${use_shmem} test_inserts
 
     # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
-    run_with_timing "Splinter lookups test" \
-        "$BINDIR"/unit/splinter_test --num-inserts 2000000 test_lookups
+    msg="Splinter lookups test ${use_msg}"
+    local n_mills=2
+    local num_rows=$((n_mills * 1000 * 1000))
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/splinter_test ${use_shmem} --num-inserts 2000000 test_lookups
 
-    run_with_timing "Splinter print diagnostics test" \
-        "$BINDIR"/unit/splinter_test test_splinter_print_diags
+    msg="Splinter print diagnostics test ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/splinter_test ${use_shmem} test_splinter_print_diags
+
+    # Test runs w/ default of 1M rows for --num-inserts
+    n_mills=1
+    local n_threads=8
+    msg="Large inserts stress test, ${n_mills}M rows, ${n_threads} threads ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} --num-threads ${n_threads}
+
+    # Test runs w/ more inserts and enable bg-threads
+    n_mills=2
+    local n_threads=8
+    msg="Large inserts stress test, ${n_mills}M rows, ${n_threads} threads, 7 bg threads ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} \
+                                                      --num-threads ${n_threads} \
+                                                      --num-normal-bg-threads 4 \
+                                                      --num-memtable-bg-threads 3
 }
 
 # ##################################################################
 # Execute a few variations of splinter_test --functionality tests
+# Execute this set w/ and w/o the "--use-shmem" arg.
 # ##################################################################
 function run_splinter_functionality_tests() {
+    local use_shmem=$1
+    local use_msg=
+    if [ "$use_shmem" != "" ]; then
+        use_msg=", using shared memory"
+   fi
+
     key_size=8
-    run_with_timing "Functionality test, key size=${key_size} bytes" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, key size=${key_size} bytes${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --key-size ${key_size} --seed "$SEED"
 
-    run_with_timing "Functionality test, with default key size" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, with default key size${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --seed "$SEED"
 
-    run_with_timing "Functionality test, default key size, with background threads" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, default key size, with background threads${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --num-normal-bg-threads 4 --num-memtable-bg-threads 2 \
                                             --seed "$SEED"
 
     max_key_size=102
-    run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --key-size ${max_key_size} --seed "$SEED"
 }
 
 # ##################################################################
 # Execute a few variations of splinter_test --perf tests
+# Execute this set w/ and w/o the "--use-shmem" arg.
 # ##################################################################
 function run_splinter_perf_tests() {
-
+    local use_shmem=$1
+    local use_msg=
+    if [ "$use_shmem" != "" ]; then
+        use_msg=", using shared memory"
+   fi
    # Validate use of small # of --num-inserts, and --verbose-progress
    # Test-case basically is for functional testing of interfaces.
-   run_with_timing "Very quick Performance test" \
+   # shellcheck disable=SC2086
+   run_with_timing "Very quick Performance test${use_msg}" \
         "$BINDIR"/driver_test splinter_test --perf \
+                                            $use_shmem \
                                             --max-async-inflight 0 \
                                             --num-insert-threads 4 \
                                             --num-lookup-threads 4 \
@@ -605,8 +709,10 @@ function run_splinter_perf_tests() {
 
    # Re-run small perf test configuring background threads. This scenario
    # validates that we can configure bg- and user-threads in one go.
-   run_with_timing "Quick Performance test with bg-threads" \
+   # shellcheck disable=SC2086
+   run_with_timing "Quick Performance test with background threads${use_msg}" \
         "$BINDIR"/driver_test splinter_test --perf \
+                                            $use_shmem \
                                             --num-insert-threads 4 \
                                             --num-lookup-threads 4 \
                                             --num-inserts 10000 \
@@ -614,8 +720,10 @@ function run_splinter_perf_tests() {
                                             --num-normal-bg-threads 1 \
                                             --num-memtable-bg-threads 1
 
-   run_with_timing "Performance test" \
+   # shellcheck disable=SC2086
+   run_with_timing "Performance test${use_msg}" \
         "$BINDIR"/driver_test splinter_test --perf \
+                                            $use_shmem \
                                             --max-async-inflight 0 \
                                             --num-insert-threads 4 \
                                             --num-lookup-threads 4 \
@@ -659,6 +767,25 @@ function run_other_driver_tests() {
 
     run_with_timing "Filter test" \
         "$BINDIR"/driver_test filter_test --seed "$SEED"
+}
+
+# #######################################################################
+# Re-run a collection of tests with shared-memory support enabled.
+# We strive to run all the tests that are run in a test execution cycle
+# with shared memory enabled. However, certain test execution configurations
+# may not still be runnable in this mode. So, we will incrementally online
+# remaining tests when they can run successfully in this mode.
+# #######################################################################
+function run_tests_with_shared_memory() {
+
+   # Run all the unit-tests first, to get basic coverage of shared-memory support.
+   run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
+
+   run_slower_unit_tests "--use-shmem"
+   if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
+
+   run_splinter_functionality_tests "--use-shmem"
+   run_splinter_perf_tests "--use-shmem"
 }
 
 # ##################################################################
@@ -738,7 +865,8 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    start_seconds=$SECONDS
 
-   run_with_timing "Smoke tests" run_fast_unit_tests
+   run_with_timing "Smoke tests" run_fast_unit_tests ""
+   run_with_timing "Smoke tests using shared memory" run_fast_unit_tests "--use-shmem"
 
    if [ "$RUN_MAKE_TESTS" == "true" ]; then
       run_with_timing "Basic build-and-test tests" test_make_run_tests
@@ -749,6 +877,26 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 fi
 
 # ---- Rest of the coverage runs included in CI test runs ----
+UNIT_TESTS_DB_DEV="unit_tests_db"
+
+# ------------------------------------------------------------------------
+# Fast-path execution support. You can invoke this script specifying the
+# name of one of the functions to execute a specific set of tests. If the
+# function takes arguments, pass them on the command-line. This way, one
+# can debug script changes to ensure that test-execution still works.
+#
+# E.g. INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_slower_unit_tests --use-shmem
+#      INCLUDE_SLOW_TESTS=true ./test.sh nightly_unit_stress_tests --use-shmem
+# ------------------------------------------------------------------------
+if [ $# -ge 1 ]; then
+
+   # shellcheck disable=SC2048
+   $*
+   record_elapsed_time ${testRunStartSeconds} "All Tests"
+   cat_exec_log_file
+   exit 0
+fi
 
 # ------------------------------------------------------------------------
 # Fast-path execution support. You can invoke this script specifying the
@@ -774,20 +922,21 @@ run_with_timing "Fast unit tests" "$BINDIR"/unit_test
 # ------------------------------------------------------------------------
 # Run mini-unit-tests that were excluded from bin/unit_test binary:
 # ------------------------------------------------------------------------
-run_slower_unit_tests
+run_slower_unit_tests ""
 
-UNIT_TESTS_DB_DEV="unit_tests_db"
-if [ -f ${UNIT_TESTS_DB_DEV} ]; then
-    rm ${UNIT_TESTS_DB_DEV}
-fi
+if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
 
-run_splinter_functionality_tests
+run_splinter_functionality_tests ""
 
-run_splinter_perf_tests
+run_splinter_perf_tests ""
 
 run_btree_tests
 
 run_other_driver_tests
+
+# ------------------------------------------------------------------------
+# Re-run a collection of tests using shared-memory.
+run_tests_with_shared_memory
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

@@ -32,6 +32,7 @@
 #include "task.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
+#include "test_misc_common.h"
 
 // Configuration for each worker thread
 typedef struct {
@@ -104,11 +105,15 @@ CTEST_DATA(task_system)
 CTEST_SETUP(task_system)
 {
    platform_status rc = STATUS_OK;
+   bool use_shmem     = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    // Create a heap for io and task system to use.
-   rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+   rc = platform_heap_create(platform_get_module_id(),
+                             heap_capacity,
+                             use_shmem,
+                             &data->hh,
+                             &data->hid);
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
@@ -321,9 +326,13 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
                 "Before threads start, task_get_max_tid() = %lu",
                 task_get_max_tid(data->tasks));
 
+   // We may have started some background threads, if this test was so
+   // configured. So, start-up all the remaining threads.
+   threadid max_tid_so_far = task_get_max_tid(data->tasks);
+
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
@@ -339,7 +348,7 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
    }
 
    // Complete execution of n-threads. Worker fn does the validation.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
