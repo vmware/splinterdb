@@ -20,6 +20,7 @@
 #include "allocator.h"
 #include "log.h"
 #include "srq.h"
+#include "shmem.h"
 
 /*
  * Max height of the Trunk Tree; Limited for convenience to allow for static

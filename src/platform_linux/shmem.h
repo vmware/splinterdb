@@ -9,6 +9,11 @@
 
 typedef struct shmem_info shmem_info;
 
+// Extern references to boolean shmem-related globals
+extern bool Trace_shmem_allocs;
+extern bool Trace_shmem_frees;
+extern bool Trace_shmem;
+
 platform_status
 platform_shmcreate(size_t                size,
                    platform_heap_handle *heap_handle,
@@ -41,6 +46,27 @@ platform_shm_alignment()
 
 bool
 platform_shm_heap_handle_valid(platform_heap_handle heap_handle);
+
+void
+platform_shm_tracing_init();
+
+void
+platform_enable_tracing_shm_ops();
+
+void
+platform_enable_tracing_shm_allocs();
+
+void
+platform_enable_tracing_shm_frees();
+
+void
+platform_disable_tracing_shm_ops();
+
+void
+platform_disable_tracing_shm_allocs();
+
+void
+platform_disable_tracing_shm_frees();
 
 size_t
 platform_shm_ctrlblock_size();

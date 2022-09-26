@@ -36,7 +36,7 @@ splinterdb_get_version();
  * for all structures (default), or choose to setup a shared segment
  * which will be used for shared structures.
  */
-typedef struct {
+typedef struct splinterdb_config {
    // required configuration
    const char *filename;
    uint64      cache_size;
@@ -51,7 +51,12 @@ typedef struct {
    // if unset, defaults will be used
    void *heap_handle;
    void *heap_id;
-   bool  use_shmem; // Default is FALSE.
+
+   // Shared memory suppot
+   bool use_shmem; // Default is FALSE.
+   bool trace_shmem_allocs;
+   bool trace_shmem_frees;
+   bool trace_shmem; // Trace both allocs & frees from shared memory
 
    uint64 page_size;
    uint64 extent_size;

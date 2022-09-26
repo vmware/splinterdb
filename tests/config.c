@@ -113,7 +113,11 @@ config_usage()
    platform_error_log("\t--verbose-logging\n");
    platform_error_log("\t--no-verbose-logging\n");
    platform_error_log("\t--verbose-progress\n");
-   platform_error_log("\t--use-shmem\n");
+
+   // clang-format off
+   platform_error_log("\t--use-shmem [ --trace-shmem | --trace-shmem-allocs | --trace-shmem-frees ]\n");
+   // // clang-format on
+
    platform_error_log("\t--key-size (%d)\n", TEST_CONFIG_DEFAULT_KEY_SIZE);
    platform_error_log("\t--data-size (%d)\n", TEST_CONFIG_DEFAULT_MESSAGE_SIZE);
    platform_error_log("\t--num-inserts (%d)\n",
@@ -275,6 +279,26 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_shmem = TRUE;
+            }
+         }
+         config_has_option("trace-shmem-allocs")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].trace_shmem_allocs = TRUE;
+            }
+         }
+         config_has_option("trace-shmem-frees")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].trace_shmem_frees = TRUE;
+            }
+         }
+         config_has_option("trace-shmem")
+         {
+            // Trace both allocations & frees from shared memory segment.
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].trace_shmem_allocs = TRUE;
+               cfg[cfg_idx].trace_shmem_frees  = TRUE;
             }
          }
 

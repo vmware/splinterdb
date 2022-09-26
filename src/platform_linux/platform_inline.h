@@ -462,8 +462,10 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    return retptr;
 }
 
-/* Reallocing to size 0 must be equivalent to freeing.
-   Reallocing from NULL must be equivalent to allocing. */
+/*
+ * Reallocing to size 0 must be equivalent to freeing.
+ * Reallocing from NULL must be equivalent to allocing.
+ */
 static inline void *
 platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
                  void                  *ptr, // IN
@@ -521,4 +523,4 @@ platform_condvar_destroy(platform_condvar *cv)
    pthread_cond_destroy(&cv->cond);
 }
 
-#endif
+#endif // PLATFORM_LINUX_INLINE_H

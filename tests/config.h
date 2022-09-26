@@ -72,14 +72,20 @@ typedef struct master_config {
    bool use_log;
 
    // splinter
-   uint64               memtable_capacity;
-   uint64               fanout;
-   uint64               max_branches_per_node;
-   uint64               use_stats;
-   uint64               reclaim_threshold;
-   bool                 verbose_logging_enabled;
-   bool                 verbose_progress;
-   bool                 use_shmem;
+   uint64 memtable_capacity;
+   uint64 fanout;
+   uint64 max_branches_per_node;
+   uint64 use_stats;
+   uint64 reclaim_threshold;
+   bool   verbose_logging_enabled;
+   bool   verbose_progress;
+
+   // Shared memory suppot
+   bool use_shmem; // Memory allocation done from shared segment
+   bool trace_shmem_allocs;
+   bool trace_shmem_frees;
+   bool trace_shmem; // Trace both allocs & frees from shared memory
+
    platform_log_handle *log_handle;
 
    // data
