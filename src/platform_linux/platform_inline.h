@@ -34,16 +34,6 @@ platform_checksum_is_equal(checksum128 left, checksum128 right)
    return XXH128_isEqual(left, right);
 }
 
-/*
-static inline void
-platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id), void *ptr,
-                        const char * func, const char *filename, int lineno)
-{
-   platform_default_log("[%s:%d::%s()] Request to free memory at %p.\n",
-                func, file, lineno, ptr);
-   free(ptr);
-}
-*/
 static void
 platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
                         void            *ptr,

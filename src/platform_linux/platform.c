@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <stdarg.h>
-#include "platform.h"
-
 #include <sys/mman.h>
+#include "platform.h"
+#include "shmem.h"
 
 // Thread-local thread ID (read as: thread-index).
 // Used as an index into arrays of threads in the task system.
@@ -29,12 +29,16 @@ void __attribute__((constructor)) platform_init_log_file_handles(void)
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      uint32                max,
+                     bool                  use_shmem,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id)
 {
    *heap_handle = NULL;
    *heap_id     = NULL;
 
+   if (use_shmem) {
+       return platform_shmget(max);
+   }
    return STATUS_OK;
 }
 

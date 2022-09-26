@@ -31,7 +31,7 @@ CTEST_DATA(writable_buffer)
 CTEST_SETUP(writable_buffer)
 {
    platform_status rc = platform_heap_create(
-      platform_get_module_id(), (1 * GiB), &data->hh, &data->hid);
+      platform_get_module_id(), (1 * GiB), FALSE, &data->hh, &data->hid);
    platform_assert_status_ok(rc);
 }
 

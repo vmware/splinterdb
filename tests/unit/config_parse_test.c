@@ -47,7 +47,7 @@ CTEST_SETUP(config_parse)
    uint64 heap_capacity = (1024 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+      platform_get_module_id(), heap_capacity, FALSE, &data->hh, &data->hid);
    platform_assert_status_ok(rc);
 
    ZERO_STRUCT(data->test_exec_cfg);

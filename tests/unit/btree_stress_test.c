@@ -138,7 +138,7 @@ CTEST_SETUP(btree_stress)
 
    // Create a heap for io, allocator, cache and splinter
    if (!SUCCESS(platform_heap_create(
-          platform_get_module_id(), 1 * GiB, &data->hh, &data->hid)))
+          platform_get_module_id(), 1 * GiB, FALSE, &data->hh, &data->hid)))
    {
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }

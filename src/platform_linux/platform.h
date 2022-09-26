@@ -571,6 +571,7 @@ platform_strnlen(const char *s, size_t maxlen);
 platform_status
 platform_heap_create(platform_module_id    module_id,
                      uint32                max,
+                     bool                  use_shmem,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id);
 
