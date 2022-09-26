@@ -29,6 +29,7 @@
 #include "io.h"
 #include "trunk.h" // Needed for trunk_get_scratch_size()
 #include "task.h"
+#include "test_misc_common.h"
 
 /*
  * Structure to package arguments needed by test-case functions. This packaging
@@ -59,8 +60,13 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 /* Device size; small one is good enough for IO APIs testing */
 #define DEVICE_SIZE_MB 128
 
-/*
- * Use small hard-coded # of threads to avoid allocating memory for
+#define HEAP_SIZE_MB 256
+
+/* SplinterDB device size; small one is good enough for IO APIs testing */
+#define SPLINTER_DEVICE_SIZE_MB 128
+
+
+/* Use small hard-coded # of threads to avoid allocating memory for
  * thread-specific arrays of parameters. It's sufficient to shake out the
  * IO sub-system APIs with just small # of threads.
  */
@@ -153,13 +159,24 @@ npages_per_thread(io_test_fn_args *io_test_param, int nthreads)
 int
 splinter_io_apis_test(int argc, char *argv[])
 {
+   // Move past the 1st arg which will be the driving tag, 'io_apis_test'.
+   argc--;
+   argv++;
+
+   // If --use-shmem was provided, parse past that argument.
+   bool use_shmem = (argc >= 1) && test_using_shmem(argc, (char **)argv);
+   if (use_shmem) {
+      argc--;
+      argv++;
+   }
+
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
 
    // Create a heap for io system's memory allocation.
    platform_heap_handle hh  = NULL;
    platform_heap_id     hid = NULL;
-   platform_status      rc =
-      platform_heap_create(platform_get_module_id(), heap_capacity, &hh, &hid);
+   platform_status      rc  = platform_heap_create(
+      platform_get_module_id(), heap_capacity, use_shmem, &hh, &hid);
    platform_assert_status_ok(rc);
 
    // Do minimal IO config setup, using default IO values.
@@ -171,7 +188,7 @@ splinter_io_apis_test(int argc, char *argv[])
 
    // Parse config-related command-line arguments. Only expecting to support:
    // --verbose-progress
-   rc = config_parse(&master_cfg, 1, (argc - 1), (argv + 1));
+   rc = config_parse(&master_cfg, 1, argc, argv);
    if (!SUCCESS(rc)) {
       return -1;
    }
@@ -278,8 +295,9 @@ splinter_io_apis_test(int argc, char *argv[])
    test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
 
    task_system_destroy(hid, &tasks);
-io_free:
    io_handle_deinit(io_hdl);
+
+io_free:
    platform_free(hid, io_hdl);
 heap_destroy:
    platform_heap_destroy(&hh);
