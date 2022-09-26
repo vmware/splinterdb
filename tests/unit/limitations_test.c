@@ -20,6 +20,7 @@
 #include "functional/test_async.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
+#include "test_misc_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -72,9 +73,15 @@ CTEST_SETUP(limitations)
 
    uint64 heap_capacity = (1 * GiB);
 
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+
    // Create a heap for io, allocator, cache and splinter
-   platform_status rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+
+   platform_status rc = platform_heap_create(platform_get_module_id(),
+                                             heap_capacity,
+                                             use_shmem,
+                                             &data->hh,
+                                             &data->hid);
    platform_assert_status_ok(rc);
 }
 
@@ -469,7 +476,7 @@ CTEST2(limitations, test_file_error_returns)
 
 /*
  * Helper routine to create a valid Splinter configuration using default
- * page- and extent-size.
+ * page- and extent-size. Shared-memory usage is OFF by default.
  */
 static void
 create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
@@ -480,6 +487,7 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
                           .disk_size   = 127 * Mega,
                           .page_size   = TEST_CONFIG_DEFAULT_PAGE_SIZE,
                           .extent_size = TEST_CONFIG_DEFAULT_EXTENT_SIZE,
+                          .use_shmem   = FALSE,
                           .data_cfg    = default_data_cfg};
 }
 

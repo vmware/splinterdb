@@ -32,6 +32,7 @@
 #include "task.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
+#include "test_misc_common.h"
 
 // Configuration for each worker thread
 typedef struct {
@@ -104,11 +105,15 @@ CTEST_DATA(task_system)
 CTEST_SETUP(task_system)
 {
    platform_status rc = STATUS_OK;
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    // Create a heap for io and task system to use.
-   rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+   platform_status rc = platform_heap_create(platform_get_module_id(),
+                                             heap_capacity,
+                                             use_shmem,
+                                             &data->hh,
+                                             &data->hid);
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
