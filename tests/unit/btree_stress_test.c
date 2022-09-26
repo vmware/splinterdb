@@ -25,6 +25,7 @@
 #include "clockcache.h"
 #include "btree_private.h"
 #include "btree_test_common.h"
+#include "test_misc_common.h"
 
 typedef struct insert_thread_params {
    cache           *cc;
@@ -136,9 +137,11 @@ CTEST_SETUP(btree_stress)
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
 
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+
    // Create a heap for io, allocator, cache and splinter
    if (!SUCCESS(platform_heap_create(
-          platform_get_module_id(), 1 * GiB, &data->hh, &data->hid)))
+          platform_get_module_id(), 1 * GiB, use_shmem, &data->hh, &data->hid)))
    {
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
@@ -192,7 +195,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid     = platform_get_heap_id();
+   platform_heap_id      hid     = data->hid;
    insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
    platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
@@ -491,8 +494,10 @@ pack_tests(cache           *cc,
                        FALSE,
                        0);
 
-   btree_pack_req req;
-   btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   platform_status rc = STATUS_TEST_FAILED;
+   btree_pack_req  req;
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);

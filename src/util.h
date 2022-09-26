@@ -119,6 +119,7 @@ slice_lex_cmp(const slice a, const slice b)
  * When initializing a writable_buffer, you can provide an initial
  * buffer for it to use.  The writable_buffer will _never_ free the
  * buffer you give it during initialization.
+ * ----------------------------------------------------------------------
  */
 typedef struct writable_buffer {
    platform_heap_id heap_id;
@@ -142,7 +143,7 @@ writable_buffer_length(const writable_buffer *wb)
 
 /* May allocate memory */
 platform_status
-writable_buffer_resize(writable_buffer *wb, uint64 newlength);
+writable_buffer_resize(writable_buffer *wb, uint64 oldlength, uint64 newlength);
 
 static inline void *
 writable_buffer_data(const writable_buffer *wb)
@@ -229,7 +230,7 @@ writable_buffer_memset(writable_buffer *wb, int c)
 static inline platform_status
 writable_buffer_copy_slice(writable_buffer *wb, slice src)
 {
-   platform_status rc = writable_buffer_resize(wb, slice_length(src));
+   platform_status rc = writable_buffer_resize(wb, 0, slice_length(src));
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -260,8 +261,9 @@ writable_buffer_to_slice(const writable_buffer *wb)
 static inline uint64
 writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 {
-   uint64 oldsize = writable_buffer_length(wb);
-   platform_assert(SUCCESS(writable_buffer_resize(wb, oldsize + length)));
+   uint64          oldsize = writable_buffer_length(wb);
+   platform_status rc = writable_buffer_resize(wb, oldsize, oldsize + length);
+   platform_assert(SUCCESS(rc));
    char *data = writable_buffer_data(wb);
    memcpy(data + oldsize, newdata, length);
    return oldsize;
@@ -370,7 +372,6 @@ debug_hex_dump(platform_log_handle *,
 
 void
 debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
-
 
 /*
  * Evaluates to a print format specifier based on the value being printed.

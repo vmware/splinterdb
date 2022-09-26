@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "clockcache.h"
+#include "clockcache.h" // Nested #include's task.h and related tokens.
 #include "splinterdb/data.h"
 #include "io.h"
 #include "rc_allocator.h"
@@ -40,6 +40,16 @@ _Static_assert(TEST_CONFIG_DEFAULT_PAGES_PER_EXTENT <= MAX_PAGES_PER_EXTENT,
  * Convenience structure to hold configuration options for all sub-systems.
  * Command-line parsing routines parse config params into these structs.
  * Mostly needed for testing interfaces.
+ *
+ * ******************* EXPERIMENTAL FEATURES ********************
+ *
+ * - use_shmem: Support for shared memory segments:
+ *
+ *   This flag will configure a shared memory segment. All (most) run-time
+ *   memory allocation will be done from this shared segment. Currently,
+ *   we do not support free(), so you will likely run out of shared memory
+ *   and run into shared-memory OOM errors. This functionality is
+ *   solely meant for internal development uses.
  * --------------------------------------------------------------------------
  */
 typedef struct master_config {
@@ -75,14 +85,22 @@ typedef struct master_config {
    uint64 num_memtable_bg_threads; // for background threads to be enabled
 
    // splinter
-   uint64               memtable_capacity;
-   uint64               fanout;
-   uint64               max_branches_per_node;
-   uint64               use_stats;
-   uint64               reclaim_threshold;
-   uint64               queue_scale_percent;
-   bool                 verbose_logging_enabled;
-   bool                 verbose_progress;
+   uint64 memtable_capacity;
+   uint64 fanout;
+   uint64 max_branches_per_node;
+   uint64 use_stats;
+   uint64 reclaim_threshold;
+   uint64 queue_scale_percent;
+   bool   verbose_logging_enabled;
+   bool   verbose_progress;
+
+   // Shared memory support      **** Experimental feature ****
+   uint64 shmem_size;
+   bool   use_shmem; // Memory allocation done from shared segment
+   bool   trace_shmem_allocs;
+   bool   trace_shmem_frees;
+   bool   trace_shmem; // Trace both allocs & frees from shared memory
+
    platform_log_handle *log_handle;
 
    // data
@@ -92,6 +110,7 @@ typedef struct master_config {
    // Test-execution configuration parameters
    uint64 seed;
    uint64 num_inserts;
+   uint64 num_threads;
 } master_config;
 
 
