@@ -83,6 +83,7 @@ typedef struct master_config {
    uint64               queue_scale_percent;
    bool                 verbose_logging_enabled;
    bool                 verbose_progress;
+   bool                 use_shmem;
    platform_log_handle *log_handle;
 
    // data

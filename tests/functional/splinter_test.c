@@ -2504,6 +2504,7 @@ splinter_test(int argc, char *argv[])
    bool                   cache_per_table = FALSE;
    uint64                 insert_rate     = 0; // no rate throttling by default.
    task_system           *ts              = NULL;
+   bool   use_shmem       = FALSE;
    uint8                  lookup_positive_pct = 0;
    test_message_generator gen;
    test_exec_config       test_exec_cfg;
@@ -2512,8 +2513,13 @@ splinter_test(int argc, char *argv[])
    // Defaults
    num_insert_threads = num_lookup_threads = num_range_lookup_threads = 1;
    max_async_inflight                                                 = 64;
+
    /*
-    * 1. Parse splinter_test options, see usage()
+    * 1. Parse splinter_test options to determine which type of test
+    *    is to be run. Code below will setup some defaults for parameters
+    *    that are applicable for a test type. These params can be further
+    *    over-ridden by extra args which will be parsed in the next block
+    *    below. See usage() for more details.
     */
    if (argc > 1 && strncmp(argv[1], "--help", sizeof("--help")) == 0) {
       usage(argv[0]);
@@ -2585,6 +2591,11 @@ splinter_test(int argc, char *argv[])
       config_argc = argc - 1;
       config_argv = argv + 1;
    }
+
+   /*
+    * IF there are any more arguments remaining, parse them in sequence.
+    * This set of args are expected to come in exactly this order.
+    */
    if (config_argc > 0
        && strncmp(config_argv[0], "--num-tables", sizeof("--num-tables")) == 0)
    {
@@ -2606,6 +2617,13 @@ splinter_test(int argc, char *argv[])
              == 0)
    {
       cache_per_table = TRUE;
+      config_argc -= 1;
+      config_argv += 1;
+   }
+   if (config_argc > 0
+       && strncmp(config_argv[0], "--use-shmem", sizeof("--use-shmem")) == 0)
+   {
+      use_shmem = TRUE;
       config_argc -= 1;
       config_argv += 1;
    }
@@ -2650,13 +2668,18 @@ splinter_test(int argc, char *argv[])
    uint8  num_caches    = cache_per_table ? num_tables : 1;
    uint64 heap_capacity = MAX(1024 * MiB * num_caches, 512 * MiB * num_tables);
    heap_capacity        = MIN(heap_capacity, UINT32_MAX);
-   heap_capacity        = MAX(heap_capacity, 2 * GiB);
+   heap_capacity        = MAX(heap_capacity, 8 * GiB);
+   if (use_shmem) {
+      platform_default_log(
+         "Attempt to create shared segment of size %lu bytes.\n",
+         heap_capacity);
+   }
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   rc =
-      platform_heap_create(platform_get_module_id(), heap_capacity, &hh, &hid);
+   platform_heap_handle hh  = NULL;
+   platform_heap_id     hid = NULL;
+   rc                       = platform_heap_create(
+      platform_get_module_id(), heap_capacity, use_shmem, &hh, &hid);
    platform_assert_status_ok(rc);
 
    /*
