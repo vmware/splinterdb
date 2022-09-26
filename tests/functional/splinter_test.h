@@ -135,7 +135,7 @@ test_config_parse(test_config *cfg,
 
    static inline void test_config_usage(void)
    {
-      platform_error_log("Test Configuration:\n");
+      platform_error_log("\nTest Configuration:\n");
       platform_error_log("\t--tree-size-gib\n");
       platform_error_log("\t--tree-size-mib\n");
       platform_error_log("\t--key-type (rand, seq, semiseq)\n");

@@ -616,6 +616,11 @@ clockcache_get_entry(clockcache *cc, uint32 entry_number)
 }
 
 static inline entry_status
+clockcache_get_status(clockcache *cc, uint32 entry_number)
+{
+   return clockcache_get_entry(cc, entry_number)->status;
+}
+static inline entry_status
 clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
    return flag
@@ -634,7 +639,7 @@ clockcache_clear_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 static inline uint32
 clockcache_test_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
-   return flag & clockcache_get_entry(cc, entry_number)->status;
+   return flag & clockcache_get_status(cc, entry_number);
 }
 
 #ifdef RECORD_ACQUISITION_STACKS
@@ -912,15 +917,17 @@ clockcache_assert_no_locks_held(clockcache *cc)
    }
 }
 
-void
+bool32
 clockcache_assert_clean(clockcache *cc)
 {
    uint64 i;
-
-   for (i = 0; i < cc->cfg->page_capacity; i++) {
-      debug_assert(clockcache_test_flag(cc, i, CC_FREE)
+   for (i = 0; (i < cc->cfg->page_capacity)
+               && (clockcache_test_flag(cc, i, CC_FREE)
                    || clockcache_test_flag(cc, i, CC_CLEAN));
+        i++)
+   { /* Do nothing */
    }
+   return (i == cc->cfg->page_capacity);
 }
 
 /*
@@ -1197,7 +1204,7 @@ clockcache_ok_to_writeback(clockcache *cc,
                            uint32      entry_number,
                            bool32      with_access)
 {
-   uint32 status = clockcache_get_entry(cc, entry_number)->status;
+   uint32 status = clockcache_get_status(cc, entry_number);
    return ((status == CC_CLEANABLE1_STATUS)
            || (with_access && status == CC_CLEANABLE2_STATUS));
 }
@@ -1692,7 +1699,7 @@ clockcache_flush(clockcache *cc)
    // make sure all aio is complete again
    io_cleanup_all(cc->io);
 
-   clockcache_assert_clean(cc);
+   debug_assert(clockcache_assert_clean(cc));
 }
 
 /*

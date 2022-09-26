@@ -671,8 +671,9 @@ test_btree_basic(cache             *cc,
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
    btree_pack_req req;
-   btree_pack_req_init(
+   rc = btree_pack_req_init(
       &req, cc, btree_cfg, (iterator *)&itor, UINT64_MAX, NULL, 0, NULL);
+   platform_assert_status_ok(rc);
 
    btree_print_tree_stats(
       Platform_default_log_handle, cc, btree_cfg, root_addr);
@@ -846,9 +847,11 @@ test_btree_create_packed_trees(cache             *cc,
                           0);
 
       btree_pack_req req;
-      btree_pack_req_init(
+      rc = btree_pack_req_init(
          &req, cc, btree_cfg, &itor.super, UINT64_MAX, NULL, 0, hid);
-      platform_status rc = btree_pack(&req);
+      platform_assert_status_ok(rc);
+
+      rc = btree_pack(&req);
       platform_assert_status_ok(rc);
       btree_iterator_deinit(&itor);
       root_addr[tree_no] = req.root_addr;
@@ -1074,8 +1077,9 @@ test_btree_merge_basic(cache             *cc,
       }
 
       btree_pack_req req;
-      btree_pack_req_init(
+      rc = btree_pack_req_init(
          &req, cc, btree_cfg, &merge_itor->super, UINT64_MAX, NULL, 0, hid);
+      platform_assert_status_ok(rc);
       btree_pack(&req);
       output_addr[pivot_no] = req.root_addr;
 
@@ -1454,8 +1458,10 @@ test_btree_merge_perf(cache             *cc,
          }
 
          btree_pack_req req;
-         btree_pack_req_init(
+         rc = btree_pack_req_init(
             &req, cc, btree_cfg, &merge_itor->super, UINT64_MAX, NULL, 0, hid);
+         platform_assert_status_ok(rc);
+
          btree_pack(&req);
          output_addr[merge_no * num_merges + pivot_no] = req.root_addr;
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
@@ -1551,10 +1557,12 @@ btree_test(int argc, char *argv[])
       config_argv += 2;
    }
 
+   bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
+
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   platform_heap_id hid = NULL;
+   rc =
+      platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
@@ -1610,7 +1618,7 @@ btree_test(int argc, char *argv[])
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   rc = io_handle_init(io, &io_cfg, hh, hid);
+   rc = io_handle_init(io, &io_cfg, hid);
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
@@ -1682,7 +1690,7 @@ free_iohandle:
    platform_free(hid, io);
 cleanup:
    platform_free(hid, cfg);
-   platform_heap_destroy(&hh);
+   platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;
 }

@@ -3,9 +3,9 @@
 
 #include <stdarg.h>
 #include <unistd.h>
-#include "platform.h"
-
 #include <sys/mman.h>
+#include "platform.h"
+#include "shmem.h"
 
 __thread threadid xxxtid = INVALID_TID;
 
@@ -18,6 +18,14 @@ bool32 platform_use_mlock   = FALSE;
 // Use platform_set_log_streams() to send the log messages elsewhere.
 platform_log_handle *Platform_default_log_handle = NULL;
 platform_log_handle *Platform_error_log_handle   = NULL;
+
+/*
+ * Declare globals to track heap handle/ID that may have been created when
+ * using shared memory. We stash away these handles so that we can return the
+ * right handle via platform_get_heap_id() interface, in case shared segments
+ * are in use.
+ */
+platform_heap_id Heap_id = NULL;
 
 // This function is run automatically at library-load time
 void __attribute__((constructor)) platform_init_log_file_handles(void)
@@ -47,21 +55,39 @@ platform_get_stdout_stream(void)
    return Platform_default_log_handle;
 }
 
+/*
+ * platform_heap_create() - Create a heap for memory allocation.
+ *
+ * By default, we just revert to process' heap-memory and use malloc() / free()
+ * for memory management. If Splinter is run with shared-memory configuration,
+ * create a shared-segment which acts as the 'heap' for memory allocation.
+ */
 platform_status
-platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
-                     uint32                max,
-                     platform_heap_handle *heap_handle,
-                     platform_heap_id     *heap_id)
+platform_heap_create(platform_module_id UNUSED_PARAM(module_id),
+                     size_t             max,
+                     bool               use_shmem,
+                     platform_heap_id  *heap_id)
 {
-   *heap_handle = NULL;
-   *heap_id     = NULL;
+   if (use_shmem) {
+      platform_status rc = platform_shmcreate(max, heap_id);
+      if (SUCCESS(rc)) {
+         Heap_id = *heap_id;
+      }
+      return rc;
+   }
+   *heap_id = NULL;
 
    return STATUS_OK;
 }
 
 void
-platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle))
-{}
+platform_heap_destroy(platform_heap_id *heap_id)
+{
+   // If shared segment was allocated, it's being tracked thru heap ID.
+   if (*heap_id) {
+      return platform_shmdestroy(heap_id);
+   }
+}
 
 /*
  * platform_buffer_init() - Initialize an input buffer_handle, bh.

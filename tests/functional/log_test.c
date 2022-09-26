@@ -262,12 +262,14 @@ log_test(int argc, char *argv[])
       config_argv    = argv + 1;
    }
 
-   platform_default_log("\nStarted log_test!!\n");
+   bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
+   platform_default_log("\nStarted log_test%s!!\n",
+                        (use_shmem ? " using shared memory" : ""));
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   status = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   platform_heap_id hid = NULL;
+   status =
+      platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(status);
 
    trunk_config *cfg                            = TYPED_MALLOC(hid, cfg);
@@ -300,7 +302,7 @@ log_test(int argc, char *argv[])
 
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
-   status = io_handle_init(io, &io_cfg, hh, hid);
+   status = io_handle_init(io, &io_cfg, hid);
    if (!SUCCESS(status)) {
       rc = -1;
       goto free_iohandle;
@@ -375,7 +377,7 @@ free_iohandle:
    platform_free(hid, io);
 cleanup:
    platform_free(hid, cfg);
-   platform_heap_destroy(&hh);
+   platform_heap_destroy(&hid);
 
    return rc == 0 ? 0 : -1;
 }

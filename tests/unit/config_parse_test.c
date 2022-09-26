@@ -33,9 +33,8 @@
 CTEST_DATA(config_parse)
 {
    // Declare head handles for io, allocator, cache and splinter allocation.
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   test_exec_config     test_exec_cfg;
+   platform_heap_id hid;
+   test_exec_config test_exec_cfg;
 };
 
 // Optional setup function for suite, called before every test in suite
@@ -44,7 +43,7 @@ CTEST_SETUP(config_parse)
    uint64 heap_capacity = (1024 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+      platform_get_module_id(), heap_capacity, FALSE, &data->hid);
    platform_assert_status_ok(rc);
 
    ZERO_STRUCT(data->test_exec_cfg);
@@ -53,7 +52,7 @@ CTEST_SETUP(config_parse)
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(config_parse)
 {
-   platform_heap_destroy(&data->hh);
+   platform_heap_destroy(&data->hid);
 }
 
 /*

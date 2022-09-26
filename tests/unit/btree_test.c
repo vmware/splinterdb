@@ -76,13 +76,24 @@ CTEST_DATA(btree)
 CTEST_SETUP(btree)
 {
    config_set_defaults(&data->master_cfg);
-   data->data_cfg = test_data_config;
-   data->hid      = platform_get_heap_id();
+   uint64 heap_capacity = (1 * GiB);
 
    if (!SUCCESS(
-          config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
-       || !init_data_config_from_master_config(data->data_cfg,
-                                               &data->master_cfg)
+          config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv)))
+   {
+      ASSERT_TRUE(FALSE, "Failed to parse args\n");
+   }
+
+   // Create a heap for io, allocator, cache and splinter
+   platform_status rc = platform_heap_create(platform_get_module_id(),
+                                             heap_capacity,
+                                             data->master_cfg.use_shmem,
+                                             &data->hid);
+   platform_assert_status_ok(rc);
+
+   data->data_cfg = test_data_config;
+
+   if (!init_data_config_from_master_config(data->data_cfg, &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
        || !init_rc_allocator_config_from_master_config(
           &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
@@ -98,7 +109,10 @@ CTEST_SETUP(btree)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(btree) {}
+CTEST_TEARDOWN(btree)
+{
+   platform_heap_destroy(&data->hid);
+}
 
 /*
  * Test leaf_hdr APIs.

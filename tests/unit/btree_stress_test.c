@@ -108,8 +108,7 @@ CTEST_DATA(btree_stress)
    btree_config       dbtree_cfg;
 
    // To create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   platform_heap_id hid;
 
    // Stuff needed to setup and exercise multiple threads.
    platform_io_handle io;
@@ -145,14 +144,16 @@ CTEST_SETUP(btree_stress)
    }
 
    // Create a heap for io, allocator, cache and splinter
-   if (!SUCCESS(platform_heap_create(
-          platform_get_module_id(), 1 * GiB, &data->hh, &data->hid)))
+   if (!SUCCESS(platform_heap_create(platform_get_module_id(),
+                                     1 * GiB,
+                                     data->master_cfg.use_shmem,
+                                     &data->hid)))
    {
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
    // Setup execution of concurrent threads
    data->ts = NULL;
-   if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
+   if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hid))
        || !SUCCESS(
           task_system_create(data->hid, &data->io, &data->ts, &data->task_cfg))
        || !SUCCESS(rc_allocator_init(&data->al,
@@ -180,7 +181,8 @@ CTEST_TEARDOWN(btree_stress)
    clockcache_deinit(&data->cc);
    rc_allocator_deinit(&data->al);
    task_system_destroy(data->hid, &data->ts);
-   platform_heap_destroy(&data->hh);
+   io_handle_deinit(&data->io);
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -200,7 +202,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid     = platform_get_heap_id();
+   platform_heap_id      hid     = data->hid;
    insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
    platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
@@ -613,8 +615,10 @@ pack_tests(cache           *cc,
                        FALSE,
                        0);
 
-   btree_pack_req req;
-   btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   platform_status rc = STATUS_TEST_FAILED;
+   btree_pack_req  req;
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);

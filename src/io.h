@@ -89,10 +89,7 @@ struct io_handle {
 };
 
 platform_status
-io_handle_init(platform_io_handle  *ioh,
-               io_config           *cfg,
-               platform_heap_handle hh,
-               platform_heap_id     hid);
+io_handle_init(platform_io_handle *ioh, io_config *cfg, platform_heap_id hid);
 
 void
 io_handle_deinit(platform_io_handle *ioh);

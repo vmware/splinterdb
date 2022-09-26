@@ -26,7 +26,9 @@
 #define TEST_MAX_KEY_SIZE 13
 
 static void
-create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
+create_default_cfg(splinterdb_config *out_cfg,
+                   data_config       *default_data_cfg,
+                   bool               use_shmem);
 
 static platform_status
 parse_cmdline_args(void *datap, int unit_test_argc, char **unit_test_argv);
@@ -37,8 +39,7 @@ parse_cmdline_args(void *datap, int unit_test_argc, char **unit_test_argv);
 CTEST_DATA(limitations)
 {
    // Declare head handles for io, allocator, cache and splinter allocation.
-   platform_heap_handle hh;
-   platform_heap_id     hid;
+   platform_heap_id hid;
 
    // Config structs required, as per splinter_test() setup work.
    io_config          io_cfg;
@@ -59,6 +60,7 @@ CTEST_DATA(limitations)
 
    // Test execution related configuration
    test_exec_config test_exec_cfg;
+   bool             use_shmem;
 };
 
 /*
@@ -72,9 +74,10 @@ CTEST_SETUP(limitations)
 
    uint64 heap_capacity = (1 * GiB);
 
+   data->use_shmem = config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+      platform_get_module_id(), heap_capacity, data->use_shmem, &data->hid);
    platform_assert_status_ok(rc);
 }
 
@@ -83,7 +86,7 @@ CTEST_SETUP(limitations)
  */
 CTEST_TEARDOWN(limitations)
 {
-   platform_heap_destroy(&data->hh);
+   platform_heap_destroy(&data->hid);
 }
 
 /*
@@ -131,19 +134,19 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    data->io_cfg.page_size = 2048;
 
    // This should fail.
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // This should fail.
    data->io_cfg.page_size = (page_size_configured * 2);
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc                     = io_handle_init(data->io, &data->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // Restore, and now set extent-size to invalid value
    data->io_cfg.page_size = page_size_configured;
 
    // This should succeed, finally!.
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
@@ -207,23 +210,23 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
 
    // This should fail.
    data->io_cfg.extent_size = data->io_cfg.page_size;
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // Halving the # of pages/extent. This should fail.
    data->io_cfg.extent_size = (data->io_cfg.page_size * pages_per_extent) / 2;
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    // Doubling the # of pages/extent. This should fail.
    data->io_cfg.extent_size = (data->io_cfg.page_size * pages_per_extent * 2);
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
    ASSERT_FALSE(SUCCESS(rc));
 
    data->io_cfg.extent_size = extent_size_configured;
 
    // This should succeed, finally!.
-   rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
+   rc = io_handle_init(data->io, &data->io_cfg, data->hid);
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
@@ -246,7 +249,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Cannot use up all possible threads for just bg-threads.
    cfg.num_normal_bg_threads   = (MAX_THREADS - 1);
@@ -267,7 +270,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_page_size)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    uint64 page_size_configured = cfg.page_size;
 
@@ -288,7 +291,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_extent_size)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    uint64 extent_size_configured = cfg.extent_size;
 
@@ -314,7 +317,7 @@ CTEST2(limitations, test_create_zero_disk_size)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this, to see if an error is raised.
    cfg.disk_size = 0;
@@ -330,7 +333,7 @@ CTEST2(limitations, test_create_zero_extent_capacity)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to some non-zero value, to see if an error is raised.
    cfg.disk_size = 256; // bytes
@@ -346,7 +349,7 @@ CTEST2(limitations, test_disk_size_not_integral_multiple_of_page_size)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to some non-integral multiple of configured page-size.
    // Will trip an internal check that validates that disk-capacity specified
@@ -364,7 +367,7 @@ CTEST2(limitations, test_disk_size_not_integral_multiple_of_extents)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to some non-integral multiple of configured extent-size.
    // Will trip an internal check that validates that disk-capacity specified
@@ -433,7 +436,7 @@ CTEST2(limitations, test_zero_cache_size)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Hard-fix this to an illegal value.
    // We need more error checking in clockcache_init(), for totally bogus
@@ -456,7 +459,7 @@ CTEST2(limitations, test_file_error_returns)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    cfg.filename = "/dev/null/this-file-cannot-possibly-be-opened";
 
@@ -469,10 +472,12 @@ CTEST2(limitations, test_file_error_returns)
 
 /*
  * Helper routine to create a valid Splinter configuration using default
- * page- and extent-size.
+ * page- and extent-size. Shared-memory usage is OFF by default.
  */
 static void
-create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
+create_default_cfg(splinterdb_config *out_cfg,
+                   data_config       *default_data_cfg,
+                   bool               use_shmem)
 {
    *out_cfg =
       (splinterdb_config){.filename    = TEST_DB_NAME,
@@ -480,6 +485,7 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
                           .disk_size   = 127 * Mega,
                           .page_size   = TEST_CONFIG_DEFAULT_PAGE_SIZE,
                           .extent_size = TEST_CONFIG_DEFAULT_EXTENT_SIZE,
+                          .use_shmem   = use_shmem,
                           .data_cfg    = default_data_cfg};
 }
 
