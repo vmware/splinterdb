@@ -20,6 +20,7 @@
 #include "clockcache.h"
 #include "btree_private.h"
 #include "btree_test_common.h"
+#include "test_misc_common.h"
 
 // Function Prototypes
 
@@ -62,22 +63,33 @@ btree_leaf_incorporate_tuple(const btree_config    *cfg,
  */
 CTEST_DATA(btree)
 {
-   master_config     master_cfg;
-   data_config      *data_cfg;
-   io_config         io_cfg;
-   allocator_config  allocator_cfg;
-   clockcache_config cache_cfg;
-   btree_scratch     test_scratch;
-   btree_config      dbtree_cfg;
-   platform_heap_id  hid;
+   master_config        master_cfg;
+   data_config         *data_cfg;
+   io_config            io_cfg;
+   allocator_config     allocator_cfg;
+   clockcache_config    cache_cfg;
+   btree_scratch        test_scratch;
+   btree_config         dbtree_cfg;
+   platform_heap_id     hid;
+   platform_heap_handle hh;
 };
 
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(btree)
 {
    config_set_defaults(&data->master_cfg);
+   uint64 heap_capacity = (1 * GiB);
+   bool   use_shmem     = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+
+   // Create a heap for io, allocator, cache and splinter
+   platform_status rc = platform_heap_create(platform_get_module_id(),
+                                             heap_capacity,
+                                             use_shmem,
+                                             &data->hh,
+                                             &data->hid);
+   platform_assert_status_ok(rc);
+
    data->data_cfg = test_data_config;
-   data->hid      = platform_get_heap_id();
 
    if (!SUCCESS(
           config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv))
@@ -98,7 +110,10 @@ CTEST_SETUP(btree)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(btree) {}
+CTEST_TEARDOWN(btree)
+{
+   platform_heap_destroy(&data->hh);
+}
 
 /*
  * Test leaf_hdr APIs.

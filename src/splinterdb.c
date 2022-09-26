@@ -23,6 +23,12 @@
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
+
+// Function prototypes
+
+static void
+splinterdb_close_print_stats(splinterdb *kvs);
+
 const char *
 splinterdb_get_version()
 {
@@ -59,7 +65,6 @@ platform_status_to_int(const platform_status status) // IN
 {
    return status.r;
 }
-
 
 static void
 splinterdb_config_set_defaults(splinterdb_config *cfg)
@@ -137,8 +142,8 @@ splinterdb_validate_app_data_config(const data_config *cfg)
  *-----------------------------------------------------------------------------
  */
 static platform_status
-splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
-                       splinterdb              *kvs      // OUT
+splinterdb_init_config(splinterdb_config *kvs_cfg, // IN
+                       splinterdb        *kvs      // OUT
 )
 {
    platform_status rc = STATUS_OK;
@@ -161,9 +166,6 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    splinterdb_config cfg = {0};
    memcpy(&cfg, kvs_cfg, sizeof(cfg));
    splinterdb_config_set_defaults(&cfg);
-
-   kvs->heap_handle = cfg.heap_handle;
-   kvs->heap_id     = cfg.heap_id;
 
    io_config_init(&kvs->io_cfg,
                   cfg.page_size,
@@ -227,22 +229,68 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
  * Internal function for create or open
  */
 int
-splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
-                          splinterdb             **kvs_out,      // OUT
-                          bool                     open_existing // IN
+splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
+                          splinterdb       **kvs_out,      // OUT
+                          bool               open_existing // IN
 )
 {
-   splinterdb     *kvs;
+   splinterdb     *kvs = NULL;
    platform_status status;
+
+   bool we_created_heap = FALSE;
+
+   // Allocate a shared segment if so requested. For now, we hard-code
+   // the required size big enough to run most tests. Eventually this
+   // has to be calculated here based on other run-time params.
+   // (Some tests externally create the platform_heap, so we should
+   // only create one if it does not already exist.)
+   if (kvs_cfg->use_shmem && (kvs_cfg->heap_handle == NULL)) {
+      size_t shmem_size = (kvs_cfg->shmem_size ? kvs_cfg->shmem_size : 2 * GiB);
+      status            = platform_heap_create(platform_get_module_id(),
+                                    shmem_size,
+                                    TRUE,
+                                    &kvs_cfg->heap_handle,
+                                    &kvs_cfg->heap_id);
+      if (!SUCCESS(status)) {
+         platform_error_log(
+            "Shared memory creation failed. "
+            "Failed to %s SplinterDB device '%s' with specified "
+            "configuration: %s\n",
+            (open_existing ? "open existing" : "initialize"),
+            kvs_cfg->filename,
+            platform_status_to_string(status));
+         goto deinit_kvhandle;
+      }
+      we_created_heap = TRUE;
+
+      // Setup global tracing booleans for shared memory usage
+      if (kvs_cfg->trace_shmem_allocs) {
+         platform_enable_tracing_shm_allocs();
+      }
+      if (kvs_cfg->trace_shmem_frees) {
+         platform_enable_tracing_shm_frees();
+      }
+      if (kvs_cfg->trace_shmem) {
+         platform_enable_tracing_shm_frees();
+         platform_enable_tracing_shm_ops();
+      }
+   }
 
    platform_assert(kvs_out != NULL);
 
    kvs = TYPED_ZALLOC(kvs_cfg->heap_id, kvs);
    if (kvs == NULL) {
       status = STATUS_NO_MEMORY;
+      if (we_created_heap) {
+         platform_heap_destroy(&kvs_cfg->heap_handle);
+      }
       return platform_status_to_int(status);
    }
 
+   platform_heap_handle heap_handle = NULL;
+
+   // All memory allocation after this call should -ONLY- use heap handles
+   // from the handle to the running Splinter instance; i.e. 'kvs'.
    status = splinterdb_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
@@ -250,15 +298,26 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                          (open_existing ? "open existing" : "initialize"),
                          kvs_cfg->filename,
                          platform_status_to_string(status));
+      heap_handle = kvs_cfg->heap_handle;
       goto deinit_kvhandle;
    }
+
+   // All future memory allocation should come from shared memory, if so
+   // configured.
+   kvs->heap_handle = kvs_cfg->heap_handle;
+   kvs->heap_id     = kvs_cfg->heap_id;
+
+   // This allows for a simple usage where application can close and reopen
+   // Splinter and not run into seg-faults due to stale memory handles.
+   kvs_cfg->heap_handle = NULL;
+   kvs_cfg->heap_id     = NULL;
 
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to initialize IO handle: %s\n",
                          platform_status_to_string(status));
-      goto deinit_kvhandle;
+      goto io_handle_init_failed;
    }
 
    status = task_system_create(
@@ -338,23 +397,33 @@ deinit_system:
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
+io_handle_init_failed:
+   heap_handle = kvs->heap_handle;
 deinit_kvhandle:
-   platform_free(kvs_cfg->heap_id, kvs);
+   // Depending on the place where a configuration / setup error lead
+   // us to here via a 'goto', heap_id handle, if in use, may be in a
+   // different place. Use one carefully, to avoid ASAN-errors.
+   platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
+   if (we_created_heap) {
+      platform_heap_destroy(&heap_handle);
+      kvs_cfg->heap_handle = NULL;
+      kvs_cfg->heap_id     = NULL;
+   }
 
    return platform_status_to_int(status);
 }
 
 int
-splinterdb_create(const splinterdb_config *cfg, // IN
-                  splinterdb             **kvs  // OUT
+splinterdb_create(splinterdb_config *cfg, // IN
+                  splinterdb       **kvs  // OUT
 )
 {
    return splinterdb_create_or_open(cfg, kvs, FALSE);
 }
 
 int
-splinterdb_open(const splinterdb_config *cfg, // IN
-                splinterdb             **kvs  // OUT
+splinterdb_open(splinterdb_config *cfg, // IN
+                splinterdb       **kvs  // OUT
 )
 {
    return splinterdb_create_or_open(cfg, kvs, TRUE);
@@ -379,6 +448,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
 
+   splinterdb_close_print_stats(kvs);
    /*
     * NOTE: These dismantling routines must appear in exactly the reverse
     * order when these sub-systems were init'ed when a Splinter device was
@@ -390,7 +460,10 @@ splinterdb_close(splinterdb **kvs_in) // IN
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
    io_handle_deinit(&kvs->io_handle);
 
+   // Free resources carefully to avoid ASAN-test failures
+   platform_heap_handle heap_handle = kvs->heap_handle;
    platform_free(kvs->heap_id, kvs);
+   platform_heap_destroy(&heap_handle);
    *kvs_in = (splinterdb *)NULL;
 }
 
@@ -696,4 +769,11 @@ void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
+}
+
+static void
+splinterdb_close_print_stats(splinterdb *kvs)
+{
+   task_print_stats(kvs->task_sys);
+   splinterdb_stats_print_insertion(kvs);
 }

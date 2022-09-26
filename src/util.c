@@ -8,7 +8,9 @@
 #include "poison.h"
 
 static platform_status
-writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
+writable_buffer_ensure_space(writable_buffer *wb,
+                             uint64           oldspace,
+                             uint64           minspace)
 {
    if (minspace <= wb->buffer_capacity) {
       return STATUS_OK;
@@ -19,7 +21,7 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
    }
 
    void *oldptr  = wb->can_free ? wb->buffer : NULL;
-   void *newdata = platform_realloc(wb->heap_id, oldptr, minspace);
+   void *newdata = platform_realloc(wb->heap_id, oldspace, oldptr, minspace);
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
    }
@@ -35,10 +37,10 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 }
 
 platform_status
-writable_buffer_resize(writable_buffer *wb, uint64 newlength)
+writable_buffer_resize(writable_buffer *wb, uint64 oldlength, uint64 newlength)
 {
    platform_assert(newlength != WRITABLE_BUFFER_NULL_LENGTH);
-   platform_status rc = writable_buffer_ensure_space(wb, newlength);
+   platform_status rc = writable_buffer_ensure_space(wb, oldlength, newlength);
    if (!SUCCESS(rc)) {
       return rc;
    }

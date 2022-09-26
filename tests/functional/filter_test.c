@@ -47,7 +47,7 @@ test_filter_basic(cache           *cc,
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
    DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
-   writable_buffer_resize(&keywb, key_size);
+   writable_buffer_resize(&keywb, 0, key_size);
    writable_buffer_memset(&keywb, 0);
    uint64 *keybuf = writable_buffer_data(&keywb);
    key     target = key_create(key_size, keybuf);
@@ -170,7 +170,7 @@ test_filter_perf(cache           *cc,
       return STATUS_NO_MEMORY;
    }
    DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
-   writable_buffer_resize(&keywb, key_size);
+   writable_buffer_resize(&keywb, 0, key_size);
    writable_buffer_memset(&keywb, 0);
    uint64 *keybuf = writable_buffer_data(&keywb);
    key     target = key_create(key_size, keybuf);
@@ -316,7 +316,8 @@ filter_test(int argc, char *argv[])
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
    platform_heap_id     hid;
-   rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
+   rc =
+      platform_heap_create(platform_get_module_id(), 1 * GiB, FALSE, &hh, &hid);
    platform_assert_status_ok(rc);
 
    uint64 num_memtable_bg_threads_unused = 0;

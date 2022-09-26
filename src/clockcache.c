@@ -616,6 +616,11 @@ clockcache_get_entry(clockcache *cc, uint32 entry_number)
 }
 
 static inline entry_status
+clockcache_get_flag(clockcache *cc, uint32 entry_number)
+{
+   return clockcache_get_entry(cc, entry_number)->status;
+}
+static inline entry_status
 clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
    return flag
@@ -634,7 +639,7 @@ clockcache_clear_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 static inline uint32
 clockcache_test_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
-   return flag & clockcache_get_entry(cc, entry_number)->status;
+   return flag & clockcache_get_flag(cc, entry_number);
 }
 
 #ifdef RECORD_ACQUISITION_STACKS
@@ -915,12 +920,20 @@ clockcache_assert_no_locks_held(clockcache *cc)
 void
 clockcache_assert_clean(clockcache *cc)
 {
-   uint64 i;
+#if SPLINTER_DEBUG
 
-   for (i = 0; i < cc->cfg->page_capacity; i++) {
-      debug_assert(clockcache_test_flag(cc, i, CC_FREE)
-                   || clockcache_test_flag(cc, i, CC_CLEAN));
+   for (uint64 i = 0; i < cc->cfg->page_capacity; i++) {
+
+      // We expect entry to be in only one of these two states.
+      entry_status entry_flag = clockcache_get_flag(cc, i);
+      debug_assert(((entry_flag & (CC_FREE | CC_CLEAN)) != 0),
+                   "Buffer at entry=%lu should be in either CC_FREE|CC_CLEAN"
+                   " status. Found unexpected status=0x%x %s\n",
+                   i,
+                   entry_flag,
+                   ((entry_flag & CC_ACCESSED) ? "(CC_ACCESSED)" : ""));
    }
+#endif // SPLINTER_DEBUG
 }
 
 /*
