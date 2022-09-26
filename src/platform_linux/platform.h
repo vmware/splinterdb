@@ -458,7 +458,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  */
 #define ZERO_ARRAY(v)                                                          \
    do {                                                                        \
-      _Static_assert(IS_ARRAY(v), "ZERO_ARRAY on non-array");                  \
+      _Static_assert(IS_ARRAY(v), "Use of ZERO_ARRAY on non-array object");    \
       memset((v), 0, sizeof(v));                                               \
    } while (0)
 
@@ -468,7 +468,7 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  */
 #define ZERO_CONTENTS_N(v, n)                                                  \
    do {                                                                        \
-      _Static_assert(!IS_ARRAY(v), "ZERO_CONTENTS on array");                  \
+      _Static_assert(!IS_ARRAY(v), "Use of ZERO_CONTENTS on array");           \
       debug_assert((v) != NULL);                                               \
       memset((v), 0, (n) * sizeof(*(v)));                                      \
    } while (0)
@@ -807,4 +807,4 @@ platform_backtrace(void **buffer, int size)
    return backtrace(buffer, size);
 }
 
-#endif
+#endif // PLATFORM_H
