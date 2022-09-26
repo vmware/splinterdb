@@ -13,6 +13,7 @@
 #include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
+#include "test_misc_common.h"
 #include "unit_tests.h"
 #include "util.h"
 #include "../functional/random.h"
@@ -57,6 +58,10 @@ CTEST_SETUP(splinterdb_stress)
                                              .data_cfg   = &data->default_data_config};
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
+
+   if (test_using_shmem(Ctest_argc, (char **)Ctest_argv)) {
+      data->cfg.use_shmem = TRUE;
+   }
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -112,9 +117,6 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
 // Do some inserts, and then some range-deletes
 CTEST2(splinterdb_stress, test_naive_range_delete)
 {
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
-   ASSERT_EQUAL(0, rc);
-
    random_state rand_state;
    random_init(&rand_state, 42, 0);
 

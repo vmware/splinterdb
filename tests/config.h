@@ -79,6 +79,7 @@ typedef struct master_config {
    uint64               reclaim_threshold;
    bool                 verbose_logging_enabled;
    bool                 verbose_progress;
+   bool                 use_shmem;
    platform_log_handle *log_handle;
 
    // data

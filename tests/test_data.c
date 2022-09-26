@@ -88,7 +88,10 @@ test_data_merge_tuples_final(const data_config *cfg,
                              merge_accumulator *oldest_raw_data) // IN/OUT
 {
    platform_assert(merge_accumulator_message_class(oldest_raw_data)
-                   == MESSAGE_TYPE_UPDATE);
+                      == MESSAGE_TYPE_UPDATE,
+                   "message_class=%d",
+                   merge_accumulator_message_class(oldest_raw_data));
+
    assert(sizeof(data_handle) <= merge_accumulator_length(oldest_raw_data));
 
    data_handle *old_data = merge_accumulator_data(oldest_raw_data);

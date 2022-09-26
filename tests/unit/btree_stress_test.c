@@ -25,6 +25,7 @@
 #include "clockcache.h"
 #include "btree_private.h"
 #include "btree_test_common.h"
+#include "test_misc_common.h"
 
 typedef struct insert_thread_params {
    cache           *cc;
@@ -113,7 +114,11 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
+
    config_set_defaults(&data->master_cfg);
+
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
 
@@ -134,9 +139,11 @@ CTEST_SETUP(btree_stress)
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
 
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+
    // Create a heap for io, allocator, cache and splinter
    if (!SUCCESS(platform_heap_create(
-          platform_get_module_id(), 1 * GiB, &data->hh, &data->hid)))
+          platform_get_module_id(), 1 * GiB, use_shmem, &data->hh, &data->hid)))
    {
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
@@ -172,7 +179,10 @@ CTEST_SETUP(btree_stress)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(btree_stress) {}
+CTEST_TEARDOWN(btree_stress)
+{
+   platform_heap_destroy(&data->hh);
+}
 
 /*
  * -------------------------------------------------------------------------
@@ -191,7 +201,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid     = platform_get_heap_id();
+   platform_heap_id      hid     = data->hid;
    insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
    platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
