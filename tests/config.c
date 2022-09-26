@@ -61,6 +61,7 @@ config_set_defaults(master_config *cfg)
       .reclaim_threshold        = UINT64_MAX,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
+	  .use_shmem				= FALSE,
       .log_handle               = NULL,
       .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
@@ -112,6 +113,7 @@ config_usage()
    platform_error_log("\t--verbose-logging\n");
    platform_error_log("\t--no-verbose-logging\n");
    platform_error_log("\t--verbose-progress\n");
+   platform_error_log("\t--use-shmem\n");
    platform_error_log("\t--key-size (%d)\n", TEST_CONFIG_DEFAULT_KEY_SIZE);
    platform_error_log("\t--data-size (%d)\n", TEST_CONFIG_DEFAULT_MESSAGE_SIZE);
    platform_error_log("\t--num-inserts (%d)\n",
@@ -267,6 +269,12 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].verbose_progress = TRUE;
+            }
+         }
+         config_has_option("use-shmem")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].use_shmem = TRUE;
             }
          }
 

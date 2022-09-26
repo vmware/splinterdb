@@ -26,6 +26,7 @@ SRC := $(shell find $(SRCDIR) -name "*.c")
 # Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
 # These objects are shared between functional/ and unit/ test binaries.
 COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
+COMMON_MISC_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c" | egrep -e "_misc_")
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 
 # Symbol for all unit-test sources, from which we will build standalone
@@ -35,7 +36,7 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 
 # Some unit-tests will be excluded from the list of dot-oh's that are linked into
 # bin/unit_test, for various reasons:
-#  - Slow unit-tests will be skipped, as we want the#    resulting unit_test to
+#  - Slow unit-tests will be skipped, as we want the resulting unit_test to
 #    run as fast as it can.
 #  - Skip tests that are to be invoked with specialized command-line arguments.
 # These skipped tests which will have to be run stand-alone.
@@ -363,7 +364,8 @@ $(foreach unit,$(UNIT_TESTBINS),$(eval $(call unit_test_self_dependency,$(unit))
 #
 # These will need to be fleshed out for filters, io subsystem, trunk,
 # etc. as we create mini unit test executables for those subsystems.
-PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o
+PLATFORM_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/platform.o \
+			   $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/shmem.o
 
 PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
@@ -404,17 +406,17 @@ $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                           
                                     $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                     $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/splinterdb_quick_test: $(COMMON_TESTOBJ)                             \
+$(BINDIR)/$(UNITDIR)/splinterdb_quick_test: $(COMMON_TESTOBJ)                       \
                                       $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                       $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                             \
+$(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                                \
                                                 $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                 $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
 
-$(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)            \
+$(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)                             \
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
@@ -428,6 +430,10 @@ $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                              
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS) \
+
+$(BINDIR)/$(UNITDIR)/splinter_ipc_test:   $(UTIL_SYS)
+
 ########################################
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
@@ -438,6 +444,11 @@ unit/splinter_test:                $(BINDIR)/$(UNITDIR)/splinter_test
 unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
 unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
+unit/config_parse_test:            $(BINDIR)/$(UNITDIR)/config_parse_test
+unit/limitations_test:             $(BINDIR)/$(UNITDIR)/limitations_test
+unit/task_system_test:             $(BINDIR)/$(UNITDIR)/task_system_test
+unit/splinter_shmem_test:          $(BINDIR)/$(UNITDIR)/splinter_shmem_test
+unit/splinter_ipc_test:            $(BINDIR)/$(UNITDIR)/splinter_ipc_test
 unit_test:                         $(BINDIR)/unit_test
 
 # -----------------------------------------------------------------------------

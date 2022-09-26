@@ -26,7 +26,16 @@
 const char *
 splinterdb_get_version();
 
-// Configuration options for SplinterDB
+/*
+ * Configuration options for SplinterDB:
+ *
+ * Physical configuration things such as file name, cache & disk-size,
+ * extent- and page-size are specified here. Application-specific data
+ * configuration is also provided through this struct. Additionally,
+ * user can select whether to use malloc()/free()-based memory allocation
+ * for all structures (default), or choose to setup a shared segment
+ * which will be used for shared structures.
+ */
 typedef struct {
    // required configuration
    const char *filename;
@@ -38,11 +47,11 @@ typedef struct {
    // For a simple reference implementation, see default_data_config.h
    data_config *data_cfg;
 
-
    // optional advanced config below
    // if unset, defaults will be used
    void *heap_handle;
    void *heap_id;
+   bool  use_shmem; // Default is FALSE.
 
    uint64 page_size;
    uint64 extent_size;
@@ -86,7 +95,7 @@ typedef struct splinterdb splinterdb;
 // But cfg->data_cfg will be referenced by the returned splinterdb object
 // So it must live at least as long as the splinterdb
 int
-splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
+splinterdb_create(splinterdb_config *cfg, splinterdb **kvs);
 
 // Open an existing splinterdb from a file/device on disk
 //
@@ -97,7 +106,7 @@ splinterdb_create(const splinterdb_config *cfg, splinterdb **kvs);
 // But cfg->data_cfg will be referenced by the returned splinterdb object
 // So it must live at least as long as the splinterdb
 int
-splinterdb_open(const splinterdb_config *cfg, splinterdb **kvs);
+splinterdb_open(splinterdb_config *cfg, splinterdb **kvs);
 
 // Close a splinterdb
 //

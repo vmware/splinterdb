@@ -101,6 +101,12 @@
 #define B_TO_MiB(x) ((x) / MiB)
 #define B_TO_GiB(x) ((x) / GiB)
 
+// Return, as int, the fractional portion modulo a MiB for given x bytes.
+#define B_TO_MiB_FRACT(x) (int)((((x)-B_TO_MiB(x) * MiB) / (MiB * 1.0)) * 100)
+
+// Return, as int, the fractional portion modulo a GiB for given x bytes.
+#define B_TO_GiB_FRACT(x) (int)((((x)-B_TO_GiB(x) * GiB) / (GiB * 1.0)) * 100)
+
 // Time unit constants
 #define THOUSAND (1000UL)
 #define MILLION  (THOUSAND * THOUSAND)
@@ -206,6 +212,14 @@ extern bool platform_use_mlock;
 typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
 /*
+ * Provide a tag for callers that do not want to use shared-memory allocation,
+ * when configured but want to fallback to default malloc()-based scheme.
+ * (Usuallly this would be done if a large chunk of memory is repeatedly
+ * allocated and freed in some code-path.)
+ */
+#define NULL_HEAP_ID (platform_heap_id) NULL
+
+/*
  * -----------------------------------------------------------------------------
  * TYPED_MANUAL_MALLOC(), TYPED_MANUAL_ZALLOC() -
  * TYPED_ARRAY_MALLOC(),  TYPED_ARRAY_ZALLOC() -
@@ -303,12 +317,24 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 #define TYPED_MANUAL_MALLOC(hid, v, n)                                         \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(hid, PLATFORM_CACHELINE_SIZE, (n));   \
+      (typeof(v))platform_aligned_malloc(hid,                                  \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         STRINGIFY(v),                         \
+                                         __FUNCTION__,                         \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 #define TYPED_MANUAL_ZALLOC(hid, v, n)                                         \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(hid, PLATFORM_CACHELINE_SIZE, (n));   \
+      (typeof(v))platform_aligned_zalloc(hid,                                  \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         STRINGIFY(v),                         \
+                                         __FUNCTION__,                         \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 
 /*
@@ -327,12 +353,14 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 #define TYPED_ALIGNED_MALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(hid, (a), (n));                       \
+      (typeof(v))platform_aligned_malloc(                                      \
+         hid, (a), (n), STRINGIFY(v), __FUNCTION__, __FILE__, __LINE__);       \
    })
 #define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(hid, (a), (n));                       \
+      (typeof(v))platform_aligned_zalloc(                                      \
+         hid, (a), (n), STRINGIFY(v), __FUNCTION__, __FILE__, __LINE__);       \
    })
 
 /*
@@ -620,7 +648,8 @@ platform_strnlen(const char *s, size_t maxlen);
 
 platform_status
 platform_heap_create(platform_module_id    module_id,
-                     uint32                max,
+                     size_t                max,
+                     bool                  use_shmem,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id);
 
@@ -696,28 +725,42 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  */
 #define platform_free(id, p)                                                   \
    do {                                                                        \
-      platform_free_from_heap(id, (p));                                        \
+      platform_free_from_heap(                                                 \
+         id, (p), STRINGIFY(p), __FUNCTION__, __FILE__, __LINE__);             \
       (p) = NULL;                                                              \
    } while (0)
 
 #define platform_free_volatile(id, p)                                          \
    do {                                                                        \
-      platform_free_volatile_from_heap(id, (p));                               \
+      platform_free_volatile_from_heap(                                        \
+         id, (p), STRINGIFY(p), __FUNCTION__, __FILE__, __LINE__);             \
       (p) = NULL;                                                              \
    } while (0)
 
 // Convenience function to free something volatile
 static inline void
-platform_free_volatile_from_heap(platform_heap_id heap_id, volatile void *ptr)
+platform_free_volatile_from_heap(platform_heap_id heap_id,
+                                 volatile void   *ptr,
+                                 const char      *objname,
+                                 const char      *func,
+                                 const char      *file,
+                                 int              lineno)
 {
    // Ok to discard volatile qualifier for free
-   platform_free_from_heap(heap_id, (void *)ptr);
+   platform_free_from_heap(heap_id, (void *)ptr, objname, func, file, lineno);
 }
 
 static inline void *
-platform_aligned_zalloc(platform_heap_id heap_id, size_t alignment, size_t size)
+platform_aligned_zalloc(platform_heap_id heap_id,
+                        size_t           alignment,
+                        size_t           size,
+                        const char      *objname,
+                        const char      *func,
+                        const char      *file,
+                        int              lineno)
 {
-   void *x = platform_aligned_malloc(heap_id, alignment, size);
+   void *x = platform_aligned_malloc(
+      heap_id, alignment, size, objname, func, file, lineno);
    if (LIKELY(x)) {
       memset(x, 0, size);
    }
