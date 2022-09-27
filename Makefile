@@ -402,6 +402,7 @@ $(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o 
 $(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
                                         $(OBJDIR)/$(TESTS_DIR)/config.o                 \
                                         $(OBJDIR)/$(TESTS_DIR)/test_data.o              \
+                                        $(COMMON_MISC_TESTOBJ)                          \
                                         $(BTREE_SYS)
 
 $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                             \

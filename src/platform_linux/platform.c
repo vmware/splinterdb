@@ -33,12 +33,12 @@ platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id)
 {
-   *heap_handle = NULL;
-   *heap_id     = NULL;
-
    if (use_shmem) {
       return platform_shmcreate(max, heap_handle, heap_id);
    }
+   *heap_handle = NULL;
+   *heap_id     = NULL;
+
    return STATUS_OK;
 }
 

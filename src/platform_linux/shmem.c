@@ -66,6 +66,10 @@ platform_heap_id_to_shmaddr(platform_heap_id hid)
 /*
  * -----------------------------------------------------------------------------
  * platform_shmcreate() -- Create a new / attach to an existing shared segment.
+ *
+ * For a given set of heap ID/handle, we expect that this create method will
+ * only be called once. [ Otherwise, it means some code is erroneously creating
+ * the shared segment twice, clobbering previously established handles. ]
  * -----------------------------------------------------------------------------
  */
 platform_status
@@ -73,6 +77,9 @@ platform_shmcreate(size_t                size,
                    platform_heap_handle *heap_handle,
                    platform_heap_id     *heap_id)
 {
+   platform_assert(*heap_handle == NULL);
+   platform_assert(*heap_id == NULL);
+
    int shmid = shmget(0, size, (IPC_CREAT | PLATFORM_IPC_OBJS_PERMS));
    if (shmid == -1) {
       platform_error_log(

@@ -77,7 +77,6 @@ CTEST_DATA(btree)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(btree)
 {
-
    Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
    Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
 
