@@ -646,7 +646,6 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    const char  *val     = "some-value";
    const size_t val_len = strlen(val);
 
-
    int rc = splinterdb_insert(data->kvsb, key, slice_create(val_len, val));
    ASSERT_EQUAL(0, rc);
 

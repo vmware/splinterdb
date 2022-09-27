@@ -168,6 +168,12 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // Establish shared memory handles and validate input addr to shared segment
    const void *shmaddr = (void *)*heap_handle;
 
+   // Heap handle may be coming from the shared segment, itself, that we will
+   // be detaching from now and freeing, below. So, an attempt to NULL out
+   // this handle after memory is freed will run into an exception. Clear
+   // out this handle prior to all this circus.
+   *heap_handle = NULL;
+
    // Use a cached copy in case we are dealing with bogus input shmem address.
    shmem_info shmem_info_struct;
    memmove(&shmem_info_struct, shmaddr, sizeof(shmem_info_struct));
@@ -212,7 +218,6 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
       shminfop->shm_id = shmid;
       return;
    }
-   *heap_handle = NULL;
 }
 
 /*
