@@ -403,13 +403,36 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
  * Internal function for create or open
  */
 int
-splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
-                          splinterdb             **kvs_out,      // OUT
-                          bool                     open_existing // IN
+splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
+                          splinterdb       **kvs_out,      // OUT
+                          bool               open_existing // IN
 )
 {
    splinterdb     *kvs;
    platform_status status;
+
+   // Allocate a shared segment if so requested. For now, we hard-code
+   // the required size big enough to run most tests. Eventually this
+   // has to be calculated here based on other run-time params.
+   // (Some tests externally create the platform_heap, so we should
+   // only create one if it does not already exist.)
+   if (kvs_cfg->use_shmem && (kvs_cfg->heap_handle == NULL)) {
+      status = platform_heap_create(platform_get_module_id(),
+                                    (2 * GiB),
+                                    TRUE,
+                                    &kvs_cfg->heap_handle,
+                                    &kvs_cfg->heap_id);
+      if (!SUCCESS(status)) {
+         platform_error_log(
+            "Shared memory creation failed. "
+            "Failed to %s SplinterDB device '%s' with specified "
+            "configuration: %s\n",
+            (open_existing ? "open existing" : "initialize"),
+            kvs_cfg->filename,
+            platform_status_to_string(status));
+         goto deinit_kvhandle;
+      }
+   }
 
    platform_assert(kvs_out != NULL);
 
@@ -531,16 +554,16 @@ deinit_kvhandle:
 }
 
 int
-splinterdb_create(const splinterdb_config *cfg, // IN
-                  splinterdb             **kvs  // OUT
+splinterdb_create(splinterdb_config *cfg, // IN
+                  splinterdb       **kvs  // OUT
 )
 {
    return splinterdb_create_or_open(cfg, kvs, FALSE);
 }
 
 int
-splinterdb_open(const splinterdb_config *cfg, // IN
-                splinterdb             **kvs  // OUT
+splinterdb_open(splinterdb_config *cfg, // IN
+                splinterdb       **kvs  // OUT
 )
 {
    return splinterdb_create_or_open(cfg, kvs, TRUE);

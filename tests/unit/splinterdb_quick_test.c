@@ -32,6 +32,7 @@
 #include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb_private.h"
+#include "test_misc_common.h"
 #include "unit_tests.h"
 #include "util.h"
 #include "test_data.h"
@@ -101,6 +102,10 @@ CTEST_SETUP(splinterdb_quick)
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
+
+   if (test_using_shmem(Ctest_argc, (char **)Ctest_argv)) {
+      data->cfg.use_shmem = TRUE;
+   }
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -924,6 +929,7 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
    *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
                                   .cache_size = 64 * Mega,
                                   .disk_size  = 127 * Mega,
+                                  .use_shmem  = FALSE,
                                   .data_cfg   = default_data_cfg};
 }
 

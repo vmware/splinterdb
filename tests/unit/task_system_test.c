@@ -16,6 +16,7 @@
 #include "config.h" // Reqd for definition of master_config{}
 #include "trunk.h"  // Needed for trunk_get_scratch_size()
 #include "task.h"
+#include "test_misc_common.h"
 
 // Configuration for each worker thread
 typedef struct {
@@ -52,6 +53,21 @@ CTEST_DATA(task_system)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(task_system)
 {
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
+
+   uint64 heap_capacity = (1 * GiB);
+
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+
+   // Create a heap for io, allocator, cache and splinter
+   platform_status rc = platform_heap_create(platform_get_module_id(),
+                                             heap_capacity,
+                                             use_shmem,
+                                             &data->hh,
+                                             &data->hid);
+   platform_assert_status_ok(rc);
+
    // Allocate and initialize the IO sub-system.
    data->ioh = TYPED_MALLOC(data->hid, data->ioh);
    ASSERT_TRUE((data->ioh != NULL));
@@ -67,7 +83,6 @@ CTEST_SETUP(task_system)
                   master_cfg.io_async_queue_depth,
                   master_cfg.io_filename);
 
-   platform_status rc;
    rc = io_handle_init(data->ioh, &data->io_cfg, data->hh, data->hid);
    ASSERT_TRUE(SUCCESS(rc),
                "Failed to init IO handle: %s\n",

@@ -10,6 +10,7 @@
  */
 #include "splinterdb/public_platform.h"
 #include "platform.h"
+#include "test_misc_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "util.h"
@@ -30,8 +31,13 @@ CTEST_DATA(writable_buffer)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(writable_buffer)
 {
+   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
+   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
+
+   bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+
    platform_status rc = platform_heap_create(
-      platform_get_module_id(), (1 * GiB), FALSE, &data->hh, &data->hid);
+      platform_get_module_id(), (1 * GiB), use_shmem, &data->hh, &data->hid);
    platform_assert_status_ok(rc);
 }
 

@@ -119,6 +119,7 @@ slice_lex_cmp(const slice a, const slice b)
  * When initializing a writable_buffer, you can provide an initial
  * buffer for it to use.  The writable_buffer will _never_ free the
  * buffer you give it during initialization.
+ * ----------------------------------------------------------------------
  */
 typedef struct writable_buffer {
    platform_heap_id heap_id;

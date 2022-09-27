@@ -43,6 +43,11 @@ typedef struct shmem_info {
  * heap-ID as a 'handle' to manage / allocate shared memory. This macro converts
  * the heap-ID handle to the shared memory's start address, from which the
  * location of the next-free-byte can be tracked.
+ *
+ * RESOLVE - This ptr-math going back from address of heap-ID is prone to
+ *errors. In some code paths, e.g. tests/unit/btree_test.c, we pass-down the
+ *stack address of an on-stack scratch-buffer masquerading as the heap-ID
+ *handle.
  */
 static inline platform_heap_handle
 platform_heap_id_to_handle(platform_heap_id hid)

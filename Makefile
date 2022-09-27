@@ -26,6 +26,7 @@ SRC := $(shell find $(SRCDIR) -name "*.c")
 # Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
 # These objects are shared between functional/ and unit/ test binaries.
 COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
+COMMON_MISC_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c" | egrep -e "_misc_")
 FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
 
 # Symbol for all unit-test sources, from which we will build standalone
@@ -211,6 +212,7 @@ OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from test sources in tests/ that are shared by functional/ and unit/ tests
 COMMON_TESTOBJ= $(COMMON_TESTSRC:%.c=$(OBJDIR)/%.o)
+COMMON_MISC_TESTOBJ= $(COMMON_MISC_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from test sources in tests/functional/ sub-dir
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
@@ -394,6 +396,7 @@ $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)
 $(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
                                  $(OBJDIR)/$(TESTS_DIR)/config.o                \
                                  $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
+                                 $(COMMON_MISC_TESTOBJ)                         \
                                  $(BTREE_SYS)
 
 $(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
@@ -413,9 +416,11 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                                 $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                 $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
+$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(COMMON_MISC_TESTOBJ) 							\
+                                           $(UTIL_SYS)
 
 $(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)            \
+									   $(COMMON_MISC_TESTOBJ)       \
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
@@ -441,6 +446,7 @@ unit/splinterdb_quick_test:        $(BINDIR)/$(UNITDIR)/splinterdb_quick_test
 unit/splinterdb_stress_test:       $(BINDIR)/$(UNITDIR)/splinterdb_stress_test
 unit/writable_buffer_test:         $(BINDIR)/$(UNITDIR)/writable_buffer_test
 unit/config_parse_test:            $(BINDIR)/$(UNITDIR)/config_parse_test
+unit/limitations_test:             $(BINDIR)/$(UNITDIR)/limitations_test
 unit/task_system_test:             $(BINDIR)/$(UNITDIR)/task_system_test
 unit/splinter_shmem_test:          $(BINDIR)/$(UNITDIR)/splinter_shmem_test
 unit_test:                         $(BINDIR)/unit_test
