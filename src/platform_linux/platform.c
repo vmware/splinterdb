@@ -28,7 +28,7 @@ void __attribute__((constructor)) platform_init_log_file_handles(void)
 
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
-                     uint32                max,
+                     size_t                max,
                      bool                  use_shmem,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id)

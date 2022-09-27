@@ -18,7 +18,18 @@ void
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
 void *
-platform_shm_alloc(platform_heap_id hid, const size_t size);
+platform_shm_alloc(platform_heap_id hid,
+                   const size_t     size,
+                   const char      *func,
+                   const char      *file,
+                   const int        lineno);
+
+void
+platform_shm_free(platform_heap_id hid,
+                  void            *ptr,
+                  const char      *func,
+                  const char      *file,
+                  const int        lineno);
 
 static inline int
 platform_shm_alignment()

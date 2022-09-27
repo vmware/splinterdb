@@ -2685,7 +2685,12 @@ splinter_test(int argc, char *argv[])
    uint8  num_caches    = cache_per_table ? num_tables : 1;
    uint64 heap_capacity = MAX(1024 * MiB * num_caches, 512 * MiB * num_tables);
    heap_capacity        = MIN(heap_capacity, UINT32_MAX);
-   heap_capacity        = MAX(heap_capacity, 2 * GiB);
+   heap_capacity        = MAX(heap_capacity, 8 * GiB);
+   if (use_shmem) {
+      platform_default_log(
+         "Attempt to create shared segment of size %lu bytes.\n",
+         heap_capacity);
+   }
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_handle hh  = NULL;
@@ -2693,8 +2698,6 @@ splinter_test(int argc, char *argv[])
    rc                       = platform_heap_create(
       platform_get_module_id(), heap_capacity, use_shmem, &hh, &hid);
    platform_assert_status_ok(rc);
-
-   goto heap_destroy;
 
    /*
     * 2. Parse test_config options, see test_config_usage()

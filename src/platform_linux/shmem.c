@@ -127,13 +127,13 @@ platform_shmcreate(size_t                size,
    } else {
       platform_default_log(msg,
                            size,
-                           B_TO_MiB(size),
+                           B_TO_GiB(size),
                            "GiB",
                            shmaddr,
                            shmid,
                            free_bytes,
-                           B_TO_MiB(free_bytes),
-                           B_TO_MiB_FRACT(free_bytes),
+                           B_TO_GiB(free_bytes),
+                           B_TO_GiB_FRACT(free_bytes),
                            "GiB");
    }
    return STATUS_OK;
@@ -213,7 +213,11 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
  * -----------------------------------------------------------------------------
  */
 void *
-platform_shm_alloc(platform_heap_id hid, const size_t size)
+platform_shm_alloc(platform_heap_id hid,
+                   const size_t     size,
+                   const char      *func,
+                   const char      *file,
+                   const int        lineno)
 {
    shmem_info *shminfop = platform_heap_id_to_shmaddr(hid);
 
@@ -225,9 +229,11 @@ platform_shm_alloc(platform_heap_id hid, const size_t size)
 
    platform_assert(
       ((((uint64)shminfop->shm_next) % PLATFORM_CACHELINE_SIZE) == 0),
-      "Next free-addr is not aligned: "
+      "[%s:%d] Next free-addr is not aligned: "
       "shm_next=%p, shm_total_bytes=%lu, shm_used_bytes=%lu"
       ", shm_free_bytes=%lu",
+      file,
+      lineno,
       shminfop->shm_next,
       shminfop->shm_total_bytes,
       shminfop->shm_used_bytes,
@@ -243,7 +249,57 @@ platform_shm_alloc(platform_heap_id hid, const size_t size)
    shminfop->shm_used_bytes += size;
    shminfop->shm_free_bytes -= size;
 
+   bool        use_MiB = (shminfop->shm_free_bytes < GiB);
+   const char *msg     = "  [%s:%d::%s()] -> %s: Allocated %lu bytes at %p, "
+                         "free bytes=%lu (~%lu.%d %s).\n";
+   if (use_MiB) {
+      platform_default_log(msg,
+                           file,
+                           lineno,
+                           func,
+                           __FUNCTION__,
+                           size,
+                           retptr,
+                           shminfop->shm_free_bytes,
+                           B_TO_MiB(shminfop->shm_free_bytes),
+                           B_TO_MiB_FRACT(shminfop->shm_free_bytes),
+                           "MiB");
+   } else {
+      platform_default_log(msg,
+                           file,
+                           lineno,
+                           func,
+                           __FUNCTION__,
+                           size,
+                           retptr,
+                           shminfop->shm_free_bytes,
+                           B_TO_GiB(shminfop->shm_free_bytes),
+                           B_TO_GiB_FRACT(shminfop->shm_free_bytes),
+                           "GiB");
+   }
    return retptr;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * platform_shm_free() -- 'Free' the memory fragment at given address.
+ * -----------------------------------------------------------------------------
+ */
+void
+platform_shm_free(platform_heap_id hid,
+                  void            *ptr,
+                  const char      *func,
+                  const char      *file,
+                  const int        lineno)
+{
+   platform_default_log(
+      "  [%s:%d::%s()] -> %s: Request to free memory at %p.\n",
+      file,
+      lineno,
+      func,
+      __FUNCTION__,
+      ptr);
+   return;
 }
 
 /*

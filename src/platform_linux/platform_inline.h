@@ -413,6 +413,8 @@ platform_alignment(const size_t alignment, const size_t size)
    return ((alignment - (size % alignment)) % alignment);
 }
 
+#define splinter_shm_alloc(heap_id, nbytes)                                    \
+   platform_shm_alloc(heap_id, required, func, file, lineno)
 /*
  * platform_aligned_malloc() -- Allocate n-bytes accounting for alignment.
  *
@@ -421,7 +423,7 @@ platform_alignment(const size_t alignment, const size_t size)
  * shmem-allocation function, working off of the (non-NULL) platform_heap_id.
  */
 static inline void *
-platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
+platform_aligned_malloc(const platform_heap_id heap_id,
                         const size_t           alignment, // IN
                         const size_t           size,      // IN
                         const char            *func,
@@ -441,9 +443,10 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
    const size_t padding  = platform_alignment(alignment, size);
    const size_t required = (size + padding);
 
-   void *retptr = (heap_id ? platform_shm_alloc(heap_id, required)
+   void *retptr = (heap_id ? splinter_shm_alloc(heap_id, required)
                            : aligned_alloc(alignment, required));
 
+   /*
    platform_default_log(
       "[%s:%d::%s()] Allocated %lu bytes at %p, with padding=%lu bytes.\n",
       file,
@@ -452,6 +455,7 @@ platform_aligned_malloc(const platform_heap_id UNUSED_PARAM(heap_id),
       size,
       retptr,
       padding);
+   */
    return retptr;
 }
 
@@ -468,16 +472,26 @@ platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
    return realloc(ptr, size);
 }
 
+#define splinter_shm_free(heap_id, ptr)                                        \
+   platform_shm_free(heap_id, ptr, func, file, lineno)
+
 static inline void
-platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
+platform_free_from_heap(platform_heap_id heap_id,
                         void            *ptr,
                         const char      *func,
                         const char      *file,
                         int              lineno)
 {
+   /*
    platform_default_log(
       "[%s:%d::%s()] Request to free memory at %p.\n", file, lineno, func, ptr);
-   free(ptr);
+   */
+
+   if (heap_id) {
+      splinter_shm_free(heap_id, ptr);
+   } else {
+      free(ptr);
+   }
 }
 static inline platform_status
 platform_condvar_lock(platform_condvar *cv)

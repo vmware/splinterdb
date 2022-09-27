@@ -130,7 +130,7 @@ CTEST_SETUP(splinter)
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
                                              heap_capacity,
-                                             FALSE,
+                                             TRUE,
                                              &data->hh,
                                              &data->hid);
    platform_assert_status_ok(rc);
