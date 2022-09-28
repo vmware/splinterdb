@@ -184,7 +184,7 @@ platform_histo_create(platform_heap_id       heap_id,
                       platform_histo_handle *histo)
 {
    platform_histo_handle hh;
-   hh = TYPED_MALLOC_MANUAL(
+   hh = TYPED_MANUAL_MALLOC(
       heap_id, hh, sizeof(hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
       return STATUS_NO_MEMORY;
