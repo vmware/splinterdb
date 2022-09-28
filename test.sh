@@ -500,6 +500,53 @@ function test_make_run_tests() {
 }
 
 # ##################################################################
+# Execute fast-running unit-tests, w/ or w/o "--use-shmem" arg
+# ##################################################################
+function test_fast_unit_tests() {
+    local use_shmem=$1
+
+   "$BINDIR"/unit/splinterdb_quick_test "$use_shmem"
+   "$BINDIR"/unit/btree_test "$use_shmem"
+   "$BINDIR"/unit/util_test "$use_shmem"
+   "$BINDIR"/unit/misc_test "$use_shmem"
+   "$BINDIR"/unit/limitations_test "$use_shmem"
+}
+
+# ##################################################################
+# Exercise explicitly individual cases from specific slow running unit-tests
+# where appropriate with a different test-configuration that has been found
+# to provide the required coverage.
+# Execute this set w/ and w/o "--use-shmem" arg.
+# ##################################################################
+function test_slow_unit_tests() {
+    local use_shmem=$1
+
+    local use_msg=
+    if [ "$use_shmem" != "" ]; then
+	    use_msg="using shared memory"
+    fi
+
+    local msg="Splinter inserts test ${use_msg}"
+
+    # Allow $use_shmem to come w/o quotes. Otherwise for default execution, we
+    # end up with empty '' parameter, which causes the argument parsing routine
+    # in the program to cough-up an error.
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" "$BINDIR"/unit/splinter_test ${use_shmem} test_inserts
+
+    # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
+    msg="Splinter lookups test ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/splinter_test ${use_shmem} --num-inserts 2000000 test_lookups
+
+    msg="Splinter print diagnostics test ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/splinter_test ${use_shmem} test_splinter_print_diags
+}
+
+# ##################################################################
 # Exercise example programs, to ensure that they don't fail.
 # ##################################################################
 function test_example_programs() {
@@ -585,19 +632,8 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
                                              --verbose-progress
    set +x
 
-   start_seconds=$SECONDS
-
-   set -x
-   "$BINDIR"/unit/splinterdb_quick_test
-   "$BINDIR"/unit/btree_test
-   "$BINDIR"/unit/util_test
-   "$BINDIR"/unit/misc_test
-   "$BINDIR"/unit/limitations_test
-   set +x
-
-   echo "Fast tests passed"
-
-   record_elapsed_time ${start_seconds} "Fast unit tests"
+   run_with_timing "Fast unit tests" test_fast_unit_tests ""
+   run_with_timing "Fast unit tests using shared memory" test_fast_unit_tests "--use-shmem"
 
    run_with_timing "Test example programs" test_example_programs
 
@@ -614,6 +650,9 @@ fi
 # Run all the unit-tests first, to get basic coverage
 run_with_timing "Fast unit tests" "$BINDIR"/unit_test
 
+# Re-run all the unit-tests first using shared-memory support.
+run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test --use-shmem
+
 # ------------------------------------------------------------------------
 # Run mini-unit-tests that were excluded from bin/unit_test binary:
 # ------------------------------------------------------------------------
@@ -621,14 +660,10 @@ run_with_timing "Fast unit tests" "$BINDIR"/unit_test
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been found to
 # provide the required coverage.
-run_with_timing "Splinter inserts test" "$BINDIR"/unit/splinter_test test_inserts
 
-# Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
-run_with_timing "Splinter lookups test" \
-        "$BINDIR"/unit/splinter_test --num-inserts 2000000 test_lookups
+test_slow_unit_tests ""
 
-run_with_timing "Splinter print diagnostics test" \
-        "$BINDIR"/unit/splinter_test test_splinter_print_diags
+test_slow_unit_tests "--use-shmem"
 
 UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then
