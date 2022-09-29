@@ -414,7 +414,7 @@ merge_iterator_create(platform_heap_id hid,
                      == ARRAY_SIZE(merge_itor->ordered_iterators),
                   "size mismatch");
 
-   merge_itor = TYPED_ZALLOC(NULL, merge_itor);
+   merge_itor = TYPED_ZALLOC(NULL_HEAP_ID, merge_itor);
    if (merge_itor == NULL) {
       return STATUS_NO_MEMORY;
    }
@@ -494,7 +494,7 @@ merge_iterator_create(platform_heap_id hid,
    goto out;
 
 destroy:
-   merge_iterator_rc = merge_iterator_destroy(NULL, &merge_itor);
+   merge_iterator_rc = merge_iterator_destroy(NULL_HEAP_ID, &merge_itor);
    if (!SUCCESS(merge_iterator_rc)) {
       platform_error_log("merge_iterator_create: exception while releasing\n");
       if (SUCCESS(rc)) {
@@ -528,7 +528,7 @@ platform_status
 merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor)
 {
    merge_accumulator_deinit(&(*merge_itor)->merge_buffer);
-   platform_free(NULL, *merge_itor);
+   platform_free(NULL_HEAP_ID, *merge_itor);
    *merge_itor = NULL;
 
    return STATUS_OK;

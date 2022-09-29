@@ -212,6 +212,14 @@ extern bool platform_use_mlock;
 typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
 /*
+ * Provide a tag for callers that do not want to use shared-memory allocation,
+ * when configured but want to fallback to default malloc()-based scheme.
+ * (Usuallly this would be done if a large chunk of memory is repeatedly
+ * allocated and freed in some code-path.)
+ */
+#define NULL_HEAP_ID (platform_heap_id) NULL
+
+/*
  * TYPED_MALLOC_MANUAL(), TYPED_ZALLOC_MANUAL() -
  * TYPED_ARRAY_MALLOC(),  TYPED_ARRAY_ZALLOC() -
  *

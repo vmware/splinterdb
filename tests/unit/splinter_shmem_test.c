@@ -5,8 +5,7 @@
  * -----------------------------------------------------------------------------
  * splinter_shmem_test.c --
  *
- *  Exercises the interfaces in SplinterDB shared memory mgmt module.
- *  This is just a template file. Fill it out for your specific test suite.
+ *  Exercises the interfaces in SplinterDB shared memory allocation module.
  * -----------------------------------------------------------------------------
  */
 #include "splinterdb/public_platform.h"
