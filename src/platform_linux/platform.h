@@ -665,6 +665,9 @@ platform_status
 platform_thread_join(platform_thread thread);
 
 
+platform_thread
+platform_thread_id_self();
+
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
 
