@@ -306,16 +306,26 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 #define TYPED_MALLOC_MANUAL(id, v, n)                                          \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(                                      \
-         id, PLATFORM_CACHELINE_SIZE, (n), __FUNCTION__, __FILE__, __LINE__);  \
+      (typeof(v))platform_aligned_malloc(id,                                   \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         STRINGIFY(v),                         \
+                                         __FUNCTION__,                         \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 
 /* Same as TYPED_MALLOC_MANUAL(), but returns memory zero'ed out */
 #define TYPED_ZALLOC_MANUAL(id, v, n)                                          \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(                                      \
-         id, PLATFORM_CACHELINE_SIZE, (n), __FUNCTION__, __FILE__, __LINE__);  \
+      (typeof(v))platform_aligned_zalloc(id,                                   \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         STRINGIFY(v),                         \
+                                         __FUNCTION__,                         \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
    })
 
 /*
@@ -358,21 +368,19 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  *  n                   - Number of members in array_field_name[].
  */
 #define TYPED_FLEXIBLE_STRUCT_MALLOC(id, v, array_field_name, n)               \
-   TYPED_MALLOC_MANUAL(                                                        \
-      id, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
+   TYPED_MALLOC_MANUAL(id, v, FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
 #define TYPED_FLEXIBLE_STRUCT_ZALLOC(id, v, array_field_name, n)               \
-   TYPED_ZALLOC_MANUAL(                                                        \
-      id, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
+   TYPED_ZALLOC_MANUAL(id, v, FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
 #define TYPED_ARRAY_MALLOC(id, v, n)                                           \
-   TYPED_MALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
+   TYPED_MALLOC_MANUAL(id, v, (n) * sizeof(*(v)))
 
 #define TYPED_ARRAY_ZALLOC(id, v, n)                                           \
-   TYPED_ZALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
+   TYPED_ZALLOC_MANUAL(id, v, (n) * sizeof(*(v)))
 
-#define TYPED_MALLOC(id, v) TYPED_ARRAY_MALLOC(id, (v), 1)
-#define TYPED_ZALLOC(id, v) TYPED_ARRAY_ZALLOC(id, (v), 1)
+#define TYPED_MALLOC(id, v) TYPED_ARRAY_MALLOC(id, v, 1)
+#define TYPED_ZALLOC(id, v) TYPED_ARRAY_ZALLOC(id, v, 1)
 
 /*
  * Utility macros to clear memory
@@ -658,14 +666,15 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
  */
 #define platform_free(id, p)                                                   \
    do {                                                                        \
-      platform_free_from_heap(id, (p), __FUNCTION__, __FILE__, __LINE__);      \
+      platform_free_from_heap(                                                 \
+         id, (p), STRINGIFY(p), __FUNCTION__, __FILE__, __LINE__);             \
       (p) = NULL;                                                              \
    } while (0)
 
 #define platform_free_volatile(id, p)                                          \
    do {                                                                        \
       platform_free_volatile_from_heap(                                        \
-         id, (p), __FUNCTION__, __FILE__, __LINE__);                           \
+         id, (p), STRINGIFY(p), __FUNCTION__, __FILE__, __LINE__);             \
       (p) = NULL;                                                              \
    } while (0)
 
@@ -673,24 +682,26 @@ platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
 static inline void
 platform_free_volatile_from_heap(platform_heap_id heap_id,
                                  volatile void   *ptr,
+                                 const char      *objname,
                                  const char      *func,
                                  const char      *file,
                                  int              lineno)
 {
    // Ok to discard volatile qualifier for free
-   platform_free_from_heap(heap_id, (void *)ptr, func, file, lineno);
+   platform_free_from_heap(heap_id, (void *)ptr, objname, func, file, lineno);
 }
 
 static inline void *
 platform_aligned_zalloc(platform_heap_id heap_id,
                         size_t           alignment,
                         size_t           size,
+                        const char      *objname,
                         const char      *func,
                         const char      *file,
                         int              lineno)
 {
-   void *x =
-      platform_aligned_malloc(heap_id, alignment, size, func, file, lineno);
+   void *x = platform_aligned_malloc(
+      heap_id, alignment, size, objname, func, file, lineno);
    if (LIKELY(x)) {
       memset(x, 0, size);
    }

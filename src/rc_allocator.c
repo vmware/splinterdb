@@ -230,6 +230,7 @@ rc_allocator_init_meta_page(rc_allocator *al)
    al->meta_page = platform_aligned_malloc(al->heap_id,
                                            al->cfg->io_cfg->page_size,
                                            al->cfg->io_cfg->page_size,
+                                           "al->meta_page",
                                            __FUNCTION__,
                                            __FILE__,
                                            __LINE__);

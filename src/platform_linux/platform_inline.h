@@ -39,6 +39,7 @@ platform_checksum_is_equal(checksum128 left, checksum128 right)
 static void
 platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
                         void            *ptr,
+                        const char      *objname,
                         const char      *func,
                         const char      *file,
                         int              lineno);
@@ -264,7 +265,8 @@ platform_close_log_stream(platform_stream_handle *stream,
    fclose(stream->stream);
    fputs(stream->str, log_handle);
    fflush(log_handle);
-   platform_free_from_heap(NULL, stream->str, __FUNCTION__, __FILE__, __LINE__);
+   platform_free_from_heap(
+      NULL, stream->str, "stream", __FUNCTION__, __FILE__, __LINE__);
 }
 
 static inline platform_log_handle *
@@ -413,8 +415,8 @@ platform_alignment(const size_t alignment, const size_t size)
    return ((alignment - (size % alignment)) % alignment);
 }
 
-#define splinter_shm_alloc(heap_id, nbytes)                                    \
-   platform_shm_alloc(heap_id, required, func, file, lineno)
+#define splinter_shm_alloc(heap_id, nbytes, objname)                           \
+   platform_shm_alloc(heap_id, required, objname, func, file, lineno)
 /*
  * platform_aligned_malloc() -- Allocate n-bytes accounting for alignment.
  *
@@ -426,6 +428,7 @@ static inline void *
 platform_aligned_malloc(const platform_heap_id heap_id,
                         const size_t           alignment, // IN
                         const size_t           size,      // IN
+                        const char            *objname,
                         const char            *func,
                         const char            *file,
                         const int              lineno)
@@ -443,7 +446,7 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    const size_t padding  = platform_alignment(alignment, size);
    const size_t required = (size + padding);
 
-   void *retptr = (heap_id ? splinter_shm_alloc(heap_id, required)
+   void *retptr = (heap_id ? splinter_shm_alloc(heap_id, required, objname)
                            : aligned_alloc(alignment, required));
 
    /*
@@ -472,12 +475,13 @@ platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
    return realloc(ptr, size);
 }
 
-#define splinter_shm_free(heap_id, ptr)                                        \
-   platform_shm_free(heap_id, ptr, func, file, lineno)
+#define splinter_shm_free(heap_id, ptr, objname)                               \
+   platform_shm_free(heap_id, ptr, objname, func, file, lineno)
 
 static inline void
 platform_free_from_heap(platform_heap_id heap_id,
                         void            *ptr,
+                        const char      *objname,
                         const char      *func,
                         const char      *file,
                         int              lineno)
@@ -488,7 +492,7 @@ platform_free_from_heap(platform_heap_id heap_id,
    */
 
    if (heap_id) {
-      splinter_shm_free(heap_id, ptr);
+      splinter_shm_free(heap_id, ptr, objname);
    } else {
       free(ptr);
    }

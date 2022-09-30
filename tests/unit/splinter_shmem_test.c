@@ -143,3 +143,28 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
                == ((void *)data->hh + platform_shm_ctrlblock_size()
                    + keybuf_size + keybuf_pad + msgbuf_size + msgbuf_pad));
 }
+
+/*
+ * Currently 'free' is a no-op; no space is released. Do minimal testing of
+ * this feature, to ensure that at least the code flow is exectuing correctly.
+ */
+CTEST2(splinter_shmem, test_free)
+{
+   int    keybuf_size = 64;
+   uint8 *keybuf      = TYPED_MALLOC_MANUAL(data->hid, keybuf, keybuf_size);
+
+   int    msgbuf_size = (2 * keybuf_size);
+   uint8 *msgbuf      = TYPED_MALLOC_MANUAL(data->hid, msgbuf, msgbuf_size);
+
+   size_t mem_used = platform_shmused(data->hid);
+
+   void *next_free = platform_shm_next_free_addr(data->hid);
+
+   platform_free(data->hid, keybuf);
+
+   // Even though we freed some memory, the next addr-to-allocate is unchanged.
+   ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
+
+   // Space used remains unchanged, as free didn't quite return any memory
+   ASSERT_EQUAL(mem_used, platform_shmused(data->hid));
+}

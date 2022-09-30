@@ -218,6 +218,8 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
       shminfop->shm_id = shmid;
       return;
    }
+   platform_default_log(
+      "Deallocated shared memory segment at %p, shmid=%d\n", shmaddr, shmid);
 }
 
 /*
@@ -232,6 +234,7 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
 void *
 platform_shm_alloc(platform_heap_id hid,
                    const size_t     size,
+                   const char      *objname,
                    const char      *func,
                    const char      *file,
                    const int        lineno)
@@ -267,7 +270,8 @@ platform_shm_alloc(platform_heap_id hid,
    shminfop->shm_free_bytes -= size;
 
    bool        use_MiB = (shminfop->shm_free_bytes < GiB);
-   const char *msg     = "  [%s:%d::%s()] -> %s: Allocated %lu bytes at %p, "
+   const char *msg     = "  [%s:%d::%s()] -> %s: Allocated %lu bytes "
+                         "for object '%s', at %p, "
                          "free bytes=%lu (~%lu.%d %s).\n";
    if (use_MiB) {
       platform_default_log(msg,
@@ -276,6 +280,7 @@ platform_shm_alloc(platform_heap_id hid,
                            func,
                            __FUNCTION__,
                            size,
+                           objname,
                            retptr,
                            shminfop->shm_free_bytes,
                            B_TO_MiB(shminfop->shm_free_bytes),
@@ -288,6 +293,7 @@ platform_shm_alloc(platform_heap_id hid,
                            func,
                            __FUNCTION__,
                            size,
+                           objname,
                            retptr,
                            shminfop->shm_free_bytes,
                            B_TO_GiB(shminfop->shm_free_bytes),
@@ -305,17 +311,19 @@ platform_shm_alloc(platform_heap_id hid,
 void
 platform_shm_free(platform_heap_id hid,
                   void            *ptr,
+                  const char      *objname,
                   const char      *func,
                   const char      *file,
                   const int        lineno)
 {
    platform_default_log(
-      "  [%s:%d::%s()] -> %s: Request to free memory at %p.\n",
+      "  [%s:%d::%s()] -> %s: Request to free memory at %p for object '%s'.\n",
       file,
       lineno,
       func,
       __FUNCTION__,
-      ptr);
+      ptr,
+      objname);
    return;
 }
 
