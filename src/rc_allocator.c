@@ -227,13 +227,14 @@ rc_allocator_init_meta_page(rc_allocator *al)
    platform_assert((1 + RC_ALLOCATOR_MAX_ROOT_IDS) * al->cfg->io_cfg->page_size
                    <= al->cfg->io_cfg->extent_size);
 
-   al->meta_page = platform_aligned_malloc(
-      al->heap_id, al->cfg->io_cfg->page_size, al->cfg->io_cfg->page_size);
+   al->meta_page = TYPED_ALIGNED_ZALLOC(al->heap_id,
+                                        al->cfg->io_cfg->page_size,
+                                        al->meta_page,
+                                        al->cfg->io_cfg->page_size);
    if (al->meta_page == NULL) {
       return STATUS_NO_MEMORY;
    }
 
-   memset(al->meta_page, 0, al->cfg->io_cfg->page_size);
    memset(al->meta_page->splinters,
           INVALID_ALLOCATOR_ROOT_ID,
           sizeof(al->meta_page->splinters));

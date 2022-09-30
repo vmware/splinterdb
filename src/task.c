@@ -139,7 +139,7 @@ task_register_this_thread(task_system *ts, uint64 scratch_size)
 {
    char *scratch = NULL;
    if (scratch_size > 0) {
-      scratch = TYPED_ZALLOC_MANUAL(ts->heap_id, scratch, scratch_size);
+      scratch = TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
    }
    task_run_thread_hooks(ts);
    ts->thread_scratch[platform_get_tid()] = scratch;
