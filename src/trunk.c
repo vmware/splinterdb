@@ -4340,8 +4340,8 @@ trunk_flush(trunk_handle     *spl,
 platform_status
 trunk_flush_fullest(trunk_handle *spl, page_handle *node)
 {
-   platform_status   rc                 = STATUS_OK;
-   uint16            fullest_pivot_no   = TRUNK_INVALID_PIVOT_NO;
+   platform_status rc               = STATUS_OK;
+   uint16          fullest_pivot_no = TRUNK_INVALID_PIVOT_NO;
 
    threadid tid;
    if (spl->cfg.use_stats) {
@@ -4352,7 +4352,8 @@ trunk_flush_fullest(trunk_handle *spl, page_handle *node)
     * since flushes may cause splits, which in turn will change the number of
     * children
     */
-   for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node); pivot_no++) {
+   for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
+        pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       // if a pivot has too many branches, just flush it here
       if (trunk_pivot_needs_flush(spl, node, pdata)) {
@@ -4368,8 +4369,8 @@ trunk_flush_fullest(trunk_handle *spl, page_handle *node)
             }
          }
       } else if (fullest_pivot_no == TRUNK_INVALID_PIVOT_NO
-          || (trunk_pivot_num_tuples(spl, node, pivot_no)
-              > trunk_pivot_num_tuples(spl, node, fullest_pivot_no)))
+                 || (trunk_pivot_num_tuples(spl, node, pivot_no)
+                     > trunk_pivot_num_tuples(spl, node, fullest_pivot_no)))
       {
          fullest_pivot_no = pivot_no;
       }
@@ -4383,7 +4384,8 @@ trunk_flush_fullest(trunk_handle *spl, page_handle *node)
          }
       }
       platform_assert(fullest_pivot_no != TRUNK_INVALID_PIVOT_NO);
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, fullest_pivot_no);
+      trunk_pivot_data *pdata =
+         trunk_get_pivot_data(spl, node, fullest_pivot_no);
       return trunk_flush(spl, node, pdata, FALSE);
    }
    return rc;
