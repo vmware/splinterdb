@@ -128,7 +128,7 @@ platform_shmcreate(size_t                size,
    // Always trace creation of shared memory segment.
    bool        use_MiB = (size < GiB);
    const char *msg =
-      "Completed setup of shared memory of size %lu bytes (%lu %s), "
+      "Completed setup of SplinterDB shared memory of size %lu bytes (%lu %s), "
       "shmaddr=%p, shmid=%d,"
       " available memory = %lu bytes (~%lu.%d %s).\n";
    if (use_MiB) {
@@ -226,8 +226,10 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    }
 
    // Always trace destroy of shared memory segment.
-   platform_default_log(
-      "Deallocated shared memory segment at %p, shmid=%d\n", shmaddr, shmid);
+   platform_default_log("Deallocated SplinterDB shared memory "
+                        "segment at %p, shmid=%d\n",
+                        shmaddr,
+                        shmid);
 }
 
 /*
@@ -268,6 +270,15 @@ platform_shm_alloc(platform_heap_id hid,
       shminfop->shm_free_bytes);
 
    if (shminfop->shm_free_bytes < size) {
+      platform_error_log(
+         "[%s:%d::%s()]: Insufficient memory in shared segment"
+         " to allocate %lu bytes for '%s'. Available space=%lu bytes.\n",
+         file,
+         lineno,
+         func,
+         size,
+         objname,
+         shminfop->shm_free_bytes);
       return NULL;
    }
    void *retptr = shminfop->shm_next;

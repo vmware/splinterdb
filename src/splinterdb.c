@@ -562,6 +562,10 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
    }
 
    *kvs_out = kvs;
+   platform_default_log("Successfully %s SplinterDB instance at '%s'\n",
+                        (open_existing ? "mounted existing" : "created new"),
+                        kvs_cfg->filename);
+
    return platform_status_to_int(status);
 
 deinit_cache:

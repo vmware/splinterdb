@@ -7233,6 +7233,14 @@ trunk_mount(trunk_config     *cfg,
       trunk_release_super_block(spl, super_page);
    }
    if (spl->root_addr == 0) {
+      platform_error_log(
+         "SplinterDB device's root_addr=%lu, trunk super_block=%p."
+         " meta_tail=%lu, latest_timestamp=%lu."
+         " Cannot mount device.\n",
+         spl->root_addr,
+         super,
+         meta_tail,
+         latest_timestamp);
       platform_free(hid, spl);
       return (trunk_handle *)NULL;
    }
