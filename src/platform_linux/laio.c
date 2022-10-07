@@ -89,15 +89,29 @@ io_handle_init(laio_handle         *io,
    io->cfg       = cfg;
    io->heap_id   = hid;
 
+   io_context_t ioctxt_before_setup = io->ctx;
    status = io_setup(cfg->kernel_queue_size, &io->ctx);
    platform_assert(status == 0);
-   if (cfg->flags & O_CREAT) {
+   platform_default_log(
+      "IO context: before io_setup()=%p, after io_setup()=%p\n",
+      ioctxt_before_setup,
+      io->ctx);
+
+   bool is_create = ((cfg->flags & O_CREAT) != 0);
+   if (is_create) {
       io->fd = open(cfg->filename, cfg->flags, cfg->perms);
-      fallocate(io->fd, 0, 0, 128 * 1024);
    } else {
       io->fd = open(cfg->filename, cfg->flags);
    }
-   platform_assert(io->fd != -1);
+   platform_assert((io->fd != -1),
+                   "open() %s '%s' failed, fd=%d\n",
+                   (is_create ? "new" : "existing"),
+                   cfg->filename,
+                   io->fd);
+
+   if (is_create) {
+      fallocate(io->fd, 0, 0, 128 * 1024);
+   }
 
    req_size =
       sizeof(io_async_req) + cfg->async_max_pages * sizeof(struct iovec);
@@ -150,6 +164,8 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
    if (ret == bytes) {
       return STATUS_OK;
    }
+   // Return # of bytes read, for diagnostics.
+   ioh->nbytes_rw = ret;
    return STATUS_IO_ERROR;
 }
 
@@ -295,7 +311,11 @@ laio_cleanup(io_handle *ioh, uint64 count)
    for (i = 0; ((count == 0) || (i < count)); i++) {
       status = io_getevents(io->ctx, 0, 1, &event, NULL);
       if (status < 0) {
-         platform_error_log("io_getevents failed with error: %s\n",
+         platform_error_log("io_getevents[%lu], count=%lu, "
+                            "failed with errorno=%d: %s\n",
+                            i,
+                            count,
+                            -status,
                             strerror(-status));
          i--;
          continue;

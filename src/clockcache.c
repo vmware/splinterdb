@@ -3054,14 +3054,43 @@ clockcache_print(platform_log_handle *log_handle, clockcache *cc)
 bool
 clockcache_page_valid(clockcache *cc, uint64 addr)
 {
-   if (addr % clockcache_page_size(cc) != 0)
-      return FALSE;
-   uint64 base_addr = clockcache_extent_base_addr(cc, addr);
-   if (addr < allocator_get_capacity(cc->al)) {
-      return base_addr != 0 && allocator_get_ref(cc->al, base_addr) != 0;
-   } else {
+   if (addr % clockcache_page_size(cc) != 0) {
+      platform_error_log("%s():[%d]: addr=%lu, clockcache_page_size()=%lu\n",
+                         __FUNCTION__,
+                         __LINE__,
+                         addr,
+                         clockcache_page_size(cc));
       return FALSE;
    }
+   uint64 base_addr = clockcache_extent_base_addr(cc, addr);
+   bool   retval    = FALSE;
+   bool   if_fails  = FALSE;
+   if (addr < allocator_get_capacity(cc->al)) {
+      retval = (base_addr != 0) && (allocator_get_ref(cc->al, base_addr) != 0);
+      if_fails = TRUE;
+   } else {
+      retval = FALSE;
+   }
+   // Add tracing to see where / why we are failing.
+   if (!retval) {
+      if (if_fails) {
+         platform_error_log(
+            "%s():[%d]: addr=%lu, base_addr=%lu, allocator_get_ref()=%d\n",
+            __FUNCTION__,
+            __LINE__,
+            addr,
+            base_addr,
+            (int)allocator_get_ref(cc->al, base_addr));
+      } else {
+         platform_error_log(
+            "%s():[%d]: addr=%lu, allocator_get_capacity()=%lu\n",
+            __FUNCTION__,
+            __LINE__,
+            addr,
+            allocator_get_capacity(cc->al));
+      }
+   }
+   return retval;
 }
 
 void
