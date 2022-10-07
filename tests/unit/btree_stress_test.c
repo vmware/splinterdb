@@ -490,7 +490,7 @@ pack_tests(cache           *cc,
                        0);
 
    btree_pack_req req;
-   btree_pack_req_init(&req, cc, cfg, iter, nkvs, UINT64_MAX, NULL, 0, hid);
+   btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
 
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);
