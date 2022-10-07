@@ -480,7 +480,7 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initalize IO handle: %s\n",
+      platform_error_log("Failed to initialize IO handle: %s\n",
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
@@ -496,7 +496,7 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
       platform_error_log(
-         "Failed to initalize SplinterDB task system state: %s\n",
+         "Failed to initialize SplinterDB task system state: %s\n",
          platform_status_to_string(status));
       goto deinit_iohandle;
    }
@@ -517,7 +517,7 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
                                  platform_get_module_id());
    }
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initalize SplinterDB allocator: %s\n",
+      platform_error_log("Failed to initialize SplinterDB allocator: %s\n",
                          platform_status_to_string(status));
       goto deinit_system;
    }
@@ -531,7 +531,7 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
                             kvs->heap_id,
                             platform_get_module_id());
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initalize SplinterDB cache: %s\n",
+      platform_error_log("Failed to initialize SplinterDB cache: %s\n",
                          platform_status_to_string(status));
       goto deinit_allocator;
    }

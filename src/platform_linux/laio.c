@@ -4,7 +4,14 @@
 /*
  * laio.c --
  *
- *     This file contains the inplementation for a libaio wrapper.
+ *     This file contains the implementation for a libaio wrapper.
+ *
+ * The external callable interfaces are defined in io.h. This module
+ * supports both synchronous and async IO.
+ *
+ * - Sync  IO interfaces: io_read(), io_write()
+ * - Async IO interfaces: io_read_async(), io_write_async()
+ * - Async IO completion interfaces: io_cleanup(), io_cleanup_all()
  */
 
 #define POISON_FROM_PLATFORM_IMPLEMENTATION
@@ -19,36 +26,47 @@
 
 #define LAIO_HAND_BATCH_SIZE 32
 
-platform_status
+static platform_status
 laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr);
-platform_status
+
+static platform_status
 laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr);
-io_async_req *
+
+static io_async_req *
 laio_get_async_req(io_handle *ioh, bool blocking);
+
 struct iovec *
 laio_get_iovec(io_handle *ioh, io_async_req *req);
-void *
+
+static void *
 laio_get_metadata(io_handle *ioh, io_async_req *req);
-platform_status
+
+static platform_status
 laio_read_async(io_handle     *ioh,
                 io_async_req  *req,
                 io_callback_fn callback,
                 uint64         count,
                 uint64         addr);
-platform_status
+
+static platform_status
 laio_write_async(io_handle     *ioh,
                  io_async_req  *req,
                  io_callback_fn callback,
                  uint64         count,
                  uint64         addr);
-void
+
+static void
 laio_cleanup(io_handle *ioh, uint64 count);
-void
+
+static void
 laio_cleanup_all(io_handle *ioh);
 
-io_async_req *
+static io_async_req *
 laio_get_kth_req(laio_handle *io, uint64 k);
 
+/*
+ * Define an implementation of the abstract IO Ops interface methods.
+ */
 static io_ops laio_ops = {
    .read          = laio_read,
    .write         = laio_write,
@@ -104,20 +122,32 @@ io_handle_init(laio_handle         *io,
       io->fd = open(cfg->filename, cfg->flags);
    }
    platform_assert((io->fd != -1),
-                   "open() %s '%s' failed, fd=%d\n",
+                   "open() %s '%s' failed, errno=%d: %s\n",
                    (is_create ? "new" : "existing"),
                    cfg->filename,
-                   io->fd);
+                   io->fd,
+                   strerror(errno));
 
    if (is_create) {
       fallocate(io->fd, 0, 0, 128 * 1024);
    }
 
+   /*
+    * Allocate memory for an array of async_queue_size Async request
+    * structures. Each request struct nests within it async_max_pages
+    * pages on which IO can be outstanding.
+    */
    req_size =
       sizeof(io_async_req) + cfg->async_max_pages * sizeof(struct iovec);
    total_req_size = req_size * cfg->async_queue_size;
    io->req        = TYPED_MANUAL_ZALLOC(io->heap_id, io->req, total_req_size);
-   platform_assert(io->req);
+   platform_assert((io->req != NULL),
+                   "Failed to allocate memory for array of %lu Async IO"
+                   " request structures, for %ld outstanding IOs on pages.",
+                   cfg->async_queue_size,
+                   cfg->async_max_pages);
+
+   // Initialize each Async IO request structure
    for (i = 0; i < cfg->async_queue_size; i++) {
       req         = laio_get_kth_req(io, i);
       req->iocb_p = &req->iocb;
@@ -133,6 +163,9 @@ io_handle_init(laio_handle         *io,
    return STATUS_OK;
 }
 
+/*
+ * Dismantle the handle for the IO sub-system, close file and release memory.
+ */
 void
 io_handle_deinit(laio_handle *io)
 {
@@ -140,20 +173,33 @@ io_handle_deinit(laio_handle *io)
 
    status = io_destroy(io->ctx);
    if (status != 0)
-      platform_error_log("io_destroy failed with error: %s\n",
-                         strerror(-status));
+      platform_error_log(
+         "io_destroy failed with error=%d: %s\n", -status, strerror(-status));
    platform_assert(status == 0);
 
    status = close(io->fd);
    if (status != 0) {
-      platform_error_log("close failed with error: %s\n", strerror(errno));
+      platform_error_log("close failed, status=%d, with error %d: %s\n",
+                         status,
+                         errno,
+                         strerror(errno));
    }
    platform_assert(status == 0);
 
    platform_free(io->heap_id, io->req);
 }
 
-platform_status
+/*
+ * laio_read() - Basically a wrapper around pread().
+ *
+ * RESOLVE: See https://man7.org/linux/man-pages/man2/pread.2.html
+ * The pread() and pwrite() system calls are especially useful in
+       multithreaded applications.  They allow multiple threads to
+       perform I/O on the same file descriptor without being affected by
+       changes to the file offset by other threads.
+ *
+ */
+static platform_status
 laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
 {
    laio_handle *io;
@@ -169,7 +215,10 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
    return STATUS_IO_ERROR;
 }
 
-platform_status
+/*
+ * laio_write() - Basically a wrapper around pwrite().
+ */
+static platform_status
 laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
 {
    laio_handle *io;
@@ -180,10 +229,17 @@ laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
    if (ret == bytes) {
       return STATUS_OK;
    }
+   // Return # of bytes written, for diagnostics.
+   ioh->nbytes_rw = ret;
    return STATUS_IO_ERROR;
 }
 
-io_async_req *
+/*
+ * Return a ptr to the k'th Async IO request structure, accounting
+ * for a nested array of 'async_max_pages' pages of IO vector structures
+ * at the end of each Async IO request structure.
+ */
+static io_async_req *
 laio_get_kth_req(laio_handle *io, uint64 k)
 {
    char  *cursor;
@@ -195,7 +251,10 @@ laio_get_kth_req(laio_handle *io, uint64 k)
    return (io_async_req *)(cursor + k * req_size);
 }
 
-io_async_req *
+/*
+ * laio_get_async_req() - Return an Async IO request structure for this thread.
+ */
+static io_async_req *
 laio_get_async_req(io_handle *ioh, bool blocking)
 {
    laio_handle   *io;
@@ -204,7 +263,7 @@ laio_get_async_req(io_handle *ioh, bool blocking)
    const threadid tid     = platform_get_tid();
 
    io = (laio_handle *)ioh;
-   debug_assert(tid < MAX_THREADS);
+   debug_assert(tid < MAX_THREADS, "Invalid tid=%lu", tid);
    while (1) {
       if (io->req_hand[tid] % LAIO_HAND_BATCH_SIZE == 0) {
          if (!blocking && batches++ >= io->max_batches_nonblocking_get) {
@@ -215,11 +274,15 @@ laio_get_async_req(io_handle *ioh, bool blocking)
          laio_cleanup(ioh, 0);
       }
       req = laio_get_kth_req(io, io->req_hand[tid]++);
-      if (__sync_bool_compare_and_swap(&req->busy, FALSE, TRUE))
+      if (__sync_bool_compare_and_swap(&req->busy, FALSE, TRUE)) {
          return req;
+      }
    }
    // should not get here
-   platform_assert(0);
+   platform_assert(0,
+                   "Could not find a free Async IO request structure"
+                   " for thread ID=%lu\n",
+                   tid);
    return NULL;
 }
 
@@ -229,7 +292,7 @@ laio_get_iovec(io_handle *ioh, io_async_req *req)
    return req->iovec;
 }
 
-void *
+static void *
 laio_get_metadata(io_handle *ioh, io_async_req *req)
 {
    return req->metadata;
@@ -247,7 +310,10 @@ laio_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
    req->busy = FALSE;
 }
 
-platform_status
+/*
+ * io_read_async() - Submit an Async read request.
+ */
+static platform_status
 laio_read_async(io_handle     *ioh,
                 io_async_req  *req,
                 io_callback_fn callback,
@@ -273,7 +339,10 @@ laio_read_async(io_handle     *ioh,
    return STATUS_OK;
 }
 
-platform_status
+/*
+ * laio_write_async() - Submit an Async write request.
+ */
+static platform_status
 laio_write_async(io_handle     *ioh,
                  io_async_req  *req,
                  io_callback_fn callback,
@@ -299,7 +368,12 @@ laio_write_async(io_handle     *ioh,
    return STATUS_OK;
 }
 
-void
+/*
+ * laio_cleanup() - Handle completion of outstanding IO requests.
+ * Up to 'count' outstanding IO requests will be processed.
+ * Specify 'count' as 0 to process all completion of all pending IO requests.
+ */
+static void
 laio_cleanup(io_handle *ioh, uint64 count)
 {
    laio_handle    *io;
@@ -308,6 +382,9 @@ laio_cleanup(io_handle *ioh, uint64 count)
    int             status;
 
    io = (laio_handle *)ioh;
+
+   // Check for completion of up to 'count' events, one event at at time.
+   // Or, check for all outstanding events (count == 0)
    for (i = 0; ((count == 0) || (i < count)); i++) {
       status = io_getevents(io->ctx, 0, 1, &event, NULL);
       if (status < 0) {
@@ -320,13 +397,20 @@ laio_cleanup(io_handle *ioh, uint64 count)
          i--;
          continue;
       }
-      if (status == 0)
+      // No event has completed, so we are done. Exit.
+      if (status == 0) {
          break;
+      }
+      // Invoke the callback for the one event that completed.
       laio_callback(io->ctx, event.obj, event.res, 0);
    }
 }
 
-void
+/*
+ * laio_cleanup_all() - Handle completion of outstanding IO requests,
+ * for all async requests in the queue.
+ */
+static void
 laio_cleanup_all(io_handle *ioh)
 {
    laio_handle  *io;
