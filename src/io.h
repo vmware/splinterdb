@@ -59,6 +59,8 @@ typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
 typedef void (*io_cleanup_all_fn)(io_handle *io);
 typedef void (*io_thread_register_fn)(io_handle *io);
 typedef bool (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
+typedef void *(*io_get_context_fn)(io_handle *io);
+
 
 /*
  * An abstract IO interface, holding different IO Ops function pointers.
@@ -75,11 +77,13 @@ typedef struct io_ops {
    io_cleanup_all_fn         cleanup_all;
    io_thread_register_fn     thread_register;
    io_max_latency_elapsed_fn max_latency_elapsed;
+   io_get_context_fn         get_context;
 } io_ops;
 
 // to sub-class io, make an io your first field;
 struct io_handle {
    const io_ops *ops;
+   int           nbytes_rw; // # of bytes read / written by IO call.
 };
 
 platform_status
@@ -169,6 +173,12 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
       return io->ops->max_latency_elapsed(io, ts);
    }
    return TRUE;
+}
+
+static inline void *
+io_get_context(io_handle *io)
+{
+   return io->ops->get_context(io);
 }
 
 /*

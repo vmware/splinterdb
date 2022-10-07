@@ -27,6 +27,13 @@
 #define LAIO_DEFAULT_EXTENT_SIZE                                               \
    (LAIO_DEFAULT_PAGES_PER_EXTENT * LAIO_DEFAULT_PAGE_SIZE)
 
+/*
+ * Async IO Request structure: Each such request can track up to a configured
+ * number of pages, io_config{}->async_max_pages, on which an IO is issued.
+ * This number sizes the iovec[] array nested below. An array of these structs,
+ * along with the nested sub-array of iovec[], comes from allocated memory
+ * which is setup when the IO-sub-system is initialized.
+ */
 struct io_async_req {
    struct iocb    iocb;         // laio callback
    struct iocb   *iocb_p;       // laio callback pointer
@@ -39,19 +46,27 @@ struct io_async_req {
    struct iovec   iovec[];      // vector with IO offsets and size
 };
 
+/*
+ * Async IO context structure handle:
+ */
 typedef struct laio_handle {
    io_handle        super;
    io_config       *cfg;
-   int              fd;
-   io_context_t     ctx;
-   io_async_req    *req;
+   io_context_t     ctx; // Opaque handle returned by system call
+   io_async_req    *req; // Ptr to array of async req structs
    uint64           max_batches_nonblocking_get;
    uint64           req_hand_base;
    uint64           req_hand[MAX_THREADS];
    platform_heap_id heap_id;
+   int              fd; // File descriptor to Splinter device
 } laio_handle;
 
 platform_status
 laio_config_valid(io_config *cfg);
 
+static inline io_context_t
+platform_io_context(laio_handle *ioh)
+{
+   return ioh->ctx;
+}
 #endif //__LAIO_H

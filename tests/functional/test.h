@@ -49,6 +49,9 @@ cache_test(int argc, char *argv[]);
 int
 ycsb_test(int argc, char *argv[]);
 
+int
+splinter_io_apis_test(int argc, char *argv[]);
+
 /*
  * Initialization for using splinter, need to be called at the start of the test
  * main function. This initializes SplinterDB's task sub-system.
