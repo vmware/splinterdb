@@ -157,7 +157,6 @@ typedef struct btree_pack_req {
    btree_config *cfg;
    iterator     *itor; // the itor which is being packed
    uint64        max_tuples;
-   uint64        max_kv_bytes; // max kv_bytes for the tree
    hash_fn       hash;         // hash function used for calculating filter_hash
    unsigned int  seed;         // seed used for calculating filter_hash
    uint32       *fingerprint_arr; // IN/OUT: hashes of the keys in the tree
@@ -337,7 +336,6 @@ btree_pack_req_init(btree_pack_req  *req,
                     btree_config    *cfg,
                     iterator        *itor,
                     uint64           max_tuples,
-                    uint64           max_kv_bytes,
                     hash_fn          hash,
                     unsigned int     seed,
                     platform_heap_id hid)
@@ -347,7 +345,6 @@ btree_pack_req_init(btree_pack_req  *req,
    req->cfg          = cfg;
    req->itor         = itor;
    req->max_tuples   = max_tuples;
-   req->max_kv_bytes = max_kv_bytes;
    req->hash         = hash;
    req->seed         = seed;
    if (hash != NULL && max_tuples > 0) {

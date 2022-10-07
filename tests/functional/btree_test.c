@@ -667,15 +667,8 @@ test_btree_basic(cache             *cc,
    platform_default_log("btree iterator init time %luns\n",
                         platform_timestamp_elapsed(start_time));
    btree_pack_req req;
-   btree_pack_req_init(&req,
-                       cc,
-                       btree_cfg,
-                       (iterator *)&itor,
-                       UINT64_MAX,
-                       UINT64_MAX,
-                       NULL,
-                       0,
-                       NULL);
+   btree_pack_req_init(
+      &req, cc, btree_cfg, (iterator *)&itor, UINT64_MAX, NULL, 0, NULL);
 
    btree_print_tree_stats(
       Platform_default_log_handle, cc, btree_cfg, root_addr);
@@ -840,15 +833,8 @@ test_btree_create_packed_trees(cache             *cc,
                           0);
 
       btree_pack_req req;
-      btree_pack_req_init(&req,
-                          cc,
-                          btree_cfg,
-                          &itor.super,
-                          UINT64_MAX,
-                          UINT64_MAX,
-                          NULL,
-                          0,
-                          hid);
+      btree_pack_req_init(
+         &req, cc, btree_cfg, &itor.super, UINT64_MAX, NULL, 0, hid);
       platform_status rc = btree_pack(&req);
       platform_assert_status_ok(rc);
       btree_iterator_deinit(&itor);
@@ -1052,15 +1038,8 @@ test_btree_merge_basic(cache             *cc,
       }
 
       btree_pack_req req;
-      btree_pack_req_init(&req,
-                          cc,
-                          btree_cfg,
-                          &merge_itor->super,
-                          UINT64_MAX,
-                          UINT64_MAX,
-                          NULL,
-                          0,
-                          hid);
+      btree_pack_req_init(
+         &req, cc, btree_cfg, &merge_itor->super, UINT64_MAX, NULL, 0, hid);
       btree_pack(&req);
       output_addr[pivot_no] = req.root_addr;
 
@@ -1438,15 +1417,8 @@ test_btree_merge_perf(cache             *cc,
          }
 
          btree_pack_req req;
-         btree_pack_req_init(&req,
-                             cc,
-                             btree_cfg,
-                             &merge_itor->super,
-                             UINT64_MAX,
-                             UINT64_MAX,
-                             NULL,
-                             0,
-                             hid);
+         btree_pack_req_init(
+            &req, cc, btree_cfg, &merge_itor->super, UINT64_MAX, NULL, 0, hid);
          btree_pack(&req);
          output_addr[merge_no * num_merges + pivot_no] = req.root_addr;
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {

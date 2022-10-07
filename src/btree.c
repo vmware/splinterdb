@@ -142,7 +142,7 @@ void
 log_trace_key(slice key, char *msg)
 {
    if (slice_lex_cmp(key, slice_create(sizeof(trace_key), trace_key)) == 0) {
-      platform_log("BTREE_TRACE_KEY: %s\n", msg);
+      platform_default_log("BTREE_TRACE_KEY: %s\n", msg);
    }
 }
 
@@ -2921,10 +2921,7 @@ btree_pack_post_loop(btree_pack_req *req, slice last_key)
 static bool
 btree_pack_can_fit_tuple(btree_pack_req *req, slice key, message data)
 {
-   return req->num_tuples < req->max_tuples
-          && req->key_bytes + req->message_bytes + slice_length(key)
-                   + message_length(data)
-                <= req->max_kv_bytes;
+   return req->num_tuples < req->max_tuples;
 }
 
 static void
@@ -2964,7 +2961,9 @@ btree_pack(btree_pack_req *req)
    while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
       iterator_get_curr(req->itor, &key, &data);
       if (!btree_pack_can_fit_tuple(req, key, data)) {
-         break;
+         platform_error_log("btree_pack exceeded output size limit\n");
+         btree_pack_abort(req);
+         return STATUS_LIMIT_EXCEEDED;
       }
       platform_status rc = btree_pack_loop(req, key, data);
       if (!SUCCESS(rc)) {
