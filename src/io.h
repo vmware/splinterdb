@@ -80,6 +80,7 @@ typedef struct io_ops {
 // to sub-class io, make an io your first field;
 struct io_handle {
    const io_ops *ops;
+   int           nbytes_rw; // # of bytes read / written by IO call.
 };
 
 platform_status
