@@ -215,7 +215,9 @@ function nightly_functionality_stress_tests() {
     rm ${dbname}
 }
 
+# #############################################################################
 # Run through collection of nightly stress tests
+# #############################################################################
 function run_nightly_stress_tests() {
 
     nightly_functionality_stress_tests
@@ -272,6 +274,7 @@ function nightly_sync_perf_tests() {
 
 # #############################################################################
 # Nightly Cache Performance tests with async disabled
+# #############################################################################
 function nightly_cache_perf_tests() {
 
     local dbname="cache_test.perf.db"
@@ -290,7 +293,9 @@ function nightly_cache_perf_tests() {
     rm ${dbname}
 }
 
+# #############################################################################
 # Nightly Performance tests with async enabled - Currently not being invoked.
+# #############################################################################
 function nightly_async_perf_tests() {
 
     # TODO: When these tests are onlined, drop these counts, so that we can run
@@ -311,7 +316,9 @@ function nightly_async_perf_tests() {
     rm ${dbname}
 }
 
+# #############################################################################
 # Run through collection of nightly Performance-oriented tests
+# #############################################################################
 function run_nightly_perf_tests() {
 
     nightly_sync_perf_tests
@@ -321,6 +328,7 @@ function run_nightly_perf_tests() {
 
 }
 
+# #############################################################################
 # Method to check that the command actually does fail; Otherwise it's an error.
 function run_check_rc() {
     echo
@@ -428,7 +436,6 @@ function run_build_and_test() {
         "${bindir}"/unit/splinter_test --help
 
    }  >> "${outfile}" 2>&1
-
 }
 
 # ##################################################################
@@ -511,6 +518,120 @@ function test_example_programs() {
 }
 
 # ##################################################################
+# Smoke Tests: Run a small collection of fast-running unit-tests
+# ##################################################################
+function run_fast_unit_tests() {
+   "$BINDIR"/unit/splinterdb_quick_test
+   "$BINDIR"/unit/btree_test
+   "$BINDIR"/unit/util_test
+   "$BINDIR"/unit/misc_test
+   "$BINDIR"/unit/limitations_test
+   "$BINDIR"/unit/task_system_test
+}
+
+# ##################################################################
+# Run mini-unit-tests that were excluded from bin/unit_test binary:
+# Explicitly run individual cases from specific slow running unit-tests,
+# where appropriate with a different test-configuration that has been
+# found to to provide the required coverage.
+# ##################################################################
+function run_slower_unit_tests() {
+
+    run_with_timing "Splinter inserts test" "$BINDIR"/unit/splinter_test test_inserts
+
+    # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
+    run_with_timing "Splinter lookups test" \
+        "$BINDIR"/unit/splinter_test --num-inserts 2000000 test_lookups
+
+    run_with_timing "Splinter print diagnostics test" \
+        "$BINDIR"/unit/splinter_test test_splinter_print_diags
+}
+
+# ##################################################################
+# Execute a few variations of splinter_test --functionality tests
+# ##################################################################
+function run_splinter_functionality_tests() {
+    key_size=8
+    run_with_timing "Functionality test, key size=${key_size} bytes" \
+        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            --key-size ${key_size} --seed "$SEED"
+
+    run_with_timing "Functionality test, with default key size" \
+        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            --seed "$SEED"
+
+    max_key_size=105
+    run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
+        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            --key-size ${max_key_size} --seed "$SEED"
+}
+
+# ##################################################################
+# Execute a few variations of splinter_test --perf tests
+# ##################################################################
+function run_splinter_perf_tests() {
+
+   # Validate use of small # of --num-inserts, and --verbose-progress
+   # Test-case basically is for functional testing of interfaces.
+   run_with_timing "Very quick Performance test" \
+        "$BINDIR"/driver_test splinter_test --perf \
+                                            --max-async-inflight 0 \
+                                            --num-insert-threads 4 \
+                                            --num-lookup-threads 4 \
+                                            --num-range-lookup-threads 4 \
+                                            --lookup-positive-percent 10 \
+                                            --num-inserts 10000 \
+                                            --cache-capacity-mib 512 \
+                                            --verbose-progress
+
+   run_with_timing "Performance test" \
+        "$BINDIR"/driver_test splinter_test --perf \
+                                            --max-async-inflight 0 \
+                                            --num-insert-threads 4 \
+                                            --num-lookup-threads 4 \
+                                            --num-range-lookup-threads 0 \
+                                            --tree-size-gib 2 \
+                                            --cache-capacity-mib 512
+}
+
+# ##################################################################
+# Execute BTree tests, including BTree perf test case
+# ##################################################################
+function run_btree_tests() {
+    key_size=8
+    run_with_timing "BTree test, key size=${key_size} bytes" \
+        "$BINDIR"/driver_test btree_test --key-size ${key_size} \
+                                         --seed "$SEED"
+
+    run_with_timing "BTree test, with default key size" \
+        "$BINDIR"/driver_test btree_test --seed "$SEED"
+
+    key_size=100
+    run_with_timing "BTree test, key size=${key_size} bytes" \
+        "$BINDIR"/driver_test btree_test --key-size ${key_size} --seed "$SEED"
+
+    run_with_timing "BTree Perf test"
+        "$BINDIR"/driver_test btree_test --perf \
+                                         --cache-capacity-gib 4 \
+                                         --seed "$SEED"
+}
+
+# ##################################################################
+# Run remaining functionality-related tests from driver_test
+# ##################################################################
+function run_other_driver_tests() {
+
+    run_with_timing "Cache test" \
+        "$BINDIR"/driver_test cache_test --seed "$SEED"
+
+    run_with_timing "Log test" \
+        "$BINDIR"/driver_test log_test --seed "$SEED"
+
+    run_with_timing "Filter test" \
+        "$BINDIR"/driver_test filter_test --seed "$SEED"
+}
+
+# ##################################################################
 # main() begins here
 # ##################################################################
 
@@ -587,17 +708,7 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    start_seconds=$SECONDS
 
-   set -x
-   "$BINDIR"/unit/splinterdb_quick_test
-   "$BINDIR"/unit/btree_test
-   "$BINDIR"/unit/util_test
-   "$BINDIR"/unit/misc_test
-   "$BINDIR"/unit/limitations_test
-   set +x
-
-   echo "Fast tests passed"
-
-   record_elapsed_time ${start_seconds} "Fast unit tests"
+   run_with_timing "Smoke tests" run_fast_unit_tests
 
    run_with_timing "Test example programs" test_example_programs
 
@@ -617,85 +728,20 @@ run_with_timing "Fast unit tests" "$BINDIR"/unit_test
 # ------------------------------------------------------------------------
 # Run mini-unit-tests that were excluded from bin/unit_test binary:
 # ------------------------------------------------------------------------
-
-# Explicitly run individual cases from specific slow running unit-tests,
-# where appropriate with a different test-configuration that has been found to
-# provide the required coverage.
-run_with_timing "Splinter inserts test" "$BINDIR"/unit/splinter_test test_inserts
-
-# Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
-run_with_timing "Splinter lookups test" \
-        "$BINDIR"/unit/splinter_test --num-inserts 2000000 test_lookups
-
-run_with_timing "Splinter print diagnostics test" \
-        "$BINDIR"/unit/splinter_test test_splinter_print_diags
+run_slower_unit_tests
 
 UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then
     rm ${UNIT_TESTS_DB_DEV}
 fi
 
-key_size=8
-run_with_timing "Functionality test, key size=${key_size} bytes" \
-        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --key-size ${key_size} --seed "$SEED"
+run_splinter_functionality_tests
 
-run_with_timing "Functionality test, with default key size" \
-        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --seed "$SEED"
+run_splinter_perf_tests
 
-max_key_size=105
-run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
-        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --key-size ${max_key_size} --seed "$SEED"
+run_btree_tests
 
-# Validate use of small # of --num-inserts, and --verbose-progress
-# Test-case basically is for functional testing of interfaces.
-run_with_timing "Very quick Performance test" \
-        "$BINDIR"/driver_test splinter_test --perf \
-                                            --max-async-inflight 0 \
-                                            --num-insert-threads 4 \
-                                            --num-lookup-threads 4 \
-                                            --num-range-lookup-threads 4 \
-                                            --lookup-positive-percent 10 \
-                                            --num-inserts 10000 \
-                                            --cache-capacity-mib 512 \
-                                            --verbose-progress
-
-run_with_timing "Performance test" \
-        "$BINDIR"/driver_test splinter_test --perf \
-                                            --max-async-inflight 0 \
-                                            --num-insert-threads 4 \
-                                            --num-lookup-threads 4 \
-                                            --num-range-lookup-threads 0 \
-                                            --tree-size-gib 2 \
-                                            --cache-capacity-mib 512
-
-run_with_timing "Cache test" \
-        "$BINDIR"/driver_test cache_test --seed "$SEED"
-
-key_size=8
-run_with_timing "BTree test, key size=${key_size} bytes" \
-        "$BINDIR"/driver_test btree_test --key-size ${key_size} \
-                                         --seed "$SEED"
-
-run_with_timing "BTree test, with default key size" \
-        "$BINDIR"/driver_test btree_test --seed "$SEED"
-
-key_size=100
-run_with_timing "BTree test, key size=${key_size} bytes" \
-        "$BINDIR"/driver_test btree_test --key-size ${key_size} --seed "$SEED"
-
-run_with_timing "BTree Perf test"
-        "$BINDIR"/driver_test btree_test --perf \
-                                         --cache-capacity-gib 4 \
-                                         --seed "$SEED"
-
-run_with_timing "Log test" \
-        "$BINDIR"/driver_test log_test --seed "$SEED"
-
-run_with_timing "Filter test" \
-        "$BINDIR"/driver_test filter_test --seed "$SEED"
+run_other_driver_tests
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

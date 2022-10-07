@@ -101,6 +101,9 @@ platform_buffer_destroy(buffer_handle *bh)
    return STATUS_OK;
 }
 
+/*
+ * platform_thread_create() - External interface to create a Splinter thread.
+ */
 platform_status
 platform_thread_create(platform_thread       *thread,
                        bool                   detached,
@@ -134,6 +137,12 @@ platform_thread_join(platform_thread thread)
    ret = pthread_join(thread, &retval);
 
    return CONST_STATUS(ret);
+}
+
+platform_thread
+platform_thread_id_self()
+{
+   return pthread_self();
 }
 
 platform_status
@@ -184,7 +193,7 @@ platform_histo_create(platform_heap_id       heap_id,
                       platform_histo_handle *histo)
 {
    platform_histo_handle hh;
-   hh = TYPED_MALLOC_MANUAL(
+   hh = TYPED_MANUAL_MALLOC(
       heap_id, hh, sizeof(hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
       return STATUS_NO_MEMORY;

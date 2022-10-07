@@ -310,8 +310,8 @@ insert_tests(cache           *cc,
 
    int    keybuf_size = btree_page_size(cfg);
    int    msgbuf_size = btree_page_size(cfg);
-   uint8 *keybuf      = TYPED_MALLOC_MANUAL(hid, keybuf, keybuf_size);
-   uint8 *msgbuf      = TYPED_MALLOC_MANUAL(hid, msgbuf, msgbuf_size);
+   uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
+   uint8 *msgbuf      = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -377,8 +377,8 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 *keybuf = TYPED_MALLOC_MANUAL(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf = TYPED_MALLOC_MANUAL(hid, msgbuf, btree_page_size(cfg));
+   uint8 *keybuf = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
+   uint8 *msgbuf = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
    memset(msgbuf, 0, btree_page_size(cfg));
 
    merge_accumulator result;
@@ -428,10 +428,10 @@ iterator_tests(cache           *cc,
 
    uint64 seen = 0;
    bool   at_end;
-   uint8 *prevbuf = TYPED_MALLOC_MANUAL(hid, prevbuf, btree_page_size(cfg));
+   uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
    slice  prev    = NULL_SLICE;
-   uint8 *keybuf  = TYPED_MALLOC_MANUAL(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf  = TYPED_MALLOC_MANUAL(hid, msgbuf, btree_page_size(cfg));
+   uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
+   uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
       slice   key;
@@ -491,7 +491,7 @@ pack_tests(cache           *cc,
                        0);
 
    btree_pack_req req;
-   btree_pack_req_init(&req, cc, cfg, iter, nkvs, UINT64_MAX, NULL, 0, hid);
+   btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
 
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);

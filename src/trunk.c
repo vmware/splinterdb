@@ -98,6 +98,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  */
 #define TRUNK_EXTRA_PIVOT_KEYS (6)
 
+#define TRUNK_INVALID_PIVOT_NO (UINT16_MAX)
+
 /*
  * Trunk logging functions.
  *
@@ -3176,7 +3178,6 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
                        &spl->cfg.btree_cfg,
                        itor,
                        spl->cfg.max_tuples_per_node,
-                       UINT64_MAX,
                        spl->cfg.filter_cfg.hash,
                        spl->cfg.filter_cfg.seed,
                        spl->heap_id);
@@ -4179,6 +4180,9 @@ trunk_flush_into_bundle(trunk_handle             *spl,    // IN
    trunk_log_stream_if_enabled(spl, &stream, "\n");
    trunk_close_log_stream_if_enabled(spl, &stream);
 
+   platform_assert(bundle->start_subbundle != bundle->end_subbundle,
+                   "Flush into empty bundle.\n");
+
    return bundle;
 }
 
@@ -4335,29 +4339,20 @@ trunk_flush(trunk_handle     *spl,
 platform_status
 trunk_flush_fullest(trunk_handle *spl, page_handle *node)
 {
-   platform_status   rc                 = STATUS_OK;
-   uint16            fullest_pivot_no   = 0;
-   trunk_pivot_data *fullest_pivot_data = trunk_get_pivot_data(spl, node, 0);
+   platform_status rc               = STATUS_OK;
+   uint16          fullest_pivot_no = TRUNK_INVALID_PIVOT_NO;
 
    threadid tid;
    if (spl->cfg.use_stats) {
       tid = platform_get_tid();
    }
-   if (trunk_pivot_needs_flush(spl, node, fullest_pivot_data)) {
-      rc = trunk_flush(spl, node, fullest_pivot_data, FALSE);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
-      if (spl->cfg.use_stats) {
-         if (node->disk_addr == spl->root_addr) {
-            spl->stats[tid].root_count_flushes++;
-         } else {
-            spl->stats[tid].count_flushes[trunk_height(spl, node)]++;
-         }
-      }
-   }
-   uint16 num_children = trunk_num_children(spl, node);
-   for (uint16 pivot_no = 1; pivot_no < num_children; pivot_no++) {
+   /*
+    * Note that trunk_num_children *must* be called at every loop iteration,
+    * since flushes may cause splits, which in turn will change the number of
+    * children
+    */
+   for (uint16 pivot_no = 0; pivot_no < trunk_num_children(spl, node);
+        pivot_no++) {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       // if a pivot has too many branches, just flush it here
       if (trunk_pivot_needs_flush(spl, node, pdata)) {
@@ -4372,11 +4367,11 @@ trunk_flush_fullest(trunk_handle *spl, page_handle *node)
                spl->stats[tid].count_flushes[trunk_height(spl, node)]++;
             }
          }
-      }
-      if (trunk_pivot_num_tuples(spl, node, pivot_no)
-          > trunk_pivot_num_tuples(spl, node, fullest_pivot_no))
+      } else if (fullest_pivot_no == TRUNK_INVALID_PIVOT_NO
+                 || (trunk_pivot_num_tuples(spl, node, pivot_no)
+                     > trunk_pivot_num_tuples(spl, node, fullest_pivot_no)))
       {
-         fullest_pivot_no = pivot_no, fullest_pivot_data = pdata;
+         fullest_pivot_no = pivot_no;
       }
    }
    if (trunk_node_is_full(spl, node)) {
@@ -4387,7 +4382,10 @@ trunk_flush_fullest(trunk_handle *spl, page_handle *node)
             spl->stats[tid].full_flushes[trunk_height(spl, node)]++;
          }
       }
-      return trunk_flush(spl, node, fullest_pivot_data, FALSE);
+      platform_assert(fullest_pivot_no != TRUNK_INVALID_PIVOT_NO);
+      trunk_pivot_data *pdata =
+         trunk_get_pivot_data(spl, node, fullest_pivot_no);
+      return trunk_flush(spl, node, pdata, FALSE);
    }
    return rc;
 }
@@ -4613,7 +4611,6 @@ trunk_btree_pack_req_init(trunk_handle   *spl,
                        &spl->cfg.btree_cfg,
                        itor,
                        spl->cfg.max_tuples_per_node,
-                       spl->cfg.max_kv_bytes_per_node,
                        spl->cfg.filter_cfg.hash,
                        spl->cfg.filter_cfg.seed,
                        spl->heap_id);
@@ -7597,6 +7594,11 @@ trunk_verify_node(trunk_handle *spl, page_handle *node)
             platform_error_log("addr: %lu\n", addr);
             goto out;
          }
+      }
+      if (bundle->start_subbundle == bundle->end_subbundle) {
+         platform_error_log("trunk_verify: empty bundle\n");
+         platform_error_log("addr: %lu\n", addr);
+         goto out;
       }
       last_bundle = bundle;
    }
