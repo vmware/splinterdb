@@ -46,8 +46,10 @@ verify_tuple(trunk_handle           *spl,
       merge_accumulator_init(&expected_msg, NULL);
       char data_str[128];
       generate_test_message(gen, lookup_num, &expected_msg);
-      if (message_lex_cmp(merge_accumulator_to_message(&expected_msg), data)
-          != 0) {
+      if (message_lex_cmp(
+             spl->cc, merge_accumulator_to_message(&expected_msg), data)
+          != 0)
+      {
          trunk_message_to_string(spl, data, data_str);
          platform_error_log("key found with data: %s\n", data_str);
          trunk_message_to_string(

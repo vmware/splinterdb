@@ -183,7 +183,9 @@ static message
 log_entry_message(log_entry *le)
 {
    return message_create(
-      le->msg_type, slice_create(le->messagelen, le->contents + le->keylen));
+      le->msg_type,
+      le->msg_isblob,
+      slice_create(le->messagelen, le->contents + le->keylen));
 }
 
 static uint64
@@ -297,9 +299,9 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
    cache_unclaim(cc, page);
    cache_unget(cc, page);
 
-   /* if (message_isblob(msg)) { */
-   /*    blob_sync(cc, message_slice(msg), PAGE_TYPE_LOG); */
-   /* } */
+   if (message_isblob(msg)) {
+      blob_sync(cc, message_slice(msg), PAGE_TYPE_LOG);
+   }
 
    return 0;
 }

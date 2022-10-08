@@ -123,7 +123,7 @@ test_log_crash(clockcache             *cc,
       message mmessage = merge_accumulator_to_message(&msg);
       iterator_get_curr(itorh, &returned_key, &returned_message);
       if (slice_lex_cmp(skey, returned_key)
-          || message_lex_cmp(mmessage, returned_message))
+          || message_lex_cmp((cache *)cc, mmessage, returned_message))
       {
          platform_default_log("log_test_basic: key or data mismatch\n");
          data_key_to_string(cfg->data_cfg, skey, key_str, 128);

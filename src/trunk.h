@@ -357,7 +357,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 
-typedef void (*tuple_function)(slice key, message value, void *arg);
+typedef void (*tuple_function)(cache *cc, slice key, message value, void *arg);
 platform_status
 trunk_range(trunk_handle  *spl,
             const char    *start_key,

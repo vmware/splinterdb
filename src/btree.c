@@ -2399,6 +2399,7 @@ btree_iterator_get_curr(iterator *base_itor, slice *key, message *data)
       *key  = index_entry_key_slice(entry);
       *data = message_create(
          MESSAGE_TYPE_PIVOT_DATA,
+         FALSE,
          slice_create(sizeof(entry->pivot_data), &entry->pivot_data));
    }
 }

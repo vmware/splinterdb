@@ -258,6 +258,7 @@ leaf_entry_message(leaf_entry *entry)
    debug_assert(entry->message_indirect == FALSE);
    return message_create(
       entry->type,
+      FALSE,
       slice_create(entry->message_size,
                    entry->key_and_message + entry->key_size));
 }

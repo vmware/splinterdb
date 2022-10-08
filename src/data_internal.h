@@ -38,9 +38,9 @@ extern message NULL_MESSAGE;
 extern message DELETE_MESSAGE;
 
 static inline message
-message_create(message_type type, slice data)
+message_create(message_type type, bool isblob, slice data)
 {
-   return (message){.type = type, .isblob = FALSE, .data = data};
+   return (message){.type = type, .isblob = isblob, .data = data};
 }
 
 static inline bool
@@ -64,18 +64,54 @@ message_is_invalid_user_type(message msg)
           || msg.type > MESSAGE_TYPE_MAX_VALID_USER_TYPE;
 }
 
+static inline void
+message_materialize_if_needed(cache           *cc,
+                              platform_heap_id heap_id,
+                              message          msg,
+                              writable_buffer *tmp,
+                              message         *result)
+{
+   if (msg.isblob) {
+      writable_buffer_init(tmp, heap_id);
+      slice sblob = message_slice(msg);
+      blob_materialize(cc, sblob, 0, blob_length(sblob), PAGE_TYPE_MISC, tmp);
+      *result = message_create(
+         message_class(msg), FALSE, writable_buffer_to_slice(tmp));
+
+   } else {
+      *result = msg;
+   }
+}
+
+static inline void
+message_dematerialize_if_needed(message msg, writable_buffer *tmp)
+{
+   if (msg.isblob) {
+      writable_buffer_deinit(tmp);
+   }
+}
+
 /* Define an arbitrary ordering on messages.  In practice, all we care
  * about is equality, but this is written to follow the same
  * comparison interface as for ordered types. */
 static inline int
-message_lex_cmp(message a, message b)
+message_lex_cmp(cache *cc, message a, message b)
 {
    if (a.type < b.type) {
       return -1;
    } else if (b.type < a.type) {
       return 1;
    } else {
-      return slice_lex_cmp(a.data, b.data);
+      writable_buffer a_tmp;
+      message         a_materialized;
+      writable_buffer b_tmp;
+      message         b_materialized;
+      message_materialize_if_needed(cc, NULL, a, &a_tmp, &a_materialized);
+      message_materialize_if_needed(cc, NULL, b, &b_tmp, &b_materialized);
+      int result = slice_lex_cmp(a_materialized.data, b_materialized.data);
+      message_dematerialize_if_needed(a, &a_tmp);
+      message_dematerialize_if_needed(b, &b_tmp);
+      return result;
    }
 }
 
@@ -127,7 +163,7 @@ merge_accumulator_is_definitive(const merge_accumulator *ma)
 static inline message
 merge_accumulator_to_message(const merge_accumulator *ma)
 {
-   return message_create(ma->type, writable_buffer_to_slice(&ma->data));
+   return message_create(ma->type, FALSE, writable_buffer_to_slice(&ma->data));
 }
 
 static inline slice
@@ -233,19 +269,11 @@ data_message_to_string(const data_config *cfg,
                        char              *str,
                        size_t             size)
 {
-   if (message_isblob(msg)) {
-      slice           sblob = message_slice(msg);
-      writable_buffer materialized;
-      writable_buffer_init(&materialized, NULL);
-      blob_materialize(
-         cc, sblob, 0, blob_length(sblob), PAGE_TYPE_MISC, &materialized);
-      message materialized_msg = message_create(
-         message_class(msg), writable_buffer_to_slice(&materialized));
-      cfg->message_to_string(cfg, materialized_msg, str, size);
-      writable_buffer_deinit(&materialized);
-   } else {
-      cfg->message_to_string(cfg, msg, str, size);
-   }
+   writable_buffer tmp;
+   message         materialized;
+   message_materialize_if_needed(cc, NULL, msg, &tmp, &materialized);
+   cfg->message_to_string(cfg, materialized, str, size);
+   message_dematerialize_if_needed(msg, &tmp);
 }
 
 #define message_string(cfg, cc, msg)                                           \

@@ -714,7 +714,7 @@ splinterdb_insert_message(const splinterdb *kvs, // IN
 int
 splinterdb_insert(const splinterdb *kvsb, slice key, slice value)
 {
-   message msg = message_create(MESSAGE_TYPE_INSERT, value);
+   message msg = message_create(MESSAGE_TYPE_INSERT, FALSE, value);
    return splinterdb_insert_message(kvsb, key, msg);
 }
 
@@ -727,7 +727,7 @@ splinterdb_delete(const splinterdb *kvsb, slice key)
 int
 splinterdb_update(const splinterdb *kvsb, slice key, slice update)
 {
-   message msg = message_create(MESSAGE_TYPE_UPDATE, update);
+   message msg = message_create(MESSAGE_TYPE_UPDATE, FALSE, update);
    return splinterdb_insert_message(kvsb, key, msg);
 }
 

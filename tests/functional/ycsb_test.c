@@ -306,7 +306,7 @@ typedef struct ycsb_phase {
 } ycsb_phase;
 
 static void
-nop_tuple_func(slice key, message value, void *arg)
+nop_tuple_func(cache *cc, slice key, message value, void *arg)
 {}
 
 static void
@@ -357,6 +357,7 @@ ycsb_thread(void *arg)
             {
                message val =
                   message_create(MESSAGE_TYPE_INSERT,
+                                 FALSE,
                                  slice_create(YCSB_DATA_SIZE, ops->value));
                rc = trunk_insert(spl, ops->key, val);
                platform_assert_status_ok(rc);

@@ -335,7 +335,7 @@ out:
 }
 
 static void
-nop_tuple_func(slice key, message value, void *arg)
+nop_tuple_func(cache *cc, slice key, message value, void *arg)
 {}
 
 /*
