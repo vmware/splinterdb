@@ -99,6 +99,6 @@ blob_materialize(cache           *cc,
                  writable_buffer *result);
 
 platform_status
-blob_sync(cache *cc, slice sblob, uint64 *pages_outstanding);
+blob_sync(cache *cc, slice sblob, page_type type);
 
 #endif /* __BLOB_H */

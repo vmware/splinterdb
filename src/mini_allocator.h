@@ -81,7 +81,29 @@ mini_alloc_bytes(mini_allocator *mini,
 
 /*
  * Users _must_ call this function after a successful call to
- * mini_alloc_bytes.
+ * mini_alloc_bytes.  Until this function is called, not more
+ * allocations can occur on the given batch.
+ *
+ * The purpose is to enable mutliple threads to coordinate calls to
+ * cache_alloc vs. cache_get on returned pages.  Specifically, when
+ * threads use mini_alloc_bytes to allocate less than an entire page,
+ * then multiple threads may be handed allocations on the same page.
+ * In this case, exactly one of the threads must call
+ * cache_alloc---all other threads must call cache_get---and the call
+ * to cache_alloc must precede the calls to cache_get.
+ *
+ * If mini_alloc_bytes gives you a whole page, then none of this is an
+ * issue, since no other thread will attempt to access the page.  In
+ * this case, the user given the page can call mini_alloc_bytes_finish
+ * immediately after mini_alloc_bytes, and then call cache_alloc at
+ * its leisure.
+ *
+ * The idiomatic way to use this functionality is: whenever
+ * mini_alloc_bytes gives you an allocation that includes the
+ * beginning of a page but not the entire page, then you call
+ * cache_alloc and then call mini_alloc_bytes_finish.  If your
+ * allocation doesn't start at the beginning of a page, then you call
+ * mini_alloc_bytes_finish and then call cache_get.
  */
 void
 mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch, uint64 txn_addr);

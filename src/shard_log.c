@@ -231,7 +231,6 @@ get_new_page_for_thread(shard_log             *log,
    hdr->next_extent_addr = next_extent;
    hdr->num_entries      = 0;
    thread_data->offset   = sizeof(shard_log_hdr);
-   platform_default_log("Got page %lx\n", thread_data->addr);
    return 0;
 }
 
@@ -298,9 +297,9 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
    cache_unclaim(cc, page);
    cache_unget(cc, page);
 
-   if (message_isblob(msg)) {
-      blob_sync(cc, message_slice(msg), &thread_data->pages_outstanding);
-   }
+   /* if (message_isblob(msg)) { */
+   /*    blob_sync(cc, message_slice(msg), PAGE_TYPE_LOG); */
+   /* } */
 
    return 0;
 }
@@ -338,10 +337,6 @@ bool
 shard_log_valid(shard_log_config *cfg, page_handle *page, uint64 magic)
 {
    shard_log_hdr *hdr = (shard_log_hdr *)page->data;
-   platform_default_log("Checking validity of page %lx %lx %lx\n",
-                        page->disk_addr,
-                        hdr->checksum.low64,
-                        hdr->checksum.high64);
    return hdr->magic == magic
           && platform_checksum_is_equal(hdr->checksum,
                                         shard_log_checksum(cfg, page));

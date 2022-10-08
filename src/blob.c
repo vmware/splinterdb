@@ -166,13 +166,18 @@ blob_page_iterator_init(cache              *cc,
    return STATUS_OK;
 }
 
+static bool
+should_alloc(blob_page_iterator *iter)
+{
+   return iter->alloc && iter->page_offset == 0
+          && iter->page_size <= iter->length;
+}
+
 void
 blob_page_iterator_deinit(blob_page_iterator *iter)
 {
    if (iter->page) {
-      if (iter->alloc && iter->page_addr % iter->page_size == 0
-          && iter->page_offset == 0 && iter->page_size <= iter->length)
-      {
+      if (should_alloc(iter)) {
          cache_unlock(iter->cc, iter->page);
          cache_unclaim(iter->cc, iter->page);
       }
@@ -187,8 +192,7 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                             slice              *result)
 {
    if (iter->page == NULL) {
-      if (iter->alloc && iter->page_offset == 0
-          && iter->page_size <= iter->length) {
+      if (should_alloc(iter)) {
          iter->page = cache_alloc(iter->cc, iter->page_addr, iter->type);
       } else {
          iter->page = cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
@@ -210,9 +214,7 @@ void
 blob_page_iterator_advance(blob_page_iterator *iter)
 {
    if (iter->page) {
-      if (iter->alloc && iter->page_addr % iter->page_size == 0
-          && iter->page_offset == 0 && iter->page_size <= iter->length)
-      {
+      if (should_alloc(iter)) {
          cache_unlock(iter->cc, iter->page);
          cache_unclaim(iter->cc, iter->page);
       }
@@ -288,26 +290,28 @@ out:
 }
 
 platform_status
-blob_sync(cache *cc, slice sblob, uint64 *pages_outstanding)
+blob_sync(cache *cc, slice sblob, page_type type)
 {
-   uint64      page_size   = cache_page_size(cc);
-   uint64      extent_size = cache_extent_size(cc);
-   parsed_blob pblob;
-   parse_blob(extent_size, page_size, slice_data(sblob), &pblob);
+   blob_page_iterator itor;
+   platform_status    rc;
 
-   for (int i = 0; i < pblob.num_extents; i++) {
-      cache_extent_sync(cc, pblob.extents[i], pages_outstanding);
+   rc = blob_page_iterator_init(cc, &itor, sblob, 0, type, FALSE, FALSE);
+   if (!SUCCESS(rc)) {
+      return rc;
    }
 
-   for (int i = 0;
-        i < ARRAY_SIZE(pblob.leftovers) && 0 < pblob.leftovers[i].length;
-        i++)
-   {
-      uint64 extent_addr = cache_extent_base_addr(cc, pblob.leftovers[i].addr);
-      /* FIXME: [robj 2022-08-28] Would like to use cache_page_sync but it
-         doesn't support the pages_outstanding feedback mechanism. */
-      cache_extent_sync(cc, extent_addr, pages_outstanding);
+   while (!blob_page_iterator_at_end(&itor)) {
+      uint64 offset;
+      slice  result;
+      rc = blob_page_iterator_get_curr(&itor, &offset, &result);
+      if (!SUCCESS(rc)) {
+         blob_page_iterator_deinit(&itor);
+         return rc;
+      }
+      cache_page_sync(cc, itor.page, FALSE, type);
+      blob_page_iterator_advance(&itor);
    }
 
+   blob_page_iterator_deinit(&itor);
    return STATUS_OK;
 }
