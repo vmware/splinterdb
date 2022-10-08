@@ -177,7 +177,7 @@ void
 blob_page_iterator_deinit(blob_page_iterator *iter)
 {
    if (iter->page) {
-      if (should_alloc(iter)) {
+      if (iter->alloc) {
          cache_unlock(iter->cc, iter->page);
          cache_unclaim(iter->cc, iter->page);
       }
@@ -196,6 +196,17 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
          iter->page = cache_alloc(iter->cc, iter->page_addr, iter->type);
       } else {
          iter->page = cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
+         if (iter->alloc) {
+            int wait = 1;
+            while (!cache_claim(iter->cc, iter->page)) {
+               cache_unget(iter->cc, iter->page);
+               platform_sleep(wait);
+               wait = MIN(2 * wait, 2048);
+               iter->page =
+                  cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
+            }
+            cache_lock(iter->cc, iter->page);
+         }
       }
    }
 
@@ -214,7 +225,7 @@ void
 blob_page_iterator_advance(blob_page_iterator *iter)
 {
    if (iter->page) {
-      if (should_alloc(iter)) {
+      if (iter->alloc) {
          cache_unlock(iter->cc, iter->page);
          cache_unclaim(iter->cc, iter->page);
       }
