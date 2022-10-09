@@ -17,7 +17,7 @@ typedef struct interval_tree_key {
    const data_config *app_data_cfg;
 } interval_tree_key;
 
-inline interval_tree_key
+static inline interval_tree_key
 interval_tree_key_create(slice data, const data_config *app_data_cfg)
 {
    return (interval_tree_key){.data = data, .app_data_cfg = app_data_cfg};
