@@ -34,19 +34,24 @@
 #include "task.h"
 
 /*
- * Structure to package arguments needed by test-case functions, supplied by
- * worker functions invoked by pthreads.
+ * Structure to package arguments needed by test-case functions. This packaging
+ * allows to pass this set of args around. These are then supplied by worker
+ * functions invoked by pthreads to invoke the work-horse function(s).
  */
 typedef struct io_test_fn_args {
    platform_heap_id    arg_hid;
    io_config          *arg_io_cfgp;
    platform_io_handle *arg_io_hdlp;
+   io_context_t        arg_io_ctxt_t; // Expected opaque context handle
    task_system        *arg_tasks;
    uint64              arg_start_addr;
    uint64              arg_end_addr;
    char                arg_stamp_char;
    platform_thread     arg_thread;
 } io_test_fn_args;
+
+/* Whether to display verbose-progress from each thread's activity */
+bool Verbose_progress = FALSE;
 
 /*
  * Different test cases in this test drive multiple threads each doing one
@@ -57,7 +62,25 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 /* Use hard-coded # of threads to avoid allocating memory for thread-specific
  * arrays of parameters.
  */
-#define NUM_THREADS 5
+#define HEAP_SIZE_MB 256
+
+/* SplinterDB device size; small one is good enough for IO APIs testing */
+#define SPLINTER_DEVICE_SIZE_MB 128
+
+
+/* Use small hard-coded # of threads to avoid allocating memory for
+ * thread-specific arrays of parameters. It's sufficient to shake out the
+ * IO sub-system APIs with just small # of threads.
+>>>>>>> a91243c (Extend test cases to exercise sync / async IO APIs.)
+ */
+#define NUM_THREADS 2
+
+/*
+ * Each thread will perform async I/O (Read followed by Write) for this
+ * many pages. Test will exercise NUM_THREADS threads performing async
+ * RW IO, on these many pages / thread.
+ */
+#define NUM_PAGES_RW_ASYNC_PER_THREAD 16
 
 // Function prototypes
 static platform_status
@@ -80,6 +103,27 @@ static platform_status
 test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads);
 
 static platform_status
+test_async_reads(platform_heap_id    hid,
+                 io_config          *io_cfgp,
+                 platform_io_handle *io_hdlp,
+                 uint64              start_addr,
+                 char                stamp_char);
+
+static void
+read_async_callback(void           *metadata,
+                    struct iovec   *iovec,
+                    uint64          count,
+                    platform_status status);
+
+static platform_status
+test_async_reads_by_threads(io_test_fn_args *io_test_param, int nthreads);
+
+static void
+load_thread_params(io_test_fn_args *io_test_param,
+                   io_test_fn_args *thread_params,
+                   int              nthreads);
+
+static platform_status
 do_n_thread_creates(const char         *thread_type,
                     uint64              num_threads,
                     io_test_fn_args    *params,
@@ -88,6 +132,22 @@ do_n_thread_creates(const char         *thread_type,
 void
 test_sync_writes_worker(void *arg);
 
+void
+test_sync_reads_worker(void *arg);
+
+void
+test_async_reads_worker(void *arg);
+
+/*
+ * Helper inlinde functions.
+ */
+static inline uint64
+npages_per_thread(io_test_fn_args *io_test_param, int nthreads)
+{
+   return (((io_test_param->arg_end_addr - io_test_param->arg_start_addr)
+            / io_test_param->arg_io_cfgp->page_size)
+           / nthreads);
+}
 
 /*
  * ----------------------------------------------------------------------------
@@ -108,10 +168,31 @@ splinter_io_apis_test(int argc, char *argv[])
 
    // Do minimal IO config setup, using default IO values.
    master_config master_cfg;
-   io_config     io_cfg;
 
    // Initialize the IO sub-system configuration.
+   ZERO_STRUCT(master_cfg);
    config_set_defaults(&master_cfg);
+
+   // Parse config-related command-line arguments
+   rc = config_parse(&master_cfg, 1, argc, argv);
+   if (!SUCCESS(rc)) {
+      return -1;
+   }
+
+   Verbose_progress = master_cfg.verbose_progress;
+
+   // Ensure that the max async q-depth configured by default for
+   // master-cfg is sufficiently big enough for this test case.
+   platform_assert(NUM_PAGES_RW_ASYNC_PER_THREAD
+                      <= master_cfg.io_async_queue_depth,
+                   "NUM_PAGES_RW_ASYNC_PER_THREAD=%d, "
+                   "Master io_async_queue_depth=%lu\n",
+                   NUM_PAGES_RW_ASYNC_PER_THREAD,
+                   master_cfg.io_async_queue_depth);
+
+   io_config io_cfg;
+   ZERO_STRUCT(io_cfg);
+
    io_config_init(&io_cfg,
                   master_cfg.page_size,
                   master_cfg.extent_size,
@@ -130,26 +211,29 @@ splinter_io_apis_test(int argc, char *argv[])
                         io_cfg.kernel_queue_size,
                         io_cfg.async_max_pages);
 
-   platform_io_handle *io_handle = TYPED_MALLOC(hid, io_handle);
+   platform_io_handle *io_hdl = TYPED_MALLOC(hid, io_hdl);
 
    // Initialize the handle to the IO sub-system. A device with a small initial
    // size gets created here.
-   rc = io_handle_init(io_handle, &io_cfg, hh, hid);
+   rc = io_handle_init(io_hdl, &io_cfg, hh, hid);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to initialize IO handle: %s\n",
                          platform_status_to_string(rc));
       goto io_free;
    }
 
-   uint64 disk_size_MB = 256;
+   uint64 disk_size_MB = SPLINTER_DEVICE_SIZE_MB;
    uint64 disk_size    = (disk_size_MB * MiB); // bytes
 
    uint64 start_addr = 0;
    uint64 end_addr   = disk_size;
 
-   // Basic exercise of sync write / read APIs, from main thread.
-   test_sync_writes(hid, &io_cfg, io_handle, start_addr, end_addr, 'a');
-   test_sync_reads(hid, &io_cfg, io_handle, start_addr, end_addr, 'a');
+   /*
+    * Basic exercise of sync write / read APIs, from main thread.
+    * NOTE: The same functions will also be executed by thread's worker fns.
+    */
+   test_sync_writes(hid, &io_cfg, io_hdl, start_addr, end_addr, 'a');
+   test_sync_reads(hid, &io_cfg, io_hdl, start_addr, end_addr, 'a');
 
    /*
     * Setup the task system which is needed for testing with threads.
@@ -158,26 +242,43 @@ splinter_io_apis_test(int argc, char *argv[])
    uint8        num_bg_threads[NUM_TASK_TYPES] = {0};
 
    rc = task_system_create(hid,
-                           io_handle,
+                           io_hdl,
                            &tasks,
                            TRUE,  // Use statistics,
                            FALSE, // Background threads are off
                            num_bg_threads,
                            trunk_get_scratch_size());
 
-   // Change the char to write so we can tell apart from previous contents.
+   /*
+    * Change the char to write so we can tell apart from previous contents.
+    * Grab, in the main thread, the opaque IO-context handle generated by
+    * io_setup(). This will be used to compare the address as seen by
+    * child threads in its IO context.
+    */
+   io_context_t    io_ctxt        = io_get_context((io_handle *)io_hdl);
    io_test_fn_args io_test_fn_arg = {.arg_hid        = hid,
                                      .arg_io_cfgp    = &io_cfg,
-                                     .arg_io_hdlp    = io_handle,
+                                     .arg_io_hdlp    = io_hdl,
+                                     .arg_io_ctxt_t  = io_ctxt,
                                      .arg_tasks      = tasks,
                                      .arg_start_addr = start_addr,
                                      .arg_end_addr   = end_addr,
                                      .arg_stamp_char = 'A'};
 
+   platform_default_log("IO context before call to fn: %p\n", io_ctxt);
    test_sync_write_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
 
+   /*
+    * Exercise Async reads followed by async writes for main thread.
+    * NOTE: The same functions will also be executed by thread's worker fns.
+    */
+   rc = test_async_reads(hid, &io_cfg, io_hdl, start_addr, 'A');
+   platform_assert_status_ok(rc);
+
+   test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
+
 io_free:
-   platform_free(hid, io_handle);
+   platform_free(hid, io_hdl);
    platform_heap_destroy(&hh);
 
    return (SUCCESS(rc) ? 0 : -1);
@@ -236,14 +337,17 @@ test_sync_writes(platform_heap_id    hid,
       }
    }
 
-   platform_default_log("  %s(): Thread %lu performed %lu %dK page write IOs "
-                        "from start addr=%lu through end addr=%lu\n",
-                        __FUNCTION__,
-                        this_thread,
-                        num_IOs,
-                        (int)(page_size / KiB),
-                        start_addr,
-                        end_addr);
+   if (Verbose_progress || (this_thread == 0)) {
+      platform_default_log(
+         "  %s(): Thread %lu performed %lu %dK page write IOs "
+         "from start addr=%lu through end addr=%lu\n",
+         __FUNCTION__,
+         this_thread,
+         num_IOs,
+         (int)(page_size / KiB),
+         start_addr,
+         end_addr);
+   }
 
 free_buf:
    platform_free(hid, buf);
@@ -260,6 +364,16 @@ void
 test_sync_writes_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
+
+   io_context_t act_ctxt =
+      (io_context_t)io_get_context((io_handle *)(argp->arg_io_hdlp));
+
+   platform_assert((argp->arg_io_ctxt_t == act_ctxt),
+                   "Actual opaque IO context handle, %p"
+                   " does not match expected context handle, %p\n",
+                   act_ctxt,
+                   argp->arg_io_ctxt_t);
+
    test_sync_writes(argp->arg_hid,
                     argp->arg_io_cfgp,
                     argp->arg_io_hdlp,
@@ -329,14 +443,17 @@ test_sync_reads(platform_heap_id    hid,
       memset(buf, 'X', page_size);
    }
 
-   platform_default_log("  %s():  Thread %lu performed %lu %dK page read  IOs "
-                        "from start addr=%lu through end addr=%lu\n",
-                        __FUNCTION__,
-                        this_thread,
-                        num_IOs,
-                        (int)(page_size / KiB),
-                        start_addr,
-                        end_addr);
+   if (Verbose_progress || (this_thread == 0)) {
+      platform_default_log(
+         "  %s():  Thread %lu performed %lu %dK page read  IOs "
+         "from start addr=%lu through end addr=%lu\n",
+         __FUNCTION__,
+         this_thread,
+         num_IOs,
+         (int)(page_size / KiB),
+         start_addr,
+         end_addr);
+   }
 
 free_buf:
    platform_free(hid, buf);
@@ -354,6 +471,16 @@ void
 test_sync_reads_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
+
+   io_context_t act_ctxt =
+      (io_context_t)io_get_context((io_handle *)(argp->arg_io_hdlp));
+
+   platform_assert((argp->arg_io_ctxt_t == act_ctxt),
+                   "Actual opaque IO context handle, %p"
+                   " does not match expected context handle, %p\n",
+                   act_ctxt,
+                   argp->arg_io_ctxt_t);
+
    test_sync_reads(argp->arg_hid,
                    argp->arg_io_cfgp,
                    argp->arg_io_hdlp,
@@ -376,44 +503,21 @@ test_sync_reads_worker(void *arg)
 static platform_status
 test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
 {
-   // The input gives start / end addresses of the disk to use for IO testing.
-   // Carve this into somewhat equal chunks, across page boundaries, with the
-   // very last thread possibly getting few pages to do IO on. That's ok.
-   uint64 start_addr = io_test_param->arg_start_addr;
-   uint64 end_addr   = io_test_param->arg_end_addr;
-   int    page_size  = (int)io_test_param->arg_io_cfgp->page_size;
-
-   // # of pages allocated to each thread.
-   uint64 npages = ((end_addr - start_addr) / page_size) / nthreads;
-
+   platform_assert((nthreads <= NUM_THREADS),
+                   "nthreads=%d should be <= %d\n",
+                   nthreads,
+                   NUM_THREADS);
    io_test_fn_args thread_params[NUM_THREADS];
    ZERO_ARRAY(thread_params);
 
-   platform_default_log("Executing %s, for %d threads, %lu pages/thread ...\n",
+   // # of pages allocated to each thread.
+   uint64 npages = npages_per_thread(io_test_param, nthreads);
+   platform_default_log("\n%s(): for %d threads, %lu pages/thread ...\n",
                         __FUNCTION__,
                         nthreads,
                         npages);
 
-   io_test_fn_args *param = thread_params;
-   for (int i = 0; i < nthreads; i++, param++) {
-      param->arg_hid     = io_test_param->arg_hid;
-      param->arg_io_cfgp = io_test_param->arg_io_cfgp;
-      param->arg_io_hdlp = io_test_param->arg_io_hdlp;
-      param->arg_tasks   = io_test_param->arg_tasks;
-
-      // Set up the start/end address of the chunk of device for this thread
-      // The last thread's end will be the devices end, which may happen if
-      // device size cannot be uniformly divided into equal # of pages.
-      end_addr              = (start_addr + (npages * page_size));
-      param->arg_start_addr = start_addr;
-      param->arg_end_addr =
-         (i == (nthreads - 1)) ? io_test_param->arg_end_addr : end_addr;
-
-      // Reset start of the next chunk for next thread to work on
-      start_addr = end_addr;
-
-      param->arg_stamp_char = io_test_param->arg_stamp_char;
-   }
+   load_thread_params(io_test_param, thread_params, nthreads);
 
    /*
     * Execute the n-threads doing sync-writes on their disk pieces.
@@ -444,6 +548,250 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
    return rc;
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * load_thread_params() - Apportion the device across multiple threads
+ *
+ * The main test driver specifies the overal disk / device's start/end
+ * boundaries. This function distributes the test parameters across multiple
+ * threads, basically, setting up the start/end address of the regions that
+ * each thread will operate.
+ *
+ * Parameters:
+ *   io_test_param		- Overall test execution parameters
+ *   thread_params		- Array of thread-specific execution parameters
+ *   nthreads			- # of threads. (Caller is expected to have
+ *allocated an thread_params[] array big enough for nthreads.)
+ * -----------------------------------------------------------------------------
+ */
+static void
+load_thread_params(io_test_fn_args *io_test_param,
+                   io_test_fn_args *thread_params,
+                   int              nthreads)
+{
+   // The input gives start / end addresses of the disk to use for IO testing.
+   // Carve this into somewhat equal chunks, across page boundaries, with the
+   // very last thread possibly getting few pages to do IO on. That's ok.
+   uint64 start_addr = io_test_param->arg_start_addr;
+   uint64 end_addr   = io_test_param->arg_end_addr;
+   int    page_size  = (int)io_test_param->arg_io_cfgp->page_size;
+
+   // # of pages allocated to each thread.
+   uint64 npages = npages_per_thread(io_test_param, nthreads);
+
+   io_test_fn_args *param = thread_params;
+   for (int i = 0; i < nthreads; i++, param++) {
+      param->arg_hid     = io_test_param->arg_hid;
+      param->arg_io_cfgp = io_test_param->arg_io_cfgp;
+      param->arg_io_hdlp = io_test_param->arg_io_hdlp;
+      param->arg_tasks   = io_test_param->arg_tasks;
+
+      // Set up the start/end address of the chunk of device for this thread
+      // The last thread's end will be the devices end, which may happen if
+      // device size cannot be uniformly divided into equal # of pages.
+      end_addr              = (start_addr + (npages * page_size));
+      param->arg_start_addr = start_addr;
+      param->arg_end_addr =
+         (i == (nthreads - 1)) ? io_test_param->arg_end_addr : end_addr;
+
+      // Reset start of the next chunk for next thread to work on
+      start_addr = end_addr;
+
+      // Pass-down IO context established in main thread, used for
+      // assertion verification in thread after it's been started.
+      param->arg_io_ctxt_t = io_test_param->arg_io_ctxt_t;
+
+      param->arg_stamp_char = io_test_param->arg_stamp_char;
+   }
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * test_async_reads() - Performs async reads of n-pages starting from a
+ * start address.
+ *
+ * This routine is used to exercise & verify basic async IO APIs.
+ * Previous test cases have left the device in a known state. We perform
+ * async reads on a hard-coded # of pages and cross-check that, upon
+ * completion of the IO, the data is read as expected.
+ * -----------------------------------------------------------------------------
+ */
+static platform_status
+test_async_reads(platform_heap_id    hid,
+                 io_config          *io_cfgp,
+                 platform_io_handle *io_hdlp,
+                 uint64              start_addr,
+                 char                stamp_char)
+{
+   platform_thread this_thread = platform_get_tid();
+   platform_status rc          = STATUS_NO_MEMORY;
+
+   int page_size = (int)io_cfgp->page_size;
+
+   // Allocate a buffer to do page I/O, and an expected results buffer
+   uint64 nbytes = (page_size * NUM_PAGES_RW_ASYNC_PER_THREAD);
+   char  *buf    = TYPED_ARRAY_ZALLOC(hid, buf, nbytes);
+   if (!buf)
+      goto free_buf;
+
+   char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
+   if (!exp)
+      goto free_buf;
+   memset(exp, stamp_char, page_size);
+
+   platform_default_log("\n%s(): Thread=%lu: Test Async reads for %d"
+                        " pages ...\n",
+                        __FUNCTION__,
+                        this_thread,
+                        NUM_PAGES_RW_ASYNC_PER_THREAD);
+
+   io_handle *ioh = (io_handle *)io_hdlp;
+
+   // Perform async reads of n-pages, into an allocated buffer
+   char  *buf_addr  = buf;
+   uint64 this_addr = start_addr;
+   for (int i = 0; i < NUM_PAGES_RW_ASYNC_PER_THREAD;
+        i++, this_addr += page_size, buf_addr += page_size)
+   {
+      io_async_req *req = io_get_async_req(ioh, FALSE);
+
+      // Setup async IO request for each page being read
+      req->bytes          = page_size;
+      struct iovec *iovec = io_get_iovec(ioh, req);
+      iovec[0].iov_base   = buf_addr;
+
+      void *req_metadata     = io_get_metadata(ioh, req);
+      *(char **)req_metadata = exp;
+
+      rc = io_read_async(ioh, req, read_async_callback, 1, this_addr);
+      platform_assert_status_ok(rc);
+
+      if (Verbose_progress) {
+         platform_default_log(
+            "  [%2d] Thread=%lu: Async read issued for page=%ld\n",
+            i,
+            this_thread,
+            this_addr);
+      }
+   }
+
+   io_cleanup(ioh, NUM_PAGES_RW_ASYNC_PER_THREAD);
+
+free_buf:
+   platform_free(hid, exp);
+   platform_free(hid, buf);
+   return rc;
+}
+
+/*
+ *----------------------------------------------------------------------
+ * read_async_callback --
+ *
+ *    Async callback called after async read IO completes.
+ *----------------------------------------------------------------------
+ */
+static void
+read_async_callback(void           *metadata,
+                    struct iovec   *iovec,
+                    uint64          count,
+                    platform_status status)
+{
+   platform_thread this_thread = platform_get_tid();
+
+   if (Verbose_progress) {
+      platform_default_log(
+         "  Thread=%lu: Aysnc-callback for read of page=%p completed.\n",
+         this_thread,
+         iovec->iov_base);
+   }
+   platform_assert_status_ok(status);
+   debug_assert((count == 1), "count=%lu\n", count);
+
+   // Buffer that IO-read would have completed reading into
+   char *buf_addr = iovec->iov_base;
+
+   // Expected contents passed-in via metadata when async-read was issued.
+   char *exp       = *(char **)metadata;
+   int   page_size = (4 * KiB);
+
+   int rv = memcmp(exp, buf_addr, page_size);
+   if (rv != 0) {
+      platform_error_log("Page IO read at address=%p is incorrect.\n",
+                         buf_addr);
+   }
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * test_async_reads_by_threads() --
+ *
+ * Driver function to exercise Async IO read APIs when executed by n-threads.
+ * The input specifies the start / end address of the disk which is available
+ * for IO. This is segmented into n-contiguous chunks and assigned to n-threads.
+ * Each thread will perform async reads on its assigned chunk of disk space.
+ * -----------------------------------------------------------------------------
+ */
+static platform_status
+test_async_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
+{
+   platform_assert((nthreads <= NUM_THREADS),
+                   "nthreads=%d should be <= %d\n",
+                   nthreads,
+                   NUM_THREADS);
+   io_test_fn_args thread_params[NUM_THREADS];
+   ZERO_ARRAY(thread_params);
+
+   // # of pages allocated to each thread.
+   uint64 npages = npages_per_thread(io_test_param, nthreads);
+   platform_default_log("Executing %s, for %d threads, %lu pages/thread ...\n",
+                        __FUNCTION__,
+                        nthreads,
+                        npages);
+
+   load_thread_params(io_test_param, thread_params, nthreads);
+
+   /*
+    * Execute the n-threads doing async-reads on their disk pieces.
+    */
+   platform_status rc = do_n_thread_creates(
+      "async_read_threads", nthreads, thread_params, test_async_reads_worker);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   for (int i = 0; i < nthreads; i++) {
+      platform_thread_join(thread_params[i].arg_thread);
+   }
+
+   return rc;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * test_async_reads_worker() - Shell worker function invoked by threads which
+ * calls test_async_reads().
+ * -----------------------------------------------------------------------------
+ */
+void
+test_async_reads_worker(void *arg)
+{
+   io_test_fn_args *argp = (io_test_fn_args *)arg;
+
+   io_context_t act_ctxt =
+      (io_context_t)io_get_context((io_handle *)(argp->arg_io_hdlp));
+
+   platform_assert((argp->arg_io_ctxt_t == act_ctxt),
+                   "Actual opaque IO context handle, %p"
+                   " does not match expected context handle, %p\n",
+                   act_ctxt,
+                   argp->arg_io_ctxt_t);
+
+   test_async_reads(argp->arg_hid,
+                    argp->arg_io_cfgp,
+                    argp->arg_io_hdlp,
+                    argp->arg_start_addr,
+                    argp->arg_stamp_char);
+}
 
 /*
  * do_n_thread_creates() --

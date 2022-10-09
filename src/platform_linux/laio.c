@@ -41,6 +41,9 @@ laio_get_iovec(io_handle *ioh, io_async_req *req);
 static void *
 laio_get_metadata(io_handle *ioh, io_async_req *req);
 
+static void *
+laio_get_context(io_handle *ioh);
+
 static platform_status
 laio_read_async(io_handle     *ioh,
                 io_async_req  *req,
@@ -77,6 +80,7 @@ static io_ops laio_ops = {
    .write_async   = laio_write_async,
    .cleanup       = laio_cleanup,
    .cleanup_all   = laio_cleanup_all,
+   .get_context   = laio_get_context,
 };
 
 /*
@@ -293,6 +297,12 @@ laio_get_metadata(io_handle *ioh, io_async_req *req)
    return req->metadata;
 }
 
+static void *
+laio_get_context(io_handle *ioh)
+{
+   return ((laio_handle *)ioh)->ctx;
+}
+
 void
 laio_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
 {
@@ -366,7 +376,7 @@ laio_write_async(io_handle     *ioh,
 /*
  * laio_cleanup() - Handle completion of outstanding IO requests.
  * Up to 'count' outstanding IO requests will be processed.
- * Specify 'count' as 0 to process all completion of all pending IO requests.
+ * Specify 'count' as 0 to process completion of all pending IO requests.
  */
 static void
 laio_cleanup(io_handle *ioh, uint64 count)
@@ -415,8 +425,9 @@ laio_cleanup_all(io_handle *ioh)
    io = (laio_handle *)ioh;
    for (i = 0; i < io->cfg->async_queue_size; i++) {
       req = laio_get_kth_req(io, i);
-      while (req->busy)
+      while (req->busy) {
          io_cleanup(ioh, 0);
+      }
    }
 }
 

@@ -30,7 +30,9 @@
 /*
  * Async IO Request structure: Each such request can track up to a configured
  * number of pages, io_config{}->async_max_pages, on which an IO is issued.
- * This number sizes the iovec[] array nested below.
+ * This number sizes the iovec[] array nested below. An array of these structs,
+ * along with the nested sub-array of iovec[], comes from allocated memory
+ * which is setup when the IO-sub-system is initialized.
  */
 struct io_async_req {
    struct iocb    iocb;         // laio callback
@@ -62,4 +64,9 @@ typedef struct laio_handle {
 platform_status
 laio_config_valid(io_config *cfg);
 
+static inline io_context_t
+platform_io_context(laio_handle *ioh)
+{
+   return ioh->ctx;
+}
 #endif //__LAIO_H
