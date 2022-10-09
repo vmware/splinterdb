@@ -529,6 +529,7 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/util_test "$use_shmem"
    "$BINDIR"/unit/misc_test "$use_shmem"
    "$BINDIR"/unit/limitations_test "$use_shmem"
+   "$BINDIR"/driver_test io_apis_test "$use_shmem"
 }
 
 # ##################################################################

@@ -32,6 +32,7 @@
 #include "io.h"
 #include "trunk.h" // Needed for trunk_get_scratch_size()
 #include "task.h"
+#include "test_misc_common.h"
 
 /*
  * Structure to package arguments needed by test-case functions. This packaging
@@ -59,8 +60,9 @@ bool Verbose_progress = FALSE;
  */
 typedef void (*test_io_thread_hdlr)(void *arg);
 
-/* Use hard-coded # of threads to avoid allocating memory for thread-specific
- * arrays of parameters.
+/* Use small hard-coded # of threads to avoid allocating memory for
+ * thread-specific arrays of parameters. It's sufficient to shake out the
+ * IO sub-system APIs with just small # of threads.
  */
 #define HEAP_SIZE_MB 256
 
