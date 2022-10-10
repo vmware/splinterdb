@@ -312,6 +312,13 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
    kvs_cfg->heap_handle = NULL;
    kvs_cfg->heap_id     = NULL;
 
+   // Now that basic validation of configuration is completed, record the handle
+   // to the running splinter in the shared segment created, if any. (This will
+   // be used for testing & validation.)
+   if (kvs->heap_handle) {
+      platform_heap_set_splinterdb_handle(kvs->heap_handle, (void *)kvs);
+   }
+
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
@@ -343,7 +350,8 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
                                  platform_get_module_id());
    }
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initialize SplinterDB allocator: %s\n",
+      platform_error_log("Failed to %s SplinterDB allocator: %s\n",
+                         (open_existing ? "mount existing" : "initialize"),
                          platform_status_to_string(status));
       goto deinit_system;
    }
@@ -776,4 +784,58 @@ splinterdb_close_print_stats(splinterdb *kvs)
 {
    task_print_stats(kvs->task_sys);
    splinterdb_stats_print_insertion(kvs);
+}
+
+/*
+ * -------------------------------------------------------------------------
+ * External "APIs" provided mainly to invoke lower-level functions intended
+ * for use -ONLY- as testing interfaces.
+ * -------------------------------------------------------------------------
+ */
+void
+splinterdb_cache_flush(const splinterdb *kvs)
+{
+   cache_flush(kvs->spl->cc);
+}
+
+void *
+splinterdb_get_heap_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->heap_handle;
+}
+
+const void *
+splinterdb_get_task_system_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->task_sys;
+}
+
+const void *
+splinterdb_get_io_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->io_handle;
+}
+
+const void *
+splinterdb_get_allocator_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->allocator_handle;
+}
+
+const void *
+splinterdb_get_cache_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->cache_handle;
+}
+
+const void *
+splinterdb_get_trunk_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl;
+}
+
+const void *
+splinterdb_get_memtable_context_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl->mt_ctxt;
 }
