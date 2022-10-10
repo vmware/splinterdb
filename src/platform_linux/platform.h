@@ -332,7 +332,7 @@ extern platform_heap_id Heap_id;
                                          PLATFORM_CACHELINE_SIZE,              \
                                          (n),                                  \
                                          STRINGIFY(v),                         \
-                                         __FUNCTION__,                         \
+                                         __func__,                             \
                                          __FILE__,                             \
                                          __LINE__);                            \
    })
@@ -343,7 +343,7 @@ extern platform_heap_id Heap_id;
                                          PLATFORM_CACHELINE_SIZE,              \
                                          (n),                                  \
                                          STRINGIFY(v),                         \
-                                         __FUNCTION__,                         \
+                                         __func__,                             \
                                          __FILE__,                             \
                                          __LINE__);                            \
    })
@@ -365,13 +365,13 @@ extern platform_heap_id Heap_id;
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_malloc(                                      \
-         hid, (a), (n), STRINGIFY(v), __FUNCTION__, __FILE__, __LINE__);       \
+         hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);           \
    })
 #define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_zalloc(                                      \
-         hid, (a), (n), STRINGIFY(v), __FUNCTION__, __FILE__, __LINE__);       \
+         hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);           \
    })
 
 /*
@@ -605,7 +605,7 @@ platform_assert_msg(platform_log_handle *log_handle,
 #define platform_assert(expr, ...)                                             \
    ((expr) ? (void)0                                                           \
            : (platform_assert_false(                                           \
-                 __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__),     \
+                 __FILE__, __LINE__, __func__, #expr, "" __VA_ARGS__),         \
               (void)fprintf(stderr, " " __VA_ARGS__)))
 
 static inline timestamp
@@ -641,7 +641,7 @@ platform_histo_create(platform_heap_id       heap_id,
                       platform_histo_handle *histo);
 
 void
-platform_histo_destroy(platform_heap_id heap_id, platform_histo_handle histo);
+platform_histo_destroy(platform_heap_id heap_id, platform_histo_handle *histo);
 
 void
 platform_histo_print(platform_histo_handle histo,
@@ -660,6 +660,8 @@ platform_strnlen(const char *s, size_t maxlen);
 platform_log_handle *
 platform_get_stdout_stream(void);
 
+typedef struct shmem_heap shmem_heap;
+
 platform_status
 platform_heap_create(platform_module_id module_id,
                      size_t             max,
@@ -668,6 +670,12 @@ platform_heap_create(platform_module_id module_id,
 
 void
 platform_heap_destroy(platform_heap_id *heap_id);
+
+void
+platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr);
+
+shmem_heap *
+platform_heap_id_to_shmaddr(platform_heap_id hid);
 
 platform_status
 platform_buffer_init(buffer_handle *bh, size_t length);
@@ -711,16 +719,6 @@ platform_thread_id_self();
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
 
-void
-platform_enable_tracing_shm_ops();
-
-void
-platform_enable_tracing_shm_allocs();
-
-void
-platform_enable_tracing_shm_frees();
-
-
 /*
  * Section 5:
  * Platform-specific inline implementations
@@ -746,14 +744,14 @@ platform_enable_tracing_shm_frees();
 #define platform_free(id, p)                                                   \
    do {                                                                        \
       platform_free_from_heap(                                                 \
-         id, (p), STRINGIFY(p), __FUNCTION__, __FILE__, __LINE__);             \
+         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
       (p) = NULL;                                                              \
    } while (0)
 
 #define platform_free_volatile(id, p)                                          \
    do {                                                                        \
       platform_free_volatile_from_heap(                                        \
-         id, (p), STRINGIFY(p), __FUNCTION__, __FILE__, __LINE__);             \
+         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
       (p) = NULL;                                                              \
    } while (0)
 

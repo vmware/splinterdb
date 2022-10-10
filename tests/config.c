@@ -93,7 +93,8 @@ config_set_defaults(master_config *cfg)
 
       .use_shmem                = FALSE,
       // Default shared-memory sze if it is configured
-      .shmem_size               = GiB_TO_B(TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB),
+     .shmem_size                = GiB_TO_B(TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB),
+     .wait_for_gdb              = FALSE,
 
       .log_handle               = NULL,
       .max_key_size             = TEST_CONFIG_DEFAULT_KEY_SIZE,
@@ -370,6 +371,22 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             // Trace both allocations & frees from shared memory segment.
             platform_enable_tracing_shm_ops();
          }
+         // Parameter should only be used with --use-shmem argument.
+         config_has_option("fork-child")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].fork_child = TRUE;
+            }
+         }
+
+         // Some tests that fork multiple child processes may need
+         // debugging. Use this arg to wait-for-gdb looping behaviour.
+         config_has_option("wait-for-gdb")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].wait_for_gdb = TRUE;
+            }
+         }
 
          config_set_uint64("key-size", cfg, max_key_size) {}
          config_set_uint64("data-size", cfg, message_size) {}
@@ -377,6 +394,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          // Test-execution configuration parameters
          config_set_uint64("seed", cfg, seed) {}
          config_set_uint64("num-inserts", cfg, num_inserts) {}
+         config_set_uint64("num-processes", cfg, num_processes) {}
 
          config_set_else
          {

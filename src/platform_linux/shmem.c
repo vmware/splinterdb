@@ -169,12 +169,11 @@ platform_shm_heap_valid(shmem_heap *shmheap);
  * the heap-ID handle to the shared memory's start address, from which the
  * location of the next-free-byte can be tracked.
  */
-static inline shmem_heap *
+shmem_heap *
 platform_heap_id_to_shmaddr(platform_heap_id hid)
 {
    debug_assert(hid != NULL);
-   void *shmaddr = ((void *)hid - offsetof(shmem_heap, shm_id));
-   return (shmem_heap *)shmaddr;
+   return (shmem_heap *)hid;
 }
 
 /* Evaluates to valid 'low' address within shared segment. */
@@ -220,27 +219,104 @@ shm_unlock_mem_frags(shmem_heap *shm)
 }
 
 /*
+ * platform_valid_addr_in_heap(), platform_valid_addr_in_shm()
+ *
  * Address 'addr' is valid if it's just past end of control block and within
  * shared segment.
  */
 static inline bool
-platform_valid_addr_in_shm(shmem_heap *shmaddr, void *addr)
+platform_valid_addr_in_shm(shmem_heap *shmaddr, const void *addr)
 {
    return ((addr >= ((void *)shmaddr + platform_shm_ctrlblock_size()))
            && (addr < shmaddr->shm_end));
 }
 
 /*
- * platform_valid_addr_in_heap(), platform_valid_addr_in_shm()
- *
  * Validate that input address 'addr' is a valid address within shared segment
  * region.
  */
-static inline bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr)
 {
    return platform_valid_addr_in_shm(platform_heap_id_to_shmaddr(heap_id),
                                      addr);
+}
+
+/*
+ * Set of usage-stats fields copied from shmem_info{} struct, so that we
+ * can print these after shared segment has been destroyed.
+ */
+typedef struct shminfo_usage_stats {
+   size_t total_bytes;
+   size_t used_bytes;
+   size_t free_bytes;
+   size_t nfrees;
+   size_t nf_search_skipped;
+   size_t used_by_large_frags_bytes;
+   uint32 frags_inuse_HWM;
+   int    large_frags_found_in_use;
+   int    shmid;
+} shminfo_usage_stats;
+
+void
+platform_shm_print_usage_stats(shminfo_usage_stats *usage)
+{
+   fraction used_bytes_pct;
+   fraction free_bytes_pct;
+   used_bytes_pct = init_fraction(usage->used_bytes, usage->total_bytes);
+   free_bytes_pct = init_fraction(usage->free_bytes, usage->total_bytes);
+
+   // clang-format off
+   platform_default_log(
+      "Shared memory usage stats shmid=%d:"
+      " Total=%lu bytes (%s)"
+      ", Used=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
+      ", Free=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
+      ", nfrees=%lu, nf_search_skipped=%lu (%d %%)"
+      ", Large fragments in-use HWM=%u (found in-use=%d)"
+      ", consumed=%lu bytes (%s)"
+      ".\n",
+      usage->shmid,
+      usage->total_bytes,
+      size_str(usage->total_bytes),
+      usage->used_bytes,
+      size_str(usage->used_bytes),
+      (FRACTION_ARGS(used_bytes_pct) * 100),
+      usage->free_bytes,
+      size_str(usage->free_bytes),
+      (FRACTION_ARGS(free_bytes_pct) * 100),
+      usage->nfrees,
+      usage->nf_search_skipped,
+      (usage->nfrees ? (int)((usage->nf_search_skipped * 100) / usage->nfrees)
+                     : 0),
+      usage->frags_inuse_HWM,
+      usage->large_frags_found_in_use,
+      usage->used_by_large_frags_bytes,
+      size_str(usage->used_by_large_frags_bytes));
+   // clang-format on
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Interface to print shared memory usage stats. (Callable from the debugger)
+ */
+void
+platform_shm_print_usage(platform_heap_id hid)
+{
+   shmem_heap         *shminfo = platform_heap_id_to_shmaddr(hid);
+   shminfo_usage_stats usage;
+   ZERO_STRUCT(usage);
+
+   usage.shmid                     = shminfo->shm_id;
+   usage.total_bytes               = shminfo->shm_total_bytes;
+   usage.used_bytes                = shminfo->shm_used_bytes;
+   usage.free_bytes                = shminfo->shm_free_bytes;
+   usage.nfrees                    = shminfo->shm_nfrees;
+   usage.used_by_large_frags_bytes = shminfo->shm_used_by_large_frags;
+   usage.frags_inuse_HWM           = shminfo->shm_num_frags_inuse_HWM;
+   usage.large_frags_found_in_use  = platform_trace_large_frags(shminfo);
+
+   platform_shm_print_usage_stats(&usage);
 }
 
 /*
@@ -298,9 +374,9 @@ platform_shmcreate(size_t            size,
    shm->shm_id             = shmid;
    shm->shm_magic          = SPLINTERDB_SHMEM_MAGIC;
 
-   // Return 'heap-ID' handle, if requested, pointing to shared segment handle.
+   // Return 'heap-ID' handle pointing to start addr of shared segment.
    if (heap_id) {
-      *heap_id = (platform_heap_id *)&shm->shm_id;
+      *heap_id = (platform_heap_id *)shmaddr;
    }
 
    platform_spinlock_init(
@@ -391,6 +467,19 @@ platform_shmdestroy(platform_heap_id *hid_out)
 
    // Print large-fragment tracking metrics (for deep debugging)
    int found_in_use = platform_trace_large_frags(shm);
+
+   // Retain some memory usage stats before releasing shmem
+   shminfo_usage_stats usage;
+   ZERO_STRUCT(usage);
+
+   usage.shmid                     = shmid;
+   usage.total_bytes               = shm->shm_total_bytes;
+   usage.used_bytes                = shm->shm_used_bytes;
+   usage.free_bytes                = shm->shm_free_bytes;
+   usage.nfrees                    = shm->shm_nfrees;
+   usage.used_by_large_frags_bytes = shm->shm_used_by_large_frags;
+   usage.frags_inuse_HWM           = shm->shm_num_frags_inuse_HWM;
+   usage.large_frags_found_in_use  = found_in_use;
 
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
@@ -1081,6 +1170,42 @@ platform_shm_heap_valid(shmem_heap *shmheap)
    }
 
    return TRUE;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Warning! Testing & Diagnostics interfaces, which are written to support
+ * verification of splinterdb handle from forked child processes when running
+ * Splinter configured with shared-segment.
+ *
+ * platform_heap_set_splinterdb_handle() - Save-off the handle to splinterdb *
+ *    in the shared segment's control block.
+ *
+ * platform_heap_get_splinterdb_handle() - Return the handle to splinterdb *
+ *    saved-off in the shared segment's control block.
+ * -----------------------------------------------------------------------------
+ */
+bool
+platform_shm_heap_id_valid(const platform_heap_id heap_id)
+{
+   const shmem_heap *shm = platform_heap_id_to_shmaddr(heap_id);
+   return (shm->shm_magic == SPLINTERDB_SHMEM_MAGIC);
+}
+
+void
+platform_shm_set_splinterdb_handle(platform_heap_id heap_id, void *addr)
+{
+   debug_assert(platform_shm_heap_id_valid(heap_id));
+   shmem_heap *shm = platform_heap_id_to_shmaddr(heap_id);
+   shm->shm_splinterdb_handle = addr;
+}
+
+void *
+platform_heap_get_splinterdb_handle(const platform_heap_id heap_id)
+{
+   debug_assert(platform_shm_heap_id_valid(heap_id));
+   shmem_heap *shm = platform_heap_id_to_shmaddr(heap_id);
+   return shm->shm_splinterdb_handle;
 }
 
 /*
