@@ -529,7 +529,13 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/util_test "$use_shmem"
    "$BINDIR"/unit/misc_test "$use_shmem"
    "$BINDIR"/unit/limitations_test "$use_shmem"
-   "$BINDIR"/driver_test io_apis_test "$use_shmem"
+
+   # shellcheck disable=SC2086
+   "$BINDIR"/driver_test io_apis_test $use_shmem
+
+   # Additional case exercised while developing this test to
+   # verify logic of IO-contexts under forked processes
+   "$BINDIR"/driver_test io_apis_test $use_shmem --fork-child
 }
 
 # ##################################################################

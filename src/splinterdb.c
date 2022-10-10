@@ -517,7 +517,8 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
                                  platform_get_module_id());
    }
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initialize SplinterDB allocator: %s\n",
+      platform_error_log("Failed to %s SplinterDB allocator: %s\n",
+                         (open_existing ? "mount existing" : "initialize"),
                          platform_status_to_string(status));
       goto deinit_system;
    }

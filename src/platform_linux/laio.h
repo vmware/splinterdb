@@ -52,8 +52,8 @@ struct io_async_req {
 typedef struct laio_handle {
    io_handle        super;
    io_config       *cfg;
-   io_context_t     ctx; // Opaque handle returned by system call
-   io_async_req    *req; // Ptr to array of async req structs
+   io_context_t     ctx[MAX_THREADS]; // Opaque handle returned by system call
+   io_async_req    *req; // Ptr to allocated array of async req structs
    uint64           max_batches_nonblocking_get;
    uint64           req_hand_base;
    uint64           req_hand[MAX_THREADS];
@@ -67,6 +67,6 @@ laio_config_valid(io_config *cfg);
 static inline io_context_t
 platform_io_context(laio_handle *ioh)
 {
-   return ioh->ctx;
+   return ioh->ctx[0];
 }
 #endif //__LAIO_H

@@ -24,6 +24,10 @@ task_system_get_tid_bitmask(task_system *ts);
 
 static void
 task_system_io_register_thread(task_system *ts);
+
+static void
+task_system_io_deregister_thread(task_system *ts);
+
 // end forward declarations
 
 /*
@@ -254,6 +258,8 @@ task_deregister_thread(task_system *ts,
       platform_free(ts->heap_id, scratch);
       ts->thread_scratch[tid] = NULL;
    }
+   task_system_io_deregister_thread(ts);
+
    task_clear_threadid(ts, tid); // allow thread id to be re-used
 }
 
@@ -786,6 +792,12 @@ static void
 task_system_io_register_thread(task_system *ts)
 {
    io_thread_register(&ts->ioh->super);
+}
+
+static void
+task_system_io_deregister_thread(task_system *ts)
+{
+   io_thread_deregister(&ts->ioh->super);
 }
 
 /*
