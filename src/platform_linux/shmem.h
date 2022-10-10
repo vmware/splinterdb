@@ -74,6 +74,12 @@ platform_shm_realloc(platform_heap_id hid,
                      const char      *file,
                      const int        lineno);
 
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr);
+
+bool
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, const void *addr);
+
 static inline int
 platform_shm_alignment()
 {
@@ -84,7 +90,9 @@ bool
 platform_shm_heap_handle_valid(platform_heap_handle heap_handle);
 
 void
-platform_shm_tracing_init();
+platform_shm_tracing_init(const bool trace_shmem,
+                          const bool trace_shmem_allocs,
+                          const bool trace_shmem_frees);
 
 void
 platform_disable_tracing_shm_ops();
@@ -130,7 +138,8 @@ void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
 
 void
-platform_enable_tracing_large_frags();
+platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                   void                *addr);
 
-void
-platform_disable_tracing_large_frags();
+void *
+platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle);
