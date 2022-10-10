@@ -7403,11 +7403,11 @@ trunk_destroy(trunk_handle *spl)
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].insert_latency_histo);
+                                &spl->stats[i].insert_latency_histo);
          platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].update_latency_histo);
+                                &spl->stats[i].update_latency_histo);
          platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].delete_latency_histo);
+                                &spl->stats[i].delete_latency_histo);
       }
       platform_free(spl->heap_id, spl->stats);
    }
@@ -7428,11 +7428,11 @@ trunk_unmount(trunk_handle **spl_in)
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].insert_latency_histo);
+                                &spl->stats[i].insert_latency_histo);
          platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].update_latency_histo);
+                                &spl->stats[i].update_latency_histo);
          platform_histo_destroy(spl->heap_id,
-                                spl->stats[i].delete_latency_histo);
+                                &spl->stats[i].delete_latency_histo);
       }
       platform_free(spl->heap_id, spl->stats);
    }
@@ -8438,9 +8438,9 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
    platform_histo_print(insert_lat_accum, "Insert Latency Histogram (ns):", log_handle);
    platform_histo_print(update_lat_accum, "Update Latency Histogram (ns):", log_handle);
    platform_histo_print(delete_lat_accum, "Delete Latency Histogram (ns):", log_handle);
-   platform_histo_destroy(spl->heap_id, insert_lat_accum);
-   platform_histo_destroy(spl->heap_id, update_lat_accum);
-   platform_histo_destroy(spl->heap_id, delete_lat_accum);
+   platform_histo_destroy(spl->heap_id, &insert_lat_accum);
+   platform_histo_destroy(spl->heap_id, &update_lat_accum);
+   platform_histo_destroy(spl->heap_id, &delete_lat_accum);
 
 
    platform_log(log_handle, "Flush Statistics\n");

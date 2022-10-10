@@ -64,6 +64,7 @@ typedef struct splinterdb_config {
    _Bool  trace_shmem_allocs;
    _Bool  trace_shmem_frees;
    _Bool  trace_shmem; // Trace both allocs & frees from shared memory
+   _Bool  fork_child;  // Default is FALSE
 
    uint64 page_size;
    uint64 extent_size;
@@ -392,7 +393,6 @@ splinterdb_iterator_status(const splinterdb_iterator *iter);
  *
  * Reset statistics clears all statistics, including cache statistics.
  */
-
 void
 splinterdb_stats_print_insertion(const splinterdb *kvs);
 

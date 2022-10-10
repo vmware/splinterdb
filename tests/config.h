@@ -100,6 +100,7 @@ typedef struct master_config {
    bool   trace_shmem_allocs;
    bool   trace_shmem_frees;
    bool   trace_shmem; // Trace both allocs & frees from shared memory
+   bool   fork_child;  // Default is FALSE
 
    platform_log_handle *log_handle;
 
@@ -111,6 +112,7 @@ typedef struct master_config {
    uint64 seed;
    uint64 num_inserts;
    uint64 num_threads;
+   bool   wait_for_gdb; // To debug child processes.
 } master_config;
 
 
