@@ -1846,7 +1846,23 @@ start_over:
    btree_node parent_node = root_node;
    btree_node child_node;
    child_node.addr = index_entry_child_addr(parent_entry);
-   debug_assert(allocator_page_valid(cache_get_allocator(cc), child_node.addr));
+#if SPLINTER_DEBUG
+   bool child_node_is_valid =
+      allocator_page_valid(cache_get_allocator(cc), child_node.addr);
+   if (!child_node_is_valid) {
+      btree_print_tree(Platform_default_log_handle,
+                       cc,
+                       (btree_config *)cfg,
+                       parent_node.addr,
+                       PAGE_TYPE_MEMTABLE);
+   }
+#endif // SPLINTER_DEBUG
+
+   debug_assert(child_node_is_valid,
+                "parent_node.addr=%lu, child_node.addr=%lu\n",
+                parent_node.addr,
+                child_node.addr);
+
    btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
 
    uint64 height = btree_height(parent_node.hdr);

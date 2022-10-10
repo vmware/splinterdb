@@ -525,7 +525,17 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
    debug_assert(extent_no < al->cfg->extent_capacity);
 
    uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
-   platform_assert(ref_count != UINT8_MAX);
+
+   // We should have decremented the ref-count. If it rolls-over and
+   // goes back to this value, it means the original value was 0. That
+   // indicates that we are decrementing a ref-count for an extent where
+   // no page was previously allocated.
+   platform_assert((ref_count != UINT8_MAX),
+                   "extent_no=%lu, ref_count=%d (0x%x)\n",
+                   extent_no,
+                   ref_count,
+                   ref_count);
+
    if (ref_count == 0) {
       platform_assert(type != PAGE_TYPE_INVALID);
       __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
@@ -692,11 +702,14 @@ rc_allocator_alloc(rc_allocator *al,   // IN
 
    do {
       hand = __sync_fetch_and_add(&al->hand, 1) % al->cfg->extent_capacity;
-      if (al->ref_count[hand] == 0)
+      if (al->ref_count[hand] == 0) {
          extent_is_free =
             __sync_bool_compare_and_swap(&al->ref_count[hand], 0, 2);
+      }
    } while (!extent_is_free
             && (hand + 1) % al->cfg->extent_capacity != first_hand);
+
+   // Error out if no extent is free; allocation fails.
    if (!extent_is_free) {
       platform_default_log(
          "Out of Space, while allocating an extent of type=%d (%s):"

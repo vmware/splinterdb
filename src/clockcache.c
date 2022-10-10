@@ -1694,7 +1694,9 @@ clockcache_flush(clockcache *cc)
    for (uint32 flush_hand = 0;
         flush_hand < cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH;
         flush_hand++)
+   {
       clockcache_batch_start_writeback(cc, flush_hand, TRUE);
+   }
 
    // make sure all aio is complete again
    io_cleanup_all(cc->io);

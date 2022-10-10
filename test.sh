@@ -66,6 +66,8 @@ Examples:"
    echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests"
    echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_splinter_functionality_tests"
    echo "  INCLUDE_SLOW_TESTS=true ./test.sh nightly_cache_perf_tests"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_splinter_functionality_tests --use-shmem"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory"
 }
 
 # ##################################################################
@@ -90,6 +92,8 @@ function record_elapsed_time() {
    if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
       # Provide wider test-tag for nightly tests which print verbose descriptions
       fmtstr="%-105s""${fmtstr}"
+   elif [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
+      fmtstr="%-32s""${fmtstr}"
    else
       fmtstr="%-85s""${fmtstr}"
    fi
@@ -602,11 +606,13 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/task_system_test "$use_shmem"
    "$BINDIR"/unit/splinterdb_heap_id_mgmt_test "$use_shmem"
 
+   echo
    # Just exercise with some combination of background threads to ensure
    # that basic usage of background threads still works.
    # shellcheck disable=SC2086
    "$BINDIR"/unit/task_system_test $use_shmem
 
+   echo
    # shellcheck disable=SC2086
    "$BINDIR"/driver_test io_apis_test $use_shmem
 }
@@ -661,7 +667,7 @@ function run_slower_unit_tests() {
     # --------------------------------------------------------------------------
     # FIXME: Disable script failing upon an error. Re-enable when following is fixed:
     # Asserts tripping:
-    # 813 TEST 7/12 large_inserts_bugs_stress:test_seq_key_fully_packed_value_inserts_threaded_same_start_    keyid OS-pid=373371, OS-tid=373385, Thread-ID=6, Assertion failed at src/platform_linux/platform    .c:286:platform_batch_rwlock_lock(): "lock->write_lock[lock_idx].claim".
+    # 813 TEST 7/12 large_inserts_bugs_stress:test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid OS-pid=373371, OS-tid=373385, Thread-ID=6, Assertion failed at src/platform_linux/platform.c:286:platform_batch_rwlock_lock(): "lock->write_lock[lock_idx].claim".
     # --------------------------------------------------------------------------
 
     set +e
@@ -682,6 +688,46 @@ function run_slower_unit_tests() {
                                                         --num-normal-bg-threads 4 \
                                                         --num-memtable-bg-threads 3
     set -e
+}
+
+# ##################################################################
+# Run tests that exercise forked-child processes which connect to
+# Splinter configured with shared segment memory.
+#
+# NOTE: Support for shared memory is experimental. Thus, these
+#       tests exercising execution via forked-processes accessing
+#       shared memory are also experimental.
+# ##################################################################
+function run_slower_forked_process_tests() {
+
+    local msg="Splinter tests using default number of forked child processes"
+    run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test
+
+    # --------------------------------------------------------------------------
+    # Will be an interesting test to exercise, but ASAN job in CI failed with:
+    # TEST 4/4 splinterdb_forked_child:test_multiple_forked_process_doing_IOs OS-pid=1569, OS-tid=1569, Thread-ID=1, Assertion failed at src/trunk.c:5363:trunk_compact_bundle(): "height != 0".
+    # OS-pid=1565, OS-tid=1565, Thread-ID=0, Assertion failed at tests/unit/splinterdb_forked_child_test.c:536:ctest_splinterdb_forked_child_test_multiple_forked_process_doing_IOs_run(): "WIFEXITED(wstatus)". Child terminated abnormally: SIGNAL=6
+    #
+    # main pr-clang job also failed with this error:
+    # splinterdb_forked_child:test_multiple_forked_process_doing_IOs OS-pid=1182, OS-tid=1182, Thread-ID=3, Assertion failed at src/trunk.c:5363:trunk_compact_bundle(): "height != 0".
+    # So -- this test scenario is unearthing some existing bugs. Comment out for now.
+    # --------------------------------------------------------------------------
+    #
+    # num_forked_procs=4
+    # msg="Splinter tests using ${num_forked_procs} forked child processes"
+    # run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test \
+    #                                     --num-processes ${num_forked_procs}
+
+    # ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
+    # using forked child process execution.
+    msg="Splinter large inserts test using shared memory, 1 forked child"
+    local num_rows=$((2 * 1000 * 1000))
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
+                                        --use-shmem \
+                                        --fork-child \
+                                        --num-inserts ${num_rows} \
+                                        test_seq_key_seq_values_inserts_forked
 }
 
 # ##################################################################
@@ -838,6 +884,12 @@ function run_tests_with_shared_memory() {
    # Run all the unit-tests first, to get basic coverage of shared-memory support.
    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
 
+   # Additional case exercised while developing shared memory support for multi
+   # process execution to verify management of IO-contexts under forked processes
+   run_with_timing "IO APIs test using shared memory and forked child" \
+                   "$BINDIR"/driver_test io_apis_test \
+                   --use-shmem --fork-child
+
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
 
@@ -845,6 +897,11 @@ function run_tests_with_shared_memory() {
    run_splinter_perf_tests "--use-shmem"
    run_btree_tests "--use-shmem"
    run_other_driver_tests "--use-shmem"
+
+   # These are written to always create shared segment, so --use-shmem arg is
+   # not needed when invoking them. These tests will fork one or more child
+   # processes.
+   run_slower_forked_process_tests
 }
 
 # ##################################################################
@@ -945,7 +1002,10 @@ UNIT_TESTS_DB_DEV="unit_tests_db"
 # function takes arguments, pass them on the command-line. This way, one
 # can debug script changes to ensure that test-execution still works.
 #
-# E.g. INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+# Examples:
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
 #      INCLUDE_SLOW_TESTS=true ./test.sh run_slower_unit_tests --use-shmem
 #      INCLUDE_SLOW_TESTS=true ./test.sh nightly_unit_stress_tests --use-shmem
 # ------------------------------------------------------------------------
