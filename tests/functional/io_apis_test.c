@@ -33,7 +33,7 @@
 
 /*
  * Structure to package arguments needed by test-case functions. This packaging
- * allows to pass this set of args around. These are then supplied by worker
+ * allows us to pass a set of args around. These are then supplied by worker
  * functions invoked by pthreads to invoke the work-horse function(s).
  */
 typedef struct io_test_fn_args {
@@ -159,6 +159,8 @@ npages_per_thread(io_test_fn_args *io_test_param, int nthreads)
 int
 splinter_io_apis_test(int argc, char *argv[])
 {
+   uint64 heap_capacity = (HEAP_SIZE_MB * MiB); // small heap is sufficient.
+
    // Move past the 1st arg which will be the driving tag, 'io_apis_test'.
    argc--;
    argv++;
@@ -169,8 +171,6 @@ splinter_io_apis_test(int argc, char *argv[])
       argc--;
       argv++;
    }
-
-   uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
 
    // Create a heap for io system's memory allocation.
    platform_heap_handle hh  = NULL;
@@ -225,6 +225,8 @@ splinter_io_apis_test(int argc, char *argv[])
                         io_cfg.kernel_queue_size,
                         io_cfg.async_max_pages);
 
+   // For this test, we allocate this structure. In a running Splinter
+   // instance, this struct is nested inside the splinterdb{} handle.
    platform_io_handle *io_hdl = TYPED_MALLOC(hid, io_hdl);
    if (!io_hdl) {
       goto heap_destroy;
@@ -385,13 +387,15 @@ test_sync_writes_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
 
+   threadid     this_thread_idx = platform_get_tid();
    io_context_t act_ctxt =
       (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
 
-   // All threads share the same IO-context handle as the main thread.
-   platform_assert((argp->io_ctxt == act_ctxt),
-                   "Actual opaque IO context handle, %p"
-                   " does not match expected context handle, %p\n",
+   // Each thread, including the main thread, should have its own IO context
+   platform_assert((argp->io_ctxt != act_ctxt),
+                   "In thread tid=%lu: Actual opaque IO context handle, %p"
+                   " should not match expected context handle, %p\n",
+                   this_thread_idx,
                    act_ctxt,
                    argp->io_ctxt);
 
@@ -489,14 +493,18 @@ test_sync_reads_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
 
+   threadid     this_thread_idx = platform_get_tid();
    io_context_t act_ctxt =
       (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
 
-   platform_assert((argp->io_ctxt == act_ctxt),
-                   "Actual opaque IO context handle, %p"
-                   " does not match expected context handle, %p\n",
+   // Each thread, including the main thread, should have its own IO context
+   platform_assert((argp->io_ctxt != act_ctxt),
+                   "In thread tid=%lu: Actual opaque IO context handle, %p"
+                   " should not match expected context handle, %p\n",
+                   this_thread_idx,
                    act_ctxt,
                    argp->io_ctxt);
+
 
    test_sync_reads(argp->hid,
                    argp->io_cfgp,
@@ -549,6 +557,9 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
       platform_thread_join(thread_params[i].thread);
    }
 
+   platform_default_log(
+      "Completed execution of n-threads test_sync_writes_worker()\n");
+
    /*
     * Execute the n-threads doing sync-reads from their disk pieces.
     */
@@ -562,6 +573,10 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
       platform_thread_join(thread_params[i].thread);
    }
 
+   platform_default_log(
+      "Completed execution of n-threads test_sync_reads_worker()\n");
+
+   platform_default_log(" succeeded.\n");
    return rc;
 }
 
@@ -798,13 +813,15 @@ test_async_reads_worker(void *arg)
 {
    io_test_fn_args *argp = (io_test_fn_args *)arg;
 
+   threadid     this_thread_idx = platform_get_tid();
    io_context_t act_ctxt =
       (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
 
-   // All threads share the same IO-context handle as the main thread.
-   platform_assert((argp->io_ctxt == act_ctxt),
-                   "Actual opaque IO context handle, %p"
-                   " does not match expected context handle, %p\n",
+   // Each thread, including the main thread, should have its own IO context
+   platform_assert((argp->io_ctxt != act_ctxt),
+                   "In thread tid=%lu: Actual opaque IO context handle, %p"
+                   " should not match expected context handle, %p\n",
+                   this_thread_idx,
                    act_ctxt,
                    argp->io_ctxt);
 

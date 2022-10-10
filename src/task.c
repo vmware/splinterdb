@@ -16,7 +16,6 @@ _Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
 /****************************************
  * Thread ID allocation and management  *
  ****************************************/
-
 /*
  * task_init_tid_bitmask() - Initialize the global bitmask of active threads in
  * the task system structure to indicate that no threads are currently active.
@@ -160,6 +159,12 @@ task_system_io_register_thread(task_system *ts)
    io_thread_register(&ts->ioh->super);
 }
 
+static void
+task_system_io_deregister_thread(task_system *ts)
+{
+   io_thread_deregister(&ts->ioh->super);
+}
+
 /*
  * This is part of task initialization and needs to be called at the
  * beginning of the main thread that uses the task, similar to how
@@ -221,13 +226,9 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
-   void *scratchptr = thread_started->ts->thread_scratch[thread_started->tid];
-   if (scratchptr) {
-      platform_free(thread_started->ts->heap_id, scratchptr);
-   }
-
-   platform_set_tid(INVALID_TID);
-   task_deallocate_threadid(thread_started->ts, thread_started->tid);
+   // Release scratch space, release thread-ID
+   // For background threads', also, IO-deregistration will happen here.
+   task_deregister_this_thread(thread_started->ts);
 
    platform_free(thread_started->heap_id, func_and_args);
 }
@@ -385,6 +386,7 @@ task_register_thread(task_system *ts,
  *
  * Deregistration involves:
  *  - Releasing any scratch space acquired for this thread.
+ *  - De-registering w/ IO sub-system, which will release IO resources
  *  - Clearing the thread ID (index) for this thread
  */
 void
@@ -408,6 +410,7 @@ task_deregister_thread(task_system *ts,
       ts->thread_scratch[tid] = NULL;
    }
 
+   task_system_io_deregister_thread(ts);
    platform_set_tid(INVALID_TID);
    task_deallocate_threadid(ts, tid); // allow thread id to be re-used
 }

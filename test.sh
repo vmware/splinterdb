@@ -83,6 +83,8 @@ function record_elapsed_time() {
    if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
       # Provide wider test-tag for nightly tests which print verbose descriptions
       fmtstr="%-105s""${fmtstr}"
+   elif [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
+      fmtstr="%-32s""${fmtstr}"
    else
       fmtstr="%-85s""${fmtstr}"
    fi
@@ -569,13 +571,16 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/util_test "$use_shmem"
    "$BINDIR"/unit/misc_test "$use_shmem"
    "$BINDIR"/unit/limitations_test "$use_shmem"
-   "$BINDIR"/unit/task_system_test $use_shmem
+   "$BINDIR"/unit/task_system_test "$use_shmem"
 
+   echo
    # Just exercise with some combination of background threads to ensure
    # that basic usage of background threads still works.
    # shellcheck disable=SC2086
    "$BINDIR"/unit/task_system_test $use_shmem --num-bg-threads 4 --num-memtable-bg-threads  2
 
+   echo
+   # shellcheck disable=SC2086
    "$BINDIR"/driver_test io_apis_test $use_shmem
 }
 
