@@ -208,11 +208,13 @@ shm_unlock_mem_frags(shmem_info *shminfo)
 }
 
 /*
+ * platform_valid_addr_in_heap(), platform_valid_addr_in_shm()
+ *
  * Address 'addr' is valid if it's just past end of control block and within
  * shared segment.
  */
-static inline bool
-platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
+bool
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, const void *addr)
 {
    debug_assert(platform_shm_heap_handle_valid(heap_handle),
                 "Shared memory heap_handle %p is invalid.\n",
@@ -224,15 +226,91 @@ platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
 }
 
 /*
- * platform_valid_addr_in_heap(), platform_valid_addr_in_shm()
- *
  * Validate that input address 'addr' is a valid address within shared segment
  * region.
  */
-static inline bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr)
 {
    return platform_valid_addr_in_shm(platform_heap_id_to_handle(heap_id), addr);
+}
+
+/*
+ * Set of usage-stats fields copied from shmem_info{} struct, so that we
+ * can print these after shared segment has been destroyed.
+ */
+typedef struct shminfo_usage_stats {
+   size_t total_bytes;
+   size_t used_bytes;
+   size_t free_bytes;
+   size_t nfrees;
+   size_t nf_search_skipped;
+   size_t used_by_large_frags_bytes;
+   uint32 frags_inuse_HWM;
+   int    large_frags_found_in_use;
+   int    shmid;
+} shminfo_usage_stats;
+
+void
+platform_shm_print_usage_stats(shminfo_usage_stats *usage)
+{
+   fraction used_bytes_pct;
+   fraction free_bytes_pct;
+   used_bytes_pct = init_fraction(usage->used_bytes, usage->total_bytes);
+   free_bytes_pct = init_fraction(usage->free_bytes, usage->total_bytes);
+
+   // clang-format off
+   platform_default_log(
+      "Shared memory usage stats shmid=%d:"
+      " Total=%lu bytes (%s)"
+      ", Used=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
+      ", Free=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
+      ", nfrees=%lu, nf_search_skipped=%lu (%d %%)"
+      ", Large fragments in-use HWM=%u (found in-use=%d)"
+      ", consumed=%lu bytes (%s)"
+      ".\n",
+      usage->shmid,
+      usage->total_bytes,
+      size_str(usage->total_bytes),
+      usage->used_bytes,
+      size_str(usage->used_bytes),
+      (FRACTION_ARGS(used_bytes_pct) * 100),
+      usage->free_bytes,
+      size_str(usage->free_bytes),
+      (FRACTION_ARGS(free_bytes_pct) * 100),
+      usage->nfrees,
+      usage->nf_search_skipped,
+      (usage->nfrees ? (int)((usage->nf_search_skipped * 100) / usage->nfrees)
+                     : 0),
+      usage->frags_inuse_HWM,
+      usage->large_frags_found_in_use,
+      usage->used_by_large_frags_bytes,
+      size_str(usage->used_by_large_frags_bytes));
+   // clang-format on
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Interface to print shared memory usage stats. (Callable from the debugger)
+ */
+void
+platform_shm_print_usage(platform_heap_id hid)
+{
+   shmem_info         *shminfo = (shmem_info *)platform_heap_id_to_shmaddr(hid);
+   shminfo_usage_stats usage;
+   ZERO_STRUCT(usage);
+
+   usage.shmid                     = shminfo->shm_id;
+   usage.total_bytes               = shminfo->shm_total_bytes;
+   usage.used_bytes                = shminfo->shm_used_bytes;
+   usage.free_bytes                = shminfo->shm_free_bytes;
+   usage.nfrees                    = shminfo->shm_nfrees;
+   usage.nf_search_skipped         = shminfo->shm_nf_search_skipped;
+   usage.used_by_large_frags_bytes = shminfo->shm_used_by_large_frags;
+   usage.frags_inuse_HWM           = shminfo->shm_num_frags_inuse_HWM;
+   usage.large_frags_found_in_use  = platform_trace_large_frags(shminfo);
+
+   platform_shm_print_usage_stats(&usage);
 }
 
 /*
@@ -375,15 +453,22 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // assertions.
    shminfo->shm_id = 0;
 
-   // Retain some memory usage stats before releasing shmem
-   size_t shm_total_bytes           = shminfo->shm_total_bytes;
-   size_t shm_used_bytes            = shminfo->shm_used_bytes;
-   size_t shm_free_bytes            = shminfo->shm_free_bytes;
-   uint32 frags_inuse_HWM           = shminfo->shm_num_frags_inuse_HWM;
-   size_t used_by_large_frags_bytes = shminfo->shm_used_by_large_frags;
-
    // Print large-fragment tracking metrics (for deep debugging)
    int found_in_use = platform_trace_large_frags(shminfo);
+
+   // Retain some memory usage stats before releasing shmem
+   shminfo_usage_stats usage;
+   ZERO_STRUCT(usage);
+
+   usage.shmid                     = shmid;
+   usage.total_bytes               = shminfo->shm_total_bytes;
+   usage.used_bytes                = shminfo->shm_used_bytes;
+   usage.free_bytes                = shminfo->shm_free_bytes;
+   usage.nfrees                    = shminfo->shm_nfrees;
+   usage.nf_search_skipped         = shminfo->shm_nf_search_skipped;
+   usage.used_by_large_frags_bytes = shminfo->shm_used_by_large_frags;
+   usage.frags_inuse_HWM           = shminfo->shm_num_frags_inuse_HWM;
+   usage.large_frags_found_in_use  = found_in_use;
 
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
@@ -401,43 +486,13 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    Heap_id     = NULL;
    Heap_handle = NULL;
 
-   fraction used_bytes_pct;
-   fraction free_bytes_pct;
-   used_bytes_pct = init_fraction(shm_used_bytes, shm_total_bytes);
-   free_bytes_pct = init_fraction(shm_free_bytes, shm_total_bytes);
-
-   // clang-format off
    // Always trace destroy of shared memory segment.
    platform_default_log("Deallocated SplinterDB shared memory "
-                        "segment at %p, shmid=%d."
-                        " Used=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
-                        ", Free=%lu bytes (%s, " FRACTION_FMT( 4, 2) " %%)"
-                        ".\n",
+                        "segment at %p, shmid=%d.\n",
                         shmaddr,
-                        shmid,
-                        shm_used_bytes,
-                        size_str(shm_used_bytes),
-                        (FRACTION_ARGS(used_bytes_pct) * 100),
-                        shm_free_bytes,
-                        size_str(shm_free_bytes),
-                        (FRACTION_ARGS(free_bytes_pct) * 100));
-   // clang-format on
+                        shmid);
 
-   size_t shm_nf_search_skipped = shminfo->shm_nf_search_skipped;
-   size_t shm_nfrees            = shminfo->shm_nfrees;
-   platform_default_log(
-      "SplinterDB shared memory stats:"
-      " nfrees=%lu, nf_search_skipped=%lu (%d %%)"
-      ", Large fragments in-use HWM=%u (found in-use=%d)"
-      ", consumed=%lu bytes (%s)"
-      ".\n",
-      shm_nfrees,
-      shm_nf_search_skipped,
-      (shm_nfrees ? (int)((shm_nf_search_skipped * 100) / shm_nfrees) : 0),
-      frags_inuse_HWM,
-      found_in_use,
-      used_by_large_frags_bytes,
-      size_str(used_by_large_frags_bytes));
+   platform_shm_print_usage_stats(&usage);
 }
 
 /*
@@ -976,6 +1031,36 @@ platform_shm_heap_handle_valid(platform_heap_handle heap_handle)
    }
 
    return TRUE;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Warning! Testing interfaces, which are written to support verification of
+ * splinterdb handle from forked child processes when running Splinter
+ * configured with shared-segment. These interfaces are provided mainly as
+ * a diagnostic & testing hooks.
+ *
+ * platform_heap_set_splinterdb_handle() - Save-off the handle to splinterdb *
+ *    in the shared segment's control block.
+ *
+ * platform_heap_get_splinterdb_handle() - Return the handle to splinterdb *
+ *    saved-off in the shared segment's control block.
+ * -----------------------------------------------------------------------------
+ */
+void
+platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle, void *addr)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr            = (shmem_info *)heap_handle;
+   shmaddr->shm_splinterdb_handle = addr;
+}
+
+void *
+platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr = (shmem_info *)heap_handle;
+   return shmaddr->shm_splinterdb_handle;
 }
 
 /*
