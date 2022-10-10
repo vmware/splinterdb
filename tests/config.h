@@ -85,6 +85,7 @@ typedef struct master_config {
    bool trace_shmem_allocs;
    bool trace_shmem_frees;
    bool trace_shmem; // Trace both allocs & frees from shared memory
+   bool fork_child;  // Default is FALSE
 
    platform_log_handle *log_handle;
 

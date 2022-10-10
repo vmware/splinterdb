@@ -301,6 +301,13 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                cfg[cfg_idx].trace_shmem_frees  = TRUE;
             }
          }
+         // Parameter should only be used with --use-shmem argument.
+         config_has_option("fork-child")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].fork_child = TRUE;
+            }
+         }
 
          config_set_uint64("key-size", cfg, key_size) {}
          config_set_uint64("data-size", cfg, message_size) {}
