@@ -100,8 +100,9 @@ test_log_crash(clockcache             *cc,
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      log_write_maybe_blob(
+      rc         = log_write_maybe_blob(
          (cache *)cc, logh, skey, merge_accumulator_to_message(&msg), i);
+      platform_assert_status_ok(rc);
    }
 
    if (crash) {

@@ -13,8 +13,6 @@
 
 #include "shard_log.h"
 #include "data_internal.h"
-#include "blob_build.h"
-
 #include "poison.h"
 
 #define SHARD_WAIT     1
@@ -54,11 +52,6 @@ const static iterator_ops shard_log_iterator_ops = {
    .advance  = shard_log_iterator_advance,
    .print    = NULL,
 };
-
-blob_build_config blob_cfg = {.extent_batch  = 1,
-                              .page_batch    = 2,
-                              .subpage_batch = 3,
-                              .alignment     = 0};
 
 static inline uint64
 shard_log_page_size(shard_log_config *cfg)
@@ -300,7 +293,7 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
    cache_unget(cc, page);
 
    if (message_isblob(msg)) {
-      blob_sync(cc, message_slice(msg), PAGE_TYPE_LOG);
+      // blob_sync(cc, message_slice(msg), PAGE_TYPE_LOG);
    }
 
    return 0;
@@ -310,8 +303,13 @@ static platform_status
 shard_log_create_blob(log_handle *logh, slice data, writable_buffer *result)
 {
    shard_log *log = (shard_log *)logh;
-   return blob_build(
-      &blob_cfg, log->cc, &log->mini, NULL_SLICE, data, PAGE_TYPE_LOG, result);
+   return blob_build(&log->cfg->blob_cfg,
+                     log->cc,
+                     &log->mini,
+                     NULL_SLICE,
+                     data,
+                     PAGE_TYPE_LOG,
+                     result);
 }
 
 uint64
@@ -498,6 +496,11 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->cache_cfg = cache_cfg;
    log_cfg->data_cfg  = data_cfg;
    log_cfg->seed      = HASH_SEED;
+   log_cfg->blob_cfg =
+      (blob_build_config){.extent_batch  = 1,
+                          .page_batch    = 2,
+                          .subpage_batch = 3,
+                          .alignment     = cache_config_page_size(cache_cfg)};
 }
 
 void
@@ -518,16 +521,29 @@ shard_log_print(shard_log *log)
          page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, magic)) {
             next_extent_addr = shard_log_next_extent_addr(cfg, page);
+            platform_default_log(
+               "-----------------------------------------------------------\n"
+               "shard_log_page: addr=0x%-20lx next_extent_addr=0x%-20lx\n"
+               "-----------------------------------------------------------\n"
+               "   idx: key -- (isblob) message : generation\n",
+               page_addr,
+               next_extent_addr);
+            int idx = 0;
             for (log_entry *le = first_log_entry(page->data);
                  !terminal_log_entry(cfg, page->data, le);
                  le = log_entry_next(le))
             {
                platform_default_log(
-                  "%s -- %s : %lu\n",
+                  "  %4d: %s -- %s%s : %lu\n",
+                  idx,
                   key_string(dcfg, log_entry_key(le)),
+                  message_isblob(log_entry_message(le)) ? "(isblob) " : "",
                   message_string(dcfg, cc, log_entry_message(le)),
                   le->generation);
+               idx++;
             }
+            platform_default_log(
+               "-----------------------------------------------------------\n");
          }
          cache_unget(cc, page);
       }
