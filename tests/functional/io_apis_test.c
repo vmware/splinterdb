@@ -24,6 +24,8 @@
  *   section using sync-writes, and verifies using sync-reads.
  * ----------------------------------------------------------------------------
  */
+#include <sys/wait.h>
+
 #include "platform.h"
 #include "config.h"
 #include "io.h"
@@ -35,6 +37,7 @@
  * Structure to package arguments needed by test-case functions. This packaging
  * allows us to pass a set of args around. These are then supplied by worker
  * functions invoked by pthreads to invoke the work-horse function(s).
+ * Most fields are used by all functions receiving this arg. Some are for diags.
  */
 typedef struct io_test_fn_args {
    platform_heap_id    hid;
@@ -46,6 +49,7 @@ typedef struct io_test_fn_args {
    uint64              end_addr;
    char                stamp_char;
    platform_thread     thread;
+   const char         *whoami; // 'Parent' or 'Child'
 } io_test_fn_args;
 
 /* Whether to display verbose-progress from each thread's activity */
@@ -97,14 +101,17 @@ test_sync_reads(platform_heap_id    hid,
                 char                stamp_char);
 
 static platform_status
-test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads);
+test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
+                                 int              nthreads,
+                                 const char      *whoami);
 
 static platform_status
 test_async_reads(platform_heap_id    hid,
                  io_config          *io_cfgp,
                  platform_io_handle *io_hdlp,
                  uint64              start_addr,
-                 char                stamp_char);
+                 char                stamp_char,
+                 const char         *whoami);
 
 static void
 read_async_callback(void           *metadata,
@@ -113,7 +120,9 @@ read_async_callback(void           *metadata,
                     platform_status status);
 
 static platform_status
-test_async_reads_by_threads(io_test_fn_args *io_test_param, int nthreads);
+test_async_reads_by_threads(io_test_fn_args *io_test_param,
+                            int              nthreads,
+                            const char      *whoami);
 
 static void
 load_thread_params(io_test_fn_args *io_test_param,
@@ -283,18 +292,49 @@ splinter_io_apis_test(int argc, char *argv[])
                                      .tasks      = tasks,
                                      .start_addr = start_addr,
                                      .end_addr   = end_addr,
-                                     .stamp_char = 'A'};
+                                     .stamp_char = 'A',
+                                     .whoami     = "Parent"};
 
-   test_sync_write_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
+   int pid = getpid();
+   if (master_cfg.fork_child) {
+      pid = fork();
 
-   /*
-    * Exercise Async reads to validate that the contents written by the
-    * sync-write APIs are read back correctly.
-    */
-   rc = test_async_reads(hid, &io_cfg, io_hdl, start_addr, 'A');
-   platform_assert_status_ok(rc);
+      if (pid < 0) {
+         platform_error_log("fork() of child process failed: pid=%d\n", pid);
+         goto io_free;
+      } else if (pid) {
+         wait(NULL);
+         platform_default_log("OS-pid=%d: Child execution wait() completed."
+                              " Resuming parent ...\n",
+                              getpid());
+      }
+   }
 
-   test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
+   // Exercise R/W tests if we are the master, or if are a forked child.
+   if (!master_cfg.fork_child || (pid == 0)) {
+
+      const char *whoami =
+         ((master_cfg.fork_child && (pid == 0)) ? "Child" : "Parent");
+      io_test_fn_arg.whoami = whoami;
+
+      platform_default_log(
+         "OS-pid=%d (%s), IO context before call to fn %s: %p\n",
+         getpid(),
+         whoami,
+         "test_sync_write_reads_by_threads",
+         io_ctxt);
+
+      test_sync_write_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
+
+      /*
+       * Exercise Async reads followed by async writes for main thread.
+       * NOTE: The same functions will also be executed by thread's worker fns.
+       */
+      rc = test_async_reads(hid, &io_cfg, io_hdl, start_addr, 'A', whoami);
+      platform_assert_status_ok(rc);
+
+      test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
+   }
 
    task_system_destroy(hid, &tasks);
    io_handle_deinit(io_hdl);
@@ -302,8 +342,10 @@ splinter_io_apis_test(int argc, char *argv[])
 io_free:
    platform_free(hid, io_hdl);
 heap_destroy:
-   platform_heap_destroy(&hh);
-
+   if (pid > 0) {
+      platform_free(hid, io_hdl);
+      platform_heap_destroy(&hh);
+   }
    return (SUCCESS(rc) ? 0 : -1);
 }
 
@@ -360,9 +402,10 @@ test_sync_writes(platform_heap_id    hid,
 
    if (Verbose_progress || (this_thread == 0)) {
       platform_default_log(
-         "  %s(): Thread %lu performed %lu %dK page write IOs "
+         "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page write IOs "
          "from start addr=%lu through end addr=%lu\n",
-         __FUNCTION__,
+         __func__,
+         getpid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -466,9 +509,10 @@ test_sync_reads(platform_heap_id    hid,
 
    if (Verbose_progress || (this_thread == 0)) {
       platform_default_log(
-         "  %s():  Thread %lu performed %lu %dK page read  IOs "
+         "  %s(): OS-pid=%d, Thread %lu performed %lu %dK page read  IOs "
          "from start addr=%lu through end addr=%lu\n",
-         __FUNCTION__,
+         __func__,
+         getpid(),
          this_thread,
          num_IOs,
          (int)(page_size / KiB),
@@ -526,7 +570,9 @@ test_sync_reads_worker(void *arg)
  * -----------------------------------------------------------------------------
  */
 static platform_status
-test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
+test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
+                                 int              nthreads,
+                                 const char      *whoami)
 {
    platform_assert((nthreads <= NUM_THREADS),
                    "nthreads=%d should be <= %d\n",
@@ -537,10 +583,12 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
 
    // # of pages allocated to each thread.
    uint64 npages = npages_per_thread(io_test_param, nthreads);
-   platform_default_log("%s(): for %d threads, %lu pages/thread ...\n",
-                        __FUNCTION__,
-                        nthreads,
-                        npages);
+   platform_default_log(
+      "\n%s(): %s process: for %d threads, %lu pages/thread ...\n",
+      __func__,
+      whoami,
+      nthreads,
+      npages);
 
    load_thread_params(io_test_param, thread_params, nthreads);
 
@@ -654,7 +702,8 @@ test_async_reads(platform_heap_id    hid,
                  io_config          *io_cfgp,
                  platform_io_handle *io_hdlp,
                  uint64              start_addr,
-                 char                stamp_char)
+                 char                stamp_char,
+                 const char         *whoami)
 {
    platform_thread this_thread = platform_get_tid();
    platform_status rc          = STATUS_NO_MEMORY;
@@ -674,11 +723,13 @@ test_async_reads(platform_heap_id    hid,
    }
    memset(exp, stamp_char, page_size);
 
-   platform_default_log("%s(): Thread=%lu: Test Async reads for %d"
-                        " pages ...\n",
-                        __FUNCTION__,
-                        this_thread,
-                        NUM_PAGES_RW_ASYNC_PER_THREAD);
+   platform_default_log(
+      "\n%s(): %s process: Thread=%lu: Test Async reads for %d"
+      " pages ...\n",
+      __func__,
+      whoami,
+      this_thread,
+      NUM_PAGES_RW_ASYNC_PER_THREAD);
 
    io_handle *ioh = (io_handle *)io_hdlp;
 
@@ -768,7 +819,9 @@ read_async_callback(void           *metadata,
  * -----------------------------------------------------------------------------
  */
 static platform_status
-test_async_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
+test_async_reads_by_threads(io_test_fn_args *io_test_param,
+                            int              nthreads,
+                            const char      *whoami)
 {
    platform_assert((nthreads <= NUM_THREADS),
                    "nthreads=%d should be <= %d\n",
@@ -779,10 +832,12 @@ test_async_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
 
    // # of pages allocated to each thread.
    uint64 npages = npages_per_thread(io_test_param, nthreads);
-   platform_default_log("Executing %s, for %d threads, %lu pages/thread ...\n",
-                        __FUNCTION__,
-                        nthreads,
-                        npages);
+   platform_default_log(
+      "%s(): %s process: for %d threads, %lu pages/thread ...\n",
+      __func__,
+      whoami,
+      nthreads,
+      npages);
 
    load_thread_params(io_test_param, thread_params, nthreads);
 
@@ -829,7 +884,8 @@ test_async_reads_worker(void *arg)
                     argp->io_cfgp,
                     argp->io_hdlp,
                     argp->start_addr,
-                    argp->stamp_char);
+                    argp->stamp_char,
+                    "Parent");
 }
 
 /*
