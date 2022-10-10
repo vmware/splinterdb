@@ -127,3 +127,32 @@ test_async_ctxt_get(trunk_handle      *spl,
 
    return ctxt;
 }
+
+/*
+ * Helper function to loop around waiting for someone to attach to this process.
+ * After attaching to the process you want to debug, set a breakpoint in this
+ * function. Then step thru to the caller and reset wait_for_gdb_hook to TRUE.
+ * Continue.
+ */
+void
+trace_wait_for_gdb_hook(void)
+{
+   platform_sleep_ns(1000 * MILLION);
+}
+
+void
+trace_wait_for_gdb(void)
+{
+   bool wait_for_gdb_hook = FALSE;
+   bool gdb_msg_printed   = FALSE;
+   while (!wait_for_gdb_hook) {
+      if (!gdb_msg_printed) {
+         platform_default_log(
+            "Looping ... Attach gdb to OS-pid=%d; Set breakpoint in %s_hook\n",
+            getpid(),
+            __func__);
+         gdb_msg_printed = TRUE;
+      }
+      trace_wait_for_gdb_hook();
+   }
+}

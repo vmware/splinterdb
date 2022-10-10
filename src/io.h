@@ -58,9 +58,11 @@ typedef platform_status (*io_write_async_fn)(io_handle     *io,
                                              uint64         addr);
 typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
 typedef void (*io_cleanup_all_fn)(io_handle *io);
-typedef void (*io_thread_register_fn)(io_handle *io);
+typedef void (*io_register_thread_fn)(io_handle *io);
+typedef void (*io_deregister_thread_fn)(io_handle *io);
 typedef bool (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
 typedef void *(*io_get_context_fn)(io_handle *io);
+typedef io_async_req *(*io_get_io_async_req_fn)(io_handle *io);
 
 
 /*
@@ -76,9 +78,11 @@ typedef struct io_ops {
    io_write_async_fn         write_async;
    io_cleanup_fn             cleanup;
    io_cleanup_all_fn         cleanup_all;
-   io_thread_register_fn     thread_register;
+   io_register_thread_fn     register_thread;
+   io_deregister_thread_fn   deregister_thread;
    io_max_latency_elapsed_fn max_latency_elapsed;
    io_get_context_fn         get_context;
+   io_get_io_async_req_fn    get_io_async_req;
 } io_ops;
 
 /*
@@ -161,10 +165,18 @@ io_cleanup_all(io_handle *io)
 }
 
 static inline void
-io_thread_register(io_handle *io)
+io_register_thread(io_handle *io)
 {
-   if (io->ops->thread_register) {
-      return io->ops->thread_register(io);
+   if (io->ops->register_thread) {
+      return io->ops->register_thread(io);
+   }
+}
+
+static inline void
+io_deregister_thread(io_handle *io)
+{
+   if (io->ops->deregister_thread) {
+      return io->ops->deregister_thread(io);
    }
 }
 
@@ -177,10 +189,21 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
    return TRUE;
 }
 
+// Return the opaque handle to the IO-context, established by
+// a call to io_setup() off of this IO-handle 'io'.
 static inline void *
 io_get_context(io_handle *io)
 {
    return io->ops->get_context(io);
+}
+
+// Return start of allocated Async IO requests array.
+// NOTE: Not to be confused with io_get_async_req(), which returns
+// the next available async-request for use by requesting thread.
+static inline io_async_req *
+io_get_io_async_req(io_handle *io)
+{
+   return io->ops->get_io_async_req(io);
 }
 
 /*
