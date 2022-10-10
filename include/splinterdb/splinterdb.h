@@ -64,6 +64,7 @@ typedef struct splinterdb_config {
    bool   trace_shmem_allocs;
    bool   trace_shmem_frees;
    bool   trace_shmem; // Trace both allocs & frees from shared memory
+   bool   fork_child;  // Default is FALSE
 
    uint64 page_size;
    uint64 extent_size;
@@ -392,7 +393,6 @@ splinterdb_iterator_status(const splinterdb_iterator *iter);
  *
  * Reset statistics clears all statistics, including cache statistics.
  */
-
 void
 splinterdb_stats_print_insertion(const splinterdb *kvs);
 
@@ -401,36 +401,5 @@ splinterdb_stats_print_lookup(const splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);
-
-// External APIs provided -ONLY- for use as a testing hook.
-void
-splinterdb_cache_flush(const splinterdb *kvs);
-
-void *
-splinterdb_get_heap_handle(const splinterdb *kvs);
-
-const void *
-splinterdb_get_task_system_handle(const splinterdb *kvs);
-
-const void *
-splinterdb_get_io_handle(const splinterdb *kvs);
-
-const void *
-splinterdb_get_allocator_handle(const splinterdb *kvs);
-
-const void *
-splinterdb_get_cache_handle(const splinterdb *kvs);
-
-const void *
-splinterdb_get_trunk_handle(const splinterdb *kvs);
-
-const void *
-splinterdb_get_memtable_context_handle(const splinterdb *kvs);
-
-void
-platform_enable_tracing_large_frags();
-
-void
-platform_disable_tracing_large_frags();
 
 #endif // _SPLINTERDB_H_

@@ -211,8 +211,8 @@ shm_unlock_mem_frags(shmem_info *shminfo)
  * Address 'addr' is valid if it's just past end of control block and within
  * shared segment.
  */
-static inline bool
-platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
+bool
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, const void *addr)
 {
    debug_assert(platform_shm_heap_handle_valid(heap_handle),
                 "Shared memory heap_handle %p is invalid.\n",
@@ -229,8 +229,8 @@ platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
  * Validate that input address 'addr' is a valid address within shared segment
  * region.
  */
-static inline bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr)
 {
    return platform_valid_addr_in_shm(platform_heap_id_to_handle(heap_id), addr);
 }
@@ -976,6 +976,36 @@ platform_shm_heap_handle_valid(platform_heap_handle heap_handle)
    }
 
    return TRUE;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Warning! Testing interfaces, which are written to support verification of
+ * splinterdb handle from forked child processes when running Splinter
+ * configured with shared-segment. These interfaces are provided mainly as
+ * a diagnostic & testing hooks.
+ *
+ * platform_heap_set_splinterdb_handle() - Save-off the handle to splinterdb *
+ *    in the shared segment's control block.
+ *
+ * platform_heap_get_splinterdb_handle() - Return the handle to splinterdb *
+ *    saved-off in the shared segment's control block.
+ * -----------------------------------------------------------------------------
+ */
+void
+platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle, void *addr)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr            = (shmem_info *)heap_handle;
+   shmaddr->shm_splinterdb_handle = addr;
+}
+
+void *
+platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr = (shmem_info *)heap_handle;
+   return shmaddr->shm_splinterdb_handle;
 }
 
 /*

@@ -59,6 +59,13 @@ function usage() {
    echo "To run CI-regression tests       : INCLUDE_SLOW_TESTS=true ./${Me}"
    echo "To run nightly regression tests  : RUN_NIGHTLY_TESTS=true ./${Me}"
    echo "To run make build-and-test tests : RUN_MAKE_TESTS=true ./${Me}"
+   echo
+   echo "To run a smaller collection of slow running tests,
+name the function that drives the test execution.
+Examples:"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_splinter_functionality_tests --use-shmem"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory"
 }
 
 # ##################################################################
@@ -83,6 +90,8 @@ function record_elapsed_time() {
    if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
       # Provide wider test-tag for nightly tests which print verbose descriptions
       fmtstr="%-105s""${fmtstr}"
+   elif [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
+      fmtstr="%-32s""${fmtstr}"
    else
       fmtstr="%-85s""${fmtstr}"
    fi
@@ -247,6 +256,17 @@ function nightly_unit_stress_tests() {
                                --num-threads ${n_threads} \
                                --num-memtable-bg-threads 8 \
                                --num-normal-bg-threads 20
+
+    # ----
+    n_mills=5
+    nrows_h="${n_mills} mil"
+    test_name="splinterdb_forked_child_test"
+    test_descr="${nrows_h} rows"
+    echo "$Me: Run ${test_name} with ${n_mills} million rows"
+    run_with_timing "SplinterDB with forked child process test ${test_descr}" \
+            "$BINDIR"/unit/splinterdb_forked_child_test \
+                                 --num-inserts ${num_rows} \
+                                 --verbose-progress
 }
 
 # #############################################################################
@@ -569,13 +589,16 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/util_test "$use_shmem"
    "$BINDIR"/unit/misc_test "$use_shmem"
    "$BINDIR"/unit/limitations_test "$use_shmem"
-   "$BINDIR"/unit/task_system_test $use_shmem
+   "$BINDIR"/unit/task_system_test "$use_shmem"
 
+   echo
    # Just exercise with some combination of background threads to ensure
    # that basic usage of background threads still works.
    # shellcheck disable=SC2086
    "$BINDIR"/unit/task_system_test $use_shmem --num-bg-threads 4 --num-memtable-bg-threads  2
 
+   echo
+   # shellcheck disable=SC2086
    "$BINDIR"/driver_test io_apis_test $use_shmem
 }
 
@@ -633,6 +656,31 @@ function run_slower_unit_tests() {
                                                       --num-threads ${n_threads} \
                                                       --num-normal-bg-threads 4 \
                                                       --num-memtable-bg-threads 3
+}
+
+# ##################################################################
+# Run tests that exercised forked-child processes which connect to
+# Splinter configured with shared segment memory.
+#
+# These tests and the supported functionality are all experimental.
+# ##################################################################
+function run_slower_forked_process_tests() {
+
+    local msg="Splinter tests using forked child processes"
+    run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test
+
+    # ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
+    # using forked child process execution.
+    msg="Splinter large inserts test using shared memory, 1 forked child"
+    local num_rows=$((2 * 1000 * 1000))
+    local n_threads=4
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
+                                        --use-shmem \
+                                        --fork-child \
+                                        --num-inserts ${num_rows} \
+                                        --num-threads ${n_threads} \
+                                        test_seq_key_seq_values_inserts_forked
 }
 
 # ##################################################################
@@ -773,11 +821,20 @@ function run_tests_with_shared_memory() {
    # Run all the unit-tests first, to get basic coverage of shared-memory support.
    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
 
+   # Additional case exercised while developing shared memory support for multi
+   # process execution to verify management of IO-contexts under forked processes
+   run_with_timing "IO APIs test using shared memory and forked child" "$BINDIR"/driver_test io_apis_test --use-shmem --fork-child
+
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
 
-   run_splinter_functionality_tests "--use-shmem"
-   run_splinter_perf_tests "--use-shmem"
+   run_splinter_functionality_tests --use-shmem
+   run_splinter_perf_tests --use-shmem
+
+   # These are written to always create shared segment, so --use-shmem arg is
+   # not needed when invoking them. These tests will fork one or more child
+   # processes.
+   run_slower_forked_process_tests
 }
 
 # ##################################################################
@@ -877,7 +934,10 @@ UNIT_TESTS_DB_DEV="unit_tests_db"
 # function takes arguments, pass them on the command-line. This way, one
 # can debug script changes to ensure that test-execution still works.
 #
-# E.g. INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+# Examples:
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
 #      INCLUDE_SLOW_TESTS=true ./test.sh run_slower_unit_tests --use-shmem
 #      INCLUDE_SLOW_TESTS=true ./test.sh nightly_unit_stress_tests --use-shmem
 # ------------------------------------------------------------------------

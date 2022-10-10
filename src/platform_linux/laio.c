@@ -47,6 +47,9 @@ laio_get_metadata(io_handle *ioh, io_async_req *req);
 static void *
 laio_get_context(io_handle *ioh);
 
+static io_async_req *
+laio_get_io_async_req(io_handle *ioh);
+
 static platform_status
 laio_read_async(io_handle     *ioh,
                 io_async_req  *req,
@@ -67,6 +70,12 @@ laio_cleanup(io_handle *ioh, uint64 count);
 static void
 laio_cleanup_all(io_handle *ioh);
 
+static void
+laio_register_thread(io_handle *ioh);
+
+static void
+laio_deregister_thread(io_handle *ioh);
+
 static io_async_req *
 laio_get_kth_req(laio_handle *io, uint64 k);
 
@@ -74,21 +83,117 @@ laio_get_kth_req(laio_handle *io, uint64 k);
  * Define an implementation of the abstract IO Ops interface methods.
  */
 static io_ops laio_ops = {
-   .read          = laio_read,
-   .write         = laio_write,
-   .get_iovec     = laio_get_iovec,
-   .get_async_req = laio_get_async_req,
-   .get_metadata  = laio_get_metadata,
-   .read_async    = laio_read_async,
-   .write_async   = laio_write_async,
-   .cleanup       = laio_cleanup,
-   .cleanup_all   = laio_cleanup_all,
-   .get_context   = laio_get_context,
+   .read              = laio_read,
+   .write             = laio_write,
+   .get_iovec         = laio_get_iovec,
+   .get_async_req     = laio_get_async_req,
+   .get_metadata      = laio_get_metadata,
+   .read_async        = laio_read_async,
+   .write_async       = laio_write_async,
+   .cleanup           = laio_cleanup,
+   .cleanup_all       = laio_cleanup_all,
+   .register_thread   = laio_register_thread,
+   .deregister_thread = laio_deregister_thread,
+   .get_context       = laio_get_context,
+   .get_io_async_req  = laio_get_io_async_req,
 };
 
 /*
+ * Given an AIO handle, set up a thread-specific IO context opaque handle.
+ */
+static platform_status
+io_context_setup(laio_handle *io)
+{
+   int status;
+
+   const threadid tid = platform_get_tid();
+
+   // Expect that this was never setup; otherwise it's a coding error.
+   platform_assert((io->ctx[tid] == NULL),
+                   "IO-context for ThreadID=%lu is expected to be NULL"
+                   ", but it is ctx[tid]=%p\n",
+                   tid,
+                   io->ctx[tid]);
+
+   status = io_setup(io->cfg->kernel_queue_size, &io->ctx[tid]);
+   platform_assert((status == 0),
+                   "io_setup() failed for thread-ID=%lu "
+                   "with status=%d (%s)\n",
+                   tid,
+                   status,
+                   strerror(status));
+
+   return STATUS_OK;
+}
+
+/*
+ * As part of thread deregistration, we need to release the IO context
+ * that was setup for this thread. Here, we assume that required io_cleanup()
+ * has already been done to drain out pending IOs. This is quite the very
+ * last thing that happens before thread deregistration completes.
+ *
+ * This routine will also be called when Splinter is being shutdown as
+ * part of deinitializing the IO system. For that usage, allow for a case when
+ * some threads' IO-context may not have been cleaned up previously; so be
+ * a bit little lax on the assertion checks.
+ *
+ * Returns: 0, for successful destroy; 1, otherwise.
+ */
+static int
+io_context_cleanup(laio_handle *io, threadid tid, bool from_deregister)
+{
+   // Expect that this was setup previously; otherwise it's a coding error.
+   if (from_deregister) {
+      platform_assert((io->ctx[tid] != NULL),
+                      "IO-context for ThreadID=%lu should be non-NULL"
+                      " for cleanup.\n",
+                      tid);
+   }
+
+   int status = 0;
+   if (from_deregister || io->ctx[tid]) {
+      status = io_destroy(io->ctx[tid]);
+
+      if (status != 0) {
+         platform_error_log("io_destroy() (from_deregister=%d) on IO-context "
+                            "at %p for threadID=%lu failed with error=%d: %s\n",
+                            from_deregister,
+                            io->ctx[tid],
+                            tid,
+                            -status,
+                            strerror(-status));
+      } else {
+
+         // Clear this handle out, so we don't try to destroy it again when
+         // the entire IO-sub-system is being de-init'ed.
+         io->ctx[tid] = NULL;
+      }
+   }
+   return ((status == 0) ? 0 : 1);
+}
+
+/*
+ * io_handle_deinit_ctxts() -
+ *
+ * As part of dismantling the IO sub-system, destroy any active IO contexts.
+ */
+static void
+io_handle_deinit_ctxts(laio_handle *io)
+{
+   int nfails = 0;
+   // FALSE => We are de'initing; so be loose on assert checks.
+   for (int tid = 0; tid < ARRAY_SIZE(io->ctx); tid++) {
+      nfails += io_context_cleanup(io, tid, FALSE);
+   }
+   // We should have destroyed all IO contexts.
+   platform_assert(
+      (nfails == 0), "Failed to destroy %d IO contexts.\n", nfails);
+}
+
+/*
  * Given an IO configuration, validate it. Allocate memory for various
- * structures and initialize the IO sub-system.
+ * sub-structures and allocate the SplinterDB device. Initialize the IO
+ * sub-system, registering the file descriptor for SplinterDB device.
  */
 platform_status
 io_handle_init(laio_handle         *io,
@@ -96,11 +201,9 @@ io_handle_init(laio_handle         *io,
                platform_heap_handle hh,
                platform_heap_id     hid)
 {
-   int           status;
    uint64        req_size;
    uint64        total_req_size;
-   uint64        i, j;
-   io_async_req *req;
+   io_async_req *req = NULL;
 
    // Validate IO-configuration parameters
    platform_status rc = laio_config_valid(cfg);
@@ -109,13 +212,11 @@ io_handle_init(laio_handle         *io,
    }
 
    platform_assert(cfg->async_queue_size % LAIO_HAND_BATCH_SIZE == 0);
+
    memset(io, 0, sizeof(*io));
    io->super.ops = &laio_ops;
    io->cfg       = cfg;
    io->heap_id   = hid;
-
-   status = io_setup(cfg->kernel_queue_size, &io->ctx);
-   platform_assert(status == 0);
 
    bool is_create = ((cfg->flags & O_CREAT) != 0);
    if (is_create) {
@@ -149,13 +250,15 @@ io_handle_init(laio_handle         *io,
                    cfg->async_max_pages);
 
    // Initialize each Async IO request structure
-   for (i = 0; i < cfg->async_queue_size; i++) {
+   for (int i = 0; i < cfg->async_queue_size; i++) {
       req         = laio_get_kth_req(io, i);
       req->iocb_p = &req->iocb;
       req->number = i;
       req->busy   = FALSE;
-      for (j = 0; j < cfg->async_max_pages; j++)
+      // We only issue IOs in units of one page
+      for (int j = 0; j < cfg->async_max_pages; j++) {
          req->iovec[j].iov_len = cfg->page_size;
+      }
    }
    io->max_batches_nonblocking_get =
       cfg->async_queue_size / LAIO_HAND_BATCH_SIZE;
@@ -172,11 +275,8 @@ io_handle_deinit(laio_handle *io)
 {
    int status;
 
-   status = io_destroy(io->ctx);
-   if (status != 0)
-      platform_error_log(
-         "io_destroy failed with error=%d: %s\n", -status, strerror(-status));
-   platform_assert(status == 0);
+   // Destroy the array of IO-contexts that may have been established.
+   io_handle_deinit_ctxts(io);
 
    status = close(io->fd);
    if (status != 0) {
@@ -276,22 +376,44 @@ laio_get_async_req(io_handle *ioh, bool blocking)
    return NULL;
 }
 
+/*
+ * Accessor method: Return start of nested allocated iovec[], IO-vector array,
+ * for specified async-request struct, 'req'.
+ */
 struct iovec *
 laio_get_iovec(io_handle *ioh, io_async_req *req)
 {
    return req->iovec;
 }
 
+/*
+ * Accessor method: Return start of metadata field (issuer callback data).
+ */
 static void *
 laio_get_metadata(io_handle *ioh, io_async_req *req)
 {
    return req->metadata;
 }
 
+/*
+ * Accessor method: Return opaque handle to IO-context setup by io_setup().
+ */
 static void *
 laio_get_context(io_handle *ioh)
 {
-   return ((laio_handle *)ioh)->ctx;
+   threadid tid = platform_get_tid();
+   return ((laio_handle *)ioh)->ctx[tid];
+}
+
+/*
+ * Accessor method: Return start of allocated Async IO requests array.
+ * NOTE: Not to be confused with laio_get_async_req(), which returns
+ * the next available async-request for use by a requesting thread.
+ */
+static io_async_req *
+laio_get_io_async_req(io_handle *ioh)
+{
+   return ((laio_handle *)ioh)->req;
 }
 
 void
@@ -320,15 +442,24 @@ laio_read_async(io_handle     *ioh,
    laio_handle *io;
    int          status;
 
+   threadid tid = platform_get_tid();
+
    io = (laio_handle *)ioh;
    io_prep_preadv(&req->iocb, io->fd, req->iovec, count, addr);
    req->callback = callback;
    req->count    = count;
    io_set_callback(&req->iocb, laio_callback);
    do {
-      status = io_submit(io->ctx, 1, &req->iocb_p);
+      status = io_submit(io->ctx[tid], 1, &req->iocb_p);
       if (status < 0) {
-         platform_error_log("io_submit error %s\n", strerror(-status));
+         platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
+                            ", io_submit errorno=%d: %s\n",
+                            __FUNCTION__,
+                            getpid(),
+                            tid,
+                            req,
+                            -status,
+                            strerror(-status));
       }
       io_cleanup(ioh, 0);
    } while (status != 1);
@@ -349,15 +480,24 @@ laio_write_async(io_handle     *ioh,
    laio_handle *io;
    int          status;
 
+   threadid tid = platform_get_tid();
+
    io = (laio_handle *)ioh;
    io_prep_pwritev(&req->iocb, io->fd, req->iovec, count, addr);
    req->callback = callback;
    req->count    = count;
    io_set_callback(&req->iocb, laio_callback);
    do {
-      status = io_submit(io->ctx, 1, &req->iocb_p);
+      status = io_submit(io->ctx[tid], 1, &req->iocb_p);
       if (status < 0) {
-         platform_error_log("io_submit error %s\n", strerror(-status));
+         platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
+                            ", io_submit errorno=%d: %s\n",
+                            __FUNCTION__,
+                            getpid(),
+                            tid,
+                            req,
+                            -status,
+                            strerror(-status));
       }
       io_cleanup(ioh, 0);
    } while (status != 1);
@@ -366,8 +506,8 @@ laio_write_async(io_handle     *ioh,
 }
 
 /*
- * laio_cleanup() - Handle completion of outstanding IO requests.
- * Up to 'count' outstanding IO requests will be processed.
+ * laio_cleanup() - Handle completion of outstanding IO requests for currently
+ * running thread. Up to 'count' outstanding IO requests will be processed.
  * Specify 'count' as 0 to process completion of all pending IO requests.
  */
 static void
@@ -378,34 +518,54 @@ laio_cleanup(io_handle *ioh, uint64 count)
    uint64          i;
    int             status;
 
+   threadid tid = platform_get_tid();
+
    io = (laio_handle *)ioh;
 
    // Check for completion of up to 'count' events, one event at a time.
    // Or, check for all outstanding events (count == 0)
    for (i = 0; ((count == 0) || (i < count)); i++) {
-      status = io_getevents(io->ctx, 0, 1, &event, NULL);
+      status = io_getevents(io->ctx[tid], 0, 1, &event, NULL);
       if (status < 0) {
-         platform_error_log("io_getevents[%lu], count=%lu, "
-                            "failed with errorno=%d: %s\n",
-                            i,
-                            count,
-                            -status,
-                            strerror(-status));
+         platform_error_log(
+            "%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], count=%lu, "
+            "failed with errorno=%d: %s\n",
+            __FUNCTION__,
+            getpid(),
+            tid,
+            i,
+            count,
+            -status,
+            strerror(-status));
          i--;
-         continue;
+
+         // RESOLVE: Should we try to make this smarter by doing a continue
+         // only if (count != 0); otherwise, just break if (count == 0)?
+         // We got a hard-error probably because some code-flow messed-up
+         // using the per-thread IO-context. No point in trying again and
+         // again.
+         break;
       }
       // No event has completed, so we are done. Exit.
       if (status == 0) {
          break;
       }
       // Invoke the callback for the one event that completed.
-      laio_callback(io->ctx, event.obj, event.res, 0);
+      laio_callback(io->ctx[tid], event.obj, event.res, 0);
    }
 }
 
 /*
  * laio_cleanup_all() - Handle completion of outstanding IO requests,
  * for all async requests in the queue.
+ *
+ * RESOLVE: Note this interface is potentially problematic when deployed
+ * using a process model. The expectation is that only the parent process
+ * will invoke this to do a final cleanup. But if there are any pending
+ * aios left behind by a process that exited before deregistering itself
+ * cleanly, we may find that AIO-request busy below, and will try to call
+ * the cleanup function. As the IO-context is no longer correct, we will
+ * get a hard-error from io_getevents() call.
  */
 static void
 laio_cleanup_all(io_handle *ioh)
@@ -421,6 +581,30 @@ laio_cleanup_all(io_handle *ioh)
          io_cleanup(ioh, 0);
       }
    }
+}
+
+/*
+ * When a thread registers with Splinter's task system, setup its
+ * IO-setup opaque handle that will be used by Async IO interfaces.
+ */
+static void
+laio_register_thread(io_handle *ioh)
+{
+   io_context_setup((laio_handle *)ioh);
+}
+
+static void
+laio_deregister_thread(io_handle *ioh)
+{
+   const threadid tid = platform_get_tid();
+   platform_assert((laio_get_context(ioh) != NULL),
+                   "Attempting to deregister IO for thread ID=%lu"
+                   " found an uninitialized IO-context handle.\n",
+                   tid);
+
+   // Process pending AIO-requests for this thread before deregistering it
+   laio_cleanup(ioh, 0);
+   io_context_cleanup((laio_handle *)ioh, tid, TRUE);
 }
 
 static inline bool
