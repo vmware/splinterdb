@@ -93,9 +93,3 @@ platform_shmbytes_used(platform_heap_id heap_id);
 
 void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
-
-void
-platform_enable_tracing_large_frags();
-
-void
-platform_disable_tracing_large_frags();
