@@ -3215,7 +3215,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    cmt->req->fp_arr = req.fingerprint_arr;
    cmt->req->type   = TRUNK_COMPACTION_TYPE_MEMTABLE;
    uint32 *dup_fp_arr =
-      TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
+      TYPED_ARRAY_MALLOC(NULL_HEAP_ID, dup_fp_arr, req.num_tuples);
    memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
    routing_filter empty_filter = {0};
 

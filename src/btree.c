@@ -2525,7 +2525,15 @@ btree_iterator_advance(iterator *base_itor)
    }
 
    debug_assert(btree_iterator_is_at_end(itor)
-                || itor->idx < btree_num_entries(itor->curr.hdr));
+                   || itor->idx < btree_num_entries(itor->curr.hdr),
+                "BTree iterator state is invalid: "
+                "itor->{curr.addr=%lu, end_addr=%lu}, "
+                "idx=%lu, end_idx=%lu, btree_num_entries()=%u\n",
+                itor->curr.addr,
+                itor->end_addr,
+                itor->idx,
+                itor->end_idx,
+                btree_num_entries(itor->curr.hdr));
 
    return STATUS_OK;
 }

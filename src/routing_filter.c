@@ -101,7 +101,12 @@ RadixSort(uint32 *pData,
       for (i = 0; i < count; i++) {
          u = pSrc[i];
          c = ((uint8 *)&u)[j + fpshift];
-         platform_assert(mIndex[j][c] < count);
+         platform_assert((mIndex[j][c] < count),
+                         " mIndex[j=%u][c=%d] = %u, count=%u\n",
+                         j,
+                         c,
+                         mIndex[j][c],
+                         count);
          pDst[mIndex[j][c]++] = u;
       }
       pTmp = pSrc;
@@ -396,11 +401,28 @@ routing_filter_add(cache           *cc,
                               ROUTING_FPS_PER_PAGE +      // old_fp_buffer
                               ROUTING_FPS_PER_PAGE / 32;  // encoding_buffer
    debug_assert(temp_buffer_count < 100000000);
-   uint32 *temp = TYPED_ARRAY_ZALLOC(hid, temp, temp_buffer_count);
+   uint32 *temp = TYPED_ARRAY_ZALLOC(NULL_HEAP_ID, temp, temp_buffer_count);
 
    if (temp == NULL) {
+      platform_error_log("%s(): Insufficient memory to allocate %lu bytes"
+                         " for temp buffer."
+                         " num_new_fp=%lu"
+                         ", num_indices=%u"
+                         ", index_size=%lu"
+                         ", MATRIX_ROWS=%lu, MATRIX_COLS=%d"
+                         ", ROUTING_FPS_PER_PAGE=%d\n",
+                         __FUNCTION__,
+                         (temp_buffer_count * sizeof(*temp)),
+                         num_new_fp,
+                         num_indices,
+                         index_size,
+                         MATRIX_ROWS,
+                         MATRIX_COLS,
+                         ROUTING_FPS_PER_PAGE);
+
       return STATUS_NO_MEMORY;
    }
+
    index_count     = temp + num_new_fp;
    old_count       = index_count + num_indices;
    matrix          = old_count + cfg->index_size;
