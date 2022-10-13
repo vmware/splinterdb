@@ -431,6 +431,7 @@ $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                              
                                        $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS) \
+                                      $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinter_ipc_test:   $(UTIL_SYS)
 

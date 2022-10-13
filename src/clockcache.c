@@ -1846,6 +1846,12 @@ clockcache_init(clockcache          *cc,   // OUT
    cc->heap_id     = hid;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
+   platform_default_log("%s(): allocator_get_capacity()=%lu"
+                        ", log_page_size=%lu, allocator_page_capacity = %lu\n",
+                        __FUNCTION__,
+                        allocator_get_capacity(al),
+                        cc->cfg->log_page_size,
+                        allocator_page_capacity);
    cc->lookup =
       TYPED_ARRAY_MALLOC(cc->heap_id, cc->lookup, allocator_page_capacity);
    if (!cc->lookup) {

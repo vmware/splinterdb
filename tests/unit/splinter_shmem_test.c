@@ -13,6 +13,13 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "shmem.h"
+#include "splinterdb/splinterdb.h"
+#include "splinterdb/default_data_config.h"
+
+#define TEST_MAX_KEY_SIZE 42 // Just something to get going ...
+
+static void
+setup_cfg_for_test(splinterdb_config *out_cfg, data_config *default_data_cfg);
 
 /*
  * Global data declaration macro:
@@ -170,4 +177,42 @@ CTEST2(splinter_shmem, test_free)
 
    // Space used remains unchanged, as free didn't quite return any memory
    ASSERT_EQUAL(mem_used, platform_shmused(data->hid));
+}
+
+/*
+ * Test case to verify that configuration checks that shared segment size
+ * is "big enough" to allocate memory for RC-allocator cache's lookup
+ * array. For very large devices, with insufficiently sized shared memory
+ * config, we will not be able to boot-up.
+ */
+CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   platform_disable_tracing_shm_ops();
+
+   ZERO_STRUCT(cfg);
+   ZERO_STRUCT(default_data_cfg);
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   setup_cfg_for_test(&cfg, &default_data_cfg);
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_close(&kvsb);
+
+   platform_enable_tracing_shm_ops();
+}
+
+static void
+setup_cfg_for_test(splinterdb_config *out_cfg, data_config *default_data_cfg)
+{
+   *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                  .cache_size = 512 * Mega,
+                                  .disk_size  = 2 * Giga,
+                                  .use_shmem  = TRUE,
+                                  .data_cfg   = default_data_cfg};
 }

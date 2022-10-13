@@ -379,6 +379,8 @@ splinterdb_init_config(splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
+   platform_default_log(
+      "%s(): cfg.disk_size = %lu\n", __FUNCTION__, cfg.disk_size);
    rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
 
    clockcache_config_init(&kvs->cache_cfg,

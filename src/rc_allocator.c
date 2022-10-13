@@ -261,6 +261,7 @@ rc_allocator_config_init(rc_allocator_config *allocator_cfg,
    allocator_cfg->capacity        = capacity;
    allocator_cfg->page_capacity   = capacity / io_cfg->page_size;
    allocator_cfg->extent_capacity = capacity / io_cfg->extent_size;
+   platform_default_log("%s(): capacity=%lu\n", __FUNCTION__, capacity);
 }
 
 /*
