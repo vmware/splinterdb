@@ -17,6 +17,7 @@
 #include "splinterdb/splinterdb.h"
 #include "config.h"
 #include "unit_tests.h"
+#include "test_misc_common.h"
 #include "ctest.h" // This is required for all test-case files.
 
 // Nothing particularly significant about these constants.
@@ -75,19 +76,29 @@ CTEST_SETUP(large_inserts_bugs_stress)
 
    // Create a heap for allocating on-stack buffers for various arrays.
    rc = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
+      platform_get_module_id(), heap_capacity, FALSE, &data->hh, &data->hid);
    platform_assert_status_ok(rc);
+
+   // If --use-shmem was provided, parse past that argument.
+   int    argc      = Ctest_argc;
+   char **argv      = (char **)Ctest_argv;
+   bool   use_shmem = (argc >= 1) && test_using_shmem(argc, (char **)argv);
+   if (use_shmem) {
+      argc--;
+      argv++;
+   }
 
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
                                    .cache_size = 256 * Mega,
                                    .disk_size  = 20 * Giga,
+                                   .use_shmem  = use_shmem,
                                    .data_cfg   = &data->default_data_config};
 
    ZERO_STRUCT(data->master_cfg);
    config_set_defaults(&data->master_cfg);
 
-   // Mainly needed to parse --verbose-progress option.
-   rc = config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
+   // Expected args to parse --num-inserts, --num-threads, --verbose-progress.
+   rc = config_parse(&data->master_cfg, 1, argc, (char **)argv);
    ASSERT_TRUE(SUCCESS(rc));
 
    data->num_inserts =

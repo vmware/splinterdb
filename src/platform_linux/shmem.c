@@ -213,6 +213,11 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // assertions.
    shminfop->shm_id = 0;
 
+   // Retain some memory usage stages before release shmem
+   size_t shm_total_bytes = shminfop->shm_total_bytes;
+   size_t shm_used_bytes  = shminfop->shm_used_bytes;
+   size_t shm_free_bytes  = shminfop->shm_free_bytes;
+
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
       platform_error_log(
@@ -227,9 +232,14 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
 
    // Always trace destroy of shared memory segment.
    platform_default_log("Deallocated SplinterDB shared memory "
-                        "segment at %p, shmid=%d\n",
+                        "segment at %p, shmid=%d."
+                        " Used=%lu bytes (%d %%), Free=%lu bytes (%d %%).\n",
                         shmaddr,
-                        shmid);
+                        shmid,
+                        shm_used_bytes,
+                        (int)((shm_used_bytes * 1.0 / shm_total_bytes) * 100),
+                        shm_free_bytes,
+                        (int)((shm_free_bytes * 1.0 / shm_total_bytes) * 100));
 }
 
 /*

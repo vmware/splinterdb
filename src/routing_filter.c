@@ -396,7 +396,7 @@ routing_filter_add(cache           *cc,
                               ROUTING_FPS_PER_PAGE +      // old_fp_buffer
                               ROUTING_FPS_PER_PAGE / 32;  // encoding_buffer
    debug_assert(temp_buffer_count < 100000000);
-   uint32 *temp = TYPED_ARRAY_ZALLOC(hid, temp, temp_buffer_count);
+   uint32 *temp = TYPED_ARRAY_ZALLOC(NULL_HEAP_ID, temp, temp_buffer_count);
 
    if (temp == NULL) {
       return STATUS_NO_MEMORY;
