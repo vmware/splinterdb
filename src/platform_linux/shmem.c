@@ -714,7 +714,6 @@ platform_shm_track_free(shmem_info *shm,
    bool found_tracked_frag = FALSE;
    bool trace_shmem        = (Trace_shmem || Trace_shmem_frees);
 
-   // Iterate through the list of memory fragments being tracked.
    shm_frag_info *frag = shm->shm_mem_frags;
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
       if (!frag->shm_frag_addr || (frag->shm_frag_addr != addr)) {

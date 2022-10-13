@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "clockcache.h"
+#include "clockcache.h" // Nested #include's task.h and related tokens.
 #include "splinterdb/data.h"
 #include "io.h"
 #include "rc_allocator.h"
@@ -95,10 +95,11 @@ typedef struct master_config {
    bool   verbose_progress;
 
    // Shared memory support      **** Experimental feature ****
-   bool use_shmem; // Memory allocation done from shared segment
-   bool trace_shmem_allocs;
-   bool trace_shmem_frees;
-   bool trace_shmem; // Trace both allocs & frees from shared memory
+   uint64 shmem_size;
+   bool   use_shmem; // Memory allocation done from shared segment
+   bool   trace_shmem_allocs;
+   bool   trace_shmem_frees;
+   bool   trace_shmem; // Trace both allocs & frees from shared memory
 
    platform_log_handle *log_handle;
 
@@ -109,6 +110,7 @@ typedef struct master_config {
    // Test-execution configuration parameters
    uint64 seed;
    uint64 num_inserts;
+   uint64 num_threads;
 } master_config;
 
 

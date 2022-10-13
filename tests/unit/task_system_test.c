@@ -326,9 +326,13 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
                 "Before threads start, task_get_max_tid() = %lu",
                 task_get_max_tid(data->tasks));
 
+   // We may have started some background threads, if this test was so
+   // configured. So, start-up all the remaining threads.
+   threadid max_tid_so_far = task_get_max_tid(data->tasks);
+
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
@@ -344,7 +348,7 @@ CTEST2(task_system, test_max_threads_using_lower_apis)
    }
 
    // Complete execution of n-threads. Worker fn does the validation.
-   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {

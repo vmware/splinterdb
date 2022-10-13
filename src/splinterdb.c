@@ -259,8 +259,9 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
    // (Some tests externally create the platform_heap, so we should
    // only create one if it does not already exist.)
    if (kvs_cfg->use_shmem && (kvs_cfg->heap_handle == NULL)) {
-      status = platform_heap_create(platform_get_module_id(),
-                                    (2 * GiB),
+      size_t shmem_size = (kvs_cfg->shmem_size ? kvs_cfg->shmem_size : 2 * GiB);
+      status            = platform_heap_create(platform_get_module_id(),
+                                    shmem_size,
                                     TRUE,
                                     &kvs_cfg->heap_handle,
                                     &kvs_cfg->heap_id);
