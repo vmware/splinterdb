@@ -163,8 +163,8 @@ splinter_io_apis_test(int argc, char *argv[])
    // Create a heap for io system's memory allocation.
    platform_heap_handle hh  = NULL;
    platform_heap_id     hid = NULL;
-   platform_status      rc  = platform_heap_create(
-      platform_get_module_id(), heap_capacity, &hh, &hid);
+   platform_status      rc =
+      platform_heap_create(platform_get_module_id(), heap_capacity, &hh, &hid);
    platform_assert_status_ok(rc);
 
    // Do minimal IO config setup, using default IO values.
