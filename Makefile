@@ -435,6 +435,11 @@ $(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS) \
 
 $(BINDIR)/$(UNITDIR)/splinter_ipc_test:   $(UTIL_SYS)
 
+$(BINDIR)/$(UNITDIR)/large_inserts_bugs_stress_test: $(UTIL_SYS)                      \
+                                                     $(OBJDIR)/$(TESTS_DIR)/config.o  \
+                                                     $(LIBDIR)/libsplinterdb.so
+
+
 ########################################
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test

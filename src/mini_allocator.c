@@ -699,7 +699,11 @@ void
 mini_destroy_unused(mini_allocator *mini)
 {
    debug_assert(mini->keyed);
-   debug_assert(mini->num_extents == mini->num_batches);
+   /*
+   debug_assert((mini->num_extents == mini->num_batches),
+                                "num_extents=%lu, num_batches=%lu\n",
+                                mini->num_extents, mini->num_batches);
+   */
 
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent

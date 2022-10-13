@@ -96,6 +96,7 @@ typedef struct master_config {
    // Test-execution configuration parameters
    uint64 seed;
    uint64 num_inserts;
+   uint64 num_threads;
 } master_config;
 
 
