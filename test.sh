@@ -216,11 +216,37 @@ function nightly_functionality_stress_tests() {
 }
 
 # #############################################################################
+# Unit Stress Tests - Developed as part of shared-memory support for SplinterDB
+# This stress test was very useful to stabilize integration with process-model
+# of execution, especially to shake out AIO / thread registration issues.
+# #############################################################################
+function nightly_unit_stress_tests() {
+    local use_shmem=$1
+
+    local n_mills=30
+    local num_rows=$((n_mills * 1000 * 1000))
+    local nrows_h="${n_mills} mil"
+    local n_threads=8
+
+    # ----
+    local test_descr="${nrows_h} rows"
+    echo "$Me: Run ${test_name} with ${n_mills} million rows, ${n_threads} threads"
+    # shellcheck disable=SC2086
+    run_with_timing "Unit Stress test ${test_descr}" \
+            "$BINDIR"/unit/large_inserts_bugs_stress_test \
+                                            $use_shmem \
+                                            --num-inserts ${num_rows} \
+                                            --num-threads ${n_threads}
+}
+
+# #############################################################################
 # Run through collection of nightly stress tests
 # #############################################################################
 function run_nightly_stress_tests() {
 
     nightly_functionality_stress_tests
+    nightly_unit_stress_tests ""
+    nightly_unit_stress_tests "--use-shmem"
 }
 
 # #############################################################################
