@@ -700,6 +700,10 @@ mini_destroy_unused(mini_allocator *mini)
 {
    debug_assert(mini->keyed);
 
+   /* If this mini_allocator was never used to perform an allocation,
+      then num_extents will be equal to num_batches + 1.  This is
+      because mini_init allocates one extent per batch plus it records
+      the one extent that is used to hold the metadata. */
    debug_assert((mini->num_extents == mini->num_batches + 1),
                 "num_extents=%lu, num_batches=%lu\n",
                 mini->num_extents,
