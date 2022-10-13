@@ -428,6 +428,9 @@ $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                              
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/large_inserts_bugs_stress_test: $(UTIL_SYS)                                   \
+                                       $(LIBDIR)/libsplinterdb.so
+
 ########################################
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
