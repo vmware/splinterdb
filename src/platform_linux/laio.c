@@ -89,13 +89,8 @@ io_handle_init(laio_handle         *io,
    io->cfg       = cfg;
    io->heap_id   = hid;
 
-   io_context_t ioctxt_before_setup = io->ctx;
    status = io_setup(cfg->kernel_queue_size, &io->ctx);
    platform_assert(status == 0);
-   platform_default_log(
-      "IO context: before io_setup()=%p, after io_setup()=%p\n",
-      ioctxt_before_setup,
-      io->ctx);
 
    bool is_create = ((cfg->flags & O_CREAT) != 0);
    if (is_create) {

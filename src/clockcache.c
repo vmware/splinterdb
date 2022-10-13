@@ -3055,7 +3055,7 @@ bool
 clockcache_page_valid(clockcache *cc, uint64 addr)
 {
    if (addr % clockcache_page_size(cc) != 0) {
-      platform_error_log("%s():[%d]: addr=%lu, clockcache_page_size()=%lu\n",
+      platform_error_log("%s():%d: addr=%lu, clockcache_page_size()=%lu\n",
                          __FUNCTION__,
                          __LINE__,
                          addr,
@@ -3066,7 +3066,7 @@ clockcache_page_valid(clockcache *cc, uint64 addr)
    bool   retval    = FALSE;
    bool   if_fails  = FALSE;
    if (addr < allocator_get_capacity(cc->al)) {
-      retval = (base_addr != 0) && (allocator_get_ref(cc->al, base_addr) != 0);
+      retval = ((base_addr != 0) && (allocator_get_ref(cc->al, base_addr) != 0));
       if_fails = TRUE;
    } else {
       retval = FALSE;
@@ -3075,7 +3075,7 @@ clockcache_page_valid(clockcache *cc, uint64 addr)
    if (!retval) {
       if (if_fails) {
          platform_error_log(
-            "%s():[%d]: addr=%lu, base_addr=%lu, allocator_get_ref()=%d\n",
+            "%s():%d: addr=%lu, base_addr=%lu, allocator_get_ref()=%d\n",
             __FUNCTION__,
             __LINE__,
             addr,
@@ -3083,7 +3083,7 @@ clockcache_page_valid(clockcache *cc, uint64 addr)
             (int)allocator_get_ref(cc->al, base_addr));
       } else {
          platform_error_log(
-            "%s():[%d]: addr=%lu, allocator_get_capacity()=%lu\n",
+            "%s():%d: addr=%lu, allocator_get_capacity()=%lu\n",
             __FUNCTION__,
             __LINE__,
             addr,
