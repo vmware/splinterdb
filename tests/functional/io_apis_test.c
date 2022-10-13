@@ -59,7 +59,8 @@ bool Verbose_progress = FALSE;
  */
 typedef void (*test_io_thread_hdlr)(void *arg);
 
-/* Use hard-coded # of threads to avoid allocating memory for thread-specific
+/*
+ * Use hard-coded # of threads to avoid allocating memory for thread-specific
  * arrays of parameters.
  */
 #define HEAP_SIZE_MB 256
@@ -68,10 +69,10 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 #define SPLINTER_DEVICE_SIZE_MB 128
 
 
-/* Use small hard-coded # of threads to avoid allocating memory for
+/*
+ * Use small hard-coded # of threads to avoid allocating memory for
  * thread-specific arrays of parameters. It's sufficient to shake out the
  * IO sub-system APIs with just small # of threads.
->>>>>>> a91243c (Extend test cases to exercise sync / async IO APIs.)
  */
 #define NUM_THREADS 2
 
@@ -174,7 +175,7 @@ splinter_io_apis_test(int argc, char *argv[])
    config_set_defaults(&master_cfg);
 
    // Parse config-related command-line arguments
-   rc = config_parse(&master_cfg, 1, argc, argv);
+   rc = config_parse(&master_cfg, 1, (argc - 1), (argv + 1));
    if (!SUCCESS(rc)) {
       return -1;
    }
