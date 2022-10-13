@@ -19,6 +19,7 @@
 #define TEST_CONFIG_DEFAULT_DISK_SIZE_GB         30
 #define TEST_CONFIG_DEFAULT_CACHE_SIZE_GB        1
 #define TEST_CONFIG_DEFAULT_MEMTABLE_CAPACITY_MB 24
+#define TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB        2
 
 // Setup reasonable BTree and branch tree configurations
 #define TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE     256
@@ -35,6 +36,7 @@
 // Configs that are usually changed by different tests
 #define TEST_CONFIG_DEFAULT_SEED        0
 #define TEST_CONFIG_DEFAULT_NUM_INSERTS 0
+#define TEST_CONFIG_DEFAULT_NUM_THREADS 8
 
 // By default, background threads are disabled in Splinter task system.
 // Most tests run w/o background threads. Very small # of tests exercise
@@ -88,11 +90,16 @@ config_set_defaults(master_config *cfg)
       .queue_scale_percent      = TEST_CONFIG_DEFAULT_QUEUE_SCALE_PERCENT,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
+
       .use_shmem                = FALSE,
+      // Default shared-memory sze if it is configured
+      .shmem_size               = GiB_TO_B(TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB),
+
       .log_handle               = NULL,
       .max_key_size             = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
+      .num_threads              = TEST_CONFIG_DEFAULT_NUM_THREADS,
       .seed                     = TEST_CONFIG_DEFAULT_SEED,
    };
 }
@@ -138,7 +145,6 @@ config_usage()
 
    platform_error_log("\t--num-normal-bg-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS);
-
    platform_error_log("\t--num-memtable-bg-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS);
 
@@ -154,6 +160,9 @@ config_usage()
       "\t--use-shmem           **** Experimental feature ****\n");
    // clang-format off
    platform_error_log("\t       [ --trace-shmem | --trace-shmem-allocs | --trace-shmem-frees ]\n");
+   platform_error_log("\t       [ --shmem-capacity-mib <mb> (%lu) | --shmem-capacity-gib <gb> (%d) ]\n",
+                      (TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB * KiB),
+                      TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB);
    // clang-format on
 
    platform_error_log("\t--key-size (%d)\n", TEST_CONFIG_DEFAULT_KEY_SIZE);
@@ -323,12 +332,17 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                cfg[cfg_idx].verbose_progress = TRUE;
             }
          }
+         /*
+          * Arguments to run Splinter configured with shared memory.
+          */
          config_has_option("use-shmem")
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_shmem = TRUE;
             }
          }
+         config_set_mib("shmem-capacity", cfg, shmem_size) {}
+         config_set_gib("shmem-capacity", cfg, shmem_size) {}
          config_has_option("trace-shmem-allocs")
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
@@ -356,6 +370,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          // Test-execution configuration parameters
          config_set_uint64("seed", cfg, seed) {}
          config_set_uint64("num-inserts", cfg, num_inserts) {}
+         config_set_uint64("num-threads", cfg, num_threads) {}
 
          config_set_else
          {

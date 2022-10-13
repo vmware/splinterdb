@@ -59,10 +59,11 @@ typedef struct splinterdb_config {
    void *heap_id;
 
    // Shared memory support
-   bool use_shmem; // Default is FALSE.
-   bool trace_shmem_allocs;
-   bool trace_shmem_frees;
-   bool trace_shmem; // Trace both allocs & frees from shared memory
+   uint64 shmem_size;
+   bool   use_shmem; // Default is FALSE.
+   bool   trace_shmem_allocs;
+   bool   trace_shmem_frees;
+   bool   trace_shmem; // Trace both allocs & frees from shared memory
 
    uint64 page_size;
    uint64 extent_size;
@@ -147,7 +148,6 @@ typedef struct splinterdb_config {
    // work to be performed on foreground threads, increasing tail
    // latencies.
    uint64 queue_scale_percent;
-
 } splinterdb_config;
 
 // Opaque handle to an opened instance of SplinterDB
