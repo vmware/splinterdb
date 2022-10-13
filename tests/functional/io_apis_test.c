@@ -97,16 +97,13 @@ test_sync_writes_worker(void *arg);
 int
 splinter_io_apis_test(int argc, char *argv[])
 {
-
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
-
-   bool use_shmem = FALSE;
 
    // Create a heap for io system's memory allocation.
    platform_heap_handle hh  = NULL;
    platform_heap_id     hid = NULL;
    platform_status      rc  = platform_heap_create(
-      platform_get_module_id(), heap_capacity, use_shmem, &hh, &hid);
+      platform_get_module_id(), heap_capacity, &hh, &hid);
    platform_assert_status_ok(rc);
 
    // Do minimal IO config setup, using default IO values.
