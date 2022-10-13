@@ -527,6 +527,8 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/misc_test
    "$BINDIR"/unit/limitations_test
    "$BINDIR"/unit/task_system_test
+
+   "$BINDIR"/driver_test io_apis_test
 }
 
 # ##################################################################
