@@ -676,7 +676,8 @@ task_group_perform_one(task_group *group)
    if (tq->head == NULL) {
       platform_assert(tq->tail == assigned_task);
       tq->tail = NULL;
-      platform_assert(outstanding_tasks == 1);
+      platform_assert(outstanding_tasks == 1,
+                      "outstanding_tasks=%lu\n", outstanding_tasks);
    }
 
 out:
