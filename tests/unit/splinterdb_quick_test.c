@@ -916,6 +916,28 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
 }
 
 /*
+ * Test case to try and repro a bug seen when we do just one insert and then
+ * close SplinterDB.
+ */
+CTEST2(splinterdb_quick, test_one_insert_then_close_bug)
+{
+   char  *key_data = "some-key";
+   size_t key_len  = sizeof("some-key");
+   slice  key      = slice_create(key_len, key_data);
+
+   static char *to_insert_data = "some-value";
+   size_t       to_insert_len  = strlen(to_insert_data);
+   slice        to_insert      = slice_create(to_insert_len, to_insert_data);
+
+   splinterdb_register_thread(data->kvsb);
+
+   // Basic insert of new key should succeed.
+   int rc = splinterdb_insert(data->kvsb, key, to_insert);
+   ASSERT_EQUAL(0, rc);
+
+   splinterdb_deregister_thread(data->kvsb);
+}
+/*
  * ********************************************************************************
  * Define minions and helper functions here, after all test cases are
  * enumerated.
