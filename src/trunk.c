@@ -3205,7 +3205,11 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
 
    new_branch->root_addr = req.root_addr;
 
-   platform_assert(req.num_tuples > 0);
+   platform_assert((req.num_tuples > 0),
+                   "num_tuples=%lu, generation=%lu, tid=%lu\n",
+                   generation,
+                   tid,
+                   req.num_tuples);
    uint64 filter_build_start;
    if (spl->cfg.use_stats) {
       filter_build_start = platform_get_timestamp();

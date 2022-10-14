@@ -245,13 +245,15 @@ task_deregister_thread(task_system *ts,
 
    // A registered thread should always have a non-zero tid (index).
    if (tid == 0) {
-      platform_error_log("[%s:%d::%s()] Error! Thread is already "
+      platform_error_log("[%s:%d::%s()] Error! Thread (index=%lu) is already "
                          "found to be de-registered.\n",
                          file,
                          lineno,
-                         func);
+                         func,
+                         tid);
    }
-   platform_assert((tid != 0), "Error! Thread is already de-registered.\n");
+   platform_assert(
+      (tid != 0), "Error! Thread %lu is already de-registered.\n", tid);
 
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
@@ -676,8 +678,8 @@ task_group_perform_one(task_group *group)
    if (tq->head == NULL) {
       platform_assert(tq->tail == assigned_task);
       tq->tail = NULL;
-      platform_assert(outstanding_tasks == 1,
-                      "outstanding_tasks=%lu\n", outstanding_tasks);
+      platform_assert(
+         outstanding_tasks == 1, "outstanding_tasks=%lu\n", outstanding_tasks);
    }
 
 out:

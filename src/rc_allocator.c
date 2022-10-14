@@ -546,7 +546,11 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
    debug_assert(extent_no < al->cfg->extent_capacity);
 
    uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
-   platform_assert(ref_count != UINT8_MAX);
+   platform_assert((ref_count != UINT8_MAX),
+                   "extent_no=%lu, ref_count=%d (0x%x)\n",
+                   extent_no,
+                   ref_count,
+                   ref_count);
    if (ref_count == 0) {
       platform_assert(type != PAGE_TYPE_INVALID);
       __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
