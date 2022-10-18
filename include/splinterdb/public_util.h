@@ -29,6 +29,7 @@ slice_is_null(const slice b)
 static inline slice
 slice_create(uint64 len, const void *data)
 {
+   assert(data != NULL || len == 0);
    return (slice){.length = len, .data = data};
 }
 

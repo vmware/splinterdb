@@ -1826,6 +1826,7 @@ key_buffer_slice(key_buffer *kb)
 static inline slice
 key_buffer_init_from_slice(key_buffer *kb, platform_heap_id hid, slice key)
 {
+   debug_assert(IMPLIES(key.data == NULL, key.length == 0));
    writable_buffer_init_with_buffer(
       &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
    writable_buffer_copy_slice(&kb->wb, key);
@@ -5924,24 +5925,21 @@ trunk_range_iterator_init(trunk_handle         *spl,
     * db/range, move to next leaf
     */
    if (at_end) {
+      SLICE_CREATE_LOCAL_COPY(local_max_key,
+                              spl->heap_id,
+                              key_buffer_slice(&range_itor->local_max_key));
+      SLICE_CREATE_LOCAL_COPY(
+         rebuild_key, spl->heap_id, key_buffer_slice(&range_itor->rebuild_key));
       trunk_range_iterator_deinit(range_itor);
       if (1
-          && trunk_key_compare(spl,
-                               key_buffer_slice(&range_itor->local_max_key),
-                               data_max_key(spl->cfg.data_cfg))
+          && trunk_key_compare(
+                spl, local_max_key, data_max_key(spl->cfg.data_cfg))
                 != 0
           && (0 || !range_itor->has_max_key
-              || trunk_key_compare(spl,
-                                   key_buffer_slice(&range_itor->local_max_key),
-                                   key_buffer_slice(&range_itor->max_key))
-                    < 0))
+              || trunk_key_compare(spl, local_max_key, max_key) < 0))
       {
          rc = trunk_range_iterator_init(
-            spl,
-            range_itor,
-            key_buffer_slice(&range_itor->rebuild_key),
-            max_key,
-            range_itor->num_tuples);
+            spl, range_itor, rebuild_key, max_key, range_itor->num_tuples);
          if (!SUCCESS(rc)) {
             return rc;
          }
@@ -5974,21 +5972,26 @@ trunk_range_iterator_advance(iterator *itor)
    platform_status rc;
    // robj: shouldn't this be a while loop, like in the init function?
    if (at_end) {
-      trunk_range_iterator_deinit(range_itor);
+      SLICE_CREATE_LOCAL_COPY(rebuild_key,
+                              range_itor->spl->heap_id,
+                              key_buffer_slice(&range_itor->rebuild_key));
       if (range_itor->has_max_key) {
-         rc = trunk_range_iterator_init(
-            range_itor->spl,
-            range_itor,
-            key_buffer_slice(&range_itor->rebuild_key),
-            key_buffer_slice(&range_itor->max_key),
-            range_itor->num_tuples);
+         SLICE_CREATE_LOCAL_COPY(max_key,
+                                 range_itor->spl->heap_id,
+                                 key_buffer_slice(&range_itor->max_key));
+         trunk_range_iterator_deinit(range_itor);
+         rc = trunk_range_iterator_init(range_itor->spl,
+                                        range_itor,
+                                        rebuild_key,
+                                        max_key,
+                                        range_itor->num_tuples);
       } else {
-         rc = trunk_range_iterator_init(
-            range_itor->spl,
-            range_itor,
-            key_buffer_slice(&range_itor->rebuild_key),
-            NULL_SLICE,
-            range_itor->num_tuples);
+         trunk_range_iterator_deinit(range_itor);
+         rc = trunk_range_iterator_init(range_itor->spl,
+                                        range_itor,
+                                        rebuild_key,
+                                        NULL_SLICE,
+                                        range_itor->num_tuples);
       }
       if (!SUCCESS(rc)) {
          return rc;
