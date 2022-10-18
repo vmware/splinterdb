@@ -247,9 +247,6 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
 
-   rc = splinterdb_lookup(data->kvsb, too_large_key, &result);
-   ASSERT_EQUAL(EINVAL, rc);
-
    rc = splinterdb_delete(data->kvsb, too_large_key);
    ASSERT_EQUAL(EINVAL, rc);
 

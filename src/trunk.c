@@ -6227,6 +6227,10 @@ trunk_insert(trunk_handle *spl, slice key, message data)
       ts = platform_get_timestamp();
    }
 
+   if (trunk_key_size(spl) < slice_length(key)) {
+      return STATUS_BAD_PARAM;
+   }
+
    if (message_class(data) == MESSAGE_TYPE_DELETE) {
       data = DELETE_MESSAGE;
    }
