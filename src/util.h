@@ -181,6 +181,25 @@ writable_buffer_init(writable_buffer *wb, platform_heap_id heap_id)
       wb, heap_id, 0, NULL, WRITABLE_BUFFER_NULL_LENGTH);
 }
 
+/*
+ * Convenience macro for declaring and initializing an automatically
+ * destroyed writable buffer with a stack allocated array.  Usage:
+ *
+ * WRITABLE_BUFFER(128, wb);
+ * // wb is now initialized and ready for use, e.g.
+ * writable_buffer_copy_slice(&wb, some_slice);
+ * ...
+ * //writable_buffer_deinit(&wb); // DO NOT CALL writable_buffer_deinit!
+ */
+#define WRITABLE_BUFFER(wb, hid, n)                                            \
+   char            wb##_tmp[n];                                                \
+   writable_buffer wb __attribute__((cleanup(writable_buffer_deinit)));        \
+   writable_buffer_init_with_buffer(&wb, hid, n, wb##_tmp, 0)
+
+#define DEFAULT_WRITABLE_BUFFER_STACK_BUFFER_SIZE (128)
+#define WRITABLE_BUFFER_DEFAULT(wb, hid)                                       \
+   WRITABLE_BUFFER(wb, hid, DEFAULT_WRITABLE_BUFFER_STACK_BUFFER_SIZE)
+
 static inline void
 writable_buffer_set_to_null(writable_buffer *wb)
 {
@@ -237,6 +256,11 @@ writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
    memcpy(data + oldsize, newdata, length);
    return oldsize;
 }
+
+#define SLICE_CREATE_LOCAL_COPY(dst, hid, src)                                 \
+   WRITABLE_BUFFER_DEFAULT(dst##wb, hid);                                      \
+   writable_buffer_copy_slice(&dst##wb, src);                                  \
+   slice dst = writable_buffer_to_slice(&dst##wb);
 
 /*
  * try_string_to_(u)int64
@@ -323,6 +347,16 @@ try_string_to_int8(const char *nptr, // IN
 // To avoid truncation, ensure dst_len >= 3 + 2 * data_len.
 void
 debug_hex_encode(char *dst, size_t dst_len, const char *data, size_t data_len);
+
+void
+debug_hex_dump(platform_log_handle *,
+               uint64      grouping,
+               uint64      length,
+               const char *bytes);
+
+void
+debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
+
 
 /*
  * Evaluates to a print format specifier based on the value being printed.

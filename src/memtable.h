@@ -150,7 +150,7 @@ platform_status
 memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
                 platform_heap_id  heap_id,
-                const char       *key,
+                slice             key,
                 message           msg,
                 uint64           *generation);
 

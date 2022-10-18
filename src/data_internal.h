@@ -160,6 +160,18 @@ merge_accumulator_is_null(const merge_accumulator *ma)
    return r;
 }
 
+static inline slice
+data_min_key(const data_config *cfg)
+{
+   return slice_create(cfg->min_key_length, cfg->min_key);
+}
+
+static inline slice
+data_max_key(const data_config *cfg)
+{
+   return slice_create(cfg->max_key_length, cfg->max_key);
+}
+
 static inline int
 data_key_compare(const data_config *cfg, slice key1, slice key2)
 {

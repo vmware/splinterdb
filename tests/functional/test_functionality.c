@@ -34,7 +34,7 @@ search_for_key_via_iterator(trunk_handle *spl, slice target)
    trunk_range_iterator iter;
    bool                 at_end;
 
-   trunk_range_iterator_init(spl, &iter, NULL, NULL, UINT64_MAX);
+   trunk_range_iterator_init(spl, &iter, NULL_SLICE, NULL_SLICE, UINT64_MAX);
    uint64 count = 0;
    while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
       slice   key;
@@ -53,14 +53,14 @@ search_for_key_via_iterator(trunk_handle *spl, slice target)
 
 static void
 verify_tuple(trunk_handle    *spl,
-             const char      *keybuf,
+             slice            keybuf,
              message          msg,
              int8             refcount,
              platform_status *result)
 {
    const data_handle *dh    = message_data(msg);
    bool               found = dh != NULL;
-   uint64             key   = be64toh(*(uint64 *)keybuf);
+   uint64             key   = be64toh(*(uint64 *)slice_data(keybuf));
 
    if (dh && message_length(msg) < sizeof(data_handle)) {
       platform_error_log("ERROR: Short message of length %ld, key = 0x%08lx, ",
@@ -79,8 +79,7 @@ verify_tuple(trunk_handle    *spl,
          refcount);
       *result = STATUS_NOT_FOUND;
       trunk_print_lookup(spl, keybuf, Platform_default_log_handle);
-      search_for_key_via_iterator(
-         spl, slice_create(spl->cfg.data_cfg->key_size, keybuf));
+      search_for_key_via_iterator(spl, keybuf);
       platform_assert(0);
    } else if (refcount == 0 && found) {
       platform_error_log(
@@ -124,7 +123,7 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
    platform_status *result = arg;
 
    verify_tuple(spl,
-                ctxt->key,
+                writable_buffer_to_slice(&ctxt->key),
                 merge_accumulator_to_message(&ctxt->data),
                 ctxt->refcount,
                 result);
@@ -147,7 +146,6 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
  */
 platform_status
 verify_against_shadow(trunk_handle               *spl,
-                      char                       *keybuf,
                       test_splinter_shadow_array *sharr,
                       test_async_lookup          *async_lookup)
 {
@@ -157,6 +155,8 @@ verify_against_shadow(trunk_handle               *spl,
    platform_assert(sizeof(data_handle) <= sizeof(void *));
 
    platform_status rc, result = STATUS_OK;
+
+   WRITABLE_BUFFER_DEFAULT(keybuf, spl->heap_id);
 
    uint64            i;
    merge_accumulator merge_acc;
@@ -173,16 +173,16 @@ verify_against_shadow(trunk_handle               *spl,
          ctxt = NULL;
       }
       if (ctxt == NULL) {
-         test_int_to_key(keybuf, key, key_size);
-
-         rc = trunk_lookup(spl, keybuf, &merge_acc);
+         test_int_to_key(&keybuf, key, key_size);
+         slice key_slice = writable_buffer_to_slice(&keybuf);
+         rc              = trunk_lookup(spl, key_slice, &merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
          }
          message msg = merge_accumulator_to_message(&merge_acc);
-         verify_tuple(spl, keybuf, msg, refcount, &result);
+         verify_tuple(spl, key_slice, msg, refcount, &result);
       } else {
-         test_int_to_key(ctxt->key, key, key_size);
+         test_int_to_key(&ctxt->key, key, key_size);
          ctxt->refcount = refcount;
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
@@ -214,8 +214,8 @@ verify_against_shadow(trunk_handle               *spl,
 platform_status
 verify_range_against_shadow(trunk_handle               *spl,
                             test_splinter_shadow_array *sharr,
-                            char                       *start_key,
-                            char                       *end_key,
+                            slice                       start_key,
+                            slice                       end_key,
                             platform_heap_id            hid,
                             uint64                      start_index,
                             uint64                      end_index)
@@ -277,19 +277,14 @@ verify_range_against_shadow(trunk_handle               *spl,
                             shadow_refcount,
                             splinter_key,
                             splinter_data_handle->ref_count);
-         trunk_print_lookup(spl,
-                            (char *)slice_data(splinter_keybuf),
-                            Platform_default_log_handle);
+         trunk_print_lookup(spl, splinter_keybuf, Platform_default_log_handle);
          platform_assert(0);
          status = STATUS_INVALID_STATE;
          goto destroy;
       }
 
-      verify_tuple(spl,
-                   slice_data(splinter_keybuf),
-                   splinter_message,
-                   shadow_refcount,
-                   &status);
+      verify_tuple(
+         spl, splinter_keybuf, splinter_message, shadow_refcount, &status);
 
       status = iterator_advance((iterator *)range_itor);
       if (!SUCCESS(status)) {
@@ -329,29 +324,31 @@ out:
 #define VERIFY_RANGE_ENDPOINT_EQUAL (5)
 #define VERIFY_RANGE_ENDPOINT_LESS  (6)
 
-static void *
+static slice
 choose_key(data_config                *cfg,         // IN
            test_splinter_shadow_array *sharr,       // IN
            random_state               *prg,         // IN/OUT
            int                         type,        // IN
            bool                        is_start,    // IN
-           void                       *startkey,    // IN
+           slice                       startkey,    // IN
            int                         start_index, // IN
            int                        *index,       // OUT
-           void                       *keybuf)                            // OUT
+           writable_buffer            *keybuf)                 // OUT
 {
    uint64 num_keys = sharr->nkeys;
 
    switch (type) {
       case VERIFY_RANGE_ENDPOINT_NULL:
          *index = is_start ? 0 : num_keys;
-         return NULL;
+         writable_buffer_set_to_null(keybuf);
+         break;
       case VERIFY_RANGE_ENDPOINT_MIN:
          *index = 0;
-         return cfg->min_key;
+         writable_buffer_copy_slice(keybuf, data_min_key(cfg));
+         break;
       case VERIFY_RANGE_ENDPOINT_MAX:
          *index = num_keys;
-         return cfg->max_key;
+         writable_buffer_copy_slice(keybuf, data_max_key(cfg));
       case VERIFY_RANGE_ENDPOINT_RAND:
       {
          // Pick in the middle 3/5ths of the array
@@ -366,22 +363,23 @@ choose_key(data_config                *cfg,         // IN
          }
          *index = pos;
          test_int_to_key(keybuf, key, cfg->key_size);
-         return keybuf;
+         break;
       }
       case VERIFY_RANGE_ENDPOINT_EQUAL:
-         platform_assert(!is_start && startkey);
+         platform_assert(!is_start && !slice_is_null(startkey));
          *index = start_index;
-         return startkey;
+         writable_buffer_copy_slice(keybuf, startkey);
+         break;
       case VERIFY_RANGE_ENDPOINT_LESS:
-         platform_assert(!is_start && startkey);
+         platform_assert(!is_start && !slice_is_null(startkey));
          *index = start_index ? (random_next_uint64(prg) % start_index) : 0;
          test_int_to_key(keybuf, sharr->keys[*index], cfg->key_size);
-         return keybuf;
+         break;
       default:
          platform_assert(0);
    }
-   platform_assert(0);
-   return NULL;
+
+   return writable_buffer_to_slice(keybuf);
 }
 
 platform_status
@@ -394,12 +392,12 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
    int             begin_type;
    int             end_type;
    platform_status rc, result = STATUS_OK;
-   char            startkey_buf[MAX_KEY_SIZE];
-   char            endkey_buf[MAX_KEY_SIZE];
-   char           *start_key;
-   char           *end_key;
+   slice           start_key;
+   slice           end_key;
    int             start_index;
    int             end_index;
+   WRITABLE_BUFFER_DEFAULT(startkey_buf, spl->heap_id);
+   WRITABLE_BUFFER_DEFAULT(endkey_buf, spl->heap_id);
 
    for (begin_type = VERIFY_RANGE_ENDPOINT_NULL;
         begin_type <= VERIFY_RANGE_ENDPOINT_RAND;
@@ -414,10 +412,10 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                                 prg,
                                 begin_type,
                                 1,
-                                NULL,
+                                NULL_SLICE,
                                 0,
                                 &start_index,
-                                startkey_buf);
+                                &startkey_buf);
          end_key   = choose_key(spl->cfg.data_cfg,
                               sharr,
                               prg,
@@ -426,7 +424,7 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                               start_key,
                               start_index,
                               &end_index,
-                              endkey_buf);
+                              &endkey_buf);
          if (do_it) {
             rc = verify_range_against_shadow(
                spl, sharr, start_key, end_key, hid, start_index, end_index);
@@ -447,10 +445,10 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                              prg,
                              begin_type,
                              1,
-                             NULL,
+                             NULL_SLICE,
                              0,
                              &start_index,
-                             startkey_buf);
+                             &startkey_buf);
       end_key   = choose_key(spl->cfg.data_cfg,
                            sharr,
                            prg,
@@ -459,7 +457,7 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                            start_key,
                            start_index,
                            &end_index,
-                           endkey_buf);
+                           &endkey_buf);
       if (do_it) {
          rc = verify_range_against_shadow(
             spl, sharr, start_key, end_key, hid, start_index, end_index);
@@ -475,7 +473,6 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
 static platform_status
 validate_tree_against_shadow(trunk_handle              *spl,
                              random_state              *prg,
-                             char                      *keybuf,
                              test_splinter_shadow_tree *shadow,
                              platform_heap_handle       hh,
                              platform_heap_id           hid,
@@ -504,7 +501,7 @@ validate_tree_against_shadow(trunk_handle              *spl,
       memcpy(&sharr, &dry_run_sharr, sizeof(sharr));
    }
 
-   rc = verify_against_shadow(spl, keybuf, &sharr, async_lookup);
+   rc = verify_against_shadow(spl, &sharr, async_lookup);
    if (!SUCCESS(rc)) {
       platform_free(hid, async_lookup);
       platform_error_log("Failed to verify inserted items in Splinter: %s\n",
@@ -544,7 +541,6 @@ static platform_status
 insert_random_messages(trunk_handle              *spl,
                        test_splinter_shadow_tree *shadow,
                        random_state              *prg,
-                       char                      *keybuf,
                        int                        num_messages,
                        message_type               op,
                        uint64                     minkey,
@@ -563,6 +559,8 @@ insert_random_messages(trunk_handle              *spl,
    merge_accumulator msg;
    merge_accumulator_init(&msg, NULL);
 
+   WRITABLE_BUFFER_DEFAULT(keybuf, spl->heap_id);
+
    key = minkey;
    for (i = 0; i < num_messages; i++) {
       // Generate a random message (op, key).
@@ -573,7 +571,8 @@ insert_random_messages(trunk_handle              *spl,
                % (maxkey - minkey + 1));
 
       // Insert message into Splinter
-      test_int_to_key(keybuf, key, key_size);
+      test_int_to_key(&keybuf, key, key_size);
+      slice key_slice = writable_buffer_to_slice(&keybuf);
 
       int8 ref_count = 0;
       if (op != MESSAGE_TYPE_DELETE) {
@@ -584,7 +583,7 @@ insert_random_messages(trunk_handle              *spl,
       }
       test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
 
-      rc = trunk_insert(spl, keybuf, merge_accumulator_to_message(&msg));
+      rc = trunk_insert(spl, key_slice, merge_accumulator_to_message(&msg));
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -675,8 +674,6 @@ test_functionality(allocator           *al,
 
    random_state    prg;
    platform_status status;
-   char           *keybuf = NULL;
-   data_handle    *msgbuf = NULL;
 
    random_init(&prg, seed, 0);
 
@@ -705,7 +702,7 @@ test_functionality(allocator           *al,
       trunk_handle              *spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
       status                            = validate_tree_against_shadow(
-         spl, &prg, keybuf, shadow, hh, hid, TRUE, async_lookup);
+         spl, &prg, shadow, hh, hid, TRUE, async_lookup);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to validate empty tree against shadow: \
                             %s\n",
@@ -782,12 +779,9 @@ test_functionality(allocator           *al,
          test_splinter_shadow_tree *shadow = shadows[idx];
          // allocator_root_id spl_id = splinters[idx];
 
-         keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, spl->cfg.data_cfg->key_size);
-         platform_assert(keybuf);
          status = insert_random_messages(spl,
                                          shadow,
                                          &prg,
-                                         keybuf,
                                          num_messages,
                                          op,
                                          minkey,
@@ -803,7 +797,6 @@ test_functionality(allocator           *al,
          status = validate_tree_against_shadow(
             spl,
             &prg,
-            keybuf,
             shadow,
             hh,
             hid,
@@ -837,8 +830,6 @@ test_functionality(allocator           *al,
          /*       goto cleanup; */
          /*    } */
          /* } */
-         platform_free(hid, keybuf);
-         platform_free(hid, msgbuf);
       }
 
       total_inserts += num_messages;
@@ -852,20 +843,16 @@ test_functionality(allocator           *al,
    for (uint8 idx = 0; idx < num_tables; idx++) {
       trunk_handle              *spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
-      keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, spl->cfg.data_cfg->key_size);
-      platform_assert(keybuf);
 
       status = validate_tree_against_shadow(
          spl,
          &prg,
-         keybuf,
          shadow,
          hh,
          hid,
          correctness_check_frequency
             && ((i - 1) % correctness_check_frequency) != 0,
          async_lookup);
-      platform_free(hid, keybuf);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to validate tree against shadow one \
                             last time: %s\n",

@@ -348,3 +348,21 @@ debug_hex_encode(char        *dst,
 null_terminate:
    dst[max_len - 1] = '\0';
 }
+
+void
+debug_hex_dump(platform_log_handle *plh,
+               uint64               grouping,
+               uint64               length,
+               const char          *bytes)
+{
+   for (uint64 i = 0; i < length; i++) {
+      platform_log(
+         plh, "%02x%s", bytes[i], grouping && !((i + 1) % grouping) ? " " : "");
+   }
+}
+
+void
+debug_hex_dump_slice(platform_log_handle *plh, uint64 grouping, slice data)
+{
+   debug_hex_dump(plh, grouping, slice_length(data), slice_data(data));
+}

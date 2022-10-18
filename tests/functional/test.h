@@ -77,15 +77,17 @@ test_deinit_task_system(platform_heap_id hid, task_system **ts)
    task_system_destroy(hid, ts);
 }
 
-static inline void
-test_key(char         *key,
-         test_key_type key_type,
-         uint64        idx,
-         uint64        thread_id,
-         uint64        semiseq_freq,
-         uint64        key_size,
-         uint64        period)
+static inline slice
+test_key(writable_buffer *keywb,
+         test_key_type    key_type,
+         uint64           idx,
+         uint64           thread_id,
+         uint64           semiseq_freq,
+         uint64           key_size,
+         uint64           period)
 {
+   writable_buffer_resize(keywb, key_size);
+   char *key = writable_buffer_data(keywb);
    memset(key, 0, key_size);
    switch (key_type) {
       case TEST_RANDOM:
@@ -110,6 +112,7 @@ test_key(char         *key,
          break;
       }
    }
+   return writable_buffer_to_slice(keywb);
 }
 
 static inline bool
@@ -128,10 +131,12 @@ test_range(uint64 idx, uint64 range_min, uint64 range_max)
 }
 
 static inline void
-test_int_to_key(char *key, uint64 idx, uint64 key_size)
+test_int_to_key(writable_buffer *key, uint64 idx, uint64 key_size)
 {
-   memset(key, 0, key_size);
-   *(uint64 *)key = htobe64(idx);
+   writable_buffer_resize(key, key_size);
+   uint64 *keybytes = writable_buffer_data(key);
+   memset(keybytes, 0, key_size);
+   *keybytes = htobe64(idx);
 }
 
 /*

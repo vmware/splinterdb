@@ -96,7 +96,7 @@ test_btree_insert(test_memtable_context *ctxt, slice key, message data)
    rc = memtable_insert(ctxt->mt_ctxt,
                         &ctxt->mt_ctxt->mt[generation],
                         ctxt->heap_id,
-                        slice_data(key),
+                        key,
                         data,
                         &dummy_leaf_generation);
 
@@ -186,10 +186,9 @@ test_btree_insert_thread(void *arg)
    uint64                    num_inserts = params->num_ops;
 
    uint64            start_time = platform_get_timestamp();
-   writable_buffer   key;
+   WRITABLE_BUFFER_DEFAULT(key, NULL);
    merge_accumulator data;
 
-   writable_buffer_init(&key, NULL);
    merge_accumulator_init(&data, NULL);
 
    uint64 start_num = thread_id * num_inserts;
@@ -208,7 +207,6 @@ test_btree_insert_thread(void *arg)
 
 out:
    params->time_elapsed = platform_timestamp_elapsed(start_time);
-   writable_buffer_deinit(&key);
    merge_accumulator_deinit(&data);
 }
 
@@ -551,9 +549,8 @@ test_btree_basic(cache             *cc,
    btree_test_async_ctxt_init(async_lookup);
 
    uint64            start_time = platform_get_timestamp();
-   writable_buffer   key;
+   WRITABLE_BUFFER_DEFAULT(key, NULL);
    merge_accumulator expected_data;
-   writable_buffer_init(&key, NULL);
    merge_accumulator_init(&expected_data, NULL);
 
    platform_status rc = STATUS_OK;
@@ -784,7 +781,6 @@ destroy_btree:
    platform_default_log("\n");
    test_memtable_context_destroy(ctxt, hid);
    platform_free(hid, async_lookup);
-   writable_buffer_deinit(&key);
    merge_accumulator_deinit(&expected_data);
    return rc;
 }
@@ -800,9 +796,8 @@ test_btree_create_packed_trees(cache             *cc,
       test_memtable_context_create(cc, cfg, num_trees, hid);
 
    // fill the memtables
-   writable_buffer   key;
+   WRITABLE_BUFFER_DEFAULT(key, NULL);
    merge_accumulator data;
-   writable_buffer_init(&key, NULL);
    merge_accumulator_init(&data, NULL);
 
    uint64          insert_no;
@@ -841,7 +836,6 @@ test_btree_create_packed_trees(cache             *cc,
       root_addr[tree_no] = req.root_addr;
    }
 
-   writable_buffer_deinit(&key);
    merge_accumulator_deinit(&data);
    test_memtable_context_destroy(ctxt, hid);
    return num_tuples;
@@ -958,18 +952,6 @@ test_btree_print_all_keys(cache        *cc,
    return 0;
 }
 
-
-/*
- * Tests usually allocate a number of pivot keys.
- * Since we can't use VLAs, it's easier to allocate an array of a struct
- * than to malloc a 2d array which requires a loop of some kind (or math to
- * dereference)
- * Define a struct for a key of max size.
- */
-typedef struct {
-   char k[MAX_KEY_SIZE];
-} max_pivot_key;
-
 static platform_status
 test_btree_merge_basic(cache             *cc,
                        test_btree_config *cfg,
@@ -995,13 +977,14 @@ test_btree_merge_basic(cache             *cc,
    uint64 *pivot = TYPED_ARRAY_MALLOC(hid, pivot, arity);
    platform_assert(pivot);
 
-   key_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity);
+   writable_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity);
    platform_assert(pivot_key);
 
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
+      writable_buffer_init(&pivot_key[pivot_no], hid);
       pivot[pivot_no] = pivot_no * (max_key / arity + 1);
       test_int_to_key(
-         pivot_key[pivot_no].k, pivot[pivot_no], btree_cfg->data_cfg->key_size);
+         &pivot_key[pivot_no], pivot[pivot_no], btree_cfg->data_cfg->key_size);
    }
 
    btree_iterator *btree_itor_arr =
@@ -1012,12 +995,10 @@ test_btree_merge_basic(cache             *cc,
    platform_assert(itor_arr);
 
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
-      slice lo =
-         slice_create(btree_cfg->data_cfg->key_size, pivot_key[pivot_no].k);
+      slice lo = writable_buffer_to_slice(&pivot_key[pivot_no]);
       slice hi = pivot_no == arity - 1
                     ? NULL_SLICE
-                    : slice_create(btree_cfg->data_cfg->key_size,
-                                   pivot_key[pivot_no + 1].k);
+                    : writable_buffer_to_slice(&pivot_key[pivot_no + 1]);
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
          btree_iterator_init(cc,
                              btree_cfg,
@@ -1116,6 +1097,9 @@ destroy_btrees:
    platform_free(hid, root_addr);
    platform_free(hid, output_addr);
    platform_free(hid, pivot);
+   for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
+      writable_buffer_deinit(&pivot_key[pivot_no]);
+   }
    platform_free(hid, pivot_key);
    platform_free(hid, btree_itor_arr);
    platform_free(hid, itor_arr);
@@ -1133,23 +1117,21 @@ test_btree_count_in_range(cache             *cc,
    uint64 root_addr;
    test_btree_create_packed_trees(cc, cfg, hid, 1, &root_addr);
    btree_config  *btree_cfg = cfg->mt_cfg->btree_cfg;
-   max_pivot_key *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
+   writable_buffer *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
    platform_assert(bound_key);
-   slice min_key =
-      slice_create(btree_cfg->data_cfg->key_size, &bound_key[0].k[0]);
-   slice max_key =
-      slice_create(btree_cfg->data_cfg->key_size, &bound_key[1].k[0]);
+   writable_buffer_init(&bound_key[0], hid);
+   writable_buffer_init(&bound_key[1], hid);
 
    platform_status rc = STATUS_OK;
    for (uint64 i = 0; i < iterations; i++) {
-      test_key(&bound_key[0].k[0],
+      test_key(&bound_key[0],
                TEST_RANDOM,
                2 * i,
                0,
                0,
                btree_cfg->data_cfg->key_size,
                0);
-      test_key(&bound_key[1].k[0],
+      test_key(&bound_key[1],
                TEST_RANDOM,
                2 * i + 1,
                0,
@@ -1158,6 +1140,8 @@ test_btree_count_in_range(cache             *cc,
                0);
 
       btree_pivot_stats stats;
+      slice             min_key = writable_buffer_to_slice(&bound_key[0]);
+      slice             max_key = writable_buffer_to_slice(&bound_key[1]);
       btree_count_in_range(cc, btree_cfg, root_addr, min_key, max_key, &stats);
       if (btree_key_compare(btree_cfg, min_key, max_key) > 0) {
          if (stats.num_kvs != 0) {
@@ -1196,6 +1180,8 @@ destroy_btree:
    btree_dec_ref_range(
       cc, btree_cfg, root_addr, NULL_SLICE, NULL_SLICE, PAGE_TYPE_BRANCH);
 
+   writable_buffer_deinit(&bound_key[0]);
+   writable_buffer_deinit(&bound_key[1]);
    platform_free(hid, bound_key);
    if (SUCCESS(rc))
       platform_default_log("btree_test: btree_count_in_range test succeeded\n");
@@ -1227,7 +1213,7 @@ test_btree_rough_iterator(cache             *cc,
 
    uint64 num_pivots = 2 * num_trees;
 
-   key_buffer *pivot = TYPED_ARRAY_MALLOC(hid, pivot, num_pivots + 1);
+   writable_buffer *pivot = TYPED_ARRAY_MALLOC(hid, pivot, num_pivots + 1);
    platform_assert(pivot);
 
    btree_iterator *rough_btree_itor =
@@ -1289,9 +1275,8 @@ test_btree_rough_iterator(cache             *cc,
                               message_length(dummy_data),
                               sizeof(btree_pivot_data));
       }
-      memmove(pivot[pivot_no].k,
-              slice_data(curr_key),
-              btree_cfg->data_cfg->key_size);
+      writable_buffer_init(&pivot[pivot_no], hid);
+      writable_buffer_copy_slice(&pivot[pivot_no], curr_key);
       at_end = TRUE;
       // char key_str[128];
       // btree_key_to_string(btree_cfg, pivot[pivot_no].k, key_str);
@@ -1330,6 +1315,9 @@ test_btree_rough_iterator(cache             *cc,
    //   btree_zap(cc, btree_cfg, root_addr[tree_no], PAGE_TYPE_BRANCH);
    //}
    platform_free(hid, root_addr);
+   for (int i = 0; i < pivot_no; i++) {
+      writable_buffer_deinit(&pivot[i]);
+   }
    platform_free(hid, pivot);
    platform_free(hid, rough_btree_itor);
    platform_free(hid, rough_itor);
@@ -1370,15 +1358,16 @@ test_btree_merge_perf(cache             *cc,
    uint64 *pivot = TYPED_ARRAY_MALLOC(hid, pivot, arity);
    platform_assert(pivot);
 
-   key_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity);
+   writable_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity);
    platform_assert(pivot_key);
 
    uint64 start_time = platform_get_timestamp();
 
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
+      writable_buffer_init(&pivot_key[pivot_no], hid);
       pivot[pivot_no] = pivot_no * (max_key / arity + 1);
       test_int_to_key(
-         pivot_key[pivot_no].k, pivot[pivot_no], btree_cfg->data_cfg->key_size);
+         &pivot_key[pivot_no], pivot[pivot_no], btree_cfg->data_cfg->key_size);
    }
 
    btree_iterator *btree_itor_arr =
@@ -1390,12 +1379,11 @@ test_btree_merge_perf(cache             *cc,
 
    for (uint64 merge_no = 0; merge_no < num_merges; merge_no++) {
       for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
-         slice min_key =
-            slice_create(btree_cfg->data_cfg->key_size, pivot_key[pivot_no].k);
-         slice max_key = pivot_no == arity - 1
-                            ? NULL_SLICE
-                            : slice_create(btree_cfg->data_cfg->key_size,
-                                           pivot_key[pivot_no + 1].k);
+         slice min_key = writable_buffer_to_slice(&pivot_key[pivot_no]);
+         slice max_key =
+            pivot_no == arity - 1
+               ? NULL_SLICE
+               : writable_buffer_to_slice(&pivot_key[pivot_no + 1]);
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
             uint64 global_tree_no = merge_no * num_merges + tree_no;
             btree_iterator_init(cc,
@@ -1455,6 +1443,9 @@ destroy_btrees:
 
    platform_free(hid, root_addr);
    platform_free(hid, output_addr);
+   for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
+      writable_buffer_deinit(&pivot_key[pivot_no]);
+   }
    platform_free(hid, pivot);
    platform_free(hid, pivot_key);
    platform_free(hid, btree_itor_arr);

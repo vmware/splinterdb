@@ -219,6 +219,19 @@ struct trunk_handle {
    trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
 
+/*
+ * Sometimes we need to copy a pivot out of a node so that we can
+ * still have access to the pivots after we have released the node.
+ * writable_buffer is the natural way to do this.  The key_buffer
+ * simply packages a writable buffer together with a default
+ * allocation for its buffer.
+ */
+#define TRUNK_DEFAULT_KEY_BUFFER_SIZE (128)
+typedef struct {
+   writable_buffer wb;
+   char            default_buffer[TRUNK_DEFAULT_KEY_BUFFER_SIZE];
+} key_buffer;
+
 typedef struct trunk_range_iterator {
    iterator        super;
    trunk_handle   *spl;
@@ -231,10 +244,10 @@ typedef struct trunk_range_iterator {
    merge_iterator *merge_itor;
    bool            has_max_key;
    bool            at_end;
-   char            min_key[MAX_KEY_SIZE];
-   char            max_key[MAX_KEY_SIZE];
-   char            local_max_key[MAX_KEY_SIZE];
-   char            rebuild_key[MAX_KEY_SIZE];
+   key_buffer      min_key;
+   key_buffer      max_key;
+   key_buffer      local_max_key;
+   key_buffer      rebuild_key;
    btree_iterator  btree_itor[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    trunk_branch    branch[TRUNK_RANGE_ITOR_MAX_BRANCHES];
 
@@ -311,17 +324,6 @@ typedef struct trunk_async_ctxt {
    cache_async_ctxt cache_ctxt; // Async cache context
 } trunk_async_ctxt;
 
-/*
- * Tests usually allocate a number of pivot keys.
- * Since we can't use VLAs, it's easier to allocate an array of a struct
- * than to malloc a 2d array which requires a loop of some kind (or math to
- * dereference)
- * Define a struct for a key of max size.
- */
-typedef struct {
-   char k[MAX_KEY_SIZE];
-} key_buffer;
-
 
 /*
  *----------------------------------------------------------------------
@@ -332,10 +334,10 @@ typedef struct {
  */
 
 platform_status
-trunk_insert(trunk_handle *spl, char *key, message data);
+trunk_insert(trunk_handle *spl, slice key, message data);
 
 platform_status
-trunk_lookup(trunk_handle *spl, char *key, merge_accumulator *result);
+trunk_lookup(trunk_handle *spl, slice key, merge_accumulator *result);
 
 static inline bool
 trunk_lookup_found(merge_accumulator *result)
@@ -345,14 +347,14 @@ trunk_lookup_found(merge_accumulator *result)
 
 cache_async_result
 trunk_lookup_async(trunk_handle      *spl,
-                   char              *key,
+                   slice              key,
                    merge_accumulator *data,
                    trunk_async_ctxt  *ctxt);
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
-                          const char           *min_key,
-                          const char           *max_key,
+                          slice                 min_key,
+                          slice                 max_key,
                           uint64                num_tuples);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
@@ -360,7 +362,7 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 typedef void (*tuple_function)(slice key, message value, void *arg);
 platform_status
 trunk_range(trunk_handle  *spl,
-            const char    *start_key,
+            slice          start_key,
             uint64         num_tuples,
             tuple_function func,
             void          *arg);
@@ -404,7 +406,7 @@ trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl);
 
 void
 trunk_print_lookup(trunk_handle        *spl,
-                   const char          *key,
+                   slice                key,
                    platform_log_handle *log_handle);
 void
 trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
@@ -421,29 +423,16 @@ trunk_key_size(trunk_handle *spl)
    return spl->cfg.data_cfg->key_size;
 }
 
-static inline slice
-trunk_key_slice(trunk_handle *spl, const char *key)
-{
-   if (key) {
-      return slice_create(trunk_key_size(spl), key);
-   } else {
-      return NULL_SLICE;
-   }
-}
-
 static inline int
-trunk_key_compare(trunk_handle *spl, const char *key1, const char *key2)
+trunk_key_compare(trunk_handle *spl, slice key1, slice key2)
 {
-   slice key1_slice = trunk_key_slice(spl, key1);
-   slice key2_slice = trunk_key_slice(spl, key2);
-   return btree_key_compare(&spl->cfg.btree_cfg, key1_slice, key2_slice);
+   return btree_key_compare(&spl->cfg.btree_cfg, key1, key2);
 }
 
 static inline void
-trunk_key_to_string(trunk_handle *spl, const char *key, char str[static 128])
+trunk_key_to_string(trunk_handle *spl, slice key, char str[static 128])
 {
-   slice key_slice = slice_create(trunk_key_size(spl), key);
-   btree_key_to_string(&spl->cfg.btree_cfg, key_slice, str);
+   btree_key_to_string(&spl->cfg.btree_cfg, key, str);
 }
 
 static inline void
@@ -459,9 +448,6 @@ trunk_async_ctxt_init(trunk_async_ctxt *ctxt, trunk_async_cb cb)
    ctxt->state = async_state_start;
    ctxt->cb    = cb;
 }
-
-uint64
-trunk_pivot_size(trunk_handle *spl);
 
 uint64
 trunk_pivot_message_size();

@@ -38,7 +38,6 @@ test_log_crash(clockcache             *cc,
    platform_status    rc;
    log_handle        *logh;
    uint64             i;
-   char               keybuffer[MAX_KEY_SIZE];
    slice              returned_key;
    message            returned_message;
    uint64             addr;
@@ -49,6 +48,7 @@ test_log_crash(clockcache             *cc,
    char               data_str[128];
    bool               at_end;
    merge_accumulator  msg;
+   WRITABLE_BUFFER_DEFAULT(keybuffer, hid);
 
    platform_assert(cc != NULL);
    rc = shard_log_init(log, (cache *)cc, cfg);
@@ -61,9 +61,14 @@ test_log_crash(clockcache             *cc,
    merge_accumulator_init(&msg, hid);
 
    for (i = 0; i < num_entries; i++) {
-      test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
+      slice skey = test_key(&keybuffer,
+                            TEST_RANDOM,
+                            i,
+                            0,
+                            0,
+                            1 + (i % cfg->data_cfg->key_size),
+                            0);
       generate_test_message(gen, i, &msg);
-      slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }
 
@@ -80,9 +85,14 @@ test_log_crash(clockcache             *cc,
 
    iterator_at_end(itorh, &at_end);
    for (i = 0; i < num_entries && !at_end; i++) {
-      test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
+      slice skey = test_key(&keybuffer,
+                            TEST_RANDOM,
+                            i,
+                            0,
+                            0,
+                            1 + (i % cfg->data_cfg->key_size),
+                            0);
       generate_test_message(gen, i, &msg);
-      slice   skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
       message mmessage = merge_accumulator_to_message(&msg);
       iterator_get_curr(itorh, &returned_key, &returned_message);
       if (slice_lex_cmp(skey, returned_key)
@@ -102,6 +112,8 @@ test_log_crash(clockcache             *cc,
    }
 
    platform_default_log("log returned %lu of %lu entries\n", i, num_entries);
+
+   merge_accumulator_deinit(&msg);
 
    shard_log_iterator_deinit(hid, &itor);
    shard_log_zap(log);
@@ -128,17 +140,19 @@ test_log_thread(void *arg)
    uint64                  num_entries = params->num_entries;
    test_message_generator *gen         = params->gen;
    uint64                  i;
-   char                    key[MAX_KEY_SIZE];
    merge_accumulator       msg;
+   WRITABLE_BUFFER_DEFAULT(key, hid);
 
-   slice skey = slice_create(log->cfg->data_cfg->key_size, key);
    merge_accumulator_init(&msg, hid);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
-      test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
+      slice skey =
+         test_key(&key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }
+
+   merge_accumulator_deinit(&msg);
 }
 
 platform_status
