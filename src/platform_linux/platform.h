@@ -211,6 +211,9 @@ extern bool platform_use_mlock;
 // hash functions
 typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
+extern platform_heap_handle Heap_handle;
+extern platform_heap_id     Heap_id;
+
 /*
  * Provide a tag for callers that do not want to use shared-memory allocation,
  * when configured but want to fallback to default malloc()-based scheme.
@@ -656,10 +659,25 @@ platform_heap_create(platform_module_id    module_id,
 void
 platform_heap_destroy(platform_heap_handle *heap_handle);
 
+/*
+ * platform_buffer_create() - Pass-through caller-macro.
+ *
+ * Parameters:
+ *  size_t length 			- Length (bytes) of buffer to allocate.
+ *  platform_heap_handle hh	- Heap-handle
+ *  platform_module_id mid	- Module-ID (unused)d
+ */
+#define platform_buffer_create(length, hh, mid)                                \
+   platform_buffer_create_mmap(                                                \
+      (length), (hh), (mid), __FILE__, __LINE__, __FUNCTION__)
+
 buffer_handle *
-platform_buffer_create(size_t               length,
-                       platform_heap_handle heap_handle,
-                       platform_module_id   module_id);
+platform_buffer_create_mmap(size_t               length,
+                            platform_heap_handle heap_handle,
+                            platform_module_id   module_id,
+                            const char          *file,
+                            const int            lineno,
+                            const char          *func);
 
 void *
 platform_buffer_getaddr(const buffer_handle *bh);

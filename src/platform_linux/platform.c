@@ -17,6 +17,15 @@ bool platform_use_mlock   = FALSE;
 platform_log_handle *Platform_default_log_handle = NULL;
 platform_log_handle *Platform_error_log_handle   = NULL;
 
+/*
+ * Declare globals to track heap handle/ID that may have been created when
+ * using shared memory. We stash away these handles so that we can return the
+ * right handle via platform_get_heap_id() interface, in case shared segments
+ * are in use.
+ */
+platform_heap_handle Heap_handle = NULL;
+platform_heap_id     Heap_id     = NULL;
+
 // This function is run automatically at library-load time
 void __attribute__((constructor)) platform_init_log_file_handles(void)
 {
@@ -32,7 +41,12 @@ platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      platform_heap_id     *heap_id)
 {
    if (use_shmem) {
-      return platform_shmcreate(max, heap_handle, heap_id);
+      platform_status rc = platform_shmcreate(max, heap_handle, heap_id);
+      if (SUCCESS(rc)) {
+         Heap_handle = *heap_handle;
+         Heap_id     = *heap_id;
+      }
+      return rc;
    }
    *heap_handle = NULL;
    *heap_id     = NULL;
@@ -49,10 +63,20 @@ platform_heap_destroy(platform_heap_handle *heap_handle)
    }
 }
 
+/*
+ * platform_buffer_create_mmap() - Create large buffers using mmap()
+ *
+ * Certain modules, e.g. the buffer cache, need a very large buffer which
+ * cannot be serviced by the heap. Create the requested buffer using mmap()
+ * and return a handle to it.
+ */
 buffer_handle *
-platform_buffer_create(size_t               length,
-                       platform_heap_handle UNUSED_PARAM(heap_handle),
-                       platform_module_id   UNUSED_PARAM(module_id))
+platform_buffer_create_mmap(size_t               length,
+                            platform_heap_handle UNUSED_PARAM(heap_handle),
+                            platform_module_id   UNUSED_PARAM(module_id),
+                            const char          *file,
+                            const int            lineno,
+                            const char          *func)
 {
    buffer_handle *bh = TYPED_MALLOC(platform_get_heap_id(), bh);
 
@@ -65,8 +89,13 @@ platform_buffer_create(size_t               length,
 
       bh->addr = mmap(NULL, length, prot, flags, -1, 0);
       if (bh->addr == MAP_FAILED) {
-         platform_error_log(
-            "mmap (%lu) failed with error: %s\n", length, strerror(errno));
+         platform_error_log("%s:%d:%s(): mmap (%lu bytes) failed with "
+                            "error: %s\n",
+                            file,
+                            lineno,
+                            func,
+                            length,
+                            strerror(errno));
          goto error;
       }
 
@@ -74,7 +103,12 @@ platform_buffer_create(size_t               length,
          int rc = mlock(bh->addr, length);
          if (rc != 0) {
             platform_error_log(
-               "mlock (%lu) failed with error: %s\n", length, strerror(errno));
+               "%s:%d:%s(): mlock (%lu bytes) failed with error: %s\n",
+               file,
+               lineno,
+               func,
+               length,
+               strerror(errno));
             munmap(bh->addr, length);
             goto error;
          }
@@ -82,6 +116,11 @@ platform_buffer_create(size_t               length,
    }
 
    bh->length = length;
+   platform_default_log("%s:%d:%s(): Created buffer of %lu bytes using mmap.\n",
+                        file,
+                        lineno,
+                        func,
+                        length);
    return bh;
 
 error:

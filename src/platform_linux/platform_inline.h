@@ -395,7 +395,7 @@ static inline platform_heap_id
 platform_get_heap_id(void)
 {
    // void* NULL since we don't actually need a heap id
-   return NULL;
+   return Heap_id;
 }
 
 static inline platform_module_id
