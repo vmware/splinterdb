@@ -217,6 +217,9 @@ extern platform_log_handle *Platform_error_log_handle;
 // hash functions
 typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
+extern platform_heap_handle Heap_handle;
+extern platform_heap_id     Heap_id;
+
 /*
  * Provide a tag for callers that do not want to use shared-memory allocation,
  * when configured but want to fallback to default scheme of allocating

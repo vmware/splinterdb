@@ -121,8 +121,12 @@ platform_shmcreate(size_t                size,
                    platform_heap_handle *heap_handle,
                    platform_heap_id     *heap_id)
 {
-   platform_assert(*heap_handle == NULL);
-   platform_assert(*heap_id == NULL);
+   platform_assert((*heap_handle == NULL),
+                   "Heap handle is expected to be NULL while creating a new "
+                   "shared segment.\n");
+   platform_assert((*heap_id == NULL),
+                   "Heap handle is expected to be NULL while creating a new "
+                   "shared segment.\n");
 
    int shmid = shmget(0, size, (IPC_CREAT | PLATFORM_IPC_OBJS_PERMS));
    if (shmid == -1) {
@@ -255,6 +259,10 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
       shminfop->shm_id = shmid;
       return;
    }
+
+   // Reset globals to NULL; to avoid accessing stale handles.
+   Heap_id     = NULL;
+   Heap_handle = NULL;
 
    // Always trace destroy of shared memory segment.
    platform_default_log("Deallocated SplinterDB shared memory "

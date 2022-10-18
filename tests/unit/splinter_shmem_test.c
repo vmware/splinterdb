@@ -106,9 +106,11 @@ CTEST2(splinter_shmem, test_create_destroy_shmem)
 }
 
 /*
+ * ---------------------------------------------------------------------------
  * Test that used space and pad-bytes tracking is happening correctly
  * when all allocation requests are fully aligned. No pad bytes should
  * have been generated for alignment.
+ * ---------------------------------------------------------------------------
  */
 CTEST2(splinter_shmem, test_aligned_allocations)
 {
@@ -139,9 +141,11 @@ CTEST2(splinter_shmem, test_aligned_allocations)
 }
 
 /*
+ * ---------------------------------------------------------------------------
  * Test that used space and pad-bytes tracking is happening correctly
  * when some allocation requests are not-fully aligned. Test verifies the
  * tracking and computation of pad-bytes, free/used space.
+ * ---------------------------------------------------------------------------
  */
 CTEST2(splinter_shmem, test_unaligned_allocations)
 {
@@ -180,8 +184,32 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
 }
 
 /*
+ * ---------------------------------------------------------------------------
+ * Test allocation interface using platform_get_heap_id() accessor, which
+ * is supposed to return in-use heap-ID. But, by default, this is NULL. This
+ * test shows that using this API will [correctly] allocate from shared memory
+ * once we've created the shared segment, and, therefore, all call-sites in
+ * the running library to platform_get_heap_id() should return the right
+ * handle(s) to the shared segment.
+ * ---------------------------------------------------------------------------
+ */
+CTEST2(splinter_shmem, test_allocations_using_get_heap_id)
+{
+   int keybuf_size = 64;
+
+   void  *next_free = platform_shm_next_free_addr(data->hid);
+   uint8 *keybuf =
+      TYPED_MANUAL_MALLOC(platform_get_heap_id(), keybuf, keybuf_size);
+
+   // Validate returned memory-ptrs, knowing that no pad bytes were needed.
+   ASSERT_TRUE((void *)keybuf == next_free);
+}
+
+/*
+ * ---------------------------------------------------------------------------
  * Currently 'free' is a no-op; no space is released. Do minimal testing of
  * this feature, to ensure that at least the code flow is exectuing correctly.
+ * ---------------------------------------------------------------------------
  */
 CTEST2(splinter_shmem, test_free)
 {
