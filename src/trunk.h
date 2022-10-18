@@ -54,7 +54,7 @@ typedef struct trunk_config {
    cache_config *cache_cfg;
 
    // parameters
-   uint64 fanout;              // children to trigger split
+   uint64 fanout; // children to trigger split
    uint64 max_pivot_keys;      // hard limit on number of pivot keys
    uint64 max_tuples_per_node; // deprecated
    uint64 max_kv_bytes_per_node;

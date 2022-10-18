@@ -257,6 +257,10 @@ writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
    return oldsize;
 }
 
+/*
+ * Creates a copy of src in newly declared slice dst.  Everything is
+ * automatically cleaned up when dst goes out of scope.
+ */
 #define SLICE_CREATE_LOCAL_COPY(dst, hid, src)                                 \
    WRITABLE_BUFFER_DEFAULT(dst##wb, hid);                                      \
    writable_buffer_copy_slice(&dst##wb, src);                                  \

@@ -296,11 +296,4 @@ memtable_print_stats(platform_log_handle *log_handle, cache *cc, memtable *mt)
    btree_print_tree_stats(log_handle, cc, mt->cfg, mt->root_addr);
 };
 
-static inline void
-memtable_key_to_string(memtable *mt, const char *key, char *key_str)
-{
-   slice key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
-   btree_key_to_string(mt->cfg, key_slice, key_str);
-}
-
 #endif // __MEMTABLE_H

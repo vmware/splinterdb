@@ -171,6 +171,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    if (!SUCCESS(rc)) {
       return rc;
    }
+   kvs->data_cfg = kvs_cfg->data_cfg;
 
    if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0
        || kvs_cfg->disk_size == 0)

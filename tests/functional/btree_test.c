@@ -543,7 +543,9 @@ test_btree_basic(cache             *cc,
 
    test_memtable_context *ctxt = test_memtable_context_create(cc, cfg, 1, hid);
    memtable              *mt   = &ctxt->mt_ctxt->mt[0];
+   data_config             *data_cfg     = mt->cfg->data_cfg;
    btree_test_async_lookup *async_lookup = TYPED_MALLOC(hid, async_lookup);
+
    platform_assert(async_lookup);
 
    btree_test_async_ctxt_init(async_lookup);
@@ -592,10 +594,10 @@ test_btree_basic(cache             *cc,
                                  merge_accumulator_to_message(&expected_data));
          if (!correct) {
             memtable_print(Platform_default_log_handle, cc, mt);
-            char key_string[128];
-            memtable_key_to_string(mt, writable_buffer_data(&key), key_string);
-            platform_default_log(
-               "key number %lu, %s not found\n", insert_num, key_string);
+            slice key_slice = writable_buffer_to_slice(&key);
+            platform_default_log("key number %lu, %s not found\n",
+                                 insert_num,
+                                 key_string(data_cfg, key_slice));
          }
          platform_assert(correct);
       } else {
@@ -608,11 +610,10 @@ test_btree_basic(cache             *cc,
          if (res == async_success) {
             if (!correct) {
                memtable_print(Platform_default_log_handle, cc, mt);
-               char key_string[128];
-               memtable_key_to_string(
-                  mt, writable_buffer_data(&async_ctxt->key), key_string);
-               platform_default_log(
-                  "key number %lu, %s not found\n", insert_num, key_string);
+               slice key_slice = writable_buffer_to_slice(&async_ctxt->key);
+               platform_default_log("key number %lu, %s not found\n",
+                                    insert_num,
+                                    key_string(data_cfg, key_slice));
             }
          }
       }
@@ -635,10 +636,10 @@ test_btree_basic(cache             *cc,
          ctxt, 0, writable_buffer_to_slice(&key), NULL_MESSAGE);
       if (!correct) {
          memtable_print(Platform_default_log_handle, cc, mt);
-         char key_string[128];
-         memtable_key_to_string(mt, writable_buffer_data(&key), key_string);
-         platform_default_log(
-            "key number %lu, %s found (negative)\n", insert_num, key_string);
+         slice key_slice = writable_buffer_to_slice(&key);
+         platform_default_log("key number %lu, %s not found\n",
+                              insert_num,
+                              key_string(data_cfg, key_slice));
          platform_assert(0);
       }
    }
