@@ -5531,12 +5531,14 @@ trunk_split_leaf(trunk_handle *spl,
          new_leaf = leaf;
       }
 
-      // adjust min key
-      trunk_set_pivot(
-         spl, new_leaf, 0, key_buffer_slice(&scratch->pivot[leaf_no]));
+      /* Adjust max key first so that we always have ordered pivots (enforced by
+       * trunk_set_pivot in debug mode) */
       // adjust max key
       trunk_set_pivot(
          spl, new_leaf, 1, key_buffer_slice(&scratch->pivot[leaf_no + 1]));
+      // adjust min key
+      trunk_set_pivot(
+         spl, new_leaf, 0, key_buffer_slice(&scratch->pivot[leaf_no]));
 
       // set new_leaf tuple_count
       trunk_bundle *bundle = trunk_get_bundle(spl, new_leaf, bundle_no);
@@ -6038,7 +6040,9 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
    }
 
    key_buffer_deinit(&range_itor->min_key);
-   key_buffer_deinit(&range_itor->max_key);
+   if (range_itor->has_max_key) {
+      key_buffer_deinit(&range_itor->max_key);
+   }
    key_buffer_deinit(&range_itor->local_max_key);
    key_buffer_deinit(&range_itor->rebuild_key);
 }
