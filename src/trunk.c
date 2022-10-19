@@ -1518,7 +1518,7 @@ trunk_add_pivot_new_root(trunk_handle *spl,
                          page_handle  *parent,
                          page_handle  *child)
 {
-   slice pivot_key                             = trunk_get_pivot(spl, child, 0);
+   slice pivot_key = trunk_get_pivot(spl, child, 0);
    __attribute__((unused)) const slice min_key =
       data_min_key(spl->cfg.data_cfg);
    debug_only const int key_cmp_rv = trunk_key_compare(spl, pivot_key, min_key);
