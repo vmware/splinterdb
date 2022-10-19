@@ -8554,6 +8554,9 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    task_print_stats(spl->ts);
    platform_log(log_handle, "\n");
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
+   cache_print_stats(log_handle, spl->cc);
+   platform_log(log_handle, "\n");
    platform_free(spl->heap_id, global);
 }
 
@@ -8641,6 +8644,9 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "------------------------------------------------------------------------------------|\n");
    platform_log(log_handle, "\n");
    platform_free(spl->heap_id, global);
+   platform_log(log_handle, "------------------------------------------------------------------------------------\n");
+   cache_print_stats(log_handle, spl->cc);
+   platform_log(log_handle, "\n");
 }
 // clang-format on
 
