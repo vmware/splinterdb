@@ -316,11 +316,11 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                                TEST_CONFIG_MIN_KEY_SIZE);
             return STATUS_BAD_PARAM;
          }
-         if (cfg[cfg_idx].key_size > MAX_KEY_SIZE) {
+         if (cfg[cfg_idx].key_size > SPLINTERDB_MAX_KEY_SIZE) {
             platform_error_log("Configured key-size, %lu bytes, is larger than "
                                "the MAX_KEY_SIZE=%d bytes.\n",
                                cfg[cfg_idx].key_size,
-                               MAX_KEY_SIZE);
+                               SPLINTERDB_MAX_KEY_SIZE);
             return STATUS_BAD_PARAM;
          }
       }

@@ -46,7 +46,7 @@ test_filter_basic(cache           *cc,
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
-   char  key[MAX_KEY_SIZE];
+   char  key[SPLINTERDB_MAX_KEY_SIZE];
    slice key_slice = slice_create(key_size, key);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
@@ -169,7 +169,7 @@ test_filter_perf(cache           *cc,
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
    }
-   char  key[MAX_KEY_SIZE];
+   char  key[SPLINTERDB_MAX_KEY_SIZE];
    slice key_slice = slice_create(key_size, key);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {

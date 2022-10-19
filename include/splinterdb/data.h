@@ -160,10 +160,10 @@ struct data_config {
    uint64 key_size;
 
    // FIXME: Planned for deprecation.
-   char   min_key[MAX_KEY_SIZE];
+   char   min_key[SPLINTERDB_MAX_KEY_SIZE];
    uint64 min_key_length;
 
-   char   max_key[MAX_KEY_SIZE];
+   char   max_key[SPLINTERDB_MAX_KEY_SIZE];
    uint64 max_key_length;
 
    key_compare_fn       key_compare;

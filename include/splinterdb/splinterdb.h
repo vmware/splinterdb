@@ -16,11 +16,6 @@
 #include "splinterdb/data.h"
 
 
-// Hack to accomodate encoding variable-length keys
-// This will go away once real variable-length key support lands in trunk.c
-#define SPLINTERDB_MAX_KEY_SIZE (MAX_KEY_SIZE - 1)
-
-
 // Get a version string for this build of SplinterDB
 // Currently a git tag
 const char *

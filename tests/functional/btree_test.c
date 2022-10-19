@@ -154,7 +154,7 @@ test_btree_tuple(test_memtable_context *ctxt,
 {
    test_btree_config *cfg = ctxt->cfg;
    writable_buffer_resize(key, cfg->mt_cfg->btree_cfg->data_cfg->key_size);
-   test_key(writable_buffer_data(key),
+   test_key(key,
             cfg->type,
             seq,
             thread_id,
@@ -1207,10 +1207,6 @@ test_btree_rough_iterator(cache             *cc,
    btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
 
    platform_status rc = STATUS_OK;
-
-   char min_key[MAX_KEY_SIZE], max_key[MAX_KEY_SIZE];
-   memset(min_key, 0, MAX_KEY_SIZE);
-   memset(max_key, UINT8_MAX, MAX_KEY_SIZE);
 
    uint64 num_pivots = 2 * num_trees;
 

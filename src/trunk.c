@@ -567,7 +567,7 @@ typedef struct ONDISK trunk_pivot_data {
    uint16 start_bundle;        // first bundle live (not used in leaves)
    routing_filter filter;      // routing filter for keys in this pivot
    int64          srq_idx;     // index in the space rec queue
-   uint64         key_length;
+   uint16         key_length;
 } trunk_pivot_data;
 
 /*
@@ -7139,11 +7139,11 @@ trunk_create(trunk_config     *cfg,
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    // Validate configured key-size is within limits.
-   if (trunk_key_size(spl) > MAX_KEY_SIZE) {
+   if (trunk_key_size(spl) > SPLINTERDB_MAX_KEY_SIZE) {
       platform_error_log("Trunk create failed. Configured key size, %lu, is "
                          "greater than the max key-size supported, %d bytes.\n",
                          trunk_key_size(spl),
-                         MAX_KEY_SIZE);
+                         SPLINTERDB_MAX_KEY_SIZE);
       platform_free(hid, spl);
       return (trunk_handle *)NULL;
    }
@@ -7256,11 +7256,11 @@ trunk_mount(trunk_config     *cfg,
    memmove(&spl->cfg, cfg, sizeof(*cfg));
 
    // Validate configured key-size is within limits.
-   if (trunk_key_size(spl) > MAX_KEY_SIZE) {
+   if (trunk_key_size(spl) > SPLINTERDB_MAX_KEY_SIZE) {
       platform_error_log("Trunk mount failed. Configured key size, %lu, is "
                          "greater than the max key-size supported, %d bytes.\n",
                          trunk_key_size(spl),
-                         MAX_KEY_SIZE);
+                         SPLINTERDB_MAX_KEY_SIZE);
       platform_free(hid, spl);
       return (trunk_handle *)NULL;
    }

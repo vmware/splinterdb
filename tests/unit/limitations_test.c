@@ -314,7 +314,7 @@ CTEST2(limitations, test_splinterdb_mount_invalid_key_size)
    // We have carefully configured Splinter to use the default key-size
    // used by tests. Force-it to be an invalid value, to check that
    // core-Splinter trunk mount also properly generates an error message
-   cfg.data_cfg->key_size = (MAX_KEY_SIZE + 1);
+   cfg.data_cfg->key_size = (SPLINTERDB_MAX_KEY_SIZE + 1);
 
    // This should fail.
    rc = splinterdb_open(&cfg, &kvsb);
@@ -337,7 +337,7 @@ CTEST2(limitations, test_trunk_create_invalid_key_size)
    // We have carefully configured Splinter to use the default key-size
    // used by tests. Force-it to be an invalid value, to check that
    // core-Splinter trunk creation properly generates an error message
-   data->splinter_cfg->data_cfg->key_size = (MAX_KEY_SIZE + 1);
+   data->splinter_cfg->data_cfg->key_size = (SPLINTERDB_MAX_KEY_SIZE + 1);
 
    trunk_handle *spl = trunk_create(data->splinter_cfg,
                                     alp,
@@ -376,7 +376,7 @@ CTEST2(limitations, test_trunk_mount_invalid_key_size)
    // We have carefully configured Splinter to use the default key-size
    // used by tests. Force-it to be an invalid value, to check that
    // core-Splinter trunk creation properly generates an error message
-   data->splinter_cfg->data_cfg->key_size = (MAX_KEY_SIZE + 1);
+   data->splinter_cfg->data_cfg->key_size = (SPLINTERDB_MAX_KEY_SIZE + 1);
 
    spl = trunk_mount(data->splinter_cfg,
                      alp,
