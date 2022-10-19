@@ -126,7 +126,7 @@ async_ctxt_process_one(trunk_handle         *spl,
    ts  = platform_get_timestamp();
    res = trunk_lookup_async(
       spl, writable_buffer_to_slice(&ctxt->key), &ctxt->data, &ctxt->ctxt);
-   ts  = platform_timestamp_elapsed(ts);
+   ts = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
       *latency_max = ts;
    }

@@ -714,8 +714,8 @@ splinter_do_inserts(void         *datap,
                         data->splinter_cfg[0].mt_cfg.max_extents_per_memtable,
                         num_inserts);
 
-   uint64       start_time = platform_get_timestamp();
-   uint64       insert_num;
+   uint64 start_time = platform_get_timestamp();
+   uint64 insert_num;
    WRITABLE_BUFFER_DEFAULT(key, spl->heap_id);
    const size_t key_size = trunk_key_size(spl);
 

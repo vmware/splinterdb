@@ -1002,7 +1002,7 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
    int rc = 0;
 
    char expected_key[SPLINTERDB_MAX_KEY_SIZE] = {0};
-   char expected_val[TEST_MAX_VALUE_SIZE] = {0};
+   char expected_val[TEST_MAX_VALUE_SIZE]     = {0};
    ASSERT_EQUAL(
       6, snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));
    ASSERT_EQUAL(

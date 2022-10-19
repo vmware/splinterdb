@@ -5396,8 +5396,8 @@ trunk_split_leaf(trunk_handle *spl,
       btree_iterator *rough_btree_itor = scratch->btree_itor;
       iterator      **rough_itor       = scratch->rough_itor;
 
-      slice           pivot0 = trunk_get_pivot(spl, leaf, 0);
-      slice           pivot1 = trunk_get_pivot(spl, leaf, 1);
+      slice pivot0 = trunk_get_pivot(spl, leaf, 0);
+      slice pivot1 = trunk_get_pivot(spl, leaf, 1);
       SLICE_CREATE_LOCAL_COPY(min_key, spl->heap_id, pivot0);
       SLICE_CREATE_LOCAL_COPY(max_key, spl->heap_id, pivot1);
 
@@ -6293,7 +6293,7 @@ trunk_filter_lookup(trunk_handle      *spl,
       height = trunk_height(spl, node);
    }
 
-   uint64 found_values;
+   uint64          found_values;
    platform_status rc =
       routing_filter_lookup(spl->cc, cfg, filter, key, &found_values);
    platform_assert_status_ok(rc);
@@ -8033,7 +8033,7 @@ trunk_print_pivots(platform_log_handle *log_handle,
    for (uint16 pivot_no = 0; pivot_no < trunk_num_pivot_keys(spl, node);
         pivot_no++)
    {
-      slice pivot = trunk_get_pivot(spl, node, pivot_no);
+      slice             pivot = trunk_get_pivot(spl, node, pivot_no);
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
          platform_log(log_handle,

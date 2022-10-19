@@ -128,7 +128,7 @@ test_trunk_insert_thread(void *arg)
    platform_heap_id   heap_id        = platform_get_heap_id();
    platform_assert(num_tables <= 8);
    uint64 *insert_base = TYPED_ARRAY_ZALLOC(heap_id, insert_base, num_tables);
-   uint8 done = 0;
+   uint8   done        = 0;
 
    uint64    num_inserts     = 0;
    timestamp next_check_time = platform_get_timestamp();
@@ -241,7 +241,7 @@ test_trunk_lookup_thread(void *arg)
 
    platform_assert(num_tables <= 8);
    uint64 *lookup_base = TYPED_ARRAY_ZALLOC(heap_id, lookup_base, num_tables);
-   uint8 done = 0;
+   uint8   done        = 0;
 
    merge_accumulator data;
    merge_accumulator_init(&data, NULL);
@@ -364,7 +364,7 @@ test_trunk_range_thread(void *arg)
 
    platform_assert(num_tables <= 8);
    uint64 *range_base = TYPED_ARRAY_ZALLOC(heap_id, range_base, num_tables);
-   uint8 done = 0;
+   uint8   done       = 0;
 
    bool verbose_progress  = test_show_verbose_progress(test_cfg->test_exec_cfg);
    uint64 test_start_time = platform_get_timestamp();
@@ -581,7 +581,7 @@ do_operation(test_splinter_thread_params *params,
          if (test_is_done(*done, spl_idx)) {
             continue;
          }
-         trunk_handle *spl = spl_tables[spl_idx];
+         trunk_handle *spl    = spl_tables[spl_idx];
          uint64        op_num = base[spl_idx] + op_idx;
          timestamp     ts;
 

@@ -185,7 +185,7 @@ test_btree_insert_thread(void *arg)
    uint64                    thread_id   = params->thread_id;
    uint64                    num_inserts = params->num_ops;
 
-   uint64            start_time = platform_get_timestamp();
+   uint64 start_time = platform_get_timestamp();
    WRITABLE_BUFFER_DEFAULT(key, NULL);
    merge_accumulator data;
 
@@ -543,14 +543,14 @@ test_btree_basic(cache             *cc,
 
    test_memtable_context *ctxt = test_memtable_context_create(cc, cfg, 1, hid);
    memtable              *mt   = &ctxt->mt_ctxt->mt[0];
-   data_config             *data_cfg     = mt->cfg->data_cfg;
+   data_config           *data_cfg       = mt->cfg->data_cfg;
    btree_test_async_lookup *async_lookup = TYPED_MALLOC(hid, async_lookup);
 
    platform_assert(async_lookup);
 
    btree_test_async_ctxt_init(async_lookup);
 
-   uint64            start_time = platform_get_timestamp();
+   uint64 start_time = platform_get_timestamp();
    WRITABLE_BUFFER_DEFAULT(key, NULL);
    merge_accumulator expected_data;
    merge_accumulator_init(&expected_data, NULL);
@@ -1117,7 +1117,7 @@ test_btree_count_in_range(cache             *cc,
 
    uint64 root_addr;
    test_btree_create_packed_trees(cc, cfg, hid, 1, &root_addr);
-   btree_config  *btree_cfg = cfg->mt_cfg->btree_cfg;
+   btree_config    *btree_cfg = cfg->mt_cfg->btree_cfg;
    writable_buffer *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
    platform_assert(bound_key);
    writable_buffer_init(&bound_key[0], hid);
