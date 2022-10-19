@@ -511,8 +511,10 @@ laio_cleanup(io_handle *ioh, uint64 count)
    for (i = 0; ((count == 0) || (i < count)); i++) {
       status = io_getevents(io->ctx[tid], 0, 1, &event, NULL);
       if (status < 0) {
-         platform_error_log("io_getevents[%lu], count=%lu, "
+         platform_error_log("OS-pid=%d, tid=%lu, io_getevents[%lu], count=%lu, "
                             "failed with errorno=%d: %s\n",
+                            getpid(),
+                            tid,
                             i,
                             count,
                             -status,

@@ -106,7 +106,14 @@ platform_buffer_init(buffer_handle *bh, size_t length)
    platform_status rc = STATUS_NO_MEMORY;
 
    int prot  = PROT_READ | PROT_WRITE;
-   int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+
+   // Technically, for threaded execution model, MAP_PRIVATE is sufficient.
+   // And we only need to create this mmap()'ed buffer in MAP_SHARED for
+   // process-execution mode. But, at this stage, we don't know apriori if
+   // we will be using SplinterDB in a multi-process execution environment.
+   // So, always create this in SHARED mode. This still works for multiple
+   // threads.
+   int flags = MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE;
    if (platform_use_hugetlb) {
       flags |= MAP_HUGETLB;
    }
