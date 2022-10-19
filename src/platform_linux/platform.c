@@ -82,7 +82,7 @@ platform_buffer_create_mmap(size_t               length,
 
    if (bh != NULL) {
       int prot  = PROT_READ | PROT_WRITE;
-      int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+      int flags = MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE;
       if (platform_use_hugetlb) {
          flags |= MAP_HUGETLB;
       }

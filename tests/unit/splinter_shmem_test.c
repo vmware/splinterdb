@@ -172,7 +172,7 @@ CTEST2(splinter_shmem, test_allocations_using_get_heap_id)
 {
    int keybuf_size = 64;
 
-   void *next_free = platform_shm_next_free_addr(data->hid);
+   void  *next_free = platform_shm_next_free_addr(data->hid);
    uint8 *keybuf =
       TYPED_MANUAL_MALLOC(platform_get_heap_id(), keybuf, keybuf_size);
 

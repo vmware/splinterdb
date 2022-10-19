@@ -3071,27 +3071,30 @@ clockcache_page_valid(clockcache *cc, uint64 addr)
    uint64 base_addr = clockcache_extent_base_addr(cc, addr);
    bool   retval    = FALSE;
    bool   if_fails  = FALSE;
+   int    lineno    = 0;
    if (addr < allocator_get_capacity(cc->al)) {
       retval = (base_addr != 0) && (allocator_get_ref(cc->al, base_addr) != 0);
       if_fails = TRUE;
+      lineno   = __LINE__;
    } else {
       retval = FALSE;
+      lineno = __LINE__;
    }
    // Add tracing to see where / why we are failing.
    if (!retval) {
       if (if_fails) {
-         platform_error_log(
-            "%s():[%d]: addr=%lu, base_addr=%lu, allocator_get_ref()=%d\n",
-            __FUNCTION__,
-            __LINE__,
-            addr,
-            base_addr,
-            (int)allocator_get_ref(cc->al, base_addr));
+         platform_error_log("%s():[%d]: Extent's base_addr=%lu, addr=%lu"
+                            ", allocator_get_ref()=%d\n",
+                            __FUNCTION__,
+                            lineno,
+                            base_addr,
+                            addr,
+                            (int)allocator_get_ref(cc->al, base_addr));
       } else {
          platform_error_log(
             "%s():[%d]: addr=%lu, allocator_get_capacity()=%lu\n",
             __FUNCTION__,
-            __LINE__,
+            lineno,
             addr,
             allocator_get_capacity(cc->al));
       }
