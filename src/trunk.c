@@ -1519,13 +1519,12 @@ trunk_add_pivot_new_root(trunk_handle *spl,
                          page_handle  *child)
 {
    slice pivot_key                             = trunk_get_pivot(spl, child, 0);
-   __attribute__((unused)) const slice min_key = slice_create(
-      spl->cfg.data_cfg->min_key_length, spl->cfg.data_cfg->min_key);
+   __attribute__((unused)) const slice min_key =
+      data_min_key(spl->cfg.data_cfg);
    debug_only const int key_cmp_rv = trunk_key_compare(spl, pivot_key, min_key);
    debug_assert((key_cmp_rv == 0), "key_cmp_rv=%d\n", key_cmp_rv);
 
-   slice max_key = slice_create(spl->cfg.data_cfg->max_key_length,
-                                spl->cfg.data_cfg->max_key);
+   slice max_key = data_max_key(spl->cfg.data_cfg);
    trunk_set_initial_pivots(spl, parent, pivot_key, max_key);
    uint64 child_addr = child->disk_addr;
    trunk_set_pivot_data_new_root(spl, parent, child_addr);
@@ -3191,8 +3190,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    uint64         memtable_root_addr = mt->root_addr;
    btree_iterator btree_itor;
    iterator      *itor    = &btree_itor.super;
-   slice          min_key = slice_create(spl->cfg.data_cfg->min_key_length,
-                                spl->cfg.data_cfg->min_key);
+   slice          min_key = data_min_key(spl->cfg.data_cfg);
 
    trunk_memtable_iterator_init(
       spl, &btree_itor, memtable_root_addr, min_key, NULL_SLICE, FALSE, FALSE);

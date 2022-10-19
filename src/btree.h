@@ -144,11 +144,6 @@ typedef struct btree_iterator {
    uint64     end_addr;
    uint64     end_idx;
    uint64     end_generation;
-
-   // Variables used for debug only
-   debug_code(bool debug_is_packed);
-   debug_code(char debug_prev_key[SPLINTERDB_MAX_KEY_SIZE]);
-   debug_code(char debug_prev_end_key[SPLINTERDB_MAX_KEY_SIZE]);
 } btree_iterator;
 
 typedef struct btree_pack_req {

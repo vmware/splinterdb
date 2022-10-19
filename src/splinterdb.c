@@ -137,9 +137,7 @@ splinterdb_validate_app_data_config(const data_config *cfg)
                    cfg->key_size);
 
    int min_max_cmp =
-      cfg->key_compare(cfg,
-                       slice_create(cfg->min_key_length, cfg->min_key),
-                       slice_create(cfg->max_key_length, cfg->max_key));
+      cfg->key_compare(cfg, data_min_key(cfg), data_max_key(cfg));
    platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
    return STATUS_OK;
 }
