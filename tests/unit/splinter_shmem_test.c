@@ -51,6 +51,7 @@ CTEST_SETUP(splinter_shmem)
 CTEST_TEARDOWN(splinter_shmem)
 {
    platform_heap_destroy(&data->hh);
+   data->hid = NULL;
 }
 
 /*

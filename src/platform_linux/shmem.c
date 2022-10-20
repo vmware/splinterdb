@@ -234,6 +234,10 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
       return;
    }
 
+   // Reset globals to NULL; to avoid accessing stale handles.
+   Heap_id     = NULL;
+   Heap_handle = NULL;
+
    // Always trace destroy of shared memory segment.
    platform_default_log("Deallocated SplinterDB shared memory "
                         "segment at %p, shmid=%d."

@@ -585,6 +585,8 @@ function run_slower_unit_tests() {
         use_msg="using shared memory"
    fi
 
+	echo "$Me: Run slower unit-tests ${use_msg} ..."
+	# ----
     local msg="Splinter inserts test ${use_msg}"
 
     # Allow $use_shmem to come w/o quotes. Otherwise for default execution, we
@@ -603,6 +605,16 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
         "$BINDIR"/unit/splinter_test ${use_shmem} test_splinter_print_diags
+
+	# ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
+    msg="Splinter large inserts test ${use_msg}"
+	local num_rows=$((1000 * 1000))
+	local n_threads=4
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
+											${use_shmem} \
+											--num-inserts ${num_rows}  \
+											--num-threads ${n_threads}
 }
 
 # ##################################################################

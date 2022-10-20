@@ -40,7 +40,7 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 #    run as fast as it can.
 #  - Skip tests that are to be invoked with specialized command-line arguments.
 # These skipped tests which will have to be run stand-alone.
-FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test")
+FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test|large_inserts_bugs_stress")
 
 EXAMPLES_SRC := $(shell find $(EXAMPLES_DIR) -name "*.c")
 

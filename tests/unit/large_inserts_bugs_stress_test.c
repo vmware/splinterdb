@@ -207,6 +207,68 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts)
    exec_worker_thread(&wcfg);
 }
 
+CTEST2(large_inserts_bugs_stress, test_random_key_seq_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb          = data->kvsb;
+   wcfg.master_cfg    = &data->master_cfg;
+   wcfg.num_inserts   = data->num_inserts;
+   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
+
+   exec_worker_thread(&wcfg);
+
+   close(wcfg.random_key_fd);
+}
+
+CTEST2(large_inserts_bugs_stress, test_seq_key_random_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb          = data->kvsb;
+   wcfg.master_cfg    = &data->master_cfg;
+   wcfg.num_inserts   = data->num_inserts;
+   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
+
+   exec_worker_thread(&wcfg);
+
+   close(wcfg.random_val_fd);
+}
+
+CTEST2(large_inserts_bugs_stress, test_random_key_random_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb          = data->kvsb;
+   wcfg.master_cfg    = &data->master_cfg;
+   wcfg.num_inserts   = data->num_inserts;
+   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
+   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
+
+   exec_worker_thread(&wcfg);
+
+   close(wcfg.random_key_fd);
+   close(wcfg.random_val_fd);
+}
+
+/*
+ * ----------------------------------------------------------------------------
+ * test_seq_key_seq_values_inserts_forked() --
+ *
+ * Test case is identical to test_seq_key_seq_values_inserts() but the
+ * actual execution of the fucntion that does inserts is done from
+ * a forked-child process. This test, therefore, does basic validation
+ * that from a forked-child process we can drive basic SplinterDB commands.
+ * And then the parent can resume afte the child exits, and can cleanly
+ * shutdown the instance.
+ * ----------------------------------------------------------------------------
+ */
 CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
 {
    worker_config wcfg;
@@ -264,56 +326,12 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
    }
 }
 
-CTEST2(large_inserts_bugs_stress, test_random_key_seq_values_inserts)
-{
-   worker_config wcfg;
-   ZERO_STRUCT(wcfg);
-
-   // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
-
-   exec_worker_thread(&wcfg);
-
-   close(wcfg.random_key_fd);
-}
-
-CTEST2(large_inserts_bugs_stress, test_seq_key_random_values_inserts)
-{
-   worker_config wcfg;
-   ZERO_STRUCT(wcfg);
-
-   // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
-
-   exec_worker_thread(&wcfg);
-
-   close(wcfg.random_val_fd);
-}
-
-CTEST2(large_inserts_bugs_stress, test_random_key_random_values_inserts)
-{
-   worker_config wcfg;
-   ZERO_STRUCT(wcfg);
-
-   // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
-   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
-
-   exec_worker_thread(&wcfg);
-
-   close(wcfg.random_key_fd);
-   close(wcfg.random_val_fd);
-}
-
+/*
+ * ----------------------------------------------------------------------------
+ * Collection of test cases that fire-up diff combinations of inserts
+ * (sequential, random keys & values) executed by n-threads.
+ * ----------------------------------------------------------------------------
+ */
 /*
  * Test case that fires up many threads each concurrently inserting large # of
 # KV-pairs.
