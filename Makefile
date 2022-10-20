@@ -474,8 +474,9 @@ $(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS)            \
 $(BINDIR)/$(UNITDIR)/splinter_ipc_test: $(UTIL_SYS)            \
                                         $(COMMON_UNIT_TESTOBJ)
 
-$(BINDIR)/$(UNITDIR)/splinterdb_forked_child_test: $(LIBDIR)/libsplinterdb.so \
-                                                   $(COMMON_UNIT_TESTOBJ)
+$(BINDIR)/$(UNITDIR)/splinterdb_forked_child_test: $(OBJDIR)/$(TESTS_DIR)/config.o  \
+                                                   $(COMMON_UNIT_TESTOBJ) \
+                                                   $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/large_inserts_bugs_stress_test: $(UTIL_SYS)                      \
                                                      $(OBJDIR)/$(TESTS_DIR)/config.o  \

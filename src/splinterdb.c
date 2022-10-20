@@ -774,10 +774,66 @@ splinterdb_close_print_stats(splinterdb *kvs)
 }
 
 /*
- * -----------------------------------------------------------------------------
- * External accessor APIs, mainly provided for use as testing hooks.
- * -----------------------------------------------------------------------------
+static int
+validate_key_length(const splinterdb *kvs, uint64 key_length)
+{
+   if (key_length > kvs->shim_data_cfg.app_data_cfg->key_size) {
+      platform_error_log("key of size %lu exceeds data_config.key_size %lu",
+                         key_length,
+                         kvs->shim_data_cfg.app_data_cfg->key_size);
+      return EINVAL;
+   }
+   return 0;
+}
  */
+
+/*
+ * -------------------------------------------------------------------------
+ * External "APIs" provided mainly to invoke lower-level functions intended
+ * for use -ONLY- as testing interfaces.
+ * -------------------------------------------------------------------------
+ */
+void
+splinterdb_cache_flush(const splinterdb *kvs)
+{
+   cache_flush(kvs->spl->cc);
+}
+
+/*
+ * Validate that a key being inserted is within [min, max]-key range.
+ */
+bool
+validate_key_in_range(const splinterdb *kvs, slice key)
+{
+   const data_config *cfg = kvs->shim_data_cfg.app_data_cfg;
+
+   int cmp_rv = 0;
+
+   // key to-be-inserted should be >= min-key
+   cmp_rv = cfg->key_compare(
+      cfg, slice_create(cfg->min_key_length, cfg->min_key), key);
+   if (cmp_rv > 0) {
+      platform_error_log(
+         "Key '%s' is less than configured min-key '%s'.\n",
+         key_string(cfg, key),
+         key_string(cfg, slice_create(cfg->min_key_length, cfg->min_key)));
+      return FALSE;
+   }
+
+   // key to-be-inserted should be <= max-key
+   cmp_rv = cfg->key_compare(
+      cfg, key, slice_create(cfg->max_key_length, cfg->max_key));
+   if (cmp_rv > 0) {
+      platform_error_log(
+         "Key '%s' is greater than configured max-key '%s'.\n",
+         key_string(cfg, key),
+         key_string(cfg, slice_create(cfg->max_key_length, cfg->max_key)));
+      return FALSE;
+   }
+   return TRUE;
+}
+
+>>>>>>> d34b1ac (Build tests to demo IO handling errors, and thread deregistration.)
 void *
 splinterdb_get_heap_handle(const splinterdb *kvs)
 {
