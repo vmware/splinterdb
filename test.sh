@@ -225,12 +225,24 @@ function nightly_unit_stress_tests() {
     local n_threads=8
 
     # ----
+	local test_name="large_inserts_bugs_stress_test"
     local test_descr="${nrows_h} rows"
     echo "$Me: Run ${test_name} with ${n_mills} million rows, ${n_threads} threads"
-    run_with_timing "Unit Stress test ${test_descr}" \
+    run_with_timing "Large Inserts Stress test ${test_descr}" \
             "$BINDIR"/unit/large_inserts_bugs_stress_test \
                                             --num-inserts ${num_rows} \
                                             --num-threads ${n_threads}
+
+    # ----
+	n_mills=5
+    nrows_h="${n_mills} mil"
+	test_name="splinterdb_forked_child_test"
+    test_descr="${nrows_h} rows"
+    echo "$Me: Run ${test_name} with ${n_mills} million rows"
+    run_with_timing "SplinterDB with forked child process test ${test_descr}" \
+            "$BINDIR"/unit/splinterdb_forked_child_test \
+                                            --num-inserts ${num_rows} \
+											--verbose-progress
 }
 
 # #############################################################################
@@ -554,6 +566,7 @@ function run_fast_unit_tests() {
 
    # Additional case exercised while developing this test to
    # verify logic of IO-contexts under forked processes
+   # shellcheck disable=SC2086
    "$BINDIR"/driver_test io_apis_test $use_shmem --fork-child
 }
 

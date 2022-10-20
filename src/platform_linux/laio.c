@@ -143,7 +143,8 @@ io_context_cleanup(laio_handle *io, threadid tid, bool from_deregister)
    // Expect that this was setup previously; otherwise it's a coding error.
    if (from_deregister) {
       platform_assert((io->ctx[tid] != NULL),
-                      "ThreadID=%lu, ctx[tid]=%p\n",
+                      "ThreadID=%lu is trying to cleanup NULL IO-context"
+                      ", ctx[tid]=%p\n",
                       tid,
                       io->ctx[tid]);
    }
@@ -153,8 +154,10 @@ io_context_cleanup(laio_handle *io, threadid tid, bool from_deregister)
       status = io_destroy(io->ctx[tid]);
 
       if (status != 0) {
-         platform_error_log("io_destroy() for threadID=%lu failed with "
-                            "error=%d: %s\n",
+         platform_error_log("io_destroy() (from_deregister=%d) on IO-context "
+                            "at %p for threadID=%lu failed with error=%d: %s\n",
+                            from_deregister,
+                            io->ctx[tid],
                             tid,
                             -status,
                             strerror(-status));
@@ -409,7 +412,7 @@ laio_get_context(io_handle *ioh)
 /*
  * Accessor method: Return start of allocated Async IO requests array.
  * NOTE: Not to be confused with laio_get_async_req(), which returns
- * the next available async-request for use by requesting thread.
+ * the next available async-request for use by a requesting thread.
  */
 static io_async_req *
 laio_get_io_async_req(io_handle *ioh)
@@ -452,7 +455,14 @@ laio_read_async(io_handle     *ioh,
    do {
       status = io_submit(io->ctx[tid], 1, &req->iocb_p);
       if (status < 0) {
-         platform_error_log("io_submit error %s\n", strerror(-status));
+         platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
+                            ", io_submit errorno=%d: %s\n",
+                            __FUNCTION__,
+                            getpid(),
+                            tid,
+                            req,
+                            -status,
+                            strerror(-status));
       }
       io_cleanup(ioh, 0);
    } while (status != 1);
@@ -483,7 +493,14 @@ laio_write_async(io_handle     *ioh,
    do {
       status = io_submit(io->ctx[tid], 1, &req->iocb_p);
       if (status < 0) {
-         platform_error_log("io_submit error %s\n", strerror(-status));
+         platform_error_log("%s(): OS-pid=%d, tid=%lu, req=%p"
+                            ", io_submit errorno=%d: %s\n",
+                            __FUNCTION__,
+                            getpid(),
+                            tid,
+                            req,
+                            -status,
+                            strerror(-status));
       }
       io_cleanup(ioh, 0);
    } while (status != 1);
@@ -492,8 +509,8 @@ laio_write_async(io_handle     *ioh,
 }
 
 /*
- * laio_cleanup() - Handle completion of outstanding IO requests.
- * Up to 'count' outstanding IO requests will be processed.
+ * laio_cleanup() - Handle completion of outstanding IO requests for currently
+ * running thread. Up to 'count' outstanding IO requests will be processed.
  * Specify 'count' as 0 to process completion of all pending IO requests.
  */
 static void
@@ -513,16 +530,24 @@ laio_cleanup(io_handle *ioh, uint64 count)
    for (i = 0; ((count == 0) || (i < count)); i++) {
       status = io_getevents(io->ctx[tid], 0, 1, &event, NULL);
       if (status < 0) {
-         platform_error_log("OS-pid=%d, tid=%lu, io_getevents[%lu], count=%lu, "
-                            "failed with errorno=%d: %s\n",
-                            getpid(),
-                            tid,
-                            i,
-                            count,
-                            -status,
-                            strerror(-status));
+         platform_error_log(
+            "%s(): OS-pid=%d, tid=%lu, io_getevents[%lu], count=%lu, "
+            "failed with errorno=%d: %s\n",
+            __FUNCTION__,
+            getpid(),
+            tid,
+            i,
+            count,
+            -status,
+            strerror(-status));
          i--;
-         continue;
+
+         // RESOLVE: Should we try to make this smarter by doing a continue
+         // only if (count != 0); otherwise, just break if (count == 0)?
+         // We got a hard-error probably because some code-flow messed-up
+         // using the per-thread IO-context. No point in trying again and
+         // again.
+         break;
       }
       // No event has completed, so we are done. Exit.
       if (status == 0) {
@@ -536,6 +561,14 @@ laio_cleanup(io_handle *ioh, uint64 count)
 /*
  * laio_cleanup_all() - Handle completion of outstanding IO requests,
  * for all async requests in the queue.
+ *
+ * RESOLVE: Note this interface is potentially problematic when deployed
+ * using a process model. The expectation is that only the parent process
+ * will invoke this to do a final cleanup. But if there are any pending
+ * aios left behind by a process that exited before deregistering itself
+ * cleanly, we may find that AIO-request busy below, and will try to call
+ * the cleanup function. As the IO-context is no longer correct, we will
+ * get a hard-error from io_getevents() call.
  */
 static void
 laio_cleanup_all(io_handle *ioh)
@@ -572,6 +605,8 @@ laio_thread_deregister(io_handle *ioh)
                    " found an uninitialized IO-context handle.\n",
                    tid);
 
+   // Process pending AIO-requests for this thread before deregistering it
+   laio_cleanup(ioh, 0);
    io_context_cleanup((laio_handle *)ioh, tid, TRUE);
 }
 

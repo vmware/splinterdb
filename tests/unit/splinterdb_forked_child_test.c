@@ -19,22 +19,54 @@
 #include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
+#include "config.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
+
+// Some constants to drive KV-inserts
+#define TEST_KEY_SIZE   30
+#define TEST_VALUE_SIZE 256
 
 // Function Prototypes
 static void
 create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
+
+static void
+do_many_inserts(splinterdb *kvsb, uint64 num_inserts);
 
 /*
  * Global data declaration macro:
  * Each test-case is designed to be self-contained, so we do not have any
  * global SplinterDB-related data structure declarations.
  */
-CTEST_DATA(splinterdb_forked_child){};
+CTEST_DATA(splinterdb_forked_child)
+{
+   master_config master_cfg;
+   uint64        num_inserts; // per main() process or per thread
+};
 
 // Optional setup function for suite, called before every test in suite
-CTEST_SETUP(splinterdb_forked_child) {}
+CTEST_SETUP(splinterdb_forked_child)
+{
+   ZERO_STRUCT(data->master_cfg);
+   config_set_defaults(&data->master_cfg);
+
+   // Expected args to parse --num-inserts, --verbose-progress.
+   platform_status rc =
+      config_parse(&data->master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   data->num_inserts =
+      (data->master_cfg.num_inserts ? data->master_cfg.num_inserts
+                                    : (2 * MILLION));
+
+   if ((data->num_inserts % MILLION) != 0) {
+      platform_error_log("Test expects --num-inserts parameter to be an"
+                         " integral multiple of a million.\n");
+      ASSERT_EQUAL(0, (data->num_inserts % MILLION));
+      return;
+   }
+}
 
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(splinterdb_forked_child) {}
@@ -46,6 +78,10 @@ CTEST_TEARDOWN(splinterdb_forked_child) {}
  * shutdown we try to flush contents of BTree page while unmounting the
  * trunk, and run into an assertion that num_tuples found by BTree iterator
  * is expected to be "> 0", but we found not tuples.
+ *
+ * The issue here is (was) that we need to setup mmap()-based shared structures,
+ * e.g. the buffer cache, using MAP_SHARED, so that the child process(es) "see"
+ * the same buffer cache, in mmap'ed-memory, as the parent process would see.
  * ------------------------------------------------------------------------------
  */
 CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
@@ -125,6 +161,126 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
                            " Resuming parent ...\n",
                            platform_get_tid(),
                            getpid());
+
+      // We would get assertions tripping from BTree iterator code here,
+      // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
+      // was not in-place.
+      splinterdb_close(&spl_handle);
+   }
+}
+
+/*
+ * ------------------------------------------------------------------------------
+ * Test case to perform large #s of inserts in child process, enough to trigger
+ * IO. Test case ensures that all IOs performed by child process are drained and
+ * completed before child deregisters from Splinter. Otherwise, we will end up
+ * with hard-errors when the IO completion routine uses the IO-context for the
+ * parent process rather than that of the child.
+ *
+ * This test case actually demonstrates couple of things:
+ *
+ *  1. Test that a registered process can do IOs and process completion -before-
+ *     it deregisters.
+ *     If there are any pending async-IOs issued by a process waiting to be
+ *     completed, we can verify that invoking this completion -before- the
+ *     process deregisters itself from Splinter will work correctly. We use
+ *     a testing hook, splinterdb_cache_flush(), to trigger a cache-flush which
+ *     will go down the path of calling io_cleanup_all(). A registered process
+ *     can do IOs and process completion -before- it deregisters.
+ *
+ *  2. Test that after deregistration, a process cannot issue any IOs. The
+ *     IO-context state is reset to that of the parent thread, so we will end
+ *     up with hard errors from IO-system calls. (We only test this indirectly.)
+ *
+ *     If there are any pending async-IOs issued by a process waiting to be
+ *     completed, these need to be completed before the process deregisters
+ *     itself from Splinter. We need the fix on Splinter-side to ensure that
+ *     all pending async-IOs from this process are taken to completion.
+ * ------------------------------------------------------------------------------
+ */
+CTEST2(splinterdb_forked_child,
+       test_completion_of_outstanding_async_IOs_from_process_bug)
+{
+   data_config  default_data_cfg;
+   data_config *splinter_data_cfgp = &default_data_cfg;
+
+   // Setup global data_config for Splinter's use.
+   memset(splinter_data_cfgp, 0, sizeof(*splinter_data_cfgp));
+   default_data_config_init(30, splinter_data_cfgp);
+
+   splinterdb_config splinterdb_cfg;
+
+   // Configure SplinterDB Instance
+   memset(&splinterdb_cfg, 0, sizeof(splinterdb_cfg));
+
+   create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
+
+   splinterdb_cfg.filename = "test_bugfix.db";
+
+   splinterdb *spl_handle; // To a running SplinterDB instance
+   int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
+   ASSERT_EQUAL(0, rc);
+
+   int pid = getpid();
+
+   platform_default_log(
+      "Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
+   pid = fork();
+
+   if (pid < 0) {
+      platform_error_log("fork() of child process failed: pid=%d\n", pid);
+      return;
+   } else if (pid == 0) {
+      // Perform some inserts through child process
+      splinterdb_register_thread(spl_handle);
+
+      platform_default_log(
+         "Thread-ID=%lu, OS-pid=%d: "
+         "Child execution started: Test cache-flush before deregister ...\n",
+         platform_get_tid(),
+         getpid());
+
+      do_many_inserts(spl_handle, data->num_inserts);
+
+      // This combination of calls tests scenario (1)
+      splinterdb_cache_flush(spl_handle);
+      splinterdb_deregister_thread(spl_handle);
+
+      // Repeat the insert exercise: Perform some inserts through child process
+      splinterdb_register_thread(spl_handle);
+
+      platform_default_log(
+         "Thread-ID=%lu, OS-pid=%d: Test cache-flush after deregister:\n",
+         platform_get_tid(),
+         getpid());
+
+      do_many_inserts(spl_handle, data->num_inserts);
+
+      // This combination of calls tests scenario (2)
+      splinterdb_deregister_thread(spl_handle);
+
+      // **** DEAD CODE WARNING ****
+      // You -cannot- enable this call. A thread is supposed to have
+      // completely drained all its pending IOs, and it cannot do
+      // any more IOs (which what the flush below will try to do.)
+      // splinterdb_cache_flush(spl_handle);
+   }
+
+   // Only parent can close Splinter
+   if (pid) {
+      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+                           "Waiting for child pid=%d to complete ...\n",
+                           platform_get_tid(),
+                           getpid(),
+                           pid);
+
+      wait(NULL);
+
+      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+                           "Child execution wait() completed."
+                           " Resuming parent ...\n",
+                           platform_get_tid(),
+                           getpid());
       splinterdb_close(&spl_handle);
    }
 }
@@ -139,7 +295,79 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 {
    *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
                                   .cache_size = 64 * Mega,
-                                  .disk_size  = 127 * Mega,
+                                  .disk_size  = 10 * Giga,
                                   .use_shmem  = TRUE,
                                   .data_cfg   = default_data_cfg};
+}
+
+/*
+ * do_many_inserts() - Driver which will perform large #s of inserts, enough to
+ * cause an IO. All inserts are sequential.
+ */
+static void
+do_many_inserts(splinterdb *kvsb, uint64 num_inserts)
+{
+   char key_data[TEST_KEY_SIZE];
+   char val_data[TEST_VALUE_SIZE];
+
+   uint64 start_key = 0;
+
+   uint64 start_time = platform_get_timestamp();
+
+   threadid thread_idx = platform_get_tid();
+
+   // Test is written to insert multiples of millions per thread.
+   ASSERT_EQUAL(0, (num_inserts % MILLION));
+
+   platform_default_log("%s()::%d:Thread-%-lu inserts %lu (%lu million)"
+                        ", sequential key, sequential value, "
+                        "KV-pairs starting from %lu ...\n",
+                        __FUNCTION__,
+                        __LINE__,
+                        thread_idx,
+                        num_inserts,
+                        (num_inserts / MILLION),
+                        start_key);
+
+   uint64 ictr = 0;
+   uint64 jctr = 0;
+
+   bool verbose_progress = TRUE;
+   memset(val_data, 'V', sizeof(val_data));
+   uint64 val_len = sizeof(val_data);
+
+   for (ictr = 0; ictr < (num_inserts / MILLION); ictr++) {
+      for (jctr = 0; jctr < MILLION; jctr++) {
+
+         uint64 id = (start_key + (ictr * MILLION) + jctr);
+
+         // Generate sequential key data
+         snprintf(key_data, sizeof(key_data), "%lu", id);
+         uint64 key_len = strlen(key_data);
+
+         slice key = slice_create(key_len, key_data);
+         slice val = slice_create(val_len, val_data);
+
+         int rc = splinterdb_insert(kvsb, key, val);
+         ASSERT_EQUAL(0, rc);
+      }
+      if (verbose_progress) {
+         platform_default_log(
+            "%s()::%d:Thread-%lu Inserted %lu million KV-pairs ...\n",
+            __FUNCTION__,
+            __LINE__,
+            thread_idx,
+            (ictr + 1));
+      }
+   }
+   uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+
+   platform_default_log("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
+                        "%lu s, %lu rows/s\n",
+                        __FUNCTION__,
+                        __LINE__,
+                        thread_idx,
+                        ictr, // outer-loop ends at #-of-Millions inserted
+                        NSEC_TO_SEC(elapsed_ns),
+                        (num_inserts / NSEC_TO_SEC(elapsed_ns)));
 }

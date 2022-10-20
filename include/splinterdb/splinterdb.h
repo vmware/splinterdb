@@ -331,7 +331,6 @@ splinterdb_iterator_status(const splinterdb_iterator *iter);
  *
  * Reset statistics clears all statistics, including cache statistics.
  */
-
 void
 splinterdb_stats_print_insertion(const splinterdb *kvs);
 
@@ -340,5 +339,9 @@ splinterdb_stats_print_lookup(const splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);
+
+// External APIs provided -ONLY- for use as a testing hook.
+void
+splinterdb_cache_flush(const splinterdb *kvs);
 
 #endif // _SPLINTERDB_H_

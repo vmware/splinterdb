@@ -695,6 +695,18 @@ validate_key_length(const splinterdb *kvs, uint64 key_length)
 }
 
 /*
+ * -------------------------------------------------------------------------
+ * External "APIs" provided mainly to invoke lower-level functions intended
+ * for use -ONLY- as testing interfaces.
+ * -------------------------------------------------------------------------
+ */
+void
+splinterdb_cache_flush(const splinterdb *kvs)
+{
+   cache_flush(kvs->spl->cc);
+}
+
+/*
  * Validate that a key being inserted is within [min, max]-key range.
  */
 bool
