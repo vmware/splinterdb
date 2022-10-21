@@ -614,8 +614,13 @@ routing_filter_add(cache           *cc,
          }
          fp_no += index_count[index_no];
          filter_cursor += remainder_block_size;
-         debug_assert(bytes_remaining_on_page
-                      >= header_size + remainder_block_size);
+         debug_assert(
+            (bytes_remaining_on_page >= header_size + remainder_block_size),
+            "bytes_remaining_on_page=%lu,"
+            " header_size=%u, remainder_block_size=%u\n",
+            bytes_remaining_on_page,
+            header_size,
+            remainder_block_size);
          bytes_remaining_on_page -= header_size + remainder_block_size;
       }
       if (old_filter->addr != 0) {

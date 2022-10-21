@@ -290,6 +290,43 @@ memtable_context_create(platform_heap_id hid,
    cache_unclaim(cc, lock_page);
    cache_unget(cc, lock_page);
 
+   platform_default_log("%s(): OS-Pid=%d, Thread-ID=%lu"
+                        ", insert_lock_addr=%lu, lookup_lock_addr=%lu\n",
+                        __FUNCTION__,
+                        getpid(),
+                        platform_get_tid(),
+                        ctxt->insert_lock_addr,
+                        ctxt->lookup_lock_addr);
+
+#if SPLINTER_DEBUG
+   // In stress tests, as we were failing, elsewhere, finding the extent for
+   // the insert_lock_addr page as unallocated, validate here that pages for
+   // both extents are allocated.
+   uint8 extent_ref_count =
+      allocator_get_ref(al, cache_extent_base_addr(cc, ctxt->insert_lock_addr));
+
+   // Dump allocated extents info for deeper debugging.
+   /*
+   if (extent_ref_count <= 1) {
+      allocator_print_allocated(cc->al);
+   }
+   */
+   debug_assert((extent_ref_count > 1),
+                "Extent for insert_lock_addr=%lu is unallocated"
+                ", extent_ref_count=%d\n",
+                ctxt->insert_lock_addr,
+                extent_ref_count);
+
+   extent_ref_count =
+      allocator_get_ref(al, cache_extent_base_addr(cc, ctxt->lookup_lock_addr));
+   debug_assert((extent_ref_count > 1),
+                "Extent for lookup_lock_addr=%lu is unallocated"
+                ", extent_ref_count=%d\n",
+                ctxt->lookup_lock_addr,
+                extent_ref_count);
+
+#endif // SPLINTER_DEBUG
+
    platform_spinlock_init(
       &ctxt->incorporation_lock, platform_get_module_id(), hid);
 

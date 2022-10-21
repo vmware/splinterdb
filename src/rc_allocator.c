@@ -575,7 +575,7 @@ rc_allocator_get_ref(rc_allocator *al, uint64 addr)
 {
    uint64 extent_no;
 
-   debug_assert(rc_allocator_valid_extent_addr(al, addr));
+   debug_assert(rc_allocator_valid_extent_addr(al, addr), "addr=%lu\n", addr);
    extent_no = rc_allocator_extent_number(al, addr);
    debug_assert(extent_no < al->cfg->extent_capacity);
    return al->ref_count[extent_no];

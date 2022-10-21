@@ -651,6 +651,12 @@ clockcache_get_entry(clockcache *cc, uint32 entry_number)
 }
 
 static inline entry_status
+clockcache_get_flag(clockcache *cc, uint32 entry_number)
+{
+   return clockcache_get_entry(cc, entry_number)->status;
+}
+
+static inline entry_status
 clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
    return flag
@@ -956,12 +962,15 @@ clockcache_assert_clean(clockcache *cc)
    uint64 i;
 
    for (i = 0; i < cc->cfg->page_capacity; i++) {
-      debug_assert((clockcache_test_flag(cc, i, CC_FREE)
-                    || clockcache_test_flag(cc, i, CC_CLEAN)),
-                   "Buffer at entry=%lu should be either CC_FREE|CC_CLEAN."
-                   " Found unexpected status=0x%x\n",
+
+      // We expect entry to be in only one of these two states.
+      entry_status entry_flag = clockcache_get_flag(cc, i);
+      debug_assert(((entry_flag & (CC_FREE | CC_CLEAN)) != 0),
+                   "Buffer at entry=%lu should be in either CC_FREE|CC_CLEAN"
+                   " status. Found unexpected status=0x%x %s\n",
                    i,
-                   clockcache_get_entry(cc, i)->status);
+                   entry_flag,
+                   ((entry_flag & CC_ACCESSED) ? "(CC_ACCESSED)" : ""));
    }
 }
 
@@ -1890,6 +1899,8 @@ clockcache_init(clockcache          *cc,   // OUT
 
    /* Entry per-thread ref counts */
    size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
+
+   /* Allocate the ref-count buffer */
    cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_handle, mid);
    if (!cc->rc_bh) {
       goto alloc_error;
@@ -3312,6 +3323,7 @@ clockcache_present(clockcache *cc, page_handle *page)
    return clockcache_lookup(cc, page->disk_addr) != CC_UNMAPPED_ENTRY;
 }
 
+// Enable / disable whether this thread can sync-get pages from cache
 static void
 clockcache_enable_sync_get(clockcache *cc, bool enabled)
 {

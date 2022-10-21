@@ -274,6 +274,7 @@ CTEST2(splinterdb_forked_child,
       // You -cannot- enable this call. A thread is supposed to have
       // completely drained all its pending IOs, and it cannot do
       // any more IOs (which what the flush below will try to do.)
+      // So, you will get hard IO errors / asserts if you turn this ON.
       // splinterdb_cache_flush(spl_handle);
    }
 
@@ -360,7 +361,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
           * test_completion_of_outstanding_async_IOs ... test case,
           * we -cannot- issue this call below. As concurrent processes
           * are executing the cache will never be in a fully clean
-          * state.
+          * state while processes are still active.
           *
           *   splinterdb_cache_flush(spl_handle);
           */
