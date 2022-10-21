@@ -956,8 +956,12 @@ clockcache_assert_clean(clockcache *cc)
    uint64 i;
 
    for (i = 0; i < cc->cfg->page_capacity; i++) {
-      debug_assert(clockcache_test_flag(cc, i, CC_FREE)
-                   || clockcache_test_flag(cc, i, CC_CLEAN));
+      debug_assert((clockcache_test_flag(cc, i, CC_FREE)
+                    || clockcache_test_flag(cc, i, CC_CLEAN)),
+                   "Buffer at entry=%lu should be either CC_FREE|CC_CLEAN."
+                   " Found unexpected status=0x%x\n",
+                   i,
+                   clockcache_get_entry(cc, i)->status);
    }
 }
 

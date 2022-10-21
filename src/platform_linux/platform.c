@@ -196,9 +196,14 @@ platform_thread_id_self()
 platform_status
 platform_mutex_init(platform_mutex    *lock,
                     platform_module_id UNUSED_PARAM(module_id),
-                    platform_heap_id   UNUSED_PARAM(heap_id))
+                    platform_heap_id   heap_id)
 {
-   int ret     = pthread_mutex_init(&lock->mutex, NULL);
+   // Init mutex so it can be shared between processes
+   pthread_mutexattr_t mattr;
+   pthread_mutexattr_init(&mattr);
+   pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+
+   int ret     = pthread_mutex_init(&lock->mutex, (heap_id ? &mattr : NULL));
    lock->owner = INVALID_TID;
    return CONST_STATUS(ret);
 }
@@ -215,11 +220,12 @@ platform_mutex_destroy(platform_mutex *lock)
 platform_status
 platform_spinlock_init(platform_spinlock *lock,
                        platform_module_id UNUSED_PARAM(module_id),
-                       platform_heap_id   UNUSED_PARAM(heap_id))
+                       platform_heap_id   heap_id)
 {
    int ret;
 
-   ret = pthread_spin_init(lock, PTHREAD_PROCESS_PRIVATE);
+   ret = pthread_spin_init(
+      lock, (heap_id ? PTHREAD_PROCESS_SHARED : PTHREAD_PROCESS_PRIVATE));
 
    return CONST_STATUS(ret);
 }
@@ -232,6 +238,61 @@ platform_spinlock_destroy(platform_spinlock *lock)
    ret = pthread_spin_destroy(lock);
 
    return CONST_STATUS(ret);
+}
+
+platform_status
+platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
+{
+   platform_status status;
+
+   // Init mutex so it can be shared between processes
+   pthread_mutexattr_t mattr;
+   pthread_mutexattr_init(&mattr);
+   pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+
+   status.r = pthread_mutex_init(&cv->lock, (heap_id ? &mattr : NULL));
+   if (!SUCCESS(status)) {
+      return status;
+   }
+
+   // Init condition so it can be shared between processes
+   pthread_condattr_t cattr;
+   pthread_condattr_init(&cattr);
+   pthread_condattr_setpshared(&cattr, PTHREAD_PROCESS_SHARED);
+
+   status.r = pthread_cond_init(&cv->cond, (heap_id ? &cattr : NULL));
+   if (!SUCCESS(status)) {
+      status.r = pthread_mutex_destroy(&cv->lock);
+   }
+
+   return status;
+}
+
+platform_status
+platform_condvar_wait(platform_condvar *cv)
+{
+   int status;
+
+   status = pthread_cond_wait(&cv->cond, &cv->lock);
+   return CONST_STATUS(status);
+}
+
+platform_status
+platform_condvar_signal(platform_condvar *cv)
+{
+   int status;
+
+   status = pthread_cond_signal(&cv->cond);
+   return CONST_STATUS(status);
+}
+
+platform_status
+platform_condvar_broadcast(platform_condvar *cv)
+{
+   int status;
+
+   status = pthread_cond_broadcast(&cv->cond);
+   return CONST_STATUS(status);
 }
 
 platform_status
@@ -314,51 +375,6 @@ platform_sort_slow(void               *base,
    return qsort_r(base, nmemb, size, cmpfn, cmparg);
 }
 
-platform_status
-platform_condvar_init(platform_condvar *cv, platform_heap_id heap_id)
-{
-   platform_status status;
-
-   status.r = pthread_mutex_init(&cv->lock, NULL);
-   if (!SUCCESS(status)) {
-      return status;
-   }
-
-   status.r = pthread_cond_init(&cv->cond, NULL);
-   if (!SUCCESS(status)) {
-      status.r = pthread_mutex_destroy(&cv->lock);
-   }
-
-   return status;
-}
-
-platform_status
-platform_condvar_wait(platform_condvar *cv)
-{
-   int status;
-
-   status = pthread_cond_wait(&cv->cond, &cv->lock);
-   return CONST_STATUS(status);
-}
-
-platform_status
-platform_condvar_signal(platform_condvar *cv)
-{
-   int status;
-
-   status = pthread_cond_signal(&cv->cond);
-   return CONST_STATUS(status);
-}
-
-platform_status
-platform_condvar_broadcast(platform_condvar *cv)
-{
-   int status;
-
-   status = pthread_cond_broadcast(&cv->cond);
-   return CONST_STATUS(status);
-}
-
 /*
  * platform_assert_false() -
  *
@@ -404,8 +420,15 @@ platform_assert_msg(platform_log_handle *log_handle,
                     const char          *message,
                     va_list              varargs)
 {
-   static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";
-   platform_log(
-      log_handle, assert_msg_fmt, filename, linenumber, functionname, expr);
+   static char assert_msg_fmt[] =
+      "OS-pid=%d, Thread-ID=%lu, Assertion failed at %s:%d:%s(): \"%s\". ";
+   platform_log(log_handle,
+                assert_msg_fmt,
+                getpid(),
+                platform_get_tid(),
+                filename,
+                linenumber,
+                functionname,
+                expr);
    vfprintf(log_handle, message, varargs);
 }

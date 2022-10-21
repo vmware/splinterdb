@@ -607,14 +607,39 @@ function run_slower_unit_tests() {
         "$BINDIR"/unit/splinter_test ${use_shmem} test_splinter_print_diags
 
 	# ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
-    msg="Splinter large inserts test ${use_msg}"
+	msg="Splinter large inserts test ${use_msg}"
 	local num_rows=$((1000 * 1000))
 	local n_threads=4
-    # shellcheck disable=SC2086
-    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
+	# shellcheck disable=SC2086
+	run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
 											${use_shmem} \
 											--num-inserts ${num_rows}  \
 											--num-threads ${n_threads}
+}
+
+# ##################################################################
+# Run tests that exercised forked-child processes which connect to
+# Splinter configured with shared segment memory.
+#
+# These tests and the supported functionality are all experimental.
+# ##################################################################
+function run_slower_forked_process_tests() {
+
+	local msg="Splinter tests using forked child processes"
+	run_with_timing "${msg}" "$BINDIR"/unit/splinterdb_forked_child_test
+
+	# ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
+	# using forked child process execution.
+	msg="Splinter large inserts test ${use_msg}"
+	local num_rows=$((1000 * 1000))
+	local n_threads=4
+	# shellcheck disable=SC2086
+	run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
+											${use_shmem} \
+											--fork-child \
+											--num-inserts ${num_rows}  \
+											--num-threads ${n_threads} \
+											test_seq_key_seq_values_inserts_forked
 }
 
 # ##################################################################
@@ -824,6 +849,11 @@ fi #end if false;
 run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
 
 run_slower_unit_tests "--use-shmem"
+
+# These are written to always create shared segment, so --use-shmem arg is not
+# needed when invoking them. These tests will fork one or more child processes.
+run_slower_forked_process_tests
+
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"

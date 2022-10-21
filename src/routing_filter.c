@@ -101,7 +101,16 @@ RadixSort(uint32 *pData,
       for (i = 0; i < count; i++) {
          u = pSrc[i];
          c = ((uint8 *)&u)[j + fpshift];
-         platform_assert(mIndex[j][c] < count);
+         platform_assert((mIndex[j][c] < count),
+                         "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
+                         ", mIndex[j][c]=%d, count=%u\n",
+                         getpid(),
+                         platform_get_tid(),
+                         i,
+                         j,
+                         c,
+                         mIndex[j][c],
+                         count);
          pDst[mIndex[j][c]++] = u;
       }
       pTmp = pSrc;
