@@ -113,9 +113,14 @@ platform_semaphore_destroy(platform_semaphore *sema)
 static inline void
 platform_semaphore_init(platform_semaphore *sema,
                         int                 value,
-                        platform_heap_id    UNUSED_PARAM(heap_id))
+                        platform_heap_id    heap_id)
 {
-   __attribute__((unused)) int err = sem_init(sema, 0, value);
+   // If we are running with a shared segment, it's likely that we
+   // may also fork child processes attaching to Splinter's shmem.
+   // Then, use 1 => spinlocks are shared across process boundaries.
+   // Else, use 0 => spinlocks are shared between threads in a process.
+   __attribute__((unused)) int err =
+      sem_init(sema, ((heap_id == NULL) ? 0 : 1), value);
    debug_assert(!err);
 }
 

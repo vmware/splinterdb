@@ -27,6 +27,9 @@
 #define TEST_KEY_SIZE   30
 #define TEST_VALUE_SIZE 256
 
+// By default, we test with 2 forked processes in most test case
+#define TEST_NUM_FORKED_PROCS 2
+
 // Function Prototypes
 static void
 create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
@@ -42,12 +45,16 @@ do_many_inserts(splinterdb *kvsb, uint64 num_inserts);
 CTEST_DATA(splinterdb_forked_child)
 {
    master_config master_cfg;
-   uint64        num_inserts; // per main() process or per thread
+   uint64        num_inserts;      // per main() process or per thread
+   uint64        num_forked_procs; // Passed down using --num-threads
+   bool          am_parent;
 };
 
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_forked_child)
 {
+   data->am_parent = TRUE;
+
    ZERO_STRUCT(data->master_cfg);
    config_set_defaults(&data->master_cfg);
 
@@ -65,6 +72,10 @@ CTEST_SETUP(splinterdb_forked_child)
                          " integral multiple of a million.\n");
       ASSERT_EQUAL(0, (data->num_inserts % MILLION));
       return;
+   }
+   data->num_forked_procs = data->master_cfg.num_threads;
+   if (!data->num_forked_procs) {
+      data->num_forked_procs = TEST_NUM_FORKED_PROCS;
    }
 }
 
@@ -285,11 +296,103 @@ CTEST2(splinterdb_forked_child,
    }
 }
 
+CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
+{
+   data_config  default_data_cfg;
+   data_config *splinter_data_cfgp = &default_data_cfg;
+
+   // Setup global data_config for Splinter's use.
+   memset(splinter_data_cfgp, 0, sizeof(*splinter_data_cfgp));
+   default_data_config_init(30, splinter_data_cfgp);
+
+   splinterdb_config splinterdb_cfg;
+
+   // Configure SplinterDB Instance
+   memset(&splinterdb_cfg, 0, sizeof(splinterdb_cfg));
+
+   create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
+
+   // We want larger cache as multiple child processes will be
+   // hammering at it with large #s of inserts.
+   splinterdb_cfg.cache_size = (1 * Giga);
+
+   splinterdb_cfg.filename = "test_forked_child.db";
+
+   splinterdb *spl_handle; // To a running SplinterDB instance
+   int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
+   ASSERT_EQUAL(0, rc);
+
+   int pid = getpid();
+
+   platform_default_log(
+      "Thread-ID=%lu, Parent OS-pid=%d, fork %lu child processes.\n",
+      platform_get_tid(),
+      pid,
+      data->num_forked_procs);
+
+   // Fork n-concurrently executing child processes.
+   for (int fctr = 0; data->am_parent && fctr < data->num_forked_procs; fctr++)
+   {
+      pid = fork();
+
+      if (pid < 0) {
+         platform_error_log("fork() of child process failed: pid=%d\n", pid);
+         return;
+      } else if (pid == 0) {
+
+         // This is now executing as a child process.
+         data->am_parent = FALSE;
+
+         // Perform some inserts through child process
+         splinterdb_register_thread(spl_handle);
+
+         platform_default_log(
+            "Thread-ID=%lu, OS-pid=%d: "
+            "Child execution started: Test cache-flush before deregister ...\n",
+            platform_get_tid(),
+            getpid());
+
+         do_many_inserts(spl_handle, data->num_inserts);
+
+         /*
+          * **** DEAD CODE WARNING! ****
+          * Although this block is similar to what's being done in
+          * test_completion_of_outstanding_async_IOs ... test case,
+          * we -cannot- issue this call below. As concurrent processes
+          * are executing the cache will never be in a fully clean
+          * state.
+          *
+          *   splinterdb_cache_flush(spl_handle);
+          */
+         splinterdb_deregister_thread(spl_handle);
+      }
+   }
+
+   // Only parent can close Splinter
+   if (data->am_parent && pid) {
+      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+                           "Waiting for child pid=%d to complete ...\n",
+                           platform_get_tid(),
+                           getpid(),
+                           pid);
+
+      wait(NULL);
+
+      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+                           "Child execution wait() completed."
+                           " Resuming parent ...\n",
+                           platform_get_tid(),
+                           getpid());
+      splinterdb_close(&spl_handle);
+   }
+}
+
 /*
  * Helper functions.
  */
 // By default, all test cases in this file need to run with shared memory
-// configured.
+// configured. Cache is sized small as most test cases want to exercise
+// heavy IOs, which will happen more easily with smaller caches.
 static void
 create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 {
