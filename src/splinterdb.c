@@ -290,7 +290,8 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
 
    // All memory allocation after this call should -ONLY- use heap handles
    // from the handle to the running Splinter instance; i.e. 'kvs'. (The
-   // memory handles init'ed above off of kvs_cfg will be NULL'ed out.)
+   // input memory handles in kvs_cfg; i.e. kvs_cfg->heap_id, heap_handle will
+   // be NULL'ed out after they are cp'ed to handles in kvs.)
    status = splinterdb_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
@@ -387,7 +388,10 @@ deinit_system:
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 deinit_kvhandle:
-   platform_free(kvs_cfg->heap_id, kvs);
+   // Depending on the place where a configuration / setup error lead
+   // us to here via a 'goto', heap_id handle, if in use, may be in a
+   // different place. Use one carefully, to avoid MSAN-errors.
+   platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
 
    return platform_status_to_int(status);
 }

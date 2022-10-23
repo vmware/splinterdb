@@ -3966,7 +3966,18 @@ trunk_bundle_build_filters(void *arg, void *scratch)
    } while (compact_req->generation != generation);
 
 out:
+   /*
+    * RESOLVE: This call is troublesome. From code inspection,
+    * compact_req->fp_arr seems to be pointing to btree_pack_req
+    * pack_req.fingerprint_arr, which is allocated not from the
+    * heap but from malloc() [i.e., NULL_HEAP_ID ]. But if you use
+    * NULL_HEAP_ID here, you will get a 'wild pointer free' error
+    * in ASAN runs. Hence, the patch-fix in shm_free which will
+    * do memory bounds checking and then fall-back to calling free
+    * with NULL_HEAP_ID.
+    */
    platform_free(spl->heap_id, compact_req->fp_arr);
+
    platform_free(spl->heap_id, compact_req);
    trunk_maybe_reclaim_space(spl);
    return;

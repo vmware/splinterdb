@@ -505,7 +505,10 @@ routing_filter_add(cache           *cc,
                                           << old_remainder_and_value_size;
             }
          }
-         debug_assert(old_fp_no == old_index_count);
+         debug_assert((old_fp_no == old_index_count),
+                      "old_fp_no=%u, old_index_count=%u\n",
+                      old_fp_no,
+                      old_index_count);
 
          if (old_value_size != value_size) {
             for (old_fp_no = 0; old_fp_no < old_index_count; old_fp_no++) {
@@ -622,7 +625,7 @@ routing_filter_add(cache           *cc,
 
    mini_release(&mini, NULL_KEY);
 
-   platform_free(hid, temp);
+   platform_free(NULL_HEAP_ID, temp);
 
    return STATUS_OK;
 }

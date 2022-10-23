@@ -416,16 +416,6 @@ platform_alignment(const size_t alignment, const size_t size)
 }
 
 /*
- * void * = splinter_shm_alloc(platform_heap_id heap_id, size_t nbytes,
- *                             const char * objname)
- *
- * Caller-macro to invoke lower-level allocator and to pass-down caller's
- * context fields, which are printed for diagnostics under a traceflag.
- */
-#define splinter_shm_alloc(heap_id, nbytes, objname)                           \
-   platform_shm_alloc(heap_id, required, objname, func, file, lineno)
-
-/*
  * platform_aligned_malloc() -- Allocate n-bytes accounting for alignment.
  *
  * This interface will, by default, allocate using aligned_alloc().
@@ -469,18 +459,20 @@ platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
                  const size_t           size)          // IN
 {
    /* FIXME: alignment? */
-   return realloc(ptr, size);
+   // Farm control off to shared-memory base realloc, if it's configured
+   if (heap_id) {
+      // The shmem-based allocator is expecting all memory requests to be of
+      // aligned sizes, as that's what platform_aligned_malloc() does. So, to
+      // keep that allocator happy, align this memory request if needed.
+      // As this is the case of realloc, we assume that it would suffice to
+      // align at platform's natural cacheline boundary.
+      const size_t padding  = platform_alignment(PLATFORM_CACHELINE_SIZE, size);
+      const size_t required = (size + padding);
+      return splinter_shm_realloc(heap_id, ptr, required);
+   } else {
+      return realloc(ptr, size);
+   }
 }
-
-/*
- * void = splinter_shm_free(platform_heap_id heap_id, void *ptr,
- *                          const char * objname)
- *
- * Caller-macro to invoke lower-level free method and to pass-down caller's
- * context fields, which are printed for diagnostics under a traceflag.
- */
-#define splinter_shm_free(heap_id, ptr, objname)                               \
-   platform_shm_free(heap_id, ptr, objname, func, file, lineno)
 
 static inline void
 platform_free_from_heap(platform_heap_id heap_id,

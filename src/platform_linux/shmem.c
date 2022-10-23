@@ -28,6 +28,7 @@ bool Trace_shmem        = FALSE;
  */
 typedef struct shmem_info {
    void  *shm_start;       // Points to start address of shared segment.
+   void  *shm_end;         // Points to end address; one past end of sh segment
    void  *shm_next;        // Points to next 'free' address to allocate from.
    size_t shm_total_bytes; // Total size of shared segment allocated initially.
    size_t shm_free_bytes;  // Free bytes of memory left (that can be allocated)
@@ -62,6 +63,20 @@ platform_heap_id_to_shmaddr(platform_heap_id hid)
    debug_assert(hid != NULL);
    void *shmaddr = (void *)platform_heap_id_to_handle(hid);
    return shmaddr;
+}
+
+/* Evaluates to valid 'low' address within shared segment. */
+static inline void *
+platform_shm_lop(platform_heap_id hid)
+{
+   return (void *)platform_heap_id_to_handle(hid);
+}
+
+/* Evaluates to valid 'high' address within shared segment. */
+static inline void *
+platform_shm_hip(platform_heap_id hid)
+{
+   return (((shmem_info *)platform_heap_id_to_shmaddr(hid))->shm_end - 1);
 }
 
 /*
@@ -109,6 +124,7 @@ platform_shmcreate(size_t                size,
    shmem_info *shminfop = (shmem_info *)shmaddr;
 
    shminfop->shm_start       = shmaddr;
+   shminfop->shm_end         = (shmaddr + size);
    shminfop->shm_next        = (shmaddr + sizeof(shmem_info));
    shminfop->shm_total_bytes = size;
    free_bytes                = (size - sizeof(shmem_info));
@@ -279,7 +295,34 @@ platform_shm_alloc(platform_heap_id hid,
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_free() -- 'Free' the memory fragment at given address.
+ * platform_shm_realloc() -- Re-allocate n-bytes from shared segment.
+ *
+ * Functionally is similar to 'realloc' system call. We do a fake free and then
+ * allocate required # of bytes.
+ */
+void *
+platform_shm_realloc(platform_heap_id hid,
+                     void            *oldptr,
+                     const size_t     size,
+                     const char      *func,
+                     const char      *file,
+                     const int        lineno)
+{
+   if (oldptr) {
+      splinter_shm_free(hid, oldptr, "Unknown");
+   }
+   return splinter_shm_alloc(hid, size, "Unknown");
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * platform_shm_free() -- 'Free' the memory fragment at given address in shmem.
+ *
+ * We expect that the 'ptr' is a valid address within the shared segment.
+ * Otherwise, it means that Splinter was configured to run with shared memory,
+ * -and- in some code path we allocated w/o using shared memory
+ * (i.e. NULL_HEAP_ID interface), but ended up calling shmem-free interface.
+ * That would be a code error that results in a memory leak.
  * -----------------------------------------------------------------------------
  */
 void
@@ -290,6 +333,37 @@ platform_shm_free(platform_heap_id hid,
                   const char      *file,
                   const int        lineno)
 {
+   /*
+    * RESOLVE: This handling is broken but just gets us going through tests.
+        * There is at least one instance where we trip up while running
+        *
+        * $ ASAN_OPTIONS=detect_odr_violation=0
+    build/debug-asan/bin/unit/splinter_test --use-shmem test_inserts
+        *
+        * with this message:
+        *
+        [src/trunk.c:4031::trunk_bundle_build_filters()] -> platform_shm_free:
+    Requesting to free memory at 0x7fbeb991b800, for object
+    'compact_req->fp_arr' which is a memory chunk not allocated from shared
+    memory {start=0x7fbf09e00000, end=0x7fbf89dfffff}.
+        */
+   if (!platform_valid_addr_in_heap(hid, ptr)) {
+      platform_error_log(
+         "[%s:%d::%s()] -> %s: Requesting to free memory at %p,"
+         " for object '%s' which is a memory chunk not allocated"
+         " from shared memory {start=%p, end=%p}.\n",
+         file,
+         lineno,
+         func,
+         __FUNCTION__,
+         ptr,
+         objname,
+         platform_shm_lop(hid),
+         platform_shm_hip(hid));
+
+      platform_free_from_heap(NULL_HEAP_ID, ptr, objname, func, file, lineno);
+   }
+
    if (Trace_shmem || Trace_shmem_frees) {
       platform_default_log("  [%s:%d::%s()] -> %s: Request to free memory at "
                            "%p for object '%s'.\n",
@@ -305,7 +379,7 @@ platform_shm_free(platform_heap_id hid,
 
 /*
  * -----------------------------------------------------------------------------
- * Accessor interfaces - mainly intended as testing / debugging hooks.
+ * Accessor interfaces - mainly intended as assert / testing / debugging hooks.
  * -----------------------------------------------------------------------------
  */
 bool
@@ -332,6 +406,34 @@ platform_shm_heap_handle_valid(platform_heap_handle heap_handle)
    }
 
    return TRUE;
+}
+
+/*
+ * platform_valid_addr_in_heap(), platform_valid_addr_in_shm()
+ *
+ * Validate that input address 'addr' is a valid address within shared segment
+ * region.
+ */
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
+{
+   return platform_valid_addr_in_shm(platform_heap_id_to_handle(heap_id), addr);
+}
+
+/*
+ * Address 'addr' is valid if it's just past end of control block and within
+ * shared segment.
+ */
+bool
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle),
+                "Shared memory heap_handle %p is invalid.\n",
+                heap_handle);
+
+   const shmem_info *shmaddr = (shmem_info *)heap_handle;
+   return ((addr >= ((void *)shmaddr + platform_shm_ctrlblock_size()))
+           && (addr < shmaddr->shm_end));
 }
 
 /*
