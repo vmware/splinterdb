@@ -675,7 +675,7 @@ clockcache_clear_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 static inline uint32
 clockcache_test_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
-   return flag & clockcache_get_entry(cc, entry_number)->status;
+   return flag & clockcache_get_flag(cc, entry_number);
 }
 
 #ifdef RECORD_ACQUISITION_STACKS
@@ -959,9 +959,9 @@ clockcache_assert_no_locks_held(clockcache *cc)
 void
 clockcache_assert_clean(clockcache *cc)
 {
-   uint64 i;
+#if SPLINTER_DEBUG
 
-   for (i = 0; i < cc->cfg->page_capacity; i++) {
+   for (uint64 i = 0; i < cc->cfg->page_capacity; i++) {
 
       // We expect entry to be in only one of these two states.
       entry_status entry_flag = clockcache_get_flag(cc, i);
@@ -972,6 +972,7 @@ clockcache_assert_clean(clockcache *cc)
                    entry_flag,
                    ((entry_flag & CC_ACCESSED) ? "(CC_ACCESSED)" : ""));
    }
+#endif // SPLINTER_DEBUG
 }
 
 /*

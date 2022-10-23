@@ -217,7 +217,7 @@ extern platform_heap_id     Heap_id;
 /*
  * Provide a tag for callers that do not want to use shared-memory allocation,
  * when configured but want to fallback to default malloc()-based scheme.
- * (Usuallly this would be done if a large chunk of memory is repeatedly
+ * (Usually this would be done if a large chunk of memory is repeatedly
  * allocated and freed in some code-path.)
  */
 #define NULL_HEAP_ID (platform_heap_id) NULL

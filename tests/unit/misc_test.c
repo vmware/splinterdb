@@ -76,6 +76,9 @@ CTEST2(misc, test_assert_basic_msg)
    test_platform_assert(log_handle, 1 == 2, MISC_MSG_WITH_NO_ARGS);
    char *assert_str = platform_log_stream_to_string(&stream);
 
+   // Skip other pid/tid details prepended to the message
+   assert_str = strstr(assert_str, "Assertion");
+
    // Construct an expected assertion message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];
    snprintf(expmsg,
@@ -107,6 +110,9 @@ CTEST2(misc, test_assert_msg_with_args)
    test_platform_assert(log_handle, 1 == 2, MISC_MSG_WITH_ARGS, arg_id, arg_name);
    // clang-format on
    char *assert_str = platform_log_stream_to_string(&stream);
+
+   // Skip other pid/tid details prepended to the message
+   assert_str = strstr(assert_str, "Assertion");
 
    // Construct an expected assertion message, using parts we know about.
    char expmsg[ASSERT_OUTBUF_LEN];

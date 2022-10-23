@@ -22,6 +22,16 @@ platform_shmcreate(size_t                size,
 void
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr);
+
+bool
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr);
+
+// Caller-macro to synthesize call-site details.
+#define splinter_shm_alloc(heap_id, nbytes, objname)                           \
+   platform_shm_alloc(heap_id, nbytes, objname, func, file, lineno)
+
 void *
 platform_shm_alloc(platform_heap_id hid,
                    const size_t     size,
@@ -30,6 +40,10 @@ platform_shm_alloc(platform_heap_id hid,
                    const char      *file,
                    const int        lineno);
 
+// Caller-macro to synthesize call-site details.
+#define splinter_shm_free(heap_id, ptr, objname)                               \
+   platform_shm_free(heap_id, ptr, objname, func, file, lineno)
+
 void
 platform_shm_free(platform_heap_id hid,
                   void            *ptr,
@@ -37,6 +51,20 @@ platform_shm_free(platform_heap_id hid,
                   const char      *func,
                   const char      *file,
                   const int        lineno);
+
+// Caller-macro to synthesize call-site details.
+// RESOLVE: Patch these in for now; Fix it properly later on.
+#define splinter_shm_realloc(heap_id, oldptr, nbytes)                          \
+   platform_shm_realloc(                                                       \
+      heap_id, oldptr, nbytes, __FUNCTION__, __FILE__, __LINE__)
+
+void *
+platform_shm_realloc(platform_heap_id hid,
+                     void            *oldptr,
+                     const size_t     size,
+                     const char      *func,
+                     const char      *file,
+                     const int        lineno);
 
 static inline int
 platform_shm_alignment()
