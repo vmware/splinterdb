@@ -334,10 +334,10 @@ typedef struct trunk_async_ctxt {
  */
 
 platform_status
-trunk_insert(trunk_handle *spl, slice key, message data);
+trunk_insert(trunk_handle *spl, key key, message data);
 
 platform_status
-trunk_lookup(trunk_handle *spl, slice key, merge_accumulator *result);
+trunk_lookup(trunk_handle *spl, key key, merge_accumulator *result);
 
 static inline bool
 trunk_lookup_found(merge_accumulator *result)
@@ -347,22 +347,22 @@ trunk_lookup_found(merge_accumulator *result)
 
 cache_async_result
 trunk_lookup_async(trunk_handle      *spl,
-                   slice              key,
+                   key                key,
                    merge_accumulator *data,
                    trunk_async_ctxt  *ctxt);
 platform_status
 trunk_range_iterator_init(trunk_handle         *spl,
                           trunk_range_iterator *range_itor,
-                          slice                 min_key,
-                          slice                 max_key,
+                          key                   min_key,
+                          key                   max_key,
                           uint64                num_tuples);
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 
-typedef void (*tuple_function)(slice key, message value, void *arg);
+typedef void (*tuple_function)(key key, message value, void *arg);
 platform_status
 trunk_range(trunk_handle  *spl,
-            slice          start_key,
+            key            start_key,
             uint64         num_tuples,
             tuple_function func,
             void          *arg);
@@ -405,9 +405,7 @@ void
 trunk_print_super_block(platform_log_handle *log_handle, trunk_handle *spl);
 
 void
-trunk_print_lookup(trunk_handle        *spl,
-                   slice                key,
-                   platform_log_handle *log_handle);
+trunk_print_lookup(trunk_handle *spl, key key, platform_log_handle *log_handle);
 void
 trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
 void
@@ -424,13 +422,13 @@ trunk_key_size(trunk_handle *spl)
 }
 
 static inline int
-trunk_key_compare(trunk_handle *spl, slice key1, slice key2)
+trunk_key_compare(trunk_handle *spl, key key1, key key2)
 {
    return btree_key_compare(&spl->cfg.btree_cfg, key1, key2);
 }
 
 static inline void
-trunk_key_to_string(trunk_handle *spl, slice key, char str[static 128])
+trunk_key_to_string(trunk_handle *spl, key key, char str[static 128])
 {
    btree_key_to_string(&spl->cfg.btree_cfg, key, str);
 }

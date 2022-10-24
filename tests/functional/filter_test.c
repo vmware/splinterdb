@@ -46,20 +46,20 @@ test_filter_basic(cache           *cc,
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
-   char  key[SPLINTERDB_MAX_KEY_SIZE];
-   slice key_slice = slice_create(key_size, key);
+   char  keybuf[SPLINTERDB_MAX_KEY_SIZE];
+   key   key_key = key_create(key_size, keybuf);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
          num_input_keys[i] = num_input_keys[i - 1];
       }
       for (uint64 j = 0; j < num_fingerprints; j++) {
-         ZERO_ARRAY(key);
+         ZERO_ARRAY(keybuf);
          if (!used_keys[(i + 1) * j]) {
             used_keys[(i + 1) * j] = TRUE;
             num_input_keys[i]++;
          }
-         *(uint64 *)key = (i + 1) * j;
-         fp_arr[i][j]   = cfg->hash(key, key_size, cfg->seed);
+         *(uint64 *)keybuf = (i + 1) * j;
+         fp_arr[i][j]      = cfg->hash(keybuf, key_size, cfg->seed);
       }
    }
 
@@ -97,11 +97,11 @@ test_filter_basic(cache           *cc,
 
    for (uint64 i = 0; i < num_values; i++) {
       for (uint64 j = 0; j < num_fingerprints; j++) {
-         ZERO_ARRAY(key);
-         *(uint64 *)key = (i + 1) * j;
+         ZERO_ARRAY(keybuf);
+         *(uint64 *)keybuf = (i + 1) * j;
          uint64 found_values;
          rc = routing_filter_lookup(
-            cc, cfg, &filter[i + 1], key_slice, &found_values);
+            cc, cfg, &filter[i + 1], key_key, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i)) {
             platform_default_log(
@@ -117,11 +117,11 @@ test_filter_basic(cache           *cc,
    uint64 unused_key      = (num_values + 1) * num_fingerprints;
    uint64 false_positives = 0;
    for (uint64 i = unused_key; i < unused_key + num_fingerprints; i++) {
-      ZERO_ARRAY(key);
-      *(uint64 *)key = i;
+      ZERO_ARRAY(keybuf);
+      *(uint64 *)keybuf = i;
       uint64 found_values;
       rc = routing_filter_lookup(
-         cc, cfg, &filter[num_values], key_slice, &found_values);
+         cc, cfg, &filter[num_values], key_key, &found_values);
       if (found_values) {
          false_positives++;
       }
@@ -169,14 +169,14 @@ test_filter_perf(cache           *cc,
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
    }
-   char  key[SPLINTERDB_MAX_KEY_SIZE];
-   slice key_slice = slice_create(key_size, key);
+   char  keybuf[SPLINTERDB_MAX_KEY_SIZE];
+   key   key_key = key_create(key_size, keybuf);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
          uint64 idx = k * num_values * num_fingerprints + i;
-         ZERO_ARRAY(key);
-         *(uint64 *)key = idx;
-         fp_arr[idx]    = cfg->hash(key, key_size, cfg->seed);
+         ZERO_ARRAY(keybuf);
+         *(uint64 *)keybuf = idx;
+         fp_arr[idx]       = cfg->hash(keybuf, key_size, cfg->seed);
       }
    }
 
@@ -209,11 +209,11 @@ test_filter_perf(cache           *cc,
    start_time = platform_get_timestamp();
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
-         ZERO_ARRAY(key);
-         *(uint64 *)key = k * num_values * num_fingerprints + i;
+         ZERO_ARRAY(keybuf);
+         *(uint64 *)keybuf = k * num_values * num_fingerprints + i;
          uint64 found_values;
-         rc = routing_filter_lookup(
-            cc, cfg, &filter[k], key_slice, &found_values);
+         rc =
+            routing_filter_lookup(cc, cfg, &filter[k], key_key, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i / num_fingerprints))
          {
@@ -224,8 +224,7 @@ test_filter_perf(cache           *cc,
                k,
                found_values);
 
-            routing_filter_lookup(
-               cc, cfg, &filter[k], key_slice, &found_values);
+            routing_filter_lookup(cc, cfg, &filter[k], key_key, &found_values);
             platform_assert(0);
             rc = STATUS_NOT_FOUND;
             goto out;
@@ -241,11 +240,11 @@ test_filter_perf(cache           *cc,
    uint64 false_positives = 0;
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
-         ZERO_ARRAY(key);
-         *(uint64 *)key = k * num_values * num_fingerprints + i + unused_key;
+         ZERO_ARRAY(keybuf);
+         *(uint64 *)keybuf = k * num_values * num_fingerprints + i + unused_key;
          uint64 found_values;
-         rc = routing_filter_lookup(
-            cc, cfg, &filter[k], key_slice, &found_values);
+         rc =
+            routing_filter_lookup(cc, cfg, &filter[k], key_key, &found_values);
          platform_assert_status_ok(rc);
          if (found_values) {
             false_positives++;

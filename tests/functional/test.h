@@ -77,7 +77,7 @@ test_deinit_task_system(platform_heap_id hid, task_system **ts)
    task_system_destroy(hid, ts);
 }
 
-static inline slice
+static inline key
 test_key(writable_buffer *keywb,
          test_key_type    key_type,
          uint64           idx,
@@ -112,7 +112,7 @@ test_key(writable_buffer *keywb,
          break;
       }
    }
-   return writable_buffer_to_slice(keywb);
+   return key_create_from_slice(writable_buffer_to_slice(keywb));
 }
 
 static inline bool
