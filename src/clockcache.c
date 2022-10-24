@@ -1884,7 +1884,7 @@ clockcache_init(clockcache          *cc,   // OUT
    }
 
    /* data must be aligned because of O_DIRECT */
-   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid);
+   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_id, mid);
    if (!cc->bh) {
       goto alloc_error;
    }
@@ -1902,7 +1902,7 @@ clockcache_init(clockcache          *cc,   // OUT
    size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
 
    /* Allocate the ref-count buffer */
-   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_handle, mid);
+   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_id, mid);
    if (!cc->rc_bh) {
       goto alloc_error;
    }

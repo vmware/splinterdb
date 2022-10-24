@@ -667,13 +667,13 @@ platform_heap_destroy(platform_heap_handle *heap_handle);
  *  platform_heap_handle hh	- Heap-handle
  *  platform_module_id mid	- Module-ID (unused)d
  */
-#define platform_buffer_create(length, hh, mid)                                \
+#define platform_buffer_create(length, hid, mid)                               \
    platform_buffer_create_mmap(                                                \
-      (length), (hh), (mid), __FILE__, __LINE__, __FUNCTION__)
+      (length), (hid), (mid), __FILE__, __LINE__, __FUNCTION__)
 
 buffer_handle *
 platform_buffer_create_mmap(size_t               length,
-                            platform_heap_handle heap_handle,
+                            platform_heap_id     heap_id,
                             platform_module_id   module_id,
                             const char          *file,
                             const int            lineno,

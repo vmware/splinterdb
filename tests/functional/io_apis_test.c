@@ -27,6 +27,7 @@
  * ----------------------------------------------------------------------------
  */
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "platform.h"
 #include "config.h"

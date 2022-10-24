@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <sys/mman.h>
+#include <unistd.h>
 #include "platform.h"
 #include "shmem.h"
 
@@ -67,53 +68,55 @@ platform_heap_destroy(platform_heap_handle *heap_handle)
  * platform_buffer_create_mmap() - Create large buffers using mmap()
  *
  * Certain modules, e.g. the buffer cache, need a very large buffer which
- * cannot be serviced by the heap. Create the requested buffer using mmap()
- * and return a handle to it.
+ * usually cannot be serviced by the heap. Create the requested buffer using
+ * mmap() and return a handle to it.
  */
 buffer_handle *
 platform_buffer_create_mmap(size_t               length,
-                            platform_heap_handle UNUSED_PARAM(heap_handle),
+                            platform_heap_id     heap_id,
                             platform_module_id   UNUSED_PARAM(module_id),
                             const char          *file,
                             const int            lineno,
                             const char          *func)
 {
-   buffer_handle *bh = TYPED_MALLOC(platform_get_heap_id(), bh);
+   buffer_handle *bh = TYPED_MALLOC(heap_id, bh);
 
-   if (bh != NULL) {
-      int prot  = PROT_READ | PROT_WRITE;
-      int flags = MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE;
-      if (platform_use_hugetlb) {
-         flags |= MAP_HUGETLB;
-      }
-
-      bh->addr = mmap(NULL, length, prot, flags, -1, 0);
-      if (bh->addr == MAP_FAILED) {
-         platform_error_log("%s:%d:%s(): mmap (%lu bytes) failed with "
-                            "error: %s\n",
-                            file,
-                            lineno,
-                            func,
-                            length,
-                            strerror(errno));
-         goto error;
-      }
-
-      if (platform_use_mlock) {
-         int rc = mlock(bh->addr, length);
-         if (rc != 0) {
-            platform_error_log(
-               "%s:%d:%s(): mlock (%lu bytes) failed with error: %s\n",
-               file,
-               lineno,
-               func,
-               length,
-               strerror(errno));
-            munmap(bh->addr, length);
-            goto error;
-         }
-      }
+   if (bh == NULL) {
+       goto out;
    }
+
+  int prot  = PROT_READ | PROT_WRITE;
+  int flags = MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE;
+  if (platform_use_hugetlb) {
+     flags |= MAP_HUGETLB;
+  }
+
+  bh->addr = mmap(NULL, length, prot, flags, -1, 0);
+  if (bh->addr == MAP_FAILED) {
+     platform_error_log("%s:%d:%s(): mmap (%lu bytes) failed with "
+                        "error: %s\n",
+                        file,
+                        lineno,
+                        func,
+                        length,
+                        strerror(errno));
+     goto error;
+  }
+
+  if (platform_use_mlock) {
+     int rc = mlock(bh->addr, length);
+     if (rc != 0) {
+        platform_error_log(
+           "%s:%d:%s(): mlock (%lu bytes) failed with error: %s\n",
+           file,
+           lineno,
+           func,
+           length,
+           strerror(errno));
+        munmap(bh->addr, length);
+        goto error;
+     }
+  }
 
    bh->length = length;
    platform_default_log("%s:%d:%s(): Created buffer of %lu bytes using mmap.\n",
@@ -124,8 +127,9 @@ platform_buffer_create_mmap(size_t               length,
    return bh;
 
 error:
-   platform_free(platform_get_heap_id(), bh);
+   platform_free(heap_id, bh);
    bh = NULL;
+out:
    return bh;
 }
 

@@ -102,10 +102,8 @@ RadixSort(uint32 *pData,
          u = pSrc[i];
          c = ((uint8 *)&u)[j + fpshift];
          platform_assert((mIndex[j][c] < count),
-                         "OS-pid=%d, thread-ID=%lu, i=%u, j=%u, c=%d"
+                         "i=%u, j=%u, c=%d"
                          ", mIndex[j][c]=%d, count=%u\n",
-                         getpid(),
-                         platform_get_tid(),
                          i,
                          j,
                          c,

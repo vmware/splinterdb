@@ -14,6 +14,7 @@
  * -----------------------------------------------------------------------------
  */
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "platform.h"
 #include "splinterdb/public_platform.h"

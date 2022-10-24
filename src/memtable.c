@@ -8,6 +8,7 @@
  *     This file contains the implementation for the splinter memtable.
  *-----------------------------------------------------------------------------
  */
+#include <unistd.h>
 
 #include "platform.h"
 #include "memtable.h"
