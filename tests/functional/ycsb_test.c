@@ -306,7 +306,7 @@ typedef struct ycsb_phase {
 } ycsb_phase;
 
 static void
-nop_tuple_func(slice key, message value, void *arg)
+nop_tuple_func(key key, message value, void *arg)
 {}
 
 static void
@@ -341,7 +341,7 @@ ycsb_thread(void *arg)
             case 'r':
             {
                rc = trunk_lookup(
-                  spl, slice_create(YCSB_KEY_SIZE, ops->key), &value);
+                  spl, key_create(YCSB_KEY_SIZE, ops->key), &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
@@ -359,15 +359,14 @@ ycsb_thread(void *arg)
                message val =
                   message_create(MESSAGE_TYPE_INSERT,
                                  slice_create(YCSB_DATA_SIZE, ops->value));
-               rc =
-                  trunk_insert(spl, slice_create(YCSB_KEY_SIZE, ops->key), val);
+               rc = trunk_insert(spl, key_create(YCSB_KEY_SIZE, ops->key), val);
                platform_assert_status_ok(rc);
                break;
             }
             case 's':
             {
                rc = trunk_range(spl,
-                                slice_create(YCSB_KEY_SIZE, ops->key),
+                                key_create(YCSB_KEY_SIZE, ops->key),
                                 ops->range_len,
                                 nop_tuple_func,
                                 NULL);

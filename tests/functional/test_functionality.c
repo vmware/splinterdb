@@ -29,18 +29,18 @@ destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
  * database. Used for diagnosing failures.
  */
 static void
-search_for_key_via_iterator(trunk_handle *spl, slice target)
+search_for_key_via_iterator(trunk_handle *spl, key target)
 {
    trunk_range_iterator iter;
    bool                 at_end;
 
-   trunk_range_iterator_init(spl, &iter, NULL_SLICE, NULL_SLICE, UINT64_MAX);
+   trunk_range_iterator_init(spl, &iter, NULL_KEY, NULL_KEY, UINT64_MAX);
    uint64 count = 0;
    while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
-      slice   key;
+      key     key;
       message value;
       iterator_get_curr((iterator *)&iter, &key, &value);
-      if (slice_lex_cmp(target, key) == 0) {
+      if (data_key_compare(spl->cfg.data_cfg, target, key) == 0) {
          platform_error_log("Found missing key %s\n",
                             key_string(spl->cfg.data_cfg, target));
       }
@@ -53,14 +53,14 @@ search_for_key_via_iterator(trunk_handle *spl, slice target)
 
 static void
 verify_tuple(trunk_handle    *spl,
-             slice            keybuf,
+             key              keybuf,
              message          msg,
              int8             refcount,
              platform_status *result)
 {
    const data_handle *dh    = message_data(msg);
    bool               found = dh != NULL;
-   uint64             key   = be64toh(*(uint64 *)slice_data(keybuf));
+   uint64             key   = be64toh(*(uint64 *)key_data(keybuf));
 
    if (dh && message_length(msg) < sizeof(data_handle)) {
       platform_error_log("ERROR: Short message of length %ld, key = 0x%08lx, ",
@@ -123,7 +123,7 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
    platform_status *result = arg;
 
    verify_tuple(spl,
-                writable_buffer_to_slice(&ctxt->key),
+                key_create_from_slice(writable_buffer_to_slice(&ctxt->key)),
                 merge_accumulator_to_message(&ctxt->data),
                 ctxt->refcount,
                 result);
@@ -163,7 +163,7 @@ verify_against_shadow(trunk_handle               *spl,
    merge_accumulator_init(&merge_acc, spl->heap_id);
 
    for (i = 0; i < sharr->nkeys; i++) {
-      uint64           key      = sharr->keys[i];
+      uint64           keynum   = sharr->keys[i];
       int8             refcount = sharr->ref_counts[i];
       test_async_ctxt *ctxt;
 
@@ -173,16 +173,16 @@ verify_against_shadow(trunk_handle               *spl,
          ctxt = NULL;
       }
       if (ctxt == NULL) {
-         test_int_to_key(&keybuf, key, key_size);
-         slice key_slice = writable_buffer_to_slice(&keybuf);
-         rc              = trunk_lookup(spl, key_slice, &merge_acc);
+         test_int_to_key(&keybuf, keynum, key_size);
+         key key = key_create_from_slice(writable_buffer_to_slice(&keybuf));
+         rc      = trunk_lookup(spl, key, &merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
          }
          message msg = merge_accumulator_to_message(&merge_acc);
-         verify_tuple(spl, key_slice, msg, refcount, &result);
+         verify_tuple(spl, key, msg, refcount, &result);
       } else {
-         test_int_to_key(&ctxt->key, key, key_size);
+         test_int_to_key(&ctxt->key, keynum, key_size);
          ctxt->refcount = refcount;
          async_ctxt_process_one(
             spl, async_lookup, ctxt, NULL, verify_tuple_callback, &result);
@@ -214,14 +214,14 @@ verify_against_shadow(trunk_handle               *spl,
 platform_status
 verify_range_against_shadow(trunk_handle               *spl,
                             test_splinter_shadow_array *sharr,
-                            slice                       start_key,
-                            slice                       end_key,
+                            key                         start_key,
+                            key                         end_key,
                             platform_heap_id            hid,
                             uint64                      start_index,
                             uint64                      end_index)
 {
    platform_status    status;
-   slice              splinter_keybuf;
+   key                splinter_keybuf;
    message            splinter_message;
    const data_handle *splinter_data_handle;
    uint64             splinter_key;
@@ -263,7 +263,7 @@ verify_range_against_shadow(trunk_handle               *spl,
 
       iterator_get_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
-      splinter_key         = be64toh(*(uint64 *)slice_data(splinter_keybuf));
+      splinter_key         = be64toh(*(uint64 *)key_data(splinter_keybuf));
       splinter_data_handle = message_data(splinter_message);
 
       if (splinter_key == shadow_key) {
@@ -297,7 +297,7 @@ verify_range_against_shadow(trunk_handle               *spl,
       status = STATUS_LIMIT_EXCEEDED;
       iterator_get_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
-      splinter_key = be64toh(*(uint64 *)slice_data(splinter_keybuf));
+      splinter_key = be64toh(*(uint64 *)key_data(splinter_keybuf));
 
       platform_default_log("Range iterator EXTRA KEY: %08lx \n"
                            "Tree Refcount %3d\n",
@@ -324,13 +324,13 @@ out:
 #define VERIFY_RANGE_ENDPOINT_EQUAL (5)
 #define VERIFY_RANGE_ENDPOINT_LESS  (6)
 
-static slice
+static key
 choose_key(data_config                *cfg,         // IN
            test_splinter_shadow_array *sharr,       // IN
            random_state               *prg,         // IN/OUT
            int                         type,        // IN
            bool                        is_start,    // IN
-           slice                       startkey,    // IN
+           key                         startkey,    // IN
            int                         start_index, // IN
            int                        *index,       // OUT
            writable_buffer            *keybuf)                 // OUT
@@ -344,11 +344,11 @@ choose_key(data_config                *cfg,         // IN
          break;
       case VERIFY_RANGE_ENDPOINT_MIN:
          *index = 0;
-         writable_buffer_copy_slice(keybuf, data_min_key(cfg));
+         writable_buffer_copy_slice(keybuf, key_slice(data_min_key(cfg)));
          break;
       case VERIFY_RANGE_ENDPOINT_MAX:
          *index = num_keys;
-         writable_buffer_copy_slice(keybuf, data_max_key(cfg));
+         writable_buffer_copy_slice(keybuf, key_slice(data_max_key(cfg)));
       case VERIFY_RANGE_ENDPOINT_RAND:
       {
          // Pick in the middle 3/5ths of the array
@@ -366,12 +366,12 @@ choose_key(data_config                *cfg,         // IN
          break;
       }
       case VERIFY_RANGE_ENDPOINT_EQUAL:
-         platform_assert(!is_start && !slice_is_null(startkey));
+         platform_assert(!is_start && !key_is_null(startkey));
          *index = start_index;
-         writable_buffer_copy_slice(keybuf, startkey);
+         writable_buffer_copy_slice(keybuf, key_slice(startkey));
          break;
       case VERIFY_RANGE_ENDPOINT_LESS:
-         platform_assert(!is_start && !slice_is_null(startkey));
+         platform_assert(!is_start && !key_is_null(startkey));
          *index = start_index ? (random_next_uint64(prg) % start_index) : 0;
          test_int_to_key(keybuf, sharr->keys[*index], cfg->key_size);
          break;
@@ -379,7 +379,7 @@ choose_key(data_config                *cfg,         // IN
          platform_assert(0);
    }
 
-   return writable_buffer_to_slice(keybuf);
+   return key_create_from_slice(writable_buffer_to_slice(keybuf));
 }
 
 platform_status
@@ -392,8 +392,8 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
    int             begin_type;
    int             end_type;
    platform_status rc, result = STATUS_OK;
-   slice           start_key;
-   slice           end_key;
+   key             start_key;
+   key             end_key;
    int             start_index;
    int             end_index;
    WRITABLE_BUFFER_DEFAULT(startkey_buf, spl->heap_id);
@@ -412,7 +412,7 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                                 prg,
                                 begin_type,
                                 1,
-                                NULL_SLICE,
+                                NULL_KEY,
                                 0,
                                 &start_index,
                                 &startkey_buf);
@@ -445,7 +445,7 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
                              prg,
                              begin_type,
                              1,
-                             NULL_SLICE,
+                             NULL_KEY,
                              0,
                              &start_index,
                              &startkey_buf);
@@ -555,24 +555,24 @@ insert_random_messages(trunk_handle              *spl,
 
    int               i;
    platform_status   rc = STATUS_OK;
-   uint64            key;
+   uint64            keynum;
    merge_accumulator msg;
    merge_accumulator_init(&msg, NULL);
 
    WRITABLE_BUFFER_DEFAULT(keybuf, spl->heap_id);
 
-   key = minkey;
+   keynum = minkey;
    for (i = 0; i < num_messages; i++) {
       // Generate a random message (op, key).
       // (the refcount field of our messages are always 1)
-      key = minkey
-            + (((key - minkey) + mindelta
-                + (random_next_uint64(prg) % (maxdelta - mindelta + 1)))
-               % (maxkey - minkey + 1));
+      keynum = minkey
+               + (((keynum - minkey) + mindelta
+                   + (random_next_uint64(prg) % (maxdelta - mindelta + 1)))
+                  % (maxkey - minkey + 1));
 
       // Insert message into Splinter
-      test_int_to_key(&keybuf, key, key_size);
-      slice key_slice = writable_buffer_to_slice(&keybuf);
+      test_int_to_key(&keybuf, keynum, key_size);
+      key key = key_create_from_slice(writable_buffer_to_slice(&keybuf));
 
       int8 ref_count = 0;
       if (op != MESSAGE_TYPE_DELETE) {
@@ -583,7 +583,7 @@ insert_random_messages(trunk_handle              *spl,
       }
       test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
 
-      rc = trunk_insert(spl, key_slice, merge_accumulator_to_message(&msg));
+      rc = trunk_insert(spl, key, merge_accumulator_to_message(&msg));
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -592,12 +592,12 @@ insert_random_messages(trunk_handle              *spl,
       int8 new_refcount = ref_count;
       if (op == MESSAGE_TYPE_UPDATE) {
          uint64 old_ref_count;
-         if (test_splinter_shadow_lookup(shadow, &key, &old_ref_count)) {
+         if (test_splinter_shadow_lookup(shadow, &keynum, &old_ref_count)) {
             new_refcount = old_ref_count + ref_count;
          }
       }
 
-      rc = test_splinter_shadow_add(shadow, &key, new_refcount);
+      rc = test_splinter_shadow_add(shadow, &keynum, new_refcount);
       if (!SUCCESS(rc)) {
          platform_error_log("Failed to insert key to shadow: %s\n",
                             platform_status_to_string(rc));

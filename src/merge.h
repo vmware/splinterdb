@@ -20,7 +20,7 @@
 typedef struct ordered_iterator {
    iterator *itor;
    int       seq;
-   slice     key;
+   key       key;
    message   data;
    bool      next_key_equal;
 } ordered_iterator;
@@ -66,7 +66,7 @@ typedef struct merge_iterator {
    bool         at_end;
    int          num_remaining; // number of ritors not at end
    data_config *cfg;           // point message tree data config
-   slice        key;           // next key
+   key          key;           // next key
    message      data;          // next data
 
    // Padding so ordered_iterators[-1] is valid

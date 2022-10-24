@@ -137,7 +137,7 @@ splinterdb_validate_app_data_config(const data_config *cfg)
                    cfg->key_size);
 
    int min_max_cmp =
-      cfg->key_compare(cfg, data_min_key(cfg), data_max_key(cfg));
+      data_key_compare(cfg, data_min_key(cfg), data_max_key(cfg));
    platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
    return STATUS_OK;
 }
@@ -462,29 +462,29 @@ splinterdb_deregister_thread(splinterdb *kvs)
  * Validate that a key being inserted is within [min, max]-key range.
  */
 bool
-validate_key_in_range(const splinterdb *kvs, slice key)
+validate_key_in_range(const splinterdb *kvs, key _key)
 {
    const data_config *cfg = kvs->data_cfg;
 
    int cmp_rv = 0;
 
-   slice min_key = data_min_key(cfg);
-   slice max_key = data_max_key(cfg);
+   key min_key = data_min_key(cfg);
+   key max_key = data_max_key(cfg);
 
    // key to-be-inserted should be >= min-key
-   cmp_rv = cfg->key_compare(cfg, min_key, key);
+   cmp_rv = data_key_compare(cfg, min_key, _key);
    if (cmp_rv > 0) {
       platform_error_log("Key '%s' is less than configured min-key '%s'.\n",
-                         key_string(cfg, key),
+                         key_string(cfg, _key),
                          key_string(cfg, min_key));
       return FALSE;
    }
 
    // key to-be-inserted should be <= max-key
-   cmp_rv = cfg->key_compare(cfg, key, max_key);
+   cmp_rv = data_key_compare(cfg, _key, max_key);
    if (cmp_rv > 0) {
       platform_error_log("Key '%s' is greater than configured max-key '%s'.\n",
-                         key_string(cfg, key),
+                         key_string(cfg, _key),
                          key_string(cfg, max_key));
       return FALSE;
    }
@@ -505,34 +505,35 @@ validate_key_in_range(const splinterdb *kvs, slice key)
  *-----------------------------------------------------------------------------
  */
 static int
-splinterdb_insert_message(const splinterdb *kvs, // IN
-                          slice             key, // IN
-                          message           msg  // IN
+splinterdb_insert_message(const splinterdb *kvs,      // IN
+                          slice             user_key, // IN
+                          message           msg       // IN
 )
 {
+   key key = key_create_from_slice(user_key);
    platform_assert(kvs != NULL);
    platform_status status = trunk_insert(kvs->spl, key, msg);
    return platform_status_to_int(status);
 }
 
 int
-splinterdb_insert(const splinterdb *kvsb, slice key, slice value)
+splinterdb_insert(const splinterdb *kvsb, slice user_key, slice value)
 {
    message msg = message_create(MESSAGE_TYPE_INSERT, value);
-   return splinterdb_insert_message(kvsb, key, msg);
+   return splinterdb_insert_message(kvsb, user_key, msg);
 }
 
 int
-splinterdb_delete(const splinterdb *kvsb, slice key)
+splinterdb_delete(const splinterdb *kvsb, slice user_key)
 {
-   return splinterdb_insert_message(kvsb, key, DELETE_MESSAGE);
+   return splinterdb_insert_message(kvsb, user_key, DELETE_MESSAGE);
 }
 
 int
-splinterdb_update(const splinterdb *kvsb, slice key, slice update)
+splinterdb_update(const splinterdb *kvsb, slice user_key, slice update)
 {
    message msg = message_create(MESSAGE_TYPE_UPDATE, update);
-   return splinterdb_insert_message(kvsb, key, msg);
+   return splinterdb_insert_message(kvsb, user_key, msg);
 }
 
 /*
@@ -618,11 +619,12 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
  */
 int
 splinterdb_lookup(const splinterdb         *kvs, // IN
-                  slice                     key,
+                  slice                     user_key,
                   splinterdb_lookup_result *result) // IN/OUT
 {
    platform_status            status;
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
+   key                        key     = key_create_from_slice(user_key);
 
    platform_assert(kvs != NULL);
    status = trunk_lookup(kvs->spl, key, &_result->value);
@@ -637,9 +639,9 @@ struct splinterdb_iterator {
 };
 
 int
-splinterdb_iterator_init(const splinterdb     *kvs,      // IN
-                         splinterdb_iterator **iter,     // OUT
-                         slice                 start_key // IN
+splinterdb_iterator_init(const splinterdb     *kvs,           // IN
+                         splinterdb_iterator **iter,          // OUT
+                         slice                 user_start_key // IN
 )
 {
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);
@@ -650,9 +652,10 @@ splinterdb_iterator_init(const splinterdb     *kvs,      // IN
    it->last_rc = STATUS_OK;
 
    trunk_range_iterator *range_itor = &(it->sri);
+   key                   start_key  = key_create_from_slice(user_start_key);
 
    platform_status rc = trunk_range_iterator_init(
-      kvs->spl, range_itor, start_key, NULL_SLICE, UINT64_MAX);
+      kvs->spl, range_itor, start_key, NULL_KEY, UINT64_MAX);
    if (!SUCCESS(rc)) {
       platform_free(kvs->spl->heap_id, *iter);
       return platform_status_to_int(rc);
@@ -702,14 +705,16 @@ splinterdb_iterator_status(const splinterdb_iterator *iter)
 }
 
 void
-splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
-                                slice               *key,  // OUT
-                                slice               *value // OUT
+splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
+                                slice               *outkey, // OUT
+                                slice               *value   // OUT
 )
 {
+   key       result_key;
    message   msg;
    iterator *itor = &(iter->sri.super);
 
-   iterator_get_curr(itor, key, &msg);
-   *value = message_slice(msg);
+   iterator_get_curr(itor, &result_key, &msg);
+   *value     = message_slice(msg);
+   *outkey    = key_slice(result_key);
 }

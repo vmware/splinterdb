@@ -24,7 +24,7 @@ void
 verify_tuple(trunk_handle           *spl,
              test_message_generator *gen,
              uint64                  lookup_num,
-             slice                   key,
+             key                     key,
              message                 data,
              bool                    expected_found)
 {

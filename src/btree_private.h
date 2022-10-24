@@ -105,7 +105,7 @@ _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
                "leaf_entry key_and_data has wrong offset");
 
 typedef struct leaf_incorporate_spec {
-   slice key;
+   key   key;
    int64 idx;
    enum {
       ENTRY_DID_NOT_EXIST,
@@ -123,7 +123,7 @@ platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    platform_heap_id       heap_id,
                                    btree_hdr             *hdr,
-                                   slice                  key,
+                                   key                    key,
                                    message                message,
                                    leaf_incorporate_spec *spec);
 
@@ -154,7 +154,7 @@ bool
 btree_set_index_entry(const btree_config *cfg,
                       btree_hdr          *hdr,
                       table_index         k,
-                      slice               new_pivot_key,
+                      key                 new_pivot_key,
                       uint64              new_addr,
                       btree_pivot_stats   stats);
 
@@ -162,7 +162,7 @@ bool
 btree_set_leaf_entry(const btree_config *cfg,
                      btree_hdr          *hdr,
                      table_index         k,
-                     slice               new_key,
+                     key                 new_key,
                      message             new_message);
 
 void
@@ -179,7 +179,7 @@ btree_defragment_index(const btree_config *cfg, // IN
 int64
 btree_find_pivot(const btree_config *cfg,
                  const btree_hdr    *hdr,
-                 slice               key,
+                 key                 key,
                  bool               *found);
 
 leaf_splitting_plan
@@ -229,11 +229,11 @@ sizeof_leaf_entry(const leaf_entry *entry)
    return sizeof(*entry) + entry->key_size + entry->message_size;
 }
 
-static inline slice
-index_entry_key_slice(const index_entry *entry)
+static inline key
+index_entry_key(const index_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
-   return slice_create(entry->key_size, entry->key);
+   return key_create(entry->key_size, entry->key);
 }
 
 static inline uint64
@@ -243,12 +243,12 @@ index_entry_child_addr(const index_entry *entry)
    return entry->pivot_data.child_addr;
 }
 
-static inline slice
-leaf_entry_key_slice(leaf_entry *entry)
+static inline key
+leaf_entry_key(leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
    debug_assert(entry->message_indirect == FALSE);
-   return slice_create(entry->key_size, entry->key_and_message);
+   return key_create(entry->key_size, entry->key_and_message);
 }
 
 static inline message
@@ -290,12 +290,12 @@ btree_get_leaf_entry(const btree_config *cfg,
    return entry;
 }
 
-static inline slice
+static inline key
 btree_get_tuple_key(const btree_config *cfg,
                     const btree_hdr    *hdr,
                     table_index         k)
 {
-   return leaf_entry_key_slice(btree_get_leaf_entry(cfg, hdr, k));
+   return leaf_entry_key(btree_get_leaf_entry(cfg, hdr, k));
 }
 
 static inline message
@@ -354,10 +354,10 @@ btree_get_index_entry(const btree_config *cfg,
    return entry;
 }
 
-static inline slice
+static inline key
 btree_get_pivot(const btree_config *cfg, const btree_hdr *hdr, table_index k)
 {
-   return index_entry_key_slice(btree_get_index_entry(cfg, hdr, k));
+   return index_entry_key(btree_get_index_entry(cfg, hdr, k));
 }
 
 static inline uint64

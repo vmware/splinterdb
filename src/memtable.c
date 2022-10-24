@@ -116,7 +116,7 @@ platform_status
 memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
                 platform_heap_id  heap_id,
-                slice             key,
+                key               key,
                 message           msg,
                 uint64           *leaf_generation)
 {
@@ -250,7 +250,7 @@ memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 void
 memtable_deinit(cache *cc, memtable *mt)
 {
-   mini_release(&mt->mini, NULL_SLICE);
+   mini_release(&mt->mini, NULL_KEY);
    debug_only bool freed =
       btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);

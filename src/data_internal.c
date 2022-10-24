@@ -1,6 +1,8 @@
 
 #include "data_internal.h"
 
+key NULL_KEY = {.user_key = {0, NULL}};
+
 message NULL_MESSAGE = {.type = MESSAGE_TYPE_INVALID,
                         .data = {.length = 0, .data = NULL}};
 

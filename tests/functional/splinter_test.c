@@ -23,6 +23,7 @@
 #include "splinter_test.h"
 #include "test_async.h"
 #include "test_common.h"
+#include "test_util.h"
 
 #include "random.h"
 #include "poison.h"
@@ -182,7 +183,7 @@ test_trunk_insert_thread(void *arg)
             generate_test_message(test_cfg->gen, insert_num, &msg);
             platform_status rc =
                trunk_insert(spl,
-                            writable_buffer_to_slice(&key),
+                            writable_buffer_to_key(&key),
                             merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
@@ -267,7 +268,7 @@ test_trunk_lookup_thread(void *arg)
          }
       }
 
-      WRITABLE_BUFFER_DEFAULT(key, heap_id);
+      WRITABLE_BUFFER_DEFAULT(keybuf, heap_id);
 
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          uint8 spl_idx;
@@ -284,7 +285,7 @@ test_trunk_lookup_thread(void *arg)
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
 
-               test_key(&key,
+               test_key(&keybuf,
                         test_cfg[spl_idx].key_type,
                         lookup_num,
                         thread_number,
@@ -292,7 +293,7 @@ test_trunk_lookup_thread(void *arg)
                         trunk_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, writable_buffer_to_slice(&key), &data);
+               rc = trunk_lookup(spl, writable_buffer_to_key(&keybuf), &data);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
@@ -301,7 +302,7 @@ test_trunk_lookup_thread(void *arg)
                verify_tuple(spl,
                             test_cfg->gen,
                             lookup_num,
-                            writable_buffer_to_slice(&key),
+                            writable_buffer_to_key(&keybuf),
                             merge_accumulator_to_message(&data),
                             expected_found);
             } else {
@@ -340,7 +341,7 @@ out:
 }
 
 static void
-nop_tuple_func(slice key, message value, void *arg)
+nop_tuple_func(key key, message value, void *arg)
 {}
 
 /*
@@ -434,12 +435,11 @@ test_trunk_range_thread(void *arg)
                      test_cfg[spl_idx].period);
             uint64 range_tuples =
                test_range(range_num, min_range_length, max_range_length);
-            platform_status rc =
-               trunk_range(spl,
-                           writable_buffer_to_slice(&start_key),
-                           range_tuples,
-                           nop_tuple_func,
-                           NULL);
+            platform_status rc = trunk_range(spl,
+                                             writable_buffer_to_key(&start_key),
+                                             range_tuples,
+                                             nop_tuple_func,
+                                             NULL);
             platform_assert_status_ok(rc);
 
             params->range_lookups_done++;
@@ -597,7 +597,7 @@ do_operation(test_splinter_thread_params *params,
             ts = platform_get_timestamp();
             platform_status rc =
                trunk_insert(spl,
-                            writable_buffer_to_slice(&key),
+                            writable_buffer_to_key(&key),
                             merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
@@ -621,7 +621,7 @@ do_operation(test_splinter_thread_params *params,
                         trunk_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, writable_buffer_to_slice(&key), &msg);
+               rc = trunk_lookup(spl, writable_buffer_to_key(&key), &msg);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {

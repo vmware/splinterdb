@@ -38,7 +38,7 @@ test_log_crash(clockcache             *cc,
    platform_status    rc;
    log_handle        *logh;
    uint64             i;
-   slice              returned_key;
+   key                returned_key;
    message            returned_message;
    uint64             addr;
    uint64             magic;
@@ -61,13 +61,13 @@ test_log_crash(clockcache             *cc,
    merge_accumulator_init(&msg, hid);
 
    for (i = 0; i < num_entries; i++) {
-      slice skey = test_key(&keybuffer,
-                            TEST_RANDOM,
-                            i,
-                            0,
-                            0,
-                            1 + (i % cfg->data_cfg->key_size),
-                            0);
+      key skey = test_key(&keybuffer,
+                          TEST_RANDOM,
+                          i,
+                          0,
+                          0,
+                          1 + (i % cfg->data_cfg->key_size),
+                          0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }
@@ -85,17 +85,17 @@ test_log_crash(clockcache             *cc,
 
    iterator_at_end(itorh, &at_end);
    for (i = 0; i < num_entries && !at_end; i++) {
-      slice skey = test_key(&keybuffer,
-                            TEST_RANDOM,
-                            i,
-                            0,
-                            0,
-                            1 + (i % cfg->data_cfg->key_size),
-                            0);
+      key skey = test_key(&keybuffer,
+                          TEST_RANDOM,
+                          i,
+                          0,
+                          0,
+                          1 + (i % cfg->data_cfg->key_size),
+                          0);
       generate_test_message(gen, i, &msg);
       message mmessage = merge_accumulator_to_message(&msg);
       iterator_get_curr(itorh, &returned_key, &returned_message);
-      if (slice_lex_cmp(skey, returned_key)
+      if (data_key_compare(cfg->data_cfg, skey, returned_key)
           || message_lex_cmp(mmessage, returned_message))
       {
          platform_default_log("log_test_basic: key or data mismatch\n");
@@ -141,13 +141,13 @@ test_log_thread(void *arg)
    test_message_generator *gen         = params->gen;
    uint64                  i;
    merge_accumulator       msg;
-   WRITABLE_BUFFER_DEFAULT(key, hid);
+   WRITABLE_BUFFER_DEFAULT(keybuf, hid);
 
    merge_accumulator_init(&msg, hid);
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
-      slice skey =
-         test_key(&key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
+      key skey = test_key(
+         &keybuf, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }

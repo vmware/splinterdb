@@ -18,7 +18,7 @@ struct merge_behavior {
 
 /* Function declarations and iterator_ops */
 void
-merge_get_curr(iterator *itor, slice *key, message *data);
+merge_get_curr(iterator *itor, key *key, message *data);
 
 platform_status
 merge_at_end(iterator *itor, bool *at_end);
@@ -148,10 +148,10 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
    platform_status rc;
 
    debug_assert(
-      !slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+      !keys_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
-   merge_itor->ordered_iterators[0]->key            = NULL_SLICE;
+   merge_itor->ordered_iterators[0]->key            = NULL_KEY;
    merge_itor->ordered_iterators[0]->data           = NULL_MESSAGE;
    rc = iterator_advance(merge_itor->ordered_iterators[0]->itor);
    if (!SUCCESS(rc)) {
@@ -231,7 +231,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
    debug_assert(message_data(merge_itor->data)
                 != merge_accumulator_data(&merge_itor->merge_buffer));
    debug_assert(
-      slices_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
+      keys_equal(merge_itor->key, merge_itor->ordered_iterators[0]->key));
 
    data_config *cfg = merge_itor->cfg;
 
@@ -437,7 +437,7 @@ merge_iterator_create(platform_heap_id hid,
       merge_itor->ordered_iterator_stored[i] = (ordered_iterator){
          .seq            = i,
          .itor           = i == -1 ? NULL : itor_arr[i],
-         .key            = NULL_SLICE,
+         .key            = NULL_KEY,
          .data           = NULL_MESSAGE,
          .next_key_equal = FALSE,
       };
@@ -554,7 +554,7 @@ merge_at_end(iterator *itor, // IN
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    *at_end                    = merge_itor->at_end;
-   debug_assert(*at_end == slice_is_null(merge_itor->key));
+   debug_assert(*at_end == key_is_null(merge_itor->key));
 
    return STATUS_OK;
 }
@@ -573,7 +573,7 @@ merge_at_end(iterator *itor, // IN
  *-----------------------------------------------------------------------------
  */
 void
-merge_get_curr(iterator *itor, slice *key, message *data)
+merge_get_curr(iterator *itor, key *key, message *data)
 {
    merge_iterator *merge_itor = (merge_iterator *)itor;
    debug_assert(!merge_itor->at_end);
@@ -599,7 +599,7 @@ merge_advance(iterator *itor)
 
    bool retry;
    do {
-      merge_itor->key  = NULL_SLICE;
+      merge_itor->key  = NULL_KEY;
       merge_itor->data = NULL_MESSAGE;
       // Advance one iterator
       rc = advance_and_resort_min_ritor(merge_itor);
@@ -620,7 +620,7 @@ void
 merge_iterator_print(merge_iterator *merge_itor)
 {
    uint64       i;
-   slice        key;
+   key          key;
    message      data;
    data_config *data_cfg = merge_itor->cfg;
    iterator_get_curr(&merge_itor->super, &key, &data);
