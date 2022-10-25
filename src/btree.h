@@ -435,13 +435,6 @@ btree_config_init(btree_config *btree_cfg,
 // robj: I propose making all the following functions private to
 // btree.c
 
-static inline char *
-btree_min_key(btree_config *cfg)
-{
-   platform_assert(0); // Need to kill data_cfg->min_key
-   return cfg->data_cfg->min_key;
-}
-
 static inline int
 btree_key_compare(const btree_config *cfg, key key1, key key2)
 {
