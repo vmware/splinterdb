@@ -480,6 +480,13 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
+   // Now that basic validation of configuration is completed, record the handle
+   // to the running splinter in the shared segment created, if any. (This will
+   // be used for testing & validation.)
+   if (kvs->heap_handle) {
+      platform_heap_set_splinterdb_handle(kvs->heap_handle, (void *)kvs);
+   }
+
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
@@ -582,8 +589,8 @@ deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
-   // us to here via a 'goto', heap_id handle, if in use, may be in a
-   // different place. Use one carefully, to avoid MSAN-errors.
+   // us to here via a 'goto', the heap_id handle, if in use, may be
+   // in a different location. Use one carefully, to avoid MSAN-errors.
    platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
 
    return platform_status_to_int(status);
@@ -1029,4 +1036,45 @@ void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
+
+/*
+ * -----------------------------------------------------------------------------
+ * External accessor APIs, mainly provided for use as testing hooks.
+ * -----------------------------------------------------------------------------
+ */
+void *
+splinterdb_get_heap_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->heap_handle;
+}
+
+const void *
+splinterdb_get_task_system_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->task_sys;
+}
+
+const void *
+splinterdb_get_io_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->io_handle;
+}
+
+const void *
+splinterdb_get_allocator_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->allocator_handle;
+}
+
+const void *
+splinterdb_get_cache_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->cache_handle;
+}
+
+const void *
+splinterdb_get_trunk_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl;
+>>>>>>> 20fc47a (Add extern APIs to support new test test_data_structures_handles.)
 }

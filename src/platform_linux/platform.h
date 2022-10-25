@@ -659,6 +659,13 @@ platform_heap_create(platform_module_id    module_id,
 void
 platform_heap_destroy(platform_heap_handle *heap_handle);
 
+void
+platform_heap_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                    void                *addr);
+
+void *
+platform_heap_get_splinterdb_handle(platform_heap_handle heap_handle);
+
 /*
  * platform_buffer_create() - Pass-through caller-macro.
  *
@@ -672,12 +679,12 @@ platform_heap_destroy(platform_heap_handle *heap_handle);
       (length), (hid), (mid), __FILE__, __LINE__, __FUNCTION__)
 
 buffer_handle *
-platform_buffer_create_mmap(size_t               length,
-                            platform_heap_id     heap_id,
-                            platform_module_id   module_id,
-                            const char          *file,
-                            const int            lineno,
-                            const char          *func);
+platform_buffer_create_mmap(size_t             length,
+                            platform_heap_id   heap_id,
+                            platform_module_id module_id,
+                            const char        *file,
+                            const int          lineno,
+                            const char        *func);
 
 void *
 platform_buffer_getaddr(const buffer_handle *bh);

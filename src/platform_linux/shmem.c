@@ -26,9 +26,10 @@ bool Trace_shmem        = FALSE;
  * -----------------------------------------------------------------------------
  */
 typedef struct shmem_info {
-   void  *shm_start;       // Points to start address of shared segment.
-   void  *shm_end;         // Points to end address; one past end of sh segment
-   void  *shm_next;        // Points to next 'free' address to allocate from.
+   void  *shm_start; // Points to start address of shared segment.
+   void  *shm_end;   // Points to end address; one past end of sh segment
+   void  *shm_next;  // Points to next 'free' address to allocate from.
+   void  *shm_splinterdb_handle;
    size_t shm_total_bytes; // Total size of shared segment allocated initially.
    size_t shm_free_bytes;  // Free bytes of memory left (that can be allocated)
    size_t shm_used_bytes;  // Used bytes of memory left (that were allocated)
@@ -482,7 +483,7 @@ platform_shm_heap_handle_valid(platform_heap_handle heap_handle)
  * region.
  */
 bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr)
 {
    return platform_valid_addr_in_shm(platform_heap_id_to_handle(heap_id), addr);
 }
@@ -492,7 +493,7 @@ platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
  * shared segment.
  */
 bool
-platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, const void *addr)
 {
    debug_assert(platform_shm_heap_handle_valid(heap_handle),
                 "Shared memory heap_handle %p is invalid.\n",
@@ -501,6 +502,36 @@ platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
    const shmem_info *shmaddr = (shmem_info *)heap_handle;
    return ((addr >= ((void *)shmaddr + platform_shm_ctrlblock_size()))
            && (addr < shmaddr->shm_end));
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * Warning! Testing interfaces, which are written to support verification of
+ * splinterdb handle from forked child processes when running Splinter
+ * configured with shared-segment. These interfaces are provided mainly as
+ * a diagnostic & testing hooks.
+ *
+ * platform_heap_set_splinterdb_handle() - Save-off the handle to splinterdb *
+ *    in the shared segment's control block.
+ *
+ * platform_heap_get_splinterdb_handle() - Return the handle to splinterdb *
+ *    saved-off in the shared segment's control block.
+ * -----------------------------------------------------------------------------
+ */
+void
+platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle, void *addr)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr            = (shmem_info *)heap_handle;
+   shmaddr->shm_splinterdb_handle = addr;
+}
+
+void *
+platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr = (shmem_info *)heap_handle;
+   return shmaddr->shm_splinterdb_handle;
 }
 
 /*

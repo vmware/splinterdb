@@ -23,10 +23,10 @@ void
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
 bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr);
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr);
 
 bool
-platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr);
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, const void *addr);
 
 // Caller-macro to synthesize call-site details.
 #define splinter_shm_alloc(heap_id, nbytes, objname)                           \
@@ -129,5 +129,12 @@ platform_shmused(platform_heap_id heap_id);
 
 void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
+
+void
+platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                   void                *addr);
+
+void *
+platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle);
 
 #endif // __PLATFORM_SHMEM_H__

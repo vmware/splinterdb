@@ -65,6 +65,27 @@ platform_heap_destroy(platform_heap_handle *heap_handle)
 }
 
 /*
+ * Warning! Testing interfaces, which are written to support verification of
+ * splinterdb handle from forked child processes when running Splinter
+ * configured with shared-segment.
+ */
+void
+platform_heap_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                    void                *addr)
+{
+   if (!heap_handle)
+      return;
+   platform_shm_set_splinterdb_handle(heap_handle, addr);
+}
+
+void *
+platform_heap_get_splinterdb_handle(platform_heap_handle heap_handle)
+{
+   return (heap_handle ? platform_shm_get_splinterdb_handle(heap_handle)
+                       : (void *)NULL);
+}
+
+/*
  * platform_buffer_create_mmap() - Create large buffers using mmap()
  *
  * Certain modules, e.g. the buffer cache, need a very large buffer which
@@ -72,51 +93,51 @@ platform_heap_destroy(platform_heap_handle *heap_handle)
  * mmap() and return a handle to it.
  */
 buffer_handle *
-platform_buffer_create_mmap(size_t               length,
-                            platform_heap_id     heap_id,
-                            platform_module_id   UNUSED_PARAM(module_id),
-                            const char          *file,
-                            const int            lineno,
-                            const char          *func)
+platform_buffer_create_mmap(size_t             length,
+                            platform_heap_id   heap_id,
+                            platform_module_id UNUSED_PARAM(module_id),
+                            const char        *file,
+                            const int          lineno,
+                            const char        *func)
 {
    buffer_handle *bh = TYPED_MALLOC(heap_id, bh);
 
    if (bh == NULL) {
-       goto out;
+      goto out;
    }
 
-  int prot  = PROT_READ | PROT_WRITE;
-  int flags = MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE;
-  if (platform_use_hugetlb) {
-     flags |= MAP_HUGETLB;
-  }
+   int prot  = PROT_READ | PROT_WRITE;
+   int flags = MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE;
+   if (platform_use_hugetlb) {
+      flags |= MAP_HUGETLB;
+   }
 
-  bh->addr = mmap(NULL, length, prot, flags, -1, 0);
-  if (bh->addr == MAP_FAILED) {
-     platform_error_log("%s:%d:%s(): mmap (%lu bytes) failed with "
-                        "error: %s\n",
-                        file,
-                        lineno,
-                        func,
-                        length,
-                        strerror(errno));
-     goto error;
-  }
+   bh->addr = mmap(NULL, length, prot, flags, -1, 0);
+   if (bh->addr == MAP_FAILED) {
+      platform_error_log("%s:%d:%s(): mmap (%lu bytes) failed with "
+                         "error: %s\n",
+                         file,
+                         lineno,
+                         func,
+                         length,
+                         strerror(errno));
+      goto error;
+   }
 
-  if (platform_use_mlock) {
-     int rc = mlock(bh->addr, length);
-     if (rc != 0) {
-        platform_error_log(
-           "%s:%d:%s(): mlock (%lu bytes) failed with error: %s\n",
-           file,
-           lineno,
-           func,
-           length,
-           strerror(errno));
-        munmap(bh->addr, length);
-        goto error;
-     }
-  }
+   if (platform_use_mlock) {
+      int rc = mlock(bh->addr, length);
+      if (rc != 0) {
+         platform_error_log(
+            "%s:%d:%s(): mlock (%lu bytes) failed with error: %s\n",
+            file,
+            lineno,
+            func,
+            length,
+            strerror(errno));
+         munmap(bh->addr, length);
+         goto error;
+      }
+   }
 
    bh->length = length;
    platform_default_log("%s:%d:%s(): Created buffer of %lu bytes using mmap.\n",
