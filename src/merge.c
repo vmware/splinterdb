@@ -108,6 +108,7 @@ static inline void
 set_curr_ordered_iterator(const data_config *cfg, ordered_iterator *itor)
 {
    iterator_get_curr(itor->itor, &itor->key, &itor->data);
+   debug_assert(key_is_user_key(itor->key));
 }
 
 static inline void
@@ -267,6 +268,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
        * iterator is advanced
        */
       merge_itor->key    = merge_itor->ordered_iterators[1]->key;
+      debug_assert(key_is_user_key(merge_itor->key));
       platform_status rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {
          return rc;
@@ -340,7 +342,8 @@ advance_one_loop(merge_iterator *merge_itor, bool *retry)
    }
 
    // set the next key/data from the min ritor
-   merge_itor->key  = merge_itor->ordered_iterators[0]->key;
+   merge_itor->key = merge_itor->ordered_iterators[0]->key;
+   debug_assert(key_is_user_key(merge_itor->key));
    merge_itor->data = merge_itor->ordered_iterators[0]->data;
    if (!merge_itor->merge_messages) {
       /*
@@ -431,6 +434,7 @@ merge_iterator_create(platform_heap_id hid,
 
    merge_itor->at_end = FALSE;
    merge_itor->cfg    = cfg;
+   merge_itor->key    = NULL_KEY;
 
    // index -1 initializes the pad variable
    for (i = -1; i < num_trees; i++) {

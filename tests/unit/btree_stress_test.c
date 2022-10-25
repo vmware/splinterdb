@@ -418,8 +418,8 @@ iterator_tests(cache           *cc,
                        &dbiter,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
-                       NULL_KEY,
-                       NULL_KEY,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
                        FALSE,
                        0);
 
@@ -485,8 +485,8 @@ pack_tests(cache           *cc,
                        &dbiter,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
-                       NULL_KEY,
-                       NULL_KEY,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
                        FALSE,
                        0);
 

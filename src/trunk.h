@@ -228,6 +228,7 @@ struct trunk_handle {
  */
 #define TRUNK_DEFAULT_KEY_BUFFER_SIZE (128)
 typedef struct {
+   key_type        kind;
    writable_buffer wb;
    char            default_buffer[TRUNK_DEFAULT_KEY_BUFFER_SIZE];
 } key_buffer;

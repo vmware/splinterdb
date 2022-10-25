@@ -807,56 +807,6 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 }
 
 /*
- * Exercise the utility function which validates that the key being inserted
- * is within [min, max] range. That check was added upon discovering that
- * we would allow invalid keys to be inserted which lead to downstream
- * errors while exercising the iteration interfaces.
- */
-CTEST2(splinterdb_quick, test_validate_key_in_range)
-{
-   // We need to reconfigure Splinter with user-specified data_config
-   // Tear down default instance, and create a new one.
-   splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg = test_data_config;
-
-   data->cfg.data_cfg->key_size = 11;
-
-   sprintf(data->cfg.data_cfg->min_key, "%s", "key-0");
-   data->cfg.data_cfg->min_key_length = strlen(data->cfg.data_cfg->min_key);
-
-   sprintf(data->cfg.data_cfg->max_key, "%s", "key-999999");
-   data->cfg.data_cfg->max_key_length = strlen(data->cfg.data_cfg->max_key);
-
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
-   ASSERT_EQUAL(0, rc);
-
-   bool  is_valid = FALSE;
-   char *test_key = "jkey-000"; // Invalid; key < min-key
-
-   is_valid =
-      validate_key_in_range(data->kvsb, key_create(strlen(test_key), test_key));
-   ASSERT_FALSE(is_valid);
-
-   test_key = "key-000"; // Valid key
-
-   is_valid =
-      validate_key_in_range(data->kvsb, key_create(strlen(test_key), test_key));
-   ASSERT_TRUE(is_valid);
-
-   test_key = "key-9999999"; // Invalid; key > max-key
-
-   is_valid =
-      validate_key_in_range(data->kvsb, key_create(strlen(test_key), test_key));
-   ASSERT_FALSE(is_valid);
-
-   test_key = "lkey-000"; // Invalid; key > max-key
-
-   is_valid =
-      validate_key_in_range(data->kvsb, key_create(strlen(test_key), test_key));
-   ASSERT_FALSE(is_valid);
-}
-
-/*
  * Test case to verify that iterator interfaces work correctly.
  * Prior to fix for issue #419, this test case would fail with an assertion
  * (that is activated only) in debug mode runs.

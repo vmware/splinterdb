@@ -160,76 +160,118 @@ merge_accumulator_is_null(const merge_accumulator *ma)
    return r;
 }
 
+typedef enum {
+   positive_infinity = 1,
+   user_key          = 2,
+   negative_infinity = 3
+} key_type;
+
 typedef struct key {
-   slice user_key;
+   key_type kind;
+   slice    user_slice;
 } key;
 
+extern key NEGATIVE_INFINITY_KEY;
+extern key POSITIVE_INFINITY_KEY;
 extern key NULL_KEY;
+
+static inline bool
+key_is_negative_infinity(key key)
+{
+   return key.kind == negative_infinity;
+}
+
+static inline bool
+key_is_positive_infinity(key key)
+{
+   return key.kind == positive_infinity;
+}
+
+static inline bool
+key_is_user_key(key key)
+{
+   return key.kind == user_key;
+}
 
 static inline slice
 key_slice(key key)
 {
-   return key.user_key;
+   debug_assert(key.kind == user_key);
+   return key.user_slice;
 }
 
 static inline key
-key_create_from_slice(slice user_key)
+key_create_from_slice(slice user_slice)
 {
-   return (key){user_key};
+   return (key){.kind = user_key, .user_slice = user_slice};
 }
 
 static inline key
 key_create(uint64 length, const void *data)
 {
-   return (key){slice_create(length, data)};
+   return (key){.kind = user_key, .user_slice = slice_create(length, data)};
 }
 
 static inline bool
 keys_equal(key a, key b)
 {
-   return slices_equal(a.user_key, b.user_key);
+   return a.kind == b.kind
+          && IMPLIES(a.kind == user_key,
+                     slices_equal(a.user_slice, b.user_slice));
 }
 
 static inline bool
 key_is_null(key key)
 {
-   return slice_is_null(key.user_key);
+   return key.kind == user_key && slice_is_null(key.user_slice);
 }
 
 static inline uint64
 key_length(key key)
 {
-   return slice_length(key.user_key);
+   return key.kind == user_key ? slice_length(key.user_slice) : 0;
 }
 
 static inline const void *
 key_data(key key)
 {
-   return slice_data(key.user_key);
+   debug_assert(key.kind == user_key);
+   return slice_data(key.user_slice);
 }
 
 static inline void
 key_copy_contents(void *dst, key key)
 {
-   slice_copy_contents(dst, key.user_key);
+   debug_assert(key.kind == user_key);
+   slice_copy_contents(dst, key.user_slice);
 }
 
 static inline key
 data_min_key(const data_config *cfg)
 {
-   return key_create(cfg->min_key_length, cfg->min_key);
+   return NEGATIVE_INFINITY_KEY;
 }
 
 static inline key
 data_max_key(const data_config *cfg)
 {
-   return key_create(cfg->max_key_length, cfg->max_key);
+   return POSITIVE_INFINITY_KEY;
 }
 
 static inline int
 data_key_compare(const data_config *cfg, key key1, key key2)
 {
-   return cfg->key_compare(cfg, key1.user_key, key2.user_key);
+   if (key_is_negative_infinity(key1)) {
+      return key_is_negative_infinity(key2) ? 0 : -1;
+   } else if (key_is_positive_infinity(key1)) {
+      return key_is_positive_infinity(key2) ? 0 : 1;
+   } else if (key_is_negative_infinity(key2)) {
+      return 1;
+   } else if (key_is_positive_infinity(key2)) {
+      return -1;
+   } else {
+      return cfg->key_compare(cfg, key1.user_slice, key2.user_slice);
+   }
 }
 
 static inline int
@@ -238,18 +280,20 @@ data_merge_tuples(const data_config *cfg,
                   message            old_raw_message,
                   merge_accumulator *new_message)
 {
+   debug_assert(key_is_user_key(key));
+
    if (merge_accumulator_is_definitive(new_message)) {
       return 0;
    }
 
    message_type oldclass = message_class(old_raw_message);
    if (oldclass == MESSAGE_TYPE_DELETE) {
-      return cfg->merge_tuples_final(cfg, key.user_key, new_message);
+      return cfg->merge_tuples_final(cfg, key.user_slice, new_message);
    }
 
    // new class is UPDATE and old class is INSERT or UPDATE
    int result =
-      cfg->merge_tuples(cfg, key.user_key, old_raw_message, new_message);
+      cfg->merge_tuples(cfg, key.user_slice, old_raw_message, new_message);
    if (result
        && merge_accumulator_message_class(new_message) == MESSAGE_TYPE_DELETE)
    {
@@ -263,10 +307,12 @@ data_merge_tuples_final(const data_config *cfg,
                         key                key,
                         merge_accumulator *oldest_message)
 {
+   debug_assert(key_is_user_key(key));
+
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;
    }
-   int result = cfg->merge_tuples_final(cfg, key.user_key, oldest_message);
+   int result = cfg->merge_tuples_final(cfg, key.user_slice, oldest_message);
    if (result
        && merge_accumulator_message_class(oldest_message)
              == MESSAGE_TYPE_DELETE)
@@ -279,7 +325,13 @@ data_merge_tuples_final(const data_config *cfg,
 static inline void
 data_key_to_string(const data_config *cfg, key key, char *str, size_t size)
 {
-   cfg->key_to_string(cfg, key.user_key, str, size);
+   if (key_is_negative_infinity(key)) {
+      snprintf(str, size, "(negaitive_infinity)");
+   } else if (key_is_negative_infinity(key)) {
+      snprintf(str, size, "(positive_infinity)");
+   } else {
+      cfg->key_to_string(cfg, key.user_slice, str, size);
+   }
 }
 
 #define key_string(cfg, key)                                                   \

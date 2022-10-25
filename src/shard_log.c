@@ -176,6 +176,7 @@ log_entry_message(log_entry *le)
 static uint64
 log_entry_size(key key, message msg)
 {
+   debug_assert(key_is_user_key(key));
    return sizeof(log_entry) + key_length(key) + message_length(msg);
 }
 
@@ -224,6 +225,8 @@ get_new_page_for_thread(shard_log             *log,
 int
 shard_log_write(log_handle *logh, key key, message msg, uint64 generation)
 {
+   debug_assert(key_is_user_key(key));
+
    shard_log             *log = (shard_log *)logh;
    cache                 *cc  = log->cc;
    shard_log_thread_data *thread_data =
