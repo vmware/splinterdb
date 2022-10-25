@@ -142,3 +142,10 @@ platform_shmused(platform_heap_id heap_id);
 
 void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
+
+void
+platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                   void                *addr);
+
+void *
+platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle);

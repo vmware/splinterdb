@@ -979,6 +979,36 @@ platform_shm_heap_handle_valid(platform_heap_handle heap_handle)
 }
 
 /*
+ * -----------------------------------------------------------------------------
+ * Warning! Testing interfaces, which are written to support verification of
+ * splinterdb handle from forked child processes when running Splinter
+ * configured with shared-segment. These interfaces are provided mainly as
+ * a diagnostic & testing hooks.
+ *
+ * platform_heap_set_splinterdb_handle() - Save-off the handle to splinterdb *
+ *    in the shared segment's control block.
+ *
+ * platform_heap_get_splinterdb_handle() - Return the handle to splinterdb *
+ *    saved-off in the shared segment's control block.
+ * -----------------------------------------------------------------------------
+ */
+void
+platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle, void *addr)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr            = (shmem_info *)heap_handle;
+   shmaddr->shm_splinterdb_handle = addr;
+}
+
+void *
+platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle));
+   shmem_info *shmaddr = (shmem_info *)heap_handle;
+   return shmaddr->shm_splinterdb_handle;
+}
+
+/*
  * Initialize tracing of shared memory allocs / frees. This is invoked as a
  * result of parsing command-line args:
  */

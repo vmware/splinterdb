@@ -19,6 +19,7 @@
 #include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
+#include "shmem.h"
 #include "config.h"
 #include "test_splinterdb_apis.h"
 #include "unit_tests.h"
@@ -82,6 +83,109 @@ CTEST_SETUP(splinterdb_forked_child)
 
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(splinterdb_forked_child) {}
+
+/*
+ * ------------------------------------------------------------------------------
+ * Elementary test case to validate data structures and various handles as seen
+ * from the child process. Establish that the child sees the same ptr-handles as
+ * seen by the parent, and that all of them are correctly allocated from shared
+ * memory.
+ * ------------------------------------------------------------------------------
+ */
+CTEST2(splinterdb_forked_child, test_data_structures_handles)
+{
+   data_config  default_data_cfg;
+   data_config *splinter_data_cfgp = &default_data_cfg;
+
+   // Setup global data_config for Splinter's use.
+   memset(splinter_data_cfgp, 0, sizeof(*splinter_data_cfgp));
+   default_data_config_init(30, splinter_data_cfgp);
+
+   splinterdb_config splinterdb_cfg;
+
+   // Configure SplinterDB Instance
+   memset(&splinterdb_cfg, 0, sizeof(splinterdb_cfg));
+
+   create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
+
+   splinterdb_cfg.filename = "test_forked_child.db";
+
+   splinterdb *spl_handle; // To a running SplinterDB instance
+   int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
+   ASSERT_EQUAL(0, rc);
+
+   int pid = getpid();
+
+   // Parent / main() process is always at tid==0.
+   ASSERT_EQUAL(0, platform_get_tid());
+
+   platform_default_log(
+      "Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
+   pid = fork();
+
+   if (pid < 0) {
+      platform_error_log("fork() of child process failed: pid=%d\n", pid);
+      return;
+   } else if (pid == 0) {
+      // Verify that child process sees the same handle to a running Splinter
+      // as seen by the parent. (We cross-check using the copy saved off in
+      // shared memory.)
+      ASSERT_TRUE((void *)spl_handle
+                  == platform_heap_get_splinterdb_handle(
+                     splinterdb_get_heap_handle(spl_handle)));
+
+      // Verify that the splinter handle and handles to other sub-systems are
+      // all valid addresses allocated from the shared segment setup by the main
+      // process.
+      ASSERT_TRUE(platform_valid_addr_in_shm(
+         splinterdb_get_heap_handle(spl_handle), spl_handle));
+
+      ASSERT_TRUE(platform_valid_addr_in_shm(
+         splinterdb_get_heap_handle(spl_handle),
+         splinterdb_get_task_system_handle(spl_handle)));
+
+      ASSERT_TRUE(
+         platform_valid_addr_in_shm(splinterdb_get_heap_handle(spl_handle),
+                                    splinterdb_get_io_handle(spl_handle)));
+
+      ASSERT_TRUE(platform_valid_addr_in_shm(
+         splinterdb_get_heap_handle(spl_handle),
+         splinterdb_get_allocator_handle(spl_handle)));
+
+      ASSERT_TRUE(
+         platform_valid_addr_in_shm(splinterdb_get_heap_handle(spl_handle),
+                                    splinterdb_get_cache_handle(spl_handle)));
+
+      ASSERT_TRUE(
+         platform_valid_addr_in_shm(splinterdb_get_heap_handle(spl_handle),
+                                    splinterdb_get_cache_handle(spl_handle)));
+
+      // Before registering w/Splinter, child process is still at tid==0.
+      ASSERT_EQUAL(0, platform_get_tid());
+
+      // Perform some inserts through child process
+      splinterdb_register_thread(spl_handle);
+
+      // After registering w/Splinter, child process' tid will change.
+      ASSERT_EQUAL(1, platform_get_tid());
+
+      splinterdb_deregister_thread(spl_handle);
+
+      // After deregistering w/Splinter, child process is back to tid==0.
+      ASSERT_EQUAL(0, platform_get_tid());
+   }
+
+   // Only parent can close Splinter
+   if (pid) {
+
+      wait(NULL);
+
+      // We would get assertions tripping from BTree iterator code here,
+      // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
+      // was not in-place.
+      splinterdb_close(&spl_handle);
+   }
+}
 
 /*
  * ------------------------------------------------------------------------------

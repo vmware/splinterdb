@@ -94,8 +94,27 @@ platform_heap_destroy(platform_heap_handle *heap_handle)
 }
 
 /*
- * platform_buffer_init() - Initialize an input buffer_handle, bh.
- *
+ * Warning! Testing interfaces, which are written to support verification of
+ * splinterdb handle from forked child processes when running Splinter
+ * configured with shared-segment.
+ */
+void
+platform_heap_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                    void                *addr)
+{
+   if (!heap_handle)
+      return;
+   platform_shm_set_splinterdb_handle(heap_handle, addr);
+}
+
+void *
+platform_heap_get_splinterdb_handle(platform_heap_handle heap_handle)
+{
+   return (heap_handle ? platform_shm_get_splinterdb_handle(heap_handle)
+                       : (void *)NULL);
+}
+
+/*
  * Certain modules, e.g. the buffer cache, need a very large buffer which
  * may not be serviceable by the heap. Create the requested buffer using
  * mmap() and initialize the input 'bh' to track this memory allocation.

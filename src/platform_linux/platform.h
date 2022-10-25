@@ -672,6 +672,13 @@ platform_heap_destroy(platform_heap_handle *heap_handle);
 platform_status
 platform_buffer_init(buffer_handle *bh, size_t length);
 
+void
+platform_heap_set_splinterdb_handle(platform_heap_handle heap_handle,
+                                    void                *addr);
+
+void *
+platform_heap_get_splinterdb_handle(platform_heap_handle heap_handle);
+
 void *
 platform_buffer_getaddr(const buffer_handle *bh);
 
