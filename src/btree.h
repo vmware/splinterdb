@@ -254,8 +254,7 @@ btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
                     key                 start_key,
-                    key                 end_key,
-                    page_type           type);
+                    key                 end_key);
 
 bool
 btree_dec_ref(cache              *cc,

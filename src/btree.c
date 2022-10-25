@@ -51,9 +51,6 @@
  */
 #define BTREE_DEFRAGMENT_THRESHOLD(page_size) ((page_size) / 4)
 
-char  positive_infinity_buffer;
-key   positive_infinity = {0, &positive_infinity_buffer};
-
 /*
  * Branches keep track of the number of keys and the total size of
  * all keys and messages in their subtrees.  But memtables do not
@@ -435,9 +432,7 @@ btree_find_pivot(const btree_config *cfg,
 {
    int64 lo = 0, hi = btree_num_entries(hdr);
 
-   if (key_is_null(key)) {
-      return -1;
-   }
+   debug_assert(!key_is_null(key));
 
    *found = 0;
 
@@ -1189,10 +1184,8 @@ btree_inc_ref_range(cache              *cc,
                     key                 start_key,
                     key                 end_key)
 {
+   debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
    uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
-   if (!key_is_null(start_key) && !key_is_null(end_key)) {
-      debug_assert(btree_key_compare(cfg, start_key, end_key) < 0);
-   }
    mini_keyed_inc_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
 }
@@ -1202,15 +1195,9 @@ btree_dec_ref_range(cache              *cc,
                     const btree_config *cfg,
                     uint64              root_addr,
                     key                 start_key,
-                    key                 end_key,
-                    page_type           type)
+                    key                 end_key)
 {
-   debug_assert(type == PAGE_TYPE_BRANCH);
-
-   if (!key_is_null(start_key) && !key_is_null(end_key)) {
-      platform_assert(btree_key_compare(cfg, start_key, end_key) < 0);
-   }
-
+   debug_assert(btree_key_compare(cfg, start_key, end_key) <= 0);
    uint64 meta_page_addr = btree_root_to_meta_addr(cfg, root_addr, 0);
    return mini_keyed_dec_ref(
       cc, cfg->data_cfg, PAGE_TYPE_BRANCH, meta_page_addr, start_key, end_key);
@@ -1976,7 +1963,7 @@ btree_lookup_node(cache             *cc,             // IN
 
    for (h = btree_height(node.hdr); h > stop_at_height; h--) {
       bool found;
-      child_idx = keys_equal(key, positive_infinity)
+      child_idx = key_is_positive_infinity(key)
                      ? btree_num_entries(node.hdr) - 1
                      : btree_find_pivot(cfg, node.hdr, key, &found);
       if (child_idx < 0) {
@@ -2419,7 +2406,7 @@ btree_iterator_find_end(btree_iterator *itor)
    itor->end_addr       = end.addr;
    itor->end_generation = end.hdr->generation;
 
-   if (keys_equal(itor->max_key, positive_infinity)) {
+   if (key_is_positive_infinity(itor->max_key)) {
       itor->end_idx = btree_num_entries(end.hdr);
    } else {
       bool  found;
@@ -2572,7 +2559,7 @@ const static iterator_ops btree_iterator_ops = {
 /*
  *-----------------------------------------------------------------------------
  * Caller must guarantee:
- *    max_key (if not null) needs to be valid until at_end() returns true
+ *    max_key needs to be valid until at_end() returns true
  *-----------------------------------------------------------------------------
  */
 void
@@ -2582,7 +2569,7 @@ btree_iterator_init(cache          *cc,
                     uint64          root_addr,
                     page_type       page_type,
                     key             min_key,
-                    key             _max_key,
+                    key             max_key,
                     bool            do_prefetch,
                     uint32          height)
 {
@@ -2590,16 +2577,10 @@ btree_iterator_init(cache          *cc,
    debug_assert(page_type == PAGE_TYPE_MEMTABLE
                 || page_type == PAGE_TYPE_BRANCH);
 
-   key max_key;
+   debug_assert(!key_is_null(min_key) && !key_is_null(max_key));
 
-   if (key_is_null(_max_key)) {
-      max_key = positive_infinity;
-   } else if (!key_is_null(min_key)
-              && btree_key_compare(cfg, min_key, _max_key) > 0)
-   {
+   if (btree_key_compare(cfg, min_key, max_key) > 0) {
       max_key = min_key;
-   } else {
-      max_key = _max_key;
    }
 
    ZERO_CONTENTS(itor);
@@ -2658,9 +2639,7 @@ btree_iterator_init(cache          *cc,
 
    bool  found;
    int64 tmp;
-   if (key_is_null(min_key)) {
-      tmp = 0;
-   } else if (itor->height == 0) {
+   if (itor->height == 0) {
       tmp = btree_find_tuple(itor->cfg, itor->curr.hdr, min_key, &found);
       if (!found) {
          tmp++;
@@ -2933,8 +2912,11 @@ btree_pack_abort(btree_pack_req *req)
       }
    }
 
-   btree_dec_ref_range(
-      req->cc, req->cfg, req->root_addr, NULL_KEY, NULL_KEY, PAGE_TYPE_BRANCH);
+   btree_dec_ref_range(req->cc,
+                       req->cfg,
+                       req->root_addr,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY);
 }
 
 /*
@@ -2950,7 +2932,7 @@ btree_pack(btree_pack_req *req)
 {
    btree_pack_setup_start(req);
 
-   key     key = NULL_KEY;
+   key     key = NEGATIVE_INFINITY_KEY;
    message data;
    bool    at_end;
 
@@ -3013,12 +2995,10 @@ btree_count_in_range(cache             *cc,
 {
    btree_pivot_stats min_stats;
 
+   debug_assert(!key_is_null(min_key) && !key_is_null(max_key));
+
    btree_get_rank(cc, cfg, root_addr, min_key, &min_stats);
-   btree_get_rank(cc,
-                  cfg,
-                  root_addr,
-                  key_is_null(max_key) ? positive_infinity : max_key,
-                  stats);
+   btree_get_rank(cc, cfg, root_addr, max_key, stats);
    if (min_stats.num_kvs < stats->num_kvs) {
       stats->num_kvs -= min_stats.num_kvs;
       stats->key_bytes -= min_stats.key_bytes;

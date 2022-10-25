@@ -814,6 +814,8 @@ routing_filter_lookup(cache          *cc,
                       key             key,
                       uint64         *found_values)
 {
+   debug_assert(key_is_user_key(key));
+
    if (filter->addr == 0) {
       *found_values = 0;
       return STATUS_OK;
@@ -983,6 +985,8 @@ routing_filter_lookup_async(cache              *cc,
 {
    cache_async_result res  = 0;
    bool               done = FALSE;
+
+   debug_assert(key_is_user_key(key));
 
    do {
       switch (ctxt->state) {
@@ -1217,6 +1221,7 @@ routing_filter_verify(cache          *cc,
       key     key;
       message msg;
       iterator_get_curr(itor, &key, &msg);
+      debug_assert(key_is_user_key(key));
       uint64          found_values;
       platform_status rc =
          routing_filter_lookup(cc, cfg, filter, key, &found_values);

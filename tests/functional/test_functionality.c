@@ -34,7 +34,8 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
    trunk_range_iterator iter;
    bool                 at_end;
 
-   trunk_range_iterator_init(spl, &iter, NULL_KEY, NULL_KEY, UINT64_MAX);
+   trunk_range_iterator_init(
+      spl, &iter, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY, UINT64_MAX);
    uint64 count = 0;
    while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
       key     key;
@@ -317,7 +318,6 @@ out:
    return status;
 }
 
-#define VERIFY_RANGE_ENDPOINT_NULL  (1)
 #define VERIFY_RANGE_ENDPOINT_MIN   (2)
 #define VERIFY_RANGE_ENDPOINT_MAX   (3)
 #define VERIFY_RANGE_ENDPOINT_RAND  (4)
@@ -338,17 +338,12 @@ choose_key(data_config                *cfg,         // IN
    uint64 num_keys = sharr->nkeys;
 
    switch (type) {
-      case VERIFY_RANGE_ENDPOINT_NULL:
-         *index = is_start ? 0 : num_keys;
-         writable_buffer_set_to_null(keybuf);
-         break;
       case VERIFY_RANGE_ENDPOINT_MIN:
          *index = 0;
-         writable_buffer_copy_slice(keybuf, key_slice(data_min_key(cfg)));
-         break;
+         return NEGATIVE_INFINITY_KEY;
       case VERIFY_RANGE_ENDPOINT_MAX:
          *index = num_keys;
-         writable_buffer_copy_slice(keybuf, key_slice(data_max_key(cfg)));
+         return POSITIVE_INFINITY_KEY;
       case VERIFY_RANGE_ENDPOINT_RAND:
       {
          // Pick in the middle 3/5ths of the array
@@ -399,11 +394,11 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
    WRITABLE_BUFFER_DEFAULT(startkey_buf, spl->heap_id);
    WRITABLE_BUFFER_DEFAULT(endkey_buf, spl->heap_id);
 
-   for (begin_type = VERIFY_RANGE_ENDPOINT_NULL;
+   for (begin_type = VERIFY_RANGE_ENDPOINT_MIN;
         begin_type <= VERIFY_RANGE_ENDPOINT_RAND;
         begin_type++)
    {
-      for (end_type = VERIFY_RANGE_ENDPOINT_NULL;
+      for (end_type = VERIFY_RANGE_ENDPOINT_MIN;
            end_type <= VERIFY_RANGE_ENDPOINT_RAND;
            end_type++)
       {

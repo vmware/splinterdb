@@ -660,8 +660,8 @@ test_btree_basic(cache             *cc,
                        &itor,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
-                       NULL_KEY,
-                       NULL_KEY,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
                        FALSE,
                        0);
    platform_default_log("btree iterator init time %luns\n",
@@ -769,8 +769,11 @@ test_btree_basic(cache             *cc,
    btree_print_tree_stats(
       Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
 
-   btree_dec_ref_range(
-      cc, btree_cfg, packed_root_addr, NULL_KEY, NULL_KEY, PAGE_TYPE_BRANCH);
+   btree_dec_ref_range(cc,
+                       btree_cfg,
+                       packed_root_addr,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY);
 
 destroy_btree:
    if (SUCCESS(rc))
@@ -821,8 +824,8 @@ test_btree_create_packed_trees(cache             *cc,
                           &itor,
                           memtable_root_addr(mt),
                           PAGE_TYPE_MEMTABLE,
-                          NULL_KEY,
-                          NULL_KEY,
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY,
                           FALSE,
                           0);
 
@@ -996,7 +999,7 @@ test_btree_merge_basic(cache             *cc,
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
       key lo = writable_buffer_to_key(&pivot_key[pivot_no]);
       key hi = pivot_no == arity - 1
-                  ? NULL_KEY
+                  ? POSITIVE_INFINITY_KEY
                   : writable_buffer_to_key(&pivot_key[pivot_no + 1]);
       for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
          btree_iterator_init(cc,
@@ -1076,15 +1079,13 @@ destroy_btrees:
       btree_dec_ref_range(cc,
                           btree_cfg,
                           root_addr[tree_no],
-                          NULL_KEY,
-                          NULL_KEY,
-                          PAGE_TYPE_BRANCH);
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY);
       btree_dec_ref_range(cc,
                           btree_cfg,
                           output_addr[tree_no],
-                          NULL_KEY,
-                          NULL_KEY,
-                          PAGE_TYPE_BRANCH);
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY);
    }
    if (SUCCESS(rc)) {
       platform_default_log("btree_test: btree merge test succeeded\n");
@@ -1177,7 +1178,7 @@ test_btree_count_in_range(cache             *cc,
 
 destroy_btree:
    btree_dec_ref_range(
-      cc, btree_cfg, root_addr, NULL_KEY, NULL_KEY, PAGE_TYPE_BRANCH);
+      cc, btree_cfg, root_addr, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY);
 
    writable_buffer_deinit(&bound_key[0]);
    writable_buffer_deinit(&bound_key[1]);
@@ -1225,8 +1226,8 @@ test_btree_rough_iterator(cache             *cc,
                           &rough_btree_itor[tree_no],
                           root_addr[tree_no],
                           PAGE_TYPE_BRANCH,
-                          NULL_KEY,
-                          NULL_KEY,
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY,
                           TRUE,
                           1);
       if (SUCCESS(iterator_at_end(&rough_btree_itor[tree_no].super, &at_end))
@@ -1376,7 +1377,7 @@ test_btree_merge_perf(cache             *cc,
       for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
          key min_key = writable_buffer_to_key(&pivot_key[pivot_no]);
          key max_key = pivot_no == arity - 1
-                          ? NULL_KEY
+                          ? POSITIVE_INFINITY_KEY
                           : writable_buffer_to_key(&pivot_key[pivot_no + 1]);
          for (uint64 tree_no = 0; tree_no < arity; tree_no++) {
             uint64 global_tree_no = merge_no * num_merges + tree_no;
@@ -1418,15 +1419,13 @@ destroy_btrees:
       btree_dec_ref_range(cc,
                           btree_cfg,
                           root_addr[tree_no],
-                          NULL_KEY,
-                          NULL_KEY,
-                          PAGE_TYPE_BRANCH);
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY);
       btree_dec_ref_range(cc,
                           btree_cfg,
                           output_addr[tree_no],
-                          NULL_KEY,
-                          NULL_KEY,
-                          PAGE_TYPE_BRANCH);
+                          NEGATIVE_INFINITY_KEY,
+                          POSITIVE_INFINITY_KEY);
    }
    if (SUCCESS(rc)) {
       platform_default_log("btree_test: btree merge perf test succeeded\n");

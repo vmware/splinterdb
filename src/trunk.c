@@ -570,6 +570,8 @@ typedef struct ONDISK trunk_pivot_data {
    uint16         key_length;
 } trunk_pivot_data;
 
+#define INFINITY_KEY_LENGTH ((FTYPEOF(trunk_pivot_data, key_length)) - 1)
+
 /*
  * Used to specify compaction bundle "task" request. These enums specify
  * the compaction bundle request type. (Not disk-resident.)
@@ -1150,7 +1152,13 @@ trunk_get_pivot(trunk_handle *spl, page_handle *node, uint16 pivot_no)
                    spl->cfg.max_pivot_keys);
    trunk_pivot_data *pdata  = trunk_get_pivot_data(spl, node, pivot_no);
    char             *buffer = trunk_get_pivot_buffer(spl, node, pivot_no);
-   return key_create(pdata->key_length, buffer);
+   if (pdata->key_length == INFINITY_KEY_LENGTH) {
+      debug_assert(pivot_no == 0
+                   || pivot_no == trunk_num_pivot_keys(spl, node) - 1);
+      return pivot_no == 0 ? NEGATIVE_INFINITY_KEY : POSITIVE_INFINITY_KEY;
+   } else {
+      return key_create(pdata->key_length, buffer);
+   }
 }
 
 static inline void
@@ -1163,6 +1171,16 @@ trunk_set_pivot(trunk_handle *spl,
 
    char *dst_pivot_key     = trunk_get_pivot_buffer(spl, node, pivot_no);
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+
+   if (key_is_negative_infinity(pivot_key)) {
+      debug_assert(pivot_no == 0);
+      pdata->key_length = INFINITY_KEY_LENGTH;
+      return;
+   } else if (key_is_positive_infinity(pivot_key)) {
+      debug_assert(pivot_no == trunk_num_pivot_keys(spl, node) - 1);
+      pdata->key_length = INFINITY_KEY_LENGTH;
+      return;
+   }
    memmove(dst_pivot_key, key_data(pivot_key), key_length(pivot_key));
    pdata->key_length = key_length(pivot_key);
 
@@ -1190,17 +1208,27 @@ trunk_set_initial_pivots(trunk_handle *spl,
    trunk_hdr *hdr      = (trunk_hdr *)node->data;
    hdr->num_pivot_keys = 2;
 
-   char *dst_pivot_key = trunk_get_pivot_buffer(spl, node, 0);
-   memmove(dst_pivot_key, key_data(min_key), key_length(min_key));
-   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
+   char             *dst_pivot_key = trunk_get_pivot_buffer(spl, node, 0);
+   trunk_pivot_data *pdata         = trunk_get_pivot_data(spl, node, 0);
    ZERO_CONTENTS(pdata);
-   pdata->key_length = key_length(min_key);
-   pdata->srq_idx    = -1;
+   pdata->srq_idx = -1;
+   if (key_is_negative_infinity(min_key)) {
+      pdata->key_length = INFINITY_KEY_LENGTH;
+   } else {
+      debug_assert(!key_is_positive_infinity(min_key));
+      memmove(dst_pivot_key, key_data(min_key), key_length(min_key));
+      pdata->key_length = key_length(min_key);
+   }
 
    dst_pivot_key = trunk_get_pivot_buffer(spl, node, 1);
    pdata         = trunk_get_pivot_data(spl, node, 1);
-   memmove(dst_pivot_key, key_data(max_key), key_length(max_key));
-   pdata->key_length = key_length(max_key);
+   if (key_is_positive_infinity(max_key)) {
+      pdata->key_length = INFINITY_KEY_LENGTH;
+   } else {
+      debug_assert(!key_is_negative_infinity(max_key));
+      memmove(dst_pivot_key, key_data(max_key), key_length(max_key));
+      pdata->key_length = key_length(max_key);
+   }
 }
 
 UNUSED_FUNCTION()
@@ -1818,29 +1846,42 @@ trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
 static inline key
 key_buffer_key(key_buffer *kb)
 {
-   return key_create_from_slice(writable_buffer_to_slice(&kb->wb));
+   if (kb->kind == negative_infinity) {
+      return NEGATIVE_INFINITY_KEY;
+   } else if (kb->kind == positive_infinity) {
+      return POSITIVE_INFINITY_KEY;
+   } else {
+      return key_create_from_slice(writable_buffer_to_slice(&kb->wb));
+   }
 }
 
 static inline key
 key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key key)
 {
-   debug_assert(IMPLIES(key.user_key.data == NULL, key.user_key.length == 0));
-   writable_buffer_init_with_buffer(
-      &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
-   writable_buffer_copy_slice(&kb->wb, key_slice(key));
+   if (key_is_negative_infinity(key)) {
+      kb->kind = negative_infinity;
+   } else if (key_is_positive_infinity(key)) {
+      kb->kind = positive_infinity;
+   } else {
+      kb->kind = user_key;
+      writable_buffer_init_with_buffer(
+         &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
+      writable_buffer_copy_slice(&kb->wb, key_slice(key));
+   }
    return key_buffer_key(kb);
 }
 
 static inline void
 key_buffer_deinit(key_buffer *kb)
 {
-   writable_buffer_deinit(&kb->wb);
+   if (kb->kind == user_key) {
+      writable_buffer_deinit(&kb->wb);
+      }
 }
 
 #define KEY_CREATE_LOCAL_COPY(dst, hid, src)                                   \
-   WRITABLE_BUFFER_DEFAULT(dst##wb, hid);                                      \
-   writable_buffer_copy_slice(&dst##wb, key_slice(src));                       \
-   key dst = key_create_from_slice(writable_buffer_to_slice(&dst##wb));
+   key_buffer dst##kb;                                                         \
+   key        dst = key_buffer_init_from_key(&dst##kb, hid, src)
 
 /*
  * reset_start_branch sets the trunk start branch to the smallest start branch
@@ -2553,7 +2594,7 @@ trunk_bundle_inc_pivot_rc(trunk_handle *spl,
       trunk_branch *branch = trunk_get_branch(spl, node, branch_no);
       for (uint64 pivot_no = 1; pivot_no < num_children; pivot_no++) {
          key key = trunk_get_pivot(spl, node, pivot_no);
-         btree_inc_ref_range(cc, btree_cfg, branch->root_addr, key, NULL_KEY);
+         btree_inc_ref_range(cc, btree_cfg, branch->root_addr, key, key);
       }
    }
 }
@@ -2924,12 +2965,8 @@ trunk_zap_branch_range(trunk_handle *spl,
    platform_assert((key_is_null(start_key) && key_is_null(end_key))
                    || (type != PAGE_TYPE_MEMTABLE && !key_is_null(start_key)));
    platform_assert(branch->root_addr != 0, "root_addr=%lu", branch->root_addr);
-   btree_dec_ref_range(spl->cc,
-                       &spl->cfg.btree_cfg,
-                       branch->root_addr,
-                       start_key,
-                       end_key,
-                       PAGE_TYPE_BRANCH);
+   btree_dec_ref_range(
+      spl->cc, &spl->cfg.btree_cfg, branch->root_addr, start_key, end_key);
 }
 
 /*
@@ -2940,7 +2977,8 @@ static inline void
 trunk_dec_ref(trunk_handle *spl, trunk_branch *branch, bool is_memtable)
 {
    page_type type = is_memtable ? PAGE_TYPE_MEMTABLE : PAGE_TYPE_BRANCH;
-   trunk_zap_branch_range(spl, branch, NULL_KEY, NULL_KEY, type);
+   trunk_zap_branch_range(
+      spl, branch, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY, type);
 }
 
 /*
@@ -2953,7 +2991,7 @@ trunk_inc_intersection(trunk_handle *spl,
                        bool          is_memtable)
 {
    platform_assert(IMPLIES(is_memtable, key_is_null(key)));
-   trunk_inc_branch_range(spl, branch, key, NULL_KEY);
+   trunk_inc_branch_range(spl, branch, key, key);
 }
 
 /*
@@ -3192,10 +3230,14 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    uint64         memtable_root_addr = mt->root_addr;
    btree_iterator btree_itor;
    iterator      *itor    = &btree_itor.super;
-   key            min_key = data_min_key(spl->cfg.data_cfg);
 
-   trunk_memtable_iterator_init(
-      spl, &btree_itor, memtable_root_addr, min_key, NULL_KEY, FALSE, FALSE);
+   trunk_memtable_iterator_init(spl,
+                                &btree_itor,
+                                memtable_root_addr,
+                                NEGATIVE_INFINITY_KEY,
+                                POSITIVE_INFINITY_KEY,
+                                FALSE,
+                                FALSE);
    btree_pack_req req;
    btree_pack_req_init(&req,
                        spl->cc,
@@ -4483,8 +4525,7 @@ trunk_branch_iterator_deinit(trunk_handle   *spl,
    key           max_key   = itor->max_key;
    btree_iterator_deinit(itor);
    if (should_dec_ref) {
-      btree_dec_ref_range(
-         cc, btree_cfg, itor->root_addr, min_key, max_key, PAGE_TYPE_BRANCH);
+      btree_dec_ref_range(cc, btree_cfg, itor->root_addr, min_key, max_key);
    }
 }
 
@@ -4984,7 +5025,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       {
          key max_key = trunk_max_key(spl, node);
          trunk_zap_branch_range(
-            spl, &new_branch, max_key, NULL_KEY, PAGE_TYPE_BRANCH);
+            spl, &new_branch, max_key, max_key, PAGE_TYPE_BRANCH);
       }
 
       trunk_node_unlock(spl, node);
@@ -5734,6 +5775,9 @@ trunk_range_iterator_init(trunk_handle         *spl,
                           key                   max_key,
                           uint64                num_tuples)
 {
+   debug_assert(!key_is_null(min_key));
+   debug_assert(!key_is_null(max_key));
+
    range_itor->spl          = spl;
    range_itor->super.ops    = &trunk_range_iterator_ops;
    range_itor->num_branches = 0;
@@ -5990,7 +6034,7 @@ trunk_range_iterator_advance(iterator *itor)
          rc = trunk_range_iterator_init(range_itor->spl,
                                         range_itor,
                                         rebuild_key,
-                                        NULL_KEY,
+                                        POSITIVE_INFINITY_KEY,
                                         range_itor->num_tuples);
       }
       if (!SUCCESS(rc)) {
@@ -7094,7 +7138,7 @@ trunk_range(trunk_handle  *spl,
 {
    trunk_range_iterator *range_itor = TYPED_MALLOC(spl->heap_id, range_itor);
    platform_status       rc         = trunk_range_iterator_init(
-      spl, range_itor, start_key, NULL_KEY, num_tuples);
+      spl, range_itor, start_key, POSITIVE_INFINITY_KEY, num_tuples);
    if (!SUCCESS(rc)) {
       goto destroy_range_itor;
    }
@@ -8056,8 +8100,11 @@ trunk_print_pivots(platform_log_handle *log_handle,
                       pdata->srq_idx,
                       pdata->generation);
       }
-      platform_log(log_handle, "| Full key: ");
-      debug_hex_dump_slice(log_handle, 4, key_slice(pivot));
+      if (key_is_user_key(pivot)) {
+         platform_log(log_handle, "| Full key: ");
+         debug_hex_dump_slice(log_handle, 4, key_slice(pivot));
+         platform_log(log_handle, "\n");
+      }
    }
 }
 

@@ -60,6 +60,11 @@ typedef struct ONDISK keyed_meta_entry {
    char   start_key[];
 } keyed_meta_entry;
 
+#define POSITIVE_INFINITY_KEY_LENGTH                                           \
+   ((FTYPEOF(keyed_meta_entry, start_key_length)) - 1)
+#define NEGATIVE_INFINITY_KEY_LENGTH                                           \
+   ((FTYPEOF(keyed_meta_entry, start_key_length)) - 2)
+
 /*
  *-----------------------------------------------------------------------------
  * unkeyed_meta_entry -- Disk-resident structure
@@ -75,7 +80,13 @@ typedef struct ONDISK unkeyed_meta_entry {
 static uint64
 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
 {
-   return sizeof(keyed_meta_entry) + entry->start_key_length;
+   if (entry->start_key_length == POSITIVE_INFINITY_KEY_LENGTH
+       || entry->start_key_length == NEGATIVE_INFINITY_KEY_LENGTH)
+   {
+      return sizeof(keyed_meta_entry);
+   } else {
+      return sizeof(keyed_meta_entry) + entry->start_key_length;
+   }
 }
 
 static uint64
@@ -87,7 +98,13 @@ keyed_meta_entry_size(key key)
 static key
 keyed_meta_entry_start_key(keyed_meta_entry *entry)
 {
-   return key_create(entry->start_key_length, entry->start_key);
+   if (entry->start_key_length == NEGATIVE_INFINITY_KEY_LENGTH) {
+      return NEGATIVE_INFINITY_KEY;
+   } else if (entry->start_key_length == NEGATIVE_INFINITY_KEY_LENGTH) {
+      return POSITIVE_INFINITY_KEY;
+   } else {
+      return key_create(entry->start_key_length, entry->start_key);
+   }
 }
 
 static keyed_meta_entry *
@@ -390,8 +407,14 @@ mini_keyed_append_entry(mini_allocator *mini,
 
    new_entry->extent_addr = extent_addr;
    new_entry->batch       = batch;
-   key_copy_contents(new_entry->start_key, start_key);
-   new_entry->start_key_length = key_length(start_key);
+   if (key_is_negative_infinity(start_key)) {
+      new_entry->start_key_length = NEGATIVE_INFINITY_KEY_LENGTH;
+   } else if (key_is_negative_infinity(start_key)) {
+      new_entry->start_key_length = POSITIVE_INFINITY_KEY_LENGTH;
+   } else {
+      key_copy_contents(new_entry->start_key, start_key);
+      new_entry->start_key_length = key_length(start_key);
+   }
 
    hdr->pos += keyed_meta_entry_size(start_key);
    hdr->num_entries++;
@@ -789,10 +812,8 @@ interval_intersects_range(boundary_state left_state, boundary_state right_state)
 static boundary_state
 state(data_config *cfg, key start_key, key end_key, key entry_start_key)
 {
-   debug_assert(key_is_null(start_key) == key_is_null(end_key));
-   if (key_is_null(start_key)) {
-      return in_range;
-   } else if (data_key_compare(cfg, entry_start_key, start_key) < 0) {
+   debug_assert(!key_is_null(start_key) && !key_is_null(end_key));
+   if (data_key_compare(cfg, entry_start_key, start_key) < 0) {
       return before_start;
    } else if (data_key_compare(cfg, entry_start_key, end_key) <= 0) {
       return in_range;
@@ -803,13 +824,7 @@ state(data_config *cfg, key start_key, key end_key, key entry_start_key)
 
 /*
  *-----------------------------------------------------------------------------
- * Apply func to every extent whose key range intersects [start_key, _end_key].
- *
- * Note: if start_key is null, then so must be _end_key, and func is
- * applied to all extents.
- *
- * Note: if _end_key is null, then we apply func to all extents whose
- * key range contains start_key.
+ * Apply func to every extent whose key range intersects [start_key, end_key].
  *
  * Note: the first extent in each batch is treated as starting at
  * -infinity, regardless of what key was specified as its starting
@@ -826,14 +841,10 @@ mini_keyed_for_each(cache           *cc,
                     uint64           meta_head,
                     page_type        type,
                     key              start_key,
-                    key              _end_key,
+                    key              end_key,
                     mini_for_each_fn func,
                     void            *out)
 {
-   key end_key = _end_key;
-   if (key_is_null(end_key))
-      end_key = start_key;
-
    // We return true for cleanup if every call to func returns TRUE.
    bool should_cleanup = TRUE;
    // Should not be called if there are no intersecting ranges, we track with
@@ -889,13 +900,7 @@ mini_keyed_for_each(cache           *cc,
 }
 
 /*
- * Apply func to every extent whose key range intersects [start_key, _end_key].
- *
- * Note: if start_key is null, then so must be _end_key, and func is
- * applied to all extents.
- *
- * Note: if _end_key is null, then we apply func to all extents whose
- * key range contains start_key.
+ * Apply func to every extent whose key range intersects [start_key, end_key].
  *
  * Note: the first extent in each batch is treated as starting at
  * -infinity, regardless of what key was specified as its starting
@@ -912,15 +917,10 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
                                    uint64           meta_head,
                                    page_type        type,
                                    key              start_key,
-                                   key              _end_key,
+                                   key              end_key,
                                    mini_for_each_fn func,
                                    void            *out)
 {
-   key end_key = _end_key;
-   if (key_is_null(end_key)) {
-      end_key = start_key;
-   }
-
    // We return true for cleanup if every call to func returns TRUE.
    bool should_cleanup = TRUE;
    // Should not be called if there are no intersecting ranges, we track with
