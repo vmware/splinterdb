@@ -433,7 +433,7 @@ routing_filter_add(cache           *cc,
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64       addr                    = mini_alloc(&mini, 0, NULL_KEY, NULL);
+   uint64       addr          = mini_alloc(&mini, 0, NULL_KEY, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char        *filter_cursor = filter_page->data;
    uint64       bytes_remaining_on_page = page_size;

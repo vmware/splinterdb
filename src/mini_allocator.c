@@ -1347,8 +1347,8 @@ mini_keyed_print(cache       *cc,
       uint64            num_entries = mini_num_entries(meta_page);
       keyed_meta_entry *entry       = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-         key   start_key = keyed_meta_entry_start_key(entry);
-         char  extent_str[32];
+         key  start_key = keyed_meta_entry_start_key(entry);
+         char extent_str[32];
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
             snprintf(extent_str, sizeof(extent_str), "TERMINAL_ENTRY");
          } else {

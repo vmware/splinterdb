@@ -666,6 +666,6 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter,   // IN
    iterator *itor = &(iter->sri.super);
 
    iterator_get_curr(itor, &result_key, &msg);
-   *value     = message_slice(msg);
-   *outkey    = key_slice(result_key);
+   *value  = message_slice(msg);
+   *outkey = key_slice(result_key);
 }

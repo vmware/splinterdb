@@ -1876,7 +1876,7 @@ key_buffer_deinit(key_buffer *kb)
 {
    if (kb->kind == user_key) {
       writable_buffer_deinit(&kb->wb);
-      }
+   }
 }
 
 #define KEY_CREATE_LOCAL_COPY(dst, hid, src)                                   \
@@ -3229,7 +3229,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
 
    uint64         memtable_root_addr = mt->root_addr;
    btree_iterator btree_itor;
-   iterator      *itor    = &btree_itor.super;
+   iterator      *itor = &btree_itor.super;
 
    trunk_memtable_iterator_init(spl,
                                 &btree_itor,

@@ -278,7 +278,7 @@ static void
 trunk_shadow_init(trunk_shadow *shadow, data_config *data_cfg)
 {
    shadow->data_cfg = data_cfg;
-   shadow->sorted = TRUE;
+   shadow->sorted   = TRUE;
    writable_buffer_init(&shadow->entries, NULL);
    writable_buffer_init(&shadow->data, NULL);
 }

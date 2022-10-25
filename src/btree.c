@@ -1299,8 +1299,8 @@ btree_split_child_leaf(cache                 *cc,
    {
       /* limit the scope of pivot_key, since subsequent mutations of the nodes
        * may invalidate the memory it points to. */
-      key   pivot_key = btree_splitting_pivot(cfg, child->hdr, spec, plan);
-      bool  success   = btree_insert_index_entry(cfg,
+      key  pivot_key = btree_splitting_pivot(cfg, child->hdr, spec, plan);
+      bool success   = btree_insert_index_entry(cfg,
                                               parent->hdr,
                                               index_of_child_in_parent + 1,
                                               pivot_key,
