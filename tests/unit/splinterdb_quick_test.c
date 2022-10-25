@@ -699,9 +699,9 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg                 = test_data_config;
-   data->cfg.data_cfg->key_size       = 20;
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
+   data->cfg.data_cfg           = test_data_config;
+   data->cfg.data_cfg->key_size = 20;
+   int rc                       = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    const size_t key_len   = 3;
@@ -944,8 +944,8 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
 {
    int rc = 0;
 
-   char expected_key[7]                       = {0};
-   char expected_val[TEST_MAX_VALUE_SIZE]     = {0};
+   char expected_key[7]                   = {0};
+   char expected_val[TEST_MAX_VALUE_SIZE] = {0};
    ASSERT_EQUAL(
       6, snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));
    ASSERT_EQUAL(

@@ -267,7 +267,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
        * page; this means that this pointer must be updated before the 0th
        * iterator is advanced
        */
-      merge_itor->key    = merge_itor->ordered_iterators[1]->key;
+      merge_itor->key = merge_itor->ordered_iterators[1]->key;
       debug_assert(key_is_user_key(merge_itor->key));
       platform_status rc = advance_and_resort_min_ritor(merge_itor);
       if (!SUCCESS(rc)) {

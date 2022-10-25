@@ -422,9 +422,9 @@ btree_test_run_pending(cache                   *cc,
       if (ctxt == skip_ctxt || !ctxt->ready) {
          continue;
       }
-      ctxt->ready     = FALSE;
-      key key_key     = writable_buffer_to_key(&ctxt->key);
-      res             = btree_lookup_async(
+      ctxt->ready = FALSE;
+      key key_key = writable_buffer_to_key(&ctxt->key);
+      res         = btree_lookup_async(
          cc, cfg, root_addr, key_key, &ctxt->result, &ctxt->ctxt);
       bool local_found = btree_found(&ctxt->result);
       switch (res) {
@@ -700,8 +700,8 @@ test_btree_basic(cache             *cc,
          if (!correct) {
             btree_print_tree(
                Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
-            char  key_string[128];
-            key   key_key = writable_buffer_to_key(&keybuf);
+            char key_string[128];
+            key  key_key = writable_buffer_to_key(&keybuf);
             btree_key_to_string(btree_cfg, key_key, key_string);
             platform_default_log(
                "key number %lu, %s not found\n", insert_num, key_string);
@@ -723,8 +723,8 @@ test_btree_basic(cache             *cc,
             if (!correct) {
                btree_print_tree(
                   Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
-               char  key_string[128];
-               key   key_key = writable_buffer_to_key(&async_ctxt->key);
+               char key_string[128];
+               key  key_key = writable_buffer_to_key(&async_ctxt->key);
                btree_key_to_string(btree_cfg, key_key, key_string);
                platform_default_log(
                   "key number %lu, %s not found\n", insert_num, key_string);
@@ -754,8 +754,8 @@ test_btree_basic(cache             *cc,
       if (!correct) {
          btree_print_tree(
             Platform_default_log_handle, cc, btree_cfg, packed_root_addr);
-         char  key_string[128];
-         key   key_key = writable_buffer_to_key(&keybuf);
+         char key_string[128];
+         key  key_key = writable_buffer_to_key(&keybuf);
          btree_key_to_string(btree_cfg, key_key, key_string);
          platform_default_log(
             "key number %lu, %s found (negative)\n", insert_num, key_string);
