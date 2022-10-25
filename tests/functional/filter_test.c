@@ -46,14 +46,16 @@ test_filter_basic(cache           *cc,
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
-   char  keybuf[SPLINTERDB_MAX_KEY_SIZE];
+   WRITABLE_BUFFER_DEFAULT(keywb, hid);
+   writable_buffer_resize(&keywb, key_size);
+   char *keybuf  = writable_buffer_data(&keywb);
    key   key_key = key_create(key_size, keybuf);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
          num_input_keys[i] = num_input_keys[i - 1];
       }
       for (uint64 j = 0; j < num_fingerprints; j++) {
-         ZERO_ARRAY(keybuf);
+         memset(keybuf, 0, key_size);
          if (!used_keys[(i + 1) * j]) {
             used_keys[(i + 1) * j] = TRUE;
             num_input_keys[i]++;
@@ -97,7 +99,7 @@ test_filter_basic(cache           *cc,
 
    for (uint64 i = 0; i < num_values; i++) {
       for (uint64 j = 0; j < num_fingerprints; j++) {
-         ZERO_ARRAY(keybuf);
+         memset(keybuf, 0, key_size);
          *(uint64 *)keybuf = (i + 1) * j;
          uint64 found_values;
          rc = routing_filter_lookup(
@@ -117,7 +119,7 @@ test_filter_basic(cache           *cc,
    uint64 unused_key      = (num_values + 1) * num_fingerprints;
    uint64 false_positives = 0;
    for (uint64 i = unused_key; i < unused_key + num_fingerprints; i++) {
-      ZERO_ARRAY(keybuf);
+      memset(keybuf, 0, key_size);
       *(uint64 *)keybuf = i;
       uint64 found_values;
       rc = routing_filter_lookup(
@@ -169,12 +171,14 @@ test_filter_perf(cache           *cc,
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
    }
-   char  keybuf[SPLINTERDB_MAX_KEY_SIZE];
+   WRITABLE_BUFFER_DEFAULT(keywb, hid);
+   writable_buffer_resize(&keywb, key_size);
+   char *keybuf  = writable_buffer_data(&keywb);
    key   key_key = key_create(key_size, keybuf);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
          uint64 idx = k * num_values * num_fingerprints + i;
-         ZERO_ARRAY(keybuf);
+         memset(keybuf, 0, key_size);
          *(uint64 *)keybuf = idx;
          fp_arr[idx]       = cfg->hash(keybuf, key_size, cfg->seed);
       }
@@ -209,7 +213,7 @@ test_filter_perf(cache           *cc,
    start_time = platform_get_timestamp();
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
-         ZERO_ARRAY(keybuf);
+         memset(keybuf, 0, key_size);
          *(uint64 *)keybuf = k * num_values * num_fingerprints + i;
          uint64 found_values;
          rc =
@@ -240,7 +244,7 @@ test_filter_perf(cache           *cc,
    uint64 false_positives = 0;
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
-         ZERO_ARRAY(keybuf);
+         memset(keybuf, 0, key_size);
          *(uint64 *)keybuf = k * num_values * num_fingerprints + i + unused_key;
          uint64 found_values;
          rc =

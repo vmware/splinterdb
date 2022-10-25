@@ -701,7 +701,6 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    splinterdb_close(&data->kvsb);
    data->cfg.data_cfg                 = test_data_config;
    data->cfg.data_cfg->key_size       = 20;
-   data->cfg.data_cfg->max_key_length = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
@@ -817,12 +816,6 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
    data->cfg.data_cfg = test_data_config;
-
-   // The triggering check was the use of min-key while configuring
-   // the database. (Without this line, this test case will pass.)
-   sprintf(data->cfg.data_cfg->min_key, "%s", "key-0");
-
-   data->cfg.data_cfg->min_key_length = strlen(data->cfg.data_cfg->min_key);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -951,7 +944,7 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
 {
    int rc = 0;
 
-   char expected_key[SPLINTERDB_MAX_KEY_SIZE] = {0};
+   char expected_key[7]                       = {0};
    char expected_val[TEST_MAX_VALUE_SIZE]     = {0};
    ASSERT_EQUAL(
       6, snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));

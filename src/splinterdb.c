@@ -117,28 +117,6 @@ splinterdb_validate_app_data_config(const data_config *cfg)
    platform_assert(cfg->key_to_string != NULL);
    platform_assert(cfg->message_to_string != NULL);
 
-   if (cfg->key_size > SPLINTERDB_MAX_KEY_SIZE) {
-      platform_error_log("Invalid data_config: Specified key_size=%lu cannot "
-                         "exceed SPLINTERDB_MAX_KEY_SIZE=%d.\n",
-                         cfg->key_size,
-                         SPLINTERDB_MAX_KEY_SIZE);
-      return STATUS_BAD_PARAM;
-   }
-
-   platform_assert(cfg->max_key_length > 0,
-                   "length of maximum key must be positive");
-   platform_assert(cfg->max_key_length <= cfg->key_size,
-                   "length of maximum key=%lu cannot exceed key_size=%lu",
-                   cfg->max_key_length,
-                   cfg->key_size);
-   platform_assert(cfg->min_key_length <= cfg->key_size,
-                   "length of minimum key=%lu cannot exceed key_size=%lu",
-                   cfg->min_key_length,
-                   cfg->key_size);
-
-   int min_max_cmp =
-      data_key_compare(cfg, data_min_key(cfg), data_max_key(cfg));
-   platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
    return STATUS_OK;
 }
 
@@ -456,39 +434,6 @@ splinterdb_deregister_thread(splinterdb *kvs)
    platform_assert(kvs != NULL);
 
    task_deregister_this_thread(kvs->task_sys);
-}
-
-/*
- * Validate that a key being inserted is within [min, max]-key range.
- */
-bool
-validate_key_in_range(const splinterdb *kvs, key _key)
-{
-   const data_config *cfg = kvs->data_cfg;
-
-   int cmp_rv = 0;
-
-   key min_key = data_min_key(cfg);
-   key max_key = data_max_key(cfg);
-
-   // key to-be-inserted should be >= min-key
-   cmp_rv = data_key_compare(cfg, min_key, _key);
-   if (cmp_rv > 0) {
-      platform_error_log("Key '%s' is less than configured min-key '%s'.\n",
-                         key_string(cfg, _key),
-                         key_string(cfg, min_key));
-      return FALSE;
-   }
-
-   // key to-be-inserted should be <= max-key
-   cmp_rv = data_key_compare(cfg, _key, max_key);
-   if (cmp_rv > 0) {
-      platform_error_log("Key '%s' is greater than configured max-key '%s'.\n",
-                         key_string(cfg, _key),
-                         key_string(cfg, max_key));
-      return FALSE;
-   }
-   return TRUE;
 }
 
 /*

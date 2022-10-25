@@ -20,7 +20,6 @@
 #ifndef __DATA_H
 #define __DATA_H
 
-#include "splinterdb/limits.h"
 #include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
 
@@ -158,13 +157,6 @@ typedef void (*message_to_str_fn)(const data_config *cfg,
 struct data_config {
    // FIXME: Planned for deprecation.
    uint64 key_size;
-
-   // FIXME: Planned for deprecation.
-   char   min_key[SPLINTERDB_MAX_KEY_SIZE];
-   uint64 min_key_length;
-
-   char   max_key[SPLINTERDB_MAX_KEY_SIZE];
-   uint64 max_key_length;
 
    key_compare_fn       key_compare;
    key_hash_fn          key_hash;
