@@ -234,7 +234,7 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // assertions.
    shminfop->shm_id = 0;
 
-   // Retain some memory usage stages before release shmem
+   // Retain some memory usage stats before releasing shmem
    size_t shm_total_bytes = shminfop->shm_total_bytes;
    size_t shm_used_bytes  = shminfop->shm_used_bytes;
    size_t shm_free_bytes  = shminfop->shm_free_bytes;
@@ -304,10 +304,16 @@ platform_shm_alloc(platform_heap_id hid,
       shminfop->shm_used_bytes,
       shminfop->shm_free_bytes);
 
-   if (shminfop->shm_free_bytes < size) {
+   // if (shminfop->shm_free_bytes < size) {
+   // void *retptr =  __sync_fetch_and_add(&shminfop->shm_next, size);
+   void *retptr = __sync_fetch_and_add(&shminfop->shm_next, size);
+   if (shminfop->shm_next >= shminfop->shm_end) {
+      // This memory request cannot fit in available space. Reset.
+      __sync_fetch_and_sub(&shminfop->shm_next, size);
+
       platform_error_log(
          "[%s:%d::%s()]: Insufficient memory in shared segment"
-         " to allocate %lu bytes for '%s'. Available space=%lu bytes.\n",
+         " to allocate %lu bytes for '%s'. Approx free space=%lu bytes.\n",
          file,
          lineno,
          func,
@@ -316,15 +322,13 @@ platform_shm_alloc(platform_heap_id hid,
          shminfop->shm_free_bytes);
       return NULL;
    }
-   void *retptr = shminfop->shm_next;
-
-   // Advance next-free-ptr and track memory usage metrics
-   shminfop->shm_next += size;
-   shminfop->shm_used_bytes += size;
-   shminfop->shm_free_bytes -= size;
+   // Track approx memory usage metrics; mainly for troubleshooting
+   __sync_fetch_and_add(&shminfop->shm_used_bytes, size);
+   __sync_fetch_and_sub(&shminfop->shm_free_bytes, size);
 
    // Trace shared memory allocation; then return memory ptr.
    if (Trace_shmem || Trace_shmem_allocs) {
+
       bool        use_MiB = (shminfop->shm_free_bytes < GiB);
       const char *msg     = "  [%s:%d::%s()] -> %s: Allocated %lu bytes "
                             "for object '%s', at %p, "

@@ -437,8 +437,8 @@ extern platform_heap_id     Heap_id;
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
  */
-#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, (v), 1)
-#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, (v), 1)
+#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, v, 1)
+#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, v, 1)
 
 /*
  * -----------------------------------------------------------------------------
