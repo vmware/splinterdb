@@ -78,6 +78,8 @@ typedef struct shm_frag_info {
 
 /*
  * -----------------------------------------------------------------------------
+ * shmem_info{}: Shared memory Control Block:
+ *
  * Core structure describing shared memory segment created. This lives right
  * at the start of the allocated shared segment.
  *
@@ -182,7 +184,11 @@ platform_shm_lop(platform_heap_id hid)
    return (void *)platform_heap_id_to_handle(hid);
 }
 
-/* Evaluates to valid 'high' address within shared segment. */
+/*
+ * Evaluates to valid 'high' address within shared segment.
+ * shm_end points to one-byte-just-past-end of shared segment.
+ * Valid 'high' byte is last byte just before shm_end inside segment.
+ */
 static inline void *
 platform_shm_hip(platform_heap_id hid)
 {
@@ -436,7 +442,7 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_alloc() -- Allocate n-bytes from shared segment.
+ * platform_shm_alloc() -- Allocate n-bytes from shared memory segment.
  *
  * Allocation request is expected to have added-in pad-bytes required for
  * alignment. As a result, we can assert that the addr-of-next-free-byte is
@@ -487,7 +493,7 @@ platform_shm_alloc(platform_heap_id hid,
    // Optimistically, allocate the requested 'size' bytes of memory.
    retptr = __sync_fetch_and_add(&shminfo->shm_next, (void *)size);
 
-   if (shminfo->shm_next >= shminfo->shm_end) {
+   if (shminfo->shm_next > shminfo->shm_end) {
       // This memory request cannot fit in available space. Reset.
       __sync_fetch_and_sub(&shminfo->shm_next, (void *)size);
 
@@ -926,11 +932,12 @@ platform_trace_large_frags(shmem_info *shm)
                             frag->shm_frag_freed_by_tid);
       }
 
-      platform_error_log("  Fragment at slot=%d, addr=%p, size=%lu is in-use"
-                         ", allocated_to_pid=%d, allocated_to_tid=%lu\n",
+      platform_error_log("  **** Fragment at slot=%d, addr=%p, size=%lu (%s) is"
+                         " in-use, allocated_to_pid=%d, allocated_to_tid=%lu\n",
                          fctr,
                          frag->shm_frag_addr,
                          frag->shm_frag_size,
+                         size_str(frag->shm_frag_size),
                          frag->shm_frag_allocated_to_pid,
                          frag->shm_frag_allocated_to_tid);
    }

@@ -158,6 +158,7 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
    // Sum of requested allocation + pad-bytes == total # of used-bytes
    ASSERT_EQUAL((keybuf_size + keybuf_pad), platform_shmused(data->hid));
 
+   // Should have allocated what was previously determined as next free byte.
    ASSERT_TRUE((void *)keybuf == next_free);
 
    // Validate returned memory-ptrs, knowing that pad bytes were needed.
@@ -181,6 +182,76 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
    ASSERT_TRUE(next_free
                == ((void *)data->hh + platform_shm_ctrlblock_size()
                    + keybuf_size + keybuf_pad + msgbuf_size + msgbuf_pad));
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Test allocation requests that result in an OOM from shared segment.
+ * Verify limits of memory allocation and handling of free/used bytes.
+ * These stats are maintained w/o full spinlocks, so will be approximate
+ * in concurrent scenarios. But for single-threaded allocations, these stats
+ * should be accurate even when shmem-OOMs occur.
+ * ---------------------------------------------------------------------------
+ */
+CTEST2(splinter_shmem, test_allocations_causing_OOMs)
+{
+   int keybuf_size = 64;
+
+   // Self-documenting assertion ... to future-proof this area.
+   ASSERT_EQUAL(keybuf_size, PLATFORM_CACHELINE_SIZE);
+
+   void  *next_free = platform_shm_next_free_addr(data->hid);
+   uint8 *keybuf    = TYPED_MANUAL_MALLOC(data->hid, keybuf, keybuf_size);
+
+   // Validate returned memory-ptr, knowing that no pad bytes were needed.
+   ASSERT_TRUE((void *)keybuf == next_free);
+
+   next_free = platform_shm_next_free_addr(data->hid);
+
+   size_t space_left =
+      (data->shmem_capacity - (keybuf_size + platform_shm_ctrlblock_size()));
+
+   ASSERT_EQUAL(space_left, platform_shmfree(data->hid));
+
+   platform_error_log("\nNOTE: Test case intentionally triggers out-of-space"
+                      " errors in shared segment. 'Insufficient memory'"
+                      " error messages below are to be expected.\n");
+
+   // Note that although we have asked for 1 more byte than free space available
+   // the allocation interfaces round-up the # bytes for alignment. So the
+   // requested # of bytes will be a bit larger than free space in the error
+   // message you will see below.
+   keybuf_size       = (space_left + 1);
+   uint8 *keybuf_oom = TYPED_MANUAL_MALLOC(data->hid, keybuf_oom, keybuf_size);
+   ASSERT_TRUE(keybuf_oom == NULL);
+
+   // Free space counter is not touched if allocation fails.
+   ASSERT_EQUAL(space_left, platform_shmfree(data->hid));
+
+   // As every memory request is rounded-up for alignment, the space left
+   // counter should always be an integral multiple of this constant.
+   ASSERT_EQUAL(0, (space_left % PLATFORM_CACHELINE_SIZE));
+
+   // If we request exactly what's available, it should succeed.
+   keybuf_size = space_left;
+   uint8 *keybuf_no_oom =
+      TYPED_MANUAL_MALLOC(data->hid, keybuf_no_oom, keybuf_size);
+   ASSERT_TRUE(keybuf_no_oom != NULL);
+   CTEST_LOG_INFO("Successfully allocated all remaining %lu bytes "
+                  "from shared segment.\n",
+                  space_left);
+
+   // We should be out of space by now.
+   ASSERT_EQUAL(0, platform_shmfree(data->hid));
+
+   // This should fail.
+   keybuf_size = 1;
+   keybuf_oom  = TYPED_MANUAL_MALLOC(data->hid, keybuf_oom, keybuf_size);
+   ASSERT_TRUE(keybuf_oom == NULL);
+
+   // Free allocated memory before exiting.
+   platform_free(data->hid, keybuf);
+   platform_free(data->hid, keybuf_no_oom);
 }
 
 /*
@@ -281,11 +352,11 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
 
    ZERO_ARRAY(thread_cfg);
 
-   platform_default_log("\nExecute %d concurrent threads peforming memory "
-                        "allocation till we run out of memory in the shared "
-                        "segment.\n"
-                        "('Insufficient memory' errors are expected below.)\n",
-                        TEST_MAX_THREADS);
+   platform_error_log("\nExecute %d concurrent threads peforming memory"
+                      " allocation till we run out of memory in the shared"
+                      " segment.\n'Insufficient memory' error messages"
+                      " below are to be expected.\n",
+                      TEST_MAX_THREADS);
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
@@ -569,6 +640,8 @@ exec_thread_memalloc(void *arg)
    uint64   nallocs         = 0;
    threadid this_thread_idx = thread_cfg->exp_thread_idx;
 
+   // Keep allocating fragments till we run out of memory.
+   // Build a linked list of memory fragments for this thread.
    while ((new_frag = TYPED_ZALLOC(platform_get_heap_id(), new_frag)) != NULL) {
       *fragpp         = new_frag;
       new_frag->owner = this_thread_idx;
@@ -576,6 +649,7 @@ exec_thread_memalloc(void *arg)
       nallocs++;
    }
    splinterdb_deregister_thread(kvs);
+
    platform_default_log(
       "Thread-ID=%lu allocated %lu memory fragments of %lu bytes each.\n",
       this_thread_idx,
