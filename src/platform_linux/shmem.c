@@ -21,6 +21,8 @@ bool Trace_shmem        = FALSE;
 
 /*
  * -----------------------------------------------------------------------------
+ * shmem_info{}: Shared memory Control Block:
+ *
  * Core structure describing shared memory segment created. This lives right
  * at the start of the allocated shared segment.
  * -----------------------------------------------------------------------------
@@ -31,7 +33,7 @@ typedef struct shmem_info {
    void  *shm_next;  // Points to next 'free' address to allocate from.
    void  *shm_splinterdb_handle;
    size_t shm_total_bytes; // Total size of shared segment allocated initially.
-   size_t shm_free_bytes;  // Free bytes of memory left (that can be allocated)
+   int64  shm_free_bytes;  // Free bytes of memory left (that can be allocated)
    size_t shm_used_bytes;  // Used bytes of memory left (that were allocated)
    uint64 shm_magic;       // Magic identifier for shared memory segment
    int    shm_id;          // Shared memory ID returned by shmget()
@@ -52,9 +54,9 @@ typedef struct shmem_info {
  * location of the next-free-byte can be tracked.
  *
  * RESOLVE - This ptr-math going back from address of heap-ID is prone to
- *errors. In some code paths, e.g. tests/unit/btree_test.c, we pass-down the
- *stack address of an on-stack scratch-buffer masquerading as the heap-ID
- *handle.
+ * errors. In some code paths, e.g. tests/unit/btree_test.c, we pass-down the
+ * stack address of an on-stack scratch-buffer masquerading as the heap-ID
+ * handle.
  */
 static inline platform_heap_handle
 platform_heap_id_to_handle(platform_heap_id hid)
@@ -124,18 +126,19 @@ platform_shmcreate(size_t                size,
    }
 
    // Setup shared segment's control block at head of shared segment.
-   size_t      free_bytes;
    shmem_info *shminfop = (shmem_info *)shmaddr;
 
    shminfop->shm_start       = shmaddr;
    shminfop->shm_end         = (shmaddr + size);
    shminfop->shm_next        = (shmaddr + sizeof(shmem_info));
    shminfop->shm_total_bytes = size;
-   free_bytes                = (size - sizeof(shmem_info));
-   shminfop->shm_free_bytes  = free_bytes;
-   shminfop->shm_used_bytes  = 0;
-   shminfop->shm_id          = shmid;
-   shminfop->shm_magic       = SPLINTERDB_SHMEM_MAGIC;
+
+   int64 free_bytes;
+   free_bytes               = (size - sizeof(shmem_info));
+   shminfop->shm_free_bytes = free_bytes;
+   shminfop->shm_used_bytes = 0;
+   shminfop->shm_id         = shmid;
+   shminfop->shm_magic      = SPLINTERDB_SHMEM_MAGIC;
 
    // Return 'heap' handles, if requested, pointing to shared segment handles.
    if (heap_handle) {
@@ -237,7 +240,7 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // Retain some memory usage stats before releasing shmem
    size_t shm_total_bytes = shminfop->shm_total_bytes;
    size_t shm_used_bytes  = shminfop->shm_used_bytes;
-   size_t shm_free_bytes  = shminfop->shm_free_bytes;
+   int64  shm_free_bytes  = shminfop->shm_free_bytes;
 
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
@@ -269,7 +272,7 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_alloc() -- Allocate n-bytes from shared segment.
+ * platform_shm_alloc() -- Allocate n-bytes from shared memory segment.
  *
  * Allocation request is expected to have added-in pad-bytes required for
  * alignment. As a result, we can assert that the addr-of-next-free-byte is
@@ -304,10 +307,10 @@ platform_shm_alloc(platform_heap_id hid,
       shminfop->shm_used_bytes,
       shminfop->shm_free_bytes);
 
-   // if (shminfop->shm_free_bytes < size) {
-   // void *retptr =  __sync_fetch_and_add(&shminfop->shm_next, size);
+   // Optimistically, allocate the requested 'size' bytes of memory.
    void *retptr = __sync_fetch_and_add(&shminfop->shm_next, size);
-   if (shminfop->shm_next >= shminfop->shm_end) {
+
+   if (shminfop->shm_next > shminfop->shm_end) {
       // This memory request cannot fit in available space. Reset.
       __sync_fetch_and_sub(&shminfop->shm_next, size);
 
