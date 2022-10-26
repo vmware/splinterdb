@@ -441,8 +441,8 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
  */
-#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, (v), 1)
-#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, (v), 1)
+#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, v, 1)
+#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, v, 1)
 
 /*
  * -----------------------------------------------------------------------------

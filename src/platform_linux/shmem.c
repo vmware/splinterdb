@@ -239,6 +239,11 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // assertions.
    shminfop->shm_id = 0;
 
+   // Retain some memory usage stats before releasing shmem
+   size_t shm_total_bytes = shminfop->shm_total_bytes;
+   size_t shm_used_bytes  = shminfop->shm_used_bytes;
+   size_t shm_free_bytes  = shminfop->shm_free_bytes;
+
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
       platform_error_log(
@@ -252,8 +257,17 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    }
 
    // Always trace destroy of shared memory segment.
-   platform_default_log(
-      "Deallocated shared memory segment at %p, shmid=%d\n", shmaddr, shmid);
+   platform_default_log("Deallocated SplinterDB shared memory "
+                        "segment at %p, shmid=%d. Used=%lu bytes (%s %d %%)"
+                        ", Free=%lu bytes (%s %d %%).\n",
+                        shmaddr,
+                        shmid,
+                        shm_used_bytes,
+                        size_str(shm_used_bytes),
+                        (int)((shm_used_bytes * 1.0 / shm_total_bytes) * 100),
+                        shm_free_bytes,
+                        size_str(shm_free_bytes),
+                        (int)((shm_free_bytes * 1.0 / shm_total_bytes) * 100));
 }
 
 /*
@@ -293,15 +307,29 @@ platform_shm_alloc(platform_heap_id hid,
       shminfop->shm_used_bytes,
       shminfop->shm_free_bytes);
 
-   if (shminfop->shm_free_bytes < size) {
+   _Static_assert(sizeof(void *) == sizeof(size_t),
+                  "check our casts are valid");
+
+   // Optimistically, allocate the requested 'size' bytes of memory.
+   void *retptr = __sync_fetch_and_add(&shminfop->shm_next, (void *)size);
+   if (shminfop->shm_next >= shminfop->shm_end) {
+      // This memory request cannot fit in available space. Reset.
+      __sync_fetch_and_sub(&shminfop->shm_next, (void *)size);
+
+      platform_error_log(
+         "[%s:%d::%s()]: Insufficient memory in shared segment"
+         " to allocate %lu bytes for '%s'. Approx free space=%lu bytes.\n",
+         file,
+         lineno,
+         func,
+         size,
+         objname,
+         shminfop->shm_free_bytes);
       return NULL;
    }
-   void *retptr = shminfop->shm_next;
-
-   // Advance next-free-ptr and track memory usage metrics
-   shminfop->shm_next += size;
-   shminfop->shm_used_bytes += size;
-   shminfop->shm_free_bytes -= size;
+   // Track approx memory usage metrics; mainly for troubleshooting
+   __sync_fetch_and_add(&shminfop->shm_used_bytes, size);
+   __sync_fetch_and_sub(&shminfop->shm_free_bytes, size);
 
    // Trace shared memory allocation; then return memory ptr.
    if (Trace_shmem || Trace_shmem_allocs) {
