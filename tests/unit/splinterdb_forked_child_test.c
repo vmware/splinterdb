@@ -22,6 +22,7 @@
 #include "shmem.h"
 #include "config.h"
 #include "test_splinterdb_apis.h"
+#include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -108,7 +109,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "test_forked_child.db";
+   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -405,11 +406,12 @@ CTEST2(splinterdb_forked_child,
 
 /*
  * ------------------------------------------------------------------------------
- * Test case is structurally similar to
- * test_completion_of_outstanding_async_IOs_from_process_bug, except that here
- * we provide the hook to run n-forked child processes using the --num-threads
- * option. This test case verifies that the per-process/thread IO-context
- * rework works reliably for multiple child processes performing IO
+ * Test case to fire-up multiple child processes, each doing concurrent inserts.
+ * This test simulates the usage of multiple clients connected to a DB-server
+ * where each connection is a forked child process. We verify the stability of
+ * this concurrent insert workload to establish a baseline for performance
+ * measurements (elsewhere). This test case verifies that the per-process/thread
+ * IO-context rework works reliably for multiple child processes performing IO
  * concurrently.
  * ------------------------------------------------------------------------------
  */
@@ -447,6 +449,8 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
       platform_get_tid(),
       data->num_forked_procs);
 
+   bool wait_for_gdb = data->master_cfg.wait_for_gdb;
+
    // Fork n-concurrently executing child processes.
    for (int fctr = 0; data->am_parent && fctr < data->num_forked_procs; fctr++)
    {
@@ -460,14 +464,21 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
          // This is now executing as a child process.
          data->am_parent = FALSE;
 
+         if (wait_for_gdb) {
+            trace_wait_for_gdb();
+         }
+
          // Perform some inserts through child process
          splinterdb_register_thread(spl_handle);
 
          platform_default_log(
             "OS-pid=%d, ThreadID=%lu:"
-            "Child execution started: Test cache-flush before deregister ...\n",
+            "Child execution started: Perform %lu (%d million) inserts ...\n",
+            " Test cache-flush before deregister ...\n",
             getpid(),
-            platform_get_tid());
+            platform_get_tid(),
+            data->num_inserts,
+            (int)(data->num_inserts / MILLION));
 
          do_many_inserts(spl_handle, data->num_inserts);
 
