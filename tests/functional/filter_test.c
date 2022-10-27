@@ -30,7 +30,7 @@ test_filter_basic(cache           *cc,
    platform_default_log("filter_test: routing filter basic test started\n");
    platform_status rc = STATUS_OK;
 
-   const uint64 key_size = cfg->data_cfg->key_size;
+   const uint64 key_size = cfg->data_cfg->max_key_size;
    if (key_size < sizeof(uint64)) {
       platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
@@ -160,7 +160,7 @@ test_filter_perf(cache           *cc,
    platform_default_log("filter_test: routing filter perf test started\n");
    platform_status rc = STATUS_OK;
 
-   const uint64 key_size = cfg->data_cfg->key_size;
+   const uint64 key_size = cfg->data_cfg->max_key_size;
    if (key_size < sizeof(uint64)) {
       platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
@@ -373,7 +373,7 @@ filter_test(int argc, char *argv[])
    uint64 max_tuples_per_memtable =
       cfg->mt_cfg.max_extents_per_memtable
       * cache_config_extent_size((cache_config *)&cache_cfg)
-      / (data_cfg->key_size + generator_average_message_size(&gen));
+      / (data_cfg->max_key_size + generator_average_message_size(&gen));
 
    if (run_perf_test) {
       rc = test_filter_perf((cache *)cc,

@@ -156,7 +156,7 @@ typedef void (*message_to_str_fn)(const data_config *cfg,
  */
 struct data_config {
    // FIXME: Planned for deprecation.
-   uint64 key_size;
+   uint64 max_key_size;
 
    key_compare_fn       key_compare;
    key_hash_fn          key_hash;

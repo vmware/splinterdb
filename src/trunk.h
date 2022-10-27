@@ -417,9 +417,9 @@ bool
 trunk_verify_tree(trunk_handle *spl);
 
 static inline uint64
-trunk_key_size(trunk_handle *spl)
+trunk_max_key_size(trunk_handle *spl)
 {
-   return spl->cfg.data_cfg->key_size;
+   return spl->cfg.data_cfg->max_key_size;
 }
 
 static inline int
