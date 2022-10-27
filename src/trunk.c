@@ -547,10 +547,11 @@ typedef struct ONDISK trunk_hdr {
  *-----------------------------------------------------------------------------
  * Splinter Pivot Data: Disk-resident structure on Trunk pages
  *
- * A pivot consists of the pivot key (of size cfg.key_size) followed by a
- * trunk_pivot_data. An array of this ( <pivot-key>, <trunk_pivot_data> )
- * pair appears on trunk pages, following the end of struct trunk_hdr{}.
- * This array is sized by configured max_pivot_keys hard-limit.
+ * A pivot consists of cfg.max_key_size bytes of space for the pivot key
+ *  followed by a trunk_pivot_data. An array of this ( <pivot-key>,
+ *  <trunk_pivot_data> ) pair appears on trunk pages, following the end of
+ *struct trunk_hdr{}. This array is sized by configured max_pivot_keys
+ *hard-limit.
  *
  * The generation is used by asynchronous processes to determine when a pivot
  * has split
@@ -1259,13 +1260,13 @@ trunk_inc_pivot_generation(trunk_handle *spl, page_handle *node)
 }
 
 /*
- * A pivot consists of the pivot key (of size cfg.key_size) followed by
- * a struct trunk_pivot_data. Return the total size of a pivot.
+ * A pivot consists of cfg.key_size bytes of space for the pivot key, followed
+ * by a struct trunk_pivot_data. Return the total size of a pivot.
  */
 uint64
 trunk_pivot_size(trunk_handle *spl)
 {
-   return trunk_key_size(spl) + sizeof(trunk_pivot_data);
+   return trunk_max_key_size(spl) + sizeof(trunk_pivot_data);
 }
 
 /*
@@ -1286,7 +1287,7 @@ static inline trunk_pivot_data *
 trunk_get_pivot_data(trunk_handle *spl, page_handle *node, uint16 pivot_no)
 {
    return (trunk_pivot_data *)(trunk_get_pivot_buffer(spl, node, pivot_no)
-                               + trunk_key_size(spl));
+                               + trunk_max_key_size(spl));
 }
 
 static inline void
@@ -5508,7 +5509,7 @@ trunk_split_leaf(trunk_handle *spl,
             key     curr_key;
             message dummy_data;
             iterator_get_curr(&rough_merge_itor->super, &curr_key, &dummy_data);
-            debug_assert(key_length(curr_key) == trunk_key_size(spl));
+            debug_assert(key_length(curr_key) <= trunk_max_key_size(spl));
             // copy new pivot (in parent) of new leaf
             key_buffer_init_from_key(
                &scratch->pivot[num_leaves + 1], spl->heap_id, curr_key);
@@ -6276,7 +6277,7 @@ trunk_insert(trunk_handle *spl, key key, message data)
       ts = platform_get_timestamp();
    }
 
-   if (trunk_key_size(spl) < key_length(key)) {
+   if (trunk_max_key_size(spl) < key_length(key)) {
       return STATUS_BAD_PARAM;
    }
 
@@ -9057,14 +9058,14 @@ trunk_config_init(trunk_config        *trunk_cfg,
    trunk_cfg->log_handle              = log_handle;
 
    // Inline what we would get from trunk_pivot_size(trunk_handle *).
-   trunk_pivot_size = data_cfg->key_size + trunk_pivot_message_size();
+   trunk_pivot_size = data_cfg->max_key_size + trunk_pivot_message_size();
 
    // Setting hard limit and over overprovisioning
    trunk_cfg->max_pivot_keys = trunk_cfg->fanout + TRUNK_EXTRA_PIVOT_KEYS;
    uint64 header_bytes       = sizeof(trunk_hdr);
 
    uint64 pivot_bytes = (trunk_cfg->max_pivot_keys
-                         * (data_cfg->key_size + sizeof(trunk_pivot_data)));
+                         * (data_cfg->max_key_size + sizeof(trunk_pivot_data)));
    uint64 branch_bytes =
       trunk_cfg->max_branches_per_node * sizeof(trunk_branch);
    uint64 trunk_node_min_size = header_bytes + pivot_bytes + branch_bytes;
@@ -9083,7 +9084,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
                    header_bytes,
                    pivot_bytes,
                    trunk_cfg->max_pivot_keys,
-                   data_cfg->key_size + sizeof(trunk_pivot_data),
+                   data_cfg->max_key_size + sizeof(trunk_pivot_data),
                    branch_bytes,
                    max_branches_per_node,
                    sizeof(trunk_branch),

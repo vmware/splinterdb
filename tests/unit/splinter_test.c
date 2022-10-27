@@ -443,7 +443,7 @@ CTEST2(splinter, test_lookups)
    merge_accumulator qdata;
    merge_accumulator_init(&qdata, NULL);
    WRITABLE_BUFFER_DEFAULT(key, data->hid);
-   const size_t key_size = trunk_key_size(spl);
+   const size_t key_size = trunk_max_key_size(spl);
 
    platform_status rc;
 
@@ -725,7 +725,7 @@ splinter_do_inserts(void         *datap,
    uint64 start_time = platform_get_timestamp();
    uint64 insert_num;
    WRITABLE_BUFFER_DEFAULT(key, spl->heap_id);
-   const size_t key_size = trunk_key_size(spl);
+   const size_t key_size = trunk_max_key_size(spl);
 
    // Allocate a large array for copying over shadow copies of rows
    // inserted, if user has asked to return such an array.
@@ -847,7 +847,7 @@ test_lookup_by_range(void         *datap,
                      trunk_shadow *shadow,
                      uint64        num_ranges)
 {
-   const size_t key_size = trunk_key_size(spl);
+   const size_t key_size = trunk_max_key_size(spl);
 
    uint64 start_time = platform_get_timestamp();
 

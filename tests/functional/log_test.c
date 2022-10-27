@@ -66,7 +66,7 @@ test_log_crash(clockcache             *cc,
                           i,
                           0,
                           0,
-                          1 + (i % cfg->data_cfg->key_size),
+                          1 + (i % cfg->data_cfg->max_key_size),
                           0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
@@ -90,7 +90,7 @@ test_log_crash(clockcache             *cc,
                           i,
                           0,
                           0,
-                          1 + (i % cfg->data_cfg->key_size),
+                          1 + (i % cfg->data_cfg->max_key_size),
                           0);
       generate_test_message(gen, i, &msg);
       message mmessage = merge_accumulator_to_message(&msg);
@@ -147,7 +147,7 @@ test_log_thread(void *arg)
 
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       key skey = test_key(
-         &keybuf, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
+         &keybuf, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->max_key_size, 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
    }

@@ -700,7 +700,7 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
    data->cfg.data_cfg           = test_data_config;
-   data->cfg.data_cfg->key_size = 20;
+   data->cfg.data_cfg->max_key_size = 20;
    int rc                       = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 

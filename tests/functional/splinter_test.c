@@ -178,7 +178,7 @@ test_trunk_insert_thread(void *arg)
                      insert_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     trunk_key_size(spl),
+                     trunk_max_key_size(spl),
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, insert_num, &msg);
             platform_status rc =
@@ -290,7 +290,7 @@ test_trunk_lookup_thread(void *arg)
                         lookup_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
                rc = trunk_lookup(spl, writable_buffer_to_key(&keybuf), &data);
@@ -312,7 +312,7 @@ test_trunk_lookup_thread(void *arg)
                         lookup_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = lookup_num;
                async_ctxt_process_one(
@@ -431,7 +431,7 @@ test_trunk_range_thread(void *arg)
                      range_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     trunk_key_size(spl),
+                     trunk_max_key_size(spl),
                      test_cfg[spl_idx].period);
             uint64 range_tuples =
                test_range(range_num, min_range_length, max_range_length);
@@ -591,7 +591,7 @@ do_operation(test_splinter_thread_params *params,
                      op_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     trunk_key_size(spl),
+                     trunk_max_key_size(spl),
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, op_num, &msg);
             ts = platform_get_timestamp();
@@ -618,7 +618,7 @@ do_operation(test_splinter_thread_params *params,
                         op_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
                rc = trunk_lookup(spl, writable_buffer_to_key(&key), &msg);
@@ -640,7 +640,7 @@ do_operation(test_splinter_thread_params *params,
                         op_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = op_num;
                async_ctxt_process_one(
@@ -831,7 +831,7 @@ compute_per_table_inserts(uint64       *per_table_inserts, // OUT
    uint64 total_inserts   = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size = cfg[i].data_cfg->key_size
+      tuple_size = cfg[i].data_cfg->max_key_size
                    + generator_average_message_size(test_cfg->gen);
       num_inserts = (num_inserts_cfg ? num_inserts_cfg
                                      : test_cfg[i].tree_size / tuple_size);
@@ -1490,7 +1490,7 @@ test_splinter_periodic(trunk_config    *cfg,
    uint64  total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size = cfg[i].data_cfg->key_size
+      tuple_size = cfg[i].data_cfg->max_key_size
                    + generator_average_message_size(test_cfg->gen);
       num_inserts = test_cfg[i].tree_size / tuple_size;
       if (test_cfg[i].key_type == TEST_PERIODIC) {
@@ -2170,7 +2170,7 @@ test_splinter_delete(trunk_config    *cfg,
    uint64  total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size = cfg[i].data_cfg->key_size
+      tuple_size = cfg[i].data_cfg->max_key_size
                    + generator_average_message_size(test_cfg->gen);
       num_inserts          = test_cfg[i].tree_size / tuple_size;
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);

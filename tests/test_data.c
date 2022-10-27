@@ -123,7 +123,7 @@ test_data_message_to_string(const data_config *cfg,
 static data_test_config data_test_config_internal = {
    .super =
       {
-         .key_size           = 24,
+         .max_key_size       = 24,
          .key_compare        = test_data_key_cmp,
          .key_hash           = platform_hash32,
          .key_to_string      = test_data_key_to_string,

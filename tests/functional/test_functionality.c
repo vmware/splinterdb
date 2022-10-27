@@ -150,7 +150,7 @@ verify_against_shadow(trunk_handle               *spl,
                       test_splinter_shadow_array *sharr,
                       test_async_lookup          *async_lookup)
 {
-   uint64 key_size = spl->cfg.data_cfg->key_size;
+   uint64 key_size = spl->cfg.data_cfg->max_key_size;
 
    platform_assert(key_size >= sizeof(uint64));
    platform_assert(sizeof(data_handle) <= sizeof(void *));
@@ -357,7 +357,7 @@ choose_key(data_config                *cfg,         // IN
             pos++;
          }
          *index = pos;
-         test_int_to_key(keybuf, key, cfg->key_size);
+         test_int_to_key(keybuf, key, cfg->max_key_size);
          break;
       }
       case VERIFY_RANGE_ENDPOINT_EQUAL:
@@ -368,7 +368,7 @@ choose_key(data_config                *cfg,         // IN
       case VERIFY_RANGE_ENDPOINT_LESS:
          platform_assert(!is_start && !key_is_null(startkey));
          *index = start_index ? (random_next_uint64(prg) % start_index) : 0;
-         test_int_to_key(keybuf, sharr->keys[*index], cfg->key_size);
+         test_int_to_key(keybuf, sharr->keys[*index], cfg->max_key_size);
          break;
       default:
          platform_assert(0);
@@ -543,7 +543,7 @@ insert_random_messages(trunk_handle              *spl,
                        int64                      mindelta,
                        int64                      maxdelta)
 {
-   uint64 key_size = spl->cfg.data_cfg->key_size;
+   uint64 key_size = spl->cfg.data_cfg->max_key_size;
 
    platform_assert(key_size >= sizeof(uint64));
    platform_assert(sizeof(data_handle) <= sizeof(void *));
@@ -829,9 +829,6 @@ test_functionality(allocator           *al,
 
       total_inserts += num_messages;
       i++;
-      // char key[trunk_key_size(spl)];
-      // test_int_to_key(key, 0x0073bc3b, trunk_key_size(spl));
-      // trunk_print_lookup(spl, key);
    }
 
    // Validate each tree against the shadow one last time.

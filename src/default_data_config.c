@@ -75,7 +75,7 @@ default_data_config_init(const size_t max_key_size, // IN
 )
 {
    data_config cfg = {
-      .key_size           = max_key_size,
+      .max_key_size       = max_key_size,
       .key_compare        = key_compare,
       .key_hash           = platform_hash32,
       .merge_tuples       = merge_tuples,
