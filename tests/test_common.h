@@ -14,6 +14,7 @@
 
 #include "trunk.h"
 #include "functional/test.h"
+#include "functional/test_async.h"
 
 typedef struct stats_lookup {
    uint64 num_found;
@@ -56,5 +57,8 @@ test_show_verbose_progress(test_exec_config *test_exec_cfg)
 {
    return (test_exec_cfg->verbose_progress);
 }
+
+void
+trace_wait_for_gdb(void);
 
 #endif /* __TEST_COMMON_H__ */

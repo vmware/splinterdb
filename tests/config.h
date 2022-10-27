@@ -97,6 +97,7 @@ typedef struct master_config {
    uint64 seed;
    uint64 num_inserts;
    uint64 num_threads;
+   bool   wait_for_gdb; // To debug child processes.
 } master_config;
 
 

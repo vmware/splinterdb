@@ -63,6 +63,7 @@ config_set_defaults(master_config *cfg)
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
 	  .use_shmem				= FALSE,
+	  .wait_for_gdb				= FALSE,
       .log_handle               = NULL,
       .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
@@ -308,6 +309,15 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].fork_child = TRUE;
+            }
+         }
+
+         // Some tests that fork multiple child processes may need
+         // debugging. Use this arg to wait-for-gdb looping behaviour.
+         config_has_option("wait-for-gdb")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].wait_for_gdb = TRUE;
             }
          }
 

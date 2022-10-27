@@ -22,6 +22,7 @@
 #include "splinterdb/splinterdb.h"
 #include "shmem.h"
 #include "config.h"
+#include "test_common.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -402,6 +403,15 @@ CTEST2(splinterdb_forked_child,
    }
 }
 
+/*
+ * ------------------------------------------------------------------------------
+ * Test case to fire-up multiple child processes, each doing concurrent inserts.
+ * This test simulates the usage of multiple clients connected to a DB-server
+ * where each connection is a forked child process. We verify the stability of
+ * this concurrent insert workload to establish a baseline for performance
+ * measurements (elsewhere).
+ * ------------------------------------------------------------------------------
+ */
 CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
 {
    data_config  default_data_cfg;
@@ -436,6 +446,8 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
       pid,
       data->num_forked_procs);
 
+   bool wait_for_gdb = data->master_cfg.wait_for_gdb;
+
    // Fork n-concurrently executing child processes.
    for (int fctr = 0; data->am_parent && fctr < data->num_forked_procs; fctr++)
    {
@@ -449,14 +461,20 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
          // This is now executing as a child process.
          data->am_parent = FALSE;
 
+         if (wait_for_gdb) {
+            trace_wait_for_gdb();
+         }
+
          // Perform some inserts through child process
          splinterdb_register_thread(spl_handle);
 
          platform_default_log(
             "Thread-ID=%lu, OS-pid=%d: "
-            "Child execution started: Test cache-flush before deregister ...\n",
+            "Child execution started: Perform %lu (%d million) inserts ...\n",
             platform_get_tid(),
-            getpid());
+            getpid(),
+            data->num_inserts,
+            (int)(data->num_inserts / MILLION));
 
          do_many_inserts(spl_handle, data->num_inserts);
 
