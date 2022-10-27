@@ -744,7 +744,11 @@ routing_filter_estimate_unique_fp(cache           *cc,
 
             uint32  index_bucket_start = index_no * index_size;
             uint32 *src_fp             = &fp_arr[src_fp_no];
-            platform_assert(src_fp_no + index_count <= buffer_size);
+            platform_assert((src_fp_no + index_count <= buffer_size),
+                            "src_fp_no=%u, index_count=%u, buffer_size=%u\n",
+                            src_fp_no,
+                            index_count,
+                            buffer_size);
             if (index_count != 0) {
                __attribute__((unused)) uint32 index_start = src_fp_no;
                PackedArray_unpack((uint32 *)block_start,

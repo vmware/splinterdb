@@ -52,7 +52,7 @@ typedef struct splinterdb_config {
    void *heap_handle;
    void *heap_id;
 
-   // Shared memory suppot
+   // Shared memory support
    bool use_shmem; // Default is FALSE.
    bool trace_shmem_allocs;
    bool trace_shmem_frees;

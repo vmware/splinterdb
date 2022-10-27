@@ -330,7 +330,7 @@ platform_shm_alloc(platform_heap_id hid,
    __sync_fetch_and_sub(&shminfop->shm_free_bytes, size);
 
    // Trace shared memory allocation; then return memory ptr.
-   if (Trace_shmem || Trace_shmem_allocs) {
+   if (Trace_shmem || Trace_shmem_allocs || (size > MILLION)) {
 
       bool        use_MiB = (shminfop->shm_free_bytes < GiB);
       const char *msg     = "  [%s:%d::%s()] -> %s: Allocated %lu bytes "
