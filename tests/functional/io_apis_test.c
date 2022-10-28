@@ -59,8 +59,13 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 /* Device size; small one is good enough for IO APIs testing */
 #define DEVICE_SIZE_MB 128
 
-/*
- * Use small hard-coded # of threads to avoid allocating memory for
+#define HEAP_SIZE_MB 256
+
+/* SplinterDB device size; small one is good enough for IO APIs testing */
+#define SPLINTER_DEVICE_SIZE_MB 128
+
+
+/* Use small hard-coded # of threads to avoid allocating memory for
  * thread-specific arrays of parameters. It's sufficient to shake out the
  * IO sub-system APIs with just small # of threads.
  */

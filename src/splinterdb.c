@@ -749,3 +749,9 @@ splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
 }
+
+const void *
+splinterdb_get_memtable_context_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl->mt_ctxt;
+}
