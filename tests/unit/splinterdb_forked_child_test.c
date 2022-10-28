@@ -416,7 +416,7 @@ CTEST2(splinterdb_forked_child,
  * measurements (elsewhere).
  * ------------------------------------------------------------------------------
  */
-CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
+CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
 {
    data_config  default_data_cfg;
    data_config *splinter_data_cfgp = &default_data_cfg;

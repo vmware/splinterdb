@@ -7,6 +7,7 @@
  * This file contains the implementation for managing shared memory created
  * for use by SplinterDB and all its innards.
  */
+#include <unistd.h>
 
 #include "platform.h"
 #include "shmem.h"
@@ -438,15 +439,14 @@ platform_shm_alloc(platform_heap_id hid,
    // Trace shared memory allocation; then return memory ptr.
    if (Trace_shmem || Trace_shmem_allocs || (size > MILLION)) {
 
-      if (FALSE)
-         platform_shm_trace_allocs(shminfop,
-                                   size,
-                                   "Allocated new fragment",
-                                   retptr,
-                                   objname,
-                                   func,
-                                   file,
-                                   lineno);
+      platform_shm_trace_allocs(shminfop,
+                                size,
+                                "Allocated new fragment",
+                                retptr,
+                                objname,
+                                func,
+                                file,
+                                lineno);
    }
    return retptr;
 }
@@ -613,18 +613,19 @@ platform_shm_track_free(shmem_info *shm, void *addr)
       frag->shm_frag_freed_by_pid = getpid();
       frag->shm_frag_freed_by_tid = platform_get_tid();
 
-      // if (FALSE)
-      platform_default_log("OS-pid=%d, ThreadID=%lu"
-                           ", Track freed fragment at slot=%d"
-                           ", addr=%p"
-                           ", allocated_to_pid=%d"
-                           ", allocated_to_tid=%lu\n",
-                           frag->shm_frag_freed_by_pid,
-                           frag->shm_frag_freed_by_tid,
-                           fctr,
-                           addr,
-                           frag->shm_frag_allocated_to_pid,
-                           frag->shm_frag_allocated_to_tid);
+      if (Trace_shmem || Trace_shmem_frees) {
+         platform_default_log("OS-pid=%d, ThreadID=%lu"
+                              ", Track freed fragment at slot=%d"
+                              ", addr=%p"
+                              ", allocated_to_pid=%d"
+                              ", allocated_to_tid=%lu\n",
+                              frag->shm_frag_freed_by_pid,
+                              frag->shm_frag_freed_by_tid,
+                              fctr,
+                              addr,
+                              frag->shm_frag_allocated_to_pid,
+                              frag->shm_frag_allocated_to_tid);
+      }
       break;
    }
    shm_unlock_mem_frags(shm);
@@ -686,12 +687,11 @@ platform_shm_find_free(shmem_info *shm,
       // Zero out reallocated memory fragment, just to be sure ...
       memset(retptr, 0, frag->shm_frag_size);
 
-      if (Trace_shmem || Trace_shmem_allocs || TRUE) {
+      if (Trace_shmem || Trace_shmem_allocs) {
          char msg[80];
 
          snprintf(
             msg, sizeof(msg), "Reallocated free fragment at slot=%d", fctr);
-         // if (FALSE)
          platform_shm_trace_allocs(
             shm, size, msg, retptr, objname, func, file, lineno);
       }

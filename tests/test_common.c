@@ -8,6 +8,8 @@
  * Module contains functions shared between functional/ and unit/ test sources.
  * -----------------------------------------------------------------------------
  */
+#include <unistd.h>
+
 #include "splinterdb/public_platform.h"
 #include "trunk.h"
 #include "functional/test.h"
