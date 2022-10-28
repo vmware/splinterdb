@@ -21,8 +21,8 @@
 #include "ctest.h" // This is required for all test-case files.
 
 // Nothing particularly significant about these constants.
-#define TEST_KEY_SIZE   20
-#define TEST_VALUE_SIZE 116
+#define TEST_KEY_SIZE   30
+#define TEST_VALUE_SIZE 256
 
 // Configuration for each worker thread
 typedef struct {
@@ -51,6 +51,25 @@ do_inserts_n_threads(splinterdb      *kvsb,
 
 // Run n-threads concurrently inserting many KV-pairs
 #define NUM_THREADS 8
+
+/*
+ * Some test-cases can drive multiple threads to use either the same start
+ * value for all threads. Or, each thread will use its own start value so
+ * that all threads are inserting in non-intersecting bands of keys.
+ * These mnemonics control these behaviours.
+ */
+#define TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD ((int)0)
+#define TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD ((int)-1)
+
+/* Drive inserts to generate sequential short-length values */
+#define TEST_INSERT_SEQ_VALUES_FD ((int)0)
+
+/*
+ * Some test-cases drive inserts to choose a fully-packed value of size
+ * TEST_VALUE_SIZE bytes. This variation has been seen to trigger some
+ * assertions.
+ */
+#define TEST_INSERT_FULLY_PACKED_CONSTANT_VALUE_FD (int)-1
 
 /*
  * Global data declaration macro:
@@ -89,7 +108,7 @@ CTEST_SETUP(large_inserts_bugs_stress)
    }
 
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
-                                   .cache_size = 256 * Mega,
+                                   .cache_size = 128 * Mega,
                                    .disk_size  = 40 * Giga,
                                    .use_shmem  = use_shmem,
                                    .data_cfg   = &data->default_data_config};
@@ -247,8 +266,14 @@ CTEST2(large_inserts_bugs_stress, test_random_key_random_values_inserts)
 }
 
 /*
+ * ----------------------------------------------------------------------------
+ * Collection of test cases that fire-up diff combinations of inserts
+ * (sequential, random keys & values) executed by n-threads.
+ * ----------------------------------------------------------------------------
+ */
+/*
  * Test case that fires up many threads each concurrently inserting large # of
- * KV-pairs.
+ * KV-pairs, with discrete ranges of keys inserted by each thread.
  * RESOLVE: This hangs in this flow; never completes ...
  * clockcache_try_get_read() -> memtable_maybe_rotate_and_get_insert_lock()
  * This problem will probably occur in /main as well.
@@ -259,8 +284,43 @@ CTEST2_SKIP(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_threaded)
    do_inserts_n_threads(data->kvsb,
                         &data->master_cfg,
                         data->hid,
-                        0,
-                        0,
+                        TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
+                        TEST_INSERT_SEQ_VALUES_FD,
+                        data->num_inserts,
+                        data->master_cfg.num_threads);
+}
+
+/*
+ * Test case that fires up many threads each concurrently inserting large # of
+ * KV-pairs, with all threads inserting from same start-value.
+ */
+CTEST2(large_inserts_bugs_stress,
+       test_seq_key_seq_values_inserts_threaded_same_start_keyid)
+{
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        &data->master_cfg,
+                        data->hid,
+                        TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
+                        TEST_INSERT_SEQ_VALUES_FD,
+                        data->num_inserts,
+                        data->master_cfg.num_threads);
+}
+
+/*
+ * Test case that fires up many threads each concurrently inserting large # of
+ * KV-pairs, with all threads inserting from same start-value, using a fixed
+ * fully-packed value.
+ */
+CTEST2(large_inserts_bugs_stress,
+       test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
+{
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        &data->master_cfg,
+                        data->hid,
+                        TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
+                        TEST_INSERT_FULLY_PACKED_CONSTANT_VALUE_FD,
                         data->num_inserts,
                         data->master_cfg.num_threads);
 }
@@ -275,7 +335,7 @@ CTEST2(large_inserts_bugs_stress, test_random_keys_seq_values_threaded)
                         &data->master_cfg,
                         data->hid,
                         random_key_fd,
-                        0,
+                        TEST_INSERT_SEQ_VALUES_FD,
                         data->num_inserts,
                         data->master_cfg.num_threads);
 
@@ -291,7 +351,25 @@ CTEST2(large_inserts_bugs_stress, test_seq_keys_random_values_threaded)
    do_inserts_n_threads(data->kvsb,
                         &data->master_cfg,
                         data->hid,
-                        0,
+                        TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
+                        random_val_fd,
+                        data->num_inserts,
+                        data->master_cfg.num_threads);
+
+   close(random_val_fd);
+}
+
+CTEST2(large_inserts_bugs_stress,
+       test_seq_keys_random_values_threaded_same_start_keyid)
+{
+   int random_val_fd = open("/dev/urandom", O_RDONLY);
+   ASSERT_TRUE(random_val_fd > 0);
+
+   // Run n-threads with sequential key and sequential values inserted
+   do_inserts_n_threads(data->kvsb,
+                        &data->master_cfg,
+                        data->hid,
+                        TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
                         random_val_fd,
                         data->num_inserts,
                         data->master_cfg.num_threads);
@@ -320,7 +398,40 @@ CTEST2(large_inserts_bugs_stress, test_random_keys_random_values_threaded)
    close(random_val_fd);
 }
 
-
+/*
+ * ----------------------------------------------------------------------------
+ * do_inserts_n_threads() - Driver function that will fire-up n-threads to
+ * perform different forms of inserts run by all the threads. The things we
+ * control via parameters are:
+ *
+ * Parameters:
+ * - random_key_fd      - Sequential / random key
+ * - random_val_fd      - Sequential / random value / fully-packed value.
+ * - num_inserts        - # of inserts / thread
+ * - num_threads        - # of threads to start-up
+ * - same_start_value   - Boolean to control inserted batch' start-value.
+ *
+ * NOTE: Semantics of random_key_fd:
+ *
+ *  o == 0: => Each thread will insert into its own assigned space of
+ *          {start-value, num-inserts} range. The concurrent inserts are all
+ *          unique non-conflicting keys.
+ *
+ *  o  > 0: => Each thread will insert num_inserts rows with randomly generated
+ *          keys, usually fully-packed to TEST_KEY_SIZE.
+ *
+ *  o  < 0: => Each thread will insert num_inserts rows all starting at the
+ *          same start value; chosen as 0.
+ *          This is a lapsed case to exercise heavy inserts of duplicate
+ *          keys, creating diff BTree split dynamics.
+ *
+ * NOTE: Semantics of random_val_fd:
+ *
+ * You can use this to control the type of value that will be generated:
+ *  == 0: Use sequential small-length values.
+ *  == 1: Use randomly generated values, fully-packed to TEST_VALUE_SIZE.
+ * ----------------------------------------------------------------------------
+ */
 static void
 do_inserts_n_threads(splinterdb      *kvsb,
                      master_config   *master_cfg,
@@ -334,10 +445,13 @@ do_inserts_n_threads(splinterdb      *kvsb,
 
    // Setup thread-specific insert parameters
    for (int ictr = 0; ictr < num_threads; ictr++) {
-      wcfg[ictr].kvsb          = kvsb;
-      wcfg[ictr].master_cfg    = master_cfg;
-      wcfg[ictr].num_inserts   = num_inserts;
-      wcfg[ictr].start_value   = (wcfg[ictr].num_inserts * ictr);
+      wcfg[ictr].kvsb        = kvsb;
+      wcfg[ictr].master_cfg  = master_cfg;
+      wcfg[ictr].num_inserts = num_inserts;
+
+      // Choose the same or diff start key-ID for each thread.
+      wcfg[ictr].start_value =
+         ((random_key_fd < 0) ? 0 : (wcfg[ictr].num_inserts * ictr));
       wcfg[ictr].random_key_fd = random_key_fd;
       wcfg[ictr].random_val_fd = random_val_fd;
       wcfg[ictr].is_thread     = TRUE;
@@ -372,10 +486,12 @@ do_inserts_n_threads(splinterdb      *kvsb,
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * exec_worker_thread() - Thread-specific insert work-horse function.
  *
  * Each thread inserts 'num_inserts' KV-pairs from a 'start_value' ID.
  * All inserts are sequential.
+ * ----------------------------------------------------------------------------
  */
 static void *
 exec_worker_thread(void *w)
@@ -402,14 +518,19 @@ exec_worker_thread(void *w)
    // Test is written to insert multiples of millions per thread.
    ASSERT_EQUAL(0, (num_inserts % MILLION));
 
-   platform_default_log("Thread %-2lu inserts %lu (%lu million)"
+   const char *random_val_descr = NULL;
+   random_val_descr             = ((random_val_fd > 0)    ? "random"
+                                   : (random_val_fd == 0) ? "seqential"
+                                                          : "fully-packed constant");
+
+   platform_default_log("%s()::%d:Thread %-2lu inserts %lu (%lu million)"
                         ", %s key, %s value, "
                         "KV-pairs starting from %lu (%lu%s) ...\n",
                         thread_idx,
                         num_inserts,
                         (num_inserts / MILLION),
-                        (random_key_fd ? "random" : "sequential"),
-                        (random_val_fd ? "random" : "sequential"),
+                        ((random_key_fd > 0) ? "random" : "sequential"),
+                        random_val_descr,
                         start_key,
                         (start_key / MILLION),
                         (start_key ? " million" : ""));
@@ -419,15 +540,23 @@ exec_worker_thread(void *w)
 
    bool verbose_progress = wcfg->master_cfg->verbose_progress;
 
+   // Insert fully-packed wider-values so we fill pages faster.
+   // This value-data will be chosen when random_key_fd < 0.
+   memset(val_data, 'V', sizeof(val_data));
+   uint64 val_len = sizeof(val_data);
+
+   bool val_length_msg_printed = FALSE;
+
    for (ictr = 0; ictr < (num_inserts / MILLION); ictr++) {
       for (jctr = 0; jctr < MILLION; jctr++) {
 
          uint64 id = (start_key + (ictr * MILLION) + jctr);
          uint64 key_len;
-         uint64 val_len;
 
          // Generate random key / value if calling test-case requests it.
-         if (random_key_fd) {
+         if (random_key_fd > 0) {
+
+            // Generate random key-data for full width of key.
             size_t result = read(random_key_fd, key_data, sizeof(key_data));
             ASSERT_TRUE(result >= 0);
 
@@ -438,15 +567,46 @@ exec_worker_thread(void *w)
             key_len = strlen(key_data);
          }
 
-         if (random_val_fd) {
+         // Manage how the value-data is generated based on random_val_fd
+         if (random_val_fd > 0) {
+
+            // Generate random value for full width of value.
             size_t result = read(random_val_fd, val_data, sizeof(val_data));
             ASSERT_TRUE(result >= 0);
 
             val_len = result;
-         } else {
-            // Generate sequential value data
+            if (!val_length_msg_printed) {
+               platform_default_log("OS-pid=%d, Thread-ID=%lu"
+                                    ", Insert random value of "
+                                    "fixed-length=%lu bytes.\n",
+                                    getpid(),
+                                    thread_idx,
+                                    val_len);
+               val_length_msg_printed = TRUE;
+            }
+         } else if (random_val_fd == 0) {
+            // Generate small-length sequential value data
             snprintf(val_data, sizeof(val_data), "Row-%lu", id);
             val_len = strlen(val_data);
+
+            if (!val_length_msg_printed) {
+               platform_default_log("OS-pid=%d, Thread-ID=%lu"
+                                    ", Insert small-width sequential values of "
+                                    "different lengths.\n",
+                                    getpid(),
+                                    thread_idx);
+               val_length_msg_printed = TRUE;
+            }
+         } else if (random_val_fd < 0) {
+            if (!val_length_msg_printed) {
+               platform_default_log("OS-pid=%d, Thread-ID=%lu"
+                                    ", Insert fully-packed fixed value of "
+                                    "length=%lu bytes.\n",
+                                    getpid(),
+                                    thread_idx,
+                                    val_len);
+               val_length_msg_printed = TRUE;
+            }
          }
 
          slice key = slice_create(key_len, key_data);
