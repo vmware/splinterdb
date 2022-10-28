@@ -5458,8 +5458,13 @@ trunk_split_leaf(trunk_handle *spl,
            trunk_max_key(spl, leaf),
            trunk_key_size(spl));
 
-   platform_assert(num_leaves + trunk_num_pivot_keys(spl, parent)
-                   <= spl->cfg.max_pivot_keys);
+   platform_assert((num_leaves + trunk_num_pivot_keys(spl, parent)
+                    <= spl->cfg.max_pivot_keys),
+                   "num_leaves=%u, trunk_num_pivot_keys()=%u"
+                   ", cfg.max_pivot_keys=%lu\n",
+                   num_leaves,
+                   trunk_num_pivot_keys(spl, parent),
+                   spl->cfg.max_pivot_keys);
 
    /*
     * 3. Clear old bundles from leaf and put all branches in a new bundle

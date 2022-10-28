@@ -35,6 +35,7 @@
 // Configs that are usually changed by different tests
 #define TEST_CONFIG_DEFAULT_SEED        0
 #define TEST_CONFIG_DEFAULT_NUM_INSERTS 0
+#define TEST_CONFIG_DEFAULT_NUM_THREADS 8
 
 // clang-format off
 void
@@ -65,6 +66,7 @@ config_set_defaults(master_config *cfg)
       .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
+      .num_threads              = TEST_CONFIG_DEFAULT_NUM_THREADS,
       .seed                     = TEST_CONFIG_DEFAULT_SEED,
    };
 }
@@ -276,6 +278,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          // Test-execution configuration parameters
          config_set_uint64("seed", cfg, seed) {}
          config_set_uint64("num-inserts", cfg, num_inserts) {}
+         config_set_uint64("num-threads", cfg, num_threads) {}
 
          config_set_else
          {

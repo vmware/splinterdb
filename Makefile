@@ -39,7 +39,7 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 #    run as fast as it can.
 #  - Skip tests that are to be invoked with specialized command-line arguments.
 # These skipped tests which will have to be run stand-alone.
-FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test")
+FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test|large_inserts_bugs_stress")
 
 EXAMPLES_SRC := $(shell find $(EXAMPLES_DIR) -name "*.c")
 
@@ -427,6 +427,10 @@ $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                              
                                        $(COMMON_TESTOBJ)                             \
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(UNITDIR)/large_inserts_bugs_stress_test: $(UTIL_SYS)                                   \
+                                                     $(OBJDIR)/$(TESTS_DIR)/config.o \
+                                                     $(LIBDIR)/libsplinterdb.so
 
 ########################################
 # Convenience mini unit-test targets
