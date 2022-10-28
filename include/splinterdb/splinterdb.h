@@ -362,4 +362,7 @@ splinterdb_get_cache_handle(const splinterdb *kvs);
 const void *
 splinterdb_get_trunk_handle(const splinterdb *kvs);
 
+const void *
+splinterdb_get_memtable_context_handle(const splinterdb *kvs);
+
 #endif // _SPLINTERDB_H_

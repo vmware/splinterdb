@@ -351,6 +351,19 @@ btree_pack_req_init(btree_pack_req  *req,
       req->fingerprint_arr =
          // TYPED_ARRAY_MALLOC(NULL_HEAP_ID, req->fingerprint_arr, max_tuples);
          TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
+
+      /*
+      platform_default_log("OS-Pid=%d, tid=%lu"
+                           " %s(): allocated %lu bytes from hid=%p for req=%p,"
+                           " fingerprint_arr=%p\n",
+                           getpid(),
+                           platform_get_tid(),
+                           __FUNCTION__,
+                           (sizeof(*req->fingerprint_arr) * max_tuples),
+                           hid,
+                           req,
+                           req->fingerprint_arr);
+      */
    }
 }
 
@@ -358,8 +371,31 @@ static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
    if (req->fingerprint_arr) {
+
+      /*
+      platform_default_log(
+         "OS-Pid=%d, tid=%lu"
+         " %s(): Free from hid=%p, req=%p, fingerprint_arr=%p.\n",
+         getpid(),
+         platform_get_tid(),
+         __FUNCTION__,
+         hid,
+         req,
+         req->fingerprint_arr);
+      */
+
       // platform_free(NULL_HEAP_ID, req->fingerprint_arr);
       platform_free(hid, req->fingerprint_arr);
+   } else {
+      /*
+      platform_default_log("OS-Pid=%d, tid=%lu"
+                           " %s(): hid=%p, req=%p, fingerprint_arr is NULL.\n",
+                           getpid(),
+                           platform_get_tid(),
+                           __FUNCTION__,
+                           hid,
+                           req);
+      */
    }
 }
 

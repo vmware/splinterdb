@@ -159,7 +159,11 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
 
       ASSERT_TRUE(
          platform_valid_addr_in_shm(splinterdb_get_heap_handle(spl_handle),
-                                    splinterdb_get_cache_handle(spl_handle)));
+                                    splinterdb_get_trunk_handle(spl_handle)));
+
+      ASSERT_TRUE(platform_valid_addr_in_shm(
+         splinterdb_get_heap_handle(spl_handle),
+         splinterdb_get_memtable_context_handle(spl_handle)));
 
       // Before registering w/Splinter, child process is still at tid==0.
       ASSERT_EQUAL(0, platform_get_tid());
@@ -448,10 +452,13 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
 
    bool wait_for_gdb = data->master_cfg.wait_for_gdb;
 
+   int forked_pids[20] = {0};
+
    // Fork n-concurrently executing child processes.
    for (int fctr = 0; data->am_parent && fctr < data->num_forked_procs; fctr++)
    {
-      pid = fork();
+      pid               = fork();
+      forked_pids[fctr] = pid;
 
       if (pid < 0) {
          platform_error_log("fork() of child process failed: pid=%d\n", pid);
@@ -469,7 +476,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
          splinterdb_register_thread(spl_handle);
 
          platform_default_log(
-            "Thread-ID=%lu, OS-pid=%d: "
+            "\n**** Thread-ID=%lu, OS-pid=%d: "
             "Child execution started: Perform %lu (%d million) inserts ...\n",
             platform_get_tid(),
             getpid(),
@@ -495,14 +502,20 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
    // Only parent can close Splinter
    if (data->am_parent && pid) {
       platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Waiting for child pid=%d to complete ...\n",
+                           "Waiting for child pids to complete: ",
                            platform_get_tid(),
-                           getpid(),
-                           pid);
+                           getpid());
 
-      wait(NULL);
+      for (int fctr = 0; fctr < data->num_forked_procs; fctr++) {
+         platform_default_log("pid=%d ", forked_pids[fctr]);
+      }
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      // Wait-for -ALL- children to finish; duh!
+      for (int fctr = 0; fctr < data->num_forked_procs; fctr++) {
+         waitpid(forked_pids[fctr], NULL, 0);
+      }
+
+      platform_default_log("\nThread-ID=%lu, OS-pid=%d: "
                            "Child execution wait() completed."
                            " Resuming parent ...\n",
                            platform_get_tid(),

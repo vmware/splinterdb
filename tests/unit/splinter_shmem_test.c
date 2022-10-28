@@ -403,11 +403,125 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
 }
 
 /*
+ * ---------------------------------------------------------------------------
+ * Test allocation, free and re-allocation of a large fragment should find
+ * this large fragment in the local tracker. That previously allocated
+ * fragment should be re-allocated. "Next-free-ptr" should, therefore, remain
+ * unchanged.
+ * ---------------------------------------------------------------------------
+ */
+CTEST2(splinter_shmem, test_realloc_of_large_fragment)
+{
+   void *next_free = platform_shm_next_free_addr(data->hid);
+
+   // Large fragments are tracked if their size >= this size.
+   size_t size   = (1 * MiB);
+   uint8 *keybuf = TYPED_MANUAL_MALLOC(data->hid, keybuf, size);
+
+   // Validate that a new large fragment will create a new allocation.
+   ASSERT_TRUE((void *)keybuf == next_free);
+
+   // Re-establish next-free-ptr after this large allocation. We will use it
+   // below to assert that this location will not change when we re-use this
+   // large fragment for reallocation after it's been freed.
+   next_free = platform_shm_next_free_addr(data->hid);
+
+   // Save this off, as free below will NULL out handle.
+   uint8 *keybuf_old = keybuf;
+
+   // If you free this fragment and reallocate exactly the same size,
+   // it should recycle the freed fragment.
+   platform_free(data->hid, keybuf);
+
+   uint8 *keybuf_new = TYPED_MANUAL_MALLOC(data->hid, keybuf_new, size);
+   ASSERT_TRUE((keybuf_old == keybuf_new),
+               "keybuf_old=%p, keybuf_new=%p\n",
+               keybuf_old,
+               keybuf_new);
+
+   // We have re-used freed fragment, so the next-free-ptr should be unchanged.
+   ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
+
+   platform_free(data->hid, keybuf_new);
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Finding a free-fragment that's tracked for re-allocation implements a
+ * very naive linear-search; first-fit algorigthm. This test case verifies
+ * that:
+ *
+ * - Allocate 3 fragments of 1MiB, 5MiB, 2MiB
+ * - Free them all.
+ * - Request for a 2MiB fragment. 2nd free fragment (5MiB) will be used.
+ * - Request for a 5MiB fragment. We will allocate a new fragment.
+ *
+ * An improved best-fit search algorithm would have allocated the free 2MiB
+ * and then satisfy the next request with the free 5 MiB fragment.
+ * ---------------------------------------------------------------------------
+ */
+CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
+{
+   void *next_free = platform_shm_next_free_addr(data->hid);
+
+   // Large fragments are tracked if their size >= this size.
+   size_t size        = (1 * MiB);
+   uint8 *keybuf_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_1MiB, size);
+
+   size               = (5 * MiB);
+   uint8 *keybuf_5MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_5MiB, size);
+
+   size               = (2 * MiB);
+   uint8 *keybuf_2MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_2MiB, size);
+
+   // Re-establish next-free-ptr after this large allocation. We will use it
+   // below to assert that this location will not change when we re-use a
+   // large fragment for reallocation after it's been freed.
+   next_free = platform_shm_next_free_addr(data->hid);
+
+   // Save off fragment handles as free will NULL out ptr.
+   uint8 *old_keybuf_1MiB = keybuf_1MiB;
+   uint8 *old_keybuf_5MiB = keybuf_5MiB;
+   uint8 *old_keybuf_2MiB = keybuf_2MiB;
+
+   // Order in which we free these fragments does not matter.
+   platform_free(data->hid, keybuf_1MiB);
+   platform_free(data->hid, keybuf_2MiB);
+   platform_free(data->hid, keybuf_5MiB);
+
+   // Re-request (new) fragments in diff size order.
+   size        = (2 * MiB);
+   keybuf_2MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_2MiB, size);
+   ASSERT_TRUE((keybuf_2MiB == old_keybuf_5MiB),
+               "Expected to satisfy new 2MiB request at %p"
+               " with old 5MiB fragment ptr at %p\n",
+               keybuf_2MiB,
+               old_keybuf_5MiB);
+   ;
+
+   // We have re-used freed 5MiB fragment; so next-free-ptr should be unchanged.
+   ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
+
+   size        = (5 * MiB);
+   keybuf_5MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_5MiB, size);
+
+   // We allocated a new fragment at next-free-ptr
+   ASSERT_TRUE(keybuf_5MiB != old_keybuf_1MiB);
+   ASSERT_TRUE(keybuf_5MiB != old_keybuf_2MiB);
+   ASSERT_TRUE(keybuf_5MiB == next_free);
+
+   platform_free(data->hid, keybuf_2MiB);
+   platform_free(data->hid, keybuf_5MiB);
+}
+
+/*
+ * ---------------------------------------------------------------------------
  * Test case to verify that configuration checks that shared segment size
  * is "big enough" to allocate memory for RC-allocator cache's lookup
  * array. For very large devices, with insufficiently sized shared memory
  * config, we will not be able to boot-up.
  * RESOLVE - This test case is still incomplete.
+ * ---------------------------------------------------------------------------
  */
 CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
 {

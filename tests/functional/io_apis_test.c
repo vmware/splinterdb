@@ -83,7 +83,6 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 /* Use small hard-coded # of threads to avoid allocating memory for
  * thread-specific arrays of parameters. It's sufficient to shake out the
  * IO sub-system APIs with just small # of threads.
->>>>>>> a91243c (Extend test cases to exercise sync / async IO APIs.)
  */
 #define NUM_THREADS 3
 

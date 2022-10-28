@@ -1078,3 +1078,9 @@ splinterdb_get_trunk_handle(const splinterdb *kvs)
    return (void *)kvs->spl;
 >>>>>>> 20fc47a (Add extern APIs to support new test test_data_structures_handles.)
 }
+
+const void *
+splinterdb_get_memtable_context_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl->mt_ctxt;
+}
