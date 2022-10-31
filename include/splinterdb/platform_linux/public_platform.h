@@ -72,4 +72,6 @@ typedef FILE                platform_log_handle;
 extern platform_log_handle *Platform_default_log_handle; // stdout FILE handle
 extern platform_log_handle *Platform_error_log_handle;   // stderr FILE handle
 
+typedef uint64 transaction_id;
+
 #endif // __PUBLIC_PLATFORM_H
