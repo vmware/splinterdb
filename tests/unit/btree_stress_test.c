@@ -29,13 +29,12 @@
 typedef struct insert_thread_params {
    cache           *cc;
    btree_config    *cfg;
-   platform_heap_id heap_id;
+   platform_heap_id hid;
    btree_scratch   *scratch;
    mini_allocator  *mini;
    uint64           root_addr;
    int              start;
    int              end;
-   platform_heap_id hid;
 } insert_thread_params;
 
 // Function Prototypes
@@ -45,13 +44,12 @@ insert_thread(void *arg);
 static void
 insert_tests(cache           *cc,
              btree_config    *cfg,
-             platform_heap_id heap_id,
+             platform_heap_id hid,
              btree_scratch   *scratch,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end,
-             platform_heap_id hid);
+             int              end);
 
 static int
 query_tests(cache           *cc,
@@ -200,7 +198,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
-      params[i].heap_id   = data->hid;
+      params[i].hid       = data->hid;
       params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
@@ -284,25 +282,23 @@ insert_thread(void *arg)
    insert_thread_params *params = (insert_thread_params *)arg;
    insert_tests(params->cc,
                 params->cfg,
-                params->heap_id,
+                params->hid,
                 params->scratch,
                 params->mini,
                 params->root_addr,
                 params->start,
-                params->end,
-                params->hid);
+                params->end);
 }
 
 static void
 insert_tests(cache           *cc,
              btree_config    *cfg,
-             platform_heap_id heap_id,
+             platform_heap_id hid,
              btree_scratch   *scratch,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end,
-             platform_heap_id hid)
+             int              end)
 {
    uint64 generation;
    bool   was_unique;
@@ -315,7 +311,7 @@ insert_tests(cache           *cc,
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
                                 cfg,
-                                heap_id,
+                                hid,
                                 scratch,
                                 root_addr,
                                 mini,
@@ -327,8 +323,8 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
-   platform_free(heap_id, keybuf);
-   platform_free(heap_id, msgbuf);
+   platform_free(hid, keybuf);
+   platform_free(hid, msgbuf);
 }
 
 static slice
