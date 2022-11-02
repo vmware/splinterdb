@@ -713,3 +713,21 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
    iterator_get_curr(itor, key, &msg);
    *value = message_slice(msg);
 }
+
+void
+splinterdb_stats_print_insertion(const splinterdb *kvs)
+{
+   trunk_print_insertion_stats(Platform_default_log_handle, kvs->spl);
+}
+
+void
+splinterdb_stats_print_lookup(const splinterdb *kvs)
+{
+   trunk_print_lookup_stats(Platform_default_log_handle, kvs->spl);
+}
+
+void
+splinterdb_stats_reset(splinterdb *kvs)
+{
+   trunk_reset_stats(kvs->spl);
+}
