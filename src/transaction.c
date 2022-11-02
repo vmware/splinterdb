@@ -128,7 +128,7 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
 
       bool is_read_entry_invalid = read_entry_ts.rts < tt_txn->commit_rts;
       if (is_read_entry_invalid) {
-         platform_mutex_lock(&txn_kvsb->g_lock);
+	 hash_lock_acquire(&txn_kvsb->hash_lock, rkey);
 
          tictoc_timestamp_set tuple_ts;
          get_ts_from_splinterdb(txn_kvsb->kvsb, rkey, &tuple_ts);
@@ -146,7 +146,7 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
          bool need_to_abort =
             is_read_entry_written_by_another || is_read_entry_locked_by_another;
          if (need_to_abort) {
-            platform_mutex_unlock(&txn_kvsb->g_lock);
+	    hash_lock_release(&txn_kvsb->hash_lock, rkey);
             return FALSE;
          }
 
@@ -161,8 +161,7 @@ tictoc_validation(transactional_splinterdb *txn_kvsb,
                txn_kvsb->kvsb, rkey, writable_buffer_to_slice(&ts));
             writable_buffer_deinit(&ts);
          }
-
-         platform_mutex_unlock(&txn_kvsb->g_lock);
+	 hash_lock_release(&txn_kvsb->hash_lock, rkey);
       }
    }
 
@@ -329,7 +328,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
 
    _txn_kvsb->lock_tbl = lock_table_create(kvsb_cfg->data_cfg);
 
-   platform_mutex_init(&_txn_kvsb->g_lock, 0, 0);
+   hash_lock_init(&_txn_kvsb->hash_lock, &default_hash_lock_config);
 
    *txn_kvsb = _txn_kvsb;
 
@@ -357,7 +356,7 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    transactional_splinterdb *_txn_kvsb = *txn_kvsb;
    splinterdb_close(&_txn_kvsb->kvsb);
 
-   platform_mutex_destroy(&_txn_kvsb->g_lock);
+   hash_lock_deinit(&_txn_kvsb->hash_lock);
 
    lock_table_destroy(_txn_kvsb->lock_tbl);
 
