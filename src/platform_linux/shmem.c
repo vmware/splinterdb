@@ -51,6 +51,36 @@ typedef struct shm_frag_info {
 } shm_frag_info;
 
 /*
+ * ----------------------------------------------------------------------------
+ * Design of free / used memory fragment list manager:
+ *
+ * - struct shm_memfrag{} describes a memory fragment. It has:
+ *    - A 'links' field to manage this fragment via doubly-linked list.
+ *    - Size
+ *
+ * - Allocated memory addr 'ptr' starts right at end of shm_memfrag{}
+ *
+ * - shmem_info{} has two SHM_QUEUE fields: free_list, used_list
+ *   - Also has ptr to some # of pre-allocated shm_memfrag{} structs [cache]
+ *
+ * - Spinlocks:
+ *    - used_list_lock
+ *    - free_list_lock
+ *
+ * - Allocation: void * shm_alloc(size):
+ *    - Search free_list. If a fragment with sufficient space is found, use it.
+ *    - Grab a free shm_memfrag struct.
+ *    - Fill it out: sets addr / size
+ *    - Insert new fragment to used_list at the head.
+ *
+ * - Free: shm_free(ptr):
+ *    - Do ptr-math to get fragptr given void * ptr to free
+ *    - Remove fragment from used_list
+ *    - Insert fragment to free_list
+ * ----------------------------------------------------------------------------
+ */
+
+/*
  * All memory allocations of this size or larger will be tracked in the
  * above fragment tracker array.
  */
