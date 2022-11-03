@@ -924,7 +924,7 @@ clockcache_assert_no_refs(clockcache *cc)
 {
    threadid        i;
    volatile uint32 j;
-   for (i = 0; i < (MAX_THREADS - 1); i++) {
+   for (i = 0; i < MAX_THREADS; i++) {
       for (j = 0; j < cc->cfg->page_capacity; j++) {
          if (clockcache_get_ref(cc, j, i) != 0) {
             clockcache_get_ref(cc, j, i);
@@ -1368,7 +1368,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
 
    clockcache_entry *entry, *next_entry;
 
-   debug_assert(tid < MAX_THREADS - 1);
+   debug_assert((tid <= (MAX_THREADS - 1)), "Thread-ID=%lu\n", tid);
    debug_assert(cc != NULL);
    debug_assert(batch < cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
 
@@ -1655,7 +1655,7 @@ clockcache_get_free_page(clockcache *cc,
    clockcache_entry *entry;
    timestamp         wait_start;
 
-   debug_assert(tid < MAX_THREADS - 1);
+   debug_assert((tid <= (MAX_THREADS - 1)), "Thread-ID=%lu\n", tid);
    if (cc->per_thread[tid].free_hand == CC_UNMAPPED_ENTRY) {
       clockcache_move_hand(cc, FALSE);
    }

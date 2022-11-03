@@ -117,7 +117,7 @@ CTEST_SETUP(large_inserts_bugs_stress)
    }
 
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
-                                   .cache_size = 128 * Mega,
+                                   .cache_size = 1 * Giga,
                                    .disk_size  = 40 * Giga,
                                    .use_shmem  = use_shmem,
                                    .data_cfg   = &data->default_data_config};
@@ -598,7 +598,7 @@ exec_worker_thread(void *w)
 
    const char *random_val_descr = NULL;
    random_val_descr             = ((random_val_fd > 0)    ? "random"
-                                   : (random_val_fd == 0) ? "seqential"
+                                   : (random_val_fd == 0) ? "sequential"
                                                           : "fully-packed constant");
 
    platform_default_log("%s()::%d:Thread %-2lu inserts %lu (%lu million)"
