@@ -42,12 +42,14 @@ bool Trace_shmem        = FALSE;
  *  - (allocated_to_pid != 0) && (freed_by_pid != 0) - Fragment is free.
  */
 typedef struct shm_frag_info {
-   void    *shm_frag_addr;             // Start address of this memory fragment
-   size_t   shm_frag_size;             // bytes
-   int      shm_frag_allocated_to_pid; // Allocated to this OS-pid
-   threadid shm_frag_allocated_to_tid; // Allocated to this Splinter thread-ID
-   int      shm_frag_freed_by_pid;     // OS-pid that freed this
-   threadid shm_frag_freed_by_tid;     // Splinter thread-ID that freed this
+   void     *shm_frag_addr;             // Start address of this memory fragment
+   size_t    shm_frag_size;             // bytes
+   int       shm_frag_allocated_to_pid; // Allocated to this OS-pid
+   threadid  shm_frag_allocated_to_tid; // Allocated to this Splinter thread-ID
+   int       shm_frag_freed_by_pid;     // OS-pid that freed this
+   threadid  shm_frag_freed_by_tid;     // Splinter thread-ID that freed this
+   timestamp shm_alloc_ts;        // Timestamp when frag was alloc / realloc'ed
+   uint64    shm_elapsed_free_ns; // Elapsed nanos between alloc & free.
 } shm_frag_info;
 
 /*
@@ -606,6 +608,8 @@ platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
       frag->shm_frag_allocated_to_tid = platform_get_tid();
       // The freed_by_pid/freed_by_tid == 0 means fragment is still allocated.
 
+      frag->shm_alloc_ts = platform_get_timestamp();
+
       // Track highest address of large-fragment that is being tracked.
       if (shm->shm_large_frag_hip < addr) {
          shm->shm_large_frag_hip = addr;
@@ -656,6 +660,8 @@ platform_shm_track_free(shmem_info *shm,
       // Record the process/thread that's doing the free.
       frag->shm_frag_freed_by_pid = getpid();
       frag->shm_frag_freed_by_tid = platform_get_tid();
+      frag->shm_elapsed_free_ns =
+         platform_timestamp_elapsed(frag->shm_alloc_ts);
 
       if (Trace_shmem || Trace_shmem_frees || TRUE) {
          platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()]"
@@ -663,7 +669,8 @@ platform_shm_track_free(shmem_info *shm,
                               ", at slot=%d, addr=%p"
                               ", allocated_to_pid=%d, allocated_to_tid=%lu"
                               ", shm_num_frags_inuse=%d"
-                              ", shm_large_frag_hip=%p\n",
+                              ", shm_large_frag_hip=%p"
+                              ", used for elapsed=%lu ns (~%lu ms)\n",
                               frag->shm_frag_freed_by_pid,
                               frag->shm_frag_freed_by_tid,
                               file,
@@ -675,7 +682,9 @@ platform_shm_track_free(shmem_info *shm,
                               frag->shm_frag_allocated_to_pid,
                               frag->shm_frag_allocated_to_tid,
                               shm->shm_num_frags_inuse,
-                              shm->shm_large_frag_hip);
+                              shm->shm_large_frag_hip,
+                              frag->shm_elapsed_free_ns,
+                              NSEC_TO_MSEC(frag->shm_elapsed_free_ns));
       }
       break;
    }
@@ -758,6 +767,9 @@ platform_shm_find_free(shmem_info *shm,
       // Now, mark that this fragment is in-use
       frag->shm_frag_freed_by_pid = 0;
       frag->shm_frag_freed_by_tid = 0;
+
+      // Track timestamp when fragment was reallocated.
+      frag->shm_alloc_ts = platform_get_timestamp();
 
       retptr = frag->shm_frag_addr;
 
