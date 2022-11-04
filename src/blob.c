@@ -169,8 +169,9 @@ blob_page_iterator_init(cache              *cc,
 static bool
 should_alloc(blob_page_iterator *iter)
 {
-   return iter->alloc && iter->page_offset == 0
-          && iter->page_size <= iter->length;
+   return iter->alloc
+          && ((iter->page_offset == 0 && iter->page_size <= iter->length)
+              || can_round_up(iter->page_size, iter->pblob.length));
 }
 
 void
