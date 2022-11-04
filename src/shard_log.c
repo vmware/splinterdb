@@ -395,15 +395,21 @@ shard_log_iterator_init(cache              *cc,
       for (i = 0; i < pages_per_extent; i++) {
          page_addr = extent_addr + i * shard_log_page_size(cfg);
          page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
-         if (shard_log_valid(cfg, page, magic)) {
-            num_valid_pages++;
-            itor->num_entries += ((shard_log_hdr *)page->data)->num_entries;
-            next_extent_addr = shard_log_next_extent_addr(cfg, page);
+         if (!shard_log_valid(cfg, page, magic)) {
+            cache_unget(cc, page);
+            goto finished_first_pass;
          }
+         num_valid_pages++;
+         itor->num_entries += ((shard_log_hdr *)page->data)->num_entries;
+         debug_assert(IMPLIES(
+            0 < i, next_extent_addr == shard_log_next_extent_addr(cfg, page)));
+         next_extent_addr = shard_log_next_extent_addr(cfg, page);
          cache_unget(cc, page);
       }
       extent_addr = next_extent_addr;
    }
+
+finished_first_pass:
 
    itor->contents = TYPED_ARRAY_MALLOC(
       hid, itor->contents, num_valid_pages * shard_log_page_size(cfg));
@@ -419,31 +425,37 @@ shard_log_iterator_init(cache              *cc,
       for (i = 0; i < pages_per_extent; i++) {
          page_addr = extent_addr + i * shard_log_page_size(cfg);
          page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
-         if (shard_log_valid(cfg, page, magic)) {
-            for (log_entry *le = first_log_entry(page->data);
-                 !terminal_log_entry(cfg, page->data, le);
-                 le = log_entry_next(le))
-            {
-               memmove(cursor, le, sizeof_log_entry(le));
-               itor->entries[entry_idx] = cursor;
-               entry_idx++;
-               cursor = log_entry_next(cursor);
-            }
-            next_extent_addr = shard_log_next_extent_addr(cfg, page);
+         if (!shard_log_valid(cfg, page, magic)) {
+            cache_unget(cc, page);
+            goto finished_second_pass;
          }
+         for (log_entry *le = first_log_entry(page->data);
+              !terminal_log_entry(cfg, page->data, le);
+              le = log_entry_next(le))
+         {
+            memmove(cursor, le, sizeof_log_entry(le));
+            itor->entries[entry_idx] = cursor;
+            entry_idx++;
+            cursor = log_entry_next(cursor);
+         }
+         next_extent_addr = shard_log_next_extent_addr(cfg, page);
          cache_unget(cc, page);
       }
       extent_addr = next_extent_addr;
    }
 
+finished_second_pass:
+
    // sort by generation
-   log_entry *tmp;
-   platform_sort_slow(itor->entries,
-                      itor->num_entries,
-                      sizeof(log_entry *),
-                      shard_log_compare,
-                      NULL,
-                      &tmp);
+   {
+      log_entry *tmp;
+      platform_sort_slow(itor->entries,
+                         itor->num_entries,
+                         sizeof(log_entry *),
+                         shard_log_compare,
+                         NULL,
+                         &tmp);
+   }
 
    return STATUS_OK;
 }
