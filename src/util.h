@@ -372,7 +372,6 @@ debug_hex_dump(platform_log_handle *,
 void
 debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
 
-
 /*
  * Evaluates to a print format specifier based on the value being printed.
  * (Modeled after similar PRIxx #defines seen in inttypes.h .)

@@ -23,6 +23,12 @@
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
+
+// Function prototypes
+
+static void
+splinterdb_close_print_stats(splinterdb *kvs);
+
 const char *
 splinterdb_get_version()
 {
@@ -431,6 +437,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
 
+   splinterdb_close_print_stats(kvs);
    /*
     * NOTE: These dismantling routines must appear in exactly the reverse
     * order when these sub-systems were init'ed when a Splinter device was
@@ -748,6 +755,53 @@ void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
+}
+
+static void
+splinterdb_close_print_stats(splinterdb *kvs)
+{
+   task_print_stats(kvs->task_sys);
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * External accessor APIs, mainly provided for use as testing hooks.
+ * -----------------------------------------------------------------------------
+ */
+void *
+splinterdb_get_heap_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->heap_handle;
+}
+
+const void *
+splinterdb_get_task_system_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->task_sys;
+}
+
+const void *
+splinterdb_get_io_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->io_handle;
+}
+
+const void *
+splinterdb_get_allocator_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->allocator_handle;
+}
+
+const void *
+splinterdb_get_cache_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->cache_handle;
+}
+
+const void *
+splinterdb_get_trunk_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl;
 }
 
 const void *
