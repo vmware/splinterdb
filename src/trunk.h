@@ -357,7 +357,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
 void
 trunk_range_iterator_deinit(trunk_range_iterator *range_itor);
 
-typedef void (*tuple_function)(cache *cc, slice key, message value, void *arg);
+typedef void (*tuple_function)(slice key, message value, void *arg);
 platform_status
 trunk_range(trunk_handle  *spl,
             const char    *start_key,
@@ -449,7 +449,7 @@ trunk_key_to_string(trunk_handle *spl, const char *key, char str[static 128])
 static inline void
 trunk_message_to_string(trunk_handle *spl, message msg, char str[static 128])
 {
-   btree_message_to_string(&spl->cfg.btree_cfg, spl->cc, msg, str);
+   btree_message_to_string(&spl->cfg.btree_cfg, msg, str);
 }
 
 static inline void

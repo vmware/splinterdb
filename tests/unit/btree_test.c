@@ -187,8 +187,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
       cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
-      cmp_rv = message_lex_cmp(NULL,
-                               message_create(MESSAGE_TYPE_INSERT,
+      cmp_rv = message_lex_cmp(message_create(MESSAGE_TYPE_INSERT,
                                               FALSE,
                                               slice_create(i % sizeof(i), &i)),
                                msg);
@@ -214,8 +213,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
       cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
-      cmp_rv = message_lex_cmp(NULL,
-                               message_create(MESSAGE_TYPE_INSERT,
+      cmp_rv = message_lex_cmp(message_create(MESSAGE_TYPE_INSERT,
                                               FALSE,
                                               slice_create(i % sizeof(i), &i)),
                                msg);
@@ -231,8 +229,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
       cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
-      cmp_rv = message_lex_cmp(NULL,
-                               message_create(MESSAGE_TYPE_INSERT,
+      cmp_rv = message_lex_cmp(message_create(MESSAGE_TYPE_INSERT,
                                               FALSE,
                                               slice_create(i % sizeof(i), &i)),
                                msg);

@@ -172,12 +172,18 @@ log_entry_key(log_entry *le)
    return slice_create(le->keylen, le->contents);
 }
 
+static bool
+log_entry_message_isblob(log_entry *le)
+{
+   return le->msg_isblob;
+}
+
 static message
-log_entry_message(log_entry *le)
+log_entry_message(cache *cc, log_entry *le)
 {
    return message_create(
       le->msg_type,
-      le->msg_isblob,
+      le->msg_isblob ? cc : NULL,
       slice_create(le->messagelen, le->contents + le->keylen));
 }
 
@@ -385,6 +391,7 @@ shard_log_iterator_init(cache              *cc,
 
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.ops = &shard_log_iterator_ops;
+   itor->cc        = cc;
    itor->cfg       = cfg;
 
    // traverse the log extents and calculate the required space
@@ -472,7 +479,7 @@ shard_log_iterator_get_curr(iterator *itorh, slice *key, message *msg)
 {
    shard_log_iterator *itor = (shard_log_iterator *)itorh;
    *key                     = log_entry_key(itor->entries[itor->pos]);
-   *msg                     = log_entry_message(itor->entries[itor->pos]);
+   *msg = log_entry_message(itor->cc, itor->entries[itor->pos]);
 }
 
 platform_status
@@ -549,8 +556,8 @@ shard_log_print(shard_log *log)
                   "  %4d: %s -- %s%s : %lu\n",
                   idx,
                   key_string(dcfg, log_entry_key(le)),
-                  message_isblob(log_entry_message(le)) ? "(isblob) " : "",
-                  message_string(dcfg, cc, log_entry_message(le)),
+                  log_entry_message_isblob(le) ? "(isblob) " : "",
+                  message_string(dcfg, log_entry_message(cc, le)),
                   le->generation);
                idx++;
             }

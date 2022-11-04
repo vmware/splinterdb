@@ -99,7 +99,7 @@ verify_tuple(trunk_handle    *spl,
          spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
       message expected_msg = merge_accumulator_to_message(&expected_message);
       platform_assert(!message_is_null(msg));
-      platform_assert(message_lex_cmp(spl->cc, msg, expected_msg) == 0,
+      platform_assert(message_lex_cmp(msg, expected_msg) == 0,
                       "ERROR: message does not match expected message.  "
                       "key = 0x%08lx "
                       "shadow ref: %4d "

@@ -7053,7 +7053,7 @@ trunk_range(trunk_handle  *spl,
       slice   key;
       message data;
       iterator_get_curr(&range_itor->super, &key, &data);
-      func(spl->cc, key, data, arg);
+      func(key, data, arg);
       iterator_advance(&range_itor->super);
       iterator_at_end(&range_itor->super, &at_end);
    }

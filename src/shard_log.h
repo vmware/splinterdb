@@ -53,6 +53,7 @@ typedef struct log_entry log_entry;
 
 typedef struct shard_log_iterator {
    iterator          super;
+   cache            *cc;
    shard_log_config *cfg;
    char             *contents;
    log_entry       **entries;

@@ -2399,7 +2399,7 @@ btree_iterator_get_curr(iterator *base_itor, slice *key, message *data)
       *key  = index_entry_key_slice(entry);
       *data = message_create(
          MESSAGE_TYPE_PIVOT_DATA,
-         FALSE,
+         NULL,
          slice_create(sizeof(entry->pivot_data), &entry->pivot_data));
    }
 }
@@ -3168,7 +3168,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
                    "[%2lu]: %s -- %s\n",
                    i,
                    key_string(dcfg, leaf_entry_key_slice(entry)),
-                   message_string(dcfg, cc, leaf_entry_message(entry)));
+                   message_string(dcfg, leaf_entry_message(entry)));
    }
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "\n");

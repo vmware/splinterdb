@@ -38,9 +38,9 @@ extern message NULL_MESSAGE;
 extern message DELETE_MESSAGE;
 
 static inline message
-message_create(message_type type, bool isblob, slice data)
+message_create(message_type type, cache *cc, slice data)
 {
-   return (message){.type = type, .isblob = isblob, .data = data};
+   return (message){.type = type, .cc = cc, .data = data};
 }
 
 static inline bool
@@ -65,18 +65,18 @@ message_is_invalid_user_type(message msg)
 }
 
 static inline void
-message_materialize_if_needed(cache           *cc,
-                              platform_heap_id heap_id,
+message_materialize_if_needed(platform_heap_id heap_id,
                               message          msg,
                               writable_buffer *tmp,
                               message         *result)
 {
-   if (msg.isblob) {
+   if (msg.cc) {
       writable_buffer_init(tmp, heap_id);
       slice sblob = message_slice(msg);
-      blob_materialize(cc, sblob, 0, blob_length(sblob), PAGE_TYPE_MISC, tmp);
+      blob_materialize(
+         msg.cc, sblob, 0, blob_length(sblob), PAGE_TYPE_MISC, tmp);
       *result = message_create(
-         message_class(msg), FALSE, writable_buffer_to_slice(tmp));
+         message_class(msg), NULL, writable_buffer_to_slice(tmp));
 
    } else {
       *result = msg;
@@ -86,7 +86,7 @@ message_materialize_if_needed(cache           *cc,
 static inline void
 message_dematerialize_if_needed(message msg, writable_buffer *tmp)
 {
-   if (msg.isblob) {
+   if (msg.cc) {
       writable_buffer_deinit(tmp);
    }
 }
@@ -95,7 +95,7 @@ message_dematerialize_if_needed(message msg, writable_buffer *tmp)
  * about is equality, but this is written to follow the same
  * comparison interface as for ordered types. */
 static inline int
-message_lex_cmp(cache *cc, message a, message b)
+message_lex_cmp(message a, message b)
 {
    if (a.type < b.type) {
       return -1;
@@ -106,8 +106,8 @@ message_lex_cmp(cache *cc, message a, message b)
       message         a_materialized;
       writable_buffer b_tmp;
       message         b_materialized;
-      message_materialize_if_needed(cc, NULL, a, &a_tmp, &a_materialized);
-      message_materialize_if_needed(cc, NULL, b, &b_tmp, &b_materialized);
+      message_materialize_if_needed(NULL, a, &a_tmp, &a_materialized);
+      message_materialize_if_needed(NULL, b, &b_tmp, &b_materialized);
       int result = slice_lex_cmp(a_materialized.data, b_materialized.data);
       message_dematerialize_if_needed(a, &a_tmp);
       message_dematerialize_if_needed(b, &b_tmp);
@@ -220,7 +220,14 @@ data_merge_tuples(const data_config *cfg,
    }
 
    // new class is UPDATE and old class is INSERT or UPDATE
-   int result = cfg->merge_tuples(cfg, key, old_raw_message, new_message);
+   writable_buffer tmp;
+   message         old_materialized_message;
+   message_materialize_if_needed(
+      NULL, old_raw_message, &tmp, &old_materialized_message);
+   int result =
+      cfg->merge_tuples(cfg, key, old_materialized_message, new_message);
+   message_dematerialize_if_needed(old_raw_message, &tmp);
+
    if (result
        && merge_accumulator_message_class(new_message) == MESSAGE_TYPE_DELETE)
    {
@@ -264,24 +271,23 @@ data_key_to_string(const data_config *cfg, slice key, char *str, size_t size)
 
 static inline void
 data_message_to_string(const data_config *cfg,
-                       cache             *cc,
                        message            msg,
                        char              *str,
                        size_t             size)
 {
    writable_buffer tmp;
    message         materialized;
-   message_materialize_if_needed(cc, NULL, msg, &tmp, &materialized);
+   message_materialize_if_needed(NULL, msg, &tmp, &materialized);
    cfg->message_to_string(cfg, materialized, str, size);
    message_dematerialize_if_needed(msg, &tmp);
 }
 
-#define message_string(cfg, cc, msg)                                           \
+#define message_string(cfg, msg)                                               \
    (({                                                                         \
        struct {                                                                \
           char buffer[128];                                                    \
        } b;                                                                    \
-       data_message_to_string((cfg), (cc), (msg), b.buffer, 128);              \
+       data_message_to_string((cfg), (msg), b.buffer, 128);                    \
        b;                                                                      \
     }).buffer)
 

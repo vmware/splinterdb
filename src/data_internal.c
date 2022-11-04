@@ -1,13 +1,13 @@
 
 #include "data_internal.h"
 
-message NULL_MESSAGE = {.type   = MESSAGE_TYPE_INVALID,
-                        .isblob = FALSE,
-                        .data   = {.length = 0, .data = NULL}};
+message NULL_MESSAGE = {.type = MESSAGE_TYPE_INVALID,
+                        .cc   = NULL,
+                        .data = {.length = 0, .data = NULL}};
 
-message DELETE_MESSAGE = {.type   = MESSAGE_TYPE_DELETE,
-                          .isblob = FALSE,
-                          .data   = {.length = 0, .data = NULL}};
+message DELETE_MESSAGE = {.type = MESSAGE_TYPE_DELETE,
+                          .cc   = NULL,
+                          .data = {.length = 0, .data = NULL}};
 
 message_type
 merge_accumulator_message_class(const merge_accumulator *ma)

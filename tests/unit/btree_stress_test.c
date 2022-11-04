@@ -393,8 +393,7 @@ query_tests(cache           *cc,
                    gen_key(cfg, i, keybuf, btree_page_size(cfg)),
                    &result);
       if (!btree_found(&result)
-          || message_lex_cmp(cc,
-                             merge_accumulator_to_message(&result),
+          || message_lex_cmp(merge_accumulator_to_message(&result),
                              gen_msg(cfg, i, msgbuf, btree_page_size(cfg))))
       {
          ASSERT_TRUE(FALSE, "Failure on lookup %lu\n", i);
@@ -447,8 +446,7 @@ iterator_tests(cache           *cc,
       rc = slice_lex_cmp(key, gen_key(cfg, k, keybuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
-      rc = message_lex_cmp(
-         cc, msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
+      rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
       ASSERT_TRUE(slice_is_null(prev) || slice_lex_cmp(prev, key) < 0);

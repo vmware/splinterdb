@@ -42,7 +42,7 @@ typedef enum message_type {
  */
 typedef struct message {
    message_type type;
-   bool         isblob;
+   void        *cc; // Will always be NULL when passed to user call-backs
    slice        data;
 } message;
 
@@ -67,7 +67,7 @@ message_length(message msg)
 static inline const bool
 message_isblob(message msg)
 {
-   return msg.isblob;
+   return msg.cc != NULL;
 }
 
 static inline const void *

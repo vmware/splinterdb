@@ -790,15 +790,14 @@ typedef struct shadow_check_tuple_arg {
 } shadow_check_tuple_arg;
 
 static void
-shadow_check_tuple_func(cache *cc, slice key, message value, void *varg)
+shadow_check_tuple_func(slice key, message value, void *varg)
 {
    shadow_check_tuple_arg *arg = varg;
 
    slice   shadow_key;
    message shadow_value;
    trunk_shadow_get(arg->shadow, arg->pos, &shadow_key, &shadow_value);
-   if (slice_lex_cmp(key, shadow_key)
-       || message_lex_cmp(cc, value, shadow_value)) {
+   if (slice_lex_cmp(key, shadow_key) || message_lex_cmp(value, shadow_value)) {
       char expected_key[128];
       char actual_key[128];
       char expected_value[128];

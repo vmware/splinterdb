@@ -126,7 +126,7 @@ test_btree_lookup(cache        *cc,
    if (message_is_null(data) || message_is_null(expected_data)) {
       ret = message_is_null(data) == message_is_null(expected_data);
    } else {
-      ret = message_lex_cmp(cc, data, expected_data) == 0;
+      ret = message_lex_cmp(data, expected_data) == 0;
    }
 
    merge_accumulator_deinit(&result);
