@@ -120,6 +120,7 @@ CTEST_SETUP(large_inserts_bugs_stress)
                                    .cache_size = 512 * Mega,
                                    .disk_size  = 40 * Giga,
                                    .use_shmem  = use_shmem,
+                                   .shmem_size = (4 * GiB),
                                    .data_cfg   = &data->default_data_config};
 
    ZERO_STRUCT(data->master_cfg);

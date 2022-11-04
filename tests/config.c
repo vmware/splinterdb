@@ -19,6 +19,7 @@
 #define TEST_CONFIG_DEFAULT_DISK_SIZE_GB         30
 #define TEST_CONFIG_DEFAULT_CACHE_SIZE_GB        1
 #define TEST_CONFIG_DEFAULT_MEMTABLE_CAPACITY_MB 24
+#define TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB        2
 
 // Setup reasonable BTree and branch tree configurations
 #define TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE     256
@@ -62,8 +63,12 @@ config_set_defaults(master_config *cfg)
       .reclaim_threshold        = UINT64_MAX,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
-	  .use_shmem				= FALSE,
-	  .wait_for_gdb				= FALSE,
+
+	   .use_shmem				     = FALSE,
+      // If shared-memory usage is configured, its size will be this default.
+      .shmem_size               = GiB_TO_B(TEST_CONFIG_DEFAULT_SHMEM_SIZE_GB),
+
+	   .wait_for_gdb				  = FALSE,
       .log_handle               = NULL,
       .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
