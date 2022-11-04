@@ -348,3 +348,33 @@ debug_hex_encode(char        *dst,
 null_terminate:
    dst[max_len - 1] = '\0';
 }
+
+/*
+ * Format a size value with unit-specifiers, in an output buffer.
+ */
+void
+size_to_str(char *outbuf, size_t outbuflen, size_t size)
+{
+   debug_assert((outbuflen >= SIZE_TO_STR_LEN), "outbuflen=%lu\n", outbuflen);
+   if (size >= GiB) {
+      snprintf(outbuf,
+               outbuflen,
+               "~%ld.%d GiB",
+               B_TO_GiB(size),
+               B_TO_GiB_FRACT(size));
+   } else if (size >= MiB) {
+      snprintf(outbuf,
+               outbuflen,
+               "~%ld.%d MiB",
+               B_TO_MiB(size),
+               B_TO_MiB_FRACT(size));
+   } else if (size >= KiB) {
+      snprintf(outbuf,
+               outbuflen,
+               "~%ld.%d KiB",
+               B_TO_KiB(size),
+               B_TO_KiB_FRACT(size));
+   } else {
+      snprintf(outbuf, outbuflen, "%lu", size);
+   }
+}

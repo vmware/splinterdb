@@ -11,6 +11,7 @@
 
 #include "platform.h"
 #include "shmem.h"
+#include "util.h"
 
 // SplinterDB's shared segment magic identifier
 #define SPLINTERDB_SHMEM_MAGIC (uint64)0xDEFACADE
@@ -120,6 +121,8 @@ typedef struct shmem_info {
    shm_frag_info shm_mem_frags[SHM_NUM_LARGE_FRAGS];
    uint32        shm_num_frags_tracked;
    uint32        shm_num_frags_inuse;
+   uint32        shm_num_frags_inuse_HWM;
+   size_t        shm_used_by_large_frags; // Actually reserved
 
    size_t shm_total_bytes; // Total size of shared segment allocated initially.
    int64  shm_free_bytes;  // Free bytes of memory left (that can be allocated)
@@ -375,9 +378,11 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    shminfop->shm_id = 0;
 
    // Retain some memory usage stats before releasing shmem
-   size_t shm_total_bytes = shminfop->shm_total_bytes;
-   size_t shm_used_bytes  = shminfop->shm_used_bytes;
-   int64  shm_free_bytes  = shminfop->shm_free_bytes;
+   size_t shm_total_bytes           = shminfop->shm_total_bytes;
+   size_t shm_used_bytes            = shminfop->shm_used_bytes;
+   int64  shm_free_bytes            = shminfop->shm_free_bytes;
+   uint32 frags_inuse_HWM           = shminfop->shm_num_frags_inuse_HWM;
+   size_t used_by_large_frags_bytes = shminfop->shm_used_by_large_frags;
 
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
@@ -396,15 +401,34 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    Heap_handle = NULL;
 
    // Always trace destroy of shared memory segment.
+   char used_bytes_str[SIZE_TO_STR_LEN];
+   char free_bytes_str[SIZE_TO_STR_LEN];
+   char used_by_large_frags_bytes_str[SIZE_TO_STR_LEN];
+
+   size_to_str(used_bytes_str, SIZE_TO_STR_LEN, shm_used_bytes);
+   size_to_str(free_bytes_str, SIZE_TO_STR_LEN, shm_free_bytes);
+   size_to_str(used_by_large_frags_bytes_str,
+               SIZE_TO_STR_LEN,
+               used_by_large_frags_bytes);
+
    platform_default_log("Deallocated SplinterDB shared memory "
                         "segment at %p, shmid=%d."
-                        " Used=%lu bytes (%d %%), Free=%lu bytes (%d %%).\n",
+                        " Used=%lu bytes (%s, ~%d %%)"
+                        ", Free=%lu bytes (%s, ~%d %%)"
+                        ", Large fragments in-use HWM=%u"
+                        ", consumed=%lu bytes (%s)"
+                        ".\n",
                         shmaddr,
                         shmid,
                         shm_used_bytes,
+                        used_bytes_str,
                         (int)((shm_used_bytes * 1.0 / shm_total_bytes) * 100),
                         shm_free_bytes,
-                        (int)((shm_free_bytes * 1.0 / shm_total_bytes) * 100));
+                        free_bytes_str,
+                        (int)((shm_free_bytes * 1.0 / shm_total_bytes) * 100),
+                        frags_inuse_HWM,
+                        used_by_large_frags_bytes,
+                        used_by_large_frags_bytes_str);
 }
 
 /*
@@ -466,7 +490,7 @@ platform_shm_alloc(platform_heap_id hid,
       platform_error_log(
          "[%s:%d::%s()]: Insufficient memory in shared segment"
          " to allocate %lu bytes for '%s'. Approx free space=%lu bytes."
-         " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u.\n",
+         " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u (HWM=%u).\n",
          file,
          lineno,
          func,
@@ -474,7 +498,8 @@ platform_shm_alloc(platform_heap_id hid,
          objname,
          shminfop->shm_free_bytes,
          shminfop->shm_num_frags_tracked,
-         shminfop->shm_num_frags_inuse);
+         shminfop->shm_num_frags_inuse,
+         shminfop->shm_num_frags_inuse_HWM);
       return NULL;
    }
    // Track approx memory usage metrics; mainly for troubleshooting
@@ -572,6 +597,13 @@ platform_shm_free(platform_heap_id hid,
 static void
 platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
 {
+   debug_assert(
+      (size >= SHM_LARGE_FRAG_SIZE),
+      "Incorrect usage of this interface for requested size=%lu bytes."
+      " Size should be >= %lu bytes.\n",
+      size,
+      SHM_LARGE_FRAG_SIZE);
+
    shm_lock_mem_frags(shm);
 
    shm_frag_info *frag = shm->shm_mem_frags;
@@ -597,6 +629,10 @@ platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
 
       shm->shm_num_frags_tracked++;
       shm->shm_num_frags_inuse++;
+      shm->shm_used_by_large_frags += size;
+      if (shm->shm_num_frags_inuse > shm->shm_num_frags_inuse_HWM) {
+         shm->shm_num_frags_inuse_HWM = shm->shm_num_frags_inuse;
+      }
 
       // We should really assert that the other fields are zero, but for now
       // re-init this fragment tracker.
@@ -763,6 +799,9 @@ platform_shm_find_free(shmem_info *shm,
       frag->shm_frag_allocated_to_tid = platform_get_tid();
 
       shm->shm_num_frags_inuse++;
+      if (shm->shm_num_frags_inuse > shm->shm_num_frags_inuse_HWM) {
+         shm->shm_num_frags_inuse_HWM = shm->shm_num_frags_inuse;
+      }
 
       // Now, mark that this fragment is in-use
       frag->shm_frag_freed_by_pid = 0;
@@ -810,7 +849,7 @@ platform_shm_find_free(shmem_info *shm,
       snprintf(msg,
                sizeof(msg),
                "Did not find free fragment of size=%lu bytes to reallocate."
-               "shm_num_frags_tracked=%u, shm_num_frags_inuse=%u"
+               " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u"
                " (local_in_use=%d)",
                size,
                shm->shm_num_frags_tracked,
@@ -1058,24 +1097,11 @@ platform_shm_trace_allocs(shmem_info  *shminfop,
    threadid tid     = platform_get_tid();
 
    // Convert 'size' in units as a string
-   char size_str[20];
-   if (size >= GiB) {
-      snprintf(size_str,
-               sizeof(size_str),
-               " ~%ld.%d GiB",
-               B_TO_GiB(size),
-               B_TO_GiB_FRACT(size));
-   } else if (size >= MiB) {
-      snprintf(size_str,
-               sizeof(size_str),
-               " ~%ld.%d MiB",
-               B_TO_MiB(size),
-               B_TO_MiB_FRACT(size));
-   } else {
-      size_str[0] = '\0';
-   }
+   char size_str[SIZE_TO_STR_LEN];
+   size_to_str(size_str, sizeof(size_str), size);
+
    const char *msg = "[OS-pid=%d,ThreadID=%lu, %s:%d::%s()] "
-                     "-> %s: %s %lu bytes%s"
+                     "-> %s: %s %lu bytes (%s)"
                      " for object '%s', at %p, "
                      "free bytes=%lu (~%lu.%d %s).\n";
    if (use_MiB) {

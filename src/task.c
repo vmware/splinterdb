@@ -3,6 +3,7 @@
 
 #include "platform.h"
 #include "task.h"
+#include "util.h"
 
 #include "poison.h"
 
@@ -601,6 +602,7 @@ task_enqueue(task_system *ts,
    }
 
    __sync_fetch_and_add(&group->current_outstanding_tasks, 1);
+   __sync_fetch_and_add(&ts->ntasks_enqueued, 1);
 
    if (group->use_stats) {
       new_task->enqueue_time = platform_get_timestamp();
@@ -608,8 +610,10 @@ task_enqueue(task_system *ts,
    if (group->current_outstanding_tasks > group->max_outstanding_tasks) {
       group->max_outstanding_tasks = group->current_outstanding_tasks;
    }
-   platform_default_log("Enqueued a new task, current_outstanding_tasks=%lu"
+   platform_default_log("Enqueued a new task (%lu bytes)"
+                        ", current_outstanding_tasks=%lu"
                         ", max_outstanding_tasks=%lu\n",
+                        sizeof(*new_task),
                         group->current_outstanding_tasks,
                         group->max_outstanding_tasks);
    rc = task_unlock_task_queue(group);
@@ -924,6 +928,15 @@ task_group_print_stats(task_group *group, task_type type)
 void
 task_print_stats(task_system *ts)
 {
+   uint64 nbytes = (ts->ntasks_enqueued * sizeof(task));
+   char   nbytes_str[SIZE_TO_STR_LEN];
+   size_to_str(nbytes_str, sizeof(nbytes_str), nbytes);
+   platform_default_log(
+      "Number of tasks enqueued=%lu, consumed=%lu bytes (%s) of memory.\n",
+      ts->ntasks_enqueued,
+      nbytes,
+      nbytes_str);
+
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       task_group_print_stats(&ts->group[type], type);
    }

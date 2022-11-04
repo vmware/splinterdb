@@ -325,6 +325,13 @@ try_string_to_int8(const char *nptr, // IN
 void
 debug_hex_encode(char *dst, size_t dst_len, const char *data, size_t data_len);
 
+// Convenience size-specifier for output buffer size
+#define SIZE_TO_STR_LEN 20
+
+// Format a size value with unit-specifiers, in an output buffer.
+void
+size_to_str(char *outbuf, size_t outbuflen, size_t size);
+
 /*
  * Evaluates to a print format specifier based on the value being printed.
  * (Modeled after similar PRIxx #defines seen in inttypes.h .)

@@ -109,6 +109,7 @@ struct task_system {
    task_group       group[NUM_TASK_TYPES];
    bool             use_bg_threads;
    platform_heap_id heap_id;
+   uint64           ntasks_enqueued;
 
    // scratch memory for the init thread.
    uint64   scratch_size;

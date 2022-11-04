@@ -98,8 +98,12 @@
 #define KiB_TO_B(x) ((x)*KiB)
 #define MiB_TO_B(x) ((x)*MiB)
 #define GiB_TO_B(x) ((x)*GiB)
+#define B_TO_KiB(x) ((x) / KiB)
 #define B_TO_MiB(x) ((x) / MiB)
 #define B_TO_GiB(x) ((x) / GiB)
+
+// Return, as int, the fractional portion modulo a KiB for given x bytes.
+#define B_TO_KiB_FRACT(x) (int)((((x)-B_TO_KiB(x) * KiB) / (KiB * 1.0)) * 100)
 
 // Return, as int, the fractional portion modulo a MiB for given x bytes.
 #define B_TO_MiB_FRACT(x) (int)((((x)-B_TO_MiB(x) * MiB) / (MiB * 1.0)) * 100)

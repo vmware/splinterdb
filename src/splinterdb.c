@@ -24,6 +24,12 @@
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
+
+// Function prototypes
+
+static void
+splinterdb_close_print_stats(splinterdb *kvs);
+
 const char *
 splinterdb_get_version()
 {
@@ -632,6 +638,8 @@ splinterdb_close(splinterdb **kvs_in) // IN
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
 
+   splinterdb_close_print_stats(kvs);
+
    trunk_unmount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
@@ -1038,6 +1046,13 @@ splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
 
+static void
+splinterdb_close_print_stats(splinterdb *kvs)
+{
+   task_print_stats(kvs->task_sys);
+}
+
+>>>>>>> f6d3930 (Improve memory usage tracking. Add instrumentation. Add size_to_str().)
 /*
  * -----------------------------------------------------------------------------
  * External accessor APIs, mainly provided for use as testing hooks.
