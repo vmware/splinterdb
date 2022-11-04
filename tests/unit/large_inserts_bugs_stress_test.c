@@ -117,7 +117,7 @@ CTEST_SETUP(large_inserts_bugs_stress)
    }
 
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
-                                   .cache_size = 1 * Giga,
+                                   .cache_size = 512 * Mega,
                                    .disk_size  = 40 * Giga,
                                    .use_shmem  = use_shmem,
                                    .data_cfg   = &data->default_data_config};

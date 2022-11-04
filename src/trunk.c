@@ -3412,10 +3412,6 @@ trunk_memtable_incorporate(trunk_handle  *spl,
                                "enqueuing build filter %lu-%u\n",
                                req->addr,
                                req->bundle_no);
-   /*
-    * RESOLVE: Same qs here: How do we enqueue and pass-down the 2nd arg
-    * that this fn, trunk_bundle_build_filters(), needs, but is an unused arg.
-    */
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
@@ -4045,19 +4041,6 @@ trunk_bundle_build_filters(void *arg, void *scratch)
    } while (compact_req->generation != generation);
 
 out:
-   /*
-    * RESOLVE: This call is troublesome. From code inspection,
-    * compact_req->fp_arr seems to be pointing to btree_pack_req
-    * pack_req.fingerprint_arr, which is allocated not from the
-    * heap but from malloc() [i.e., NULL_HEAP_ID ]. See
-    * trunk_btree_pack_req_init() -> btree_pack_req_init()
-    *
-    * But if you use NULL_HEAP_ID here, you will get an error when
-    * running tests w/MSAN-builds reporting: 'wild pointer free' error
-    * Hence, the patch-fix in shm_free which will
-    * do memory bounds checking and then fall-back to calling free
-    * with NULL_HEAP_ID.
-    */
    platform_free(spl->heap_id, compact_req->fp_arr);
 
    platform_free(spl->heap_id, compact_req);

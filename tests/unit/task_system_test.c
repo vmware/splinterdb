@@ -303,7 +303,8 @@ CTEST2(task_system, test_multiple_threads)
 
    ZERO_ARRAY(thread_cfg);
    platform_default_log(" Before %d threads start, task_get_max_tid() = %lu\n",
-                        MAX_THREADS, task_get_max_tid(data->tasks));
+                        MAX_THREADS,
+                        task_get_max_tid(data->tasks));
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
@@ -368,20 +369,20 @@ CTEST2_SKIP(task_system, test_max_num_threads_using_extern_apis)
       thread_cfgp->tasks          = data->tasks;
       thread_cfgp->exp_thread_idx = tctr;
 
-       // This interface packages all the platform_thread_create() and
-       // register / deregister business, around the invocation of the
-       // user's worker function, exec_one_thread_use_extern_apis().
-       rc = task_thread_create("test_max_num_threads",
-                               exec_one_thread_use_extern_apis,
-                               thread_cfgp,
-                               trunk_get_scratch_size(),
-                               thread_cfgp->tasks,
-                               data->hid,
-                               &new_thread[tctr]);
-       ASSERT_TRUE(SUCCESS(rc));
+      // This interface packages all the platform_thread_create() and
+      // register / deregister business, around the invocation of the
+      // user's worker function, exec_one_thread_use_extern_apis().
+      rc = task_thread_create("test_max_num_threads",
+                              exec_one_thread_use_extern_apis,
+                              thread_cfgp,
+                              trunk_get_scratch_size(),
+                              thread_cfgp->tasks,
+                              data->hid,
+                              &new_thread[tctr]);
+      ASSERT_TRUE(SUCCESS(rc));
 
-       // Record this thread's ID, for validation by worker fn.
-       thread_cfgp->this_thread_id = new_thread[tctr];
+      // Record this thread's ID, for validation by worker fn.
+      thread_cfgp->this_thread_id = new_thread[tctr];
    }
 
    // Complete execution of n-threads. Worker fn does the validation.

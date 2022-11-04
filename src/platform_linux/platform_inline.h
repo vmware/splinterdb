@@ -499,10 +499,12 @@ platform_free_from_heap(platform_heap_id heap_id,
                         const char      *file,
                         int              lineno)
 {
-   /*
-   platform_default_log(
-      "[%s:%d::%s()] Request to free memory at %p.\n", file, lineno, func, ptr);
-   */
+   debug_assert((ptr != NULL),
+                "[%s:%d::%s()] Attemping to free a NULL ptr for '%s'.\n",
+                file,
+                lineno,
+                func,
+                objname);
 
    if (heap_id) {
       splinter_shm_free(heap_id, ptr, objname);
