@@ -95,6 +95,7 @@ typedef struct master_config {
    bool   verbose_progress;
 
    // Shared memory support      **** Experimental feature ****
+   uint64 shmem_size;
    bool use_shmem; // Memory allocation done from shared segment
    bool trace_shmem_allocs;
    bool trace_shmem_frees;
