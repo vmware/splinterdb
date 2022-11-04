@@ -101,11 +101,19 @@ lock_table_acquire_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
 bool
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
 {
-   if (lock_table_exist_overlap(lock_tbl, entry)) {
-      return NULL;
+   platform_mutex_lock(&lock_tbl->lock);
+   bool is_exist = interval_tree_iter_first(
+                      &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry))
+                      ? TRUE
+                      : FALSE;
+
+   if (is_exist) {
+     platform_mutex_unlock(&lock_tbl->lock);
+     return FALSE;
    }
 
-   lock_table_insert(lock_tbl, entry);
+   interval_tree_insert(entry, &lock_tbl->root);
+   platform_mutex_unlock(&lock_tbl->lock);
 
    return TRUE;
 }
