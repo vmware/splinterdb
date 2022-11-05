@@ -20,9 +20,11 @@
 bool Trace_shmem_allocs = FALSE;
 bool Trace_shmem_frees  = FALSE;
 bool Trace_shmem        = FALSE;
+bool Trace_large_frags  = FALSE;
 
 /*
- * shm_frag_info{} - Struct describing a memory fragment allocation.
+ * ----------------------------------------------------------------------------
+ * shm_frag_info{} - Struct describing a [large] memory fragment allocation.
  *
  * This is a specialized memory-fragment tracker solely constructed to satisfy
  * large memory requests. In Splinter large memory requests, i.e. something over
@@ -41,16 +43,23 @@ bool Trace_shmem        = FALSE;
  *    be set.
  *  - (allocated_to_pid != 0) && (freed_by_pid == 0) - Fragment is in use.
  *  - (allocated_to_pid != 0) && (freed_by_pid != 0) - Fragment is free.
+ * ----------------------------------------------------------------------------
  */
 typedef struct shm_frag_info {
-   void     *shm_frag_addr;             // Start address of this memory fragment
-   size_t    shm_frag_size;             // bytes
-   int       shm_frag_allocated_to_pid; // Allocated to this OS-pid
-   threadid  shm_frag_allocated_to_tid; // Allocated to this Splinter thread-ID
-   int       shm_frag_freed_by_pid;     // OS-pid that freed this
-   threadid  shm_frag_freed_by_tid;     // Splinter thread-ID that freed this
+   void    *shm_frag_addr;             // Start address of this memory fragment
+   size_t   shm_frag_size;             // bytes
+   int      shm_frag_allocated_to_pid; // Allocated to this OS-pid
+   threadid shm_frag_allocated_to_tid; // Allocated to this Splinter thread-ID
+   int      shm_frag_freed_by_pid;     // OS-pid that freed this
+   threadid shm_frag_freed_by_tid;     // Splinter thread-ID that freed this
+
+#if SPLINTER_DEBUG
+
    timestamp shm_alloc_ts;        // Timestamp when frag was alloc / realloc'ed
    uint64    shm_elapsed_free_ns; // Elapsed nanos between alloc & free.
+
+#endif // SPLINTER_DEBUG
+
 } shm_frag_info;
 
 /*
@@ -106,7 +115,9 @@ typedef struct shm_frag_info {
  * NOTE(s):
  *  - shm_large_frag_hip tracks the highest-address of all the large fragments
  *    that are tracked. This is an optimization to short-circuit the search
- *    done when freeing any fragment, to see if it's a large-fragment.
+ *    done to see if a fragment being freed is a large-fragment.
+ *  - shm_nf_search_skipped counts the # of times we were able to short-circuit
+ *    this search using above optimization.
  * -----------------------------------------------------------------------------
  */
 typedef struct shmem_info {
@@ -123,6 +134,8 @@ typedef struct shmem_info {
    uint32        shm_num_frags_inuse;
    uint32        shm_num_frags_inuse_HWM;
    size_t        shm_used_by_large_frags; // Actually reserved
+   size_t        shm_nfrees;              // # of calls to free memory
+   size_t        shm_nf_search_skipped;   // See above;
 
    size_t shm_total_bytes; // Total size of shared segment allocated initially.
    int64  shm_free_bytes;  // Free bytes of memory left (that can be allocated)
@@ -383,6 +396,8 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    int64  shm_free_bytes            = shminfop->shm_free_bytes;
    uint32 frags_inuse_HWM           = shminfop->shm_num_frags_inuse_HWM;
    size_t used_by_large_frags_bytes = shminfop->shm_used_by_large_frags;
+   size_t shm_nfrees                = shminfop->shm_nfrees;
+   size_t shm_nf_search_skipped     = shminfop->shm_nf_search_skipped;
 
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
@@ -415,17 +430,24 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
                         "segment at %p, shmid=%d."
                         " Used=%lu bytes (%s, ~%d %%)"
                         ", Free=%lu bytes (%s, ~%d %%)"
-                        ", Large fragments in-use HWM=%u"
-                        ", consumed=%lu bytes (%s)"
                         ".\n",
                         shmaddr,
                         shmid,
                         shm_used_bytes,
                         used_bytes_str,
-                        (int)((shm_used_bytes * 1.0 / shm_total_bytes) * 100),
+                        pctof(shm_used_bytes, shm_total_bytes),
                         shm_free_bytes,
                         free_bytes_str,
-                        (int)((shm_free_bytes * 1.0 / shm_total_bytes) * 100),
+                        pctof(shm_free_bytes, shm_total_bytes));
+
+   platform_default_log("SplinterDB shared memory stats:"
+                        " nfrees=%lu, nf_search_skipped=%lu (%d %%)"
+                        ", Large fragments in-use HWM=%u"
+                        ", consumed=%lu bytes (%s)"
+                        ".\n",
+                        shm_nfrees,
+                        shm_nf_search_skipped,
+                        pctof(shm_nf_search_skipped, shm_nfrees),
                         frags_inuse_HWM,
                         used_by_large_frags_bytes,
                         used_by_large_frags_bytes_str);
@@ -487,16 +509,26 @@ platform_shm_alloc(platform_heap_id hid,
       // This memory request cannot fit in available space. Reset.
       __sync_fetch_and_sub(&shminfop->shm_next, size);
 
+      char size_str[SIZE_TO_STR_LEN];
+      char free_bytes_str[SIZE_TO_STR_LEN];
+      size_to_str(size_str, sizeof(size_str), size);
+      size_to_str(free_bytes_str, sizeof(free_bytes_str),
+                  shminfop->shm_free_bytes);
+
       platform_error_log(
          "[%s:%d::%s()]: Insufficient memory in shared segment"
-         " to allocate %lu bytes for '%s'. Approx free space=%lu bytes."
-         " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u (HWM=%u).\n",
+         " to allocate %lu bytes (%s) for '%s'."
+         " Approx free space=%lu bytes (%s)."
+         " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u "
+         "(in-use-HWM=%u).\n",
          file,
          lineno,
          func,
          size,
+         size_str,
          objname,
          shminfop->shm_free_bytes,
+         free_bytes_str,
          shminfop->shm_num_frags_tracked,
          shminfop->shm_num_frags_inuse,
          shminfop->shm_num_frags_inuse_HWM);
@@ -511,7 +543,7 @@ platform_shm_alloc(platform_heap_id hid,
    }
 
    // Trace shared memory allocation; then return memory ptr.
-   if (Trace_shmem || Trace_shmem_allocs || (size > MILLION)) {
+   if (Trace_shmem || Trace_shmem_allocs || Trace_large_frags) {
 
       platform_shm_trace_allocs(shminfop,
                                 size,
@@ -604,6 +636,9 @@ platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
       size,
       SHM_LARGE_FRAG_SIZE);
 
+   int      pid = getpid();
+   threadid tid = platform_get_tid();
+
    shm_lock_mem_frags(shm);
 
    shm_frag_info *frag = shm->shm_mem_frags;
@@ -640,11 +675,13 @@ platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
       frag->shm_frag_addr = addr;
       frag->shm_frag_size = size;
 
-      frag->shm_frag_allocated_to_pid = getpid();
-      frag->shm_frag_allocated_to_tid = platform_get_tid();
+      frag->shm_frag_allocated_to_pid = pid;
+      frag->shm_frag_allocated_to_tid = tid;
       // The freed_by_pid/freed_by_tid == 0 means fragment is still allocated.
 
+#if SPLINTER_DEBUG
       frag->shm_alloc_ts = platform_get_timestamp();
+#endif // SPLINTER_DEBUG
 
       // Track highest address of large-fragment that is being tracked.
       if (shm->shm_large_frag_hip < addr) {
@@ -672,12 +709,19 @@ platform_shm_track_free(shmem_info *shm,
 {
    debug_assert(addr != NULL);
 
+   int      pid      = getpid();
+   threadid tid      = platform_get_tid();
+   bool     do_trace = (Trace_shmem || Trace_shmem_frees || Trace_large_frags);
+
    shm_lock_mem_frags(shm);
+
+   shm->shm_nfrees++;
 
    // If we are freeing a fragment beyond the high-address of all
    // large fragments tracked, then this is certainly not a large
    // fragment. So, no further need to see if it's a tracked fragment.
    if (addr > shm->shm_large_frag_hip) {
+      shm->shm_nf_search_skipped++;
       shm_unlock_mem_frags(shm);
       return;
    }
@@ -694,19 +738,25 @@ platform_shm_track_free(shmem_info *shm,
       shm->shm_num_frags_inuse--;
 
       // Record the process/thread that's doing the free.
-      frag->shm_frag_freed_by_pid = getpid();
-      frag->shm_frag_freed_by_tid = platform_get_tid();
+      frag->shm_frag_freed_by_pid = pid;
+      frag->shm_frag_freed_by_tid = tid;
+
+#if SPLINTER_DEBUG
       frag->shm_elapsed_free_ns =
          platform_timestamp_elapsed(frag->shm_alloc_ts);
+#endif // SPLINTER_DEBUG
 
-      if (Trace_shmem || Trace_shmem_frees || TRUE) {
+      if (do_trace) {
          platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()]"
                               ", Track freed fragment of size=%lu bytes"
                               ", at slot=%d, addr=%p"
                               ", allocated_to_pid=%d, allocated_to_tid=%lu"
                               ", shm_num_frags_inuse=%d"
                               ", shm_large_frag_hip=%p"
-                              ", used for elapsed=%lu ns (~%lu ms)\n",
+#if SPLINTER_DEBUG
+                              ", used for elapsed=%lu ns (~%lu ms)"
+#endif // SPLINTER_DEBUG
+                              "\n",
                               frag->shm_frag_freed_by_pid,
                               frag->shm_frag_freed_by_tid,
                               file,
@@ -718,19 +768,25 @@ platform_shm_track_free(shmem_info *shm,
                               frag->shm_frag_allocated_to_pid,
                               frag->shm_frag_allocated_to_tid,
                               shm->shm_num_frags_inuse,
-                              shm->shm_large_frag_hip,
+                              shm->shm_large_frag_hip
+
+#if SPLINTER_DEBUG
+                              ,
                               frag->shm_elapsed_free_ns,
-                              NSEC_TO_MSEC(frag->shm_elapsed_free_ns));
+                              NSEC_TO_MSEC(frag->shm_elapsed_free_ns)
+#endif // SPLINTER_DEBUG
+
+         );
       }
       break;
    }
    shm_unlock_mem_frags(shm);
 
-   if (!found_tracked_frag) {
+   if (!found_tracked_frag && do_trace) {
       platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()] "
                            ", Fragment %p for object '%s' is not tracked\n",
-                           getpid(),
-                           platform_get_tid(),
+                           pid,
+                           tid,
                            file,
                            lineno,
                            func,
@@ -766,6 +822,10 @@ platform_shm_find_free(shmem_info *shm,
    int  local_in_use       = 0; // Tracked while iterating in this fn, locally
    bool found_tracked_frag = FALSE;
 
+   int      pid      = getpid();
+   threadid tid      = platform_get_tid();
+   bool     do_trace = (Trace_shmem || Trace_shmem_frees || Trace_large_frags);
+
    shm_lock_mem_frags(shm);
 
    // Walk the tracked-fragments array looking for a free-fragment >= size
@@ -795,8 +855,8 @@ platform_shm_find_free(shmem_info *shm,
       found_tracked_frag = TRUE;
 
       // Record the process/thread to which free fragment is being allocated
-      frag->shm_frag_allocated_to_pid = getpid();
-      frag->shm_frag_allocated_to_tid = platform_get_tid();
+      frag->shm_frag_allocated_to_pid = pid;
+      frag->shm_frag_allocated_to_tid = tid;
 
       shm->shm_num_frags_inuse++;
       if (shm->shm_num_frags_inuse > shm->shm_num_frags_inuse_HWM) {
@@ -807,15 +867,16 @@ platform_shm_find_free(shmem_info *shm,
       frag->shm_frag_freed_by_pid = 0;
       frag->shm_frag_freed_by_tid = 0;
 
+#if SPLINTER_DEBUG
       // Track timestamp when fragment was reallocated.
       frag->shm_alloc_ts = platform_get_timestamp();
-
+#endif // SPLINTER_DEBUG
       retptr = frag->shm_frag_addr;
 
       // Zero out reallocated memory fragment, just to be sure ...
       memset(retptr, 0, frag->shm_frag_size);
 
-      if (Trace_shmem || Trace_shmem_allocs || TRUE) {
+      if (do_trace) {
          char msg[160];
 
          /*
@@ -843,7 +904,7 @@ platform_shm_find_free(shmem_info *shm,
    }
    shm_unlock_mem_frags(shm);
 
-   if (!found_tracked_frag) {
+   if (!found_tracked_frag && do_trace) {
       char msg[200];
 
       snprintf(msg,
@@ -1082,6 +1143,9 @@ platform_shm_next_free_addr(platform_heap_id heap_id)
       platform_shm_next_free_addr_by_hh(platform_heap_id_to_handle(heap_id)));
 }
 
+/*
+ * Helper fn to trace large-fragment handling; alloc and reallocation
+ */
 static void
 platform_shm_trace_allocs(shmem_info  *shminfop,
                           const size_t size,
@@ -1104,39 +1168,36 @@ platform_shm_trace_allocs(shmem_info  *shminfop,
                      "-> %s: %s %lu bytes (%s)"
                      " for object '%s', at %p, "
                      "free bytes=%lu (~%lu.%d %s).\n";
+
+   size_t free_bytes = shminfop->shm_free_bytes;
+   size_t free_bytes_units;
+   int    free_bytes_fract_units;
+   char  *units_str = NULL;
+
    if (use_MiB) {
-      platform_default_log(msg,
-                           pid,
-                           tid,
-                           file,
-                           lineno,
-                           func,
-                           __FUNCTION__,
-                           verb,
-                           size,
-                           size_str,
-                           objname,
-                           retptr,
-                           shminfop->shm_free_bytes,
-                           B_TO_MiB(shminfop->shm_free_bytes),
-                           B_TO_MiB_FRACT(shminfop->shm_free_bytes),
-                           "MiB");
+      free_bytes_units = B_TO_MiB(free_bytes);
+      free_bytes_fract_units = B_TO_MiB_FRACT(free_bytes);
+      units_str = "MiB";
    } else {
-      platform_default_log(msg,
-                           pid,
-                           tid,
-                           file,
-                           lineno,
-                           func,
-                           __FUNCTION__,
-                           verb,
-                           size,
-                           size_str,
-                           objname,
-                           retptr,
-                           shminfop->shm_free_bytes,
-                           B_TO_GiB(shminfop->shm_free_bytes),
-                           B_TO_GiB_FRACT(shminfop->shm_free_bytes),
-                           "GiB");
+      free_bytes_units = B_TO_GiB(free_bytes);
+      free_bytes_fract_units = B_TO_GiB_FRACT(free_bytes);
+      units_str = "GiB";
    }
+
+  platform_default_log(msg,
+                       pid,
+                       tid,
+                       file,
+                       lineno,
+                       func,
+                       __FUNCTION__,
+                       verb,
+                       size,
+                       size_str,
+                       objname,
+                       retptr,
+                       shminfop->shm_free_bytes,
+                       free_bytes_units,
+                       free_bytes_fract_units,
+                       units_str);
 }

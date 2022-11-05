@@ -342,4 +342,7 @@ size_to_str(char *outbuf, size_t outbuflen, size_t size);
     : ((intval) < 1000) ? "3d"                                                 \
                         : "4d")
 
+// Evaluates to %age of a v/s b, as an int
+#define pctof(a, b) (int)(((a)*1.0 / (b)) * 100)
+
 #endif // _SPLINTER_UTIL_H_

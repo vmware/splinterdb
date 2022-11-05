@@ -610,12 +610,6 @@ task_enqueue(task_system *ts,
    if (group->current_outstanding_tasks > group->max_outstanding_tasks) {
       group->max_outstanding_tasks = group->current_outstanding_tasks;
    }
-   platform_default_log("Enqueued a new task (%lu bytes)"
-                        ", current_outstanding_tasks=%lu"
-                        ", max_outstanding_tasks=%lu\n",
-                        sizeof(*new_task),
-                        group->current_outstanding_tasks,
-                        group->max_outstanding_tasks);
    rc = task_unlock_task_queue(group);
    return rc;
 }
