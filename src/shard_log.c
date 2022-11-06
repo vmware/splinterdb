@@ -53,6 +53,11 @@ const static iterator_ops shard_log_iterator_ops = {
    .print    = NULL,
 };
 
+static const page_type page_type_table[NUM_BLOB_BATCHES + 1] = {
+   PAGE_TYPE_LOG,
+   [1 ... NUM_BLOB_BATCHES] = PAGE_TYPE_BLOB,
+};
+
 static inline uint64
 shard_log_page_size(shard_log_config *cfg)
 {
@@ -116,6 +121,7 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
              0,
              NUM_BLOB_BATCHES + 1,
              PAGE_TYPE_LOG,
+             page_type_table,
              FALSE);
    // platform_default_log("addr: %lu meta_head: %lu\n", log->addr,
    // log->meta_head);
@@ -136,7 +142,7 @@ shard_log_zap(shard_log *log)
       thread_data->offset                = 0;
    }
 
-   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG, FALSE);
+   mini_unkeyed_dec_ref(cc, log->meta_head, PAGE_TYPE_LOG);
 }
 
 /*
@@ -309,13 +315,8 @@ static platform_status
 shard_log_create_blob(log_handle *logh, slice data, writable_buffer *result)
 {
    shard_log *log = (shard_log *)logh;
-   return blob_build(&log->cfg->blob_cfg,
-                     log->cc,
-                     &log->mini,
-                     NULL_SLICE,
-                     data,
-                     PAGE_TYPE_LOG,
-                     result);
+   return blob_build(
+      &log->cfg->blob_cfg, log->cc, &log->mini, NULL_SLICE, data, result);
 }
 
 uint64

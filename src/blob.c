@@ -130,7 +130,7 @@ maybe_do_prefetch(blob_page_iterator *iter)
                       &next_length);
       uint64 next_extent_addr =
          cache_extent_base_addr(iter->cc, next_page_addr);
-      cache_prefetch(iter->cc, next_extent_addr, iter->type);
+      cache_prefetch(iter->cc, next_extent_addr, PAGE_TYPE_BLOB);
    }
 }
 
@@ -139,12 +139,10 @@ blob_page_iterator_init(cache              *cc,
                         blob_page_iterator *iter,
                         slice               sblobby,
                         uint64              offset,
-                        page_type           type,
                         bool                alloc,
                         bool                do_prefetch)
 {
    iter->cc                = cc;
-   iter->type              = type;
    iter->alloc             = alloc;
    iter->do_prefetch       = do_prefetch;
    iter->extent_size       = cache_extent_size(cc);
@@ -194,9 +192,10 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
 {
    if (iter->page == NULL) {
       if (should_alloc(iter)) {
-         iter->page = cache_alloc(iter->cc, iter->page_addr, iter->type);
+         iter->page = cache_alloc(iter->cc, iter->page_addr, PAGE_TYPE_BLOB);
       } else {
-         iter->page = cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
+         iter->page =
+            cache_get(iter->cc, iter->page_addr, TRUE, PAGE_TYPE_BLOB);
          if (iter->alloc) {
             int wait = 1;
             while (!cache_claim(iter->cc, iter->page)) {
@@ -204,7 +203,7 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
                platform_sleep(wait);
                wait = MIN(2 * wait, 2048);
                iter->page =
-                  cache_get(iter->cc, iter->page_addr, TRUE, iter->type);
+                  cache_get(iter->cc, iter->page_addr, TRUE, PAGE_TYPE_BLOB);
             }
             cache_lock(iter->cc, iter->page);
          }
@@ -252,7 +251,6 @@ blob_materialize(cache           *cc,
                  slice            sblobby,
                  uint64           start,
                  uint64           end,
-                 page_type        type,
                  writable_buffer *result)
 {
    const blob *blobby = slice_data(sblobby);
@@ -267,7 +265,7 @@ blob_materialize(cache           *cc,
    }
 
    blob_page_iterator iter;
-   rc = blob_page_iterator_init(cc, &iter, sblobby, start, type, FALSE, TRUE);
+   rc = blob_page_iterator_init(cc, &iter, sblobby, start, FALSE, TRUE);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -302,12 +300,12 @@ out:
 }
 
 platform_status
-blob_sync(cache *cc, slice sblob, page_type type)
+blob_sync(cache *cc, slice sblob)
 {
    blob_page_iterator itor;
    platform_status    rc;
 
-   rc = blob_page_iterator_init(cc, &itor, sblob, 0, type, FALSE, FALSE);
+   rc = blob_page_iterator_init(cc, &itor, sblob, 0, FALSE, FALSE);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -320,7 +318,7 @@ blob_sync(cache *cc, slice sblob, page_type type)
          blob_page_iterator_deinit(&itor);
          return rc;
       }
-      cache_page_sync(cc, itor.page, FALSE, type);
+      cache_page_sync(cc, itor.page, FALSE, PAGE_TYPE_BLOB);
       blob_page_iterator_advance(&itor);
    }
 

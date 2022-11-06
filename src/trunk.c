@@ -41,6 +41,9 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
    10000000000 // 10  s
 };
 
+static const page_type page_type_table[TRUNK_MAX_HEIGHT] = {
+   [0 ... TRUNK_MAX_HEIGHT - 1] = PAGE_TYPE_TRUNK};
+
 /*
  * At any time, one Memtable is "active" for inserts / updates.
  * At any time, the most # of Memtables that can be active or in one of these
@@ -7122,6 +7125,7 @@ trunk_create(trunk_config     *cfg,
              0,
              TRUNK_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
+             page_type_table,
              FALSE);
 
    // set up the memtable context
@@ -7254,6 +7258,7 @@ trunk_mount(trunk_config     *cfg,
              meta_tail,
              TRUNK_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
+             page_type_table,
              FALSE);
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
@@ -7373,7 +7378,7 @@ trunk_destroy(trunk_handle *spl)
 
    trunk_for_each_node(spl, trunk_node_destroy, NULL);
 
-   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
+   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
 
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);

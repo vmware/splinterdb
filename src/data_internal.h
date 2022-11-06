@@ -73,8 +73,7 @@ message_materialize_if_needed(platform_heap_id heap_id,
    if (msg.cc) {
       writable_buffer_init(tmp, heap_id);
       slice sblob = message_slice(msg);
-      blob_materialize(
-         msg.cc, sblob, 0, blob_length(sblob), PAGE_TYPE_MISC, tmp);
+      blob_materialize_full(msg.cc, sblob, tmp);
       *result = message_create(
          message_class(msg), NULL, writable_buffer_to_slice(tmp));
 
@@ -123,14 +122,16 @@ message_class_string(message msg)
 
 struct merge_accumulator {
    message_type    type;
+   cache          *cc; // !NULL means blob
    writable_buffer data;
 };
 
 static inline void
 merge_accumulator_init(merge_accumulator *ma, platform_heap_id heap_id)
 {
-   writable_buffer_init(&ma->data, heap_id);
    ma->type = MESSAGE_TYPE_INVALID;
+   ma->cc   = NULL;
+   writable_buffer_init(&ma->data, heap_id);
 }
 
 static inline void
@@ -142,16 +143,17 @@ merge_accumulator_init_with_buffer(merge_accumulator *ma,
                                    message_type       type)
 
 {
+   ma->type = type;
+   ma->cc   = NULL;
    writable_buffer_init_with_buffer(
       &ma->data, heap_id, allocation_size, data, logical_size);
-   ma->type = type;
 }
 
 static inline void
 merge_accumulator_deinit(merge_accumulator *ma)
 {
-   writable_buffer_deinit(&ma->data);
    ma->type = MESSAGE_TYPE_INVALID;
+   writable_buffer_deinit(&ma->data);
 }
 
 static inline bool
@@ -160,16 +162,23 @@ merge_accumulator_is_definitive(const merge_accumulator *ma)
    return ma->type == MESSAGE_TYPE_INSERT || ma->type == MESSAGE_TYPE_DELETE;
 }
 
+static inline bool
+merge_accumulator_isblob(const merge_accumulator *ma)
+{
+   return ma->cc != NULL;
+}
+
 static inline message
 merge_accumulator_to_message(const merge_accumulator *ma)
 {
-   return message_create(ma->type, FALSE, writable_buffer_to_slice(&ma->data));
+   return message_create(ma->type, ma->cc, writable_buffer_to_slice(&ma->data));
 }
 
 static inline slice
 merge_accumulator_to_value(const merge_accumulator *ma)
 {
    debug_assert(ma->type == MESSAGE_TYPE_INSERT);
+   debug_assert(ma->cc == NULL);
    return writable_buffer_to_slice(&ma->data);
 }
 
@@ -187,6 +196,7 @@ static inline void
 merge_accumulator_set_to_null(merge_accumulator *ma)
 {
    ma->type = MESSAGE_TYPE_INVALID;
+   ma->cc   = NULL;
    writable_buffer_set_to_null(&ma->data);
 }
 
@@ -195,7 +205,34 @@ merge_accumulator_is_null(const merge_accumulator *ma)
 {
    bool r = writable_buffer_is_null(&ma->data);
    debug_assert(IMPLIES(r, ma->type == MESSAGE_TYPE_INVALID));
+   debug_assert(IMPLIES(r, ma->cc == NULL));
    return r;
+}
+
+static inline platform_status
+merge_accumulator_ensure_materialized(merge_accumulator *ma)
+{
+   if (!ma->cc) {
+      return STATUS_OK;
+   }
+
+   platform_status rc;
+   writable_buffer materialized;
+   writable_buffer_init(&materialized, ma->data.heap_id);
+   slice sblob = writable_buffer_to_slice(&ma->data);
+   rc          = blob_materialize_full(ma->cc, sblob, &materialized);
+   if (!SUCCESS(rc)) {
+      writable_buffer_deinit(&materialized);
+      return rc;
+   }
+
+   writable_buffer tmp;
+   tmp      = ma->data;
+   ma->data = materialized;
+   writable_buffer_deinit(&tmp);
+   ma->cc = NULL;
+
+   return STATUS_OK;
 }
 
 static inline int
@@ -220,13 +257,14 @@ data_merge_tuples(const data_config *cfg,
    }
 
    // new class is UPDATE and old class is INSERT or UPDATE
-   writable_buffer tmp;
+   writable_buffer old_tmp;
    message         old_materialized_message;
    message_materialize_if_needed(
-      NULL, old_raw_message, &tmp, &old_materialized_message);
+      NULL, old_raw_message, &old_tmp, &old_materialized_message);
+   merge_accumulator_ensure_materialized(new_message);
    int result =
       cfg->merge_tuples(cfg, key, old_materialized_message, new_message);
-   message_dematerialize_if_needed(old_raw_message, &tmp);
+   message_dematerialize_if_needed(old_raw_message, &old_tmp);
 
    if (result
        && merge_accumulator_message_class(new_message) == MESSAGE_TYPE_DELETE)
@@ -244,6 +282,7 @@ data_merge_tuples_final(const data_config *cfg,
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;
    }
+   merge_accumulator_ensure_materialized(oldest_message);
    int result = cfg->merge_tuples_final(cfg, key, oldest_message);
    if (result
        && merge_accumulator_message_class(oldest_message)

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "btree_private.h"
+#include "blob_build.h"
 #include "poison.h"
 
 /******************************************************************
@@ -68,6 +69,12 @@ static const btree_pivot_stats BTREE_PIVOT_STATS_UNKNOWN = {
    BTREE_UNKNOWN_COUNTER,
    BTREE_UNKNOWN_COUNTER};
 
+static const blob_build_config btree_blob_cfg = {
+   .extent_batch  = 0,
+   .page_batch    = 1,
+   .subpage_batch = 2,
+   .alignment     = 0,
+};
 
 static inline uint8
 btree_height(const btree_hdr *hdr)
@@ -282,7 +289,7 @@ btree_fill_leaf_entry(const btree_config *cfg,
    debug_assert(entry->type == message_class(msg),
                 "entry->type not large enough to hold message_class");
    entry->message_size     = message_length(msg);
-   entry->message_indirect = FALSE;
+   entry->message_indirect = msg.cc != NULL;
 }
 
 static inline bool
@@ -499,27 +506,6 @@ btree_find_tuple(const btree_config *cfg,
    return lo - 1;
 }
 
-/*
- *-----------------------------------------------------------------------------
- * btree_leaf_incorporate_tuple
- *
- *   Adds the given key and value to node (must be a leaf).
- *
- * This is broken into several pieces to avoid repeated work during
- * exceptional cases.
- *
- * - create_incorporate_spec() computes everything needed to update
- *   the leaf, i.e. the index of the key, whether it is replacing an
- *   existing entry, and the merged message if it is.
- *
- * - can_perform_incorporate_spec says whether the leaf has enough
- *   room to actually perform the incorporation.
- *
- * - perform_incorporate_spec() does what it says.
- *
- * - incorporate_tuple() is a convenience wrapper.
- *-----------------------------------------------------------------------------
- */
 static inline int
 btree_merge_tuples(const btree_config *cfg,
                    slice               key,
@@ -539,8 +525,37 @@ spec_message(const leaf_incorporate_spec *spec)
    }
 }
 
+static platform_status
+merge_accumulator_convert_to_blob(const blob_build_config *cfg,
+                                  cache                   *cc,
+                                  mini_allocator          *mini,
+                                  slice                    key,
+                                  merge_accumulator       *ma)
+{
+   if (ma->cc) {
+      return STATUS_OK;
+   }
+
+   platform_status rc;
+   writable_buffer blob;
+   writable_buffer_init(&blob, ma->data.heap_id);
+   slice data = writable_buffer_to_slice(&ma->data);
+   rc         = blob_build(cfg, cc, mini, key, data, &blob);
+   if (!SUCCESS(rc)) {
+      writable_buffer_deinit(&blob);
+      return rc;
+   }
+   rc = writable_buffer_copy_slice(&ma->data, writable_buffer_to_slice(&blob));
+   // Should never fail since blob should be strictly smaller than original data
+   debug_assert(SUCCESS(rc));
+   ma->cc = cc;
+   return STATUS_OK;
+}
+
 platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
+                                   cache                 *cc,
+                                   mini_allocator        *mini,
                                    platform_heap_id       heap_id,
                                    btree_hdr             *hdr,
                                    slice                  key,
@@ -567,6 +582,13 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
       if (btree_merge_tuples(cfg, key, oldmessage, &spec->msg.merged_message)) {
          merge_accumulator_deinit(&spec->msg.merged_message);
          return STATUS_NO_MEMORY;
+      }
+
+      if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg))
+          < merge_accumulator_length(&spec->msg.merged_message))
+      {
+         return merge_accumulator_convert_to_blob(
+            &btree_blob_cfg, cc, mini, key, &spec->msg.merged_message);
       } else {
          return STATUS_OK;
       }
@@ -1131,6 +1153,10 @@ btree_root_to_meta_addr(const btree_config *cfg,
  *----------------------------------------------------------
  */
 
+static page_type memtable_page_type_table[BTREE_MAX_HEIGHT] = {
+   [0 ... BTREE_MAX_HEIGHT - 1] = PAGE_TYPE_MEMTABLE};
+static page_type branch_page_type_table[BTREE_MAX_HEIGHT] = {
+   [0 ... BTREE_MAX_HEIGHT - 1] = PAGE_TYPE_BRANCH};
 
 uint64
 btree_create(cache              *cc,
@@ -1177,6 +1203,8 @@ btree_create(cache              *cc,
              0,
              BTREE_MAX_HEIGHT,
              type,
+             type == PAGE_TYPE_BRANCH ? branch_page_type_table
+                                      : memtable_page_type_table,
              type == PAGE_TYPE_BRANCH);
 
    return root.addr;
@@ -1224,7 +1252,7 @@ btree_dec_ref(cache              *cc,
 {
    platform_assert(type == PAGE_TYPE_MEMTABLE);
    uint64 meta_head = btree_root_to_meta_addr(cfg, root_addr, 0);
-   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type, TRUE);
+   uint8  ref       = mini_unkeyed_dec_ref(cc, meta_head, type);
    return ref == 0;
 }
 
@@ -1684,7 +1712,7 @@ start_over:
 
    if (btree_height(root_node.hdr) == 0) {
       rc = btree_create_leaf_incorporate_spec(
-         cfg, heap_id, root_node.hdr, key, msg, &spec);
+         cfg, cc, mini, heap_id, root_node.hdr, key, msg, &spec);
       if (!SUCCESS(rc)) {
          btree_node_unget(cc, cfg, &root_node);
          return rc;
@@ -1866,7 +1894,7 @@ start_over:
     */
 
    rc = btree_create_leaf_incorporate_spec(
-      cfg, heap_id, child_node.hdr, key, msg, &spec);
+      cfg, cc, mini, heap_id, child_node.hdr, key, msg, &spec);
    if (!SUCCESS(rc)) {
       btree_node_unget(cc, cfg, &parent_node);
       btree_node_unget(cc, cfg, &child_node);
@@ -1914,7 +1942,7 @@ start_over:
        * so rebuild it. */
       destroy_leaf_incorporate_spec(&spec);
       rc = btree_create_leaf_incorporate_spec(
-         cfg, heap_id, child_node.hdr, key, msg, &spec);
+         cfg, cc, mini, heap_id, child_node.hdr, key, msg, &spec);
       if (!SUCCESS(rc)) {
          btree_node_unget(cc, cfg, &parent_node);
          btree_node_unclaim(cc, cfg, &child_node);

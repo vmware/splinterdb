@@ -43,6 +43,7 @@ merge_accumulator_copy_message(merge_accumulator *ma, message msg)
       return FALSE;
    }
    ma->type = message_class(msg);
+   ma->cc   = msg.cc;
    return TRUE;
 }
 

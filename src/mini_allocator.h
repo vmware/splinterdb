@@ -35,17 +35,17 @@
  * mini_allocator: Mini-allocator context.
  */
 typedef struct mini_allocator {
-   allocator      *al;
    cache          *cc;
+   allocator      *al;
    data_config    *data_cfg;
    bool            keyed;
-   bool            pinned;
-   uint64          meta_head;
-   volatile uint64 meta_tail;
-   page_type       type;
+   uint64          num_batches;
+   page_type       meta_type;
+   page_type       types[MINI_MAX_BATCHES];
 
    uint64          num_extents;
-   uint64          num_batches;
+   uint64          meta_head;
+   volatile uint64 meta_tail;
    volatile uint64 next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
 } mini_allocator;
@@ -57,7 +57,8 @@ mini_init(mini_allocator *mini,
           uint64          meta_head,
           uint64          meta_tail,
           uint64          num_batches,
-          page_type       type,
+          page_type       meta_type,
+          const page_type types[], // num_batches
           bool            keyed);
 void
 mini_release(mini_allocator *mini, const slice key);
@@ -137,7 +138,7 @@ mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr);
 uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
 uint8
-mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned);
+mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type);
 
 void
 mini_keyed_inc_ref(cache       *cc,
@@ -188,12 +189,6 @@ static inline uint64
 mini_num_extents(mini_allocator *mini)
 {
    return mini->num_extents;
-}
-
-static inline page_type
-mini_page_type(mini_allocator *mini)
-{
-   return mini->type;
 }
 
 #endif // __MINI_ALLOCATOR_H

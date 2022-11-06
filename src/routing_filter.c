@@ -417,7 +417,16 @@ routing_filter_add(cache           *cc,
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
    mini_allocator mini;
-   mini_init(&mini, cc, NULL, filter->meta_head, 0, 1, PAGE_TYPE_FILTER, FALSE);
+   static const page_type page_type_table[1] = {PAGE_TYPE_FILTER};
+   mini_init(&mini,
+             cc,
+             NULL,
+             filter->meta_head,
+             0,
+             1,
+             PAGE_TYPE_FILTER,
+             page_type_table,
+             FALSE);
 
    // set up the index pages
    uint64       addrs_per_page = page_size / sizeof(uint64);
@@ -1158,7 +1167,7 @@ routing_filter_zap(cache *cc, routing_filter *filter)
    }
 
    uint64 meta_head = filter->meta_head;
-   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_FILTER, FALSE);
+   mini_unkeyed_dec_ref(cc, meta_head, PAGE_TYPE_FILTER);
 }
 
 /*

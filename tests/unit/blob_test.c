@@ -106,19 +106,22 @@ CTEST2(blob, build_unkeyed)
    uint64          dst_addr;
    platform_status rc;
 
-   rc = allocator_alloc((allocator *)&data->al, &src_addr, PAGE_TYPE_MISC);
+   rc = allocator_alloc((allocator *)&data->al, &src_addr, PAGE_TYPE_BLOB);
    platform_assert_status_ok(rc);
 
-   rc = allocator_alloc((allocator *)&data->al, &dst_addr, PAGE_TYPE_MISC);
+   rc = allocator_alloc((allocator *)&data->al, &dst_addr, PAGE_TYPE_BLOB);
    platform_assert_status_ok(rc);
 
+   static const page_type page_type_table[NUM_BLOB_BATCHES] = {
+      [0 ... NUM_BLOB_BATCHES - 1] = PAGE_TYPE_BLOB};
    mini_init(&src,
              (cache *)&data->clock_cache,
              data->data_cfg,
              src_addr,
              0,
              NUM_BLOB_BATCHES,
-             PAGE_TYPE_MISC,
+             PAGE_TYPE_BLOB,
+             page_type_table,
              FALSE);
 
    mini_init(&dst,
@@ -127,7 +130,8 @@ CTEST2(blob, build_unkeyed)
              dst_addr,
              0,
              NUM_BLOB_BATCHES,
-             PAGE_TYPE_MISC,
+             PAGE_TYPE_BLOB,
+             page_type_table,
              FALSE);
 
    writable_buffer original;
@@ -153,19 +157,15 @@ CTEST2(blob, build_unkeyed)
                       &src,
                       NULL_SLICE,
                       writable_buffer_to_slice(&original),
-                      PAGE_TYPE_MISC,
                       &blob);
       platform_assert_status_ok(rc);
 
       platform_assert(blob_length(writable_buffer_to_slice(&blob))
                       == writable_buffer_length(&original));
 
-      rc = blob_materialize((cache *)&data->clock_cache,
-                            writable_buffer_to_slice(&blob),
-                            0,
-                            blob_length(writable_buffer_to_slice(&blob)),
-                            PAGE_TYPE_MISC,
-                            &materialized);
+      rc = blob_materialize_full((cache *)&data->clock_cache,
+                                 writable_buffer_to_slice(&blob),
+                                 &materialized);
       platform_assert_status_ok(rc);
 
       platform_assert(slice_lex_cmp(writable_buffer_to_slice(&original),
@@ -177,17 +177,12 @@ CTEST2(blob, build_unkeyed)
                       &dst,
                       NULL_SLICE,
                       writable_buffer_to_slice(&blob),
-                      PAGE_TYPE_MISC,
-                      PAGE_TYPE_MISC,
                       &clone);
       platform_assert_status_ok(rc);
 
-      rc = blob_materialize((cache *)&data->clock_cache,
-                            writable_buffer_to_slice(&clone),
-                            0,
-                            blob_length(writable_buffer_to_slice(&clone)),
-                            PAGE_TYPE_MISC,
-                            &materialized);
+      rc = blob_materialize_full((cache *)&data->clock_cache,
+                                 writable_buffer_to_slice(&clone),
+                                 &materialized);
       platform_assert_status_ok(rc);
 
       platform_assert(slice_lex_cmp(writable_buffer_to_slice(&original),
@@ -202,10 +197,8 @@ CTEST2(blob, build_unkeyed)
 
 
    mini_release(&src, NULL_SLICE);
-   mini_unkeyed_dec_ref(
-      (cache *)&data->clock_cache, src_addr, PAGE_TYPE_MISC, FALSE);
+   mini_unkeyed_dec_ref((cache *)&data->clock_cache, src_addr, PAGE_TYPE_BLOB);
 
    mini_release(&dst, NULL_SLICE);
-   mini_unkeyed_dec_ref(
-      (cache *)&data->clock_cache, dst_addr, PAGE_TYPE_MISC, FALSE);
+   mini_unkeyed_dec_ref((cache *)&data->clock_cache, dst_addr, PAGE_TYPE_BLOB);
 }

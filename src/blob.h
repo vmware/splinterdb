@@ -34,7 +34,6 @@ typedef struct parsed_blob {
 
 typedef struct blob_page_iterator {
    cache       *cc;
-   page_type    type;
    bool         alloc;
    bool         do_prefetch;
    uint64       extent_size;
@@ -65,14 +64,13 @@ parse_blob(uint64       extent_size,
  * blob.
  */
 uint64
-blob_length(slice sindy);
+blob_length(slice sblob);
 
 platform_status
 blob_page_iterator_init(cache              *cc,
                         blob_page_iterator *iter,
                         slice               sblobby,
                         uint64              offset,
-                        page_type           type,
                         bool                alloc,
                         bool                do_prefetch);
 
@@ -95,10 +93,15 @@ blob_materialize(cache           *cc,
                  slice            sblob,
                  uint64           start,
                  uint64           end,
-                 page_type        type,
                  writable_buffer *result);
 
+static inline platform_status
+blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
+{
+   return blob_materialize(cc, sblob, 0, blob_length(sblob), result);
+}
+
 platform_status
-blob_sync(cache *cc, slice sblob, page_type type);
+blob_sync(cache *cc, slice sblob);
 
 #endif /* __BLOB_H */

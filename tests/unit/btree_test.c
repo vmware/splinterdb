@@ -52,8 +52,8 @@ btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              leaf_incorporate_spec *spec,
                              uint64                *generation)
 {
-   platform_status rc =
-      btree_create_leaf_incorporate_spec(cfg, hid, hdr, key, msg, spec);
+   platform_status rc = btree_create_leaf_incorporate_spec(
+      cfg, NULL, NULL, hid, hdr, key, msg, spec);
    ASSERT_TRUE(SUCCESS(rc));
    return btree_try_perform_leaf_incorporate_spec(cfg, hdr, spec, generation);
 }

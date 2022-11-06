@@ -17,22 +17,19 @@ typedef struct blob_build_config {
 } blob_build_config;
 
 platform_status
-blob_build(blob_build_config *cfg,
-           cache             *cc,
-           mini_allocator    *mini,
-           slice              key,
-           slice              data,
-           page_type          type,
-           writable_buffer   *result);
+blob_build(const blob_build_config *cfg,
+           cache                   *cc,
+           mini_allocator          *mini,
+           slice                    key,
+           slice                    data,
+           writable_buffer         *result);
 
 platform_status
-blob_clone(blob_build_config *cfg,
-           cache             *cc,
-           mini_allocator    *mini,
-           slice              key,
-           slice              sblob,
-           page_type          src_type,
-           page_type          dst_type,
-           writable_buffer   *result);
+blob_clone(const blob_build_config *cfg,
+           cache                   *cc,
+           mini_allocator          *mini,
+           slice                    key,
+           slice                    sblob,
+           writable_buffer         *result);
 
 #endif /* __BLOB_BUILD_H */

@@ -121,10 +121,12 @@ typedef struct leaf_incorporate_spec {
 
 platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
+                                   cache                 *cc,
+                                   mini_allocator        *mini,
                                    platform_heap_id       heap_id,
                                    btree_hdr             *hdr,
                                    slice                  key,
-                                   message                message,
+                                   message                msg,
                                    leaf_incorporate_spec *spec);
 
 bool
