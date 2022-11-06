@@ -136,6 +136,9 @@ CTEST_SETUP(large_inserts_bugs_stress)
       ASSERT_EQUAL(0, (data->num_inserts % MILLION));
       return;
    }
+
+   // Setup Splinter's background thread config, if specified
+
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
 

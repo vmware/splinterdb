@@ -148,7 +148,6 @@ typedef struct splinterdb_config {
    // work to be performed on foreground threads, increasing tail
    // latencies.
    uint64 queue_scale_percent;
-
 } splinterdb_config;
 
 // Opaque handle to an opened instance of SplinterDB

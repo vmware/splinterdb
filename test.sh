@@ -561,6 +561,11 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/splinterdb_quick_test "$use_shmem"
    "$BINDIR"/unit/btree_test "$use_shmem"
    "$BINDIR"/unit/util_test "$use_shmem"
+
+   # Just exercise with some combination of background threads to ensure
+   # that basic usage of background threads still works.
+   # shellcheck disable=SC2086
+   "$BINDIR"/unit/task_system_test $use_shmem --num-bg-threads 4 --num-memtable-bg-threads  2
    "$BINDIR"/unit/misc_test "$use_shmem"
    "$BINDIR"/unit/limitations_test "$use_shmem"
 }

@@ -145,7 +145,6 @@ config_usage()
 
    platform_error_log("\t--num-normal-bg-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS);
-
    platform_error_log("\t--num-memtable-bg-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS);
 
@@ -330,6 +329,9 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                cfg[cfg_idx].verbose_progress = TRUE;
             }
          }
+         /*
+          * Arguments to run Splinter configured with shared memory.
+          */
          config_has_option("use-shmem")
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
