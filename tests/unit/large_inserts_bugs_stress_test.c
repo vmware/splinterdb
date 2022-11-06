@@ -135,6 +135,12 @@ CTEST_SETUP(large_inserts_bugs_stress)
       ASSERT_EQUAL(0, (data->num_inserts % MILLION));
       return;
    }
+
+   // Setup Splinter's background thread config, if specified
+   data->cfg.num_bg_threads[TASK_TYPE_NORMAL] = data->master_cfg.num_bg_threads;
+   data->cfg.num_bg_threads[TASK_TYPE_MEMTABLE] =
+      data->master_cfg.num_memtable_bg_threads;
+
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
 
@@ -586,6 +592,8 @@ exec_worker_thread(void *w)
       }
    }
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   uint64 elapsed_s  = NSEC_TO_SEC(elapsed_ns);
+   elapsed_s         = MAX(elapsed_s, 1);
 
    platform_default_log("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
                         "%lu s, %lu rows/s\n",
@@ -593,8 +601,8 @@ exec_worker_thread(void *w)
                         __LINE__,
                         thread_idx,
                         ictr, // outer-loop ends at #-of-Millions inserted
-                        NSEC_TO_SEC(elapsed_ns),
-                        (num_inserts / NSEC_TO_SEC(elapsed_ns)));
+                        elapsed_s,
+                        (num_inserts / elapsed_s));
 
    if (wcfg->is_thread) {
       splinterdb_deregister_thread(kvsb);

@@ -20,6 +20,8 @@
 // This will go away once real variable-length key support lands in trunk.c
 #define SPLINTERDB_MAX_KEY_SIZE (MAX_KEY_SIZE - 1)
 
+// Externalize # of task types that task system can support
+#define SPLINTERDB_NUM_TASK_TYPES 3
 
 // Get a version string for this build of SplinterDB
 // Currently a git tag
@@ -72,6 +74,8 @@ typedef struct {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
+   uint8  num_bg_threads[SPLINTERDB_NUM_TASK_TYPES]; // = {0} => no bg threads
+
 } splinterdb_config;
 
 // Opaque handle to an opened instance of SplinterDB

@@ -437,13 +437,15 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   uint8 *num_bg_threads = (uint8 *)kvs_cfg->num_bg_threads;
+   bool   use_bg_threads = ((num_bg_threads[TASK_TYPE_NORMAL] != 0)
+                          || (num_bg_threads[TASK_TYPE_MEMTABLE] != 0));
 
    status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
                                TRUE,
-                               FALSE,
+                               use_bg_threads,
                                num_bg_threads,
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
@@ -565,11 +567,16 @@ splinterdb_close(splinterdb **kvs_in) // IN
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
 
+   /*
+    * NOTE: These dismantling routines must appear in exactly the reverse
+    * order when these sub-systems were init'ed when a Splinter device was
+    * created or re-opened. Otherwise, asserts will trip.
+    */
    trunk_unmount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
-   io_handle_deinit(&kvs->io_handle);
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
+   io_handle_deinit(&kvs->io_handle);
 
    platform_free(kvs->heap_id, kvs);
    *kvs_in = (splinterdb *)NULL;
