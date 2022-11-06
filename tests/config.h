@@ -10,7 +10,7 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
-#include "clockcache.h"
+#include "clockcache.h" // Nested #include's task.h and related tokens.
 #include "splinterdb/data.h"
 #include "io.h"
 #include "rc_allocator.h"
@@ -19,6 +19,9 @@
 #include "util.h"
 
 extern const char *BUILD_VERSION;
+
+// RESOLVE: This should be tied to SPLINTERDB_NUM_TASK_TYPES
+#define TEST_NUM_TASK_TYPES NUM_TASK_TYPES
 
 /*
  * --------------------------------------------------------------------------
@@ -77,8 +80,11 @@ typedef struct master_config {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
-   bool   verbose_logging_enabled;
-   bool   verbose_progress;
+   uint8  num_bg_threads;          // = 0 => no background threads
+   uint8  num_memtable_bg_threads; // = 0 => no Memtable background threads
+
+   bool verbose_logging_enabled;
+   bool verbose_progress;
 
    // Shared memory suppot
    uint64 shmem_size;

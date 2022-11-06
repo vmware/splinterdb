@@ -676,7 +676,6 @@ test_functionality(allocator           *al,
    random_state    prg;
    platform_status status;
    char           *keybuf = NULL;
-   data_handle    *msgbuf = NULL;
 
    random_init(&prg, seed, 0);
 
@@ -838,7 +837,6 @@ test_functionality(allocator           *al,
          /*    } */
          /* } */
          platform_free(hid, keybuf);
-         platform_free(hid, msgbuf);
       }
 
       total_inserts += num_messages;

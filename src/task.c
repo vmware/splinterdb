@@ -31,6 +31,12 @@ task_system_io_deregister_thread(task_system *ts);
 
 // end forward declarations
 
+const char *task_type_name[] = {"TASK_TYPE_INVALID",
+                                "TASK_TYPE_MEMTABLE",
+                                "TASK_TYPE_NORMAL"};
+_Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
+               "Array task_type_name[] is incorrectly sized.");
+
 /*
  * task_init_tid_bitmask() - Initialize the global bitmask of active threads in
  * the task system structure to indicate that no threads are currently active.
@@ -296,6 +302,8 @@ task_invoke_with_hooks(void *func_and_args)
 
    task_register_this_thread(thread_started->ts, thread_started->scratch_size);
 
+   platform_default_log("Registered thread-ID=%lu\n", platform_get_tid());
+
    // Execute the user-provided call-back function which is where
    // the actual Splinter work will be done.
    func(arg);
@@ -483,6 +491,7 @@ task_group_deinit(task_group *group)
 static platform_status
 task_group_init(task_group  *group,
                 task_system *ts,
+                const char  *task_type, // Name of tasks in this group
                 bool         use_stats,
                 bool         use_bg_threads,
                 uint8        num_bg_threads,
@@ -514,6 +523,10 @@ task_group_init(task_group  *group,
             goto out;
          }
       }
+      platform_default_log("Splinter task system created %d"
+                           " background threads of type '%s'.\n",
+                           num_bg_threads,
+                           task_type);
    } else {
       rc = platform_mutex_init(&group->fg.mutex, 0, hid);
       if (!SUCCESS(rc)) {
@@ -765,9 +778,18 @@ task_system_create(platform_heap_id    hid,
    ts->scratch_size   = scratch_size;
    ts->init_tid       = INVALID_TID;
 
+   // Ensure that the main threads gets registered and init'ed first before
+   // any background threads are created. (These may grab their own tids.).
+   task_run_thread_hooks(ts);
+   const threadid tid      = platform_get_tid();
+   ts->thread_scratch[tid] = ts->init_task_scratch;
+
+   int nbg_threads_created = 0;
+
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type],
                                            ts,
+                                           task_type_name[type],
                                            use_stats,
                                            use_bg_threads,
                                            num_bg_threads[type],
@@ -777,12 +799,20 @@ task_system_create(platform_heap_id    hid,
          *system = NULL;
          return rc;
       }
+      nbg_threads_created += num_bg_threads[type];
    }
 
-   task_run_thread_hooks(ts);
-   const threadid tid      = platform_get_tid();
-   ts->thread_scratch[tid] = ts->init_task_scratch;
-
+   // Wait-for all background threads to start-up and register. This is not
+   // really needed right now, but it allows for reliable unit-testing to verify
+   // state of the task system when bg threads are configured.
+   threadid *max_tid = task_system_get_max_tid(ts);
+   while (*max_tid < nbg_threads_created) {
+      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+      max_tid = task_system_get_max_tid(ts);
+      platform_default_log("nbg_threads_created=%d, max_tid=%lu\n",
+                           nbg_threads_created,
+                           *max_tid);
+   }
    *system = ts;
    return STATUS_OK;
 }

@@ -512,26 +512,25 @@ platform_shm_alloc(platform_heap_id hid,
       char size_str[SIZE_TO_STR_LEN];
       char free_bytes_str[SIZE_TO_STR_LEN];
       size_to_str(size_str, sizeof(size_str), size);
-      size_to_str(free_bytes_str, sizeof(free_bytes_str),
-                  shminfop->shm_free_bytes);
+      size_to_str(
+         free_bytes_str, sizeof(free_bytes_str), shminfop->shm_free_bytes);
 
-      platform_error_log(
-         "[%s:%d::%s()]: Insufficient memory in shared segment"
-         " to allocate %lu bytes (%s) for '%s'."
-         " Approx free space=%lu bytes (%s)."
-         " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u "
-         "(in-use-HWM=%u).\n",
-         file,
-         lineno,
-         func,
-         size,
-         size_str,
-         objname,
-         shminfop->shm_free_bytes,
-         free_bytes_str,
-         shminfop->shm_num_frags_tracked,
-         shminfop->shm_num_frags_inuse,
-         shminfop->shm_num_frags_inuse_HWM);
+      platform_error_log("[%s:%d::%s()]: Insufficient memory in shared segment"
+                         " to allocate %lu bytes (%s) for '%s'."
+                         " Approx free space=%lu bytes (%s)."
+                         " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u "
+                         "(in-use-HWM=%u).\n",
+                         file,
+                         lineno,
+                         func,
+                         size,
+                         size_str,
+                         objname,
+                         shminfop->shm_free_bytes,
+                         free_bytes_str,
+                         shminfop->shm_num_frags_tracked,
+                         shminfop->shm_num_frags_inuse,
+                         shminfop->shm_num_frags_inuse_HWM);
       return NULL;
    }
    // Track approx memory usage metrics; mainly for troubleshooting
@@ -1175,29 +1174,29 @@ platform_shm_trace_allocs(shmem_info  *shminfop,
    char  *units_str = NULL;
 
    if (use_MiB) {
-      free_bytes_units = B_TO_MiB(free_bytes);
+      free_bytes_units       = B_TO_MiB(free_bytes);
       free_bytes_fract_units = B_TO_MiB_FRACT(free_bytes);
-      units_str = "MiB";
+      units_str              = "MiB";
    } else {
-      free_bytes_units = B_TO_GiB(free_bytes);
+      free_bytes_units       = B_TO_GiB(free_bytes);
       free_bytes_fract_units = B_TO_GiB_FRACT(free_bytes);
-      units_str = "GiB";
+      units_str              = "GiB";
    }
 
-  platform_default_log(msg,
-                       pid,
-                       tid,
-                       file,
-                       lineno,
-                       func,
-                       __FUNCTION__,
-                       verb,
-                       size,
-                       size_str,
-                       objname,
-                       retptr,
-                       shminfop->shm_free_bytes,
-                       free_bytes_units,
-                       free_bytes_fract_units,
-                       units_str);
+   platform_default_log(msg,
+                        pid,
+                        tid,
+                        file,
+                        lineno,
+                        func,
+                        __FUNCTION__,
+                        verb,
+                        size,
+                        size_str,
+                        objname,
+                        retptr,
+                        shminfop->shm_free_bytes,
+                        free_bytes_units,
+                        free_bytes_fract_units,
+                        units_str);
 }

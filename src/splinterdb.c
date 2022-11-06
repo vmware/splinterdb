@@ -502,13 +502,15 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   uint8 *num_bg_threads = kvs_cfg->num_bg_threads;
+   bool   use_bg_threads = ((num_bg_threads[TASK_TYPE_NORMAL] != 0)
+                          || (num_bg_threads[TASK_TYPE_MEMTABLE] != 0));
 
    status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
                                TRUE,
-                               FALSE,
+                               use_bg_threads,
                                num_bg_threads,
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
