@@ -104,7 +104,7 @@ CTEST_DATA(btree_stress)
 
    // Stuff needed to setup and exercise multiple threads.
    platform_io_handle io;
-   uint8              num_bg_threads[NUM_TASK_TYPES];
+   uint64             num_bg_threads[NUM_TASK_TYPES];
    task_system       *ts;
    rc_allocator       al;
    clockcache         cc;
@@ -142,12 +142,12 @@ CTEST_SETUP(btree_stress)
    }
    // Setup execution of concurrent threads
    ZERO_ARRAY(data->num_bg_threads);
+   data->ts = NULL;
    if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
        || !SUCCESS(task_system_create(data->hid,
                                       &data->io,
                                       &data->ts,
                                       data->master_cfg.use_stats,
-                                      FALSE,
                                       data->num_bg_threads,
                                       sizeof(btree_scratch)))
        || !SUCCESS(rc_allocator_init(&data->al,
