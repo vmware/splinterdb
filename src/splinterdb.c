@@ -642,11 +642,16 @@ splinterdb_close(splinterdb **kvs_in) // IN
 
    splinterdb_close_print_stats(kvs);
 
+   /*
+    * NOTE: These dismantling routines must appear in exactly the reverse
+    * order when these sub-systems were init'ed when a Splinter device was
+    * created or re-opened. Otherwise, asserts will trip.
+    */
    trunk_unmount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
-   io_handle_deinit(&kvs->io_handle);
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
+   io_handle_deinit(&kvs->io_handle);
 
    platform_heap_destroy(&kvs->heap_handle);
    *kvs_in = (splinterdb *)NULL;

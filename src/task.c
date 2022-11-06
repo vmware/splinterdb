@@ -284,7 +284,8 @@ typedef struct {
 /*
  * -----------------------------------------------------------------------------
  * task_invoke_with_hooks() - Single interface to invoke a user-specified
- * call-back function, 'func', to perform Splinter work.
+ * call-back function, 'func', to perform Splinter work. Both user-threads'
+ * and background-threads' creation goes through this interface.
  *
  * A thread has been created with this function as the worker function. Also,
  * the thread-creator has registered another call-back function to execute.
@@ -308,6 +309,7 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
+   // For background threads', also, IO-deregistration will happen here.
    task_deregister_this_thread(thread_started->ts);
 
    platform_free(thread_started->heap_id, func_and_args);
@@ -383,7 +385,13 @@ task_thread_create(const char            *name,
    return STATUS_OK;
 }
 
-/* Worker function for the background task pool. */
+/*
+ * task_worker_thread() - Worker function for the background task pool.
+ *
+ * This function is invoked when configured background threads are created.
+ * We sit in an endless-loop looking for work to do and execute the tasks
+ * enqueued.
+ */
 static void
 task_worker_thread(void *arg)
 {
@@ -447,6 +455,9 @@ task_worker_thread(void *arg)
    }
 }
 
+/*
+ * Function to terminate all background threads and clean up.
+ */
 static void
 task_group_stop_and_wait_for_threads(task_group *group)
 {
@@ -467,10 +478,12 @@ task_group_stop_and_wait_for_threads(task_group *group)
 
    uint8 num_threads = group->bg.num_threads;
 
+   // Inform the background thread that it's time to exit now.
    group->bg.stop = TRUE;
    platform_condvar_broadcast(&group->bg.cv);
    platform_condvar_unlock(&group->bg.cv);
 
+   // Allow all background threads to wrap up their work.
    for (uint8 i = 0; i < num_threads; i++) {
       platform_thread_join(group->bg.threads[i]);
    }
@@ -779,7 +792,7 @@ task_system_create(platform_heap_id    hid,
    ts->init_tid       = INVALID_TID;
 
    // Ensure that the main threads gets registered and init'ed first before
-   // any background threads are created. (These may grab their own tids.).
+   // any background threads are created. (Those may grab their own tids.).
    task_run_thread_hooks(ts);
    const threadid tid      = platform_get_tid();
    ts->thread_scratch[tid] = ts->init_task_scratch;

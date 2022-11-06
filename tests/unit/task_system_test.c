@@ -174,6 +174,7 @@ CTEST_SETUP(task_system)
 CTEST_TEARDOWN(task_system)
 {
    task_system_destroy(data->hid, &data->tasks);
+   io_handle_deinit(data->ioh);
    platform_heap_destroy(&data->hh);
 }
 
