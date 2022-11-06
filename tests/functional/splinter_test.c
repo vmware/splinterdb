@@ -2627,7 +2627,7 @@ splinter_test(int argc, char *argv[])
    if (config_argc > 0
        && strncmp(config_argv[0],
                   "--num-memtable-bg-threads",
-                  sizeof("--num-bg-threads"))
+                  sizeof("--num-memtable-bg-threads"))
              == 0)
    {
       if (!try_string_to_uint8(config_argv[1],

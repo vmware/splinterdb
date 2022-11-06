@@ -84,7 +84,7 @@ function record_elapsed_time() {
       # Provide wider test-tag for nightly tests which print verbose descriptions
       fmtstr="%-80s""${fmtstr}"
    else
-      fmtstr="%-50s""${fmtstr}"
+      fmtstr="%-70s""${fmtstr}"
    fi
 
    # Log a line in the /tmp log-file; for future cat of summary output
@@ -510,9 +510,15 @@ function test_make_run_tests() {
 # Smoke Tests: Run a small collection of fast-running unit-tests
 # ##################################################################
 function run_fast_unit_tests() {
+
    "$BINDIR"/unit/splinterdb_quick_test
    "$BINDIR"/unit/btree_test
    "$BINDIR"/unit/util_test
+
+   # Just exercise with some combination of background threads to ensure
+   # that basic usage of background threads still works.
+   "$BINDIR"/unit/task_system_test --num-bg-threads 4 --num-memtable-bg-threads  2
+
    "$BINDIR"/unit/misc_test
    "$BINDIR"/unit/limitations_test
    "$BINDIR"/unit/task_system_test
@@ -522,7 +528,7 @@ function run_fast_unit_tests() {
 # Run mini-unit-tests that were excluded from bin/unit_test binary:
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been
-# found to to provide the required coverage.
+# found to provide the required coverage.
 # ##################################################################
 function run_slower_unit_tests() {
 
@@ -534,6 +540,16 @@ function run_slower_unit_tests() {
 
     run_with_timing "Splinter print diagnostics test" \
         "$BINDIR"/unit/splinter_test test_splinter_print_diags
+
+    # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
+    local nMill=1
+    local nInserts=$((nMill * 1000 * 1000))
+    run_with_timing "Large inserts stress tests, with background threads" \
+        "$BINDIR"/unit/large_inserts_bugs_stress_test \
+                        --num-inserts "${nInserts}" \
+                        --num-threads 4 \
+                        --num-bg-threads 2 \
+                        --num-memtable-bg-threads 2
 }
 
 # ##################################################################
@@ -547,6 +563,11 @@ function run_splinter_functionality_tests() {
 
     run_with_timing "Functionality test, with default key size" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            --seed "$SEED"
+
+    run_with_timing "Functionality test, default key size, with background threads" \
+        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            --num-bg-threads 4 --num-memtable-bg-threads 2 \
                                             --seed "$SEED"
 
     max_key_size=102
