@@ -65,6 +65,9 @@ typedef struct splinterdb_config {
    uint64 page_size;
    uint64 extent_size;
 
+   // task system
+   uint8 num_bg_threads[SPLINTERDB_NUM_TASK_TYPES]; // = {0} => no bg threads
+
    // io
    int    io_flags;
    uint32 io_perms;
@@ -90,7 +93,6 @@ typedef struct splinterdb_config {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
-   uint8  num_bg_threads[SPLINTERDB_NUM_TASK_TYPES]; // = {0} => no bg threads
 
 } splinterdb_config;
 

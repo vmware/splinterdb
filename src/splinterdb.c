@@ -413,6 +413,7 @@ splinterdb_init_config(splinterdb_config *kvs_cfg, // IN
                      cfg.use_stats,
                      FALSE,
                      NULL);
+
    return STATUS_OK;
 }
 
@@ -502,7 +503,7 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
-   uint8 *num_bg_threads = kvs_cfg->num_bg_threads;
+   uint8 *num_bg_threads = &kvs_cfg->num_bg_threads[0];
    bool   use_bg_threads = ((num_bg_threads[TASK_TYPE_NORMAL] != 0)
                           || (num_bg_threads[TASK_TYPE_MEMTABLE] != 0));
 

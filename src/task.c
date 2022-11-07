@@ -303,8 +303,6 @@ task_invoke_with_hooks(void *func_and_args)
 
    task_register_this_thread(thread_started->ts, thread_started->scratch_size);
 
-   platform_default_log("Registered thread-ID=%lu\n", platform_get_tid());
-
    // Execute the user-provided call-back function which is where
    // the actual Splinter work will be done.
    func(arg);
