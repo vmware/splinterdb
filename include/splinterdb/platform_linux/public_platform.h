@@ -64,7 +64,7 @@ static_assert(sizeof(uint64) == 8, "incorrect type");
 
 #if !defined(__cplusplus)
 #   ifndef bool
-typedef int32 bool;
+typedef unsigned char bool;
 #   endif // bool
 #endif
 

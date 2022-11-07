@@ -507,6 +507,13 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
    bool   use_bg_threads = ((num_bg_threads[TASK_TYPE_NORMAL] != 0)
                           || (num_bg_threads[TASK_TYPE_MEMTABLE] != 0));
 
+   platform_default_log("%s: num_bg_threads ptr=%p"
+                        ", num_bg_threads=%d, num_memtable_bg_threads=%d\n",
+                        __FUNCTION__,
+                        num_bg_threads,
+                        num_bg_threads[TASK_TYPE_NORMAL],
+                        num_bg_threads[TASK_TYPE_MEMTABLE]);
+
    status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
@@ -1053,6 +1060,7 @@ void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
+}
 
 static void
 splinterdb_close_print_stats(splinterdb *kvs)
@@ -1060,7 +1068,6 @@ splinterdb_close_print_stats(splinterdb *kvs)
    task_print_stats(kvs->task_sys);
 }
 
->>>>>>> f6d3930 (Improve memory usage tracking. Add instrumentation. Add size_to_str().)
 /*
  * -----------------------------------------------------------------------------
  * External accessor APIs, mainly provided for use as testing hooks.
@@ -1100,7 +1107,6 @@ const void *
 splinterdb_get_trunk_handle(const splinterdb *kvs)
 {
    return (void *)kvs->spl;
->>>>>>> 20fc47a (Add extern APIs to support new test test_data_structures_handles.)
 }
 
 const void *

@@ -76,8 +76,9 @@ bool
 platform_shm_heap_handle_valid(platform_heap_handle heap_handle);
 
 void
-platform_shm_tracing_init();
-
+platform_shm_tracing_init(const bool trace_shmem,
+                          const bool trace_shmem_allocs,
+                          const bool trace_shmem_frees);
 void
 platform_enable_tracing_shm_ops();
 
