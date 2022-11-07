@@ -681,7 +681,11 @@ static inline bool                 trunk_has_vacancy               (trunk_handle
 static inline uint16               trunk_add_bundle_number         (trunk_handle *spl, uint16 start, uint16 end);
 static inline uint16               trunk_subtract_bundle_number    (trunk_handle *spl, uint16 start, uint16 end);
 static inline trunk_bundle        *trunk_get_bundle                (trunk_handle *spl, page_handle *node, uint16 bundle_no);
-static inline uint16               trunk_get_new_bundle            (trunk_handle *spl, page_handle *node);
+
+#define trunk_get_new_bundle(spl, node) \
+        trunk_get_new_bundle_no((spl), (node), __LINE__)
+static inline uint16               trunk_get_new_bundle_no         (trunk_handle *spl, page_handle *node, int lineno);
+
 static inline uint16               trunk_bundle_start_branch       (trunk_handle *spl, page_handle *node, trunk_bundle *bundle);
 static inline uint16               trunk_start_bundle              (trunk_handle *spl, page_handle *node);
 static inline uint16               trunk_inc_start_bundle          (trunk_handle *spl, page_handle *node);
@@ -1985,14 +1989,15 @@ trunk_get_bundle(trunk_handle *spl, page_handle *node, uint16 bundle_no)
 }
 
 static inline uint16
-trunk_get_new_bundle(trunk_handle *spl, page_handle *node)
+trunk_get_new_bundle_no(trunk_handle *spl, page_handle *node, int lineno)
 {
    trunk_hdr *hdr           = (trunk_hdr *)node->data;
    uint16     new_bundle_no = hdr->end_bundle;
    hdr->end_bundle          = trunk_add_bundle_number(spl, hdr->end_bundle, 1);
    platform_assert((hdr->end_bundle != hdr->start_bundle),
-                   "No available bundles in trunk node. "
+                   "[%d] No available bundles in trunk node. "
                    "page disk_addr=%lu, end_bundle=%d, start_bundle=%d",
+                   lineno,
                    node->disk_addr,
                    hdr->end_bundle,
                    hdr->start_bundle);
@@ -3764,7 +3769,10 @@ trunk_prepare_build_filter(trunk_handle             *spl,
              spl, node, compact_req->bundle_no, pivot_no)) {
          uint64 pos = trunk_process_generation_to_pos(
             spl, compact_req, pdata->generation);
-         platform_assert(pos != TRUNK_MAX_PIVOTS);
+         platform_assert((pos != TRUNK_MAX_PIVOTS),
+                         "pos=%lu != TRUNK_MAX_PIVOTS=%d\n",
+                         pos,
+                         TRUNK_MAX_PIVOTS);
          filter_req->old_filter[pos] = pdata->filter;
          filter_req->value[pos] =
             trunk_pivot_whole_branch_count(spl, node, pdata);
