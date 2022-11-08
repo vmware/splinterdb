@@ -104,23 +104,51 @@ io_context_setup(laio_handle *io)
    int status;
 
    const threadid tid = platform_get_tid();
+   const int      pid = getpid();
 
    // Expect that this was never setup; otherwise it's a coding error.
    platform_assert(
       (io->ctx[tid] == NULL), "ThreadID=%lu, ctx[tid]=%p\n", tid, io->ctx[tid]);
 
-   status = io_setup(io->cfg->kernel_queue_size, &io->ctx[tid]);
-   platform_assert((status == 0),
-                   "io_setup() failed for thread-ID=%lu "
-                   "with status=%d (%s)\n",
-                   tid,
-                   status,
-                   strerror(status));
 
    /*
-   platform_default_log(
-      "ThreadID=%lu setup IO-context=%p\n", tid, io->ctx[tid]);
-   */
+    * With very highly concurrent clients writing to Splinter, this
+    * may occasionally fail.
+    * (Might get an error like: 'status=11 (Resource temporarily unavailable)'.
+    *
+    * Retry a few times before giving up with a hard-error.
+    * The root cause is that too many concurrent threads / processes are
+    * trying to io_setup() and [we] are busting up against the kernel limit
+    * configured at /proc/sys/fs/aio-max-nr .
+    *
+    * (Keep this check for now, but it should probably come out with a more
+    * meaningful error message.)
+    */
+   int ntimes = 10;
+   int tried  = 0;
+   do {
+      status = io_setup(io->cfg->kernel_queue_size, &io->ctx[tid]);
+      if (status == 0) {
+         break;
+      }
+      platform_error_log("OS-pid=%d, thread-ID=%lu, io_setup() failed "
+                         "with status=%d (%s), retrying ...\n",
+                         pid,
+                         tid,
+                         -status,
+                         strerror(-status));
+      tried++;
+   } while ((status != 0) && (tried < ntimes));
+
+   platform_assert((status == 0),
+                   "OS-pid=%d, thread-ID=%lu, io_setup() failed "
+                   "with status=%d (%s), tried %d times.\n",
+                   pid,
+                   tid,
+                   -status,
+                   strerror(-status),
+                   tried);
+
    return STATUS_OK;
 }
 
