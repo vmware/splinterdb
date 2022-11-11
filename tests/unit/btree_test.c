@@ -414,7 +414,7 @@ leaf_split_tests(btree_config    *cfg,
       slice key = slice_create(1, &i);
 
       bool success = btree_leaf_incorporate_tuple(
-         cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
+         cfg, hid, hdr, key, bigger_msg, &spec, &generation);
       if (success) {
          btree_print_locked_node(Platform_error_log_handle, cfg, 0, hdr);
          ASSERT_FALSE(success,
