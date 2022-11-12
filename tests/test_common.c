@@ -24,20 +24,20 @@ void
 verify_tuple(trunk_handle           *spl,
              test_message_generator *gen,
              uint64                  lookup_num,
-             key                     key,
+             key                     tuple_key,
              message                 data,
              bool                    expected_found)
 {
    if (message_is_null(data) != !expected_found) {
       char key_str[128];
-      trunk_key_to_string(spl, key, key_str);
+      trunk_key_to_string(spl, tuple_key, key_str);
       platform_error_log("(%2lu) key %lu (%s): found %d (expected:%d)\n",
                          platform_get_tid(),
                          lookup_num,
                          key_str,
                          !message_is_null(data),
                          expected_found);
-      trunk_print_lookup(spl, key, Platform_error_log_handle);
+      trunk_print_lookup(spl, tuple_key, Platform_error_log_handle);
       platform_assert(FALSE);
    }
 

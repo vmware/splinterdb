@@ -303,16 +303,16 @@ trunk_shadow_reinit(trunk_shadow *shadow)
  * rows will be used later during lookup-validation using range searches.
  */
 static void
-trunk_shadow_append(trunk_shadow *shadow, key key, message value)
+trunk_shadow_append(trunk_shadow *shadow, key tuple_key, message value)
 {
    platform_assert(message_class(value) == MESSAGE_TYPE_INSERT);
-   uint64 key_offset =
-      writable_buffer_append(&shadow->data, key_length(key), key_data(key));
+   uint64 key_offset = writable_buffer_append(
+      &shadow->data, key_length(tuple_key), key_data(tuple_key));
    writable_buffer_append(
       &shadow->data, message_length(value), message_data(value));
 
    shadow_entry new_entry = {.key_offset   = key_offset,
-                             .key_length   = key_length(key),
+                             .key_length   = key_length(tuple_key),
                              .value_length = message_length(value)};
    writable_buffer_append(&shadow->entries, sizeof(new_entry), &new_entry);
    shadow->sorted = FALSE;
@@ -366,7 +366,7 @@ trunk_shadow_sort(trunk_shadow *shadow)
 }
 
 static void
-trunk_shadow_get(trunk_shadow *shadow, uint64 i, key *key, message *value)
+trunk_shadow_get(trunk_shadow *shadow, uint64 i, key *tuple_key, message *value)
 {
 
    if (!shadow->sorted) {
@@ -379,7 +379,7 @@ trunk_shadow_get(trunk_shadow *shadow, uint64 i, key *key, message *value)
    shadow_entry *entry = &entries[i];
 
    char *data = writable_buffer_data(&shadow->data);
-   *key       = shadow_entry_key(entry, data);
+   *tuple_key = shadow_entry_key(entry, data);
    *value     = shadow_entry_value(entry, data);
 }
 

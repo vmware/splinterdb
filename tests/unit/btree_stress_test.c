@@ -77,7 +77,7 @@ static key
 gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
 static uint64
-ungen_key(key key);
+ungen_key(key test_key);
 
 static message
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
@@ -339,14 +339,14 @@ gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 }
 
 static uint64
-ungen_key(key key)
+ungen_key(key test_key)
 {
-   if (key_length(key) < sizeof(uint64)) {
+   if (key_length(test_key) < sizeof(uint64)) {
       return 0;
    }
 
    uint64 k;
-   memcpy(&k, key_data(key), sizeof(k));
+   memcpy(&k, key_data(test_key), sizeof(k));
    return (k - 99382474567ULL) * 14122572041603317147ULL;
 }
 
@@ -429,27 +429,28 @@ iterator_tests(cache           *cc,
    uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
-      key     key;
+      key     curr_key;
       message msg;
 
-      iterator_get_curr(iter, &key, &msg);
-      uint64 k = ungen_key(key);
+      iterator_get_curr(iter, &curr_key, &msg);
+      uint64 k = ungen_key(curr_key);
       ASSERT_TRUE(k < nkvs);
 
       int rc = 0;
-      rc     = data_key_compare(
-         cfg->data_cfg, key, gen_key(cfg, k, keybuf, btree_page_size(cfg)));
+      rc     = data_key_compare(cfg->data_cfg,
+                            curr_key,
+                            gen_key(cfg, k, keybuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
       rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
       ASSERT_TRUE(key_is_null(prev)
-                  || data_key_compare(cfg->data_cfg, prev, key) < 0);
+                  || data_key_compare(cfg->data_cfg, prev, curr_key) < 0);
 
       seen++;
-      prev = key_create(key_length(key), prevbuf);
-      key_copy_contents(prevbuf, key);
+      prev = key_create(key_length(curr_key), prevbuf);
+      key_copy_contents(prevbuf, curr_key);
 
       if (!SUCCESS(iterator_advance(iter))) {
          break;

@@ -811,10 +811,10 @@ platform_status
 routing_filter_lookup(cache          *cc,
                       routing_config *cfg,
                       routing_filter *filter,
-                      key             key,
+                      key             target,
                       uint64         *found_values)
 {
-   debug_assert(key_is_user_key(key));
+   debug_assert(key_is_user_key(target));
 
    if (filter->addr == 0) {
       *found_values = 0;
@@ -825,7 +825,7 @@ routing_filter_lookup(cache          *cc,
    uint64  seed       = cfg->seed;
    uint64  index_size = cfg->index_size;
 
-   uint32 fp = hash(key_data(key), key_length(key), seed);
+   uint32 fp = hash(key_data(target), key_length(target), seed);
    fp >>= 32 - cfg->fingerprint_size;
    size_t value_size      = filter->value_size;
    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
@@ -979,14 +979,14 @@ cache_async_result
 routing_filter_lookup_async(cache              *cc,
                             routing_config     *cfg,
                             routing_filter     *filter,
-                            key                 key,
+                            key                 target,
                             uint64             *found_values,
                             routing_async_ctxt *ctxt)
 {
    cache_async_result res  = 0;
    bool               done = FALSE;
 
-   debug_assert(key_is_user_key(key));
+   debug_assert(key_is_user_key(target));
 
    do {
       switch (ctxt->state) {
@@ -996,7 +996,7 @@ routing_filter_lookup_async(cache              *cc,
             hash_fn hash = cfg->hash;
             uint64  seed = cfg->seed;
 
-            uint32 fp = hash(key_data(key), key_length(key), seed);
+            uint32 fp = hash(key_data(target), key_length(target), seed);
             fp >>= 32 - cfg->fingerprint_size;
             size_t value_size = filter->value_size;
             uint32 log_num_buckets =
@@ -1218,13 +1218,13 @@ routing_filter_verify(cache          *cc,
    bool at_end;
    iterator_at_end(itor, &at_end);
    while (!at_end) {
-      key     key;
+      key     curr_key;
       message msg;
-      iterator_get_curr(itor, &key, &msg);
-      debug_assert(key_is_user_key(key));
+      iterator_get_curr(itor, &curr_key, &msg);
+      debug_assert(key_is_user_key(curr_key));
       uint64          found_values;
       platform_status rc =
-         routing_filter_lookup(cc, cfg, filter, key, &found_values);
+         routing_filter_lookup(cc, cfg, filter, curr_key, &found_values);
       platform_assert_status_ok(rc);
       platform_assert(routing_filter_is_value_found(found_values, value));
       iterator_advance(itor);

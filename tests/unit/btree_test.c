@@ -46,13 +46,13 @@ static bool
 btree_leaf_incorporate_tuple(const btree_config    *cfg,
                              platform_heap_id       hid,
                              btree_hdr             *hdr,
-                             key                    key,
+                             key                    tuple_key,
                              message                msg,
                              leaf_incorporate_spec *spec,
                              uint64                *generation)
 {
    platform_status rc =
-      btree_create_leaf_incorporate_spec(cfg, hid, hdr, key, msg, spec);
+      btree_create_leaf_incorporate_spec(cfg, hid, hdr, tuple_key, msg, spec);
    ASSERT_TRUE(SUCCESS(rc));
    return btree_try_perform_leaf_incorporate_spec(cfg, hdr, spec, generation);
 }
@@ -180,10 +180,10 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    int cmp_rv = 0;
    for (uint32 i = 0; i < nkvs; i++) {
-      key     key = btree_get_tuple_key(cfg, hdr, i);
+      key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
       message msg = btree_get_tuple_message(cfg, hdr, i);
-      cmp_rv =
-         data_key_compare(cfg->data_cfg, key_create(i % sizeof(i), &i), key);
+      cmp_rv            = data_key_compare(
+         cfg->data_cfg, key_create(i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       cmp_rv = message_lex_cmp(
@@ -205,10 +205,10 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    cmp_rv = 0;
    for (uint64 i = 0; i < nkvs; i++) {
-      key     key = btree_get_tuple_key(cfg, hdr, i);
+      key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
       message msg = btree_get_tuple_message(cfg, hdr, i);
-      cmp_rv =
-         data_key_compare(cfg->data_cfg, key_create(i % sizeof(i), &i), key);
+      cmp_rv            = data_key_compare(
+         cfg->data_cfg, key_create(i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       cmp_rv = message_lex_cmp(
@@ -221,10 +221,10 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    btree_defragment_leaf(cfg, scratch, hdr, &spec);
 
    for (uint64 i = 0; i < nkvs; i++) {
-      key     key = btree_get_tuple_key(cfg, hdr, i);
+      key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
       message msg = btree_get_tuple_message(cfg, hdr, i);
-      cmp_rv =
-         data_key_compare(cfg->data_cfg, key_create(i % sizeof(i), &i), key);
+      cmp_rv            = data_key_compare(
+         cfg->data_cfg, key_create(i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       cmp_rv = message_lex_cmp(
@@ -254,22 +254,23 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       keybuf[0]     = 17 * i;
       messagebuf[0] = i;
 
-      key     key = key_create(1, &keybuf);
+      key     tuple_key = key_create(1, &keybuf);
       message msg =
          message_create(MESSAGE_TYPE_INSERT, slice_create(i % 8, messagebuf));
 
       leaf_incorporate_spec spec;
       bool                  result = btree_leaf_incorporate_tuple(
-         cfg, hid, hdr, key, msg, &spec, &generation);
+         cfg, hid, hdr, tuple_key, msg, &spec, &generation);
       ASSERT_TRUE(result, "Could not incorporate kv pair %d\n", i);
 
       ASSERT_EQUAL(generation, i, "Bad generation=%lu, i=%d\n", generation, i);
    }
 
    for (int i = 0; i < nkvs; i++) {
-      key   key    = btree_get_tuple_key(cfg, hdr, i);
+      key   tuple_key = btree_get_tuple_key(cfg, hdr, i);
       uint8 ui     = i;
-      int   cmp_rv = data_key_compare(cfg->data_cfg, key_create(1, &ui), key);
+      int   cmp_rv =
+         data_key_compare(cfg->data_cfg, key_create(1, &ui), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
    }
 
@@ -302,10 +303,10 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    }
 
    for (uint32 i = 0; i < nkvs; i++) {
-      key    key       = btree_get_pivot(cfg, hdr, i);
+      key    pivot_key = btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = btree_get_child_addr(cfg, hdr, i);
-      cmp_rv =
-         data_key_compare(cfg->data_cfg, key_create(i % sizeof(i), &i), key);
+      cmp_rv           = data_key_compare(
+         cfg->data_cfg, key_create(i % sizeof(i), &i), pivot_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
@@ -318,10 +319,10 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    }
 
    for (uint64 i = 0; i < nkvs; i++) {
-      key    key       = btree_get_pivot(cfg, hdr, i);
+      key    pivot_key = btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = btree_get_child_addr(cfg, hdr, i);
-      cmp_rv =
-         data_key_compare(cfg->data_cfg, key_create(i % sizeof(i), &i), key);
+      cmp_rv           = data_key_compare(
+         cfg->data_cfg, key_create(i % sizeof(i), &i), pivot_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
@@ -330,10 +331,10 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    btree_defragment_index(cfg, scratch, hdr);
 
    for (uint64 i = 0; i < nkvs; i++) {
-      key    key       = btree_get_pivot(cfg, hdr, i);
+      key    pivot_key = btree_get_pivot(cfg, hdr, i);
       uint64 childaddr = btree_get_child_addr(cfg, hdr, i);
-      cmp_rv =
-         data_key_compare(cfg->data_cfg, key_create(i % sizeof(i), &i), key);
+      cmp_rv           = data_key_compare(
+         cfg->data_cfg, key_create(i % sizeof(i), &i), pivot_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
       ASSERT_EQUAL(childaddr, i, "Bad childaddr %d\n", i);
@@ -358,9 +359,9 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
    for (int i = 0; i < nkvs; i += 2) {
       uint8 keybuf[1];
       keybuf[0] = i;
-      key key   = key_create(1, &keybuf);
+      key pivot_key = key_create(1, &keybuf);
 
-      rv = btree_set_index_entry(cfg, hdr, i / 2, key, i, stats);
+      rv = btree_set_index_entry(cfg, hdr, i / 2, pivot_key, i, stats);
       ASSERT_TRUE(rv, "Could not insert pivot %d\n", i);
    }
 
@@ -368,8 +369,8 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
       bool  found;
       uint8 keybuf[1];
       keybuf[0] = i;
-      key   key = key_create(1, &keybuf);
-      int64 idx = btree_find_pivot(cfg, hdr, key, &found);
+      key   target = key_create(1, &keybuf);
+      int64 idx    = btree_find_pivot(cfg, hdr, target, &found);
       ASSERT_EQUAL(
          (i / 2), idx, "Bad pivot search result idx=%ld for i=%d\n", idx, i);
    }
@@ -417,10 +418,10 @@ leaf_split_tests(btree_config    *cfg,
       uint64                generation;
       leaf_incorporate_spec spec;
 
-      key key = key_create(1, &i);
+      key tuple_key = key_create(1, &i);
 
       bool success = btree_leaf_incorporate_tuple(
-         cfg, hid, hdr, key, bigger_msg, &spec, &generation);
+         cfg, hid, hdr, tuple_key, bigger_msg, &spec, &generation);
       if (success) {
          btree_print_locked_node(Platform_error_log_handle, cfg, 0, hdr);
          ASSERT_FALSE(success,

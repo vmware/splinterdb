@@ -341,7 +341,7 @@ out:
 }
 
 static void
-nop_tuple_func(key key, message value, void *arg)
+nop_tuple_func(key tuple_key, message value, void *arg)
 {}
 
 /*

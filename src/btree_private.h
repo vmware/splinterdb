@@ -105,7 +105,7 @@ _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
                "leaf_entry key_and_data has wrong offset");
 
 typedef struct leaf_incorporate_spec {
-   key   key;
+   key   tuple_key;
    int64 idx;
    enum {
       ENTRY_DID_NOT_EXIST,
@@ -123,7 +123,7 @@ platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    platform_heap_id       heap_id,
                                    btree_hdr             *hdr,
-                                   key                    key,
+                                   key                    tuple_key,
                                    message                message,
                                    leaf_incorporate_spec *spec);
 
@@ -179,7 +179,7 @@ btree_defragment_index(const btree_config *cfg, // IN
 int64
 btree_find_pivot(const btree_config *cfg,
                  const btree_hdr    *hdr,
-                 key                 key,
+                 key                 target,
                  bool               *found);
 
 leaf_splitting_plan

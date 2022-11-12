@@ -13,10 +13,9 @@
  *-----------------------------------------------------------------------------
  */
 
+#include "splinterdb/splinterdb.h"
 #include "platform.h"
-
 #include "clockcache.h"
-#include "splinterdb_private.h"
 #include "rc_allocator.h"
 #include "trunk.h"
 #include "btree_private.h"
@@ -455,9 +454,9 @@ splinterdb_insert_message(const splinterdb *kvs,      // IN
                           message           msg       // IN
 )
 {
-   key key = key_create_from_slice(user_key);
+   key tuple_key = key_create_from_slice(user_key);
    platform_assert(kvs != NULL);
-   platform_status status = trunk_insert(kvs->spl, key, msg);
+   platform_status status = trunk_insert(kvs->spl, tuple_key, msg);
    return platform_status_to_int(status);
 }
 
@@ -569,10 +568,10 @@ splinterdb_lookup(const splinterdb         *kvs, // IN
 {
    platform_status            status;
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
-   key                        key     = key_create_from_slice(user_key);
+   key                        target  = key_create_from_slice(user_key);
 
    platform_assert(kvs != NULL);
-   status = trunk_lookup(kvs->spl, key, &_result->value);
+   status = trunk_lookup(kvs->spl, target, &_result->value);
    return platform_status_to_int(status);
 }
 

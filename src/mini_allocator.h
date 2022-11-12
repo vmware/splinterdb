@@ -60,7 +60,7 @@ mini_init(mini_allocator *mini,
           page_type       type,
           bool            keyed);
 void
-mini_release(mini_allocator *mini, key key);
+mini_release(mini_allocator *mini, key end_key);
 
 /*
  * NOTE: Can only be called on a mini_allocator which has made no allocations.
@@ -69,7 +69,10 @@ void
 mini_destroy_unused(mini_allocator *mini);
 
 uint64
-mini_alloc(mini_allocator *mini, uint64 batch, key key, uint64 *next_extent);
+mini_alloc(mini_allocator *mini,
+           uint64          batch,
+           key             alloc_key,
+           uint64         *next_extent);
 
 
 uint8

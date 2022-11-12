@@ -104,7 +104,7 @@ platform_status
 routing_filter_lookup(cache          *cc,
                       routing_config *cfg,
                       routing_filter *filter,
-                      key             key,
+                      key             target,
                       uint64         *found_values);
 
 static inline uint16
@@ -154,7 +154,7 @@ cache_async_result
 routing_filter_lookup_async(cache              *cc,
                             routing_config     *cfg,
                             routing_filter     *filter,
-                            key                 key,
+                            key                 target,
                             uint64             *found_values,
                             routing_async_ctxt *ctxt);
 

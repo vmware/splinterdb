@@ -90,9 +90,9 @@ sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
 }
 
 static uint64
-keyed_meta_entry_size(key key)
+keyed_meta_entry_size(key k)
 {
-   return sizeof(keyed_meta_entry) + key_length(key);
+   return sizeof(keyed_meta_entry) + key_length(k);
 }
 
 static key
@@ -525,12 +525,16 @@ mini_set_next_meta_addr(mini_allocator *mini,
 }
 
 static bool
-mini_append_entry(mini_allocator *mini, uint64 batch, key key, uint64 next_addr)
+mini_append_entry(mini_allocator *mini,
+                  uint64          batch,
+                  key             entry_key,
+                  uint64          next_addr)
 {
    page_handle *meta_page = mini_full_lock_meta_tail(mini);
    bool         success;
    if (mini->keyed) {
-      success = mini_keyed_append_entry(mini, batch, meta_page, next_addr, key);
+      success =
+         mini_keyed_append_entry(mini, batch, meta_page, next_addr, entry_key);
    } else {
       // unkeyed
       success = mini_unkeyed_append_entry(mini, meta_page, next_addr);
@@ -554,8 +558,8 @@ mini_append_entry(mini_allocator *mini, uint64 batch, key key, uint64 next_addr)
       mini_init_meta_page(mini, meta_page);
 
       if (mini->keyed) {
-         success =
-            mini_keyed_append_entry(mini, batch, meta_page, next_addr, key);
+         success = mini_keyed_append_entry(
+            mini, batch, meta_page, next_addr, entry_key);
       } else {
          // unkeyed
          success = mini_unkeyed_append_entry(mini, meta_page, next_addr);
@@ -591,10 +595,13 @@ mini_append_entry(mini_allocator *mini, uint64 batch, key key, uint64 next_addr)
  *-----------------------------------------------------------------------------
  */
 uint64
-mini_alloc(mini_allocator *mini, uint64 batch, key key, uint64 *next_extent)
+mini_alloc(mini_allocator *mini,
+           uint64          batch,
+           key             alloc_key,
+           uint64         *next_extent)
 {
    debug_assert(batch < mini->num_batches);
-   debug_assert(!mini->keyed || !key_is_null(key));
+   debug_assert(!mini->keyed || !key_is_null(alloc_key));
 
    uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
 
@@ -607,7 +614,7 @@ mini_alloc(mini_allocator *mini, uint64 batch, key key, uint64 *next_extent)
       platform_assert_status_ok(rc);
       next_addr = extent_addr;
 
-      bool success = mini_append_entry(mini, batch, key, next_addr);
+      bool success = mini_append_entry(mini, batch, alloc_key, next_addr);
       platform_assert(success);
    }
 
@@ -639,9 +646,9 @@ mini_alloc(mini_allocator *mini, uint64 batch, key key, uint64 *next_extent)
  *-----------------------------------------------------------------------------
  */
 void
-mini_release(mini_allocator *mini, key key)
+mini_release(mini_allocator *mini, key end_key)
 {
-   debug_assert(!mini->keyed || !key_is_null(key));
+   debug_assert(!mini->keyed || !key_is_null(end_key));
 
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
@@ -653,7 +660,7 @@ mini_release(mini_allocator *mini, key key)
 
       if (mini->keyed) {
          // Set the end_key of the last extent from this batch
-         mini_append_entry(mini, batch, key, TERMINAL_EXTENT_ADDR);
+         mini_append_entry(mini, batch, end_key, TERMINAL_EXTENT_ADDR);
       }
    }
 }

@@ -176,28 +176,28 @@ extern key POSITIVE_INFINITY_KEY;
 extern key NULL_KEY;
 
 static inline bool
-key_is_negative_infinity(key key)
+key_is_negative_infinity(key k)
 {
-   return key.kind == negative_infinity;
+   return k.kind == negative_infinity;
 }
 
 static inline bool
-key_is_positive_infinity(key key)
+key_is_positive_infinity(key k)
 {
-   return key.kind == positive_infinity;
+   return k.kind == positive_infinity;
 }
 
 static inline bool
-key_is_user_key(key key)
+key_is_user_key(key k)
 {
-   return key.kind == user_key;
+   return k.kind == user_key;
 }
 
 static inline slice
-key_slice(key key)
+key_slice(key k)
 {
-   debug_assert(key.kind == user_key);
-   return key.user_slice;
+   debug_assert(k.kind == user_key);
+   return k.user_slice;
 }
 
 static inline key
@@ -221,29 +221,29 @@ keys_equal(key a, key b)
 }
 
 static inline bool
-key_is_null(key key)
+key_is_null(key k)
 {
-   return key.kind == user_key && slice_is_null(key.user_slice);
+   return k.kind == user_key && slice_is_null(k.user_slice);
 }
 
 static inline uint64
-key_length(key key)
+key_length(key k)
 {
-   return key.kind == user_key ? slice_length(key.user_slice) : 0;
+   return k.kind == user_key ? slice_length(k.user_slice) : 0;
 }
 
 static inline const void *
-key_data(key key)
+key_data(key k)
 {
-   debug_assert(key.kind == user_key);
-   return slice_data(key.user_slice);
+   debug_assert(k.kind == user_key);
+   return slice_data(k.user_slice);
 }
 
 static inline void
-key_copy_contents(void *dst, key key)
+key_copy_contents(void *dst, key k)
 {
-   debug_assert(key.kind == user_key);
-   slice_copy_contents(dst, key.user_slice);
+   debug_assert(k.kind == user_key);
+   slice_copy_contents(dst, k.user_slice);
 }
 
 static inline key
@@ -276,11 +276,11 @@ data_key_compare(const data_config *cfg, key key1, key key2)
 
 static inline int
 data_merge_tuples(const data_config *cfg,
-                  key                key,
+                  key                tuple_key,
                   message            old_raw_message,
                   merge_accumulator *new_message)
 {
-   debug_assert(key_is_user_key(key));
+   debug_assert(key_is_user_key(tuple_key));
 
    if (merge_accumulator_is_definitive(new_message)) {
       return 0;
@@ -288,12 +288,12 @@ data_merge_tuples(const data_config *cfg,
 
    message_type oldclass = message_class(old_raw_message);
    if (oldclass == MESSAGE_TYPE_DELETE) {
-      return cfg->merge_tuples_final(cfg, key.user_slice, new_message);
+      return cfg->merge_tuples_final(cfg, tuple_key.user_slice, new_message);
    }
 
    // new class is UPDATE and old class is INSERT or UPDATE
-   int result =
-      cfg->merge_tuples(cfg, key.user_slice, old_raw_message, new_message);
+   int result = cfg->merge_tuples(
+      cfg, tuple_key.user_slice, old_raw_message, new_message);
    if (result
        && merge_accumulator_message_class(new_message) == MESSAGE_TYPE_DELETE)
    {
@@ -304,15 +304,16 @@ data_merge_tuples(const data_config *cfg,
 
 static inline int
 data_merge_tuples_final(const data_config *cfg,
-                        key                key,
+                        key                tuple_key,
                         merge_accumulator *oldest_message)
 {
-   debug_assert(key_is_user_key(key));
+   debug_assert(key_is_user_key(tuple_key));
 
    if (merge_accumulator_is_definitive(oldest_message)) {
       return 0;
    }
-   int result = cfg->merge_tuples_final(cfg, key.user_slice, oldest_message);
+   int result =
+      cfg->merge_tuples_final(cfg, tuple_key.user_slice, oldest_message);
    if (result
        && merge_accumulator_message_class(oldest_message)
              == MESSAGE_TYPE_DELETE)
@@ -323,23 +324,23 @@ data_merge_tuples_final(const data_config *cfg,
 }
 
 static inline void
-data_key_to_string(const data_config *cfg, key key, char *str, size_t size)
+data_key_to_string(const data_config *cfg, key k, char *str, size_t size)
 {
-   if (key_is_negative_infinity(key)) {
+   if (key_is_negative_infinity(k)) {
       snprintf(str, size, "(negaitive_infinity)");
-   } else if (key_is_negative_infinity(key)) {
+   } else if (key_is_negative_infinity(k)) {
       snprintf(str, size, "(positive_infinity)");
    } else {
-      cfg->key_to_string(cfg, key.user_slice, str, size);
+      cfg->key_to_string(cfg, k.user_slice, str, size);
    }
 }
 
-#define key_string(cfg, key)                                                   \
+#define key_string(cfg, key_to_print)                                          \
    (({                                                                         \
        struct {                                                                \
           char buffer[128];                                                    \
        } b;                                                                    \
-       data_key_to_string((cfg), (key), b.buffer, 128);                        \
+       data_key_to_string((cfg), (key_to_print), b.buffer, 128);               \
        b;                                                                      \
     }).buffer)
 

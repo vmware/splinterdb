@@ -208,7 +208,7 @@ btree_insert(cache              *cc,         // IN
              btree_scratch      *scratch,    // IN
              uint64              root_addr,  // IN
              mini_allocator     *mini,       // IN
-             key                 key,        // IN
+             key                 tuple_key,  // IN
              message             data,       // IN
              uint64             *generation, // OUT
              bool               *was_unique);              // OUT
@@ -275,7 +275,7 @@ btree_lookup(cache             *cc,
              btree_config      *cfg,
              uint64             root_addr,
              page_type          type,
-             key                key,
+             key                target,
              merge_accumulator *result);
 
 static inline bool
@@ -289,7 +289,7 @@ btree_lookup_and_merge(cache             *cc,
                        btree_config      *cfg,
                        uint64             root_addr,
                        page_type          type,
-                       key                key,
+                       key                target,
                        merge_accumulator *data,
                        bool              *local_found);
 
@@ -297,7 +297,7 @@ cache_async_result
 btree_lookup_async(cache             *cc,
                    btree_config      *cfg,
                    uint64             root_addr,
-                   key                key,
+                   key                target,
                    merge_accumulator *result,
                    btree_async_ctxt  *ctxt);
 
@@ -305,7 +305,7 @@ cache_async_result
 btree_lookup_and_merge_async(cache             *cc,          // IN
                              btree_config      *cfg,         // IN
                              uint64             root_addr,   // IN
-                             key                key,         // IN
+                             key                target,      // IN
                              merge_accumulator *data,        // OUT
                              bool              *local_found, // OUT
                              btree_async_ctxt  *ctxt);        // IN
@@ -410,7 +410,7 @@ btree_print_lookup(cache        *cc,
                    btree_config *cfg,
                    uint64        root_addr,
                    page_type     type,
-                   key           key);
+                   key           target);
 
 bool
 btree_verify_tree(cache *cc, btree_config *cfg, uint64 addr, page_type type);
@@ -442,9 +442,9 @@ btree_key_compare(const btree_config *cfg, key key1, key key2)
 }
 
 static inline void
-btree_key_to_string(btree_config *cfg, key key, char str[static 128])
+btree_key_to_string(btree_config *cfg, key k, char str[static 128])
 {
-   return data_key_to_string(cfg->data_cfg, key, str, 128);
+   return data_key_to_string(cfg->data_cfg, k, str, 128);
 }
 
 static inline void

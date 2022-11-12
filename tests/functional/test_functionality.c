@@ -38,10 +38,10 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
       spl, &iter, NEGATIVE_INFINITY_KEY, POSITIVE_INFINITY_KEY, UINT64_MAX);
    uint64 count = 0;
    while (SUCCESS(iterator_at_end((iterator *)&iter, &at_end)) && !at_end) {
-      key     key;
+      key     curr_key;
       message value;
-      iterator_get_curr((iterator *)&iter, &key, &value);
-      if (data_key_compare(spl->cfg.data_cfg, target, key) == 0) {
+      iterator_get_curr((iterator *)&iter, &curr_key, &value);
+      if (data_key_compare(spl->cfg.data_cfg, target, curr_key) == 0) {
          platform_error_log("Found missing key %s\n",
                             key_string(spl->cfg.data_cfg, target));
       }
@@ -61,12 +61,12 @@ verify_tuple(trunk_handle    *spl,
 {
    const data_handle *dh    = message_data(msg);
    bool               found = dh != NULL;
-   uint64             key   = be64toh(*(uint64 *)key_data(keybuf));
+   uint64             int_key = be64toh(*(uint64 *)key_data(keybuf));
 
    if (dh && message_length(msg) < sizeof(data_handle)) {
       platform_error_log("ERROR: Short message of length %ld, key = 0x%08lx, ",
                          message_length(msg),
-                         key);
+                         int_key);
       platform_assert(0);
    }
 
@@ -76,7 +76,7 @@ verify_tuple(trunk_handle    *spl,
          "ERROR: A key not found in Splinter which is present in shadow tree: "
          "key = 0x%08lx, "
          "shadow refcount = 0x%08x\n",
-         key,
+         int_key,
          refcount);
       *result = STATUS_NOT_FOUND;
       trunk_print_lookup(spl, keybuf, Platform_default_log_handle);
@@ -87,7 +87,7 @@ verify_tuple(trunk_handle    *spl,
          "ERROR: A key found in the Splinter has refcount 0 in shadow tree. "
          "key = 0x%08lx, "
          "splinter refcount = 0x%08x\n",
-         key,
+         int_key,
          dh->ref_count);
       *result = STATUS_INVALID_STATE;
       trunk_print_lookup(spl, keybuf, Platform_default_log_handle);
@@ -106,7 +106,7 @@ verify_tuple(trunk_handle    *spl,
                       "splinter ref: %4d"
                       "shadow len: %lu "
                       "splinter len: %lu\n",
-                      key,
+                      int_key,
                       refcount,
                       dh->ref_count,
                       message_length(expected_msg),
@@ -175,13 +175,13 @@ verify_against_shadow(trunk_handle               *spl,
       }
       if (ctxt == NULL) {
          test_int_to_key(&keybuf, keynum, key_size);
-         key key = key_create_from_slice(writable_buffer_to_slice(&keybuf));
-         rc      = trunk_lookup(spl, key, &merge_acc);
+         key target = key_create_from_slice(writable_buffer_to_slice(&keybuf));
+         rc         = trunk_lookup(spl, target, &merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
          }
          message msg = merge_accumulator_to_message(&merge_acc);
-         verify_tuple(spl, key, msg, refcount, &result);
+         verify_tuple(spl, target, msg, refcount, &result);
       } else {
          test_int_to_key(&ctxt->key, keynum, key_size);
          ctxt->refcount = refcount;
@@ -351,13 +351,13 @@ choose_key(data_config                *cfg,         // IN
          pos = num_keys / 5
                + (random_next_uint64(prg)
                   % ((num_keys < 5) ? (num_keys + 1) / 2 : (3 * num_keys / 5)));
-         uint64 key = sharr->keys[pos];
+         uint64 int_key = sharr->keys[pos];
          if (random_next_uint64(prg) % 2 && pos < sharr->nkeys) {
-            key++;
+            int_key++;
             pos++;
          }
          *index = pos;
-         test_int_to_key(keybuf, key, cfg->max_key_size);
+         test_int_to_key(keybuf, int_key, cfg->max_key_size);
          break;
       }
       case VERIFY_RANGE_ENDPOINT_EQUAL:
@@ -567,7 +567,7 @@ insert_random_messages(trunk_handle              *spl,
 
       // Insert message into Splinter
       test_int_to_key(&keybuf, keynum, key_size);
-      key key = key_create_from_slice(writable_buffer_to_slice(&keybuf));
+      key tuple_key = key_create_from_slice(writable_buffer_to_slice(&keybuf));
 
       int8 ref_count = 0;
       if (op != MESSAGE_TYPE_DELETE) {
@@ -578,7 +578,7 @@ insert_random_messages(trunk_handle              *spl,
       }
       test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
 
-      rc = trunk_insert(spl, key, merge_accumulator_to_message(&msg));
+      rc = trunk_insert(spl, tuple_key, merge_accumulator_to_message(&msg));
       if (!SUCCESS(rc)) {
          goto cleanup;
       }

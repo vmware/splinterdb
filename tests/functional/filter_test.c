@@ -49,7 +49,7 @@ test_filter_basic(cache           *cc,
    WRITABLE_BUFFER_DEFAULT(keywb, hid);
    writable_buffer_resize(&keywb, key_size);
    char *keybuf  = writable_buffer_data(&keywb);
-   key   key_key = key_create(key_size, keybuf);
+   key   target  = key_create(key_size, keybuf);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
          num_input_keys[i] = num_input_keys[i - 1];
@@ -103,7 +103,7 @@ test_filter_basic(cache           *cc,
          *(uint64 *)keybuf = (i + 1) * j;
          uint64 found_values;
          rc = routing_filter_lookup(
-            cc, cfg, &filter[i + 1], key_key, &found_values);
+            cc, cfg, &filter[i + 1], target, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i)) {
             platform_default_log(
@@ -123,7 +123,7 @@ test_filter_basic(cache           *cc,
       *(uint64 *)keybuf = i;
       uint64 found_values;
       rc = routing_filter_lookup(
-         cc, cfg, &filter[num_values], key_key, &found_values);
+         cc, cfg, &filter[num_values], target, &found_values);
       if (found_values) {
          false_positives++;
       }
@@ -174,7 +174,7 @@ test_filter_perf(cache           *cc,
    WRITABLE_BUFFER_DEFAULT(keywb, hid);
    writable_buffer_resize(&keywb, key_size);
    char *keybuf  = writable_buffer_data(&keywb);
-   key   key_key = key_create(key_size, keybuf);
+   key   target  = key_create(key_size, keybuf);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
          uint64 idx = k * num_values * num_fingerprints + i;
@@ -216,8 +216,7 @@ test_filter_perf(cache           *cc,
          memset(keybuf, 0, key_size);
          *(uint64 *)keybuf = k * num_values * num_fingerprints + i;
          uint64 found_values;
-         rc =
-            routing_filter_lookup(cc, cfg, &filter[k], key_key, &found_values);
+         rc = routing_filter_lookup(cc, cfg, &filter[k], target, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i / num_fingerprints))
          {
@@ -228,7 +227,7 @@ test_filter_perf(cache           *cc,
                k,
                found_values);
 
-            routing_filter_lookup(cc, cfg, &filter[k], key_key, &found_values);
+            routing_filter_lookup(cc, cfg, &filter[k], target, &found_values);
             platform_assert(0);
             rc = STATUS_NOT_FOUND;
             goto out;
@@ -247,8 +246,7 @@ test_filter_perf(cache           *cc,
          memset(keybuf, 0, key_size);
          *(uint64 *)keybuf = k * num_values * num_fingerprints + i + unused_key;
          uint64 found_values;
-         rc =
-            routing_filter_lookup(cc, cfg, &filter[k], key_key, &found_values);
+         rc = routing_filter_lookup(cc, cfg, &filter[k], target, &found_values);
          platform_assert_status_ok(rc);
          if (found_values) {
             false_positives++;

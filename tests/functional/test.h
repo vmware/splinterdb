@@ -87,28 +87,29 @@ test_key(writable_buffer *keywb,
          uint64           period)
 {
    writable_buffer_resize(keywb, key_size);
-   char *key = writable_buffer_data(keywb);
-   memset(key, 0, key_size);
+   char *keybuffer = writable_buffer_data(keywb);
+   memset(keybuffer, 0, key_size);
    switch (key_type) {
       case TEST_RANDOM:
-         *(uint64 *)key = platform_checksum64(&idx, sizeof(idx), 42);
+         *(uint64 *)keybuffer = platform_checksum64(&idx, sizeof(idx), 42);
          break;
       case TEST_SEQ:
-         *(uint64 *)key = htobe64(
+         *(uint64 *)keybuffer = htobe64(
             platform_checksum64(&thread_id, sizeof(thread_id), 42) + idx);
          break;
       case TEST_SEMISEQ:
          if (idx % semiseq_freq == 0) {
-            *(uint64 *)key = platform_checksum64(&idx, sizeof(idx), 42);
+            *(uint64 *)keybuffer = platform_checksum64(&idx, sizeof(idx), 42);
          } else {
-            *(uint64 *)key = htobe64(
+            *(uint64 *)keybuffer = htobe64(
                platform_checksum64(&thread_id, sizeof(thread_id), 42) + idx);
          }
          break;
       case TEST_PERIODIC:
       {
          uint64 period_idx = idx % period;
-         *(uint64 *)key    = platform_checksum64(&period_idx, sizeof(idx), 42);
+         *(uint64 *)keybuffer =
+            platform_checksum64(&period_idx, sizeof(idx), 42);
          break;
       }
    }
