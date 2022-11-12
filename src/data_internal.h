@@ -163,9 +163,9 @@ merge_accumulator_is_null(const merge_accumulator *ma)
 }
 
 typedef enum {
-   POSITIVE_INFINITY = 1,
+   NEGATIVE_INFINITY = 1,
    USER_KEY          = 2,
-   NEGATIVE_INFINITY = 3
+   POSITIVE_INFINITY = 3,
 } key_type;
 
 typedef struct key {
@@ -250,31 +250,13 @@ key_copy_contents(void *dst, key k)
    slice_copy_contents(dst, k.user_slice);
 }
 
-static inline key
-data_min_key(const data_config *cfg)
-{
-   return NEGATIVE_INFINITY_KEY;
-}
-
-static inline key
-data_max_key(const data_config *cfg)
-{
-   return POSITIVE_INFINITY_KEY;
-}
-
 static inline int
 data_key_compare(const data_config *cfg, key key1, key key2)
 {
-   if (key_is_negative_infinity(key1)) {
-      return key_is_negative_infinity(key2) ? 0 : -1;
-   } else if (key_is_positive_infinity(key1)) {
-      return key_is_positive_infinity(key2) ? 0 : 1;
-   } else if (key_is_negative_infinity(key2)) {
-      return 1;
-   } else if (key_is_positive_infinity(key2)) {
-      return -1;
-   } else {
+   if (key_is_user_key(key1) && key_is_user_key(key2)) {
       return cfg->key_compare(cfg, key1.user_slice, key2.user_slice);
+   } else {
+      return (int)key1.kind - (int)key2.kind;
    }
 }
 

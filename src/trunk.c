@@ -1547,13 +1547,10 @@ trunk_add_pivot_new_root(trunk_handle *spl,
                          page_handle  *parent,
                          page_handle  *child)
 {
-   key                               pivot_key = trunk_get_pivot(spl, child, 0);
-   __attribute__((unused)) const key min_key = data_min_key(spl->cfg.data_cfg);
-   debug_only const int key_cmp_rv = trunk_key_compare(spl, pivot_key, min_key);
-   debug_assert((key_cmp_rv == 0), "key_cmp_rv=%d\n", key_cmp_rv);
+   key pivot_key = trunk_get_pivot(spl, child, 0);
+   debug_assert(keys_equal(pivot_key, NEGATIVE_INFINITY_KEY));
 
-   key max_key = data_max_key(spl->cfg.data_cfg);
-   trunk_set_initial_pivots(spl, parent, pivot_key, max_key);
+   trunk_set_initial_pivots(spl, parent, pivot_key, POSITIVE_INFINITY_KEY);
    uint64 child_addr = child->disk_addr;
    trunk_set_pivot_data_new_root(spl, parent, child_addr);
 }
@@ -5784,7 +5781,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    range_itor->num_branches = 0;
    range_itor->num_tuples   = num_tuples;
    if (key_is_null(min_key)) {
-      min_key = data_min_key(spl->cfg.data_cfg);
+      min_key = NEGATIVE_INFINITY_KEY;
    }
    key_buffer_init_from_key(&range_itor->min_key, spl->heap_id, min_key);
    if (!key_is_null(max_key)) {
@@ -5794,8 +5791,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
       range_itor->has_max_key = FALSE;
    }
 
-   key hard_max_key =
-      !key_is_null(max_key) ? max_key : data_max_key(spl->cfg.data_cfg);
+   key hard_max_key = !key_is_null(max_key) ? max_key : POSITIVE_INFINITY_KEY;
    if (trunk_key_compare(spl, min_key, hard_max_key) == 0) {
       range_itor->at_end = TRUE;
       return STATUS_OK;
@@ -5976,10 +5972,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
       KEY_CREATE_LOCAL_COPY(
          rebuild_key, spl->heap_id, key_buffer_key(&range_itor->rebuild_key));
       trunk_range_iterator_deinit(range_itor);
-      if (1
-          && trunk_key_compare(
-                spl, local_max_key, data_max_key(spl->cfg.data_cfg))
-                != 0
+      if (1 && trunk_key_compare(spl, local_max_key, POSITIVE_INFINITY_KEY) != 0
           && (0 || !range_itor->has_max_key
               || trunk_key_compare(spl, local_max_key, max_key) < 0))
       {
@@ -7234,8 +7227,8 @@ trunk_create(trunk_config     *cfg,
    page_handle *leaf     = trunk_alloc(spl, 0);
    trunk_hdr   *leaf_hdr = (trunk_hdr *)leaf->data;
    memset(leaf_hdr, 0, trunk_page_size(&spl->cfg));
-   key min_key = data_min_key(spl->cfg.data_cfg);
-   key max_key = data_max_key(spl->cfg.data_cfg);
+   key min_key = NEGATIVE_INFINITY_KEY;
+   key max_key = POSITIVE_INFINITY_KEY;
    trunk_set_initial_pivots(spl, leaf, min_key, max_key);
    trunk_inc_pivot_generation(spl, leaf);
 
@@ -9013,11 +9006,6 @@ static void
 trunk_validate_data_config(const data_config *cfg)
 {
    platform_assert(cfg->key_compare != NULL);
-
-   // basic check of key comparison
-   int min_max_cmp =
-      data_key_compare(cfg, data_min_key(cfg), data_max_key(cfg));
-   platform_assert(min_max_cmp < 0, "min_key must compare < max_key");
 }
 
 /*
