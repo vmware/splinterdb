@@ -799,16 +799,16 @@ test_btree_create_packed_trees(cache             *cc,
       test_memtable_context_create(cc, cfg, num_trees, hid);
 
    // fill the memtables
-   WRITABLE_BUFFER_DEFAULT(key, NULL);
+   WRITABLE_BUFFER_DEFAULT(keybuf, NULL);
    merge_accumulator data;
    merge_accumulator_init(&data, NULL);
 
    uint64          insert_no;
    platform_status rc = STATUS_OK;
    for (insert_no = 0; SUCCESS(rc); insert_no++) {
-      test_btree_tuple(ctxt, &key, &data, insert_no, 0);
+      test_btree_tuple(ctxt, &keybuf, &data, insert_no, 0);
       rc = test_btree_insert(ctxt,
-                             writable_buffer_to_key(&key),
+                             writable_buffer_to_key(&keybuf),
                              merge_accumulator_to_message(&data));
    }
 

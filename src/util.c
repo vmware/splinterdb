@@ -7,8 +7,6 @@
 
 #include "poison.h"
 
-const slice NULL_SLICE = (slice){0, NULL};
-
 static platform_status
 writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
 {

@@ -32,8 +32,10 @@ message_type_string(message_type type)
    }
 }
 
-extern message NULL_MESSAGE;
-extern message DELETE_MESSAGE;
+#define NULL_MESSAGE                                                           \
+   ((message){.type = MESSAGE_TYPE_INVALID, .data = NULL_SLICE})
+#define DELETE_MESSAGE                                                         \
+   ((message){.type = MESSAGE_TYPE_DELETE, .data = NULL_SLICE})
 
 static inline message
 message_create(message_type type, slice data)
@@ -161,9 +163,9 @@ merge_accumulator_is_null(const merge_accumulator *ma)
 }
 
 typedef enum {
-   positive_infinity = 1,
-   user_key          = 2,
-   negative_infinity = 3
+   POSITIVE_INFINITY = 1,
+   USER_KEY          = 2,
+   NEGATIVE_INFINITY = 3
 } key_type;
 
 typedef struct key {
@@ -171,78 +173,80 @@ typedef struct key {
    slice    user_slice;
 } key;
 
-extern key NEGATIVE_INFINITY_KEY;
-extern key POSITIVE_INFINITY_KEY;
-extern key NULL_KEY;
+#define NEGATIVE_INFINITY_KEY                                                  \
+   ((key){.kind = NEGATIVE_INFINITY, .user_slice = INVALID_SLICE})
+#define POSITIVE_INFINITY_KEY                                                  \
+   ((key){.kind = POSITIVE_INFINITY, .user_slice = INVALID_SLICE})
+#define NULL_KEY ((key){.kind = USER_KEY, .user_slice = NULL_SLICE})
 
 static inline bool
 key_is_negative_infinity(key k)
 {
-   return k.kind == negative_infinity;
+   return k.kind == NEGATIVE_INFINITY;
 }
 
 static inline bool
 key_is_positive_infinity(key k)
 {
-   return k.kind == positive_infinity;
+   return k.kind == POSITIVE_INFINITY;
 }
 
 static inline bool
 key_is_user_key(key k)
 {
-   return k.kind == user_key;
+   return k.kind == USER_KEY;
 }
 
 static inline slice
 key_slice(key k)
 {
-   debug_assert(k.kind == user_key);
+   debug_assert(k.kind == USER_KEY);
    return k.user_slice;
 }
 
 static inline key
 key_create_from_slice(slice user_slice)
 {
-   return (key){.kind = user_key, .user_slice = user_slice};
+   return (key){.kind = USER_KEY, .user_slice = user_slice};
 }
 
 static inline key
 key_create(uint64 length, const void *data)
 {
-   return (key){.kind = user_key, .user_slice = slice_create(length, data)};
+   return (key){.kind = USER_KEY, .user_slice = slice_create(length, data)};
 }
 
 static inline bool
 keys_equal(key a, key b)
 {
    return a.kind == b.kind
-          && IMPLIES(a.kind == user_key,
+          && IMPLIES(a.kind == USER_KEY,
                      slices_equal(a.user_slice, b.user_slice));
 }
 
 static inline bool
 key_is_null(key k)
 {
-   return k.kind == user_key && slice_is_null(k.user_slice);
+   return k.kind == USER_KEY && slice_is_null(k.user_slice);
 }
 
 static inline uint64
 key_length(key k)
 {
-   return k.kind == user_key ? slice_length(k.user_slice) : 0;
+   return k.kind == USER_KEY ? slice_length(k.user_slice) : 0;
 }
 
 static inline const void *
 key_data(key k)
 {
-   debug_assert(k.kind == user_key);
+   debug_assert(k.kind == USER_KEY);
    return slice_data(k.user_slice);
 }
 
 static inline void
 key_copy_contents(void *dst, key k)
 {
-   debug_assert(k.kind == user_key);
+   debug_assert(k.kind == USER_KEY);
    slice_copy_contents(dst, k.user_slice);
 }
 

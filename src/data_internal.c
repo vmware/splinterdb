@@ -1,20 +1,6 @@
 
 #include "data_internal.h"
 
-key NEGATIVE_INFINITY_KEY = {.kind       = negative_infinity,
-                             .user_slice = {(uint64)-1, NULL}};
-
-key POSITIVE_INFINITY_KEY = {.kind       = positive_infinity,
-                             .user_slice = {(uint64)-1, NULL}};
-
-key NULL_KEY = {.kind = user_key, .user_slice = {0, NULL}};
-
-message NULL_MESSAGE = {.type = MESSAGE_TYPE_INVALID,
-                        .data = {.length = 0, .data = NULL}};
-
-message DELETE_MESSAGE = {.type = MESSAGE_TYPE_DELETE,
-                          .data = {.length = 0, .data = NULL}};
-
 message_type
 merge_accumulator_message_class(const merge_accumulator *ma)
 {
