@@ -77,7 +77,6 @@
 #define INVALID_TID (MAX_THREADS)
 
 #define HASH_SEED         (42)
-#define UNUSED_FUNCTION() __attribute__((__unused__))
 
 /*
  * C11 and higher already supports native _Static_assert which has good

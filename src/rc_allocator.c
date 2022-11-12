@@ -190,7 +190,7 @@ const static allocator_ops rc_allocator_ops = {
  * Is page address 'base_addr' a valid extent address? I.e. it is the address
  * of the 1st page in an extent.
  */
-__attribute__((unused)) static inline bool
+debug_only static inline bool
 rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 {
    return ((base_addr % al->cfg->io_cfg->extent_size) == 0);

@@ -1187,53 +1187,31 @@ trunk_set_pivot(trunk_handle *spl,
 
    // debug asserts (should be optimized away)
    if (pivot_no != 0) {
-      __attribute__((unused)) key pred_pivot =
-         trunk_get_pivot(spl, node, pivot_no - 1);
+      debug_only key pred_pivot = trunk_get_pivot(spl, node, pivot_no - 1);
       debug_assert(trunk_key_compare(spl, pred_pivot, pivot_key) < 0);
    }
    if (pivot_no < trunk_num_children(spl, node)) {
-      __attribute__((unused)) key succ_pivot =
-         trunk_get_pivot(spl, node, pivot_no + 1);
+      debug_only key succ_pivot = trunk_get_pivot(spl, node, pivot_no + 1);
       debug_assert(trunk_key_compare(spl, pivot_key, succ_pivot) < 0);
    }
 }
 
 static inline void
-trunk_set_initial_pivots(trunk_handle *spl,
-                         page_handle  *node,
-                         key           min_key,
-                         key           max_key)
+trunk_set_initial_pivots(trunk_handle *spl, page_handle *node)
 {
-   debug_assert(trunk_key_compare(spl, min_key, max_key) < 0);
-
    trunk_hdr *hdr      = (trunk_hdr *)node->data;
    hdr->num_pivot_keys = 2;
 
-   char             *dst_pivot_key = trunk_get_pivot_buffer(spl, node, 0);
-   trunk_pivot_data *pdata         = trunk_get_pivot_data(spl, node, 0);
+   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
    ZERO_CONTENTS(pdata);
    pdata->srq_idx = -1;
-   if (key_is_negative_infinity(min_key)) {
-      pdata->key_length = INFINITY_KEY_LENGTH;
-   } else {
-      debug_assert(!key_is_positive_infinity(min_key));
-      memmove(dst_pivot_key, key_data(min_key), key_length(min_key));
-      pdata->key_length = key_length(min_key);
-   }
+   pdata->key_length = INFINITY_KEY_LENGTH;
 
-   dst_pivot_key = trunk_get_pivot_buffer(spl, node, 1);
-   pdata         = trunk_get_pivot_data(spl, node, 1);
-   if (key_is_positive_infinity(max_key)) {
-      pdata->key_length = INFINITY_KEY_LENGTH;
-   } else {
-      debug_assert(!key_is_negative_infinity(max_key));
-      memmove(dst_pivot_key, key_data(max_key), key_length(max_key));
-      pdata->key_length = key_length(max_key);
-   }
+   pdata             = trunk_get_pivot_data(spl, node, 1);
+   pdata->key_length = INFINITY_KEY_LENGTH;
 }
 
-UNUSED_FUNCTION()
-static inline key
+debug_only static inline key
 trunk_min_key(trunk_handle *spl, page_handle *node)
 {
    return trunk_get_pivot(spl, node, 0);
@@ -1547,10 +1525,7 @@ trunk_add_pivot_new_root(trunk_handle *spl,
                          page_handle  *parent,
                          page_handle  *child)
 {
-   key pivot_key = trunk_get_pivot(spl, child, 0);
-   debug_assert(keys_equal(pivot_key, NEGATIVE_INFINITY_KEY));
-
-   trunk_set_initial_pivots(spl, parent, pivot_key, POSITIVE_INFINITY_KEY);
+   trunk_set_initial_pivots(spl, parent);
    uint64 child_addr = child->disk_addr;
    trunk_set_pivot_data_new_root(spl, parent, child_addr);
 }
@@ -1818,7 +1793,7 @@ trunk_pivot_branch_tuple_counts(trunk_handle *spl,
       spl, node, pivot_no, branch->root_addr, num_tuples, num_kv_bytes);
 }
 
-__attribute__((unused)) static inline uint64
+debug_only static inline uint64
 trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
                                   page_handle  *node,
                                   uint16        pivot_no,
@@ -2253,7 +2228,7 @@ trunk_subbundle_filter(trunk_handle    *spl,
    return trunk_get_sb_filter(spl, node, filter_no);
 }
 
-__attribute__((unused)) static inline uint16
+debug_only static inline uint16
 trunk_subbundle_branch_count(trunk_handle    *spl,
                              page_handle     *node,
                              trunk_subbundle *sb)
@@ -4733,7 +4708,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    trunk_task_scratch              *task_scratch = scratch_buf;
    compact_bundle_scratch          *scratch = &task_scratch->compact_bundle;
    trunk_handle                    *spl     = req->spl;
-   __attribute__((unused)) threadid tid;
+   threadid                         tid;
 
    /*
     * 1. Acquire node read lock
@@ -5263,7 +5238,7 @@ trunk_split_index(trunk_handle *spl,
 /*
  * Estimate the number of unique keys in the pivot
  */
-__attribute__((unused)) static inline uint64
+static inline uint64
 trunk_pivot_estimate_unique_keys(trunk_handle     *spl,
                                  page_handle      *node,
                                  trunk_pivot_data *pdata)
@@ -6265,7 +6240,7 @@ platform_status
 trunk_insert(trunk_handle *spl, key tuple_key, message data)
 {
    timestamp                            ts;
-   __attribute((unused)) const threadid tid = platform_get_tid();
+   const threadid                       tid = platform_get_tid();
    if (spl->cfg.use_stats) {
       ts = platform_get_timestamp();
    }
@@ -7227,9 +7202,7 @@ trunk_create(trunk_config     *cfg,
    page_handle *leaf     = trunk_alloc(spl, 0);
    trunk_hdr   *leaf_hdr = (trunk_hdr *)leaf->data;
    memset(leaf_hdr, 0, trunk_page_size(&spl->cfg));
-   key min_key = NEGATIVE_INFINITY_KEY;
-   key max_key = POSITIVE_INFINITY_KEY;
-   trunk_set_initial_pivots(spl, leaf, min_key, max_key);
+   trunk_set_initial_pivots(spl, leaf);
    trunk_inc_pivot_generation(spl, leaf);
 
    // add leaf to root and fix up root

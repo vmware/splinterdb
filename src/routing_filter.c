@@ -121,7 +121,7 @@ RadixSort(uint32 *pData,
  *----------------------------------------------------------------------
  */
 
-__attribute__((unused)) static inline void
+debug_only static inline void
 routing_set_bit(uint64 *data, uint64 bitnum)
 {
    *(data + bitnum / 64) |= (1ULL << (bitnum % 64));
@@ -731,7 +731,7 @@ routing_filter_estimate_unique_fp(cache           *cc,
             uint32 *src_fp             = &fp_arr[src_fp_no];
             platform_assert(src_fp_no + index_count <= buffer_size);
             if (index_count != 0) {
-               __attribute__((unused)) uint32 index_start = src_fp_no;
+               debug_only uint32 index_start = src_fp_no;
                PackedArray_unpack((uint32 *)block_start,
                                   0,
                                   src_fp,
