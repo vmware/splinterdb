@@ -547,11 +547,11 @@ typedef struct ONDISK trunk_hdr {
  *-----------------------------------------------------------------------------
  * Splinter Pivot Data: Disk-resident structure on Trunk pages
  *
- * A pivot consists of cfg.max_key_size bytes of space for the pivot key
- *  followed by a trunk_pivot_data. An array of this ( <pivot-key>,
- *  <trunk_pivot_data> ) pair appears on trunk pages, following the end of
- *struct trunk_hdr{}. This array is sized by configured max_pivot_keys
- *hard-limit.
+ * A trunk_pivot_data struct consists of the trunk_pivot_data header
+ * followed by cfg.max_key_size bytes of space for the pivot key.  An
+ * array of trunk_pivot_datas appears on trunk pages, following the
+ * end of struct trunk_hdr{}. This array is sized by configured
+ * max_pivot_keys hard-limit.
  *
  * The generation is used by asynchronous processes to determine when a pivot
  * has split
@@ -568,10 +568,8 @@ typedef struct ONDISK trunk_pivot_data {
    uint16 start_bundle;        // first bundle live (not used in leaves)
    routing_filter filter;      // routing filter for keys in this pivot
    int64          srq_idx;     // index in the space rec queue
-   uint16         key_length;
+   ondisk_key     pivot;
 } trunk_pivot_data;
-
-#define INFINITY_KEY_LENGTH ((FTYPEOF(trunk_pivot_data, key_length)) - 1)
 
 /*
  * Used to specify compaction bundle "task" request. These enums specify
@@ -1133,17 +1131,24 @@ trunk_subtract_subbundle_filter_number(trunk_handle *spl,
  *-----------------------------------------------------------------------------
  */
 
-static inline char *
-trunk_get_pivot_buffer(trunk_handle *spl, page_handle *node, uint16 pivot_no)
+/*
+ * A pivot consists of cfg.key_size bytes of space for the pivot key, followed
+ * by a struct trunk_pivot_data. Return the total size of a pivot.
+ */
+uint64
+trunk_pivot_size(trunk_handle *spl)
 {
-   trunk_hdr *hdr = (trunk_hdr *)node->data;
-   return ((char *)hdr) + sizeof(*hdr) + pivot_no * trunk_pivot_size(spl);
+   return sizeof(trunk_pivot_data) + trunk_max_key_size(spl);
 }
 
-/*
- * Return the start address of the pivot_no'th pivot in the array of pivots
- * residing on the trunk page past the end of the trunk header.
- */
+static inline trunk_pivot_data *
+trunk_get_pivot_data(trunk_handle *spl, page_handle *node, uint16 pivot_no)
+{
+   trunk_hdr *hdr = (trunk_hdr *)node->data;
+   return (trunk_pivot_data *)(((char *)hdr) + sizeof(*hdr)
+                               + pivot_no * trunk_pivot_size(spl));
+}
+
 static inline key
 trunk_get_pivot(trunk_handle *spl, page_handle *node, uint16 pivot_no)
 {
@@ -1151,15 +1156,8 @@ trunk_get_pivot(trunk_handle *spl, page_handle *node, uint16 pivot_no)
                    "pivot_no = %d, cfg.max_pivot_keys = %lu",
                    pivot_no,
                    spl->cfg.max_pivot_keys);
-   trunk_pivot_data *pdata  = trunk_get_pivot_data(spl, node, pivot_no);
-   char             *buffer = trunk_get_pivot_buffer(spl, node, pivot_no);
-   if (pdata->key_length == INFINITY_KEY_LENGTH) {
-      debug_assert(pivot_no == 0
-                   || pivot_no == trunk_num_pivot_keys(spl, node) - 1);
-      return pivot_no == 0 ? NEGATIVE_INFINITY_KEY : POSITIVE_INFINITY_KEY;
-   } else {
-      return key_create(pdata->key_length, buffer);
-   }
+   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+   return ondisk_key_to_key(&pdata->pivot);
 }
 
 static inline void
@@ -1170,20 +1168,8 @@ trunk_set_pivot(trunk_handle *spl,
 {
    debug_assert(pivot_no < trunk_num_pivot_keys(spl, node));
 
-   char *dst_pivot_key     = trunk_get_pivot_buffer(spl, node, pivot_no);
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
-
-   if (key_is_negative_infinity(pivot_key)) {
-      debug_assert(pivot_no == 0);
-      pdata->key_length = INFINITY_KEY_LENGTH;
-      return;
-   } else if (key_is_positive_infinity(pivot_key)) {
-      debug_assert(pivot_no == trunk_num_pivot_keys(spl, node) - 1);
-      pdata->key_length = INFINITY_KEY_LENGTH;
-      return;
-   }
-   memmove(dst_pivot_key, key_data(pivot_key), key_length(pivot_key));
-   pdata->key_length = key_length(pivot_key);
+   copy_key_to_ondisk_key(&pdata->pivot, pivot_key);
 
    // debug asserts (should be optimized away)
    if (pivot_no != 0) {
@@ -1205,10 +1191,10 @@ trunk_set_initial_pivots(trunk_handle *spl, page_handle *node)
    trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, 0);
    ZERO_CONTENTS(pdata);
    pdata->srq_idx = -1;
-   pdata->key_length = INFINITY_KEY_LENGTH;
+   copy_key_to_ondisk_key(&pdata->pivot, NEGATIVE_INFINITY_KEY);
 
    pdata             = trunk_get_pivot_data(spl, node, 1);
-   pdata->key_length = INFINITY_KEY_LENGTH;
+   copy_key_to_ondisk_key(&pdata->pivot, POSITIVE_INFINITY_KEY);
 }
 
 debug_only static inline key
@@ -1237,37 +1223,6 @@ trunk_inc_pivot_generation(trunk_handle *spl, page_handle *node)
    return hdr->pivot_generation++;
 }
 
-/*
- * A pivot consists of cfg.key_size bytes of space for the pivot key, followed
- * by a struct trunk_pivot_data. Return the total size of a pivot.
- */
-uint64
-trunk_pivot_size(trunk_handle *spl)
-{
-   return trunk_max_key_size(spl) + sizeof(trunk_pivot_data);
-}
-
-/*
- * From trunk_pivot_size(): The data following the pivot key is the message.
- * Return the message size as the sizeof() the struct describing this data.
- */
-uint64
-trunk_pivot_message_size()
-{
-   return sizeof(trunk_pivot_data);
-}
-
-/*
- * Return the start of the pivot_no'th pivot_data, which begins just past
- * the key.
- */
-static inline trunk_pivot_data *
-trunk_get_pivot_data(trunk_handle *spl, page_handle *node, uint16 pivot_no)
-{
-   return (trunk_pivot_data *)(trunk_get_pivot_buffer(spl, node, pivot_no)
-                               + trunk_max_key_size(spl));
-}
-
 static inline void
 trunk_set_pivot_data_new_root(trunk_handle *spl,
                               page_handle  *node,
@@ -1287,26 +1242,27 @@ trunk_set_pivot_data_new_root(trunk_handle *spl,
 }
 
 static inline void
-trunk_copy_pivot_data_from_pred(trunk_handle *spl,
+trunk_init_pivot_data_from_pred(trunk_handle *spl,
                                 page_handle  *node,
                                 uint16        pivot_no,
-                                uint64        child_addr)
+                                uint64        child_addr,
+                                key           new_pivot)
 {
    debug_assert(trunk_height(spl, node) != 0);
    debug_assert(pivot_no != 0);
    trunk_pivot_data *pdata      = trunk_get_pivot_data(spl, node, pivot_no);
    trunk_pivot_data *pred_pdata = trunk_get_pivot_data(spl, node, pivot_no - 1);
 
-   uint64 oldkeylen = pdata->key_length;
    memmove(pdata, pred_pdata, sizeof(*pdata));
    pdata->addr                = child_addr;
    pdata->num_tuples_whole    = 0;
    pdata->num_kv_bytes_whole  = 0;
    pdata->num_tuples_bundle   = 0;
    pdata->num_kv_bytes_bundle = 0;
-   pdata->key_length          = oldkeylen;
-   pred_pdata->generation     = trunk_inc_pivot_generation(spl, node);
+   copy_key_to_ondisk_key(&pdata->pivot, new_pivot);
    platform_assert(pdata->srq_idx == -1);
+
+   pred_pdata->generation = trunk_inc_pivot_generation(spl, node);
 }
 
 // Return the start branch number for the pivot_no'th pivot entry
@@ -1480,8 +1436,9 @@ trunk_shift_pivots(trunk_handle *spl,
                 < spl->cfg.max_pivot_keys);
    debug_assert(pivot_no < trunk_num_pivot_keys(spl, node));
 
-   char  *dst_pivot       = trunk_get_pivot_buffer(spl, node, pivot_no + shift);
-   char  *src_pivot       = trunk_get_pivot_buffer(spl, node, pivot_no);
+   trunk_pivot_data *dst_pivot =
+      trunk_get_pivot_data(spl, node, pivot_no + shift);
+   trunk_pivot_data *src_pivot = trunk_get_pivot_data(spl, node, pivot_no);
    uint16 pivots_to_shift = trunk_num_pivot_keys(spl, node) - pivot_no;
    size_t bytes_to_shift  = pivots_to_shift * trunk_pivot_size(spl);
    memmove(dst_pivot, src_pivot, bytes_to_shift);
@@ -1512,10 +1469,9 @@ trunk_add_pivot(trunk_handle *spl,
    trunk_inc_num_pivot_keys(spl, parent);
 
    uint64 child_addr = child->disk_addr;
-   trunk_copy_pivot_data_from_pred(spl, parent, pivot_no, child_addr);
-
-   key pivot_key = trunk_get_pivot(spl, child, 0);
-   trunk_set_pivot(spl, parent, pivot_no, pivot_key);
+   key    pivot_key  = trunk_get_pivot(spl, child, 0);
+   trunk_init_pivot_data_from_pred(
+      spl, parent, pivot_no, child_addr, pivot_key);
 
    return STATUS_OK;
 }
@@ -5125,9 +5081,10 @@ trunk_split_index(trunk_handle *spl,
 
    // ALEX: Maybe worth figuring out the real page size
    memmove(right_node->data, left_node->data, trunk_page_size(&spl->cfg));
-   char *right_start_pivot = trunk_get_pivot_buffer(spl, right_node, 0);
-   char *left_split_pivot =
-      trunk_get_pivot_buffer(spl, left_node, target_num_children);
+   trunk_pivot_data *right_start_pivot =
+      trunk_get_pivot_data(spl, right_node, 0);
+   trunk_pivot_data *left_split_pivot =
+      trunk_get_pivot_data(spl, left_node, target_num_children);
    uint16 pivots_to_copy =
       trunk_num_pivot_keys(spl, left_node) - target_num_children;
    size_t bytes_to_copy = pivots_to_copy * trunk_pivot_size(spl);
@@ -8983,7 +8940,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
    trunk_cfg->log_handle              = log_handle;
 
    // Inline what we would get from trunk_pivot_size(trunk_handle *).
-   trunk_pivot_size = data_cfg->max_key_size + trunk_pivot_message_size();
+   trunk_pivot_size = data_cfg->max_key_size + sizeof(trunk_pivot_data);
 
    // Setting hard limit and over overprovisioning
    trunk_cfg->max_pivot_keys = trunk_cfg->fanout + TRUNK_EXTRA_PIVOT_KEYS;
