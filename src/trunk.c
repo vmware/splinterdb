@@ -5668,24 +5668,10 @@ trunk_range_iterator_init(trunk_handle         *spl,
    range_itor->super.ops    = &trunk_range_iterator_ops;
    range_itor->num_branches = 0;
    range_itor->num_tuples   = num_tuples;
-   if (key_is_null(min_key)) {
-      min_key = NEGATIVE_INFINITY_KEY;
-   }
    key_buffer_init_from_key(&range_itor->min_key, spl->heap_id, min_key);
-   if (!key_is_null(max_key)) {
-      range_itor->has_max_key = TRUE;
-      key_buffer_init_from_key(&range_itor->max_key, spl->heap_id, max_key);
-   } else {
-      range_itor->has_max_key = FALSE;
-   }
+   key_buffer_init_from_key(&range_itor->max_key, spl->heap_id, max_key);
 
-   key hard_max_key = !key_is_null(max_key) ? max_key : POSITIVE_INFINITY_KEY;
-   if (trunk_key_compare(spl, min_key, hard_max_key) == 0) {
-      range_itor->at_end = TRUE;
-      return STATUS_OK;
-   }
-
-   if (!key_is_null(max_key) && trunk_key_compare(spl, max_key, min_key) <= 0) {
+   if (trunk_key_compare(spl, max_key, min_key) <= 0) {
       range_itor->at_end = TRUE;
       return STATUS_OK;
    }
@@ -5788,14 +5774,12 @@ trunk_range_iterator_init(trunk_handle         *spl,
 
    // have a leaf, use to get rebuild key
    key rebuild_key =
-      !range_itor->has_max_key
-            || trunk_key_compare(spl, trunk_max_key(spl, node), max_key) < 0
+      trunk_key_compare(spl, trunk_max_key(spl, node), max_key) < 0
          ? trunk_max_key(spl, node)
          : max_key;
    key_buffer_init_from_key(
       &range_itor->rebuild_key, spl->heap_id, rebuild_key);
-   if (!key_is_null(max_key)
-       && trunk_key_compare(spl, max_key, rebuild_key) < 0) {
+   if (trunk_key_compare(spl, max_key, rebuild_key) < 0) {
       key_buffer_init_from_key(
          &range_itor->local_max_key, spl->heap_id, max_key);
    } else {
@@ -5861,8 +5845,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
          rebuild_key, spl->heap_id, key_buffer_key(&range_itor->rebuild_key));
       trunk_range_iterator_deinit(range_itor);
       if (1 && trunk_key_compare(spl, local_max_key, POSITIVE_INFINITY_KEY) != 0
-          && (0 || !range_itor->has_max_key
-              || trunk_key_compare(spl, local_max_key, max_key) < 0))
+          && trunk_key_compare(spl, local_max_key, max_key) < 0)
       {
          rc = trunk_range_iterator_init(
             spl, range_itor, rebuild_key, max_key, range_itor->num_tuples);
@@ -5901,24 +5884,15 @@ trunk_range_iterator_advance(iterator *itor)
       KEY_CREATE_LOCAL_COPY(rebuild_key,
                             range_itor->spl->heap_id,
                             key_buffer_key(&range_itor->rebuild_key));
-      if (range_itor->has_max_key) {
-         KEY_CREATE_LOCAL_COPY(max_key,
-                               range_itor->spl->heap_id,
-                               key_buffer_key(&range_itor->max_key));
-         trunk_range_iterator_deinit(range_itor);
-         rc = trunk_range_iterator_init(range_itor->spl,
-                                        range_itor,
-                                        rebuild_key,
-                                        max_key,
-                                        range_itor->num_tuples);
-      } else {
-         trunk_range_iterator_deinit(range_itor);
-         rc = trunk_range_iterator_init(range_itor->spl,
-                                        range_itor,
-                                        rebuild_key,
-                                        POSITIVE_INFINITY_KEY,
-                                        range_itor->num_tuples);
-      }
+      KEY_CREATE_LOCAL_COPY(max_key,
+                            range_itor->spl->heap_id,
+                            key_buffer_key(&range_itor->max_key));
+      trunk_range_iterator_deinit(range_itor);
+      rc = trunk_range_iterator_init(range_itor->spl,
+                                     range_itor,
+                                     rebuild_key,
+                                     max_key,
+                                     range_itor->num_tuples);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -5964,9 +5938,7 @@ trunk_range_iterator_deinit(trunk_range_iterator *range_itor)
    }
 
    key_buffer_deinit(&range_itor->min_key);
-   if (range_itor->has_max_key) {
-      key_buffer_deinit(&range_itor->max_key);
-   }
+   key_buffer_deinit(&range_itor->max_key);
    key_buffer_deinit(&range_itor->local_max_key);
    key_buffer_deinit(&range_itor->rebuild_key);
 }

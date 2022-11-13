@@ -229,7 +229,6 @@ typedef struct trunk_range_iterator {
    uint64          memtable_end_gen;
    bool            compacted[TRUNK_RANGE_ITOR_MAX_BRANCHES];
    merge_iterator *merge_itor;
-   bool            has_max_key;
    bool            at_end;
    key_buffer      min_key;
    key_buffer      max_key;
