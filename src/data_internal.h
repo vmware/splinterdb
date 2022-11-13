@@ -320,6 +320,82 @@ message_class_string(message msg)
 }
 
 /*
+ * ON-DISK TUPLE REPRESENTATION
+ *
+ * The key and message data are laid out abutting each other. This structure
+ * describes that layout in terms of the length of the key-portion and the
+ * message-portion, following which appears the concatenated [<key>, <message>]
+ * datum.
+ */
+
+typedef uint16 ondisk_message_length;
+
+#define ONDISK_MESSAGE_TYPE_BITS (2)
+_Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE
+                  < (1ULL << ONDISK_MESSAGE_TYPE_BITS),
+               "ONDISK_MESSAGE_TYPE_BITS is too small");
+#define ONDISK_MESSAGE_LENGTH_BITS                                             \
+   (bitsizeof(ondisk_message_length) - ONDISK_MESSAGE_TYPE_BITS                \
+    - BLOB_FLAG_BITS)
+
+typedef struct ONDISK ondisk_tuple {
+   ondisk_key_length      key_length : ONDISK_KEY_LENGTH_BITS;
+   ondisk_key_length      key_isblob : BLOB_FLAG_BITS;
+   ondisk_message_length  message_length : ONDISK_MESSAGE_LENGTH_BITS;
+   ondisk_message_length  type : ONDISK_MESSAGE_TYPE_BITS;
+   ondisk_message_length  message_isblob : BLOB_FLAG_BITS;
+   char                   key_and_message[];
+} ondisk_tuple;
+
+static inline uint64
+sizeof_ondisk_tuple_bytes(const ondisk_tuple *odt)
+{
+   return odt->key_length + odt->message_length;
+}
+
+static inline uint64
+ondisk_tuple_bytes_size(key k, message msg)
+{
+   debug_assert(key_is_user_key(k));
+   return key_length(k) + message_length(msg);
+}
+
+static inline key
+ondisk_tuple_key(const ondisk_tuple *odt)
+{
+   return key_create(odt->key_length, odt->key_and_message);
+}
+
+static inline message
+ondisk_tuple_message(const ondisk_tuple *odt)
+{
+   return message_create(odt->type,
+                         slice_create(odt->message_length,
+                                      odt->key_and_message + odt->key_length));
+}
+
+static inline void
+copy_message_to_ondisk_tuple(ondisk_tuple *odt, message msg)
+{
+   odt->message_length = message_length(msg);
+   odt->type           = message_class(msg);
+   odt->message_isblob = FALSE;
+   memcpy(odt->key_and_message + odt->key_length,
+          message_data(msg),
+          message_length(msg));
+}
+
+static inline void
+copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
+{
+   debug_assert(key_is_user_key(k));
+   odt->key_length     = key_length(k);
+   odt->key_isblob     = FALSE;
+   memcpy(odt->key_and_message, key_data(k), key_length(k));
+   copy_message_to_ondisk_tuple(odt, msg);
+}
+
+/*
  * MERGE ACCUMULATORS
  *
  * Merge accumulators are basically the message version of a writable buffer.

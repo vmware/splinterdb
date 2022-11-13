@@ -23,7 +23,6 @@
 typedef uint16 table_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
 typedef node_offset table_entry;
-typedef uint16      inline_message_size;
 
 /*
  * *************************************************************************
@@ -56,38 +55,10 @@ typedef struct ONDISK index_entry {
 
 /*
  * *************************************************************************
- * BTree Leaf entry: Disk-resident structure
- *
- * The key and message data are laid out abutting each other on the BTree
- * leaf node. This structure describes that layout in terms of the length
- * of the key-portion and the message-portion, following which appears
- * the concatenated [<key>, <message>] datum.
+ * BTree Node leaf entries: Disk-resident structure
  * *************************************************************************
  */
-#define MESSAGE_TYPE_BITS (2)
-_Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE < (1ULL << MESSAGE_TYPE_BITS),
-               "MESSAGE_TYPE_BITS is too small");
-
-typedef struct ONDISK leaf_entry {
-   // clang-format off
-   ondisk_key_length      key_size         : bitsizeof(ondisk_key_length) - BLOB_FLAG_BITS;
-   /* Indirect keys are not currently implemented, but this field is
-      here so the on-disk format is ready when we add support. */
-   ondisk_key_length      key_indirect     : BLOB_FLAG_BITS;
-   inline_message_size  message_size     : bitsizeof(inline_message_size) - MESSAGE_TYPE_BITS - BLOB_FLAG_BITS;
-   inline_message_size  type             : MESSAGE_TYPE_BITS;
-   /* Indirect messages are not currently implemented, but this field is
-      here so the on-disk format is ready when we add support. */
-   inline_message_size  message_indirect : BLOB_FLAG_BITS;
-   char                 key_and_message[];
-   // clang-format on
-} leaf_entry;
-
-_Static_assert(sizeof(leaf_entry)
-                  == sizeof(ondisk_key_length) + sizeof(inline_message_size),
-               "leaf_entry has wrong size");
-_Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
-               "leaf_entry key_and_data has wrong offset");
+typedef ondisk_tuple leaf_entry;
 
 typedef struct leaf_incorporate_spec {
    key   tuple_key;
@@ -209,9 +180,9 @@ sizeof_index_entry(const index_entry *entry)
 static inline uint64
 sizeof_leaf_entry(const leaf_entry *entry)
 {
-   debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
-   return sizeof(*entry) + entry->key_size + entry->message_size;
+   debug_assert(entry->key_isblob == FALSE);
+   debug_assert(entry->message_isblob == FALSE);
+   return sizeof(*entry) + sizeof_ondisk_tuple_bytes(entry);
 }
 
 static inline key
@@ -231,27 +202,24 @@ index_entry_child_addr(const index_entry *entry)
 static inline key
 leaf_entry_key(leaf_entry *entry)
 {
-   debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
-   return key_create(entry->key_size, entry->key_and_message);
+   debug_assert(entry->key_isblob == FALSE);
+   debug_assert(entry->message_isblob == FALSE);
+   return ondisk_tuple_key(entry);
 }
 
 static inline message
 leaf_entry_message(leaf_entry *entry)
 {
-   debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
-   return message_create(
-      entry->type,
-      slice_create(entry->message_size,
-                   entry->key_and_message + entry->key_size));
+   debug_assert(entry->key_isblob == FALSE);
+   debug_assert(entry->message_isblob == FALSE);
+   return ondisk_tuple_message(entry);
 }
 
 static inline message_type
 leaf_entry_message_type(leaf_entry *entry)
 {
-   debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
+   debug_assert(entry->key_isblob == FALSE);
+   debug_assert(entry->message_isblob == FALSE);
    return entry->type;
 }
 
@@ -270,8 +238,8 @@ btree_get_leaf_entry(const btree_config *cfg,
       (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
    debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
                 <= btree_page_size(cfg));
-   debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
+   debug_assert(entry->key_isblob == FALSE);
+   debug_assert(entry->message_isblob == FALSE);
    return entry;
 }
 

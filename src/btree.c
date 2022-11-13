@@ -114,14 +114,14 @@ leaf_entry_size(key tuple_key, const message msg)
 static inline uint64
 leaf_entry_key_size(const leaf_entry *entry)
 {
-   return entry->key_size;
+   return entry->key_length;
 }
 
 
 static inline uint64
 leaf_entry_message_size(const leaf_entry *entry)
 {
-   return entry->message_size;
+   return entry->message_length;
 }
 
 /*********************************************************
@@ -266,18 +266,9 @@ btree_fill_leaf_entry(const btree_config *cfg,
 {
    debug_assert(pointer_byte_offset(entry, leaf_entry_size(tuple_key, msg))
                 <= pointer_byte_offset(hdr, btree_page_size(cfg)));
-   memcpy(entry->key_and_message, key_data(tuple_key), key_length(tuple_key));
-   memcpy(entry->key_and_message + key_length(tuple_key),
-          message_data(msg),
-          message_length(msg));
-   entry->key_size     = key_length(tuple_key);
-   entry->key_indirect = FALSE;
-   entry->type         = message_class(msg);
-   /* This assertion ensures that entry->type is large enough to hold type. */
+   copy_tuple_to_ondisk_tuple(entry, tuple_key, msg);
    debug_assert(entry->type == message_class(msg),
                 "entry->type not large enough to hold message_class");
-   entry->message_size     = message_length(msg);
-   entry->message_indirect = FALSE;
 }
 
 static inline bool
