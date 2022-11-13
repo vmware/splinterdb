@@ -173,9 +173,7 @@ btree_fill_index_entry(const btree_config *cfg,
    debug_assert((void *)hdr <= (void *)entry);
    debug_assert(diff_ptr(hdr, entry) + index_entry_size(new_pivot_key)
                 <= btree_page_size(cfg));
-   memcpy(entry->key, key_data(new_pivot_key), key_length(new_pivot_key));
-   entry->key_size              = key_length(new_pivot_key);
-   entry->key_indirect          = FALSE;
+   copy_key_to_ondisk_key(&entry->pivot, new_pivot_key);
    entry->pivot_data.child_addr = new_addr;
    entry->pivot_data.stats      = stats;
 }

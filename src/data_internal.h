@@ -177,6 +177,68 @@ key_buffer_deinit(key_buffer *kb)
 
 
 /*
+ * ON-DISK KEY REPRESENTATION
+ */
+typedef uint16 ondisk_key_length;
+
+#define BLOB_FLAG_BITS                 (1)
+#define ONDISK_KEY_LENGTH_BITS         (bitsizeof(ondisk_key_length) - BLOB_FLAG_BITS)
+#define ONDISK_KEY_NEGATIVE_INFINITY                                           \
+   ((((ondisk_key_length)1) << ONDISK_KEY_LENGTH_BITS) - 1)
+#define ONDISK_KEY_POSITIVE_INFINITY                                           \
+   ((((ondisk_key_length)1) << ONDISK_KEY_LENGTH_BITS) - 2)
+
+typedef struct ONDISK ondisk_key {
+   ondisk_key_length length : ONDISK_KEY_LENGTH_BITS;
+   ondisk_key_length isblob : BLOB_FLAG_BITS;
+   char              bytes[];
+} ondisk_key;
+
+static inline uint64
+sizeof_ondisk_key_bytes(const ondisk_key *odk)
+{
+   if (odk->length == ONDISK_KEY_NEGATIVE_INFINITY
+       || odk->length == ONDISK_KEY_POSITIVE_INFINITY)
+   {
+      return 0;
+   } else {
+      return odk->length;
+   }
+}
+
+static inline uint64
+ondisk_key_bytes_size(key k)
+{
+   return key_length(k);
+}
+
+static inline key
+ondisk_key_to_key(const ondisk_key *odk)
+{
+   if (odk->length == ONDISK_KEY_NEGATIVE_INFINITY) {
+      return NEGATIVE_INFINITY_KEY;
+   } else if (odk->length == ONDISK_KEY_POSITIVE_INFINITY) {
+      return POSITIVE_INFINITY_KEY;
+   } else {
+      return key_create(odk->length, odk->bytes);
+   }
+}
+
+static inline void
+copy_key_to_ondisk_key(ondisk_key *odk, key k)
+{
+   odk->isblob = FALSE;
+   if (key_is_user_key(k)) {
+      odk->length = key_length(k);
+      memcpy(odk->bytes, key_data(k), key_length(k));
+   } else if (key_is_negative_infinity(k)) {
+      odk->length = ONDISK_KEY_NEGATIVE_INFINITY;
+   } else if (key_is_positive_infinity(k)) {
+      odk->length = ONDISK_KEY_POSITIVE_INFINITY;
+   }
+}
+
+/*
  * MESSAGES
  *
  * Note: The message data type is exposed to user callbacks, so it is

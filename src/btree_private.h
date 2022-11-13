@@ -23,7 +23,6 @@
 typedef uint16 table_index; //  So we can make this bigger for bigger nodes.
 typedef uint16 node_offset; //  So we can make this bigger for bigger nodes.
 typedef node_offset table_entry;
-typedef uint16      inline_key_size;
 typedef uint16      inline_message_size;
 
 /*
@@ -50,24 +49,10 @@ struct ONDISK btree_hdr {
  * BTree Node index entries: Disk-resident structure
  * *************************************************************************
  */
-#define INDIRECT_FLAG_BITS (1)
 typedef struct ONDISK index_entry {
-   // clang-format off
-   btree_pivot_data     pivot_data;
-   inline_key_size      key_size     : bitsizeof(inline_key_size) - INDIRECT_FLAG_BITS;
-   /* Indirect keys are not currently implemented, but this field is
-      here so the on-disk format is ready when we add support. */
-   inline_key_size      key_indirect : INDIRECT_FLAG_BITS;
-   char                 key[];
-   // clang-format on
+   btree_pivot_data pivot_data;
+   ondisk_key       pivot;
 } index_entry;
-
-_Static_assert(sizeof(index_entry)
-                  == sizeof(uint64) + 3 * sizeof(uint32)
-                        + sizeof(inline_key_size),
-               "index_entry has wrong size");
-_Static_assert(offsetof(index_entry, key) == sizeof(index_entry),
-               "index_entry key has wrong offset");
 
 /*
  * *************************************************************************
@@ -85,21 +70,21 @@ _Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE < (1ULL << MESSAGE_TYPE_BITS),
 
 typedef struct ONDISK leaf_entry {
    // clang-format off
-   inline_key_size      key_size         : bitsizeof(inline_key_size) - INDIRECT_FLAG_BITS;
+   ondisk_key_length      key_size         : bitsizeof(ondisk_key_length) - BLOB_FLAG_BITS;
    /* Indirect keys are not currently implemented, but this field is
       here so the on-disk format is ready when we add support. */
-   inline_key_size      key_indirect     : INDIRECT_FLAG_BITS;
-   inline_message_size  message_size     : bitsizeof(inline_message_size) - MESSAGE_TYPE_BITS - INDIRECT_FLAG_BITS;
+   ondisk_key_length      key_indirect     : BLOB_FLAG_BITS;
+   inline_message_size  message_size     : bitsizeof(inline_message_size) - MESSAGE_TYPE_BITS - BLOB_FLAG_BITS;
    inline_message_size  type             : MESSAGE_TYPE_BITS;
    /* Indirect messages are not currently implemented, but this field is
       here so the on-disk format is ready when we add support. */
-   inline_message_size  message_indirect : INDIRECT_FLAG_BITS;
+   inline_message_size  message_indirect : BLOB_FLAG_BITS;
    char                 key_and_message[];
    // clang-format on
 } leaf_entry;
 
 _Static_assert(sizeof(leaf_entry)
-                  == sizeof(inline_key_size) + sizeof(inline_message_size),
+                  == sizeof(ondisk_key_length) + sizeof(inline_message_size),
                "leaf_entry has wrong size");
 _Static_assert(offsetof(leaf_entry, key_and_message) == sizeof(leaf_entry),
                "leaf_entry key_and_data has wrong offset");
@@ -217,8 +202,8 @@ btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 static inline uint64
 sizeof_index_entry(const index_entry *entry)
 {
-   debug_assert(entry->key_indirect == FALSE);
-   return sizeof(*entry) + entry->key_size;
+   debug_assert(entry->pivot.isblob == FALSE);
+   return sizeof(*entry) + sizeof_ondisk_key_bytes(&entry->pivot);
 }
 
 static inline uint64
@@ -232,14 +217,14 @@ sizeof_leaf_entry(const leaf_entry *entry)
 static inline key
 index_entry_key(const index_entry *entry)
 {
-   debug_assert(entry->key_indirect == FALSE);
-   return key_create(entry->key_size, entry->key);
+   debug_assert(entry->pivot.isblob == FALSE);
+   return ondisk_key_to_key(&entry->pivot);
 }
 
 static inline uint64
 index_entry_child_addr(const index_entry *entry)
 {
-   debug_assert(entry->key_indirect == FALSE);
+   debug_assert(entry->pivot.isblob == FALSE);
    return entry->pivot_data.child_addr;
 }
 
@@ -350,7 +335,7 @@ btree_get_index_entry(const btree_config *cfg,
                 hdr->offsets[k],
                 sizeof_index_entry(entry),
                 btree_page_size(cfg));
-   debug_assert(entry->key_indirect == FALSE);
+   debug_assert(entry->pivot.isblob == FALSE);
    return entry;
 }
 
