@@ -161,7 +161,7 @@ static int
 leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
    char *leaf_buffer =
-      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
+      TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 240;
 
@@ -238,7 +238,7 @@ static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
    char *leaf_buffer =
-      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
+      TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
    int        nkvs = 256;
 
@@ -279,7 +279,7 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
 
    char *index_buffer =
-      TYPED_MALLOC_MANUAL(hid, index_buffer, btree_page_size(cfg));
+      TYPED_MANUAL_MALLOC(hid, index_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)index_buffer;
    int        nkvs = 100;
 
@@ -340,7 +340,7 @@ static int
 index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
    char *leaf_buffer =
-      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
+      TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
    btree_hdr        *hdr  = (btree_hdr *)leaf_buffer;
    int               nkvs = 256;
    btree_pivot_stats stats;
@@ -379,9 +379,9 @@ leaf_split_tests(btree_config    *cfg,
                  platform_heap_id hid)
 {
    char *leaf_buffer =
-      TYPED_MALLOC_MANUAL(hid, leaf_buffer, btree_page_size(cfg));
+      TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
    char *msg_buffer =
-      TYPED_MALLOC_MANUAL(hid, msg_buffer, btree_page_size(cfg));
+      TYPED_MANUAL_MALLOC(hid, msg_buffer, btree_page_size(cfg));
 
    memset(msg_buffer, 0, btree_page_size(cfg));
 
@@ -414,7 +414,7 @@ leaf_split_tests(btree_config    *cfg,
       slice key = slice_create(1, &i);
 
       bool success = btree_leaf_incorporate_tuple(
-         cfg, scratch, hdr, key, bigger_msg, &spec, &generation);
+         cfg, hid, hdr, key, bigger_msg, &spec, &generation);
       if (success) {
          btree_print_locked_node(Platform_error_log_handle, cfg, 0, hdr);
          ASSERT_FALSE(success,

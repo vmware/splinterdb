@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <stdarg.h>
+#include <unistd.h>
 #include "platform.h"
 
 #include <sys/mman.h>
@@ -101,6 +102,9 @@ platform_buffer_destroy(buffer_handle *bh)
    return STATUS_OK;
 }
 
+/*
+ * platform_thread_create() - External interface to create a Splinter thread.
+ */
 platform_status
 platform_thread_create(platform_thread       *thread,
                        bool                   detached,
@@ -134,6 +138,12 @@ platform_thread_join(platform_thread thread)
    ret = pthread_join(thread, &retval);
 
    return CONST_STATUS(ret);
+}
+
+platform_thread
+platform_thread_id_self()
+{
+   return pthread_self();
 }
 
 platform_status
@@ -184,7 +194,7 @@ platform_histo_create(platform_heap_id       heap_id,
                       platform_histo_handle *histo)
 {
    platform_histo_handle hh;
-   hh = TYPED_MALLOC_MANUAL(
+   hh = TYPED_MANUAL_MALLOC(
       heap_id, hh, sizeof(hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
       return STATUS_NO_MEMORY;
@@ -347,8 +357,16 @@ platform_assert_msg(platform_log_handle *log_handle,
                     const char          *message,
                     va_list              varargs)
 {
-   static char assert_msg_fmt[] = "Assertion failed at %s:%d:%s(): \"%s\". ";
-   platform_log(
-      log_handle, assert_msg_fmt, filename, linenumber, functionname, expr);
+   static char assert_msg_fmt[] = "OS-pid=%d, OS-tid=%lu, Thread-ID=%lu, "
+                                  "Assertion failed at %s:%d:%s(): \"%s\". ";
+   platform_log(log_handle,
+                assert_msg_fmt,
+                getpid(),
+                gettid(),
+                platform_get_tid(), // SplinterDB's thread-ID (index)
+                filename,
+                linenumber,
+                functionname,
+                expr);
    vfprintf(log_handle, message, varargs);
 }

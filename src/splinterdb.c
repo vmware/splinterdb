@@ -165,6 +165,10 @@ typedef struct ONDISK {
    uint8 data[0];
 } var_len_key_encoding;
 
+static_assert((MAX_KEY_SIZE >= 8), "MAX_KEY_SIZE must be at least 8 bytes");
+static_assert((MAX_KEY_SIZE <= 105),
+              "Keys larger than 105 bytes are currently not supported");
+
 static_assert((SPLINTERDB_MAX_KEY_SIZE + sizeof(var_len_key_encoding)
                == MAX_KEY_SIZE),
               "Variable-length key encoding header size mismatch");
@@ -475,7 +479,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             (io_handle *)&kvs->io_handle,
                             (allocator *)&kvs->allocator_handle,
                             "splinterdb",
-                            kvs->task_sys,
                             kvs->heap_handle,
                             kvs->heap_id,
                             platform_get_module_id());
@@ -937,4 +940,22 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
 
    *key   = slice_create(kenc->length, kenc->data);
    *value = message_slice(msg);
+}
+
+void
+splinterdb_stats_print_insertion(const splinterdb *kvs)
+{
+   trunk_print_insertion_stats(Platform_default_log_handle, kvs->spl);
+}
+
+void
+splinterdb_stats_print_lookup(const splinterdb *kvs)
+{
+   trunk_print_lookup_stats(Platform_default_log_handle, kvs->spl);
+}
+
+void
+splinterdb_stats_reset(splinterdb *kvs)
+{
+   trunk_reset_stats(kvs->spl);
 }

@@ -423,6 +423,11 @@ $(BINDIR)/$(UNITDIR)/config_parse_test: $(UTIL_SYS)                             
                                         $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                         $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                                   \
+                                       $(COMMON_TESTOBJ)                             \
+                                       $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                       $(LIBDIR)/libsplinterdb.so
+
 ########################################
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
@@ -481,7 +486,7 @@ test-results: all-tests
 
 INSTALL_PATH ?= /usr/local
 
-install:
+install: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 	mkdir -p $(INSTALL_PATH)/include/splinterdb $(INSTALL_PATH)/lib
 	# -p retains the timestamp of the file being copied over
 	cp -p $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a $(INSTALL_PATH)/lib

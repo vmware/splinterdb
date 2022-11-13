@@ -127,12 +127,25 @@ task_thread_create(const char            *name,
                    platform_thread       *thread);
 
 // Register the calling thread, allocating scratch space for it
+#define task_register_this_thread(ts, scratch_size)                            \
+   task_register_thread((ts), (scratch_size), __FILE__, __LINE__, __FUNCTION__)
+
 void
-task_register_this_thread(task_system *ts, uint64 scratch_size);
+task_register_thread(task_system *ts,
+                     uint64       scratch_size,
+                     const char  *file,
+                     const int    lineno,
+                     const char  *func);
 
 // Unregister the calling thread and free its scratch space
+#define task_deregister_this_thread(ts)                                        \
+   task_deregister_thread((ts), __FILE__, __LINE__, __FUNCTION__)
+
 void
-task_deregister_this_thread(task_system *ts);
+task_deregister_thread(task_system *ts,
+                       const char  *file,
+                       const int    lineno,
+                       const char  *func);
 
 
 platform_status
@@ -169,6 +182,12 @@ task_perform_all(task_system *ts);
 
 void
 task_wait_for_completion(task_system *ts);
+
+threadid
+task_get_max_tid(task_system *ts);
+
+uint64
+task_active_tasks_mask(task_system *ts);
 
 void
 task_print_stats(task_system *ts);

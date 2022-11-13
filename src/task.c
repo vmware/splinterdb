@@ -6,27 +6,31 @@
 
 #include "poison.h"
 
-#define MAX_HOOKS (2048)
+#define MAX_HOOKS (8)
 
 int              hook_init_done = 0;
 static int       num_hooks      = 0;
 static task_hook hooks[MAX_HOOKS];
 
 // forward declarations that aren't part of the public API of the task system
-platform_status
+static platform_status
 task_register_hook(task_hook newhook);
 
-threadid *
+static threadid *
 task_system_get_max_tid(task_system *ts);
 
-uint64 *
+static uint64 *
 task_system_get_tid_bitmask(task_system *ts);
 
-void
+static void
 task_system_io_register_thread(task_system *ts);
 // end forward declarations
 
-void
+/*
+ * task_init_tid_bitmask() - Initialize the global bitmask of active threads in
+ * the task system structure to indicate that no threads are currently active.
+ */
+static void
 task_init_tid_bitmask(uint64 *tid_bitmask)
 {
    // We use a 64 bit word to act as the thread bitmap.
@@ -40,8 +44,17 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
    }
 }
 
+/*
+ * task_init_threadid() - Initialize a new thread's thread ID (index).
+
+ * The first thing a newly started thread that wants to use Splinter is expected
+ * to do is to "register itself" with the task system. This function is
+ * defined as a thread's hook and gets run as part of the thread's
+ * registration. This function initializes each thread's thread-ID, which
+ * is really an index into the array of thread-specific data structures.
+ */
 static void
-init_threadid(task_system *ts)
+task_init_threadid(task_system *ts)
 {
    threadid  tid         = INVALID_TID;
    uint64   *tid_bitmask = task_system_get_tid_bitmask(ts);
@@ -68,9 +81,15 @@ init_threadid(task_system *ts)
 
 out:
    debug_assert(tid != INVALID_TID);
+
+   // Sets thread-ID, for example tracked as thread-local storage.
    platform_set_tid(tid);
 }
 
+/*
+ * Return the max thread-index across all active tasks.
+ * Mainly intended as a testing hook.
+ */
 threadid
 task_get_max_tid(task_system *ts)
 {
@@ -88,17 +107,17 @@ task_get_max_tid(task_system *ts)
  * beginning of the main thread that uses the task, similar to how
  * __attribute__((constructor)) works.
  */
-void
+static void
 register_init_tid_hook(void)
 {
    // hooks need to be initialized only once.
    if (__sync_fetch_and_add(&hook_init_done, 1) == 0) {
-      task_register_hook(init_threadid);
+      task_register_hook(task_init_threadid);
       task_register_hook(task_system_io_register_thread);
    }
 }
 
-void
+static void
 task_run_thread_hooks(task_system *ts)
 {
    for (int i = 0; i < num_hooks; i++) {
@@ -106,22 +125,38 @@ task_run_thread_hooks(task_system *ts)
    }
 }
 
-void
+/*
+ * De-registering a task frees up the thread's index so that it can be re-used.
+ */
+static void
 task_clear_threadid(task_system *ts, threadid tid)
 {
    uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
-   platform_assert(!(*tid_bitmask & (1ULL << tid)));
+
+   uint64 bitmask_val = *tid_bitmask;
+
+   // Ensure that caller is only clearing for a thread that's in-use.
+   platform_assert(!(bitmask_val & (1ULL << tid)),
+                   "Thread [%lu] is expected to be in-use. Bitmap: 0x%lx",
+                   tid,
+                   bitmask_val);
+
    // set bit back to 1 to indicate a free slot.
    while (1) {
       uint64 tmp_bitmask = *tid_bitmask;
       uint64 new_value   = tmp_bitmask | (1ULL << tid);
       if (__sync_bool_compare_and_swap(tid_bitmask, tmp_bitmask, new_value)) {
+
+         // This is the reverse of registration, where tid is allocated by
+         // init(). So, clear this out as thread is being de-registered.
+         // (Useful for testing and used in other assertions.)
+         platform_set_tid(0);
          return;
       }
    }
 }
 
-platform_status
+static platform_status
 task_register_hook(task_hook newhook)
 {
    int my_hook_idx = __sync_fetch_and_add(&num_hooks, 1);
@@ -133,23 +168,86 @@ task_register_hook(task_hook newhook)
    return STATUS_OK;
 }
 
-// Register the calling thread and allocate scratch space for it
+/*
+ * task_register_thread(): Register this new thread with the task system.
+ *
+ * Registration implies:
+ *  - Acquire a new thread ID (index) for this to-be-active thread
+ *  - Allocate scratch space for this thread, and track this space..
+ */
 void
-task_register_this_thread(task_system *ts, uint64 scratch_size)
+task_register_thread(task_system *ts,
+                     uint64       scratch_size,
+                     const char  *file,
+                     const int    lineno,
+                     const char  *func)
 {
+   threadid thread_tid = platform_get_tid();
+   /*
+    * For all newly created threads, the thread-index will be 0 before the hook
+    * function, run below, generates this thread's index. We do not want to
+    * register a thread twice; otherwise, it will simply burn up an index and
+    * possibly also waste allocated scratch space.
+    * As threads generally will require scratch space to be allocated, an
+    * attempt to re-register a thread should find scratch space already
+    * allocated. Flag that.
+    */
+   platform_assert((thread_tid == 0)
+                      || (ts->thread_scratch[thread_tid] == NULL),
+                   "[%s:%d::%s()] Thread at index %lu is found to have scratch"
+                   " space already allocated, %p\n",
+                   file,
+                   lineno,
+                   func,
+                   thread_tid,
+                   ts->thread_scratch[thread_tid]);
+
    char *scratch = NULL;
    if (scratch_size > 0) {
-      scratch = TYPED_ZALLOC_MANUAL(ts->heap_id, scratch, scratch_size);
+      scratch = TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
    }
    task_run_thread_hooks(ts);
-   ts->thread_scratch[platform_get_tid()] = scratch;
+
+   // Ensure that we are not clobbering some scratch space previously allocated
+   // that might occur due to a code-bug or by an incorrectly generated tid.
+   thread_tid = platform_get_tid();
+   platform_assert(
+      (ts->thread_scratch[thread_tid] == NULL),
+      "[%s:%d::%s()] Scratch space found allocated at %p for thread with "
+      "index %lu.",
+      file,
+      lineno,
+      func,
+      ts->thread_scratch[thread_tid],
+      thread_tid);
+
+   ts->thread_scratch[thread_tid] = scratch;
 }
 
-// Deregister the calling thread and free its scratch space
+/*
+ * task_deregister_thread() - Deregister an active thread from the task system.
+ *
+ * Deregistration involves:
+ *  - Releasing any scratch space acquired for this thread.
+ *  - Clearing the thread ID (index) for this thread
+ */
 void
-task_deregister_this_thread(task_system *ts)
+task_deregister_thread(task_system *ts,
+                       const char  *file,
+                       const int    lineno,
+                       const char  *func)
 {
-   uint64 tid = platform_get_tid();
+   threadid tid = platform_get_tid();
+
+   // A registered thread should always have a non-zero tid (index).
+   if (tid == 0) {
+      platform_error_log("[%s:%d::%s()] Error! Thread is already "
+                         "found to be de-registered.\n",
+                         file,
+                         lineno,
+                         func);
+   }
+   platform_assert((tid != 0), "Error! Thread is already de-registered.\n");
 
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
@@ -168,24 +266,43 @@ typedef struct {
    platform_heap_id heap_id;
 } thread_invoke;
 
+/*
+ * -----------------------------------------------------------------------------
+ * task_invoke_with_hooks() - Single interface to invoke a user-specified
+ * call-back function, 'func', to perform Splinter work.
+ *
+ * A thread has been created with this function as the worker function. Also,
+ * the thread-creator has registered another call-back function to execute.
+ * This function invokes that call-back function bracketted by calls to
+ * register / deregister the thread with Splinter's task system. This allows
+ * the call-back function 'func' to now call Splinter APIs to do diff things.
+ * -----------------------------------------------------------------------------
+ */
 static void
 task_invoke_with_hooks(void *func_and_args)
 {
-   thread_invoke         *thread_to_start = (thread_invoke *)func_and_args;
-   platform_thread_worker func            = thread_to_start->func;
-   void                  *arg             = thread_to_start->arg;
+   thread_invoke         *thread_started = (thread_invoke *)func_and_args;
+   platform_thread_worker func           = thread_started->func;
+   void                  *arg            = thread_started->arg;
 
-   task_register_this_thread(thread_to_start->ts,
-                             thread_to_start->scratch_size);
+   task_register_this_thread(thread_started->ts, thread_started->scratch_size);
 
+   // Execute the user-provided call-back function which is where
+   // the actual Splinter work will be done.
    func(arg);
 
-   task_deregister_this_thread(thread_to_start->ts);
+   task_deregister_this_thread(thread_started->ts);
 
-   platform_free(thread_to_start->heap_id, func_and_args);
+   platform_free(thread_started->heap_id, func_and_args);
 }
 
-platform_status
+/*
+ * -----------------------------------------------------------------------------
+ * task_create_thread_with_hooks() - Creates a thread to execute func with
+ * argument 'arg'.
+ * -----------------------------------------------------------------------------
+ */
+static platform_status
 task_create_thread_with_hooks(platform_thread       *thread,
                               bool                   detached,
                               platform_thread_worker func,
@@ -215,6 +332,15 @@ task_create_thread_with_hooks(platform_thread       *thread,
    return ret;
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * task_thread_create() - Helper method to create a new task and to do the
+ *  required registration with Splinter.
+ *
+ * Currently, this is active mainly in tests. It's also used to create
+ * background tasks, a feature that is currently not enabled.
+ * -----------------------------------------------------------------------------
+ */
 platform_status
 task_thread_create(const char            *name,
                    platform_thread_worker func,
@@ -241,7 +367,7 @@ task_thread_create(const char            *name,
 }
 
 /* Worker function for the background task pool. */
-void
+static void
 task_worker_thread(void *arg)
 {
    task_group    *group = (task_group *)arg;
@@ -333,7 +459,7 @@ task_group_stop_and_wait_for_threads(task_group *group)
    }
 }
 
-void
+static void
 task_group_deinit(task_group *group)
 {
    task_group_stop_and_wait_for_threads(group);
@@ -395,6 +521,12 @@ out:
    return rc;
 }
 
+/*
+ * task_lock_task_queue(), task_unlock_task_queue():
+ *
+ * Primitives to lock / unlock task queues depending on whether we
+ * are dealing with foreground or background threads.
+ */
 static inline platform_status
 task_lock_task_queue(task_group *group)
 {
@@ -417,7 +549,9 @@ task_unlock_task_queue(task_group *group)
    }
 }
 
-/* Adds one task to the task queue. */
+/*
+ * task_enqueue() - Adds one task to the task queue.
+ */
 platform_status
 task_enqueue(task_system *ts,
              task_type    type,
@@ -469,7 +603,10 @@ task_enqueue(task_system *ts,
    return task_unlock_task_queue(group);
 }
 
-/* Returns as soon as it finds the queue is empty */
+/*
+ * task_perform_all() - Perform all tasks queued with the task system.
+ * Returns as soon as it finds the queue is empty.
+ */
 void
 task_perform_all(task_system *ts)
 {
@@ -563,8 +700,9 @@ out:
    return rc;
 }
 
-/* Checks if there is a task to run and runs it.
-   returns ETIMEDOUT if it didn't run any task;
+/*
+ * task_perform_one() - Checks if there is a task to run and runs it.
+ * Returns ETIMEDOUT if it didn't run any task;
  */
 platform_status
 task_perform_one(task_system *ts)
@@ -583,7 +721,8 @@ task_perform_one(task_system *ts)
 /*
  * -----------------------------------------------------------------------------
  * Task system initializer. Makes sure that the initial thread has an
- * adequately sized scratch.
+ * adequately sized scratch space.
+ *
  * Needs to be called at the beginning of the main thread that uses splinter,
  * similar to how __attribute__((constructor)) works.
  * -----------------------------------------------------------------------------
@@ -636,18 +775,26 @@ task_system_create(platform_heap_id    hid,
    return STATUS_OK;
 }
 
+/* Is the task system currently setup to use background threads? */
 bool
 task_system_use_bg_threads(task_system *ts)
 {
    return ts->use_bg_threads;
 }
 
-void
+static void
 task_system_io_register_thread(task_system *ts)
 {
    io_thread_register(&ts->ioh->super);
 }
 
+/*
+ * -----------------------------------------------------------------------------
+ * task_system_destroy() : Task system de-initializer.
+ *
+ * Tear down task system structures, free allocated memory.
+ * -----------------------------------------------------------------------------
+ */
 void
 task_system_destroy(platform_heap_id hid, task_system **ts_in)
 {
@@ -659,13 +806,22 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
    *ts_in = (task_system *)NULL;
 }
 
-uint64 *
+static inline uint64 *
 task_system_get_tid_bitmask(task_system *ts)
 {
    return &ts->tid_bitmask;
 }
 
-threadid *
+/*
+ * Return the bitmasks of tasks active. Mainly intended as a testing hook.
+ */
+uint64
+task_active_tasks_mask(task_system *ts)
+{
+   return *task_system_get_tid_bitmask(ts);
+}
+
+static threadid *
 task_system_get_max_tid(task_system *ts)
 {
    return &ts->max_tid;
@@ -674,6 +830,7 @@ task_system_get_max_tid(task_system *ts)
 void *
 task_system_get_thread_scratch(task_system *ts, const threadid tid)
 {
+   platform_assert((tid < MAX_THREADS), "tid=%lu", tid);
    return ts->thread_scratch[tid];
 }
 

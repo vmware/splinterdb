@@ -206,7 +206,23 @@ extern bool platform_use_mlock;
 typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
 /*
- * Utility macros to avoid common initialization mistakes.
+ * -----------------------------------------------------------------------------
+ * TYPED_MANUAL_MALLOC(), TYPED_MANUAL_ZALLOC() -
+ * TYPED_ARRAY_MALLOC(),  TYPED_ARRAY_ZALLOC() -
+ *
+ * Utility macros to avoid common memory allocation / initialization mistakes.
+ * NOTE: ZALLOC variants will also memset allocated memory chunk to 0.
+ *
+ * Call-flow is:
+ *  TYPED_MALLOC()
+ *   -> TYPED_ARRAY_MALLOC()
+ *        -> TYPED_MANUAL_MALLOC() -> platform_aligned_malloc()
+ *
+ *  TYPED_ZALLOC()
+ *   -> TYPED_ARRAY_ZALLOC()
+ *        -> TYPED_MANUAL_ZALLOC() -> platform_aligned_zalloc()
+ *
+ * -----------------------------------------------------------------------------
  * Common mistake to make is:
  *    TYPE *foo = platform_malloc(sizeof(WRONG_TYPE));
  * or
@@ -264,7 +280,6 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * Alternative solutions are to be careful with mallocs, and/or make ALL structs
  * be aligned.
  *
- *
  * Another common use case is if you have a struct with a flexible array member.
  * In that case you should use TYPED_FLEXIBLE_STRUCT_(M|Z)ALLOC
  *
@@ -278,28 +293,67 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * DO NOT USE these macros to assign to a void*.  The debug asserts will cause
  * a compile error when debug is on.  Assigning to a void* should be done by
  * calling aligned_alloc manually (or create a separate macro)
+ *
+ * Parameters:
+ *	hid - Platform heap-ID to allocate memory from.
+ *	v   - Structure to allocate memory for.
+ *	n   - Number of bytes of memory to allocate.
+ * -----------------------------------------------------------------------------
  */
-#define TYPED_MALLOC_MANUAL(id, v, n)                                          \
+#define TYPED_MANUAL_MALLOC(hid, v, n)                                         \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(id, PLATFORM_CACHELINE_SIZE, (n));    \
+      (typeof(v))platform_aligned_malloc(hid, PLATFORM_CACHELINE_SIZE, (n));   \
    })
-#define TYPED_ZALLOC_MANUAL(id, v, n)                                          \
+#define TYPED_MANUAL_ZALLOC(hid, v, n)                                         \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(id, PLATFORM_CACHELINE_SIZE, (n));    \
+      (typeof(v))platform_aligned_zalloc(hid, PLATFORM_CACHELINE_SIZE, (n));   \
    })
 
 /*
+ * TYPED_ALIGNED_MALLOC(), TYPED_ALIGNED_ZALLOC()
+ *
+ * Allocate memory for a typed structure at caller-specified alignment.
+ * These are similar to TYPED_MANUAL_MALLOC() & TYPED_MANUAL_ZALLOC() but with
+ * the difference that the alignment is caller-specified.
+ *
+ * Parameters:
+ *	hid - Platform heap-ID to allocate memory from.
+ *	a   - Alignment needed for allocated memory.
+ *	v   - Structure to allocate memory for.
+ *	n   - Number of bytes of memory to allocate.
+ */
+#define TYPED_ALIGNED_MALLOC(hid, a, v, n)                                     \
+   ({                                                                          \
+      debug_assert((n) >= sizeof(*(v)));                                       \
+      (typeof(v))platform_aligned_malloc(hid, (a), (n));                       \
+   })
+#define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
+   ({                                                                          \
+      debug_assert((n) >= sizeof(*(v)));                                       \
+      (typeof(v))platform_aligned_zalloc(hid, (a), (n));                       \
+   })
+
+/*
+ * FLEXIBLE_STRUCT_SIZE(): Compute the size of a structure 'v' with a nested
+ * flexible array member, array_field_name, with 'n' members.
+ *
  * Flexible array members don't necessarily start after sizeof(v)
  * They can start within the padding at the end, so the correct size
  * needed to allocate a struct with a flexible array member is the
  * larger of sizeof(struct v) or (offset of flexible array +
  * n*sizeof(arraymember))
+ *
  * The only reasonable static assert we can do is check that the flexible array
  * member is actually an array.  We cannot check size==0 (compile error), and
  * since it doesn't necessarily start at the end we also cannot check
  * offset==sizeof.
+ *
+ * Parameters:
+ *  v                   - Structure to allocate memory for.
+ *  array_field_name    - Name of flexible array field nested in 'v'
+ *  n                   - Number of members in array_field_name[].
  */
 #define FLEXIBLE_STRUCT_SIZE(v, array_field_name, n)                           \
    ({                                                                          \
@@ -310,23 +364,53 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
                     + offsetof(typeof(*(v)), array_field_name));               \
    })
 
-#define TYPED_FLEXIBLE_STRUCT_MALLOC(id, v, array_field_name, n)               \
-   TYPED_MALLOC_MANUAL(                                                        \
-      id, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
+/*
+ * -----------------------------------------------------------------------------
+ * TYPED_FLEXIBLE_STRUCT_MALLOC(), TYPED_FLEXIBLE_STRUCT_ZALLOC() -
+ *    Allocate memory for a structure with a nested flexible array member.
+ *
+ * Parameters:
+ *  hid                 - Platform heap-ID to allocate memory from.
+ *  v                   - Structure to allocate memory for.
+ *  array_field_name    - Name of flexible array field nested in 'v'
+ *  n                   - Number of members in array_field_name[].
+ * -----------------------------------------------------------------------------
+ */
+#define TYPED_FLEXIBLE_STRUCT_MALLOC(hid, v, array_field_name, n)              \
+   TYPED_MANUAL_MALLOC(                                                        \
+      hid, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
-#define TYPED_FLEXIBLE_STRUCT_ZALLOC(id, v, array_field_name, n)               \
-   TYPED_ZALLOC_MANUAL(                                                        \
-      id, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
-
-#define TYPED_ARRAY_MALLOC(id, v, n)                                           \
-   TYPED_MALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
-#define TYPED_ARRAY_ZALLOC(id, v, n)                                           \
-   TYPED_ZALLOC_MANUAL(id, (v), (n) * sizeof(*(v)))
-
-#define TYPED_MALLOC(id, v) TYPED_ARRAY_MALLOC(id, (v), 1)
-#define TYPED_ZALLOC(id, v) TYPED_ARRAY_ZALLOC(id, (v), 1)
+#define TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, v, array_field_name, n)              \
+   TYPED_MANUAL_ZALLOC(                                                        \
+      hid, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
 
 /*
+ * TYPED_ARRAY_MALLOC(), TYPED_ARRAY_ZALLOC()
+ * Allocate memory for an array of 'n' elements of structure 'v'.
+ *
+ * Parameters:
+ *  hid - Platform heap-ID to allocate memory from.
+ *  v   - Structure to allocate memory for.
+ *  n   - Number of members of type 'v' in array.
+ */
+#define TYPED_ARRAY_MALLOC(hid, v, n)                                          \
+   TYPED_MANUAL_MALLOC(hid, (v), (n) * sizeof(*(v)))
+#define TYPED_ARRAY_ZALLOC(hid, v, n)                                          \
+   TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)))
+
+/*
+ * TYPED_ARRAY_MALLOC(), TYPED_ARRAY_ZALLOC()
+ * Allocate memory for one element of structure 'v'.
+ *
+ * Parameters:
+ *  hid - Platform heap-ID to allocate memory from.
+ *  v   - Structure to allocate memory for.
+ */
+#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, (v), 1)
+#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, (v), 1)
+
+/*
+ * -----------------------------------------------------------------------------
  * Utility macros to clear memory
  * They have similar usage/prevent similar mistakes to the TYPED_MALLOC
  * kind of macros.
@@ -338,8 +422,8 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
  * Passing any one type to a clearing function of another type is likely
  * to be a bug, so if the calling isn't perfect it will give a compile-time
  * error.
+ * -----------------------------------------------------------------------------
  */
-
 /*
  * Zero an array.
  * Cause compile-time error if used on pointer or non-indexible variable
@@ -580,6 +664,9 @@ platform_thread_create(platform_thread       *thread,
 platform_status
 platform_thread_join(platform_thread thread);
 
+
+platform_thread
+platform_thread_id_self();
 
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
