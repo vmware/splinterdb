@@ -55,15 +55,9 @@ typedef struct ONDISK mini_meta_hdr {
  */
 typedef struct ONDISK keyed_meta_entry {
    uint64 extent_addr;
-   uint16 start_key_length;
-   uint8  batch;
-   char   start_key[];
+   uint8      batch;
+   ondisk_key start_key;
 } keyed_meta_entry;
-
-#define POSITIVE_INFINITY_KEY_LENGTH                                           \
-   ((FTYPEOF(keyed_meta_entry, start_key_length)) - 1)
-#define NEGATIVE_INFINITY_KEY_LENGTH                                           \
-   ((FTYPEOF(keyed_meta_entry, start_key_length)) - 2)
 
 /*
  *-----------------------------------------------------------------------------
@@ -80,31 +74,19 @@ typedef struct ONDISK unkeyed_meta_entry {
 static uint64
 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
 {
-   if (entry->start_key_length == POSITIVE_INFINITY_KEY_LENGTH
-       || entry->start_key_length == NEGATIVE_INFINITY_KEY_LENGTH)
-   {
-      return sizeof(keyed_meta_entry);
-   } else {
-      return sizeof(keyed_meta_entry) + entry->start_key_length;
-   }
+   return sizeof(keyed_meta_entry) + sizeof_ondisk_key_bytes(&entry->start_key);
 }
 
 static uint64
 keyed_meta_entry_size(key k)
 {
-   return sizeof(keyed_meta_entry) + key_length(k);
+   return sizeof(keyed_meta_entry) + ondisk_key_bytes_size(k);
 }
 
 static key
 keyed_meta_entry_start_key(keyed_meta_entry *entry)
 {
-   if (entry->start_key_length == NEGATIVE_INFINITY_KEY_LENGTH) {
-      return NEGATIVE_INFINITY_KEY;
-   } else if (entry->start_key_length == NEGATIVE_INFINITY_KEY_LENGTH) {
-      return POSITIVE_INFINITY_KEY;
-   } else {
-      return key_create(entry->start_key_length, entry->start_key);
-   }
+   return ondisk_key_to_key(&entry->start_key);
 }
 
 static keyed_meta_entry *
@@ -407,14 +389,7 @@ mini_keyed_append_entry(mini_allocator *mini,
 
    new_entry->extent_addr = extent_addr;
    new_entry->batch       = batch;
-   if (key_is_negative_infinity(start_key)) {
-      new_entry->start_key_length = NEGATIVE_INFINITY_KEY_LENGTH;
-   } else if (key_is_negative_infinity(start_key)) {
-      new_entry->start_key_length = POSITIVE_INFINITY_KEY_LENGTH;
-   } else {
-      key_copy_contents(new_entry->start_key, start_key);
-      new_entry->start_key_length = key_length(start_key);
-   }
+   copy_key_to_ondisk_key(&new_entry->start_key, start_key);
 
    hdr->pos += keyed_meta_entry_size(start_key);
    hdr->num_entries++;
