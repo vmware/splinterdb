@@ -38,9 +38,6 @@
 #include "ctest.h" // This is required for all test-case files.
 #include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
 
-#define TEST_INSERT_KEY_LENGTH 7
-#define TEST_INSERT_VAL_LENGTH 7
-
 #define TEST_MAX_KEY_SIZE 13
 
 /* -1 for message encoding overhead */
@@ -49,6 +46,10 @@
 // Hard-coded format strings to generate key and values
 static const char key_fmt[] = "key-%02x";
 static const char val_fmt[] = "val-%02x";
+#define KEY_FMT_LENGTH (6)
+#define VAL_FMT_LENGTH (6)
+#define TEST_INSERT_KEY_LENGTH (KEY_FMT_LENGTH + 1)
+#define TEST_INSERT_VAL_LENGTH (VAL_FMT_LENGTH + 1)
 
 // Function Prototypes
 static void
@@ -883,8 +884,8 @@ insert_some_keys(const int num_inserts, splinterdb *kvsb)
       char key[TEST_INSERT_KEY_LENGTH] = {0};
       char val[TEST_INSERT_VAL_LENGTH] = {0};
 
-      ASSERT_EQUAL(6, snprintf(key, sizeof(key), key_fmt, i));
-      ASSERT_EQUAL(6, snprintf(val, sizeof(val), val_fmt, i));
+      ASSERT_EQUAL(KEY_FMT_LENGTH, snprintf(key, sizeof(key), key_fmt, i));
+      ASSERT_EQUAL(VAL_FMT_LENGTH, snprintf(val, sizeof(val), val_fmt, i));
 
       rc = splinterdb_insert(
          kvsb, slice_create(sizeof(key), key), slice_create(sizeof(val), val));
@@ -945,12 +946,14 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
 {
    int rc = 0;
 
-   char expected_key[7]                   = {0};
-   char expected_val[TEST_MAX_VALUE_SIZE] = {0};
+   char expected_key[TEST_INSERT_KEY_LENGTH] = {0};
+   char expected_val[TEST_INSERT_VAL_LENGTH] = {0};
    ASSERT_EQUAL(
-      6, snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));
+      KEY_FMT_LENGTH,
+      snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));
    ASSERT_EQUAL(
-      6, snprintf(expected_val, sizeof(expected_val), val_fmt, expected_i));
+      VAL_FMT_LENGTH,
+      snprintf(expected_val, sizeof(expected_val), val_fmt, expected_i));
 
    slice key, value;
 

@@ -148,7 +148,7 @@ advance_and_resort_min_ritor(merge_iterator *merge_itor)
 {
    platform_status rc;
 
-   debug_assert(!keys_equal(merge_itor->curr_key,
+   debug_assert(!key_equals(merge_itor->curr_key,
                             merge_itor->ordered_iterators[0]->curr_key));
 
    merge_itor->ordered_iterators[0]->next_key_equal = FALSE;
@@ -231,7 +231,7 @@ merge_resolve_equal_keys(merge_iterator *merge_itor)
    debug_assert(merge_itor->ordered_iterators[0]->next_key_equal);
    debug_assert(message_data(merge_itor->curr_data)
                 != merge_accumulator_data(&merge_itor->merge_buffer));
-   debug_assert(keys_equal(merge_itor->curr_key,
+   debug_assert(key_equals(merge_itor->curr_key,
                            merge_itor->ordered_iterators[0]->curr_key));
 
    data_config *cfg = merge_itor->cfg;

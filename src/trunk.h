@@ -219,20 +219,6 @@ struct trunk_handle {
    trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
 
-/*
- * Sometimes we need to copy a pivot out of a node so that we can
- * still have access to the pivots after we have released the node.
- * writable_buffer is the natural way to do this.  The key_buffer
- * simply packages a writable buffer together with a default
- * allocation for its buffer.
- */
-#define TRUNK_DEFAULT_KEY_BUFFER_SIZE (128)
-typedef struct {
-   key_type        kind;
-   writable_buffer wb;
-   char            default_buffer[TRUNK_DEFAULT_KEY_BUFFER_SIZE];
-} key_buffer;
-
 typedef struct trunk_range_iterator {
    iterator        super;
    trunk_handle   *spl;

@@ -81,7 +81,7 @@ slice_copy_contents(void *dst, const slice src)
 }
 
 static inline bool
-slices_equal(const slice a, const slice b)
+slice_equals(const slice a, const slice b)
 {
    return a.length == b.length && a.data == b.data;
 }

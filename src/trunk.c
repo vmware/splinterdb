@@ -1813,50 +1813,6 @@ trunk_pivot_tuples_in_branch_slow(trunk_handle *spl,
 }
 
 /*
- * key_buffer functions
- */
-
-static inline key
-key_buffer_key(key_buffer *kb)
-{
-   if (kb->kind == NEGATIVE_INFINITY) {
-      return NEGATIVE_INFINITY_KEY;
-   } else if (kb->kind == POSITIVE_INFINITY) {
-      return POSITIVE_INFINITY_KEY;
-   } else {
-      return key_create_from_slice(writable_buffer_to_slice(&kb->wb));
-   }
-}
-
-static inline key
-key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
-{
-   if (key_is_negative_infinity(src)) {
-      kb->kind = NEGATIVE_INFINITY;
-   } else if (key_is_positive_infinity(src)) {
-      kb->kind = POSITIVE_INFINITY;
-   } else {
-      kb->kind = USER_KEY;
-      writable_buffer_init_with_buffer(
-         &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
-      writable_buffer_copy_slice(&kb->wb, key_slice(src));
-   }
-   return key_buffer_key(kb);
-}
-
-static inline void
-key_buffer_deinit(key_buffer *kb)
-{
-   if (kb->kind == USER_KEY) {
-      writable_buffer_deinit(&kb->wb);
-   }
-}
-
-#define KEY_CREATE_LOCAL_COPY(dst, hid, src)                                   \
-   key_buffer dst##kb;                                                         \
-   key        dst = key_buffer_init_from_key(&dst##kb, hid, src)
-
-/*
  * reset_start_branch sets the trunk start branch to the smallest start branch
  * of any pivot, and resets the trunk start bundle accordingly.
  *

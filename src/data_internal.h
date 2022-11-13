@@ -13,6 +13,178 @@
 #include "splinterdb/data.h"
 #include "util.h"
 
+/*
+ * KEYS
+ *
+ * Structures for passing around and manipulating keys in memory.
+ * These functions are like those for slices: they do not manage the
+ * underlying memory that holds the bytes of they key.
+ *
+ * We also define two specuial keys, +/-infinity, for specifying
+ * iterator ranges and similar applications.
+ *
+ * The key type is not exposed to the user in any way, since the API
+ * does not require them to deal with infinite keys.
+ */
+
+typedef enum {
+   NEGATIVE_INFINITY = 1,
+   USER_KEY          = 2,
+   POSITIVE_INFINITY = 3,
+} key_type;
+
+typedef struct key {
+   key_type kind;
+   slice    user_slice;
+} key;
+
+#define NEGATIVE_INFINITY_KEY                                                  \
+   ((key){.kind = NEGATIVE_INFINITY, .user_slice = INVALID_SLICE})
+#define POSITIVE_INFINITY_KEY                                                  \
+   ((key){.kind = POSITIVE_INFINITY, .user_slice = INVALID_SLICE})
+#define NULL_KEY ((key){.kind = USER_KEY, .user_slice = NULL_SLICE})
+
+static inline bool
+key_is_negative_infinity(key k)
+{
+   return k.kind == NEGATIVE_INFINITY;
+}
+
+static inline bool
+key_is_positive_infinity(key k)
+{
+   return k.kind == POSITIVE_INFINITY;
+}
+
+static inline bool
+key_is_user_key(key k)
+{
+   return k.kind == USER_KEY;
+}
+
+static inline slice
+key_slice(key k)
+{
+   debug_assert(k.kind == USER_KEY);
+   return k.user_slice;
+}
+
+static inline key
+key_create_from_slice(slice user_slice)
+{
+   return (key){.kind = USER_KEY, .user_slice = user_slice};
+}
+
+static inline key
+key_create(uint64 length, const void *data)
+{
+   return (key){.kind = USER_KEY, .user_slice = slice_create(length, data)};
+}
+
+static inline bool
+key_equals(key a, key b)
+{
+   return a.kind == b.kind
+          && IMPLIES(a.kind == USER_KEY,
+                     slice_equals(a.user_slice, b.user_slice));
+}
+
+static inline bool
+key_is_null(key k)
+{
+   return k.kind == USER_KEY && slice_is_null(k.user_slice);
+}
+
+static inline uint64
+key_length(key k)
+{
+   return k.kind == USER_KEY ? slice_length(k.user_slice) : 0;
+}
+
+static inline const void *
+key_data(key k)
+{
+   debug_assert(k.kind == USER_KEY);
+   return slice_data(k.user_slice);
+}
+
+static inline void
+key_copy_contents(void *dst, key k)
+{
+   debug_assert(k.kind == USER_KEY);
+   slice_copy_contents(dst, k.user_slice);
+}
+
+/*
+ * KEY BUFFERS
+ *
+ * A key buffer is a piece of managed memory for holding a key.
+ * There are two primary uses.  Occasionally, we need to make a local
+ * copy of a key (see, e.g. uses of KEY_CREATE_LOCAL_COPY).  And, in
+ * the tests, we need to construct keys for inserts, queries, etc.
+ */
+
+#define TRUNK_DEFAULT_KEY_BUFFER_SIZE (128)
+typedef struct {
+   key_type        kind;
+   writable_buffer wb;
+   char            default_buffer[TRUNK_DEFAULT_KEY_BUFFER_SIZE];
+} key_buffer;
+
+/*
+ * key_buffer functions
+ */
+
+static inline key
+key_buffer_key(key_buffer *kb)
+{
+   if (kb->kind == NEGATIVE_INFINITY) {
+      return NEGATIVE_INFINITY_KEY;
+   } else if (kb->kind == POSITIVE_INFINITY) {
+      return POSITIVE_INFINITY_KEY;
+   } else {
+      return key_create_from_slice(writable_buffer_to_slice(&kb->wb));
+   }
+}
+
+static inline key
+key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
+{
+   if (key_is_negative_infinity(src)) {
+      kb->kind = NEGATIVE_INFINITY;
+   } else if (key_is_positive_infinity(src)) {
+      kb->kind = POSITIVE_INFINITY;
+   } else {
+      kb->kind = USER_KEY;
+      writable_buffer_init_with_buffer(
+         &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
+      writable_buffer_copy_slice(&kb->wb, key_slice(src));
+   }
+   return key_buffer_key(kb);
+}
+
+static inline void
+key_buffer_deinit(key_buffer *kb)
+{
+   if (kb->kind == USER_KEY) {
+      writable_buffer_deinit(&kb->wb);
+   }
+}
+
+#define KEY_CREATE_LOCAL_COPY(dst, hid, src)                                   \
+   key_buffer dst##kb;                                                         \
+   key        dst = key_buffer_init_from_key(&dst##kb, hid, src)
+
+
+/*
+ * MESSAGES
+ *
+ * Note: The message data type is exposed to user callbacks, so it is
+ * defined in include/splinterdb/data.h.
+ *
+ * Convenience functions for dealing with messages.
+ */
+
 static inline char *
 message_type_string(message_type type)
 {
@@ -84,6 +256,12 @@ message_class_string(message msg)
 {
    return message_type_string(msg.type);
 }
+
+/*
+ * MERGE ACCUMULATORS
+ *
+ * Merge accumulators are basically the message version of a writable buffer.
+ */
 
 struct merge_accumulator {
    message_type    type;
@@ -162,93 +340,14 @@ merge_accumulator_is_null(const merge_accumulator *ma)
    return r;
 }
 
-typedef enum {
-   NEGATIVE_INFINITY = 1,
-   USER_KEY          = 2,
-   POSITIVE_INFINITY = 3,
-} key_type;
-
-typedef struct key {
-   key_type kind;
-   slice    user_slice;
-} key;
-
-#define NEGATIVE_INFINITY_KEY                                                  \
-   ((key){.kind = NEGATIVE_INFINITY, .user_slice = INVALID_SLICE})
-#define POSITIVE_INFINITY_KEY                                                  \
-   ((key){.kind = POSITIVE_INFINITY, .user_slice = INVALID_SLICE})
-#define NULL_KEY ((key){.kind = USER_KEY, .user_slice = NULL_SLICE})
-
-static inline bool
-key_is_negative_infinity(key k)
-{
-   return k.kind == NEGATIVE_INFINITY;
-}
-
-static inline bool
-key_is_positive_infinity(key k)
-{
-   return k.kind == POSITIVE_INFINITY;
-}
-
-static inline bool
-key_is_user_key(key k)
-{
-   return k.kind == USER_KEY;
-}
-
-static inline slice
-key_slice(key k)
-{
-   debug_assert(k.kind == USER_KEY);
-   return k.user_slice;
-}
-
-static inline key
-key_create_from_slice(slice user_slice)
-{
-   return (key){.kind = USER_KEY, .user_slice = user_slice};
-}
-
-static inline key
-key_create(uint64 length, const void *data)
-{
-   return (key){.kind = USER_KEY, .user_slice = slice_create(length, data)};
-}
-
-static inline bool
-keys_equal(key a, key b)
-{
-   return a.kind == b.kind
-          && IMPLIES(a.kind == USER_KEY,
-                     slices_equal(a.user_slice, b.user_slice));
-}
-
-static inline bool
-key_is_null(key k)
-{
-   return k.kind == USER_KEY && slice_is_null(k.user_slice);
-}
-
-static inline uint64
-key_length(key k)
-{
-   return k.kind == USER_KEY ? slice_length(k.user_slice) : 0;
-}
-
-static inline const void *
-key_data(key k)
-{
-   debug_assert(k.kind == USER_KEY);
-   return slice_data(k.user_slice);
-}
-
-static inline void
-key_copy_contents(void *dst, key k)
-{
-   debug_assert(k.kind == USER_KEY);
-   slice_copy_contents(dst, k.user_slice);
-}
+/*
+ * USER CALLBACK WRAPPERS
+ *
+ * These functions handle any special processing needed before calling
+ * the user's callback functions.  For example, the user callback
+ * functions are not required to deal with infinite keys, so we handle
+ * them here.
+ */
 
 static inline int
 data_key_compare(const data_config *cfg, key key1, key key2)
@@ -321,15 +420,6 @@ data_key_to_string(const data_config *cfg, key k, char *str, size_t size)
    }
 }
 
-#define key_string(cfg, key_to_print)                                          \
-   (({                                                                         \
-       struct {                                                                \
-          char buffer[128];                                                    \
-       } b;                                                                    \
-       data_key_to_string((cfg), (key_to_print), b.buffer, 128);               \
-       b;                                                                      \
-    }).buffer)
-
 static inline void
 data_message_to_string(const data_config *cfg,
                        message            msg,
@@ -338,6 +428,15 @@ data_message_to_string(const data_config *cfg,
 {
    cfg->message_to_string(cfg, msg, str, size);
 }
+
+#define key_string(cfg, key_to_print)                                          \
+   (({                                                                         \
+       struct {                                                                \
+          char buffer[128];                                                    \
+       } b;                                                                    \
+       data_key_to_string((cfg), (key_to_print), b.buffer, 128);               \
+       b;                                                                      \
+    }).buffer)
 
 #define message_string(cfg, msg)                                               \
    (({                                                                         \
