@@ -326,6 +326,8 @@ message_class_string(message msg)
  * describes that layout in terms of the length of the key-portion and the
  * message-portion, following which appears the concatenated [<key>, <message>]
  * datum.
+ *
+ * Tuple keys cannot be infinite.
  */
 
 typedef uint16 ondisk_message_length;
