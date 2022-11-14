@@ -124,7 +124,7 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
    platform_status *result = arg;
 
    verify_tuple(spl,
-                key_create_from_slice(writable_buffer_to_slice(&ctxt->key)),
+                key_buffer_key(&ctxt->key),
                 merge_accumulator_to_message(&ctxt->data),
                 ctxt->refcount,
                 result);
@@ -157,7 +157,7 @@ verify_against_shadow(trunk_handle               *spl,
 
    platform_status rc, result = STATUS_OK;
 
-   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, spl->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, spl->heap_id);
 
    uint64            i;
    merge_accumulator merge_acc;
@@ -175,7 +175,7 @@ verify_against_shadow(trunk_handle               *spl,
       }
       if (ctxt == NULL) {
          test_int_to_key(&keybuf, keynum, key_size);
-         key target = key_create_from_slice(writable_buffer_to_slice(&keybuf));
+         key target = key_buffer_key(&keybuf);
          rc         = trunk_lookup(spl, target, &merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
@@ -333,7 +333,7 @@ choose_key(data_config                *cfg,         // IN
            key                         startkey,    // IN
            int                         start_index, // IN
            int                        *index,       // OUT
-           writable_buffer            *keybuf)                 // OUT
+           key_buffer                 *keybuf)                      // OUT
 {
    uint64 num_keys = sharr->nkeys;
 
@@ -363,7 +363,7 @@ choose_key(data_config                *cfg,         // IN
       case VERIFY_RANGE_ENDPOINT_EQUAL:
          platform_assert(!is_start && !key_is_null(startkey));
          *index = start_index;
-         writable_buffer_copy_slice(keybuf, key_slice(startkey));
+         key_buffer_copy_slice(keybuf, key_slice(startkey));
          break;
       case VERIFY_RANGE_ENDPOINT_LESS:
          platform_assert(!is_start && !key_is_null(startkey));
@@ -374,7 +374,7 @@ choose_key(data_config                *cfg,         // IN
          platform_assert(0);
    }
 
-   return key_create_from_slice(writable_buffer_to_slice(keybuf));
+   return key_buffer_key(keybuf);
 }
 
 platform_status
@@ -391,8 +391,8 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
    key             end_key;
    int             start_index;
    int             end_index;
-   DECLARE_AUTO_WRITABLE_BUFFER(startkey_buf, spl->heap_id);
-   DECLARE_AUTO_WRITABLE_BUFFER(endkey_buf, spl->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(startkey_buf, spl->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(endkey_buf, spl->heap_id);
 
    for (begin_type = VERIFY_RANGE_ENDPOINT_MIN;
         begin_type <= VERIFY_RANGE_ENDPOINT_RAND;
@@ -554,7 +554,7 @@ insert_random_messages(trunk_handle              *spl,
    merge_accumulator msg;
    merge_accumulator_init(&msg, spl->heap_id);
 
-   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, spl->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, spl->heap_id);
 
    keynum = minkey;
    for (i = 0; i < num_messages; i++) {
@@ -567,7 +567,7 @@ insert_random_messages(trunk_handle              *spl,
 
       // Insert message into Splinter
       test_int_to_key(&keybuf, keynum, key_size);
-      key tuple_key = key_create_from_slice(writable_buffer_to_slice(&keybuf));
+      key tuple_key = key_buffer_key(&keybuf);
 
       int8 ref_count = 0;
       if (op != MESSAGE_TYPE_DELETE) {

@@ -148,33 +148,71 @@ key_buffer_key(key_buffer *kb)
    }
 }
 
-static inline key
-key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
+static inline void
+key_buffer_init(key_buffer *kb, platform_heap_id hid)
+{
+   kb->kind = USER_KEY;
+   writable_buffer_init_with_buffer(
+      &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
+}
+
+static inline platform_status
+key_buffer_copy_slice(key_buffer *kb, slice src)
+{
+   kb->kind           = USER_KEY;
+   return writable_buffer_copy_slice(&kb->wb, src);
+}
+
+static inline platform_status
+key_buffer_copy_key(key_buffer *kb, key src)
 {
    if (key_is_negative_infinity(src)) {
       kb->kind = NEGATIVE_INFINITY;
    } else if (key_is_positive_infinity(src)) {
       kb->kind = POSITIVE_INFINITY;
    } else {
-      kb->kind = USER_KEY;
-      writable_buffer_init_with_buffer(
-         &kb->wb, hid, sizeof(kb->default_buffer), kb->default_buffer, 0);
-      writable_buffer_copy_slice(&kb->wb, key_slice(src));
+      return key_buffer_copy_slice(kb, key_slice(src));
    }
-   return key_buffer_key(kb);
+   return STATUS_OK;
+}
+
+static inline platform_status
+key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
+{
+   key_buffer_init(kb, hid);
+   return key_buffer_copy_key(kb, src);
+}
+
+/* Converts kb to a user key if it isn't already. */
+static inline platform_status
+key_buffer_resize(key_buffer *kb, uint64 length)
+{
+   kb->kind = USER_KEY;
+   return writable_buffer_resize(&kb->wb, length);
+}
+
+static inline void *
+key_buffer_data(key_buffer *kb)
+{
+   debug_assert(kb->kind == USER_KEY);
+   return writable_buffer_data(&kb->wb);
 }
 
 static inline void
 key_buffer_deinit(key_buffer *kb)
 {
-   if (kb->kind == USER_KEY) {
-      writable_buffer_deinit(&kb->wb);
-   }
+   writable_buffer_deinit(&kb->wb);
 }
 
-#define KEY_CREATE_LOCAL_COPY(dst, hid, src)                                   \
-   key_buffer dst##kb;                                                         \
-   key        dst = key_buffer_init_from_key(&dst##kb, hid, src)
+#define DECLARE_AUTO_KEY_BUFFER(kb, hid)                                       \
+   key_buffer kb __attribute__((cleanup(key_buffer_deinit)));                  \
+   key_buffer_init(&kb, hid)
+
+/* Success will be stored in rc, which must already be declared. */
+#define KEY_CREATE_LOCAL_COPY(rc, dst, hid, src)                               \
+   DECLARE_AUTO_KEY_BUFFER(dst##kb, hid);                                      \
+   rc      = key_buffer_copy_key(&dst##kb, src);                               \
+   key dst = key_buffer_key(&dst##kb)
 
 
 /*

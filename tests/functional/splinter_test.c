@@ -23,7 +23,6 @@
 #include "splinter_test.h"
 #include "test_async.h"
 #include "test_common.h"
-#include "test_util.h"
 
 #include "random.h"
 #include "poison.h"
@@ -159,7 +158,7 @@ test_trunk_insert_thread(void *arg)
          }
       }
 
-      DECLARE_AUTO_WRITABLE_BUFFER(key, heap_id);
+      DECLARE_AUTO_KEY_BUFFER(keybuf, heap_id);
 
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -173,7 +172,7 @@ test_trunk_insert_thread(void *arg)
             if (spl->cfg.use_stats) {
                ts = platform_get_timestamp();
             }
-            test_key(&key,
+            test_key(&keybuf,
                      test_cfg[spl_idx].key_type,
                      insert_num,
                      thread_number,
@@ -183,7 +182,7 @@ test_trunk_insert_thread(void *arg)
             generate_test_message(test_cfg->gen, insert_num, &msg);
             platform_status rc =
                trunk_insert(spl,
-                            writable_buffer_to_key(&key),
+                            key_buffer_key(&keybuf),
                             merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
@@ -268,7 +267,7 @@ test_trunk_lookup_thread(void *arg)
          }
       }
 
-      DECLARE_AUTO_WRITABLE_BUFFER(keybuf, heap_id);
+      DECLARE_AUTO_KEY_BUFFER(keybuf, heap_id);
 
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          uint8 spl_idx;
@@ -293,7 +292,7 @@ test_trunk_lookup_thread(void *arg)
                         trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, writable_buffer_to_key(&keybuf), &data);
+               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &data);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
@@ -302,7 +301,7 @@ test_trunk_lookup_thread(void *arg)
                verify_tuple(spl,
                             test_cfg->gen,
                             lookup_num,
-                            writable_buffer_to_key(&keybuf),
+                            key_buffer_key(&keybuf),
                             merge_accumulator_to_message(&data),
                             expected_found);
             } else {
@@ -372,7 +371,7 @@ test_trunk_range_thread(void *arg)
    uint64 start_time      = platform_get_timestamp();
    char   progress_msg[60];
 
-   DECLARE_AUTO_WRITABLE_BUFFER(start_key, heap_id);
+   DECLARE_AUTO_KEY_BUFFER(start_key, heap_id);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -436,7 +435,7 @@ test_trunk_range_thread(void *arg)
             uint64 range_tuples =
                test_range(range_num, min_range_length, max_range_length);
             platform_status rc = trunk_range(spl,
-                                             writable_buffer_to_key(&start_key),
+                                             key_buffer_key(&start_key),
                                              range_tuples,
                                              nop_tuple_func,
                                              NULL);
@@ -568,7 +567,7 @@ do_operation(test_splinter_thread_params *params,
                                         .stats      = &params->lookup_stats[ASYNC_LU]};
    platform_heap_id   heap_id        = platform_get_heap_id();
 
-   DECLARE_AUTO_WRITABLE_BUFFER(key, heap_id);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, heap_id);
    merge_accumulator msg;
    merge_accumulator_init(&msg, heap_id);
 
@@ -586,7 +585,7 @@ do_operation(test_splinter_thread_params *params,
          timestamp     ts;
 
          if (is_insert) {
-            test_key(&key,
+            test_key(&keybuf,
                      test_cfg[spl_idx].key_type,
                      op_num,
                      thread_number,
@@ -597,7 +596,7 @@ do_operation(test_splinter_thread_params *params,
             ts = platform_get_timestamp();
             platform_status rc =
                trunk_insert(spl,
-                            writable_buffer_to_key(&key),
+                            key_buffer_key(&keybuf),
                             merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
@@ -613,7 +612,7 @@ do_operation(test_splinter_thread_params *params,
                platform_status rc;
                bool            found;
 
-               test_key(&key,
+               test_key(&keybuf,
                         test_cfg[spl_idx].key_type,
                         op_num,
                         thread_number,
@@ -621,7 +620,7 @@ do_operation(test_splinter_thread_params *params,
                         trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, writable_buffer_to_key(&key), &msg);
+               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &msg);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {

@@ -4345,6 +4345,7 @@ save_pivots_to_compact_bundle_scratch(trunk_handle           *spl,     // IN
                                       page_handle            *node,    // IN
                                       compact_bundle_scratch *scratch) // IN/OUT
 {
+   platform_status rc;
    uint32 num_pivot_keys = trunk_num_pivot_keys(spl, node);
 
    debug_assert(num_pivot_keys < ARRAY_SIZE(scratch->saved_pivot_keys));
@@ -4352,8 +4353,9 @@ save_pivots_to_compact_bundle_scratch(trunk_handle           *spl,     // IN
    // Save all num_pivots regular pivots and the upper bound pivot
    for (uint32 i = 0; i < num_pivot_keys; i++) {
       key pivot = trunk_get_pivot(spl, node, i);
-      key_buffer_init_from_key(
+      rc        = key_buffer_init_from_key(
          &scratch->saved_pivot_keys[i], spl->heap_id, pivot);
+      platform_assert_status_ok(rc);
    }
    scratch->num_saved_pivot_keys = num_pivot_keys;
 }
@@ -5324,9 +5326,12 @@ trunk_split_leaf(trunk_handle *spl,
       iterator      **rough_itor       = scratch->rough_itor;
 
       key pivot0 = trunk_get_pivot(spl, leaf, 0);
-      key pivot1 = trunk_get_pivot(spl, leaf, 1);
-      KEY_CREATE_LOCAL_COPY(min_key, spl->heap_id, pivot0);
-      KEY_CREATE_LOCAL_COPY(max_key, spl->heap_id, pivot1);
+      key             pivot1 = trunk_get_pivot(spl, leaf, 1);
+      platform_status rc1, rc2;
+      KEY_CREATE_LOCAL_COPY(rc1, min_key, spl->heap_id, pivot0);
+      KEY_CREATE_LOCAL_COPY(rc2, max_key, spl->heap_id, pivot1);
+      platform_assert_status_ok(rc1);
+      platform_assert_status_ok(rc2);
 
       for (uint64 branch_offset = 0; branch_offset < num_branches;
            branch_offset++) {
@@ -5838,11 +5843,20 @@ trunk_range_iterator_init(trunk_handle         *spl,
     * db/range, move to next leaf
     */
    if (at_end) {
-      KEY_CREATE_LOCAL_COPY(local_max_key,
+      KEY_CREATE_LOCAL_COPY(rc,
+                            local_max_key,
                             spl->heap_id,
                             key_buffer_key(&range_itor->local_max_key));
-      KEY_CREATE_LOCAL_COPY(
-         rebuild_key, spl->heap_id, key_buffer_key(&range_itor->rebuild_key));
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      KEY_CREATE_LOCAL_COPY(rc,
+                            rebuild_key,
+                            spl->heap_id,
+                            key_buffer_key(&range_itor->rebuild_key));
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       trunk_range_iterator_deinit(range_itor);
       if (1 && trunk_key_compare(spl, local_max_key, POSITIVE_INFINITY_KEY) != 0
           && trunk_key_compare(spl, local_max_key, max_key) < 0)
@@ -5881,12 +5895,20 @@ trunk_range_iterator_advance(iterator *itor)
    platform_status rc;
    // robj: shouldn't this be a while loop, like in the init function?
    if (at_end) {
-      KEY_CREATE_LOCAL_COPY(rebuild_key,
+      KEY_CREATE_LOCAL_COPY(rc,
+                            rebuild_key,
                             range_itor->spl->heap_id,
                             key_buffer_key(&range_itor->rebuild_key));
-      KEY_CREATE_LOCAL_COPY(max_key,
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      KEY_CREATE_LOCAL_COPY(rc,
+                            max_key,
                             range_itor->spl->heap_id,
                             key_buffer_key(&range_itor->max_key));
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
       trunk_range_iterator_deinit(range_itor);
       rc = trunk_range_iterator_init(range_itor->spl,
                                      range_itor,

@@ -13,7 +13,6 @@
 #include "platform.h"
 
 #include "test_async.h"
-#include "test_util.h"
 
 #include "poison.h"
 
@@ -82,7 +81,7 @@ async_ctxt_init(platform_heap_id    hid,                // IN
    async_lookup->ready_q = pcq_alloc(hid, max_async_inflight);
    platform_assert(async_lookup->ready_q);
    for (uint64 i = 0; i < max_async_inflight; i++) {
-      writable_buffer_init(&async_lookup->ctxt[i].key, hid);
+      key_buffer_init(&async_lookup->ctxt[i].key, hid);
       merge_accumulator_init(&async_lookup->ctxt[i].data, hid);
       async_lookup->ctxt[i].ready_q = async_lookup->ready_q;
       // All ctxts start out as available
@@ -102,7 +101,7 @@ async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
    platform_assert(pcq_is_empty(async_lookup->ready_q));
    pcq_free(hid, async_lookup->ready_q);
    for (uint64 i = 0; i < async_lookup->max_async_inflight; i++) {
-      writable_buffer_deinit(&async_lookup->ctxt[i].key);
+      key_buffer_deinit(&async_lookup->ctxt[i].key);
       merge_accumulator_deinit(&async_lookup->ctxt[i].data);
    }
    platform_free(hid, async_lookup);
@@ -126,7 +125,7 @@ async_ctxt_process_one(trunk_handle         *spl,
 
    ts  = platform_get_timestamp();
    res = trunk_lookup_async(
-      spl, writable_buffer_to_key(&ctxt->key), &ctxt->data, &ctxt->ctxt);
+      spl, key_buffer_key(&ctxt->key), &ctxt->data, &ctxt->ctxt);
    ts = platform_timestamp_elapsed(ts);
    if (latency_max != NULL && *latency_max < ts) {
       *latency_max = ts;

@@ -78,16 +78,16 @@ test_deinit_task_system(platform_heap_id hid, task_system **ts)
 }
 
 static inline key
-test_key(writable_buffer *keywb,
-         test_key_type    key_type,
-         uint64           idx,
-         uint64           thread_id,
-         uint64           semiseq_freq,
-         uint64           key_size,
-         uint64           period)
+test_key(key_buffer   *keywb,
+         test_key_type key_type,
+         uint64        idx,
+         uint64        thread_id,
+         uint64        semiseq_freq,
+         uint64        key_size,
+         uint64        period)
 {
-   writable_buffer_resize(keywb, key_size);
-   char *keybuffer = writable_buffer_data(keywb);
+   key_buffer_resize(keywb, key_size);
+   char *keybuffer = key_buffer_data(keywb);
    memset(keybuffer, 0, key_size);
    switch (key_type) {
       case TEST_RANDOM:
@@ -113,7 +113,7 @@ test_key(writable_buffer *keywb,
          break;
       }
    }
-   return key_create_from_slice(writable_buffer_to_slice(keywb));
+   return key_buffer_key(keywb);
 }
 
 static inline bool
@@ -132,10 +132,10 @@ test_range(uint64 idx, uint64 range_min, uint64 range_max)
 }
 
 static inline void
-test_int_to_key(writable_buffer *key, uint64 idx, uint64 key_size)
+test_int_to_key(key_buffer *kb, uint64 idx, uint64 key_size)
 {
-   writable_buffer_resize(key, key_size);
-   uint64 *keybytes = writable_buffer_data(key);
+   key_buffer_resize(kb, key_size);
+   uint64 *keybytes = key_buffer_data(kb);
    memset(keybytes, 0, key_size);
    *keybytes = htobe64(idx);
 }

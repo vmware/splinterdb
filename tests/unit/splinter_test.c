@@ -26,7 +26,6 @@
 #include "functional/test.h"
 #include "functional/test_async.h"
 #include "test_common.h"
-#include "test_util.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -444,7 +443,7 @@ CTEST2(splinter, test_lookups)
 
    merge_accumulator qdata;
    merge_accumulator_init(&qdata, spl->heap_id);
-   DECLARE_AUTO_WRITABLE_BUFFER(key, data->hid);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, data->hid);
    const size_t key_size = trunk_max_key_size(spl);
 
    platform_status rc;
@@ -462,10 +461,10 @@ CTEST2(splinter, test_lookups)
       SHOW_PCT_PROGRESS(
          insert_num, num_inserts, "Verify positive lookups %3lu%% complete");
 
-      test_key(&key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
+      test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       merge_accumulator_set_to_null(&qdata);
 
-      rc = trunk_lookup(spl, writable_buffer_to_key(&key), &qdata);
+      rc = trunk_lookup(spl, key_buffer_key(&keybuf), &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
@@ -474,7 +473,7 @@ CTEST2(splinter, test_lookups)
       verify_tuple(spl,
                    &data->gen,
                    insert_num,
-                   writable_buffer_to_key(&key),
+                   key_buffer_key(&keybuf),
                    merge_accumulator_to_message(&qdata),
                    TRUE);
    }
@@ -500,9 +499,9 @@ CTEST2(splinter, test_lookups)
                         num_inserts,
                         "Verify negative lookups %3lu%% complete");
 
-      test_key(&key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
+      test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
 
-      rc = trunk_lookup(spl, writable_buffer_to_key(&key), &qdata);
+      rc = trunk_lookup(spl, key_buffer_key(&keybuf), &qdata);
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_lookup() FAILURE, insert_num=%lu: %s\n",
                   insert_num,
@@ -511,7 +510,7 @@ CTEST2(splinter, test_lookups)
       verify_tuple(spl,
                    &data->gen,
                    insert_num,
-                   writable_buffer_to_key(&key),
+                   key_buffer_key(&keybuf),
                    merge_accumulator_to_message(&qdata),
                    FALSE);
    }
@@ -726,7 +725,7 @@ splinter_do_inserts(void         *datap,
 
    uint64 start_time = platform_get_timestamp();
    uint64 insert_num;
-   DECLARE_AUTO_WRITABLE_BUFFER(key, spl->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(keybuf, spl->heap_id);
    const size_t key_size = trunk_max_key_size(spl);
 
    // Allocate a large array for copying over shadow copies of rows
@@ -754,10 +753,10 @@ splinter_do_inserts(void         *datap,
                      "trunk_verify_tree() failed after %d inserts. ",
                      insert_num);
       }
-      test_key(&key, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
+      test_key(&keybuf, TEST_RANDOM, insert_num, 0, 0, key_size, 0);
       generate_test_message(&data->gen, insert_num, &msg);
       rc = trunk_insert(
-         spl, writable_buffer_to_key(&key), merge_accumulator_to_message(&msg));
+         spl, key_buffer_key(&keybuf), merge_accumulator_to_message(&msg));
       ASSERT_TRUE(SUCCESS(rc),
                   "trunk_insert() FAILURE: %s\n",
                   platform_status_to_string(rc));
@@ -766,7 +765,7 @@ splinter_do_inserts(void         *datap,
       // verification; e.g. by range-search lookups.
       if (shadow) {
          trunk_shadow_append(shadow,
-                             writable_buffer_to_key(&key),
+                             key_buffer_key(&keybuf),
                              merge_accumulator_to_message(&msg));
       }
    }
@@ -807,7 +806,7 @@ shadow_check_tuple_func(key returned_key, message value, void *varg)
    key     shadow_key;
    message shadow_value;
    trunk_shadow_get(arg->shadow, arg->pos, &shadow_key, &shadow_value);
-   if (!keys_equal_contents(returned_key, shadow_key)
+   if (data_key_compare(arg->spl->cfg.data_cfg, returned_key, shadow_key)
        || message_lex_cmp(value, shadow_value))
    {
       char expected_key[128];
@@ -855,7 +854,7 @@ test_lookup_by_range(void         *datap,
 
    platform_status rc;
 
-   DECLARE_AUTO_WRITABLE_BUFFER(start_key_buf, spl->heap_id);
+   DECLARE_AUTO_KEY_BUFFER(start_key_buf, spl->heap_id);
 
    for (uint64 range_num = 0; range_num != num_ranges; range_num++) {
 
@@ -870,7 +869,7 @@ test_lookup_by_range(void         *datap,
                0,
                key_size,
                0);
-      key    start_key    = writable_buffer_to_key(&start_key_buf);
+      key    start_key    = key_buffer_key(&start_key_buf);
       uint64 range_tuples = test_range(range_num, 1, 100);
 
       uint64 start_idx = test_splinter_bsearch(shadow, start_key);
