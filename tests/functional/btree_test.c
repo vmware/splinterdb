@@ -1117,8 +1117,8 @@ test_btree_count_in_range(cache             *cc,
 
    uint64 root_addr;
    test_btree_create_packed_trees(cc, cfg, hid, 1, &root_addr);
-   btree_config    *btree_cfg = cfg->mt_cfg->btree_cfg;
-   key_buffer      *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
+   btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
+   key_buffer   *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
    platform_assert(bound_key);
    key_buffer_init(&bound_key[0], hid);
    key_buffer_init(&bound_key[1], hid);

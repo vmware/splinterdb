@@ -54,7 +54,7 @@ typedef struct ONDISK mini_meta_hdr {
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK keyed_meta_entry {
-   uint64 extent_addr;
+   uint64     extent_addr;
    uint8      batch;
    ondisk_key start_key;
 } keyed_meta_entry;

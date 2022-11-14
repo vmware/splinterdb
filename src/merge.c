@@ -436,8 +436,8 @@ merge_iterator_create(platform_heap_id hid,
    merge_itor->finalize_updates = merge_mode == MERGE_FULL;
    merge_itor->emit_deletes     = merge_mode != MERGE_FULL;
 
-   merge_itor->at_end = FALSE;
-   merge_itor->cfg    = cfg;
+   merge_itor->at_end   = FALSE;
+   merge_itor->cfg      = cfg;
    merge_itor->curr_key = NULL_KEY;
 
    // index -1 initializes the pad variable
@@ -587,7 +587,7 @@ merge_get_curr(iterator *itor, key *curr_key, message *data)
    merge_iterator *merge_itor = (merge_iterator *)itor;
    debug_assert(!merge_itor->at_end);
    *curr_key = merge_itor->curr_key;
-   *data = merge_itor->curr_data;
+   *data     = merge_itor->curr_data;
 }
 
 /*
@@ -608,7 +608,7 @@ merge_advance(iterator *itor)
 
    bool retry;
    do {
-      merge_itor->curr_key = NULL_KEY;
+      merge_itor->curr_key  = NULL_KEY;
       merge_itor->curr_data = NULL_MESSAGE;
       // Advance one iterator
       rc = advance_and_resort_min_ritor(merge_itor);

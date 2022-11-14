@@ -71,7 +71,7 @@
 #define MAX_THREADS (64)
 #define INVALID_TID (MAX_THREADS)
 
-#define HASH_SEED         (42)
+#define HASH_SEED (42)
 
 /*
  * C11 and higher already supports native _Static_assert which has good
@@ -188,8 +188,8 @@ extern bool platform_use_mlock;
  */
 #if SPLINTER_DEBUG
 #   define debug_assert(expr, ...) platform_assert(expr, __VA_ARGS__)
-#   define debug_only
-#   define debug_code(...) __VA_ARGS__
+#   define debug_only              __attribute__((__unused__))
+#   define debug_code(...)         __VA_ARGS__
 #else
 #   define debug_assert(expr, ...)
 #   define debug_only __attribute__((__unused__))

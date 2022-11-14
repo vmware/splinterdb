@@ -159,7 +159,7 @@ key_buffer_init(key_buffer *kb, platform_heap_id hid)
 static inline platform_status
 key_buffer_copy_slice(key_buffer *kb, slice src)
 {
-   kb->kind           = USER_KEY;
+   kb->kind = USER_KEY;
    return writable_buffer_copy_slice(&kb->wb, src);
 }
 
@@ -220,8 +220,8 @@ key_buffer_deinit(key_buffer *kb)
  */
 typedef uint16 ondisk_key_length;
 
-#define BLOB_FLAG_BITS                 (1)
-#define ONDISK_KEY_LENGTH_BITS         (bitsizeof(ondisk_key_length) - BLOB_FLAG_BITS)
+#define BLOB_FLAG_BITS         (1)
+#define ONDISK_KEY_LENGTH_BITS (bitsizeof(ondisk_key_length) - BLOB_FLAG_BITS)
 #define ONDISK_KEY_NEGATIVE_INFINITY                                           \
    ((((ondisk_key_length)1) << ONDISK_KEY_LENGTH_BITS) - 1)
 #define ONDISK_KEY_POSITIVE_INFINITY                                           \
@@ -380,12 +380,12 @@ _Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE
     - BLOB_FLAG_BITS)
 
 typedef struct ONDISK ondisk_tuple {
-   ondisk_key_length      key_length : ONDISK_KEY_LENGTH_BITS;
-   ondisk_key_length      key_isblob : BLOB_FLAG_BITS;
-   ondisk_message_length  message_length : ONDISK_MESSAGE_LENGTH_BITS;
-   ondisk_message_length  type : ONDISK_MESSAGE_TYPE_BITS;
-   ondisk_message_length  message_isblob : BLOB_FLAG_BITS;
-   char                   key_and_message[];
+   ondisk_key_length     key_length : ONDISK_KEY_LENGTH_BITS;
+   ondisk_key_length     key_isblob : BLOB_FLAG_BITS;
+   ondisk_message_length message_length : ONDISK_MESSAGE_LENGTH_BITS;
+   ondisk_message_length type : ONDISK_MESSAGE_TYPE_BITS;
+   ondisk_message_length message_isblob : BLOB_FLAG_BITS;
+   char                  key_and_message[];
 } ondisk_tuple;
 
 static inline uint64
@@ -430,8 +430,8 @@ static inline void
 copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
 {
    debug_assert(key_is_user_key(k));
-   odt->key_length     = key_length(k);
-   odt->key_isblob     = FALSE;
+   odt->key_length = key_length(k);
+   odt->key_isblob = FALSE;
    memcpy(odt->key_and_message, key_data(k), key_length(k));
    copy_message_to_ondisk_tuple(odt, msg);
 }

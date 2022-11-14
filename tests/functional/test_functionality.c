@@ -59,8 +59,8 @@ verify_tuple(trunk_handle    *spl,
              int8             refcount,
              platform_status *result)
 {
-   const data_handle *dh    = message_data(msg);
-   bool               found = dh != NULL;
+   const data_handle *dh      = message_data(msg);
+   bool               found   = dh != NULL;
    uint64             int_key = be64toh(*(uint64 *)key_data(keybuf));
 
    if (dh && message_length(msg) < sizeof(data_handle)) {

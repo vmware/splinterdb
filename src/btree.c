@@ -1694,7 +1694,7 @@ start_over:
 
    /* read lock on root_node, root_node is an index. */
 
-   bool         found;
+   bool  found;
    int64 child_idx = btree_find_pivot(cfg, root_node.hdr, tuple_key, &found);
    index_entry *parent_entry;
 
@@ -2375,13 +2375,13 @@ btree_iterator_get_curr(iterator *base_itor, key *curr_key, message *data)
    cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
    if (itor->curr.hdr->height == 0) {
       *curr_key = btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
-      *data = btree_get_tuple_message(itor->cfg, itor->curr.hdr, itor->idx);
+      *data     = btree_get_tuple_message(itor->cfg, itor->curr.hdr, itor->idx);
       log_trace_key(*curr_key, "btree_iterator_get_curr");
    } else {
       index_entry *entry =
          btree_get_index_entry(itor->cfg, itor->curr.hdr, itor->idx);
       *curr_key = index_entry_key(entry);
-      *data = message_create(
+      *data     = message_create(
          MESSAGE_TYPE_PIVOT_DATA,
          slice_create(sizeof(entry->pivot_data), &entry->pivot_data));
    }
@@ -2832,7 +2832,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
        || !btree_set_leaf_entry(
           req->cfg, leaf->hdr, btree_num_entries(leaf->hdr), tuple_key, msg))
    {
-      leaf        = btree_pack_create_next_node(req, 0, tuple_key);
+      leaf = btree_pack_create_next_node(req, 0, tuple_key);
       bool result =
          btree_set_leaf_entry(req->cfg, leaf->hdr, 0, tuple_key, msg);
       platform_assert(result);

@@ -181,7 +181,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    int cmp_rv = 0;
    for (uint32 i = 0; i < nkvs; i++) {
       key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
-      message msg = btree_get_tuple_message(cfg, hdr, i);
+      message msg       = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv            = data_key_compare(
          cfg->data_cfg, key_create(i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
@@ -206,7 +206,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    cmp_rv = 0;
    for (uint64 i = 0; i < nkvs; i++) {
       key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
-      message msg = btree_get_tuple_message(cfg, hdr, i);
+      message msg       = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv            = data_key_compare(
          cfg->data_cfg, key_create(i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
@@ -222,7 +222,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    for (uint64 i = 0; i < nkvs; i++) {
       key     tuple_key = btree_get_tuple_key(cfg, hdr, i);
-      message msg = btree_get_tuple_message(cfg, hdr, i);
+      message msg       = btree_get_tuple_message(cfg, hdr, i);
       cmp_rv            = data_key_compare(
          cfg->data_cfg, key_create(i % sizeof(i), &i), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
@@ -268,7 +268,7 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 
    for (int i = 0; i < nkvs; i++) {
       key   tuple_key = btree_get_tuple_key(cfg, hdr, i);
-      uint8 ui     = i;
+      uint8 ui        = i;
       int   cmp_rv =
          data_key_compare(cfg->data_cfg, key_create(1, &ui), tuple_key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
@@ -358,7 +358,7 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
    bool rv = FALSE;
    for (int i = 0; i < nkvs; i += 2) {
       uint8 keybuf[1];
-      keybuf[0] = i;
+      keybuf[0]     = i;
       key pivot_key = key_create(1, &keybuf);
 
       rv = btree_set_index_entry(cfg, hdr, i / 2, pivot_key, i, stats);
@@ -368,7 +368,7 @@ index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
    for (int i = 0; i < nkvs; i++) {
       bool  found;
       uint8 keybuf[1];
-      keybuf[0] = i;
+      keybuf[0]    = i;
       key   target = key_create(1, &keybuf);
       int64 idx    = btree_find_pivot(cfg, hdr, target, &found);
       ASSERT_EQUAL(

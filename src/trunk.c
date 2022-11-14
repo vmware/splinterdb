@@ -1193,7 +1193,7 @@ trunk_set_initial_pivots(trunk_handle *spl, page_handle *node)
    pdata->srq_idx = -1;
    copy_key_to_ondisk_key(&pdata->pivot, NEGATIVE_INFINITY_KEY);
 
-   pdata             = trunk_get_pivot_data(spl, node, 1);
+   pdata = trunk_get_pivot_data(spl, node, 1);
    copy_key_to_ondisk_key(&pdata->pivot, POSITIVE_INFINITY_KEY);
 }
 
@@ -1439,8 +1439,8 @@ trunk_shift_pivots(trunk_handle *spl,
    trunk_pivot_data *dst_pivot =
       trunk_get_pivot_data(spl, node, pivot_no + shift);
    trunk_pivot_data *src_pivot = trunk_get_pivot_data(spl, node, pivot_no);
-   uint16 pivots_to_shift = trunk_num_pivot_keys(spl, node) - pivot_no;
-   size_t bytes_to_shift  = pivots_to_shift * trunk_pivot_size(spl);
+   uint16 pivots_to_shift      = trunk_num_pivot_keys(spl, node) - pivot_no;
+   size_t bytes_to_shift       = pivots_to_shift * trunk_pivot_size(spl);
    memmove(dst_pivot, src_pivot, bytes_to_shift);
 }
 
@@ -4346,7 +4346,7 @@ save_pivots_to_compact_bundle_scratch(trunk_handle           *spl,     // IN
                                       compact_bundle_scratch *scratch) // IN/OUT
 {
    platform_status rc;
-   uint32 num_pivot_keys = trunk_num_pivot_keys(spl, node);
+   uint32          num_pivot_keys = trunk_num_pivot_keys(spl, node);
 
    debug_assert(num_pivot_keys < ARRAY_SIZE(scratch->saved_pivot_keys));
 
@@ -4617,12 +4617,12 @@ trunk_btree_pack_req_init(trunk_handle   *spl,
 void
 trunk_compact_bundle(void *arg, void *scratch_buf)
 {
-   platform_status                  rc;
-   trunk_compact_bundle_req        *req          = arg;
-   trunk_task_scratch              *task_scratch = scratch_buf;
-   compact_bundle_scratch          *scratch = &task_scratch->compact_bundle;
-   trunk_handle                    *spl     = req->spl;
-   threadid                         tid;
+   platform_status           rc;
+   trunk_compact_bundle_req *req          = arg;
+   trunk_task_scratch       *task_scratch = scratch_buf;
+   compact_bundle_scratch   *scratch      = &task_scratch->compact_bundle;
+   trunk_handle             *spl          = req->spl;
+   threadid                  tid;
 
    /*
     * 1. Acquire node read lock
@@ -5325,7 +5325,7 @@ trunk_split_leaf(trunk_handle *spl,
       btree_iterator *rough_btree_itor = scratch->btree_itor;
       iterator      **rough_itor       = scratch->rough_itor;
 
-      key pivot0 = trunk_get_pivot(spl, leaf, 0);
+      key             pivot0 = trunk_get_pivot(spl, leaf, 0);
       key             pivot1 = trunk_get_pivot(spl, leaf, 1);
       platform_status rc1, rc2;
       KEY_CREATE_LOCAL_COPY(rc1, min_key, spl->heap_id, pivot0);
@@ -6146,8 +6146,8 @@ trunk_maybe_reclaim_space(trunk_handle *spl)
 platform_status
 trunk_insert(trunk_handle *spl, key tuple_key, message data)
 {
-   timestamp                            ts;
-   const threadid                       tid = platform_get_tid();
+   timestamp      ts;
+   const threadid tid = platform_get_tid();
    if (spl->cfg.use_stats) {
       ts = platform_get_timestamp();
    }

@@ -46,8 +46,8 @@
 // Hard-coded format strings to generate key and values
 static const char key_fmt[] = "key-%02x";
 static const char val_fmt[] = "val-%02x";
-#define KEY_FMT_LENGTH (6)
-#define VAL_FMT_LENGTH (6)
+#define KEY_FMT_LENGTH         (6)
+#define VAL_FMT_LENGTH         (6)
 #define TEST_INSERT_KEY_LENGTH (KEY_FMT_LENGTH + 1)
 #define TEST_INSERT_VAL_LENGTH (VAL_FMT_LENGTH + 1)
 
@@ -636,8 +636,8 @@ CTEST2(splinterdb_quick,
 CTEST2(splinterdb_quick, test_close_and_reopen)
 {
    slice        user_key = slice_create(strlen("some-key"), "some-key");
-   const char  *val     = "some-value";
-   const size_t val_len = strlen(val);
+   const char  *val      = "some-value";
+   const size_t val_len  = strlen(val);
 
 
    int rc = splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val));
@@ -678,8 +678,8 @@ CTEST2(splinterdb_quick, test_repeated_insert_close_reopen)
 {
    char  *keystring = "some-key";
    size_t key_len   = strlen(keystring);
-   char  *val     = "f";
-   size_t val_len = strlen(val);
+   char  *val       = "f";
+   size_t val_len   = strlen(val);
 
    for (int i = 0; i < 20; i++) {
       int rc = splinterdb_insert(data->kvsb,

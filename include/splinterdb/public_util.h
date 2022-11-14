@@ -25,7 +25,7 @@ typedef struct slice {
    const void *data;
 } slice;
 
-#define NULL_SLICE ((slice){.length = 0, .data = NULL})
+#define NULL_SLICE    ((slice){.length = 0, .data = NULL})
 #define INVALID_SLICE ((slice){.length = (uint64)-1, .data = NULL})
 
 static inline bool
