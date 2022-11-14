@@ -185,20 +185,21 @@ writable_buffer_init(writable_buffer *wb, platform_heap_id heap_id)
  * Convenience macro for declaring and initializing an automatically
  * destroyed writable buffer with a stack allocated array.  Usage:
  *
- * WRITABLE_BUFFER(128, wb);
+ * DECLARE_AUTO_WRITABLE_BUFFER_N(wb, heapid, 128);
  * // wb is now initialized and ready for use, e.g.
  * writable_buffer_copy_slice(&wb, some_slice);
  * ...
  * //writable_buffer_deinit(&wb); // DO NOT CALL writable_buffer_deinit!
  */
-#define WRITABLE_BUFFER(wb, hid, n)                                            \
+#define DECLARE_AUTO_WRITABLE_BUFFER_N(wb, hid, n)                             \
    char            wb##_tmp[n];                                                \
    writable_buffer wb __attribute__((cleanup(writable_buffer_deinit)));        \
    writable_buffer_init_with_buffer(&wb, hid, n, wb##_tmp, 0)
 
-#define DEFAULT_WRITABLE_BUFFER_STACK_BUFFER_SIZE (128)
-#define WRITABLE_BUFFER_DEFAULT(wb, hid)                                       \
-   WRITABLE_BUFFER(wb, hid, DEFAULT_WRITABLE_BUFFER_STACK_BUFFER_SIZE)
+#define WRITABLE_BUFFER_DEFAULT_AUTO_BUFFER_SIZE (128)
+#define DECLARE_AUTO_WRITABLE_BUFFER(wb, hid)                                  \
+   DECLARE_AUTO_WRITABLE_BUFFER_N(                                             \
+      wb, hid, WRITABLE_BUFFER_DEFAULT_AUTO_BUFFER_SIZE)
 
 static inline void
 writable_buffer_set_to_null(writable_buffer *wb)
@@ -214,6 +215,15 @@ writable_buffer_deinit(writable_buffer *wb)
    }
    wb->buffer   = NULL;
    wb->can_free = FALSE;
+}
+
+static inline void
+writable_buffer_memset(writable_buffer *wb, int c)
+{
+   if (wb->length == WRITABLE_BUFFER_NULL_LENGTH) {
+      return;
+   }
+   memset(wb->buffer, 0, wb->length);
 }
 
 static inline platform_status

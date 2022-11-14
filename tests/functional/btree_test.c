@@ -108,17 +108,18 @@ out:
 }
 
 bool
-test_btree_lookup(cache        *cc,
-                  btree_config *cfg,
-                  uint64        root_addr,
-                  key           target,
-                  message       expected_data)
+test_btree_lookup(cache           *cc,
+                  btree_config    *cfg,
+                  platform_heap_id hid,
+                  uint64           root_addr,
+                  key              target,
+                  message          expected_data)
 {
    platform_status   rc;
    merge_accumulator result;
    bool              ret;
 
-   merge_accumulator_init(&result, NULL);
+   merge_accumulator_init(&result, hid);
 
    rc = btree_lookup(cc, cfg, root_addr, PAGE_TYPE_MEMTABLE, target, &result);
    platform_assert_status_ok(rc);
@@ -144,7 +145,8 @@ test_memtable_lookup(test_memtable_context *ctxt,
    btree_config *btree_cfg = test_memtable_context_btree_config(ctxt);
    uint64        root_addr = ctxt->mt_ctxt->mt[mt_no].root_addr;
    cache        *cc        = ctxt->cc;
-   return test_btree_lookup(cc, btree_cfg, root_addr, target, expected_data);
+   return test_btree_lookup(
+      cc, btree_cfg, ctxt->heap_id, root_addr, target, expected_data);
 }
 
 void
@@ -189,10 +191,10 @@ test_btree_insert_thread(void *arg)
    uint64                    num_inserts = params->num_ops;
 
    uint64 start_time = platform_get_timestamp();
-   WRITABLE_BUFFER_DEFAULT(keybuf, NULL);
+   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, ctxt->heap_id);
    merge_accumulator data;
 
-   merge_accumulator_init(&data, NULL);
+   merge_accumulator_init(&data, ctxt->heap_id);
 
    uint64 start_num = thread_id * num_inserts;
    uint64 end_num   = (thread_id + 1) * num_inserts;
@@ -342,6 +344,7 @@ btree_test_async_callback(btree_async_ctxt *btree_ctxt)
 
 static btree_test_async_ctxt *
 btree_test_get_async_ctxt(btree_config            *cfg,
+                          platform_heap_id         hid,
                           btree_test_async_lookup *async_lookup)
 {
    btree_test_async_ctxt *ctxt;
@@ -357,8 +360,8 @@ btree_test_get_async_ctxt(btree_config            *cfg,
    ctxt                      = &async_lookup->ctxt[idx];
    btree_ctxt_init(&ctxt->ctxt, &ctxt->cache_ctxt, btree_test_async_callback);
    ctxt->ready = FALSE;
-   writable_buffer_init(&ctxt->keybuf, NULL);
-   merge_accumulator_init(&ctxt->result, NULL);
+   writable_buffer_init(&ctxt->keybuf, hid);
+   merge_accumulator_init(&ctxt->result, hid);
 
    return ctxt;
 }
@@ -554,9 +557,9 @@ test_btree_basic(cache             *cc,
    btree_test_async_ctxt_init(async_lookup);
 
    uint64 start_time = platform_get_timestamp();
-   WRITABLE_BUFFER_DEFAULT(keybuf, NULL);
+   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, ctxt->heap_id);
    merge_accumulator expected_data;
-   merge_accumulator_init(&expected_data, NULL);
+   merge_accumulator_init(&expected_data, ctxt->heap_id);
 
    platform_status rc = STATUS_OK;
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
@@ -586,7 +589,7 @@ test_btree_basic(cache             *cc,
    start_time = platform_get_timestamp();
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
       btree_test_async_ctxt *async_ctxt = btree_test_get_async_ctxt(
-         test_memtable_context_btree_config(ctxt), async_lookup);
+         test_memtable_context_btree_config(ctxt), hid, async_lookup);
 
       if (async_ctxt == NULL) {
          test_btree_tuple(ctxt, &keybuf, &expected_data, insert_num, 0);
@@ -688,13 +691,14 @@ test_btree_basic(cache             *cc,
    start_time = platform_get_timestamp();
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
       btree_test_async_ctxt *async_ctxt = btree_test_get_async_ctxt(
-         test_memtable_context_btree_config(ctxt), async_lookup);
+         test_memtable_context_btree_config(ctxt), hid, async_lookup);
 
       if (async_ctxt == NULL) {
          test_btree_tuple(ctxt, &keybuf, &expected_data, insert_num, 0);
          bool correct =
             test_btree_lookup(cc,
                               btree_cfg,
+                              hid,
                               packed_root_addr,
                               writable_buffer_to_key(&keybuf),
                               merge_accumulator_to_message(&expected_data));
@@ -749,6 +753,7 @@ test_btree_basic(cache             *cc,
       test_btree_tuple(ctxt, &keybuf, &expected_data, insert_num, 0);
       bool correct = test_btree_lookup(cc,
                                        btree_cfg,
+                                       hid,
                                        packed_root_addr,
                                        writable_buffer_to_key(&keybuf),
                                        NULL_MESSAGE);
@@ -799,9 +804,9 @@ test_btree_create_packed_trees(cache             *cc,
       test_memtable_context_create(cc, cfg, num_trees, hid);
 
    // fill the memtables
-   WRITABLE_BUFFER_DEFAULT(keybuf, NULL);
+   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, hid);
    merge_accumulator data;
-   merge_accumulator_init(&data, NULL);
+   merge_accumulator_init(&data, hid);
 
    uint64          insert_no;
    platform_status rc = STATUS_OK;

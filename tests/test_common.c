@@ -43,7 +43,7 @@ verify_tuple(trunk_handle           *spl,
 
    if (!message_is_null(data) && expected_found) {
       merge_accumulator expected_msg;
-      merge_accumulator_init(&expected_msg, NULL);
+      merge_accumulator_init(&expected_msg, spl->heap_id);
       char data_str[128];
       generate_test_message(gen, lookup_num, &expected_msg);
       if (message_lex_cmp(merge_accumulator_to_message(&expected_msg), data)

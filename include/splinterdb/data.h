@@ -38,6 +38,11 @@ typedef enum message_type {
 
 /*
  * Messages
+ *
+ * Messages are similar to slices in that they are essentially just
+ * pointers to the message contents.  They just help carry around a
+ * little extra information about the message (i.e. its type and
+ * length).
  */
 typedef struct message {
    message_type type;

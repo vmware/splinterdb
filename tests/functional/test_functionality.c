@@ -94,7 +94,7 @@ verify_tuple(trunk_handle    *spl,
       platform_assert(0);
    } else if (refcount && found) {
       merge_accumulator expected_message;
-      merge_accumulator_init(&expected_message, NULL);
+      merge_accumulator_init(&expected_message, spl->heap_id);
       test_data_generate_message(
          spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
       message expected_msg = merge_accumulator_to_message(&expected_message);
@@ -157,7 +157,7 @@ verify_against_shadow(trunk_handle               *spl,
 
    platform_status rc, result = STATUS_OK;
 
-   WRITABLE_BUFFER_DEFAULT(keybuf, spl->heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, spl->heap_id);
 
    uint64            i;
    merge_accumulator merge_acc;
@@ -391,8 +391,8 @@ verify_range_against_shadow_all_types(trunk_handle               *spl,
    key             end_key;
    int             start_index;
    int             end_index;
-   WRITABLE_BUFFER_DEFAULT(startkey_buf, spl->heap_id);
-   WRITABLE_BUFFER_DEFAULT(endkey_buf, spl->heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(startkey_buf, spl->heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(endkey_buf, spl->heap_id);
 
    for (begin_type = VERIFY_RANGE_ENDPOINT_MIN;
         begin_type <= VERIFY_RANGE_ENDPOINT_RAND;
@@ -552,9 +552,9 @@ insert_random_messages(trunk_handle              *spl,
    platform_status   rc = STATUS_OK;
    uint64            keynum;
    merge_accumulator msg;
-   merge_accumulator_init(&msg, NULL);
+   merge_accumulator_init(&msg, spl->heap_id);
 
-   WRITABLE_BUFFER_DEFAULT(keybuf, spl->heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, spl->heap_id);
 
    keynum = minkey;
    for (i = 0; i < num_messages; i++) {

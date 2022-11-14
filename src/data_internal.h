@@ -18,9 +18,10 @@
  *
  * Structures for passing around and manipulating keys in memory.
  * These functions are like those for slices: they do not manage the
- * underlying memory that holds the bytes of they key.
+ * underlying memory that holds the bytes of they key.  So they are
+ * essentially just pointers that carry around a little metadata.
  *
- * We also define two specuial keys, +/-infinity, for specifying
+ * We also define two special keys, +/-infinity, for specifying
  * iterator ranges and similar applications.
  *
  * The key type is not exposed to the user in any way, since the API

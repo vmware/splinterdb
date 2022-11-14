@@ -275,12 +275,14 @@ CTEST2(splinter, test_inserts)
 }
 
 static void
-trunk_shadow_init(trunk_shadow *shadow, data_config *data_cfg)
+trunk_shadow_init(trunk_shadow    *shadow,
+                  data_config     *data_cfg,
+                  platform_heap_id hid)
 {
    shadow->data_cfg = data_cfg;
    shadow->sorted   = TRUE;
-   writable_buffer_init(&shadow->entries, NULL);
-   writable_buffer_init(&shadow->data, NULL);
+   writable_buffer_init(&shadow->entries, hid);
+   writable_buffer_init(&shadow->data, hid);
 }
 
 static void
@@ -430,7 +432,7 @@ CTEST2(splinter, test_lookups)
    ASSERT_TRUE(spl != NULL);
 
    trunk_shadow shadow;
-   trunk_shadow_init(&shadow, data->data_cfg);
+   trunk_shadow_init(&shadow, data->data_cfg, data->hid);
 
    // FALSE : No need to do verification-after-inserts, as that functionality
    // has been tested earlier in test_inserts() case.
@@ -441,8 +443,8 @@ CTEST2(splinter, test_lookups)
                     num_inserts);
 
    merge_accumulator qdata;
-   merge_accumulator_init(&qdata, NULL);
-   WRITABLE_BUFFER_DEFAULT(key, data->hid);
+   merge_accumulator_init(&qdata, spl->heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(key, data->hid);
    const size_t key_size = trunk_max_key_size(spl);
 
    platform_status rc;
@@ -724,7 +726,7 @@ splinter_do_inserts(void         *datap,
 
    uint64 start_time = platform_get_timestamp();
    uint64 insert_num;
-   WRITABLE_BUFFER_DEFAULT(key, spl->heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(key, spl->heap_id);
    const size_t key_size = trunk_max_key_size(spl);
 
    // Allocate a large array for copying over shadow copies of rows
@@ -739,7 +741,7 @@ splinter_do_inserts(void         *datap,
                         num_inserts,
                         (verify ? "and verify" : ""));
    merge_accumulator msg;
-   merge_accumulator_init(&msg, NULL);
+   merge_accumulator_init(&msg, spl->heap_id);
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
 
       // Show progress message in %age-completed to stdout
@@ -853,7 +855,7 @@ test_lookup_by_range(void         *datap,
 
    platform_status rc;
 
-   WRITABLE_BUFFER_DEFAULT(start_key_buf, spl->heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(start_key_buf, spl->heap_id);
 
    for (uint64 range_num = 0; range_num != num_ranges; range_num++) {
 

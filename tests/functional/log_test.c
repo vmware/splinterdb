@@ -48,7 +48,7 @@ test_log_crash(clockcache             *cc,
    char               data_str[128];
    bool               at_end;
    merge_accumulator  msg;
-   WRITABLE_BUFFER_DEFAULT(keybuffer, hid);
+   DECLARE_AUTO_WRITABLE_BUFFER(keybuffer, hid);
 
    platform_assert(cc != NULL);
    rc = shard_log_init(log, (cache *)cc, cfg);
@@ -141,7 +141,7 @@ test_log_thread(void *arg)
    test_message_generator *gen         = params->gen;
    uint64                  i;
    merge_accumulator       msg;
-   WRITABLE_BUFFER_DEFAULT(keybuf, hid);
+   DECLARE_AUTO_WRITABLE_BUFFER(keybuf, hid);
 
    merge_accumulator_init(&msg, hid);
 

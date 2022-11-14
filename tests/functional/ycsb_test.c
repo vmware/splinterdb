@@ -320,7 +320,7 @@ ycsb_thread(void *arg)
    uint64            batch_size = params->batch_size;
    uint64            my_batch;
    merge_accumulator value;
-   merge_accumulator_init(&value, NULL);
+   merge_accumulator_init(&value, spl->heap_id);
 
    uint64_t start_time = platform_get_timestamp();
    __sync_val_compare_and_swap(

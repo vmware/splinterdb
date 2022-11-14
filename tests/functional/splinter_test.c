@@ -136,7 +136,7 @@ test_trunk_insert_thread(void *arg)
    // divide the per second insert rate into periods of 10 milli seconds.
    uint64            insert_rate = params->insert_rate / 100;
    merge_accumulator msg;
-   merge_accumulator_init(&msg, NULL);
+   merge_accumulator_init(&msg, heap_id);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -159,7 +159,7 @@ test_trunk_insert_thread(void *arg)
          }
       }
 
-      WRITABLE_BUFFER_DEFAULT(key, heap_id);
+      DECLARE_AUTO_WRITABLE_BUFFER(key, heap_id);
 
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -245,7 +245,7 @@ test_trunk_lookup_thread(void *arg)
    uint8   done        = 0;
 
    merge_accumulator data;
-   merge_accumulator_init(&data, NULL);
+   merge_accumulator_init(&data, heap_id);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -268,7 +268,7 @@ test_trunk_lookup_thread(void *arg)
          }
       }
 
-      WRITABLE_BUFFER_DEFAULT(keybuf, heap_id);
+      DECLARE_AUTO_WRITABLE_BUFFER(keybuf, heap_id);
 
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          uint8 spl_idx;
@@ -372,7 +372,7 @@ test_trunk_range_thread(void *arg)
    uint64 start_time      = platform_get_timestamp();
    char   progress_msg[60];
 
-   WRITABLE_BUFFER_DEFAULT(start_key, heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(start_key, heap_id);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -568,7 +568,7 @@ do_operation(test_splinter_thread_params *params,
                                         .stats      = &params->lookup_stats[ASYNC_LU]};
    platform_heap_id   heap_id        = platform_get_heap_id();
 
-   WRITABLE_BUFFER_DEFAULT(key, heap_id);
+   DECLARE_AUTO_WRITABLE_BUFFER(key, heap_id);
    merge_accumulator msg;
    merge_accumulator_init(&msg, heap_id);
 
