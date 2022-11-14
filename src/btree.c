@@ -2486,7 +2486,7 @@ btree_iterator_advance_leaf(btree_iterator *itor)
        && !btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr))
    {
       // IO prefetch the next extent
-      cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
+      cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
    }
 }
 
@@ -2662,7 +2662,7 @@ btree_iterator_init(cache          *cc,
        && !btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr))
    {
       // IO prefetch the next extent
-      cache_prefetch(cc, itor->curr.hdr->next_extent_addr, TRUE);
+      cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
    }
 
    debug_assert(btree_iterator_is_at_end(itor)
