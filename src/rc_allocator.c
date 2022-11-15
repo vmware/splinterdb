@@ -177,6 +177,7 @@ const static allocator_ops rc_allocator_ops = {
    .get_super_addr    = rc_allocator_get_super_addr_virtual,
    .alloc_super_addr  = rc_allocator_alloc_super_addr_virtual,
    .remove_super_addr = rc_allocator_remove_super_addr_virtual,
+   .in_use            = rc_allocator_in_use_virtual,
    .get_capacity      = rc_allocator_get_capacity_virtual,
    .assert_noleaks    = rc_allocator_assert_noleaks_virtual,
    .print_stats       = rc_allocator_print_stats_virtual,
