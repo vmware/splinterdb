@@ -2984,10 +2984,7 @@ btree_pack_post_loop(btree_pack_req *req, slice last_key)
 static bool
 btree_pack_can_fit_tuple(btree_pack_req *req, slice key, message data)
 {
-   return req->num_tuples < req->max_tuples
-          && req->key_bytes + req->message_bytes + slice_length(key)
-                   + message_length(data)
-                <= req->max_kv_bytes;
+   return req->num_tuples < req->max_tuples;
 }
 
 /*
