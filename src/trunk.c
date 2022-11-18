@@ -4616,6 +4616,19 @@ trunk_btree_pack_req_init(trunk_handle   *spl,
                        spl->heap_id);
 }
 
+static void
+trunk_compact_bundle_cleanup_iterators(trunk_handle           *spl,
+                                       merge_iterator        **merge_itor,
+                                       uint64                  num_branches,
+                                       trunk_btree_skiperator *skip_itor_arr)
+{
+   platform_status rc = merge_iterator_destroy(spl->heap_id, merge_itor);
+   platform_assert_status_ok(rc);
+   for (uint64 i = 0; i < num_branches; i++) {
+      trunk_btree_skiperator_deinit(spl, &skip_itor_arr[i]);
+   }
+}
+
 /*
  * compact_bundle compacts a bundle of flushed branches into a single branch
  *
@@ -4838,9 +4851,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    platform_status pack_status = btree_pack(&pack_req);
-   platform_assert(SUCCESS(pack_status),
-                   "platform_status of btree_pack: %d\n",
-                   pack_status.r);
+   if (!SUCCESS(pack_status)) {
+      platform_default_log("btree_pack failed: %d\n", pack_status.r);
+      trunk_compact_bundle_cleanup_iterators(
+         spl, &merge_itor, num_branches, skip_itor_arr);
+      goto out;
+   }
 
    if (spl->cfg.use_stats) {
       spl->stats[tid].compaction_pack_time_ns[height] +=
@@ -4868,11 +4884,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    /*
     * 10. Clean up
     */
-   rc = merge_iterator_destroy(spl->heap_id, &merge_itor);
-   platform_assert_status_ok(rc);
-   for (uint64 i = 0; i < num_branches; i++) {
-      trunk_btree_skiperator_deinit(spl, &skip_itor_arr[i]);
-   }
+   trunk_compact_bundle_cleanup_iterators(
+      spl, &merge_itor, num_branches, skip_itor_arr);
 
    /*
     * 11. Reacquire read lock
