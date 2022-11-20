@@ -1610,8 +1610,7 @@ btree_test(int argc, char *argv[])
       rc = test_btree_merge_perf(ccp, &test_cfg, hid, 8, 8);
       platform_assert_status_ok(rc);
    } else {
-      uint64 total_inserts =
-         max_tuples_per_memtable - (MAX_THREADS * (64 / sizeof(uint32)));
+      uint64 total_inserts = max_tuples_per_memtable;
       rc = test_btree_basic(ccp, &test_cfg, hid, total_inserts);
       platform_assert_status_ok(rc);
 

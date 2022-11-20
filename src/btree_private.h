@@ -112,10 +112,11 @@ typedef struct leaf_incorporate_spec {
       ENTRY_STILL_EXISTS,
       ENTRY_HAS_BEEN_REMOVED
    } old_entry_state;
+   bool use_msg;
    union {
-      /* "old_entry_state" is the tag on this union. */
-      message           new_message; // old_entry_state == ENTRY_DID_NOT_EXIST
-      merge_accumulator merged_message; // otherwise
+      /* use_msg is the tag on this union. */
+      message           msg;
+      merge_accumulator ma;
    } msg;
 } leaf_incorporate_spec;
 
@@ -227,7 +228,6 @@ static inline uint64
 sizeof_leaf_entry(const leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
    return sizeof(*entry) + entry->key_size + entry->message_size;
 }
 
@@ -249,7 +249,6 @@ static inline slice
 leaf_entry_key_slice(leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
    return slice_create(entry->key_size, entry->key_and_message);
 }
 
@@ -257,7 +256,6 @@ static inline message
 leaf_entry_message(leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
    return message_create(
       entry->type,
       FALSE,
@@ -269,7 +267,6 @@ static inline message_type
 leaf_entry_message_type(leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
    return entry->type;
 }
 
@@ -289,7 +286,6 @@ btree_get_leaf_entry(const btree_config *cfg,
    debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
                 <= btree_page_size(cfg));
    debug_assert(entry->key_indirect == FALSE);
-   debug_assert(entry->message_indirect == FALSE);
    return entry;
 }
 

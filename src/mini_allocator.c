@@ -338,13 +338,6 @@ mini_num_entries(page_handle *meta_page)
    return hdr->num_entries;
 }
 
-static page_type
-mini_meta_type(page_handle *meta_page)
-{
-   mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
-   return hdr->type;
-}
-
 /*
  *-----------------------------------------------------------------------------
  * mini_keyed_[get,set]_entry --
@@ -913,7 +906,6 @@ mini_unkeyed_for_each(cache           *cc,
    uint64 meta_addr = meta_head;
    do {
       page_handle *meta_page = cache_get(cc, meta_addr, TRUE, meta_type);
-      debug_assert(meta_type == mini_meta_type(meta_page));
       uint64              num_meta_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry            = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_meta_entries; i++) {
@@ -1022,7 +1014,6 @@ mini_keyed_for_each(cache           *cc,
 
    do {
       page_handle      *meta_page = cache_get(cc, meta_addr, TRUE, meta_type);
-      debug_assert(meta_type == mini_meta_type(meta_page));
       keyed_meta_entry *entry     = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < mini_num_entries(meta_page); i++) {
          uint64         batch = entry->batch;
@@ -1109,7 +1100,6 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
 
    uint64       meta_addr = meta_head;
    page_handle *meta_page = mini_get_claim_meta_page(cc, meta_head, meta_type);
-   debug_assert(meta_type == mini_meta_type(meta_page));
 
    boundary_state current_state[MINI_MAX_BATCHES];
    uint64         extent_addr[MINI_MAX_BATCHES];
@@ -1159,7 +1149,6 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
       if (meta_addr != 0) {
          page_handle *next_meta_page =
             mini_get_claim_meta_page(cc, meta_addr, meta_type);
-         debug_assert(meta_type == mini_meta_type(next_meta_page));
          mini_unget_unclaim_meta_page(cc, meta_page);
          meta_page = next_meta_page;
       }

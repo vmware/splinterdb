@@ -518,10 +518,10 @@ btree_merge_tuples(const btree_config *cfg,
 static message
 spec_message(const leaf_incorporate_spec *spec)
 {
-   if (spec->old_entry_state == ENTRY_DID_NOT_EXIST) {
-      return spec->msg.new_message;
+   if (spec->use_msg) {
+      return spec->msg.msg;
    } else {
-      return merge_accumulator_to_message(&spec->msg.merged_message);
+      return merge_accumulator_to_message(&spec->msg.ma);
    }
 }
 
@@ -552,6 +552,31 @@ merge_accumulator_convert_to_blob(const blob_build_config *cfg,
    return STATUS_OK;
 }
 
+static platform_status
+message_to_blob(const blob_build_config *cfg,
+                cache                   *cc,
+                mini_allocator          *mini,
+                slice                    key,
+                message                  msg,
+                merge_accumulator       *ma)
+{
+   platform_assert(!message_isblob(msg));
+   ma->type = message_class(msg);
+   ma->cc   = cc;
+   return blob_build(cfg, cc, mini, key, message_slice(msg), &ma->data);
+}
+
+/*
+ * Prepare to insert a key-value pair into a leaf.
+ * Determines:
+ * - whether we are replacing an exising entry or adding a new one
+ * - the index for our entry.
+ * Also computes:
+ * - merges new entry with old entry, if it exists.
+ *
+ * Finally, if the message we should insert (after any merging, if
+ * required) is too large, then convert it to a blob.
+ */
 platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    cache                 *cc,
@@ -562,44 +587,49 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    message                msg,
                                    leaf_incorporate_spec *spec)
 {
+   platform_status rc = STATUS_OK;
    spec->key = key;
    bool found;
    spec->idx             = btree_find_tuple(cfg, hdr, key, &found);
    spec->old_entry_state = found ? ENTRY_STILL_EXISTS : ENTRY_DID_NOT_EXIST;
+
    if (!found) {
-      spec->msg.new_message = msg;
       spec->idx++;
-      return STATUS_OK;
+      if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg)) < message_length(msg)) {
+         spec->use_msg = FALSE;
+         merge_accumulator_init(&spec->msg.ma, heap_id);
+         rc =
+            message_to_blob(&btree_blob_cfg, cc, mini, key, msg, &spec->msg.ma);
+      } else {
+         spec->use_msg = TRUE;
+         spec->msg.msg = msg;
+      }
    } else {
       leaf_entry *entry      = btree_get_leaf_entry(cfg, hdr, spec->idx);
       message     oldmessage = leaf_entry_message(entry);
-      bool        success;
-      success = merge_accumulator_init_from_message(
-         &spec->msg.merged_message, heap_id, msg);
-      if (!success) {
-         return STATUS_NO_MEMORY;
-      }
-      if (btree_merge_tuples(cfg, key, oldmessage, &spec->msg.merged_message)) {
-         merge_accumulator_deinit(&spec->msg.merged_message);
-         return STATUS_NO_MEMORY;
-      }
-
-      if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg))
-          < merge_accumulator_length(&spec->msg.merged_message))
+      spec->use_msg          = FALSE;
+      merge_accumulator_init_from_message(&spec->msg.ma, heap_id, msg);
+      if (btree_merge_tuples(cfg, key, oldmessage, &spec->msg.ma)) {
+         rc = STATUS_NO_MEMORY;
+      } else if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg))
+                 < merge_accumulator_length(&spec->msg.ma))
       {
-         return merge_accumulator_convert_to_blob(
-            &btree_blob_cfg, cc, mini, key, &spec->msg.merged_message);
-      } else {
-         return STATUS_OK;
+         rc = merge_accumulator_convert_to_blob(
+            &btree_blob_cfg, cc, mini, key, &spec->msg.ma);
       }
    }
+
+   if (!SUCCESS(rc)) {
+      merge_accumulator_deinit(&spec->msg.ma);
+   }
+   return rc;
 }
 
 void
 destroy_leaf_incorporate_spec(leaf_incorporate_spec *spec)
 {
-   if (spec->old_entry_state != ENTRY_DID_NOT_EXIST) {
-      merge_accumulator_deinit(&spec->msg.merged_message);
+   if (!spec->use_msg) {
+      merge_accumulator_deinit(&spec->msg.ma);
    }
 }
 
@@ -610,15 +640,14 @@ btree_can_perform_leaf_incorporate_spec(const btree_config          *cfg,
 {
    if (spec->old_entry_state == ENTRY_DID_NOT_EXIST) {
       return btree_can_set_leaf_entry(
-         cfg, hdr, btree_num_entries(hdr), spec->key, spec->msg.new_message);
+         cfg, hdr, btree_num_entries(hdr), spec->key, spec_message(spec));
    } else if (spec->old_entry_state == ENTRY_STILL_EXISTS) {
-      message merged = merge_accumulator_to_message(&spec->msg.merged_message);
-      return btree_can_set_leaf_entry(cfg, hdr, spec->idx, spec->key, merged);
+      return btree_can_set_leaf_entry(
+         cfg, hdr, spec->idx, spec->key, spec_message(spec));
    } else {
       debug_assert(spec->old_entry_state == ENTRY_HAS_BEEN_REMOVED);
-      message merged = merge_accumulator_to_message(&spec->msg.merged_message);
       return btree_can_set_leaf_entry(
-         cfg, hdr, btree_num_entries(hdr), spec->key, merged);
+         cfg, hdr, btree_num_entries(hdr), spec->key, spec_message(spec));
    }
 }
 
@@ -628,25 +657,20 @@ btree_try_perform_leaf_incorporate_spec(const btree_config          *cfg,
                                         const leaf_incorporate_spec *spec,
                                         uint64                      *generation)
 {
-   bool success;
+   bool    success;
+   message msg = spec_message(spec);
    switch (spec->old_entry_state) {
       case ENTRY_DID_NOT_EXIST:
-         success = btree_insert_leaf_entry(
-            cfg, hdr, spec->idx, spec->key, spec->msg.new_message);
+         success = btree_insert_leaf_entry(cfg, hdr, spec->idx, spec->key, msg);
          break;
       case ENTRY_STILL_EXISTS:
       {
-         message merged =
-            merge_accumulator_to_message(&spec->msg.merged_message);
-         success = btree_set_leaf_entry(cfg, hdr, spec->idx, spec->key, merged);
+         success = btree_set_leaf_entry(cfg, hdr, spec->idx, spec->key, msg);
          break;
       }
       case ENTRY_HAS_BEEN_REMOVED:
       {
-         message merged =
-            merge_accumulator_to_message(&spec->msg.merged_message);
-         success =
-            btree_insert_leaf_entry(cfg, hdr, spec->idx, spec->key, merged);
+         success = btree_insert_leaf_entry(cfg, hdr, spec->idx, spec->key, msg);
          break;
       }
       default:
@@ -1035,7 +1059,8 @@ btree_alloc(cache          *cc,
             page_type       type,
             btree_node     *node)
 {
-   node->addr = mini_alloc_page(mini, height, key, next_extent);
+   node->addr =
+      mini_alloc_page(mini, NUM_BLOB_BATCHES + height, key, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
    // If this btree is for a memetable
@@ -1691,10 +1716,6 @@ btree_insert(cache              *cc,         // IN
    uint64                leaf_wait = 1;
 
    if (MAX_INLINE_KEY_SIZE(btree_page_size(cfg)) < slice_length(key)) {
-      return STATUS_BAD_PARAM;
-   }
-
-   if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(cfg)) < message_length(msg)) {
       return STATUS_BAD_PARAM;
    }
 
