@@ -166,6 +166,7 @@ typedef struct btree_pack_req {
    btree_node        edge[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    btree_pivot_stats edge_stats[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    uint32            num_edges[BTREE_MAX_HEIGHT];
+   merge_accumulator ma;
 
    mini_allocator mini;
 
@@ -347,6 +348,7 @@ btree_pack_req_init(btree_pack_req  *req,
    req->max_tuples = max_tuples;
    req->hash       = hash;
    req->seed       = seed;
+   merge_accumulator_init(&req->ma, hid);
    if (hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
          TYPED_ARRAY_MALLOC(hid, req->fingerprint_arr, max_tuples);
@@ -356,6 +358,7 @@ btree_pack_req_init(btree_pack_req  *req,
 static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
+   merge_accumulator_deinit(&req->ma);
    if (req->fingerprint_arr) {
       platform_free(hid, req->fingerprint_arr);
    }

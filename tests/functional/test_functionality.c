@@ -123,6 +123,7 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    platform_status *result = arg;
 
+   merge_accumulator_ensure_materialized(&ctxt->data);
    verify_tuple(spl,
                 ctxt->key,
                 merge_accumulator_to_message(&ctxt->data),
@@ -176,6 +177,10 @@ verify_against_shadow(trunk_handle               *spl,
          test_int_to_key(keybuf, key, key_size);
 
          rc = trunk_lookup(spl, keybuf, &merge_acc);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
+         rc = merge_accumulator_ensure_materialized(&merge_acc);
          if (!SUCCESS(rc)) {
             return rc;
          }

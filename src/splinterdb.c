@@ -788,6 +788,7 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
       return EINVAL;
    }
 
+   merge_accumulator_ensure_materialized(&_result->value);
    *value = merge_accumulator_to_value(&_result->value);
    return 0;
 }

@@ -365,6 +365,19 @@ btree_set_leaf_entry(const btree_config *cfg,
    return TRUE;
 }
 
+bool
+btree_copy_leaf_entry(const btree_config *cfg,
+                      btree_hdr          *hdr,
+                      table_index         k,
+                      const leaf_entry   *entry)
+{
+   slice entry_key = leaf_entry_key_slice(entry);
+   /* Big hack here to avoid needing access to the cache. */
+   message entry_msg = leaf_entry_message(
+      (cache *)(entry->message_indirect ? 1ULL : 0ULL), entry);
+   return btree_set_leaf_entry(cfg, hdr, k, entry_key, entry_msg);
+}
+
 static inline bool
 btree_insert_leaf_entry(const btree_config *cfg,
                         btree_hdr          *hdr,
@@ -606,7 +619,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
       }
    } else {
       leaf_entry *entry      = btree_get_leaf_entry(cfg, hdr, spec->idx);
-      message     oldmessage = leaf_entry_message(entry);
+      message     oldmessage = leaf_entry_message(cc, entry);
       spec->use_msg          = FALSE;
       merge_accumulator_init_from_message(&spec->msg.ma, heap_id, msg);
       if (btree_merge_tuples(cfg, key, oldmessage, &spec->msg.ma)) {
@@ -713,11 +726,7 @@ btree_defragment_leaf(const btree_config    *cfg, // IN
       } else {
          leaf_entry     *entry = btree_get_leaf_entry(cfg, scratch_hdr, i);
          debug_only bool success =
-            btree_set_leaf_entry(cfg,
-                                 hdr,
-                                 dst_idx++,
-                                 leaf_entry_key_slice(entry),
-                                 leaf_entry_message(entry));
+            btree_copy_leaf_entry(cfg, hdr, dst_idx++, entry);
          debug_assert(success);
       }
    }
@@ -890,11 +899,7 @@ btree_split_leaf_build_right_node(const btree_config    *cfg,      // IN
          spec->old_entry_state = ENTRY_HAS_BEEN_REMOVED;
       } else {
          leaf_entry *entry = btree_get_leaf_entry(cfg, left_hdr, i);
-         btree_set_leaf_entry(cfg,
-                              right_hdr,
-                              dst_idx,
-                              leaf_entry_key_slice(entry),
-                              leaf_entry_message(entry));
+         btree_copy_leaf_entry(cfg, right_hdr, dst_idx, entry);
          dst_idx++;
       }
    }
@@ -2063,7 +2068,7 @@ btree_lookup_with_ref(cache        *cc,        // IN
    int64 idx = btree_find_tuple(cfg, node->hdr, key, found);
    if (*found) {
       leaf_entry *entry = btree_get_leaf_entry(cfg, node->hdr, idx);
-      *msg              = leaf_entry_message(entry);
+      *msg              = leaf_entry_message(cc, entry);
    } else {
       btree_node_unget(cc, cfg, node);
    }
@@ -2289,7 +2294,7 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
          {
             int64 idx = btree_find_tuple(cfg, node->hdr, key, found);
             if (*found) {
-               *data     = btree_get_tuple_message(cfg, node->hdr, idx);
+               *data     = btree_get_tuple_message(cfg, cc, node->hdr, idx);
                *node_out = *node;
             } else {
                btree_node_unget(cc, cfg, node);
@@ -2440,7 +2445,8 @@ btree_iterator_get_curr(iterator *base_itor, slice *key, message *data)
    cache_validate_page(itor->cc, itor->curr.page, itor->curr.addr);
    if (itor->curr.hdr->height == 0) {
       *key  = btree_get_tuple_key(itor->cfg, itor->curr.hdr, itor->idx);
-      *data = btree_get_tuple_message(itor->cfg, itor->curr.hdr, itor->idx);
+      *data = btree_get_tuple_message(
+         itor->cfg, itor->cc, itor->curr.hdr, itor->idx);
       log_trace_key(*key, "btree_iterator_get_curr");
    } else {
       index_entry *entry =
@@ -2889,15 +2895,49 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, slice pivot)
    return &req->edge[height][req->num_edges[height] - 1];
 }
 
+platform_status
+message_clone(const blob_build_config *cfg,
+              cache                   *cc,
+              mini_allocator          *mini,
+              slice                    key,
+              message                  msg,
+              merge_accumulator       *result)
+{
+   debug_assert(message_isblob(msg));
+   result->type = message_class(msg);
+   result->cc   = cc;
+   return blob_clone(cfg, cc, mini, key, message_slice(msg), &result->data);
+}
+
+
 static inline platform_status
 btree_pack_loop(btree_pack_req *req, // IN/OUT
                 slice           key, // IN
                 message         msg)         // IN
 {
+   platform_status rc;
    log_trace_key(key, "btree_pack_loop");
 
    if (message_is_invalid_user_type(msg)) {
       return STATUS_INVALID_STATE;
+   }
+
+   if (message_isblob(msg)) {
+      rc = message_clone(
+         &btree_blob_cfg, req->cc, &req->mini, key, msg, &req->ma);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      msg = merge_accumulator_to_message(&req->ma);
+   } else if (MAX_INLINE_MESSAGE_SIZE(btree_page_size(req->cfg))
+              < message_length(msg))
+   {
+      rc = message_to_blob(
+         &btree_blob_cfg, req->cc, &req->mini, key, msg, &req->ma);
+      if (!SUCCESS(rc)) {
+         return rc;
+      }
+      msg = merge_accumulator_to_message(&req->ma);
    }
 
    btree_node *leaf = btree_pack_get_current_node(req, 0);
@@ -3217,7 +3257,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
                    "[%2lu]: %s -- %s\n",
                    i,
                    key_string(dcfg, leaf_entry_key_slice(entry)),
-                   message_string(dcfg, leaf_entry_message(entry)));
+                   message_string(dcfg, leaf_entry_message(cc, entry)));
    }
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "\n");

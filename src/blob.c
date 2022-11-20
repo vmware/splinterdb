@@ -222,7 +222,7 @@ blob_page_iterator_at_end(blob_page_iterator *iter)
 }
 
 void
-blob_page_iterator_advance(blob_page_iterator *iter)
+blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 amount)
 {
    if (iter->page) {
       if (iter->alloc) {
@@ -233,7 +233,7 @@ blob_page_iterator_advance(blob_page_iterator *iter)
       iter->page = NULL;
    }
 
-   iter->offset += iter->length;
+   iter->offset += amount;
    if (iter->offset < iter->pblob.length) {
       addr_for_offset(iter->extent_size,
                       iter->page_size,
@@ -244,6 +244,12 @@ blob_page_iterator_advance(blob_page_iterator *iter)
                       &iter->length);
       maybe_do_prefetch(iter);
    }
+}
+
+void
+blob_page_iterator_advance(blob_page_iterator *iter)
+{
+   blob_page_iterator_advance_partial(iter, iter->length);
 }
 
 platform_status

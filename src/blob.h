@@ -86,6 +86,9 @@ bool
 blob_page_iterator_at_end(blob_page_iterator *iter);
 
 void
+blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 amount);
+
+void
 blob_page_iterator_advance(blob_page_iterator *iter);
 
 platform_status

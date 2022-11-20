@@ -140,3 +140,9 @@ static data_test_config data_test_config_internal = {
    .payload_size_limit = 24};
 
 data_config *test_data_config = &data_test_config_internal.super;
+
+void
+test_data_set_max_payload_size(uint64 max_payload_size)
+{
+   data_test_config_internal.payload_size_limit = max_payload_size;
+}

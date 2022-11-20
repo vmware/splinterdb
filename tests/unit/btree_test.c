@@ -98,6 +98,16 @@ CTEST_SETUP(btree)
    }
 }
 
+/*
+ * This file tests only the low-level physical representation of btree
+ * pages.  Thus we don't use the cache.  However, some btree functions require
+ * us to pass them a cache (i.e. to handle indirect messages). They don't
+ * actually do anything with the cache unless they have to handle indirect
+ * messages (which we don't use in this test), so we just pass them this fake
+ * cache.
+ */
+#define FAKE_CACHE ((cache *)1ULL)
+
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(btree) {}
 
@@ -183,7 +193,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    int cmp_rv = 0;
    for (uint32 i = 0; i < nkvs; i++) {
       slice   key = btree_get_tuple_key(cfg, hdr, i);
-      message msg = btree_get_tuple_message(cfg, hdr, i);
+      message msg = btree_get_tuple_message(cfg, FAKE_CACHE, hdr, i);
       cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
@@ -209,7 +219,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    cmp_rv = 0;
    for (uint64 i = 0; i < nkvs; i++) {
       slice   key = btree_get_tuple_key(cfg, hdr, i);
-      message msg = btree_get_tuple_message(cfg, hdr, i);
+      message msg = btree_get_tuple_message(cfg, FAKE_CACHE, hdr, i);
       cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 
@@ -225,7 +235,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 
    for (uint64 i = 0; i < nkvs; i++) {
       slice   key = btree_get_tuple_key(cfg, hdr, i);
-      message msg = btree_get_tuple_message(cfg, hdr, i);
+      message msg = btree_get_tuple_message(cfg, FAKE_CACHE, hdr, i);
       cmp_rv      = slice_lex_cmp(slice_create(i % sizeof(i), &i), key);
       ASSERT_EQUAL(0, cmp_rv, "Bad 4-byte key %d\n", i);
 

@@ -263,15 +263,20 @@ blob_clone(const blob_build_config *cfg,
          }
 
          platform_assert(src_offset == dst_offset);
-         platform_assert(slice_length(src_result) == slice_length(dst_result));
+
+         uint64 amount_to_copy =
+            MIN(slice_length(src_result), slice_length(dst_result));
 
          memcpy(dst_iter.page->data + dst_iter.page_offset,
                 slice_data(src_result),
-                slice_length(src_result));
+                amount_to_copy);
 
-         blob_page_iterator_advance(&src_iter);
-         blob_page_iterator_advance(&dst_iter);
+         blob_page_iterator_advance_partial(&src_iter, amount_to_copy);
+         blob_page_iterator_advance_partial(&dst_iter, amount_to_copy);
       }
+
+      debug_assert(blob_page_iterator_at_end(&src_iter));
+      debug_assert(blob_page_iterator_at_end(&dst_iter));
 
    out:
       blob_page_iterator_deinit(&src_iter);

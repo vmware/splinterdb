@@ -733,12 +733,11 @@ platform_status
 mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr)
 {
    debug_assert(!mini->keyed || !slice_is_null(key));
-   mini_lock_batch_get_next_addr(mini, batch);
+   uint64 old_next_addr = mini_lock_batch_get_next_addr(mini, batch);
    allocator_inc_ref(mini->al, addr);
    bool success = mini_append_entry(mini, batch, key, addr);
    platform_assert(success);
-   mini_unlock_batch_set_next_addr(
-      mini, batch, addr + cache_extent_size(mini->cc));
+   mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
    return STATUS_OK;
 }
 

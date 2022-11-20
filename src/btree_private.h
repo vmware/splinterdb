@@ -246,25 +246,25 @@ index_entry_child_addr(const index_entry *entry)
 }
 
 static inline slice
-leaf_entry_key_slice(leaf_entry *entry)
+leaf_entry_key_slice(const leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
    return slice_create(entry->key_size, entry->key_and_message);
 }
 
 static inline message
-leaf_entry_message(leaf_entry *entry)
+leaf_entry_message(cache *cc, const leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
    return message_create(
       entry->type,
-      FALSE,
+      entry->message_indirect ? cc : NULL,
       slice_create(entry->message_size,
                    entry->key_and_message + entry->key_size));
 }
 
 static inline message_type
-leaf_entry_message_type(leaf_entry *entry)
+leaf_entry_message_type(const leaf_entry *entry)
 {
    debug_assert(entry->key_indirect == FALSE);
    return entry->type;
@@ -299,10 +299,11 @@ btree_get_tuple_key(const btree_config *cfg,
 
 static inline message
 btree_get_tuple_message(const btree_config *cfg,
+                        cache              *cc,
                         const btree_hdr    *hdr,
                         table_index         k)
 {
-   return leaf_entry_message(btree_get_leaf_entry(cfg, hdr, k));
+   return leaf_entry_message(cc, btree_get_leaf_entry(cfg, hdr, k));
 }
 
 static inline message_type
