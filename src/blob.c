@@ -130,7 +130,10 @@ maybe_do_prefetch(blob_page_iterator *iter)
                       &next_length);
       uint64 next_extent_addr =
          cache_extent_base_addr(iter->cc, next_page_addr);
-      cache_prefetch(iter->cc, next_extent_addr, PAGE_TYPE_BLOB);
+      if (next_extent_addr == next_page_addr
+          && next_length == iter->extent_size) {
+         cache_prefetch(iter->cc, next_extent_addr, PAGE_TYPE_BLOB);
+      }
    }
 }
 
