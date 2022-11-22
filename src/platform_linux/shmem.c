@@ -179,6 +179,9 @@ platform_shm_trace_allocs(shmem_info  *shminfop,
                           const char  *file,
                           const int    lineno);
 
+static int
+platform_trace_large_frags(shmem_info *shm);
+
 /*
  * PLATFORM_HEAP_ID_TO_HANDLE() --
  * PLATFORM_HEAP_ID_TO_SHMADDR() --
@@ -399,6 +402,9 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    size_t shm_nfrees                = shminfop->shm_nfrees;
    size_t shm_nf_search_skipped     = shminfop->shm_nf_search_skipped;
 
+   // Print large-fragment tracking metrics (for deep debugging)
+   int found_in_use = platform_trace_large_frags(shminfop);
+
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
       platform_error_log(
@@ -442,13 +448,14 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
 
    platform_default_log("SplinterDB shared memory stats:"
                         " nfrees=%lu, nf_search_skipped=%lu (%d %%)"
-                        ", Large fragments in-use HWM=%u"
+                        ", Large fragments in-use HWM=%u (found in-use=%d)"
                         ", consumed=%lu bytes (%s)"
                         ".\n",
                         shm_nfrees,
                         shm_nf_search_skipped,
                         pctof(shm_nf_search_skipped, shm_nfrees),
                         frags_inuse_HWM,
+                        found_in_use,
                         used_by_large_frags_bytes,
                         used_by_large_frags_bytes_str);
 }
@@ -542,7 +549,9 @@ platform_shm_alloc(platform_heap_id hid,
    }
 
    // Trace shared memory allocation; then return memory ptr.
-   if (Trace_shmem || Trace_shmem_allocs || Trace_large_frags) {
+   if (Trace_shmem || Trace_shmem_allocs
+       || (Trace_large_frags && (size >= SHM_LARGE_FRAG_SIZE)))
+   {
 
       platform_shm_trace_allocs(shminfop,
                                 size,
@@ -781,7 +790,7 @@ platform_shm_track_free(shmem_info *shm,
    }
    shm_unlock_mem_frags(shm);
 
-   if (!found_tracked_frag && do_trace) {
+   if (!found_tracked_frag && do_trace && FALSE) {
       platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()] "
                            ", Fragment %p for object '%s' is not tracked\n",
                            pid,
@@ -888,10 +897,11 @@ platform_shm_find_free(shmem_info *shm,
           */
          snprintf(msg,
                   sizeof(msg),
-                  "Reallocated free fragment at slot=%d, "
+                  "Reallocated free fragment at slot=%d, addr=%p, "
                   "shm_num_frags_tracked=%u, shm_num_frags_inuse=%u"
                   " (local_in_use=%d)",
                   fctr,
+                  retptr,
                   shm->shm_num_frags_tracked,
                   shm->shm_num_frags_inuse,
                   local_in_use);
@@ -920,6 +930,48 @@ platform_shm_find_free(shmem_info *shm,
          shm, size, msg, retptr, objname, func, file, lineno);
    }
    return retptr;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * platform_trace_large_frags() - Walk through large-fragments tracking array
+ * and dump info about fragments that still appear "in-use".
+ * -----------------------------------------------------------------------------
+ */
+static int
+platform_trace_large_frags(shmem_info *shm)
+{
+   int  local_in_use       = 0; // Tracked while iterating in this fn, locally
+   shm_frag_info *frag     = shm->shm_mem_frags;
+
+   // Walk the tracked-fragments array looking for an in-use fragment
+   for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
+      if (!frag->shm_frag_addr) {
+         continue;
+      }
+
+      // Skip freed fragments.
+      if (frag->shm_frag_freed_by_pid != 0) {
+         continue;
+      }
+      local_in_use++;
+      platform_assert((frag->shm_frag_freed_by_tid == 0),
+                     "Invalid state found for fragment at index %d,"
+                     "freed_by_pid=%d but freed_by_tid=%lu "
+                     "(which should also be 0)\n",
+                     fctr,
+                     frag->shm_frag_freed_by_pid,
+                     frag->shm_frag_freed_by_tid);
+
+      platform_default_log("  Fragment at slot=%d, addr=%p, size=%lu is in-use"
+                           ", allocated_to_pid=%d, allocated_to_tid=%lu\n",
+                           fctr,
+                           frag->shm_frag_addr,
+                           frag->shm_frag_size,
+                           frag->shm_frag_allocated_to_pid,
+                           frag->shm_frag_allocated_to_tid);
+    }
+   return local_in_use;
 }
 
 /*
@@ -1071,6 +1123,18 @@ void
 platform_disable_tracing_shm_frees()
 {
    Trace_shmem_frees = FALSE;
+}
+
+void
+platform_enable_tracing_large_frags()
+{
+   Trace_large_frags = TRUE;
+}
+
+void
+platform_disable_tracing_large_frags()
+{
+   Trace_large_frags = FALSE;
 }
 
 /* Size of control block at start of shared memory describing shared segment */

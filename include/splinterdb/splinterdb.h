@@ -372,4 +372,10 @@ splinterdb_get_trunk_handle(const splinterdb *kvs);
 const void *
 splinterdb_get_memtable_context_handle(const splinterdb *kvs);
 
+void
+platform_enable_tracing_large_frags();
+
+void
+platform_disable_tracing_large_frags();
+
 #endif // _SPLINTERDB_H_
