@@ -103,7 +103,7 @@ verify_tuple(trunk_handle    *spl,
                       "ERROR: message does not match expected message.  "
                       "key = 0x%08lx "
                       "shadow ref: %4d "
-                      "splinter ref: %4d"
+                      "splinter ref: %4d "
                       "shadow len: %lu "
                       "splinter len: %lu\n",
                       key,
