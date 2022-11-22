@@ -257,30 +257,6 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 }
 
 /*
- * Test case to verify core interfaces when value-size is > max value-size.
- * Here, we basically exercise the insert interface, which will trip up
- * if very large values are supplied. (Once insert fails, there is
- * no further need to verify the other interfaces for very-large-values.)
- */
-CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
-{
-   size_t too_large_value_len =
-      MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE) + 1;
-   char *too_large_value_data;
-   too_large_value_data = TYPED_ARRAY_MALLOC(
-      data->cfg.heap_id, too_large_value_data, too_large_value_len);
-   memset(too_large_value_data, 'z', too_large_value_len);
-   slice too_large_value =
-      slice_create(too_large_value_len, too_large_value_data);
-
-   int rc = splinterdb_insert(
-      data->kvsb, slice_create(sizeof("foo"), "foo"), too_large_value);
-
-   ASSERT_EQUAL(EINVAL, rc);
-   platform_free(data->cfg.heap_id, too_large_value_data);
-}
-
-/*
  * Test case to exercise APIs for variable-length values; empty value,
  * short and somewhat longish value. After inserting this data, the lookup
  * sub-cases exercises different combinations to cover internal re-allocation

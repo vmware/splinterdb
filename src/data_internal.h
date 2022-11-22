@@ -15,6 +15,12 @@
 #include "util.h"
 #include "blob.h"
 
+struct merge_accumulator {
+   message_type    type;
+   cache          *cc; // !NULL means blob
+   writable_buffer data;
+};
+
 static inline char *
 message_type_string(message_type type)
 {
@@ -64,7 +70,18 @@ message_is_invalid_user_type(message msg)
           || msg.type > MESSAGE_TYPE_MAX_VALID_USER_TYPE;
 }
 
-static inline void
+static inline platform_status
+message_materialize(message msg, merge_accumulator *tmp)
+{
+   debug_assert(message_isblob(msg));
+   slice sblob = message_slice(msg);
+   tmp->type   = message_class(msg);
+   tmp->cc     = NULL;
+   return blob_materialize_full(msg.cc, sblob, &tmp->data);
+}
+
+
+static inline platform_status
 message_materialize_if_needed(platform_heap_id heap_id,
                               message          msg,
                               writable_buffer *tmp,
@@ -73,13 +90,18 @@ message_materialize_if_needed(platform_heap_id heap_id,
    if (msg.cc) {
       writable_buffer_init(tmp, heap_id);
       slice sblob = message_slice(msg);
-      blob_materialize_full(msg.cc, sblob, tmp);
+      platform_status rc    = blob_materialize_full(msg.cc, sblob, tmp);
+      if (!SUCCESS(rc)) {
+         writable_buffer_deinit(tmp);
+         return rc;
+      }
       *result = message_create(
          message_class(msg), NULL, writable_buffer_to_slice(tmp));
 
    } else {
       *result = msg;
    }
+   return STATUS_OK;
 }
 
 static inline void
@@ -119,12 +141,6 @@ message_class_string(message msg)
 {
    return message_type_string(msg.type);
 }
-
-struct merge_accumulator {
-   message_type    type;
-   cache          *cc; // !NULL means blob
-   writable_buffer data;
-};
 
 static inline void
 merge_accumulator_init(merge_accumulator *ma, platform_heap_id heap_id)

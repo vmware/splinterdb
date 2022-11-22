@@ -232,6 +232,9 @@ verify_range_against_shadow(trunk_handle               *spl,
    uint64             splinter_key;
    uint64             i;
    bool               at_end;
+   platform_status    rc;
+   writable_buffer    materialized_tmp;
+   message            materialized_splinter_message;
 
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
@@ -268,8 +271,12 @@ verify_range_against_shadow(trunk_handle               *spl,
 
       iterator_get_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
+      rc                   = message_materialize_if_needed(hid,
+                                         splinter_message,
+                                         &materialized_tmp,
+                                         &materialized_splinter_message);
       splinter_key         = be64toh(*(uint64 *)slice_data(splinter_keybuf));
-      splinter_data_handle = message_data(splinter_message);
+      splinter_data_handle = message_data(materialized_splinter_message);
 
       if (splinter_key == shadow_key) {
          status = STATUS_OK;
@@ -292,9 +299,11 @@ verify_range_against_shadow(trunk_handle               *spl,
 
       verify_tuple(spl,
                    slice_data(splinter_keybuf),
-                   splinter_message,
+                   materialized_splinter_message,
                    shadow_refcount,
                    &status);
+
+      message_dematerialize_if_needed(splinter_message, &materialized_tmp);
 
       status = iterator_advance((iterator *)range_itor);
       if (!SUCCESS(status)) {

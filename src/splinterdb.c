@@ -843,6 +843,7 @@ struct splinterdb_iterator {
    trunk_range_iterator sri;
    platform_status      last_rc;
    const splinterdb    *parent;
+   merge_accumulator    materialized_message;
 };
 
 int
@@ -857,6 +858,8 @@ splinterdb_iterator_init(const splinterdb     *kvs,      // IN
       return platform_status_to_int(STATUS_NO_MEMORY);
    }
    it->last_rc = STATUS_OK;
+
+   merge_accumulator_init(&it->materialized_message, kvs->spl->heap_id);
 
    trunk_range_iterator *range_itor = &(it->sri);
 
@@ -891,6 +894,8 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter)
 {
    trunk_range_iterator *range_itor = &(iter->sri);
    trunk_range_iterator_deinit(range_itor);
+
+   merge_accumulator_deinit(&iter->materialized_message);
 
    trunk_handle *spl = range_itor->spl;
    platform_free(spl->heap_id, range_itor);
@@ -939,6 +944,14 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
    var_len_key_encoding *kenc = (var_len_key_encoding *)(slice_data(key_slice));
    platform_assert(kenc->length <= SPLINTERDB_MAX_KEY_SIZE);
 
-   *key   = slice_create(kenc->length, kenc->data);
-   *value = message_slice(msg);
+   *key = slice_create(kenc->length, kenc->data);
+
+   if (message_isblob(msg)) {
+      iter->last_rc = message_materialize(msg, &iter->materialized_message);
+      if (SUCCESS(iter->last_rc)) {
+         *value = merge_accumulator_to_value(&iter->materialized_message);
+      }
+   } else {
+      *value = message_slice(msg);
+   }
 }
