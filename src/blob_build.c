@@ -125,6 +125,7 @@ build_blob_table(const blob_build_config *cfg,
       uint64 alloced_page =
          mini_alloc_extent(mini, cfg->extent_batch, key, NULL);
       debug_assert(alloced_page != 0);
+      debug_assert(alloced_page != 1);
       blobby->addrs[i] = alloced_page;
    }
 
@@ -163,6 +164,7 @@ blob_build(const blob_build_config *cfg,
          goto out;
       }
 
+      debug_assert(offset + slice_length(result) <= slice_length(data));
       memcpy(iter.page->data + iter.page_offset,
              raw_data + offset,
              slice_length(result));
@@ -191,10 +193,10 @@ clone_blob_table(const blob_build_config *cfg,
 
    blob *blobby = writable_buffer_data(result);
 
-   blobby->length = pblobby->base.length;
+   blobby->length = pblobby->base->length;
 
    for (int i = 0; i < pblobby->num_extents; i++) {
-      blobby->addrs[i] = pblobby->base.addrs[i];
+      blobby->addrs[i] = pblobby->base->addrs[i];
       rc = mini_attach_extent(mini, cfg->extent_batch, key, blobby->addrs[i]);
       if (!SUCCESS(rc)) {
          return rc;
@@ -202,11 +204,11 @@ clone_blob_table(const blob_build_config *cfg,
    }
 
    uint64 extent_size = cache_extent_size(cc);
-   if (pblobby->num_extents * extent_size < pblobby->base.length) {
+   if (pblobby->num_extents * extent_size < pblobby->base->length) {
       uint64 remainder =
-         pblobby->base.length - pblobby->num_extents * extent_size;
+         pblobby->base->length - pblobby->num_extents * extent_size;
       rc = allocate_leftover_entries(
-         cfg, cc, mini, key, pblobby->base.length, remainder, result);
+         cfg, cc, mini, key, pblobby->base->length, remainder, result);
    }
 
    return rc;
@@ -232,7 +234,7 @@ blob_clone(const blob_build_config *cfg,
       return rc;
    }
 
-   if (pblobby.num_extents * extent_size < pblobby.base.length) {
+   if (pblobby.num_extents * extent_size < pblobby.base->length) {
       uint64 start = pblobby.num_extents * extent_size;
 
       blob_page_iterator src_iter;
