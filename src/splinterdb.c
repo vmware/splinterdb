@@ -105,13 +105,13 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
    }
 
    if (!cfg->memtable_capacity) {
-      cfg->memtable_capacity = MiB_TO_B(24);
+      cfg->memtable_capacity = MiB_TO_B(1);
    }
    if (!cfg->fanout) {
-      cfg->fanout = 8;
+      cfg->fanout = 2;
    }
    if (!cfg->max_branches_per_node) {
-      cfg->max_branches_per_node = 24;
+      cfg->max_branches_per_node = 2;
    }
    if (!cfg->reclaim_threshold) {
       cfg->reclaim_threshold = UINT64_MAX;
@@ -384,17 +384,17 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                      &kvs->cache_cfg.super,
                      &kvs->shim_data_cfg.super,
                      (log_config *)&kvs->log_cfg,
-                     cfg.memtable_capacity,
-                     cfg.fanout,
-                     cfg.max_branches_per_node,
+                     MiB_TO_B(1),
+                     2,
+                     2,
                      cfg.btree_rough_count_height,
                      cfg.filter_remainder_size,
                      cfg.filter_index_size,
                      cfg.reclaim_threshold,
                      cfg.use_log,
                      cfg.use_stats,
-                     FALSE,
-                     NULL);
+                     TRUE,
+                     stdout);
    return STATUS_OK;
 }
 
