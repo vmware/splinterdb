@@ -4988,6 +4988,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl->stats[tid].compaction_time_wasted_ns[height] +=
             platform_timestamp_elapsed(compaction_start);
       }
+      platform_free(spl->heap_id, req->fp_arr);
       platform_free(spl->heap_id, req);
    } else {
       if (spl->cfg.use_stats) {
