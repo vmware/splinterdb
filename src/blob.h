@@ -26,9 +26,8 @@ typedef struct parsed_blob_entry {
 } parsed_blob_entry;
 
 typedef struct parsed_blob {
-   uint64            length;
+   blob              base;         // extent entries in original blob
    uint64            num_extents;  // == number of extent entries
-   const uint64     *extents;      // extent entries in original blob
    parsed_blob_entry leftovers[3]; // multi-page and sub-page entries
 } parsed_blob;
 

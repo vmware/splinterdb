@@ -1058,6 +1058,7 @@ mini_keyed_for_each(cache           *cc,
       }
    }
    platform_assert(FALSE);
+   return 0;
 }
 
 /*
@@ -1165,6 +1166,7 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
       }
    }
    platform_assert(FALSE);
+   return 0;
 }
 
 /*

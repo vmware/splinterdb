@@ -271,10 +271,13 @@ verify_range_against_shadow(trunk_handle               *spl,
 
       iterator_get_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
-      rc                   = message_materialize_if_needed(hid,
+      rc = message_materialize_if_needed(hid,
                                          splinter_message,
                                          &materialized_tmp,
                                          &materialized_splinter_message);
+      if (!SUCCESS(rc)) {
+         goto destroy;
+      }
       splinter_key         = be64toh(*(uint64 *)slice_data(splinter_keybuf));
       splinter_data_handle = message_data(materialized_splinter_message);
 

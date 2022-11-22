@@ -25,9 +25,8 @@ parse_blob(uint64       extent_size,
            const blob  *blobby,
            parsed_blob *pblobby)
 {
-   pblobby->length    = blobby->length;
-   pblobby->extents   = blobby->addrs;
-   uint64 remainder   = pblobby->length;
+   pblobby->base      = *blobby;
+   uint64 remainder   = blobby->length;
 
    if (can_round_up(extent_size, remainder)) {
       pblobby->num_extents = (remainder + extent_size - 1) / extent_size;
@@ -46,7 +45,7 @@ parse_blob(uint64       extent_size,
       uint64 max_length = extent_size - (blobby->addrs[entry] % extent_size);
       if (max_length <= remainder) {
          pblobby->leftovers[leftovers_entry].length = max_length;
-      } else if (can_round_up(page_size, pblobby->length)) {
+      } else if (can_round_up(page_size, blobby->length)) {
          pblobby->leftovers[leftovers_entry].length = remainder;
       } else {
          pblobby->leftovers[leftovers_entry].length =
@@ -83,11 +82,11 @@ addr_for_offset(uint64             extent_size,
 {
    uint64 byte_addr;
    uint64 entry_remainder;
-   debug_assert(offset < pblobby->length);
+   debug_assert(offset < pblobby->base.length);
 
    if (offset / extent_size < pblobby->num_extents) {
       byte_addr =
-         pblobby->extents[offset / extent_size] + (offset % extent_size);
+         pblobby->base.addrs[offset / extent_size] + (offset % extent_size);
       entry_remainder = extent_size - (offset % extent_size);
 
    } else {
@@ -117,7 +116,7 @@ addr_for_offset(uint64             extent_size,
 static void
 maybe_do_prefetch(blob_page_iterator *iter)
 {
-   if (!iter->alloc && iter->offset + iter->length < iter->pblob.length) {
+   if (!iter->alloc && iter->offset + iter->length < iter->pblob.base.length) {
       uint64 next_page_addr;
       uint64 next_page_offset;
       uint64 next_length;
@@ -153,7 +152,7 @@ blob_page_iterator_init(cache              *cc,
    parse_blob(
       iter->extent_size, iter->page_size, slice_data(sblobby), &iter->pblob);
    iter->offset = offset;
-   if (offset < iter->pblob.length) {
+   if (offset < iter->pblob.base.length) {
       addr_for_offset(iter->extent_size,
                       iter->page_size,
                       &iter->pblob,
@@ -172,7 +171,7 @@ should_alloc(blob_page_iterator *iter)
 {
    return iter->alloc
           && ((iter->page_offset == 0 && iter->page_size <= iter->length)
-              || can_round_up(iter->page_size, iter->pblob.length));
+              || can_round_up(iter->page_size, iter->pblob.base.length));
 }
 
 void
@@ -222,7 +221,7 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
 bool
 blob_page_iterator_at_end(blob_page_iterator *iter)
 {
-   return iter->pblob.length <= iter->offset;
+   return iter->pblob.base.length <= iter->offset;
 }
 
 void
@@ -238,7 +237,7 @@ blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 amount)
    }
 
    iter->offset += amount;
-   if (iter->offset < iter->pblob.length) {
+   if (iter->offset < iter->pblob.base.length) {
       addr_for_offset(iter->extent_size,
                       iter->page_size,
                       &iter->pblob,
