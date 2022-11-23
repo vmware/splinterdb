@@ -163,7 +163,14 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
    char *leaf_buffer =
       TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
    btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
-   int        nkvs = 240;
+   /*
+    * The following number is empirically determined to be the most
+    * entries that we could fit in a leaf.  There's nothing magical
+    * about this number. If you change the size of a btree leaf header
+    * or the size of a btree leafy entry, then this number will need
+    * to be changed, and that's fine.
+    */
+   int nkvs = 209;
 
    btree_init_hdr(cfg, hdr);
 
