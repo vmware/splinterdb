@@ -162,7 +162,7 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
    char *leaf_buffer =
       TYPED_MANUAL_MALLOC(hid, leaf_buffer, btree_page_size(cfg));
-   btree_hdr *hdr  = (btree_hdr *)leaf_buffer;
+   btree_hdr *hdr = (btree_hdr *)leaf_buffer;
    /*
     * The following number is empirically determined to be the most
     * entries that we could fit in a leaf.  There's nothing magical
