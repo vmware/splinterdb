@@ -74,13 +74,13 @@ typedef struct ONDISK unkeyed_meta_entry {
 static uint64
 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
 {
-   return sizeof(keyed_meta_entry) + sizeof_ondisk_key_bytes(&entry->start_key);
+   return sizeof(keyed_meta_entry) + sizeof_ondisk_key_data(&entry->start_key);
 }
 
 static uint64
-keyed_meta_entry_size(key k)
+keyed_meta_entry_required_capacity(key k)
 {
-   return sizeof(keyed_meta_entry) + ondisk_key_bytes_size(k);
+   return sizeof(keyed_meta_entry) + ondisk_key_required_data_capacity(k);
 }
 
 static key
@@ -380,7 +380,7 @@ mini_keyed_append_entry(mini_allocator *mini,
 
    if (!entry_fits_in_page(cache_page_size(mini->cc),
                            hdr->pos,
-                           keyed_meta_entry_size(start_key)))
+                           keyed_meta_entry_required_capacity(start_key)))
    {
       return FALSE;
    }
@@ -391,7 +391,7 @@ mini_keyed_append_entry(mini_allocator *mini,
    new_entry->batch       = batch;
    copy_key_to_ondisk_key(&new_entry->start_key, start_key);
 
-   hdr->pos += keyed_meta_entry_size(start_key);
+   hdr->pos += keyed_meta_entry_required_capacity(start_key);
    hdr->num_entries++;
    return TRUE;
 }

@@ -173,54 +173,43 @@ btree_init_hdr(const btree_config *cfg, btree_hdr *hdr)
 static inline uint64
 sizeof_index_entry(const index_entry *entry)
 {
-   debug_assert(entry->pivot.isblob == FALSE);
-   return sizeof(*entry) + sizeof_ondisk_key_bytes(&entry->pivot);
+   return sizeof(*entry) + sizeof_ondisk_key_data(&entry->pivot);
 }
 
 static inline uint64
 sizeof_leaf_entry(const leaf_entry *entry)
 {
-   debug_assert(entry->key_isblob == FALSE);
-   debug_assert(entry->message_isblob == FALSE);
-   return sizeof(*entry) + sizeof_ondisk_tuple_bytes(entry);
+   return sizeof(*entry) + sizeof_ondisk_tuple_data(entry);
 }
 
 static inline key
 index_entry_key(const index_entry *entry)
 {
-   debug_assert(entry->pivot.isblob == FALSE);
    return ondisk_key_to_key(&entry->pivot);
 }
 
 static inline uint64
 index_entry_child_addr(const index_entry *entry)
 {
-   debug_assert(entry->pivot.isblob == FALSE);
    return entry->pivot_data.child_addr;
 }
 
 static inline key
 leaf_entry_key(leaf_entry *entry)
 {
-   debug_assert(entry->key_isblob == FALSE);
-   debug_assert(entry->message_isblob == FALSE);
    return ondisk_tuple_key(entry);
 }
 
 static inline message
 leaf_entry_message(leaf_entry *entry)
 {
-   debug_assert(entry->key_isblob == FALSE);
-   debug_assert(entry->message_isblob == FALSE);
    return ondisk_tuple_message(entry);
 }
 
 static inline message_type
 leaf_entry_message_type(leaf_entry *entry)
 {
-   debug_assert(entry->key_isblob == FALSE);
-   debug_assert(entry->message_isblob == FALSE);
-   return entry->type;
+   return entry->flags & ONDISK_MESSAGE_TYPE_MASK;
 }
 
 static inline leaf_entry *
@@ -238,8 +227,6 @@ btree_get_leaf_entry(const btree_config *cfg,
       (leaf_entry *)const_pointer_byte_offset(hdr, hdr->offsets[k]);
    debug_assert(hdr->offsets[k] + sizeof_leaf_entry(entry)
                 <= btree_page_size(cfg));
-   debug_assert(entry->key_isblob == FALSE);
-   debug_assert(entry->message_isblob == FALSE);
    return entry;
 }
 
@@ -303,7 +290,6 @@ btree_get_index_entry(const btree_config *cfg,
                 hdr->offsets[k],
                 sizeof_index_entry(entry),
                 btree_page_size(cfg));
-   debug_assert(entry->pivot.isblob == FALSE);
    return entry;
 }
 

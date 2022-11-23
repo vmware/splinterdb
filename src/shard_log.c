@@ -160,16 +160,17 @@ log_entry_message(log_entry *le)
 }
 
 static uint64
-log_entry_size(key tuple_key, message msg)
+log_entry_required_capacity(key tuple_key, message msg)
 {
    debug_assert(key_is_user_key(tuple_key));
-   return sizeof(log_entry) + ondisk_tuple_bytes_size(tuple_key, msg);
+   return sizeof(log_entry)
+          + ondisk_tuple_required_data_capacity(tuple_key, msg);
 }
 
 static uint64
 sizeof_log_entry(log_entry *le)
 {
-   return sizeof(log_entry) + sizeof_ondisk_tuple_bytes(&le->tuple);
+   return sizeof(log_entry) + sizeof_ondisk_tuple_data(&le->tuple);
 }
 
 static log_entry *
@@ -235,7 +236,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 
    shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
    log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
-   uint64         new_entry_size = log_entry_size(tuple_key, msg);
+   uint64         new_entry_size = log_entry_required_capacity(tuple_key, msg);
    uint64 free_space = shard_log_page_size(log->cfg) - thread_data->offset;
    debug_assert(new_entry_size
                 <= shard_log_page_size(log->cfg) - sizeof(shard_log_hdr));

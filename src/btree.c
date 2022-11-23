@@ -100,13 +100,13 @@ btree_reset_node_entries(const btree_config *cfg, btree_hdr *hdr)
 
 
 static inline uint64
-index_entry_size(key pivot)
+index_entry_required_capacity(key pivot)
 {
    return sizeof(index_entry) + key_length(pivot);
 }
 
 static inline uint64
-leaf_entry_size(key tuple_key, const message msg)
+leaf_entry_required_capacity(key tuple_key, const message msg)
 {
    return sizeof(leaf_entry) + key_length(tuple_key) + message_length(msg);
 }
@@ -171,7 +171,8 @@ btree_fill_index_entry(const btree_config *cfg,
                        btree_pivot_stats   stats)
 {
    debug_assert((void *)hdr <= (void *)entry);
-   debug_assert(diff_ptr(hdr, entry) + index_entry_size(new_pivot_key)
+   debug_assert(diff_ptr(hdr, entry)
+                   + index_entry_required_capacity(new_pivot_key)
                 <= btree_page_size(cfg));
    copy_key_to_ondisk_key(&entry->pivot, new_pivot_key);
    entry->pivot_data.child_addr = new_addr;
@@ -194,7 +195,7 @@ btree_set_index_entry(const btree_config *cfg,
       index_entry *old_entry = btree_get_index_entry(cfg, hdr, k);
       if (hdr->next_entry == diff_ptr(hdr, old_entry)
           && (diff_ptr(hdr, &hdr->offsets[new_num_entries])
-                 + index_entry_size(new_pivot_key)
+                 + index_entry_required_capacity(new_pivot_key)
               <= hdr->next_entry + sizeof_index_entry(old_entry)))
       {
          /* special case to avoid creating fragmentation:
@@ -204,8 +205,9 @@ btree_set_index_entry(const btree_config *cfg,
           * In this case, just reset next_entry so we can insert the new entry.
           */
          hdr->next_entry += sizeof_index_entry(old_entry);
-      } else if (index_entry_size(new_pivot_key)
-                 <= sizeof_index_entry(old_entry)) {
+      } else if (index_entry_required_capacity(new_pivot_key)
+                 <= sizeof_index_entry(old_entry))
+      {
          /* old_entry is not the physically first in the node,
           * but new entry will fit inside it.
           */
@@ -217,13 +219,13 @@ btree_set_index_entry(const btree_config *cfg,
    }
 
    if (hdr->next_entry < diff_ptr(hdr, &hdr->offsets[new_num_entries])
-                            + index_entry_size(new_pivot_key))
+                            + index_entry_required_capacity(new_pivot_key))
    {
       return FALSE;
    }
 
    index_entry *new_entry = pointer_byte_offset(
-      hdr, hdr->next_entry - index_entry_size(new_pivot_key));
+      hdr, hdr->next_entry - index_entry_required_capacity(new_pivot_key));
    btree_fill_index_entry(cfg, hdr, new_entry, new_pivot_key, new_addr, stats);
 
    hdr->offsets[k]  = diff_ptr(hdr, new_entry);
@@ -264,10 +266,11 @@ btree_fill_leaf_entry(const btree_config *cfg,
                       key                 tuple_key,
                       message             msg)
 {
-   debug_assert(pointer_byte_offset(entry, leaf_entry_size(tuple_key, msg))
-                <= pointer_byte_offset(hdr, btree_page_size(cfg)));
+   debug_assert(
+      pointer_byte_offset(entry, leaf_entry_required_capacity(tuple_key, msg))
+      <= pointer_byte_offset(hdr, btree_page_size(cfg)));
    copy_tuple_to_ondisk_tuple(entry, tuple_key, msg);
-   debug_assert(entry->type == message_class(msg),
+   debug_assert(ondisk_tuple_message_class(entry) == message_class(msg),
                 "entry->type not large enough to hold message_class");
 }
 
@@ -283,7 +286,8 @@ btree_can_set_leaf_entry(const btree_config *cfg,
 
    if (k < hdr->num_entries) {
       leaf_entry *old_entry = btree_get_leaf_entry(cfg, hdr, k);
-      if (leaf_entry_size(new_key, new_message) <= sizeof_leaf_entry(old_entry))
+      if (leaf_entry_required_capacity(new_key, new_message)
+          <= sizeof_leaf_entry(old_entry))
       {
          return TRUE;
       }
@@ -291,8 +295,9 @@ btree_can_set_leaf_entry(const btree_config *cfg,
    }
 
    uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k + 1;
-   if (hdr->next_entry < diff_ptr(hdr, &hdr->offsets[new_num_entries])
-                            + leaf_entry_size(new_key, new_message))
+   if (hdr->next_entry
+       < diff_ptr(hdr, &hdr->offsets[new_num_entries])
+            + leaf_entry_required_capacity(new_key, new_message))
    {
       return FALSE;
    }
@@ -309,7 +314,8 @@ btree_set_leaf_entry(const btree_config *cfg,
 {
    if (k < hdr->num_entries) {
       leaf_entry *old_entry = btree_get_leaf_entry(cfg, hdr, k);
-      if (leaf_entry_size(new_key, new_message) <= sizeof_leaf_entry(old_entry))
+      if (leaf_entry_required_capacity(new_key, new_message)
+          <= sizeof_leaf_entry(old_entry))
       {
          btree_fill_leaf_entry(cfg, hdr, old_entry, new_key, new_message);
          return TRUE;
@@ -319,14 +325,16 @@ btree_set_leaf_entry(const btree_config *cfg,
 
    platform_assert(k <= hdr->num_entries);
    uint64 new_num_entries = k < hdr->num_entries ? hdr->num_entries : k + 1;
-   if (hdr->next_entry < diff_ptr(hdr, &hdr->offsets[new_num_entries])
-                            + leaf_entry_size(new_key, new_message))
+   if (hdr->next_entry
+       < diff_ptr(hdr, &hdr->offsets[new_num_entries])
+            + leaf_entry_required_capacity(new_key, new_message))
    {
       return FALSE;
    }
 
    leaf_entry *new_entry = pointer_byte_offset(
-      hdr, hdr->next_entry - leaf_entry_size(new_key, new_message));
+      hdr,
+      hdr->next_entry - leaf_entry_required_capacity(new_key, new_message));
    platform_assert(
       (void *)&hdr->offsets[new_num_entries] <= (void *)new_entry,
       "Offset addr 0x%p for index, new_num_entries=%lu is incorrect."
@@ -753,7 +761,8 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
       right node.  So count the bytes, including the new entry to be
       inserted. */
    uint64 num_entries = btree_num_entries(hdr);
-   uint64 entry_size  = leaf_entry_size(spec->tuple_key, spec_message(spec));
+   uint64 entry_size =
+      leaf_entry_required_capacity(spec->tuple_key, spec_message(spec));
    uint64 total_bytes = entry_size;
 
    for (uint64 i = 0; i < num_entries; i++) {
@@ -1362,7 +1371,8 @@ btree_defragment_or_split_child_leaf(cache              *cc,
       }
    }
    uint64 total_space_required =
-      live_bytes + leaf_entry_size(spec->tuple_key, spec_message(spec))
+      live_bytes
+      + leaf_entry_required_capacity(spec->tuple_key, spec_message(spec))
       + (nentries + spec->old_entry_state == ENTRY_STILL_EXISTS ? 0 : 1)
            * sizeof(index_entry);
 

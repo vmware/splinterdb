@@ -125,11 +125,11 @@ key_copy_contents(void *dst, key k)
  * the tests, we need to construct keys for inserts, queries, etc.
  */
 
-#define TRUNK_DEFAULT_KEY_BUFFER_SIZE (128)
+#define DEFAULT_KEY_BUFFER_SIZE (128)
 typedef struct {
    key_type        kind;
    writable_buffer wb;
-   char            default_buffer[TRUNK_DEFAULT_KEY_BUFFER_SIZE];
+   char            default_buffer[DEFAULT_KEY_BUFFER_SIZE];
 } key_buffer;
 
 /*
@@ -219,22 +219,25 @@ key_buffer_deinit(key_buffer *kb)
  * ON-DISK KEY REPRESENTATION
  */
 typedef uint16 ondisk_key_length;
+typedef uint8  ondisk_flags;
 
-#define BLOB_FLAG_BITS         (1)
-#define ONDISK_KEY_LENGTH_BITS (bitsizeof(ondisk_key_length) - BLOB_FLAG_BITS)
+typedef struct ONDISK ondisk_key {
+   ondisk_key_length length;
+   ondisk_flags      flags;
+   char              bytes[];
+} ondisk_key;
+
+#define ONDISK_KEY_LENGTH_BITS (bitsizeof(ondisk_key_length))
 #define ONDISK_KEY_NEGATIVE_INFINITY                                           \
    ((((ondisk_key_length)1) << ONDISK_KEY_LENGTH_BITS) - 1)
 #define ONDISK_KEY_POSITIVE_INFINITY                                           \
    ((((ondisk_key_length)1) << ONDISK_KEY_LENGTH_BITS) - 2)
 
-typedef struct ONDISK ondisk_key {
-   ondisk_key_length length : ONDISK_KEY_LENGTH_BITS;
-   ondisk_key_length isblob : BLOB_FLAG_BITS;
-   char              bytes[];
-} ondisk_key;
+#define ONDISK_KEY_DEFAULT_FLAGS (0)
 
+/* How big is the flexible array field of the given ondisk_key */
 static inline uint64
-sizeof_ondisk_key_bytes(const ondisk_key *odk)
+sizeof_ondisk_key_data(const ondisk_key *odk)
 {
    if (odk->length == ONDISK_KEY_NEGATIVE_INFINITY
        || odk->length == ONDISK_KEY_POSITIVE_INFINITY)
@@ -245,8 +248,12 @@ sizeof_ondisk_key_bytes(const ondisk_key *odk)
    }
 }
 
+/*
+ * How much space would be required for the bytes field of an ondisk_key
+ * holding k.
+ */
 static inline uint64
-ondisk_key_bytes_size(key k)
+ondisk_key_required_data_capacity(key k)
 {
    return key_length(k);
 }
@@ -266,7 +273,7 @@ ondisk_key_to_key(const ondisk_key *odk)
 static inline void
 copy_key_to_ondisk_key(ondisk_key *odk, key k)
 {
-   odk->isblob = FALSE;
+   odk->flags = ONDISK_KEY_DEFAULT_FLAGS;
    if (key_is_user_key(k)) {
       odk->length = key_length(k);
       memcpy(odk->bytes, key_data(k), key_length(k));
@@ -371,31 +378,33 @@ message_class_string(message msg)
 
 typedef uint16 ondisk_message_length;
 
+typedef struct ONDISK ondisk_tuple {
+   ondisk_key_length     key_length;
+   ondisk_flags          key_flags;
+   ondisk_message_length message_length;
+   ondisk_flags          flags;
+   char                  key_and_message[];
+} ondisk_tuple;
+
 #define ONDISK_MESSAGE_TYPE_BITS (2)
 _Static_assert(MESSAGE_TYPE_MAX_VALID_USER_TYPE
                   < (1ULL << ONDISK_MESSAGE_TYPE_BITS),
                "ONDISK_MESSAGE_TYPE_BITS is too small");
-#define ONDISK_MESSAGE_LENGTH_BITS                                             \
-   (bitsizeof(ondisk_message_length) - ONDISK_MESSAGE_TYPE_BITS                \
-    - BLOB_FLAG_BITS)
+#define ONDISK_MESSAGE_TYPE_MASK ((0x1 << ONDISK_MESSAGE_TYPE_BITS) - 1)
 
-typedef struct ONDISK ondisk_tuple {
-   ondisk_key_length     key_length : ONDISK_KEY_LENGTH_BITS;
-   ondisk_key_length     key_isblob : BLOB_FLAG_BITS;
-   ondisk_message_length message_length : ONDISK_MESSAGE_LENGTH_BITS;
-   ondisk_message_length type : ONDISK_MESSAGE_TYPE_BITS;
-   ondisk_message_length message_isblob : BLOB_FLAG_BITS;
-   char                  key_and_message[];
-} ondisk_tuple;
-
+/* Size of the data part of an existing ondisk_tuple */
 static inline uint64
-sizeof_ondisk_tuple_bytes(const ondisk_tuple *odt)
+sizeof_ondisk_tuple_data(const ondisk_tuple *odt)
 {
    return odt->key_length + odt->message_length;
 }
 
+/*
+ * Amount of space required to hold the data part of an ondisk_tuple
+ * containing k and msg
+ */
 static inline uint64
-ondisk_tuple_bytes_size(key k, message msg)
+ondisk_tuple_required_data_capacity(key k, message msg)
 {
    debug_assert(key_is_user_key(k));
    return key_length(k) + message_length(msg);
@@ -407,10 +416,16 @@ ondisk_tuple_key(const ondisk_tuple *odt)
    return key_create(odt->key_length, odt->key_and_message);
 }
 
+static inline message_type
+ondisk_tuple_message_class(const ondisk_tuple *odt)
+{
+   return odt->flags & ONDISK_MESSAGE_TYPE_MASK;
+}
+
 static inline message
 ondisk_tuple_message(const ondisk_tuple *odt)
 {
-   return message_create(odt->type,
+   return message_create(ondisk_tuple_message_class(odt),
                          slice_create(odt->message_length,
                                       odt->key_and_message + odt->key_length));
 }
@@ -419,8 +434,7 @@ static inline void
 copy_message_to_ondisk_tuple(ondisk_tuple *odt, message msg)
 {
    odt->message_length = message_length(msg);
-   odt->type           = message_class(msg);
-   odt->message_isblob = FALSE;
+   odt->flags          = message_class(msg);
    memcpy(odt->key_and_message + odt->key_length,
           message_data(msg),
           message_length(msg));
@@ -431,7 +445,7 @@ copy_tuple_to_ondisk_tuple(ondisk_tuple *odt, key k, message msg)
 {
    debug_assert(key_is_user_key(k));
    odt->key_length = key_length(k);
-   odt->key_isblob = FALSE;
+   odt->flags      = ONDISK_KEY_DEFAULT_FLAGS;
    memcpy(odt->key_and_message, key_data(k), key_length(k));
    copy_message_to_ondisk_tuple(odt, msg);
 }
