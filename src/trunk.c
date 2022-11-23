@@ -4627,7 +4627,7 @@ trunk_compact_bundle_cleanup_iterators(trunk_handle           *spl,
    for (uint64 i = 0; i < num_branches; i++) {
       trunk_btree_skiperator_deinit(spl, &skip_itor_arr[i]);
    }
-   debug_only(memset(skip_itor_arr, 0, num_branches * sizeof(*skip_itor_arr)));
+   debug_code(memset(skip_itor_arr, 0, num_branches * sizeof(*skip_itor_arr)));
 }
 
 /*
@@ -4868,20 +4868,22 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    trunk_branch new_branch;
-   new_branch.root_addr = pack_req.root_addr;
-
-   req->fp_arr = pack_req.fingerprint_arr;
+   new_branch.root_addr     = pack_req.root_addr;
+   uint64 num_tuples        = pack_req.num_tuples;
+   req->fp_arr              = pack_req.fingerprint_arr;
+   pack_req.fingerprint_arr = NULL;
+   btree_pack_req_deinit(&pack_req, spl->heap_id);
 
    trunk_log_stream_if_enabled(
-      spl, &stream, "output: %lu\n", pack_req.root_addr);
+      spl, &stream, "output: %lu\n", new_branch.root_addr);
 
    if (spl->cfg.use_stats) {
-      if (pack_req.num_tuples == 0) {
+      if (num_tuples == 0) {
          spl->stats[tid].compactions_empty[height]++;
       }
-      spl->stats[tid].compaction_tuples[height] += pack_req.num_tuples;
-      if (pack_req.num_tuples > spl->stats[tid].compaction_max_tuples[height]) {
-         spl->stats[tid].compaction_max_tuples[height] = pack_req.num_tuples;
+      spl->stats[tid].compaction_tuples[height] += num_tuples;
+      if (num_tuples > spl->stats[tid].compaction_max_tuples[height]) {
+         spl->stats[tid].compaction_max_tuples[height] = num_tuples;
       }
    }
 
@@ -4930,7 +4932,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          trunk_node_unclaim(spl, node);
          trunk_node_unget(spl, &node);
 
-         if (pack_req.num_tuples != 0) {
+         if (num_tuples != 0) {
             trunk_dec_ref(spl, &new_branch, FALSE);
          }
          platform_free(spl->heap_id, req->fp_arr);
@@ -4939,7 +4941,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       }
 
       if (trunk_bundle_live(spl, node, req->bundle_no)) {
-         if (pack_req.num_tuples != 0) {
+         if (num_tuples != 0) {
             trunk_replace_bundle_branches(spl, node, &new_branch, req);
             num_replacements++;
             trunk_log_stream_if_enabled(spl,
@@ -4966,9 +4968,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_log_node_if_enabled(&stream, spl, node);
       debug_assert(trunk_verify_node(spl, node));
 
-      if (num_replacements != 0 && pack_req.num_tuples != 0
-          && start_generation == generation)
-      {
+      if (num_replacements != 0 && num_tuples != 0
+          && start_generation == generation) {
          const char *max_key = trunk_max_key(spl, node);
          trunk_zap_branch_range(
             spl, &new_branch, max_key, NULL, PAGE_TYPE_BRANCH);
@@ -4990,14 +4991,14 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
             req->tuples_reclaimed;
       }
       if (req->type == TRUNK_COMPACTION_TYPE_SINGLE_LEAF_SPLIT) {
-         spl->stats[tid].single_leaf_tuples += pack_req.num_tuples;
-         if (pack_req.num_tuples > spl->stats[tid].single_leaf_max_tuples) {
-            spl->stats[tid].single_leaf_max_tuples = pack_req.num_tuples;
+         spl->stats[tid].single_leaf_tuples += num_tuples;
+         if (num_tuples > spl->stats[tid].single_leaf_max_tuples) {
+            spl->stats[tid].single_leaf_max_tuples = num_tuples;
          }
       }
    }
    if (num_replacements == 0) {
-      if (pack_req.num_tuples != 0) {
+      if (num_tuples != 0) {
          trunk_dec_ref(spl, &new_branch, FALSE);
       }
       if (spl->cfg.use_stats) {
