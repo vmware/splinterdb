@@ -140,12 +140,7 @@ main()
    // **** NOTE **** Custom key-comparision function needs to be provided
    // up-front. Every insert will invoke this method to insert the new key
    // in custom-sorted order.
-   sprintf(splinter_data_cfg.min_key, "%s", IP4ADDR_MIN_KEY);
-   sprintf(splinter_data_cfg.max_key, "%s", IP4ADDR_MAX_KEY);
-
-   splinter_data_cfg.min_key_length = strlen(splinter_data_cfg.min_key);
-   splinter_data_cfg.max_key_length = strlen(splinter_data_cfg.max_key);
-   splinter_data_cfg.key_compare    = custom_key_compare;
+   splinter_data_cfg.key_compare = custom_key_compare;
 
    // Basic configuration of a SplinterDB instance
    splinterdb_config splinterdb_cfg;

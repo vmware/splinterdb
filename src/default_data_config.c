@@ -74,18 +74,8 @@ default_data_config_init(const size_t max_key_size, // IN
                          data_config *out_cfg       // OUT
 )
 {
-   platform_assert(max_key_size <= SPLINTERDB_MAX_KEY_SIZE && max_key_size > 0,
-                   "default_data_config_init: must have 0 < max_key_size (%lu) "
-                   "<= SPLINTERDB_MAX_KEY_SIZE (%d)",
-                   max_key_size,
-                   SPLINTERDB_MAX_KEY_SIZE);
-
    data_config cfg = {
-      .key_size           = max_key_size,
-      .min_key            = {0},
-      .min_key_length     = 0,
-      .max_key            = {0}, // see memset below
-      .max_key_length     = max_key_size,
+      .max_key_size       = max_key_size,
       .key_compare        = key_compare,
       .key_hash           = platform_hash32,
       .merge_tuples       = merge_tuples,
@@ -93,8 +83,6 @@ default_data_config_init(const size_t max_key_size, // IN
       .key_to_string      = key_to_string,
       .message_to_string  = message_to_string,
    };
-
-   memset(cfg.max_key, 0xFF, sizeof(cfg.max_key));
 
    *out_cfg = cfg;
 }

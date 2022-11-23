@@ -661,7 +661,7 @@ task_group_perform_one(task_group *group)
    platform_assert(tq->head != NULL);
    platform_assert(tq->tail != NULL);
 
-   __attribute__((unused)) uint64 outstanding_tasks =
+   uint64 outstanding_tasks =
       __sync_fetch_and_sub(&group->current_outstanding_tasks, 1);
    platform_assert(outstanding_tasks != 0);
 

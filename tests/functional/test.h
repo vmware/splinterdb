@@ -77,8 +77,8 @@ test_deinit_task_system(platform_heap_id hid, task_system **ts)
    task_system_destroy(hid, ts);
 }
 
-static inline void
-test_key(char         *key,
+static inline key
+test_key(key_buffer   *keywb,
          test_key_type key_type,
          uint64        idx,
          uint64        thread_id,
@@ -86,30 +86,34 @@ test_key(char         *key,
          uint64        key_size,
          uint64        period)
 {
-   memset(key, 0, key_size);
+   key_buffer_resize(keywb, key_size);
+   char *keybuffer = key_buffer_data(keywb);
+   memset(keybuffer, 0, key_size);
    switch (key_type) {
       case TEST_RANDOM:
-         *(uint64 *)key = platform_checksum64(&idx, sizeof(idx), 42);
+         *(uint64 *)keybuffer = platform_checksum64(&idx, sizeof(idx), 42);
          break;
       case TEST_SEQ:
-         *(uint64 *)key = htobe64(
+         *(uint64 *)keybuffer = htobe64(
             platform_checksum64(&thread_id, sizeof(thread_id), 42) + idx);
          break;
       case TEST_SEMISEQ:
          if (idx % semiseq_freq == 0) {
-            *(uint64 *)key = platform_checksum64(&idx, sizeof(idx), 42);
+            *(uint64 *)keybuffer = platform_checksum64(&idx, sizeof(idx), 42);
          } else {
-            *(uint64 *)key = htobe64(
+            *(uint64 *)keybuffer = htobe64(
                platform_checksum64(&thread_id, sizeof(thread_id), 42) + idx);
          }
          break;
       case TEST_PERIODIC:
       {
          uint64 period_idx = idx % period;
-         *(uint64 *)key    = platform_checksum64(&period_idx, sizeof(idx), 42);
+         *(uint64 *)keybuffer =
+            platform_checksum64(&period_idx, sizeof(idx), 42);
          break;
       }
    }
+   return key_buffer_key(keywb);
 }
 
 static inline bool
@@ -128,10 +132,12 @@ test_range(uint64 idx, uint64 range_min, uint64 range_max)
 }
 
 static inline void
-test_int_to_key(char *key, uint64 idx, uint64 key_size)
+test_int_to_key(key_buffer *kb, uint64 idx, uint64 key_size)
 {
-   memset(key, 0, key_size);
-   *(uint64 *)key = htobe64(idx);
+   key_buffer_resize(kb, key_size);
+   uint64 *keybytes = key_buffer_data(kb);
+   memset(keybytes, 0, key_size);
+   *keybytes = htobe64(idx);
 }
 
 /*
@@ -214,8 +220,8 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                  master_config          *master_cfg // IN
 )
 {
-   *data_cfg             = test_data_config;
-   (*data_cfg)->key_size = master_cfg->key_size;
+   *data_cfg                 = test_data_config;
+   (*data_cfg)->max_key_size = master_cfg->max_key_size;
 
    io_config_init(io_cfg,
                   master_cfg->page_size,

@@ -121,7 +121,7 @@ RadixSort(uint32 *pData,
  *----------------------------------------------------------------------
  */
 
-__attribute__((unused)) static inline void
+debug_only static inline void
 routing_set_bit(uint64 *data, uint64 bitnum)
 {
    *(data + bitnum / 64) |= (1ULL << (bitnum % 64));
@@ -422,18 +422,18 @@ routing_filter_add(cache           *cc,
    // set up the index pages
    uint64       addrs_per_page = page_size / sizeof(uint64);
    page_handle *index_page[MAX_PAGES_PER_EXTENT];
-   uint64       index_addr = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+   uint64       index_addr = mini_alloc(&mini, 0, NULL_KEY, NULL);
    platform_assert(index_addr % extent_size == 0);
    index_page[0] = cache_alloc(cc, index_addr, PAGE_TYPE_FILTER);
    for (uint64 i = 1; i < pages_per_extent; i++) {
-      uint64 next_index_addr = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+      uint64 next_index_addr = mini_alloc(&mini, 0, NULL_KEY, NULL);
       platform_assert(next_index_addr == index_addr + i * page_size);
       index_page[i] = cache_alloc(cc, next_index_addr, PAGE_TYPE_FILTER);
    }
    filter->addr = index_addr;
 
    // we write to the filter with the filter cursor
-   uint64       addr          = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+   uint64       addr          = mini_alloc(&mini, 0, NULL_KEY, NULL);
    page_handle *filter_page   = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
    char        *filter_cursor = filter_page->data;
    uint64       bytes_remaining_on_page = page_size;
@@ -574,7 +574,7 @@ routing_filter_add(cache           *cc,
          uint32 header_size   = encoding_size + sizeof(routing_hdr);
          if (header_size + remainder_block_size > bytes_remaining_on_page) {
             routing_unlock_and_unget_page(cc, filter_page);
-            addr        = mini_alloc(&mini, 0, NULL_SLICE, NULL);
+            addr        = mini_alloc(&mini, 0, NULL_KEY, NULL);
             filter_page = cache_alloc(cc, addr, PAGE_TYPE_FILTER);
 
             bytes_remaining_on_page = page_size;
@@ -620,7 +620,7 @@ routing_filter_add(cache           *cc,
       routing_unlock_and_unget_page(cc, index_page[i]);
    }
 
-   mini_release(&mini, NULL_SLICE);
+   mini_release(&mini, NULL_KEY);
 
    platform_free(hid, temp);
 
@@ -731,7 +731,7 @@ routing_filter_estimate_unique_fp(cache           *cc,
             uint32 *src_fp             = &fp_arr[src_fp_no];
             platform_assert(src_fp_no + index_count <= buffer_size);
             if (index_count != 0) {
-               __attribute__((unused)) uint32 index_start = src_fp_no;
+               debug_only uint32 index_start = src_fp_no;
                PackedArray_unpack((uint32 *)block_start,
                                   0,
                                   src_fp,
@@ -811,9 +811,11 @@ platform_status
 routing_filter_lookup(cache          *cc,
                       routing_config *cfg,
                       routing_filter *filter,
-                      const slice     key,
+                      key             target,
                       uint64         *found_values)
 {
+   debug_assert(key_is_user_key(target));
+
    if (filter->addr == 0) {
       *found_values = 0;
       return STATUS_OK;
@@ -823,7 +825,7 @@ routing_filter_lookup(cache          *cc,
    uint64  seed       = cfg->seed;
    uint64  index_size = cfg->index_size;
 
-   uint32 fp = hash(slice_data(key), slice_length(key), seed);
+   uint32 fp = hash(key_data(target), key_length(target), seed);
    fp >>= 32 - cfg->fingerprint_size;
    size_t value_size      = filter->value_size;
    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
@@ -977,12 +979,14 @@ cache_async_result
 routing_filter_lookup_async(cache              *cc,
                             routing_config     *cfg,
                             routing_filter     *filter,
-                            const slice         key,
+                            key                 target,
                             uint64             *found_values,
                             routing_async_ctxt *ctxt)
 {
    cache_async_result res  = 0;
    bool               done = FALSE;
+
+   debug_assert(key_is_user_key(target));
 
    do {
       switch (ctxt->state) {
@@ -992,7 +996,7 @@ routing_filter_lookup_async(cache              *cc,
             hash_fn hash = cfg->hash;
             uint64  seed = cfg->seed;
 
-            uint32 fp = hash(slice_data(key), slice_length(key), seed);
+            uint32 fp = hash(key_data(target), key_length(target), seed);
             fp >>= 32 - cfg->fingerprint_size;
             size_t value_size = filter->value_size;
             uint32 log_num_buckets =
@@ -1214,12 +1218,13 @@ routing_filter_verify(cache          *cc,
    bool at_end;
    iterator_at_end(itor, &at_end);
    while (!at_end) {
-      slice   key;
+      key     curr_key;
       message msg;
-      iterator_get_curr(itor, &key, &msg);
+      iterator_get_curr(itor, &curr_key, &msg);
+      debug_assert(key_is_user_key(curr_key));
       uint64          found_values;
       platform_status rc =
-         routing_filter_lookup(cc, cfg, filter, key, &found_values);
+         routing_filter_lookup(cc, cfg, filter, curr_key, &found_values);
       platform_assert_status_ok(rc);
       platform_assert(routing_filter_is_value_found(found_values, value));
       iterator_advance(itor);

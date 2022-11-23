@@ -116,13 +116,12 @@ platform_status
 memtable_insert(memtable_context *ctxt,
                 memtable         *mt,
                 platform_heap_id  heap_id,
-                const char       *key,
+                key               tuple_key,
                 message           msg,
                 uint64           *leaf_generation)
 {
    const threadid tid = platform_get_tid();
    bool           was_unique;
-   slice          key_slice = slice_create(mt->cfg->data_cfg->key_size, key);
 
    platform_status rc = btree_insert(ctxt->cc,
                                      ctxt->cfg.btree_cfg,
@@ -130,7 +129,7 @@ memtable_insert(memtable_context *ctxt,
                                      &ctxt->scratch[tid],
                                      mt->root_addr,
                                      &mt->mini,
-                                     key_slice,
+                                     tuple_key,
                                      msg,
                                      leaf_generation,
                                      &was_unique);
@@ -251,7 +250,7 @@ memtable_init(memtable *mt, cache *cc, memtable_config *cfg, uint64 generation)
 void
 memtable_deinit(cache *cc, memtable *mt)
 {
-   mini_release(&mt->mini, NULL_SLICE);
+   mini_release(&mt->mini, NULL_KEY);
    debug_only bool freed =
       btree_dec_ref(cc, mt->cfg, mt->root_addr, PAGE_TYPE_MEMTABLE);
    debug_assert(freed);

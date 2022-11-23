@@ -28,18 +28,15 @@
 #include <string.h>
 #include <errno.h>
 
+#include "splinterdb/splinterdb.h"
 #include "splinterdb/data.h"
 #include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
-#include "splinterdb_private.h"
 #include "unit_tests.h"
 #include "util.h"
 #include "test_data.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "btree.h" // for MAX_INLINE_MESSAGE_SIZE
-
-#define TEST_INSERT_KEY_LENGTH 7
-#define TEST_INSERT_VAL_LENGTH 7
 
 #define TEST_MAX_KEY_SIZE 13
 
@@ -49,6 +46,10 @@
 // Hard-coded format strings to generate key and values
 static const char key_fmt[] = "key-%02x";
 static const char val_fmt[] = "val-%02x";
+#define KEY_FMT_LENGTH         (6)
+#define VAL_FMT_LENGTH         (6)
+#define TEST_INSERT_KEY_LENGTH (KEY_FMT_LENGTH + 1)
+#define TEST_INSERT_VAL_LENGTH (VAL_FMT_LENGTH + 1)
 
 // Function Prototypes
 static void
@@ -138,12 +139,12 @@ CTEST2(splinterdb_quick, test_basic_flow)
 {
    char  *key_data = "some-key";
    size_t key_len  = sizeof("some-key");
-   slice  key      = slice_create(key_len, key_data);
+   slice  user_key = slice_create(key_len, key_data);
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
 
-   int rc = splinterdb_lookup(data->kvsb, key, &result);
+   int rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
 
 
@@ -155,11 +156,11 @@ CTEST2(splinterdb_quick, test_basic_flow)
    slice        to_insert      = slice_create(to_insert_len, to_insert_data);
 
    // Basic insert of new key should succeed.
-   rc = splinterdb_insert(data->kvsb, key, to_insert);
+   rc = splinterdb_insert(data->kvsb, user_key, to_insert);
    ASSERT_EQUAL(0, rc);
 
    // Lookup of inserted key should succeed.
-   rc = splinterdb_lookup(data->kvsb, key, &result);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
@@ -170,11 +171,11 @@ CTEST2(splinterdb_quick, test_basic_flow)
    ASSERT_STREQN(to_insert_data, slice_data(value), slice_length(value));
 
    // Delete key
-   rc = splinterdb_delete(data->kvsb, key);
+   rc = splinterdb_delete(data->kvsb, user_key);
    ASSERT_EQUAL(0, rc);
 
    // Deleted key should not be found
-   rc = splinterdb_lookup(data->kvsb, key, &result);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
@@ -246,9 +247,6 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
-
-   rc = splinterdb_lookup(data->kvsb, too_large_key, &result);
-   ASSERT_EQUAL(EINVAL, rc);
 
    rc = splinterdb_delete(data->kvsb, too_large_key);
    ASSERT_EQUAL(EINVAL, rc);
@@ -495,9 +493,9 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    ASSERT_EQUAL(0, rc);
 
    // start-key > max-key ('key-50')
-   char *key = "unknownKey";
+   char *keystring = "unknownKey";
 
-   slice start_key = slice_create(strlen(key), key);
+   slice start_key = slice_create(strlen(keystring), keystring);
    rc              = splinterdb_iterator_init(data->kvsb, &it, start_key);
 
    // Iterator should be invalid, as lookup key is non-existent.
@@ -509,8 +507,8 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
    // If you start with a key before min-key-value, scan will start from
    // 1st key inserted. (We do lexicographic comparison, so 'U' sorts
    // before 'key...', which is what key's format is.)
-   key       = "UnknownKey";
-   start_key = slice_create(strlen(key), key);
+   keystring = "UnknownKey";
+   start_key = slice_create(strlen(keystring), keystring);
    rc        = splinterdb_iterator_init(data->kvsb, &it, start_key);
    ASSERT_EQUAL(0, rc);
 
@@ -637,12 +635,12 @@ CTEST2(splinterdb_quick,
  */
 CTEST2(splinterdb_quick, test_close_and_reopen)
 {
-   slice        key     = slice_create(strlen("some-key"), "some-key");
-   const char  *val     = "some-value";
-   const size_t val_len = strlen(val);
+   slice        user_key = slice_create(strlen("some-key"), "some-key");
+   const char  *val      = "some-value";
+   const size_t val_len  = strlen(val);
 
 
-   int rc = splinterdb_insert(data->kvsb, key, slice_create(val_len, val));
+   int rc = splinterdb_insert(data->kvsb, user_key, slice_create(val_len, val));
    ASSERT_EQUAL(0, rc);
 
    // Close and re-open the database
@@ -655,7 +653,7 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
 
-   rc = splinterdb_lookup(data->kvsb, key, &result);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
 
    ASSERT_TRUE(splinterdb_lookup_found(&result));
@@ -678,14 +676,15 @@ CTEST2(splinterdb_quick, test_close_and_reopen)
  */
 CTEST2(splinterdb_quick, test_repeated_insert_close_reopen)
 {
-   char  *key     = "some-key";
-   size_t key_len = strlen(key);
-   char  *val     = "f";
-   size_t val_len = strlen(val);
+   char  *keystring = "some-key";
+   size_t key_len   = strlen(keystring);
+   char  *val       = "f";
+   size_t val_len   = strlen(val);
 
    for (int i = 0; i < 20; i++) {
-      int rc = splinterdb_insert(
-         data->kvsb, slice_create(key_len, key), slice_create(val_len, val));
+      int rc = splinterdb_insert(data->kvsb,
+                                 slice_create(key_len, keystring),
+                                 slice_create(val_len, val));
       ASSERT_EQUAL(0, rc, "Insert is expected to pass, iter=%d.", i);
 
       splinterdb_close(&data->kvsb);
@@ -702,25 +701,24 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    // We need to reconfigure Splinter with user-specified data_config
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg                 = test_data_config;
-   data->cfg.data_cfg->key_size       = 20;
-   data->cfg.data_cfg->max_key_length = 20;
+   data->cfg.data_cfg               = test_data_config;
+   data->cfg.data_cfg->max_key_size = 20;
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
    const size_t key_len   = 3;
    const char  *key_data  = "foo";
-   slice        key       = slice_create(key_len, key_data);
+   slice        user_key  = slice_create(key_len, key_data);
    data_handle  msg       = {.ref_count = 1};
    slice        msg_slice = slice_create(sizeof(msg), &msg);
 
    ASSERT_EQUAL(0, rc);
-   rc = splinterdb_insert(data->kvsb, key, msg_slice);
+   rc = splinterdb_insert(data->kvsb, user_key, msg_slice);
 
    // confirm its there
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(data->kvsb, &result, 0, NULL);
-   rc = splinterdb_lookup(data->kvsb, key, &result);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
@@ -731,35 +729,35 @@ CTEST2(splinterdb_quick, test_custom_data_config)
 
    // insert a message that adds to the refcount
    msg.ref_count = 5;
-   rc            = splinterdb_update(data->kvsb, key, msg_slice);
+   rc            = splinterdb_update(data->kvsb, user_key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // check still found
-   rc = splinterdb_lookup(data->kvsb, key, &result);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(splinterdb_lookup_found(&result));
 
    // insert a message that drops the refcount to zero
    msg.ref_count = -6;
-   rc            = splinterdb_update(data->kvsb, key, msg_slice);
+   rc            = splinterdb_update(data->kvsb, user_key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // on lookup, merge will decide the tuple is deleted
-   rc = splinterdb_lookup(data->kvsb, key, &result);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
    // add it back as a value
    msg.ref_count = 12;
-   rc            = splinterdb_insert(data->kvsb, key, msg_slice);
+   rc            = splinterdb_insert(data->kvsb, user_key, msg_slice);
    ASSERT_EQUAL(0, rc);
 
    // delete it using a raw message
-   rc = splinterdb_delete(data->kvsb, key);
+   rc = splinterdb_delete(data->kvsb, user_key);
    ASSERT_EQUAL(0, rc);
 
    // on lookup, it should not be found
-   rc = splinterdb_lookup(data->kvsb, key, &result);
+   rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
@@ -810,56 +808,6 @@ CTEST2(splinterdb_quick, test_iterator_custom_comparator)
 }
 
 /*
- * Exercise the utility function which validates that the key being inserted
- * is within [min, max] range. That check was added upon discovering that
- * we would allow invalid keys to be inserted which lead to downstream
- * errors while exercising the iteration interfaces.
- */
-CTEST2(splinterdb_quick, test_validate_key_in_range)
-{
-   // We need to reconfigure Splinter with user-specified data_config
-   // Tear down default instance, and create a new one.
-   splinterdb_close(&data->kvsb);
-   data->cfg.data_cfg = test_data_config;
-
-   data->cfg.data_cfg->key_size = 11;
-
-   sprintf(data->cfg.data_cfg->min_key, "%s", "key-0");
-   data->cfg.data_cfg->min_key_length = strlen(data->cfg.data_cfg->min_key);
-
-   sprintf(data->cfg.data_cfg->max_key, "%s", "key-999999");
-   data->cfg.data_cfg->max_key_length = strlen(data->cfg.data_cfg->max_key);
-
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
-   ASSERT_EQUAL(0, rc);
-
-   bool  is_valid = FALSE;
-   char *test_key = "jkey-000"; // Invalid; key < min-key
-
-   is_valid = validate_key_in_range(data->kvsb,
-                                    slice_create(strlen(test_key), test_key));
-   ASSERT_FALSE(is_valid);
-
-   test_key = "key-000"; // Valid key
-
-   is_valid = validate_key_in_range(data->kvsb,
-                                    slice_create(strlen(test_key), test_key));
-   ASSERT_TRUE(is_valid);
-
-   test_key = "key-9999999"; // Invalid; key > max-key
-
-   is_valid = validate_key_in_range(data->kvsb,
-                                    slice_create(strlen(test_key), test_key));
-   ASSERT_FALSE(is_valid);
-
-   test_key = "lkey-000"; // Invalid; key > max-key
-
-   is_valid = validate_key_in_range(data->kvsb,
-                                    slice_create(strlen(test_key), test_key));
-   ASSERT_FALSE(is_valid);
-}
-
-/*
  * Test case to verify that iterator interfaces work correctly.
  * Prior to fix for issue #419, this test case would fail with an assertion
  * (that is activated only) in debug mode runs.
@@ -870,12 +818,6 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
    // Tear down default instance, and create a new one.
    splinterdb_close(&data->kvsb);
    data->cfg.data_cfg = test_data_config;
-
-   // The triggering check was the use of min-key while configuring
-   // the database. (Without this line, this test case will pass.)
-   sprintf(data->cfg.data_cfg->min_key, "%s", "key-0");
-
-   data->cfg.data_cfg->min_key_length = strlen(data->cfg.data_cfg->min_key);
 
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
@@ -942,8 +884,8 @@ insert_some_keys(const int num_inserts, splinterdb *kvsb)
       char key[TEST_INSERT_KEY_LENGTH] = {0};
       char val[TEST_INSERT_VAL_LENGTH] = {0};
 
-      ASSERT_EQUAL(6, snprintf(key, sizeof(key), key_fmt, i));
-      ASSERT_EQUAL(6, snprintf(val, sizeof(val), val_fmt, i));
+      ASSERT_EQUAL(KEY_FMT_LENGTH, snprintf(key, sizeof(key), key_fmt, i));
+      ASSERT_EQUAL(VAL_FMT_LENGTH, snprintf(val, sizeof(val), val_fmt, i));
 
       rc = splinterdb_insert(
          kvsb, slice_create(sizeof(key), key), slice_create(sizeof(val), val));
@@ -1004,12 +946,14 @@ check_current_tuple(splinterdb_iterator *it, const int expected_i)
 {
    int rc = 0;
 
-   char expected_key[MAX_KEY_SIZE]        = {0};
-   char expected_val[TEST_MAX_VALUE_SIZE] = {0};
+   char expected_key[TEST_INSERT_KEY_LENGTH] = {0};
+   char expected_val[TEST_INSERT_VAL_LENGTH] = {0};
    ASSERT_EQUAL(
-      6, snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));
+      KEY_FMT_LENGTH,
+      snprintf(expected_key, sizeof(expected_key), key_fmt, expected_i));
    ASSERT_EQUAL(
-      6, snprintf(expected_val, sizeof(expected_val), val_fmt, expected_i));
+      VAL_FMT_LENGTH,
+      snprintf(expected_val, sizeof(expected_val), val_fmt, expected_i));
 
    slice key, value;
 

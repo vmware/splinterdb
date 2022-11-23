@@ -306,7 +306,7 @@ typedef struct ycsb_phase {
 } ycsb_phase;
 
 static void
-nop_tuple_func(slice key, message value, void *arg)
+nop_tuple_func(key tuple_key, message value, void *arg)
 {}
 
 static void
@@ -320,7 +320,7 @@ ycsb_thread(void *arg)
    uint64            batch_size = params->batch_size;
    uint64            my_batch;
    merge_accumulator value;
-   merge_accumulator_init(&value, NULL);
+   merge_accumulator_init(&value, spl->heap_id);
 
    uint64_t start_time = platform_get_timestamp();
    __sync_val_compare_and_swap(
@@ -340,7 +340,8 @@ ycsb_thread(void *arg)
          switch (ops->cmd) {
             case 'r':
             {
-               rc = trunk_lookup(spl, ops->key, &value);
+               rc = trunk_lookup(
+                  spl, key_create(YCSB_KEY_SIZE, ops->key), &value);
                platform_assert_status_ok(rc);
                // if (!ops->found) {
                //   char key_str[128];
@@ -358,14 +359,17 @@ ycsb_thread(void *arg)
                message val =
                   message_create(MESSAGE_TYPE_INSERT,
                                  slice_create(YCSB_DATA_SIZE, ops->value));
-               rc = trunk_insert(spl, ops->key, val);
+               rc = trunk_insert(spl, key_create(YCSB_KEY_SIZE, ops->key), val);
                platform_assert_status_ok(rc);
                break;
             }
             case 's':
             {
-               rc = trunk_range(
-                  spl, ops->key, ops->range_len, nop_tuple_func, NULL);
+               rc = trunk_range(spl,
+                                key_create(YCSB_KEY_SIZE, ops->key),
+                                ops->range_len,
+                                nop_tuple_func,
+                                NULL);
                platform_assert_status_ok(rc);
                break;
             }
@@ -1201,7 +1205,7 @@ ycsb_test(int argc, char *argv[])
       goto cleanup;
    }
 
-   if (data_cfg->key_size != YCSB_KEY_SIZE) {
+   if (data_cfg->max_key_size != YCSB_KEY_SIZE) {
       rc = STATUS_BAD_PARAM;
       platform_error_log("ycsb: key size configuration does not match\n");
       goto cleanup;

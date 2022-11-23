@@ -13,14 +13,14 @@
 #include "platform.h"
 #include "cache.h"
 #include "util.h"
-#include "splinterdb/data.h"
+#include "data_internal.h"
 
 typedef struct log_handle   log_handle;
 typedef struct log_iterator log_iterator;
 typedef struct log_config   log_config;
 
 typedef int (*log_write_fn)(log_handle *log,
-                            slice       key,
+                            key         tuple_key,
                             message     data,
                             uint64      generation);
 typedef void (*log_release_fn)(log_handle *log);
@@ -41,9 +41,9 @@ struct log_handle {
 };
 
 static inline int
-log_write(log_handle *log, slice key, message data, uint64 generation)
+log_write(log_handle *log, key tuple_key, message data, uint64 generation)
 {
-   return log->ops->write(log, key, data, generation);
+   return log->ops->write(log, tuple_key, data, generation);
 }
 
 static inline void

@@ -62,7 +62,7 @@ config_set_defaults(master_config *cfg)
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
       .log_handle               = NULL,
-      .key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
+      .max_key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
       .seed                     = TEST_CONFIG_DEFAULT_SEED,
@@ -270,7 +270,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             }
          }
 
-         config_set_uint64("key-size", cfg, key_size) {}
+         config_set_uint64("key-size", cfg, max_key_size) {}
          config_set_uint64("data-size", cfg, message_size) {}
 
          // Test-execution configuration parameters
@@ -308,19 +308,12 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                                (MAX_PAGES_PER_EXTENT * cfg[cfg_idx].page_size));
             return STATUS_BAD_PARAM;
          }
-         if (cfg[cfg_idx].key_size < TEST_CONFIG_MIN_KEY_SIZE) {
+         if (cfg[cfg_idx].max_key_size < TEST_CONFIG_MIN_KEY_SIZE) {
             platform_error_log("Configured key-size, %lu, should be at least "
                                "%d bytes. Support for smaller key-sizes is "
                                "experimental.\n",
-                               cfg[cfg_idx].key_size,
+                               cfg[cfg_idx].max_key_size,
                                TEST_CONFIG_MIN_KEY_SIZE);
-            return STATUS_BAD_PARAM;
-         }
-         if (cfg[cfg_idx].key_size > MAX_KEY_SIZE) {
-            platform_error_log("Configured key-size, %lu bytes, is larger than "
-                               "the MAX_KEY_SIZE=%d bytes.\n",
-                               cfg[cfg_idx].key_size,
-                               MAX_KEY_SIZE);
             return STATUS_BAD_PARAM;
          }
       }

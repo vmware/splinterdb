@@ -34,7 +34,7 @@ void
 verify_tuple(trunk_handle           *spl,
              test_message_generator *gen,
              uint64                  lookup_num,
-             char                   *key,
+             key                     tuple_key,
              message                 data,
              bool                    expected_found);
 
@@ -56,5 +56,6 @@ test_show_verbose_progress(test_exec_config *test_exec_cfg)
 {
    return (test_exec_cfg->verbose_progress);
 }
+
 
 #endif /* __TEST_COMMON_H__ */

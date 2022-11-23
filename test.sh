@@ -560,7 +560,7 @@ function run_splinter_functionality_tests() {
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             --seed "$SEED"
 
-    max_key_size=105
+    max_key_size=102
     run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             --key-size ${max_key_size} --seed "$SEED"
