@@ -2933,6 +2933,9 @@ btree_pack_abort(btree_pack_req *req)
  *
  *      Packs a btree from an iterator source. Dec_Refs the
  *      output tree if it's empty.
+ *
+ * Returns STATUS_LIMIT_EXCEEDED if the pack results in too many kv pairs.
+ * Otherwise, returns standard errors, e.g. STATUS_NO_MEMORY, etc.
  *-----------------------------------------------------------------------------
  */
 platform_status
