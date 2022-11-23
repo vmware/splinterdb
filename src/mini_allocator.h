@@ -61,7 +61,7 @@ mini_init(mini_allocator *mini,
           const page_type types[], // num_batches
           bool            keyed);
 void
-mini_release(mini_allocator *mini, const slice key);
+mini_release(mini_allocator *mini, key end_key);
 
 /*
  * NOTE: Can only be called on a mini_allocator which has made no allocations.
@@ -75,7 +75,7 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64          num_bytes,
                  uint64          alignment,
                  uint64          boundary,
-                 const slice     key,
+                 key             alloc_key,
                  uint64          addrs[2],
                  uint64         *txn_addr,
                  uint64         *next_extent);
@@ -112,13 +112,13 @@ mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch, uint64 txn_addr);
 uint64
 mini_alloc_page(mini_allocator *mini,
                 uint64          batch,
-                const slice     key,
+                key             alloc_key,
                 uint64         *next_extent);
 
 uint64
 mini_alloc_extent(mini_allocator *mini,
                   uint64          batch,
-                  const slice     key,
+                  key             alloc_key,
                   uint64         *next_extent);
 
 /*
@@ -131,9 +131,11 @@ mini_alloc_extent(mini_allocator *mini,
 uint64
 mini_next_addr(mini_allocator *mini, uint64 batch);
 
-
 platform_status
-mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr);
+mini_attach_extent(mini_allocator *mini,
+                   uint64          batch,
+                   key             alloc_key,
+                   uint64          addr);
 
 uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
@@ -145,15 +147,15 @@ mini_keyed_inc_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
-                   const slice  start_key,
-                   const slice  end_key);
+                   key          start_key,
+                   key          end_key);
 bool
 mini_keyed_dec_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
-                   const slice  start_key,
-                   const slice  end_key);
+                   key          start_key,
+                   key          end_key);
 
 void
 mini_block_dec_ref(cache *cc, uint64 meta_head);
@@ -166,8 +168,8 @@ mini_keyed_extent_count(cache       *cc,
                         data_config *data_cfg,
                         page_type    type,
                         uint64       meta_head,
-                        const slice  start_key,
-                        const slice  end_key);
+                        key          start_key,
+                        key          end_key);
 void
 mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head);
 

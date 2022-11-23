@@ -155,7 +155,7 @@ CTEST2(blob, build_unkeyed)
       rc = blob_build(&cfg,
                       (cache *)&data->clock_cache,
                       &src,
-                      NULL_SLICE,
+                      NULL_KEY,
                       writable_buffer_to_slice(&original),
                       &blob);
       platform_assert_status_ok(rc);
@@ -175,7 +175,7 @@ CTEST2(blob, build_unkeyed)
       rc = blob_clone(&cfg,
                       (cache *)&data->clock_cache,
                       &dst,
-                      NULL_SLICE,
+                      NULL_KEY,
                       writable_buffer_to_slice(&blob),
                       &clone);
       platform_assert_status_ok(rc);
@@ -196,9 +196,9 @@ CTEST2(blob, build_unkeyed)
    writable_buffer_deinit(&materialized);
 
 
-   mini_release(&src, NULL_SLICE);
+   mini_release(&src, NULL_KEY);
    mini_unkeyed_dec_ref((cache *)&data->clock_cache, src_addr, PAGE_TYPE_BLOB);
 
-   mini_release(&dst, NULL_SLICE);
+   mini_release(&dst, NULL_KEY);
    mini_unkeyed_dec_ref((cache *)&data->clock_cache, dst_addr, PAGE_TYPE_BLOB);
 }

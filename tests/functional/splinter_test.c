@@ -125,18 +125,17 @@ test_trunk_insert_thread(void *arg)
    uint64             op_granularity = params->op_granularity;
    uint64             thread_number  = params->thread_number;
    uint8              num_tables     = params->num_tables;
-
+   platform_heap_id   heap_id        = platform_get_heap_id();
    platform_assert(num_tables <= 8);
-   uint64 *insert_base =
-      TYPED_ARRAY_ZALLOC(platform_get_heap_id(), insert_base, num_tables);
-   uint8 done = 0;
+   uint64 *insert_base = TYPED_ARRAY_ZALLOC(heap_id, insert_base, num_tables);
+   uint8   done        = 0;
 
    uint64    num_inserts     = 0;
    timestamp next_check_time = platform_get_timestamp();
    // divide the per second insert rate into periods of 10 milli seconds.
    uint64            insert_rate = params->insert_rate / 100;
    merge_accumulator msg;
-   merge_accumulator_init(&msg, NULL);
+   merge_accumulator_init(&msg, heap_id);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -158,6 +157,9 @@ test_trunk_insert_thread(void *arg)
             goto out;
          }
       }
+
+      DECLARE_AUTO_KEY_BUFFER(keybuf, heap_id);
+
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
             uint64 insert_num = insert_base[spl_idx] + op_offset;
@@ -165,22 +167,23 @@ test_trunk_insert_thread(void *arg)
                continue;
             }
             trunk_handle *spl = spl_tables[spl_idx];
-            char          key[MAX_KEY_SIZE];
 
             timestamp ts;
             if (spl->cfg.use_stats) {
                ts = platform_get_timestamp();
             }
-            test_key(key,
+            test_key(&keybuf,
                      test_cfg[spl_idx].key_type,
                      insert_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     trunk_key_size(spl),
+                     trunk_max_key_size(spl),
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, insert_num, &msg);
             platform_status rc =
-               trunk_insert(spl, key, merge_accumulator_to_message(&msg));
+               trunk_insert(spl,
+                            key_buffer_key(&keybuf),
+                            merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             if (spl->cfg.use_stats) {
                ts = platform_timestamp_elapsed(ts);
@@ -234,14 +237,14 @@ test_trunk_lookup_thread(void *arg)
    uint8              num_tables     = params->num_tables;
    verify_tuple_arg   vtarg          = {.expected_found = expected_found,
                                         .stats = &params->lookup_stats[ASYNC_LU]};
+   platform_heap_id   heap_id        = platform_get_heap_id();
 
    platform_assert(num_tables <= 8);
-   uint64 *lookup_base =
-      TYPED_ARRAY_ZALLOC(platform_get_heap_id(), lookup_base, num_tables);
-   uint8 done = 0;
+   uint64 *lookup_base = TYPED_ARRAY_ZALLOC(heap_id, lookup_base, num_tables);
+   uint8   done        = 0;
 
    merge_accumulator data;
-   merge_accumulator_init(&data, NULL);
+   merge_accumulator_init(&data, heap_id);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -263,6 +266,9 @@ test_trunk_lookup_thread(void *arg)
             goto out;
          }
       }
+
+      DECLARE_AUTO_KEY_BUFFER(keybuf, heap_id);
+
       for (uint64 op_offset = 0; op_offset != op_granularity; op_offset++) {
          uint8 spl_idx;
          for (spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -277,17 +283,16 @@ test_trunk_lookup_thread(void *arg)
 
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
-               char            key[MAX_KEY_SIZE];
 
-               test_key(key,
+               test_key(&keybuf,
                         test_cfg[spl_idx].key_type,
                         lookup_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, key, &data);
+               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &data);
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
@@ -296,17 +301,17 @@ test_trunk_lookup_thread(void *arg)
                verify_tuple(spl,
                             test_cfg->gen,
                             lookup_num,
-                            key,
+                            key_buffer_key(&keybuf),
                             merge_accumulator_to_message(&data),
                             expected_found);
             } else {
                ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg);
-               test_key(ctxt->key,
+               test_key(&ctxt->key,
                         test_cfg[spl_idx].key_type,
                         lookup_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = lookup_num;
                async_ctxt_process_one(
@@ -335,7 +340,7 @@ out:
 }
 
 static void
-nop_tuple_func(slice key, message value, void *arg)
+nop_tuple_func(key tuple_key, message value, void *arg)
 {}
 
 /*
@@ -355,16 +360,18 @@ test_trunk_range_thread(void *arg)
    uint64             min_range_length = params->min_range_length;
    uint64             max_range_length = params->max_range_length;
    uint8              num_tables       = params->num_tables;
+   platform_heap_id   heap_id          = platform_get_heap_id();
 
    platform_assert(num_tables <= 8);
-   uint64 *range_base =
-      TYPED_ARRAY_ZALLOC(platform_get_heap_id(), range_base, num_tables);
-   uint8 done = 0;
+   uint64 *range_base = TYPED_ARRAY_ZALLOC(heap_id, range_base, num_tables);
+   uint8   done       = 0;
 
    bool verbose_progress  = test_show_verbose_progress(test_cfg->test_exec_cfg);
    uint64 test_start_time = platform_get_timestamp();
    uint64 start_time      = platform_get_timestamp();
    char   progress_msg[60];
+
+   DECLARE_AUTO_KEY_BUFFER(start_key, heap_id);
 
    while (1) {
       for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
@@ -417,19 +424,21 @@ test_trunk_range_thread(void *arg)
             }
             trunk_handle *spl = spl_tables[spl_idx];
 
-            char   start_key[MAX_KEY_SIZE];
             uint64 range_num = range_base[spl_idx] + op_offset;
-            test_key(start_key,
+            test_key(&start_key,
                      test_cfg[spl_idx].key_type,
                      range_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     trunk_key_size(spl),
+                     trunk_max_key_size(spl),
                      test_cfg[spl_idx].period);
             uint64 range_tuples =
                test_range(range_num, min_range_length, max_range_length);
-            platform_status rc =
-               trunk_range(spl, start_key, range_tuples, nop_tuple_func, NULL);
+            platform_status rc = trunk_range(spl,
+                                             key_buffer_key(&start_key),
+                                             range_tuples,
+                                             nop_tuple_func,
+                                             NULL);
             platform_assert_status_ok(rc);
 
             params->range_lookups_done++;
@@ -556,8 +565,11 @@ do_operation(test_splinter_thread_params *params,
    uint8              num_tables     = params->num_tables;
    verify_tuple_arg   vtarg          = {.stats_only = TRUE,
                                         .stats      = &params->lookup_stats[ASYNC_LU]};
-   merge_accumulator  msg;
-   merge_accumulator_init(&msg, NULL);
+   platform_heap_id   heap_id        = platform_get_heap_id();
+
+   DECLARE_AUTO_KEY_BUFFER(keybuf, heap_id);
+   merge_accumulator msg;
+   merge_accumulator_init(&msg, heap_id);
 
    for (uint64 op_idx = op_offset; op_idx != op_offset + num_ops; op_idx++) {
       if (op_idx >= op_granularity) {
@@ -568,23 +580,24 @@ do_operation(test_splinter_thread_params *params,
          if (test_is_done(*done, spl_idx)) {
             continue;
          }
-         trunk_handle *spl = spl_tables[spl_idx];
-         char          key[MAX_KEY_SIZE];
+         trunk_handle *spl    = spl_tables[spl_idx];
          uint64        op_num = base[spl_idx] + op_idx;
          timestamp     ts;
 
          if (is_insert) {
-            test_key(key,
+            test_key(&keybuf,
                      test_cfg[spl_idx].key_type,
                      op_num,
                      thread_number,
                      test_cfg[spl_idx].semiseq_freq,
-                     trunk_key_size(spl),
+                     trunk_max_key_size(spl),
                      test_cfg[spl_idx].period);
             generate_test_message(test_cfg->gen, op_num, &msg);
             ts = platform_get_timestamp();
             platform_status rc =
-               trunk_insert(spl, key, merge_accumulator_to_message(&msg));
+               trunk_insert(spl,
+                            key_buffer_key(&keybuf),
+                            merge_accumulator_to_message(&msg));
             platform_assert_status_ok(rc);
             ts = platform_timestamp_elapsed(ts);
             params->insert_stats.duration += ts;
@@ -599,15 +612,15 @@ do_operation(test_splinter_thread_params *params,
                platform_status rc;
                bool            found;
 
-               test_key(key,
+               test_key(&keybuf,
                         test_cfg[spl_idx].key_type,
                         op_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ts = platform_get_timestamp();
-               rc = trunk_lookup(spl, key, &msg);
+               rc = trunk_lookup(spl, key_buffer_key(&keybuf), &msg);
                platform_assert(SUCCESS(rc));
                ts = platform_timestamp_elapsed(ts);
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
@@ -621,12 +634,12 @@ do_operation(test_splinter_thread_params *params,
                }
             } else {
                ctxt = test_async_ctxt_get(spl, async_lookup, &vtarg);
-               test_key(ctxt->key,
+               test_key(&ctxt->key,
                         test_cfg[spl_idx].key_type,
                         op_num,
                         thread_number,
                         test_cfg[spl_idx].semiseq_freq,
-                        trunk_key_size(spl),
+                        trunk_max_key_size(spl),
                         test_cfg[spl_idx].period);
                ctxt->lookup_num = op_num;
                async_ctxt_process_one(
@@ -817,7 +830,7 @@ compute_per_table_inserts(uint64       *per_table_inserts, // OUT
    uint64 total_inserts   = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size = cfg[i].data_cfg->key_size
+      tuple_size = cfg[i].data_cfg->max_key_size
                    + generator_average_message_size(test_cfg->gen);
       num_inserts = (num_inserts_cfg ? num_inserts_cfg
                                      : test_cfg[i].tree_size / tuple_size);
@@ -1476,7 +1489,7 @@ test_splinter_periodic(trunk_config    *cfg,
    uint64  total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size = cfg[i].data_cfg->key_size
+      tuple_size = cfg[i].data_cfg->max_key_size
                    + generator_average_message_size(test_cfg->gen);
       num_inserts = test_cfg[i].tree_size / tuple_size;
       if (test_cfg[i].key_type == TEST_PERIODIC) {
@@ -2156,7 +2169,7 @@ test_splinter_delete(trunk_config    *cfg,
    uint64  total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
-      tuple_size = cfg[i].data_cfg->key_size
+      tuple_size = cfg[i].data_cfg->max_key_size
                    + generator_average_message_size(test_cfg->gen);
       num_inserts          = test_cfg[i].tree_size / tuple_size;
       per_table_inserts[i] = ROUNDUP(num_inserts, TEST_INSERT_GRANULARITY);

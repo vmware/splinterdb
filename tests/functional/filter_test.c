@@ -30,7 +30,7 @@ test_filter_basic(cache           *cc,
    platform_default_log("filter_test: routing filter basic test started\n");
    platform_status rc = STATUS_OK;
 
-   const uint64 key_size = cfg->data_cfg->key_size;
+   const uint64 key_size = cfg->data_cfg->max_key_size;
    if (key_size < sizeof(uint64)) {
       platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
@@ -46,20 +46,22 @@ test_filter_basic(cache           *cc,
 
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
-   char  key[MAX_KEY_SIZE];
-   slice key_slice = slice_create(key_size, key);
+   DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
+   writable_buffer_resize(&keywb, key_size);
+   writable_buffer_memset(&keywb, 0);
+   uint64 *keybuf = writable_buffer_data(&keywb);
+   key     target = key_create(key_size, keybuf);
    for (uint64 i = 0; i < num_values; i++) {
       if (i != 0) {
          num_input_keys[i] = num_input_keys[i - 1];
       }
       for (uint64 j = 0; j < num_fingerprints; j++) {
-         ZERO_ARRAY(key);
          if (!used_keys[(i + 1) * j]) {
             used_keys[(i + 1) * j] = TRUE;
             num_input_keys[i]++;
          }
-         *(uint64 *)key = (i + 1) * j;
-         fp_arr[i][j]   = cfg->hash(key, key_size, cfg->seed);
+         *keybuf      = (i + 1) * j;
+         fp_arr[i][j] = cfg->hash(keybuf, key_size, cfg->seed);
       }
    }
 
@@ -97,11 +99,10 @@ test_filter_basic(cache           *cc,
 
    for (uint64 i = 0; i < num_values; i++) {
       for (uint64 j = 0; j < num_fingerprints; j++) {
-         ZERO_ARRAY(key);
-         *(uint64 *)key = (i + 1) * j;
+         *keybuf = (i + 1) * j;
          uint64 found_values;
          rc = routing_filter_lookup(
-            cc, cfg, &filter[i + 1], key_slice, &found_values);
+            cc, cfg, &filter[i + 1], target, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i)) {
             platform_default_log(
@@ -117,11 +118,10 @@ test_filter_basic(cache           *cc,
    uint64 unused_key      = (num_values + 1) * num_fingerprints;
    uint64 false_positives = 0;
    for (uint64 i = unused_key; i < unused_key + num_fingerprints; i++) {
-      ZERO_ARRAY(key);
-      *(uint64 *)key = i;
+      *keybuf = i;
       uint64 found_values;
       rc = routing_filter_lookup(
-         cc, cfg, &filter[num_values], key_slice, &found_values);
+         cc, cfg, &filter[num_values], target, &found_values);
       if (found_values) {
          false_positives++;
       }
@@ -158,7 +158,7 @@ test_filter_perf(cache           *cc,
    platform_default_log("filter_test: routing filter perf test started\n");
    platform_status rc = STATUS_OK;
 
-   const uint64 key_size = cfg->data_cfg->key_size;
+   const uint64 key_size = cfg->data_cfg->max_key_size;
    if (key_size < sizeof(uint64)) {
       platform_default_log("key_size %lu too small\n", key_size);
       return STATUS_BAD_PARAM;
@@ -169,14 +169,16 @@ test_filter_perf(cache           *cc,
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
    }
-   char  key[MAX_KEY_SIZE];
-   slice key_slice = slice_create(key_size, key);
+   DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
+   writable_buffer_resize(&keywb, key_size);
+   writable_buffer_memset(&keywb, 0);
+   uint64 *keybuf = writable_buffer_data(&keywb);
+   key     target = key_create(key_size, keybuf);
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
-         uint64 idx = k * num_values * num_fingerprints + i;
-         ZERO_ARRAY(key);
-         *(uint64 *)key = idx;
-         fp_arr[idx]    = cfg->hash(key, key_size, cfg->seed);
+         uint64 idx  = k * num_values * num_fingerprints + i;
+         *keybuf     = idx;
+         fp_arr[idx] = cfg->hash(keybuf, key_size, cfg->seed);
       }
    }
 
@@ -209,11 +211,9 @@ test_filter_perf(cache           *cc,
    start_time = platform_get_timestamp();
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
-         ZERO_ARRAY(key);
-         *(uint64 *)key = k * num_values * num_fingerprints + i;
+         *keybuf = k * num_values * num_fingerprints + i;
          uint64 found_values;
-         rc = routing_filter_lookup(
-            cc, cfg, &filter[k], key_slice, &found_values);
+         rc = routing_filter_lookup(cc, cfg, &filter[k], target, &found_values);
          platform_assert_status_ok(rc);
          if (!routing_filter_is_value_found(found_values, i / num_fingerprints))
          {
@@ -224,8 +224,7 @@ test_filter_perf(cache           *cc,
                k,
                found_values);
 
-            routing_filter_lookup(
-               cc, cfg, &filter[k], key_slice, &found_values);
+            routing_filter_lookup(cc, cfg, &filter[k], target, &found_values);
             platform_assert(0);
             rc = STATUS_NOT_FOUND;
             goto out;
@@ -241,11 +240,9 @@ test_filter_perf(cache           *cc,
    uint64 false_positives = 0;
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values * num_fingerprints; i++) {
-         ZERO_ARRAY(key);
-         *(uint64 *)key = k * num_values * num_fingerprints + i + unused_key;
+         *keybuf = k * num_values * num_fingerprints + i + unused_key;
          uint64 found_values;
-         rc = routing_filter_lookup(
-            cc, cfg, &filter[k], key_slice, &found_values);
+         rc = routing_filter_lookup(cc, cfg, &filter[k], target, &found_values);
          platform_assert_status_ok(rc);
          if (found_values) {
             false_positives++;
@@ -370,7 +367,7 @@ filter_test(int argc, char *argv[])
    uint64 max_tuples_per_memtable =
       cfg->mt_cfg.max_extents_per_memtable
       * cache_config_extent_size((cache_config *)&cache_cfg)
-      / (data_cfg->key_size + generator_average_message_size(&gen));
+      / (data_cfg->max_key_size + generator_average_message_size(&gen));
 
    if (run_perf_test) {
       rc = test_filter_perf((cache *)cc,

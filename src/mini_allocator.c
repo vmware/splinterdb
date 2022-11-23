@@ -55,11 +55,10 @@ typedef struct ONDISK mini_meta_hdr {
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK keyed_meta_entry {
-   uint64    extent_addr;
-   uint16    start_key_length;
-   uint8     batch;
-   page_type type;
-   char      start_key[];
+   uint64     extent_addr;
+   uint8      batch;
+   page_type  type;
+   ondisk_key start_key;
 } keyed_meta_entry;
 
 /*
@@ -78,19 +77,19 @@ typedef struct ONDISK unkeyed_meta_entry {
 static uint64
 sizeof_keyed_meta_entry(const keyed_meta_entry *entry)
 {
-   return sizeof(keyed_meta_entry) + entry->start_key_length;
+   return sizeof(keyed_meta_entry) + sizeof_ondisk_key_data(&entry->start_key);
 }
 
 static uint64
-keyed_meta_entry_size(slice key)
+keyed_meta_entry_required_capacity(key k)
 {
-   return sizeof(keyed_meta_entry) + slice_length(key);
+   return sizeof(keyed_meta_entry) + ondisk_key_required_data_capacity(k);
 }
 
-static slice
+static key
 keyed_meta_entry_start_key(keyed_meta_entry *entry)
 {
-   return slice_create(entry->start_key_length, entry->start_key);
+   return ondisk_key_to_key(&entry->start_key);
 }
 
 static keyed_meta_entry *
@@ -373,12 +372,12 @@ mini_keyed_append_entry(mini_allocator *mini,
                         uint64          batch,
                         page_handle    *meta_page,
                         uint64          extent_addr,
-                        const slice     start_key,
+                        key             start_key,
                         page_type       type)
 {
    debug_assert(mini->keyed);
    debug_assert(batch < mini->num_batches);
-   debug_assert(!slice_is_null(start_key));
+   debug_assert(!key_is_null(start_key));
    debug_assert(extent_addr != 0);
    debug_assert(extent_addr == TERMINAL_EXTENT_ADDR
                 || extent_addr % cache_page_size(mini->cc) == 0);
@@ -387,7 +386,7 @@ mini_keyed_append_entry(mini_allocator *mini,
 
    if (!entry_fits_in_page(cache_page_size(mini->cc),
                            hdr->pos,
-                           keyed_meta_entry_size(start_key)))
+                           keyed_meta_entry_required_capacity(start_key)))
    {
       return FALSE;
    }
@@ -397,10 +396,9 @@ mini_keyed_append_entry(mini_allocator *mini,
    new_entry->extent_addr = extent_addr;
    new_entry->batch       = batch;
    new_entry->type        = type;
-   slice_copy_contents(new_entry->start_key, start_key);
-   new_entry->start_key_length = slice_length(start_key);
+   copy_key_to_ondisk_key(&new_entry->start_key, start_key);
 
-   hdr->pos += keyed_meta_entry_size(start_key);
+   hdr->pos += keyed_meta_entry_required_capacity(start_key);
    hdr->num_entries++;
    return TRUE;
 }
@@ -513,14 +511,14 @@ mini_set_next_meta_addr(mini_allocator *mini,
 static bool
 mini_append_entry(mini_allocator *mini,
                   uint64          batch,
-                  const slice     key,
+                  key             entry_key,
                   uint64          next_addr)
 {
    page_handle *meta_page = mini_full_lock_meta_tail(mini);
    bool         success;
    if (mini->keyed) {
       success = mini_keyed_append_entry(
-         mini, batch, meta_page, next_addr, key, mini->types[batch]);
+         mini, batch, meta_page, next_addr, entry_key, mini->types[batch]);
    } else {
       // unkeyed
       success = mini_unkeyed_append_entry(
@@ -546,7 +544,7 @@ mini_append_entry(mini_allocator *mini,
 
       if (mini->keyed) {
          success = mini_keyed_append_entry(
-            mini, batch, meta_page, next_addr, key, mini->types[batch]);
+            mini, batch, meta_page, next_addr, entry_key, mini->types[batch]);
       } else {
          // unkeyed
          success = mini_unkeyed_append_entry(
@@ -593,7 +591,7 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64          num_bytes,
                  uint64          alignment,
                  uint64          boundary,
-                 const slice     key,
+                 key             alloc_key,
                  uint64          addrs[2],
                  uint64         *txn_addr,
                  uint64         *next_extent)
@@ -607,7 +605,7 @@ mini_alloc_bytes(mini_allocator *mini,
    debug_assert(num_bytes <= extent_size);
    debug_assert(boundary % alignment == 0);
    debug_assert(boundary == 0 || extent_size % boundary == 0);
-   debug_assert(!mini->keyed || !slice_is_null(key));
+   debug_assert(!mini->keyed || !key_is_null(alloc_key));
 
    addrs[0] = 0;
    addrs[1] = 0;
@@ -649,7 +647,7 @@ mini_alloc_bytes(mini_allocator *mini,
          platform_assert_status_ok(rc);
          next_addr = extent_addr;
 
-         bool success = mini_append_entry(mini, batch, key, next_addr);
+         bool success = mini_append_entry(mini, batch, alloc_key, next_addr);
          platform_assert(success);
       }
 
@@ -680,7 +678,7 @@ mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch, uint64 txn_addr)
 uint64
 mini_alloc_page(mini_allocator *mini,
                 uint64          batch,
-                const slice     key,
+                key             alloc_key,
                 uint64         *next_extent)
 {
    uint64          alloced_addrs[2] = {0, 0};
@@ -691,7 +689,7 @@ mini_alloc_page(mini_allocator *mini,
                                          page_size,
                                          page_size,
                                          0,
-                                         key,
+                                         alloc_key,
                                          alloced_addrs,
                                          &txn_addr,
                                          next_extent);
@@ -706,7 +704,7 @@ mini_alloc_page(mini_allocator *mini,
 uint64
 mini_alloc_extent(mini_allocator *mini,
                   uint64          batch,
-                  const slice     key,
+                  key             alloc_key,
                   uint64         *next_extent)
 {
    uint64          alloced_addrs[2] = {0, 0};
@@ -717,7 +715,7 @@ mini_alloc_extent(mini_allocator *mini,
                                          extent_size,
                                          extent_size,
                                          0,
-                                         key,
+                                         alloc_key,
                                          alloced_addrs,
                                          &txn_addr,
                                          next_extent);
@@ -730,12 +728,15 @@ mini_alloc_extent(mini_allocator *mini,
 }
 
 platform_status
-mini_attach_extent(mini_allocator *mini, uint64 batch, slice key, uint64 addr)
+mini_attach_extent(mini_allocator *mini,
+                   uint64          batch,
+                   key             alloc_key,
+                   uint64          addr)
 {
-   debug_assert(!mini->keyed || !slice_is_null(key));
+   debug_assert(!mini->keyed || !key_is_null(alloc_key));
    uint64 old_next_addr = mini_lock_batch_get_next_addr(mini, batch);
    allocator_inc_ref(mini->al, addr);
-   bool success = mini_append_entry(mini, batch, key, addr);
+   bool success = mini_append_entry(mini, batch, alloc_key, addr);
    platform_assert(success);
    mini_unlock_batch_set_next_addr(mini, batch, old_next_addr);
    return STATUS_OK;
@@ -770,9 +771,9 @@ mini_next_addr(mini_allocator *mini, uint64 batch)
  *-----------------------------------------------------------------------------
  */
 void
-mini_release(mini_allocator *mini, const slice key)
+mini_release(mini_allocator *mini, key end_key)
 {
-   debug_assert(!mini->keyed || !slice_is_null(key));
+   debug_assert(!mini->keyed || !key_is_null(end_key));
 
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
@@ -785,7 +786,7 @@ mini_release(mini_allocator *mini, const slice key)
 
       if (mini->keyed) {
          // Set the end_key of the last extent from this batch
-         mini_append_entry(mini, batch, key, TERMINAL_EXTENT_ADDR);
+         mini_append_entry(mini, batch, end_key, TERMINAL_EXTENT_ADDR);
       }
    }
 }
@@ -849,7 +850,16 @@ void
 mini_destroy_unused(mini_allocator *mini)
 {
    debug_assert(mini->keyed);
-   debug_assert(mini->num_extents == mini->num_batches);
+   /*
+    * If this mini_allocator was never used to perform an allocation,
+    * then num_extents will be equal to num_batches + 1.  This is
+    * because mini_init allocates one extent per batch plus it records
+    * the one extent that is used to hold the metadata.
+    */
+   debug_assert((mini->num_extents == mini->num_batches + 1),
+                "num_extents=%lu, num_batches=%lu\n",
+                mini->num_extents,
+                mini->num_batches);
 
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
@@ -942,15 +952,10 @@ interval_intersects_range(boundary_state left_state, boundary_state right_state)
 }
 
 static boundary_state
-state(data_config *cfg,
-      const slice  start_key,
-      const slice  end_key,
-      const slice  entry_start_key)
+state(data_config *cfg, key start_key, key end_key, key entry_start_key)
 {
-   debug_assert(slice_is_null(start_key) == slice_is_null(end_key));
-   if (slice_is_null(start_key)) {
-      return in_range;
-   } else if (data_key_compare(cfg, entry_start_key, start_key) < 0) {
+   debug_assert(!key_is_null(start_key) && !key_is_null(end_key));
+   if (data_key_compare(cfg, entry_start_key, start_key) < 0) {
       return before_start;
    } else if (data_key_compare(cfg, entry_start_key, end_key) <= 0) {
       return in_range;
@@ -961,13 +966,7 @@ state(data_config *cfg,
 
 /*
  *-----------------------------------------------------------------------------
- * Apply func to every extent whose key range intersects [start_key, _end_key].
- *
- * Note: if start_key is null, then so must be _end_key, and func is
- * applied to all extents.
- *
- * Note: if _end_key is null, then we apply func to all extents whose
- * key range contains start_key.
+ * Apply func to every extent whose key range intersects [start_key, end_key].
  *
  * Note: the first extent in each batch is treated as starting at
  * -infinity, regardless of what key was specified as its starting
@@ -983,15 +982,11 @@ mini_keyed_for_each(cache           *cc,
                     data_config     *cfg,
                     uint64           meta_head,
                     page_type        meta_type,
-                    const slice      start_key,
-                    const slice      _end_key,
+                    key              start_key,
+                    key              end_key,
                     mini_for_each_fn func,
                     void            *out)
 {
-   slice end_key = _end_key;
-   if (slice_is_null(end_key))
-      end_key = start_key;
-
    // Should not be called if there are no intersecting ranges, we track with
    // did_work.
    debug_only bool did_work = FALSE;
@@ -1001,6 +996,7 @@ mini_keyed_for_each(cache           *cc,
    boundary_state current_state[MINI_MAX_BATCHES];
    uint64         extent_addr[MINI_MAX_BATCHES];
    page_type      extent_type[MINI_MAX_BATCHES];
+   // We return true for cleanup if every call to func returns TRUE.
    bool           should_cleanup[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = before_start;
@@ -1025,7 +1021,7 @@ mini_keyed_for_each(cache           *cc,
             // Treat the last extent as going to +infinity
             next_state = after_end;
          } else {
-            const slice entry_start_key = keyed_meta_entry_start_key(entry);
+            key entry_start_key = keyed_meta_entry_start_key(entry);
             next_state = state(cfg, start_key, end_key, entry_start_key);
          }
 
@@ -1062,13 +1058,7 @@ mini_keyed_for_each(cache           *cc,
 }
 
 /*
- * Apply func to every extent whose key range intersects [start_key, _end_key].
- *
- * Note: if start_key is null, then so must be _end_key, and func is
- * applied to all extents.
- *
- * Note: if _end_key is null, then we apply func to all extents whose
- * key range contains start_key.
+ * Apply func to every extent whose key range intersects [start_key, end_key].
  *
  * Note: the first extent in each batch is treated as starting at
  * -infinity, regardless of what key was specified as its starting
@@ -1084,16 +1074,11 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
                                    data_config     *cfg,
                                    uint64           meta_head,
                                    page_type        meta_type,
-                                   const slice      start_key,
-                                   const slice      _end_key,
+                                   key              start_key,
+                                   key              end_key,
                                    mini_for_each_fn func,
                                    void            *out)
 {
-   slice end_key = _end_key;
-   if (slice_is_null(end_key)) {
-      end_key = start_key;
-   }
-
    // Should not be called if there are no intersecting ranges, we track with
    // did_work.
    debug_only bool did_work = FALSE;
@@ -1104,6 +1089,7 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
    boundary_state current_state[MINI_MAX_BATCHES];
    uint64         extent_addr[MINI_MAX_BATCHES];
    page_type      extent_type[MINI_MAX_BATCHES];
+   // We return true for cleanup if every call to func returns TRUE.
    bool           should_cleanup[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
       current_state[i] = before_start;
@@ -1127,7 +1113,7 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
             // Treat the last extent as going to +infinity
             next_state = after_end;
          } else {
-            const slice entry_start_key = keyed_meta_entry_start_key(entry);
+            key entry_start_key = keyed_meta_entry_start_key(entry);
             next_state = state(cfg, start_key, end_key, entry_start_key);
          }
 
@@ -1273,8 +1259,8 @@ mini_keyed_inc_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    type,
                    uint64       meta_head,
-                   const slice  start_key,
-                   const slice  end_key)
+                   key          start_key,
+                   key          end_key)
 {
    mini_keyed_for_each(cc,
                        data_cfg,
@@ -1320,8 +1306,8 @@ mini_keyed_dec_ref(cache       *cc,
                    data_config *data_cfg,
                    page_type    meta_type,
                    uint64       meta_head,
-                   const slice  start_key,
-                   const slice  end_key)
+                   key          start_key,
+                   key          end_key)
 {
    mini_wait_for_blockers(cc, meta_head);
    bool should_cleanup =
@@ -1402,8 +1388,8 @@ mini_keyed_extent_count(cache       *cc,
                         data_config *data_cfg,
                         page_type    type,
                         uint64       meta_head,
-                        const slice  start_key,
-                        const slice  end_key)
+                        key          start_key,
+                        key          end_key)
 {
    uint64 count = 0;
    mini_keyed_for_each(cc,
@@ -1529,8 +1515,8 @@ mini_keyed_print(cache       *cc,
       uint64            num_entries = mini_num_entries(meta_page);
       keyed_meta_entry *entry       = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-         slice start_key = keyed_meta_entry_start_key(entry);
-         char  extent_str[32];
+         key  start_key = keyed_meta_entry_start_key(entry);
+         char extent_str[32];
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
             snprintf(extent_str, sizeof(extent_str), "TERMINAL_ENTRY");
          } else {

@@ -16,11 +16,6 @@
 #include "splinterdb/data.h"
 
 
-// Hack to accomodate encoding variable-length keys
-// This will go away once real variable-length key support lands in trunk.c
-#define SPLINTERDB_MAX_KEY_SIZE (MAX_KEY_SIZE - 1)
-
-
 // Get a version string for this build of SplinterDB
 // Currently a git tag
 const char *
@@ -306,5 +301,24 @@ splinterdb_iterator_get_current(splinterdb_iterator *iter, // IN
 // End-of-range is not an error
 int
 splinterdb_iterator_status(const splinterdb_iterator *iter);
+
+/*
+ * Statistics Printing
+ *
+ * Must set the use_stats config option.
+ *
+ * Prints insertion or lookup statistics. Both print cache statistics.
+ *
+ * Reset statistics clears all statistics, including cache statistics.
+ */
+
+void
+splinterdb_stats_print_insertion(const splinterdb *kvs);
+
+void
+splinterdb_stats_print_lookup(const splinterdb *kvs);
+
+void
+splinterdb_stats_reset(splinterdb *kvs);
 
 #endif // _SPLINTERDB_H_

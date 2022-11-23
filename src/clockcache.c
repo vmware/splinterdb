@@ -785,7 +785,7 @@ clockcache_data_to_entry_number(const clockcache *cc, char *data)
    return clockcache_divide_by_page_size(cc, data - cc->data);
 }
 
-__attribute__((unused)) static inline clockcache_entry *
+debug_only static inline clockcache_entry *
 clockcache_data_to_entry(const clockcache *cc, char *data)
 {
    return &cc->entry[clockcache_data_to_entry_number(cc, data)];

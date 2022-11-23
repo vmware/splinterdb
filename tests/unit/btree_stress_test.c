@@ -30,13 +30,12 @@
 typedef struct insert_thread_params {
    cache           *cc;
    btree_config    *cfg;
-   platform_heap_id heap_id;
+   platform_heap_id hid;
    btree_scratch   *scratch;
    mini_allocator  *mini;
    uint64           root_addr;
    int              start;
    int              end;
-   platform_heap_id hid;
 } insert_thread_params;
 
 // Function Prototypes
@@ -46,13 +45,12 @@ insert_thread(void *arg);
 static void
 insert_tests(cache           *cc,
              btree_config    *cfg,
-             platform_heap_id heap_id,
+             platform_heap_id hid,
              btree_scratch   *scratch,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end,
-             platform_heap_id hid);
+             int              end);
 
 static int
 query_tests(cache           *cc,
@@ -76,11 +74,11 @@ pack_tests(cache           *cc,
            uint64           root_addr,
            uint64           nkvs);
 
-static slice
+static key
 gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
 
 static uint64
-ungen_key(slice key);
+ungen_key(key test_key);
 
 static message
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
@@ -201,7 +199,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
-      params[i].heap_id   = data->hid;
+      params[i].hid       = data->hid;
       params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
@@ -285,25 +283,23 @@ insert_thread(void *arg)
    insert_thread_params *params = (insert_thread_params *)arg;
    insert_tests(params->cc,
                 params->cfg,
-                params->heap_id,
+                params->hid,
                 params->scratch,
                 params->mini,
                 params->root_addr,
                 params->start,
-                params->end,
-                params->hid);
+                params->end);
 }
 
 static void
 insert_tests(cache           *cc,
              btree_config    *cfg,
-             platform_heap_id heap_id,
+             platform_heap_id hid,
              btree_scratch   *scratch,
              mini_allocator  *mini,
              uint64           root_addr,
              int              start,
-             int              end,
-             platform_heap_id hid)
+             int              end)
 {
    uint64 generation;
    bool   was_unique;
@@ -316,7 +312,7 @@ insert_tests(cache           *cc,
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
                                 cfg,
-                                heap_id,
+                                hid,
                                 scratch,
                                 root_addr,
                                 mini,
@@ -328,11 +324,11 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
-   platform_free(heap_id, keybuf);
-   platform_free(heap_id, msgbuf);
+   platform_free(hid, keybuf);
+   platform_free(hid, msgbuf);
 }
 
-static slice
+static key
 gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
 {
    uint64 keylen = sizeof(i) + (i % 100);
@@ -340,18 +336,18 @@ gen_key(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    memset(buffer, 0, keylen);
    uint64 j = i * 23232323731ULL + 99382474567ULL;
    memcpy(buffer, &j, sizeof(j));
-   return slice_create(keylen, buffer);
+   return key_create(keylen, buffer);
 }
 
 static uint64
-ungen_key(slice key)
+ungen_key(key test_key)
 {
-   if (slice_length(key) < sizeof(uint64)) {
+   if (key_length(test_key) < sizeof(uint64)) {
       return 0;
    }
 
    uint64 k;
-   memcpy(&k, key.data, sizeof(k));
+   memcpy(&k, key_data(test_key), sizeof(k));
    return (k - 99382474567ULL) * 14122572041603317147ULL;
 }
 
@@ -420,8 +416,8 @@ iterator_tests(cache           *cc,
                        &dbiter,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
-                       NULL_SLICE,
-                       NULL_SLICE,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
                        FALSE,
                        0);
 
@@ -430,31 +426,33 @@ iterator_tests(cache           *cc,
    uint64 seen = 0;
    bool   at_end;
    uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
-   slice  prev    = NULL_SLICE;
+   key    prev    = NULL_KEY;
    uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
    uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
-      slice   key;
+      key     curr_key;
       message msg;
 
-      iterator_get_curr(iter, &key, &msg);
-      uint64 k = ungen_key(key);
+      iterator_get_curr(iter, &curr_key, &msg);
+      uint64 k = ungen_key(curr_key);
       ASSERT_TRUE(k < nkvs);
 
       int rc = 0;
-      rc = slice_lex_cmp(key, gen_key(cfg, k, keybuf, btree_page_size(cfg)));
+      rc     = data_key_compare(cfg->data_cfg,
+                            curr_key,
+                            gen_key(cfg, k, keybuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
       rc = message_lex_cmp(msg, gen_msg(cfg, k, msgbuf, btree_page_size(cfg)));
       ASSERT_EQUAL(0, rc);
 
-      ASSERT_TRUE(slice_is_null(prev) || slice_lex_cmp(prev, key) < 0);
+      ASSERT_TRUE(key_is_null(prev)
+                  || data_key_compare(cfg->data_cfg, prev, curr_key) < 0);
 
       seen++;
-      prev.data = prevbuf;
-      slice_copy_contents(prevbuf, key);
-      prev.length = key.length;
+      prev = key_create(key_length(curr_key), prevbuf);
+      key_copy_contents(prevbuf, curr_key);
 
       if (!SUCCESS(iterator_advance(iter))) {
          break;
@@ -486,8 +484,8 @@ pack_tests(cache           *cc,
                        &dbiter,
                        root_addr,
                        PAGE_TYPE_MEMTABLE,
-                       NULL_SLICE,
-                       NULL_SLICE,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
                        FALSE,
                        0);
 

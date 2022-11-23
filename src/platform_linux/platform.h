@@ -61,9 +61,6 @@
  */
 #define ARRAY_SIZE(x) ASSERT_EXPR(IS_ARRAY(x), (sizeof(x) / sizeof((x)[0])))
 
-/* Evaluates to sizeof() a field, f, in a C-structure, s */
-#define FSIZEOF(s, f) sizeof(((typeof(s) *)NULL)->f)
-
 /*
  * MAX_THREADS is used primarily for convenience, where allocations made on a
  * per-thread basis create an array with MAX_THREADS items, e.g. the
@@ -74,8 +71,7 @@
 #define MAX_THREADS (64)
 #define INVALID_TID (MAX_THREADS)
 
-#define HASH_SEED         (42)
-#define UNUSED_FUNCTION() __attribute__((__unused__))
+#define HASH_SEED (42)
 
 /*
  * C11 and higher already supports native _Static_assert which has good
@@ -192,8 +188,8 @@ extern bool platform_use_mlock;
  */
 #if SPLINTER_DEBUG
 #   define debug_assert(expr, ...) platform_assert(expr, __VA_ARGS__)
-#   define debug_only
-#   define debug_code(...) __VA_ARGS__
+#   define debug_only              __attribute__((__unused__))
+#   define debug_code(...)         __VA_ARGS__
 #else
 #   define debug_assert(expr, ...)
 #   define debug_only __attribute__((__unused__))

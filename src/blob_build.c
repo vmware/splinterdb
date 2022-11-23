@@ -12,7 +12,7 @@ static platform_status
 allocate_leftover_entries(const blob_build_config *cfg,
                           cache                   *cc,
                           mini_allocator          *mini,
-                          slice                    key,
+                          key                      alloc_key,
                           uint64                   data_len,
                           uint64                   remainder,
                           writable_buffer         *result)
@@ -36,7 +36,7 @@ allocate_leftover_entries(const blob_build_config *cfg,
                             num_pages * page_size,
                             MAX(page_size, cfg->alignment),
                             0,
-                            key,
+                            alloc_key,
                             alloced_pages,
                             &txn_addr,
                             NULL);
@@ -65,7 +65,7 @@ allocate_leftover_entries(const blob_build_config *cfg,
                             remainder,
                             cfg->alignment,
                             extent_size,
-                            key,
+                            alloc_key,
                             alloced_pages,
                             &txn_addr,
                             NULL);
@@ -100,7 +100,7 @@ static platform_status
 build_blob_table(const blob_build_config *cfg,
                  cache                   *cc,
                  mini_allocator          *mini,
-                 slice                    key,
+                 key                      alloc_key,
                  uint64                   data_len,
                  writable_buffer         *result)
 {
@@ -123,26 +123,26 @@ build_blob_table(const blob_build_config *cfg,
 
    for (uint64 i = 0; i < num_extents; i++) {
       uint64 alloced_page =
-         mini_alloc_extent(mini, cfg->extent_batch, key, NULL);
+         mini_alloc_extent(mini, cfg->extent_batch, alloc_key, NULL);
       debug_assert(alloced_page != 0);
       debug_assert(alloced_page != 1);
       blobby->addrs[i] = alloced_page;
    }
 
    return allocate_leftover_entries(
-      cfg, cc, mini, key, data_len, remainder, result);
+      cfg, cc, mini, alloc_key, data_len, remainder, result);
 }
 
 platform_status
 blob_build(const blob_build_config *cfg,
            cache                   *cc,
            mini_allocator          *mini,
-           slice                    key,
+           key                      alloc_key,
            slice                    data,
            writable_buffer         *result)
 {
    platform_status rc =
-      build_blob_table(cfg, cc, mini, key, slice_length(data), result);
+      build_blob_table(cfg, cc, mini, alloc_key, slice_length(data), result);
 
    if (!SUCCESS(rc)) {
       return rc;
@@ -181,7 +181,7 @@ static platform_status
 clone_blob_table(const blob_build_config *cfg,
                  cache                   *cc,
                  mini_allocator          *mini,
-                 slice                    key,
+                 key                      alloc_key,
                  parsed_blob             *pblobby,
                  writable_buffer         *result)
 {
@@ -197,7 +197,8 @@ clone_blob_table(const blob_build_config *cfg,
 
    for (int i = 0; i < pblobby->num_extents; i++) {
       blobby->addrs[i] = pblobby->base->addrs[i];
-      rc = mini_attach_extent(mini, cfg->extent_batch, key, blobby->addrs[i]);
+      rc               = mini_attach_extent(
+         mini, cfg->extent_batch, alloc_key, blobby->addrs[i]);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -208,7 +209,7 @@ clone_blob_table(const blob_build_config *cfg,
       uint64 remainder =
          pblobby->base->length - pblobby->num_extents * extent_size;
       rc = allocate_leftover_entries(
-         cfg, cc, mini, key, pblobby->base->length, remainder, result);
+         cfg, cc, mini, alloc_key, pblobby->base->length, remainder, result);
    }
 
    return rc;
@@ -218,7 +219,7 @@ platform_status
 blob_clone(const blob_build_config *cfg,
            cache                   *cc,
            mini_allocator          *mini,
-           slice                    key,
+           key                      alloc_key,
            slice                    sblobby,
            writable_buffer         *result)
 {
@@ -229,7 +230,8 @@ blob_clone(const blob_build_config *cfg,
 
    parse_blob(extent_size, page_size, blobby, &pblobby);
 
-   platform_status rc = clone_blob_table(cfg, cc, mini, key, &pblobby, result);
+   platform_status rc =
+      clone_blob_table(cfg, cc, mini, alloc_key, &pblobby, result);
    if (!SUCCESS(rc)) {
       return rc;
    }

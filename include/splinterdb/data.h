@@ -20,7 +20,6 @@
 #ifndef __DATA_H
 #define __DATA_H
 
-#include "splinterdb/limits.h"
 #include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
 
@@ -39,6 +38,11 @@ typedef enum message_type {
 
 /*
  * Messages
+ *
+ * Messages are similar to slices in that they are essentially just
+ * pointers to the message contents.  They just help carry around a
+ * little extra information about the message (i.e. its type and
+ * length).
  */
 typedef struct message {
    message_type type;
@@ -164,14 +168,7 @@ typedef void (*message_to_str_fn)(const data_config *cfg,
  */
 struct data_config {
    // FIXME: Planned for deprecation.
-   uint64 key_size;
-
-   // FIXME: Planned for deprecation.
-   char   min_key[MAX_KEY_SIZE];
-   uint64 min_key_length;
-
-   char   max_key[MAX_KEY_SIZE];
-   uint64 max_key_length;
+   uint64 max_key_size;
 
    key_compare_fn       key_compare;
    key_hash_fn          key_hash;

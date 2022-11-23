@@ -20,7 +20,7 @@ platform_status
 blob_build(const blob_build_config *cfg,
            cache                   *cc,
            mini_allocator          *mini,
-           slice                    key,
+           key                      alloc_key,
            slice                    data,
            writable_buffer         *result);
 
@@ -28,7 +28,7 @@ platform_status
 blob_clone(const blob_build_config *cfg,
            cache                   *cc,
            mini_allocator          *mini,
-           slice                    key,
+           key                      alloc_key,
            slice                    sblob,
            writable_buffer         *result);
 
