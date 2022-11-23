@@ -1185,9 +1185,15 @@ btree_root_to_meta_addr(const btree_config *cfg,
  */
 
 static page_type memtable_page_type_table[BTREE_MAX_HEIGHT] = {
-   [0 ... BTREE_MAX_HEIGHT - 1] = PAGE_TYPE_MEMTABLE};
+   PAGE_TYPE_BLOB,
+   PAGE_TYPE_BLOB,
+   PAGE_TYPE_BLOB,
+   [3 ... BTREE_MAX_HEIGHT - 1] = PAGE_TYPE_MEMTABLE};
 static page_type branch_page_type_table[BTREE_MAX_HEIGHT] = {
-   [0 ... BTREE_MAX_HEIGHT - 1] = PAGE_TYPE_BRANCH};
+   PAGE_TYPE_BLOB,
+   PAGE_TYPE_BLOB,
+   PAGE_TYPE_BLOB,
+   [3 ... BTREE_MAX_HEIGHT - 1] = PAGE_TYPE_BRANCH};
 
 uint64
 btree_create(cache              *cc,
