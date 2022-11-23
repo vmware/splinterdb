@@ -4627,6 +4627,7 @@ trunk_compact_bundle_cleanup_iterators(trunk_handle           *spl,
    for (uint64 i = 0; i < num_branches; i++) {
       trunk_btree_skiperator_deinit(spl, &skip_itor_arr[i]);
    }
+   debug_only(memset(skip_itor_arr, 0, num_branches * sizeof(*skip_itor_arr)));
 }
 
 /*
@@ -4852,9 +4853,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
    platform_status pack_status = btree_pack(&pack_req);
    if (!SUCCESS(pack_status)) {
-      platform_default_log("btree_pack failed: %d\n", pack_status.r);
+      platform_default_log("btree_pack failed: %s\n",
+                           platform_status_to_string(pack_status));
       trunk_compact_bundle_cleanup_iterators(
          spl, &merge_itor, num_branches, skip_itor_arr);
+      btree_pack_req_deinit(&pack_req, spl->heap_id);
+      platform_free(spl->heap_id, req);
       goto out;
    }
 
