@@ -160,7 +160,7 @@ function nightly_functionality_stress_tests() {
     local dbname="splinter_test.functionality.db"
     echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality  ${num_rows} 1000 \
+            "$BINDIR"/driver_test splinter_test --functionality  ${num_rows} 10 \
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
@@ -171,7 +171,7 @@ function nightly_functionality_stress_tests() {
     local dbname="splinter_test.functionality.db"
     echo "$Me: Run ${test_name} with ${n_mills} million rows, on ${ntables} tables, with ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality  ${num_rows} 1000 \
+            "$BINDIR"/driver_test splinter_test --functionality  ${num_rows} 10 \
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
@@ -187,7 +187,7 @@ function nightly_functionality_stress_tests() {
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
+            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 10 \
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
@@ -198,7 +198,7 @@ function nightly_functionality_stress_tests() {
     test_descr="${nrows_h} rows, ${ntables} tables, ${cache_size} MiB cache"
     echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with default ${cache_size} GiB cache"
     run_with_timing "Functionality Stress test ${test_descr}" \
-            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
+            "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 10 \
                                                 --num-tables ${ntables} \
                                                 --cache-capacity-gib ${cache_size} \
                                                 --db-location ${dbname}
@@ -208,7 +208,7 @@ function nightly_functionality_stress_tests() {
     # echo "$Me: Run with ${n_mills} million rows, on ${ntables} tables, with small ${cache_size} MiB cache"
     # Commented out, because we run into issue # 322.
     # run_with_timing "Functionality Stress test ${test_descr}" \
-    #       "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 1000 \
+    #       "$BINDIR"/driver_test splinter_test --functionality ${num_rows} 10 \
                                         #       --num-tables ${ntables} \
                                         #       --cache-capacity-mib ${cache_size} \
                                         #       --db-location ${dbname}
@@ -553,17 +553,22 @@ function run_slower_unit_tests() {
 function run_splinter_functionality_tests() {
     key_size=8
     run_with_timing "Functionality test, key size=${key_size} bytes" \
-        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --key-size ${key_size} --seed "$SEED"
+        "$BINDIR"/driver_test splinter_test --functionality 1000000 10 \
+                                            --key-size ${key_size} \
+                                            --data-size 16000000 \
+                                            --seed "$SEED"
 
     run_with_timing "Functionality test, with default key size" \
-        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+        "$BINDIR"/driver_test splinter_test --functionality 1000000 10 \
+                                            --data-size 16000000 \
                                             --seed "$SEED"
 
     max_key_size=102
     run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
-        "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --key-size ${max_key_size} --seed "$SEED"
+        "$BINDIR"/driver_test splinter_test --functionality 1000000 10 \
+                                            --key-size ${max_key_size} \
+                                            --data-size 16000000 \
+                                            --seed "$SEED"
 }
 
 # ##################################################################

@@ -95,8 +95,11 @@ verify_tuple(trunk_handle    *spl,
    } else if (refcount && found) {
       merge_accumulator expected_message;
       merge_accumulator_init(&expected_message, spl->heap_id);
-      test_data_generate_message(
-         spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
+      test_data_generate_message(spl->cfg.data_cfg,
+                                 int_key,
+                                 MESSAGE_TYPE_INSERT,
+                                 refcount,
+                                 &expected_message);
       message expected_msg = merge_accumulator_to_message(&expected_message);
       platform_assert(!message_is_null(msg));
       platform_assert(message_lex_cmp(msg, expected_msg) == 0,
@@ -596,7 +599,8 @@ insert_random_messages(trunk_handle              *spl,
             ref_count = 1;
          }
       }
-      test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
+      test_data_generate_message(
+         spl->cfg.data_cfg, keynum, op, ref_count, &msg);
 
       rc = trunk_insert(spl, tuple_key, merge_accumulator_to_message(&msg));
       if (!SUCCESS(rc)) {

@@ -1610,7 +1610,7 @@ btree_test(int argc, char *argv[])
          rc = test_btree_merge_basic(ccp, &test_cfg, hid, 8);
          platform_assert_status_ok(rc);
 
-         rc = test_btree_count_in_range(ccp, &test_cfg, hid, 10000);
+         rc = test_btree_count_in_range(ccp, &test_cfg, hid, 1000);
          platform_assert_status_ok(rc);
       }
    }

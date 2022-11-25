@@ -2494,11 +2494,6 @@ trunk_bundle_inc_pivot_rc(trunk_handle *spl,
  */
 
 /*
- * has_vacancy returns TRUE unless there is not enough physical space in the
- * node to add another branch
- */
-
-/*
  * Returns the number of live branches (including fractional branches).
  */
 static inline uint16
@@ -2508,6 +2503,10 @@ trunk_branch_count(trunk_handle *spl, page_handle *node)
    return trunk_subtract_branch_number(spl, hdr->end_branch, hdr->start_branch);
 }
 
+/*
+ * has_vacancy returns TRUE unless there is not enough physical space in the
+ * node to add another branch
+ */
 static inline bool
 trunk_has_vacancy(trunk_handle *spl, page_handle *node, uint16 num_new_branches)
 {
@@ -5316,6 +5315,16 @@ trunk_split_leaf(trunk_handle *spl,
          }
       }
    }
+   target_num_leaves =
+      MIN(target_num_leaves,
+          spl->cfg.max_pivot_keys - trunk_num_pivot_keys(spl, parent));
+   if (target_num_leaves == 1) {
+      comp_type = TRUNK_COMPACTION_TYPE_SINGLE_LEAF_SPLIT;
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].single_leaf_splits++;
+      }
+   }
+
    uint64 target_leaf_kv_bytes = kv_bytes / target_num_leaves;
    uint16 num_leaves;
 

@@ -140,6 +140,14 @@ test_int_to_key(key_buffer *kb, uint64 idx, uint64 key_size)
    *keybytes = htobe64(idx);
 }
 
+static inline uint64
+test_int_from_key(slice k)
+{
+   debug_assert(sizeof(uint64) <= slice_length(k));
+   const uint64 *keybytes = slice_data(k);
+   return be64toh(*keybytes);
+}
+
 /*
  * The intention is that we can shove all our different algorithms for
  * generating sequences of messages into this structure (e.g. via
