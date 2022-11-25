@@ -2952,7 +2952,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
    btree_pivot_stats *leaf_stats = btree_pack_get_current_node_stats(req, 0);
    leaf_stats->num_kvs++;
    leaf_stats->key_bytes += key_length(tuple_key);
-   leaf_stats->message_bytes += message_length(msg);
+   leaf_stats->message_bytes += message_materialized_length(msg);
 
    log_trace_key(tuple_key, "btree_pack_loop (bottom)");
 

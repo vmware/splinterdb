@@ -175,10 +175,11 @@ generate_test_message(const test_message_generator *generator,
                 "least %lu bytes ",
                 generator->min_payload_size,
                 GENERATOR_MIN_PAYLOAD_SIZE);
-   uint64 payload_size =
-      generator->min_payload_size
-      + (idx % (generator->max_payload_size - generator->min_payload_size + 1));
-   uint64 total_size = sizeof(data_handle) + payload_size;
+   uint64 payload_random_part =
+      (253456363ULL + idx * 750599937895091ULL)
+      % (generator->max_payload_size - generator->min_payload_size + 1);
+   uint64 payload_size = generator->min_payload_size payload_random_part;
+   uint64 total_size   = sizeof(data_handle) + payload_size;
    merge_accumulator_set_class(msg, generator->type);
    merge_accumulator_resize(msg, total_size);
    data_handle *raw_data = merge_accumulator_data(msg);

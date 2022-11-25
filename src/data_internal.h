@@ -352,6 +352,16 @@ message_is_invalid_user_type(message msg)
           || msg.type > MESSAGE_TYPE_MAX_VALID_USER_TYPE;
 }
 
+static inline uint64
+message_materialized_length(message msg)
+{
+   if (message_isblob(msg)) {
+      return blob_length(msg.data);
+   } else {
+      return message_length(msg);
+   }
+}
+
 static inline platform_status
 message_materialize(message msg, merge_accumulator *tmp)
 {
