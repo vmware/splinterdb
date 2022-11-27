@@ -378,6 +378,7 @@ CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
 BLOB_SYS = $(OBJDIR)/$(SRCDIR)/blob.o        \
            $(OBJDIR)/$(SRCDIR)/blob_build.o        \
            $(OBJDIR)/$(SRCDIR)/data_internal.o   \
+           $(OBJDIR)/$(SRCDIR)/data_blob_build.o   \
            $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
 				 	 $(CLOCKCACHE_SYS)
 
