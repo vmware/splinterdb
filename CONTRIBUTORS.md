@@ -24,7 +24,7 @@
 - Rick Spillane
 - Rob Johnson
 - Srinath Premachandran
-- Vijay Chiadambaran
+- Vijay Chidambaram
 - Wenguang Wang
 - Yi Xu
 - Yizheng Jiao
