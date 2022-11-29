@@ -48,7 +48,7 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
       iterator_advance((iterator *)&iter);
       count++;
    }
-   platform_error_log("Saw a total of %lu keys\n", count);
+   platform_default_log("Saw a total of %lu keys\n", count);
 }
 
 
