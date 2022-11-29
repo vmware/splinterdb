@@ -88,7 +88,7 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->filter_index_size = 256;
    }
    if (!cfg->filter_remainder_size) {
-      cfg->filter_remainder_size = 6;
+      cfg->filter_remainder_size = 4;
    }
 
    if (!cfg->memtable_capacity) {
