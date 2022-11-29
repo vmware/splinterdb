@@ -3,7 +3,7 @@
 ## What is SplinterDB?
 SplinterDB is a key-value store designed for high performance on fast storage devices.
 
-See
+See [this talk at the CMU Database Seminar](https://www.youtube.com/watch?v=1gOlXfbiT_Y) and this paper:
 > Alexander Conway, Abhishek Gupta, Vijay Chidambaram, Martin Farach-Colton, Richard P. Spillane, Amy Tai, Rob Johnson:
 [SplinterDB: Closing the Bandwidth Gap for NVMe Key-Value Stores](https://www.usenix.org/conference/atc20/presentation/conway). USENIX Annual Technical Conference 2020: 49-63
 
