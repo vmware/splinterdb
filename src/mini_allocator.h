@@ -35,13 +35,13 @@
  * mini_allocator: Mini-allocator context.
  */
 typedef struct mini_allocator {
-   cache          *cc;
-   allocator      *al;
-   data_config    *data_cfg;
-   bool            keyed;
-   uint64          num_batches;
-   page_type       meta_type;
-   page_type       types[MINI_MAX_BATCHES];
+   cache       *cc;
+   allocator   *al;
+   data_config *data_cfg;
+   bool         keyed;
+   uint64       num_batches;
+   page_type    meta_type;
+   page_type    types[MINI_MAX_BATCHES];
 
    uint64          num_extents;
    uint64          meta_head;

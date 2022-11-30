@@ -553,7 +553,7 @@ btree_create_leaf_incorporate_spec(const btree_config    *cfg,
                                    leaf_incorporate_spec *spec)
 {
    platform_status rc = STATUS_OK;
-   spec->tuple_key = tuple_key;
+   spec->tuple_key    = tuple_key;
    bool found;
    spec->idx             = btree_find_tuple(cfg, hdr, tuple_key, &found);
    spec->old_entry_state = found ? ENTRY_STILL_EXISTS : ENTRY_DID_NOT_EXIST;

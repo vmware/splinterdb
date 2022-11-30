@@ -34,7 +34,7 @@ test_data_generate_message(const data_config *cfg,
        * values larger than N.  Hence the MIN in the definition of
        * "extra".
        */
-      uint64 N     = tdcfg->payload_size_limit;
+      uint64 N = tdcfg->payload_size_limit;
       uint64 r =
          (253456363ULL + ((k << 8) + ref_count) * 750599937895091ULL) % N;
       payload_size = MIN(N - 1, N * N / (N - r) / (N - r) - 1);

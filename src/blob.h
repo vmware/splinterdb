@@ -26,22 +26,22 @@ typedef struct parsed_blob_entry {
 } parsed_blob_entry;
 
 typedef struct parsed_blob {
-   const blob       *base;
-   uint64            num_extents;
+   const blob *base;
+   uint64      num_extents;
    /* sub-extent (i.e. multi-page and sub-page entries) */
    parsed_blob_entry leftovers[3];
 } parsed_blob;
 
 typedef struct blob_page_iterator {
-   cache       *cc;
-   bool         alloc;
-   bool         do_prefetch;
-   uint64       extent_size;
-   uint64       page_size;
-   parsed_blob  pblob;
+   cache      *cc;
+   bool        alloc;
+   bool        do_prefetch;
+   uint64      extent_size;
+   uint64      page_size;
+   parsed_blob pblob;
 
-   uint64       offset;    // logical byte offset of the current piece
-   uint64       page_addr; // page address of the current piece
+   uint64       offset;      // logical byte offset of the current piece
+   uint64       page_addr;   // page address of the current piece
    uint64       page_offset; // offset within the page of the current piece
    uint64       length; // length of the current piece (within the current page)
    page_handle *page;   // the page with the current piece in it.

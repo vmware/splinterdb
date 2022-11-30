@@ -41,8 +41,8 @@ log_write_maybe_blob(cache      *cc,
          return rc;
       }
 
-      msg.cc     = cc;
-      msg.data   = writable_buffer_to_slice(&blob);
+      msg.cc   = cc;
+      msg.data = writable_buffer_to_slice(&blob);
    }
 
    if (log_write(logh, tuple_key, msg, generation)) {

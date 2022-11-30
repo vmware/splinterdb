@@ -381,7 +381,7 @@ message_materialize_if_needed(platform_heap_id heap_id,
 {
    if (msg.cc) {
       writable_buffer_init(tmp, heap_id);
-      slice sblob = message_slice(msg);
+      slice           sblob = message_slice(msg);
       platform_status rc    = blob_materialize_full(msg.cc, sblob, tmp);
       if (!SUCCESS(rc)) {
          writable_buffer_deinit(tmp);

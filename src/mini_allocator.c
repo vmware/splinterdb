@@ -35,8 +35,8 @@
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK mini_meta_hdr {
-   uint64    next_meta_addr;
-   uint64    pos;
+   uint64 next_meta_addr;
+   uint64 pos;
    uint32 num_entries;
    char   entry_buffer[];
 } mini_meta_hdr;
@@ -69,8 +69,8 @@ typedef struct ONDISK keyed_meta_entry {
  *-----------------------------------------------------------------------------
  */
 typedef struct ONDISK unkeyed_meta_entry {
-   uint64    extent_addr;
-   uint8     type;
+   uint64 extent_addr;
+   uint8  type;
 } unkeyed_meta_entry;
 
 static uint64
@@ -918,7 +918,7 @@ mini_unkeyed_for_each(cache           *cc,
 {
    uint64 meta_addr = meta_head;
    do {
-      page_handle *meta_page = cache_get(cc, meta_addr, TRUE, meta_type);
+      page_handle        *meta_page = cache_get(cc, meta_addr, TRUE, meta_type);
       uint64              num_meta_entries = mini_num_entries(meta_page);
       unkeyed_meta_entry *entry            = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_meta_entries; i++) {
@@ -1001,9 +1001,9 @@ mini_keyed_for_each(cache           *cc,
    uint64         extent_addr[MINI_MAX_BATCHES];
    page_type      extent_type[MINI_MAX_BATCHES];
    // We return true for cleanup if every call to func returns TRUE.
-   bool           should_cleanup[MINI_MAX_BATCHES];
+   bool should_cleanup[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
-      current_state[i] = before_start;
+      current_state[i]  = before_start;
       extent_addr[i]    = TERMINAL_EXTENT_ADDR;
       extent_type[i]    = PAGE_TYPE_INVALID;
       should_cleanup[i] = 2;
@@ -1094,9 +1094,9 @@ mini_keyed_for_each_self_exclusive(cache           *cc,
    uint64         extent_addr[MINI_MAX_BATCHES];
    page_type      extent_type[MINI_MAX_BATCHES];
    // We return true for cleanup if every call to func returns TRUE.
-   bool           should_cleanup[MINI_MAX_BATCHES];
+   bool should_cleanup[MINI_MAX_BATCHES];
    for (uint64 i = 0; i < MINI_MAX_BATCHES; i++) {
-      current_state[i] = before_start;
+      current_state[i]  = before_start;
       extent_addr[i]    = TERMINAL_EXTENT_ADDR;
       extent_type[i]    = PAGE_TYPE_INVALID;
       should_cleanup[i] = 2;

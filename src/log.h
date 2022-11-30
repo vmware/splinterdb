@@ -31,12 +31,12 @@ typedef platform_status (*log_create_blob_fn)(log_handle      *log,
                                               writable_buffer *result);
 
 typedef struct log_ops {
-   log_write_fn        write;
-   log_create_blob_fn  create_blob;
-   log_release_fn      release;
-   log_addr_fn         addr;
-   log_addr_fn         meta_addr;
-   log_magic_fn        magic;
+   log_write_fn       write;
+   log_create_blob_fn create_blob;
+   log_release_fn     release;
+   log_addr_fn        addr;
+   log_addr_fn        meta_addr;
+   log_magic_fn       magic;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field

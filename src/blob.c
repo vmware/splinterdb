@@ -4,7 +4,7 @@
 #include "blob.h"
 #include "poison.h"
 
-#define MIN_LIVE_PERCENTAGE         (90ULL)
+#define MIN_LIVE_PERCENTAGE (90ULL)
 
 /* If the data is large enough (or close enough to a whole number of
  * rounded_size pieces), then we just put it entirely into
@@ -25,8 +25,8 @@ parse_blob(uint64       extent_size,
            const blob  *blobby,
            parsed_blob *pblobby)
 {
-   pblobby->base      = blobby;
-   uint64 remainder   = blobby->length;
+   pblobby->base    = blobby;
+   uint64 remainder = blobby->length;
 
    if (can_round_up(extent_size, remainder)) {
       pblobby->num_extents = (remainder + extent_size - 1) / extent_size;
@@ -99,8 +99,8 @@ addr_for_offset(uint64             extent_size,
            i++)
       {
          if (offset < pblobby->leftovers[i].length) {
-            byte_addr             = pblobby->leftovers[i].addr + offset;
-            entry_remainder       = pblobby->leftovers[i].length - offset;
+            byte_addr       = pblobby->leftovers[i].addr + offset;
+            entry_remainder = pblobby->leftovers[i].length - offset;
             break;
          } else {
             offset -= pblobby->leftovers[i].length;
@@ -133,13 +133,13 @@ blob_page_iterator_init(cache              *cc,
                         bool                alloc,
                         bool                do_prefetch)
 {
-   iter->cc                = cc;
-   iter->alloc             = alloc;
-   iter->do_prefetch       = do_prefetch;
-   iter->extent_size       = cache_extent_size(cc);
-   iter->page_size         = cache_page_size(cc);
-   iter->offset            = offset;
-   iter->page              = NULL;
+   iter->cc          = cc;
+   iter->alloc       = alloc;
+   iter->do_prefetch = do_prefetch;
+   iter->extent_size = cache_extent_size(cc);
+   iter->page_size   = cache_page_size(cc);
+   iter->offset      = offset;
+   iter->page        = NULL;
 
    parse_blob(
       iter->extent_size, iter->page_size, slice_data(sblobby), &iter->pblob);

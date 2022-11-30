@@ -416,7 +416,7 @@ routing_filter_add(cache           *cc,
    platform_assert_status_ok(rc);
    filter->meta_head = meta_head;
    // filters use an unkeyed mini allocator
-   mini_allocator mini;
+   mini_allocator         mini;
    static const page_type page_type_table[1] = {PAGE_TYPE_FILTER};
    mini_init(&mini,
              cc,

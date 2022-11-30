@@ -4,9 +4,9 @@
 #include "blob_build.h"
 #include "poison.h"
 
-#define EXTENT_BATCH                (2)
-#define PAGE_BATCH                  (1)
-#define SUBPAGE_BATCH               (0)
+#define EXTENT_BATCH  (2)
+#define PAGE_BATCH    (1)
+#define SUBPAGE_BATCH (0)
 
 static platform_status
 allocate_leftover_entries(const blob_build_config *cfg,
@@ -17,7 +17,7 @@ allocate_leftover_entries(const blob_build_config *cfg,
                           uint64                   remainder,
                           writable_buffer         *result)
 {
-   uint64 page_size = cache_page_size(cc);
+   uint64 page_size   = cache_page_size(cc);
    uint64 extent_size = cache_extent_size(cc);
 
    /* Allocate the page entries */
@@ -115,8 +115,8 @@ build_blob_table(const blob_build_config *cfg,
    }
 
    writable_buffer_resize(result, sizeof(blob) + num_extents * sizeof(uint64));
-   blob *blobby        = writable_buffer_data(result);
-   blobby->length      = data_len;
+   blob *blobby   = writable_buffer_data(result);
+   blobby->length = data_len;
 
    for (uint64 i = 0; i < num_extents; i++) {
       uint64 alloced_page =
@@ -220,10 +220,10 @@ blob_clone(const blob_build_config *cfg,
            slice                    sblobby,
            writable_buffer         *result)
 {
-   uint64             extent_size = cache_extent_size(cc);
-   uint64             page_size   = cache_page_size(cc);
-   const blob        *blobby      = slice_data(sblobby);
-   parsed_blob        pblobby;
+   uint64      extent_size = cache_extent_size(cc);
+   uint64      page_size   = cache_page_size(cc);
+   const blob *blobby      = slice_data(sblobby);
+   parsed_blob pblobby;
 
    parse_blob(extent_size, page_size, blobby, &pblobby);
 
