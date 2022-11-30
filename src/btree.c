@@ -2821,14 +2821,8 @@ static inline btree_node *
 btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
 {
    btree_node new_node;
-   uint64     node_next_extent;
-   btree_alloc(req->cc,
-               &req->mini,
-               height,
-               pivot,
-               &node_next_extent,
-               PAGE_TYPE_BRANCH,
-               &new_node);
+   btree_alloc(
+      req->cc, &req->mini, height, pivot, NULL, PAGE_TYPE_BRANCH, &new_node);
    btree_pack_node_init_hdr(req->cfg, new_node.hdr, 0, height);
 
    if (0 < req->num_edges[height]) {

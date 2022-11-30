@@ -117,23 +117,11 @@ addr_for_offset(uint64             extent_size,
 static void
 maybe_do_prefetch(blob_page_iterator *iter)
 {
-   if (!iter->alloc && iter->offset + iter->length < iter->pblob.base->length) {
-      uint64 next_page_addr;
-      uint64 next_page_offset;
-      uint64 next_length;
-      addr_for_offset(iter->extent_size,
-                      iter->page_size,
-                      &iter->pblob,
-                      iter->offset + iter->length,
-                      &next_page_addr,
-                      &next_page_offset,
-                      &next_length);
-      uint64 next_extent_addr =
-         cache_extent_base_addr(iter->cc, next_page_addr);
-      if (next_extent_addr == next_page_addr
-          && next_length == iter->extent_size) {
-         cache_prefetch(iter->cc, next_extent_addr, PAGE_TYPE_BLOB);
-      }
+   uint64 curr_extent_num = iter->offset / iter->extent_size;
+   if (!iter->alloc && curr_extent_num < iter->pblob.num_extents - 1) {
+      cache_prefetch(iter->cc,
+                     iter->pblob.base->addrs[curr_extent_num + 1],
+                     PAGE_TYPE_BLOB);
    }
 }
 
@@ -229,7 +217,7 @@ blob_page_iterator_at_end(blob_page_iterator *iter)
 }
 
 void
-blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 amount)
+blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 num_bytes)
 {
    if (iter->page) {
       if (iter->alloc) {
@@ -240,7 +228,7 @@ blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 amount)
       iter->page = NULL;
    }
 
-   iter->offset += amount;
+   iter->offset += num_bytes;
    if (iter->offset < iter->pblob.base->length) {
       addr_for_offset(iter->extent_size,
                       iter->page_size,

@@ -15,12 +15,6 @@
 #include "util.h"
 #include "blob.h"
 
-struct merge_accumulator {
-   message_type    type;
-   cache          *cc; // !NULL means blob
-   writable_buffer data;
-};
-
 /*
  * KEYS
  *
@@ -300,6 +294,12 @@ copy_key_to_ondisk_key(ondisk_key *odk, key k)
  *
  * Convenience functions for dealing with messages.
  */
+
+struct merge_accumulator {
+   message_type    type;
+   cache          *cc; // !NULL means blob
+   writable_buffer data;
+};
 
 static inline char *
 message_type_string(message_type type)

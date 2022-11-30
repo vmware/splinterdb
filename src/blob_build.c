@@ -29,7 +29,6 @@ allocate_leftover_entries(const blob_build_config *cfg,
    }
    uint64          alloced_pages[2];
    platform_status rc;
-   uint64          txn_addr;
    if (num_pages) {
       rc = mini_alloc_bytes(mini,
                             cfg->page_batch,
@@ -38,12 +37,11 @@ allocate_leftover_entries(const blob_build_config *cfg,
                             0,
                             alloc_key,
                             alloced_pages,
-                            &txn_addr,
                             NULL);
       if (!SUCCESS(rc)) {
          return rc;
       }
-      mini_alloc_bytes_finish(mini, cfg->page_batch, txn_addr);
+      mini_alloc_bytes_finish(mini, cfg->page_batch);
       if (alloced_pages[1]) {
          writable_buffer_append(result, sizeof(alloced_pages), &alloced_pages);
       } else {
@@ -67,7 +65,6 @@ allocate_leftover_entries(const blob_build_config *cfg,
                             extent_size,
                             alloc_key,
                             alloced_pages,
-                            &txn_addr,
                             NULL);
       if (!SUCCESS(rc)) {
          return rc;
@@ -88,7 +85,7 @@ allocate_leftover_entries(const blob_build_config *cfg,
          cache_unclaim(cc, page);
          cache_unget(cc, page);
       }
-      mini_alloc_bytes_finish(mini, cfg->subpage_batch, txn_addr);
+      mini_alloc_bytes_finish(mini, cfg->subpage_batch);
       writable_buffer_append(
          result, sizeof(alloced_pages[0]), &alloced_pages[0]);
    }

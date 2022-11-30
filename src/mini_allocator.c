@@ -36,8 +36,7 @@
  */
 typedef struct ONDISK mini_meta_hdr {
    uint64    next_meta_addr;
-   page_type type;
-   uint64 pos;
+   uint64    pos;
    uint32 num_entries;
    char   entry_buffer[];
 } mini_meta_hdr;
@@ -57,7 +56,7 @@ typedef struct ONDISK mini_meta_hdr {
 typedef struct ONDISK keyed_meta_entry {
    uint64     extent_addr;
    uint8      batch;
-   page_type  type;
+   uint8      type;
    ondisk_key start_key;
 } keyed_meta_entry;
 
@@ -71,7 +70,7 @@ typedef struct ONDISK keyed_meta_entry {
  */
 typedef struct ONDISK unkeyed_meta_entry {
    uint64    extent_addr;
-   page_type type;
+   uint8     type;
 } unkeyed_meta_entry;
 
 static uint64
@@ -135,7 +134,6 @@ mini_init_meta_page(mini_allocator *mini, page_handle *meta_page)
 {
    mini_meta_hdr *hdr  = (mini_meta_hdr *)meta_page->data;
    hdr->next_meta_addr = 0;
-   hdr->type           = mini->meta_type;
    hdr->pos            = offsetof(typeof(*hdr), entry_buffer);
    hdr->num_entries    = 0;
 }
@@ -396,6 +394,7 @@ mini_keyed_append_entry(mini_allocator *mini,
    new_entry->extent_addr = extent_addr;
    new_entry->batch       = batch;
    new_entry->type        = type;
+   debug_assert(new_entry->type == type);
    copy_key_to_ondisk_key(&new_entry->start_key, start_key);
 
    hdr->pos += keyed_meta_entry_required_capacity(start_key);
@@ -424,6 +423,7 @@ mini_unkeyed_append_entry(mini_allocator *mini,
    unkeyed_meta_entry *new_entry = pointer_byte_offset(hdr, hdr->pos);
    new_entry->extent_addr        = extent_addr;
    new_entry->type               = type;
+   debug_assert(new_entry->type == type);
 
    hdr->pos += sizeof(unkeyed_meta_entry);
    hdr->num_entries++;
@@ -571,6 +571,10 @@ mini_append_entry(mini_allocator *mini,
  *         - alignment divides boundary
  *         - boundary divides extent_size
  *
+ *      Example use of boundary: When allocating less than a
+ *      page-worth of bytes and you don't care about their alignment
+ *      but you do care that they are all allocated on a single page.
+ *
  *      If the allocator is keyed, then the extent(s) from which the allocation
  *      is made will include the given key. NOTE: This requires keys provided be
  *      monotonically increasing.
@@ -582,7 +586,9 @@ mini_append_entry(mini_allocator *mini,
  *      platform_status indicating success or error.
  *
  * Side effects:
- *      Disk allocation, standard cache side effects.
+ *      - Disk allocation
+ *      - Locks the batch (see mini_allocator_finish)
+ *      - Standard cache side effects
  *-----------------------------------------------------------------------------
  */
 platform_status
@@ -593,7 +599,6 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64          boundary,
                  key             alloc_key,
                  uint64          addrs[2],
-                 uint64         *txn_addr,
                  uint64         *next_extent)
 {
    uint64 extent_size = cache_extent_size(mini->cc);
@@ -665,14 +670,17 @@ mini_alloc_bytes(mini_allocator *mini,
       *next_extent = mini->next_extent[batch];
    }
 
-   *txn_addr = next_addr;
+   debug_assert(mini->saved_next_addr[batch] == 0);
+   mini->saved_next_addr[batch] = next_addr;
    return STATUS_OK;
 }
 
 void
-mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch, uint64 txn_addr)
+mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch)
 {
-   mini_unlock_batch_set_next_addr(mini, batch, txn_addr);
+   uint64 saved_next_addr       = mini->saved_next_addr[batch];
+   mini->saved_next_addr[batch] = 0;
+   mini_unlock_batch_set_next_addr(mini, batch, saved_next_addr);
 }
 
 uint64
@@ -682,7 +690,6 @@ mini_alloc_page(mini_allocator *mini,
                 uint64         *next_extent)
 {
    uint64          alloced_addrs[2] = {0, 0};
-   uint64          txn_addr;
    uint64          page_size        = cache_page_size(mini->cc);
    platform_status rc               = mini_alloc_bytes(mini,
                                          batch,
@@ -691,13 +698,12 @@ mini_alloc_page(mini_allocator *mini,
                                          0,
                                          alloc_key,
                                          alloced_addrs,
-                                         &txn_addr,
                                          next_extent);
    debug_assert(alloced_addrs[1] == 0);
    if (!SUCCESS(rc)) {
       return 0;
    }
-   mini_alloc_bytes_finish(mini, batch, txn_addr);
+   mini_alloc_bytes_finish(mini, batch);
    return alloced_addrs[0];
 }
 
@@ -708,7 +714,6 @@ mini_alloc_extent(mini_allocator *mini,
                   uint64         *next_extent)
 {
    uint64          alloced_addrs[2] = {0, 0};
-   uint64          txn_addr;
    uint64          extent_size      = cache_extent_size(mini->cc);
    platform_status rc               = mini_alloc_bytes(mini,
                                          batch,
@@ -717,13 +722,12 @@ mini_alloc_extent(mini_allocator *mini,
                                          0,
                                          alloc_key,
                                          alloced_addrs,
-                                         &txn_addr,
                                          next_extent);
    debug_assert(alloced_addrs[1] == 0);
    if (!SUCCESS(rc)) {
       return 0;
    }
-   mini_alloc_bytes_finish(mini, batch, txn_addr);
+   mini_alloc_bytes_finish(mini, batch);
    return alloced_addrs[0];
 }
 

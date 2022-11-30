@@ -421,10 +421,10 @@ leaf_split_tests(btree_config    *cfg,
 
    int     msgsize = btree_page_size(cfg) / (nkvs + 1);
    message msg     = message_create(
-      MESSAGE_TYPE_INSERT, FALSE, slice_create(msgsize, msg_buffer));
+      MESSAGE_TYPE_INSERT, NULL, slice_create(msgsize, msg_buffer));
    message bigger_msg = message_create(
       MESSAGE_TYPE_INSERT,
-      FALSE,
+      NULL,
       slice_create(msgsize + sizeof(table_entry) + 1, msg_buffer));
 
    uint8 realnkvs = 0;

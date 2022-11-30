@@ -362,7 +362,7 @@ gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    memset(dh->data, 0, datalen);
    memcpy(dh->data, &i, sizeof(i));
    return message_create(MESSAGE_TYPE_INSERT,
-                         FALSE,
+                         NULL,
                          slice_create(sizeof(data_handle) + datalen, buffer));
 }
 

@@ -145,11 +145,14 @@ CTEST2(blob, build_unkeyed)
    writable_buffer_init(&materialized, NULL);
 
    for (int i = 0; i < 1000; i++) {
+      char  *str     = "this test is great!";
+      uint64 str_len = strlen(str);
+      /* increase the size of the buffer by 70% of the size of a page. */
       for (int j = 0;
-           j < 7 * cache_page_size((cache *)&data->clock_cache) / 10 / 19;
+           j < 7 * cache_page_size((cache *)&data->clock_cache) / 10 / str_len;
            j++)
       {
-         writable_buffer_append(&original, 19, "this test is great!");
+         writable_buffer_append(&original, str_len, str);
       }
 
       rc = blob_build(&cfg,

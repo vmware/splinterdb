@@ -26,9 +26,10 @@ typedef struct parsed_blob_entry {
 } parsed_blob_entry;
 
 typedef struct parsed_blob {
-   const blob       *base;         // extent entries in original blob
-   uint64            num_extents;  // == number of extent entries
-   parsed_blob_entry leftovers[3]; // multi-page and sub-page entries
+   const blob       *base;
+   uint64            num_extents;
+   /* sub-extent (i.e. multi-page and sub-page entries) */
+   parsed_blob_entry leftovers[3];
 } parsed_blob;
 
 typedef struct blob_page_iterator {
@@ -38,11 +39,12 @@ typedef struct blob_page_iterator {
    uint64       extent_size;
    uint64       page_size;
    parsed_blob  pblob;
-   uint64       offset; // logical byte offset into entire sequence
-   uint64       page_addr;
-   uint64       page_offset;
-   uint64       length;
-   page_handle *page; // the page with the data in it.
+
+   uint64       offset;    // logical byte offset of the current piece
+   uint64       page_addr; // page address of the current piece
+   uint64       page_offset; // offset within the page of the current piece
+   uint64       length; // length of the current piece (within the current page)
+   page_handle *page;   // the page with the current piece in it.
 } blob_page_iterator;
 
 /* If the data is large enough (or close enough to a whole number of
@@ -85,7 +87,7 @@ bool
 blob_page_iterator_at_end(blob_page_iterator *iter);
 
 void
-blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 amount);
+blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 num_bytes);
 
 void
 blob_page_iterator_advance(blob_page_iterator *iter);

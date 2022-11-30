@@ -47,6 +47,7 @@ typedef struct mini_allocator {
    uint64          meta_head;
    volatile uint64 meta_tail;
    volatile uint64 next_addr[MINI_MAX_BATCHES];
+   uint64          saved_next_addr[MINI_MAX_BATCHES];
    uint64          next_extent[MINI_MAX_BATCHES];
 } mini_allocator;
 
@@ -69,6 +70,40 @@ mini_release(mini_allocator *mini, key end_key);
 void
 mini_destroy_unused(mini_allocator *mini);
 
+/*
+ *-----------------------------------------------------------------------------
+ * mini_alloc_bytes --
+ *
+ *      Allocate num_bytes (<= extent_size) in at most two contiguous
+ *      chunks at disk addresses of the given alignment.
+ *      If boundary >= num_bytes, then the allocation
+ *      will be in one chunk that does not cross an address that is a
+ *      multiple of boundary.  Note that you must have
+ *         - alignment divides extent_size
+ *      and if num_bytes <= boundary, then you must have
+ *         - alignment divides boundary
+ *         - boundary divides extent_size
+ *
+ *      Example use of boundary: When allocating less than a
+ *      page-worth of bytes and you don't care about their alignment
+ *      but you do care that they are all allocated on a single page.
+ *
+ *      If the allocator is keyed, then the extent(s) from which the allocation
+ *      is made will include the given key. NOTE: This requires keys provided be
+ *      monotonically increasing.
+ *
+ *      The starting addresses of the chunks are returned in addrs[].
+ *      If the bytes are allocated in 1 chunk, then addrs[1] == 0.
+ *
+ * Results:
+ *      platform_status indicating success or error.
+ *
+ * Side effects:
+ *      - Disk allocation
+ *      - Locks the batch (see mini_allocator_finish)
+ *      - Standard cache side effects
+ *-----------------------------------------------------------------------------
+ */
 platform_status
 mini_alloc_bytes(mini_allocator *mini,
                  uint64          batch,
@@ -77,12 +112,11 @@ mini_alloc_bytes(mini_allocator *mini,
                  uint64          boundary,
                  key             alloc_key,
                  uint64          addrs[2],
-                 uint64         *txn_addr,
                  uint64         *next_extent);
 
 /*
  * Users _must_ call this function after a successful call to
- * mini_alloc_bytes.  Until this function is called, not more
+ * mini_alloc_bytes.  Until this function is called, no more
  * allocations can occur on the given batch.
  *
  * The purpose is to enable mutliple threads to coordinate calls to
@@ -107,7 +141,7 @@ mini_alloc_bytes(mini_allocator *mini,
  * mini_alloc_bytes_finish and then call cache_get.
  */
 void
-mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch, uint64 txn_addr);
+mini_alloc_bytes_finish(mini_allocator *mini, uint64 batch);
 
 uint64
 mini_alloc_page(mini_allocator *mini,
@@ -131,6 +165,10 @@ mini_alloc_extent(mini_allocator *mini,
 uint64
 mini_next_addr(mini_allocator *mini, uint64 batch);
 
+/*
+ * Increment the refcount of the given extent and record it in the
+ * mini_allocator as if it had been allocated by this mini_allocator.
+ */
 platform_status
 mini_attach_extent(mini_allocator *mini,
                    uint64          batch,
