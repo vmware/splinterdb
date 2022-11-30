@@ -9055,8 +9055,6 @@ trunk_config_init(trunk_config        *trunk_cfg,
       filter_cfg->fingerprint_size = 32 - max_value_size;
    }
 
-   platform_default_log("fingerprint_size: %u\n", filter_cfg->fingerprint_size);
-
    /*
     * Set filter index size
     *

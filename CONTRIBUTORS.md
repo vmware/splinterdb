@@ -8,6 +8,7 @@
 - Amy Tai
 - Brian Caulfield
 - Carlos Garcia-Alvarado
+- Deukyeon Hwang
 - Eric Hoffman
 - Gabriel Rosenhouse
 - Ittai Abraham
@@ -23,7 +24,7 @@
 - Rick Spillane
 - Rob Johnson
 - Srinath Premachandran
-- Vijay Chiadambaran
+- Vijay Chidambaram
 - Wenguang Wang
 - Yi Xu
 - Yizheng Jiao
