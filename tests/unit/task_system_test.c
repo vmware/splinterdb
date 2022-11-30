@@ -162,7 +162,6 @@ CTEST2(task_system, test_basic_create_destroy)
 {
    threadid main_thread_idx = platform_get_tid();
    ASSERT_EQUAL(main_thread_idx, 0);
-   platform_default_log("platform_get_tid() = %lu\n", main_thread_idx);
 }
 
 /*
@@ -298,8 +297,10 @@ CTEST2(task_system, test_multiple_threads)
    platform_status rc          = STATUS_OK;
 
    ZERO_ARRAY(thread_cfg);
-   platform_default_log(" Before threads start, task_get_max_tid() = %lu\n",
-                        task_get_max_tid(data->tasks));
+   ASSERT_EQUAL(task_get_max_tid(data->tasks),
+                1,
+                "Before threads start, task_get_max_tid() = %lu",
+                task_get_max_tid(data->tasks));
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
@@ -380,11 +381,6 @@ exec_one_thread_use_lower_apis(void *arg)
    platform_thread thread_id = platform_thread_id_self();
    ASSERT_TRUE((thread_cfg->this_thread_id == thread_id)
                || (thread_cfg->this_thread_id == 0));
-
-   platform_default_log("platform_get_tid() = %lu,"
-                        "new_thread_ID == platform_thread_id_self()=%lu\n",
-                        platform_get_tid(),
-                        thread_id);
 
    task_deregister_this_thread(thread_cfg->tasks);
 
