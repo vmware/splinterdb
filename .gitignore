@@ -14,3 +14,4 @@ tags
 unit_tests_db
 compile_flags.txt
 build
+/splinterdb.rs
