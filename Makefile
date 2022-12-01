@@ -321,7 +321,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(PROLIX) # blank line
 
 splinterdb.rs: include/splinterdb/all.h
-	bindgen --ctypes-prefix cty --generate-inline-functions include/splinterdb/all.h -o "$@" -- $(CFLAGS) $(INCLUDE)
+	bindgen --ctypes-prefix cty include/splinterdb/all.h -o "$@" -- $(CFLAGS) $(INCLUDE)
 
 #################################################################
 # Dependencies
