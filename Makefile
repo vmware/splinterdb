@@ -68,7 +68,7 @@ endif
 
 LDFLAGS += -ggdb3 -pthread
 
-LIBS      = -lm -lpthread -laio -lxxhash
+LIBS      = -lm -lpthread -laio -lxxhash librblob.a
 DEPFLAGS  = -MMD -MP
 
 #*************************************************************#
@@ -97,12 +97,12 @@ BUILD_DIR := $(BUILD_MODE)
 ifeq "$(BUILD_MODE)" "debug"
    CFLAGS    += -DSPLINTER_DEBUG
 else ifeq "$(BUILD_MODE)" "release"
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -Ofast
+   LDFLAGS   += -Ofast
 else ifeq "$(BUILD_MODE)" "optimized-debug"
    CFLAGS    += -DSPLINTER_DEBUG
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -Ofast
+   LDFLAGS   += -Ofast
 else
    $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif
@@ -321,7 +321,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(PROLIX) # blank line
 
 splinterdb.rs: include/splinterdb/all.h
-	bindgen --ctypes-prefix cty include/splinterdb/all.h -o "$@" -- $(CFLAGS) $(INCLUDE)
+	bindgen --ctypes-prefix cty --generate-inline-functions include/splinterdb/all.h -o "$@" -- $(CFLAGS) $(INCLUDE)
 
 #################################################################
 # Dependencies
