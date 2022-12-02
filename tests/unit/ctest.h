@@ -79,6 +79,19 @@ struct ctest {
    unsigned int magic;
 };
 
+// If 0, then CTEST_LOG_INFO() and CTEST_LOG() will no-op.  Defaults to 0.
+extern int Ctest_verbosity;
+
+// For immedate logging to stdout
+// (contrast with CTEST_LOG which does buffered/delayed logging to stderr)
+#define CTEST_LOG_INFO(...)                                                    \
+   do {                                                                        \
+      if (Ctest_verbosity) {                                                   \
+         fprintf(stdout, __VA_ARGS__);                                         \
+         fflush(stdout);                                                       \
+      }                                                                        \
+   } while (0)
+
 /*
  * Global handles to command-line args are provided so that we can access
  * argc/argv indirectly thru these global variables inside setup methods.

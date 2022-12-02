@@ -35,6 +35,9 @@ static const char *testcase_name = NULL;
 
 typedef int (*ctest_filter_func)(struct ctest *);
 
+// If 0, then CTEST_LOG_INFO() and CTEST_LOG() will no-op.  Defaults to 0.
+int Ctest_verbosity = 0;
+
 /*
  * Global handles to command-line args are provided so that we can access
  * argc/argv indirectly thru these global variables inside setup methods.
@@ -87,6 +90,9 @@ ctest_process_args(const int    argc,
 
 int
 ctest_is_unit_test(const char *argv0);
+
+static int
+ctest_get_verbosity();
 
 static int
 suite_all(struct ctest *t);
@@ -169,6 +175,8 @@ ctest_main(int argc, const char *argv[])
 #ifdef CTEST_SEGFAULT
    signal(SIGSEGV, sighandler);
 #endif
+
+   Ctest_verbosity = ctest_get_verbosity();
 
    int program_is_unit_test = ctest_is_unit_test(argv[0]);
 
@@ -340,6 +348,13 @@ ctest_main(int argc, const char *argv[])
             num_skip,
             (t2 - t1) / 1000);
    color_print(color, results);
+
+   if (num_fail > 0 && Ctest_verbosity == 0) {
+      snprintf(results,
+               sizeof(results),
+               "(Rerun with env var VERBOSE=1 to see more log messages)");
+      color_print(color, results);
+   }
    return num_fail;
 }
 
@@ -382,6 +397,22 @@ ctest_is_unit_test(const char *argv0)
    }
 
    return 0;
+}
+
+// Determine the log message verbosity to use for this test run.
+// If env var VERBOSE is unset, or is set to "0" or "false", the be quiet.
+// Otherwise, be verbose.
+static int
+ctest_get_verbosity()
+{
+   char *val = getenv("VERBOSE");
+   if (val == NULL) {
+      return 0;
+   }
+   if ((strcmp(val, "0") == 0) || (strcmp(val, "false") == 0)) {
+      return 0;
+   }
+   return 1;
 }
 
 /*
@@ -718,6 +749,10 @@ msg_end(void)
 void
 CTEST_LOG(const char *fmt, ...)
 {
+   if (Ctest_verbosity == 0) {
+      return;
+   }
+
    va_list argp;
    msg_start(ANSI_BLUE, "LOG");
 

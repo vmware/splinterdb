@@ -48,8 +48,9 @@ CTEST_DATA(splinterdb_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_stress)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
+   if (Ctest_verbosity > 0) {
+      platform_set_log_streams(stdout, stderr);
+   }
 
    data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
                                              .cache_size = 1000 * Mega,
@@ -88,9 +89,9 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
       ASSERT_EQUAL(0, rc);
    }
 
-   fprintf(stderr, "Waiting for %d worker threads ...\n", num_threads);
+   CTEST_LOG_INFO("Waiting for %d worker threads ...\n", num_threads);
    for (int i = 0; i < num_threads; i++) {
-      fprintf(stderr, "  Thread[%d] ID=%lu\n", i, thread_ids[i]);
+      CTEST_LOG_INFO("  Thread[%d] ID=%lu\n", i, thread_ids[i]);
    }
 
    for (int i = 0; i < num_threads; i++) {
@@ -98,12 +99,8 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
       int   rc = pthread_join(thread_ids[i], &thread_rc);
       ASSERT_EQUAL(0, rc);
       if (thread_rc != 0) {
-         fprintf(stderr,
-                 "Thread %d [ID=%lu] had error: %p\n",
-                 i,
-                 thread_ids[i],
-                 thread_rc);
-         ASSERT_TRUE(FALSE);
+         CTEST_ERR(
+            "Thread %d [ID=%lu] had error: %p\n", i, thread_ids[i], thread_rc);
       }
    }
 }
@@ -120,7 +117,7 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
 
    const uint32 num_inserts = 2 * 1000 * 1000;
 
-   platform_default_log("loading data...");
+   CTEST_LOG_INFO("loading data...");
    for (uint32 i = 0; i < num_inserts; i++) {
       char key_buffer[TEST_KEY_SIZE]     = {0};
       char value_buffer[TEST_VALUE_SIZE] = {0};
@@ -132,11 +129,11 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
       ASSERT_EQUAL(0, rc);
    }
 
-   platform_default_log("loaded %u k/v pairs\n", num_inserts);
+   CTEST_LOG_INFO("loaded %u k/v pairs\n", num_inserts);
 
    uint32 num_rounds = 5;
    for (uint32 round = 0; round < num_rounds; round++) {
-      platform_default_log("range delete round %d...\n", round);
+      CTEST_LOG_INFO("range delete round %d...\n", round);
       char start_key_data[4];
       random_bytes(&rand_state, start_key_data, sizeof(start_key_data));
       const uint32 num_to_delete = num_inserts / num_rounds;
@@ -164,7 +161,7 @@ exec_worker_thread(void *w)
 
    pthread_t thread_id = pthread_self();
 
-   fprintf(stderr, "Writing lots of data from thread %lu\n", thread_id);
+   CTEST_LOG_INFO("Writing lots of data from thread %lu\n", thread_id);
    int rc = 0;
    for (uint32_t i = 0; i < num_inserts; i++) {
       size_t result = read(random_data, key_buf, sizeof key_buf);
@@ -179,7 +176,7 @@ exec_worker_thread(void *w)
       ASSERT_EQUAL(0, rc);
 
       if (i && (i % 100000 == 0)) {
-         fprintf(stderr, "Thread %lu has completed %u inserts\n", thread_id, i);
+         CTEST_LOG_INFO("Thread %lu has completed %u inserts\n", thread_id, i);
       }
    }
 
@@ -192,7 +189,7 @@ exec_worker_thread(void *w)
 static void
 naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
 {
-   platform_default_log("\tcollecting keys to delete...\n");
+   CTEST_LOG_INFO("\tcollecting keys to delete...\n");
    char *keys_to_delete = calloc(count, TEST_KEY_SIZE);
 
    splinterdb_iterator *it;
@@ -218,7 +215,7 @@ naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
    ASSERT_EQUAL(0, rc);
    splinterdb_iterator_deinit(it);
 
-   platform_default_log("\tdeleting collected keys...\n");
+   CTEST_LOG_INFO("\tdeleting collected keys...\n");
    for (uint32 i = 0; i < num_found; i++) {
       slice key_to_delete =
          slice_create(TEST_KEY_SIZE, keys_to_delete + i * TEST_KEY_SIZE);
@@ -226,5 +223,5 @@ naive_range_delete(const splinterdb *kvsb, slice start_key, uint32 count)
    }
 
    free(keys_to_delete);
-   platform_default_log("\tdeleted %u k/v pairs\n", num_found);
+   CTEST_LOG_INFO("\tdeleted %u k/v pairs\n", num_found);
 }

@@ -79,9 +79,6 @@ CTEST_DATA(task_system)
  */
 CTEST_SETUP(task_system)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
-
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
 
    platform_status rc = STATUS_OK;

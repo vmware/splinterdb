@@ -63,23 +63,31 @@ CTEST_DATA(limitations)
  * Setup heap memory to be used later to test Splinter configuration.
  * splinter_test().
  */
-// clang-format off
 CTEST_SETUP(limitations)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle = fopen("/tmp/unit_test.stderr", "a+");
+   // This test exercises error cases, so even when everthing succeeds
+   // it generates lots of "error" messages.
+   // By default, that would go to stderr, which would pollute test output.
+   // Here we ensure those expected error messages are only printed
+   // when the caller sets the VERBOSE env var to opt-in.
+   if (Ctest_verbosity) {
+      platform_set_log_streams(stdout, stderr);
+      CTEST_LOG_INFO("\nVerbose mode on.  This test exercises an error case, "
+                     "so on sucess it "
+                     "will print a message that appears to be an error.\n");
+   } else {
+      FILE *dev_null = fopen("/dev/null", "w");
+      ASSERT_NOT_NULL(dev_null);
+      platform_set_log_streams(dev_null, dev_null);
+   }
 
    uint64 heap_capacity = (1 * GiB);
 
    // Create a heap for io, allocator, cache and splinter
-   platform_status rc = platform_heap_create(platform_get_module_id(),
-                                             heap_capacity,
-                                             &data->hh,
-                                             &data->hid);
+   platform_status rc = platform_heap_create(
+      platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
    platform_assert_status_ok(rc);
 }
-
-// clang-format on
 
 /*
  * Tear down memory allocated for various sub-systems. Shutdown Splinter.

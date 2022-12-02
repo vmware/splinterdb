@@ -112,9 +112,6 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle = fopen("/tmp/unit_test.stderr", "a+");
-
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;

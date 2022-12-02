@@ -41,9 +41,6 @@ CTEST_DATA(config_parse)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(config_parse)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
-
    uint64 heap_capacity = (1024 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(

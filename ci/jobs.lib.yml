@@ -15,7 +15,6 @@
 
 
 #@ load("sequences.lib.yml",
-#@         "sequence_pr_build_test",
 #@         "sequence_pr_debug_build_test",
 #@         "sequence_pr_clang_format",
 #@         "sequence_pr_shell_scripts",

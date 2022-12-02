@@ -94,11 +94,13 @@ CTEST_DATA(splinterdb_quick)
    comparison_counting_data_config default_data_cfg;
 };
 
+
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
+   if (Ctest_verbosity > 0) {
+      platform_set_log_streams(stdout, stderr);
+   }
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
