@@ -322,7 +322,8 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 
 # TODO: use debug/release as appropriate
 $(BUILD_ROOT)/include/rblob.h rust/target/release/librblob.a:
-	cd rust && env PLATFORM_DIR="$(PLATFORM_DIR)" BUILD_ROOT="$(BUILD_ROOT)" cargo build --release
+	$(BRIEF_FORMATTED) "%-20s %s\n" "Building Rust" $@
+	$(COMMAND) cd rust && env PLATFORM_DIR="$(PLATFORM_DIR)" BUILD_ROOT="$(BUILD_ROOT)" cargo build --release
 
 #################################################################
 # Dependencies
