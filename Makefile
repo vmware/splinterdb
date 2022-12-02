@@ -320,8 +320,8 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line
 
-splinterdb.rs: include/splinterdb/all.h
-	bindgen --ctypes-prefix cty include/splinterdb/all.h -o "$@" -- $(CFLAGS) $(INCLUDE)
+rust/src/splinterdb.rs: rust/splinterdb.h
+	bindgen --ctypes-prefix cty rust/splinterdb.h -o "$@" -- $(CFLAGS) $(INCLUDE)
 
 #################################################################
 # Dependencies
