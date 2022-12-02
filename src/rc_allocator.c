@@ -473,10 +473,6 @@ rc_allocator_mount(rc_allocator        *al,
          al->stats.curr_allocated++;
       }
    }
-   platform_default_log(
-      "Allocated %lu extents at mount: (%lu MiB)\n",
-      al->stats.curr_allocated,
-      B_TO_MiB(al->stats.curr_allocated * cfg->io_cfg->extent_size));
    return STATUS_OK;
 }
 
@@ -485,10 +481,6 @@ void
 rc_allocator_unmount(rc_allocator *al)
 {
    platform_status status;
-
-   platform_default_log(
-      "Allocated at unmount: %lu MiB\n",
-      B_TO_MiB(al->stats.curr_allocated * al->cfg->io_cfg->extent_size));
 
    // persist the ref counts upon unmount.
    uint32 io_size =
