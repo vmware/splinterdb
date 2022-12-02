@@ -21,6 +21,25 @@ $ sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal-1
 $ sudo apt-get install -y clang-13 clang-format-13
 ```
 
+### Rust
+
+This branch has experimental support for building parts of SplinterDB in Rust.
+Most of the Rust support is in the `rust/` subdirectory. That code consumes the
+SplinterDB header files, implements some functions in Rust, then exports a
+header `rblob.h` in SplinterDB's build directory with the signatures of the Rust
+functions. It compiles to a shared library `librblob.a` that the Makefile
+statically links in at the end.
+
+So far what's actually implemented in Rust is a simple proof of concept: a
+utility function [`btree_node_get`](rust/src/lib.rs) that's three lines of C code.
+However, it demonstrates some interesting features because this function
+interacts with both the cache and b-tree structures.
+
+The Rust code needs some bindings to understand the SplinterDB API that it
+calls, and it needs to export its signatures back to C. These are handled by
+`bindgen` and `cbindgen` respectively, which are called as libraries from the
+Rust [build script](rust/build.rs) during the Rust build process.
+
 ### Full build
 Here are the steps to do a full-build of the library, run smoke tests, and to install the shared libraries:
 
