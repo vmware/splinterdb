@@ -68,7 +68,7 @@ endif
 
 LDFLAGS += -ggdb3 -pthread
 
-LIBS      = -lm -lpthread -laio -lxxhash librblob.a
+LIBS      = -lm -lpthread -laio -lxxhash rust/target/release/librblob.a
 DEPFLAGS  = -MMD -MP
 
 #*************************************************************#
@@ -298,7 +298,7 @@ $(BINDIR)/%/.:
 
 COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
-$(OBJDIR)/%.o: %.c | $$(@D)/. $(CONFIG_FILE)
+$(OBJDIR)/%.o: %.c src/rblob.h | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@
 	$(COMMAND) $(COMPILE.c) $< -o $@
 	$(PROLIX) # blank line
@@ -320,8 +320,9 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line
 
-rust/src/splinterdb.rs: rust/splinterdb.h
-	bindgen --ctypes-prefix cty rust/splinterdb.h -o "$@" -- $(CFLAGS) $(INCLUDE)
+# TODO: use debug/release as appropriate
+src/rblob.h rust/target/release/librblob.a:
+	cd rust && cargo build --release
 
 #################################################################
 # Dependencies
@@ -469,6 +470,7 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)
 .PHONY : clean tags
 clean :
 	rm -rf $(BUILD_ROOT)
+	rm -f src/rblob.h
 	uname -a
 	$(CC) --version
 tags:

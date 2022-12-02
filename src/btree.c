@@ -1033,6 +1033,8 @@ btree_alloc(cache          *cc,
  *      Gets the node with appropriate lock or releases the lock.
  *-----------------------------------------------------------------------------
  */
+
+// implemented in Rust
 /*
 static inline void
 btree_node_get(cache              *cc,
