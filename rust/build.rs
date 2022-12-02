@@ -5,21 +5,19 @@ use std::{env, path::PathBuf};
 
 use cbindgen::Language;
 
-const PLATFORM_DIR: &str = "linux";
-
 fn gen_import() {
     println!("cargo:rerun-if-changed=wrapper.h");
+
+    let platform_dir = env::var("PLATFORM_DIR").unwrap();
+
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .ctypes_prefix("cty")
         .clang_args(["-I", "../include"])
         .clang_args(["-I", "../src"])
-        .clang_arg(format!(
-            "-DSPLINTERDB_PLATFORM_DIR=platform_{}",
-            PLATFORM_DIR
-        ))
-        .clang_args(["-I", &format!("../src/platform_{}", PLATFORM_DIR)])
+        .clang_arg(format!("-DSPLINTERDB_PLATFORM_DIR={platform_dir}",))
+        .clang_args(["-I", &format!("../src/{platform_dir}")])
         .generate()
         .expect("Unable to generate import bindings");
 
@@ -32,7 +30,12 @@ fn gen_import() {
 fn gen_export() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
 
-    println!("cargo:rerun-if-changed=../src/rblob.h");
+    let out = PathBuf::from("..")
+        .join(env::var("BUILD_ROOT").unwrap())
+        .join("include")
+        .join("rblob.h");
+
+    println!("cargo:rerun-if-changed={}", out.to_string_lossy());
 
     cbindgen::Builder::new()
         .with_crate(crate_dir)
@@ -40,7 +43,7 @@ fn gen_export() {
         .with_no_includes()
         .generate()
         .expect("Unable to generate export bindings")
-        .write_to_file("../src/rblob.h");
+        .write_to_file(out);
 }
 
 fn main() {

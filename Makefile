@@ -47,7 +47,7 @@ EXAMPLES_SRC := $(shell find $(EXAMPLES_DIR) -name "*.c")
 # CFLAGS, LDFLAGS, ETC
 #
 
-INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS_DIR)
+INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(BUILD_ROOT)/include -I $(TESTS_DIR)
 
 # use += here, so that extra flags can be provided via the environment
 
@@ -298,7 +298,7 @@ $(BINDIR)/%/.:
 
 COMPILE.c = $(CC) $(DEPFLAGS) -MT $@ -MF $(OBJDIR)/$*.d $(CFLAGS) $(GIT_VERSION_CFLAGS) $(INCLUDE) $(TARGET_ARCH) -c
 
-$(OBJDIR)/%.o: %.c src/rblob.h | $$(@D)/. $(CONFIG_FILE)
+$(OBJDIR)/%.o: %.c $(BUILD_ROOT)/include/rblob.h | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %-50s [%s]\n" Compiling $< $@
 	$(COMMAND) $(COMPILE.c) $< -o $@
 	$(PROLIX) # blank line
@@ -321,8 +321,8 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(PROLIX) # blank line
 
 # TODO: use debug/release as appropriate
-src/rblob.h rust/target/release/librblob.a:
-	cd rust && cargo build --release
+$(BUILD_ROOT)/include/rblob.h rust/target/release/librblob.a:
+	cd rust && env PLATFORM_DIR="$(PLATFORM_DIR)" BUILD_ROOT="$(BUILD_ROOT)" cargo build --release
 
 #################################################################
 # Dependencies
@@ -470,7 +470,6 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)
 .PHONY : clean tags
 clean :
 	rm -rf $(BUILD_ROOT)
-	rm -f src/rblob.h
 	uname -a
 	$(CC) --version
 tags:
