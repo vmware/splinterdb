@@ -8,7 +8,7 @@ PLATFORM_DIR = platform_$(PLATFORM)
 
 help::
 	@echo 'Usage: make [<target>]'
-	@echo 'Supported targets: clean all libs all-tests run-tests test-results install'
+	@echo 'Supported targets: clean all libs all-tests run-tests test-results run-examples install'
 
 #*************************************************************#
 # SOURCE DIRECTORIES AND FILES
