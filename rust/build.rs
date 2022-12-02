@@ -8,7 +8,7 @@ use cbindgen::Language;
 fn gen_import() {
     println!("cargo:rerun-if-changed=wrapper.h");
 
-    let platform_dir = env::var("PLATFORM_DIR").unwrap();
+    let platform_dir = env::var("PLATFORM_DIR").unwrap_or("linux".to_string());
 
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
@@ -31,7 +31,7 @@ fn gen_export() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
 
     let out = PathBuf::from("..")
-        .join(env::var("BUILD_ROOT").unwrap())
+        .join(env::var("BUILD_ROOT").unwrap_or("build".to_string()))
         .join("include")
         .join("rblob.h");
 
