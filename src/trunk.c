@@ -4344,6 +4344,14 @@ trunk_flush(trunk_handle     *spl,
          trunk_split_index(spl, parent, child, child_idx);
       }
    }
+   //Write node flush event to WAL
+   if (spl->cfg.use_log) {
+      uint64 lsn = log_trunk_node_flush(spl, parent->disk_addr, child->disk_addr);
+      trunk_hdr *parent_hdr  = (trunk_hdr *)parent->data;
+      trunk_hdr *child_hdr  = (trunk_hdr *)child->data;
+      parent_hdr->page_lsn = lsn;
+      child_hdr->page_lsn = lsn;
+   }
 
    debug_assert(trunk_verify_node(spl, child));
    trunk_node_unlock(spl, child);
@@ -4355,14 +4363,6 @@ trunk_flush(trunk_handle     *spl,
    rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert_status_ok(rc);
-
-   //Write node flush event to WAL
-   if (spl->cfg.use_log) {
-      trunk_hdr *parent_hdr  = (trunk_hdr *)parent->data;
-      parent_hdr->page_lsn = log_trunk_node_flush(spl, parent->disk_addr, child->disk_addr);
-      trunk_hdr *child_hdr  = (trunk_hdr *)parent->data;
-      child_hdr->page_lsn = parent_hdr->page_lsn;
-   }
 
    if (spl->cfg.use_stats) {
       flush_start = platform_timestamp_elapsed(flush_start);
@@ -5571,9 +5571,10 @@ trunk_split_leaf(trunk_handle *spl,
    trunk_inc_generation(spl, leaf);
    uint64 last_next_addr = trunk_next_addr(spl, leaf);
 
-   uint64 children[4];
-   trunk_hdr* children_hdrs[4];
-   for (uint16 leaf_no = 0; leaf_no < num_leaves; leaf_no++) {
+   uint64 children_addr[4];
+   page_handle* children[4];
+   uint16 leaf_no = 0;
+   for (; leaf_no < num_leaves; leaf_no++) {
       /*
        * 4. Create new leaf, adjust min/max keys and other metadata
        *
@@ -5677,12 +5678,12 @@ trunk_split_leaf(trunk_handle *spl,
          trunk_log_node_if_enabled(&stream, spl, leaf);
 
          debug_assert(trunk_verify_node(spl, leaf));
-         trunk_node_unlock(spl, leaf);
-         trunk_node_unclaim(spl, leaf);
-         trunk_node_unget(spl, &leaf);
       }
-      children[leaf_no] = leaf->disk_addr;
-      children_hdrs[leaf_no] = (trunk_hdr *)leaf->data;
+      trunk_default_log_if_enabled(spl,
+                              "Adding %lu to children\n",
+                              new_leaf->disk_addr);
+      children[leaf_no] = new_leaf;
+      children_addr[leaf_no] = new_leaf->disk_addr;
       leaf = new_leaf;
    }
 
@@ -5708,11 +5709,15 @@ trunk_split_leaf(trunk_handle *spl,
    platform_assert(SUCCESS(rc));
 
    if(spl->cfg.use_log){
-      trunk_hdr *parent_hdr = (trunk_hdr *)parent->data;
-      parent_hdr->page_lsn = log_leaf_node_flush(spl, parent->disk_addr, num_leaves, children);
+         uint64 lsn = log_leaf_node_flush(spl, parent->disk_addr, num_leaves, children_addr);
+         trunk_node_lock(spl, parent);
+         trunk_hdr *parent_hdr = (trunk_hdr *)parent->data;
+         parent_hdr->page_lsn = lsn;
+         trunk_node_unlock(spl, parent);
+
       for(int i =0; i < num_leaves; i++){
-         trunk_hdr *child = children_hdrs[i];
-         child->page_lsn = parent_hdr->page_lsn;
+         trunk_hdr *child = (trunk_hdr *)children[i];
+         child->page_lsn = lsn;
       }
    }
 
@@ -5720,9 +5725,13 @@ trunk_split_leaf(trunk_handle *spl,
    trunk_log_node_if_enabled(&stream, spl, leaf);
 
    debug_assert(trunk_verify_node(spl, leaf));
-   trunk_node_unlock(spl, leaf);
-   trunk_node_unclaim(spl, leaf);
-   trunk_node_unget(spl, &leaf);
+   for(int i =num_leaves-1; i >=0; i--){
+      trunk_default_log_if_enabled(
+         spl, "Unlocking child %lu \n", children[i]->disk_addr);
+      trunk_node_unlock(spl, children[i]);
+      trunk_node_unclaim(spl, children[i]);
+      trunk_node_unget(spl, &children[i]);
+   }
 
    /*
     * 8. Clean up
