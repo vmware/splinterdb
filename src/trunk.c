@@ -5716,7 +5716,7 @@ trunk_split_leaf(trunk_handle *spl,
          trunk_node_unlock(spl, parent);
 
       for(int i =0; i < num_leaves; i++){
-         trunk_hdr *child = (trunk_hdr *)children[i];
+         trunk_hdr *child = (trunk_hdr *)children[i]->data;
          child->page_lsn = lsn;
       }
    }
