@@ -64,7 +64,8 @@ test_log_crash(clockcache             *cc,
       test_key(keybuffer, TEST_RANDOM, i, 0, 0, cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
       slice skey = slice_create(1 + (i % cfg->data_cfg->key_size), keybuffer);
-      log_write(logh, skey, merge_accumulator_to_message(&msg), i);
+      uint64  lsn;
+      log_write(logh, skey, merge_accumulator_to_message(&msg), i, NODE_TYPE_BTREE, 1, &lsn);
    }
 
    if (crash) {
@@ -137,7 +138,8 @@ test_log_thread(void *arg)
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
-      log_write(logh, skey, merge_accumulator_to_message(&msg), i);
+      uint64  lsn;
+      log_write(logh, skey, merge_accumulator_to_message(&msg), i, NODE_TYPE_BTREE,1 , &lsn);
    }
 }
 

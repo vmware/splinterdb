@@ -3131,11 +3131,11 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
    }
 
    if (spl->cfg.use_log) {
-      slice key_slice = slice_create(trunk_key_size(spl), key);
-      int   crappy_rc = log_write(spl->log, key_slice, msg, leaf_generation);
-      if (crappy_rc != 0) {
-         goto unlock_insert_lock;
-      }
+//      slice key_slice = slice_create(trunk_key_size(spl), key);
+//      int   crappy_rc = log_write(spl->log, key_slice, msg, leaf_generation);
+//      if (crappy_rc != 0) {
+//         goto unlock_insert_lock;
+//      }
    }
 
 unlock_insert_lock:

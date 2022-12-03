@@ -22,7 +22,7 @@
 static uint64 shard_log_magic_idx = 0;
 
 int
-shard_log_write(log_handle *log, slice key, message msg, uint64 generation);
+shard_log_write(log_handle *log, slice key, message msg, uint64 generation, node_type nt, uint64 page_addr, uint64* lsn);
 uint64
 shard_log_addr(log_handle *log);
 uint64
@@ -145,6 +145,9 @@ struct ONDISK log_entry {
    uint16 keylen;
    uint16 messagelen;
    uint8  msg_type;
+   uint8  page_type;        //This log entry will make changes to this page type
+   uint64 lsn;              //Log sequence number of this entry
+   uint64 page_addr;        //Address of the page on which this entry will make a change
    char   contents[];
 };
 
@@ -221,8 +224,11 @@ get_new_page_for_thread(shard_log             *log,
    return 0;
 }
 
+//TODO replace with concurrent sequence number generator
+_Atomic uint64 global = 100;
+
 int
-shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
+shard_log_write(log_handle *logh, slice key, message msg, uint64 generation, node_type nt, uint64 page_addr, uint64 *lsn)
 {
    shard_log             *log = (shard_log *)logh;
    cache                 *cc  = log->cc;
@@ -271,12 +277,18 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation)
    cursor->keylen     = slice_length(key);
    cursor->messagelen = message_length(msg);
    cursor->msg_type   = message_class(msg);
+   cursor->page_type  = nt;
+   cursor->lsn        = global++;
+   *lsn               = cursor->lsn;
+   cursor->page_addr  = page_addr;
+
    memmove(log_entry_key_cursor(cursor), slice_data(key), slice_length(key));
    memmove(
       log_entry_message_cursor(cursor), message_data(msg), message_length(msg));
    hdr->num_entries++;
 
    thread_data->offset += new_entry_size;
+   hdr->checksum = shard_log_checksum(log->cfg, page);
    debug_assert(thread_data->offset <= shard_log_page_size(log->cfg));
 
    cache_unlock(cc, page);
