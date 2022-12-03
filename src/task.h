@@ -58,12 +58,7 @@ typedef struct task_group {
    volatile uint64 current_outstanding_tasks;
    volatile uint64 max_outstanding_tasks;
 
-   union {
-      // a condition variable and thread tracking
-      task_bg_thread_group bg;
-      // a mutex
-      task_fg_thread_group fg;
-   };
+   task_bg_thread_group bg;
 
    // Per thread stats.
    bool       use_stats;

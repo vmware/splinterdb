@@ -368,87 +368,94 @@ task_thread_create(const char            *name,
    return STATUS_OK;
 }
 
+/* Caller must hold lock on the group. */
+static inline task *
+task_group_get_one(task_group *group)
+{
+   task_queue     *tq            = &group->tq;
+   task           *assigned_task = NULL;
+   if (group->current_outstanding_tasks != 0) {
+      platform_assert(tq->head != NULL);
+      platform_assert(tq->tail != NULL);
+
+      uint64 outstanding_tasks =
+         __sync_fetch_and_sub(&group->current_outstanding_tasks, 1);
+      platform_assert(outstanding_tasks != 0);
+
+      assigned_task = tq->head;
+      tq->head      = tq->head->next;
+      if (tq->head == NULL) {
+         platform_assert(tq->tail == assigned_task);
+         tq->tail = NULL;
+         platform_assert(outstanding_tasks == 1);
+      }
+   }
+
+   return assigned_task;
+}
+
+/*
+ * Do not need to hold lock on the group. (And advisably should not
+ * hold lock on group for performance reasons.)
+ */
+static inline platform_status
+task_group_run_task(task_group *group, task *assigned_task)
+{
+   const threadid tid = platform_get_tid();
+   timestamp      current;
+
+   if (group->use_stats) {
+      current = platform_get_timestamp();
+   }
+   assigned_task->func(assigned_task->arg,
+                       task_system_get_thread_scratch(group->ts, tid));
+   if (group->use_stats) {
+      current = platform_timestamp_elapsed(current);
+      if (current > group->stats[tid].max_runtime_ns) {
+         group->stats[tid].max_runtime_ns   = current;
+         group->stats[tid].max_runtime_func = assigned_task->func;
+      }
+   }
+   platform_free(group->ts->heap_id, assigned_task);
+   return STATUS_OK;
+}
+
 /* Worker function for the background task pool. */
 static void
 task_worker_thread(void *arg)
 {
    task_group    *group = (task_group *)arg;
-   const threadid tid   = platform_get_tid();
-   task_queue    *tq    = &group->tq;
-   task_system   *ts    = group->ts;
 
-   while (TRUE) {
-      task           *task_to_run = NULL;
-      platform_status rc          = platform_condvar_lock(&group->bg.cv);
-      platform_assert(SUCCESS(rc));
-      if (tq->head == NULL) {
-         // Queue is empty.
-         if (group->bg.stop == TRUE) {
-            // asked to exit.
-            platform_condvar_unlock(&group->bg.cv);
-            return;
-         }
-         // wait for tasks to be generated in the queue.
+   platform_status rc = platform_condvar_lock(&group->bg.cv);
+   platform_assert(SUCCESS(rc));
+
+   while (group->bg.stop != TRUE) {
+      /* Invariant: we hold the lock */
+      task *task_to_run = NULL;
+      task_to_run       = task_group_get_one(group);
+
+      if (task_to_run != NULL) {
+         platform_condvar_unlock(&group->bg.cv);
+         task_group_run_task(group, task_to_run);
+         rc = platform_condvar_lock(&group->bg.cv);
+         platform_assert(SUCCESS(rc));
+      } else {
          rc = platform_condvar_wait(&group->bg.cv);
          platform_assert(SUCCESS(rc));
       }
-
-      if (tq->head != NULL) {
-         task_to_run = tq->head;
-         tq->head    = tq->head->next;
-         if (tq->head == NULL) {
-            platform_assert(tq->tail == task_to_run);
-            tq->tail = NULL;
-         }
-      }
-      platform_condvar_unlock(&group->bg.cv);
-
-      if (task_to_run != NULL) {
-         task_stats *stats   = &group->stats[tid];
-         timestamp   current = platform_get_timestamp();
-         if (stats != NULL) {
-            timestamp latency = current - task_to_run->enqueue_time;
-            stats[tid].total_latency_ns += latency;
-            stats[tid].total_tasks++;
-            if (latency > stats[tid].max_latency_ns) {
-               stats[tid].max_latency_ns = latency;
-            }
-         }
-
-         // Run the task.
-         task_to_run->func(task_to_run->arg,
-                           task_system_get_thread_scratch(ts, tid));
-
-         __sync_fetch_and_sub(&group->current_outstanding_tasks, 1);
-         if (group->use_stats) {
-            timestamp task_run_time = platform_timestamp_elapsed(current);
-            if (task_run_time > stats[tid].max_runtime_ns) {
-               stats[tid].max_runtime_ns   = task_run_time;
-               stats[tid].max_runtime_func = task_to_run->func;
-            }
-         }
-         platform_free(ts->heap_id, task_to_run);
-      }
    }
+
+   platform_condvar_unlock(&group->bg.cv);
 }
 
 static void
 task_group_stop_and_wait_for_threads(task_group *group)
 {
-   bool use_bg_threads = task_system_use_bg_threads(group->ts);
-   if (use_bg_threads) {
-      platform_condvar_lock(&group->bg.cv);
-   } else {
-      platform_mutex_lock(&group->fg.mutex);
-   }
+   platform_condvar_lock(&group->bg.cv);
 
    platform_assert(group->tq.head == NULL);
    platform_assert(group->tq.tail == NULL);
    platform_assert(group->current_outstanding_tasks == 0);
-
-   if (!use_bg_threads) {
-      return;
-   }
 
    uint8 num_threads = group->bg.num_threads;
 
@@ -464,13 +471,7 @@ task_group_stop_and_wait_for_threads(task_group *group)
 static void
 task_group_deinit(task_group *group)
 {
-   task_group_stop_and_wait_for_threads(group);
-   if (task_system_use_bg_threads(group->ts)) {
-      platform_condvar_destroy(&group->bg.cv);
-   } else {
-      platform_mutex_unlock(&group->fg.mutex);
-      platform_mutex_destroy(&group->fg.mutex);
-   }
+   platform_condvar_destroy(&group->bg.cv);
 }
 
 static platform_status
@@ -485,30 +486,23 @@ task_group_init(task_group  *group,
    group->use_stats     = use_stats;
    platform_heap_id hid = group->ts->heap_id;
    platform_status  rc;
-   if (num_bg_threads) {
-      group->bg.num_threads = num_bg_threads;
+   group->bg.num_threads = num_bg_threads;
 
-      rc = platform_condvar_init(&group->bg.cv, hid);
-      if (!SUCCESS(rc)) {
-         return rc;
-      }
+   rc = platform_condvar_init(&group->bg.cv, hid);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
-      for (uint8 i = 0; i < num_bg_threads; i++) {
-         rc = task_thread_create("splinter-bg-thread",
-                                 task_worker_thread,
-                                 (void *)group,
-                                 scratch_size,
-                                 ts,
-                                 hid,
-                                 &group->bg.threads[i]);
-         if (!SUCCESS(rc)) {
-            task_group_stop_and_wait_for_threads(group);
-            goto out;
-         }
-      }
-   } else {
-      rc = platform_mutex_init(&group->fg.mutex, 0, hid);
+   for (uint8 i = 0; i < num_bg_threads; i++) {
+      rc = task_thread_create("splinter-bg-thread",
+                              task_worker_thread,
+                              (void *)group,
+                              scratch_size,
+                              ts,
+                              hid,
+                              &group->bg.threads[i]);
       if (!SUCCESS(rc)) {
+         task_group_stop_and_wait_for_threads(group);
          goto out;
       }
    }
@@ -531,23 +525,13 @@ out:
 static inline platform_status
 task_lock_task_queue(task_group *group)
 {
-   task_system *ts = group->ts;
-   return task_system_use_bg_threads(ts)
-             ? platform_condvar_lock(&group->bg.cv)
-             : platform_mutex_lock(&group->fg.mutex);
+   return platform_condvar_lock(&group->bg.cv);
 }
 
 static inline platform_status
 task_unlock_task_queue(task_group *group)
 {
-   task_system *ts = group->ts;
-   if (task_system_use_bg_threads(ts)) {
-      // signal to the bg thread to pick up a task and unlock.
-      platform_condvar_signal(&group->bg.cv);
-      return platform_condvar_unlock(&group->bg.cv);
-   } else {
-      return platform_mutex_unlock(&group->fg.mutex);
-   }
+   return platform_condvar_unlock(&group->bg.cv);
 }
 
 /*
@@ -601,6 +585,7 @@ task_enqueue(task_system *ts,
    if (group->current_outstanding_tasks > group->max_outstanding_tasks) {
       group->max_outstanding_tasks = group->current_outstanding_tasks;
    }
+   platform_condvar_signal(&group->bg.cv);
    return task_unlock_task_queue(group);
 }
 
@@ -633,69 +618,32 @@ static void
 task_queue_unlock(void *arg)
 {
    task_group *group = (task_group *)arg;
-   platform_assert(!task_system_use_bg_threads(group->ts));
-   platform_mutex_unlock(&group->fg.mutex);
+   task_unlock_task_queue(group);
 }
 
 static inline platform_status
 task_group_perform_one(task_group *group)
 {
-   platform_assert(!task_system_use_bg_threads(group->ts));
    platform_status rc;
    task           *assigned_task = NULL;
-   task_queue     *tq            = &group->tq;
    if (group->current_outstanding_tasks == 0) {
       return STATUS_TIMEDOUT;
    }
 
    platform_thread_cleanup_push(task_queue_unlock, group);
-   rc = platform_mutex_lock(&group->fg.mutex);
+   rc = platform_condvar_lock(&group->bg.cv);
    if (!SUCCESS(rc)) {
-      return rc;
-   }
-
-   if (group->current_outstanding_tasks == 0) {
-      rc = STATUS_TIMEDOUT;
       goto out;
    }
 
-   platform_assert(tq->head != NULL);
-   platform_assert(tq->tail != NULL);
-
-   uint64 outstanding_tasks =
-      __sync_fetch_and_sub(&group->current_outstanding_tasks, 1);
-   platform_assert(outstanding_tasks != 0);
-
-   assigned_task = tq->head;
-   tq->head      = tq->head->next;
-   if (tq->head == NULL) {
-      platform_assert(tq->tail == assigned_task);
-      tq->tail = NULL;
-      platform_assert(outstanding_tasks == 1);
-   }
+   assigned_task = task_group_get_one(group);
 
 out:
-   platform_mutex_unlock(&group->fg.mutex);
+   platform_condvar_unlock(&group->bg.cv);
    platform_thread_cleanup_pop(0);
 
    if (assigned_task) {
-      const threadid tid = platform_get_tid();
-      timestamp      current;
-
-      if (group->use_stats) {
-         current = platform_get_timestamp();
-      }
-      assigned_task->func(assigned_task->arg,
-                          task_system_get_thread_scratch(group->ts, tid));
-      if (group->use_stats) {
-         current = platform_timestamp_elapsed(current);
-         if (current > group->stats[tid].max_runtime_ns) {
-            group->stats[tid].max_runtime_ns   = current;
-            group->stats[tid].max_runtime_func = assigned_task->func;
-         }
-      }
-      platform_free(group->ts->heap_id, assigned_task);
-      rc = STATUS_OK;
+      task_group_run_task(group, assigned_task);
    }
 
    return rc;
