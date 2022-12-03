@@ -71,6 +71,9 @@ typedef struct master_config {
    // log
    bool use_log;
 
+   // task system
+   uint64 num_bg_threads[NUM_TASK_TYPES];
+
    // splinter
    uint64               memtable_capacity;
    uint64               fanout;

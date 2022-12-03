@@ -82,12 +82,11 @@ CTEST_DATA(splinter)
    uint32 max_async_inflight;
    int    spl_num_tables;
 
-   uint8 num_bg_threads[NUM_TASK_TYPES];
-
    // Config structs required, as per splinter_test() setup work.
    io_config           io_cfg;
    rc_allocator_config al_cfg;
    shard_log_config    log_cfg;
+   task_system_config  task_cfg;
 
    rc_allocator al;
 
@@ -149,6 +148,7 @@ CTEST_SETUP(splinter)
                           &data->al_cfg,
                           data->cache_cfg,
                           &data->log_cfg,
+                          &data->task_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
                           num_tables,
@@ -180,15 +180,7 @@ CTEST_SETUP(splinter)
    ASSERT_TRUE((data->io != NULL));
    rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
 
-   // no bg threads by default.
-   for (int idx = 0; idx < NUM_TASK_TYPES; idx++) {
-       data->num_bg_threads[idx] = 0;
-   }
-
-   bool use_bg_threads = data->num_bg_threads[TASK_TYPE_NORMAL] != 0;
-
-   rc = test_init_task_system(data->hid, data->io, &data->tasks, data->splinter_cfg->use_stats,
-                           use_bg_threads, data->num_bg_threads);
+   rc = test_init_task_system(data->hid, data->io, &data->tasks, &data->task_cfg);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));

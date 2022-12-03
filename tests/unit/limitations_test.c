@@ -41,10 +41,9 @@ CTEST_DATA(limitations)
    io_config           io_cfg;
    rc_allocator_config al_cfg;
    shard_log_config    log_cfg;
+   task_system_config  task_cfg;
 
    rc_allocator al;
-
-   uint8 num_bg_threads[NUM_TASK_TYPES];
 
    // Following get setup pointing to allocated memory
    trunk_config          *splinter_cfg;
@@ -115,6 +114,7 @@ CTEST2(limitations, test_io_init_invalid_page_size)
                           &data->al_cfg,
                           data->cache_cfg,
                           &data->log_cfg,
+                          &data->task_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
                           num_tables,
@@ -185,6 +185,7 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
                           &data->al_cfg,
                           data->cache_cfg,
                           &data->log_cfg,
+                          &data->task_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
                           num_tables,

@@ -61,8 +61,6 @@ CTEST_DATA(task_system)
    // Config structs required, to exercise task subsystem
    io_config io_cfg;
 
-   uint8 num_bg_threads[NUM_TASK_TYPES];
-
    // Following get setup pointing to allocated memory
    platform_io_handle *ioh; // Only prerequisite needed to setup task system
    task_system        *tasks;
@@ -111,20 +109,10 @@ CTEST_SETUP(task_system)
                "Failed to init IO handle: %s\n",
                platform_status_to_string(rc));
 
-   // no background threads by default.
-   for (int idx = 0; idx < ARRAY_SIZE(data->num_bg_threads); idx++) {
-      data->num_bg_threads[idx] = 0;
-   }
-
-   // Background thread support is currently deactivated.
-   bool use_bg_threads = data->num_bg_threads[TASK_TYPE_NORMAL] != 0;
-
    rc = task_system_create(data->hid,
                            data->ioh,
                            &data->tasks,
-                           TRUE,           // Use statistics,
-                           use_bg_threads, // False, currently.
-                           data->num_bg_threads,
+                           &task_system_cfg_no_background_threads,
                            trunk_get_scratch_size());
 
    // Main task (this thread) is at index 0

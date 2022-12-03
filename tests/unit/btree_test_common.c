@@ -51,6 +51,16 @@ init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
 }
 
 int
+init_task_config_from_master_config(task_system_config  *task_cfg,
+                                    const master_config *master_cfg)
+{
+   platform_status rc;
+   rc = task_system_config_init(
+      task_cfg, master_cfg->use_stats, master_cfg->num_bg_threads);
+   return SUCCESS(rc);
+}
+
+int
 init_btree_config_from_master_config(btree_config  *dbtree_cfg,
                                      master_config *master_cfg,
                                      cache_config  *cache_cfg,

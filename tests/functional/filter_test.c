@@ -293,6 +293,7 @@ filter_test(int argc, char *argv[])
    rc_allocator_config    allocator_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
+   task_system_config     task_cfg;
    rc_allocator           al;
    clockcache            *cc;
    int                    config_argc;
@@ -326,6 +327,7 @@ filter_test(int argc, char *argv[])
                         &allocator_cfg,
                         &cache_cfg,
                         &log_cfg,
+                        &task_cfg,
                         &seed,
                         &gen,
                         config_argc,

@@ -68,6 +68,7 @@ CTEST2(config_parse, test_basic_parsing)
    io_config           io_cfg;
    rc_allocator_config al_cfg;
    shard_log_config    log_cfg;
+   task_system_config  task_cfg;
 
    // Following get setup pointing to allocated memory
    trunk_config          *splinter_cfg = NULL;
@@ -90,6 +91,7 @@ CTEST2(config_parse, test_basic_parsing)
                           &al_cfg,
                           cache_cfg,
                           &log_cfg,
+                          &task_cfg,
                           &data->test_exec_cfg,
                           &gen,
                           num_tables,

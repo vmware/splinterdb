@@ -95,6 +95,7 @@ CTEST_DATA(btree_stress)
    io_config           io_cfg;
    rc_allocator_config allocator_cfg;
    clockcache_config   cache_cfg;
+   task_system_config  task_cfg;
    btree_scratch       test_scratch;
    btree_config        dbtree_cfg;
 
@@ -104,7 +105,6 @@ CTEST_DATA(btree_stress)
 
    // Stuff needed to setup and exercise multiple threads.
    platform_io_handle io;
-   uint8              num_bg_threads[NUM_TASK_TYPES];
    task_system       *ts;
    rc_allocator       al;
    clockcache         cc;
@@ -129,7 +129,9 @@ CTEST_SETUP(btree_stress)
        || !init_btree_config_from_master_config(&data->dbtree_cfg,
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
-                                                data->data_cfg))
+                                                data->data_cfg)
+       || !init_task_config_from_master_config(&data->task_cfg,
+                                               &data->master_cfg))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -141,14 +143,11 @@ CTEST_SETUP(btree_stress)
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
    // Setup execution of concurrent threads
-   ZERO_ARRAY(data->num_bg_threads);
    if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
        || !SUCCESS(task_system_create(data->hid,
                                       &data->io,
                                       &data->ts,
-                                      data->master_cfg.use_stats,
-                                      FALSE,
-                                      data->num_bg_threads,
+                                      &data->task_cfg,
                                       sizeof(btree_scratch)))
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,

@@ -8,6 +8,8 @@
 
 #define MAX_HOOKS (8)
 
+const task_system_config task_system_cfg_no_background_threads = {0};
+
 int              hook_init_done = 0;
 static int       num_hooks      = 0;
 static task_hook hooks[MAX_HOOKS];
@@ -475,7 +477,6 @@ static platform_status
 task_group_init(task_group  *group,
                 task_system *ts,
                 bool         use_stats,
-                bool         use_bg_threads,
                 uint8        num_bg_threads,
                 uint64       scratch_size)
 {
@@ -484,7 +485,7 @@ task_group_init(task_group  *group,
    group->use_stats     = use_stats;
    platform_heap_id hid = group->ts->heap_id;
    platform_status  rc;
-   if (use_bg_threads) {
+   if (num_bg_threads) {
       group->bg.num_threads = num_bg_threads;
 
       rc = platform_condvar_init(&group->bg.cv, hid);
@@ -515,7 +516,7 @@ task_group_init(task_group  *group,
 
 out:
    debug_assert(!SUCCESS(rc));
-   if (use_bg_threads) {
+   if (num_bg_threads) {
       platform_condvar_destroy(&group->bg.cv);
    }
    return rc;
@@ -574,7 +575,7 @@ task_enqueue(task_system *ts,
    rc = task_lock_task_queue(group);
    if (!SUCCESS(rc)) {
       platform_free(ts->heap_id, new_task);
-      platform_assert(!ts->use_bg_threads || !group->bg.stop);
+      platform_assert(!task_system_use_bg_threads(ts) || !group->bg.stop);
       return rc;
    }
    if (tq->tail) {
@@ -610,7 +611,7 @@ task_enqueue(task_system *ts,
 void
 task_perform_all(task_system *ts)
 {
-   if (!ts->use_bg_threads) {
+   if (!task_system_use_bg_threads(ts)) {
       platform_status rc;
       do {
          rc = task_perform_one(ts);
@@ -707,7 +708,7 @@ out:
 platform_status
 task_perform_one(task_system *ts)
 {
-   platform_assert(!ts->use_bg_threads);
+   platform_assert(!task_system_use_bg_threads(ts));
    platform_status rc = STATUS_OK;
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       rc = task_group_perform_one(&ts->group[type]);
@@ -716,6 +717,24 @@ task_perform_one(task_system *ts)
       }
    }
    return rc;
+}
+
+platform_status
+task_system_config_init(task_system_config *task_cfg,
+                        bool                use_stats,
+                        const uint64        num_bg_threads[NUM_TASK_TYPES])
+{
+   if ((num_bg_threads[TASK_TYPE_NORMAL] == 0)
+       != (num_bg_threads[TASK_TYPE_MEMTABLE] == 0))
+   {
+      return STATUS_BAD_PARAM;
+   }
+
+   task_cfg->use_stats = use_stats;
+   memcpy(task_cfg->num_background_threads,
+          num_bg_threads,
+          NUM_TASK_TYPES * sizeof(num_bg_threads[0]));
+   return STATUS_OK;
 }
 
 /*
@@ -728,13 +747,11 @@ task_perform_one(task_system *ts)
  * -----------------------------------------------------------------------------
  */
 platform_status
-task_system_create(platform_heap_id    hid,
-                   platform_io_handle *ioh,
-                   task_system       **system,
-                   bool                use_stats,
-                   bool                use_bg_threads,
-                   uint8               num_bg_threads[NUM_TASK_TYPES],
-                   uint64              scratch_size)
+task_system_create(platform_heap_id          hid,
+                   platform_io_handle       *ioh,
+                   task_system             **system,
+                   const task_system_config *cfg,
+                   uint64                    scratch_size)
 {
    task_system *ts =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ts, init_task_scratch, scratch_size);
@@ -743,12 +760,12 @@ task_system_create(platform_heap_id    hid,
       *system = NULL;
       return STATUS_NO_MEMORY;
    }
+   ts->cfg = cfg;
    ts->ioh = ioh;
    task_init_tid_bitmask(&ts->tid_bitmask);
    // task initialization
    register_init_tid_hook();
 
-   ts->use_bg_threads = use_bg_threads;
    ts->heap_id        = hid;
    ts->scratch_size   = scratch_size;
    ts->init_tid       = INVALID_TID;
@@ -756,9 +773,8 @@ task_system_create(platform_heap_id    hid,
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type],
                                            ts,
-                                           use_stats,
-                                           use_bg_threads,
-                                           num_bg_threads[type],
+                                           cfg->use_stats,
+                                           cfg->num_background_threads[type],
                                            scratch_size);
       if (!SUCCESS(rc)) {
          platform_free(hid, ts);
@@ -779,7 +795,8 @@ task_system_create(platform_heap_id    hid,
 bool
 task_system_use_bg_threads(task_system *ts)
 {
-   return ts->use_bg_threads;
+   return ts->cfg->num_background_threads[TASK_TYPE_NORMAL]
+          || ts->cfg->num_background_threads[TASK_TYPE_MEMTABLE];
 }
 
 static void

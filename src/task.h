@@ -78,6 +78,19 @@ typedef enum task_type {
    TASK_TYPE_FIRST = TASK_TYPE_MEMTABLE
 } task_type;
 
+typedef struct task_system_config {
+   bool   use_stats;
+   uint64 num_background_threads[NUM_TASK_TYPES];
+} task_system_config;
+
+const extern task_system_config task_system_cfg_no_background_threads;
+
+platform_status
+task_system_config_init(task_system_config *task_cfg,
+                        bool                use_stats,
+                        const uint64 num_background_threads[NUM_TASK_TYPES]);
+
+
 /*
  * ----------------------------------------------------------------------
  * Splinter specific state that gets created during initialization in
@@ -92,6 +105,7 @@ typedef enum task_type {
  * ----------------------------------------------------------------------
  */
 struct task_system {
+   const task_system_config *cfg;
    // array of scratch space pointers for this system.
    void *thread_scratch[MAX_THREADS];
    // IO handle (currently one splinter system has just one)
@@ -107,7 +121,6 @@ struct task_system {
    threadid max_tid;
    // task groups
    task_group       group[NUM_TASK_TYPES];
-   bool             use_bg_threads;
    platform_heap_id heap_id;
 
    // scratch memory for the init thread.
@@ -149,13 +162,11 @@ task_deregister_thread(task_system *ts,
 
 
 platform_status
-task_system_create(platform_heap_id    hid,
-                   platform_io_handle *ioh,
-                   task_system       **system,
-                   bool                use_stats,
-                   bool                use_bg_threads,
-                   uint8               num_bg_threads[NUM_TASK_TYPES],
-                   uint64              scratch_size);
+task_system_create(platform_heap_id          hid,
+                   platform_io_handle       *ioh,
+                   task_system             **system,
+                   const task_system_config *cfg,
+                   uint64                    scratch_size);
 
 void
 task_system_destroy(platform_heap_id hid, task_system **ts);
