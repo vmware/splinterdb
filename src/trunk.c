@@ -3301,21 +3301,20 @@ unlock_incorp_lock:
    memtable_unlock_incorporation_lock(spl->mt_ctxt);
    return should_continue;
 }
-static inline void
-log_memtable_incorporate(trunk_handle *spl, page_handle *root, const memtable *mt)
+static inline uint64
+log_memtable_incorporate(trunk_handle *spl, const page_handle *root, const memtable *mt)
 {
-   char key[10] = "dummy";
-   char str[100];
+   char key[] = "";
+   char str[25];
    sprintf(str, "%lu", mt->root_addr);
 
-   slice skey = slice_create(10, key);
-   slice msg = slice_create(100, str);
+   slice skey = slice_create(0, key);
+   slice msg = slice_create(25, str);
 
    uint64 lsn;
 
    log_write(spl->log, skey, message_create(MESSAGE_TYPE_MEM_INCORP, msg), mt->generation, NODE_TYPE_TRUNK, root->disk_addr, &lsn);
-   trunk_hdr* hdr = (trunk_hdr *)root->data;
-   hdr->page_lsn = lsn;
+   return lsn;
 
    //      shard_log *log = (shard_log *)spl->log;
    //      shard_log_print(log);
@@ -3447,9 +3446,13 @@ trunk_memtable_incorporate(trunk_handle  *spl,
       spl, &stream, "----------------------------------------\n");
    trunk_log_stream_if_enabled(spl, &stream, "\n");
    trunk_close_log_stream_if_enabled(spl, &stream);
+
+   //Write memtable incorporation to WAL
    if (spl->cfg.use_log) {
-      log_memtable_incorporate(spl, root, mt);
+      trunk_hdr* hdr = (trunk_hdr *)root->data;
+      hdr->page_lsn = log_memtable_incorporate(spl, root, mt);
    }
+
    // X. If root is full, flush until it is no longer full
    uint64 flush_start;
    if (spl->cfg.use_stats) {
@@ -4230,6 +4233,22 @@ trunk_room_to_flush(trunk_handle     *spl,
           && child_bundles + 2 <= TRUNK_MAX_BUNDLES
           && child_subbundles + flush_subbundles + 1 < TRUNK_MAX_SUBBUNDLES;
 }
+static inline uint64
+log_trunk_node_flush(trunk_handle *spl, uint64 parent_addr, uint64 child_addr)
+{
+   char key[] = "";
+   char str[25];
+   sprintf(str, "%lu",child_addr);
+
+   slice skey = slice_create(0, key);
+   slice msg = slice_create(25, str);
+
+   uint64 lsn;
+
+   log_write(spl->log, skey, message_create(MESSAGE_TYPE_FLUSH, msg), 0, NODE_TYPE_TRUNK, parent_addr, &lsn);
+   return lsn;
+
+}
 
 /*
  * flush flushes from parent to the child indicated by pdata.
@@ -4336,6 +4355,15 @@ trunk_flush(trunk_handle     *spl,
    rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert_status_ok(rc);
+
+   //Write node flush event to WAL
+   if (spl->cfg.use_log) {
+      trunk_hdr *parent_hdr  = (trunk_hdr *)parent->data;
+      parent_hdr->page_lsn = log_trunk_node_flush(spl, parent->disk_addr, child->disk_addr);
+      trunk_hdr *child_hdr  = (trunk_hdr *)parent->data;
+      child_hdr->page_lsn = parent_hdr->page_lsn;
+   }
+
    if (spl->cfg.use_stats) {
       flush_start = platform_timestamp_elapsed(flush_start);
       if (parent->disk_addr == spl->root_addr) {
@@ -5118,6 +5146,24 @@ trunk_needs_split(trunk_handle *spl, page_handle *node)
    return trunk_num_children(spl, node) > spl->cfg.fanout;
 }
 
+
+static inline uint64
+log_split_index(trunk_handle *spl, uint64 parent_addr, uint64 left_addr, uint64 right_addr)
+{
+   char key[] = "";
+   char str[25];
+   sprintf(str, "%lu %lu",left_addr, right_addr);
+
+   slice skey = slice_create(0, key);
+   slice msg = slice_create(25, str);
+
+   uint64 lsn;
+
+   log_write(spl->log, skey, message_create(MESSAGE_TYPE_SPLIT_INDEX, msg), 0, NODE_TYPE_TRUNK, parent_addr, &lsn);
+   return lsn;
+
+}
+
 int
 trunk_split_index(trunk_handle *spl,
                   page_handle  *parent,
@@ -5199,6 +5245,13 @@ trunk_split_index(trunk_handle *spl,
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no);
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no + 1);
 
+   if (spl->cfg.use_log) {
+      trunk_hdr *parent_hdr  = (trunk_hdr *)parent->data;
+      parent_hdr->page_lsn = log_split_index(spl, parent->disk_addr, left_node->disk_addr, right_node->disk_addr);
+      left_hdr->page_lsn = parent_hdr->page_lsn;
+      right_hdr->page_lsn = parent_hdr->page_lsn;
+   }
+
    trunk_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
    trunk_log_node_if_enabled(&stream, spl, parent);
@@ -5275,6 +5328,28 @@ static inline uint64
 trunk_single_leaf_threshold(trunk_handle *spl)
 {
    return TRUNK_SINGLE_LEAF_THRESHOLD_PCT * spl->cfg.max_tuples_per_node / 100;
+}
+
+
+static inline uint64
+log_leaf_node_flush(trunk_handle *spl, uint64 parent_addr, uint64 num_leaves, uint64 children[])
+{
+   char key[] = "";
+   char str[100];
+
+   sprintf(str, "%lu",num_leaves);
+   for (int i = 0; i< num_leaves; i++){
+      sprintf(str, "%s %lu",str,children[i]);
+   }
+
+   slice skey = slice_create(0, key);
+   slice msg = slice_create(25, str);
+
+   uint64 lsn;
+
+   log_write(spl->log, skey, message_create(MESSAGE_TYPE_FLUSH, msg), 0, NODE_TYPE_TRUNK, parent_addr, &lsn);
+   return lsn;
+
 }
 
 /*
@@ -5496,6 +5571,8 @@ trunk_split_leaf(trunk_handle *spl,
    trunk_inc_generation(spl, leaf);
    uint64 last_next_addr = trunk_next_addr(spl, leaf);
 
+   uint64 children[4];
+   trunk_hdr* children_hdrs[4];
    for (uint16 leaf_no = 0; leaf_no < num_leaves; leaf_no++) {
       /*
        * 4. Create new leaf, adjust min/max keys and other metadata
@@ -5604,7 +5681,8 @@ trunk_split_leaf(trunk_handle *spl,
          trunk_node_unclaim(spl, leaf);
          trunk_node_unget(spl, &leaf);
       }
-
+      children[leaf_no] = leaf->disk_addr;
+      children_hdrs[leaf_no] = (trunk_hdr *)leaf->data;
       leaf = new_leaf;
    }
 
@@ -5628,6 +5706,15 @@ trunk_split_leaf(trunk_handle *spl,
    rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert(SUCCESS(rc));
+
+   if(spl->cfg.use_log){
+      trunk_hdr *parent_hdr = (trunk_hdr *)parent->data;
+      parent_hdr->page_lsn = log_leaf_node_flush(spl, parent->disk_addr, num_leaves, children);
+      for(int i =0; i < num_leaves; i++){
+         trunk_hdr *child = children_hdrs[i];
+         child->page_lsn = parent_hdr->page_lsn;
+      }
+   }
 
    trunk_log_node_if_enabled(&stream, spl, parent);
    trunk_log_node_if_enabled(&stream, spl, leaf);
@@ -5655,6 +5742,23 @@ trunk_split_leaf(trunk_handle *spl,
 }
 
 
+static inline uint64
+log_split_root(trunk_handle *spl, uint64 root_addr, uint64 child_addr)
+{
+   char key[] = "";
+   char str[25];
+   sprintf(str, "%lu",child_addr);
+
+   slice skey = slice_create(0, key);
+   slice msg = slice_create(25, str);
+
+   uint64 lsn;
+
+   log_write(spl->log, skey, message_create(MESSAGE_TYPE_SPLIT_ROOT, msg), 0, NODE_TYPE_TRUNK, root_addr, &lsn);
+   return lsn;
+
+}
+
 int
 trunk_split_root(trunk_handle *spl, page_handle *root)
 {
@@ -5681,6 +5785,10 @@ trunk_split_root(trunk_handle *spl, page_handle *root)
    root_hdr->end_sb_filter     = 0;
 
    trunk_add_pivot_new_root(spl, root, child);
+   if (spl->cfg.use_log) {
+      root_hdr->page_lsn = log_split_root(spl, root->disk_addr, child->disk_addr);
+      child_hdr->page_lsn = root_hdr->page_lsn;
+   }
 
    trunk_split_index(spl, root, child, 0);
 
