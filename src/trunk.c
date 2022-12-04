@@ -445,6 +445,8 @@ typedef struct ONDISK trunk_super_block {
    uint64 root_addr; // Address of the root of the trunk for the instance
                      // referenced by this superblock.
    uint64      meta_tail;
+   uint64      active_mt_addr;   //Active memtable root address, will be used during recovery.
+                                 //TODO Assuming 1 memtable in the context, need to update accordingly
    uint64      log_addr;
    uint64      log_meta_addr;
    uint64      timestamp;
@@ -766,6 +768,43 @@ trunk_pages_per_extent(const trunk_config *cfg)
  * Super block functions
  *-----------------------------------------------------------------------------
  */
+/*
+ * This Method updates the active memtable address in superblock such
+ * that memtable can be recovered during recovery*/
+void
+trunk_super_block_update_mtaddr(trunk_handle *spl,
+                      uint64 curr_active_mt_addr)
+{
+   uint64             super_addr;
+   page_handle       *super_page;
+   trunk_super_block *super;
+   uint64             wait = 1;
+   platform_status    rc;
+   rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
+   platform_assert_status_ok(rc);
+
+   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
+   super            = (trunk_super_block *)super_page->data;
+   if(super->active_mt_addr == curr_active_mt_addr){
+      cache_unget(spl->cc, super_page);
+      return;
+   }
+
+
+   while (!cache_claim(spl->cc, super_page)) {
+      platform_sleep(wait);
+      wait *= 2;
+   }
+   wait = 1;
+   cache_lock(spl->cc, super_page);
+   super->active_mt_addr = curr_active_mt_addr;
+   cache_mark_dirty(spl->cc, super_page);
+   cache_unlock(spl->cc, super_page);
+   cache_unclaim(spl->cc, super_page);
+   cache_unget(spl->cc, super_page);
+   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+}
+
 void
 trunk_set_super_block(trunk_handle *spl,
                       bool          is_checkpoint,
@@ -3124,6 +3163,7 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
 
    // this call is safe because we hold the insert lock
    memtable *mt = trunk_get_memtable(spl, generation);
+   trunk_super_block_update_mtaddr(spl, mt->root_addr);
    uint64    leaf_generation; // used for ordering the log
    rc = memtable_insert(
       spl->mt_ctxt, mt, spl->heap_id, key, msg, &leaf_generation);
@@ -3320,6 +3360,8 @@ wal_log_memtable_incorporate(trunk_handle *spl, uint64 root_addr, uint64 mt_addr
    //      shard_log_print(log);
 }
 
+void
+trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl);
 /*
  * Function to incorporate the memtable to the root.
  * Carries out the following steps :
@@ -3356,6 +3398,9 @@ trunk_memtable_incorporate(trunk_handle  *spl,
    platform_stream_handle stream;
    platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
    platform_assert_status_ok(rc);
+   if(trunk_verbose_logging_enabled(spl)){
+      trunk_print_memtable(stdout, spl);
+   }
    trunk_log_stream_if_enabled(spl,
                                &stream,
                                "incorporate memtable gen %lu into root %lu\n",
@@ -8332,12 +8377,12 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
       memtable *mt = trunk_get_memtable(spl, mt_gen);
       platform_log(log_handle,
                    "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
-                   mt_gen,
                    mt->root_addr,
+                   mt_gen,
                    allocator_get_ref(spl->al, mt->root_addr),
                    mt->state);
 
-      memtable_print(log_handle, spl->cc, mt);
+//      memtable_print(log_handle, spl->cc, mt);
    }
    platform_log(log_handle, "\n");
 }
