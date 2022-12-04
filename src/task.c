@@ -372,8 +372,8 @@ task_thread_create(const char            *name,
 static inline task *
 task_group_get_one_task(task_group *group)
 {
-   task_queue     *tq            = &group->tq;
-   task           *assigned_task = NULL;
+   task_queue *tq            = &group->tq;
+   task       *assigned_task = NULL;
    if (group->current_outstanding_tasks != 0) {
       platform_assert(tq->head != NULL);
       platform_assert(tq->tail != NULL);
@@ -432,7 +432,7 @@ task_group_run_task(task_group *group, task *assigned_task)
 static void
 task_worker_thread(void *arg)
 {
-   task_group    *group = (task_group *)arg;
+   task_group *group = (task_group *)arg;
 
    platform_status rc = platform_condvar_lock(&group->cv);
    platform_assert(SUCCESS(rc));
@@ -728,9 +728,9 @@ task_system_create(platform_heap_id          hid,
    // task initialization
    register_init_tid_hook();
 
-   ts->heap_id        = hid;
-   ts->scratch_size   = scratch_size;
-   ts->init_tid       = INVALID_TID;
+   ts->heap_id      = hid;
+   ts->scratch_size = scratch_size;
+   ts->init_tid     = INVALID_TID;
 
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type],

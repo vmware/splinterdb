@@ -38,9 +38,9 @@ typedef struct task_queue {
 } task_queue;
 
 typedef struct task_bg_thread_group {
-   bool             stop;
-   uint8            num_threads;
-   platform_thread  threads[MAX_THREADS];
+   bool            stop;
+   uint8           num_threads;
+   platform_thread threads[MAX_THREADS];
 } task_bg_thread_group;
 
 /*
@@ -49,7 +49,7 @@ typedef struct task_bg_thread_group {
  */
 typedef struct task_group {
    task_system *ts;
-   task_queue tq; // Queue of tasks in this group, of a task type
+   task_queue   tq; // Queue of tasks in this group, of a task type
 
    volatile uint64 current_outstanding_tasks;
    volatile uint64 max_outstanding_tasks;
