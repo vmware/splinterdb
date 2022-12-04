@@ -13,7 +13,6 @@
 #include "allocator.h"
 #include "clockcache.h"
 #include "io.h"
-#include "task.h"
 
 #include <stddef.h>
 #include "util.h"

@@ -64,6 +64,7 @@ config_set_defaults(master_config *cfg)
       .max_branches_per_node    = TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE,
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
+      .perform_bg_tasks         = TRUE,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
       .log_handle               = NULL,
@@ -102,6 +103,8 @@ config_usage()
    platform_error_log("\t--cache-capacity-mib (%d)\n",
                       (int)(TEST_CONFIG_DEFAULT_CACHE_SIZE_GB * KiB));
    platform_error_log("\t--cache-debug-log\n");
+   platform_error_log("\t--perform-bg-tasks\n");
+   platform_error_log("\t--no-perform-bg-tasks\n");
    platform_error_log("\t--num-background-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_BACKGROUND_THREADS);
    platform_error_log("\t--num-background-memtable-threads (%d)\n",
@@ -230,6 +233,18 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                            cfg,
                            num_bg_threads[TASK_TYPE_MEMTABLE])
          {}
+         config_has_option("perform-bg-tasks")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].perform_bg_tasks = TRUE;
+            }
+         }
+         config_has_option("no-perform-bg-tasks")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].perform_bg_tasks = FALSE;
+            }
+         }
          config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_gib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_uint64("rough-count-height", cfg, btree_rough_count_height)

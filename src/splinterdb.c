@@ -199,6 +199,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                      cfg.filter_remainder_size,
                      cfg.filter_index_size,
                      cfg.reclaim_threshold,
+                     cfg.perform_bg_tasks,
                      cfg.use_log,
                      cfg.use_stats,
                      FALSE,

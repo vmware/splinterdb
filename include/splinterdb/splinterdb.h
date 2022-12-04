@@ -67,6 +67,7 @@ typedef struct {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
+   bool   perform_bg_tasks;
 } splinterdb_config;
 
 // Opaque handle to an opened instance of SplinterDB

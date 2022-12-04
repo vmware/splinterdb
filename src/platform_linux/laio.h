@@ -11,7 +11,6 @@
 #define __LAIO_H
 
 #include "io.h"
-#include "task.h"
 #include <libaio.h>
 
 /*

@@ -26,9 +26,10 @@ typedef struct task {
 typedef struct {
    timestamp max_runtime_ns;
    void     *max_runtime_func;
-   uint64    total_latency_ns;
-   uint64    total_tasks;
    uint64    max_latency_ns;
+   uint64    total_latency_ns;
+   uint64    total_bg_task_executions;
+   uint64    total_fg_task_executions;
 } PLATFORM_CACHELINE_ALIGNED task_stats;
 
 typedef struct task_queue {
@@ -37,15 +38,10 @@ typedef struct task_queue {
 } task_queue;
 
 typedef struct task_bg_thread_group {
-   platform_condvar cv;
    bool             stop;
    uint8            num_threads;
    platform_thread  threads[MAX_THREADS];
 } task_bg_thread_group;
-
-typedef struct task_fg_thread_group {
-   platform_mutex mutex;
-} task_fg_thread_group;
 
 /*
  * Tasks are grouped into NUM_TASK_TYPES groups. Each group is described
@@ -53,11 +49,12 @@ typedef struct task_fg_thread_group {
  */
 typedef struct task_group {
    task_system *ts;
-   task_queue   tq; // Queue of tasks in this group, of a task type
+   task_queue tq; // Queue of tasks in this group, of a task type
 
    volatile uint64 current_outstanding_tasks;
    volatile uint64 max_outstanding_tasks;
 
+   platform_condvar     cv;
    task_bg_thread_group bg;
 
    // Per thread stats.
@@ -182,6 +179,9 @@ task_enqueue(task_system *ts,
 
 platform_status
 task_perform_one(task_system *ts);
+
+platform_status
+task_perform_one_if_needed(task_system *ts);
 
 void
 task_perform_all(task_system *ts);
