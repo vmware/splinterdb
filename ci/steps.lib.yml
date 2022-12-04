@@ -130,7 +130,7 @@ config:
     dir: #@ input_name
     args:
     - "-c"
-    - "make $MAKE_HELP all run-tests"
+    - "make $MAKE_HELP all run-tests run-examples"
 #@ end
 
 ---

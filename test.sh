@@ -507,17 +507,6 @@ function test_make_run_tests() {
 }
 
 # ##################################################################
-# Exercise example programs, to ensure that they don't fail.
-# ##################################################################
-function test_example_programs() {
-
-    "$BINDIR"/examples/splinterdb_intro_example
-    "$BINDIR"/examples/splinterdb_wide_values_example
-    "$BINDIR"/examples/splinterdb_iterators_example
-    "$BINDIR"/examples/splinterdb_custom_ipv4_addr_sortcmp_example
-}
-
-# ##################################################################
 # Smoke Tests: Run a small collection of fast-running unit-tests
 # ##################################################################
 function run_fast_unit_tests() {
@@ -714,8 +703,6 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
    start_seconds=$SECONDS
 
    run_with_timing "Smoke tests" run_fast_unit_tests
-
-   run_with_timing "Test example programs" test_example_programs
 
    if [ "$RUN_MAKE_TESTS" == "true" ]; then
       run_with_timing "Basic build-and-test tests" test_make_run_tests

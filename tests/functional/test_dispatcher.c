@@ -26,6 +26,8 @@ usage(void)
 int
 test_dispatcher(int argc, char *argv[])
 {
+   platform_set_log_streams(stdout, stderr);
+
    platform_default_log("%s: %s\n", argv[0], BUILD_VERSION);
    // check first arg and call the appropriate test
    if (argc > 1) {

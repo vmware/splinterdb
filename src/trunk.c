@@ -9046,7 +9046,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
    size_t max_value_size        = 64 - __builtin_clzll(max_value);
 
    if (filter_fingerprint_size > 32 - max_value_size) {
-      platform_error_log(
+      platform_default_log(
          "Fingerprint size %lu too large, max value size is %lu, "
          "setting to %lu\n",
          filter_fingerprint_size,
@@ -9083,10 +9083,10 @@ trunk_config_init(trunk_config        *trunk_cfg,
    while (filter_cfg->index_size <= (trunk_cfg->max_tuples_per_node
                                      / (addrs_per_page * pages_per_extent)))
    {
-      platform_error_log("filter-index-size: %u is too small, "
-                         "setting to %u\n",
-                         filter_cfg->index_size,
-                         filter_cfg->index_size * 2);
+      platform_default_log("filter-index-size: %u is too small, "
+                           "setting to %u\n",
+                           filter_cfg->index_size,
+                           filter_cfg->index_size * 2);
       filter_cfg->index_size *= 2;
       filter_cfg->log_index_size++;
    }
