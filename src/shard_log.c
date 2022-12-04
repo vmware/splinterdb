@@ -491,7 +491,7 @@ shard_log_print(shard_log *log)
    uint64            extent_addr      = log->addr;
    shard_log_config *cfg              = log->cfg;
    uint64            magic            = log->magic;
-   data_config      *dcfg             = cfg->data_cfg;
+   // data_config      *dcfg             = cfg->data_cfg;
    uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
 
    while (extent_addr != 0 && cache_get_ref(cc, extent_addr) > 0) {
@@ -506,10 +506,8 @@ shard_log_print(shard_log *log)
                  !terminal_log_entry(cfg, page->data, le);
                  le = log_entry_next(le))
             {
-               platform_default_log("%s -- %s : %lu\n",
-                                    key_string(dcfg, log_entry_key(le)),
-                                    message_string(dcfg, log_entry_message(le)),
-                                    le->generation);
+               platform_default_log("log_entry lsn: %lu -- value: %s, addr: %lu, page-type: %d,  msg-type: %d, gen: %lu\n",
+                                    le->lsn, (char *)log_entry_message(le).data.data, le->page_addr, le->page_type, le->msg_type, le->generation);
             }
          }
          cache_unget(cc, page);
