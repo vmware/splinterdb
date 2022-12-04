@@ -629,7 +629,7 @@ trunk_node_unlock(cache *cc, trunk_node *node)
 static inline void
 trunk_alloc(cache *cc, mini_allocator *mini, uint64 height, trunk_node *node)
 {
-   node->addr = mini_alloc(mini, height, NULL_SLICE, NULL);
+   node->addr = mini_alloc(mini, height, NULL_KEY, NULL);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, PAGE_TYPE_TRUNK);
    node->hdr  = (trunk_hdr *)(node->page->data);
@@ -783,8 +783,9 @@ static inline uint16               trunk_find_pivot                (trunk_handle
 platform_status                    trunk_add_pivot                 (trunk_handle *spl, trunk_node *parent, trunk_node *child, uint16 pivot_no);
 static inline uint16               trunk_num_children              (trunk_handle *spl, trunk_node *node);
 static inline uint16               trunk_num_pivot_keys            (trunk_handle *spl, trunk_node *node);
+static inline void                 trunk_set_num_pivot_keys        (trunk_handle *spl, trunk_node *node, uint16 num_pivot_keys);
 static inline void                 trunk_inc_num_pivot_keys        (trunk_handle *spl, trunk_node *node);
-static inline char *               trunk_max_key                   (trunk_handle *spl, trunk_node *node);
+static inline key                  trunk_max_key                   (trunk_handle *spl, trunk_node *node);
 static inline uint64               trunk_pivot_num_tuples          (trunk_handle *spl, trunk_node *node, uint16 pivot_no);
 static inline uint64               trunk_pivot_kv_bytes            (trunk_handle *spl, trunk_node *node, uint16 pivot_no);
 static inline void                 trunk_pivot_branch_tuple_counts (trunk_handle *spl, trunk_node  *node, uint16 pivot_no, uint16 branch_no, uint64 *num_tuples, uint64 *num_kv_bytes);
@@ -1156,7 +1157,7 @@ trunk_pivot_size(trunk_handle *spl)
 static inline trunk_pivot_data *
 trunk_get_pivot_data(trunk_handle *spl, trunk_node *node, uint16 pivot_no)
 {
-   return (trunk_pivot_data *)(((char *)node->hdr) + sizeof(*hdr)
+   return (trunk_pivot_data *)(((char *)node->hdr) + sizeof(*node->hdr)
                                + pivot_no * trunk_pivot_size(spl));
 }
 
@@ -1204,6 +1205,7 @@ trunk_set_initial_pivots(trunk_handle *spl, trunk_node *node)
    copy_key_to_ondisk_key(&pdata->pivot, NEGATIVE_INFINITY_KEY);
 
    pdata = trunk_get_pivot_data(spl, node, 1);
+   ZERO_CONTENTS(pdata);
    copy_key_to_ondisk_key(&pdata->pivot, POSITIVE_INFINITY_KEY);
 }
 
@@ -1214,7 +1216,6 @@ trunk_min_key(trunk_handle *spl, trunk_node *node)
 }
 
 static inline key
-trunk_max_key(trunk_handle *spl, page_handle *node)
 trunk_max_key(trunk_handle *spl, trunk_node *node)
 {
    return trunk_get_pivot(spl, node, trunk_num_children(spl, node));
@@ -1252,7 +1253,7 @@ trunk_set_pivot_data_new_root(trunk_handle *spl,
 
 static inline void
 trunk_init_pivot_data_from_pred(trunk_handle *spl,
-                                trunk_node  *node,
+                                trunk_node   *node,
                                 uint16        pivot_no,
                                 uint64        child_addr,
                                 key           new_pivot)
@@ -1341,8 +1342,8 @@ trunk_update_lowerbound(uint16 *lo, uint16 *mid, int cmp, lookup_type comp)
  */
 static inline uint16
 trunk_find_pivot(trunk_handle *spl,
-                 key           target,
                  trunk_node   *node,
+                 key           target,
                  lookup_type   comp)
 {
    debug_assert(node != NULL);
@@ -1473,7 +1474,7 @@ trunk_add_pivot(trunk_handle *spl,
    trunk_shift_pivots(spl, parent, pivot_no, 1);
    trunk_inc_num_pivot_keys(spl, parent);
 
-   uint64 child_addr = child->disk_addr;
+   uint64 child_addr = child->addr;
    key    pivot_key  = trunk_get_pivot(spl, child, 0);
    trunk_init_pivot_data_from_pred(
       spl, parent, pivot_no, child_addr, pivot_key);
@@ -1487,7 +1488,7 @@ trunk_add_pivot_new_root(trunk_handle *spl,
                          trunk_node   *child)
 {
    trunk_set_initial_pivots(spl, parent);
-   uint64 child_addr = child->disk_addr;
+   uint64 child_addr = child->addr;
    trunk_set_pivot_data_new_root(spl, parent, child_addr);
 }
 
@@ -1879,7 +1880,9 @@ trunk_num_pivot_keys(trunk_handle *spl, trunk_node *node)
 }
 
 static inline void
-trunk_set_num_pivot_keys(trunk_handle *spl, trunk_node *node, uint16 num_pivot_keys)
+trunk_set_num_pivot_keys(trunk_handle *spl,
+                         trunk_node   *node,
+                         uint16        num_pivot_keys)
 {
    debug_assert(num_pivot_keys >= 2);
    debug_assert(num_pivot_keys <= spl->cfg.max_pivot_keys);
@@ -1909,7 +1912,8 @@ trunk_find_node(trunk_handle *spl, key target, uint64 height)
    trunk_node_get(spl->cc, spl->root_addr, &node);
    uint16 tree_height = trunk_height(&node);
    for (uint16 h = tree_height; h > height + 1; h--) {
-      uint32 pivot_no = trunk_find_pivot(spl, &node, target, less_than_or_equal);
+      uint32 pivot_no =
+         trunk_find_pivot(spl, &node, target, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, &node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
       trunk_node        child;
@@ -4908,9 +4912,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       debug_assert(trunk_verify_node(spl, &node));
 
       if (num_replacements != 0 && num_tuples != 0
-          && start_generation == generation)
-      {
-         key max_key = trunk_max_key(spl, node);
+          && start_generation == generation) {
+         key max_key = trunk_max_key(spl, &node);
          trunk_zap_branch_range(
             spl, &new_branch, max_key, max_key, PAGE_TYPE_BRANCH);
       }
@@ -5088,7 +5091,7 @@ trunk_split_index(trunk_handle *spl,
    // ALEX: Maybe worth figuring out the real page size
    memmove(right_node.hdr, left_node->hdr, trunk_page_size(&spl->cfg));
    trunk_pivot_data *right_start_pivot =
-      trunk_get_pivot_data(spl, right_node, 0);
+      trunk_get_pivot_data(spl, &right_node, 0);
    trunk_pivot_data *left_split_pivot =
       trunk_get_pivot_data(spl, left_node, target_num_children);
    uint16 pivots_to_copy =
@@ -5471,10 +5474,10 @@ trunk_split_leaf(trunk_handle *spl,
        * trunk_set_pivot in debug mode) */
       // adjust max key
       trunk_set_pivot(
-         spl, new_leaf, 1, key_buffer_key(&scratch->pivot[leaf_no + 1]));
+         spl, &new_leaf, 1, key_buffer_key(&scratch->pivot[leaf_no + 1]));
       // adjust min key
       trunk_set_pivot(
-         spl, new_leaf, 0, key_buffer_key(&scratch->pivot[leaf_no]));
+         spl, &new_leaf, 0, key_buffer_key(&scratch->pivot[leaf_no]));
 
       // set &new_leaf tuple_count
       trunk_bundle *bundle = trunk_get_bundle(spl, &new_leaf, bundle_no);
@@ -6396,7 +6399,8 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
    // look in index nodes
    uint16 height = trunk_height(&node);
    for (uint16 h = height; h > 0; h--) {
-      uint16 pivot_no = trunk_find_pivot(spl, &node, key, less_than_or_equal);
+      uint16 pivot_no =
+         trunk_find_pivot(spl, &node, target, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, &node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
       bool              should_continue =
@@ -7121,7 +7125,7 @@ trunk_create(trunk_config     *cfg,
    trunk_node leaf;
    trunk_alloc(spl->cc, &spl->mini, 0, &leaf);
    memset(leaf.hdr, 0, trunk_page_size(&spl->cfg));
-   trunk_set_initial_pivots(spl, leaf);
+   trunk_set_initial_pivots(spl, &leaf);
    trunk_inc_pivot_generation(spl, &leaf);
 
    // add &leaf to root and fix up root
@@ -7753,8 +7757,8 @@ trunk_verify_node_with_neighbors(trunk_handle *spl, trunk_node *node)
    if (succ_addr != 0) {
       trunk_node succ;
       trunk_node_get(spl->cc, succ_addr, &succ);
-      key          ube      = trunk_max_key(spl, node);
-      key          succ_lbi = trunk_min_key(spl, &succ);
+      key ube      = trunk_max_key(spl, node);
+      key succ_lbi = trunk_min_key(spl, &succ);
       if (trunk_key_compare(spl, ube, succ_lbi) != 0) {
          platform_default_log("trunk_verify_node_with_neighbors: "
                               "mismatched pivots with successor\n");
@@ -8669,7 +8673,8 @@ trunk_print_lookup(trunk_handle        *spl,
    uint16 height = trunk_height(&node);
    for (uint16 h = height; h > 0; h--) {
       trunk_print_locked_node(Platform_default_log_handle, spl, &node);
-      uint16 pivot_no = trunk_find_pivot(spl, &node, target, less_than_or_equal);
+      uint16 pivot_no =
+         trunk_find_pivot(spl, &node, target, less_than_or_equal);
       debug_assert(pivot_no < trunk_num_children(spl, &node));
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, &node, pivot_no);
       merge_accumulator_set_to_null(&data);
