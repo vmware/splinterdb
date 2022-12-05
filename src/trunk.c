@@ -530,6 +530,8 @@ typedef struct ONDISK trunk_hdr {
    uint64 generation;       // counter incremented on a node split
    uint64 pivot_generation; // counter incremented when new pivots are added
    uint64 page_lsn;         //Log Sequence Number(LSN) corresponding newest update on the page
+   uint8  tail_flush_sequence;      //Latest sequence used to determine flush order of nodes
+   uint8  persisted_flush_sequence;   //Last flush sequence that is persisted to disk
 
    uint16 start_branch;      // first live branch
    uint16 start_frac_branch; // first fractional branch (branch in a bundle)
@@ -561,6 +563,9 @@ typedef struct ONDISK trunk_hdr {
  */
 typedef struct ONDISK trunk_pivot_data {
    uint64 addr;                // PBN of the child
+    //If  flush_sequence >= persisted_flush_sequence, children corresponding to such pivots should be flushed
+   //before flushing this node to disk. Once this parent is flushed then other dirty child nodes can be flushed.
+   uint8 flush_sequence;      //Tail flush sequence number at the time of child generation
    uint64 num_kv_bytes_whole;  // # kv bytes for this pivot in whole branches
    uint64 num_kv_bytes_bundle; // # kv bytes for this pivot in bundles
    uint64 num_tuples_whole;    // # tuples for this pivot in whole branches
@@ -741,6 +746,7 @@ void                               trunk_btree_skiperator_print    (iterator *it
 void                               trunk_btree_skiperator_deinit   (trunk_handle *spl, trunk_btree_skiperator *skip_itor);
 bool                               trunk_verify_node               (trunk_handle *spl, page_handle *node);
 void                               trunk_maybe_reclaim_space       (trunk_handle *spl);
+void                                trunk_adjust_flush_sequence      (trunk_handle *spl, page_handle *node);
 const static iterator_ops trunk_btree_skiperator_ops = {
    .get_curr = trunk_btree_skiperator_get_curr,
    .at_end   = trunk_btree_skiperator_at_end,
@@ -1259,6 +1265,15 @@ trunk_inc_pivot_generation(trunk_handle *spl, page_handle *node)
    return hdr->pivot_generation++;
 }
 
+static inline uint8
+trunk_inc_tail_flush_generation(trunk_handle *spl, page_handle *node)
+{
+
+   trunk_hdr *hdr = (trunk_hdr *)node->data;
+   platform_assert(hdr->tail_flush_sequence+1 <= UINT8_MAX);
+   return hdr->tail_flush_sequence++;
+}
+
 /*
  * A pivot consists of the pivot key (of size cfg.key_size) followed by
  * a struct trunk_pivot_data. Return the total size of a pivot.
@@ -1303,6 +1318,7 @@ trunk_set_pivot_data_new_root(trunk_handle *spl,
    pdata->num_kv_bytes_whole  = 0;
    pdata->num_tuples_bundle   = 0;
    pdata->num_kv_bytes_bundle = 0;
+   pdata->flush_sequence      = 0;
    pdata->start_branch        = trunk_start_branch(spl, node);
    pdata->start_bundle        = trunk_end_bundle(spl, node);
    ZERO_STRUCT(pdata->filter);
@@ -1321,6 +1337,7 @@ trunk_copy_pivot_data_from_pred(trunk_handle *spl,
 
    memmove(pdata, pred_pdata, sizeof(*pdata));
    pdata->addr                = child_addr;
+   pdata->flush_sequence      = trunk_inc_tail_flush_generation(spl, node);
    pdata->num_tuples_whole    = 0;
    pdata->num_kv_bytes_whole  = 0;
    pdata->num_tuples_bundle   = 0;
@@ -4467,6 +4484,7 @@ trunk_flush_parent_to_child(trunk_handle             *spl,
                                        req->input_pivot_tuple_count,
                                        req->input_pivot_kv_byte_count);
    trunk_bundle_inc_pivot_rc(spl, child, bundle);
+   pdata->flush_sequence = trunk_inc_tail_flush_generation(spl, parent);
 }
 
 /*
@@ -5310,6 +5328,43 @@ trunk_split_index(trunk_handle *spl,
    return 0;
 }
 
+/*This method will adjust the values of pivot flush sequence and node tail and persisted flush sequence
+ * such that they remain in bounds of uint8, this re-adjustment should maintain
+ * pdata->flush_sequence (><=) node_hdr->persisted_flush_sequence
+ * */
+void trunk_adjust_flush_sequence(trunk_handle *spl, page_handle *node){
+   int num_persisted_pivots = 0;
+   trunk_hdr* node_hdr = (trunk_hdr*)node->data;
+   uint16 num_children = trunk_num_pivot_keys(spl, node) - 1;
+   for (uint16 pivot_no = 0; pivot_no < num_children;
+        pivot_no++)
+   {
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+      if(pdata->flush_sequence < node_hdr->persisted_flush_sequence){
+         pdata->flush_sequence = num_persisted_pivots++;
+      }
+   }
+
+   int unpersisted_fs = num_persisted_pivots;
+   int persisted_fs = 0;
+   for (uint16 pivot_no = 0; pivot_no < num_children;
+        pivot_no++)
+   {
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+      if(pdata->flush_sequence < node_hdr->persisted_flush_sequence){
+         pdata->flush_sequence = persisted_fs++;
+      }else {
+         pdata->flush_sequence = unpersisted_fs++;
+      }
+   }
+
+   platform_assert(persisted_fs == num_persisted_pivots);
+   platform_assert(unpersisted_fs == num_children+1);
+   node_hdr->persisted_flush_sequence = persisted_fs;
+   node_hdr->tail_flush_sequence = unpersisted_fs;
+
+}
+
 /*pre and post cond: parent, left and right children should be write locked and released, before and after calling function respectively
  * This method is used during rcovery to redo messages of type MESSAGE_TYPE_SPLIT_INDEX*/
 void
@@ -5371,6 +5426,9 @@ trunk_split_index_given_rightnode(trunk_handle    *spl,
 
    // add right child to parent
    platform_status        rc = trunk_add_pivot(spl, parent, right_node, pivot_no + 1);
+   trunk_adjust_flush_sequence(spl, left_node);
+   trunk_adjust_flush_sequence(spl, right_node);
+
    platform_assert(SUCCESS(rc));
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no);
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no + 1);
@@ -5845,6 +5903,7 @@ trunk_split_leaf(trunk_handle *spl,
 
    debug_assert(trunk_verify_node(spl, leaf));
    for(int i =num_leaves-1; i >=0; i--){
+      trunk_adjust_flush_sequence(spl, children[i]);
       trunk_default_log_if_enabled(
          spl, "Unlocking child %lu \n", children[i]->disk_addr);
       trunk_node_unlock(spl, children[i]);
@@ -5940,8 +5999,12 @@ trunk_grow_root(trunk_handle *spl,
    root_hdr->end_subbundle     = 0;
    root_hdr->start_sb_filter   = 0;
    root_hdr->end_sb_filter     = 0;
+   root_hdr->persisted_flush_sequence = 0;
 
    trunk_add_pivot_new_root(spl, root, child);
+   trunk_adjust_flush_sequence(spl,child);
+   trunk_adjust_flush_sequence(spl,root);
+   platform_assert(root_hdr->tail_flush_sequence = 1);
    return child_hdr;
 }
 
