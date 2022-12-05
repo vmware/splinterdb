@@ -726,7 +726,7 @@ static inline bool                 trunk_needs_split               (trunk_handle
 int                                trunk_split_index               (trunk_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
 void                               trunk_split_index_given_rightnode (trunk_handle *spl, page_handle *parent, uint64 pivot_no,
                                                                         page_handle     *left_node, uint16 target_num_children, page_handle     *right_node);
-void                               trunk_split_leaf                (trunk_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
+void                               trunk_split_leaf                (trunk_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx, bool is_recovery, page_handle* new_leaves[]);
 trunk_hdr *                        trunk_grow_root                 (trunk_handle *spl, page_handle *root, page_handle *child);
 int                                trunk_split_root                (trunk_handle *spl, page_handle     *root);
 void                               trunk_print                     (platform_log_handle *log_handle, trunk_handle *spl);
@@ -3367,6 +3367,13 @@ wal_log_memtable_incorporate(trunk_handle *spl, uint64 root_addr, uint64 mt_addr
 
 void
 trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl);
+static void
+trunk_memtable_incorp(trunk_handle           *spl,
+                      uint64                  generation,
+                      const threadid          tid,
+                      page_handle           **root,
+                      platform_stream_handle *stream,
+                      memtable              **mt);
 /*
  * Function to incorporate the memtable to the root.
  * Carries out the following steps :
@@ -3388,109 +3395,11 @@ trunk_memtable_incorporate(trunk_handle  *spl,
                            uint64         generation,
                            const threadid tid)
 {
-   // X. Get, claim and lock the lookup lock
-   page_handle *mt_lookup_lock_page =
-      memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
-
-   memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
-
-   // X. Get, claim and lock the root
-   page_handle *root = trunk_node_get(spl, spl->root_addr);
-   trunk_node_claim(spl, &root);
-   platform_assert(trunk_has_vacancy(spl, root, 1));
-   trunk_node_lock(spl, root);
-
+   page_handle *root;
    platform_stream_handle stream;
-   platform_status        rc = trunk_open_log_stream_if_enabled(spl, &stream);
-   platform_assert_status_ok(rc);
-   if(trunk_verbose_logging_enabled(spl)){
-      trunk_print_memtable(stdout, spl);
-   }
-   trunk_log_stream_if_enabled(spl,
-                               &stream,
-                               "incorporate memtable gen %lu into root %lu\n",
-                               generation,
-                               spl->root_addr);
-   trunk_log_node_if_enabled(&stream, spl, root);
-   trunk_log_stream_if_enabled(
-      spl, &stream, "----------------------------------------\n");
+   memtable *mt;
+   trunk_memtable_incorp(spl, generation, tid, &root, &stream, &mt);
 
-   // X. Release lookup lock
-   memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
-
-   /*
-    * X. Get a new branch in a bundle for the memtable
-    */
-   trunk_compacted_memtable *cmt =
-      trunk_get_compacted_memtable(spl, generation);
-   trunk_compact_bundle_req *req = cmt->req;
-   req->bundle_no                = trunk_get_new_bundle(spl, root);
-   trunk_bundle    *bundle       = trunk_get_bundle(spl, root, req->bundle_no);
-   trunk_subbundle *sb           = trunk_get_new_subbundle(spl, root, 1);
-   trunk_branch    *branch       = trunk_get_new_branch(spl, root);
-   *branch                       = cmt->branch;
-   bundle->start_subbundle       = trunk_subbundle_no(spl, root, sb);
-   bundle->end_subbundle         = trunk_end_subbundle(spl, root);
-   sb->start_branch              = trunk_branch_no(spl, root, branch);
-   sb->end_branch                = trunk_end_branch(spl, root);
-   sb->state                     = SB_STATE_COMPACTED;
-   routing_filter *filter        = trunk_subbundle_filter(spl, root, sb, 0);
-   *filter                       = cmt->filter;
-   req->spl                      = spl;
-   req->addr                     = spl->root_addr;
-   req->height                   = trunk_height(spl, root);
-   req->generation               = trunk_generation(spl, root);
-   req->max_pivot_generation     = trunk_pivot_generation(spl, root);
-   trunk_tuples_in_bundle(spl,
-                          root,
-                          bundle,
-                          req->output_pivot_tuple_count,
-                          req->output_pivot_kv_byte_count);
-   memmove(req->input_pivot_tuple_count,
-           req->output_pivot_tuple_count,
-           sizeof(req->input_pivot_tuple_count));
-   memmove(req->input_pivot_kv_byte_count,
-           req->output_pivot_kv_byte_count,
-           sizeof(req->input_pivot_kv_byte_count));
-   trunk_pivot_add_bundle_tuple_counts(spl,
-                                       root,
-                                       bundle,
-                                       req->output_pivot_tuple_count,
-                                       req->output_pivot_kv_byte_count);
-   uint16 num_children = trunk_num_children(spl, root);
-   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
-      if (pivot_no != 0) {
-         const char *key = trunk_get_pivot(spl, root, pivot_no);
-         trunk_inc_intersection(spl, branch, key, FALSE);
-      }
-      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, root, pivot_no);
-      req->pivot_generation[pivot_no] = pdata->generation;
-   }
-   debug_assert(trunk_subbundle_branch_count(spl, root, sb) != 0);
-   trunk_log_stream_if_enabled(spl,
-                               &stream,
-                               "enqueuing build filter %lu-%u\n",
-                               req->addr,
-                               req->bundle_no);
-   task_enqueue(
-      spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
-
-   // X. Incorporate new memtable into the bundle
-   memtable *mt = trunk_get_memtable(spl, generation);
-   // Normally need to hold incorp_mutex, but debug code and also guaranteed no
-   // one is changing gen_to_incorp (we are the only thread that would try)
-   debug_assert(generation == memtable_generation_to_incorporate(spl->mt_ctxt));
-   memtable_transition(
-      mt, MEMTABLE_STATE_INCORPORATION_ASSIGNED, MEMTABLE_STATE_INCORPORATING);
-   *branch = cmt->branch;
-   *filter = cmt->filter;
-   if (spl->cfg.use_stats) {
-      spl->stats[tid].memtable_flush_wait_time_ns +=
-         platform_timestamp_elapsed(cmt->wait_start);
-   }
-
-   memtable_transition(
-      mt, MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
    trunk_log_node_if_enabled(&stream, spl, root);
    trunk_log_stream_if_enabled(
       spl, &stream, "----------------------------------------\n");
@@ -3542,6 +3451,120 @@ trunk_memtable_incorporate(trunk_handle  *spl,
          spl->stats[tid].memtable_flush_time_max_ns = flush_start;
       }
    }
+}
+
+/** This functions has some preconditions prior to being called.
+*  --> Trunk root node should be write locked.
+*  --> The memtable should have inserts blocked (can_insert == FALSE)
+ *  */
+static void
+trunk_memtable_incorp(trunk_handle           *spl,
+                      uint64                  generation,
+                      const threadid          tid,
+                      page_handle           **root,
+                      platform_stream_handle *stream,
+                      memtable              **mt)
+{
+   (*root) = trunk_node_get(spl, spl->root_addr);
+   (*mt)   = trunk_get_memtable(spl, generation); // X. Get, claim and lock the lookup lock
+   page_handle *mt_lookup_lock_page =
+      memtable_uncontended_get_claim_lock_lookup_lock(spl->mt_ctxt);
+
+   memtable_increment_to_generation_retired(spl->mt_ctxt, generation);
+
+   // X. Get, claim and lock the root
+   trunk_node_claim(spl, root);
+   platform_assert(trunk_has_vacancy(spl, (*root), 1));
+   trunk_node_lock(spl, (*root));
+   platform_status        rc = trunk_open_log_stream_if_enabled(spl, stream);
+   platform_assert_status_ok(rc);
+   if(trunk_verbose_logging_enabled(spl)){
+      trunk_print_memtable(stdout, spl);
+   }
+   trunk_log_stream_if_enabled(spl,
+                               stream,
+                               "incorporate memtable gen %lu into root %lu\n",
+                               generation,
+                               spl->root_addr);
+   trunk_log_node_if_enabled(stream, spl, (*root));
+   trunk_log_stream_if_enabled(
+      spl, stream, "----------------------------------------\n");
+
+   // X. Release lookup lock
+   memtable_unlock_unclaim_unget_lookup_lock(spl->mt_ctxt, mt_lookup_lock_page);
+
+   /*
+    * X. Get a new branch in a bundle for the memtable
+    */
+   trunk_compacted_memtable *cmt =
+      trunk_get_compacted_memtable(spl, generation);
+   trunk_compact_bundle_req *req = cmt->req;
+   req->bundle_no                = trunk_get_new_bundle(spl, (*root));
+   trunk_bundle    *bundle       = trunk_get_bundle(spl, (*root), req->bundle_no);
+   trunk_subbundle *sb           = trunk_get_new_subbundle(spl, (*root), 1);
+   trunk_branch    *branch       = trunk_get_new_branch(spl, (*root));
+   *branch                       = cmt->branch;
+   bundle->start_subbundle       = trunk_subbundle_no(spl, (*root), sb);
+   bundle->end_subbundle         = trunk_end_subbundle(spl, (*root));
+   sb->start_branch              = trunk_branch_no(spl, (*root), branch);
+   sb->end_branch                = trunk_end_branch(spl, (*root));
+   sb->state                     = SB_STATE_COMPACTED;
+   routing_filter *filter        = trunk_subbundle_filter(spl, (*root), sb, 0);
+   *filter                       = cmt->filter;
+   req->spl                      = spl;
+   req->addr                     = spl->root_addr;
+   req->height                   = trunk_height(spl, (*root));
+   req->generation               = trunk_generation(spl, (*root));
+   req->max_pivot_generation     = trunk_pivot_generation(spl, (*root));
+   trunk_tuples_in_bundle(spl,
+                          (*root),
+                          bundle,
+                          req->output_pivot_tuple_count,
+                          req->output_pivot_kv_byte_count);
+   memmove(req->input_pivot_tuple_count,
+           req->output_pivot_tuple_count,
+           sizeof(req->input_pivot_tuple_count));
+   memmove(req->input_pivot_kv_byte_count,
+           req->output_pivot_kv_byte_count,
+           sizeof(req->input_pivot_kv_byte_count));
+   trunk_pivot_add_bundle_tuple_counts(spl,
+                                       (*root),
+                                       bundle,
+                                       req->output_pivot_tuple_count,
+                                       req->output_pivot_kv_byte_count);
+   uint16 num_children = trunk_num_children(spl, (*root));
+   for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
+      if (pivot_no != 0) {
+         const char *key = trunk_get_pivot(spl, (*root), pivot_no);
+         trunk_inc_intersection(spl, branch, key, FALSE);
+      }
+      trunk_pivot_data *pdata = trunk_get_pivot_data(spl, (*root), pivot_no);
+      req->pivot_generation[pivot_no] = pdata->generation;
+   }
+   debug_assert(trunk_subbundle_branch_count(spl, (*root), sb) != 0);
+   trunk_log_stream_if_enabled(spl,
+                               stream,
+                               "enqueuing build filter %lu-%u\n",
+                               req->addr,
+                               req->bundle_no);
+   task_enqueue(
+      spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
+
+   // X. Incorporate new memtable into the bundle
+   // Normally need to hold incorp_mutex, but debug code and also guaranteed no
+   // one is changing gen_to_incorp (we are the only thread that would try)
+   debug_assert(generation == memtable_generation_to_incorporate(spl->mt_ctxt));
+   memtable_transition(
+      (*mt), MEMTABLE_STATE_INCORPORATION_ASSIGNED, MEMTABLE_STATE_INCORPORATING);
+   *branch = cmt->branch;
+   *filter = cmt->filter;
+   if (spl->cfg.use_stats) {
+      spl->stats[tid].memtable_flush_wait_time_ns +=
+         platform_timestamp_elapsed(cmt->wait_start);
+   }
+
+   memtable_transition(
+      (*mt), MEMTABLE_STATE_INCORPORATING, MEMTABLE_STATE_INCORPORATED);
 }
 
 /*
@@ -4374,7 +4397,7 @@ trunk_flush(trunk_handle     *spl,
       if (trunk_is_leaf(spl, child)) {
          platform_free(spl->heap_id, req);
          uint16 child_idx = trunk_pdata_to_pivot_index(spl, parent, pdata);
-         trunk_split_leaf(spl, parent, child, child_idx);
+         trunk_split_leaf(spl, parent, child, child_idx, FALSE, NULL);
          debug_assert(trunk_verify_node(spl, child));
          return STATUS_OK;
       } else {
@@ -5161,7 +5184,7 @@ trunk_flush_node(trunk_handle *spl, uint64 addr, void *arg)
          page_handle      *leaf  = trunk_node_get(spl, pdata->addr);
          trunk_node_claim(spl, &leaf);
          trunk_node_lock(spl, leaf);
-         trunk_split_leaf(spl, node, leaf, pivot_no);
+         trunk_split_leaf(spl, node, leaf, pivot_no, FALSE, NULL);
       }
    }
 
@@ -5456,6 +5479,7 @@ wal_log_leaf_node_split(trunk_handle *spl, uint64 parent_addr, uint64 num_leaves
  * current leaf and releases it. Finally, the loop continues with the new
  * leaf as current.
  *
+ * If used in the context of recovery then pages should be zeroed before passing it to this function
  * Algorithm:
  * 1. Create a rough merge iterator on all the branches
  * 2. Use rough merge iterator to determine pivots for new leaves
@@ -5471,7 +5495,9 @@ void
 trunk_split_leaf(trunk_handle *spl,
                  page_handle  *parent,
                  page_handle  *leaf,
-                 uint16        child_idx)
+                 uint16        child_idx,
+                 bool          is_recovery,
+                 page_handle*   new_leaves[])
 {
    const threadid      tid = platform_get_tid();
    trunk_task_scratch *task_scratch =
@@ -5679,7 +5705,12 @@ trunk_split_leaf(trunk_handle *spl,
       page_handle *new_leaf;
       if (leaf_no != 0) {
          // allocate a new leaf
-         new_leaf = trunk_alloc(spl, 0);
+         if(is_recovery){
+            new_leaf = new_leaves[leaf_no - 1];
+         }else{
+            new_leaf = trunk_alloc(spl, 0);
+         }
+
 
          // copy leaf to new leaf
          memmove(new_leaf->data, leaf->data, trunk_page_size(&spl->cfg));
