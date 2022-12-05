@@ -722,6 +722,8 @@ platform_status                    trunk_flush                     (trunk_handle
 platform_status                    trunk_flush_fullest             (trunk_handle *spl, page_handle *node);
 static inline bool                 trunk_needs_split               (trunk_handle *spl, page_handle *node);
 int                                trunk_split_index               (trunk_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
+void                               trunk_split_index_given_rightnode (trunk_handle *spl, page_handle *parent, uint64 pivot_no,
+                                                                        page_handle     *left_node, uint16 target_num_children, page_handle     *right_node);
 void                               trunk_split_leaf                (trunk_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
 trunk_hdr *                        trunk_grow_root                 (trunk_handle *spl, page_handle *root, page_handle *child);
 int                                trunk_split_root                (trunk_handle *spl, page_handle     *root);
@@ -5237,6 +5239,51 @@ trunk_split_index(trunk_handle *spl,
 
    // allocate right node and write lock it
    page_handle *right_node = trunk_alloc(spl, height);
+
+   trunk_split_index_given_rightnode(spl,
+                                     parent,
+                                     pivot_no,
+                                     left_node,
+                                     target_num_children,
+                                     right_node);
+
+   trunk_hdr *left_hdr = (trunk_hdr *)left_node->data;
+   trunk_hdr *right_hdr = (trunk_hdr *)right_node->data;
+
+   if (spl->cfg.use_log) {
+      trunk_hdr *parent_hdr  = (trunk_hdr *)parent->data;
+      parent_hdr->page_lsn = wal_log_split_index(
+         spl, parent->disk_addr, left_node->disk_addr, right_node->disk_addr);
+      left_hdr->page_lsn = parent_hdr->page_lsn;
+      right_hdr->page_lsn = parent_hdr->page_lsn;
+   }
+
+   trunk_log_stream_if_enabled(
+      spl, &stream, "----------------------------------------\n");
+   trunk_log_node_if_enabled(&stream, spl, parent);
+   trunk_log_node_if_enabled(&stream, spl, left_node);
+   trunk_log_node_if_enabled(&stream, spl, right_node);
+   trunk_close_log_stream_if_enabled(spl, &stream);
+
+   trunk_node_unlock(spl, right_node);
+   trunk_node_unclaim(spl, right_node);
+   trunk_node_unget(spl, &right_node);
+
+   return 0;
+}
+
+/*pre and post cond: parent, left and right children should be write locked and released, before and after calling function respectively
+ * This method is used during rcovery to redo messages of type MESSAGE_TYPE_SPLIT_INDEX*/
+void
+trunk_split_index_given_rightnode(trunk_handle    *spl,
+                                  page_handle     *parent,
+                                  uint64           pivot_no,
+                                  page_handle     *left_node,
+                                  uint16           target_num_children,
+                                  page_handle     *right_node)
+{
+   trunk_hdr *left_hdr = (trunk_hdr *)left_node->data;
+   trunk_hdr *right_hdr = (trunk_hdr *)right_node->data;
    uint64       right_addr = right_node->disk_addr;
 
    // ALEX: Maybe worth figuring out the real page size
@@ -5259,9 +5306,6 @@ trunk_split_index(trunk_handle *spl,
    }
 
    // set the headers appropriately
-   trunk_hdr *left_hdr  = (trunk_hdr *)left_node->data;
-   trunk_hdr *right_hdr = (trunk_hdr *)right_node->data;
-
    right_hdr->num_pivot_keys = left_hdr->num_pivot_keys - target_num_children;
    left_hdr->num_pivot_keys  = target_num_children + 1;
 
@@ -5288,31 +5332,10 @@ trunk_split_index(trunk_handle *spl,
    }
 
    // add right child to parent
-   rc = trunk_add_pivot(spl, parent, right_node, pivot_no + 1);
+   platform_status        rc = trunk_add_pivot(spl, parent, right_node, pivot_no + 1);
    platform_assert(SUCCESS(rc));
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no);
    trunk_pivot_recount_num_tuples_and_kv_bytes(spl, parent, pivot_no + 1);
-
-   if (spl->cfg.use_log) {
-      trunk_hdr *parent_hdr  = (trunk_hdr *)parent->data;
-      parent_hdr->page_lsn = wal_log_split_index(
-         spl, parent->disk_addr, left_node->disk_addr, right_node->disk_addr);
-      left_hdr->page_lsn = parent_hdr->page_lsn;
-      right_hdr->page_lsn = parent_hdr->page_lsn;
-   }
-
-   trunk_log_stream_if_enabled(
-      spl, &stream, "----------------------------------------\n");
-   trunk_log_node_if_enabled(&stream, spl, parent);
-   trunk_log_node_if_enabled(&stream, spl, left_node);
-   trunk_log_node_if_enabled(&stream, spl, right_node);
-   trunk_close_log_stream_if_enabled(spl, &stream);
-
-   trunk_node_unlock(spl, right_node);
-   trunk_node_unclaim(spl, right_node);
-   trunk_node_unget(spl, &right_node);
-
-   return 0;
 }
 
 /*
