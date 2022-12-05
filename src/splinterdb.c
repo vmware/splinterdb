@@ -430,25 +430,14 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
    if(!open_existing){
-      io_config            rec_io_cfg;
-      io_handle            rec_io_handle;
-      splinterdb_config splinterdb_cfg;
-      memset(&splinterdb_cfg, 0, sizeof(splinterdb_cfg));
-      char *filename = "need_to_recover";
-      io_config_init(&rec_io_cfg,
-                     LAIO_DEFAULT_PAGE_SIZE,
-                     LAIO_DEFAULT_PAGE_SIZE,
-                     O_RDWR | O_CREAT,
-                     0755,
-                     256,
-                     filename);
-      status = io_handle_init(
-         &rec_io_handle, &rec_io_cfg, splinterdb_cfg.heap_handle, splinterdb_cfg.heap_id);
-      if (!SUCCESS(status)) {
-         platform_error_log("Failed to initalize recovery IO handle: %s\n",
-                            platform_status_to_string(status));
+      FILE *fptr;
+      fptr = fopen("need_to_recover","w");
+      if(fptr == NULL)
+      {
+         platform_error_log("Failed to create reovery file");
          goto deinit_kvhandle;
       }
+      fclose(fptr);
    }
 
    status = io_handle_init(

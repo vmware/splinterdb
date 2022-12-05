@@ -43,8 +43,9 @@
 #pragma GCC poison calloc
 #pragma GCC poison realloc
 
-#pragma GCC poison fclose
-#pragma GCC poison fopen
+//TODO: Avoid using this to create recovery file
+//#pragma GCC poison fclose
+//#pragma GCC poison fopen
 
 #pragma GCC poison fflush
 #pragma GCC poison fprintf

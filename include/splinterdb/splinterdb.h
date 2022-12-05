@@ -76,6 +76,8 @@ typedef struct {
 
 // Opaque handle to an opened instance of SplinterDB
 typedef struct splinterdb splinterdb;
+int
+splinterdb_start(const splinterdb_config *cfg, splinterdb **kvs);
 
 // Create a new SplinterDB instance, erasing any existing file or block device.
 //
