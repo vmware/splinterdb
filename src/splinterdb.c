@@ -13,6 +13,7 @@
  *-----------------------------------------------------------------------------
  */
 
+#include <unistd.h>
 #include "platform.h"
 
 #include "clockcache.h"
@@ -22,7 +23,7 @@
 #include "btree_private.h"
 #include "shard_log.h"
 #include "poison.h"
-
+#include "splinterdb/default_data_config.h"
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
 const char *
 splinterdb_get_version()
@@ -428,6 +429,27 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
+   if(!open_existing){
+      io_config            rec_io_cfg;
+      io_handle            rec_io_handle;
+      splinterdb_config splinterdb_cfg;
+      memset(&splinterdb_cfg, 0, sizeof(splinterdb_cfg));
+      char *filename = "need_to_recover";
+      io_config_init(&rec_io_cfg,
+                     LAIO_DEFAULT_PAGE_SIZE,
+                     LAIO_DEFAULT_PAGE_SIZE,
+                     O_RDWR | O_CREAT,
+                     0755,
+                     256,
+                     filename);
+      status = io_handle_init(
+         &rec_io_handle, &rec_io_cfg, splinterdb_cfg.heap_handle, splinterdb_cfg.heap_id);
+      if (!SUCCESS(status)) {
+         platform_error_log("Failed to initalize recovery IO handle: %s\n",
+                            platform_status_to_string(status));
+         goto deinit_kvhandle;
+      }
+   }
 
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
@@ -531,6 +553,20 @@ deinit_kvhandle:
 }
 
 int
+splinterdb_start(const splinterdb_config *cfg, // IN
+                  splinterdb             **kvs  // OUT
+)
+{
+   if (access("need_to_recover", F_OK) == 0) {
+      platform_default_log("Recovering the database..");
+      return splinterdb_create_or_open(cfg, kvs, TRUE);
+   } else {
+      platform_default_log("Creating the database..");
+      return splinterdb_create_or_open(cfg, kvs, FALSE);
+   }
+}
+
+int
 splinterdb_create(const splinterdb_config *cfg, // IN
                   splinterdb             **kvs  // OUT
 )
@@ -574,6 +610,10 @@ splinterdb_close(splinterdb **kvs_in) // IN
 
    platform_free(kvs->heap_id, kvs);
    *kvs_in = (splinterdb *)NULL;
+   if (remove("need_to_recover") == 0)
+      platform_default_log("recovery file deleted successfully");
+   else
+      platform_default_log("Unable to delete the recovery file");
 }
 
 
