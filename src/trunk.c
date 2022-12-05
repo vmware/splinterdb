@@ -723,6 +723,7 @@ platform_status                    trunk_flush_fullest             (trunk_handle
 static inline bool                 trunk_needs_split               (trunk_handle *spl, page_handle *node);
 int                                trunk_split_index               (trunk_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
 void                               trunk_split_leaf                (trunk_handle *spl, page_handle *parent, page_handle *leaf, uint16 child_idx);
+trunk_hdr *                        trunk_grow_root                 (trunk_handle *spl, page_handle *root, page_handle *child);
 int                                trunk_split_root                (trunk_handle *spl, page_handle     *root);
 void                               trunk_print                     (platform_log_handle *log_handle, trunk_handle *spl);
 void                               trunk_print_node                (platform_log_handle *log_handle, trunk_handle *spl, uint64 addr);
@@ -5210,6 +5211,7 @@ wal_log_split_index(trunk_handle *spl, uint64 parent_addr, uint64 left_addr, uin
 
 }
 
+//Precondition : parent and child are write locked
 int
 trunk_split_index(trunk_handle *spl,
                   page_handle  *parent,
@@ -5816,6 +5818,9 @@ log_split_root(trunk_handle *spl, uint64 root_addr, uint64 child_addr)
 
 }
 
+
+/*Precondition : root is write locked
+ * Postconditions: root lock is released*/
 int
 trunk_split_root(trunk_handle *spl, page_handle *root)
 {
@@ -5823,6 +5828,32 @@ trunk_split_root(trunk_handle *spl, page_handle *root)
 
    // allocate a new child node
    page_handle *child     = trunk_alloc(spl, root_hdr->height);
+   trunk_hdr *child_hdr = trunk_grow_root(spl, root, child);
+
+   if (spl->cfg.use_log) {
+      root_hdr->page_lsn = log_split_root(spl, root->disk_addr, child->disk_addr);
+      child_hdr->page_lsn = root_hdr->page_lsn;
+   }
+
+   trunk_split_index(spl, root, child, 0);
+
+   trunk_node_unlock(spl, child);
+   trunk_node_unclaim(spl, child);
+   trunk_node_unget(spl, &child);
+
+   return 0;
+}
+
+
+/*This method will be called with root and child during recovery for WAL message types MESSAGE_TYPE_SPLIT_ROOT
+ * Preconditions: root and child is write locked
+ * Postconditions : root and child locks should be relased*/
+trunk_hdr *
+trunk_grow_root(trunk_handle *spl,
+                page_handle  *root,
+                page_handle  *child)
+{
+   trunk_hdr *root_hdr = (trunk_hdr *)root->data;
    trunk_hdr   *child_hdr = (trunk_hdr *)child->data;
 
    // copy root to child, fix up root, then split
@@ -5842,18 +5873,7 @@ trunk_split_root(trunk_handle *spl, page_handle *root)
    root_hdr->end_sb_filter     = 0;
 
    trunk_add_pivot_new_root(spl, root, child);
-   if (spl->cfg.use_log) {
-      root_hdr->page_lsn = log_split_root(spl, root->disk_addr, child->disk_addr);
-      child_hdr->page_lsn = root_hdr->page_lsn;
-   }
-
-   trunk_split_index(spl, root, child, 0);
-
-   trunk_node_unlock(spl, child);
-   trunk_node_unclaim(spl, child);
-   trunk_node_unget(spl, &child);
-
-   return 0;
+   return child_hdr;
 }
 
 
