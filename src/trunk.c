@@ -719,6 +719,8 @@ static inline void                 trunk_inc_filter                (trunk_handle
 static inline void                 trunk_dec_filter                (trunk_handle *spl, routing_filter *filter);
 void                               trunk_compact_bundle            (void *arg, void *scratch);
 platform_status                    trunk_flush                     (trunk_handle *spl, page_handle *parent, trunk_pivot_data *pdata, bool is_space_rec);
+void                                trunk_flush_parent_to_child      (trunk_handle  *spl,page_handle  *parent,trunk_pivot_data         *pdata,
+                                                                   page_handle              *child, trunk_compact_bundle_req *req);
 platform_status                    trunk_flush_fullest             (trunk_handle *spl, page_handle *node);
 static inline bool                 trunk_needs_split               (trunk_handle *spl, page_handle *node);
 int                                trunk_split_index               (trunk_handle *spl, page_handle *parent, page_handle *child, uint64 pivot_no);
@@ -4362,19 +4364,7 @@ trunk_flush(trunk_handle     *spl,
 
    // flush the branch references into a new bundle in the child
    trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   trunk_bundle             *bundle =
-      trunk_flush_into_bundle(spl, parent, child, pdata, req);
-   trunk_tuples_in_bundle(spl,
-                          child,
-                          bundle,
-                          req->input_pivot_tuple_count,
-                          req->input_pivot_kv_byte_count);
-   trunk_pivot_add_bundle_tuple_counts(spl,
-                                       child,
-                                       bundle,
-                                       req->input_pivot_tuple_count,
-                                       req->input_pivot_kv_byte_count);
-   trunk_bundle_inc_pivot_rc(spl, child, bundle);
+   trunk_flush_parent_to_child(spl, parent, pdata, child, req);
    debug_assert(cache_page_valid(spl->cc, req->addr));
    req->type = is_space_rec ? TRUNK_COMPACTION_TYPE_FLUSH
                             : TRUNK_COMPACTION_TYPE_SPACE_REC;
@@ -4429,6 +4419,31 @@ trunk_flush(trunk_handle     *spl,
       }
    }
    return rc;
+}
+
+/*Pre and Post Conditions: parent and child should be write locked and released before and after calling the function,
+ * After calling this functions a request to compact bundle should be added to task queue
+ * This method will be called from recovery functions to REDO MESSAGE_TYPE_FLUSH WAL logs*/
+void
+trunk_flush_parent_to_child(trunk_handle             *spl,
+                            page_handle              *parent,
+                            trunk_pivot_data         *pdata,
+                            page_handle              *child,
+                            trunk_compact_bundle_req *req)
+{
+   trunk_bundle             *bundle =
+      trunk_flush_into_bundle(spl, parent, child, pdata, req);
+   trunk_tuples_in_bundle(spl,
+                          child,
+                          bundle,
+                          req->input_pivot_tuple_count,
+                          req->input_pivot_kv_byte_count);
+   trunk_pivot_add_bundle_tuple_counts(spl,
+                                       child,
+                                       bundle,
+                                       req->input_pivot_tuple_count,
+                                       req->input_pivot_kv_byte_count);
+   trunk_bundle_inc_pivot_rc(spl, child, bundle);
 }
 
 /*
