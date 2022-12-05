@@ -5359,7 +5359,7 @@ void trunk_adjust_flush_sequence(trunk_handle *spl, page_handle *node){
    }
 
    platform_assert(persisted_fs == num_persisted_pivots);
-   platform_assert(unpersisted_fs == num_children+1);
+   platform_assert(unpersisted_fs == num_children);
    node_hdr->persisted_flush_sequence = persisted_fs;
    node_hdr->tail_flush_sequence = unpersisted_fs;
 
