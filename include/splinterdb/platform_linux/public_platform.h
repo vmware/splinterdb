@@ -67,17 +67,12 @@ typedef int32 bool;
 #endif
 typedef uint8 bool8;
 
-// By default, platform_default_log() messages are sent to /dev/null
-// and platform_error_log() messages go to stderr.
-//
-// Use platform_set_log_streams() to send the log messages elsewhere.
-typedef FILE                platform_log_handle;
-extern platform_log_handle *Platform_default_log_handle;
-extern platform_log_handle *Platform_error_log_handle;
+typedef FILE platform_log_handle;
 
-// Set the streams where informational and error messages will be printed.
+// By default, info messages sent from platform_default_log() go to /dev/null
+// and error messages sent from platform_error_log() go to stderr.
 //
-// These default to /dev/null and stderr, respectively.
+// Use platform_set_log_streams() to send those log messages elsewhere.
 //
 // For example, to send info messages to stdout and errors to stderr, run:
 //    platform_set_log_streams(stdout, stderr);

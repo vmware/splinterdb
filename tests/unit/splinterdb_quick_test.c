@@ -94,11 +94,13 @@ CTEST_DATA(splinterdb_quick)
    comparison_counting_data_config default_data_cfg;
 };
 
+
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
+   if (Ctest_verbose) {
+      platform_set_log_streams(stdout, stderr);
+   }
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
@@ -853,29 +855,6 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
    ASSERT_EQUAL(num_inserts, i);
 
    splinterdb_iterator_deinit(it);
-}
-
-/*
- * Check that errors on file-opening are returned, not asserted.
- * Previously, a user error, e.g. bad file permissions, would
- * just crash the program.
- */
-CTEST2(splinterdb_quick, test_file_error_returns)
-{
-   // Tear down default instance, so we can try to create a new one.
-   splinterdb_close(&data->kvsb);
-
-   data->cfg.filename = "/dev/null/this-file-cannot-possibly-be-opened";
-
-   fprintf(Platform_error_log_handle,
-           "=== Testing an error condition, expect to see error messages "
-           "following this\n");
-   // this will fail, but shouldn't crash!
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
-   ASSERT_TRUE(0 != rc);
-   fprintf(Platform_error_log_handle, "^^^ Done testing an error condition\n");
-   // if we've made it this far, at least the application can report
-   // the error and recover!
 }
 
 /*

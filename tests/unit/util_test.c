@@ -106,13 +106,11 @@ check_one_debug_hex_encode(size_t      dst_len,
 
       // Indentation is intentional, so both outputs line up for easier
       // visual comparison in case of failures.
-      fprintf(stderr,
-              "unexpected output: '%.*s',\n"
-              "                                      expected output: '%s'\n",
-              dst_full_size,
-              dst,
-              expected);
-      return -1;
+      CTEST_ERR("unexpected output: '%.*s',\n"
+                "         expected output: '%s'\n",
+                dst_full_size,
+                dst,
+                expected);
    }
    return 0;
 }
