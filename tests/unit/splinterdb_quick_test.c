@@ -98,7 +98,7 @@ CTEST_DATA(splinterdb_quick)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
-   if (Ctest_verbosity > 0) {
+   if (Ctest_verbose) {
       platform_set_log_streams(stdout, stderr);
    }
 

@@ -79,14 +79,14 @@ struct ctest {
    unsigned int magic;
 };
 
-// If 0, then CTEST_LOG_INFO() and CTEST_LOG() will no-op.  Defaults to 0.
-extern int Ctest_verbosity;
+// If FALSE (default), then CTEST_LOG_INFO() and CTEST_LOG() will no-op.
+extern _Bool Ctest_verbose;
 
 // For immedate logging to stdout
 // (contrast with CTEST_LOG which does buffered/delayed logging to stderr)
 #define CTEST_LOG_INFO(...)                                                    \
    do {                                                                        \
-      if (Ctest_verbosity) {                                                   \
+      if (Ctest_verbose) {                                                     \
          fprintf(stdout, __VA_ARGS__);                                         \
          fflush(stdout);                                                       \
       }                                                                        \

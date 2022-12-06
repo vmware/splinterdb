@@ -65,7 +65,7 @@ CTEST_SETUP(misc)
 {
    // It can be surprising to see errors printed from a successful test run.
    // So lets send those messages to /dev/null unless VERBOSE=1.
-   if (Ctest_verbosity) {
+   if (Ctest_verbose) {
       data->log_output = stdout;
       CTEST_LOG_INFO("\nVerbose mode on.  This test exercises error-reporting "
                      "logic, so on success it will print a message "

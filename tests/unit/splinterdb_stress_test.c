@@ -48,7 +48,7 @@ CTEST_DATA(splinterdb_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_stress)
 {
-   if (Ctest_verbosity > 0) {
+   if (Ctest_verbose) {
       platform_set_log_streams(stdout, stderr);
    }
 

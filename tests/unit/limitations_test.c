@@ -70,7 +70,7 @@ CTEST_SETUP(limitations)
    // By default, that would go to stderr, which would pollute test output.
    // Here we ensure those expected error messages are only printed
    // when the caller sets the VERBOSE env var to opt-in.
-   if (Ctest_verbosity) {
+   if (Ctest_verbose) {
       platform_set_log_streams(stdout, stderr);
       CTEST_LOG_INFO("\nVerbose mode on.  This test exercises an error case, "
                      "so on sucess it "
