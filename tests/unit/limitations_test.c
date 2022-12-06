@@ -384,6 +384,28 @@ CTEST2(limitations, test_zero_cache_size)
    int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_NOT_EQUAL(0, rc);
 }
+/*
+ * Check that errors on file-opening are returned, not asserted.
+ * Previously, a user error, e.g. bad file permissions, would
+ * just crash the program.
+ */
+CTEST2(limitations, test_file_error_returns)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   cfg.filename = "/dev/null/this-file-cannot-possibly-be-opened";
+
+   // this will fail, but shouldn't crash!
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+   // if we've made it this far, at least the application can report
+   // the error and recover!
+}
 
 /*
  * Helper routine to create a valid Splinter configuration using default

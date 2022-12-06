@@ -858,29 +858,6 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
 }
 
 /*
- * Check that errors on file-opening are returned, not asserted.
- * Previously, a user error, e.g. bad file permissions, would
- * just crash the program.
- */
-CTEST2(splinterdb_quick, test_file_error_returns)
-{
-   // Tear down default instance, so we can try to create a new one.
-   splinterdb_close(&data->kvsb);
-
-   data->cfg.filename = "/dev/null/this-file-cannot-possibly-be-opened";
-
-   fprintf(Platform_error_log_handle,
-           "=== Testing an error condition, expect to see error messages "
-           "following this\n");
-   // this will fail, but shouldn't crash!
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
-   ASSERT_TRUE(0 != rc);
-   fprintf(Platform_error_log_handle, "^^^ Done testing an error condition\n");
-   // if we've made it this far, at least the application can report
-   // the error and recover!
-}
-
-/*
  * ********************************************************************************
  * Define minions and helper functions here, after all test cases are
  * enumerated.
