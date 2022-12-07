@@ -1094,7 +1094,7 @@ trunk_alloc(trunk_handle *spl, uint64 height)
 {
    uint64  before_tail = spl->mini.meta_tail;
    uint64 addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
-   if(before_tail != spl->mini.meta_tail){
+   if(before_tail != spl->mini.meta_tail && spl->cfg.use_log){
       wal_log_trunk_changes(spl, spl->root_addr, FALSE, spl->mini.meta_tail);
    }
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
@@ -3197,7 +3197,7 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
 
    // this call is safe because we hold the insert lock
    memtable *mt = trunk_get_memtable(spl, generation);
-   if(previous_gen != generation){
+   if(previous_gen != generation && spl->cfg.use_log){
       wal_log_trunk_changes(spl, spl->root_addr, TRUE, mt->root_addr);
    }
 //   trunk_super_block_update_mtaddr(spl, mt->root_addr);
