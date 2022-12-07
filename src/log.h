@@ -36,12 +36,14 @@ typedef int (*log_write_fn)(log_handle *log,
                             uint64*     lsn);
 typedef void (*log_release_fn)(log_handle *log);
 typedef uint64 (*log_addr_fn)(log_handle *log);
+typedef uint64 (*flush_lsn_fn)(log_handle *log);
 typedef uint64 (*log_magic_fn)(log_handle *log);
 
 typedef struct log_ops {
    log_write_fn   write;
    log_release_fn release;
    log_addr_fn    addr;
+   flush_lsn_fn   flush_lsn;
    log_addr_fn    meta_addr;
    log_magic_fn   magic;
 } log_ops;
@@ -67,6 +69,12 @@ static inline uint64
 log_addr(log_handle *log)
 {
    return log->ops->addr(log);
+}
+
+static inline uint64
+flush_lsn(log_handle *log)
+{
+   return log->ops->flush_lsn(log);
 }
 
 static inline uint64

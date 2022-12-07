@@ -447,6 +447,7 @@ typedef struct ONDISK trunk_super_block {
    uint64      meta_tail;
    uint64      active_mt_addr;   //Active memtable root address, will be used during recovery.
                                  //TODO Assuming 1 memtable in the context, need to update accordingly
+   uint64      master_lsn;
    uint64      log_addr;
    uint64      log_meta_addr;
    uint64      timestamp;
@@ -842,6 +843,7 @@ trunk_set_super_block(trunk_handle *spl,
    super->timestamp    = platform_get_real_time();
    super->checkpointed = is_checkpoint;
    super->unmounted    = is_unmount;
+   super->master_lsn   = flush_lsn(spl->log);
    super->checksum =
       platform_checksum128(super,
                            sizeof(trunk_super_block) - sizeof(checksum128),
@@ -851,6 +853,7 @@ trunk_set_super_block(trunk_handle *spl,
    cache_unlock(spl->cc, super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
+
    cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
 }
 

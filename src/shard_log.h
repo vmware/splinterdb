@@ -44,6 +44,7 @@ typedef struct shard_log {
    uint64                addr;
    uint64                meta_head;
    uint64                magic;
+   uint64                flushed_lsn;
 } shard_log;
 
 typedef struct log_entry log_entry;

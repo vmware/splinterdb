@@ -26,6 +26,8 @@ shard_log_write(log_handle *log, slice key, message msg, uint64 generation, node
 uint64
 shard_log_addr(log_handle *log);
 uint64
+shard_log_flush_lsn(log_handle *log);
+uint64
 shard_log_meta_addr(log_handle *log);
 uint64
 shard_log_magic(log_handle *log);
@@ -33,6 +35,7 @@ shard_log_magic(log_handle *log);
 static log_ops shard_log_ops = {
    .write     = shard_log_write,
    .addr      = shard_log_addr,
+   .flush_lsn      = shard_log_flush_lsn,
    .meta_addr = shard_log_meta_addr,
    .magic     = shard_log_magic,
 };
@@ -263,6 +266,8 @@ shard_log_write(log_handle *logh, slice key, message msg, uint64 generation, nod
 
       cache_unlock(cc, page);
       cache_unclaim(cc, page);
+      log->flushed_lsn = global - 1;
+      //TODO : Check if it should be blocking
       cache_page_sync(cc, page, FALSE, PAGE_TYPE_LOG);
       cache_unget(cc, page);
 
@@ -303,6 +308,13 @@ shard_log_addr(log_handle *logh)
 {
    shard_log *log = (shard_log *)logh;
    return log->addr;
+}
+
+uint64
+shard_log_flush_lsn(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   return log->flushed_lsn;
 }
 
 uint64
