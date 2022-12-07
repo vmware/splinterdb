@@ -786,34 +786,23 @@ void
 trunk_super_block_update_mtaddr(trunk_handle *spl,
                       uint64 curr_active_mt_addr)
 {
-   uint64             super_addr;
    page_handle       *super_page;
    trunk_super_block *super;
-   uint64             wait = 1;
-   platform_status    rc;
-   rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
-   platform_assert_status_ok(rc);
 
-   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
+   super_page = trunk_node_get(spl, spl->root_addr);
    super            = (trunk_super_block *)super_page->data;
    if(super->active_mt_addr == curr_active_mt_addr){
-      cache_unget(spl->cc, super_page);
+      trunk_node_unget(spl, &super_page);
       return;
    }
+   trunk_node_claim(spl, &super_page);
+   trunk_node_lock(spl, super_page);
 
-
-   while (!cache_claim(spl->cc, super_page)) {
-      platform_sleep(wait);
-      wait *= 2;
-   }
-   wait = 1;
-   cache_lock(spl->cc, super_page);
    super->active_mt_addr = curr_active_mt_addr;
-   cache_mark_dirty(spl->cc, super_page);
    cache_unlock(spl->cc, super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
-   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   cache_page_sync(spl->cc, super_page, FALSE, PAGE_TYPE_SUPERBLOCK);
 }
 
 void
@@ -3185,7 +3174,7 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
 
    // this call is safe because we hold the insert lock
    memtable *mt = trunk_get_memtable(spl, generation);
-   trunk_super_block_update_mtaddr(spl, mt->root_addr);
+//   trunk_super_block_update_mtaddr(spl, mt->root_addr);
    uint64    leaf_generation; // used for ordering the log
    rc = memtable_insert(
       spl->mt_ctxt, mt, spl->heap_id, key, msg, &leaf_generation);
