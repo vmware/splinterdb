@@ -452,6 +452,7 @@ typedef struct ONDISK trunk_super_block {
    uint64      timestamp;
    bool        checkpointed;
    bool        unmounted;
+   uint64      master_lsn;
    checksum128 checksum;
 } trunk_super_block;
 
@@ -815,6 +816,33 @@ trunk_super_block_update_mtaddr(trunk_handle *spl,
    cache_unget(spl->cc, super_page);
    cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
 }
+void
+trunk_super_block_update_tail_mini_alloc(trunk_handle *spl)
+{
+   uint64             super_addr;
+   page_handle       *super_page;
+   trunk_super_block *super;
+   uint64             wait = 1;
+   platform_status    rc;
+   rc = allocator_get_super_addr(spl->al, spl->id, &super_addr);
+   platform_assert_status_ok(rc);
+
+   super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
+   super            = (trunk_super_block *)super_page->data;
+
+   while (!cache_claim(spl->cc, super_page)) {
+      platform_sleep(wait);
+      wait *= 2;
+   }
+   wait = 1;
+   cache_lock(spl->cc, super_page);
+   super->meta_tail = mini_meta_tail(&spl->mini);
+   cache_mark_dirty(spl->cc, super_page);
+   cache_unlock(spl->cc, super_page);
+   cache_unclaim(spl->cc, super_page);
+   cache_unget(spl->cc, super_page);
+   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+}
 
 void
 trunk_set_super_block(trunk_handle *spl,
@@ -1085,7 +1113,11 @@ trunk_node_unlock(trunk_handle *spl, page_handle *node)
 page_handle *
 trunk_alloc(trunk_handle *spl, uint64 height)
 {
+   uint64  before_tail = spl->mini.meta_tail;
    uint64 addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
+   if(before_tail != spl->mini.meta_tail){
+      trunk_super_block_update_tail_mini_alloc(spl);
+   }
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 
@@ -5341,7 +5373,7 @@ void trunk_adjust_flush_sequence(trunk_handle *spl, page_handle *node){
    {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if(pdata->flush_sequence < node_hdr->persisted_flush_sequence){
-         pdata->flush_sequence = num_persisted_pivots++;
+         num_persisted_pivots++;
       }
    }
 
