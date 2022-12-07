@@ -97,7 +97,11 @@ io_handle_init(laio_handle         *io,
    } else {
       io->fd = open(cfg->filename, cfg->flags);
    }
-   platform_assert(io->fd != -1);
+   if (io->fd == -1) {
+      platform_error_log(
+         "open() '%s' failed: %s\n", cfg->filename, strerror(errno));
+      return CONST_STATUS(errno);
+   }
 
    req_size =
       sizeof(io_async_req) + cfg->async_max_pages * sizeof(struct iovec);

@@ -118,7 +118,7 @@ static void
 maybe_do_prefetch(blob_page_iterator *iter)
 {
    uint64 curr_extent_num = iter->offset / iter->extent_size;
-   if (!iter->alloc && curr_extent_num < iter->pblob.num_extents - 1) {
+   if (!iter->alloc && curr_extent_num + 1 < iter->pblob.num_extents) {
       cache_prefetch(iter->cc,
                      iter->pblob.base->addrs[curr_extent_num + 1],
                      PAGE_TYPE_BLOB);
