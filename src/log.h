@@ -18,6 +18,7 @@
 typedef enum node_type {
    NODE_TYPE_INVALID = 0,
    NODE_TYPE_TRUNK,
+   NODE_TYPE_SUPERBLOCK,
    NODE_TYPE_BTREE,
    NODE_TYPE_PIVOT_DATA          = 1000
 } node_type;

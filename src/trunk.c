@@ -1071,10 +1071,32 @@ trunk_node_unlock(trunk_handle *spl, page_handle *node)
    cache_unlock(spl->cc, node);
 }
 
+static inline uint64
+wal_log_trunk_changes(trunk_handle *spl, uint64 root_addr, bool isMemChange, uint64 value)
+{
+   char key[] = "";
+   char str[25];
+   sprintf(str, "%lu", value);
+
+   slice skey = slice_create(0, key);
+   slice msg = slice_create(25, str);
+   uint64 lsn;
+   if(isMemChange){
+      log_write(spl->log, skey, message_create(MESSAGE_TYPE_ACTIVE_MEM_TABLE_CHANGE, msg), 0, NODE_TYPE_SUPERBLOCK, root_addr, &lsn);
+   }else{
+      log_write(spl->log, skey, message_create(MESSAGE_TYPE_META_TAIL_CHANGE, msg), 0, NODE_TYPE_SUPERBLOCK, root_addr, &lsn);
+   }
+   return lsn;
+}
+
 page_handle *
 trunk_alloc(trunk_handle *spl, uint64 height)
 {
+   uint64  before_tail = spl->mini.meta_tail;
    uint64 addr = mini_alloc(&spl->mini, height, NULL_SLICE, NULL);
+   if(before_tail != spl->mini.meta_tail){
+      wal_log_trunk_changes(spl, spl->root_addr, FALSE, spl->mini.meta_tail);
+   }
    return cache_alloc(spl->cc, addr, PAGE_TYPE_TRUNK);
 }
 
@@ -3166,6 +3188,7 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
 {
    page_handle    *lock_page;
    uint64          generation;
+   uint64         previous_gen = spl->mt_ctxt->generation;
    platform_status rc = memtable_maybe_rotate_and_get_insert_lock(
       spl->mt_ctxt, &generation, &lock_page);
    if (!SUCCESS(rc)) {
@@ -3174,6 +3197,9 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
 
    // this call is safe because we hold the insert lock
    memtable *mt = trunk_get_memtable(spl, generation);
+   if(previous_gen != generation){
+      wal_log_trunk_changes(spl, spl->root_addr, TRUE, mt->root_addr);
+   }
 //   trunk_super_block_update_mtaddr(spl, mt->root_addr);
    uint64    leaf_generation; // used for ordering the log
    rc = memtable_insert(
@@ -5330,7 +5356,7 @@ void trunk_adjust_flush_sequence(trunk_handle *spl, page_handle *node){
    {
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if(pdata->flush_sequence < node_hdr->persisted_flush_sequence){
-         pdata->flush_sequence = num_persisted_pivots++;
+         num_persisted_pivots++;
       }
    }
 
