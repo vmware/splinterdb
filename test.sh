@@ -560,7 +560,7 @@ function run_splinter_functionality_tests() {
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             --seed "$SEED"
 
-    max_key_size=105
+    max_key_size=80
     run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
                                             --key-size ${max_key_size} --seed "$SEED"
@@ -606,7 +606,7 @@ function run_btree_tests() {
     run_with_timing "BTree test, with default key size" \
         "$BINDIR"/driver_test btree_test --seed "$SEED"
 
-    key_size=100
+    key_size=75
     run_with_timing "BTree test, key size=${key_size} bytes" \
         "$BINDIR"/driver_test btree_test --key-size ${key_size} --seed "$SEED"
 

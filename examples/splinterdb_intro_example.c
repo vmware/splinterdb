@@ -17,7 +17,7 @@
 #define CACHE_SIZE_MB   64   // Size of cache; can be changed across boots
 
 /* Application declares the limit of key-sizes it intends to use */
-#define USER_MAX_KEY_SIZE ((int)100)
+#define USER_MAX_KEY_SIZE ((int)70)
 
 /*
  * -------------------------------------------------------------------------------

@@ -22,7 +22,7 @@
 // Tests and example programs use test-data with keys of varying sizes.
 // When building with a smaller MAX_KEY_SIZE, expect some breakage.
 #ifndef MAX_KEY_SIZE
-#   define MAX_KEY_SIZE 105
+#   define MAX_KEY_SIZE 80
 #endif // MAX_KEY_SIZE
 
 #endif // __LIMITS_H__
