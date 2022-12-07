@@ -843,7 +843,9 @@ trunk_set_super_block(trunk_handle *spl,
    super->timestamp    = platform_get_real_time();
    super->checkpointed = is_checkpoint;
    super->unmounted    = is_unmount;
-   super->master_lsn   = flush_lsn(spl->log);
+   if(spl->cfg.use_log){
+      super->master_lsn   = flush_lsn(spl->log);
+   }
    super->checksum =
       platform_checksum128(super,
                            sizeof(trunk_super_block) - sizeof(checksum128),
