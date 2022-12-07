@@ -54,7 +54,7 @@ config_set_defaults(master_config *cfg)
       .allocator_capacity       = GiB_TO_B(TEST_CONFIG_DEFAULT_DISK_SIZE_GB),
       .cache_capacity           = GiB_TO_B(TEST_CONFIG_DEFAULT_CACHE_SIZE_GB),
       .btree_rough_count_height = 1,
-      .filter_remainder_size    = 9,
+      .filter_remainder_size    = 6,
       .filter_index_size        = TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE,
       .use_log                  = FALSE,
       .num_bg_threads[TASK_TYPE_NORMAL] = TEST_CONFIG_DEFAULT_NUM_BACKGROUND_THREADS,

@@ -60,7 +60,7 @@ test_init_task_system(platform_heap_id          hid,
                       const task_system_config *cfg)
 {
    // splinter initialization
-   return task_system_create(hid, ioh, system, cfg, trunk_get_scratch_size());
+   return task_system_create(hid, ioh, system, cfg);
 }
 
 static inline void
@@ -235,8 +235,10 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 
    shard_log_config_init(log_cfg, &cache_cfg->super, *data_cfg);
 
-   task_system_config_init(
-      task_cfg, master_cfg->use_stats, master_cfg->num_bg_threads);
+   task_system_config_init(task_cfg,
+                           master_cfg->use_stats,
+                           master_cfg->num_bg_threads,
+                           trunk_get_scratch_size());
 
    trunk_config_init(splinter_cfg,
                      &cache_cfg->super,

@@ -60,6 +60,7 @@ CTEST_DATA(task_system)
 
    // Config structs required, to exercise task subsystem
    io_config io_cfg;
+   task_system_config task_cfg;
 
    // Following get setup pointing to allocated memory
    platform_io_handle *ioh; // Only prerequisite needed to setup task system
@@ -106,11 +107,13 @@ CTEST_SETUP(task_system)
                "Failed to init IO handle: %s\n",
                platform_status_to_string(rc));
 
-   rc = task_system_create(data->hid,
-                           data->ioh,
-                           &data->tasks,
-                           &task_system_cfg_no_background_threads,
+   static const uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
+
+   task_system_config_init(&data->task_cfg,
+                           master_cfg.use_stats,
+                           num_bg_threads,
                            trunk_get_scratch_size());
+   rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
 
    // Main task (this thread) is at index 0
    ASSERT_EQUAL(0, platform_get_tid());

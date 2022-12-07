@@ -26,8 +26,8 @@ typedef struct task {
 typedef struct {
    timestamp max_runtime_ns;
    void     *max_runtime_func;
-   uint64    max_latency_ns;
-   uint64    total_latency_ns;
+   uint64    max_queue_wait_time_ns;
+   uint64    total_queue_wait_time_ns;
    uint64    total_bg_task_executions;
    uint64    total_fg_task_executions;
 } PLATFORM_CACHELINE_ALIGNED task_stats;
@@ -62,6 +62,12 @@ typedef struct task_group {
    task_stats stats[MAX_THREADS];
 } task_group;
 
+/*
+ * We maintain separate task groups for the memtable because memtable
+ * jobs are much shorter than other jobs and are latency critical.  By
+ * separating them out, we can devote a small number of threads to
+ * deal with these small, latency critical tasks.
+ */
 typedef enum task_type {
    TASK_TYPE_INVALID = 0,
    TASK_TYPE_MEMTABLE,
@@ -73,14 +79,14 @@ typedef enum task_type {
 typedef struct task_system_config {
    bool   use_stats;
    uint64 num_background_threads[NUM_TASK_TYPES];
+   uint64 scratch_size;
 } task_system_config;
-
-const extern task_system_config task_system_cfg_no_background_threads;
 
 platform_status
 task_system_config_init(task_system_config *task_cfg,
                         bool                use_stats,
-                        const uint64 num_background_threads[NUM_TASK_TYPES]);
+                        const uint64 num_background_threads[NUM_TASK_TYPES],
+                        uint64       scratch_size);
 
 
 /*
@@ -116,7 +122,6 @@ struct task_system {
    platform_heap_id heap_id;
 
    // scratch memory for the init thread.
-   uint64   scratch_size;
    void    *init_scratch;
    threadid init_tid;
    char     init_task_scratch[];
@@ -157,8 +162,7 @@ platform_status
 task_system_create(platform_heap_id          hid,
                    platform_io_handle       *ioh,
                    task_system             **system,
-                   const task_system_config *cfg,
-                   uint64                    scratch_size);
+                   const task_system_config *cfg);
 
 void
 task_system_destroy(platform_heap_id hid, task_system **ts);
@@ -177,14 +181,32 @@ task_enqueue(task_system *ts,
              void        *arg,
              bool         at_head);
 
+/*
+ * Performs one task if there is one waiting.  Otherwise returns
+ * immediately.  Returns STATUS_TIMEDOUT to indicate that there was no
+ * task to run.
+ */
 platform_status
 task_perform_one(task_system *ts);
 
+/*
+ * Like task_perform_one, except it only runs a task if the system
+ * appears to be falling behind.
+ */
 platform_status
 task_perform_one_if_needed(task_system *ts);
 
+/*
+ * task_perform_all() - Perform all tasks queued with the task system.
+ * Returns as soon as it finds the queue is empty.  Useful
+ * specifically when you are preparing to shut down the task system.
+ */
 void
 task_perform_all(task_system *ts);
+
+/*
+ *Functions for tests and debugging.
+ */
 
 void
 task_wait_for_completion(task_system *ts);

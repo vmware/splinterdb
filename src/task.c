@@ -8,8 +8,6 @@
 
 #define MAX_HOOKS (8)
 
-const task_system_config task_system_cfg_no_background_threads = {0};
-
 int              hook_init_done = 0;
 static int       num_hooks      = 0;
 static task_hook hooks[MAX_HOOKS];
@@ -369,7 +367,7 @@ task_thread_create(const char            *name,
 }
 
 /* Caller must hold lock on the group. */
-static inline task *
+static task *
 task_group_get_one_task(task_group *group)
 {
    task_queue *tq            = &group->tq;
@@ -398,7 +396,7 @@ task_group_get_one_task(task_group *group)
  * Do not need to hold lock on the group. (And advisably should not
  * hold lock on group for performance reasons.)
  */
-static inline platform_status
+static platform_status
 task_group_run_task(task_group *group, task *assigned_task)
 {
    const threadid tid = platform_get_tid();
@@ -406,10 +404,10 @@ task_group_run_task(task_group *group, task *assigned_task)
 
    if (group->use_stats) {
       current           = platform_get_timestamp();
-      timestamp latency = current - assigned_task->enqueue_time;
-      group->stats[tid].total_latency_ns += latency;
-      if (latency > group->stats[tid].max_latency_ns) {
-         group->stats[tid].max_latency_ns = latency;
+      timestamp queue_wait_time = current - assigned_task->enqueue_time;
+      group->stats[tid].total_queue_wait_time_ns += queue_wait_time;
+      if (queue_wait_time > group->stats[tid].max_queue_wait_time_ns) {
+         group->stats[tid].max_queue_wait_time_ns = queue_wait_time;
       }
    }
 
@@ -475,6 +473,7 @@ task_group_stop_and_wait_for_threads(task_group *group)
 
    for (uint8 i = 0; i < num_threads; i++) {
       platform_thread_join(group->bg.threads[i]);
+      group->bg.num_threads--;
    }
 }
 
@@ -496,7 +495,6 @@ task_group_init(task_group  *group,
    group->use_stats     = use_stats;
    platform_heap_id hid = ts->heap_id;
    platform_status  rc;
-   group->bg.num_threads = num_bg_threads;
 
    rc = platform_condvar_init(&group->cv, hid);
    if (!SUCCESS(rc)) {
@@ -515,14 +513,13 @@ task_group_init(task_group  *group,
          task_group_stop_and_wait_for_threads(group);
          goto out;
       }
+      group->bg.num_threads++;
    }
    return STATUS_OK;
 
 out:
    debug_assert(!SUCCESS(rc));
-   if (num_bg_threads) {
-      platform_condvar_destroy(&group->cv);
-   }
+   platform_condvar_destroy(&group->cv);
    return rc;
 }
 
@@ -599,20 +596,6 @@ task_enqueue(task_system *ts,
    return task_unlock_task_queue(group);
 }
 
-/*
- * task_perform_all() - Perform all tasks queued with the task system.
- * Returns as soon as it finds the queue is empty.
- */
-void
-task_perform_all(task_system *ts)
-{
-   platform_status rc;
-   do {
-      rc = task_perform_one(ts);
-      debug_assert(SUCCESS(rc) || STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
-   } while (STATUS_IS_NE(rc, STATUS_TIMEDOUT));
-}
-
 static void
 task_queue_unlock(void *arg)
 {
@@ -620,7 +603,7 @@ task_queue_unlock(void *arg)
    task_unlock_task_queue(group);
 }
 
-static inline platform_status
+static platform_status
 task_group_perform_one(task_group *group, uint64 min_backlog)
 {
    platform_status rc;
@@ -660,6 +643,7 @@ task_perform_one(task_system *ts)
    platform_status rc = STATUS_OK;
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       rc = task_group_perform_one(&ts->group[type], 0);
+      /* STATUS_TIMEDOUT means no task was waiting. */
       if (STATUS_IS_NE(rc, STATUS_TIMEDOUT)) {
          return rc;
       }
@@ -672,8 +656,11 @@ task_perform_one_if_needed(task_system *ts)
 {
    platform_status rc = STATUS_OK;
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
+      /* Perform a task only if there are more waiting tasks than bg
+         threads. */
       rc = task_group_perform_one(&ts->group[type],
                                   ts->group[type].bg.num_threads);
+      /* STATUS_TIMEDOUT means no task was waiting. */
       if (STATUS_IS_NE(rc, STATUS_TIMEDOUT)) {
          return rc;
       }
@@ -681,10 +668,22 @@ task_perform_one_if_needed(task_system *ts)
    return rc;
 }
 
+void
+task_perform_all(task_system *ts)
+{
+   platform_status rc;
+   do {
+      rc = task_perform_one(ts);
+      debug_assert(SUCCESS(rc) || STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
+      /* STATUS_TIMEDOUT means no task was waiting. */
+   } while (STATUS_IS_NE(rc, STATUS_TIMEDOUT));
+}
+
 platform_status
 task_system_config_init(task_system_config *task_cfg,
                         bool                use_stats,
-                        const uint64        num_bg_threads[NUM_TASK_TYPES])
+                        const uint64        num_bg_threads[NUM_TASK_TYPES],
+                        uint64              scratch_size)
 {
    if ((num_bg_threads[TASK_TYPE_NORMAL] == 0)
        != (num_bg_threads[TASK_TYPE_MEMTABLE] == 0))
@@ -712,11 +711,10 @@ platform_status
 task_system_create(platform_heap_id          hid,
                    platform_io_handle       *ioh,
                    task_system             **system,
-                   const task_system_config *cfg,
-                   uint64                    scratch_size)
+                   const task_system_config *cfg)
 {
-   task_system *ts =
-      TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ts, init_task_scratch, scratch_size);
+   task_system *ts = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, ts, init_task_scratch, cfg->scratch_size);
 
    if (ts == NULL) {
       *system = NULL;
@@ -729,7 +727,6 @@ task_system_create(platform_heap_id          hid,
    register_init_tid_hook();
 
    ts->heap_id      = hid;
-   ts->scratch_size = scratch_size;
    ts->init_tid     = INVALID_TID;
 
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
@@ -737,7 +734,7 @@ task_system_create(platform_heap_id          hid,
                                            ts,
                                            cfg->use_stats,
                                            cfg->num_background_threads[type],
-                                           scratch_size);
+                                           cfg->scratch_size);
       if (!SUCCESS(rc)) {
          platform_free(hid, ts);
          *system = NULL;
@@ -846,13 +843,15 @@ task_group_print_stats(task_group *group, task_type type)
          group->stats[i].total_bg_task_executions;
       global.total_fg_task_executions +=
          group->stats[i].total_fg_task_executions;
-      global.total_latency_ns += group->stats[i].total_latency_ns;
+      global.total_queue_wait_time_ns +=
+         group->stats[i].total_queue_wait_time_ns;
       if (group->stats[i].max_runtime_ns > global.max_runtime_ns) {
          global.max_runtime_ns   = group->stats[i].max_runtime_ns;
          global.max_runtime_func = group->stats[i].max_runtime_func;
       }
-      if (group->stats[i].max_latency_ns > global.max_latency_ns)
-         global.max_latency_ns = group->stats[i].max_latency_ns;
+      if (group->stats[i].max_queue_wait_time_ns
+          > global.max_queue_wait_time_ns)
+         global.max_queue_wait_time_ns = group->stats[i].max_queue_wait_time_ns;
    }
 
    switch (type) {
@@ -871,10 +870,10 @@ task_group_print_stats(task_group *group, task_type type)
                         global.max_runtime_ns);
    platform_default_log("| max runtime func     : %10p\n",
                         global.max_runtime_func);
-   platform_default_log("| total latency (ns)   : %10lu\n",
-                        global.total_latency_ns);
-   platform_default_log("| max latency (ns)     : %10lu\n",
-                        global.max_latency_ns);
+   platform_default_log("| total queue_wait_time (ns)   : %10lu\n",
+                        global.total_queue_wait_time_ns);
+   platform_default_log("| max queue_wait_time (ns)     : %10lu\n",
+                        global.max_queue_wait_time_ns);
    platform_default_log("| total bg tasks run      : %10lu\n",
                         global.total_bg_task_executions);
    platform_default_log("| total fg tasks run      : %10lu\n",

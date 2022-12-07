@@ -130,8 +130,8 @@ CTEST_SETUP(btree_stress)
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
                                                 data->data_cfg)
-       || !init_task_config_from_master_config(&data->task_cfg,
-                                               &data->master_cfg))
+       || !init_task_config_from_master_config(
+          &data->task_cfg, &data->master_cfg, sizeof(btree_scratch)))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -144,11 +144,8 @@ CTEST_SETUP(btree_stress)
    }
    // Setup execution of concurrent threads
    if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
-       || !SUCCESS(task_system_create(data->hid,
-                                      &data->io,
-                                      &data->ts,
-                                      &data->task_cfg,
-                                      sizeof(btree_scratch)))
+       || !SUCCESS(
+          task_system_create(data->hid, &data->io, &data->ts, &data->task_cfg))
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,
                                      (io_handle *)&data->io,

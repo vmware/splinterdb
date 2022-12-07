@@ -34,7 +34,8 @@ init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
 
 int
 init_task_config_from_master_config(task_system_config  *task_cfg,
-                                    const master_config *master_cfg);
+                                    const master_config *master_cfg,
+                                    uint64               scratch_size);
 
 int
 init_btree_config_from_master_config(btree_config  *dbtree_cfg,

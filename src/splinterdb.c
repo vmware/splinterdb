@@ -38,6 +38,7 @@ typedef struct splinterdb {
    clockcache_config    cache_cfg;
    clockcache           cache_handle;
    shard_log_config     log_cfg;
+   task_system_config   task_cfg;
    allocator_root_id    trunk_id;
    trunk_config         trunk_cfg;
    trunk_handle        *spl;
@@ -188,6 +189,9 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 
    shard_log_config_init(&kvs->log_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
 
+   static const uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
+   task_system_config_init(
+      &kvs->task_cfg, cfg.use_stats, num_bg_threads, trunk_get_scratch_size());
    trunk_config_init(&kvs->trunk_cfg,
                      &kvs->cache_cfg.super,
                      kvs->data_cfg,
@@ -246,11 +250,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
-   status = task_system_create(kvs->heap_id,
-                               &kvs->io_handle,
-                               &kvs->task_sys,
-                               &task_system_cfg_no_background_threads,
-                               trunk_get_scratch_size());
+   status = task_system_create(
+      kvs->heap_id, &kvs->io_handle, &kvs->task_sys, &kvs->task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log(
          "Failed to initalize SplinterDB task system state: %s\n",
