@@ -105,6 +105,7 @@ config:
     INCLUDE_SLOW_TESTS: #@ str(not quick).lower()
     RUN_NIGHTLY_TESTS: #@ str(test_nightly).lower()
     BUILD_VERBOSE: "1"
+    VERBOSE: "1"
 
     #! Exercise 'make help' in quick tests mode, to ensure 'help' still works.
     #@ if quick:
