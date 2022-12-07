@@ -532,6 +532,7 @@ typedef struct ONDISK trunk_hdr {
    uint64 page_lsn;         //Log Sequence Number(LSN) corresponding newest update on the page
    uint8  tail_flush_sequence;      //Latest sequence used to determine flush order of nodes
    uint8  persisted_flush_sequence;   //Last flush sequence that is persisted to disk
+   uint64 parent_addr;
 
    uint16 start_branch;      // first live branch
    uint16 start_frac_branch; // first fractional branch (branch in a bundle)
@@ -5419,7 +5420,8 @@ trunk_split_index_given_rightnode(trunk_handle    *spl,
 
    right_hdr->next_addr = left_hdr->next_addr;
    left_hdr->next_addr  = right_addr;
-
+   platform_assert(right_hdr->parent_addr == parent->disk_addr);
+   platform_assert(left_hdr->parent_addr == parent->disk_addr);
    left_hdr->generation++;
    trunk_reset_start_branch(spl, right_node);
    trunk_reset_start_branch(spl, left_node);
@@ -5909,6 +5911,7 @@ trunk_split_leaf(trunk_handle *spl,
 
       for(int i =0; i < num_leaves; i++){
          trunk_hdr *child = (trunk_hdr *)children[i]->data;
+         platform_assert(child->parent_addr == parent->disk_addr);
          child->page_lsn = lsn;
       }
    }
@@ -5998,6 +6001,7 @@ trunk_grow_root(trunk_handle *spl,
 {
    trunk_hdr *root_hdr = (trunk_hdr *)root->data;
    trunk_hdr   *child_hdr = (trunk_hdr *)child->data;
+   child_hdr->parent_addr = root->disk_addr;
 
    // copy root to child, fix up root, then split
    memmove(child_hdr, root_hdr, trunk_page_size(&spl->cfg));
