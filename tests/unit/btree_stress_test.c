@@ -147,7 +147,6 @@ CTEST_SETUP(btree_stress)
                                       &data->io,
                                       &data->ts,
                                       data->master_cfg.use_stats,
-                                      FALSE,
                                       data->num_bg_threads,
                                       sizeof(btree_scratch)))
        || !SUCCESS(rc_allocator_init(&data->al,

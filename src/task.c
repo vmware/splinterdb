@@ -743,6 +743,32 @@ task_perform_one(task_system *ts)
 }
 
 /*
+ * Validate that the task system configuration is basically supportable.
+ * This check protects us from configuring some bizillion #s of background
+ * threads, which somehow sneak through other config parsing checks.
+ * We also enforce other, somewhat arbitrary, limits to leave some headroom
+ * for user-threads to exeecute.
+ */
+static platform_status
+task_config_valid(uint8 num_bg_threads[NUM_TASK_TYPES])
+{
+   uint64 normal_bg_threads   = num_bg_threads[TASK_TYPE_NORMAL];
+   uint64 memtable_bg_threads = num_bg_threads[TASK_TYPE_MEMTABLE];
+
+   if ((normal_bg_threads + memtable_bg_threads) > (MAX_THREADS / 2)) {
+      platform_error_log("Background thread configuration is not supported."
+                         " Total number of background threads configured"
+                         ", normal-bg-threads=%lu, memtable-bg-threads=%lu,"
+                         " must be <= %d\n",
+                         normal_bg_threads,
+                         memtable_bg_threads,
+                         (MAX_THREADS / 2));
+      return STATUS_BAD_PARAM;
+   }
+   return STATUS_OK;
+}
+
+/*
  * -----------------------------------------------------------------------------
  * Task system initializer. Makes sure that the initial thread has an
  * adequately sized scratch space.
@@ -756,10 +782,14 @@ task_system_create(platform_heap_id    hid,
                    platform_io_handle *ioh,
                    task_system       **system,
                    bool                use_stats,
-                   bool                use_bg_threads,
                    uint8               num_bg_threads[NUM_TASK_TYPES],
                    uint64              scratch_size)
 {
+   platform_status rc = task_config_valid(num_bg_threads);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    task_system *ts =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ts, init_task_scratch, scratch_size);
 
@@ -772,12 +802,17 @@ task_system_create(platform_heap_id    hid,
    // task initialization
    register_init_tid_hook();
 
+   // Treat this as a soft-error and configure the task system w/o
+   // background threads when one of these configs is 0.
+   bool use_bg_threads = ((num_bg_threads[TASK_TYPE_MEMTABLE] != 0)
+                          && (num_bg_threads[TASK_TYPE_NORMAL] != 0));
+
    ts->use_bg_threads = use_bg_threads;
    ts->heap_id        = hid;
    ts->scratch_size   = scratch_size;
    ts->init_tid       = INVALID_TID;
 
-   // Ensure that the main threads gets registered and init'ed first before
+   // Ensure that the main thread gets registered and init'ed first before
    // any background threads are created. (Those may grab their own tids.).
    task_run_thread_hooks(ts);
    const threadid tid      = platform_get_tid();
@@ -798,7 +833,7 @@ task_system_create(platform_heap_id    hid,
          *system = NULL;
          return rc;
       }
-      nbg_threads_created += num_bg_threads[type];
+      nbg_threads_created += (use_bg_threads ? num_bg_threads[type] : 0);
    }
 
    // Wait-for all background threads to start-up and register. This is not

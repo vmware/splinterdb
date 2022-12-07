@@ -188,10 +188,8 @@ CTEST_SETUP(splinter)
        data->num_bg_threads[idx] = 0;
    }
 
-   bool use_bg_threads = data->num_bg_threads[TASK_TYPE_NORMAL] != 0;
-
    rc = test_init_task_system(data->hid, data->io, &data->tasks, data->splinter_cfg->use_stats,
-                           use_bg_threads, data->num_bg_threads);
+                              data->num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));

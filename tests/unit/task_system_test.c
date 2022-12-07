@@ -62,7 +62,7 @@ CTEST_DATA(task_system)
    io_config io_cfg;
 
    uint8  num_bg_threads[NUM_TASK_TYPES];
-   uint32 num_bg_threads_configured;
+   uint64 num_bg_threads_configured;
 
    // Following get setup pointing to allocated memory
    platform_io_handle *ioh; // Only prerequisite needed to setup task system
@@ -97,7 +97,7 @@ CTEST_SETUP(task_system)
    master_config master_cfg;
    config_set_defaults(&master_cfg);
 
-   // Expected args to parse: --num-bg-threads, --num-memtable-bg-threads
+   // Expected args to parse: --num-normal-bg-threads, --num-memtable-bg-threads
    rc = config_parse(&master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -119,20 +119,17 @@ CTEST_SETUP(task_system)
       data->num_bg_threads[idx] = 0;
    }
    // Set background thread params if specified.
-   data->num_bg_threads[TASK_TYPE_NORMAL] = master_cfg.num_bg_threads;
+   data->num_bg_threads[TASK_TYPE_NORMAL] = master_cfg.num_normal_bg_threads;
    data->num_bg_threads[TASK_TYPE_MEMTABLE] =
       master_cfg.num_memtable_bg_threads;
    data->num_bg_threads_configured =
-      (master_cfg.num_bg_threads + master_cfg.num_memtable_bg_threads);
+      (master_cfg.num_normal_bg_threads + master_cfg.num_memtable_bg_threads);
 
-   // Background thread support is disabled, by default.
-   bool use_bg_threads = (data->num_bg_threads_configured != 0);
-
+   // Background threads are OFF by default. Can be configured by cmdline args.
    rc = task_system_create(data->hid,
                            data->ioh,
                            &data->tasks,
-                           TRUE,           // Use statistics,
-                           use_bg_threads, // BG threads can be configured.
+                           TRUE, // Use statistics,
                            data->num_bg_threads,
                            trunk_get_scratch_size());
 
@@ -333,7 +330,7 @@ CTEST2(task_system, test_multiple_threads)
 
    ZERO_ARRAY(thread_cfg);
    ASSERT_EQUAL(task_get_max_tid(data->tasks),
-                1,
+                (1 + data->num_bg_threads_configured),
                 "Before threads start, task_get_max_tid() = %lu",
                 task_get_max_tid(data->tasks));
 

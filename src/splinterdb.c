@@ -245,15 +245,14 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
-   uint8 *num_bg_threads = (uint8 *)kvs_cfg->num_bg_threads;
-   bool   use_bg_threads = ((num_bg_threads[TASK_TYPE_NORMAL] != 0)
-                          || (num_bg_threads[TASK_TYPE_MEMTABLE] != 0));
+   uint8 num_bg_threads[NUM_TASK_TYPES] = {0};
+   num_bg_threads[TASK_TYPE_MEMTABLE]   = kvs_cfg->num_memtable_bg_threads;
+   num_bg_threads[TASK_TYPE_NORMAL]     = kvs_cfg->num_normal_bg_threads;
 
    status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
                                TRUE,
-                               use_bg_threads,
                                num_bg_threads,
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
@@ -692,4 +691,11 @@ void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
+}
+
+// TRUE if Splinter's task system was configured to use background threads.
+bool
+splinterdb_task_system_uses_bg_threads(splinterdb *kvs)
+{
+   return (kvs->task_sys && task_system_use_bg_threads(kvs->task_sys));
 }

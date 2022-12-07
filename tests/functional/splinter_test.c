@@ -2788,7 +2788,7 @@ splinter_test(int argc, char *argv[])
    bool use_bg_threads = num_bg_threads[TASK_TYPE_NORMAL] != 0;
 
    rc = test_init_task_system(
-      hid, io, &ts, splinter_cfg->use_stats, use_bg_threads, num_bg_threads);
+      hid, io, &ts, splinter_cfg->use_stats, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));

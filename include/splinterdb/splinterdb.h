@@ -15,9 +15,6 @@
 
 #include "splinterdb/data.h"
 
-// Externalize # of task types that task system can support
-#define SPLINTERDB_NUM_TASK_TYPES 3
-
 // Get a version string for this build of SplinterDB
 // Currently a git tag
 const char *
@@ -69,7 +66,8 @@ typedef struct {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
-   uint8  num_bg_threads[SPLINTERDB_NUM_TASK_TYPES]; // = {0} => no bg threads
+   uint64 num_memtable_bg_threads;
+   uint64 num_normal_bg_threads;
 
 } splinterdb_config;
 
@@ -324,5 +322,9 @@ splinterdb_stats_print_lookup(const splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);
+
+// TRUE if Splinter's task system was configured to use background threads.
+bool
+splinterdb_task_system_uses_bg_threads(splinterdb *kvs);
 
 #endif // _SPLINTERDB_H_

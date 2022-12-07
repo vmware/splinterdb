@@ -58,17 +58,11 @@ test_init_task_system(platform_heap_id    hid,
                       platform_io_handle *ioh,
                       task_system       **system,
                       bool                use_stats,
-                      bool                use_bg_threads,
                       uint8               num_bg_threads[NUM_TASK_TYPES])
 {
    // splinter initialization
-   return task_system_create(hid,
-                             ioh,
-                             system,
-                             use_stats,
-                             use_bg_threads,
-                             num_bg_threads,
-                             trunk_get_scratch_size());
+   return task_system_create(
+      hid, ioh, system, use_stats, num_bg_threads, trunk_get_scratch_size());
 }
 
 static inline void

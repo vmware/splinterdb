@@ -256,8 +256,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
           * These arguments will be passed through to Splinter initialization
           * to setup Splinter task system to use background threads.
           */
-         config_set_uint8("num-bg-threads", cfg, num_bg_threads);
-         config_set_uint8(
+         config_set_uint64("num-normal-bg-threads", cfg, num_normal_bg_threads);
+         config_set_uint64(
             "num-memtable-bg-threads", cfg, num_memtable_bg_threads);
 
          config_has_option("stats")
@@ -318,6 +318,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             return STATUS_BAD_PARAM;
          }
       }
+
+      // Validate consistency of config parameters provided.
       for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
          if (cfg[cfg_idx].extent_size % cfg[cfg_idx].page_size != 0) {
             platform_error_log("Configured extent-size, %lu, is not a multiple "
@@ -349,6 +351,17 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                                "experimental.\n",
                                cfg[cfg_idx].max_key_size,
                                TEST_CONFIG_MIN_KEY_SIZE);
+            return STATUS_BAD_PARAM;
+         }
+         if ((cfg[cfg_idx].num_normal_bg_threads == 0)
+             != (cfg[cfg_idx].num_memtable_bg_threads == 0))
+         {
+            platform_error_log("Both configuration parameters for background "
+                               "threads, --num-normal-bg-threads (%lu) "
+                               " and --num-memtable-bg-threads (%lu) "
+                               "must be zero or be non-zero.\n",
+                               cfg[cfg_idx].num_normal_bg_threads,
+                               cfg[cfg_idx].num_memtable_bg_threads);
             return STATUS_BAD_PARAM;
          }
       }

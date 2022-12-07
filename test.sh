@@ -515,13 +515,16 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/btree_test
    "$BINDIR"/unit/util_test
 
-   # Just exercise with some combination of background threads to ensure
-   # that basic usage of background threads still works.
-   "$BINDIR"/unit/task_system_test --num-bg-threads 4 --num-memtable-bg-threads  2
-
    "$BINDIR"/unit/misc_test
    "$BINDIR"/unit/limitations_test
+
+   # Default execution runs w/ no background threads configured
    "$BINDIR"/unit/task_system_test
+
+   # Just exercise with some combination of background threads to ensure
+   # that basic usage of background thread config params still works.
+   "$BINDIR"/unit/task_system_test --num-normal-bg-threads 4 --num-memtable-bg-threads  2
+
 }
 
 # ##################################################################
@@ -540,16 +543,6 @@ function run_slower_unit_tests() {
 
     run_with_timing "Splinter print diagnostics test" \
         "$BINDIR"/unit/splinter_test test_splinter_print_diags
-
-    # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
-    local nMill=1
-    local nInserts=$((nMill * 1000 * 1000))
-    run_with_timing "Large inserts stress tests, with background threads" \
-        "$BINDIR"/unit/large_inserts_bugs_stress_test \
-                        --num-inserts "${nInserts}" \
-                        --num-threads 4 \
-                        --num-bg-threads 2 \
-                        --num-memtable-bg-threads 2
 }
 
 # ##################################################################
@@ -567,7 +560,7 @@ function run_splinter_functionality_tests() {
 
     run_with_timing "Functionality test, default key size, with background threads" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --num-bg-threads 4 --num-memtable-bg-threads 2 \
+                                            --num-normal-bg-threads 4 --num-memtable-bg-threads 2 \
                                             --seed "$SEED"
 
     max_key_size=102

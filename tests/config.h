@@ -79,8 +79,8 @@ typedef struct master_config {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
-   uint8  num_bg_threads;          // = 0 => no background threads
-   uint8  num_memtable_bg_threads; // = 0 => no Memtable background threads
+   uint64 num_normal_bg_threads;   // Both bg_threads fields have to be non-zero
+   uint64 num_memtable_bg_threads; // for background threads to be enabled
 
    bool verbose_logging_enabled;
    bool verbose_progress;
