@@ -5420,8 +5420,8 @@ trunk_split_index_given_rightnode(trunk_handle    *spl,
 
    right_hdr->next_addr = left_hdr->next_addr;
    left_hdr->next_addr  = right_addr;
-   platform_assert(right_hdr->parent_addr == parent->disk_addr);
-   platform_assert(left_hdr->parent_addr == parent->disk_addr);
+   right_hdr->parent_addr = parent->disk_addr;
+   left_hdr->parent_addr = parent->disk_addr;
    left_hdr->generation++;
    trunk_reset_start_branch(spl, right_node);
    trunk_reset_start_branch(spl, left_node);
@@ -5911,7 +5911,7 @@ trunk_split_leaf(trunk_handle *spl,
 
       for(int i =0; i < num_leaves; i++){
          trunk_hdr *child = (trunk_hdr *)children[i]->data;
-         platform_assert(child->parent_addr == parent->disk_addr);
+         child->parent_addr = parent->disk_addr;
          child->page_lsn = lsn;
       }
    }
