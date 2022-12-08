@@ -244,7 +244,7 @@ log_test(int argc, char *argv[])
    bool                   run_crash_test;
    int                    rc;
    uint64                 seed;
-   task_system           *ts;
+   task_system           *ts = NULL;
    test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {

@@ -966,7 +966,7 @@ cache_test(int argc, char *argv[])
    int                    config_argc = argc - 1;
    char                 **config_argv = argv + 1;
    platform_status        rc;
-   task_system           *ts;
+   task_system           *ts        = NULL;
    bool                   benchmark = FALSE, async = FALSE;
    uint64                 seed;
    test_message_generator gen;

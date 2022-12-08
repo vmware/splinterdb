@@ -38,8 +38,8 @@
 
 // By default, background threads are disabled in Splinter task system.
 // Most threads run w/o background threads. Very small # of tests exercise
-// background threads through --num-bg-threads and --num-memtable-bg-threads
-// options.
+// background threads through the --num-normal-bg-threads and
+// --num-memtable-bg-threads options.
 #define TEST_CONFIG_DEFAULT_NUM_BG_THREADS          0
 #define TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS 0
 
@@ -125,7 +125,7 @@ config_usage()
    platform_error_log("\t--max-branches-per-node (%d)\n",
                       TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE);
 
-   platform_error_log("\t--num-bg-threads (%d)\n",
+   platform_error_log("\t--num-normal-bg-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_BG_THREADS);
 
    platform_error_log("\t--num-memtable-bg-threads (%d)\n",

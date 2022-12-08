@@ -188,6 +188,7 @@ CTEST_SETUP(splinter)
        data->num_bg_threads[idx] = 0;
    }
 
+   data->tasks = NULL;
    rc = test_init_task_system(data->hid, data->io, &data->tasks, data->splinter_cfg->use_stats,
                               data->num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc),

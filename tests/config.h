@@ -20,8 +20,6 @@
 
 extern const char *BUILD_VERSION;
 
-#define TEST_NUM_TASK_TYPES NUM_TASK_TYPES
-
 /*
  * --------------------------------------------------------------------------
  * Default test configuration settings. These will be used by

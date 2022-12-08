@@ -66,6 +66,12 @@ typedef struct {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
+
+   // Background threads configuration: Both have to be non-zero in order for
+   // background threads to be started.
+   // - Memtable bg-threads work on Memtables, and affect latency of inserts
+   // - Normal bg-threads work on compacting branches in the trunk and can
+   //   drive I/O rates up.
    uint64 num_memtable_bg_threads;
    uint64 num_normal_bg_threads;
 
@@ -322,9 +328,5 @@ splinterdb_stats_print_lookup(const splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);
-
-// TRUE if Splinter's task system was configured to use background threads.
-bool
-splinterdb_task_system_uses_bg_threads(splinterdb *kvs);
 
 #endif // _SPLINTERDB_H_

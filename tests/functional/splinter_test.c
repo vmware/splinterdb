@@ -2383,7 +2383,9 @@ usage(const char *argv0)
       "\t%s --cache-per-table\n"
       "\t%s --parallel-perf --max-async-inflight [num] --num-pthreads [num] "
       "--lookup-positive-percent [num] --seed [num]\n"
-      "\t%s --num-bg-threads (number of background threads)\n"
+      "\t%s --num-normal-bg-threads (number of normal background threads)\n"
+      "\t\t      --num-memtable-bg-threads (number of background threads for "
+      "memtables)\n"
       "\t%s --insert-rate (inserts_done_by_all_threads in a second)\n",
       argv0,
       argv0,
@@ -2506,7 +2508,7 @@ splinter_test(int argc, char *argv[])
    // no bg threads by default.
    uint8                  num_bg_threads[NUM_TASK_TYPES] = {0};
    uint64                 insert_rate = 0; // no rate throttling by default.
-   task_system           *ts;
+   task_system           *ts          = NULL;
    uint8                  lookup_positive_pct = 0;
    test_message_generator gen;
    test_exec_config       test_exec_cfg;
@@ -2612,8 +2614,9 @@ splinter_test(int argc, char *argv[])
       config_argv += 1;
    }
    if (config_argc > 0
-       && strncmp(
-             config_argv[0], "--num-bg-threads", sizeof("--num-bg-threads"))
+       && strncmp(config_argv[0],
+                  "--num-normal-bg-threads",
+                  sizeof("--num-normal-bg-threads"))
              == 0)
    {
       if (!try_string_to_uint8(config_argv[1],

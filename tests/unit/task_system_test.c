@@ -40,6 +40,14 @@ typedef struct {
 } thread_config;
 
 // Function prototypes
+static platform_status
+create_task_system_without_bg_threads(void *datap);
+
+static platform_status
+create_task_system_with_bg_threads(void  *datap,
+                                   uint64 num_memtable_bg_threads,
+                                   uint64 num_normal_bg_threads);
+
 static void
 exec_one_thread_use_lower_apis(void *arg);
 
@@ -61,8 +69,7 @@ CTEST_DATA(task_system)
    // Config structs required, to exercise task subsystem
    io_config io_cfg;
 
-   uint8  num_bg_threads[NUM_TASK_TYPES];
-   uint64 num_bg_threads_configured;
+   uint8 num_bg_threads[NUM_TASK_TYPES];
 
    // Following get setup pointing to allocated memory
    platform_io_handle *ioh; // Only prerequisite needed to setup task system
@@ -97,10 +104,6 @@ CTEST_SETUP(task_system)
    master_config master_cfg;
    config_set_defaults(&master_cfg);
 
-   // Expected args to parse: --num-normal-bg-threads, --num-memtable-bg-threads
-   rc = config_parse(&master_cfg, 1, Ctest_argc, (char **)Ctest_argv);
-   ASSERT_TRUE(SUCCESS(rc));
-
    io_config_init(&data->io_cfg,
                   master_cfg.page_size,
                   master_cfg.extent_size,
@@ -114,24 +117,9 @@ CTEST_SETUP(task_system)
                "Failed to init IO handle: %s\n",
                platform_status_to_string(rc));
 
-   // no background threads by default.
-   for (int idx = 0; idx < ARRAY_SIZE(data->num_bg_threads); idx++) {
-      data->num_bg_threads[idx] = 0;
-   }
-   // Set background thread params if specified.
-   data->num_bg_threads[TASK_TYPE_NORMAL] = master_cfg.num_normal_bg_threads;
-   data->num_bg_threads[TASK_TYPE_MEMTABLE] =
-      master_cfg.num_memtable_bg_threads;
-   data->num_bg_threads_configured =
-      (master_cfg.num_normal_bg_threads + master_cfg.num_memtable_bg_threads);
-
-   // Background threads are OFF by default. Can be configured by cmdline args.
-   rc = task_system_create(data->hid,
-                           data->ioh,
-                           &data->tasks,
-                           TRUE, // Use statistics,
-                           data->num_bg_threads,
-                           trunk_get_scratch_size());
+   // Background threads are OFF by default.
+   rc = create_task_system_without_bg_threads(data);
+   ASSERT_TRUE(SUCCESS(rc));
 
    // Main task (this thread) is at index 0
    ASSERT_EQUAL(0, platform_get_tid());
@@ -140,16 +128,9 @@ CTEST_SETUP(task_system)
    // Active threads have their bit turned -OFF- in this bitmask.
    uint64 task_bitmask              = task_active_tasks_mask(data->tasks);
    uint64 all_threads_inactive_mask = (~0L);
+   uint64 this_thread_active_mask   = (~0x1L);
+   uint64 exp_bitmask = (all_threads_inactive_mask & this_thread_active_mask);
 
-   // Construct known bit-mask for active threads knowing that the background
-   // threads are started up when task system is created.
-   uint64 active_threads_mask = 0;
-   for (int tid = 0; tid < task_get_max_tid(data->tasks); tid++) {
-      active_threads_mask |= (1L << tid);
-   }
-   active_threads_mask = ~active_threads_mask;
-
-   uint64 exp_bitmask = (all_threads_inactive_mask & active_threads_mask);
    ASSERT_EQUAL(exp_bitmask,
                 task_bitmask,
                 "exp_bitmask=0x%x, task_bitmask=0x%x\n",
@@ -158,6 +139,9 @@ CTEST_SETUP(task_system)
 
    // Save it off, so it can be used for verification in a test case.
    data->active_threads_bitmask = exp_bitmask;
+   if (Ctest_verbose) {
+      platform_set_log_streams(stdout, stderr);
+   }
 }
 
 // Teardown function for suite, called after every test in suite
@@ -174,21 +158,13 @@ CTEST_TEARDOWN(task_system)
  * invokes the create() / destroy() interfaces of the task sub-system.
  * Every other test case will also execute this pair. This test case
  * solely serves the purpose of a minimalistic exerciser of those methods.
- * While at it, report the value returned by platform_get_tid().
- *
- * If test execution is done configuring background threads, cross-check
- * the relevant primitives from the task system.
  * ------------------------------------------------------------------------
  */
 CTEST2(task_system, test_basic_create_destroy)
 {
    threadid main_thread_idx = platform_get_tid();
    ASSERT_EQUAL(main_thread_idx, 0);
-   if (data->num_bg_threads_configured) {
-      ASSERT_TRUE(task_system_use_bg_threads(data->tasks));
-   } else {
-      ASSERT_FALSE(task_system_use_bg_threads(data->tasks));
-   }
+   ASSERT_FALSE(task_system_use_bg_threads(data->tasks));
 }
 
 /*
@@ -221,9 +197,8 @@ CTEST2(task_system, test_one_thread_using_lower_apis)
    // Setup thread-specific struct, needed for validation in thread's worker fn
    thread_cfg.tasks = data->tasks;
 
-
-   // Main thread is at index 0, plus # of background threads created up-front.
-   thread_cfg.exp_thread_idx         = 1 + data->num_bg_threads_configured;
+   // Main thread is at index 0
+   thread_cfg.exp_thread_idx         = 1;
    thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
 
    platform_status rc = STATUS_OK;
@@ -277,8 +252,8 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
    // Setup thread-specific struct, needed for validation in thread's worker fn
    thread_cfg.tasks = data->tasks;
 
-   // Main thread is at index 0, plus # of background threads created up-front.
-   thread_cfg.exp_thread_idx         = 1 + data->num_bg_threads_configured;
+   // Main thread is at index 0
+   thread_cfg.exp_thread_idx         = 1;
    thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
 
    platform_status rc = STATUS_OK;
@@ -318,6 +293,7 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
  * ------------------------------------------------------------------------
  * Test creation and execution of multiple threads which will do the stuff
  * required to start threads using lower-level Splinter interfaces.
+ * Background threads are off, by default.
  * ------------------------------------------------------------------------
  */
 CTEST2(task_system, test_multiple_threads)
@@ -330,17 +306,13 @@ CTEST2(task_system, test_multiple_threads)
 
    ZERO_ARRAY(thread_cfg);
    ASSERT_EQUAL(task_get_max_tid(data->tasks),
-                (1 + data->num_bg_threads_configured),
+                1,
                 "Before threads start, task_get_max_tid() = %lu",
                 task_get_max_tid(data->tasks));
 
-   // We may have started some background threads, if this test was so
-   // configured. So, start-up all the remaining threads.
-   threadid max_tid_so_far = task_get_max_tid(data->tasks);
-
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
-   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
@@ -356,13 +328,146 @@ CTEST2(task_system, test_multiple_threads)
    }
 
    // Complete execution of n-threads. Worker fn does the validation.
-   for (tctr = max_tid_so_far, thread_cfgp = &thread_cfg[tctr];
+   for (tctr = 1, thread_cfgp = &thread_cfg[tctr];
         tctr < ARRAY_SIZE(thread_cfg);
         tctr++, thread_cfgp++)
    {
       rc = platform_thread_join(thread_cfgp->this_thread_id);
       ASSERT_TRUE(SUCCESS(rc));
    }
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * Test creation of task system with background threads configured.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(task_system, test_task_system_creation_with_bg_threads)
+{
+   // Destroy the task system setup by the harness, by default, w/o bg threads.
+   task_system_destroy(data->hid, &data->tasks);
+   platform_status rc = create_task_system_with_bg_threads(data, 2, 4);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint64 all_threads_inactive_mask = (~0L);
+
+   // Construct known bit-mask for active threads knowing that the background
+   // threads are started up when task system is created w/bg threads.
+   threadid max_thread_id       = task_get_max_tid(data->tasks);
+   uint64   active_threads_mask = 0;
+   for (int tid = 0; tid < max_thread_id; tid++) {
+      active_threads_mask |= (1L << tid);
+   }
+   active_threads_mask = ~active_threads_mask;
+
+   uint64 exp_bitmask  = (all_threads_inactive_mask & active_threads_mask);
+   uint64 task_bitmask = task_active_tasks_mask(data->tasks);
+
+   ASSERT_EQUAL(exp_bitmask,
+                task_bitmask,
+                "exp_bitmask=0x%x, task_bitmask=0x%x\n",
+                exp_bitmask,
+                task_bitmask);
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * Test creation of task system using up the threads for background threads.
+ * Verify that the next user-thread creation should fail.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(task_system, test_use_all_threads_for_bg_threads)
+{
+   platform_status rc = STATUS_OK;
+
+   // Destroy the task system setup by the harness, by default, w/o bg threads.
+   task_system_destroy(data->hid, &data->tasks);
+
+   // Consume all available threads with background threads.
+   rc = create_task_system_with_bg_threads(data, 1, (MAX_THREADS - 2));
+   ASSERT_TRUE(SUCCESS(rc));
+
+   threadid main_thread_idx = platform_get_tid();
+   ASSERT_EQUAL(0, main_thread_idx, "main_thread_idx=%lu", main_thread_idx);
+
+   thread_config thread_cfg;
+   ZERO_STRUCT(thread_cfg);
+   thread_cfg.tasks                  = data->tasks;
+   thread_cfg.exp_thread_idx         = task_get_max_tid(data->tasks);
+   thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
+
+   platform_thread new_thread = 0;
+   // This should fail to create a new thread
+   rc = task_thread_create("test_one_thread",
+                           exec_one_thread_use_extern_apis,
+                           &thread_cfg,
+                           trunk_get_scratch_size(),
+                           data->tasks,
+                           data->hid,
+                           &new_thread);
+   ASSERT_FALSE(SUCCESS(rc));
+}
+
+
+/* Wrapper function to create Splinter Task system w/o background threads. */
+static platform_status
+create_task_system_without_bg_threads(void *datap)
+{
+   // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
+   struct CTEST_IMPL_DATA_SNAME(task_system) *data =
+      (struct CTEST_IMPL_DATA_SNAME(task_system) *)datap;
+
+   // no background threads by default.
+   ZERO_ARRAY(data->num_bg_threads);
+
+   platform_status rc = STATUS_OK;
+
+   // Background threads are OFF by default.
+   rc = task_system_create(data->hid,
+                           data->ioh,
+                           &data->tasks,
+                           TRUE, // Use statistics,
+                           data->num_bg_threads,
+                           trunk_get_scratch_size());
+   return rc;
+}
+
+/*
+ * Wrapper function to create Splinter Task system with background threads.
+ * We wait till all the background threads start-up, so test code can reliably
+ * check various states of threads and bitmasks.
+ */
+static platform_status
+create_task_system_with_bg_threads(void  *datap,
+                                   uint64 num_memtable_bg_threads,
+                                   uint64 num_normal_bg_threads)
+{
+   // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
+   struct CTEST_IMPL_DATA_SNAME(task_system) *data =
+      (struct CTEST_IMPL_DATA_SNAME(task_system) *)datap;
+
+   ZERO_ARRAY(data->num_bg_threads);
+   data->num_bg_threads[TASK_TYPE_MEMTABLE] = num_memtable_bg_threads;
+   data->num_bg_threads[TASK_TYPE_NORMAL]   = num_normal_bg_threads;
+
+   platform_status rc = task_system_create(data->hid,
+                                           data->ioh,
+                                           &data->tasks,
+                                           TRUE, // Use statistics,
+                                           data->num_bg_threads,
+                                           trunk_get_scratch_size());
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
+   // Wait-for all background threads to startup.
+   uint64   nbg_threads   = (num_memtable_bg_threads + num_normal_bg_threads);
+   threadid max_thread_id = task_get_max_tid(data->tasks);
+   while (max_thread_id < nbg_threads) {
+      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+      max_thread_id = task_get_max_tid(data->tasks);
+   }
+   return rc;
 }
 
 /*
@@ -388,8 +493,8 @@ exec_one_thread_use_lower_apis(void *arg)
    ASSERT_EQUAL(thread_cfg->active_threads_bitmask,
                 task_bitmask_before_register);
 
-   platform_default_log("active_threads_bitmask=0x%lx\n",
-                        thread_cfg->active_threads_bitmask);
+   CTEST_LOG_INFO("active_threads_bitmask=0x%lx\n",
+                  thread_cfg->active_threads_bitmask);
 
    // This is the important call to initialize thread-specific stuff in
    // Splinter's task-system, which sets up the thread-id (index) and records
@@ -414,14 +519,14 @@ exec_one_thread_use_lower_apis(void *arg)
    uint64 exp_bitmask = (0x1L << this_threads_idx);
    exp_bitmask        = (task_bitmask_before_register & ~exp_bitmask);
 
-   platform_default_log("this_threads_idx=%lu"
-                        ", task_bitmask_before_register=0x%lx"
-                        ", task_bitmask_after_register=0x%lx"
-                        ", exp_bitmask=0x%lx\n",
-                        this_threads_idx,
-                        task_bitmask_before_register,
-                        task_bitmask_after_register,
-                        exp_bitmask);
+   CTEST_LOG_INFO("this_threads_idx=%lu"
+                  ", task_bitmask_before_register=0x%lx"
+                  ", task_bitmask_after_register=0x%lx"
+                  ", exp_bitmask=0x%lx\n",
+                  this_threads_idx,
+                  task_bitmask_before_register,
+                  task_bitmask_after_register,
+                  exp_bitmask);
 
    ASSERT_EQUAL(task_bitmask_after_register, exp_bitmask);
 

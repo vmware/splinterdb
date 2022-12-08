@@ -1154,7 +1154,7 @@ ycsb_test(int argc, char *argv[])
    char              **config_argv;
    platform_status     rc;
    uint64              seed;
-   task_system        *ts;
+   task_system        *ts = NULL;
 
    uint64                 nphases;
    bool                   use_existing = 0;

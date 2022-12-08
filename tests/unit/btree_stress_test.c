@@ -142,6 +142,7 @@ CTEST_SETUP(btree_stress)
    }
    // Setup execution of concurrent threads
    ZERO_ARRAY(data->num_bg_threads);
+   data->ts = NULL;
    if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
        || !SUCCESS(task_system_create(data->hid,
                                       &data->io,

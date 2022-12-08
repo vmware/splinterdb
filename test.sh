@@ -514,17 +514,9 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/splinterdb_quick_test
    "$BINDIR"/unit/btree_test
    "$BINDIR"/unit/util_test
-
    "$BINDIR"/unit/misc_test
    "$BINDIR"/unit/limitations_test
-
-   # Default execution runs w/ no background threads configured
    "$BINDIR"/unit/task_system_test
-
-   # Just exercise with some combination of background threads to ensure
-   # that basic usage of background thread config params still works.
-   "$BINDIR"/unit/task_system_test --num-normal-bg-threads 4 --num-memtable-bg-threads  2
-
 }
 
 # ##################################################################
@@ -586,6 +578,17 @@ function run_splinter_perf_tests() {
                                             --num-inserts 10000 \
                                             --cache-capacity-mib 512 \
                                             --verbose-progress
+
+   # Re-run small perf test configuring background threads. This scenario
+   # validates that we can configure bg- and user-threads in one go.
+   run_with_timing "Quick Performance test with bg-threads" \
+        "$BINDIR"/driver_test splinter_test --perf \
+                                            --num-normal-bg-threads 1 \
+                                            --num-memtable-bg-threads 1 \
+                                            --num-insert-threads 4 \
+                                            --num-lookup-threads 4 \
+                                            --num-inserts 10000 \
+                                            --cache-capacity-mib 512
 
    run_with_timing "Performance test" \
         "$BINDIR"/driver_test splinter_test --perf \
