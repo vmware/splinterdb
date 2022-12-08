@@ -18,8 +18,8 @@
  *  header: struct btree_hdr{}
  *  entry : struct leaf_entry{}
  *
- * The arrows indicate that the offsets table grows to the left
- * and the entries grow to the right.
+ * The arrows indicate that the offsets table grows to the right
+ * and the entries grow to the left.
  *
  * Entries are not physically sorted in a node.  The offsets table
  * gives the offset of each entry, in key order.
