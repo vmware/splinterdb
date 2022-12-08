@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "allocator.h": "c",
+        "limits.h": "c",
+        "shard_log.h": "c"
+    }
+}

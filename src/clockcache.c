@@ -18,7 +18,9 @@
 #include <stddef.h>
 #include "util.h"
 
-#include "poison.h"
+#include "trunk.h"
+#include "user_config.h"
+//#include "poison.h"
 
 /*
  *-----------------------------------------------------------------------------
@@ -737,7 +739,7 @@ clockcache_config_extent_base_addr(const clockcache_config *cfg, uint64 addr)
 }
 
 static inline uint32
-clockcache_lookup(const clockcache *cc, uint64 addr)
+                 clockcache_lookup(const clockcache *cc, uint64 addr)
 {
    uint64 lookup_no    = clockcache_divide_by_page_size(cc, addr);
    uint32 entry_number = cc->lookup[lookup_no];
@@ -1328,6 +1330,140 @@ clockcache_write_callback(void           *metadata,
    }
 }
 
+
+uint64 trunk_key_size_(){
+   return USER_MAX_KEY_SIZE;
+}
+
+static inline char *
+trunk_get_pivot_(page_handle *node, uint16 pivot_no)
+{
+   // platform_assert((pivot_no < spl->cfg.max_pivot_keys),
+   //                 "pivot_no = %d, cfg.max_pivot_keys = %lu",
+   //                 pivot_no,
+   //                 spl->cfg.max_pivot_keys);
+   trunk_hdr *hdr = (trunk_hdr *)node->data;
+   return ((char *)hdr) + sizeof(*hdr) + pivot_no * (trunk_key_size_() + sizeof(trunk_pivot_data));
+}
+
+static inline trunk_pivot_data *
+trunk_get_pivot_data_(page_handle *node, uint16 pivot_no)
+{
+   return (trunk_pivot_data *)(trunk_get_pivot_(node, pivot_no)
+                               + trunk_key_size_());
+}
+
+bool Isdirty(clockcache *cc,uint64 addr){
+   printf("Checking Dirty for address \n: %lu",addr);                           
+   uint64 entry_no = clockcache_lookup(cc, addr);
+   return (!clockcache_test_flag(cc, entry_no, CC_CLEAN)
+          && !clockcache_test_flag(cc, entry_no, CC_FREE));
+}
+
+uint64 getTparent(clockcache *cc,uint64 addr){
+   uint64 paddr=addr;
+   printf("initial : %lu ---> %lu \n",paddr,addr);
+   while(addr && addr!=CC_UNMAPPED_ADDR && Isdirty(cc, addr)){
+      page_handle* node= cache_get(&cc->super,addr,FALSE,PAGE_TYPE_TRUNK);
+      trunk_hdr* hdr = (trunk_hdr *)node->data;
+      paddr=addr;
+      addr=hdr->parent_addr;
+      printf("ADS : %lu ---> %lu \n",paddr,addr);
+   }
+   return paddr;
+}
+
+bool isunmapped(clockcache *cc,uint64 addr){
+   return ((clockcache_lookup(cc,addr)==CC_UNMAPPED_ENTRY) || addr == CC_UNMAPPED_ADDR);
+}
+
+
+void getalldirty(clockcache *cc,uint64 addr,uint64* dirty, uint32 *count){
+
+   if(!isunmapped(cc,addr) && !Isdirty(cc,addr))
+      return;
+
+   dirty[(*count)++]=addr;
+   page_handle* node= cache_get(&cc->super,addr,FALSE,PAGE_TYPE_TRUNK);
+   trunk_hdr* hdr = (trunk_hdr *)node->data;
+   debug_assert(hdr->num_pivot_keys >= 2);
+   uint32 num_children = hdr->num_pivot_keys - 1;
+
+   if (hdr->height != 0) {
+
+      printf("num_childeren %u\n",num_children);
+      for (uint32 i = 0; i < num_children; i++) {
+         trunk_pivot_data *data = trunk_get_pivot_data_(node, i);
+         printf("GET_PIVOT_DATA %u   %lu\n",*count, data->addr);
+         getalldirty(cc,data->addr,dirty,count);
+      }
+   }
+   //cache_unget(spl->cc, node);
+}
+
+void cleanSinglePage(clockcache *cc, uint64 addr){
+   const threadid  tid            = platform_get_tid();
+   io_async_req *req            = io_get_async_req(cc->io, TRUE);
+   void         *req_metadata   = io_get_metadata(cc->io, req);
+   *(clockcache **)req_metadata = cc;
+   struct iovec *iovec          = io_get_iovec(cc->io, req);
+   uint64        req_count = 1;
+   clockcache_entry *entry, *next_entry;
+   entry = clockcache_lookup_entry(cc, addr);
+   uint64 first_addr = addr;
+   platform_status status;
+   //    clockcache_divide_by_page_size(cc, end_addr - first_addr);
+   // req->bytes = clockcache_multiply_by_page_size(cc, req_count);
+
+   if (cc->cfg->use_stats) {
+      cc->stats[tid].page_writes[entry->type] += req_count;
+      cc->stats[tid].writes_issued++;
+   }
+
+   for (uint32 i = 0; i < req_count; i++) {
+      addr       = first_addr + clockcache_multiply_by_page_size(cc, i);
+      next_entry = clockcache_lookup_entry(cc, addr);
+      uint32 next_entry_no = clockcache_lookup(cc, addr);
+
+      clockcache_log_stream(addr,
+                              next_entry_no,
+                              "flush: entry %u addr %lu\n",
+                              next_entry_no,
+                              addr);
+      iovec[i].iov_base = next_entry->page.data;
+   }
+
+   status = io_write_async(
+      cc->io, req, clockcache_write_callback, req_count, first_addr);
+   platform_assert_status_ok(status);
+}
+
+void flushinorder(clockcache *cc,uint64 *dirty, uint32 counter){
+   //first flush the new nodes created.
+
+   uint64 root_addr=dirty[0],addr;
+   //clockcache_entry *entry=clockcache_lookup_entry(cc, root_addr);
+   page_handle* pnode= cache_get(&cc->super,root_addr,FALSE,PAGE_TYPE_TRUNK);
+   trunk_hdr* phdr = (trunk_hdr *)pnode->data;
+   for(uint32 i=1;i<counter;i++){
+      addr=dirty[i];
+      page_handle* node= cache_get(&cc->super,addr,FALSE,PAGE_TYPE_TRUNK);
+      trunk_hdr* hdr = (trunk_hdr *)node->data;
+      if(hdr->tail_flush_sequence > phdr->persisted_flush_sequence){
+         cleanSinglePage(cc,dirty[i]);
+      }
+   }
+   cleanSinglePage(cc,root_addr);
+   for(uint32 i=1;i<counter;i++){
+      addr=dirty[i];
+      page_handle* node= cache_get(&cc->super,addr,FALSE,PAGE_TYPE_TRUNK);
+      trunk_hdr* hdr = (trunk_hdr *)node->data;
+      if(hdr->tail_flush_sequence < phdr->persisted_flush_sequence){
+         cleanSinglePage(cc,dirty[i]);
+      }
+   }
+}
+
 /*
  *----------------------------------------------------------------------
  * clockcache_batch_start_writeback --
@@ -1366,14 +1502,61 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
                          start_entry_no,
                          end_entry_no - 1);
 
+   //printf("HelloSPL : %lu \n",USER_MAX_KEY_SIZE);
+   // trunk_handle *spl= getcfg();
+   // btree_config *btree_cfg = spl->cfg->btree_cfg;
+    uint64 cnt1=0,cnt2=0;
    // Iterate through the entries in the batch and try to write out the extents.
    for (entry_no = start_entry_no; entry_no < end_entry_no; entry_no++) {
       entry = &cc->entry[entry_no];
       addr  = entry->page.disk_addr;
+      if(entry->type== PAGE_TYPE_TRUNK){
+         cnt1+=1;
+         printf(" %lu , entry number: %u, page type : PAGE_TYPE_TRUNK , disk_address: %lu \n",cnt1,entry_no,entry->page.disk_addr);
+      }
+
+      if(entry->type == PAGE_TYPE_BRANCH){
+         cnt2+=1;
+         printf(" %lu , entry number: %u, page type : PAGE_TYPE_BRANCH , disk_address: %lu \n",cnt2,entry_no,entry->page.disk_addr);
+      }
+
       // test and test and set in the if condition
       if (clockcache_ok_to_writeback(cc, entry_no, is_urgent)
           && clockcache_try_set_writeback(cc, entry_no, is_urgent))
       {
+         if(entry->type == PAGE_TYPE_TRUNK && Isdirty(cc,addr)){
+            addr= getTparent(cc,addr);
+            uint64 dirty[MAX_TRUNKS];
+            memset(dirty, 0, MAX_TRUNKS*sizeof(dirty[0]));
+            uint32 counter=0;
+            printf("DIRTY_COUNTER0%u\n",counter);
+            getalldirty(cc,addr,dirty,&counter);
+            flushinorder(cc,dirty,counter);
+
+            printf("DIRTY_COUNTER %u\n",counter);
+
+            printf("entry number: %u, is getting evicted which is of type TRUNK\n",entry_no);
+            printf("evict_hand: %u, free_hand: %u\n",cc->free_hand,cc->evict_hand);
+            page_handle* cnode= cache_get(&cc->super,addr,FALSE,entry->type);
+            trunk_hdr* hdr1 = (trunk_hdr *)cnode->data;
+            page_handle* phandle = &entry->page;
+            trunk_hdr *hdr =(trunk_hdr *)phandle->data;
+            assert(hdr==hdr1);
+            if(hdr==hdr1){
+               printf("its same.................../n");
+            }
+            printf("number of pivot keyes are: %hu, generation no: %lu, tail_flush_sequence: %hu, persisted_flush_sequence:%hu \n",hdr->num_pivot_keys, hdr->generation,hdr->tail_flush_sequence,hdr->persisted_flush_sequence);
+            //flushin_sequence(hdr,phandle,addr);
+         }
+
+         if(entry->type == PAGE_TYPE_BRANCH){
+            printf("entry number: %u, is getting evicted which is of type TRUNK\n",entry_no);
+            printf("evict_hand: %u, free_hand: %u\n",cc->free_hand,cc->evict_hand);
+            // page_handle* phandle = &entry->page;
+            // btree_hdr *hdr =(btree_hdr *)phandle->data;
+            // printf(" generation no: %lu \n",hdr.generation);
+            //flushin_sequence(cc,hdr,addr,phandle);
+         }
          debug_assert(clockcache_lookup(cc, addr) == entry_no);
          first_addr = entry->page.disk_addr;
          // walk backwards through extent to find first cleanable entry

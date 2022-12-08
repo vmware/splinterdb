@@ -28,6 +28,11 @@
  * for most expected installations.
  */
 #define TRUNK_MAX_HEIGHT 8
+#define TRUNK_MAX_PIVOTS            (20)
+#define TRUNK_MAX_BUNDLES           (12)
+#define TRUNK_MAX_SUBBUNDLES        (24)
+#define TRUNK_MAX_SUBBUNDLE_FILTERS (24U)
+#define MAX_TRUNKS (100000)
 
 /*
  * Mini-allocator uses separate batches for each height of the Trunk tree.
@@ -75,6 +80,49 @@ typedef struct trunk_config {
    bool                 verbose_logging_enabled;
    platform_log_handle *log_handle;
 } trunk_config;
+
+typedef uint16 trunk_subbundle_state_t;
+
+typedef struct ONDISK trunk_subbundle {
+   trunk_subbundle_state_t state;
+   uint16                  start_branch;
+   uint16                  end_branch;
+   uint16                  start_filter;
+   uint16                  end_filter;
+} trunk_subbundle;
+
+typedef struct ONDISK trunk_bundle {
+   uint16 start_subbundle;
+   uint16 end_subbundle;
+   uint64 num_tuples;
+   uint64 num_kv_bytes;
+} trunk_bundle;
+
+typedef struct ONDISK trunk_hdr {
+   uint16 num_pivot_keys;   // number of used pivot keys (== num_children + 1)
+   uint16 height;           // height of the node
+   uint64 next_addr;        // PBN of the node's successor (0 if no successor)
+   uint64 generation;       // counter incremented on a node split
+   uint64 pivot_generation; // counter incremented when new pivots are added
+   uint64 page_lsn;         //Log Sequence Number(LSN) corresponding newest update on the page
+   uint8  tail_flush_sequence;      //Latest sequence used to determine flush order of nodes
+   uint8  persisted_flush_sequence; //Last flush sequence that is persisted to disk
+   uint64 parent_addr;  
+
+   uint16 start_branch;      // first live branch
+   uint16 start_frac_branch; // first fractional branch (branch in a bundle)
+   uint16 end_branch;        // successor to the last live branch
+   uint16 start_bundle;      // first live bundle
+   uint16 end_bundle;        // successor to the last live bundle
+   uint16 start_subbundle;   // first live subbundle
+   uint16 end_subbundle;     // successor to the last live subbundle
+   uint16 start_sb_filter;   // first subbundle filter
+   uint16 end_sb_filter;     // successor to the last sb filter
+
+   trunk_bundle    bundle[TRUNK_MAX_BUNDLES];
+   trunk_subbundle subbundle[TRUNK_MAX_SUBBUNDLES];
+   routing_filter  sb_filter[TRUNK_MAX_SUBBUNDLE_FILTERS];
+} trunk_hdr;
 
 typedef struct trunk_stats {
    uint64 insertions;
@@ -276,6 +324,22 @@ struct trunk_subbundle;
 
 typedef void (*trunk_async_cb)(struct trunk_async_ctxt *ctxt);
 
+typedef struct ONDISK trunk_pivot_data {
+   uint64 addr;                // PBN of the child
+    //If  flush_sequence >= persisted_flush_sequence, children corresponding to such pivots should be flushed
+   //before flushing this node to disk. Once this parent is flushed then other dirty child nodes can be flushed.
+   uint8 flush_sequence;      //Tail flush sequence number at the time of child generation
+   uint64 num_kv_bytes_whole;  // # kv bytes for this pivot in whole branches
+   uint64 num_kv_bytes_bundle; // # kv bytes for this pivot in bundles
+   uint64 num_tuples_whole;    // # tuples for this pivot in whole branches
+   uint64 num_tuples_bundle;   // # tuples for this pivot in bundles
+   uint64 generation;          // receives new higher number when pivot splits
+   uint16 start_branch;        // first branch live (not used in leaves)
+   uint16 start_bundle;        // first bundle live (not used in leaves)
+   routing_filter filter;      // routing filter for keys in this pivot
+   int64          srq_idx;     // index in the space rec queue
+} trunk_pivot_data;
+
 typedef struct trunk_async_ctxt {
    trunk_async_cb cb; // IN: callback (requeues ctxt
                       // for dispatch)
@@ -415,6 +479,11 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
 bool
 trunk_verify_tree(trunk_handle *spl);
 
+void
+trunk_print_node(platform_log_handle *log_handle,
+                 trunk_handle        *spl,
+                 uint64               addr);
+
 static inline uint64
 trunk_key_size(trunk_handle *spl)
 {
@@ -487,5 +556,13 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   platform_log_handle *log_handle);
 size_t
 trunk_get_scratch_size();
+
+// static void trunk_print_pivots(platform_log_handle *log_handle,
+//                    trunk_handle        *spl,
+//                    page_handle         *node)
+
+// void print1(trunk_hdr* trunk){
+//    printf("Hello World\n");
+// }
 
 #endif // __TRUNK_H

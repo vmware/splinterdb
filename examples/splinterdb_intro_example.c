@@ -47,11 +47,16 @@ main()
    int rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
    printf("Created SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
+
+   
+
+   printf("MAX_KEY_SIZE: %lu\n",splinterdb_cfg.data_cfg->key_size);
    // Insert a few kv-pairs, describing properties of fruits.
    const char *fruit = "apple";
    const char *descr = "An apple a day keeps the doctor away!";
    slice       key   = slice_create((size_t)strlen(fruit), fruit);
    slice       value = slice_create((size_t)strlen(descr), descr);
+
 
    rc = splinterdb_insert(spl_handle, key, value);
    printf("Inserted key '%s'\n", fruit);
@@ -62,6 +67,17 @@ main()
    value = slice_create((size_t)strlen(descr), descr);
    rc    = splinterdb_insert(spl_handle, key, value);
    printf("Inserted key '%s'\n", fruit);
+
+     for (int i = 0; i <= 400000; ++i) {
+      char buf[12];
+      snprintf(buf, 12, "%d", i);
+      fruit = buf;
+      descr = "Is a good source of vitamin-C.";
+      key   = slice_create((size_t)strlen(fruit), fruit);
+      value = slice_create((size_t)strlen(descr), descr);
+      rc    = splinterdb_insert(spl_handle, key, value);
+      printf("Inserted key '%s' for the %d th time \n", fruit, i);
+   }
 
    fruit = "Mango";
    descr = "Mango is the king of fruits.";

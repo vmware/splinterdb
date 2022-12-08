@@ -517,6 +517,8 @@ function test_example_programs() {
     "$BINDIR"/examples/splinterdb_custom_ipv4_addr_sortcmp_example
 }
 
+run_with_timing "Test example programs" test_example_programs
+
 # ##################################################################
 # Smoke Tests: Run a small collection of fast-running unit-tests
 # ##################################################################
@@ -710,7 +712,7 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 
    run_with_timing "Smoke tests" run_fast_unit_tests
 
-   run_with_timing "Test example programs" test_example_programs
+   
 
    if [ "$RUN_MAKE_TESTS" == "true" ]; then
       run_with_timing "Basic build-and-test tests" test_make_run_tests
@@ -735,13 +737,13 @@ if [ -f ${UNIT_TESTS_DB_DEV} ]; then
     rm ${UNIT_TESTS_DB_DEV}
 fi
 
-run_splinter_functionality_tests
+#run_splinter_functionality_tests
 
-run_splinter_perf_tests
+#run_splinter_perf_tests
 
-run_btree_tests
+#run_btree_tests
 
-run_other_driver_tests
+#un_other_driver_tests
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

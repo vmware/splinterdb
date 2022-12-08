@@ -22,7 +22,7 @@ UNIT_TESTSDIR        = $(TESTS_DIR)/$(UNITDIR)
 EXAMPLES_DIR         = examples
 
 SRC := $(shell find $(SRCDIR) -name "*.c")
-
+EXAMPLES_SRC := $(shell find $(EXAMPLES_DIR) -name "*.c")
 # Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
 # These objects are shared between functional/ and unit/ test binaries.
 COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
@@ -41,7 +41,7 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 # These skipped tests which will have to be run stand-alone.
 FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test")
 
-EXAMPLES_SRC := $(shell find $(EXAMPLES_DIR) -name "*.c")
+
 
 #*************************************************************#
 # CFLAGS, LDFLAGS, ETC
@@ -237,10 +237,11 @@ EXAMPLES_BINS=$(EXAMPLES_BIN_SRC:$(EXAMPLES_DIR)/%_example.c=$(BINDIR)/$(EXAMPLE
 ####################################################################
 # The main targets
 #
+all-examples: $(EXAMPLES_BINS)
 all: libs all-tests all-examples $(EXTRA_TARGETS)
 libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
-all-examples: $(EXAMPLES_BINS)
+
 
 #######################################################################
 # CONFIGURATION CHECKING

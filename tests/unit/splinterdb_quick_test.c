@@ -548,14 +548,18 @@ CTEST2(splinterdb_quick, test_splinterdb_iterator_with_non_existent_startkey)
  *      end up starting the scan at 7.)
  *  d) start-key beyond max-key (Scan should come out as invalid.)
  */
+
+
 CTEST2(splinterdb_quick,
        test_splinterdb_iterator_with_missing_startkey_in_sequence)
 {
-   const int num_inserts = 50;
+   const int num_inserts = 500000;
    // Should insert keys: 1, 4, 7, 10 13, 16, 19, ...
    int minkey = 1;
    int rc     = insert_keys(data->kvsb, minkey, num_inserts, 3);
    ASSERT_EQUAL(0, rc);
+
+
 
    char key[TEST_INSERT_KEY_LENGTH];
 
@@ -923,7 +927,7 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
 {
    *out_cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
                                   .cache_size = 64 * Mega,
-                                  .disk_size  = 127 * Mega,
+                                  .disk_size  = 1024 * Mega,
                                   .data_cfg   = default_data_cfg};
 }
 
