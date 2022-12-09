@@ -333,7 +333,11 @@ task_create_thread_with_hooks(platform_thread       *thread,
       platform_error_log("Cannot create a new thread as the limit on"
                          " concurrent threads, %d, will be exceeded.\n",
                          MAX_THREADS);
-      return (STATUS_LIMIT_EXCEEDED);
+
+      // This is an approximate status. STATUS_LIMIT_EXCEEDED would be more
+      // accurate but that maps to ENOSPC, which will result in a misleading
+      // 'No space left on device' error message.
+      return (STATUS_BUSY);
    }
 
    thread_invoke *thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
@@ -380,7 +384,8 @@ task_thread_create(const char            *name,
    ret = task_create_thread_with_hooks(
       &thr, FALSE, func, arg, scratch_size, ts, hid);
    if (!SUCCESS(ret)) {
-      platform_error_log("Could not create a thread\n");
+      platform_error_log("Could not create a thread: %s\n",
+                         platform_status_to_string(ret));
       return ret;
    }
 

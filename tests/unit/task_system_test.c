@@ -39,6 +39,16 @@ typedef struct {
    uint64          active_threads_bitmask;
 } thread_config;
 
+// Configuration for worker threads used in lock-step testing exercise
+typedef struct {
+   task_system *tasks;
+   threadid     exp_thread_idx; // Splinter-generated expected thread index
+   threadid     exp_max_tid;    // After this thread gets created
+   bool         stop_thread;
+   bool         waitfor_stop_signal;
+   int          line; // Thread created on / around this line #
+} thread_config_lockstep;
+
 // Function prototypes
 static platform_status
 create_task_system_without_bg_threads(void *datap);
@@ -56,6 +66,9 @@ exec_one_thread_use_extern_apis(void *arg);
 
 static void
 exec_one_of_n_threads(void *arg);
+
+static void
+exec_user_thread_loop_for_stop(void *arg);
 
 /*
  * Global data declaration macro:
@@ -373,10 +386,11 @@ CTEST2(task_system, test_task_system_creation_with_bg_threads)
 /*
  * ------------------------------------------------------------------------
  * Test creation of task system using up the threads for background threads.
- * Verify that the next user-thread creation should fail.
+ * Verify ththe we can create just one more user-thread and that the next
+ * user-thread creation should fail with a proper error message.
  * ------------------------------------------------------------------------
  */
-CTEST2(task_system, test_use_all_threads_for_bg_threads)
+CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
 {
    platform_status rc = STATUS_OK;
 
@@ -384,28 +398,61 @@ CTEST2(task_system, test_use_all_threads_for_bg_threads)
    task_system_destroy(data->hid, &data->tasks);
 
    // Consume all available threads with background threads.
-   rc = create_task_system_with_bg_threads(data, 1, (MAX_THREADS - 2));
+   rc = create_task_system_with_bg_threads(data, 1, (MAX_THREADS - 3));
    ASSERT_TRUE(SUCCESS(rc));
 
    threadid main_thread_idx = platform_get_tid();
    ASSERT_EQUAL(0, main_thread_idx, "main_thread_idx=%lu", main_thread_idx);
 
-   thread_config thread_cfg;
-   ZERO_STRUCT(thread_cfg);
-   thread_cfg.tasks                  = data->tasks;
-   thread_cfg.exp_thread_idx         = task_get_max_tid(data->tasks);
-   thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
+   thread_config_lockstep thread_cfg[2];
+   ZERO_ARRAY(thread_cfg);
+   thread_cfg[0].tasks          = data->tasks;
+   thread_cfg[0].exp_thread_idx = task_get_max_tid(data->tasks);
+   thread_cfg[0].exp_max_tid    = MAX_THREADS;
+   thread_cfg[0].line           = __LINE__;
 
-   platform_thread new_thread = 0;
-   // This should fail to create a new thread
+   platform_thread new_thread[2] = {0};
+
+   // This should successfully create a new (the last) thread
    rc = task_thread_create("test_one_thread",
-                           exec_one_thread_use_extern_apis,
-                           &thread_cfg,
+                           exec_user_thread_loop_for_stop,
+                           &thread_cfg[0],
                            trunk_get_scratch_size(),
                            data->tasks,
                            data->hid,
-                           &new_thread);
-   ASSERT_FALSE(SUCCESS(rc));
+                           &new_thread[0]);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // Wait till 1st user-thread gets to its wait-for-stop loop
+   while (!thread_cfg[0].waitfor_stop_signal) {
+      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+   }
+   thread_cfg[1].tasks          = data->tasks;
+   thread_cfg[1].exp_thread_idx = task_get_max_tid(data->tasks);
+
+   // We've used up all threads. This thread creation should fail.
+   rc = task_thread_create("test_one_thread",
+                           exec_user_thread_loop_for_stop,
+                           &thread_cfg[1],
+                           trunk_get_scratch_size(),
+                           data->tasks,
+                           data->hid,
+                           &new_thread[1]);
+   ASSERT_FALSE(SUCCESS(rc),
+                "Thread should not have been created"
+                ", new_thread=%lu, max_tid=%lu\n",
+                new_thread[1],
+                task_get_max_tid(data->tasks));
+
+   // Stop the running user-thread now that our test is done.
+   thread_cfg[0].stop_thread = TRUE;
+
+   for (uint64 tctr = 0; tctr < ARRAY_SIZE(new_thread); tctr++) {
+      if (new_thread[tctr]) {
+         rc = platform_thread_join(new_thread[tctr]);
+         ASSERT_TRUE(SUCCESS(rc));
+      }
+   }
 }
 
 
@@ -661,4 +708,36 @@ exec_one_of_n_threads(void *arg)
                 " thread array, %lu ",
                 get_tid_after_deregister,
                 this_threads_index);
+}
+
+/*
+ * exec_user_thread_loop_for_stop() - Worker routine executed by a single
+ * thread which will simply wait-for 'stop' command that will be sent by
+ * outer main thread. This function exists simply to use up a thread.
+ */
+static void
+exec_user_thread_loop_for_stop(void *arg)
+{
+   thread_config_lockstep *thread_cfg = (thread_config_lockstep *)arg;
+
+   // If we got this far, thread was created. Reconfirm expected index.
+   threadid this_threads_idx = platform_get_tid();
+   ASSERT_EQUAL(thread_cfg->exp_thread_idx, this_threads_idx);
+
+   // We should have used up all available threads. Next create should fail.
+   ASSERT_EQUAL(thread_cfg->exp_max_tid,
+                task_get_max_tid(thread_cfg->tasks),
+                "Max tid is incorrect for thread created on line=%d\n",
+                thread_cfg->line);
+
+   // The calling interface has already registered this thread. All we do
+   // here is sit in a loop, pretending to do some Splinter work, while waiting
+   // for a notification to stop ourselves.
+   thread_cfg->waitfor_stop_signal = TRUE;
+   while (!thread_cfg->stop_thread) {
+      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+   }
+   CTEST_LOG_INFO("Last user thread ID=%lu, created on line=%d exiting ...\n",
+                  this_threads_idx,
+                  thread_cfg->line);
 }
