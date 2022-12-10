@@ -116,6 +116,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
                           masterCfg.cache_capacity,
 			  masterCfg.pmem_cache_capacity,
 			  masterCfg.dram_cache_capacity,
+			  masterCfg.log_checkpoint_interval,
                           masterCfg.cache_logfile,
 			  masterCfg.cache_file,
                           masterCfg.use_stats);

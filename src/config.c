@@ -41,6 +41,8 @@ config_set_defaults(master_config *cfg)
 
       .seed                     = 0,
       .cache_file               = NULL,
+
+      .log_checkpoint_interval  = 1000000,
    };
 }
 
@@ -81,6 +83,7 @@ void config_usage()
    platform_error_log("\t--data-size\n");
    platform_error_log("\t--seed\n");
    platform_error_log("\t--cache-file\n");
+   platform_error_log("\t--log-checkpoint-interval\n");
 }
 
 platform_status
@@ -165,6 +168,7 @@ config_parse(master_config *cfg,
       } config_set_uint64("data-size", cfg, message_size) {
       } config_set_uint64("seed", cfg, seed) {
       } config_set_charptr("cache-file", cfg, cache_file) {
+      } config_set_uint64("log-checkpoint-interval", cfg, log_checkpoint_interval){
       } config_set_else {
          platform_error_log("config: invalid option: %s\n", argv[i]);
          return STATUS_BAD_PARAM;

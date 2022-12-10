@@ -127,6 +127,8 @@ void         clockcache_flush                (clockcache *cc);
 int          clockcache_evict_all            (clockcache *cc, bool ignore_pinned);
 void         clockcache_wait                 (clockcache *cc);
 
+int          clockcache_persist_all            (clockcache *cc, bool ignore_pinned);
+
 uint64       clockcache_get_page_size        (const clockcache *cc);
 uint64       clockcache_get_extent_size      (const clockcache *cc);
 
@@ -173,7 +175,7 @@ static cache_ops clockcache_ops = {
    .page_unpin        = (page_unpin_fn)        clockcache_unpin,
    .page_sync         = (page_sync_fn)         clockcache_page_sync,
    .flush             = (flush_fn)             clockcache_flush,
-   .evict             = (evict_fn)             clockcache_evict_all,
+   .evict             = (evict_fn)             clockcache_persist_all,
    .cleanup           = (cleanup_fn)           clockcache_wait,
    .get_page_size     = (get_cache_size_fn)    clockcache_get_page_size,
    .get_extent_size   = (get_cache_size_fn)    clockcache_get_extent_size,
@@ -346,6 +348,7 @@ static inline bool
 clockcache_test_shadow(clockcache *cc, uint32 entry_number, uint32 flag)
 {
 #ifdef SHADOW_PAGE
+   assert(0);
    return cc->entry[entry_number].shadow;
 #else
    return FALSE;
@@ -1828,6 +1831,228 @@ clockcache_evict_all(clockcache *cc, bool ignore_pinned_pages)
    return 0;
 }
 
+
+
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * clockcache_try_persist
+ *
+ *      Attempts to persist the page if it is evictable,
+ *      otherwise, wait until the page becomes evictable
+ *
+ *----------------------------------------------------------------------
+ */
+
+static bool
+clockcache_try_persist(clockcache *src_cc,
+                       uint32      entry_number)
+{
+#ifdef PAGE_MIGRATION
+   bool ret = FALSE;
+   clockcache* dest_cc = src_cc->persistent_cache;
+   clockcache_entry *old_entry = &src_cc->entry[entry_number];
+
+   /* Temporarily clear access flag */
+
+   const threadid tid = platform_get_tid();
+   uint32 status = old_entry->status;
+
+   /* no need to persist clean pages */
+   if (status == CC_MIGRATABLE1_STATUS || status == CC_MIGRATABLE2_STATUS){
+     ret = TRUE;
+     goto out;
+   }
+
+
+   /* go out and enter the outer loop for locked pages */
+   if(clockcache_get_ref(src_cc, entry_number, tid)
+      || clockcache_get_pin(src_cc, entry_number)) {
+     goto out;
+   }
+
+   /* try to read lock */
+   if (clockcache_try_get_read(src_cc, entry_number, FALSE) != GET_RC_SUCCESS) {
+      goto out;
+   }
+
+   /* try to claim */
+   if (clockcache_try_get_claim(src_cc, entry_number) != GET_RC_SUCCESS) {
+      goto release_ref;
+   }
+
+   /*
+    * try to write lock
+    *      -- first check if loading
+    */
+   if (clockcache_test_flag(src_cc, entry_number, CC_LOADING)
+         || clockcache_try_get_write(src_cc, entry_number) != GET_RC_SUCCESS) {
+      goto release_claim;
+   }
+
+   status = old_entry->status;
+   uint32 new_entry_no = CC_UNMAPPED_ENTRY;
+
+   if (clockcache_get_pin(src_cc, entry_number)) {
+      goto release_write;
+   }
+
+
+   uint64 addr = old_entry->page.disk_addr;
+
+   /* Set dest_cc entry be migrating
+    * At this time, the read lock is acquired */
+   new_entry_no  = clockcache_get_free_page(dest_cc, old_entry->status, TRUE, TRUE);
+   clockcache_entry *new_entry = &dest_cc->entry[new_entry_no];
+
+
+
+   /* Set the dest_cc entry point to the disk addr */
+   uint64 lookup_no = clockcache_divide_by_page_size(dest_cc, addr);
+   dest_cc->lookup[lookup_no] = new_entry_no;
+   debug_assert(new_entry_no < dest_cc->cfg->page_capacity);
+
+
+   /* Do the data copy and set up the new page */
+   memmove(new_entry->page.data, old_entry->page.data, src_cc->cfg->page_size);
+   new_entry->type = old_entry->type;
+   new_entry->page.disk_addr = old_entry->page.disk_addr;
+   new_entry->page.persistent = old_entry->page.persistent;
+   new_entry->old_entry_no = CC_UNMAPPED_ENTRY;
+
+#ifdef PMEM_FLUSH
+   if(istracking(clockcache_get_context(dest_cc))){
+      pmem_persist(new_entry->page.data, dest_cc->cfg->page_size);
+   }
+   else{
+      pmem_flush(new_entry->page.data, dest_cc->cfg->page_size);
+   }
+#endif
+
+   /* Set the src_cc entry point to the unmapped addr */
+   // FIXME: This state need to sync with PMEM when copy back (or
+   // if we make only CLEAN pages can be copied to DRAM, then we don't
+   // need to maintain a PMEM copy)
+   // Check if it's clean by CC_MIGRATABLE1_STATUS flag
+
+   if (addr != CC_UNMAPPED_ADDR) {
+      lookup_no = clockcache_divide_by_page_size(src_cc, addr);
+      src_cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      old_entry->page.disk_addr = CC_UNMAPPED_ADDR;
+   }
+
+
+   /* Set status to CC_FREE_STATUS (clears claim and write lock) */
+   old_entry->status = CC_FREE_STATUS;
+
+   clockcache_log(addr, entry_number, "migrate: entry %u addr %lu\n",
+         entry_number, addr);
+
+   ret = TRUE;
+
+
+   if (dest_cc->cfg->use_stats) {
+      if(dest_cc->persistent_cache == NULL)
+         dest_cc->stats[tid].cache_migrates_to_PMEM[new_entry->type]++;
+      else{
+         dest_cc->stats[tid].cache_migrates_to_DRAM_without_shadow[new_entry->type]++;
+      }
+   }
+
+   __attribute__ ((unused)) uint32 debug_status;
+release_write:
+   if (!ret)
+      debug_status = clockcache_clear_flag(src_cc, entry_number, CC_WRITELOCKED);
+   else
+      debug_status = clockcache_clear_flag(dest_cc, new_entry_no, CC_WRITELOCKED);
+   debug_assert(debug_status);
+release_claim:
+   if(!ret)
+      debug_status = clockcache_clear_flag(src_cc, entry_number, CC_CLAIMED);
+   else
+      debug_status = clockcache_clear_flag(dest_cc, new_entry_no, CC_CLAIMED);
+   debug_assert(debug_status);
+release_ref:
+   clockcache_dec_ref(src_cc, entry_number, tid);
+
+out:
+   return ret;
+#else
+   return TRUE;
+#endif
+}
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * clockcache_persist_batch --
+ *
+ *      Persists all evictable pages in the batch.
+ *
+ *----------------------------------------------------------------------
+ */
+
+void
+clockcache_persist_batch(clockcache *cc,
+                       uint32      batch)
+{
+   debug_assert(cc != NULL);
+   debug_assert(batch < cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
+
+   uint32 start_entry_no = batch * CC_ENTRIES_PER_BATCH;
+   uint32 end_entry_no = start_entry_no + CC_ENTRIES_PER_BATCH;
+
+   clockcache_log(0, 0, "evict_batch: %u, entries %u-%u\n",
+         batch, start_entry_no, end_entry_no - 1);
+
+   for (uint32 entry_no = start_entry_no; entry_no < end_entry_no; entry_no++) {
+      while(!clockcache_try_persist(cc, entry_no));
+   }
+}
+
+
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * clockcache_persist_all --
+ *
+ *      persist all the pages in DRAM cache to PMEM cache.
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+int
+clockcache_persist_all(clockcache *cc, bool ignore)
+{
+   platform_log("persist the DRAM cache");
+   if(cc->persistent_cache == NULL)
+     return 1;
+   uint32 evict_hand;
+   uint32 i;
+
+   // there can be no references or pins or locks or it will block eviction
+   clockcache_assert_no_locks_held(cc); // take out for performance
+
+   // evict all the pages
+   for (evict_hand = 0; evict_hand < cc->cfg->batch_capacity; evict_hand++) {
+      clockcache_persist_batch(cc, evict_hand);
+      // Do it again for access bits
+      clockcache_persist_batch(cc, evict_hand);
+   }
+
+   for (i = 0; i < cc->cfg->page_capacity; i++) {
+      __attribute__ ((unused)) uint32 entry_no =
+         clockcache_page_to_entry_number(cc, &cc->entry->page);
+      // Every page should be persisted.
+      debug_assert(cc->entry[i].status == CC_FREE_STATUS);
+   }
+
+   return 0;
+}
+
+
 /*
  *----------------------------------------------------------------------
  *
@@ -1976,6 +2201,7 @@ void clockcache_config_init(clockcache_config *cache_cfg,
                             uint64             capacity,
 			    uint64	       pmem_capacity,
 			    uint64	       dram_capacity,
+			    uint64	       log_checkpoint_interval,
                             char              *cache_logfile,
 			    char              *cache_file,
                             uint64             use_stats)
@@ -1989,6 +2215,7 @@ void clockcache_config_init(clockcache_config *cache_cfg,
    cache_cfg->pmem_capacity = pmem_capacity;
    cache_cfg->dram_capacity = dram_capacity;
 
+   cache_cfg->log_checkpoint_interval = log_checkpoint_interval;
 
 
    if((cache_file != NULL)&&(strncmp(cache_file,"/mnt/pmem0/",10)==0)){
@@ -2163,7 +2390,7 @@ clockcache_init(clockcache           *cc,     // OUT
       memcpy(vcache_cfg->cachefile, "/dev/shm/volatile_cache", 23);
 
       clockcache_config_init(vcache_cfg, cfg->page_size, cfg->extent_size,
-		       cfg->capacity, cfg->pmem_capacity, cfg->dram_capacity, cfg->logfile, "/dev/shm/volatile_cache", cfg->use_stats);
+		       cfg->capacity, cfg->pmem_capacity, cfg->dram_capacity, cfg->log_checkpoint_interval, cfg->logfile, "/dev/shm/volatile_cache", cfg->use_stats);
 
       platform_status rc = clockcache_init(vcc, vcache_cfg, io, al, name, ts, hh, hid, mid);
       platform_assert_status_ok(rc);
@@ -2181,6 +2408,12 @@ clockcache_init(clockcache           *cc,     // OUT
    }
 #else
    cc->volatile_cache = NULL;
+#endif
+
+
+#ifdef LOG_CHECKPOINT
+   cc->dirty_ops = 0;
+   cc->in_persistence = FALSE;
 #endif
 
    return STATUS_OK;
@@ -3316,6 +3549,10 @@ clockcache_unlock(clockcache  *cache,
 {
    clockcache *cc = cache;
 
+#ifdef LOG_CHECKPOINT
+   cc->dirty_ops++;
+#endif
+
    uint32 entry_number = clockcache_page_to_entry_number(cc, *page);
 
    //clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
@@ -3418,6 +3655,18 @@ void
 clockcache_pin(clockcache *cc,
                page_handle *page)
 {
+#ifdef LOG_CHECKPOINT
+   if(cc->volatile_cache == NULL){
+      if((cc->dirty_ops > cc->cfg->log_checkpoint_interval)
+         && (!cc->in_persistence)){
+	 cc->in_persistence = TRUE;
+         clockcache_persist_all(cc, TRUE);
+	 cc->dirty_ops = 0;
+	 cc->in_persistence = FALSE;
+      }
+   }
+#endif
+
    __attribute__ ((unused)) clockcache_entry *entry
       = clockcache_page_to_entry(cc, page);
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);

@@ -62,6 +62,9 @@ typedef struct master_config {
    // test
    uint64 seed;
    char *cache_file;
+
+   uint64 log_checkpoint_interval;
+
 } master_config;
 
 

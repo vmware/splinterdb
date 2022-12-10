@@ -32,6 +32,9 @@ typedef struct clockcache_config {
    uint64 pmem_capacity;
    uint64 dram_capacity;
    uint32 page_capacity;
+
+   uint64 log_checkpoint_interval;
+
    bool   use_stats;
    char   logfile[MAX_STRING_LENGTH];
    char   cachefile[MAX_STRING_LENGTH];
@@ -143,6 +146,9 @@ struct clockcache {
    task_system          *ts;
 
    ThreadContext         *contextMap;
+
+   uint64_t 		dirty_ops;
+   bool 		in_persistence;
 };
 
 
@@ -160,6 +166,7 @@ void clockcache_config_init(clockcache_config *cache_config,
                             uint64             capacity,
 			    uint64             pmem_capacity,
 			    uint64             dram_capacity,
+			    uint64	       log_checkpoint_interval,
                             char              *cache_logfile,
 			    char              *cache_file,
                             uint64             use_stats);
