@@ -273,51 +273,6 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
 }
 
 /*
- * Test that SplinterDB tasks system requires non-zero config for both types
- * of task groups for background threads to be created.
- */
-CTEST2(limitations, test_splinterdb_created_w_background_threads)
-{
-   splinterdb       *kvsb;
-   splinterdb_config cfg;
-   data_config       default_data_cfg;
-
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
-
-   // Task system should be setup with background threads
-   cfg.num_normal_bg_threads   = 1;
-   cfg.num_memtable_bg_threads = 1;
-
-   int rc = splinterdb_create(&cfg, &kvsb);
-   ASSERT_EQUAL(0, rc);
-
-   splinterdb_close(&kvsb);
-}
-
-/*
- * Test that SplinterDB can be created even when background threads use
- * up all the slots.
- */
-CTEST2(limitations, test_splinterdb_created_w_all_background_threads)
-{
-   splinterdb       *kvsb;
-   splinterdb_config cfg;
-   data_config       default_data_cfg;
-
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
-
-   // Task system should be setup with all background threads
-   cfg.num_normal_bg_threads   = (MAX_THREADS - 2);
-   cfg.num_memtable_bg_threads = 1;
-
-   int rc = splinterdb_create(&cfg, &kvsb);
-   ASSERT_EQUAL(0, rc);
-   splinterdb_close(&kvsb);
-}
-
-/*
  * Test splinterdb_*() interfaces with invalid page- / extent-size
  * configurations, and verify that they fail correctly.
  */

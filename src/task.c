@@ -366,7 +366,7 @@ task_create_thread_with_hooks(platform_thread       *thread,
  *  required registration with Splinter.
  *
  * Currently, this is active mainly in tests. It's also used to create
- * background tasks, a feature that is currently not enabled.
+ * background tasks.
  * -----------------------------------------------------------------------------
  */
 platform_status

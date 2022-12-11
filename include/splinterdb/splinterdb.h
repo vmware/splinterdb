@@ -68,10 +68,12 @@ typedef struct {
    uint64 reclaim_threshold;
 
    // Background threads configuration: Both have to be non-zero in order for
-   // background threads to be started.
-   // - Memtable bg-threads work on Memtables, and affect latency of inserts
-   // - Normal bg-threads work on compacting branches in the trunk and can
-   //   drive I/O rates up.
+   // background threads to be started. (It is an error for one to be zero
+   // while the other is non-zero.)
+   // - Memtable bg-threads work on Memtables. Adding more of these threads can
+   //   improve insert latencies, and reduce insert tail latencies.
+   // - Normal bg-threads work on compacting branches in the trunk and building
+   //   filters and can drive I/O rates up.
    uint64 num_memtable_bg_threads;
    uint64 num_normal_bg_threads;
 

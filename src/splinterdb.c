@@ -692,10 +692,3 @@ splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
 }
-
-// TRUE if Splinter's task system was configured to use background threads.
-bool
-splinterdb_task_system_uses_bg_threads(splinterdb *kvs)
-{
-   return (kvs->task_sys && task_system_use_bg_threads(kvs->task_sys));
-}

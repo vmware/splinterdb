@@ -37,10 +37,10 @@
 #define TEST_CONFIG_DEFAULT_NUM_INSERTS 0
 
 // By default, background threads are disabled in Splinter task system.
-// Most threads run w/o background threads. Very small # of tests exercise
+// Most tests run w/o background threads. Very small # of tests exercise
 // background threads through the --num-normal-bg-threads and
 // --num-memtable-bg-threads options.
-#define TEST_CONFIG_DEFAULT_NUM_BG_THREADS          0
+#define TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS   0
 #define TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS 0
 
 
@@ -75,13 +75,12 @@ config_set_defaults(master_config *cfg)
       .max_branches_per_node    = TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE,
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
-      /*
-       * num_bg_threads[] array = {0} => background threads are disabled.
-       */
+      .num_normal_bg_threads    = TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS,
+      .num_memtable_bg_threads  = TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
       .log_handle               = NULL,
-      .max_key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
+      .max_key_size             = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
       .seed                     = TEST_CONFIG_DEFAULT_SEED,
@@ -126,7 +125,7 @@ config_usage()
                       TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE);
 
    platform_error_log("\t--num-normal-bg-threads (%d)\n",
-                      TEST_CONFIG_DEFAULT_NUM_BG_THREADS);
+                      TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS);
 
    platform_error_log("\t--num-memtable-bg-threads (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS);

@@ -30,6 +30,8 @@
 #include "config.h" // Reqd for definition of master_config{}
 #include "trunk.h"  // Needed for trunk_get_scratch_size()
 #include "task.h"
+#include "splinterdb/splinterdb.h"
+#include "splinterdb/default_data_config.h"
 
 // Configuration for each worker thread
 typedef struct {
@@ -48,6 +50,8 @@ typedef struct {
    bool         waitfor_stop_signal;
    int          line; // Thread created on / around this line #
 } thread_config_lockstep;
+
+#define TEST_MAX_KEY_SIZE 13
 
 // Function prototypes
 static platform_status
@@ -69,6 +73,9 @@ exec_one_of_n_threads(void *arg);
 
 static void
 exec_user_thread_loop_for_stop(void *arg);
+
+static void
+create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
 
 /*
  * Global data declaration macro:
@@ -100,10 +107,12 @@ CTEST_DATA(task_system)
  */
 CTEST_SETUP(task_system)
 {
-   uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
-
    platform_status rc = STATUS_OK;
+   if (Ctest_verbose) {
+      platform_set_log_streams(stdout, stderr);
+   }
 
+   uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    // Create a heap for io and task system to use.
    rc = platform_heap_create(
       platform_get_module_id(), heap_capacity, &data->hh, &data->hid);
@@ -152,9 +161,6 @@ CTEST_SETUP(task_system)
 
    // Save it off, so it can be used for verification in a test case.
    data->active_threads_bitmask = exp_bitmask;
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-   }
 }
 
 // Teardown function for suite, called after every test in suite
@@ -455,6 +461,55 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    }
 }
 
+/*
+ * ------------------------------------------------------------------------
+ * Test that SplinterDB can be created with the task system configured with
+ * background threads.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(task_system, test_splinterdb_create_w_background_threads)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Task system should be setup with background threads
+   cfg.num_normal_bg_threads   = 1;
+   cfg.num_memtable_bg_threads = 1;
+
+   int rv = splinterdb_create(&cfg, &kvsb);
+   ASSERT_EQUAL(0, rv);
+
+   splinterdb_close(&kvsb);
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * Test that SplinterDB can be created even when background threads use
+ * up all the slots.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(task_system, test_splinterdb_create_w_all_background_threads)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Task system should be setup with all background threads
+   cfg.num_normal_bg_threads   = (MAX_THREADS - 2);
+   cfg.num_memtable_bg_threads = 1;
+
+   int rv = splinterdb_create(&cfg, &kvsb);
+   ASSERT_EQUAL(0, rv);
+
+   splinterdb_close(&kvsb);
+}
 
 /* Wrapper function to create Splinter Task system w/o background threads. */
 static platform_status
@@ -740,4 +795,20 @@ exec_user_thread_loop_for_stop(void *arg)
    CTEST_LOG_INFO("Last user thread ID=%lu, created on line=%d exiting ...\n",
                   this_threads_idx,
                   thread_cfg->line);
+}
+
+/*
+ * Helper routine to create a valid Splinter configuration using default
+ * page- and extent-size.
+ */
+static void
+create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
+{
+   *out_cfg =
+      (splinterdb_config){.filename    = TEST_DB_NAME,
+                          .cache_size  = 64 * Mega,
+                          .disk_size   = 127 * Mega,
+                          .page_size   = TEST_CONFIG_DEFAULT_PAGE_SIZE,
+                          .extent_size = TEST_CONFIG_DEFAULT_EXTENT_SIZE,
+                          .data_cfg    = default_data_cfg};
 }
