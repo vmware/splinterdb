@@ -10,7 +10,7 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
-#include "clockcache.h" // Nested #include's task.h and related tokens.
+#include "clockcache.h"
 #include "splinterdb/data.h"
 #include "io.h"
 #include "rc_allocator.h"
