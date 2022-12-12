@@ -12,8 +12,10 @@ rm /mnt/pmem0/splinter
 ./bin/driver_test splinter_test --perf\
                                 --max-async-inflight 0\
 				--num-insert-threads 16\
-                                --db-capacity-gib 60\
+                                --db-capacity-gib 100\
 				--pmem-cache-capacity-gib 4\
 				--dram-cache-capacity-gib 1\
-				--cache-file "/mnt/pmem0/splinter"\
+				--log\
+				--log-checkpoint-interval 10000\
+				--cache-file "/mnt/pmem0/pcc"\
                                 --stats

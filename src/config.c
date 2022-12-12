@@ -42,7 +42,7 @@ config_set_defaults(master_config *cfg)
       .seed                     = 0,
       .cache_file               = NULL,
 
-      .log_checkpoint_interval  = 1000000,
+      .log_checkpoint_interval  = 10000,
    };
 }
 
