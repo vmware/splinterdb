@@ -516,6 +516,8 @@ CTEST2(splinter, test_lookups)
       NSEC_TO_SEC(elapsed_ns),
       (elapsed_ns / num_inserts));
 
+   merge_accumulator_deinit(&qdata);
+
    // **************************************************************************
    // Test sub-case 3: Validate using binary searches across ranges for the
    //   keys inside the range of keys inserted.

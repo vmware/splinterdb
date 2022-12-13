@@ -691,7 +691,9 @@ task_system_config_init(task_system_config *task_cfg,
       return STATUS_BAD_PARAM;
    }
 
-   task_cfg->use_stats = use_stats;
+   task_cfg->use_stats    = use_stats;
+   task_cfg->scratch_size = scratch_size;
+
    memcpy(task_cfg->num_background_threads,
           num_bg_threads,
           NUM_TASK_TYPES * sizeof(num_bg_threads[0]));

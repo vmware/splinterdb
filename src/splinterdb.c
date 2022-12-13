@@ -192,6 +192,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    static const uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    task_system_config_init(
       &kvs->task_cfg, cfg.use_stats, num_bg_threads, trunk_get_scratch_size());
+
    trunk_config_init(&kvs->trunk_cfg,
                      &kvs->cache_cfg.super,
                      kvs->data_cfg,
