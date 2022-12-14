@@ -108,8 +108,8 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
    for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
       shard_log_thread_data *thread_data =
          shard_log_get_thread_data(log, thr_i);
-      thread_data->addr              = SHARD_UNMAPPED;
-      thread_data->offset            = 0;
+      thread_data->addr   = SHARD_UNMAPPED;
+      thread_data->offset = 0;
    }
 
    // the log uses an unkeyed mini allocator
