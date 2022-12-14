@@ -32,7 +32,7 @@ test_data_generate_message(const data_config *cfg,
        * roots, etc.  To really be Pareto, modulus for r should be N -
        * sqrt(N). By omitting the sqrt(N) part, we occasionally generate
        * values larger than N.  Hence the MIN in the definition of
-       * "extra".
+       * "payload_size".
        */
       uint64 N = tdcfg->payload_size_limit;
       uint64 r =

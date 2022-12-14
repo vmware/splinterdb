@@ -35,8 +35,8 @@
  * mini_allocator: Mini-allocator context.
  */
 typedef struct mini_allocator {
-   cache       *cc;
    allocator   *al;
+   cache       *cc;
    data_config *data_cfg;
    bool         keyed;
    uint64       num_batches;

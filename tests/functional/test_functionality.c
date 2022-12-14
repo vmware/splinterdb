@@ -126,7 +126,10 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    platform_status *result = arg;
 
-   merge_accumulator_ensure_materialized(&ctxt->data);
+   *result = merge_accumulator_ensure_materialized(&ctxt->data);
+   platform_assert(SUCCESS(*result),
+                   "Failed to materialize message: %s\n",
+                   platform_status_to_string(*result));
    verify_tuple(spl,
                 key_buffer_key(&ctxt->key),
                 merge_accumulator_to_message(&ctxt->data),

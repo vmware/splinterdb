@@ -686,8 +686,8 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   const size_t key_len   = 3;
-   const char  *key_data  = "foo";
+   const char  *key_data  = "foobarbaz";
+   const size_t key_len   = strlen(key_data);
    slice        user_key  = slice_create(key_len, key_data);
    data_handle  msg       = {.ref_count = 1};
    slice        msg_slice = slice_create(sizeof(msg), &msg);

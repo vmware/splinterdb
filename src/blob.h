@@ -32,19 +32,28 @@ typedef struct parsed_blob {
    parsed_blob_entry leftovers[3];
 } parsed_blob;
 
-typedef struct blob_page_iterator {
-   cache      *cc;
-   bool        alloc;
-   bool        do_prefetch;
-   uint64      extent_size;
-   uint64      page_size;
-   parsed_blob pblob;
+typedef struct page_fragment {
+   uint64 addr;   // page address
+   uint64 offset; // offset within page
+   uint64 length; // length of fragment within page
+} page_fragment;
 
-   uint64       offset;      // logical byte offset of the current piece
-   uint64       page_addr;   // page address of the current piece
-   uint64       page_offset; // offset within the page of the current piece
-   uint64       length; // length of the current piece (within the current page)
-   page_handle *page;   // the page with the current piece in it.
+typedef enum {
+   BLOB_PAGE_ITERATOR_MODE_PREFETCH,
+   BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH,
+   BLOB_PAGE_ITERATOR_MODE_ALLOC,
+} blob_page_iterator_mode;
+
+typedef struct blob_page_iterator {
+   cache                  *cc;
+   blob_page_iterator_mode mode;
+   uint64                  extent_size;
+   uint64                  page_size;
+   parsed_blob             pblob;
+
+   uint64        offset; // logical byte offset of the current piece
+   page_fragment fragment;
+   page_handle  *page; // the page with the current fragment in it.
 } blob_page_iterator;
 
 /* If the data is large enough (or close enough to a whole number of
@@ -68,12 +77,11 @@ uint64
 blob_length(slice sblob);
 
 platform_status
-blob_page_iterator_init(cache              *cc,
-                        blob_page_iterator *iter,
-                        slice               sblobby,
-                        uint64              offset,
-                        bool                alloc,
-                        bool                do_prefetch);
+blob_page_iterator_init(cache                  *cc,
+                        blob_page_iterator     *iter,
+                        slice                   sblobby,
+                        uint64                  offset,
+                        blob_page_iterator_mode mode);
 
 void
 blob_page_iterator_deinit(blob_page_iterator *iter);
@@ -87,10 +95,10 @@ bool
 blob_page_iterator_at_end(blob_page_iterator *iter);
 
 void
-blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 num_bytes);
+blob_page_iterator_advance_bytes(blob_page_iterator *iter, uint64 num_bytes);
 
 void
-blob_page_iterator_advance(blob_page_iterator *iter);
+blob_page_iterator_advance_page(blob_page_iterator *iter);
 
 platform_status
 blob_materialize(cache           *cc,

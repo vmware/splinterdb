@@ -537,7 +537,10 @@ splinterdb_lookup_result_value(const splinterdb_lookup_result *result, // IN
       return EINVAL;
    }
 
-   merge_accumulator_ensure_materialized(&_result->value);
+   platform_status rc = merge_accumulator_ensure_materialized(&_result->value);
+   if (!SUCCESS(rc)) {
+      return platform_status_to_int(rc);
+   }
    *value = merge_accumulator_to_value(&_result->value);
    return 0;
 }

@@ -13,6 +13,7 @@
 #include "mini_allocator.h"
 #include "iterator.h"
 #include "util.h"
+#include "blob_build.h"
 
 /*
  * Max height of the BTree. This is somewhat of an arbitrary limit to size
@@ -26,15 +27,15 @@
  * Finally, this is limited for convenience to allow for static allocation
  * of some nested arrays sized by this value.
  */
-#define BTREE_MAX_HEIGHT (MINI_MAX_BATCHES)
+#define BTREE_MAX_HEIGHT (MINI_MAX_BATCHES - NUM_BLOB_BATCHES)
 
 /*
  * Mini-allocator uses separate batches for each height of the BTree.
  * Therefore, the max # of mini-batches that the mini-allocator can track
  * is limited by the max height of the BTree.
  */
-_Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
-               "BTREE_MAX_HEIGHT has to be == MINI_MAX_BATCHES");
+_Static_assert(BTREE_MAX_HEIGHT <= MINI_MAX_BATCHES,
+               "BTREE_MAX_HEIGHT has to be <= MINI_MAX_BATCHES");
 
 /*
  * Acceptable upper-bound on amount of space to waste when deciding whether

@@ -404,30 +404,6 @@ message_dematerialize_if_needed(message msg, writable_buffer *tmp)
    }
 }
 
-/* Define an arbitrary ordering on messages.  In practice, all we care
- * about is equality, but this is written to follow the same
- * comparison interface as for ordered types. */
-static inline int
-message_lex_cmp(message a, message b)
-{
-   if (a.type < b.type) {
-      return -1;
-   } else if (b.type < a.type) {
-      return 1;
-   } else {
-      writable_buffer a_tmp;
-      message         a_materialized;
-      writable_buffer b_tmp;
-      message         b_materialized;
-      message_materialize_if_needed(NULL, a, &a_tmp, &a_materialized);
-      message_materialize_if_needed(NULL, b, &b_tmp, &b_materialized);
-      int result = slice_lex_cmp(a_materialized.data, b_materialized.data);
-      message_dematerialize_if_needed(a, &a_tmp);
-      message_dematerialize_if_needed(b, &b_tmp);
-      return result;
-   }
-}
-
 static inline const char *
 message_class_string(message msg)
 {
@@ -664,6 +640,32 @@ data_key_compare(const data_config *cfg, key key1, key key2)
 }
 
 static inline int
+data_merge_tuples_final(const data_config *cfg,
+                        key                tuple_key,
+                        merge_accumulator *oldest_message)
+{
+   debug_assert(key_is_user_key(tuple_key));
+
+   if (merge_accumulator_is_definitive(oldest_message)) {
+      return 0;
+   }
+   platform_status rc;
+   rc = merge_accumulator_ensure_materialized(oldest_message);
+   if (!SUCCESS(rc)) {
+      return -1;
+   }
+   int result =
+      cfg->merge_tuples_final(cfg, tuple_key.user_slice, oldest_message);
+   if (result
+       && merge_accumulator_message_class(oldest_message)
+             == MESSAGE_TYPE_DELETE)
+   {
+      merge_accumulator_resize(oldest_message, 0);
+   }
+   return result;
+}
+
+static inline int
 data_merge_tuples(const data_config *cfg,
                   key                tuple_key,
                   message            old_raw_message,
@@ -677,45 +679,36 @@ data_merge_tuples(const data_config *cfg,
 
    message_type oldclass = message_class(old_raw_message);
    if (oldclass == MESSAGE_TYPE_DELETE) {
-      return cfg->merge_tuples_final(cfg, tuple_key.user_slice, new_message);
+      return data_merge_tuples_final(cfg, tuple_key, new_message);
    }
 
    // new class is UPDATE and old class is INSERT or UPDATE
+   platform_status rc;
+
+   rc = merge_accumulator_ensure_materialized(new_message);
+   if (!SUCCESS(rc)) {
+      return -1;
+   }
+
    writable_buffer old_tmp;
    message         old_materialized_message;
-   message_materialize_if_needed(
-      NULL, old_raw_message, &old_tmp, &old_materialized_message);
-   merge_accumulator_ensure_materialized(new_message);
+   rc = message_materialize_if_needed(new_message->data.heap_id,
+                                      old_raw_message,
+                                      &old_tmp,
+                                      &old_materialized_message);
+   if (!SUCCESS(rc)) {
+      return -1;
+   }
+
    int result = cfg->merge_tuples(
       cfg, tuple_key.user_slice, old_materialized_message, new_message);
+
    message_dematerialize_if_needed(old_raw_message, &old_tmp);
 
    if (result
        && merge_accumulator_message_class(new_message) == MESSAGE_TYPE_DELETE)
    {
       merge_accumulator_resize(new_message, 0);
-   }
-   return result;
-}
-
-static inline int
-data_merge_tuples_final(const data_config *cfg,
-                        key                tuple_key,
-                        merge_accumulator *oldest_message)
-{
-   debug_assert(key_is_user_key(tuple_key));
-
-   if (merge_accumulator_is_definitive(oldest_message)) {
-      return 0;
-   }
-   merge_accumulator_ensure_materialized(oldest_message);
-   int result =
-      cfg->merge_tuples_final(cfg, tuple_key.user_slice, oldest_message);
-   if (result
-       && merge_accumulator_message_class(oldest_message)
-             == MESSAGE_TYPE_DELETE)
-   {
-      merge_accumulator_resize(oldest_message, 0);
    }
    return result;
 }
@@ -740,7 +733,17 @@ data_message_to_string(const data_config *cfg,
 {
    writable_buffer tmp;
    message         materialized;
-   message_materialize_if_needed(NULL, msg, &tmp, &materialized);
+   platform_status rc;
+
+   /* Taking the coward's way out since this is just debugging code anyway... */
+   platform_heap_id hid = platform_get_heap_id();
+   rc = message_materialize_if_needed(hid, msg, &tmp, &materialized);
+   if (!SUCCESS(rc)) {
+      if (size) {
+         str[0] = 0;
+      }
+      return;
+   }
    cfg->message_to_string(cfg, materialized, str, size);
    message_dematerialize_if_needed(msg, &tmp);
 }
@@ -762,5 +765,34 @@ data_message_to_string(const data_config *cfg,
        data_message_to_string((cfg), (msg), b.buffer, 128);                    \
        b;                                                                      \
     }).buffer)
+
+
+/*
+ * Define an arbitrary ordering on messages.  In practice, all we care
+ * about is equality, but this is written to follow the same
+ * comparison interface as for ordered types.
+ */
+static inline int
+message_lex_cmp(message a, message b)
+{
+   if (a.type < b.type) {
+      return -1;
+   } else if (b.type < a.type) {
+      return 1;
+   } else {
+      writable_buffer  a_tmp;
+      message          a_materialized;
+      writable_buffer  b_tmp;
+      message          b_materialized;
+      platform_heap_id hid = platform_get_heap_id();
+      message_materialize_if_needed(hid, a, &a_tmp, &a_materialized);
+      message_materialize_if_needed(hid, b, &b_tmp, &b_materialized);
+      int result = slice_lex_cmp(a_materialized.data, b_materialized.data);
+      message_dematerialize_if_needed(a, &a_tmp);
+      message_dematerialize_if_needed(b, &b_tmp);
+      return result;
+   }
+}
+
 
 #endif // __DATA_INTERNAL_H

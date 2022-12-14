@@ -188,8 +188,9 @@ test_log_thread(void *arg)
       key skey = test_key(
          &keybuf, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->max_key_size, 0);
       generate_test_message(gen, i, &msg);
-      log_write_maybe_blob(
+      platform_status rc = log_write_maybe_blob(
          params->cc, logh, skey, merge_accumulator_to_message(&msg), i);
+      platform_assert(SUCCESS(rc));
    }
 
    merge_accumulator_deinit(&msg);

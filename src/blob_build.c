@@ -4,10 +4,6 @@
 #include "blob_build.h"
 #include "poison.h"
 
-#define EXTENT_BATCH  (2)
-#define PAGE_BATCH    (1)
-#define SUBPAGE_BATCH (0)
-
 static platform_status
 allocate_leftover_entries(const blob_build_config *cfg,
                           cache                   *cc,
@@ -114,7 +110,13 @@ build_blob_table(const blob_build_config *cfg,
       remainder   = data_len - num_extents * extent_size;
    }
 
-   writable_buffer_resize(result, sizeof(blob) + num_extents * sizeof(uint64));
+   platform_status rc;
+   rc = writable_buffer_resize(result,
+                               sizeof(blob) + num_extents * sizeof(uint64));
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    blob *blobby   = writable_buffer_data(result);
    blobby->length = data_len;
 
@@ -140,14 +142,16 @@ blob_build(const blob_build_config *cfg,
 {
    platform_status rc =
       build_blob_table(cfg, cc, mini, alloc_key, slice_length(data), result);
-
    if (!SUCCESS(rc)) {
       return rc;
    }
 
    blob_page_iterator iter;
-   rc = blob_page_iterator_init(
-      cc, &iter, writable_buffer_to_slice(result), 0, TRUE, TRUE);
+   rc = blob_page_iterator_init(cc,
+                                &iter,
+                                writable_buffer_to_slice(result),
+                                0,
+                                BLOB_PAGE_ITERATOR_MODE_ALLOC);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -162,11 +166,11 @@ blob_build(const blob_build_config *cfg,
       }
 
       debug_assert(offset + slice_length(result) <= slice_length(data));
-      memcpy(iter.page->data + iter.page_offset,
+      memcpy(iter.page->data + iter.fragment.offset,
              raw_data + offset,
              slice_length(result));
 
-      blob_page_iterator_advance(&iter);
+      blob_page_iterator_advance_page(&iter);
    }
 
 out:
@@ -238,12 +242,16 @@ blob_clone(const blob_build_config *cfg,
 
       blob_page_iterator src_iter;
       blob_page_iterator dst_iter;
-      rc = blob_page_iterator_init(cc, &src_iter, sblobby, start, FALSE, TRUE);
+      rc = blob_page_iterator_init(
+         cc, &src_iter, sblobby, start, BLOB_PAGE_ITERATOR_MODE_PREFETCH);
       if (!SUCCESS(rc)) {
          return rc;
       }
-      rc = blob_page_iterator_init(
-         cc, &dst_iter, writable_buffer_to_slice(result), start, TRUE, TRUE);
+      rc = blob_page_iterator_init(cc,
+                                   &dst_iter,
+                                   writable_buffer_to_slice(result),
+                                   start,
+                                   BLOB_PAGE_ITERATOR_MODE_ALLOC);
       if (!SUCCESS(rc)) {
          return rc;
       }
@@ -269,12 +277,12 @@ blob_clone(const blob_build_config *cfg,
          uint64 amount_to_copy =
             MIN(slice_length(src_result), slice_length(dst_result));
 
-         memcpy(dst_iter.page->data + dst_iter.page_offset,
+         memcpy(dst_iter.page->data + dst_iter.fragment.offset,
                 slice_data(src_result),
                 amount_to_copy);
 
-         blob_page_iterator_advance_partial(&src_iter, amount_to_copy);
-         blob_page_iterator_advance_partial(&dst_iter, amount_to_copy);
+         blob_page_iterator_advance_bytes(&src_iter, amount_to_copy);
+         blob_page_iterator_advance_bytes(&dst_iter, amount_to_copy);
       }
 
       debug_assert(blob_page_iterator_at_end(&src_iter));

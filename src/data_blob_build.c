@@ -60,8 +60,8 @@ merge_accumulator_convert_to_blob(const blob_build_config *cfg,
    }
    rc = writable_buffer_copy_slice(&ma->data, writable_buffer_to_slice(&blob));
    // Should never fail since blob should be strictly smaller than original data
-   writable_buffer_deinit(&blob);
    debug_assert(SUCCESS(rc));
+   writable_buffer_deinit(&blob);
    ma->cc = cc;
    return STATUS_OK;
 }

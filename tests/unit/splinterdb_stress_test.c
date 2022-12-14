@@ -109,9 +109,6 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
 // Do some inserts, and then some range-deletes
 CTEST2(splinterdb_stress, test_naive_range_delete)
 {
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
-   ASSERT_EQUAL(0, rc);
-
    random_state rand_state;
    random_init(&rand_state, 42, 0);
 

@@ -609,7 +609,7 @@ mini_alloc_bytes(mini_allocator *mini,
    debug_assert(batch < mini->num_batches);
    debug_assert(num_bytes <= extent_size);
    debug_assert(boundary % alignment == 0);
-   debug_assert(boundary == 0 || extent_size % boundary == 0);
+   debug_assert(boundary < num_bytes || extent_size % boundary == 0);
    debug_assert(!mini->keyed || !key_is_null(alloc_key));
 
    addrs[0] = 0;
@@ -749,7 +749,7 @@ mini_attach_extent(mini_allocator *mini,
 uint64
 mini_next_addr(mini_allocator *mini, uint64 batch)
 {
-   if (mini->next_addr[batch]) {
+   if ((mini->next_addr[batch] % cache_extent_size(mini->cc)) != 0) {
       return mini->next_addr[batch];
    } else {
       return mini->next_extent[batch];

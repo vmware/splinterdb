@@ -32,7 +32,6 @@ typedef struct shard_log_config {
 typedef struct shard_log_thread_data {
    uint64 addr;
    uint64 offset;
-   uint64 pages_outstanding;
 } PLATFORM_CACHELINE_ALIGNED shard_log_thread_data;
 
 /*

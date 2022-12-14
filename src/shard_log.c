@@ -110,7 +110,6 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
          shard_log_get_thread_data(log, thr_i);
       thread_data->addr              = SHARD_UNMAPPED;
       thread_data->offset            = 0;
-      thread_data->pages_outstanding = 0;
    }
 
    // the log uses an unkeyed mini allocator
@@ -289,7 +288,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    cache_unget(cc, page);
 
    if (message_isblob(msg)) {
-      // blob_sync(cc, message_slice(msg), PAGE_TYPE_LOG);
+      blob_sync(cc, message_slice(msg));
    }
 
    return 0;
@@ -500,6 +499,10 @@ shard_log_config_init(shard_log_config *log_cfg,
    log_cfg->cache_cfg = cache_cfg;
    log_cfg->data_cfg  = data_cfg;
    log_cfg->seed      = HASH_SEED;
+   /*
+    * The alignment forces slivers to be on their own page, so we can sync them
+    * independently.
+    */
    log_cfg->blob_cfg =
       (blob_build_config){.extent_batch  = 1,
                           .page_batch    = 2,

@@ -72,13 +72,11 @@ blob_length(slice sblobby)
 }
 
 static void
-addr_for_offset(uint64             extent_size,
-                uint64             page_size,
-                const parsed_blob *pblobby,
-                uint64             offset,
-                uint64            *page_addr,
-                uint64            *page_offset,
-                uint64            *length)
+fragment_for_offset(uint64             extent_size,
+                    uint64             page_size,
+                    const parsed_blob *pblobby,
+                    uint64             offset,
+                    page_fragment     *fragment)
 {
    uint64 byte_addr;
    uint64 entry_remainder;
@@ -109,16 +107,18 @@ addr_for_offset(uint64             extent_size,
       platform_assert(i < ARRAY_SIZE(pblobby->leftovers));
    }
 
-   *page_offset = byte_addr % page_size;
-   *page_addr   = byte_addr - *page_offset;
-   *length      = MIN(entry_remainder, page_size - *page_offset);
+   fragment->offset = byte_addr % page_size;
+   fragment->addr   = byte_addr - fragment->offset;
+   fragment->length = MIN(entry_remainder, page_size - fragment->offset);
 }
 
 static void
 maybe_do_prefetch(blob_page_iterator *iter)
 {
    uint64 curr_extent_num = iter->offset / iter->extent_size;
-   if (!iter->alloc && curr_extent_num + 1 < iter->pblob.num_extents) {
+   if (iter->mode == BLOB_PAGE_ITERATOR_MODE_PREFETCH
+       && curr_extent_num + 1 < iter->pblob.num_extents)
+   {
       cache_prefetch(iter->cc,
                      iter->pblob.base->addrs[curr_extent_num + 1],
                      PAGE_TYPE_BLOB);
@@ -126,16 +126,18 @@ maybe_do_prefetch(blob_page_iterator *iter)
 }
 
 platform_status
-blob_page_iterator_init(cache              *cc,
-                        blob_page_iterator *iter,
-                        slice               sblobby,
-                        uint64              offset,
-                        bool                alloc,
-                        bool                do_prefetch)
+blob_page_iterator_init(cache                  *cc,
+                        blob_page_iterator     *iter,
+                        slice                   sblobby,
+                        uint64                  offset,
+                        blob_page_iterator_mode mode)
 {
+   debug_assert(mode == BLOB_PAGE_ITERATOR_MODE_PREFETCH
+                || mode == BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH
+                || mode == BLOB_PAGE_ITERATOR_MODE_ALLOC);
+
    iter->cc          = cc;
-   iter->alloc       = alloc;
-   iter->do_prefetch = do_prefetch;
+   iter->mode        = mode;
    iter->extent_size = cache_extent_size(cc);
    iter->page_size   = cache_page_size(cc);
    iter->offset      = offset;
@@ -144,39 +146,61 @@ blob_page_iterator_init(cache              *cc,
    parse_blob(
       iter->extent_size, iter->page_size, slice_data(sblobby), &iter->pblob);
 
+   debug_assert(offset <= iter->pblob.base->length);
+
    if (offset < iter->pblob.base->length) {
-      addr_for_offset(iter->extent_size,
-                      iter->page_size,
-                      &iter->pblob,
-                      iter->offset,
-                      &iter->page_addr,
-                      &iter->page_offset,
-                      &iter->length);
+      fragment_for_offset(iter->extent_size,
+                          iter->page_size,
+                          &iter->pblob,
+                          iter->offset,
+                          &iter->fragment);
       maybe_do_prefetch(iter);
    }
 
    return STATUS_OK;
 }
 
+/*
+ * This function must be kept in sync with the code that decides
+ * whether to call cache_alloc in blob_build.c.
+ *
+ * The current policy is: The blob_build thread that gets the first
+ * byte of any page is reponsible for calling cache_alloc on that
+ * page.  If the thread gets only part of the page, then it calls
+ * cache_alloc before calling mini_alloc_bytes_finish
+ * (i.e. immediately after getting the page from the mini_allocator).
+ *
+ * Thus we need to call cache_alloc now only if we got the entire
+ * page.  Any partial page that we got will have already been
+ * cache_alloced by us (in blob_build) or by some other thread.
+ */
+
 static bool
 should_alloc(blob_page_iterator *iter)
 {
-   return iter->alloc && iter->page_offset == 0
-          && (iter->page_size <= iter->length
+   return iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC
+          && iter->fragment.offset == 0
+          && (iter->page_size <= iter->fragment.length
               || can_round_up(iter->page_size, iter->pblob.base->length));
 }
 
-void
-blob_page_iterator_deinit(blob_page_iterator *iter)
+static void
+blob_page_iterator_release_page(blob_page_iterator *iter)
 {
    if (iter->page) {
-      if (iter->alloc) {
+      if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
          cache_unlock(iter->cc, iter->page);
          cache_unclaim(iter->cc, iter->page);
       }
       cache_unget(iter->cc, iter->page);
       iter->page = NULL;
    }
+}
+
+void
+blob_page_iterator_deinit(blob_page_iterator *iter)
+{
+   blob_page_iterator_release_page(iter);
 }
 
 platform_status
@@ -186,18 +210,19 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
 {
    if (iter->page == NULL) {
       if (should_alloc(iter)) {
-         iter->page = cache_alloc(iter->cc, iter->page_addr, PAGE_TYPE_BLOB);
+         iter->page =
+            cache_alloc(iter->cc, iter->fragment.addr, PAGE_TYPE_BLOB);
       } else {
          iter->page =
-            cache_get(iter->cc, iter->page_addr, TRUE, PAGE_TYPE_BLOB);
-         if (iter->alloc) {
+            cache_get(iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
+         if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
             int wait = 1;
             while (!cache_claim(iter->cc, iter->page)) {
                cache_unget(iter->cc, iter->page);
                platform_sleep(wait);
                wait = MIN(2 * wait, 2048);
-               iter->page =
-                  cache_get(iter->cc, iter->page_addr, TRUE, PAGE_TYPE_BLOB);
+               iter->page = cache_get(
+                  iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
             }
             cache_lock(iter->cc, iter->page);
             cache_mark_dirty(iter->cc, iter->page);
@@ -206,7 +231,8 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
    }
 
    *offset = iter->offset;
-   *result = slice_create(iter->length, iter->page->data + iter->page_offset);
+   *result = slice_create(iter->fragment.length,
+                          iter->page->data + iter->fragment.offset);
    return STATUS_OK;
 }
 
@@ -217,34 +243,25 @@ blob_page_iterator_at_end(blob_page_iterator *iter)
 }
 
 void
-blob_page_iterator_advance_partial(blob_page_iterator *iter, uint64 num_bytes)
+blob_page_iterator_advance_bytes(blob_page_iterator *iter, uint64 num_bytes)
 {
-   if (iter->page) {
-      if (iter->alloc) {
-         cache_unlock(iter->cc, iter->page);
-         cache_unclaim(iter->cc, iter->page);
-      }
-      cache_unget(iter->cc, iter->page);
-      iter->page = NULL;
-   }
+   blob_page_iterator_release_page(iter);
 
    iter->offset += num_bytes;
    if (iter->offset < iter->pblob.base->length) {
-      addr_for_offset(iter->extent_size,
-                      iter->page_size,
-                      &iter->pblob,
-                      iter->offset,
-                      &iter->page_addr,
-                      &iter->page_offset,
-                      &iter->length);
+      fragment_for_offset(iter->extent_size,
+                          iter->page_size,
+                          &iter->pblob,
+                          iter->offset,
+                          &iter->fragment);
       maybe_do_prefetch(iter);
    }
 }
 
 void
-blob_page_iterator_advance(blob_page_iterator *iter)
+blob_page_iterator_advance_page(blob_page_iterator *iter)
 {
-   blob_page_iterator_advance_partial(iter, iter->length);
+   blob_page_iterator_advance_bytes(iter, iter->fragment.length);
 }
 
 platform_status
@@ -266,7 +283,8 @@ blob_materialize(cache           *cc,
    }
 
    blob_page_iterator iter;
-   rc = blob_page_iterator_init(cc, &iter, sblobby, start, FALSE, TRUE);
+   rc = blob_page_iterator_init(
+      cc, &iter, sblobby, start, BLOB_PAGE_ITERATOR_MODE_PREFETCH);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -284,7 +302,7 @@ blob_materialize(cache           *cc,
       uint64 length = end - offset < slen ? end - offset : slen;
       memcpy(dst + (offset - start), slice_data(data), length);
 
-      blob_page_iterator_advance(&iter);
+      blob_page_iterator_advance_page(&iter);
       if (blob_page_iterator_at_end(&iter)) {
          break;
       }
@@ -306,7 +324,8 @@ blob_sync(cache *cc, slice sblob)
    blob_page_iterator itor;
    platform_status    rc;
 
-   rc = blob_page_iterator_init(cc, &itor, sblob, 0, FALSE, FALSE);
+   rc = blob_page_iterator_init(
+      cc, &itor, sblob, 0, BLOB_PAGE_ITERATOR_MODE_NO_PREFETCH);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -320,7 +339,7 @@ blob_sync(cache *cc, slice sblob)
          return rc;
       }
       cache_page_sync(cc, itor.page, FALSE, PAGE_TYPE_BLOB);
-      blob_page_iterator_advance(&itor);
+      blob_page_iterator_advance_page(&itor);
    }
 
    blob_page_iterator_deinit(&itor);
