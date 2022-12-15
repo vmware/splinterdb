@@ -15,7 +15,8 @@
 #include "allocator.h"
 #include "rc_allocator.h"
 #include "cache.h"
-#include "clockcache.h"
+//#include "clockcache.h"
+#include "stubcache.h"
 #include "splinterdb/data.h"
 #include "task.h"
 #include "test_functionality.h"
@@ -2800,17 +2801,41 @@ splinter_test(int argc, char *argv[])
       &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
-   clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
-   platform_assert(cc != NULL);
+   cache *the_caches = NULL;
+
+   bool use_stubcache = TRUE;
+   stubcache_config *stubcache_cfgs = NULL;
+   if (use_stubcache) {
+     stubcache *sc = NULL;
+     the_caches = (cache*) TYPED_ARRAY_MALLOC(hid, sc, num_caches);
+
+     stubcache_cfgs = TYPED_ARRAY_MALLOC(hid, stubcache_cfgs, num_tables);
+     for (uint8 idx = 0; idx < num_caches; idx++) {
+       stubcache_config_init(&stubcache_cfgs[idx],
+           cache_config_page_size(&cache_cfg[idx].super),
+           cache_config_extent_size(&cache_cfg[idx].super),
+           (allocator*) &al);
+     }
+   } else {
+     clockcache *cc = NULL;
+     the_caches = (cache*) TYPED_ARRAY_MALLOC(hid, cc, num_caches);
+   }
+   platform_assert(the_caches != NULL);
    for (uint8 idx = 0; idx < num_caches; idx++) {
-      rc = clockcache_init(&cc[idx],
-                           &cache_cfg[idx],
-                           (io_handle *)io,
-                           (allocator *)&al,
-                           "test",
-                           hh,
-                           hid,
-                           platform_get_module_id());
+      if (use_stubcache)  {
+          rc = stubcache_init((stubcache*) &the_caches[idx],
+                              &stubcache_cfgs[idx],
+                              (allocator *)&al);
+      } else {
+          rc = clockcache_init((clockcache*) &the_caches[idx],
+                               &cache_cfg[idx],
+                               (io_handle *)io,
+                               (allocator *)&al,
+                               "test",
+                               hh,
+                               hid,
+                               platform_get_module_id());
+      }
       platform_assert_status_ok(rc);
    }
    allocator *alp = (allocator *)&al;
@@ -2819,7 +2844,7 @@ splinter_test(int argc, char *argv[])
    cache **caches = TYPED_ARRAY_MALLOC(hid, caches, num_caches);
    platform_assert(caches != NULL);
    for (uint8 i = 0; i < num_caches; i++) {
-      caches[i] = (cache *)&cc[i];
+      caches[i] = &the_caches[i];
    }
 
    switch (test) {
@@ -2954,10 +2979,15 @@ splinter_test(int argc, char *argv[])
    }
 
    for (uint8 idx = 0; idx < num_caches; idx++) {
-      clockcache_deinit(&cc[idx]);
+      if (use_stubcache) {
+         stubcache_deinit((stubcache*) &the_caches[idx]);
+      } else {
+         clockcache_deinit((clockcache*) &the_caches[idx]);
+      }
    }
+   platform_free(hid, stubcache_cfgs);
    platform_free(hid, caches);
-   platform_free(hid, cc);
+    platform_free(hid, the_caches);
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);

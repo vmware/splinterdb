@@ -194,7 +194,14 @@ typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
  */
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
+
    extent_hard_evict_fn extent_hard_evict;
+    // Lets caller maintain the invariant that every page in the cache
+    // is allocated. Without that invariant, we might free an address,
+    // reallocate it later, and then the cache may come along and overwrite
+    // that addr with old garbage.
+    // TODO rename "discard"
+
    page_get_ref_fn      page_get_ref;
    page_get_fn          page_get;
    page_get_async_fn    page_get_async;

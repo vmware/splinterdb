@@ -16,6 +16,7 @@
 #include "splinterdb/splinterdb.h"
 #include "platform.h"
 #include "clockcache.h"
+#include "stubcache.h"
 #include "rc_allocator.h"
 #include "trunk.h"
 #include "btree_private.h"
@@ -36,7 +37,11 @@ typedef struct splinterdb {
    rc_allocator_config  allocator_cfg;
    rc_allocator         allocator_handle;
    clockcache_config    cache_cfg;
+   /*
    clockcache           cache_handle;
+   */
+   stubcache_config     stubcache_cfg;
+   stubcache           cache_handle;
    shard_log_config     log_cfg;
    allocator_root_id    trunk_id;
    trunk_config         trunk_cfg;
@@ -282,6 +287,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_system;
    }
 
+   /*
    status = clockcache_init(&kvs->cache_handle,
                             &kvs->cache_cfg,
                             (io_handle *)&kvs->io_handle,
@@ -290,6 +296,16 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             kvs->heap_handle,
                             kvs->heap_id,
                             platform_get_module_id());
+  */
+    stubcache_config_init(&kvs->stubcache_cfg,
+           cache_config_page_size(&kvs->cache_cfg.super),
+           cache_config_extent_size(&kvs->cache_cfg.super),
+                            (allocator *)&kvs->allocator_handle);
+   status = stubcache_init(&kvs->cache_handle,
+       &kvs->stubcache_cfg,
+                          
+                            (allocator *)&kvs->allocator_handle
+       );
    if (!SUCCESS(status)) {
       platform_error_log("Failed to initalize SplinterDB cache: %s\n",
                          platform_status_to_string(status));
@@ -325,7 +341,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    return platform_status_to_int(status);
 
 deinit_cache:
-   clockcache_deinit(&kvs->cache_handle);
+   //clockcache_deinit(&kvs->cache_handle);
+   stubcache_deinit(&kvs->cache_handle);
 deinit_allocator:
    rc_allocator_unmount(&kvs->allocator_handle);
 deinit_system:
@@ -374,7 +391,8 @@ splinterdb_close(splinterdb **kvs_in) // IN
    platform_assert(kvs != NULL);
 
    trunk_unmount(&kvs->spl);
-   clockcache_deinit(&kvs->cache_handle);
+   //clockcache_deinit(&kvs->cache_handle);
+   stubcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
    io_handle_deinit(&kvs->io_handle);
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
