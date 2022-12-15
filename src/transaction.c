@@ -326,7 +326,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       return rc;
    }
 
-   _txn_kvsb->lock_tbl = lock_table_create(kvsb_cfg->data_cfg);
+   _txn_kvsb->lock_tbl = lock_table_create();
 
    hash_lock_init(&_txn_kvsb->hash_lock, &default_hash_lock_config);
 
