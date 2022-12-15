@@ -591,7 +591,7 @@ static inline void                 splinter_node_unlock               (splinter_
 page_handle *                      splinter_alloc                     (splinter_handle *spl, uint64 height);
 static inline char *               splinter_get_pivot                 (splinter_handle *spl, page_handle *node, uint16 pivot_no);
 static inline splinter_pivot_data *splinter_get_pivot_data            (splinter_handle *spl, page_handle *node, uint16 pivot_no);
-static inline uint16               splinter_find_pivot                (splinter_handle *spl, page_handle *node, char *key, lookup_type comp);
+static inline uint16               splinter_find_pivot                (splinter_handle *spl, page_handle *node, const char *key, lookup_type comp);
 platform_status                    splinter_add_pivot                 (splinter_handle *spl, page_handle *parent, page_handle *child, uint16 pivot_no);
 static inline uint16               splinter_num_children              (splinter_handle *spl, page_handle *node);
 static inline uint16               splinter_num_pivot_keys            (splinter_handle *spl, page_handle *node);
@@ -635,7 +635,7 @@ static inline void                 splinter_dec_ref                   (splinter_
 static inline void                 splinter_zap_branch_range          (splinter_handle *spl, splinter_branch *branch, const char *start_key, const char *end_key, page_type type);
 static inline void                 splinter_inc_intersection          (splinter_handle *spl, splinter_branch *branch, const char *key, bool is_memtable);
 void                               splinter_memtable_flush_virtual    (void *arg, uint64 generation);
-platform_status                    splinter_memtable_insert           (splinter_handle *spl, char *key, char *data);
+platform_status                    splinter_memtable_insert           (splinter_handle *spl, const char *key, const char *data);
 void                               splinter_bundle_build_filters  (void *arg, void *scratch);
 static inline void                 splinter_inc_filter                (splinter_handle *spl, routing_filter *filter);
 static inline void                 splinter_dec_filter                (splinter_handle *spl, routing_filter *filter);
@@ -1261,7 +1261,7 @@ splinter_update_lowerbound(uint16 *lo,
 static inline uint16
 splinter_find_pivot(splinter_handle *spl,
                     page_handle     *node,
-                    char            *key,
+                    const char      *key,
                     lookup_type      comp)
 {
    debug_assert(node != NULL);
@@ -2990,8 +2990,8 @@ splinter_memtable_iterator_deinit(splinter_handle *spl,
  */
 platform_status
 splinter_memtable_insert(splinter_handle *spl,
-                         char            *key,
-                         char            *data)
+                         const char      *key,
+                         const char      *data)
 {
    uint64 generation;
    platform_status rc =
@@ -3450,7 +3450,7 @@ splinter_memtable_root_addr_for_lookup(splinter_handle *spl,
 static bool
 splinter_memtable_lookup(splinter_handle *spl,
                          uint64           generation,
-                         char            *key,
+                         const char      *key,
                          char            *data,
                          bool            *found)
 {
@@ -5618,8 +5618,8 @@ const static iterator_ops splinter_range_iterator_ops = {
 platform_status
 splinter_range_iterator_init(splinter_handle         *spl,
                              splinter_range_iterator *range_itor,
-                             char                    *min_key,
-                             char                    *max_key,
+                             const char              *min_key,
+                             const char              *max_key,
                              uint64                   num_tuples)
 {
    range_itor->spl = spl;
@@ -5738,11 +5738,11 @@ splinter_range_iterator_init(splinter_handle         *spl,
    }
 
    // have a leaf, use to get rebuild key
-   char *rebuild_key =
-     !range_itor->has_max_key
-     || splinter_key_compare(spl, splinter_max_key(spl, node), max_key) < 0
-     ? splinter_max_key(spl, node)
-     : max_key;
+   const char *rebuild_key =
+      !range_itor->has_max_key ||
+            splinter_key_compare(spl, splinter_max_key(spl, node), max_key) < 0
+         ? splinter_max_key(spl, node)
+         : max_key;
    memmove(range_itor->rebuild_key, rebuild_key, splinter_key_size(spl));
    if (max_key && splinter_key_compare(spl, max_key, rebuild_key) < 0) {
      memcpy(range_itor->local_max_key, max_key, splinter_key_size(spl));
@@ -6070,9 +6070,7 @@ splinter_maybe_reclaim_space(splinter_handle *spl)
  */
 
 platform_status
-splinter_insert(splinter_handle *spl,
-                char            *key,
-                char            *data)
+splinter_insert(splinter_handle *spl, const char *key, const char *data)
 {
    timestamp ts;
    __attribute ((unused)) const threadid tid = platform_get_tid();
@@ -6218,7 +6216,7 @@ bool
 splinter_bundle_lookup(splinter_handle *spl,
                        page_handle     *node,
                        splinter_bundle *bundle,
-                       char            *key,
+                       const char      *key,
                        char            *data,
                        bool            *found)
 {
@@ -6251,7 +6249,7 @@ bool
 splinter_pivot_lookup(splinter_handle     *spl,
                       page_handle         *node,
                       splinter_pivot_data *pdata,
-                      char                *key,
+                      const char          *key,
                       char                *data,
                       bool                *found)
 {
@@ -6278,10 +6276,7 @@ splinter_pivot_lookup(splinter_handle     *spl,
 
 // If any change is made in here, please make similar change in splinter_lookup_async
 platform_status
-splinter_lookup(splinter_handle *spl,
-                char            *key,
-                char            *data,
-                bool            *found)
+splinter_lookup(splinter_handle *spl, const char *key, char *data, bool *found)
 {
    data_config *data_cfg = spl->cfg.data_cfg;
    message_type type;

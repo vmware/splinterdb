@@ -46,11 +46,10 @@ mini_allocator_init(mini_allocator *mini,
                     uint64          num_batches,
                     page_type       type);
 
-uint64
-mini_allocator_alloc(mini_allocator *mini,
-                     uint64          batch,
-                     char           *key,
-                     uint64         *next_extent);
+uint64 mini_allocator_alloc(mini_allocator *mini,
+                            uint64          batch,
+                            char           *key,
+                            uint64         *next_extent);
 
 void
 mini_allocator_release(mini_allocator *mini,

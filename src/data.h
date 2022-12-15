@@ -102,8 +102,8 @@ data_key_compare(const data_config *cfg,
   return cfg->key_compare(cfg, key1, key2);
 }
 
-static inline message_type data_message_class(const data_config *cfg,
-                                              void *raw_message)
+static inline message_type
+data_message_class(const data_config *cfg, const void *raw_message)
 {
   return cfg->message_class(cfg, raw_message);
 }

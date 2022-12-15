@@ -428,9 +428,7 @@ btree_min_key(btree_config *cfg)
 }
 
 static inline int
-btree_key_compare(btree_config *cfg,
-                  const char   *key1,
-                  const char   *key2)
+btree_key_compare(btree_config *cfg, const char *key1, const char *key2)
 {
   return data_key_compare(cfg->data_cfg, key1, key2);
 }

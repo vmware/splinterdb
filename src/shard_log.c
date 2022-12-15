@@ -20,7 +20,10 @@
 
 static uint64 shard_log_magic_idx = 0;
 
-int    shard_log_write     (log_handle *log, char *key, char *data, uint64 generation);
+int shard_log_write(log_handle *log,
+                    const char *key,
+                    const char *data,
+                    uint64      generation);
 uint64
 shard_log_addr(log_handle *log);
 uint64
@@ -267,7 +270,10 @@ get_new_page_for_thread(shard_log             *log,
 }
 
 int
-shard_log_write(log_handle *logh, char* key, char* msg, uint64 generation)
+shard_log_write(log_handle *logh,
+                const char *key,
+                const char *msg,
+                uint64      generation)
 {
    shard_log             *log = (shard_log *)logh;
    cache                 *cc  = log->cc;

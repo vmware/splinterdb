@@ -346,8 +346,8 @@ kvstore_register_thread(const kvstore *kvs) // IN
 
 int
 kvstore_insert(const kvstore *kvs,  // IN
-               char *         key,  // IN
-               char *         value // IN
+               const char    *key,  // IN
+               const char    *value // IN
 )
 {
    platform_status status;
@@ -376,9 +376,9 @@ kvstore_insert(const kvstore *kvs,  // IN
 
 int
 kvstore_lookup(const kvstore *kvs,   // IN
-               char *         key,   // IN
-               char *         value, // OUT
-               bool *         found  // OUT
+               const char    *key,   // IN
+               char          *value, // OUT
+               bool          *found  // OUT
 )
 {
    platform_status status;
@@ -394,9 +394,9 @@ struct kvstore_iterator {
 };
 
 int
-kvstore_iterator_init(const kvstore *    kvs,      // IN
+kvstore_iterator_init(const kvstore     *kvs,      // IN
                       kvstore_iterator **iter,     // OUT
-                      char *             start_key // IN
+                      const char        *start_key // IN
 )
 {
    kvstore_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);

@@ -39,12 +39,12 @@ void kvstore_deinit(kvstore *kvs);
 
 void kvstore_register_thread(const kvstore *kvs);
 
-int kvstore_insert(const kvstore *kvs, char *key, char *message);
+int kvstore_insert(const kvstore *kvs, const char *key, const char *message);
 
 int kvstore_lookup(const kvstore *kvs,     // IN
-                   char *         key,     // IN
-                   char *         message, // OUT
-                   bool *         found    // OUT
+                   const char    *key,     // IN
+                   char          *message, // OUT
+                   bool          *found    // OUT
 );
 
 /*
@@ -90,9 +90,9 @@ Sample application code:
 
 typedef struct kvstore_iterator kvstore_iterator;
 
-int kvstore_iterator_init(const kvstore *    kvs,      // IN
+int kvstore_iterator_init(const kvstore     *kvs,      // IN
                           kvstore_iterator **iter,     // OUT
-                          char *             start_key // IN
+                          const char        *start_key // IN
 );
 
 void kvstore_iterator_deinit(kvstore_iterator *iter);

@@ -78,13 +78,13 @@ struct PACKED btree_hdr {
  */
 
 void
-btree_alloc(cache *         cc,
+btree_alloc(cache          *cc,
             mini_allocator *mini,
             uint64          height,
-            char *          key,
-            uint64 *        next_extent,
+            char           *key,
+            uint64         *next_extent,
             page_type       type,
-            btree_node *    node)
+            btree_node     *node)
 {
    node->addr = mini_allocator_alloc(mini, height, key, next_extent);
    debug_assert(node->addr != 0);
@@ -96,9 +96,9 @@ btree_alloc(cache *         cc,
 
 static inline void
 btree_merge_tuples(btree_config *cfg,
-                   const char *key,
-                   const char *old_data,
-                   char *new_data)
+                   const char   *key,
+                   const char   *old_data,
+                   char         *new_data)
 {
    // FIXME: [yfogel 2020-01-11] If/when we have start/end compaction callbacks
    //    this call is actually violating the contract (it's being called
@@ -276,21 +276,19 @@ btree_node_is_full(btree_config *cfg,
 
 
 static inline char *
-btree_get_pivot(btree_config *cfg,
-                btree_node   *node,
-                uint32        k)
+btree_get_pivot(btree_config *cfg, btree_node *node, uint32 k)
 {
    btree_hdr *hdr = node->hdr;
    uint8 idx;
    uint8 *table;
    if (hdr->is_packed) {
-      return (char *)hdr + sizeof(btree_hdr)
-         + k * (btree_key_size(cfg) + sizeof(uint64));
+      return (char *)hdr + sizeof(btree_hdr) +
+             k * (btree_key_size(cfg) + sizeof(uint64));
    }
    table = btree_get_table(cfg, node);
    idx = table[k];
-   return (char *)table + cfg->pivots_per_index * sizeof(uint8)
-         + idx * (btree_key_size(cfg) + sizeof(uint64));
+   return (char *)table + cfg->pivots_per_index * sizeof(uint8) +
+          idx * (btree_key_size(cfg) + sizeof(uint64));
 }
 
 static inline uint64
@@ -303,12 +301,12 @@ btree_pivot_addr(btree_config *cfg,
 
 static inline void
 btree_set_pivot_key_and_addr(btree_config *cfg,
-                             btree_node *node,
-                             uint32 k,
-                             const char *new_pivot_key,
-                             uint64 new_addr)
+                             btree_node   *node,
+                             uint32        k,
+                             const char   *new_pivot_key,
+                             uint64        new_addr)
 {
-   char *pivot_key = btree_get_pivot(cfg, node, k);
+   char   *pivot_key = btree_get_pivot(cfg, node, k);
    uint64 *addr = (uint64*)(pivot_key + btree_key_size(cfg));
    memmove(pivot_key, new_pivot_key, btree_key_size(cfg));
    *addr = new_addr;
@@ -339,26 +337,23 @@ btree_shift_unpacked_pivots(btree_config *cfg,
 }
 
 static inline char *
-btree_get_tuple(btree_config *cfg,
-                btree_node   *node,
-                uint32        k)
+btree_get_tuple(btree_config *cfg, btree_node *node, uint32 k)
 {
    btree_hdr *hdr = node->hdr;
    uint8 idx;
    uint8 *table;
    if (hdr->is_packed) {
-      return ((char *)hdr) + sizeof(*hdr) + k * (btree_key_size(cfg) + btree_message_size(cfg));
+      return ((char *)hdr) + sizeof(*hdr) +
+             k * (btree_key_size(cfg) + btree_message_size(cfg));
    }
    table = btree_get_table(cfg, node);
    idx = table[k];
-   return (char *)table + cfg->tuples_per_leaf * sizeof(uint8)
-         + idx * (btree_key_size(cfg) + btree_message_size(cfg));
+   return (char *)table + cfg->tuples_per_leaf * sizeof(uint8) +
+          idx * (btree_key_size(cfg) + btree_message_size(cfg));
 }
 
 static inline char *
-btree_get_data(btree_config *cfg,
-               btree_node *node,
-               uint32 k)
+btree_get_data(btree_config *cfg, btree_node *node, uint32 k)
 {
    return btree_get_tuple(cfg, node, k) + btree_key_size(cfg);
 }
@@ -646,8 +641,8 @@ btree_shift_packed_tuples(btree_config *cfg,
 {
    debug_assert(btree_is_packed(cfg, node));
    debug_assert(btree_height(cfg, node) == 0);
-   char *dest_tuple = btree_get_tuple(cfg, node, idx + shift);
-   const char *src_tuple  = btree_get_tuple(cfg, node, idx);
+   char       *dest_tuple      = btree_get_tuple(cfg, node, idx + shift);
+   const char *src_tuple       = btree_get_tuple(cfg, node, idx);
    uint64 tuples_to_shift = btree_num_entries(cfg, node) - idx;
    size_t bytes_to_shift = tuples_to_shift * btree_tuple_size(cfg);
    memmove(dest_tuple, src_tuple, bytes_to_shift);
@@ -717,7 +712,7 @@ btree_add_tuple(btree_config  *cfg,
    {
       const uint64 message_size = btree_message_size(cfg);
       char *old_data = scratch->add_tuple.old_data;
-      char * const btree_data = btree_get_data(cfg, node, idx);
+      char *const  btree_data   = btree_get_data(cfg, node, idx);
 
       // merge if we have the key already
       memmove(old_data, btree_data, message_size);

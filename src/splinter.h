@@ -350,7 +350,9 @@ typedef struct {
  *----------------------------------------------------------------------
  */
 
-platform_status  splinter_insert                (splinter_handle *spl, char *key, char *data);
+platform_status splinter_insert(splinter_handle *spl,
+                                const char      *key,
+                                const char      *data);
 // FIXME: [yfogel 2020-07-01] need to document contract/... for range delete
 // Inclusive start_key, Exclusive end_key
 platform_status
@@ -358,11 +360,31 @@ splinter_range_delete(splinter_handle *spl,
                       char *start_key,
                       char *end_key);
 
-platform_status  splinter_lookup                (splinter_handle *spl, char *key, char *data, bool *found);
-cache_async_result  splinter_lookup_async       (splinter_handle *spl, char *key, char *data, bool *found, splinter_async_ctxt *ctxt);
-platform_status  splinter_range_iterator_init   (splinter_handle *spl, splinter_range_iterator *range_itor, char *min_key, char *max_key, uint64 num_tuples);
-void             splinter_range_iterator_deinit (splinter_range_iterator *range_itor);
-platform_status  splinter_range                 (splinter_handle *spl, char *start_key, uint64 num_tuples, uint64 *tuples_returned, char *out);
+platform_status     splinter_lookup(splinter_handle *spl,
+                                    const char      *key,
+                                    char            *data,
+                                    bool            *found);
+
+cache_async_result splinter_lookup_async(splinter_handle     *spl,
+                                         char                *key,
+                                         char                *data,
+                                         bool                *found,
+                                         splinter_async_ctxt *ctxt);
+
+platform_status splinter_range_iterator_init(
+   splinter_handle         *spl,
+   splinter_range_iterator *range_itor,
+   const char              *min_key,
+   const char              *max_key,
+   uint64                   num_tuples);
+
+void splinter_range_iterator_deinit(splinter_range_iterator *range_itor);
+
+platform_status splinter_range(splinter_handle *spl,
+                               char            *start_key,
+                               uint64           num_tuples,
+                               uint64          *tuples_returned,
+                               char            *out);
 
 splinter_handle *splinter_create                (splinter_config *cfg,
                                                  allocator *al, cache *cc,
