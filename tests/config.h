@@ -7,8 +7,7 @@
  *     This file contains functions for config parsing.
  */
 
-#ifndef __CONFIG_H
-#define __CONFIG_H
+#pragma once
 
 #include "clockcache.h"
 #include "splinterdb/data.h"
@@ -236,6 +235,3 @@ config_parse(master_config *cfg,
 #define config_set_else                                                        \
    }                                                                           \
    else
-
-
-#endif // __CONFIG_H

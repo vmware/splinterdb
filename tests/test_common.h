@@ -9,8 +9,7 @@
  * in test_common.c, that are shared between functional/ and unit/ test sources.
  * -----------------------------------------------------------------------------
  */
-#ifndef __TEST_COMMON_H__
-#define __TEST_COMMON_H__
+#pragma once
 
 #include "trunk.h"
 #include "functional/test.h"
@@ -56,6 +55,3 @@ test_show_verbose_progress(test_exec_config *test_exec_cfg)
 {
    return (test_exec_cfg->verbose_progress);
 }
-
-
-#endif /* __TEST_COMMON_H__ */

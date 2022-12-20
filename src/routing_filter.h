@@ -7,8 +7,7 @@
  *     This file contains the routing_filter interface.
  */
 
-#ifndef __ROUTING_FILTER_H
-#define __ROUTING_FILTER_H
+#pragma once
 
 #include "cache.h"
 #include "iterator.h"
@@ -187,5 +186,3 @@ routing_filter_verify(cache          *cc,
 
 void
 routing_filter_print(cache *cc, routing_config *cfg, routing_filter *filter);
-
-#endif // __ROUTING_FILTER_H

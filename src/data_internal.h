@@ -7,8 +7,7 @@
  *     A slice-based interface to the datatype definitions
  */
 
-#ifndef __DATA_INTERNAL_H
-#define __DATA_INTERNAL_H
+#pragma once
 
 #include "splinterdb/data.h"
 #include "util.h"
@@ -639,5 +638,3 @@ data_message_to_string(const data_config *cfg,
        data_message_to_string((cfg), (msg), b.buffer, 128);                    \
        b;                                                                      \
     }).buffer)
-
-#endif // __DATA_INTERNAL_H

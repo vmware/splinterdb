@@ -1,8 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __TEST_DATA_H
-#define __TEST_DATA_H
+#pragma once
 
 #include "splinterdb/data.h"
 #include "util.h"
@@ -30,5 +29,3 @@ test_data_print_key(const void *key, platform_log_handle *log_handle)
                 key_p[1],
                 key_p[2]);
 }
-
-#endif

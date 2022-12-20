@@ -7,8 +7,7 @@
  *     This file contains the abstract interface for IO.
  */
 
-#ifndef __IO_H
-#define __IO_H
+#pragma once
 
 #include "platform.h"
 
@@ -204,5 +203,3 @@ io_config_init(io_config  *io_cfg,
    io_cfg->kernel_queue_size = async_queue_depth;
    io_cfg->async_max_pages   = extent_size / page_size;
 }
-
-#endif //__IO_H
