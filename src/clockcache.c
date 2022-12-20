@@ -2263,8 +2263,7 @@ clockcache_get(clockcache *cc, uint64 addr, bool blocking, page_type type)
    page_handle *handle;
 
    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
-                || type == PAGE_TYPE_MEMTABLE
-                || type == PAGE_TYPE_LOCK_NO_DATA);
+                || type == PAGE_TYPE_MEMTABLE);
    while (1) {
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
       if (!retry) {
