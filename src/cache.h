@@ -356,7 +356,7 @@ cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
  *
  * Drop a reference to a page.
  * XXX The page must not be locked or claimed?
- * 
+ *
  *----------------------------------------------------------------------
  */
 static inline void
@@ -413,7 +413,7 @@ cache_unclaim(cache *cc, page_handle *page)
  *
  * Upgrade a claim to a write lock. Blocks until outstanding read locks
  * are released by other threads.
- * 
+ *
  *----------------------------------------------------------------------
  */
 static inline void
@@ -427,7 +427,7 @@ cache_lock(cache *cc, page_handle *page)
  * cache_unlock
  *
  * XXX Downgrade a write lock to ... a read-lock with a claim?
- * 
+ *
  *----------------------------------------------------------------------
  */
 static inline void
@@ -443,7 +443,7 @@ cache_unlock(cache *cc, page_handle *page)
  * Asynchronously load the extent with given base address. No notification is
  * provided to the calling thread; it may call cache_get when it's ready
  * to block on the arrival of the page.
- * 
+ *
  *----------------------------------------------------------------------
  */
 static inline void
@@ -464,7 +464,7 @@ cache_prefetch(cache *cc, uint64 addr, page_type type)
  * by the time a thread upgrades to a write lock, it has already decided
  * to certainly update the page value. So why add another step to potentially
  * omit?
- * 
+ *
  *----------------------------------------------------------------------
  */
 static inline void
@@ -485,7 +485,7 @@ cache_mark_dirty(cache *cc, page_handle *page)
  *
  * XXX I note that clockcache_evict_all has an !ignore_pinned_pages mode.
  * Do users of this interface need to know how that interacts?
- * 
+ *
  *----------------------------------------------------------------------
  */
 static inline void
