@@ -37,15 +37,15 @@
  * functions invoked by pthreads to invoke the work-horse function(s).
  */
 typedef struct io_test_fn_args {
-   platform_heap_id    arg_hid;
-   io_config          *arg_io_cfgp;
-   platform_io_handle *arg_io_hdlp;
-   io_context_t        arg_io_ctxt_t; // Expected opaque context handle
-   task_system        *arg_tasks;
-   uint64              arg_start_addr;
-   uint64              arg_end_addr;
-   char                arg_stamp_char;
-   platform_thread     arg_thread;
+   platform_heap_id    hid;
+   io_config          *io_cfgp;
+   platform_io_handle *io_hdlp;
+   io_context_t        io_ctxt; // Expected opaque context handle
+   task_system        *tasks;
+   uint64              start_addr;
+   uint64              end_addr;
+   char                stamp_char;
+   platform_thread     thread;
 } io_test_fn_args;
 
 /* Whether to display verbose-progress from each thread's activity */
@@ -57,8 +57,8 @@ bool Verbose_progress = FALSE;
  */
 typedef void (*test_io_thread_hdlr)(void *arg);
 
-/* SplinterDB device size; small one is good enough for IO APIs testing */
-#define SPLINTER_DEVICE_SIZE_MB 128
+/* Device size; small one is good enough for IO APIs testing */
+#define DEVICE_SIZE_MB 128
 
 /*
  * Use small hard-coded # of threads to avoid allocating memory for
@@ -141,8 +141,8 @@ test_async_reads_worker(void *arg);
 static inline uint64
 npages_per_thread(io_test_fn_args *io_test_param, int nthreads)
 {
-   return (((io_test_param->arg_end_addr - io_test_param->arg_start_addr)
-            / io_test_param->arg_io_cfgp->page_size)
+   return (((io_test_param->end_addr - io_test_param->start_addr)
+            / io_test_param->io_cfgp->page_size)
            / nthreads);
 }
 
@@ -223,7 +223,7 @@ splinter_io_apis_test(int argc, char *argv[])
       goto io_free;
    }
 
-   uint64 disk_size_MB = SPLINTER_DEVICE_SIZE_MB;
+   uint64 disk_size_MB = DEVICE_SIZE_MB;
    uint64 disk_size    = (disk_size_MB * MiB); // bytes
 
    uint64 start_addr = 0;
@@ -257,14 +257,14 @@ splinter_io_apis_test(int argc, char *argv[])
     * child threads in its IO context.
     */
    io_context_t    io_ctxt        = io_get_context((io_handle *)io_hdl);
-   io_test_fn_args io_test_fn_arg = {.arg_hid        = hid,
-                                     .arg_io_cfgp    = &io_cfg,
-                                     .arg_io_hdlp    = io_hdl,
-                                     .arg_io_ctxt_t  = io_ctxt,
-                                     .arg_tasks      = tasks,
-                                     .arg_start_addr = start_addr,
-                                     .arg_end_addr   = end_addr,
-                                     .arg_stamp_char = 'A'};
+   io_test_fn_args io_test_fn_arg = {.hid        = hid,
+                                     .io_cfgp    = &io_cfg,
+                                     .io_hdlp    = io_hdl,
+                                     .io_ctxt    = io_ctxt,
+                                     .tasks      = tasks,
+                                     .start_addr = start_addr,
+                                     .end_addr   = end_addr,
+                                     .stamp_char = 'A'};
 
    test_sync_write_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
 
@@ -370,21 +370,21 @@ test_sync_writes_worker(void *arg)
    io_test_fn_args *argp = (io_test_fn_args *)arg;
 
    io_context_t act_ctxt =
-      (io_context_t)io_get_context((io_handle *)(argp->arg_io_hdlp));
+      (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
 
    // All threads share the same IO-context handle as the main thread.
-   platform_assert((argp->arg_io_ctxt_t == act_ctxt),
+   platform_assert((argp->io_ctxt == act_ctxt),
                    "Actual opaque IO context handle, %p"
                    " does not match expected context handle, %p\n",
                    act_ctxt,
-                   argp->arg_io_ctxt_t);
+                   argp->io_ctxt);
 
-   test_sync_writes(argp->arg_hid,
-                    argp->arg_io_cfgp,
-                    argp->arg_io_hdlp,
-                    argp->arg_start_addr,
-                    argp->arg_end_addr,
-                    argp->arg_stamp_char);
+   test_sync_writes(argp->hid,
+                    argp->io_cfgp,
+                    argp->io_hdlp,
+                    argp->start_addr,
+                    argp->end_addr,
+                    argp->stamp_char);
 }
 
 /*
@@ -478,20 +478,20 @@ test_sync_reads_worker(void *arg)
    io_test_fn_args *argp = (io_test_fn_args *)arg;
 
    io_context_t act_ctxt =
-      (io_context_t)io_get_context((io_handle *)(argp->arg_io_hdlp));
+      (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
 
-   platform_assert((argp->arg_io_ctxt_t == act_ctxt),
+   platform_assert((argp->io_ctxt == act_ctxt),
                    "Actual opaque IO context handle, %p"
                    " does not match expected context handle, %p\n",
                    act_ctxt,
-                   argp->arg_io_ctxt_t);
+                   argp->io_ctxt);
 
-   test_sync_reads(argp->arg_hid,
-                   argp->arg_io_cfgp,
-                   argp->arg_io_hdlp,
-                   argp->arg_start_addr,
-                   argp->arg_end_addr,
-                   argp->arg_stamp_char);
+   test_sync_reads(argp->hid,
+                   argp->io_cfgp,
+                   argp->io_hdlp,
+                   argp->start_addr,
+                   argp->end_addr,
+                   argp->stamp_char);
 }
 
 /*
@@ -534,7 +534,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
    }
 
    for (int i = 0; i < nthreads; i++) {
-      platform_thread_join(thread_params[i].arg_thread);
+      platform_thread_join(thread_params[i].thread);
    }
 
    /*
@@ -547,7 +547,7 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
    }
 
    for (int i = 0; i < nthreads; i++) {
-      platform_thread_join(thread_params[i].arg_thread);
+      platform_thread_join(thread_params[i].thread);
    }
 
    return rc;
@@ -562,11 +562,12 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
  * threads, basically, setting up the start/end address of the regions that
  * each thread will perform IO on.
  *
+ * NOTE: Caller is expected to have allocated a thread_params[] array big enough
+ *       for nthreads.
  * Parameters:
  *   io_test_param   - Overall test execution parameters
  *   thread_params   - Array of thread-specific execution parameters
- *   nthreads			- # of threads. (Caller is expected to have allocated
- *                     a thread_params[] array big enough for nthreads.)
+ *   nthreads			- # of threads.
  * -----------------------------------------------------------------------------
  */
 static void
@@ -577,36 +578,36 @@ load_thread_params(io_test_fn_args *io_test_param,
    // The input gives start / end addresses of the disk to use for IO testing.
    // Carve this into somewhat equal chunks, across page boundaries, with the
    // very last thread possibly getting fewer pages to do IO on. That's ok.
-   uint64 start_addr = io_test_param->arg_start_addr;
-   uint64 end_addr   = io_test_param->arg_end_addr;
-   int    page_size  = (int)io_test_param->arg_io_cfgp->page_size;
+   uint64 start_addr = io_test_param->start_addr;
+   uint64 end_addr   = io_test_param->end_addr;
+   int    page_size  = (int)io_test_param->io_cfgp->page_size;
 
    // # of pages allocated to each thread.
    uint64 npages = npages_per_thread(io_test_param, nthreads);
 
    io_test_fn_args *param = thread_params;
    for (int i = 0; i < nthreads; i++, param++) {
-      param->arg_hid     = io_test_param->arg_hid;
-      param->arg_io_cfgp = io_test_param->arg_io_cfgp;
-      param->arg_io_hdlp = io_test_param->arg_io_hdlp;
-      param->arg_tasks   = io_test_param->arg_tasks;
+      param->hid     = io_test_param->hid;
+      param->io_cfgp = io_test_param->io_cfgp;
+      param->io_hdlp = io_test_param->io_hdlp;
+      param->tasks   = io_test_param->tasks;
 
       // Set up the start/end address of the chunk of device for this thread
       // The last thread's end will be the devices end, which may happen if
       // device size cannot be uniformly divided into equal # of pages.
-      end_addr              = (start_addr + (npages * page_size));
-      param->arg_start_addr = start_addr;
-      param->arg_end_addr =
-         (i == (nthreads - 1)) ? io_test_param->arg_end_addr : end_addr;
+      end_addr          = (start_addr + (npages * page_size));
+      param->start_addr = start_addr;
+      param->end_addr =
+         (i == (nthreads - 1)) ? io_test_param->end_addr : end_addr;
 
       // Reset start of the next chunk for next thread to work on
       start_addr = end_addr;
 
       // Pass-down IO context established in main thread, used for
       // assertion verification in thread after it's been started.
-      param->arg_io_ctxt_t = io_test_param->arg_io_ctxt_t;
+      param->io_ctxt = io_test_param->io_ctxt;
 
-      param->arg_stamp_char = io_test_param->arg_stamp_char;
+      param->stamp_char = io_test_param->stamp_char;
    }
 }
 
@@ -768,7 +769,7 @@ test_async_reads_by_threads(io_test_fn_args *io_test_param, int nthreads)
    }
 
    for (int i = 0; i < nthreads; i++) {
-      platform_thread_join(thread_params[i].arg_thread);
+      platform_thread_join(thread_params[i].thread);
    }
 
    return rc;
@@ -786,20 +787,20 @@ test_async_reads_worker(void *arg)
    io_test_fn_args *argp = (io_test_fn_args *)arg;
 
    io_context_t act_ctxt =
-      (io_context_t)io_get_context((io_handle *)(argp->arg_io_hdlp));
+      (io_context_t)io_get_context((io_handle *)(argp->io_hdlp));
 
    // All threads share the same IO-context handle as the main thread.
-   platform_assert((argp->arg_io_ctxt_t == act_ctxt),
+   platform_assert((argp->io_ctxt == act_ctxt),
                    "Actual opaque IO context handle, %p"
                    " does not match expected context handle, %p\n",
                    act_ctxt,
-                   argp->arg_io_ctxt_t);
+                   argp->io_ctxt);
 
-   test_async_reads(argp->arg_hid,
-                    argp->arg_io_cfgp,
-                    argp->arg_io_hdlp,
-                    argp->arg_start_addr,
-                    argp->arg_stamp_char);
+   test_async_reads(argp->hid,
+                    argp->io_cfgp,
+                    argp->io_hdlp,
+                    argp->start_addr,
+                    argp->stamp_char);
 }
 
 /*
@@ -820,9 +821,9 @@ do_n_thread_creates(const char         *thread_type,
                                thread_hdlr,
                                &params[i],
                                trunk_get_scratch_size(),
-                               params[i].arg_tasks,
-                               params[i].arg_hid,
-                               &params[i].arg_thread);
+                               params[i].tasks,
+                               params[i].hid,
+                               &params[i].thread);
       if (!SUCCESS(ret)) {
          return ret;
       }

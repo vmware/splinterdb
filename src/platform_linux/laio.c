@@ -12,6 +12,9 @@
  * - Sync  IO interfaces: io_read(), io_write()
  * - Async IO interfaces: io_read_async(), io_write_async()
  * - Async IO completion interfaces: io_cleanup(), io_cleanup_all()
+ * - The Async IO functions require obtaining an io_async_req via
+ *   laio_get_async_req(), followed by filling in its metadata and iovec
+ *   members using laio_get_metadata() and laio_get_iovec().
  */
 
 #define POISON_FROM_PLATFORM_IMPLEMENTATION
@@ -124,6 +127,7 @@ io_handle_init(laio_handle         *io,
       platform_error_log(
          "open() '%s' failed: %s\n", cfg->filename, strerror(errno));
       return CONST_STATUS(errno);
+   }
 
    if (is_create) {
       fallocate(io->fd, 0, 0, 128 * 1024);
@@ -307,7 +311,8 @@ laio_callback(io_context_t ctx, struct iocb *iocb, long res, long res2)
 }
 
 /*
- * io_read_async() - Submit an Async read request.
+ * io_read_async() - Submit an Async read request. Async request 'req' needs
+ * to have its eq->metadata and req->iovec filled in for the IO to work.
  */
 static platform_status
 laio_read_async(io_handle     *ioh,

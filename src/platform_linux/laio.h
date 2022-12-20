@@ -58,7 +58,7 @@ typedef struct laio_handle {
    uint64           req_hand_base;
    uint64           req_hand[MAX_THREADS];
    platform_heap_id heap_id;
-   int              fd; // File descriptor to Splinter device
+   int              fd; // File descriptor to Splinter device/file.
 } laio_handle;
 
 platform_status
