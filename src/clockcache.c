@@ -135,7 +135,7 @@ page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type);
 
 void
-clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type);
+clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type);
 
 uint8
 clockcache_get_allocator_ref(clockcache *cc, uint64 addr);
@@ -282,10 +282,10 @@ clockcache_alloc_virtual(cache *c, uint64 addr, page_type type)
 }
 
 void
-clockcache_hard_evict_extent_virtual(cache *c, uint64 addr, page_type type)
+clockcache_extent_discard_virtual(cache *c, uint64 addr, page_type type)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_hard_evict_extent(cc, addr, type);
+   return clockcache_extent_discard(cc, addr, type);
 }
 
 page_handle *
@@ -506,7 +506,7 @@ clockcache_get_config_virtual(const cache *c)
 
 static cache_ops clockcache_ops = {
    .page_alloc        = clockcache_alloc_virtual,
-   .extent_hard_evict = clockcache_hard_evict_extent_virtual,
+   .extent_discard    = clockcache_extent_discard_virtual,
    .page_get          = clockcache_get_virtual,
    .page_get_async    = clockcache_get_async_virtual,
    .page_async_done   = clockcache_async_done_virtual,
@@ -1923,13 +1923,13 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 
 /*
  *----------------------------------------------------------------------
- * clockcache_try_hard_evict --
+ * clockcache_try_page_discard --
  *
  *      Evicts the page with address addr if it is in cache.
  *----------------------------------------------------------------------
  */
 void
-clockcache_try_hard_evict(clockcache *cc, uint64 addr)
+clockcache_try_page_discard(clockcache *cc, uint64 addr)
 {
    const threadid tid = platform_get_tid();
    while (TRUE) {
@@ -1937,7 +1937,7 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
       if (entry_number == CC_UNMAPPED_ENTRY) {
          clockcache_log(addr,
                         entry_number,
-                        "try_hard_evict (uncached): entry %u addr %lu\n",
+                        "try_discard_page (uncached): entry %u addr %lu\n",
                         entry_number,
                         addr);
          return;
@@ -1986,7 +1986,7 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
       /* log only after steps that can fail */
       clockcache_log(addr,
                      entry_number,
-                     "try_hard_evict (cached): entry %u addr %lu\n",
+                     "try_discard_page (cached): entry %u addr %lu\n",
                      entry_number,
                      addr);
 
@@ -2013,14 +2013,14 @@ clockcache_try_hard_evict(clockcache *cc, uint64 addr)
 
 /*
  *----------------------------------------------------------------------
- * clockcache_hard_evict_extent --
+ * clockcache_extent_discard --
  *
  *      Attempts to evict all the pages in the extent. Will wait for writeback,
  *      but will evict and discard dirty pages.
  *----------------------------------------------------------------------
  */
 void
-clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
+clockcache_extent_discard(clockcache *cc, uint64 addr, page_type type)
 {
    debug_assert(addr % clockcache_extent_size(cc) == 0);
    debug_assert(allocator_get_refcount(cc->al, addr) == 1);
@@ -2028,7 +2028,7 @@ clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
       uint64 page_addr = addr + clockcache_multiply_by_page_size(cc, i);
-      clockcache_try_hard_evict(cc, page_addr);
+      clockcache_try_page_discard(cc, page_addr);
    }
 }
 

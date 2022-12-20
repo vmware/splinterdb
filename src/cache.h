@@ -134,7 +134,7 @@ typedef uint64 (*cache_generic_uint64_fn)(cache *cc);
 typedef void (*page_generic_fn)(cache *cc, page_handle *page);
 
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
-typedef void (*extent_hard_evict_fn)(cache *cc, uint64 addr, page_type type);
+typedef void (*extent_discard_fn)(cache *cc, uint64 addr, page_type type);
 typedef page_handle *(*page_get_fn)(cache    *cc,
                                     uint64    addr,
                                     bool      blocking,
@@ -174,7 +174,7 @@ typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
  */
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
-   extent_hard_evict_fn extent_hard_evict;
+   extent_discard_fn    extent_discard;
    page_get_fn          page_get;
    page_get_async_fn    page_get_async;
    page_async_done_fn   page_async_done;
@@ -242,7 +242,7 @@ cache_alloc(cache *cc, uint64 addr, page_type type)
 
 /*
  *----------------------------------------------------------------------
- * cache_hard_evict_extent
+ * cache_extent_discard
  *
  * Evicts all the pages in the extent. Dirty pages are discarded.
  * This call may block on I/O (to complete writebacks initiated before
@@ -257,9 +257,9 @@ cache_alloc(cache *cc, uint64 addr, page_type type)
  *----------------------------------------------------------------------
  */
 static inline void
-cache_hard_evict_extent(cache *cc, uint64 addr, page_type type)
+cache_extent_discard(cache *cc, uint64 addr, page_type type)
 {
-   cc->ops->extent_hard_evict(cc, addr, type);
+   cc->ops->extent_discard(cc, addr, type);
 }
 
 /*

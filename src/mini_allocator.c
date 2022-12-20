@@ -683,7 +683,7 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
          uint64 last_meta_base_addr = base_addr(cc, last_meta_addr);
          uint8  ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_NO_REFS);
-         cache_hard_evict_extent(cc, last_meta_base_addr, type);
+         cache_extent_discard(cc, last_meta_base_addr, type);
          ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_FREE);
       }
@@ -1013,7 +1013,7 @@ mini_dealloc_extent(cache *cc, page_type type, uint64 base_addr, void *out)
    allocator *al  = cache_get_allocator(cc);
    uint8      ref = allocator_dec_ref(al, base_addr, type);
    platform_assert(ref == AL_NO_REFS);
-   cache_hard_evict_extent(cc, base_addr, type);
+   cache_extent_discard(cc, base_addr, type);
    ref = allocator_dec_ref(al, base_addr, type);
    platform_assert(ref == AL_FREE);
    return TRUE;
@@ -1112,7 +1112,7 @@ mini_keyed_dec_ref_extent(cache    *cc,
    allocator *al  = cache_get_allocator(cc);
    uint8      ref = allocator_dec_ref(al, base_addr, type);
    if (ref == AL_NO_REFS) {
-      cache_hard_evict_extent(cc, base_addr, type);
+      cache_extent_discard(cc, base_addr, type);
       ref = allocator_dec_ref(al, base_addr, type);
       platform_assert(ref == AL_FREE);
       return TRUE;
