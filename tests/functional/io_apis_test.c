@@ -334,7 +334,7 @@ test_sync_writes(platform_heap_id    hid,
          platform_error_log("Write IO at addr %lu wrote %d bytes"
                             ", expected to write out %d bytes.\n",
                             curr,
-                            io_hdl->nbytes_rw,
+                            io_hdl->failed_io_size_bytes,
                             page_size);
          goto free_buf;
       }
@@ -433,7 +433,7 @@ test_sync_reads(platform_heap_id    hid,
          platform_error_log("Read IO at addr %lu read %d bytes"
                             ", expected to read %d bytes.\n",
                             curr,
-                            io_hdl->nbytes_rw,
+                            io_hdl->failed_io_size_bytes,
                             page_size);
          goto free_buf;
       }

@@ -474,7 +474,7 @@ rc_allocator_mount(rc_allocator        *al,
                    al->ref_count,
                    io_size,
                    cfg->io_cfg->extent_size,
-                   io->nbytes_rw);
+                   io->failed_io_size_bytes);
 
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
       if (al->ref_count[i] != 0) {

@@ -205,7 +205,7 @@ laio_read(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
       return STATUS_OK;
    }
    // Return # of bytes read, for diagnostics.
-   ioh->nbytes_rw = ret;
+   ioh->failed_io_size_bytes = ret;
    return STATUS_IO_ERROR;
 }
 
@@ -224,7 +224,7 @@ laio_write(io_handle *ioh, void *buf, uint64 bytes, uint64 addr)
       return STATUS_OK;
    }
    // Return # of bytes written, for diagnostics.
-   ioh->nbytes_rw = ret;
+   ioh->failed_io_size_bytes = ret;
    return STATUS_IO_ERROR;
 }
 

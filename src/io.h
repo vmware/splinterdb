@@ -80,10 +80,14 @@ typedef struct io_ops {
    io_get_context_fn         get_context;
 } io_ops;
 
-// to sub-class io, make an io your first field;
+/*
+ * To sub-class io, make an io your first field;
+ * An IO call that fails will return the # of bytes read/written
+ * via the failed_io_size_bytes field.
+ */
 struct io_handle {
    const io_ops *ops;
-   int           nbytes_rw; // # of bytes read / written by IO call.
+   int           failed_io_size_bytes; // # of bytes read / written by IO call.
 };
 
 platform_status
