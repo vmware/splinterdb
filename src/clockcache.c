@@ -256,6 +256,12 @@ clockcache_extent_base_addr(const clockcache *cc, uint64 addr);
  *
  *      Here we define virtual functions for cache_ops
  *
+ *      These are just boilerplate polymorph trampolines that cast the
+ *      interface type to the concrete (clockcache-specific type) and then call
+ *      into the clockcache_ method, so that the clockcache_ method signature
+ *      can contain concrete types. These trampolines disappear in link-time
+ *      optimization.
+ *
  *-----------------------------------------------------------------------------
  */
 
