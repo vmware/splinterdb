@@ -2272,14 +2272,6 @@ test_splinter_delete(trunk_config    *cfg,
       cache_print_stats(Platform_default_log_handle, spl->cc);
    }
 
-   for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      trunk_handle *spl = spl_tables[spl_idx];
-      trunk_force_flush(spl);
-      platform_default_log("After flushing table %d:\n", spl_idx);
-      trunk_print_insertion_stats(Platform_default_log_handle, spl);
-      cache_print_stats(Platform_default_log_handle, spl->cc);
-   }
-
    for (uint64 i = 0; i < num_insert_threads; i++) {
       if (!SUCCESS(params[i].rc)) {
          rc = params[i].rc;
