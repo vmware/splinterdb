@@ -237,6 +237,9 @@ struct cache {
  *----------------------------------------------------------------------
  * cache_alloc
  *
+ * addr is a byte offset from the beginning of the disk. It should be aligned
+ * to cache_page_size().
+ *
  * Returns a pointer to the page_handle for the page with address addr,
  * with thread holding the write lock on the page.
  * The page is assumed to be unallocated, so the backing data is not read
@@ -289,6 +292,9 @@ cache_get_ref(cache *cc, uint64 addr)
 /*
  *----------------------------------------------------------------------
  * cache_get
+ *
+ * addr is a byte offset from the beginning of the disk. It should be aligned
+ * to cache_page_size().
  *
  * Returns a pointer to the page_handle for the page with address addr.
  * If blocking is set, then it blocks until the page is unlocked as well.
