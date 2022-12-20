@@ -237,21 +237,22 @@ struct cache {
  *----------------------------------------------------------------------
  * cache_alloc
  *
- * addr is a byte offset from the beginning of the disk. It should be aligned
+ * Allocate a slot in the cache for the given page address.
+ *
+ * The page is assumed to be unallocated, so the backing data is not read from
+ * the disk.  The contents of the in-memory page is undefined. It is the
+ * responsibility of the caller to set every byte before allowing it to be
+ * write back to the disk to avoid a security bug that might leak unexpected
+ * data to the persistent store.
+ *
+ * `addr` is a byte offset from the beginning of the disk. It should be aligned
  * to cache_page_size().
+ *
+ * `type` marks the page as being used for the given purpose for debugging
+ * and statistical accounting purposes.
  *
  * Returns a pointer to the page_handle for the page with address addr,
  * with thread holding the write lock on the page.
- * The page is assumed to be unallocated, so the backing data is not read
- * from the disk.
- * XXX The in-memory page is initialized to zeros OR
- * XXX The in-memory page is uninitialized garbage; it is the responsibility
- * of the caller to set every byte before allowing it to be writte back
- * to the disk.
- *
- * The page is marked as `type`.
- * XXX Where is that type information stored,
- * and is it persistent? Is it updated synchronously with the page?
  *----------------------------------------------------------------------
  */
 static inline page_handle *
@@ -264,9 +265,14 @@ cache_alloc(cache *cc, uint64 addr, page_type type)
  *----------------------------------------------------------------------
  * cache_hard_evict_extent
  *
- * Attempts to evict all the pages in the extent. Will wait for writeback,
- * but will evict and discard dirty pages.
- * XXX Why would discarding dirty pages ever be desirable?
+ * Evicts all the pages in the extent. Dirty pages are discarded.
+ * This call may block on I/O (to complete writebacks initiated before
+ * this call).
+ *
+ * This function is used to maintain an invariant that the cache only
+ * contains only contains pages allocated in the RC allocator. Once an
+ * extent is freed, this function is used to evict all of its pages from
+ * the cache.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -280,7 +286,9 @@ cache_hard_evict_extent(cache *cc, uint64 addr, page_type type)
  * cache_get_ref
  *
  * Returns the count of outstanding references to the page.
- * XXX Why would calling threads care about this? Seems internal.
+ *
+ * TODO: This should be removed from the cache API. Callers should
+ * call through the RC allocator instead.
  *----------------------------------------------------------------------
  */
 static inline uint8
@@ -293,15 +301,15 @@ cache_get_ref(cache *cc, uint64 addr)
  *----------------------------------------------------------------------
  * cache_get
  *
- * addr is a byte offset from the beginning of the disk. It should be aligned
- * to cache_page_size().
- *
  * Returns a pointer to the page_handle for the page with address addr.
- * If blocking is set, then it blocks until the page is unlocked as well.
  *
+ * If blocking is set, then it blocks until the page is unlocked as well.
  * If blocking is TRUE, always returns with a read lock held.
  * If blocking is FALSE, returns non-NULL if and only if the thread now holds a
  * read lock on the page at addr.
+ *
+ * addr is a byte offset from the beginning of the disk. It should be aligned
+ * to cache_page_size().
  *----------------------------------------------------------------------
  */
 static inline page_handle *
@@ -346,8 +354,7 @@ cache_get_async(cache *cc, uint64 addr, page_type type, cache_async_ctxt *ctxt)
  *----------------------------------------------------------------------
  * cache_async_done
  *
- * XXX clockcache_async_done docs makes me think this is internal; why
- * is it exposed in the public API?
+ * XXX @aconway How is this used?
  *----------------------------------------------------------------------
  */
 static inline void
@@ -361,7 +368,7 @@ cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
  * cache_unget
  *
  * Drop a reference to a page.
- * XXX The page must not be locked or claimed?
+ * The page must not be write-locked or claimed before making this call.
  *
  *----------------------------------------------------------------------
  */
@@ -375,23 +382,23 @@ cache_unget(cache *cc, page_handle *page)
  *----------------------------------------------------------------------
  * cache_claim
  *
- *      Attempts to upgrade a read lock to claim.
+ * Attempts to upgrade a read lock to claim.
  *
- *      A claim means the lock is still held read-only, but that this
- *      thread will be able to upgrade this read lock to write lock later
- *      via get_lock(). (Any other reading thread that fails to get the claim
- *      will have to abandon its read lock and try again later, after which
- *      the locked value may have been changed by the thread that secured
- *      the claim and used the write lock.)
+ * A claim means the lock is still held read-only, but that this
+ * thread will be able to upgrade this read lock to write lock later
+ * via get_lock(). (Any other reading thread that fails to get the claim
+ * will have to abandon its read lock and try again later, after which
+ * the locked value may have been changed by the thread that secured
+ * the claim and used the write lock.)
  *
- *      NOTE: If cache_claim returns false, the caller must release the
- *      read lock before attempting cache_claim again to avoid deadlock.
+ * NOTE: If cache_claim returns false, the caller must release the
+ * read lock before attempting cache_claim again to avoid deadlock.
  *
- *      returns:
- *      - TRUE if a claim was obtained
- *      - FALSE if another thread holds a claim (or write lock)
+ * returns:
+ * - TRUE if a claim was obtained
+ * - FALSE if another thread holds a claim (or write lock)
  *
- *      does not block
+ * Does not block.
  *----------------------------------------------------------------------
  */
 static inline bool
@@ -404,7 +411,11 @@ cache_claim(cache *cc, page_handle *page)
  *----------------------------------------------------------------------
  * cache_unclaim
  *
- * Abandon a claim without upgrading to a write lock.
+ * Release a claim.
+ * The handle must hold a claim when making this call.
+ * The handle is changed to the read-locked state.
+ *
+ * Does not block.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -417,9 +428,14 @@ cache_unclaim(cache *cc, page_handle *page)
  *----------------------------------------------------------------------
  * cache_lock
  *
- * Upgrade a claim to a write lock. Blocks until outstanding read locks
- * are released by other threads.
+ * Upgrade a claim to a write lock.
+ * The handle must hold a claim when making this call.
+ * The handle is changed to the write-locked state.
  *
+ * Blocks until outstanding read locks are released by other threads.
+ *
+ * If you call this method, you almost certainly want to call
+ * cache_mark_dirty() immediately afterward.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -432,8 +448,11 @@ cache_lock(cache *cc, page_handle *page)
  *----------------------------------------------------------------------
  * cache_unlock
  *
- * XXX Downgrade a write lock to ... a read-lock with a claim?
+ * Release a write lock.
+ * The handle must hold a write lock when making this call.
+ * The handle is changed to the claimed state.
  *
+ * Does not block.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -466,11 +485,11 @@ cache_prefetch(cache *cc, uint64 addr, page_type type)
  * The caller had better have the write lock on the page via cache_lock()
  * before changing its value.
  *
- * XXX Why is this a separate step from cache_lock()? I'd assume that,
- * by the time a thread upgrades to a write lock, it has already decided
- * to certainly update the page value. So why add another step to potentially
- * omit?
- *
+ * TODO This method should be removed; its effect should come automatically
+ * with the acquisition of a write lock. @robj reports lots of bugs
+ * due to forgetting to call this method. And we can't think of a case
+ * where we'd want the "optimization" of taking a write lock but then
+ * decide not to dirty it.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -485,9 +504,8 @@ cache_mark_dirty(cache *cc, page_handle *page)
  *
  * Pin the page in the cache, disallowing eviction.
  *
- * XXX Is this purely a performance optimization: we know this page will
- * be needed again very soon? Or is this ever used for safety, somehow?
- * Some weird one-big-lock argument?
+ * This is a performance optimization, used when the caller knows this page
+ * will be needed again very soon.
  *
  * XXX I note that clockcache_evict_all has an !ignore_pinned_pages mode.
  * Do users of this interface need to know how that interacts?
@@ -502,7 +520,7 @@ cache_pin(cache *cc, page_handle *page)
 
 /*
  *----------------------------------------------------------------------
- * cache_pin
+ * cache_unpin
  *
  * Release the pin from a cache page, allowing it to be evicted.
  *
@@ -522,9 +540,11 @@ cache_unpin(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  * cache_page_sync
  *
- * Asynchronously writes the page back to disk. Currently there is no way to
- * check when the writeback has completed,
- * XXX thus this call is only useful to prepare a page for eviction?
+ * Asynchronously writes the page back to disk.
+ *
+ * TODO Currently there is no way to check when the writeback has completed;
+ * that'll have to change to correctly acknowledge application-level sync
+ * requests.
  *
  *-----------------------------------------------------------------------------
  */
@@ -542,16 +562,18 @@ cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
  *
  * *pages_outstanding is immediately incremented by the number of pages
  * issued for writeback (the non-clean pages of the extent); as writebacks
- * complete, *pages_outstanding is decremented. The caller may use the
- * XXX atomically-read? Because it's an aligned uint64?
- * value of *pages_outstanding to determine when the extent writeback is
- * complete.
+ * complete, *pages_outstanding is decremented atomically.
+ *
+ * TODO: How does a caller ensure they're *reading* this thing atomically?
+ * How do we ensure the caller thread knows this value is "volatile" and
+ * another thread may change it? Should probably provide a thread-safe
+ * accessor interface to reading the pages_outstanding value. (Currently
+ * there are no callers to cache_extent_sync.)
+ * TODO: What happens if two callers call cache_extent_sync on the same extent?
  *
  * All pages in the extent must be clean or cleanable.
- * XXX What other states might there be, and what would happen if you
- * called this with a page in such a state?
- * XXX should we copy this remark from flush?
- * XXX Asserts that there are no pins, read locks, claims or write locks.
+ * The page may not be in writeback, loading, or locked, or claimed, otherwise
+ * undefined behavior will occur.
  *-----------------------------------------------------------------------------
  */
 static inline void
@@ -564,7 +586,7 @@ cache_extent_sync(cache *cc, uint64 addr, uint64 *pages_outstanding)
  *-----------------------------------------------------------------------------
  * cache_flush
  *
- * Issues writeback for all page in the cache.
+ * Issues writeback for all pages in the cache.
  *
  * Asserts that there are no pins, read locks, claims or write locks.
  *-----------------------------------------------------------------------------
@@ -582,6 +604,11 @@ cache_flush(cache *cc)
  * Evicts all the pages.
  * Asserts that there are no pins, read locks, claims or write locks.
  * Always returns 0.
+ *
+ * Test facility.
+ * This method is only used for testing, specifically in cache_test.
+ * TODO Could be deleted and replaced with destructing and constructing
+ * a fresh cache.
  *-----------------------------------------------------------------------------
  */
 static inline int
@@ -594,7 +621,8 @@ cache_evict(cache *cc, bool ignore_pinned_pages)
  *-----------------------------------------------------------------------------
  * cache_cleanup
  *
- * XXX ?
+ * Test facility.
+ * Used in tests to process pending IO completions during test shutdowns.
  *-----------------------------------------------------------------------------
  */
 static inline void
@@ -649,7 +677,7 @@ cache_print(platform_log_handle *log_handle, cache *cc)
  *-----------------------------------------------------------------------------
  * cache_print_stats
  *
- * Debugging facility.
+ * Analysis facility.
  * Prints out performance statistics.
  *-----------------------------------------------------------------------------
  */
@@ -663,7 +691,7 @@ cache_print_stats(platform_log_handle *log_handle, cache *cc)
  *-----------------------------------------------------------------------------
  * cache_reset_stats
  *
- * Debugging facility.
+ * Analysis facility.
  * Resets performance statistics counters.
  *-----------------------------------------------------------------------------
  */
@@ -677,7 +705,7 @@ cache_reset_stats(cache *cc)
  *-----------------------------------------------------------------------------
  * cache_reset_stats
  *
- * Debugging facility.
+ * Analysis facility.
  * Returns performance statistics counts.
  *-----------------------------------------------------------------------------
  */
@@ -735,7 +763,7 @@ cache_count_dirty(cache *cc)
  *-----------------------------------------------------------------------------
  * cache_get_read_ref
  *
- * Debugging facility.
+ * Testing facility.
  * Returns the number of threads with references to page.
  *-----------------------------------------------------------------------------
  */
@@ -749,7 +777,7 @@ cache_get_read_ref(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  * cache_present
  *
- * Debugging facility.
+ * Testing facility.
  * Returns TRUE if page is present in the cache.
  *-----------------------------------------------------------------------------
  */
@@ -763,7 +791,11 @@ cache_present(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  * cache_enable_sync_get
  *
- * XXX No idea.
+ * Debugging facility.
+ * When set to FALSE, cache_get() is disallowed; cache_get_async must be
+ * used instead.
+ * (This facility was used when introducing async behavior to enforce that all
+ * callers use only the async interface.)
  *-----------------------------------------------------------------------------
  */
 static inline void
