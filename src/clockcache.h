@@ -7,8 +7,7 @@
  *     This file contains interface for a concurrent clock cache.
  */
 
-#ifndef __CLOCKCACHE_H
-#define __CLOCKCACHE_H
+#pragma once
 
 #include "allocator.h"
 #include "cache.h"
@@ -170,5 +169,3 @@ clockcache_init(clockcache          *cc,   // OUT
 
 void
 clockcache_deinit(clockcache *cc); // IN
-
-#endif // __CLOCKCACHE_H

@@ -7,8 +7,7 @@
  *     This file contains constants and functions that pertain to tests.
  */
 
-#ifndef __TEST_H
-#define __TEST_H
+#pragma once
 
 #include "cache.h"
 #include "clockcache.h"
@@ -386,5 +385,3 @@ test_generate_allocator_root_id()
 {
    return __sync_fetch_and_add(&counter, 1);
 }
-
-#endif

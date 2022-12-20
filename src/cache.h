@@ -7,8 +7,7 @@
  *     This file contains the abstract interface for a cache.
  */
 
-#ifndef __CACHE_H
-#define __CACHE_H
+#pragma once
 
 #include "platform.h"
 #include "allocator.h"
@@ -481,5 +480,3 @@ cache_pages_share_extent(const cache *cc, uint64 addr1, uint64 addr2)
    cache_config *cfg = cache_get_config(cc);
    return cache_config_pages_share_extent(cfg, addr1, addr2);
 }
-
-#endif // __CACHE_H

@@ -1,8 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __ITERATOR_H
-#define __ITERATOR_H
+#pragma once
 
 #include "data_internal.h"
 #include "util.h"
@@ -52,5 +51,3 @@ iterator_print(iterator *itor)
 {
    return itor->ops->print(itor);
 }
-
-#endif // __ITERATOR_H

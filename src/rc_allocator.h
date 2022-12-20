@@ -7,8 +7,7 @@
  * This file contains the interface for the ref count allocator.
  */
 
-#ifndef __RC_ALLOCATOR_H
-#define __RC_ALLOCATOR_H
+#pragma once
 
 #include "allocator.h"
 #include "platform.h"
@@ -113,5 +112,3 @@ rc_allocator_mount(rc_allocator        *al,
 
 void
 rc_allocator_unmount(rc_allocator *al);
-
-#endif /* __RC_ALLOCATOR_H */

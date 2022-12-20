@@ -7,8 +7,7 @@
  *     This file contains the abstract interface for an allocator.
  */
 
-#ifndef __ALLOCATOR_H
-#define __ALLOCATOR_H
+#pragma once
 
 #include "platform.h"
 
@@ -199,5 +198,3 @@ allocator_print_allocated(allocator *al)
 {
    return al->ops->print_allocated(al);
 }
-
-#endif // __ALLOCATOR_H
