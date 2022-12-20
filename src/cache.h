@@ -506,10 +506,6 @@ cache_mark_dirty(cache *cc, page_handle *page)
  *
  * This is a performance optimization, used when the caller knows this page
  * will be needed again very soon.
- *
- * XXX I note that clockcache_evict_all has an !ignore_pinned_pages mode.
- * Do users of this interface need to know how that interacts?
- *
  *----------------------------------------------------------------------
  */
 static inline void
@@ -602,8 +598,11 @@ cache_flush(cache *cc)
  * cache_evict
  *
  * Evicts all the pages.
- * Asserts that there are no pins, read locks, claims or write locks.
+ * Asserts that there are no pins (if ignore_pinned_pages is false), read
+ * locks, claims or write locks.
  * Always returns 0.
+ *
+ * XXX Does ignore_pinned_pages ignore the pages or the pinnedness of the pages?
  *
  * Test facility.
  * This method is only used for testing, specifically in cache_test.
