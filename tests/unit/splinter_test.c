@@ -5,7 +5,10 @@
  * -----------------------------------------------------------------------------
  * splinter_test.c --
  *
- *  Exercises the basic SplinterDB interfaces.
+ *  Exercises internal interfaces, using private APIs.
+ *
+ *  If you're writing new unit tests of the public API, please do not use this
+ *  file as a template or example.
  *
  * NOTE: There is some duplication of the splinter_do_inserts() in the test
  * cases which adds considerable execution times. The test_inserts() test case
@@ -82,12 +85,12 @@ CTEST_DATA(splinter)
    uint32 max_async_inflight;
    int    spl_num_tables;
 
-   uint8 num_bg_threads[NUM_TASK_TYPES];
+   uint64 num_bg_threads[NUM_TASK_TYPES];
 
    // Config structs required, as per splinter_test() setup work.
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   shard_log_config    log_cfg;
+   io_config        io_cfg;
+   allocator_config al_cfg;
+   shard_log_config log_cfg;
 
    rc_allocator al;
 
@@ -112,9 +115,9 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle = fopen("/tmp/unit_test.stderr", "a+");
-
+   if (Ctest_verbose) {
+      platform_set_log_streams(stdout, stderr);
+   }
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;
@@ -142,6 +145,10 @@ CTEST_SETUP(splinter)
    data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
+   // no bg threads by default.
+   for (int idx = 0; idx < NUM_TASK_TYPES; idx++) {
+       data->num_bg_threads[idx] = 0;
+   }
 
    rc = test_parse_args_n(data->splinter_cfg,
                           &data->data_cfg,
@@ -151,6 +158,8 @@ CTEST_SETUP(splinter)
                           &data->log_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
+                          &data->num_bg_threads[TASK_TYPE_MEMTABLE],
+                          &data->num_bg_threads[TASK_TYPE_NORMAL],
                           num_tables,
                           Ctest_argc,   // argc/argv globals setup by CTests
                           (char **)Ctest_argv);
@@ -166,12 +175,12 @@ CTEST_SETUP(splinter)
    io_config * io_cfgp = &data->io_cfg;
    if (io_cfgp->async_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->async_queue_size = ROUNDUP(total_threads * data->max_async_inflight, 32);
-      platform_default_log("Bumped up IO queue size to %lu\n", io_cfgp->async_queue_size);
+      CTEST_LOG_INFO("Bumped up IO queue size to %lu\n", io_cfgp->async_queue_size);
    }
    if (io_cfgp->kernel_queue_size < total_threads * data->max_async_inflight) {
       io_cfgp->kernel_queue_size =
          ROUNDUP(total_threads * data->max_async_inflight, 32);
-      platform_default_log("Bumped up IO queue size to %lu\n",
+      CTEST_LOG_INFO("Bumped up IO queue size to %lu\n",
                    io_cfgp->kernel_queue_size);
    }
 
@@ -180,15 +189,9 @@ CTEST_SETUP(splinter)
    ASSERT_TRUE((data->io != NULL));
    rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
 
-   // no bg threads by default.
-   for (int idx = 0; idx < NUM_TASK_TYPES; idx++) {
-       data->num_bg_threads[idx] = 0;
-   }
-
-   bool use_bg_threads = data->num_bg_threads[TASK_TYPE_NORMAL] != 0;
-
+   data->tasks = NULL;
    rc = test_init_task_system(data->hid, data->io, &data->tasks, data->splinter_cfg->use_stats,
-                           use_bg_threads, data->num_bg_threads);
+                              data->num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));
@@ -454,7 +457,7 @@ CTEST2(splinter, test_lookups)
    // **************************************************************************
    uint64 start_time = platform_get_timestamp();
 
-   platform_default_log("\n");
+   CTEST_LOG_INFO("\n");
    for (uint64 insert_num = 0; insert_num < num_inserts; insert_num++) {
 
       // Show progress message in %age-completed to stdout
@@ -479,7 +482,7 @@ CTEST2(splinter, test_lookups)
    }
 
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
-   platform_default_log(
+   CTEST_LOG_INFO(
       " ... splinter positive lookup time %lu s, per tuple %lu ns\n",
       NSEC_TO_SEC(elapsed_ns),
       (elapsed_ns / num_inserts));
@@ -516,7 +519,7 @@ CTEST2(splinter, test_lookups)
    }
 
    elapsed_ns = platform_timestamp_elapsed(start_time);
-   platform_default_log(
+   CTEST_LOG_INFO(
       " ... splinter negative lookup time %lu s, per tuple %lu ns\n",
       NSEC_TO_SEC(elapsed_ns),
       (elapsed_ns / num_inserts));
@@ -527,8 +530,8 @@ CTEST2(splinter, test_lookups)
    // **************************************************************************
 
    int niters = 3;
-   platform_default_log(
-      "Perform test_lookup_by_range() for %d iterations ...\n", niters);
+   CTEST_LOG_INFO("Perform test_lookup_by_range() for %d iterations ...\n",
+                  niters);
    // Iterate thru small set of num_ranges for additional coverage.
    trunk_shadow_sort(&shadow);
    for (int ictr = 1; ictr <= 3; ictr++) {
@@ -582,7 +585,7 @@ CTEST2(splinter, test_lookups)
    test_wait_for_inflight(spl, async_lookup, &vtarg_true);
 
    elapsed_ns = platform_timestamp_elapsed(start_time);
-   platform_default_log(
+   CTEST_LOG_INFO(
       " ... splinter positive async lookup time %lu s, per tuple %lu ns\n",
       NSEC_TO_SEC(elapsed_ns),
       (elapsed_ns / num_inserts));
@@ -613,7 +616,7 @@ CTEST2(splinter, test_lookups)
    test_wait_for_inflight(spl, async_lookup, &vtarg_false);
 
    elapsed_ns = platform_timestamp_elapsed(start_time);
-   platform_default_log(
+   CTEST_LOG_INFO(
       " ... splinter negative async lookup time %lu s, per tuple %lu ns\n",
       NSEC_TO_SEC(elapsed_ns),
       (elapsed_ns / num_inserts));
@@ -654,20 +657,20 @@ CTEST2(splinter, test_splinter_print_diags)
                     "Expected to have inserted non-zero rows, num_inserts=%lu",
                     num_inserts);
 
-   platform_default_log("**** Splinter Diagnostics ****\n"
-                        "Generated by %s:%d:%s ****\n",
-                        __FILE__,
-                        __LINE__,
-                        __FUNCTION__);
+   CTEST_LOG_INFO("**** Splinter Diagnostics ****\n"
+                  "Generated by %s:%d:%s ****\n",
+                  __FILE__,
+                  __LINE__,
+                  __FUNCTION__);
 
    trunk_print_super_block(Platform_default_log_handle, spl);
 
    trunk_print_space_use(Platform_default_log_handle, spl);
 
-   platform_default_log("\n** trunk_print() **\n");
+   CTEST_LOG_INFO("\n** trunk_print() **\n");
    trunk_print(Platform_default_log_handle, spl);
 
-   platform_default_log("\n** Allocator stats **\n");
+   CTEST_LOG_INFO("\n** Allocator stats **\n");
    allocator_print_stats(alp);
    allocator_print_allocated(alp);
 
@@ -715,13 +718,13 @@ splinter_do_inserts(void         *datap,
                     / generator_average_message_size(&data->gen);
    }
 
-   platform_default_log("Splinter_cfg max_kv_bytes_per_node=%lu"
-                        ", fanout=%lu"
-                        ", max_extents_per_memtable=%lu, num_inserts=%d. ",
-                        data->splinter_cfg[0].max_kv_bytes_per_node,
-                        data->splinter_cfg[0].fanout,
-                        data->splinter_cfg[0].mt_cfg.max_extents_per_memtable,
-                        num_inserts);
+   CTEST_LOG_INFO("Splinter_cfg max_kv_bytes_per_node=%lu"
+                  ", fanout=%lu"
+                  ", max_extents_per_memtable=%lu, num_inserts=%d. ",
+                  data->splinter_cfg[0].max_kv_bytes_per_node,
+                  data->splinter_cfg[0].fanout,
+                  data->splinter_cfg[0].mt_cfg.max_extents_per_memtable,
+                  num_inserts);
 
    uint64 start_time = platform_get_timestamp();
    uint64 insert_num;
@@ -736,9 +739,9 @@ splinter_do_inserts(void         *datap,
 
    platform_status rc;
 
-   platform_default_log("trunk_insert() test with %d inserts %s ...\n",
-                        num_inserts,
-                        (verify ? "and verify" : ""));
+   CTEST_LOG_INFO("trunk_insert() test with %d inserts %s ...\n",
+                  num_inserts,
+                  (verify ? "and verify" : ""));
    merge_accumulator msg;
    merge_accumulator_init(&msg, spl->heap_id);
    for (insert_num = 0; insert_num < num_inserts; insert_num++) {
@@ -774,7 +777,7 @@ splinter_do_inserts(void         *datap,
    uint64 elapsed_s  = NSEC_TO_SEC(elapsed_ns);
 
    // For small # of inserts, elapsed sec will be 0. Deal with it.
-   platform_default_log(
+   CTEST_LOG_INFO(
       "... average tuple_size=%lu, splinter insert time %lu s, per "
       "tuple %lu ns, %s%lu rows/sec. ",
       key_size + generator_average_message_size(&data->gen),
@@ -820,9 +823,8 @@ shadow_check_tuple_func(key returned_key, message value, void *varg)
       trunk_message_to_string(arg->spl, shadow_value, expected_value);
       trunk_message_to_string(arg->spl, value, actual_value);
 
-      platform_default_log(
-         "expected: '%s' | '%s'\n", expected_key, expected_value);
-      platform_default_log("actual  : '%s' | '%s'\n", actual_key, actual_value);
+      CTEST_LOG_INFO("expected: '%s' | '%s'\n", expected_key, expected_value);
+      CTEST_LOG_INFO("actual  : '%s' | '%s'\n", actual_key, actual_value);
       arg->errors++;
    }
 
@@ -900,11 +902,11 @@ test_lookup_by_range(void         *datap,
    }
 
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
-   platform_default_log(" ... splinter range time %lu s, per operation %lu ns"
-                        ", %lu ranges\n",
-                        NSEC_TO_SEC(elapsed_ns),
-                        (elapsed_ns / num_ranges),
-                        num_ranges);
+   CTEST_LOG_INFO(" ... splinter range time %lu s, per operation %lu ns"
+                  ", %lu ranges\n",
+                  NSEC_TO_SEC(elapsed_ns),
+                  (elapsed_ns / num_ranges),
+                  num_ranges);
 
    return rc;
 }

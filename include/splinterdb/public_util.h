@@ -1,8 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __PUBLIC_UTIL_H__
-#define __PUBLIC_UTIL_H__
+#pragma once
 
 #include "splinterdb/public_platform.h"
 
@@ -51,5 +50,3 @@ slice_data(const slice b)
 {
    return b.data;
 }
-
-#endif /* __PUBLIC_UTIL_H__ */

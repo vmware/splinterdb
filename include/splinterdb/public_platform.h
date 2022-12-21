@@ -22,8 +22,7 @@ compile time for the linux platform, you might
 
 */
 
-#ifndef __SPLINTERDB_PUBLIC_PLATFORM_H
-#define __SPLINTERDB_PUBLIC_PLATFORM_H
+#pragma once
 
 #ifndef SPLINTERDB_PLATFORM_DIR
 #   error Define SPLINTERDB_PLATFORM_DIR for your target, e.g. compile with flag -DSPLINTERDB_PLATFORM_DIR=platform_linux
@@ -42,5 +41,3 @@ compile time for the linux platform, you might
 #undef PUBLIC_PLATFORM_H
 #undef TEMP_STRINGIFY
 #undef TEMP_XSTRINGIFY
-
-#endif // __SPLINTERDB_PUBLIC_PLATFORM_H

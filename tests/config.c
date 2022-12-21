@@ -36,7 +36,23 @@
 #define TEST_CONFIG_DEFAULT_SEED        0
 #define TEST_CONFIG_DEFAULT_NUM_INSERTS 0
 
+// By default, background threads are disabled in Splinter task system.
+// Most tests run w/o background threads. Very small # of tests exercise
+// background threads through the --num-normal-bg-threads and
+// --num-memtable-bg-threads options.
+#define TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS   0
+#define TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS 0
+
+
 // clang-format off
+/*
+ * ---------------------------------------------------------------------------
+ * Helper function to initialize master_config{} used to run tests with some
+ * useful default values. The expectation is that the input 'cfg' is zero'ed
+ * out before calling this initializer, so that all other fields will have
+ * some reasonable 0-defaults.
+ * ---------------------------------------------------------------------------
+ */
 void
 config_set_defaults(master_config *cfg)
 {
@@ -59,10 +75,12 @@ config_set_defaults(master_config *cfg)
       .max_branches_per_node    = TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE,
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
+      .num_normal_bg_threads    = TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS,
+      .num_memtable_bg_threads  = TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
       .log_handle               = NULL,
-      .max_key_size                 = TEST_CONFIG_DEFAULT_KEY_SIZE,
+      .max_key_size             = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
       .seed                     = TEST_CONFIG_DEFAULT_SEED,
@@ -105,6 +123,13 @@ config_usage()
    platform_error_log("\t--fanout (%d)\n", TEST_CONFIG_DEFAULT_FANOUT);
    platform_error_log("\t--max-branches-per-node (%d)\n",
                       TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE);
+
+   platform_error_log("\t--num-normal-bg-threads (%d)\n",
+                      TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS);
+
+   platform_error_log("\t--num-memtable-bg-threads (%d)\n",
+                      TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS);
+
    platform_error_log("\t--stats\n");
    platform_error_log("\t--no-stats\n");
    platform_error_log("\t--log\n");
@@ -225,6 +250,15 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          {}
          config_set_mib("reclaim-threshold", cfg, reclaim_threshold) {}
          config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {}
+
+         /*
+          * These arguments will be passed through to Splinter initialization
+          * to setup Splinter task system to use background threads.
+          */
+         config_set_uint64("num-normal-bg-threads", cfg, num_normal_bg_threads);
+         config_set_uint64(
+            "num-memtable-bg-threads", cfg, num_memtable_bg_threads);
+
          config_has_option("stats")
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
@@ -283,6 +317,8 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
             return STATUS_BAD_PARAM;
          }
       }
+
+      // Validate consistency of config parameters provided.
       for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
          if (cfg[cfg_idx].extent_size % cfg[cfg_idx].page_size != 0) {
             platform_error_log("Configured extent-size, %lu, is not a multiple "
@@ -314,6 +350,17 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                                "experimental.\n",
                                cfg[cfg_idx].max_key_size,
                                TEST_CONFIG_MIN_KEY_SIZE);
+            return STATUS_BAD_PARAM;
+         }
+         if ((cfg[cfg_idx].num_normal_bg_threads == 0)
+             != (cfg[cfg_idx].num_memtable_bg_threads == 0))
+         {
+            platform_error_log("Both configuration parameters for background "
+                               "threads, --num-normal-bg-threads (%lu) "
+                               " and --num-memtable-bg-threads (%lu) "
+                               "must be zero or be non-zero.\n",
+                               cfg[cfg_idx].num_normal_bg_threads,
+                               cfg[cfg_idx].num_memtable_bg_threads);
             return STATUS_BAD_PARAM;
          }
       }

@@ -7,8 +7,7 @@
  *     This file contains the interface for the splinter memtable.
  */
 
-#ifndef __MEMTABLE_H
-#define __MEMTABLE_H
+#pragma once
 
 #include "platform.h"
 #include "task.h"
@@ -295,5 +294,3 @@ memtable_print_stats(platform_log_handle *log_handle, cache *cc, memtable *mt)
 {
    btree_print_tree_stats(log_handle, cc, mt->cfg, mt->root_addr);
 };
-
-#endif // __MEMTABLE_H

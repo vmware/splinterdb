@@ -7,8 +7,7 @@
  *     This file contains the abstract interface for IO.
  */
 
-#ifndef __IO_H
-#define __IO_H
+#pragma once
 
 #include "platform.h"
 
@@ -21,12 +20,14 @@ typedef struct io_async_req io_async_req;
 typedef struct io_config {
    uint64 async_queue_size;
    uint64 kernel_queue_size;
-   uint64 async_max_pages;
    uint64 page_size;
    uint64 extent_size;
    char   filename[MAX_STRING_LENGTH];
    int    flags;
    uint32 perms;
+
+   // computed
+   uint64 async_max_pages;
 } io_config;
 
 typedef void (*io_callback_fn)(void           *metadata,
@@ -202,7 +203,7 @@ io_config_init(io_config  *io_cfg,
    io_cfg->perms             = perms;
    io_cfg->async_queue_size  = async_queue_depth;
    io_cfg->kernel_queue_size = async_queue_depth;
-   io_cfg->async_max_pages   = extent_size / page_size;
-}
 
-#endif //__IO_H
+   // computed values
+   io_cfg->async_max_pages = extent_size / page_size;
+}

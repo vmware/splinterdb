@@ -8,8 +8,7 @@
  *     to identify potential compactions to perform to reclaim space.
  */
 
-#ifndef __SRQ_H
-#define __SRQ_H
+#pragma once
 
 #include "platform.h"
 
@@ -355,5 +354,3 @@ out:
    }
    return ret;
 }
-
-#endif //__SRQ_H

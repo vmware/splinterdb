@@ -7,8 +7,7 @@
  *    Merging functionality, notably merge iterators.
  */
 
-#ifndef __MERGE_H
-#define __MERGE_H
+#pragma once
 
 #include "data_internal.h"
 #include "iterator.h"
@@ -105,5 +104,3 @@ merge_iterator_destroy(platform_heap_id hid, merge_iterator **merge_itor);
 
 void
 merge_iterator_print(merge_iterator *merge_itor);
-
-#endif // __BTREE_MERGE_H

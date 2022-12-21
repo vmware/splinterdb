@@ -7,8 +7,7 @@
  *     This file contains the interface for a libaio wrapper.
  */
 
-#ifndef __LAIO_H
-#define __LAIO_H
+#pragma once
 
 #include "io.h"
 #include "task.h"
@@ -53,5 +52,3 @@ typedef struct laio_handle {
 
 platform_status
 laio_config_valid(io_config *cfg);
-
-#endif //__LAIO_H

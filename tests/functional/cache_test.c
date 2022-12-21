@@ -65,7 +65,7 @@ cache_test_alloc_extents(cache             *cc,
                          uint64             addr_arr[],
                          uint32             extents_to_allocate)
 {
-   allocator *al               = cache_allocator(cc);
+   allocator *al               = cache_get_allocator(cc);
    uint64     page_size        = cache_config_page_size(&cfg->super);
    uint64     pages_per_extent = cache_config_pages_per_extent(&cfg->super);
    platform_status rc;
@@ -268,7 +268,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
-      allocator *al   = cache_allocator(cc);
+      allocator *al   = cache_get_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
@@ -545,7 +545,7 @@ test_cache_flush(cache             *cc,
     */
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
-      allocator *al   = cache_allocator(cc);
+      allocator *al   = cache_get_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
@@ -931,7 +931,7 @@ test_cache_async(cache             *cc,
    // Deallocate all the entries.
    for (uint32 i = 0; i < extents_to_allocate; i++) {
       uint64     addr = addr_arr[i * pages_per_extent];
-      allocator *al   = cache_allocator(cc);
+      allocator *al   = cache_get_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
       cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
@@ -960,13 +960,13 @@ cache_test(int argc, char *argv[])
 {
    data_config           *data_cfg;
    io_config              io_cfg;
-   rc_allocator_config    al_cfg;
+   allocator_config       al_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
    int                    config_argc = argc - 1;
    char                 **config_argv = argv + 1;
    platform_status        rc;
-   task_system           *ts;
+   task_system           *ts        = NULL;
    bool                   benchmark = FALSE, async = FALSE;
    uint64                 seed;
    test_message_generator gen;
@@ -994,6 +994,7 @@ cache_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
+   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
@@ -1004,6 +1005,8 @@ cache_test(int argc, char *argv[])
                         &log_cfg,
                         &seed,
                         &gen,
+                        &num_bg_threads[TASK_TYPE_MEMTABLE],
+                        &num_bg_threads[TASK_TYPE_NORMAL],
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {
@@ -1033,10 +1036,8 @@ cache_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-
    rc = test_init_task_system(
-      hid, io, &ts, splinter_cfg->use_stats, FALSE, num_bg_threads);
+      hid, io, &ts, splinter_cfg->use_stats, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
