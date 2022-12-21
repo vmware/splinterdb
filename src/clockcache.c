@@ -530,7 +530,7 @@ static cache_ops clockcache_ops = {
    .page_get_read_ref = clockcache_get_read_ref_virtual,
    .cache_present     = clockcache_present_virtual,
    .enable_sync_get   = clockcache_enable_sync_get_virtual,
-   .get_allocator   = clockcache_get_allocator_virtual,
+   .get_allocator     = clockcache_get_allocator_virtual,
    .get_config        = clockcache_get_config_virtual,
 };
 
@@ -1326,7 +1326,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          do {
             first_addr -= clockcache_page_size(cc);
             if (allocator_config_pages_share_extent(
-                  allocator_cfg, first_addr, addr))
+                   allocator_cfg, first_addr, addr))
                next_entry_no = clockcache_lookup(cc, first_addr);
             else
                next_entry_no = CC_UNMAPPED_ENTRY;
@@ -1786,7 +1786,7 @@ clockcache_init(clockcache          *cc,   // OUT
    clockcache_log(
       0, 0, "init: capacity %lu name %s\n", cc->cfg->capacity, name);
 
-   cc->al    = al;
+   cc->al          = al;
    cc->io          = io;
    cc->heap_handle = hh;
    cc->heap_id     = hid;
@@ -3198,5 +3198,5 @@ clockcache_enable_sync_get(clockcache *cc, bool enabled)
 static allocator *
 clockcache_get_allocator(const clockcache *cc)
 {
-    return cc->al;
+   return cc->al;
 }

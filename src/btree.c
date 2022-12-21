@@ -1109,11 +1109,9 @@ btree_node_get_from_cache_ctxt(const btree_config *cfg,  // IN
 
 
 static inline bool
-btree_addrs_share_extent(cache *cc,
-                         uint64              left_addr,
-                         uint64              right_addr)
+btree_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
 {
-   allocator* al = cache_get_allocator(cc);
+   allocator *al = cache_get_allocator(cc);
    return allocator_config_pages_share_extent(
       allocator_get_config(al), right_addr, left_addr);
 }
@@ -1848,7 +1846,8 @@ start_over:
       debug_assert(parent_entry->pivot_data.stats.message_bytes
                    == BTREE_UNKNOWN_COUNTER);
       child_node.addr = index_entry_child_addr(parent_entry);
-      debug_assert(allocator_page_valid(cache_get_allocator(cc), child_node.addr));
+      debug_assert(
+         allocator_page_valid(cache_get_allocator(cc), child_node.addr));
       btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
       height--;
    }

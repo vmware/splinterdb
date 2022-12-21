@@ -203,7 +203,7 @@ typedef struct cache_ops {
    count_dirty_fn       count_dirty;
    page_get_read_ref_fn page_get_read_ref;
    enable_sync_get_fn   enable_sync_get;
-   get_allocator_fn get_allocator;
+   get_allocator_fn     get_allocator;
    cache_config_fn      get_config;
 } cache_ops;
 

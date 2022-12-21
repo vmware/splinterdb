@@ -960,7 +960,7 @@ cache_test(int argc, char *argv[])
 {
    data_config           *data_cfg;
    io_config              io_cfg;
-   allocator_config    al_cfg;
+   allocator_config       al_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
    int                    config_argc = argc - 1;

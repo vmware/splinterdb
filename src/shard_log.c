@@ -348,7 +348,7 @@ shard_log_iterator_init(cache              *cc,
    memset(itor, 0, sizeof(shard_log_iterator));
    itor->super.ops = &shard_log_iterator_ops;
    itor->cfg       = cfg;
-   allocator* al = cache_get_allocator(cc);
+   allocator *al   = cache_get_allocator(cc);
 
    // traverse the log extents and calculate the required space
    extent_addr = addr;
@@ -479,7 +479,7 @@ shard_log_print(shard_log *log)
    uint64            magic            = log->magic;
    data_config      *dcfg             = cfg->data_cfg;
    uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
-   allocator* al = cache_get_allocator(cc);
+   allocator        *al               = cache_get_allocator(cc);
 
    while (extent_addr != 0 && allocator_get_ref(al, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
