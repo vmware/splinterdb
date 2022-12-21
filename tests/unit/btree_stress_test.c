@@ -93,7 +93,7 @@ CTEST_DATA(btree_stress)
    master_config       master_cfg;
    data_config        *data_cfg;
    io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
+   allocator_config allocator_cfg;
    clockcache_config   cache_cfg;
    btree_scratch       test_scratch;
    btree_config        dbtree_cfg;

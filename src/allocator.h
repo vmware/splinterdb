@@ -74,7 +74,7 @@ _Static_assert(
    "Lookup array page_type_str[] is incorrectly sized for NUM_PAGE_TYPES");
 
 /*
- * Configuration structure to set up the Ref Count Allocation sub-system.
+ * Configuration structure to set up the Allocation sub-system.
  */
 typedef struct allocator_config {
    io_config *io_cfg;
@@ -209,6 +209,7 @@ allocator_dec_ref(allocator *al, uint64 addr, page_type type)
    return al->ops->dec_ref(al, addr, type);
 }
 
+// TODO rename get_refcount
 static inline uint8
 allocator_get_ref(allocator *al, uint64 addr)
 {

@@ -671,7 +671,8 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
       meta_addr                   = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
 
-      if (!cache_pages_share_extent(cc, last_meta_addr, meta_addr)) {
+      allocator_config* allocator_cfg = allocator_get_config(cache_get_allocator(cc));
+      if (!allocator_config_pages_share_extent(allocator_cfg, last_meta_addr, meta_addr)) {
          uint64 last_meta_base_addr = base_addr(cc, last_meta_addr);
          uint8 ref = allocator_dec_ref(al, last_meta_base_addr, type);
          platform_assert(ref == AL_NO_REFS);
@@ -994,7 +995,7 @@ uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head)
 {
    allocator *al        = cache_get_allocator(cc);
-   uint8      ref       = allocator_inc_ref(al, base_addr(cc, meta_addr));
+   uint8      ref       = allocator_inc_ref(al, base_addr(cc, meta_head));
    platform_assert(ref > MINI_NO_REFS);
    return ref - MINI_NO_REFS;
 }

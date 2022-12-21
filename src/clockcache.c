@@ -237,8 +237,8 @@ clockcache_present(clockcache *cc, page_handle *page);
 static void
 clockcache_enable_sync_get(clockcache *cc, bool enabled);
 
-allocator *
-clockcache_allocator(const clockcache *cc);
+static allocator *
+clockcache_get_allocator(const clockcache *cc);
 
 /*
  *-----------------------------------------------------------------------------
@@ -485,6 +485,13 @@ clockcache_enable_sync_get_virtual(cache *c, bool enabled)
    clockcache_enable_sync_get(cc, enabled);
 }
 
+allocator *
+clockcache_get_allocator_virtual(const cache *c)
+{
+   clockcache *cc = (clockcache *)c;
+   return clockcache_get_allocator(cc);
+}
+
 cache_config *
 clockcache_get_config_virtual(const cache *c)
 {
@@ -523,6 +530,7 @@ static cache_ops clockcache_ops = {
    .page_get_read_ref = clockcache_get_read_ref_virtual,
    .cache_present     = clockcache_present_virtual,
    .enable_sync_get   = clockcache_enable_sync_get_virtual,
+   .get_allocator   = clockcache_get_allocator_virtual,
    .get_config        = clockcache_get_config_virtual,
 };
 
@@ -1303,6 +1311,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
                          start_entry_no,
                          end_entry_no - 1);
 
+   allocator_config *allocator_cfg = allocator_get_config(cc->al);
    // Iterate through the entries in the batch and try to write out the extents.
    for (entry_no = start_entry_no; entry_no < end_entry_no; entry_no++) {
       entry = &cc->entry[entry_no];
@@ -1317,7 +1326,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          do {
             first_addr -= clockcache_page_size(cc);
             if (allocator_config_pages_share_extent(
-                   cc->cfg->allocator_cfg, first_addr, addr))
+                  allocator_cfg, first_addr, addr))
                next_entry_no = clockcache_lookup(cc, first_addr);
             else
                next_entry_no = CC_UNMAPPED_ENTRY;
@@ -1330,7 +1339,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          do {
             end_addr += clockcache_page_size(cc);
             if (allocator_config_pages_share_extent(
-                   cc->cfg->allocator_cfg, end_addr, addr))
+                   allocator_cfg, end_addr, addr))
                next_entry_no = clockcache_lookup(cc, end_addr);
             else
                next_entry_no = CC_UNMAPPED_ENTRY;
@@ -1777,7 +1786,7 @@ clockcache_init(clockcache          *cc,   // OUT
    clockcache_log(
       0, 0, "init: capacity %lu name %s\n", cc->cfg->capacity, name);
 
-   cc->debug_al    = al;
+   cc->al    = al;
    cc->io          = io;
    cc->heap_handle = hh;
    cc->heap_id     = hid;
@@ -2009,7 +2018,7 @@ void
 clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 {
    debug_assert(addr % clockcache_extent_size(cc) == 0);
-   debug_assert(allocator_get_ref(cc->debug_al, addr) == 1);
+   debug_assert(allocator_get_ref(cc->al, addr) == 1);
 
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
@@ -2044,18 +2053,18 @@ clockcache_get_internal(clockcache   *cc,       // IN
    uint32            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    debug_only uint64 base_addr =
-      allocator_config_extent_base_addr(cc->cfg->allocator_cfg, addr);
+      allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
    const threadid    tid = platform_get_tid();
    clockcache_entry *entry;
    platform_status   status;
    uint64            start, elapsed;
 
 #if SPLINTER_DEBUG
-   uint8 extent_ref_count = allocator_get_ref(cc->debug_al, base_addr);
+   uint8 extent_ref_count = allocator_get_ref(cc->al, base_addr);
 
    // Dump allocated extents info for deeper debugging.
    if (extent_ref_count <= 1) {
-      allocator_print_allocated(cc->debug_al);
+      allocator_print_allocated(cc->al);
    }
    debug_assert((extent_ref_count > 1),
                 "Attempt to get a buffer for page addr=%lu"
@@ -2309,12 +2318,12 @@ clockcache_get_async(clockcache       *cc,   // IN
    uint32            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    debug_only uint64 base_addr =
-      allocator_config_extent_base_addr(cc->cfg->allocator_cfg, addr);
+      allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
    const threadid    tid = platform_get_tid();
    clockcache_entry *entry;
    platform_status   status;
 
-   debug_assert(allocator_get_ref(cc->debug_al, base_addr) > 1);
+   debug_assert(allocator_get_ref(cc->al, base_addr) > 1);
 
    ctxt->page   = NULL;
    entry_number = clockcache_lookup(cc, addr);
@@ -2979,7 +2988,7 @@ clockcache_print(platform_log_handle *log_handle, clockcache *cc)
 void
 clockcache_validate_page(clockcache *cc, page_handle *page, uint64 addr)
 {
-   debug_assert(clockcache_page_valid(cc, addr));
+   debug_assert(allocator_page_valid(cc->al, addr));
    debug_assert(page->disk_addr == addr);
    debug_assert(!clockcache_test_flag(
       cc, clockcache_page_to_entry_number(cc, page), CC_FREE));
@@ -3121,7 +3130,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(avg_write_pages));
    // clang-format on
 
-   allocator_print_stats(cc->debug_al);
+   allocator_print_stats(cc->al);
 }
 
 void
@@ -3184,4 +3193,10 @@ static void
 clockcache_enable_sync_get(clockcache *cc, bool enabled)
 {
    cc->per_thread[platform_get_tid()].enable_sync_get = enabled;
+}
+
+static allocator *
+clockcache_get_allocator(const clockcache *cc)
+{
+    return cc->al;
 }

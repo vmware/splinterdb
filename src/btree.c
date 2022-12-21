@@ -1109,12 +1109,13 @@ btree_node_get_from_cache_ctxt(const btree_config *cfg,  // IN
 
 
 static inline bool
-btree_addrs_share_extent(const btree_config *cfg,
+btree_addrs_share_extent(cache *cc,
                          uint64              left_addr,
                          uint64              right_addr)
 {
-   return cache_config_pages_share_extent(
-      cfg->cache_cfg, right_addr, left_addr);
+   allocator* al = cache_get_allocator(cc);
+   return allocator_config_pages_share_extent(
+      allocator_get_config(al), right_addr, left_addr);
 }
 
 static inline uint64
@@ -1755,7 +1756,7 @@ start_over:
    btree_node parent_node = root_node;
    btree_node child_node;
    child_node.addr = index_entry_child_addr(parent_entry);
-   debug_assert(cache_page_valid(cc, child_node.addr));
+   debug_assert(allocator_page_valid(cache_get_allocator(cc), child_node.addr));
    btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
 
    uint64 height = btree_height(parent_node.hdr);
@@ -1847,7 +1848,7 @@ start_over:
       debug_assert(parent_entry->pivot_data.stats.message_bytes
                    == BTREE_UNKNOWN_COUNTER);
       child_node.addr = index_entry_child_addr(parent_entry);
-      debug_assert(cache_page_valid(cc, child_node.addr));
+      debug_assert(allocator_page_valid(cache_get_allocator(cc), child_node.addr));
       btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
       height--;
    }
@@ -2491,9 +2492,9 @@ btree_iterator_advance_leaf(btree_iterator *itor)
    // 1. we just moved from one extent to the next
    // 2. this can't be the last extent
    if (itor->do_prefetch
-       && !btree_addrs_share_extent(cfg, last_addr, itor->curr.addr)
+       && !btree_addrs_share_extent(cc, last_addr, itor->curr.addr)
        && itor->curr.hdr->next_extent_addr != 0
-       && !btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr))
+       && !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr))
    {
       // IO prefetch the next extent
       cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
@@ -2669,7 +2670,7 @@ btree_iterator_init(cache          *cc,
    }
 
    if (itor->do_prefetch && itor->curr.hdr->next_extent_addr != 0
-       && !btree_addrs_share_extent(cfg, itor->curr.addr, itor->end_addr))
+       && !btree_addrs_share_extent(cc, itor->curr.addr, itor->end_addr))
    {
       // IO prefetch the next extent
       cache_prefetch(cc, itor->curr.hdr->next_extent_addr, itor->page_type);
@@ -2810,7 +2811,7 @@ btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
    if (0 < req->num_edges[height]) {
       btree_node *old_node     = btree_pack_get_current_node(req, height);
       old_node->hdr->next_addr = new_node.addr;
-      if (!btree_addrs_share_extent(req->cfg, old_node->addr, new_node.addr)) {
+      if (!btree_addrs_share_extent(req->cc, old_node->addr, new_node.addr)) {
          btree_pack_link_extent(req, height, new_node.addr);
       }
    }
@@ -3190,7 +3191,7 @@ btree_print_node(platform_log_handle *log_handle,
                  btree_config        *cfg,
                  btree_node          *node)
 {
-   if (!cache_page_valid(cc, node->addr)) {
+   if (!allocator_page_valid(cache_get_allocator(cc), node->addr)) {
       platform_log(log_handle, "*******************\n");
       platform_log(log_handle, "** INVALID NODE \n");
       platform_log(log_handle, "** addr: %lu \n", node->addr);
@@ -3211,7 +3212,7 @@ btree_print_subtree(platform_log_handle *log_handle,
    btree_node node;
    node.addr = addr;
    btree_print_node(log_handle, cc, cfg, &node);
-   if (!cache_page_valid(cc, node.addr)) {
+   if (!allocator_page_valid(cache_get_allocator(cc), node.addr)) {
       return;
    }
    btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);

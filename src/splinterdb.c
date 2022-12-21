@@ -178,7 +178,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
-   rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
+   allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
 
    clockcache_config_init(&kvs->cache_cfg,
                           &kvs->io_cfg,

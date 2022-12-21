@@ -28,11 +28,11 @@ init_io_config_from_master_config(io_config *io_cfg, master_config *master_cfg)
 }
 
 int
-init_rc_allocator_config_from_master_config(rc_allocator_config *allocator_cfg,
+init_rc_allocator_config_from_master_config(allocator_config *allocator_cfg,
                                             master_config       *master_cfg,
                                             io_config           *io_cfg)
 {
-   rc_allocator_config_init(
+   allocator_config_init(
       allocator_cfg, io_cfg, master_cfg->allocator_capacity);
    return 1;
 }

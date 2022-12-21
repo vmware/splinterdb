@@ -230,7 +230,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                   master_cfg->io_async_queue_depth,
                   master_cfg->io_filename);
 
-   rc_allocator_config_init(
+   allocator_config_init(
       allocator_cfg, io_cfg, master_cfg->allocator_capacity);
 
    clockcache_config_init(cache_cfg,
@@ -287,7 +287,7 @@ static inline platform_status
 test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
                   data_config           **data_cfg,      // OUT
                   io_config              *io_cfg,        // OUT
-                  rc_allocator_config    *allocator_cfg, // OUT
+                  allocator_config    *allocator_cfg, // OUT
                   clockcache_config      *cache_cfg,     // OUT
                   shard_log_config       *log_cfg,       // OUT
                   test_exec_config       *test_exec_cfg, // OUT
@@ -346,7 +346,7 @@ static inline platform_status
 test_parse_args(trunk_config           *splinter_cfg,
                 data_config           **data_cfg,
                 io_config              *io_cfg,
-                rc_allocator_config    *allocator_cfg,
+                allocator_config    *allocator_cfg,
                 clockcache_config      *cache_cfg,
                 shard_log_config       *log_cfg,
                 uint64                 *seed,

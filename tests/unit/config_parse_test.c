@@ -63,7 +63,7 @@ CTEST2(config_parse, test_basic_parsing)
 {
    // Config structs required, as per splinter_test() setup work.
    io_config           io_cfg;
-   rc_allocator_config al_cfg;
+   allocator_config al_cfg;
    shard_log_config    log_cfg;
 
    // Following get setup pointing to allocated memory
