@@ -372,7 +372,7 @@ platform_assert_msg(platform_log_handle *log_handle,
                     const char          *message,
                     va_list              varargs)
 {
-   static char assert_msg_fmt[] = "OS-pid=%d, OS-tid=%lu, Thread-ID=%lu, "
+   static char assert_msg_fmt[] = "OS-pid=%d, OS-tid=%d, Thread-ID=%lu, "
                                   "Assertion failed at %s:%d:%s(): \"%s\". ";
    platform_log(log_handle,
                 assert_msg_fmt,
