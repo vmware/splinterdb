@@ -213,7 +213,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                  data_config           **data_cfg,      // OUT
                  shard_log_config       *log_cfg,       // OUT
                  clockcache_config      *cache_cfg,     // OUT
-                 rc_allocator_config    *allocator_cfg, // OUT
+                 allocator_config    *allocator_cfg, // OUT
                  io_config              *io_cfg,        // OUT
                  test_message_generator *gen,
                  master_config          *master_cfg // IN

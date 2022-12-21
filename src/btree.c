@@ -1141,7 +1141,7 @@ btree_create(cache              *cc,
    // get a free node for the root
    // we don't use the next_addr arr for this, since the root doesn't
    // maintain constant height
-   allocator      *al = cache_allocator(cc);
+   allocator      *al = cache_get_allocator(cc);
    uint64          base_addr;
    platform_status rc = allocator_alloc(al, &base_addr, type);
    platform_assert_status_ok(rc);

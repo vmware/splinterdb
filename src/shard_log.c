@@ -94,7 +94,7 @@ shard_log_init(shard_log *log, cache *cc, shard_log_config *cfg)
    uint64 magic_idx = __sync_fetch_and_add(&shard_log_magic_idx, 1);
    log->magic = platform_checksum64(&magic_idx, sizeof(uint64), cfg->seed);
 
-   allocator      *al = cache_allocator(cc);
+   allocator      *al = cache_get_allocator(cc);
    platform_status rc = allocator_alloc(al, &log->meta_head, PAGE_TYPE_LOG);
    platform_assert_status_ok(rc);
 

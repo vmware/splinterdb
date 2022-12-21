@@ -36,11 +36,22 @@
 
 /*
  *------------------------------------------------------------------------------
- * Function declarations
+ * Function declarations and virtual trampolines
  *------------------------------------------------------------------------------
  */
 
 // allocator.h functions
+
+allocator_config *
+rc_allocator_get_config(rc_allocator *al);
+
+allocator_config *
+rc_allocator_get_config_virtual(allocator *a)
+{
+   rc_allocator *al = (rc_allocator *)a;
+   return rc_allocator_get_config(al);
+}
+
 platform_status
 rc_allocator_alloc(rc_allocator *al, uint64 *addr, page_type type);
 
@@ -170,6 +181,7 @@ rc_allocator_print_allocated_virtual(allocator *a)
 }
 
 const static allocator_ops rc_allocator_ops = {
+   .get_config        = rc_allocator_get_config_virtual,
    .alloc             = rc_allocator_alloc_virtual,
    .inc_ref           = rc_allocator_inc_ref_virtual,
    .dec_ref           = rc_allocator_dec_ref_virtual,
@@ -244,34 +256,17 @@ rc_allocator_init_meta_page(rc_allocator *al)
 }
 
 /*
- *-----------------------------------------------------------------------------
- * rc_allocator_config_init --
- *
- *      Initialize rc_allocator config values
- *-----------------------------------------------------------------------------
- */
-void
-rc_allocator_config_init(rc_allocator_config *allocator_cfg,
-                         io_config           *io_cfg,
-                         uint64               capacity)
-{
-   ZERO_CONTENTS(allocator_cfg);
-
-   allocator_cfg->io_cfg          = io_cfg;
-   allocator_cfg->capacity        = capacity;
-   allocator_cfg->page_capacity   = capacity / io_cfg->page_size;
-   allocator_cfg->extent_capacity = capacity / io_cfg->extent_size;
-}
-
-/*
  *----------------------------------------------------------------------
  * rc_allocator_valid_config() --
  *
  * Do minimal validation of RC-allocator cofiguration.
+ *
+ * TODO(robj): Now that config is in generic allocator.h, this validator
+ * should probably move into allocator.c.
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_valid_config(rc_allocator_config *cfg)
+rc_allocator_valid_config(allocator_config *cfg)
 {
    platform_status rc = STATUS_OK;
    rc                 = laio_config_valid(cfg->io_cfg);
@@ -324,7 +319,7 @@ rc_allocator_valid_config(rc_allocator_config *cfg)
  */
 platform_status
 rc_allocator_init(rc_allocator        *al,
-                  rc_allocator_config *cfg,
+                  allocator_config    *cfg,
                   io_handle           *io,
                   platform_heap_handle hh,
                   platform_heap_id     hid,
@@ -409,7 +404,7 @@ rc_allocator_deinit(rc_allocator *al)
  */
 platform_status
 rc_allocator_mount(rc_allocator        *al,
-                   rc_allocator_config *cfg,
+                   allocator_config    *cfg,
                    io_handle           *io,
                    platform_heap_handle hh,
                    platform_heap_id     hid,
@@ -663,6 +658,19 @@ uint64
 rc_allocator_page_size(rc_allocator *al)
 {
    return al->cfg->io_cfg->page_size;
+}
+
+/*
+ *----------------------------------------------------------------------
+ * rc_allocator_get_config--
+ *
+ *      Retrieve the allocator configuration.
+ *----------------------------------------------------------------------
+ */
+allocator_config *
+rc_allocator_get_config(rc_allocator *al)
+{
+   return al->cfg;
 }
 
 /*

@@ -73,7 +73,65 @@ _Static_assert(
    ARRAY_SIZE(page_type_str) == NUM_PAGE_TYPES,
    "Lookup array page_type_str[] is incorrectly sized for NUM_PAGE_TYPES");
 
+/*
+ * Configuration structure to set up the Ref Count Allocation sub-system.
+ */
+typedef struct allocator_config {
+   io_config *io_cfg;
+   uint64     capacity;
+
+   // computed
+   uint64 page_capacity;
+   uint64 extent_capacity;
+   uint64 extent_mask;
+} allocator_config;
+
+/*
+ *-----------------------------------------------------------------------------
+ * allocator_config_init
+ *
+ *      Initialize allocator config values
+ *-----------------------------------------------------------------------------
+ */
+// TODO(robj): maybe someday add allocator.c
+static inline void
+allocator_config_init(allocator_config *allocator_cfg,
+                      io_config        *io_cfg,
+                      uint64            capacity)
+{
+   ZERO_CONTENTS(allocator_cfg);
+
+   allocator_cfg->io_cfg   = io_cfg;
+   allocator_cfg->capacity = capacity;
+
+   allocator_cfg->page_capacity   = capacity / io_cfg->page_size;
+   allocator_cfg->extent_capacity = capacity / io_cfg->extent_size;
+   uint64 log_extent_size         = 63 - __builtin_clzll(io_cfg->extent_size);
+   allocator_cfg->extent_mask     = ~((1ULL << log_extent_size) - 1);
+}
+
+
+static inline uint64
+allocator_config_extent_base_addr(allocator_config *allocator_cfg, uint64 addr)
+{
+   return addr & allocator_cfg->extent_mask;
+}
+
+static inline uint64
+allocator_config_pages_share_extent(allocator_config *allocator_cfg,
+                                    uint64            addr1,
+                                    uint64            addr2)
+{
+   return allocator_config_extent_base_addr(allocator_cfg, addr1)
+          == allocator_config_extent_base_addr(allocator_cfg, addr2);
+}
+
+// ----------------------------------------------------------------------
+// Type declarations for allocator ops
+
 typedef struct allocator allocator;
+
+typedef allocator_config *(*allocator_get_config_fn)(allocator *al);
 
 typedef platform_status (*alloc_fn)(allocator *al,
                                     uint64    *addr,
@@ -90,6 +148,7 @@ typedef platform_status (*alloc_super_addr_fn)(allocator        *al,
                                                uint64           *addr);
 typedef void (*remove_super_addr_fn)(allocator *al, allocator_root_id spl_id);
 typedef uint64 (*get_size_fn)(allocator *al);
+typedef uint64 (*base_addr_fn)(const allocator *al, uint64 addr);
 
 typedef void (*print_fn)(allocator *al);
 typedef void (*assert_fn)(allocator *al);
@@ -99,7 +158,8 @@ typedef void (*assert_fn)(allocator *al);
  * function pointers.
  */
 typedef struct allocator_ops {
-   alloc_fn alloc;
+   allocator_get_config_fn get_config;
+   alloc_fn                alloc;
 
    generic_ref_fn inc_ref;
    dec_ref_fn     dec_ref;
@@ -111,7 +171,8 @@ typedef struct allocator_ops {
 
    get_size_fn in_use;
 
-   get_size_fn get_capacity;
+   get_size_fn  get_capacity;
+   base_addr_fn extent_base_addr;
 
    assert_fn assert_noleaks;
 
@@ -123,6 +184,12 @@ typedef struct allocator_ops {
 struct allocator {
    const allocator_ops *ops;
 };
+
+static inline allocator_config *
+allocator_get_config(allocator *al)
+{
+   return al->ops->get_config(al);
+}
 
 static inline platform_status
 allocator_alloc(allocator *al, uint64 *addr, page_type type)
@@ -197,4 +264,18 @@ static inline void
 allocator_print_allocated(allocator *al)
 {
    return al->ops->print_allocated(al);
+}
+
+static inline bool
+allocator_page_valid(allocator *al, uint64 addr)
+{
+   allocator_config *allocator_cfg = allocator_get_config(al);
+   if (addr % allocator_cfg->io_cfg->page_size != 0)
+      return FALSE;
+   uint64 base_addr = allocator_config_extent_base_addr(allocator_cfg, addr);
+   if (addr < allocator_cfg->capacity) {
+      return base_addr != 0 && allocator_get_ref(al, base_addr) != 0;
+   } else {
+      return FALSE;
+   }
 }

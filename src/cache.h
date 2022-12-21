@@ -93,12 +93,10 @@ typedef struct cache_async_ctxt {
 } cache_async_ctxt;
 
 typedef uint64 (*cache_config_generic_uint64_fn)(const cache_config *cfg);
-typedef uint64 (*base_addr_fn)(const cache_config *cfg, uint64 addr);
 
 typedef struct cache_config_ops {
    cache_config_generic_uint64_fn page_size;
    cache_config_generic_uint64_fn extent_size;
-   base_addr_fn                   extent_base_addr;
 } cache_config_ops;
 
 typedef struct cache_config {
@@ -118,26 +116,11 @@ cache_config_extent_size(const cache_config *cfg)
 }
 
 static inline uint64
-cache_config_extent_base_addr(const cache_config *cfg, uint64 addr)
-{
-   return cfg->ops->extent_base_addr(cfg, addr);
-}
-
-static inline uint64
 cache_config_pages_per_extent(const cache_config *cfg)
 {
    uint64 page_size   = cache_config_page_size(cfg);
    uint64 extent_size = cache_config_extent_size(cfg);
    return extent_size / page_size;
-}
-
-static inline uint64
-cache_config_pages_share_extent(const cache_config *cfg,
-                                uint64              addr1,
-                                uint64              addr2)
-{
-   return cache_config_extent_base_addr(cfg, addr1)
-          == cache_config_extent_base_addr(cfg, addr2);
 }
 
 static inline uint64
@@ -152,7 +135,6 @@ typedef void (*page_generic_fn)(cache *cc, page_handle *page);
 
 typedef page_handle *(*page_alloc_fn)(cache *cc, uint64 addr, page_type type);
 typedef void (*extent_hard_evict_fn)(cache *cc, uint64 addr, page_type type);
-typedef uint8 (*page_get_ref_fn)(cache *cc, uint64 addr);
 typedef page_handle *(*page_get_fn)(cache    *cc,
                                     uint64    addr,
                                     bool      blocking,
@@ -175,14 +157,13 @@ typedef void (*extent_sync_fn)(cache  *cc,
 typedef void (*page_prefetch_fn)(cache *cc, uint64 addr, page_type type);
 typedef int (*evict_fn)(cache *cc, bool ignore_pinned);
 typedef void (*assert_ungot_fn)(cache *cc, uint64 addr);
-typedef bool (*page_valid_fn)(cache *cc, uint64 addr);
 typedef void (*validate_page_fn)(cache *cc, page_handle *page, uint64 addr);
 typedef void (*io_stats_fn)(cache *cc, uint64 *read_bytes, uint64 *write_bytes);
 typedef uint32 (*count_dirty_fn)(cache *cc);
 typedef uint16 (*page_get_read_ref_fn)(cache *cc, page_handle *page);
 typedef bool (*cache_present_fn)(cache *cc, page_handle *page);
 typedef void (*enable_sync_get_fn)(cache *cc, bool enabled);
-typedef allocator *(*cache_allocator_fn)(const cache *cc);
+typedef allocator *(*get_allocator_fn)(const cache *cc);
 typedef cache_config *(*cache_config_fn)(const cache *cc);
 typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
 
@@ -194,7 +175,6 @@ typedef void (*cache_print_fn)(platform_log_handle *log_handle, cache *cc);
 typedef struct cache_ops {
    page_alloc_fn        page_alloc;
    extent_hard_evict_fn extent_hard_evict;
-   page_get_ref_fn      page_get_ref;
    page_get_fn          page_get;
    page_get_async_fn    page_get_async;
    page_async_done_fn   page_async_done;
@@ -214,7 +194,6 @@ typedef struct cache_ops {
    cache_generic_fn     cleanup;
    assert_ungot_fn      assert_ungot;
    cache_generic_fn     assert_free;
-   page_valid_fn        page_valid;
    validate_page_fn     validate_page;
    cache_present_fn     cache_present;
    cache_print_fn       print;
@@ -224,7 +203,7 @@ typedef struct cache_ops {
    count_dirty_fn       count_dirty;
    page_get_read_ref_fn page_get_read_ref;
    enable_sync_get_fn   enable_sync_get;
-   cache_allocator_fn   cache_allocator;
+   get_allocator_fn get_allocator;
    cache_config_fn      get_config;
 } cache_ops;
 
@@ -243,12 +222,6 @@ static inline void
 cache_hard_evict_extent(cache *cc, uint64 addr, page_type type)
 {
    cc->ops->extent_hard_evict(cc, addr, type);
-}
-
-static inline uint8
-cache_get_ref(cache *cc, uint64 addr)
-{
-   return cc->ops->page_get_ref(cc, addr);
 }
 
 static inline page_handle *
@@ -401,12 +374,6 @@ cache_io_stats(cache *cc, uint64 *read_bytes, uint64 *write_bytes)
    return cc->ops->io_stats(cc, read_bytes, write_bytes);
 }
 
-static inline bool
-cache_page_valid(cache *cc, uint64 addr)
-{
-   return cc->ops->page_valid(cc, addr);
-}
-
 static inline void
 cache_validate_page(cache *cc, page_handle *page, uint64 addr)
 {
@@ -438,9 +405,9 @@ cache_enable_sync_get(cache *cc, bool enabled)
 }
 
 static inline allocator *
-cache_allocator(const cache *cc)
+cache_get_allocator(const cache *cc)
 {
-   return cc->ops->cache_allocator(cc);
+   return cc->ops->get_allocator(cc);
 }
 
 static inline cache_config *
@@ -462,21 +429,8 @@ cache_extent_size(const cache *cc)
 }
 
 static inline uint64
-cache_extent_base_addr(const cache *cc, uint64 addr)
-{
-   return cache_config_extent_base_addr(cache_get_config(cc), addr);
-}
-
-static inline uint64
 cache_pages_per_extent(const cache *cc)
 {
    cache_config *cfg = cache_get_config(cc);
    return cache_config_pages_per_extent(cfg);
-}
-
-static inline uint64
-cache_pages_share_extent(const cache *cc, uint64 addr1, uint64 addr2)
-{
-   cache_config *cfg = cache_get_config(cc);
-   return cache_config_pages_share_extent(cfg, addr1, addr2);
 }

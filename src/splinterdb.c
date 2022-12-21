@@ -33,7 +33,7 @@ typedef struct splinterdb {
    task_system         *task_sys;
    io_config            io_cfg;
    platform_io_handle   io_handle;
-   rc_allocator_config  allocator_cfg;
+   allocator_config  allocator_cfg;
    rc_allocator         allocator_handle;
    clockcache_config    cache_cfg;
    clockcache           cache_handle;
