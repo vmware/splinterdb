@@ -85,7 +85,7 @@ CTEST_DATA(splinter)
    uint32 max_async_inflight;
    int    spl_num_tables;
 
-   uint8 num_bg_threads[NUM_TASK_TYPES];
+   uint64 num_bg_threads[NUM_TASK_TYPES];
 
    // Config structs required, as per splinter_test() setup work.
    io_config           io_cfg;
@@ -145,6 +145,10 @@ CTEST_SETUP(splinter)
    data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
    ZERO_STRUCT(data->test_exec_cfg);
+   // no bg threads by default.
+   for (int idx = 0; idx < NUM_TASK_TYPES; idx++) {
+       data->num_bg_threads[idx] = 0;
+   }
 
    rc = test_parse_args_n(data->splinter_cfg,
                           &data->data_cfg,
@@ -154,6 +158,8 @@ CTEST_SETUP(splinter)
                           &data->log_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
+                          &data->num_bg_threads[TASK_TYPE_MEMTABLE],
+                          &data->num_bg_threads[TASK_TYPE_NORMAL],
                           num_tables,
                           Ctest_argc,   // argc/argv globals setup by CTests
                           (char **)Ctest_argv);
@@ -183,15 +189,9 @@ CTEST_SETUP(splinter)
    ASSERT_TRUE((data->io != NULL));
    rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
 
-   // no bg threads by default.
-   for (int idx = 0; idx < NUM_TASK_TYPES; idx++) {
-       data->num_bg_threads[idx] = 0;
-   }
-
-   bool use_bg_threads = data->num_bg_threads[TASK_TYPE_NORMAL] != 0;
-
+   data->tasks = NULL;
    rc = test_init_task_system(data->hid, data->io, &data->tasks, data->splinter_cfg->use_stats,
-                           use_bg_threads, data->num_bg_threads);
+                              data->num_bg_threads);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));
