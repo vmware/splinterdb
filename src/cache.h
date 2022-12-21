@@ -269,10 +269,12 @@ cache_alloc(cache *cc, uint64 addr, page_type type)
  * This call may block on I/O (to complete writebacks initiated before
  * this call).
  *
- * This function is used to maintain an invariant that the cache only
- * contains only contains pages allocated in the RC allocator. Once an
- * extent is freed, this function is used to evict all of its pages from
- * the cache.
+ * Once an extent is freed, this function is used to evict all of its pages
+ * from the cache.  This function is used to maintain an invariant that the
+ * cache only contains only contains pages allocated in the RC allocator; if
+ * this function were not called, and this extent were to be reallocated,
+ * subsequent calls to cache_alloc could create duplicate entries in the cache
+ * for the same backing page.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -354,7 +356,8 @@ cache_get_async(cache *cc, uint64 addr, page_type type, cache_async_ctxt *ctxt)
  *----------------------------------------------------------------------
  * cache_async_done
  *
- * XXX @aconway How is this used?
+ * Perform callbacks on the thread that made the async call after an async
+ * operation completes.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -368,8 +371,8 @@ cache_async_done(cache *cc, page_type type, cache_async_ctxt *ctxt)
  * cache_unget
  *
  * Drop a reference to a page.
- * The page must not be write-locked or claimed before making this call.
- *
+ * The page must be read-locked by the calling thread (and not claimed or
+ * write-locked) before making this call.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -504,8 +507,8 @@ cache_mark_dirty(cache *cc, page_handle *page)
  *
  * Pin the page in the cache, disallowing eviction.
  *
- * This is a performance optimization, used when the caller knows this page
- * will be needed again very soon.
+ * This is a performance optimization used by memtable, where the caller knows
+ * this page will be needed again very soon.
  *----------------------------------------------------------------------
  */
 static inline void
@@ -538,10 +541,8 @@ cache_unpin(cache *cc, page_handle *page)
  *
  * Asynchronously writes the page back to disk.
  *
- * TODO Currently there is no way to check when the writeback has completed;
- * that'll have to change to correctly acknowledge application-level sync
- * requests.
- *
+ * This is used to sync log pages opportunistically. The current API doesn't
+ * inform the user when this happens. "It's not the ideal API." -- @aconway
  *-----------------------------------------------------------------------------
  */
 static inline void
@@ -560,11 +561,9 @@ cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
  * issued for writeback (the non-clean pages of the extent); as writebacks
  * complete, *pages_outstanding is decremented atomically.
  *
- * TODO: How does a caller ensure they're *reading* this thing atomically?
- * How do we ensure the caller thread knows this value is "volatile" and
- * another thread may change it? Should probably provide a thread-safe
- * accessor interface to reading the pages_outstanding value. (Currently
- * there are no callers to cache_extent_sync.)
+ * Assumes pages_outstanding is an aligned uint64, so (on x86) the caller
+ * can access it and observe its value atomically.
+ *
  * TODO: What happens if two callers call cache_extent_sync on the same extent?
  *
  * All pages in the extent must be clean or cleanable.
@@ -602,11 +601,12 @@ cache_flush(cache *cc)
  * locks, claims or write locks.
  * Always returns 0.
  *
- * XXX Does ignore_pinned_pages ignore the pages or the pinnedness of the pages?
+ * TODO: Does ignore_pinned_pages ignore the pages or the pinnedness of the
+ *pages?
  *
  * Test facility.
  * This method is only used for testing, specifically in cache_test.
- * TODO Could be deleted and replaced with destructing and constructing
+ * TODO Should be deleted and replaced with destructing and constructing
  * a fresh cache.
  *-----------------------------------------------------------------------------
  */
@@ -619,6 +619,8 @@ cache_evict(cache *cc, bool ignore_pinned_pages)
 /*
  *-----------------------------------------------------------------------------
  * cache_cleanup
+ *
+ * Ensures all pending cache callbacks are called.
  *
  * Test facility.
  * Used in tests to process pending IO completions during test shutdowns.
@@ -647,6 +649,8 @@ cache_assert_ungot(cache *cc, uint64 addr)
 /*
  *-----------------------------------------------------------------------------
  * cache_assert_free
+ *
+ * TODO(aconway): rename
  *
  * Debugging facility.
  * Asserts that no thread has a write lock on the page at addr.
@@ -702,7 +706,7 @@ cache_reset_stats(cache *cc)
 
 /*
  *-----------------------------------------------------------------------------
- * cache_reset_stats
+ * cache_io_stats
  *
  * Analysis facility.
  * Returns performance statistics counts.
