@@ -244,7 +244,7 @@ log_test(int argc, char *argv[])
    bool                   run_crash_test;
    int                    rc;
    uint64                 seed;
-   task_system           *ts;
+   task_system           *ts = NULL;
    test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
@@ -272,7 +272,8 @@ log_test(int argc, char *argv[])
    status = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(status);
 
-   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
+   trunk_config *cfg                            = TYPED_MALLOC(hid, cfg);
+   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
    status = test_parse_args(cfg,
                             &data_cfg,
@@ -282,6 +283,8 @@ log_test(int argc, char *argv[])
                             &log_cfg,
                             &seed,
                             &gen,
+                            &num_bg_threads[TASK_TYPE_MEMTABLE],
+                            &num_bg_threads[TASK_TYPE_NORMAL],
                             config_argc,
                             config_argv);
    if (!SUCCESS(status)) {
@@ -304,10 +307,7 @@ log_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-
-   status = test_init_task_system(
-      hid, io, &ts, cfg->use_stats, FALSE, num_bg_threads);
+   status = test_init_task_system(hid, io, &ts, cfg->use_stats, num_bg_threads);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));

@@ -26,6 +26,12 @@ static void
 task_system_io_register_thread(task_system *ts);
 // end forward declarations
 
+const char *task_type_name[] = {"TASK_TYPE_INVALID",
+                                "TASK_TYPE_MEMTABLE",
+                                "TASK_TYPE_NORMAL"};
+_Static_assert((ARRAY_SIZE(task_type_name) == NUM_TASK_TYPES),
+               "Array task_type_name[] is incorrectly sized.");
+
 /*
  * task_init_tid_bitmask() - Initialize the global bitmask of active threads in
  * the task system structure to indicate that no threads are currently active.
@@ -64,6 +70,11 @@ task_init_threadid(task_system *ts)
       uint64 tmp_bitmask = *tid_bitmask;
       // first bit set to 1 starting from LSB.
       uint64 pos = __builtin_ffsl(tmp_bitmask);
+
+      // If all threads are in-use, bitmask will be all 0s.
+      if (pos == 0) {
+         goto out;
+      }
       // builtin_ffsl returns the position plus 1.
       tid = pos - 1;
       // set bit at that position to 0, indicating in use.
@@ -80,7 +91,10 @@ task_init_threadid(task_system *ts)
    }
 
 out:
-   debug_assert(tid != INVALID_TID);
+   platform_assert((tid != INVALID_TID),
+                   "Cannot create a new thread as the limit on"
+                   " concurrent threads, %d, will be exceeded.\n",
+                   MAX_THREADS);
 
    // Sets thread-ID, for example tracked as thread-local storage.
    platform_set_tid(tid);
@@ -214,7 +228,7 @@ task_register_thread(task_system *ts,
    platform_assert(
       (ts->thread_scratch[thread_tid] == NULL),
       "[%s:%d::%s()] Scratch space found allocated at %p for thread with "
-      "index %lu.",
+      "index %lu.\n",
       file,
       lineno,
       func,
@@ -269,7 +283,8 @@ typedef struct {
 /*
  * -----------------------------------------------------------------------------
  * task_invoke_with_hooks() - Single interface to invoke a user-specified
- * call-back function, 'func', to perform Splinter work.
+ * call-back function, 'func', to perform Splinter work. Both user-threads'
+ * and background-threads' creation goes through this interface.
  *
  * A thread has been created with this function as the worker function. Also,
  * the thread-creator has registered another call-back function to execute.
@@ -291,6 +306,7 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
+   // For background threads', also, IO-deregistration will happen here.
    task_deregister_this_thread(thread_started->ts);
 
    platform_free(thread_started->heap_id, func_and_args);
@@ -312,7 +328,19 @@ task_create_thread_with_hooks(platform_thread       *thread,
                               platform_heap_id       hid)
 {
    platform_status ret;
-   thread_invoke  *thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
+   uint64         *tid_bitmask = task_system_get_tid_bitmask(ts);
+   if (*tid_bitmask == 0) {
+      platform_error_log("Cannot create a new thread as the limit on"
+                         " concurrent threads, %d, will be exceeded.\n",
+                         MAX_THREADS);
+
+      // This is an approximate status. STATUS_LIMIT_EXCEEDED would be more
+      // accurate but that maps to ENOSPC, which will result in a misleading
+      // 'No space left on device' error message.
+      return (STATUS_BUSY);
+   }
+
+   thread_invoke *thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
    if (thread_to_create == NULL) {
       return STATUS_NO_MEMORY;
    }
@@ -338,7 +366,7 @@ task_create_thread_with_hooks(platform_thread       *thread,
  *  required registration with Splinter.
  *
  * Currently, this is active mainly in tests. It's also used to create
- * background tasks, a feature that is currently not enabled.
+ * background tasks.
  * -----------------------------------------------------------------------------
  */
 platform_status
@@ -356,7 +384,8 @@ task_thread_create(const char            *name,
    ret = task_create_thread_with_hooks(
       &thr, FALSE, func, arg, scratch_size, ts, hid);
    if (!SUCCESS(ret)) {
-      platform_error_log("could not create a thread");
+      platform_error_log("Could not create a thread: %s\n",
+                         platform_status_to_string(ret));
       return ret;
    }
 
@@ -366,7 +395,13 @@ task_thread_create(const char            *name,
    return STATUS_OK;
 }
 
-/* Worker function for the background task pool. */
+/*
+ * task_worker_thread() - Worker function for the background task pool.
+ *
+ * This function is invoked when configured background threads are created.
+ * We sit in an endless-loop looking for work to do and execute the tasks
+ * enqueued.
+ */
 static void
 task_worker_thread(void *arg)
 {
@@ -430,6 +465,9 @@ task_worker_thread(void *arg)
    }
 }
 
+/*
+ * Function to terminate all background threads and clean up.
+ */
 static void
 task_group_stop_and_wait_for_threads(task_group *group)
 {
@@ -450,10 +488,12 @@ task_group_stop_and_wait_for_threads(task_group *group)
 
    uint8 num_threads = group->bg.num_threads;
 
+   // Inform the background thread that it's time to exit now.
    group->bg.stop = TRUE;
    platform_condvar_broadcast(&group->bg.cv);
    platform_condvar_unlock(&group->bg.cv);
 
+   // Allow all background threads to wrap up their work.
    for (uint8 i = 0; i < num_threads; i++) {
       platform_thread_join(group->bg.threads[i]);
    }
@@ -719,6 +759,37 @@ task_perform_one(task_system *ts)
 }
 
 /*
+ * Validate that the task system configuration is basically supportable.
+ */
+static platform_status
+task_config_valid(uint64 num_bg_threads[NUM_TASK_TYPES])
+{
+   uint64 normal_bg_threads   = num_bg_threads[TASK_TYPE_NORMAL];
+   uint64 memtable_bg_threads = num_bg_threads[TASK_TYPE_MEMTABLE];
+
+   if ((normal_bg_threads == 0) != (memtable_bg_threads == 0)) {
+      platform_error_log("Both configuration parameters for background "
+                         "threads, normal_bg_threads (%lu) "
+                         "and memtable_bg_threads (%lu) "
+                         "must be zero or be non-zero.\n",
+                         normal_bg_threads,
+                         memtable_bg_threads);
+      return STATUS_BAD_PARAM;
+   }
+
+   if ((normal_bg_threads + memtable_bg_threads) >= MAX_THREADS) {
+      platform_error_log("Total number of background threads configured"
+                         ", normal_bg_threads=%lu, memtable_bg_threads=%lu, "
+                         "must be <= %d.\n",
+                         normal_bg_threads,
+                         memtable_bg_threads,
+                         (MAX_THREADS - 1));
+      return STATUS_BAD_PARAM;
+   }
+   return STATUS_OK;
+}
+
+/*
  * -----------------------------------------------------------------------------
  * Task system initializer. Makes sure that the initial thread has an
  * adequately sized scratch space.
@@ -732,10 +803,14 @@ task_system_create(platform_heap_id    hid,
                    platform_io_handle *ioh,
                    task_system       **system,
                    bool                use_stats,
-                   bool                use_bg_threads,
-                   uint8               num_bg_threads[NUM_TASK_TYPES],
+                   uint64              num_bg_threads[NUM_TASK_TYPES],
                    uint64              scratch_size)
 {
+   platform_status rc = task_config_valid(num_bg_threads);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    task_system *ts =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ts, init_task_scratch, scratch_size);
 
@@ -748,10 +823,20 @@ task_system_create(platform_heap_id    hid,
    // task initialization
    register_init_tid_hook();
 
+   // Task system will create background threads when both configs are set.
+   bool use_bg_threads = ((num_bg_threads[TASK_TYPE_MEMTABLE] != 0)
+                          && (num_bg_threads[TASK_TYPE_NORMAL] != 0));
+
    ts->use_bg_threads = use_bg_threads;
    ts->heap_id        = hid;
    ts->scratch_size   = scratch_size;
    ts->init_tid       = INVALID_TID;
+
+   // Ensure that the main thread gets registered and init'ed first before
+   // any background threads are created. (Those may grab their own tids.).
+   task_run_thread_hooks(ts);
+   const threadid tid      = platform_get_tid();
+   ts->thread_scratch[tid] = ts->init_task_scratch;
 
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type],
@@ -765,12 +850,18 @@ task_system_create(platform_heap_id    hid,
          *system = NULL;
          return rc;
       }
+      uint64 nbg_threads = num_bg_threads[type];
+      if (nbg_threads) {
+         platform_default_log("Splinter task system created %lu"
+                              " background thread%sof type '%s'.\n",
+                              nbg_threads,
+                              ((nbg_threads > 1) ? "s " : " "),
+                              task_type_name[type]);
+      }
    }
-
-   task_run_thread_hooks(ts);
-   const threadid tid      = platform_get_tid();
-   ts->thread_scratch[tid] = ts->init_task_scratch;
-
+   debug_assert((*system == NULL),
+                "Task system handle, %p, is expected to be NULL.\n",
+                *system);
    *system = ts;
    return STATUS_OK;
 }

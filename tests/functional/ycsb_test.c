@@ -1146,15 +1146,15 @@ write_all_reports(ycsb_phase *phases, int num_phases)
 int
 ycsb_test(int argc, char *argv[])
 {
-   io_config         io_cfg;
-   allocator_config  allocator_cfg;
-   clockcache_config cache_cfg;
-   shard_log_config  log_cfg;
-   int               config_argc;
-   char            **config_argv;
-   platform_status   rc;
-   uint64            seed;
-   task_system      *ts;
+   io_config           io_cfg;
+   allocator_config allocator_cfg;
+   clockcache_config   cache_cfg;
+   shard_log_config    log_cfg;
+   int                 config_argc;
+   char              **config_argv;
+   platform_status     rc;
+   uint64              seed;
+   task_system        *ts = NULL;
 
    uint64                 nphases;
    bool                   use_existing = 0;
@@ -1188,6 +1188,7 @@ ycsb_test(int argc, char *argv[])
 
    data_config  *data_cfg;
    trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
    rc = test_parse_args(splinter_cfg,
                         &data_cfg,
@@ -1197,6 +1198,8 @@ ycsb_test(int argc, char *argv[])
                         &log_cfg,
                         &seed,
                         &gen,
+                        &num_bg_threads[TASK_TYPE_MEMTABLE],
+                        &num_bg_threads[TASK_TYPE_NORMAL],
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {
@@ -1274,10 +1277,8 @@ ycsb_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-
    rc = test_init_task_system(
-      hid, io, &ts, splinter_cfg->use_stats, FALSE, num_bg_threads);
+      hid, io, &ts, splinter_cfg->use_stats, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));

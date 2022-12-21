@@ -966,7 +966,7 @@ cache_test(int argc, char *argv[])
    int                    config_argc = argc - 1;
    char                 **config_argv = argv + 1;
    platform_status        rc;
-   task_system           *ts;
+   task_system           *ts        = NULL;
    bool                   benchmark = FALSE, async = FALSE;
    uint64                 seed;
    test_message_generator gen;
@@ -994,6 +994,7 @@ cache_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
+   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
    trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
@@ -1004,6 +1005,8 @@ cache_test(int argc, char *argv[])
                         &log_cfg,
                         &seed,
                         &gen,
+                        &num_bg_threads[TASK_TYPE_MEMTABLE],
+                        &num_bg_threads[TASK_TYPE_NORMAL],
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {
@@ -1033,10 +1036,8 @@ cache_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-
    rc = test_init_task_system(
-      hid, io, &ts, splinter_cfg->use_stats, FALSE, num_bg_threads);
+      hid, io, &ts, splinter_cfg->use_stats, num_bg_threads);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
