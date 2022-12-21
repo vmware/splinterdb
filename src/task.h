@@ -152,8 +152,7 @@ task_system_create(platform_heap_id    hid,
                    platform_io_handle *ioh,
                    task_system       **system,
                    bool                use_stats,
-                   bool                use_bg_threads,
-                   uint8               num_bg_threads[NUM_TASK_TYPES],
+                   uint64              num_bg_threads[NUM_TASK_TYPES],
                    uint64              scratch_size);
 
 void
