@@ -4,6 +4,7 @@
 #ifndef PLATFORM_LINUX_INLINE_H
 #define PLATFORM_LINUX_INLINE_H
 
+#include <unistd.h>
 #include <laio.h>
 #include <string.h> // for memcpy, strerror
 #include <time.h>   // for nanosecond sleep api.
@@ -288,9 +289,18 @@ platform_log_stream_to_string(platform_stream_handle *stream)
       platform_log(Platform_default_log_handle, __VA_ARGS__);                  \
    } while (0)
 
-#define platform_error_log(...)                                                \
+/*
+ * For improved debugging-ability, prepend the user-supplied message string,
+ * 'msgfmt' with source-code location info.
+ */
+#define platform_error_log(msgfmt, ...)                                        \
    do {                                                                        \
-      platform_log(Platform_error_log_handle, __VA_ARGS__);                    \
+      platform_log(Platform_error_log_handle,                                  \
+                   "%s:%d:%s(): OS-pid=%d, OS-tid=%d, Thread-ID=%lu, " \
+                   msgfmt, \
+                   __FILE__, __LINE__, __FUNCTION__, \
+                   getpid(), gettid(), platform_get_tid() \
+                   __VA_OPT__(,) __VA_ARGS__);                    \
    } while (0)
 
 #define platform_log_stream(stream, ...)                                       \

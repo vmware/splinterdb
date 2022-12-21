@@ -67,12 +67,14 @@ CTEST_SETUP(misc)
    // So lets send those messages to /dev/null unless VERBOSE=1.
    if (Ctest_verbose) {
       data->log_output = stdout;
+      platform_set_log_streams(stdout, stderr);
       CTEST_LOG_INFO("\nVerbose mode on.  This test exercises error-reporting "
                      "logic, so on success it will print a message "
                      "that appears to be an error.\n");
    } else {
-      data->log_output = fopen("/dev/null", "w");
+      FILE *dev_null = data->log_output = fopen("/dev/null", "w");
       ASSERT_NOT_NULL(data->log_output);
+      platform_set_log_streams(dev_null, dev_null);
    }
 }
 
@@ -181,6 +183,21 @@ CTEST2(misc, test_ctest_assert_prints_user_msg_with_params)
                  expmsg_len,
                  assert_str);
    platform_close_log_stream(&stream, data->log_output);
+}
+
+/*
+ * Test case to exercise platform_error_log() w/ and w/o arguments to msg.
+ */
+CTEST2(misc, test_platform_error_log_wo_args)
+{
+    platform_error_log("This is a test message without arguments\n");
+}
+
+CTEST2(misc, test_platform_error_log_w_args)
+{
+    platform_error_log("This is a test message with arguments: %d, '%s'\n",
+                       42,
+                       "String arg to test msg.");
 }
 
 /* Helper functions follow all test case methods */
