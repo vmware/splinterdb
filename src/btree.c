@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "btree_private.h"
+#include "stubcache.h"  // TODO hack since rblob now knows about stubcache
 #include "rblob.h"
 #include "poison.h"
 

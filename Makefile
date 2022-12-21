@@ -1,6 +1,8 @@
 # Copyright 2018-2021 VMware, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+SHELL=sh -xv
+
 .DEFAULT_GOAL := all
 
 PLATFORM = linux
@@ -68,7 +70,7 @@ endif
 
 LDFLAGS += -ggdb3 -pthread
 
-LIBS      = -lm -lpthread -laio -lxxhash rust/target/release/librblob.a
+LIBS      = -lm -lpthread -laio -lxxhash
 DEPFLAGS  = -MMD -MP
 
 #*************************************************************#
@@ -109,6 +111,23 @@ endif
 
 help::
 	@echo '  BUILD_MODE: "release", "debug", or "optimized-debug" (Default: "release")'
+
+#*************************************************************#
+# rusty setup
+
+ifeq "$(BUILD_MODE)" "debug"
+    CARGO_FLAG=
+    CARGO_OUTPUT=debug
+else ifeq "$(BUILD_MODE)" "release"
+    CARGO_FLAG="--release"
+    CARGO_OUTPUT=release
+else
+   $(error bogus BUILD_MODE should have been caught earlier in makefile)
+endif
+
+RBLOBLIB=rust/target/$(CARGO_OUTPUT)/librblob.a
+
+LIBS += $(RBLOBLIB)
 
 # ************************************************************************
 # Address sanitizer
@@ -308,22 +327,21 @@ $(BINDIR)/%: | $$(@D)/. $(CONFIG_FILE)
 	$(COMMAND) $(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
-$(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
+$(LIBDIR)/libsplinterdb.so : $(OBJ) $(RBLOBLIB) | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %s\n" Linking $@
 	$(COMMAND) $(LD) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 	$(PROLIX) # blank line
 
 # -c: Create an archive if it does not exist. -r, replacing objects
 # -s: Create/update an index to the archive
-$(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
+$(LIBDIR)/libsplinterdb.a : $(OBJ) $(RBLOBLIB) | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %s\n" "Building archive" $@
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line
 
-# TODO: use debug/release as appropriate
-$(BUILD_ROOT)/include/rblob.h rust/target/release/librblob.a:
+$(BUILD_ROOT)/include/rblob.h $(RBLOBLIB):
 	$(BRIEF_FORMATTED) "%-20s %s\n" "Building Rust" $@
-	$(COMMAND) cd rust && env PLATFORM_DIR="$(PLATFORM_DIR)" BUILD_ROOT="$(BUILD_ROOT)" cargo build --release
+	$(COMMAND) cd rust && env PLATFORM_DIR="$(PLATFORM_DIR)" BUILD_ROOT="$(BUILD_ROOT)" cargo build $(CARGO_FLAG)
 
 #################################################################
 # Dependencies

@@ -17,6 +17,8 @@
 
 #include <stddef.h>
 #include "util.h"
+#include "btree.h"  // TODO hack since rblob knows about btree
+#include "rblob.h"
 
 //#include "poison.h" // TODO how do you guys debug?
 
@@ -85,8 +87,10 @@ void stubcache_noop() {
 //////////////////////////////////////////////////////////////////////////////
 // fwd decls
 
+/*
 page_handle *
 stubcache_page_alloc(stubcache *sc, uint64 addr, page_type type);
+*/
 
 allocator *
 stubcache_allocator(const stubcache *sc);
@@ -214,6 +218,7 @@ stubcache_deinit(stubcache *sc)
 //////////////////////////////////////////////////////////////////////////////
 // cache_ops
 
+/*
 page_handle *
 stubcache_page_alloc(stubcache *sc, uint64 addr, page_type type) {
     assert(addr < sc->cfg->disk_capacity_bytes);
@@ -227,6 +232,7 @@ stubcache_page_alloc(stubcache *sc, uint64 addr, page_type type) {
     ph->disk_addr = addr;
     return ph;
 }
+*/
 
 allocator *
 stubcache_allocator(const stubcache *sc)
