@@ -7905,8 +7905,13 @@ trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl)
                 "Space used by level: trunk_tree_height=%d\n",
                 trunk_tree_height(spl));
    for (uint16 i = 0; i <= trunk_tree_height(spl); i++) {
-      platform_log(
-         log_handle, "%u: %8lu MiB\n", i, B_TO_MiB(bytes_used_by_level[i]));
+      char size_str[SIZE_TO_STR_LEN];
+      size_to_str(size_str, sizeof(size_str), bytes_used_by_level[i]);
+      platform_log(log_handle,
+                   "%u: %lu bytes (%s)\n",
+                   i,
+                   bytes_used_by_level[i],
+                   size_str);
    }
    platform_log(log_handle, "\n");
 }
@@ -8851,7 +8856,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
          spl, &node, branch_no, &num_tuples_in_branch, &kv_bytes_in_branch);
       uint64 kib_in_branch = 0;
       // trunk_branch_extent_count(spl, &node, branch_no);
-      kib_in_branch *= trunk_extent_size(&spl->cfg) / 1024;
+      kib_in_branch *= B_TO_KiB(trunk_extent_size(&spl->cfg));
       fraction space_amp =
          init_fraction(kib_in_branch * 1024, kv_bytes_in_branch);
       platform_log(
@@ -8861,7 +8866,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
          branch_no,
          addr,
          num_tuples_in_branch,
-         kv_bytes_in_branch / 1024,
+         B_TO_KiB(kv_bytes_in_branch),
          kib_in_branch,
          FRACTION_ARGS(space_amp));
    }

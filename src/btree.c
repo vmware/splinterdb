@@ -3097,13 +3097,20 @@ btree_print_btree_pivot_stats(platform_log_handle *log_handle,
    }
 
    // Indentation is dictated by outer caller
+   size_t nkbytes = pivot_stats->key_bytes;
+   char   nkbytes_str[SIZE_TO_STR_LEN];
+
+   size_t nmbytes = pivot_stats->message_bytes;
+   char   nmbytes_str[SIZE_TO_STR_LEN];
    platform_log(log_handle,
                 "   (num_kvs=%u\n"
-                "    key_bytes=%u\n"
-                "    message_bytes=%u)\n",
+                "    key_bytes=%lu (%s)\n"
+                "    message_bytes=%lu (%s))\n",
                 pivot_stats->num_kvs,
-                pivot_stats->key_bytes,
-                pivot_stats->message_bytes);
+                nkbytes,
+                size_to_str(nkbytes_str, sizeof(nkbytes_str), nkbytes),
+                nmbytes,
+                size_to_str(nmbytes_str, sizeof(nmbytes_str), nmbytes));
 }
 
 static void
@@ -3255,6 +3262,7 @@ btree_print_subtree(platform_log_handle *log_handle,
    node.addr = addr;
    btree_print_node(log_handle, cc, cfg, &node);
    if (!allocator_page_valid(cache_get_allocator(cc), node.addr)) {
+      platform_log(log_handle, "Invalid BTree node addr=%lu\n", addr);
       return;
    }
    btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);

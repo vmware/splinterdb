@@ -382,4 +382,20 @@ debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
     : ((intval) < 1000) ? "3d"                                                 \
                         : "4d")
 
+// Size of on-stack char message buffer (mostly used in diagnostics)
+#define DIAG_MSGBUF_SIZE 80
+
+// Convenience specifier for output buffer to convert size with unit specifier
+#define SIZE_TO_STR_LEN 20
+
+// Min size of buffer needed if size is enclosed in (), as : '(~3.50 GiB)'
+#define SIZE_TO_STR_MINLEN (SIZE_TO_STR_LEN - 2)
+
+// Format a size value with unit-specifiers, in an output buffer.
+char *
+size_to_str(char *outbuf, size_t outbuflen, size_t size);
+
+char *
+size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size);
+
 #endif // _SPLINTER_UTIL_H_
