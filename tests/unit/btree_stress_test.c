@@ -113,6 +113,16 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
+   if (Ctest_verbose) {
+      platform_set_log_streams(stdout, stderr);
+      CTEST_LOG_INFO("\nVerbose mode on.  This test exercises an error case, "
+                     "so on sucess it "
+                     "will print a message that appears to be an error.\n");
+   } else {
+      FILE *dev_null = fopen("/dev/null", "w");
+      ASSERT_NOT_NULL(dev_null);
+      platform_set_log_streams(dev_null, dev_null);
+   }
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
@@ -255,6 +265,12 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    rc = iterator_tests(
       (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs, data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
+
+   // Exercise print method to verify that it basically continues to work.
+   btree_print_tree(Platform_default_log_handle,
+                    (cache *)&data->cc,
+                    &data->dbtree_cfg,
+                    packed_root_addr);
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {
