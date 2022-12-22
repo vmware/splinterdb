@@ -816,13 +816,25 @@ clockcache_inc_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
 static inline void
 clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
 {
+   debug_only threadid input_counter_no = counter_no;
+
    counter_no %= CC_RC_WIDTH;
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
-   debug_assert(rc_number < cc->cfg->page_capacity);
+   debug_assert((rc_number < cc->cfg->page_capacity),
+                "Entry number, %lu, is out of allocator "
+                "page capacity range, %u.\n",
+                rc_number,
+                cc->cfg->page_capacity);
 
    debug_only uint16 refcount = __sync_fetch_and_sub(
       &cc->refcount[counter_no * cc->cfg->page_capacity + rc_number], 1);
-   debug_assert(refcount != 0);
+   debug_assert((refcount != 0),
+                "Invalid refcount, %u, after decrement."
+                " input counter_no=%lu, rc_number=%lu, counter_no=%lu\n",
+                refcount,
+                input_counter_no,
+                rc_number,
+                counter_no);
 }
 
 static inline uint8
@@ -868,7 +880,7 @@ clockcache_assert_no_refs(clockcache *cc)
 {
    threadid        i;
    volatile uint32 j;
-   for (i = 0; i < (MAX_THREADS - 1); i++) {
+   for (i = 0; i < MAX_THREADS; i++) {
       for (j = 0; j < cc->cfg->page_capacity; j++) {
          if (clockcache_get_ref(cc, j, i) != 0) {
             clockcache_get_ref(cc, j, i);
@@ -1304,7 +1316,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
 
    clockcache_entry *entry, *next_entry;
 
-   debug_assert(tid < MAX_THREADS - 1);
+   debug_assert((tid < MAX_THREADS), "Invalid tid=%lu\n", tid);
    debug_assert(cc != NULL);
    debug_assert(batch < cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
 
@@ -1594,7 +1606,7 @@ clockcache_get_free_page(clockcache *cc,
    clockcache_entry *entry;
    timestamp         wait_start;
 
-   debug_assert(tid < MAX_THREADS);
+   debug_assert((tid < MAX_THREADS), "Invalid tid=%lu\n", tid);
    if (cc->per_thread[tid].free_hand == CC_UNMAPPED_ENTRY) {
       clockcache_move_hand(cc, FALSE);
    }
