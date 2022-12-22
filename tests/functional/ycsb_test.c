@@ -1291,18 +1291,13 @@ ycsb_test(int argc, char *argv[])
    trunk_handle *spl;
 
    if (use_existing) {
-      rc_allocator_mount(&al,
-                         &allocator_cfg,
-                         (io_handle *)io,
-                         hh,
-                         hid,
-                         platform_get_module_id());
+      rc_allocator_mount(
+         &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
       rc = clockcache_init(cc,
                            &cache_cfg,
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
-                           hh,
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
@@ -1314,18 +1309,13 @@ ycsb_test(int argc, char *argv[])
                         hid);
       platform_assert(spl);
    } else {
-      rc_allocator_init(&al,
-                        &allocator_cfg,
-                        (io_handle *)io,
-                        hh,
-                        hid,
-                        platform_get_module_id());
+      rc_allocator_init(
+         &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
       rc = clockcache_init(cc,
                            &cache_cfg,
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
-                           hh,
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);

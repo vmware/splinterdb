@@ -274,14 +274,12 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       status = rc_allocator_mount(&kvs->allocator_handle,
                                   &kvs->allocator_cfg,
                                   (io_handle *)&kvs->io_handle,
-                                  kvs->heap_handle,
                                   kvs->heap_id,
                                   platform_get_module_id());
    } else {
       status = rc_allocator_init(&kvs->allocator_handle,
                                  &kvs->allocator_cfg,
                                  (io_handle *)&kvs->io_handle,
-                                 kvs->heap_handle,
                                  kvs->heap_id,
                                  platform_get_module_id());
    }
@@ -296,7 +294,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             (io_handle *)&kvs->io_handle,
                             (allocator *)&kvs->allocator_handle,
                             "splinterdb",
-                            kvs->heap_handle,
                             kvs->heap_id,
                             platform_get_module_id());
    if (!SUCCESS(status)) {

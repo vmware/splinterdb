@@ -150,7 +150,6 @@ CTEST_SETUP(btree_stress)
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,
                                      (io_handle *)&data->io,
-                                     data->hh,
                                      data->hid,
                                      platform_get_module_id()))
        || !SUCCESS(clockcache_init(&data->cc,
@@ -158,7 +157,6 @@ CTEST_SETUP(btree_stress)
                                    (io_handle *)&data->io,
                                    (allocator *)&data->al,
                                    "test",
-                                   data->hh,
                                    data->hid,
                                    platform_get_module_id())))
    {
@@ -174,6 +172,7 @@ CTEST_TEARDOWN(btree_stress)
    clockcache_deinit(&data->cc);
    rc_allocator_deinit(&data->al);
    task_system_destroy(data->hid, &data->ts);
+   platform_heap_destroy(&data->hh);
 }
 
 /*
