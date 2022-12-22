@@ -463,6 +463,7 @@ rc_allocator_mount(rc_allocator        *al,
       ROUNDUP(al->cfg->extent_capacity, al->cfg->io_cfg->page_size);
    status = io_read(io, al->ref_count, io_size, cfg->io_cfg->extent_size);
    platform_assert_status_ok(status);
+
    for (uint64 i = 0; i < al->cfg->extent_capacity; i++) {
       if (al->ref_count[i] != 0) {
          al->stats.curr_allocated++;

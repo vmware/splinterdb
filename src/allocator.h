@@ -271,12 +271,40 @@ static inline bool
 allocator_page_valid(allocator *al, uint64 addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);
-   if (addr % allocator_cfg->io_cfg->page_size != 0)
+
+   if ((addr % allocator_cfg->io_cfg->page_size) != 0) {
+      platform_error_log("%s():%d: Specified addr=%lu is not divisible by"
+                         " configured page size=%lu\n",
+                         __FUNCTION__,
+                         __LINE__,
+                         addr,
+                         allocator_cfg->io_cfg->page_size);
       return FALSE;
+   }
+
    uint64 base_addr = allocator_config_extent_base_addr(allocator_cfg, addr);
-   if (addr < allocator_cfg->capacity) {
-      return base_addr != 0 && allocator_get_ref(al, base_addr) != 0;
+   if ((base_addr != 0) && (addr < allocator_cfg->capacity)) {
+      uint8 refcount = allocator_get_ref(al, base_addr);
+      if (refcount == 0) {
+         platform_error_log(
+            "%s():%d: Trying to access an unreferenced extent."
+            " base_addr=%lu, addr=%lu, allocator_get_ref()=%d\n",
+            __FUNCTION__,
+            __LINE__,
+            base_addr,
+            addr,
+            refcount);
+      }
+      return (refcount != 0);
    } else {
+      platform_error_log("%s():%d: Extent out of allocator capacity range."
+                         " base_addr=%lu, addr=%lu"
+                         ", allocator_get_capacity()=%lu\n",
+                         __FUNCTION__,
+                         __LINE__,
+                         base_addr,
+                         addr,
+                         allocator_get_capacity(al));
       return FALSE;
    }
 }
