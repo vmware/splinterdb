@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "btree_private.h"
-#include "stubcache.h"  // TODO hack since rblob now knows about stubcache
-#include "rblob.h"
 #include "poison.h"
 
 /******************************************************************
@@ -1035,8 +1033,6 @@ btree_alloc(cache          *cc,
  *-----------------------------------------------------------------------------
  */
 
-// implemented in Rust
-/*
 static inline void
 btree_node_get(cache              *cc,
                const btree_config *cfg,
@@ -1048,7 +1044,6 @@ btree_node_get(cache              *cc,
    node->page = cache_get(cc, node->addr, TRUE, type);
    node->hdr  = (btree_hdr *)(node->page->data);
 }
-*/
 
 static inline bool
 btree_node_claim(cache              *cc,  // IN

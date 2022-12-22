@@ -339,7 +339,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) $(RBLOBLIB) | $$(@D)/. $(CONFIG_FILE)
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line
 
-$(BUILD_ROOT)/include/rblob.h $(RBLOBLIB):
+$(BUILD_ROOT)/include/rblob.h $(RBLOBLIB): rust/src/lib.rs
 	$(BRIEF_FORMATTED) "%-20s %s\n" "Building Rust" $@
 	$(COMMAND) cd rust && env PLATFORM_DIR="$(PLATFORM_DIR)" BUILD_ROOT="$(BUILD_ROOT)" cargo build $(CARGO_FLAG)
 

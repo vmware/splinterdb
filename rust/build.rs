@@ -18,6 +18,7 @@ fn gen_import() {
         .clang_args(["-I", "../src"])
         .clang_arg(format!("-DSPLINTERDB_PLATFORM_DIR={platform_dir}",))
         .clang_args(["-I", &format!("../src/{platform_dir}")])
+        //.generate_inline_functions(true)
         .generate()
         .expect("Unable to generate import bindings");
 
