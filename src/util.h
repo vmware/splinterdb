@@ -382,4 +382,11 @@ debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
     : ((intval) < 1000) ? "3d"                                                 \
                         : "4d")
 
+// Convenience size-specifier for output buffer size
+#define SIZE_TO_STR_LEN 20
+
+// Format a size value with unit-specifiers, in an output buffer.
+void
+size_to_str(char *outbuf, size_t outbuflen, size_t size);
+
 #endif // _SPLINTER_UTIL_H_
