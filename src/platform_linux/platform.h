@@ -627,15 +627,15 @@ void
 platform_heap_destroy(platform_heap_handle *heap_handle);
 
 buffer_handle *
-platform_buffer_create(size_t               length,
-                       platform_heap_handle heap_handle,
-                       platform_module_id   module_id);
+platform_buffer_create(size_t             length,
+                       platform_heap_id   heap_id,
+                       platform_module_id module_id);
 
 void *
 platform_buffer_getaddr(const buffer_handle *bh);
 
 platform_status
-platform_buffer_destroy(buffer_handle *bh);
+platform_buffer_destroy(platform_heap_id heap_id, buffer_handle **bh_in);
 
 platform_status
 platform_mutex_init(platform_mutex    *mu,

@@ -115,7 +115,7 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
     */
    shadow->nodes_buffer =
       platform_buffer_create(sizeof(test_splinter_shadow_node) * max_operations,
-                             hh,
+                             hid,
                              platform_get_module_id());
    if (shadow->nodes_buffer == NULL) {
       platform_default_log("Failed to pre allocate nodes for shadow tree\n");
@@ -251,7 +251,6 @@ test_splinter_shadow_add(test_splinter_shadow_tree *tree,
 
 /*
  *-----------------------------------------------------------------------------
- *
  *  test_splinter_shadow_destroy_tree --
  *
  *       Function to cleanup the shadow tree structure.
@@ -268,11 +267,10 @@ void
 test_splinter_shadow_destroy(platform_heap_id           hid,
                              test_splinter_shadow_tree *tree)
 {
-   platform_buffer_destroy(tree->nodes_buffer);
+   platform_buffer_destroy(hid, &tree->nodes_buffer);
    tree->numKeys = 0;
    platform_free(hid, tree);
 }
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -310,7 +308,6 @@ test_splinter_shadow_iterate_tree(AvlTreeLinks               *root,
 
 /*
  *-----------------------------------------------------------------------------
- *
  *  test_splinter_build_shadow_array --
  *
  *       Function to recurse over the tree and copy the key.value into an
@@ -323,11 +320,10 @@ test_splinter_shadow_iterate_tree(AvlTreeLinks               *root,
  *       Will allocate memory for the key and value arrays.
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
                                  test_splinter_shadow_array *shadow_array,
-                                 platform_heap_handle        hh)
+                                 platform_heap_handle        hid)
 {
    uint64 idx          = 0;
    shadow_array->nkeys = tree->numKeys;
@@ -336,7 +332,7 @@ test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
       * tree->numKeys;
 
    shadow_array->buffer =
-      platform_buffer_create(totalBufferSize, hh, platform_get_module_id());
+      platform_buffer_create(totalBufferSize, hid, platform_get_module_id());
    if (shadow_array->buffer == NULL) {
       platform_default_log("Failed to allocate memory for shadow array\n");
       return STATUS_NO_MEMORY;

@@ -355,7 +355,7 @@ rc_allocator_init(rc_allocator        *al,
    // To ensure alignment always allocate in multiples of page size.
    uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
+   al->bh             = platform_buffer_create(buffer_size, al->heap_id, mid);
    if (al->bh == NULL) {
       platform_error_log("Failed to create buffer for ref counts\n");
       platform_mutex_destroy(&al->lock);
@@ -388,7 +388,7 @@ rc_allocator_init(rc_allocator        *al,
 void
 rc_allocator_deinit(rc_allocator *al)
 {
-   platform_buffer_destroy(al->bh);
+   platform_buffer_destroy(al->heap_id, &al->bh);
    al->ref_count = NULL;
    platform_mutex_destroy(&al->lock);
    platform_free(al->heap_id, al->meta_page);
@@ -441,7 +441,7 @@ rc_allocator_mount(rc_allocator        *al,
 
    uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
+   al->bh             = platform_buffer_create(buffer_size, al->heap_id, mid);
    platform_assert(al->bh != NULL);
    al->ref_count = platform_buffer_getaddr(al->bh);
 

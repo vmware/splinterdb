@@ -82,6 +82,6 @@ test_splinter_shadow_destroy(platform_heap_id           hid,
 platform_status
 test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
                                  test_splinter_shadow_array *shadow_array,
-                                 platform_heap_handle        hh);
+                                 platform_heap_id            hid);
 
 #endif

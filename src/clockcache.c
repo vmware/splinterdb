@@ -1825,7 +1825,7 @@ clockcache_init(clockcache          *cc,   // OUT
    }
 
    /* data must be aligned because of O_DIRECT */
-   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid);
+   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_id, mid);
    if (!cc->bh) {
       goto alloc_error;
    }
@@ -1841,7 +1841,7 @@ clockcache_init(clockcache          *cc,   // OUT
 
    /* Entry per-thread ref counts */
    size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
-   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_handle, mid);
+   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_id, mid);
    if (!cc->rc_bh) {
       goto alloc_error;
    }
@@ -1889,13 +1889,13 @@ clockcache_deinit(clockcache *cc) // IN/OUT
    }
 
    if (cc->rc_bh) {
-      platform_buffer_destroy(cc->rc_bh);
+      platform_buffer_destroy(cc->heap_id, &cc->rc_bh);
    }
 
    platform_free(cc->heap_id, cc->entry);
    platform_free(cc->heap_id, cc->lookup);
    if (cc->bh) {
-      platform_buffer_destroy(cc->bh);
+      platform_buffer_destroy(cc->heap_id, &cc->bh);
    }
    cc->data = NULL;
    platform_free_volatile(cc->heap_id, cc->batch_busy);

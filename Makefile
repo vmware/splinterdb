@@ -443,6 +443,9 @@ $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                              
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)       \
+                                         $(PLATFORM_SYS)
+
 ########################################
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test

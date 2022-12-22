@@ -56,38 +56,46 @@ void
 platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle))
 {}
 
+/*
+ * platform_buffer_create() - Create large buffers using mmap()
+ *
+ * Certain modules, e.g. the buffer cache, need a very large buffer which
+ * may not be serviceable by the heap. Create the requested buffer using
+ * mmap() and return a handle to it.
+ */
 buffer_handle *
-platform_buffer_create(size_t               length,
-                       platform_heap_handle UNUSED_PARAM(heap_handle),
-                       platform_module_id   UNUSED_PARAM(module_id))
+platform_buffer_create(size_t             length,
+                       platform_heap_id   heap_id,
+                       platform_module_id UNUSED_PARAM(module_id))
 {
-   buffer_handle *bh = TYPED_MALLOC(platform_get_heap_id(), bh);
-
-   if (bh != NULL) {
-      int prot  = PROT_READ | PROT_WRITE;
-      int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
-      if (platform_use_hugetlb) {
-         flags |= MAP_HUGETLB;
-      }
-
-      bh->addr = mmap(NULL, length, prot, flags, -1, 0);
-      if (bh->addr == MAP_FAILED) {
-         platform_error_log(
-            "mmap (%lu) failed with error: %s\n", length, strerror(errno));
-         goto error;
-      }
-
-      if (platform_use_mlock) {
-         int rc = mlock(bh->addr, length);
-         if (rc != 0) {
-            platform_error_log(
-               "mlock (%lu) failed with error: %s\n", length, strerror(errno));
-            munmap(bh->addr, length);
-            goto error;
-         }
-      }
+   buffer_handle *bh = TYPED_MALLOC(heap_id, bh);
+   if (bh == NULL) {
+      return bh;
    }
 
+   int prot  = PROT_READ | PROT_WRITE;
+   int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+   if (platform_use_hugetlb) {
+      flags |= MAP_HUGETLB;
+   }
+
+   bh->addr = mmap(NULL, length, prot, flags, -1, 0);
+   if (bh->addr == MAP_FAILED) {
+      platform_error_log(
+         "mmap (%lu bytes) failed with error: %s\n", length, strerror(errno));
+      goto error;
+   }
+
+   if (platform_use_mlock) {
+      int rc = mlock(bh->addr, length);
+      if (rc != 0) {
+         platform_error_log("mlock (%lu bytes) failed with error: %s\n",
+                            length,
+                            strerror(errno));
+         munmap(bh->addr, length);
+         goto error;
+      }
+   }
    bh->length = length;
    return bh;
 
@@ -103,16 +111,21 @@ platform_buffer_getaddr(const buffer_handle *bh)
    return bh->addr;
 }
 
+/*
+ * platform_buffer_destroy() - Destroy the large buffer created using mmap()
+ * Free all associated memory. buffer_handle *bh_in is NULL'ed out on exit.
+ */
 platform_status
-platform_buffer_destroy(buffer_handle *bh)
+platform_buffer_destroy(platform_heap_id heap_id, buffer_handle **bh_in)
 {
-   int ret;
+   buffer_handle *bh = *bh_in;
+   int            ret;
    ret = munmap(bh->addr, bh->length);
    if (ret) {
       return CONST_STATUS(errno);
    }
 
-   platform_free(platform_get_heap_id(), bh);
+   platform_free(heap_id, *bh_in);
 
    return STATUS_OK;
 }

@@ -18,9 +18,10 @@
 #include "poison.h"
 
 void
-destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
+destroy_test_splinter_shadow_array(platform_heap_id            hid,
+                                   test_splinter_shadow_array *sharr)
 {
-   platform_buffer_destroy(sharr->buffer);
+   platform_buffer_destroy(hid, &sharr->buffer);
    sharr->nkeys = 0;
 }
 
@@ -485,7 +486,7 @@ validate_tree_against_shadow(trunk_handle              *spl,
 
    memset(&sharr, 0, sizeof(sharr));
    if (do_it) {
-      rc = test_splinter_build_shadow_array(shadow, &sharr, hh);
+      rc = test_splinter_build_shadow_array(shadow, &sharr, hid);
       if (!SUCCESS(rc)) {
          // might need to cleanup a partially allocated shadow array.
          platform_error_log("Failed to build shadow array: %s\n",
@@ -514,7 +515,7 @@ validate_tree_against_shadow(trunk_handle              *spl,
 
 cleanup:
    if (do_it) {
-      destroy_test_splinter_shadow_array(&sharr);
+      destroy_test_splinter_shadow_array(hid, &sharr);
    }
 
    return rc;
