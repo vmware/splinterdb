@@ -777,50 +777,61 @@ rc_allocator_assert_noleaks(rc_allocator *al)
 void
 rc_allocator_print_stats(rc_allocator *al)
 {
-   int64 divider = GiB / al->cfg->io_cfg->extent_size;
+   // clang-format off
+   const char *dashes = "-------------------------------------------------------------------";
+   platform_default_log("|%s|\n", dashes);
+   platform_default_log("| Allocator Stats                                                   |\n");
+   platform_default_log("|%s|\n", dashes);
+   // clang-format on
+
+   char   bytes_to_str[SIZE_TO_STR_LEN];
+   size_t nbytes = (al->stats.curr_allocated * al->cfg->io_cfg->extent_size);
+   size_to_fmtstr(bytes_to_str, sizeof(bytes_to_str), "(%s)", nbytes);
+
    platform_default_log(
-      "----------------------------------------------------------------\n");
-   platform_default_log(
-      "| Allocator Stats                                              |\n");
-   platform_default_log(
-      "|--------------------------------------------------------------|\n");
-   uint64 curr_gib = al->stats.curr_allocated / divider;
-   platform_default_log(
-      "| Currently Allocated: %12lu extents (%4luGiB)          |\n",
+      "| Currently Allocated: %12lu extents %-14s          |\n",
       al->stats.curr_allocated,
-      curr_gib);
-   uint64 max_gib = al->stats.max_allocated / divider;
+      bytes_to_str);
+
+   nbytes = (al->stats.max_allocated * al->cfg->io_cfg->extent_size);
+   size_to_fmtstr(bytes_to_str, sizeof(bytes_to_str), "(%s)", nbytes);
    platform_default_log(
-      "| Max Allocated:       %12lu extents (%4luGiB)          |\n",
+      "| Max Allocated:       %12lu extents %-14s          |\n",
       al->stats.max_allocated,
-      max_gib);
-   platform_default_log(
-      "|--------------------------------------------------------------|\n");
-   platform_default_log(
-      "| Page Type | Allocations | Deallocations | Footprint (bytes)  |\n");
-   platform_default_log(
-      "|--------------------------------------------------------------|\n");
+      bytes_to_str);
+
+   // clang-format off
+   platform_default_log("|%s|\n", dashes);
+   platform_default_log("| Page Type  | Allocations | Deallocations |      Footprint         |\n");
+   platform_default_log("|            |      (Number of extents)    | # extents  (bytes)     |\n");
+   platform_default_log("|%s|\n", dashes);
+   // clang-format on
+
    int64 exp_allocated_count = 0;
    for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
-      const char *str           = page_type_str[type];
-      int64       allocs        = al->stats.extent_allocs[type];
-      int64       deallocs      = al->stats.extent_deallocs[type];
-      int64       footprint     = allocs - deallocs;
-      int64       footprint_gib = footprint / divider;
+      const char *str       = page_type_str[type];
+      int64       allocs    = al->stats.extent_allocs[type];
+      int64       deallocs  = al->stats.extent_deallocs[type];
+      int64       footprint = allocs - deallocs;
+      nbytes                = (footprint * al->cfg->io_cfg->extent_size);
+      size_to_fmtstr(bytes_to_str, sizeof(bytes_to_str), "(%s)", nbytes);
 
       exp_allocated_count += footprint;
 
-      platform_default_log("| %-10s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
+      platform_default_log("| %-10s | %11ld | %13ld | %8ld %-14s|\n",
                            str,
                            allocs,
                            deallocs,
                            footprint,
-                           footprint_gib);
+                           bytes_to_str);
    }
+   platform_default_log("|%s|\n", dashes);
+   nbytes = (exp_allocated_count * al->cfg->io_cfg->extent_size);
+   size_to_str(bytes_to_str, sizeof(bytes_to_str), nbytes);
    platform_default_log(
-      "----------------------------------------------------------------\n");
-   platform_default_log("Expected allocation count from footprint = %ld\n",
-                        exp_allocated_count);
+      "Expected total allocation count from footprint = %ld extents %s\n",
+      exp_allocated_count,
+      bytes_to_str);
 }
 
 /*
@@ -856,7 +867,12 @@ rc_allocator_print_allocated(rc_allocator *al)
          platform_default_log("%8lu %12lu     %u\n", i, ext_addr, ref);
       }
    }
-   platform_default_log("%sFound %lu extents with allocated pages.\n",
+
+   char   bytes_to_str[SIZE_TO_STR_LEN];
+   uint64 nbytes = (found * al->cfg->io_cfg->extent_size);
+   size_to_str(bytes_to_str, sizeof(bytes_to_str), nbytes);
+   platform_default_log("%sFound %lu extents (%s) with allocated pages.\n",
                         (print_curly ? "}\n" : ""),
-                        found);
+                        found,
+                        bytes_to_str);
 }
