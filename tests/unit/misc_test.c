@@ -12,6 +12,8 @@
 #include "platform.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
+#include "util.h"
+#include "platform.h"
 
 #define ASSERT_OUTBUF_LEN 200
 
@@ -21,7 +23,7 @@
    "Test assertion msg with arguments id = %d, name = '%s'."
 
 /* Function prototypes and caller-macros to invoke testing interfaces */
-void
+static void
 test_platform_assert_msg(platform_log_handle *log_handle,
                          const char          *filename,
                          int                  linenumber,
@@ -39,7 +41,7 @@ test_platform_assert_msg(platform_log_handle *log_handle,
    test_platform_assert_msg(                                                   \
       log_handle, __FILE__, __LINE__, __FUNCTION__, #expr, "" __VA_ARGS__)
 
-void
+static void
 test_vfprintf_usermsg(platform_log_handle *log_handle,
                       const char          *message,
                       ...);
@@ -52,6 +54,9 @@ test_vfprintf_usermsg(platform_log_handle *log_handle,
  */
 #define test_assert_usermsg(log_handle, ...)                                   \
    test_vfprintf_usermsg(log_handle, "" __VA_ARGS__)
+
+static void
+test_streqn(char *expstr, char *actstr, int caseno);
 
 /*
  * Global data declaration macro:
@@ -67,12 +72,14 @@ CTEST_SETUP(misc)
    // So lets send those messages to /dev/null unless VERBOSE=1.
    if (Ctest_verbose) {
       data->log_output = stdout;
+      platform_set_log_streams(stdout, stderr);
       CTEST_LOG_INFO("\nVerbose mode on.  This test exercises error-reporting "
                      "logic, so on success it will print a message "
                      "that appears to be an error.\n");
    } else {
-      data->log_output = fopen("/dev/null", "w");
+      FILE *dev_null = data->log_output = fopen("/dev/null", "w");
       ASSERT_NOT_NULL(data->log_output);
+      platform_set_log_streams(dev_null, dev_null);
    }
 }
 
@@ -183,13 +190,101 @@ CTEST2(misc, test_ctest_assert_prints_user_msg_with_params)
    platform_close_log_stream(&stream, data->log_output);
 }
 
+/*
+ * Simple test to verify lower-level conversion macros used by size_to_str()
+ */
+CTEST2(misc, test_bytes_to_fractional_value_macros)
+{
+   // Run through a few typical cases to check lower-level macros
+   size_t size = (KiB + ((25 * KiB) / 100)); // 1.25 KiB
+   ASSERT_EQUAL(25, B_TO_KiB_FRACT(size));
+
+   size = (MiB + ((5 * MiB) / 10)); // 1.5 MiB
+   ASSERT_EQUAL(50, B_TO_MiB_FRACT(size));
+
+   size = (GiB + ((75 * GiB) / 100)); // 1.75 GiB
+   ASSERT_EQUAL(75, B_TO_GiB_FRACT(size));
+
+   size = (TiB + ((5 * TiB) / 10)); // 1.5 TiB
+   ASSERT_EQUAL(50, B_TO_TiB_FRACT(size));
+}
+
+/*
+ * Test case to verify conversion of size value to a string with
+ * unit-specifiers. Do quick cross-check of the lower-level conversion macros
+ * involved.
+ */
+CTEST2(misc, test_size_to_str)
+{
+   char size_str[SIZE_TO_STR_LEN];
+   char size_str2[SIZE_TO_STR_LEN + 2]; // size-as-string enclosed in ()
+   typedef struct size_to_expstr {
+      size_t size;
+      char  *expstr;
+   } size_to_expstr;
+
+   // Verify base-case, and validate ptr returned to output string buffer.
+   size_t size   = 0;
+   char  *expstr = "0 bytes";
+   char  *outstr = size_to_str(size_str, sizeof(size_str), size);
+   // Conversion fn should return input-buffer's start addr as outstr.
+   ASSERT_TRUE(outstr == size_str);
+   test_streqn(expstr, outstr, 0);
+
+   // Built expected string enclosed in ()
+   snprintf(size_str2, sizeof(size_str2), "(%s)", size_str);
+
+   // Size as string enclosed in () will be generated in this buffer
+   char *expstr2 = size_str2;
+   outstr        = size_to_fmtstr(size_str2, sizeof(size_str2), "(%s)", size);
+
+   // Conversion fn should return input-str's start addr as outstr.
+   ASSERT_TRUE(outstr == size_str2);
+   test_streqn(expstr2, size_str2, 0);
+
+   // Exercise the string formatter with typical data values.
+   // clang-format off
+   size_to_expstr size_to_str_cases[] =
+   {
+          { 129                            , "129 bytes"  }
+
+        , { KiB                            , "1 KiB"      }
+        , { MiB                            , "1 MiB"      }
+        , { GiB                            , "1 GiB"      }
+        , { TiB                            , "1 TiB"      }
+
+        , { KiB + 128                      , "~1.12 KiB"  }
+        , { KiB + ((25 * KiB) / 100)       , "~1.25 KiB"  }
+        , { MiB + 128                      , "~1.0 MiB"   }
+        , { MiB + ((5 * MiB) / 10)         , "~1.50 MiB"  }
+        , { GiB + 128                      , "~1.0 GiB"   }
+        , { GiB + ((75 * GiB) / 100)       , "~1.75 GiB"  }
+        , { (3 * GiB) + ((5 * GiB) / 10)   , "~3.50 GiB"  }
+        , { TiB + 128                      , "~1.0 TiB"   }
+        , { (2 * TiB) + ((25 * TiB) / 100) , "~2.25 TiB"  }
+   };
+   // clang-format on
+
+   for (int cctr = 0; cctr < ARRAY_SIZE(size_to_str_cases); cctr++) {
+      size         = size_to_str_cases[cctr].size;
+      expstr       = size_to_str_cases[cctr].expstr;
+      char *outstr = size_to_str(size_str, sizeof(size_str), size);
+      test_streqn(expstr, outstr, cctr);
+
+      // Build expected string enclosed in ()
+      snprintf(size_str2, sizeof(size_str2), "(%s)", size_str);
+      size_to_fmtstr(size_str, sizeof(size_str), "(%s)", size);
+      test_streqn(expstr2, size_str, cctr);
+   }
+}
+
 /* Helper functions follow all test case methods */
 
 /*
  * Wrapper function to exercise platform_assert_msg() into an output
  * buffer. Used to test that the message is generated as expected.
  */
-void
+static void
 test_platform_assert_msg(platform_log_handle *log_handle,
                          const char          *filename,
                          int                  linenumber,
@@ -210,8 +305,24 @@ test_platform_assert_msg(platform_log_handle *log_handle,
  * into an output buffer. Used to test that the message is generated as
  * expected.
  */
-void
+static void
 test_vfprintf_usermsg(platform_log_handle *log_handle, const char *message, ...)
 {
    VFPRINTF_USERMSG(log_handle, message);
+}
+
+/* Helper fn to check that expected / actual null-terminated strings match */
+static void
+test_streqn(char *expstr, char *actstr, int caseno)
+{
+   ASSERT_STREQN(expstr,
+                 actstr,
+                 strlen(expstr),
+                 "Test case=%d failed, Expected: '%.*s', "
+                 "Received: '%.*s'\n",
+                 caseno,
+                 strlen(expstr),
+                 expstr,
+                 strlen(expstr),
+                 actstr);
 }

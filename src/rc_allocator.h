@@ -44,8 +44,8 @@ _Static_assert(offsetof(rc_allocator_meta_page, splinters) == 0,
  *----------------------------------------------------------------------
  */
 typedef struct rc_allocator_stats {
-   int64 curr_allocated;
-   int64 max_allocated;
+   int64 curr_allocated; // # of extents allocated
+   int64 max_allocated;  // # of extents allocated high-water mark
    int64 extent_allocs[NUM_PAGE_TYPES];
    int64 extent_deallocs[NUM_PAGE_TYPES];
 } rc_allocator_stats;

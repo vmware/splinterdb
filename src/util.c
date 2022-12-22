@@ -364,3 +364,64 @@ debug_hex_dump_slice(platform_log_handle *plh, uint64 grouping, slice data)
 {
    debug_hex_dump(plh, grouping, slice_length(data), slice_data(data));
 }
+
+/*
+ * Format a size value with unit-specifiers, in an output buffer.
+ * Returns 'outbuf', as ptr to size-value snprintf()'ed as a string.
+ */
+char *
+size_to_str(char *outbuf, size_t outbuflen, size_t size)
+{
+   debug_assert(outbuflen >= SIZE_TO_STR_LEN, "outbuflen=%lu.\n", outbuflen);
+   size_t unit_val  = 0;
+   size_t frac_val  = 0;
+   bool   is_approx = FALSE;
+
+   char *units = NULL;
+   if (size >= TiB) {
+      unit_val  = B_TO_TiB(size);
+      frac_val  = B_TO_TiB_FRACT(size);
+      is_approx = (size > TiB_TO_B(unit_val));
+      units     = "TiB";
+
+   } else if (size >= GiB) {
+      unit_val  = B_TO_GiB(size);
+      frac_val  = B_TO_GiB_FRACT(size);
+      is_approx = (size > GiB_TO_B(unit_val));
+      units     = "GiB";
+
+   } else if (size >= MiB) {
+      unit_val  = B_TO_MiB(size);
+      frac_val  = B_TO_MiB_FRACT(size);
+      is_approx = (size > MiB_TO_B(unit_val));
+      units     = "MiB";
+
+   } else if (size >= KiB) {
+      unit_val  = B_TO_KiB(size);
+      frac_val  = B_TO_KiB_FRACT(size);
+      is_approx = (size > KiB_TO_B(unit_val));
+      units     = "KiB";
+   } else {
+      unit_val = size;
+      units    = "bytes";
+   }
+
+   if (frac_val || is_approx) {
+      snprintf(outbuf, outbuflen, "~%ld.%ld %s", unit_val, frac_val, units);
+   } else {
+      snprintf(outbuf, outbuflen, "%ld %s", unit_val, units);
+   }
+   return outbuf;
+}
+
+/*
+ * Sibling of size_to_str(), but uses user-provided print format specifier.
+ * 'fmtstr' is expected to have just one '%s', and whatever other text user
+ * wishes to print with the output string.
+ */
+char *
+size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size)
+{
+   snprintf(outbuf, outbuflen, fmtstr, size_str(size));
+   return outbuf;
+}

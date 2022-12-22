@@ -3083,6 +3083,10 @@ btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
    platform_log(log_handle, "\n");
 }
 
+// Macro to deal with printing Pivot stats 'sz' bytes as uninitialized
+#define PIVOT_STATS_BYTES_AS_STR(sz)                                           \
+   (((sz) == BTREE_UNKNOWN_COUNTER) ? "BTREE_UNKNOWN_COUNTER" : size_str((sz)))
+
 static void
 btree_print_btree_pivot_stats(platform_log_handle *log_handle,
                               btree_pivot_stats   *pivot_stats)
@@ -3099,11 +3103,13 @@ btree_print_btree_pivot_stats(platform_log_handle *log_handle,
    // Indentation is dictated by outer caller
    platform_log(log_handle,
                 "   (num_kvs=%u\n"
-                "    key_bytes=%u\n"
-                "    message_bytes=%u)\n",
+                "    key_bytes=%u (%s)\n"
+                "    message_bytes=%u (%s))\n",
                 pivot_stats->num_kvs,
                 pivot_stats->key_bytes,
-                pivot_stats->message_bytes);
+                PIVOT_STATS_BYTES_AS_STR(pivot_stats->key_bytes),
+                pivot_stats->message_bytes,
+                PIVOT_STATS_BYTES_AS_STR(pivot_stats->message_bytes));
 }
 
 static void
@@ -3255,6 +3261,7 @@ btree_print_subtree(platform_log_handle *log_handle,
    node.addr = addr;
    btree_print_node(log_handle, cc, cfg, &node);
    if (!allocator_page_valid(cache_get_allocator(cc), node.addr)) {
+      platform_log(log_handle, "Unallocated BTree node addr=%lu\n", addr);
       return;
    }
    btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
