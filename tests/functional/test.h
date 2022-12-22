@@ -48,6 +48,9 @@ cache_test(int argc, char *argv[]);
 int
 ycsb_test(int argc, char *argv[]);
 
+int
+splinter_io_apis_test(int argc, char *argv[]);
+
 /*
  * Initialization for using splinter, need to be called at the start of the test
  * main function. This initializes SplinterDB's task sub-system.
@@ -319,9 +322,9 @@ test_parse_args_n(trunk_config           *splinter_cfg,            // OUT
                        &master_cfg[i]);
    }
 
-   // Return parsed bg-threads related args, which caller will use to init the
-   // task system. Currently, we only supporting the same tasks system config
-   // for all n-test-configs being init'ed here.
+   // Return parsed bg-threads related args, which caller will use to init
+   // the task system. Currently, we only support the same bg-thread config
+   // for the task system config for all n-test-configs being init'ed here.
    *num_memtable_bg_threads = master_cfg[0].num_memtable_bg_threads;
    *num_normal_bg_threads   = master_cfg[0].num_normal_bg_threads;
 

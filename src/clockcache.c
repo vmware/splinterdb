@@ -216,7 +216,7 @@ clockcache_assert_no_locks_held(clockcache *cc);
 void
 clockcache_print(platform_log_handle *log_handle, clockcache *cc);
 
-bool
+static bool
 clockcache_page_valid(clockcache *cc, uint64 addr);
 
 void
@@ -3051,15 +3051,42 @@ clockcache_print(platform_log_handle *log_handle, clockcache *cc)
    return;
 }
 
-bool
+static bool
 clockcache_page_valid(clockcache *cc, uint64 addr)
 {
-   if (addr % clockcache_page_size(cc) != 0)
+   if ((addr % clockcache_page_size(cc)) != 0) {
+      platform_error_log("%s():%d: Specified addr=%lu is not divisible by"
+                         " configured page size, clockcache_page_size()=%lu\n",
+                         __FUNCTION__,
+                         __LINE__,
+                         addr,
+                         clockcache_page_size(cc));
       return FALSE;
+   }
+
    uint64 base_addr = clockcache_extent_base_addr(cc, addr);
-   if (addr < allocator_get_capacity(cc->al)) {
-      return base_addr != 0 && allocator_get_ref(cc->al, base_addr) != 0;
+   if ((base_addr != 0) && (addr < allocator_get_capacity(cc->al))) {
+      uint8 refcount = allocator_get_ref(cc->al, base_addr);
+      if (refcount == 0) {
+         platform_error_log(
+            "%s():%d: Trying to access an unreferenced extent."
+            " base_addr=%lu, addr=%lu, allocator_get_ref()=%d\n",
+            __FUNCTION__,
+            __LINE__,
+            base_addr,
+            addr,
+            refcount);
+      }
+      return (refcount != 0);
    } else {
+      platform_error_log("%s():%d: Extent out of allocator capacity range."
+                         " base_addr=%lu, addr=%lu"
+                         ", allocator_get_capacity()=%lu\n",
+                         __FUNCTION__,
+                         __LINE__,
+                         base_addr,
+                         addr,
+                         allocator_get_capacity(cc->al));
       return FALSE;
    }
 }
