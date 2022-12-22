@@ -81,9 +81,7 @@ test_splinter_shadow_cmp_keys(const AvlTreeLinks *k1, const AvlTreeLinks *k2)
 
 /*
  *-----------------------------------------------------------------------------
- *
  *  test_splinter_shadow_init --
- *
  *       Function to initialize memory and avlTree for the shadow tree.
  *
  *   Results:
@@ -93,18 +91,17 @@ test_splinter_shadow_cmp_keys(const AvlTreeLinks *k1, const AvlTreeLinks *k2)
  *       Will allocate memory for the shadow structure.
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 test_splinter_shadow_create(test_splinter_shadow_tree **tree,
-                            platform_heap_handle        hh,
                             platform_heap_id            hid,
                             uint64                      max_operations)
 {
-   test_splinter_shadow_tree *shadow = TYPED_ZALLOC(hid, shadow);
+   platform_status rc = STATUS_NO_MEMORY;
 
+   test_splinter_shadow_tree *shadow = TYPED_ZALLOC(hid, shadow);
    if (shadow == NULL) {
       platform_default_log("Failed to allocate memory for shadow init");
-      return STATUS_NO_MEMORY;
+      return rc;
    }
 
    /*
@@ -113,16 +110,15 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
     * insert operations, since only those operations will require new node
     * allocations.
     */
-   shadow->nodes_buffer =
-      platform_buffer_create(sizeof(test_splinter_shadow_node) * max_operations,
-                             hh,
-                             platform_get_module_id());
-   if (shadow->nodes_buffer == NULL) {
+   rc =
+      platform_buffer_init(&shadow->nodes_buffer,
+                           sizeof(test_splinter_shadow_node) * max_operations);
+   if (!SUCCESS(rc)) {
       platform_default_log("Failed to pre allocate nodes for shadow tree\n");
       platform_free(hid, shadow);
-      return STATUS_NO_MEMORY;
+      return rc;
    }
-   shadow->nodes                = platform_buffer_getaddr(shadow->nodes_buffer);
+   shadow->nodes = platform_buffer_getaddr(&shadow->nodes_buffer);
    shadow->numPreAllocatedNodes = max_operations;
 
    AvlTree_Init(&shadow->tree,
@@ -132,7 +128,6 @@ test_splinter_shadow_create(test_splinter_shadow_tree **tree,
    *tree = shadow;
    return STATUS_OK;
 }
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -251,7 +246,6 @@ test_splinter_shadow_add(test_splinter_shadow_tree *tree,
 
 /*
  *-----------------------------------------------------------------------------
- *
  *  test_splinter_shadow_destroy_tree --
  *
  *       Function to cleanup the shadow tree structure.
@@ -268,11 +262,10 @@ void
 test_splinter_shadow_destroy(platform_heap_id           hid,
                              test_splinter_shadow_tree *tree)
 {
-   platform_buffer_destroy(tree->nodes_buffer);
+   platform_buffer_deinit(&tree->nodes_buffer);
    tree->numKeys = 0;
    platform_free(hid, tree);
 }
-
 
 /*
  *-----------------------------------------------------------------------------
@@ -310,7 +303,6 @@ test_splinter_shadow_iterate_tree(AvlTreeLinks               *root,
 
 /*
  *-----------------------------------------------------------------------------
- *
  *  test_splinter_build_shadow_array --
  *
  *       Function to recurse over the tree and copy the key.value into an
@@ -323,11 +315,9 @@ test_splinter_shadow_iterate_tree(AvlTreeLinks               *root,
  *       Will allocate memory for the key and value arrays.
  *-----------------------------------------------------------------------------
  */
-
 platform_status
 test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
-                                 test_splinter_shadow_array *shadow_array,
-                                 platform_heap_handle        hh)
+                                 test_splinter_shadow_array *shadow_array)
 {
    uint64 idx          = 0;
    shadow_array->nkeys = tree->numKeys;
@@ -335,13 +325,14 @@ test_splinter_build_shadow_array(test_splinter_shadow_tree  *tree,
       (sizeof(*shadow_array->keys) + sizeof(*shadow_array->ref_counts))
       * tree->numKeys;
 
-   shadow_array->buffer =
-      platform_buffer_create(totalBufferSize, hh, platform_get_module_id());
-   if (shadow_array->buffer == NULL) {
+   platform_status rc = STATUS_NO_MEMORY;
+
+   rc = platform_buffer_init(&shadow_array->buffer, totalBufferSize);
+   if (!SUCCESS(rc)) {
       platform_default_log("Failed to allocate memory for shadow array\n");
-      return STATUS_NO_MEMORY;
+      return rc;
    }
-   shadow_array->keys = platform_buffer_getaddr(shadow_array->buffer);
+   shadow_array->keys = platform_buffer_getaddr(&shadow_array->buffer);
    // Memory for ref count array starts at base memory + memory for keys array.
    shadow_array->ref_counts =
       (void *)((uint64)shadow_array->keys

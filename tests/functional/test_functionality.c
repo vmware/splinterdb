@@ -20,7 +20,7 @@
 void
 destroy_test_splinter_shadow_array(test_splinter_shadow_array *sharr)
 {
-   platform_buffer_destroy(sharr->buffer);
+   platform_buffer_deinit(&sharr->buffer);
    sharr->nkeys = 0;
 }
 
@@ -469,7 +469,6 @@ static platform_status
 validate_tree_against_shadow(trunk_handle              *spl,
                              random_state              *prg,
                              test_splinter_shadow_tree *shadow,
-                             platform_heap_handle       hh,
                              platform_heap_id           hid,
                              bool                       do_it,
                              test_async_lookup         *async_lookup)
@@ -485,7 +484,7 @@ validate_tree_against_shadow(trunk_handle              *spl,
 
    memset(&sharr, 0, sizeof(sharr));
    if (do_it) {
-      rc = test_splinter_build_shadow_array(shadow, &sharr, hh);
+      rc = test_splinter_build_shadow_array(shadow, &sharr);
       if (!SUCCESS(rc)) {
          // might need to cleanup a partially allocated shadow array.
          platform_error_log("Failed to build shadow array: %s\n",
@@ -631,19 +630,18 @@ cmp_ptrs(const void *a, const void *b)
  *-----------------------------------------------------------------------------
  */
 platform_status
-test_functionality(allocator           *al,
-                   io_handle           *io,
-                   cache               *cc[],
-                   trunk_config        *cfg,
-                   uint64               seed,
-                   uint64               num_inserts,
-                   uint64               correctness_check_frequency,
-                   task_system         *state,
-                   platform_heap_handle hh,
-                   platform_heap_id     hid,
-                   uint8                num_tables,
-                   uint8                num_caches,
-                   uint32               max_async_inflight)
+test_functionality(allocator       *al,
+                   io_handle       *io,
+                   cache           *cc[],
+                   trunk_config    *cfg,
+                   uint64           seed,
+                   uint64           num_inserts,
+                   uint64           correctness_check_frequency,
+                   task_system     *state,
+                   platform_heap_id hid,
+                   uint8            num_tables,
+                   uint8            num_caches,
+                   uint32           max_async_inflight)
 {
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
@@ -675,7 +673,7 @@ test_functionality(allocator           *al,
    // Initialize the splinter/shadow for each splinter table.
    for (uint8 idx = 0; idx < num_tables; idx++) {
       cache *cache_to_use = num_caches > 1 ? cc[idx] : *cc;
-      status = test_splinter_shadow_create(&shadows[idx], hh, hid, num_inserts);
+      status = test_splinter_shadow_create(&shadows[idx], hid, num_inserts);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to init shadow for splinter: %s\n",
                             platform_status_to_string(status));
@@ -697,7 +695,7 @@ test_functionality(allocator           *al,
       trunk_handle              *spl    = spl_tables[idx];
       test_splinter_shadow_tree *shadow = shadows[idx];
       status                            = validate_tree_against_shadow(
-         spl, &prg, shadow, hh, hid, TRUE, async_lookup);
+         spl, &prg, shadow, hid, TRUE, async_lookup);
       if (!SUCCESS(status)) {
          platform_error_log("Failed to validate empty tree against shadow: \
                             %s\n",
@@ -793,7 +791,6 @@ test_functionality(allocator           *al,
             spl,
             &prg,
             shadow,
-            hh,
             hid,
             correctness_check_frequency
                && (i % correctness_check_frequency) == 0,
@@ -840,7 +837,6 @@ test_functionality(allocator           *al,
          spl,
          &prg,
          shadow,
-         hh,
          hid,
          correctness_check_frequency
             && ((i - 1) % correctness_check_frequency) != 0,

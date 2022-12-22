@@ -318,23 +318,21 @@ rc_allocator_valid_config(allocator_config *cfg)
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_init(rc_allocator        *al,
-                  allocator_config    *cfg,
-                  io_handle           *io,
-                  platform_heap_handle hh,
-                  platform_heap_id     hid,
-                  platform_module_id   mid)
+rc_allocator_init(rc_allocator      *al,
+                  allocator_config  *cfg,
+                  io_handle         *io,
+                  platform_heap_id   hid,
+                  platform_module_id mid)
 {
    uint64          rc_extent_count;
    uint64          addr;
    platform_status rc;
    platform_assert(al != NULL);
    ZERO_CONTENTS(al);
-   al->super.ops   = &rc_allocator_ops;
-   al->cfg         = cfg;
-   al->io          = io;
-   al->heap_handle = hh;
-   al->heap_id     = hid;
+   al->super.ops = &rc_allocator_ops;
+   al->cfg       = cfg;
+   al->io        = io;
+   al->heap_id   = hid;
 
    rc = rc_allocator_valid_config(cfg);
    if (!SUCCESS(rc)) {
@@ -353,17 +351,16 @@ rc_allocator_init(rc_allocator        *al,
       return rc;
    }
    // To ensure alignment always allocate in multiples of page size.
-   uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
+   uint64 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
-   if (al->bh == NULL) {
-      platform_error_log("Failed to create buffer for ref counts\n");
+   rc                 = platform_buffer_init(&al->bh, buffer_size);
+   if (!SUCCESS(rc)) {
       platform_mutex_destroy(&al->lock);
       platform_free(al->heap_id, al->meta_page);
+      platform_error_log("Failed to create buffer for ref counts\n");
       return STATUS_NO_MEMORY;
    }
-
-   al->ref_count = platform_buffer_getaddr(al->bh);
+   al->ref_count = platform_buffer_getaddr(&al->bh);
    memset(al->ref_count, 0, buffer_size);
 
    // allocate the super block
@@ -388,7 +385,7 @@ rc_allocator_init(rc_allocator        *al,
 void
 rc_allocator_deinit(rc_allocator *al)
 {
-   platform_buffer_destroy(al->bh);
+   platform_buffer_deinit(&al->bh);
    al->ref_count = NULL;
    platform_mutex_destroy(&al->lock);
    platform_free(al->heap_id, al->meta_page);
@@ -403,22 +400,20 @@ rc_allocator_deinit(rc_allocator *al)
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_mount(rc_allocator        *al,
-                   allocator_config    *cfg,
-                   io_handle           *io,
-                   platform_heap_handle hh,
-                   platform_heap_id     hid,
-                   platform_module_id   mid)
+rc_allocator_mount(rc_allocator      *al,
+                   allocator_config  *cfg,
+                   io_handle         *io,
+                   platform_heap_id   hid,
+                   platform_module_id mid)
 {
    platform_status status;
 
    platform_assert(al != NULL);
    ZERO_CONTENTS(al);
-   al->super.ops   = &rc_allocator_ops;
-   al->cfg         = cfg;
-   al->io          = io;
-   al->heap_handle = hh;
-   al->heap_id     = hid;
+   al->super.ops = &rc_allocator_ops;
+   al->cfg       = cfg;
+   al->io        = io;
+   al->heap_id   = hid;
 
    status = platform_mutex_init(&al->lock, mid, al->heap_id);
    if (!SUCCESS(status)) {
@@ -439,11 +434,16 @@ rc_allocator_mount(rc_allocator        *al,
    platform_assert(cfg->capacity
                    == cfg->io_cfg->page_size * cfg->page_capacity);
 
-   uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
+   uint64 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
-   platform_assert(al->bh != NULL);
-   al->ref_count = platform_buffer_getaddr(al->bh);
+   status             = platform_buffer_init(&al->bh, buffer_size);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_mutex_destroy(&al->lock);
+      platform_error_log("Failed to create buffer to load ref counts\n");
+      return STATUS_NO_MEMORY;
+   }
+   al->ref_count = platform_buffer_getaddr(&al->bh);
 
    // load the meta page from disk.
    status = io_read(

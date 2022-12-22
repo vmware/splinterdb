@@ -1571,7 +1571,7 @@ btree_test(int argc, char *argv[])
 
    rc_allocator al;
    rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+      &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
    rc             = clockcache_init(cc,
@@ -1579,7 +1579,6 @@ btree_test(int argc, char *argv[])
                         (io_handle *)io,
                         (allocator *)&al,
                         "test",
-                        hh,
                         hid,
                         platform_get_module_id());
    platform_assert_status_ok(rc);
