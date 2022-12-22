@@ -1146,15 +1146,15 @@ write_all_reports(ycsb_phase *phases, int num_phases)
 int
 ycsb_test(int argc, char *argv[])
 {
-   io_config           io_cfg;
-   allocator_config allocator_cfg;
-   clockcache_config   cache_cfg;
-   shard_log_config    log_cfg;
-   int                 config_argc;
-   char              **config_argv;
-   platform_status     rc;
-   uint64              seed;
-   task_system        *ts = NULL;
+   io_config         io_cfg;
+   allocator_config  allocator_cfg;
+   clockcache_config cache_cfg;
+   shard_log_config  log_cfg;
+   int               config_argc;
+   char            **config_argv;
+   platform_status   rc;
+   uint64            seed;
+   task_system      *ts = NULL;
 
    uint64                 nphases;
    bool                   use_existing = 0;
