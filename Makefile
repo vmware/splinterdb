@@ -37,6 +37,12 @@ FUNCTIONAL_TESTSRC := $(call rwildcard, $(FUNCTIONAL_TESTSDIR), *.c)
 # Symbol for all unit-test sources, from which we will build standalone
 # unit-test binaries.
 UNIT_TESTSRC := $(call rwildcard, $(UNIT_TESTSDIR), *.c)
+
+# Specify the r.e. so it will only pick-up sources that are common to multiple
+# unit-tests (and won't pick-up test-specific common files, e.g.
+# btree_test_common.c)
+COMMON_UNIT_TESTSRC := $(wildcard $(UNIT_TESTSDIR)/*tests_common.c)
+
 TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 
 # Some unit-tests will be excluded from the list of dot-oh's that are linked into
@@ -226,6 +232,9 @@ OBJ := $(SRC:%.c=$(OBJDIR)/%.o)
 # Objects from test sources in tests/ that are shared by functional/ and unit/ tests
 COMMON_TESTOBJ= $(COMMON_TESTSRC:%.c=$(OBJDIR)/%.o)
 
+# Objects from unit-test sources in tests/unit that are shared by unit tests
+COMMON_UNIT_TESTOBJ= $(COMMON_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
+
 # Objects from test sources in tests/functional/ sub-dir
 FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 
@@ -343,7 +352,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 
 # Dependencies for the main executables
 $(BINDIR)/driver_test: $(FUNCTIONAL_TESTOBJ) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so
-$(BINDIR)/unit_test: $(FAST_UNIT_TESTOBJS) $(COMMON_TESTOBJ) $(LIBDIR)/libsplinterdb.so $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o
+$(BINDIR)/unit_test: $(FAST_UNIT_TESTOBJS) $(COMMON_TESTOBJ) $(COMMON_UNIT_TESTOBJ) $(LIBDIR)/libsplinterdb.so $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o
 
 #################################################################
 # Dependencies for the mini unit tests
@@ -401,7 +410,7 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 # Note each test bin/unit/<x> also depends on obj/unit/<x>.o, as
 # defined above using unit_test_self_dependency.
 #
-$(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS)
+$(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)
 
@@ -413,23 +422,28 @@ $(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o 
 $(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
                                         $(OBJDIR)/$(TESTS_DIR)/config.o                 \
                                         $(OBJDIR)/$(TESTS_DIR)/test_data.o              \
+                                        $(COMMON_UNIT_TESTOBJ)                          \
                                         $(BTREE_SYS)
 
 $(BINDIR)/$(UNITDIR)/splinter_test: $(COMMON_TESTOBJ)                             \
+                                    $(COMMON_UNIT_TESTOBJ)                        \
                                     $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                     $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinterdb_quick_test: $(COMMON_TESTOBJ)                             \
-                                      $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-                                      $(LIBDIR)/libsplinterdb.so
+                                            $(COMMON_UNIT_TESTOBJ)                        \
+                                            $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                            $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                             \
-                                                $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
-                                                $(LIBDIR)/libsplinterdb.so
+                                             $(COMMON_UNIT_TESTOBJ)                        \
+                                             $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                             $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
 
-$(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)            \
+$(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)                             \
+                                       $(COMMON_UNIT_TESTOBJ)                        \
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
@@ -440,10 +454,12 @@ $(BINDIR)/$(UNITDIR)/config_parse_test: $(UTIL_SYS)                             
 
 $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                                   \
                                        $(COMMON_TESTOBJ)                             \
+                                       $(COMMON_UNIT_TESTOBJ)                        \
                                        $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                        $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)       \
+$(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)               \
+                                         $(COMMON_UNIT_TESTOBJ)    \
                                          $(PLATFORM_SYS)
 
 ########################################

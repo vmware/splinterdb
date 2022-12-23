@@ -114,9 +114,8 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-   }
+   set_log_streams_for_tests();
+
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;

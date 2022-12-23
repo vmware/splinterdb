@@ -104,21 +104,7 @@ CTEST_DATA(task_system)
 CTEST_SETUP(task_system)
 {
    platform_status rc = STATUS_OK;
-   // This test exercises error cases, so even when everything succeeds
-   // it generates lots of "error" messages.
-   // By default, that would go to stderr, which would pollute test output.
-   // Here we ensure those expected error messages are only printed
-   // when the caller sets the VERBOSE env var to opt-in.
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-      CTEST_LOG_INFO("\nVerbose mode on.  This test exercises an error case, "
-                     "so on sucess it "
-                     "will print a message that appears to be an error.\n");
-   } else {
-      FILE *dev_null = fopen("/dev/null", "w");
-      ASSERT_NOT_NULL(dev_null);
-      platform_set_log_streams(dev_null, dev_null);
-   }
+   set_log_streams_for_error_tests(NULL, NULL);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    // Create a heap for io and task system to use.
