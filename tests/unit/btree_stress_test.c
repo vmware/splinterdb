@@ -113,16 +113,8 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-      CTEST_LOG_INFO("\nVerbose mode on.  This test exercises an error case, "
-                     "so on sucess it "
-                     "will print a message that appears to be an error.\n");
-   } else {
-      FILE *dev_null = fopen("/dev/null", "w");
-      ASSERT_NOT_NULL(dev_null);
-      platform_set_log_streams(dev_null, dev_null);
-   }
+   set_log_streams_for_error_tests(NULL, NULL);
+
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;

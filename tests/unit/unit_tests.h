@@ -5,9 +5,18 @@
  *  Define things in here that are going to be needed across most unit tests.
  */
 
+#include "splinterdb/public_platform.h"
+
 /* Name of SplinterDB device created for unit-tests */
-#define TEST_DB_NAME "unit_tests_db"
+#define TEST_DB_NAME "splinterdb_unit_tests_db"
 
 #define Kilo (1024UL)
 #define Mega (1024UL * Kilo)
 #define Giga (1024UL * Mega)
+
+void
+set_log_streams_for_tests();
+
+void
+set_log_streams_for_error_tests(platform_log_handle **log_stdout,
+                                platform_log_handle **log_stderr);

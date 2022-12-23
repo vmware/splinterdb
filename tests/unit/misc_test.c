@@ -63,24 +63,12 @@ test_streqn(char *expstr, char *actstr, int caseno);
  */
 CTEST_DATA(misc)
 {
-   FILE *log_output;
+   platform_log_handle *log_output;
 };
 
 CTEST_SETUP(misc)
 {
-   // It can be surprising to see errors printed from a successful test run.
-   // So lets send those messages to /dev/null unless VERBOSE=1.
-   if (Ctest_verbose) {
-      data->log_output = stdout;
-      platform_set_log_streams(stdout, stderr);
-      CTEST_LOG_INFO("\nVerbose mode on.  This test exercises error-reporting "
-                     "logic, so on success it will print a message "
-                     "that appears to be an error.\n");
-   } else {
-      FILE *dev_null = data->log_output = fopen("/dev/null", "w");
-      ASSERT_NOT_NULL(data->log_output);
-      platform_set_log_streams(dev_null, dev_null);
-   }
+   set_log_streams_for_error_tests(&data->log_output, NULL);
 }
 
 // Optional teardown function for suite, called after every test in suite
