@@ -2205,23 +2205,22 @@ clockcache_get_free_page(clockcache *cc,
  *-----------------------------------------------------------------------------
  */
 
-void clockcache_config_init(clockcache_config *cache_cfg,
-                            uint64             page_size,
-                            uint64             extent_size,
-                            uint64             capacity,
-			    uint64	       pmem_capacity,
-			    uint64	       dram_capacity,
-			    uint64	       log_checkpoint_interval,
-                            char              *cache_logfile,
-			    char              *cache_file,
-                            uint64             use_stats)
+void
+clockcache_config_init(clockcache_config *cache_cfg,
+                       uint64             page_size,
+                       uint64             extent_size,
+                       uint64             pmem_capacity,
+                       uint64             dram_capacity,
+                       uint64             log_checkpoint_interval,
+                       const char        *cache_logfile,
+                       const char        *cache_file,
+                       uint64             use_stats)
 {
    int rc;
    ZERO_CONTENTS(cache_cfg);
 
    cache_cfg->page_size     = page_size;
    cache_cfg->extent_size   = extent_size;
-   cache_cfg->capacity      = capacity;
    cache_cfg->pmem_capacity = pmem_capacity;
    cache_cfg->dram_capacity = dram_capacity;
 
@@ -2230,16 +2229,13 @@ void clockcache_config_init(clockcache_config *cache_cfg,
 
    if((cache_file != NULL)&&(strncmp(cache_file,"/mnt/pmem0/",10)==0)){
       cache_cfg->capacity = cache_cfg->pmem_capacity;
-      capacity = pmem_capacity;
-   }
-   else{
+   } else {
       cache_cfg->capacity = cache_cfg->dram_capacity;
-      capacity = dram_capacity;
    }
 
 
    cache_cfg->log_page_size = 63 - __builtin_clzll(page_size);
-   cache_cfg->page_capacity = capacity / page_size;
+   cache_cfg->page_capacity = cache_cfg->capacity / page_size;
    cache_cfg->use_stats     = use_stats;
 
    rc = snprintf(cache_cfg->logfile, MAX_STRING_LENGTH, "%s", cache_logfile);
@@ -2399,8 +2395,15 @@ clockcache_init(clockcache           *cc,     // OUT
       memcpy(vcache_cfg, cfg, sizeof(clockcache_config));
       memcpy(vcache_cfg->cachefile, "/dev/shm/volatile_cache", 23);
 
-      clockcache_config_init(vcache_cfg, cfg->page_size, cfg->extent_size,
-		       cfg->capacity, cfg->pmem_capacity, cfg->dram_capacity, cfg->log_checkpoint_interval, cfg->logfile, "/dev/shm/volatile_cache", cfg->use_stats);
+      clockcache_config_init(vcache_cfg,
+                             cfg->page_size,
+                             cfg->extent_size,
+                             cfg->pmem_capacity,
+                             cfg->dram_capacity,
+                             cfg->log_checkpoint_interval,
+                             cfg->logfile,
+                             "/dev/shm/volatile_cache",
+                             cfg->use_stats);
 
       platform_status rc = clockcache_init(vcc, vcache_cfg, io, al, name, ts, hh, hid, mid);
       platform_assert_status_ok(rc);

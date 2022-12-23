@@ -163,12 +163,11 @@ struct clockcache {
 void clockcache_config_init(clockcache_config *cache_config,
                             uint64             page_size,
                             uint64             extent_size,
-                            uint64             capacity,
-			    uint64             pmem_capacity,
-			    uint64             dram_capacity,
-			    uint64	       log_checkpoint_interval,
-                            char              *cache_logfile,
-			    char              *cache_file,
+                            uint64             pmem_capacity,
+                            uint64             dram_capacity,
+                            uint64             log_checkpoint_interval,
+                            const char        *cache_logfile,
+                            const char        *cache_file,
                             uint64             use_stats);
 
 platform_status

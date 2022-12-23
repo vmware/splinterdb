@@ -6,43 +6,41 @@
 void
 config_set_defaults(master_config *cfg)
 {
-   *cfg = (master_config) {
-      .io_filename = "db",
+   *cfg = (master_config){
+      .io_filename   = "db",
       .cache_logfile = "cache_log",
 
-      .page_size                = 4096,
-      .extent_size              = 128 * 1024,
+      .page_size   = 4096,
+      .extent_size = 128 * 1024,
 
-      .io_flags                 = O_RDWR | O_CREAT,
-      .io_perms                 = 0755,
-      .io_async_queue_depth     = 256,
+      .io_flags             = O_RDWR | O_CREAT,
+      .io_perms             = 0755,
+      .io_async_queue_depth = 256,
 
-      .allocator_capacity       = GiB_TO_B(30),
+      .allocator_capacity = GiB_TO_B(30),
 
-      .cache_capacity           = GiB_TO_B(1),
-      .pmem_cache_capacity	= GiB_TO_B(1),
-      .dram_cache_capacity      = GiB_TO_B(1),
+      .pmem_cache_file         = NULL,
+      .pmem_cache_capacity     = GiB_TO_B(1),
+      .dram_cache_capacity     = GiB_TO_B(1),
+      .log_checkpoint_interval = 10000,
 
       .btree_rough_count_height = 1,
 
-      .filter_remainder_size    = 6,
-      .filter_index_size        = 256,
+      .filter_remainder_size = 6,
+      .filter_index_size     = 256,
 
-      .use_log                  = FALSE,
+      .use_log = FALSE,
 
-      .memtable_capacity        = MiB_TO_B(24),
-      .fanout                   = 8,
-      .max_branches_per_node    = 24,
-      .use_stats                = FALSE,
-      .reclaim_threshold        = UINT64_MAX,
+      .memtable_capacity     = MiB_TO_B(24),
+      .fanout                = 8,
+      .max_branches_per_node = 24,
+      .use_stats             = FALSE,
+      .reclaim_threshold     = UINT64_MAX,
 
-      .key_size                 = 24,
-      .message_size             = 100,
+      .key_size     = 24,
+      .message_size = 100,
 
-      .seed                     = 0,
-      .cache_file               = NULL,
-
-      .log_checkpoint_interval  = 10000,
+      .seed = 0,
    };
 }
 
@@ -64,10 +62,10 @@ void config_usage()
    platform_error_log("\t--db-capacity-gib\n");
    platform_error_log("\t--db-capacity-mib\n");
    platform_error_log("\t--libaio-queue-depth\n");
-   platform_error_log("\t--cache-capacity-gib\n");
-   platform_error_log("\t--dram-cache-capacity-gib\n");
+   platform_error_log("\t--cache-file\n");
    platform_error_log("\t--pmem-cache-capacity-gib\n");
-   platform_error_log("\t--cache-capacity-mib\n");
+   platform_error_log("\t--dram-cache-capacity-gib\n");
+   platform_error_log("\t--log-checkpoint-interval\n");
    platform_error_log("\t--cache-debug-log\n");
    platform_error_log("\t--memtable-capacity-gib\n");
    platform_error_log("\t--memtable-capacity-mib\n");
@@ -82,8 +80,6 @@ void config_usage()
    platform_error_log("\t--key-size\n");
    platform_error_log("\t--data-size\n");
    platform_error_log("\t--seed\n");
-   platform_error_log("\t--cache-file\n");
-   platform_error_log("\t--log-checkpoint-interval\n");
 }
 
 platform_status
@@ -138,38 +134,45 @@ config_parse(master_config *cfg,
       } config_set_uint32("db-perms", cfg, io_perms) {
       } config_set_mib("db-capacity", cfg, allocator_capacity) {
       } config_set_gib("db-capacity", cfg, allocator_capacity) {
-      } config_set_uint64("libaio-queue-depth", cfg, io_async_queue_depth) {
-      } config_set_mib("cache-capacity", cfg, cache_capacity) {
-      } config_set_gib("cache-capacity", cfg, cache_capacity) {
-      } config_set_gib("pmem-cache-capacity", cfg, pmem_cache_capacity) {
-      } config_set_gib("dram-cache-capacity", cfg, dram_cache_capacity) {
-      } config_set_string("cache-debug-log", cfg, cache_logfile) {
-      } config_set_mib("memtable-capacity", cfg, memtable_capacity) {
-      } config_set_gib("memtable-capacity", cfg, memtable_capacity) {
-      } config_set_uint64("rough-count-height", cfg, btree_rough_count_height) {
-      } config_set_uint64("filter-remainder-size", cfg, filter_remainder_size) {
-      } config_set_uint64("fanout", cfg, fanout) {
-      } config_set_uint64("max-branches-per-node", cfg, max_branches_per_node) {
-      } config_set_mib("reclaim-threshold", cfg, reclaim_threshold) {
-      } config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {
-      } config_has_option("stats") {
+      }
+      config_set_uint64("libaio-queue-depth", cfg, io_async_queue_depth) {}
+      config_set_gib("pmem-cache-capacity", cfg, pmem_cache_capacity) {}
+      config_set_gib("dram-cache-capacity", cfg, dram_cache_capacity) {}
+      config_set_string("cache-debug-log", cfg, cache_logfile) {}
+      config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
+      config_set_gib("memtable-capacity", cfg, memtable_capacity) {}
+      config_set_uint64("rough-count-height", cfg, btree_rough_count_height) {}
+      config_set_uint64("filter-remainder-size", cfg, filter_remainder_size) {}
+      config_set_uint64("fanout", cfg, fanout) {}
+      config_set_uint64("max-branches-per-node", cfg, max_branches_per_node) {}
+      config_set_mib("reclaim-threshold", cfg, reclaim_threshold) {}
+      config_set_gib("reclaim-threshold", cfg, reclaim_threshold) {}
+      config_has_option("stats")
+      {
          for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
             cfg[cfg_idx].use_stats = TRUE;
          }
-      } config_has_option("no-stats") {
+      }
+      config_has_option("no-stats")
+      {
          for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
             cfg[cfg_idx].use_stats = FALSE;
          }
-      } config_has_option("log") {
+      }
+      config_has_option("log")
+      {
          for (cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
             cfg[cfg_idx].use_log = TRUE;
          }
-      } config_set_uint64("key-size", cfg, key_size) {
-      } config_set_uint64("data-size", cfg, message_size) {
-      } config_set_uint64("seed", cfg, seed) {
-      } config_set_charptr("cache-file", cfg, cache_file) {
-      } config_set_uint64("log-checkpoint-interval", cfg, log_checkpoint_interval){
-      } config_set_else {
+      }
+      config_set_uint64("key-size", cfg, key_size) {}
+      config_set_uint64("data-size", cfg, message_size) {}
+      config_set_uint64("seed", cfg, seed) {}
+      config_set_charptr("pmem-cache-file", cfg, pmem_cache_file) {}
+      config_set_uint64("log-checkpoint-interval", cfg, log_checkpoint_interval)
+      {}
+      config_set_else
+      {
          platform_error_log("config: invalid option: %s\n", argv[i]);
          return STATUS_BAD_PARAM;
       }

@@ -32,8 +32,9 @@ typedef struct master_config {
    uint64 allocator_capacity;
 
    // cache
-   uint64 cache_capacity;
+   const char *pmem_cache_file;
    uint64 pmem_cache_capacity;
+   uint64 log_checkpoint_interval;
    uint64 dram_cache_capacity;
    bool   cache_use_stats;
    char   cache_logfile[MAX_STRING_LENGTH];
@@ -61,9 +62,6 @@ typedef struct master_config {
 
    // test
    uint64 seed;
-   char *cache_file;
-
-   uint64 log_checkpoint_interval;
 
 } master_config;
 
@@ -183,49 +181,48 @@ platform_status config_parse(master_config *cfg,
       }                                                                    \
    }
 
-#define config_set_charptr(name, var, field)                               \
-   config_has_option(name)                                                 \
-   if (i + 1 == argc) {                                                    \
-      platform_error_log("config: failed to parse %s\n", name);            \
-      return STATUS_BAD_PARAM;                                             \
-   }                                                                       \
-   uint8 _idx;                                                             \
-   platform_strtok_ctx _ctx = { .token_str = NULL,                         \
-                                .last_token = NULL,                        \
-                                .last_token_len = 0 };                     \
-   if (strchr(argv[++i], ',')) {                                           \
-      char *_token = platform_strtok_r(argv[i], ",", &_ctx);               \
-      for (_idx = 0; _token != NULL; _idx++) {                             \
-        var[_idx].field = malloc(MAX_STRING_LENGTH);                       \
-         if (_idx > num_config - 1) {                                      \
-            platform_error_log("config: more %s than num_tables\n", name); \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-         platform_log("field addr = %p \n", var[_idx].field);              \
-         int _rc = snprintf(var[_idx].field, MAX_STRING_LENGTH, "%s",      \
-                            _token);                                       \
-         if (_rc >= MAX_STRING_LENGTH) {                                   \
-            platform_error_log("config: %s too long\n", name);             \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-                                                                           \
-         _token = platform_strtok_r(NULL, ",", &_ctx);                     \
-      }                                                                    \
-      if (_idx < num_config) {                                             \
-         platform_error_log("config: less %s than num_tables\n", name);    \
-         return STATUS_BAD_PARAM;                                          \
-      }                                                                    \
-   } else {                                                                \
-      for (_idx = 0; _idx < num_config; _idx++) {                          \
-        var[_idx].field = malloc(MAX_STRING_LENGTH);                       \
-         int _rc = snprintf(var[_idx].field, MAX_STRING_LENGTH, "%s",      \
-                            argv[i]);                                      \
-         if (_rc >= MAX_STRING_LENGTH) {                                   \
-            platform_error_log("config: %s too long\n", name);             \
-            return STATUS_BAD_PARAM;                                       \
-         }                                                                 \
-      }                                                                    \
-    }                                                                      
+#define config_set_charptr(name, var, field)                                   \
+   config_has_option(name) if (i + 1 == argc)                                  \
+   {                                                                           \
+      platform_error_log("config: failed to parse %s\n", name);                \
+      return STATUS_BAD_PARAM;                                                 \
+   }                                                                           \
+   uint8               _idx;                                                   \
+   platform_strtok_ctx _ctx = {                                                \
+      .token_str = NULL, .last_token = NULL, .last_token_len = 0};             \
+   if (strchr(argv[++i], ',')) {                                               \
+      char *_token = platform_strtok_r(argv[i], ",", &_ctx);                   \
+      for (_idx = 0; _token != NULL; _idx++) {                                 \
+         char *tmp;                                                            \
+         var[_idx].field = tmp = malloc(MAX_STRING_LENGTH);                    \
+         if (_idx > num_config - 1) {                                          \
+            platform_error_log("config: more %s than num_tables\n", name);     \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+         platform_log("field addr = %p \n", var[_idx].field);                  \
+         int _rc = snprintf(tmp, MAX_STRING_LENGTH, "%s", _token);             \
+         if (_rc >= MAX_STRING_LENGTH) {                                       \
+            platform_error_log("config: %s too long\n", name);                 \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+                                                                               \
+         _token = platform_strtok_r(NULL, ",", &_ctx);                         \
+      }                                                                        \
+      if (_idx < num_config) {                                                 \
+         platform_error_log("config: less %s than num_tables\n", name);        \
+         return STATUS_BAD_PARAM;                                              \
+      }                                                                        \
+   } else {                                                                    \
+      for (_idx = 0; _idx < num_config; _idx++) {                              \
+         char *tmp;                                                            \
+         var[_idx].field = tmp = malloc(MAX_STRING_LENGTH);                    \
+         int _rc = snprintf(tmp, MAX_STRING_LENGTH, "%s", argv[i]);            \
+         if (_rc >= MAX_STRING_LENGTH) {                                       \
+            platform_error_log("config: %s too long\n", name);                 \
+            return STATUS_BAD_PARAM;                                           \
+         }                                                                     \
+      }                                                                        \
+   }
 
 
 #define config_set_uint8(name, var, field) \

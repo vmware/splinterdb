@@ -73,7 +73,7 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
       return STATUS_BAD_PARAM;
    }
 
-   if (kvs_cfg->filename == NULL || kvs_cfg->cache_size == 0 ||
+   if (kvs_cfg->filename == NULL || kvs_cfg->dram_cache_size == 0 ||
        kvs_cfg->disk_size == 0) {
       return STATUS_BAD_PARAM;
    }
@@ -84,13 +84,16 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
             sizeof(masterCfg.io_filename),
             "%s",
             kvs_cfg->filename);
-   masterCfg.allocator_capacity = kvs_cfg->disk_size;
-   masterCfg.cache_capacity     = kvs_cfg->cache_size;
-   masterCfg.use_log            = FALSE;
-   masterCfg.use_stats          = TRUE;
-   masterCfg.key_size           = kvs_cfg->data_cfg.key_size;
-   masterCfg.message_size       = kvs_cfg->data_cfg.message_size;
-   kvs->data_cfg                = kvs_cfg->data_cfg;
+   masterCfg.allocator_capacity      = kvs_cfg->disk_size;
+   masterCfg.pmem_cache_file         = kvs_cfg->pmem_cache_file;
+   masterCfg.pmem_cache_capacity     = kvs_cfg->pmem_cache_size;
+   masterCfg.dram_cache_capacity     = kvs_cfg->dram_cache_size;
+   masterCfg.log_checkpoint_interval = kvs_cfg->cache_log_checkpoint_interval;
+   masterCfg.use_log                 = FALSE;
+   masterCfg.use_stats               = TRUE;
+   masterCfg.key_size                = kvs_cfg->data_cfg.key_size;
+   masterCfg.message_size            = kvs_cfg->data_cfg.message_size;
+   kvs->data_cfg                     = kvs_cfg->data_cfg;
    memset(kvs->data_cfg.min_key, 0, kvs->data_cfg.key_size);
    memset(kvs->data_cfg.max_key, 0xff, kvs->data_cfg.key_size);
 
@@ -113,12 +116,11 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    clockcache_config_init(&kvs->cache_cfg,
                           masterCfg.page_size,
                           masterCfg.extent_size,
-                          masterCfg.cache_capacity,
-			  masterCfg.pmem_cache_capacity,
-			  masterCfg.dram_cache_capacity,
-			  masterCfg.log_checkpoint_interval,
+                          masterCfg.pmem_cache_capacity,
+                          masterCfg.dram_cache_capacity,
+                          masterCfg.log_checkpoint_interval,
                           masterCfg.cache_logfile,
-			  masterCfg.cache_file,
+                          masterCfg.pmem_cache_file,
                           masterCfg.use_stats);
 
    splinter_config_init(&kvs->splinter_cfg,

@@ -24,7 +24,7 @@ kvstore_test(int argc, char *argv[])
    kvstore *      kvs;
 
    kvs_cfg.filename   = "db";
-   kvs_cfg.cache_size = Giga;      // see config.c: cache_capacity
+   kvs_cfg.dram_cache_size = Giga;      // see config.c: cache_capacity
    kvs_cfg.disk_size  = 30 * Giga; // see config.c: allocator_capacity
 
    kvs_cfg.data_cfg = *test_data_config;

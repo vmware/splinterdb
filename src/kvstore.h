@@ -18,8 +18,12 @@
 
 typedef struct kvstore_config {
    const char *filename;
-   uint64      cache_size;
    uint64      disk_size;
+
+   const char *pmem_cache_file;
+   uint64 pmem_cache_size;
+   uint64 dram_cache_size;
+   uint64 cache_log_checkpoint_interval;
 
    data_config data_cfg;
 

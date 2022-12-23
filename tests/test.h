@@ -273,12 +273,15 @@ test_config_init(splinter_config     *splinter_cfg,
                             master_cfg->extent_size,
                             master_cfg->allocator_capacity);
 
-   clockcache_config_init(cache_cfg, master_cfg->page_size,
-                          master_cfg->extent_size, master_cfg->cache_capacity,
-			  master_cfg->pmem_cache_capacity, master_cfg->dram_cache_capacity,
-			  master_cfg->log_checkpoint_interval,
-                          master_cfg->cache_logfile, master_cfg->cache_file,
-			  master_cfg->use_stats);
+   clockcache_config_init(cache_cfg,
+                          master_cfg->page_size,
+                          master_cfg->extent_size,
+                          master_cfg->pmem_cache_capacity,
+                          master_cfg->dram_cache_capacity,
+                          master_cfg->log_checkpoint_interval,
+                          master_cfg->cache_logfile,
+                          master_cfg->pmem_cache_file,
+                          master_cfg->use_stats);
 
    shard_log_config_init(log_cfg, data_cfg, master_cfg->page_size,
                          master_cfg->extent_size);
