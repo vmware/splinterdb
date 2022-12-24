@@ -22,16 +22,6 @@
 #define RC_ALLOCATOR_MAX_ROOT_IDS (30)
 
 /*
- * Configuration structure to set up the Ref Count Allocation sub-system.
- */
-typedef struct rc_allocator_config {
-   io_config *io_cfg;
-   uint64     capacity;
-   uint64     page_capacity;
-   uint64     extent_capacity;
-} rc_allocator_config;
-
-/*
  *----------------------------------------------------------------------
  * rc_allocator_meta_page -- Disk-resident structure.
  *
@@ -67,7 +57,7 @@ typedef struct rc_allocator_stats {
  */
 typedef struct rc_allocator {
    allocator               super;
-   rc_allocator_config    *cfg;
+   allocator_config       *cfg;
    buffer_handle          *bh;
    uint8                  *ref_count;
    uint64                  hand;
@@ -86,14 +76,9 @@ typedef struct rc_allocator {
    rc_allocator_stats stats;
 } rc_allocator;
 
-void
-rc_allocator_config_init(rc_allocator_config *allocator_cfg,
-                         io_config           *io_cfg,
-                         uint64               capacity);
-
 platform_status
 rc_allocator_init(rc_allocator        *al,
-                  rc_allocator_config *cfg,
+                  allocator_config    *cfg,
                   io_handle           *io,
                   platform_heap_handle hh,
                   platform_heap_id     hid,
@@ -104,7 +89,7 @@ rc_allocator_deinit(rc_allocator *al);
 
 platform_status
 rc_allocator_mount(rc_allocator        *al,
-                   rc_allocator_config *cfg,
+                   allocator_config    *cfg,
                    io_handle           *io,
                    platform_heap_handle hh,
                    platform_heap_id     hid,

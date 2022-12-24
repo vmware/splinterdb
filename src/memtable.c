@@ -269,7 +269,7 @@ memtable_context_create(platform_heap_id hid,
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
    uint64          base_addr;
-   allocator      *al = cache_allocator(cc);
+   allocator      *al = cache_get_allocator(cc);
    platform_status rc = allocator_alloc(al, &base_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert_status_ok(rc);
 
@@ -323,7 +323,7 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
     * lookup lock and insert lock share extents but not pages.
     * this deallocs both.
     */
-   allocator *al = cache_allocator(cc);
+   allocator *al = cache_get_allocator(cc);
    uint8      ref =
       allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_NO_REFS);

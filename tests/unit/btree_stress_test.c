@@ -90,13 +90,13 @@ CTEST_DATA(btree_stress)
    // This part of the data structures is common to what we need
    // to set up a Splinter instance, as is done in
    // btree_test.c
-   master_config       master_cfg;
-   data_config        *data_cfg;
-   io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
-   clockcache_config   cache_cfg;
-   btree_scratch       test_scratch;
-   btree_config        dbtree_cfg;
+   master_config     master_cfg;
+   data_config      *data_cfg;
+   io_config         io_cfg;
+   allocator_config  allocator_cfg;
+   clockcache_config cache_cfg;
+   btree_scratch     test_scratch;
+   btree_config      dbtree_cfg;
 
    // To create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;

@@ -33,7 +33,7 @@ typedef struct splinterdb {
    task_system         *task_sys;
    io_config            io_cfg;
    platform_io_handle   io_handle;
-   rc_allocator_config  allocator_cfg;
+   allocator_config     allocator_cfg;
    rc_allocator         allocator_handle;
    clockcache_config    cache_cfg;
    clockcache           cache_handle;
@@ -178,7 +178,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
-   rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
+   allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
 
    clockcache_config_init(&kvs->cache_cfg,
                           &kvs->io_cfg,

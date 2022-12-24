@@ -233,7 +233,7 @@ log_test(int argc, char *argv[])
    platform_status        status;
    data_config           *data_cfg;
    io_config              io_cfg;
-   rc_allocator_config    al_cfg;
+   allocator_config       al_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
    rc_allocator           al;

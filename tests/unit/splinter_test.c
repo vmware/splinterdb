@@ -88,9 +88,9 @@ CTEST_DATA(splinter)
    uint64 num_bg_threads[NUM_TASK_TYPES];
 
    // Config structs required, as per splinter_test() setup work.
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   shard_log_config    log_cfg;
+   io_config        io_cfg;
+   allocator_config al_cfg;
+   shard_log_config log_cfg;
 
    rc_allocator al;
 
