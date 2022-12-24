@@ -60,7 +60,7 @@ pub struct stubcache {
     super_: cache,
     cfg: *mut stubcache_config,
     al: *mut allocator,
-    page_handles: Vec<page_handle>,
+    page_handles: Box<Vec<page_handle>>,    // Needed Box to mitigate "incomplete type" in cbindgen output, since Vec layout is unspecified.
     the_disk: *mut i8,
 }
 
@@ -129,7 +129,10 @@ pub unsafe extern "C" fn stubcache_init(
     sc.al = al;
 
     // platform_heap_id hid_0 = 0;
-    sc.page_handles = Vec::with_capacity(cfg.disk_capacity_pages as usize);
+    //let mut vph = Vec::<page_handle>::with_capacity(cfg.disk_capacity_pages as usize);
+    let mut vph:Vec::<page_handle> = Vec::new();
+    let mut bvph = Box::new(vph);
+    sc.page_handles = bvph;
     //sc.page_handles.set_len(cfg.disk_capacity_pages as usize);
     sc.the_disk =
         libc::malloc(std::mem::size_of::<char>() * (*(sc.cfg)).disk_capacity_bytes as usize)
