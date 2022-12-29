@@ -1,8 +1,7 @@
 // Copyright 2022 VMware, Inc. All rights reserved. -- VMware Confidential
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __BLOB_H
-#define __BLOB_H
+#pragma once
 
 #include "util.h"
 #include "cache.h"
@@ -115,5 +114,3 @@ blob_materialize_full(cache *cc, slice sblob, writable_buffer *result)
 
 platform_status
 blob_sync(cache *cc, slice sblob);
-
-#endif /* __BLOB_H */

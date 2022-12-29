@@ -14,8 +14,7 @@
  *     operations can be restricted to given key ranges.
  */
 
-#ifndef __MINI_ALLOCATOR_H
-#define __MINI_ALLOCATOR_H
+#pragma once
 
 #include "platform.h"
 #include "allocator.h"
@@ -230,5 +229,3 @@ mini_num_extents(mini_allocator *mini)
 {
    return mini->num_extents;
 }
-
-#endif // __MINI_ALLOCATOR_H

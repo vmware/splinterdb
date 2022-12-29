@@ -8,8 +8,7 @@
  *     for internal use.
  */
 
-#ifndef __PUBLIC_PLATFORM_H
-#define __PUBLIC_PLATFORM_H
+#pragma once
 
 #include <stdio.h>
 
@@ -79,5 +78,3 @@ typedef FILE platform_log_handle;
 void
 platform_set_log_streams(platform_log_handle *info_stream,
                          platform_log_handle *error_stream);
-
-#endif // __PUBLIC_PLATFORM_H

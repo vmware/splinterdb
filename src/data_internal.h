@@ -7,8 +7,7 @@
  *     A slice-based interface to the datatype definitions
  */
 
-#ifndef __DATA_INTERNAL_H
-#define __DATA_INTERNAL_H
+#pragma once
 
 #include "splinterdb/data.h"
 #include "cache.h"
@@ -793,6 +792,3 @@ message_lex_cmp(message a, message b)
       return result;
    }
 }
-
-
-#endif // __DATA_INTERNAL_H

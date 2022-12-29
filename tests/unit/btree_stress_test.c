@@ -91,13 +91,13 @@ CTEST_DATA(btree_stress)
    // This part of the data structures is common to what we need
    // to set up a Splinter instance, as is done in
    // btree_test.c
-   master_config       master_cfg;
-   data_config        *data_cfg;
-   io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
-   clockcache_config   cache_cfg;
-   btree_scratch       test_scratch;
-   btree_config        dbtree_cfg;
+   master_config     master_cfg;
+   data_config      *data_cfg;
+   io_config         io_cfg;
+   allocator_config  allocator_cfg;
+   clockcache_config cache_cfg;
+   btree_scratch     test_scratch;
+   btree_config      dbtree_cfg;
 
    // To create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
@@ -105,7 +105,7 @@ CTEST_DATA(btree_stress)
 
    // Stuff needed to setup and exercise multiple threads.
    platform_io_handle io;
-   uint8              num_bg_threads[NUM_TASK_TYPES];
+   uint64             num_bg_threads[NUM_TASK_TYPES];
    task_system       *ts;
    rc_allocator       al;
    clockcache         cc;
@@ -123,7 +123,7 @@ CTEST_SETUP(btree_stress)
        || !init_data_config_from_master_config(data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
-       || !init_rc_allocator_config_from_master_config(
+       || !init_allocator_config_from_master_config(
           &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
        || !init_clockcache_config_from_master_config(
           &data->cache_cfg, &data->master_cfg, &data->io_cfg)
@@ -143,12 +143,12 @@ CTEST_SETUP(btree_stress)
    }
    // Setup execution of concurrent threads
    ZERO_ARRAY(data->num_bg_threads);
+   data->ts = NULL;
    if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
        || !SUCCESS(task_system_create(data->hid,
                                       &data->io,
                                       &data->ts,
                                       data->master_cfg.use_stats,
-                                      FALSE,
                                       data->num_bg_threads,
                                       sizeof(btree_scratch)))
        || !SUCCESS(rc_allocator_init(&data->al,

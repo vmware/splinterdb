@@ -8,8 +8,7 @@
  * These definitions are provided here so that they can be shared by the
  * source and test modules.
  */
-#ifndef __BTREE_PRIVATE_H__
-#define __BTREE_PRIVATE_H__
+#pragma once
 
 #include "splinterdb/public_platform.h"
 #include "splinterdb/data.h"
@@ -310,5 +309,3 @@ btree_get_child_addr(const btree_config *cfg,
 {
    return index_entry_child_addr(btree_get_index_entry(cfg, hdr, k));
 }
-
-#endif // __BTREE_PRIVATE_H__

@@ -7,8 +7,7 @@
  *     This file contains the abstract interface for IO.
  */
 
-#ifndef __IO_H
-#define __IO_H
+#pragma once
 
 #include "platform.h"
 
@@ -21,12 +20,14 @@ typedef struct io_async_req io_async_req;
 typedef struct io_config {
    uint64 async_queue_size;
    uint64 kernel_queue_size;
-   uint64 async_max_pages;
    uint64 page_size;
    uint64 extent_size;
    char   filename[MAX_STRING_LENGTH];
    int    flags;
    uint32 perms;
+
+   // computed
+   uint64 async_max_pages;
 } io_config;
 
 typedef void (*io_callback_fn)(void           *metadata,
@@ -59,6 +60,8 @@ typedef void (*io_cleanup_fn)(io_handle *io, uint64 count);
 typedef void (*io_cleanup_all_fn)(io_handle *io);
 typedef void (*io_thread_register_fn)(io_handle *io);
 typedef bool (*io_max_latency_elapsed_fn)(io_handle *io, timestamp ts);
+typedef void *(*io_get_context_fn)(io_handle *io);
+
 
 /*
  * An abstract IO interface, holding different IO Ops function pointers.
@@ -75,9 +78,12 @@ typedef struct io_ops {
    io_cleanup_all_fn         cleanup_all;
    io_thread_register_fn     thread_register;
    io_max_latency_elapsed_fn max_latency_elapsed;
+   io_get_context_fn         get_context;
 } io_ops;
 
-// to sub-class io, make an io your first field;
+/*
+ * To sub-class io, make an io your first field;
+ */
 struct io_handle {
    const io_ops *ops;
 };
@@ -171,6 +177,12 @@ io_max_latency_elapsed(io_handle *io, timestamp ts)
    return TRUE;
 }
 
+static inline void *
+io_get_context(io_handle *io)
+{
+   return io->ops->get_context(io);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * io_config_init --
@@ -202,7 +214,7 @@ io_config_init(io_config  *io_cfg,
    io_cfg->perms             = perms;
    io_cfg->async_queue_size  = async_queue_depth;
    io_cfg->kernel_queue_size = async_queue_depth;
-   io_cfg->async_max_pages   = extent_size / page_size;
-}
 
-#endif //__IO_H
+   // computed values
+   io_cfg->async_max_pages = extent_size / page_size;
+}

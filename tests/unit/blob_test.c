@@ -21,7 +21,7 @@ CTEST_DATA(blob)
    master_config       master_cfg;
    data_config        *data_cfg;
    io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
+   allocator_config    allocator_cfg;
    clockcache_config   cache_cfg;
 
    platform_heap_handle hh;
@@ -48,7 +48,7 @@ CTEST_SETUP(blob)
        || !init_data_config_from_master_config(data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
-       || !init_rc_allocator_config_from_master_config(
+       || !init_allocator_config_from_master_config(
           &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
        || !init_clockcache_config_from_master_config(
           &data->cache_cfg, &data->master_cfg, &data->io_cfg))

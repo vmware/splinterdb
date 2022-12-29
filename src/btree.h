@@ -7,8 +7,7 @@
  *     This file contains the public interfaces for dynamic b-trees/memtables.
  */
 
-#ifndef __BTREE_H__
-#define __BTREE_H__
+#pragma once
 
 #include "mini_allocator.h"
 #include "iterator.h"
@@ -457,5 +456,3 @@ btree_message_to_string(btree_config *cfg, message data, char str[static 128])
 {
    return data_message_to_string(cfg->data_cfg, data, str, 128);
 }
-
-#endif // __BTREE_H__

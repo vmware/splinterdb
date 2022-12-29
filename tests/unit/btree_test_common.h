@@ -5,8 +5,7 @@
  * by different BTree unit-test modules.
  */
 
-#ifndef __BTREE_TEST_COMMON_H__
-#define __BTREE_TEST_COMMON_H__
+#pragma once
 
 #include "../config.h"
 #include "io.h"
@@ -18,5 +17,3 @@ init_btree_config_from_master_config(btree_config  *dbtree_cfg,
                                      master_config *master_cfg,
                                      cache_config  *cache_cfg,
                                      data_config   *data_cfg);
-
-#endif /* __BTREE_TEST_COMMON_H__ */

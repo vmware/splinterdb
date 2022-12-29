@@ -1,8 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef _SPLINTER_UTIL_H_
-#define _SPLINTER_UTIL_H_
+#pragma once
 
 #include "platform.h"
 #include "splinterdb/public_util.h"
@@ -381,5 +380,3 @@ debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
     : ((intval) < 100)  ? "2d"                                                 \
     : ((intval) < 1000) ? "3d"                                                 \
                         : "4d")
-
-#endif // _SPLINTER_UTIL_H_

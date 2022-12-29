@@ -834,6 +834,56 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
 }
 
 /*
+ * ------------------------------------------------------------------------
+ * Test that SplinterDB can be created with the task system configured with
+ * background threads.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(splinterdb_quick, test_splinterdb_create_w_background_threads)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Task system should be setup with background threads
+   cfg.num_normal_bg_threads   = 1;
+   cfg.num_memtable_bg_threads = 1;
+
+   int rv = splinterdb_create(&cfg, &kvsb);
+   ASSERT_EQUAL(0, rv);
+
+   splinterdb_close(&kvsb);
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * Test that SplinterDB can be created even when background threads use
+ * up all the slots.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(splinterdb_quick, test_splinterdb_create_w_all_background_threads)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Task system should be setup with all background threads
+   cfg.num_normal_bg_threads   = (MAX_THREADS - 2);
+   cfg.num_memtable_bg_threads = 1;
+
+   int rv = splinterdb_create(&cfg, &kvsb);
+   ASSERT_EQUAL(0, rv);
+
+   splinterdb_close(&kvsb);
+}
+
+/*
  * ********************************************************************************
  * Define minions and helper functions here, after all test cases are
  * enumerated.

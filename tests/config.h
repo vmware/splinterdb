@@ -7,8 +7,7 @@
  *     This file contains functions for config parsing.
  */
 
-#ifndef __CONFIG_H
-#define __CONFIG_H
+#pragma once
 
 #include "clockcache.h"
 #include "splinterdb/data.h"
@@ -72,13 +71,17 @@ typedef struct master_config {
    bool use_log;
 
    // splinter
-   uint64               memtable_capacity;
-   uint64               fanout;
-   uint64               max_branches_per_node;
-   uint64               use_stats;
-   uint64               reclaim_threshold;
-   bool                 verbose_logging_enabled;
-   bool                 verbose_progress;
+   uint64 memtable_capacity;
+   uint64 fanout;
+   uint64 max_branches_per_node;
+   uint64 use_stats;
+   uint64 reclaim_threshold;
+   uint64 num_normal_bg_threads;   // Both bg_threads fields have to be non-zero
+   uint64 num_memtable_bg_threads; // for background threads to be enabled
+
+   bool verbose_logging_enabled;
+   bool verbose_progress;
+
    platform_log_handle *log_handle;
 
    // data
@@ -236,6 +239,3 @@ config_parse(master_config *cfg,
 #define config_set_else                                                        \
    }                                                                           \
    else
-
-
-#endif // __CONFIG_H

@@ -33,7 +33,7 @@ typedef struct splinterdb {
    task_system         *task_sys;
    io_config            io_cfg;
    platform_io_handle   io_handle;
-   rc_allocator_config  allocator_cfg;
+   allocator_config     allocator_cfg;
    rc_allocator         allocator_handle;
    clockcache_config    cache_cfg;
    clockcache           cache_handle;
@@ -178,7 +178,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
-   rc_allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
+   allocator_config_init(&kvs->allocator_cfg, &kvs->io_cfg, cfg.disk_size);
 
    clockcache_config_init(&kvs->cache_cfg,
                           &kvs->io_cfg,
@@ -240,23 +240,24 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initalize IO handle: %s\n",
+      platform_error_log("Failed to initialize IO handle: %s\n",
                          platform_status_to_string(status));
       goto deinit_kvhandle;
    }
 
-   uint8 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
+   num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
+   num_bg_threads[TASK_TYPE_NORMAL]      = kvs_cfg->num_normal_bg_threads;
 
    status = task_system_create(kvs->heap_id,
                                &kvs->io_handle,
                                &kvs->task_sys,
                                TRUE,
-                               FALSE,
                                num_bg_threads,
                                trunk_get_scratch_size());
    if (!SUCCESS(status)) {
       platform_error_log(
-         "Failed to initalize SplinterDB task system state: %s\n",
+         "Failed to initialize SplinterDB task system state: %s\n",
          platform_status_to_string(status));
       goto deinit_iohandle;
    }
@@ -277,7 +278,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                                  platform_get_module_id());
    }
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initalize SplinterDB allocator: %s\n",
+      platform_error_log("Failed to initialize SplinterDB allocator: %s\n",
                          platform_status_to_string(status));
       goto deinit_system;
    }
@@ -291,7 +292,7 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             kvs->heap_id,
                             platform_get_module_id());
    if (!SUCCESS(status)) {
-      platform_error_log("Failed to initalize SplinterDB cache: %s\n",
+      platform_error_log("Failed to initialize SplinterDB cache: %s\n",
                          platform_status_to_string(status));
       goto deinit_allocator;
    }
@@ -373,11 +374,16 @@ splinterdb_close(splinterdb **kvs_in) // IN
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
 
+   /*
+    * NOTE: These dismantling routines must appear in exactly the reverse
+    * order when these sub-systems were init'ed when a Splinter device was
+    * created or re-opened. Otherwise, asserts will trip.
+    */
    trunk_unmount(&kvs->spl);
    clockcache_deinit(&kvs->cache_handle);
    rc_allocator_unmount(&kvs->allocator_handle);
-   io_handle_deinit(&kvs->io_handle);
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
+   io_handle_deinit(&kvs->io_handle);
 
    platform_free(kvs->heap_id, kvs);
    *kvs_in = (splinterdb *)NULL;

@@ -7,8 +7,7 @@
  * Functions for building blobs from key and message types
  */
 
-#ifndef __DATA_BLOB_BUILD_H
-#define __DATA_BLOB_BUILD_H
+#pragma once
 
 #include "data_internal.h"
 #include "blob_build.h"
@@ -35,6 +34,3 @@ merge_accumulator_convert_to_blob(const blob_build_config *cfg,
                                   mini_allocator          *mini,
                                   key                      tuple_key,
                                   merge_accumulator       *ma);
-
-
-#endif // __DATA_BLOB_BUILD_H

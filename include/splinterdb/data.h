@@ -17,8 +17,7 @@
  *
  */
 
-#ifndef __DATA_H
-#define __DATA_H
+#pragma once
 
 #include "splinterdb/public_platform.h"
 #include "splinterdb/public_util.h"
@@ -177,5 +176,3 @@ struct data_config {
    key_to_str_fn        key_to_string;
    message_to_str_fn    message_to_string;
 };
-
-#endif // __DATA_H

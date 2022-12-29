@@ -62,9 +62,9 @@ CTEST_TEARDOWN(config_parse)
 CTEST2(config_parse, test_basic_parsing)
 {
    // Config structs required, as per splinter_test() setup work.
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   shard_log_config    log_cfg;
+   io_config        io_cfg;
+   allocator_config al_cfg;
+   shard_log_config log_cfg;
 
    // Following get setup pointing to allocated memory
    trunk_config          *splinter_cfg = NULL;
@@ -79,6 +79,9 @@ CTEST2(config_parse, test_basic_parsing)
 
    cache_cfg = TYPED_ARRAY_MALLOC(data->hid, cache_cfg, num_tables);
 
+   uint64 num_memtable_bg_threads = 0;
+   uint64 num_normal_bg_threads   = 0;
+
    platform_status rc;
 
    rc = test_parse_args_n(splinter_cfg,
@@ -89,6 +92,8 @@ CTEST2(config_parse, test_basic_parsing)
                           &log_cfg,
                           &data->test_exec_cfg,
                           &gen,
+                          &num_memtable_bg_threads,
+                          &num_normal_bg_threads,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests
                           (char **)Ctest_argv);

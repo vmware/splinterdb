@@ -1,8 +1,7 @@
 // Copyright 2022 VMware, Inc. All rights reserved. -- VMware Confidential
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __BLOB_BUILD_H
-#define __BLOB_BUILD_H
+#pragma once
 
 #include "mini_allocator.h"
 #include "blob.h"
@@ -31,5 +30,3 @@ blob_clone(const blob_build_config *cfg,
            key                      alloc_key,
            slice                    sblob,
            writable_buffer         *result);
-
-#endif /* __BLOB_BUILD_H */

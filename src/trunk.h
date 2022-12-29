@@ -7,8 +7,7 @@
  *     This file contains the interface for SplinterDB.
  */
 
-#ifndef __TRUNK_H
-#define __TRUNK_H
+#pragma once
 
 #include "splinterdb/data.h"
 #include "btree.h"
@@ -468,5 +467,3 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   platform_log_handle *log_handle);
 size_t
 trunk_get_scratch_size();
-
-#endif // __TRUNK_H
