@@ -7280,7 +7280,7 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
    }
 
    // finish any outstanding tasks and destroy task system for this table.
-   task_perform_all(spl->ts);
+   task_perform_until_quiescent(spl->ts);
 
    // destroy memtable context (and its memtables)
    memtable_context_destroy(spl->heap_id, spl->mt_ctxt);

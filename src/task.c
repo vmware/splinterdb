@@ -401,12 +401,12 @@ task_group_get_one_task(task_group *group)
 {
    task_queue *tq            = &group->tq;
    task       *assigned_task = NULL;
-   if (group->current_outstanding_tasks != 0) {
+   if (group->current_waiting_tasks != 0) {
       platform_assert(tq->head != NULL);
       platform_assert(tq->tail != NULL);
 
       uint64 outstanding_tasks =
-         __sync_fetch_and_sub(&group->current_outstanding_tasks, 1);
+         __sync_fetch_and_sub(&group->current_waiting_tasks, 1);
       platform_assert(outstanding_tasks != 0);
 
       assigned_task = tq->head;
@@ -476,12 +476,14 @@ task_worker_thread(void *arg)
       task_to_run       = task_group_get_one_task(group);
 
       if (task_to_run != NULL) {
+         __sync_fetch_and_add(&group->current_executing_tasks, 1);
          platform_condvar_unlock(&group->cv);
          const threadid tid = platform_get_tid();
          group->stats[tid].total_bg_task_executions++;
          task_group_run_task(group, task_to_run);
          rc = platform_condvar_lock(&group->cv);
          platform_assert(SUCCESS(rc));
+         __sync_fetch_and_sub(&group->current_executing_tasks, 1);
       } else {
          rc = platform_condvar_wait(&group->cv);
          platform_assert(SUCCESS(rc));
@@ -501,7 +503,7 @@ task_group_stop_and_wait_for_threads(task_group *group)
 
    platform_assert(group->tq.head == NULL);
    platform_assert(group->tq.tail == NULL);
-   platform_assert(group->current_outstanding_tasks == 0);
+   platform_assert(group->current_waiting_tasks == 0);
 
    uint8 num_threads = group->bg.num_threads;
 
@@ -520,6 +522,7 @@ task_group_stop_and_wait_for_threads(task_group *group)
 static void
 task_group_deinit(task_group *group)
 {
+   task_group_stop_and_wait_for_threads(group);
    platform_condvar_destroy(&group->cv);
 }
 
@@ -624,13 +627,17 @@ task_enqueue(task_system *ts,
       tq->head = tq->tail = new_task;
    }
 
-   __sync_fetch_and_add(&group->current_outstanding_tasks, 1);
+   __sync_fetch_and_add(&group->current_waiting_tasks, 1);
 
    if (group->use_stats) {
       new_task->enqueue_time = platform_get_timestamp();
    }
-   if (group->current_outstanding_tasks > group->max_outstanding_tasks) {
-      group->max_outstanding_tasks = group->current_outstanding_tasks;
+   if (group->use_stats) {
+      const threadid tid = platform_get_tid();
+      if (group->current_waiting_tasks
+          > group->stats[tid].max_outstanding_tasks) {
+         group->stats[tid].max_outstanding_tasks = group->current_waiting_tasks;
+      }
    }
    platform_condvar_signal(&group->cv);
    return task_unlock_task_queue(group);
@@ -648,7 +655,7 @@ task_group_perform_one(task_group *group, uint64 min_backlog)
 {
    platform_status rc;
    task           *assigned_task = NULL;
-   if (group->current_outstanding_tasks <= min_backlog) {
+   if (group->current_waiting_tasks <= min_backlog) {
       return STATUS_TIMEDOUT;
    }
 
@@ -661,6 +668,10 @@ task_group_perform_one(task_group *group, uint64 min_backlog)
    assigned_task = task_group_get_one_task(group);
 
 out:
+   if (assigned_task) {
+      __sync_fetch_and_add(&group->current_executing_tasks, 1);
+   }
+
    platform_condvar_unlock(&group->cv);
    platform_thread_cleanup_pop(0);
 
@@ -668,6 +679,7 @@ out:
       const threadid tid = platform_get_tid();
       group->stats[tid].total_fg_task_executions++;
       task_group_run_task(group, assigned_task);
+      __sync_fetch_and_sub(&group->current_executing_tasks, 1);
    }
 
    return rc;
@@ -717,6 +729,48 @@ task_perform_all(task_system *ts)
       debug_assert(SUCCESS(rc) || STATUS_IS_EQ(rc, STATUS_TIMEDOUT));
       /* STATUS_TIMEDOUT means no task was waiting. */
    } while (STATUS_IS_NE(rc, STATUS_TIMEDOUT));
+}
+
+bool
+task_system_is_quiescent(task_system *ts)
+{
+   platform_status rc;
+   task_type       ttlocked;
+   bool            result = FALSE;
+
+   for (ttlocked = TASK_TYPE_FIRST; ttlocked < NUM_TASK_TYPES; ttlocked++) {
+      rc = platform_condvar_lock(&ts->group[ttlocked].cv);
+      if (!SUCCESS(rc)) {
+         goto cleanup;
+      }
+   }
+
+   for (task_type ttchecked = TASK_TYPE_FIRST; ttchecked < NUM_TASK_TYPES;
+        ttchecked++)
+   {
+      if (ts->group[ttchecked].current_executing_tasks
+          || ts->group[ttchecked].current_waiting_tasks)
+      {
+         goto cleanup;
+      }
+   }
+   result = TRUE;
+
+cleanup:
+   for (task_type tt = TASK_TYPE_FIRST; tt < ttlocked; tt++) {
+      rc = platform_condvar_unlock(&ts->group[tt].cv);
+      debug_assert(SUCCESS(rc));
+   }
+
+   return result;
+}
+
+void
+task_perform_until_quiescent(task_system *ts)
+{
+   while (!task_system_is_quiescent(ts)) {
+      task_perform_all(ts);
+   }
 }
 
 platform_status
@@ -819,8 +873,7 @@ task_system_create(platform_heap_id          hid,
                                            cfg->num_background_threads[type],
                                            cfg->scratch_size);
       if (!SUCCESS(rc)) {
-         // FIXME (robj): tear down any threads we already created.
-         platform_free(hid, ts);
+         task_system_destroy(hid, &ts);
          *system = NULL;
          return rc;
       }
@@ -906,12 +959,12 @@ task_wait_for_completion(task_system *ts)
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       task_group *group             = &ts->group[type];
       uint64      outstanding_tasks = 0;
-      while (group->current_outstanding_tasks != 0) {
-         if (group->current_outstanding_tasks != outstanding_tasks) {
+      while (group->current_waiting_tasks != 0) {
+         if (group->current_waiting_tasks != outstanding_tasks) {
             platform_default_log("waiting for %lu tasks of type %d\n",
-                                 group->current_outstanding_tasks,
+                                 group->current_waiting_tasks,
                                  type);
-            outstanding_tasks = group->current_outstanding_tasks;
+            outstanding_tasks = group->current_waiting_tasks;
          }
          platform_sleep(1000);
       }
@@ -940,8 +993,11 @@ task_group_print_stats(task_group *group, task_type type)
          global.max_runtime_func = group->stats[i].max_runtime_func;
       }
       if (group->stats[i].max_queue_wait_time_ns
-          > global.max_queue_wait_time_ns)
+          > global.max_queue_wait_time_ns) {
          global.max_queue_wait_time_ns = group->stats[i].max_queue_wait_time_ns;
+      }
+      global.max_outstanding_tasks = MAX(global.max_outstanding_tasks,
+                                         group->stats[i].max_outstanding_tasks);
    }
 
    switch (type) {
@@ -968,10 +1024,10 @@ task_group_print_stats(task_group *group, task_type type)
                         global.total_bg_task_executions);
    platform_default_log("| total fg tasks run      : %10lu\n",
                         global.total_fg_task_executions);
-   platform_default_log("| current outstanding tasks : %lu\n",
-                        group->current_outstanding_tasks);
+   platform_default_log("| current waiting tasks : %lu\n",
+                        group->current_waiting_tasks);
    platform_default_log("| max outstanding tasks : %lu\n",
-                        group->max_outstanding_tasks);
+                        global.max_outstanding_tasks);
    platform_default_log("\n");
 }
 

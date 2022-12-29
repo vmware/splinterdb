@@ -26,6 +26,7 @@ typedef struct {
    timestamp max_runtime_ns;
    void     *max_runtime_func;
    uint64    max_queue_wait_time_ns;
+   uint64    max_outstanding_tasks;
    uint64    total_queue_wait_time_ns;
    uint64    total_bg_task_executions;
    uint64    total_fg_task_executions;
@@ -50,8 +51,8 @@ typedef struct task_group {
    task_system *ts;
    task_queue   tq; // Queue of tasks in this group, of a task type
 
-   volatile uint64 current_outstanding_tasks;
-   volatile uint64 max_outstanding_tasks;
+   volatile uint64 current_waiting_tasks;
+   volatile uint64 current_executing_tasks;
 
    platform_condvar     cv;
    task_bg_thread_group bg;
@@ -121,7 +122,6 @@ struct task_system {
    platform_heap_id heap_id;
 
    // scratch memory for the init thread.
-   void    *init_scratch;
    threadid init_tid;
    char     init_task_scratch[];
 };
@@ -163,6 +163,16 @@ task_system_create(platform_heap_id          hid,
                    task_system             **system,
                    const task_system_config *cfg);
 
+/*
+ * task_system_destroy() waits for currently executing background
+ * tasks and cleanly shuts down all background threads, but it
+ * abandons tasks that are still waiting to execute.  To ensure that
+ * no enqueued tasks are abandoned by a shutdown,
+ *
+ * 1. Ensure that your application will not enqueue any more tasks.
+ * 2. Call task_perform_until_quiescent().
+ * 3. Then call task_system_destroy().
+ */
 void
 task_system_destroy(platform_heap_id hid, task_system **ts);
 
@@ -202,6 +212,18 @@ task_perform_one_if_needed(task_system *ts);
  */
 void
 task_perform_all(task_system *ts);
+
+/* TRUE if there are no running or waiting tasks. */
+bool
+task_system_is_quiescent(task_system *ts);
+
+/*
+ * Execute background tasks until there are no executing or enqueued
+ * background tasks. Once the system is quiescent, no new tasks will be
+ * enqueued unless the application does so.
+ */
+void
+task_perform_until_quiescent(task_system *ts);
 
 /*
  *Functions for tests and debugging.
