@@ -8,8 +8,7 @@
  *     number of maximum elements.
  */
 
-#ifndef __PCQ_H_
-#define __PCQ_H_
+#pragma once
 
 #include "platform.h"
 
@@ -122,5 +121,3 @@ pcq_dequeue(pcq   *q,    // IN
 
    return STATUS_OK;
 }
-
-#endif // __PCQ_H_

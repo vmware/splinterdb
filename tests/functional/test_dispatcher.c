@@ -17,6 +17,7 @@ usage(void)
    platform_error_log("\tsplinter_test\n");
    platform_error_log("\tlog_test\n");
    platform_error_log("\tcache_test\n");
+   platform_error_log("\tio_apis_test\n");
 #ifdef PLATFORM_LINUX
    platform_error_log("\tycsb_test\n");
 #endif
@@ -45,6 +46,8 @@ test_dispatcher(int argc, char *argv[])
          return log_test(argc - 1, &argv[1]);
       } else if (STRING_EQUALS_LITERAL(test_name, "cache_test")) {
          return cache_test(argc - 1, &argv[1]);
+      } else if (STRING_EQUALS_LITERAL(test_name, "io_apis_test")) {
+         return splinter_io_apis_test(argc - 1, &argv[1]);
 #ifdef PLATFORM_LINUX
       } else if (STRING_EQUALS_LITERAL(test_name, "ycsb_test")) {
          return ycsb_test(argc - 1, &argv[1]);

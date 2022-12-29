@@ -2486,7 +2486,7 @@ int
 splinter_test(int argc, char *argv[])
 {
    io_config           io_cfg;
-   rc_allocator_config al_cfg;
+   allocator_config    al_cfg;
    shard_log_config    log_cfg;
    task_system_config  task_cfg;
    int                 config_argc;
@@ -2502,9 +2502,8 @@ splinter_test(int argc, char *argv[])
    uint32 num_pthreads    = 0;
    uint8  num_tables      = 1;
    bool   cache_per_table = FALSE;
-   // no bg threads by default.
-   uint64                 insert_rate = 0; // no rate throttling by default.
-   task_system           *ts;
+   uint64                 insert_rate     = 0; // no rate throttling by default.
+   task_system           *ts              = NULL;
    uint8                  lookup_positive_pct = 0;
    test_message_generator gen;
    test_exec_config       test_exec_cfg;
@@ -2600,6 +2599,7 @@ splinter_test(int argc, char *argv[])
       config_argc -= 2;
       config_argv += 2;
    }
+
    if (config_argc > 0
        && strncmp(
              config_argv[0], "--cache-per-table", sizeof("--cache-per-table"))
@@ -2609,6 +2609,7 @@ splinter_test(int argc, char *argv[])
       config_argc -= 1;
       config_argv += 1;
    }
+
    if (splinter_test_parse_perf_args(&config_argv,
                                      &config_argc,
                                      &max_async_inflight,

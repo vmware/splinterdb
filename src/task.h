@@ -1,8 +1,7 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __TASK_H
-#define __TASK_H
+#pragma once
 
 #include "platform.h"
 
@@ -219,5 +218,3 @@ task_active_tasks_mask(task_system *ts);
 
 void
 task_print_stats(task_system *ts);
-
-#endif // __TASK_H

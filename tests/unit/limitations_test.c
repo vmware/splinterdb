@@ -39,7 +39,7 @@ CTEST_DATA(limitations)
 
    // Config structs required, as per splinter_test() setup work.
    io_config           io_cfg;
-   rc_allocator_config al_cfg;
+   allocator_config    al_cfg;
    shard_log_config    log_cfg;
    task_system_config  task_cfg;
 
@@ -64,7 +64,7 @@ CTEST_DATA(limitations)
  */
 CTEST_SETUP(limitations)
 {
-   // This test exercises error cases, so even when everthing succeeds
+   // This test exercises error cases, so even when everything succeeds
    // it generates lots of "error" messages.
    // By default, that would go to stderr, which would pollute test output.
    // Here we ensure those expected error messages are only printed
@@ -244,6 +244,33 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    if (data->splinter_cfg) {
       platform_free(data->hid, data->splinter_cfg);
    }
+}
+
+/*
+ * Test creating SplinterDB with an invalid task system configuration.
+ */
+CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
+{
+   splinterdb       *kvsb;
+   splinterdb_config cfg;
+   data_config       default_data_cfg;
+
+   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg);
+
+   // Both have to be 0, or both have to be set.
+   cfg.num_normal_bg_threads   = 0;
+   cfg.num_memtable_bg_threads = 1;
+
+   int rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
+
+   // Cannot use up all possible threads for just bg-threads.
+   cfg.num_normal_bg_threads   = (MAX_THREADS - 1);
+   cfg.num_memtable_bg_threads = 1;
+
+   rc = splinterdb_create(&cfg, &kvsb);
+   ASSERT_NOT_EQUAL(0, rc);
 }
 
 /*

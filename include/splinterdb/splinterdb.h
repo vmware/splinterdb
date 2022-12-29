@@ -15,7 +15,6 @@
 
 #include "splinterdb/data.h"
 
-
 // Get a version string for this build of SplinterDB
 // Currently a git tag
 const char *
@@ -51,6 +50,23 @@ typedef struct {
    bool        cache_use_stats;
    const char *cache_logfile;
 
+   // task system
+   // Background threads configuration: Both have to be non-zero in order for
+   // background threads to be started. (It is an error for one to be zero
+   // while the other is non-zero.)
+   //
+   // - Memtable bg-threads work on Memtables tasks which are short but latency
+   //   sensitive. A rule of thumb is to allocate around 1 memtable bg-thread
+   //   for every 10 threads performing insertions. Too few memtable threads
+   //   can cause some insertions to have high latency.
+   // - Normal bg-threads work on task such as compacting branches in the trunk
+   //   and building filters. These tasks take longer and are less latency
+   //   sensitive. A rule of thumb is to allocate 1-2 normal background
+   //   threads for every thread performing insertions. Too few "normal"
+   //   background threads can cause disk I/O bandwidth to go underutilized.
+   uint64 num_memtable_bg_threads;
+   uint64 num_normal_bg_threads;
+
    // btree
    uint64 btree_rough_count_height;
 
@@ -68,6 +84,7 @@ typedef struct {
    uint64 use_stats;
    uint64 reclaim_threshold;
    bool   perform_bg_tasks;
+
 } splinterdb_config;
 
 // Opaque handle to an opened instance of SplinterDB

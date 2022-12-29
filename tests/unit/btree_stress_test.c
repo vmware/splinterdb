@@ -93,7 +93,7 @@ CTEST_DATA(btree_stress)
    master_config       master_cfg;
    data_config        *data_cfg;
    io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
+   allocator_config    allocator_cfg;
    clockcache_config   cache_cfg;
    task_system_config  task_cfg;
    btree_scratch       test_scratch;
@@ -143,6 +143,7 @@ CTEST_SETUP(btree_stress)
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
    // Setup execution of concurrent threads
+   data->ts = NULL;
    if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
        || !SUCCESS(
           task_system_create(data->hid, &data->io, &data->ts, &data->task_cfg))

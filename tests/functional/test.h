@@ -7,8 +7,7 @@
  *     This file contains constants and functions that pertain to tests.
  */
 
-#ifndef __TEST_H
-#define __TEST_H
+#pragma once
 
 #include "cache.h"
 #include "clockcache.h"
@@ -48,6 +47,9 @@ cache_test(int argc, char *argv[]);
 
 int
 ycsb_test(int argc, char *argv[]);
+
+int
+splinter_io_apis_test(int argc, char *argv[]);
 
 /*
  * Initialization for using splinter, need to be called at the start of the test
@@ -207,7 +209,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                  shard_log_config       *log_cfg,       // OUT
                  task_system_config     *task_cfg,      // OUT
                  clockcache_config      *cache_cfg,     // OUT
-                 rc_allocator_config    *allocator_cfg, // OUT
+                 allocator_config       *allocator_cfg, // OUT
                  io_config              *io_cfg,        // OUT
                  test_message_generator *gen,
                  master_config          *master_cfg // IN
@@ -224,8 +226,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                   master_cfg->io_async_queue_depth,
                   master_cfg->io_filename);
 
-   rc_allocator_config_init(
-      allocator_cfg, io_cfg, master_cfg->allocator_capacity);
+   allocator_config_init(allocator_cfg, io_cfg, master_cfg->allocator_capacity);
 
    clockcache_config_init(cache_cfg,
                           io_cfg,
@@ -235,9 +236,12 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 
    shard_log_config_init(log_cfg, &cache_cfg->super, *data_cfg);
 
+   uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
+   num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;
+   num_bg_threads[TASK_TYPE_MEMTABLE]    = master_cfg->num_memtable_bg_threads;
    task_system_config_init(task_cfg,
                            master_cfg->use_stats,
-                           master_cfg->num_bg_threads,
+                           num_bg_threads,
                            trunk_get_scratch_size());
 
    trunk_config_init(splinter_cfg,
@@ -287,7 +291,7 @@ static inline platform_status
 test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
                   data_config           **data_cfg,      // OUT
                   io_config              *io_cfg,        // OUT
-                  rc_allocator_config    *allocator_cfg, // OUT
+                  allocator_config       *allocator_cfg, // OUT
                   clockcache_config      *cache_cfg,     // OUT
                   shard_log_config       *log_cfg,       // OUT
                   task_system_config     *task_cfg,      // OUT
@@ -348,12 +352,14 @@ static inline platform_status
 test_parse_args(trunk_config           *splinter_cfg,
                 data_config           **data_cfg,
                 io_config              *io_cfg,
-                rc_allocator_config    *allocator_cfg,
+                allocator_config       *allocator_cfg,
                 clockcache_config      *cache_cfg,
                 shard_log_config       *log_cfg,
                 task_system_config     *task_cfg,
                 uint64                 *seed,
                 test_message_generator *gen,
+                uint64                 *num_memtable_bg_threads,
+                uint64                 *num_normal_bg_threads,
                 int                     argc,
                 char                   *argv[])
 {
@@ -389,5 +395,3 @@ test_generate_allocator_root_id()
 {
    return __sync_fetch_and_add(&counter, 1);
 }
-
-#endif

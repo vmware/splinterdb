@@ -1463,7 +1463,7 @@ int
 btree_test(int argc, char *argv[])
 {
    io_config              io_cfg;
-   rc_allocator_config    al_cfg;
+   allocator_config       al_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
    task_system_config     task_cfg;
@@ -1472,7 +1472,7 @@ btree_test(int argc, char *argv[])
    bool                   run_perf_test;
    platform_status        rc;
    uint64                 seed;
-   task_system           *ts;
+   task_system           *ts = NULL;
    test_message_generator gen;
 
    if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
@@ -1504,6 +1504,8 @@ btree_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
+   uint64 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+
    data_config  *data_cfg;
    trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
@@ -1516,6 +1518,8 @@ btree_test(int argc, char *argv[])
                         &task_cfg,
                         &seed,
                         &gen,
+                        &num_bg_threads[TASK_TYPE_MEMTABLE],
+                        &num_bg_threads[TASK_TYPE_NORMAL],
                         config_argc,
                         config_argv);
 

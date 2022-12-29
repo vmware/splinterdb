@@ -7,8 +7,7 @@
  *     This file contains the abstract interface for a write-ahead log.
  */
 
-#ifndef __LOG_H
-#define __LOG_H
+#pragma once
 
 #include "platform.h"
 #include "cache.h"
@@ -72,5 +71,3 @@ log_magic(log_handle *log)
 
 log_handle *
 log_create(cache *cc, log_config *cfg, platform_heap_id hid);
-
-#endif //__LOG_H

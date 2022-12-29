@@ -290,7 +290,7 @@ filter_test(int argc, char *argv[])
    int                    r;
    data_config           *data_cfg;
    io_config              io_cfg;
-   rc_allocator_config    allocator_cfg;
+   allocator_config       allocator_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
    task_system_config     task_cfg;
@@ -319,6 +319,9 @@ filter_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
+   uint64 num_memtable_bg_threads_unused = 0;
+   uint64 num_normal_bg_threads_unused   = 0;
+
    trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
@@ -330,6 +333,8 @@ filter_test(int argc, char *argv[])
                         &task_cfg,
                         &seed,
                         &gen,
+                        &num_memtable_bg_threads_unused,
+                        &num_normal_bg_threads_unused,
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {

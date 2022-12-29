@@ -87,9 +87,9 @@ CTEST_DATA(splinter)
 
    // Config structs required, as per splinter_test() setup work.
    io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   shard_log_config    log_cfg;
    task_system_config  task_cfg;
+   allocator_config    al_cfg;
+   shard_log_config    log_cfg;
 
    rc_allocator al;
 
@@ -183,6 +183,7 @@ CTEST_SETUP(splinter)
    ASSERT_TRUE((data->io != NULL));
    rc = io_handle_init(data->io, &data->io_cfg, data->hh, data->hid);
 
+   data->tasks = NULL;
    rc = test_init_task_system(data->hid, data->io, &data->tasks, &data->task_cfg);
    ASSERT_TRUE(SUCCESS(rc),
               "Failed to init splinter state: %s\n",

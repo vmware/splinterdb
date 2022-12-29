@@ -1147,7 +1147,7 @@ int
 ycsb_test(int argc, char *argv[])
 {
    io_config           io_cfg;
-   rc_allocator_config allocator_cfg;
+   allocator_config    allocator_cfg;
    clockcache_config   cache_cfg;
    shard_log_config    log_cfg;
    int                 config_argc;
@@ -1155,7 +1155,7 @@ ycsb_test(int argc, char *argv[])
    platform_status     rc;
    uint64              seed;
    task_system_config  task_cfg;
-   task_system        *ts;
+   task_system        *ts = NULL;
 
    uint64                 nphases;
    bool                   use_existing = 0;
@@ -1189,6 +1189,7 @@ ycsb_test(int argc, char *argv[])
 
    data_config  *data_cfg;
    trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
    rc = test_parse_args(splinter_cfg,
                         &data_cfg,
@@ -1199,6 +1200,8 @@ ycsb_test(int argc, char *argv[])
                         &task_cfg,
                         &seed,
                         &gen,
+                        &num_bg_threads[TASK_TYPE_MEMTABLE],
+                        &num_bg_threads[TASK_TYPE_NORMAL],
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {
