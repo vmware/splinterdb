@@ -199,22 +199,26 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
       return rc;
    }
 
-   trunk_config_init(&kvs->trunk_cfg,
-                     &kvs->cache_cfg.super,
-                     kvs->data_cfg,
-                     (log_config *)&kvs->log_cfg,
-                     cfg.memtable_capacity,
-                     cfg.fanout,
-                     cfg.max_branches_per_node,
-                     cfg.btree_rough_count_height,
-                     cfg.filter_remainder_size,
-                     cfg.filter_index_size,
-                     cfg.reclaim_threshold,
-                     cfg.queue_scale_percent,
-                     cfg.use_log,
-                     cfg.use_stats,
-                     FALSE,
-                     NULL);
+   rc = trunk_config_init(&kvs->trunk_cfg,
+                          &kvs->cache_cfg.super,
+                          kvs->data_cfg,
+                          (log_config *)&kvs->log_cfg,
+                          cfg.memtable_capacity,
+                          cfg.fanout,
+                          cfg.max_branches_per_node,
+                          cfg.btree_rough_count_height,
+                          cfg.filter_remainder_size,
+                          cfg.filter_index_size,
+                          cfg.reclaim_threshold,
+                          cfg.queue_scale_percent,
+                          cfg.use_log,
+                          cfg.use_stats,
+                          FALSE,
+                          NULL);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    return STATUS_OK;
 }
 
