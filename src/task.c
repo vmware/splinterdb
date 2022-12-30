@@ -206,20 +206,15 @@ task_register_thread(task_system *ts,
     * attempt to re-register a thread should find scratch space already
     * allocated. Flag that.
     */
-   platform_assert((thread_tid == 0)
-                      || (ts->thread_scratch[thread_tid] == NULL),
-                   "[%s:%d::%s()] Thread at index %lu is found to have scratch"
-                   " space already allocated, %p\n",
-                   file,
-                   lineno,
-                   func,
-                   thread_tid,
-                   ts->thread_scratch[thread_tid]);
+   debug_assert((thread_tid == 0) || (ts->thread_scratch[thread_tid] == NULL),
+                "[%s:%d::%s()] Thread at index %lu is found to have scratch"
+                " space already allocated, %p\n",
+                file,
+                lineno,
+                func,
+                thread_tid,
+                ts->thread_scratch[thread_tid]);
 
-   char *scratch = NULL;
-   if (scratch_size > 0) {
-      scratch = TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
-   }
    task_run_thread_hooks(ts);
 
    // Ensure that we are not clobbering some scratch space previously allocated
@@ -235,7 +230,10 @@ task_register_thread(task_system *ts,
       ts->thread_scratch[thread_tid],
       thread_tid);
 
-   ts->thread_scratch[thread_tid] = scratch;
+   if (scratch_size > 0) {
+      ts->thread_scratch[thread_tid] =
+         TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
+   }
 }
 
 /*
@@ -432,7 +430,7 @@ task_group_run_task(task_group *group, task *assigned_task)
    timestamp      current;
 
    if (group->use_stats) {
-      current           = platform_get_timestamp();
+      current                   = platform_get_timestamp();
       timestamp queue_wait_time = current - assigned_task->enqueue_time;
       group->stats[tid].total_queue_wait_time_ns += queue_wait_time;
       if (queue_wait_time > group->stats[tid].max_queue_wait_time_ns) {
@@ -857,8 +855,8 @@ task_system_create(platform_heap_id          hid,
    // task initialization
    register_init_tid_hook();
 
-   ts->heap_id      = hid;
-   ts->init_tid     = INVALID_TID;
+   ts->heap_id  = hid;
+   ts->init_tid = INVALID_TID;
 
    // Ensure that the main thread gets registered and init'ed first before
    // any background threads are created. (Those may grab their own tids.).

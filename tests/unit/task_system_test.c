@@ -84,7 +84,7 @@ CTEST_DATA(task_system)
    platform_heap_id     hid;
 
    // Config structs required, to exercise task subsystem
-   io_config io_cfg;
+   io_config          io_cfg;
    task_system_config task_cfg;
 
    // Following get setup pointing to allocated memory

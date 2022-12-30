@@ -2485,23 +2485,23 @@ splinter_test_parse_perf_args(char ***argv,
 int
 splinter_test(int argc, char *argv[])
 {
-   io_config           io_cfg;
-   allocator_config    al_cfg;
-   shard_log_config    log_cfg;
-   task_system_config  task_cfg;
-   int                 config_argc;
-   char              **config_argv;
-   test_type           test;
-   platform_status     rc;
-   uint64              seed = 0;
-   uint64              test_ops;
-   uint64              correctness_check_frequency;
+   io_config          io_cfg;
+   allocator_config   al_cfg;
+   shard_log_config   log_cfg;
+   task_system_config task_cfg;
+   int                config_argc;
+   char             **config_argv;
+   test_type          test;
+   platform_status    rc;
+   uint64             seed = 0;
+   uint64             test_ops;
+   uint64             correctness_check_frequency;
    // Max async IOs inflight per-thread
-   uint32 num_insert_threads, num_lookup_threads;
-   uint32 num_range_lookup_threads, max_async_inflight;
-   uint32 num_pthreads    = 0;
-   uint8  num_tables      = 1;
-   bool   cache_per_table = FALSE;
+   uint32                 num_insert_threads, num_lookup_threads;
+   uint32                 num_range_lookup_threads, max_async_inflight;
+   uint32                 num_pthreads    = 0;
+   uint8                  num_tables      = 1;
+   bool                   cache_per_table = FALSE;
    uint64                 insert_rate     = 0; // no rate throttling by default.
    task_system           *ts              = NULL;
    uint8                  lookup_positive_pct = 0;

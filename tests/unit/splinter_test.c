@@ -86,10 +86,10 @@ CTEST_DATA(splinter)
    int    spl_num_tables;
 
    // Config structs required, as per splinter_test() setup work.
-   io_config           io_cfg;
-   task_system_config  task_cfg;
-   allocator_config    al_cfg;
-   shard_log_config    log_cfg;
+   io_config          io_cfg;
+   task_system_config task_cfg;
+   allocator_config   al_cfg;
+   shard_log_config   log_cfg;
 
    rc_allocator al;
 

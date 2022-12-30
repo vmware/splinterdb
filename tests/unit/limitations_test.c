@@ -38,10 +38,10 @@ CTEST_DATA(limitations)
    platform_heap_id     hid;
 
    // Config structs required, as per splinter_test() setup work.
-   io_config           io_cfg;
-   allocator_config    al_cfg;
-   shard_log_config    log_cfg;
-   task_system_config  task_cfg;
+   io_config          io_cfg;
+   allocator_config   al_cfg;
+   shard_log_config   log_cfg;
+   task_system_config task_cfg;
 
    rc_allocator al;
 
