@@ -451,7 +451,7 @@ trunk_pivot_message_size();
 uint64
 trunk_hdr_size();
 
-void
+platform_status
 trunk_config_init(trunk_config        *trunk_cfg,
                   cache_config        *cache_cfg,
                   data_config         *data_cfg,

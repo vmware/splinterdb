@@ -203,7 +203,7 @@ generator_average_message_size(test_message_generator *gen)
  * input master configuration, master_cfg. A few command-line config parameters
  * may have been used to setup master_cfg beyond its initial defaults.
  */
-static inline void
+static inline platform_status
 test_config_init(trunk_config           *splinter_cfg,  // OUT
                  data_config           **data_cfg,      // OUT
                  shard_log_config       *log_cfg,       // OUT
@@ -245,26 +245,30 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                                                 trunk_get_scratch_size());
    platform_assert_status_ok(rc);
 
-   trunk_config_init(splinter_cfg,
-                     &cache_cfg->super,
-                     *data_cfg,
-                     (log_config *)log_cfg,
-                     master_cfg->memtable_capacity,
-                     master_cfg->fanout,
-                     master_cfg->max_branches_per_node,
-                     master_cfg->btree_rough_count_height,
-                     master_cfg->filter_remainder_size,
-                     master_cfg->filter_index_size,
-                     master_cfg->reclaim_threshold,
-                     master_cfg->queue_scale_percent,
-                     master_cfg->use_log,
-                     master_cfg->use_stats,
-                     master_cfg->verbose_logging_enabled,
-                     master_cfg->log_handle);
+   rc = trunk_config_init(splinter_cfg,
+                          &cache_cfg->super,
+                          *data_cfg,
+                          (log_config *)log_cfg,
+                          master_cfg->memtable_capacity,
+                          master_cfg->fanout,
+                          master_cfg->max_branches_per_node,
+                          master_cfg->btree_rough_count_height,
+                          master_cfg->filter_remainder_size,
+                          master_cfg->filter_index_size,
+                          master_cfg->reclaim_threshold,
+                          master_cfg->queue_scale_percent,
+                          master_cfg->use_log,
+                          master_cfg->use_stats,
+                          master_cfg->verbose_logging_enabled,
+                          master_cfg->log_handle);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    gen->type             = MESSAGE_TYPE_INSERT;
    gen->min_payload_size = GENERATOR_MIN_PAYLOAD_SIZE;
    gen->max_payload_size = master_cfg->message_size;
+   return rc;
 }
 
 /*
@@ -315,19 +319,22 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
 
    rc = config_parse(master_cfg, num_config, argc, argv);
    if (!SUCCESS(rc)) {
-      return rc;
+      goto out;
    }
 
    for (i = 0; i < num_config; i++) {
-      test_config_init(&splinter_cfg[i],
-                       &data_cfg[i],
-                       log_cfg,
-                       task_cfg,
-                       &cache_cfg[i],
-                       allocator_cfg,
-                       io_cfg,
-                       gen,
-                       &master_cfg[i]);
+      rc = test_config_init(&splinter_cfg[i],
+                            &data_cfg[i],
+                            log_cfg,
+                            task_cfg,
+                            &cache_cfg[i],
+                            allocator_cfg,
+                            io_cfg,
+                            gen,
+                            &master_cfg[i]);
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
    }
 
    // All the n-SplinterDB instances will work with the same set of
@@ -338,9 +345,10 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
       test_exec_cfg->verbose_progress = master_cfg[0].verbose_progress;
    }
 
+out:
    platform_free(platform_get_heap_id(), master_cfg);
 
-   return STATUS_OK;
+   return rc;
 }
 
 /*
