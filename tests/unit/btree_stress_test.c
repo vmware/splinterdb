@@ -169,7 +169,12 @@ CTEST_SETUP(btree_stress)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(btree_stress) {}
+CTEST_TEARDOWN(btree_stress)
+{
+   clockcache_deinit(&data->cc);
+   rc_allocator_deinit(&data->al);
+   task_system_destroy(data->hid, &data->ts);
+}
 
 /*
  * -------------------------------------------------------------------------

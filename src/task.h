@@ -105,9 +105,9 @@ task_system_config_init(task_system_config *task_cfg,
 struct task_system {
    const task_system_config *cfg;
    // array of scratch space pointers for this system.
-   void *thread_scratch[MAX_THREADS];
    // IO handle (currently one splinter system has just one)
    platform_io_handle *ioh;
+   platform_heap_id    heap_id;
    /*
     * bitmask used for generating and clearing thread id's.
     * If a bit is set to 0, it means we have an in use thread id for that
@@ -117,13 +117,9 @@ struct task_system {
    uint64 tid_bitmask;
    // max thread id so far.
    threadid max_tid;
+   void    *thread_scratch[MAX_THREADS];
    // task groups
-   task_group       group[NUM_TASK_TYPES];
-   platform_heap_id heap_id;
-
-   // scratch memory for the init thread.
-   threadid init_tid;
-   char     init_task_scratch[];
+   task_group group[NUM_TASK_TYPES];
 };
 
 platform_status
@@ -135,11 +131,17 @@ task_thread_create(const char            *name,
                    platform_heap_id       hid,
                    platform_thread       *thread);
 
+/*
+ * Thread registration and deregistration.  These functions are for
+ * threads created outside of the task system.  Threads created with
+ * task_thread_create are automatically registered and unregistered.
+ */
+
 // Register the calling thread, allocating scratch space for it
 #define task_register_this_thread(ts, scratch_size)                            \
    task_register_thread((ts), (scratch_size), __FILE__, __LINE__, __FUNCTION__)
 
-void
+platform_status
 task_register_thread(task_system *ts,
                      uint64       scratch_size,
                      const char  *file,
@@ -156,7 +158,9 @@ task_deregister_thread(task_system *ts,
                        const int    lineno,
                        const char  *func);
 
-
+/*
+ * Create a task system and register the calling thread.
+ */
 platform_status
 task_system_create(platform_heap_id          hid,
                    platform_io_handle       *ioh,
@@ -164,6 +168,10 @@ task_system_create(platform_heap_id          hid,
                    const task_system_config *cfg);
 
 /*
+ * Deregister the calling thread (if it is registered) and destroy the
+ * task system.  It is recommended to not destroy the task system
+ * until all registered threads have deregistered.
+ *
  * task_system_destroy() waits for currently executing background
  * tasks and cleanly shuts down all background threads, but it
  * abandons tasks that are still waiting to execute.  To ensure that

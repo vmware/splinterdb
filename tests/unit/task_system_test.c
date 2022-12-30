@@ -616,7 +616,7 @@ exec_one_thread_use_lower_apis(void *arg)
    // SplinterDB's jugglery to keep track of resources. get_tid() should
    // now be reset.
    threadid get_tid_after_deregister = platform_get_tid();
-   ASSERT_EQUAL(0,
+   ASSERT_EQUAL(INVALID_TID,
                 get_tid_after_deregister,
                 "get_tid_after_deregister=%lu is != expected index into"
                 " thread array, %lu ",
@@ -714,7 +714,7 @@ exec_one_of_n_threads(void *arg)
    // SplinterDB's jugglery to keep track of resources. get_tid() should still
    // remain the expected index into the threads[] array.
    threadid get_tid_after_deregister = platform_get_tid();
-   ASSERT_EQUAL(0,
+   ASSERT_EQUAL(INVALID_TID,
                 get_tid_after_deregister,
                 "get_tid_after_deregister=%lu is != the index into"
                 " thread array, %lu ",
