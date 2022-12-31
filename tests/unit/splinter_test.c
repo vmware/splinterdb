@@ -663,6 +663,9 @@ CTEST2(splinter, test_splinter_print_diags)
    CTEST_LOG_INFO("\n** trunk_print() **\n");
    trunk_print(Platform_default_log_handle, spl);
 
+   CTEST_LOG_INFO("\n** trunk_print_branches() **\n");
+   trunk_print_branches(Platform_default_log_handle, spl);
+
    CTEST_LOG_INFO("\n** trunk_print_branch_btrees() on Trunk root node **\n");
    trunk_print_branch_btrees(spl, spl->root_addr, Platform_default_log_handle);
 

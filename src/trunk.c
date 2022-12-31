@@ -1750,6 +1750,10 @@ trunk_pivot_branch_count(trunk_handle     *spl,
       spl, node->hdr->end_branch, pdata->start_branch);
 }
 
+/*
+ * Returns the # tuples (num_tuples) and # KV-bytes (num_kv_bytes) used for
+ * a single BTree rooted at 'root_addr'.
+ */
 static inline void
 trunk_pivot_btree_tuple_counts(trunk_handle *spl,
                                trunk_node   *node,
@@ -1761,12 +1765,17 @@ trunk_pivot_btree_tuple_counts(trunk_handle *spl,
    key               min_key = trunk_get_pivot(spl, node, pivot_no);
    key               max_key = trunk_get_pivot(spl, node, pivot_no + 1);
    btree_pivot_stats stats;
+   ZERO_STRUCT(stats);
    btree_count_in_range(
       spl->cc, trunk_btree_config(spl), root_addr, min_key, max_key, &stats);
    *num_tuples   = stats.num_kvs;
    *num_kv_bytes = stats.key_bytes + stats.message_bytes;
 }
 
+/*
+ * Returns the # tuples and # KV-bytes tracked by a single branch, with branch #
+ * branch_no, for a given pivot number.
+ */
 static inline void
 trunk_pivot_branch_tuple_counts(trunk_handle *spl,
                                 trunk_node   *node,
@@ -8930,6 +8939,10 @@ trunk_reset_stats(trunk_handle *spl)
    }
 }
 
+/*
+ * Returns the # tuples (num_tuples) and # KV-bytes (num_kv_bytes) used by all
+ * branches that are live for each pivot under trunk node 'node'.
+ */
 void
 trunk_branch_count_num_tuples(trunk_handle *spl,
                               trunk_node   *node,
@@ -8952,80 +8965,141 @@ trunk_branch_count_num_tuples(trunk_handle *spl,
    }
 }
 
+/*
+ * Stats struct to return trunk node usage statistics via print interface
+ */
+typedef struct trunk_node_stats {
+   platform_log_handle *log_handle;
+   uint64               num_nodes;
+   uint64               num_tuples;
+   uint64               num_kv_bytes;
+} trunk_node_stats;
+
+/* Print summary branch information for given trunk node at address 'addr' */
 bool
 trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
 {
-   platform_log_handle *log_handle = (platform_log_handle *)arg;
+   trunk_node_stats    *node_stats = arg;
+   platform_log_handle *log_handle = node_stats->log_handle;
    trunk_node           node;
    trunk_node_get(spl->cc, addr, &node);
 
-   platform_log(
-      log_handle,
-      "------------------------------------------------------------------\n");
+   // clang-format off
+   const char *dashes = "-------------------------------------------------------------------------------------------------";
+   // clang-format on
+
+   platform_log(log_handle, "%s\n", dashes);
    platform_log(log_handle,
-                "| Page type: %s, Node addr=%lu height=%u next_addr=%lu\n",
+                "| Page type: %s, Trunk node addr=%lu (extnum=%lu, pgnum=%lu)"
+                ", height=%u, next_addr=%lu\n",
                 page_type_str[PAGE_TYPE_TRUNK],
                 addr,
+                trunk_extent_number(spl, addr),
+                trunk_page_number(spl, addr),
                 trunk_height(&node),
                 trunk_next_addr(&node));
-   platform_log(
-      log_handle,
-      "------------------------------------------------------------------\n");
+   platform_log(log_handle, "%s\n", dashes);
 
    uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
-   platform_log(log_handle, "| pivots:\n");
+   platform_log(log_handle, "| pivots: %u\n", num_pivot_keys);
    for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {
       char key_str[128];
       trunk_key_to_string(spl, trunk_get_pivot(spl, &node, pivot_no), key_str);
       platform_log(log_handle, "| %u: %s\n", pivot_no, key_str);
    }
 
+   platform_log(log_handle, "%s\n", dashes);
+
    // clang-format off
    platform_log(log_handle,
-         "-----------------------------------------------------------------------------------\n");
-   platform_log(log_handle,
-         "| branch |     addr     |  num tuples  | num kv bytes |    space    |  space amp  |\n");
-   platform_log(log_handle,
-         "-----------------------------------------------------------------------------------\n");
+         "    | branch | BT-root addr |  num tuples  |       num kv bytes        |    space    |space amp |\n");
    // clang-format on
+
+   platform_log(log_handle, "%s\n", dashes);
+
    uint16 start_branch = trunk_start_branch(spl, &node);
    uint16 end_branch   = trunk_end_branch(spl, &node);
+   uint16 num_branches = 0;
+   uint64 sum_ntuples  = 0;
+   uint64 sum_nkvbytes = 0;
+
+   size_t nkvbytes = 0;
    for (uint16 branch_no = start_branch; branch_no != end_branch;
         branch_no        = trunk_add_branch_number(spl, branch_no, 1))
    {
       uint64 addr = trunk_get_branch(spl, &node, branch_no)->root_addr;
       uint64 num_tuples_in_branch;
-      uint64 kv_bytes_in_branch;
+      uint64 kv_bytes_in_branch = 0;
+      num_branches++;
+
       trunk_branch_count_num_tuples(
          spl, &node, branch_no, &num_tuples_in_branch, &kv_bytes_in_branch);
-      uint64 kib_in_branch = 0;
+
+      nkvbytes = kv_bytes_in_branch;
+
+      sum_ntuples += num_tuples_in_branch;
+      sum_nkvbytes += kv_bytes_in_branch;
+
+      uint64 kib_in_branch = 1;
       // trunk_branch_extent_count(spl, &node, branch_no);
       kib_in_branch *= B_TO_KiB(trunk_extent_size(&spl->cfg));
       fraction space_amp =
-         init_fraction(kib_in_branch * 1024, kv_bytes_in_branch);
+         init_fraction(KiB_TO_B(kib_in_branch), kv_bytes_in_branch);
+
       platform_log(
          log_handle,
-         "| %6u | %12lu | %12lu | %9luKiB | %8luKiB |   " FRACTION_FMT(
+         "    | %6u | %12lu | %12lu |%12lu %14s| %8lu KiB|   " FRACTION_FMT(
             2, 2) "   |\n",
          branch_no,
          addr,
          num_tuples_in_branch,
-         B_TO_KiB(kv_bytes_in_branch),
+         nkvbytes,
+         size_fmtstr("(%s)", nkvbytes),
          kib_in_branch,
          FRACTION_ARGS(space_amp));
    }
-   platform_log(
-      log_handle,
-      "------------------------------------------------------------------\n");
-   platform_log(log_handle, "\n");
    trunk_node_unget(spl->cc, &node);
+
+   platform_log(log_handle, "%s\n", dashes);
+   platform_log(log_handle,
+                "Sum | %6u | %12s | %12lu |%12lu %14s| %8s    |   \n",
+                num_branches,
+                "",
+                sum_ntuples,
+                sum_nkvbytes,
+                size_fmtstr("(%s)", sum_nkvbytes),
+                "");
+
+   platform_log(log_handle, "%s\n", dashes);
+   platform_log(log_handle, "\n");
+
+   // Aggregate metrics
+   node_stats->num_nodes++;
+   node_stats->num_tuples += sum_ntuples;
+   node_stats->num_kv_bytes += sum_nkvbytes;
+
    return TRUE;
 }
 
+/* Driver function to print summary branch information for all trunk nodes. */
 void
 trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl)
 {
-   trunk_for_each_node(spl, trunk_node_print_branches, log_handle);
+   trunk_node_stats node_stats;
+   ZERO_STRUCT(node_stats);
+   node_stats.log_handle = log_handle;
+
+   platform_log(log_handle, "{\n");
+   trunk_for_each_node(spl, trunk_node_print_branches, (void *)&node_stats);
+
+   platform_log(log_handle,
+                "Number of trunk nodes=%lu, Num tuples=%lu"
+                ", Num KV-bytes=%lu (%s)\n",
+                node_stats.num_nodes,
+                node_stats.num_tuples,
+                node_stats.num_kv_bytes,
+                size_str(node_stats.num_kv_bytes));
+   platform_log(log_handle, "}\n");
 }
 
 /*

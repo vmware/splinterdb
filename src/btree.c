@@ -3155,8 +3155,9 @@ btree_print_btree_pivot_data(platform_log_handle *log_handle,
 {
    // Indentation is dictated by outer caller
    platform_log(log_handle,
-                "   child_addr=%lu (pgnum=%lu)\n",
+                "   child_addr=%lu (extnum=%lu, pgnum=%lu)\n",
                 pivot_data->child_addr,
+                btree_extent_number(cfg, pivot_data->child_addr),
                 btree_page_number(cfg, pivot_data->child_addr));
 
    btree_print_btree_pivot_stats(log_handle, &pivot_data->stats);
@@ -3172,8 +3173,8 @@ btree_print_node_hdr(platform_log_handle *log_handle,
 {
    // clang-format off
    platform_log(log_handle, "**  Page type %s, %s NODE \n",
-                ((btree_height(hdr) > 0) ? "INDEX" : "LEAF"),
-                page_type_str[type]);
+                page_type_str[type],
+                ((btree_height(hdr) > 0) ? "INDEX" : "LEAF"));
    platform_log(log_handle, "**  Header ptr      : %p\n", hdr);
    platform_log(log_handle, "**  addr            : %lu (pgnum=%lu)\n",
                 addr,
