@@ -661,6 +661,9 @@ CTEST2(splinter, test_splinter_print_diags)
 
    trunk_print_space_use(Platform_default_log_handle, spl);
 
+   CTEST_LOG_INFO("\n** trunk_print_branches() **\n");
+   trunk_print_branches(Platform_default_log_handle, spl);
+
    CTEST_LOG_INFO("\n** trunk_print() **\n");
    trunk_print(Platform_default_log_handle, spl);
 
