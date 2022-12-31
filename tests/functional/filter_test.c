@@ -355,6 +355,10 @@ filter_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
+   task_system *ts = NULL;
+   rc              = task_system_create(hid, io, &ts, &task_cfg);
+   platform_assert_status_ok(rc);
+
    rc = rc_allocator_init(
       &al, &allocator_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
