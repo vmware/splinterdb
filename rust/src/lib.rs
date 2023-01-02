@@ -2,7 +2,7 @@ use libc;
 use libc::c_void;
 use splinterdb::{
     allocator, cache, cache_config, cache_config_ops, cache_ops, page_handle, page_type,
-    platform_status,
+    platform_status, bool_
 };
 
 /// cbindgen:ignore
@@ -60,22 +60,79 @@ pub struct stubcache {
     super_: cache,
     cfg: *mut stubcache_config,
     al: *mut allocator,
-    page_handles: Option<Box<Vec<page_handle>>>,    // Needed Box to mitigate "incomplete type" in cbindgen output, since Vec layout is unspecified.
+    page_handles: Option<Vec<page_handle>>,    // Needed Box to mitigate "incomplete type" in cbindgen output, since Vec layout is unspecified.
     the_disk: *mut i8,
 }
 
-/// Probably unsafe.
-unsafe extern "C" fn stubcache_page_alloc(
+unsafe extern "C" fn page_alloc(
     cc: *mut cache,
     addr: u64,
     type_: page_type,
 ) -> *mut page_handle {
-    /*
-    return (*sc).the_disk.add(addr as usize) as page_handle;
-    */
-    //return std::ptr::null_mut();
     let sc = cc as *mut stubcache;
     return &mut ((*sc).page_handles.as_mut().unwrap()[(addr / (*(*sc).cfg).page_size) as usize]);
+}
+
+unsafe extern "C" fn extent_hard_evict(cc: *mut cache, addr: u64, type_: page_type) {
+}
+
+unsafe extern "C" fn page_get(
+    cc: *mut cache,
+    addr: u64,
+    blocking: bool_,
+    type_: page_type,
+) -> *mut page_handle {
+    // TODO duplicate code with page_alloc.
+    let sc = cc as *mut stubcache;
+    return &mut ((*sc).page_handles.as_mut().unwrap()[(addr / (*(*sc).cfg).page_size) as usize]);
+}
+
+unsafe extern "C" fn page_unget(cc: *mut cache, page: *mut page_handle) {
+}
+
+unsafe extern "C" fn page_claim(cc: *mut cache, page: *mut page_handle) -> bool_ {
+    true as bool_
+}
+
+unsafe extern "C" fn page_unclaim(cc: *mut cache, page: *mut page_handle) {
+}
+
+unsafe extern "C" fn page_lock(cc: *mut cache, page: *mut page_handle) {
+}
+
+unsafe extern "C" fn page_unlock(cc: *mut cache, page: *mut page_handle) {
+}
+
+unsafe extern "C" fn page_mark_dirty(cc: *mut cache, page: *mut page_handle) {
+}
+
+unsafe extern "C" fn page_pin(cc: *mut cache, page: *mut page_handle) {
+}
+
+unsafe extern "C" fn page_unpin(cc: *mut cache, page: *mut page_handle) {
+}
+
+unsafe extern "C" fn page_sync(cc: *mut cache, page: *mut page_handle, is_blocking: bool_, type_: page_type) {
+}
+
+unsafe extern "C" fn flush(cc: *mut cache) {
+}
+
+unsafe extern "C" fn validate_page(cc: *mut cache, page: *mut page_handle, addr: u64) {
+}
+
+unsafe extern "C" fn stubcache_get_allocator(
+    cc: *const cache,
+) -> *mut allocator {
+    let sc = cc as *mut stubcache;
+    return (*sc).al;
+}
+
+unsafe extern "C" fn stubcache_get_config(
+    cc: *const cache,
+) -> *mut cache_config {
+    let sc = cc as *mut stubcache;
+    return (*sc).cfg as *mut cache_config;
 }
 
 fn unimpl() {
@@ -83,29 +140,29 @@ fn unimpl() {
 }
 
 const stubcache_ops: cache_ops = cache_ops {
-    page_alloc: Some(stubcache_page_alloc),
+    page_alloc: Some(page_alloc),
 
-    extent_hard_evict: None,
-    page_get: None,
+    extent_hard_evict: Some(extent_hard_evict),
+    page_get: Some(page_get),
     page_get_async: None,
     page_async_done: None,
-    page_unget: None,
-    page_claim: None,
-    page_unclaim: None,
-    page_lock: None,
-    page_unlock: None,
+    page_unget: Some(page_unget),
+    page_claim: Some(page_claim),
+    page_unclaim: Some(page_unclaim),
+    page_lock: Some(page_lock),
+    page_unlock: Some(page_unlock),
     page_prefetch: None,
-    page_mark_dirty: None,
-    page_pin: None,
-    page_unpin: None,
-    page_sync: None,
+    page_mark_dirty: Some(page_mark_dirty),
+    page_pin: Some(page_pin),
+    page_unpin: Some(page_unpin),
+    page_sync: Some(page_sync),
     extent_sync: None,
-    flush: None,
+    flush: Some(flush),
     evict: None,
     cleanup: None,
     assert_ungot: None,
     assert_free: None,
-    validate_page: None,
+    validate_page: Some(validate_page),
     cache_present: None,
     print: None,
     print_stats: None,
@@ -114,8 +171,8 @@ const stubcache_ops: cache_ops = cache_ops {
     count_dirty: None,
     page_get_read_ref: None,
     enable_sync_get: None,
-    get_allocator: None,
-    get_config: None,
+    get_allocator: Some(stubcache_get_allocator),
+    get_config: Some(stubcache_get_config),
 };
 
 #[no_mangle]
@@ -128,12 +185,7 @@ pub unsafe extern "C" fn stubcache_init(
     sc.cfg = cfg;
     sc.al = al;
 
-    // platform_heap_id hid_0 = 0;
-    //let mut vph = Vec::<page_handle>::with_capacity(cfg.disk_capacity_pages as usize);
-    let mut vph:Vec::<page_handle> = Vec::new();
-    let mut bvph = Some(Box::new(vph));
-    sc.page_handles = bvph;
-    //sc.page_handles.set_len(cfg.disk_capacity_pages as usize);
+    sc.page_handles = Some(Vec::with_capacity(cfg.disk_capacity_pages as usize));
     sc.the_disk =
         libc::malloc(std::mem::size_of::<char>() * (*(sc.cfg)).disk_capacity_bytes as usize)
             as *mut i8;
