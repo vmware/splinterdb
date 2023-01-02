@@ -49,5 +49,5 @@ fn gen_export() {
 
 fn main() {
     gen_import();
-    //gen_export();
+    gen_export();
 }
