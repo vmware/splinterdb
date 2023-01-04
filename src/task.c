@@ -67,10 +67,10 @@ task_active_tasks_mask(task_system *ts)
 static threadid
 task_allocate_threadid(task_system *ts)
 {
-   threadid  tid        = INVALID_TID;
-   uint64   *tid_bitmask = task_system_get_tid_bitmask(ts);
-   uint64    old_bitmask;
-   uint64    new_bitmask;
+   threadid tid         = INVALID_TID;
+   uint64  *tid_bitmask = task_system_get_tid_bitmask(ts);
+   uint64   old_bitmask;
+   uint64   new_bitmask;
 
    do {
       old_bitmask = *tid_bitmask;
@@ -93,7 +93,7 @@ task_allocate_threadid(task_system *ts)
 
    // atomically update the max_tid.
    threadid *max_tid = task_system_get_max_tid(ts);
-   threadid tmp = *max_tid;
+   threadid  tmp     = *max_tid;
    while (tmp < tid && !__sync_bool_compare_and_swap(max_tid, tmp, tid)) {
       tmp = *max_tid;
    }

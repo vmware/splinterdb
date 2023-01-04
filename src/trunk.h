@@ -59,12 +59,12 @@ typedef struct trunk_config {
    uint64 max_kv_bytes_per_node;
    uint64 max_branches_per_node;
    uint64 hard_max_branches_per_node;
-   uint64 target_leaf_kv_bytes;      // make leaves this big when splitting
-   uint64 reclaim_threshold;         // start reclaming space when
-                                     // free space < threshold
-   uint64 queue_scale_percent; // Governs when inserters perform bg tasks.  See
-                               // task.h
-   bool            use_stats;        // stats
+   uint64 target_leaf_kv_bytes; // make leaves this big when splitting
+   uint64 reclaim_threshold;    // start reclaming space when
+                                // free space < threshold
+   uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
+                                // task.h
+   bool            use_stats;   // stats
    memtable_config mt_cfg;
    btree_config    btree_cfg;
    routing_config  filter_cfg;
