@@ -21,7 +21,13 @@ UNITDIR              = unit
 UNIT_TESTSDIR        = $(TESTS_DIR)/$(UNITDIR)
 EXAMPLES_DIR         = examples
 
-SRC := $(wildcard $(SRCDIR)/*.c $(SRCDIR)/platform*/*.c)
+# Define a recursive wildcard function to 'find' all files under a sub-dir
+# See https://stackoverflow.com/questions/2483182/recursive-wildcards-in-gnu-make/18258352#18258352
+define rwildcard =
+	$(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(subst *,%,$2),$d))
+endef
+
+SRC := $(call rwildcard, $(SRCDIR), *.c)
 
 # Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
 # These objects are shared between functional/ and unit/ test binaries.
