@@ -205,8 +205,8 @@ task_enqueue(task_system *ts,
  * perform a task in that group.  So, for example,
  * - A queue_scale_percent of 0 means always perform a task if one is
      waiting.
- * - A queue_scale_percent of 100 means perform a task if there are as
- *   many waiting tasks as there are background threads for that task
+ * - A queue_scale_percent of 100 means perform a task if there are
+ *   more waiting tasks than background threads for that task
  *   queue. (a reasonable default)
  * - A queue_scale_percent of UINT64_MAX means (essentially) to never
  *   perform any tasks on that queue unless the number of background

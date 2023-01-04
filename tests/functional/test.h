@@ -239,10 +239,11 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;
    num_bg_threads[TASK_TYPE_MEMTABLE]    = master_cfg->num_memtable_bg_threads;
-   task_system_config_init(task_cfg,
-                           master_cfg->use_stats,
-                           num_bg_threads,
-                           trunk_get_scratch_size());
+   platform_status rc                    = task_system_config_init(task_cfg,
+                                                master_cfg->use_stats,
+                                                num_bg_threads,
+                                                trunk_get_scratch_size());
+   platform_assert_status_ok(rc);
 
    trunk_config_init(splinter_cfg,
                      &cache_cfg->super,

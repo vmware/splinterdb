@@ -665,7 +665,9 @@ task_enqueue(task_system *ts,
 }
 
 /*
- * Run a task if the number of waiting tasks is at least min_backlog.
+ * Run a task if the number of waiting tasks is at least
+ * queue_scale_percent of the number of background threads for that
+ * group.
  */
 static platform_status
 task_group_perform_one(task_group *group, uint64 queue_scale_percent)
@@ -717,8 +719,8 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
 }
 
 /*
- * Perform a task only if there are more waiting tasks than bg
- * threads.
+ * Perform a task only if there are more waiting tasks than
+ * queue_scale_percent * num bg threads.
  */
 platform_status
 task_perform_one_if_needed(task_system *ts, uint64 queue_scale_percent)
@@ -801,10 +803,10 @@ task_perform_until_quiescent(task_system *ts)
  * Validate that the task system configuration is basically supportable.
  */
 static platform_status
-task_config_valid(const task_system_config *cfg)
+task_config_valid(const uint64 num_background_threads[NUM_TASK_TYPES])
 {
-   uint64 normal_bg_threads   = cfg->num_background_threads[TASK_TYPE_NORMAL];
-   uint64 memtable_bg_threads = cfg->num_background_threads[TASK_TYPE_MEMTABLE];
+   uint64 normal_bg_threads   = num_background_threads[TASK_TYPE_NORMAL];
+   uint64 memtable_bg_threads = num_background_threads[TASK_TYPE_MEMTABLE];
 
    if ((normal_bg_threads + memtable_bg_threads) >= MAX_THREADS) {
       platform_error_log("Total number of background threads configured"
@@ -824,13 +826,18 @@ task_system_config_init(task_system_config *task_cfg,
                         const uint64        num_bg_threads[NUM_TASK_TYPES],
                         uint64              scratch_size)
 {
+   platform_status rc = task_config_valid(num_bg_threads);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    task_cfg->use_stats    = use_stats;
    task_cfg->scratch_size = scratch_size;
 
    memcpy(task_cfg->num_background_threads,
           num_bg_threads,
           NUM_TASK_TYPES * sizeof(num_bg_threads[0]));
-   return task_config_valid(task_cfg);
+   return STATUS_OK;
 }
 
 /*
@@ -848,7 +855,7 @@ task_system_create(platform_heap_id          hid,
                    task_system             **system,
                    const task_system_config *cfg)
 {
-   platform_status rc = task_config_valid(cfg);
+   platform_status rc = task_config_valid(cfg->num_background_threads);
    if (!SUCCESS(rc)) {
       return rc;
    }

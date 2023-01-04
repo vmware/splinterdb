@@ -83,6 +83,45 @@ typedef struct {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
+
+   // The following parameter governs when foreground threads
+   // performing an update to the database will perform queued
+   // background tasks.  When a foreground thread performs a
+   // background task, the latency of that update can be very large,
+   // because some background tasks can take many milliseconds to
+   // execute.  However, if foreground threads never perform
+   // background tasks, then queues of background tasks may grow
+   // unboundedly if there are not enough background threads, and this
+   // may cause some processes, such as memtable rotation, to stall
+   // updates to the database.
+
+   // When queue_scale_percent is 0, then foreground threads will
+   // perform a background task whenever one is available.  This will
+   // result in high tail latencies for database updates, but will
+   // ensure that background task queues are always short.
+
+   // When queue_scale_percent is UINT64_MAX, then foreground threads
+   // will never perform background tasks unless there are no background
+   // threads allocated to that task group.  This will ensure that
+   // foreground tasks have low latency, but requires that you
+   // configure enough background threads to keep up with arriving
+   // background tasks.  Thus you should use this option only if you
+   // know how many background threads you need for each task type.
+
+   // The default value of 100 says that foreground threads will begin
+   // performing background tasks if there are more queued tasks than
+   // there are background threads to serve them. This heuristic
+   // allows you to configure the number of background threads as you
+   // see fit, and the system will do its best to execute tasks on the
+   // provided background threads, but will perform tasks on
+   // foreground threads if needed.
+
+   // Increasing this value (e.g. to 200, 300, etc), will cause more
+   // work to take place on background threads, but task queues may
+   // grow longer, causing some other parts of the system to stall.
+   // Decreasing this value (e.g. to 50, 25, 10, etc) will cause more
+   // work to be performed on foreground threads, increasing tail
+   // latencies.
    uint64 queue_scale_percent;
 
 } splinterdb_config;
