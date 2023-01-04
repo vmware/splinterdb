@@ -601,7 +601,7 @@ trunk_node_claim(cache *cc, trunk_node *node)
    while (!cache_claim(cc, node->page)) {
       uint64 addr = node->addr;
       trunk_node_unget(cc, node);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 2048 ? wait : 2 * wait;
       trunk_node_get(cc, addr, node);
    }
@@ -908,7 +908,7 @@ trunk_set_super_block(trunk_handle *spl,
    platform_assert_status_ok(rc);
    super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    while (!cache_claim(spl->cc, super_page)) {
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait *= 2;
    }
    wait = 1;
@@ -3380,7 +3380,7 @@ trunk_memtable_incorporate(trunk_handle  *spl,
       platform_status rc = trunk_flush_fullest(spl, &root);
       if (!SUCCESS(rc)) {
          trunk_node_unlock(spl->cc, &root);
-         platform_sleep(wait);
+         platform_sleep_ns(wait);
          wait = wait > 2048 ? 2048 : 2 * wait;
          trunk_node_lock(spl->cc, &root);
       }
@@ -3613,7 +3613,7 @@ trunk_node_get_claim_maybe_descend(trunk_handle             *spl,
          break;
       }
       trunk_node_unget(spl->cc, node);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 2048 ? wait : 2 * wait;
    }
 }

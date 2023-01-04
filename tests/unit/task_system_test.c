@@ -438,7 +438,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
 
    // Wait till 1st user-thread gets to its wait-for-stop loop
    while (!thread_cfg[0].waitfor_stop_signal) {
-      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+      platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
    }
    thread_cfg[1].tasks          = data->tasks;
    thread_cfg[1].exp_thread_idx = task_get_max_tid(data->tasks);
@@ -522,7 +522,7 @@ create_task_system_with_bg_threads(void  *datap,
    uint64   nbg_threads   = (num_memtable_bg_threads + num_normal_bg_threads);
    threadid max_thread_id = task_get_max_tid(data->tasks);
    while (max_thread_id < nbg_threads) {
-      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+      platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
       max_thread_id = task_get_max_tid(data->tasks);
    }
    return rc;
@@ -704,7 +704,7 @@ exec_one_of_n_threads(void *arg)
    // Test case is carefully constructed to fire-up n-threads. Wait for
    // them to all start-up.
    while (task_get_max_tid(thread_cfg->tasks) < MAX_THREADS) {
-      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+      platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
    }
 
    task_deregister_this_thread(thread_cfg->tasks);
@@ -746,7 +746,7 @@ exec_user_thread_loop_for_stop(void *arg)
    // for a notification to stop ourselves.
    thread_cfg->waitfor_stop_signal = TRUE;
    while (!thread_cfg->stop_thread) {
-      platform_sleep(USEC_TO_NSEC(100000)); // 100 msec.
+      platform_sleep_ns(USEC_TO_NSEC(100000)); // 100 msec.
    }
    CTEST_LOG_INFO("Last user thread ID=%lu, created on line=%d exiting ...\n",
                   this_threads_idx,

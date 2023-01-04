@@ -689,12 +689,14 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
 
    assigned_task = task_group_get_next_task(group);
 
-   /* It is important to update the current_executing_tasks while
-      holding the lock. The reason is that, if we release the lock
-      before updating current_executing_tasks, then another thread
-      might observe that both the number of enqueued tasks and the
-      number of executing tasks are both 0, and hence that the system
-      is quiescent, even though it is not. */
+   /*
+    * It is important to update the current_executing_tasks while
+    *  holding the lock. The reason is that, if we release the lock
+    *  before updating current_executing_tasks, then another thread
+    *  might observe that both the number of enqueued tasks and the
+    *  number of executing tasks are both 0, and hence that the system
+    *  is quiescent, even though it is not.
+    */
    if (assigned_task) {
       __sync_fetch_and_add(&group->current_executing_tasks, 1);
    }
@@ -780,13 +782,13 @@ cleanup:
 platform_status
 task_perform_until_quiescent(task_system *ts)
 {
-   int wait = 1;
+   uint64 wait = 1;
    while (!task_system_is_quiescent(ts)) {
       platform_status rc = task_perform_one(ts);
       if (SUCCESS(rc)) {
          wait = 1;
       } else if (STATUS_IS_EQ(rc, STATUS_TIMEDOUT)) {
-         platform_sleep(wait);
+         platform_sleep_ns(wait);
          wait = MIN(2 * wait, 1 << 16);
       } else {
          return rc;
@@ -942,7 +944,7 @@ task_wait_for_completion(task_system *ts)
                                  type);
             outstanding_tasks = group->current_waiting_tasks;
          }
-         platform_sleep(1000);
+         platform_sleep_ns(1000);
       }
    }
 }

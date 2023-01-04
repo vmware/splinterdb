@@ -390,7 +390,7 @@ ycsb_thread(void *arg)
 
    while (*params->threads_complete != params->total_threads) {
       trunk_perform_tasks(spl);
-      platform_sleep(2000);
+      platform_sleep_ns(2000);
    }
 
    if (__sync_fetch_and_add(params->threads_work_complete, 1)

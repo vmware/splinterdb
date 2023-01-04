@@ -198,7 +198,7 @@ test_trunk_insert_thread(void *arg)
                if (now <= next_check_time) {
                   num_inserts++;
                   if (num_inserts >= insert_rate) {
-                     platform_sleep(next_check_time - now);
+                     platform_sleep_ns(next_check_time - now);
                   }
                } else {
                   // reset and check again after 10 msec.

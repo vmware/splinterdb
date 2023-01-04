@@ -1898,7 +1898,7 @@ start_over:
    bool need_to_rebuild_spec = FALSE;
    while (!btree_node_claim(cc, cfg, &child_node)) {
       btree_node_unget(cc, cfg, &child_node);
-      platform_sleep(leaf_wait);
+      platform_sleep_ns(leaf_wait);
       leaf_wait = leaf_wait > 2048 ? leaf_wait : 2 * leaf_wait;
       btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
       need_to_rebuild_spec = TRUE;
