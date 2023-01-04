@@ -188,9 +188,6 @@ task_system_destroy(platform_heap_id hid, task_system **ts);
 void *
 task_system_get_thread_scratch(task_system *ts, threadid tid);
 
-bool
-task_system_use_bg_threads(task_system *ts);
-
 platform_status
 task_enqueue(task_system *ts,
              task_type    type,
@@ -199,19 +196,35 @@ task_enqueue(task_system *ts,
              bool         at_head);
 
 /*
+ * Possibly performs one background task if there is one waiting,
+ * based on the specified queue_scale_percent.  Otherwise returns
+ * immediately.  Returns STATUS_TIMEDOUT to indicate that it did not
+ * run any task.  STATUS_OK indicates that it did run a task.
+ * queue_scale_percent specifies how big the queue must be, relative
+ * to the number of background threads for that task group, for us to
+ * perform a task in that group.  So, for example,
+ * - A queue_scale_percent of 0 means always perform a task if one is
+     waiting.
+ * - A queue_scale_percent of 100 means perform a task if there are as
+ *   many waiting tasks as there are background threads for that task
+ *   queue. (a reasonable default)
+ * - A queue_scale_percent of UINT64_MAX means (essentially) to never
+ *   perform any tasks on that queue unless the number of background
+ *   threads for that queue is 0.
+ */
+platform_status
+task_perform_one_if_needed(task_system *ts, uint64 queue_scale_percent);
+
+/*
  * Performs one task if there is one waiting.  Otherwise returns
  * immediately.  Returns STATUS_TIMEDOUT to indicate that there was no
  * task to run.
  */
-platform_status
-task_perform_one(task_system *ts);
-
-/*
- * Like task_perform_one, except it only runs a task if the system
- * appears to be falling behind.
- */
-platform_status
-task_perform_one_if_needed(task_system *ts);
+static inline platform_status
+task_perform_one(task_system *ts)
+{
+   return task_perform_one_if_needed(ts, 0);
+}
 
 /*
  * task_perform_all() - Perform all tasks queued with the task system.
@@ -230,7 +243,7 @@ task_system_is_quiescent(task_system *ts);
  * background tasks. Once the system is quiescent, no new tasks will be
  * enqueued unless the application does so.
  */
-void
+platform_status
 task_perform_until_quiescent(task_system *ts);
 
 /*

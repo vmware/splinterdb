@@ -62,23 +62,22 @@ task_active_tasks_mask(task_system *ts)
 }
 
 /*
- * Allocate a threadid
+ * Allocate a threadid.  Returns INVALID_TID when no tid is available.
  */
 static threadid
-allocate_threadid(task_system *ts)
+task_allocate_threadid(task_system *ts)
 {
    threadid  tid        = INVALID_TID;
-   uint64   *tid_bitset = task_system_get_tid_bitmask(ts);
-   threadid *max_tid    = task_system_get_max_tid(ts);
-   uint64    old_bitset;
-   uint64    new_bitset;
+   uint64   *tid_bitmask = task_system_get_tid_bitmask(ts);
+   uint64    old_bitmask;
+   uint64    new_bitmask;
 
    do {
-      old_bitset = *tid_bitset;
+      old_bitmask = *tid_bitmask;
       // first bit set to 1 starting from LSB.
-      uint64 pos = __builtin_ffsl(old_bitset);
+      uint64 pos = __builtin_ffsl(old_bitmask);
 
-      // If all threads are in-use, bitset will be all 0s.
+      // If all threads are in-use, bitmask will be all 0s.
       if (pos == 0) {
          return INVALID_TID;
       }
@@ -86,12 +85,14 @@ allocate_threadid(task_system *ts)
       // builtin_ffsl returns the position plus 1.
       tid = pos - 1;
       // set bit at that position to 0, indicating in use.
-      new_bitset = (old_bitset & ~(1ULL << (pos - 1)));
-   } while (!__sync_bool_compare_and_swap(tid_bitset, old_bitset, new_bitset));
+      new_bitmask = (old_bitmask & ~(1ULL << (pos - 1)));
+   } while (
+      !__sync_bool_compare_and_swap(tid_bitmask, old_bitmask, new_bitmask));
 
    // Invariant: we have successfully allocated tid
 
    // atomically update the max_tid.
+   threadid *max_tid = task_system_get_max_tid(ts);
    threadid tmp = *max_tid;
    while (tmp < tid && !__sync_bool_compare_and_swap(max_tid, tmp, tid)) {
       tmp = *max_tid;
@@ -104,7 +105,7 @@ allocate_threadid(task_system *ts)
  * De-registering a task frees up the thread's index so that it can be re-used.
  */
 static void
-deallocate_threadid(task_system *ts, threadid tid)
+task_deallocate_threadid(task_system *ts, threadid tid)
 {
    uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
 
@@ -229,7 +230,7 @@ task_invoke_with_hooks(void *func_and_args)
                  thread_started->ts->thread_scratch[thread_started->tid]);
 
    platform_set_tid(INVALID_TID);
-   deallocate_threadid(thread_started->ts, thread_started->tid);
+   task_deallocate_threadid(thread_started->ts, thread_started->tid);
 
    platform_free(thread_started->heap_id, func_and_args);
 }
@@ -249,7 +250,7 @@ task_create_thread_with_hooks(platform_thread       *thread,
 {
    platform_status ret;
 
-   threadid newtid = allocate_threadid(ts);
+   threadid newtid = task_allocate_threadid(ts);
    if (newtid == INVALID_TID) {
       platform_error_log("Cannot create a new thread as the limit on"
                          " concurrent threads, %d, will be exceeded.\n",
@@ -291,7 +292,7 @@ free_thread:
 free_scratch:
    platform_free(ts->heap_id, ts->thread_scratch[newtid]);
 dealloc_tid:
-   deallocate_threadid(ts, newtid);
+   task_deallocate_threadid(ts, newtid);
    return ret;
 }
 
@@ -348,34 +349,34 @@ task_register_thread(task_system *ts,
 {
    threadid thread_tid;
 
-   debug_code(thread_tid = platform_get_tid());
-   debug_assert(
-      thread_tid == INVALID_TID,
-      "[%s:%d::%s()] Attempt to register already registered thread %lu\n",
-      file,
-      lineno,
-      func,
-      thread_tid);
+   thread_tid = platform_get_tid();
+   platform_assert(thread_tid == INVALID_TID,
+                   "[%s:%d::%s()] Attempt to register thread that is already "
+                   "registered as thread %lu\n",
+                   file,
+                   lineno,
+                   func,
+                   thread_tid);
 
-   thread_tid = allocate_threadid(ts);
+   thread_tid = task_allocate_threadid(ts);
    if (thread_tid == INVALID_TID) {
       return STATUS_NO_SPACE;
    }
-   platform_set_tid(thread_tid);
 
-   debug_assert(ts->thread_scratch[thread_tid] == NULL,
-                "Scratch space should not yet exist.");
+   platform_assert(ts->thread_scratch[thread_tid] == NULL,
+                   "Scratch space should not yet exist for tid %lu.",
+                   thread_tid);
 
    if (0 < scratch_size) {
       char *scratch = TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
       if (scratch == NULL) {
-         platform_set_tid(INVALID_TID);
-         deallocate_threadid(ts, thread_tid);
+         task_deallocate_threadid(ts, thread_tid);
          return STATUS_NO_MEMORY;
       }
       ts->thread_scratch[thread_tid] = scratch;
    }
 
+   platform_set_tid(thread_tid);
    task_run_thread_hooks(ts);
 
    return STATUS_OK;
@@ -396,8 +397,12 @@ task_deregister_thread(task_system *ts,
 {
    threadid tid = platform_get_tid();
 
-   debug_assert(tid != INVALID_TID,
-                "Error! Attempt to deregister unregistered thread.\n");
+   platform_assert(
+      tid != INVALID_TID,
+      "[%s:%d::%s()] Error! Attempt to deregister unregistered thread.\n",
+      file,
+      lineno,
+      func);
 
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
@@ -406,34 +411,48 @@ task_deregister_thread(task_system *ts,
    }
 
    platform_set_tid(INVALID_TID);
-   deallocate_threadid(ts, tid); // allow thread id to be re-used
+   task_deallocate_threadid(ts, tid); // allow thread id to be re-used
 }
 
 /****************************************
  * Background task management
  ****************************************/
 
+static inline platform_status
+task_group_lock(task_group *group)
+{
+   return platform_condvar_lock(&group->cv);
+}
+
+static inline platform_status
+task_group_unlock(task_group *group)
+{
+   return platform_condvar_unlock(&group->cv);
+}
+
 /* Caller must hold lock on the group. */
 static task *
-task_group_get_one_task(task_group *group)
+task_group_get_next_task(task_group *group)
 {
    task_queue *tq            = &group->tq;
    task       *assigned_task = NULL;
-   if (group->current_waiting_tasks != 0) {
-      platform_assert(tq->head != NULL);
-      platform_assert(tq->tail != NULL);
+   if (group->current_waiting_tasks == 0) {
+      return assigned_task;
+   }
 
-      uint64 outstanding_tasks =
-         __sync_fetch_and_sub(&group->current_waiting_tasks, 1);
-      platform_assert(outstanding_tasks != 0);
+   platform_assert(tq->head != NULL);
+   platform_assert(tq->tail != NULL);
 
-      assigned_task = tq->head;
-      tq->head      = tq->head->next;
-      if (tq->head == NULL) {
-         platform_assert(tq->tail == assigned_task);
-         tq->tail = NULL;
-         platform_assert(outstanding_tasks == 1);
-      }
+   uint64 outstanding_tasks =
+      __sync_fetch_and_sub(&group->current_waiting_tasks, 1);
+   platform_assert(outstanding_tasks != 0);
+
+   assigned_task = tq->head;
+   tq->head      = tq->head->next;
+   if (tq->head == NULL) {
+      platform_assert(tq->tail == assigned_task);
+      tq->tail = NULL;
+      platform_assert(outstanding_tasks == 1);
    }
 
    return assigned_task;
@@ -469,7 +488,6 @@ task_group_run_task(task_group *group, task *assigned_task)
       }
    }
 
-   platform_free(group->ts->heap_id, assigned_task);
    return STATUS_OK;
 }
 
@@ -485,21 +503,22 @@ task_worker_thread(void *arg)
 {
    task_group *group = (task_group *)arg;
 
-   platform_status rc = platform_condvar_lock(&group->cv);
+   platform_status rc = task_group_lock(group);
    platform_assert(SUCCESS(rc));
 
    while (group->bg.stop != TRUE) {
       /* Invariant: we hold the lock */
       task *task_to_run = NULL;
-      task_to_run       = task_group_get_one_task(group);
+      task_to_run       = task_group_get_next_task(group);
 
       if (task_to_run != NULL) {
          __sync_fetch_and_add(&group->current_executing_tasks, 1);
-         platform_condvar_unlock(&group->cv);
+         task_group_unlock(group);
          const threadid tid = platform_get_tid();
          group->stats[tid].total_bg_task_executions++;
          task_group_run_task(group, task_to_run);
-         rc = platform_condvar_lock(&group->cv);
+         platform_free(group->ts->heap_id, task_to_run);
+         rc = task_group_lock(group);
          platform_assert(SUCCESS(rc));
          __sync_fetch_and_sub(&group->current_executing_tasks, 1);
       } else {
@@ -508,7 +527,7 @@ task_worker_thread(void *arg)
       }
    }
 
-   platform_condvar_unlock(&group->cv);
+   task_group_unlock(group);
 }
 
 /*
@@ -517,18 +536,20 @@ task_worker_thread(void *arg)
 static void
 task_group_stop_and_wait_for_threads(task_group *group)
 {
-   platform_condvar_lock(&group->cv);
+   task_group_lock(group);
 
    platform_assert(group->tq.head == NULL);
    platform_assert(group->tq.tail == NULL);
-   platform_assert(group->current_waiting_tasks == 0);
+   platform_assert(group->current_waiting_tasks == 0,
+                   "Attempt to shut down task group with %lu waiting tasks",
+                   group->current_waiting_tasks);
 
    uint8 num_threads = group->bg.num_threads;
 
    // Inform the background thread that it's time to exit now.
    group->bg.stop = TRUE;
    platform_condvar_broadcast(&group->cv);
-   platform_condvar_unlock(&group->cv);
+   task_group_unlock(group);
 
    // Allow all background threads to wrap up their work.
    for (uint8 i = 0; i < num_threads; i++) {
@@ -606,7 +627,7 @@ task_enqueue(task_system *ts,
    task_queue     *tq    = &group->tq;
    platform_status rc;
 
-   rc = platform_condvar_lock(&group->cv);
+   rc = task_group_lock(group);
    if (!SUCCESS(rc)) {
       platform_free(ts->heap_id, new_task);
       return rc;
@@ -640,72 +661,69 @@ task_enqueue(task_system *ts,
       }
    }
    platform_condvar_signal(&group->cv);
-   return platform_condvar_unlock(&group->cv);
+   return task_group_unlock(group);
 }
 
+/*
+ * Run a task if the number of waiting tasks is at least min_backlog.
+ */
 static platform_status
-task_group_perform_one(task_group *group, uint64 min_backlog)
+task_group_perform_one(task_group *group, uint64 queue_scale_percent)
 {
    platform_status rc;
    task           *assigned_task = NULL;
-   if (group->current_waiting_tasks <= min_backlog) {
+
+   /* We do the queue size comparison in this round-about way to avoid
+      integer overflow. */
+   if (queue_scale_percent
+       && 100 * group->current_waiting_tasks / queue_scale_percent
+             < group->bg.num_threads)
+   {
       return STATUS_TIMEDOUT;
    }
 
-   platform_thread_cleanup_push((void (*)(void *))platform_condvar_unlock,
-                                &group->cv);
-   rc = platform_condvar_lock(&group->cv);
+   rc = task_group_lock(group);
    if (!SUCCESS(rc)) {
-      goto out;
+      return rc;
    }
 
-   assigned_task = task_group_get_one_task(group);
+   assigned_task = task_group_get_next_task(group);
 
-out:
+   /* It is important to update the current_executing_tasks while
+      holding the lock. The reason is that, if we release the lock
+      before updating current_executing_tasks, then another thread
+      might observe that both the number of enqueued tasks and the
+      number of executing tasks are both 0, and hence that the system
+      is quiescent, even though it is not. */
    if (assigned_task) {
       __sync_fetch_and_add(&group->current_executing_tasks, 1);
    }
 
-   platform_condvar_unlock(&group->cv);
-   platform_thread_cleanup_pop(0);
+   task_group_unlock(group);
 
    if (assigned_task) {
       const threadid tid = platform_get_tid();
       group->stats[tid].total_fg_task_executions++;
       task_group_run_task(group, assigned_task);
       __sync_fetch_and_sub(&group->current_executing_tasks, 1);
+      platform_free(group->ts->heap_id, assigned_task);
+   } else {
+      rc = STATUS_TIMEDOUT;
    }
 
    return rc;
 }
 
 /*
- * task_perform_one() - Checks if there is a task to run and runs it.
- * Returns ETIMEDOUT if it didn't run any task;
+ * Perform a task only if there are more waiting tasks than bg
+ * threads.
  */
 platform_status
-task_perform_one(task_system *ts)
+task_perform_one_if_needed(task_system *ts, uint64 queue_scale_percent)
 {
    platform_status rc = STATUS_OK;
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
-      rc = task_group_perform_one(&ts->group[type], 0);
-      /* STATUS_TIMEDOUT means no task was waiting. */
-      if (STATUS_IS_NE(rc, STATUS_TIMEDOUT)) {
-         return rc;
-      }
-   }
-   return rc;
-}
-
-platform_status
-task_perform_one_if_needed(task_system *ts)
-{
-   platform_status rc = STATUS_OK;
-   for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
-      /* Perform a task only if there are more waiting tasks than bg
-         threads. */
-      rc = task_group_perform_one(&ts->group[type],
-                                  ts->group[type].bg.num_threads);
+      rc = task_group_perform_one(&ts->group[type], queue_scale_percent);
       /* STATUS_TIMEDOUT means no task was waiting. */
       if (STATUS_IS_NE(rc, STATUS_TIMEDOUT)) {
          return rc;
@@ -733,7 +751,7 @@ task_system_is_quiescent(task_system *ts)
    bool            result = FALSE;
 
    for (ttlocked = TASK_TYPE_FIRST; ttlocked < NUM_TASK_TYPES; ttlocked++) {
-      rc = platform_condvar_lock(&ts->group[ttlocked].cv);
+      rc = task_group_lock(&ts->group[ttlocked]);
       if (!SUCCESS(rc)) {
          goto cleanup;
       }
@@ -752,39 +770,28 @@ task_system_is_quiescent(task_system *ts)
 
 cleanup:
    for (task_type tt = TASK_TYPE_FIRST; tt < ttlocked; tt++) {
-      rc = platform_condvar_unlock(&ts->group[tt].cv);
+      rc = task_group_unlock(&ts->group[tt]);
       debug_assert(SUCCESS(rc));
    }
 
    return result;
 }
 
-void
+platform_status
 task_perform_until_quiescent(task_system *ts)
 {
+   int wait = 1;
    while (!task_system_is_quiescent(ts)) {
-      task_perform_all(ts);
+      platform_status rc = task_perform_one(ts);
+      if (SUCCESS(rc)) {
+         wait = 1;
+      } else if (STATUS_IS_EQ(rc, STATUS_TIMEDOUT)) {
+         platform_sleep(wait);
+         wait = MIN(2 * wait, 1 << 16);
+      } else {
+         return rc;
+      }
    }
-}
-
-platform_status
-task_system_config_init(task_system_config *task_cfg,
-                        bool                use_stats,
-                        const uint64        num_bg_threads[NUM_TASK_TYPES],
-                        uint64              scratch_size)
-{
-   if ((num_bg_threads[TASK_TYPE_NORMAL] == 0)
-       != (num_bg_threads[TASK_TYPE_MEMTABLE] == 0))
-   {
-      return STATUS_BAD_PARAM;
-   }
-
-   task_cfg->use_stats    = use_stats;
-   task_cfg->scratch_size = scratch_size;
-
-   memcpy(task_cfg->num_background_threads,
-          num_bg_threads,
-          NUM_TASK_TYPES * sizeof(num_bg_threads[0]));
    return STATUS_OK;
 }
 
@@ -797,16 +804,6 @@ task_config_valid(const task_system_config *cfg)
    uint64 normal_bg_threads   = cfg->num_background_threads[TASK_TYPE_NORMAL];
    uint64 memtable_bg_threads = cfg->num_background_threads[TASK_TYPE_MEMTABLE];
 
-   if ((normal_bg_threads == 0) != (memtable_bg_threads == 0)) {
-      platform_error_log("Both configuration parameters for background "
-                         "threads, normal_bg_threads (%lu) "
-                         "and memtable_bg_threads (%lu) "
-                         "must be zero or be non-zero.\n",
-                         normal_bg_threads,
-                         memtable_bg_threads);
-      return STATUS_BAD_PARAM;
-   }
-
    if ((normal_bg_threads + memtable_bg_threads) >= MAX_THREADS) {
       platform_error_log("Total number of background threads configured"
                          ", normal_bg_threads=%lu, memtable_bg_threads=%lu, "
@@ -817,6 +814,21 @@ task_config_valid(const task_system_config *cfg)
       return STATUS_BAD_PARAM;
    }
    return STATUS_OK;
+}
+
+platform_status
+task_system_config_init(task_system_config *task_cfg,
+                        bool                use_stats,
+                        const uint64        num_bg_threads[NUM_TASK_TYPES],
+                        uint64              scratch_size)
+{
+   task_cfg->use_stats    = use_stats;
+   task_cfg->scratch_size = scratch_size;
+
+   memcpy(task_cfg->num_background_threads,
+          num_bg_threads,
+          NUM_TASK_TYPES * sizeof(num_bg_threads[0]));
+   return task_config_valid(task_cfg);
 }
 
 /*
@@ -882,14 +894,6 @@ task_system_create(platform_heap_id          hid,
                 *system);
    *system = ts;
    return STATUS_OK;
-}
-
-/* Is the task system currently setup to use background threads? */
-bool
-task_system_use_bg_threads(task_system *ts)
-{
-   return ts->cfg->num_background_threads[TASK_TYPE_NORMAL]
-          || ts->cfg->num_background_threads[TASK_TYPE_MEMTABLE];
 }
 
 /*

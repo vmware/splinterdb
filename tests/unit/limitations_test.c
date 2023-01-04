@@ -258,18 +258,11 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg);
 
-   // Both have to be 0, or both have to be set.
-   cfg.num_normal_bg_threads   = 0;
-   cfg.num_memtable_bg_threads = 1;
-
-   int rc = splinterdb_create(&cfg, &kvsb);
-   ASSERT_NOT_EQUAL(0, rc);
-
    // Cannot use up all possible threads for just bg-threads.
    cfg.num_normal_bg_threads   = (MAX_THREADS - 1);
    cfg.num_memtable_bg_threads = 1;
 
-   rc = splinterdb_create(&cfg, &kvsb);
+   int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_NOT_EQUAL(0, rc);
 }
 

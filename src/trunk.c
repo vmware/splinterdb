@@ -6174,9 +6174,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data)
       goto out;
    }
 
-   if (spl->cfg.perform_bg_tasks) {
-      task_perform_one_if_needed(spl->ts);
-   }
+   task_perform_one_if_needed(spl->ts, spl->cfg.queue_scale_percent);
 
    if (spl->cfg.use_stats) {
       switch (message_class(data)) {
@@ -7280,7 +7278,8 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
    }
 
    // finish any outstanding tasks and destroy task system for this table.
-   task_perform_until_quiescent(spl->ts);
+   platform_status rc = task_perform_until_quiescent(spl->ts);
+   platform_assert_status_ok(rc);
 
    // destroy memtable context (and its memtables)
    memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
@@ -8936,7 +8935,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   uint64               filter_remainder_size,
                   uint64               filter_index_size,
                   uint64               reclaim_threshold,
-                  bool                 perform_bg_tasks,
+                  uint64               queue_scale_percent,
                   bool                 use_log,
                   bool                 use_stats,
                   bool                 verbose_logging,
@@ -8957,7 +8956,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
    trunk_cfg->fanout                  = fanout;
    trunk_cfg->max_branches_per_node   = max_branches_per_node;
    trunk_cfg->reclaim_threshold       = reclaim_threshold;
-   trunk_cfg->perform_bg_tasks        = perform_bg_tasks;
+   trunk_cfg->queue_scale_percent     = queue_scale_percent;
    trunk_cfg->use_log                 = use_log;
    trunk_cfg->use_stats               = use_stats;
    trunk_cfg->verbose_logging_enabled = verbose_logging;

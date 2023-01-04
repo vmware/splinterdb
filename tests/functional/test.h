@@ -255,7 +255,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                      master_cfg->filter_remainder_size,
                      master_cfg->filter_index_size,
                      master_cfg->reclaim_threshold,
-                     master_cfg->perform_bg_tasks,
+                     master_cfg->queue_scale_percent,
                      master_cfg->use_log,
                      master_cfg->use_stats,
                      master_cfg->verbose_logging_enabled,

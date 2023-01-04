@@ -2852,8 +2852,10 @@ splinter_test(int argc, char *argv[])
          platform_assert(SUCCESS(rc));
          break;
       case parallel_perf:
-         platform_assert(max_async_inflight == 0
-                         || task_system_use_bg_threads(ts));
+         platform_assert(
+            max_async_inflight == 0
+            || (0 < task_cfg.num_background_threads[TASK_TYPE_MEMTABLE]
+                && 0 < task_cfg.num_background_threads[TASK_TYPE_NORMAL]));
          rc = test_splinter_parallel_perf(splinter_cfg,
                                           test_cfg,
                                           alp,

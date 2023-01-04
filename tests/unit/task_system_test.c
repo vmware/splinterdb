@@ -191,7 +191,6 @@ CTEST2(task_system, test_basic_create_destroy)
 {
    threadid main_thread_idx = platform_get_tid();
    ASSERT_EQUAL(main_thread_idx, 0);
-   ASSERT_FALSE(task_system_use_bg_threads(data->tasks));
 }
 
 /*
@@ -485,7 +484,7 @@ create_task_system_without_bg_threads(void *datap)
                                 TRUE, // use stats
                                 num_bg_threads,
                                 trunk_get_scratch_size());
-   platform_assert(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(rc));
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
    return rc;
 }
@@ -512,7 +511,7 @@ create_task_system_with_bg_threads(void  *datap,
                                 TRUE, // use stats
                                 num_bg_threads,
                                 trunk_get_scratch_size());
-   platform_assert(SUCCESS(rc));
+   ASSERT_TRUE(SUCCESS(rc));
 
    rc = task_system_create(data->hid, data->ioh, &data->tasks, &data->task_cfg);
    if (!SUCCESS(rc)) {

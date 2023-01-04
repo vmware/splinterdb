@@ -83,7 +83,7 @@ typedef struct {
    uint64 max_branches_per_node;
    uint64 use_stats;
    uint64 reclaim_threshold;
-   bool   perform_bg_tasks;
+   uint64 queue_scale_percent;
 
 } splinterdb_config;
 

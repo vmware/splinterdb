@@ -192,7 +192,8 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
    num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
    num_bg_threads[TASK_TYPE_NORMAL]      = kvs_cfg->num_normal_bg_threads;
-   rc                                    = task_system_config_init(
+
+   rc = task_system_config_init(
       &kvs->task_cfg, cfg.use_stats, num_bg_threads, trunk_get_scratch_size());
    if (!SUCCESS(rc)) {
       return rc;
@@ -209,7 +210,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                      cfg.filter_remainder_size,
                      cfg.filter_index_size,
                      cfg.reclaim_threshold,
-                     cfg.perform_bg_tasks,
+                     cfg.queue_scale_percent,
                      cfg.use_log,
                      cfg.use_stats,
                      FALSE,
