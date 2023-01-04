@@ -1463,7 +1463,7 @@ int
 btree_test(int argc, char *argv[])
 {
    io_config              io_cfg;
-   rc_allocator_config    al_cfg;
+   allocator_config       al_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
    int                    config_argc;
