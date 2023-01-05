@@ -64,7 +64,9 @@ void config_usage()
    platform_error_log("\t--libaio-queue-depth\n");
    platform_error_log("\t--cache-file\n");
    platform_error_log("\t--pmem-cache-capacity-gib\n");
+   platform_error_log("\t--pmem-cache-capacity-mib\n");
    platform_error_log("\t--dram-cache-capacity-gib\n");
+   platform_error_log("\t--dram-cache-capacity-mib\n");
    platform_error_log("\t--log-checkpoint-interval\n");
    platform_error_log("\t--cache-debug-log\n");
    platform_error_log("\t--memtable-capacity-gib\n");
@@ -137,7 +139,9 @@ config_parse(master_config *cfg,
       }
       config_set_uint64("libaio-queue-depth", cfg, io_async_queue_depth) {}
       config_set_gib("pmem-cache-capacity", cfg, pmem_cache_capacity) {}
+      config_set_mib("pmem-cache-capacity", cfg, pmem_cache_capacity) {}
       config_set_gib("dram-cache-capacity", cfg, dram_cache_capacity) {}
+      config_set_mib("dram-cache-capacity", cfg, dram_cache_capacity) {}
       config_set_string("cache-debug-log", cfg, cache_logfile) {}
       config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
       config_set_gib("memtable-capacity", cfg, memtable_capacity) {}

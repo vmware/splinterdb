@@ -12,13 +12,13 @@ typedef void (*task_hook) (task_system *arg);
 typedef void (*task_fn)(void *arg, void *scratch);
 
 typedef struct thread_task {
+   // task system, used for running hook function and thread lookups.
+   task_system     *ts;
+   platform_heap_id heap_id;
+   threadid         tid;
+
    platform_thread_worker  func;
    void                   *arg;
-   // scratch memory for use by task dispatch functions
-   void                   *scratch;
-   // task system, used for running hook function and thread lookups.
-   task_system            *ts;
-   platform_heap_id        heap_id;
 } thread_task;
 
 typedef struct task {
@@ -95,8 +95,7 @@ typedef enum task_type {
  */
 
 struct task_system {
-   // array of threads for this system.
-   thread_task        *thread_tasks[MAX_THREADS];
+   void *scratches[MAX_THREADS];
    // IO handle (currently one splinter system has just one)
    platform_io_handle *ioh;
    /*
@@ -115,11 +114,6 @@ struct task_system {
 
    // scratch memory for the init thread.
    uint64             scratch_size;
-   thread_task        init_thread_task;
-   threadid           init_tid;
-   // FIXME: [aconway 2020-09-14] maybe just alloc this separately?
-   //                             or just platform_cacheline_aligned?
-   char               init_task_scratch[];
 };
 
 platform_status

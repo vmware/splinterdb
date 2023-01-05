@@ -66,6 +66,7 @@
 #define ARRAY_SIZE(x) ASSERT_EXPR(IS_ARRAY(x), (sizeof(x)/sizeof((x)[0])))
 
 #define MAX_THREADS (64)
+#define INVALID_TID (MAX_THREADS)
 
 #define MAX_LOCKS (64)
 

@@ -176,6 +176,7 @@ static inline void
 platform_set_tid(threadid t)
 {
    extern __thread threadid xxxtid;
+   platform_assert((xxxtid == INVALID_TID) != (t == INVALID_TID));
    xxxtid = t;
 }
 

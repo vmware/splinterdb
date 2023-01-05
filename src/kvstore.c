@@ -204,7 +204,7 @@ kvstore_init(const kvstore_config *kvs_cfg, // IN
                                TRUE,
                                FALSE,
                                num_bg_threads,
-                               0);
+                               splinter_get_scratch_size());
    if (!SUCCESS(status)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(status));

@@ -12,8 +12,6 @@ int hook_init_done = 0;
 static int num_hooks = 0;
 static task_hook hooks[MAX_HOOKS];
 
-#define INVALID_TID (MAX_THREADS)
-
 void
 task_init_tid_bitmask(uint64 *tid_bitmask)
 {
@@ -29,8 +27,8 @@ task_init_tid_bitmask(uint64 *tid_bitmask)
 
 }
 
-static void
-init_threadid(task_system *ts)
+static threadid
+allocate_threadid(task_system *ts)
 {
    threadid tid = INVALID_TID;
    uint64 *tid_bitmask = task_system_get_tid_bitmask(ts);
@@ -57,7 +55,7 @@ init_threadid(task_system *ts)
 
 out:
    debug_assert(tid != INVALID_TID);
-   platform_set_tid(tid);
+   return tid;
 }
 
 threadid
@@ -82,7 +80,6 @@ register_init_tid_hook(void)
 {
    // hooks need to be initialized only once.
    if (__sync_fetch_and_add(&hook_init_done, 1) == 0) {
-      task_register_hook(init_threadid);
       task_register_hook(task_system_io_register_thread);
    }
 }
@@ -93,17 +90,6 @@ task_run_thread_hooks(task_system *ts)
    for (int i = 0; i < num_hooks; i++) {
       hooks[i](ts);
    }
-}
-
-void
-task_init_thread_task(task_system *ts,
-                      const threadid tid,
-                      thread_task *task,
-                      void *task_scratch)
-{
-   thread_task **thread_lookup = task_system_get_system_threads(ts);
-   thread_lookup[tid] = task;
-   task->scratch = task_scratch;
 }
 
 bool
@@ -149,13 +135,20 @@ task_start_thread_with_hooks(void *func_and_args)
    void *arg = thread_to_start->arg;
    task_system *ts = thread_to_start->ts;
 
-   thread_task **thread_lookup = task_system_get_system_threads(ts);
+   threadid tid = thread_to_start->tid;
+   platform_set_tid(tid);
 
    for (int i = 0; i < num_hooks; i++)
       hooks[i](ts);
 
-   thread_lookup[platform_get_tid()] = thread_to_start;
    func(arg);
+
+   if (ts->scratches[tid]) {
+      platform_free(ts->heap_id, ts->scratches[tid]);
+      ts->scratches[tid] = NULL;
+   }
+   platform_set_tid(INVALID_TID);
+   task_clear_threadid(ts, tid);
    platform_free(thread_to_start->heap_id, func_and_args);
 }
 
@@ -169,29 +162,47 @@ task_create_thread_with_hooks(platform_thread        *thread,
                               platform_heap_id        hid)
 {
    platform_status ret;
-   thread_task *thread_to_create =
-      TYPED_ZALLOC_MANUAL(hid, thread_to_create,
-                          sizeof(*thread_to_create) + scratch_size);
+   thread_task    *thread_to_create = TYPED_ZALLOC(hid, thread_to_create);
    if (thread_to_create == NULL) {
       return STATUS_NO_MEMORY;
    }
 
-   thread_to_create->func = func;
-   thread_to_create->arg = arg;
-   thread_to_create->heap_id = hid;
+   threadid tid = allocate_threadid(ts);
+   if (tid == INVALID_TID) {
+      ret = STATUS_LIMIT_EXCEEDED;
+      goto free_thread;
+   }
+
+   platform_assert(ts->scratches[tid] == NULL);
    if (scratch_size > 0) {
-      thread_to_create->scratch = (void *)(thread_to_create + 1);
-   } else {
-      thread_to_create->scratch = NULL;
+      ts->scratches[tid] =
+         TYPED_ARRAY_MALLOC(hid, ts->scratches[tid], scratch_size);
+      if (ts->scratches[tid] == NULL) {
+         ret = STATUS_NO_MEMORY;
+         goto dealloc_tid;
+      }
    }
 
-   thread_to_create->ts = ts;
-   ret = platform_thread_create(thread, detached, task_start_thread_with_hooks,
-                                thread_to_create, hid);
+   thread_to_create->ts      = ts;
+   thread_to_create->heap_id = hid;
+   thread_to_create->tid     = tid;
+   thread_to_create->func    = func;
+   thread_to_create->arg     = arg;
+
+   ret = platform_thread_create(
+      thread, detached, task_start_thread_with_hooks, thread_to_create, hid);
    if (!SUCCESS(ret)) {
-      platform_free(hid, thread_to_create);
+      goto free_scratch;
    }
 
+   return ret;
+
+free_scratch:
+   platform_free(hid, ts->scratches[tid]);
+dealloc_tid:
+   task_clear_threadid(ts, tid);
+free_thread:
+   platform_free(hid, thread_to_create);
    return ret;
 }
 
@@ -576,8 +587,7 @@ task_system_create(platform_heap_id     hid,
                    uint8                num_bg_threads[NUM_TASK_TYPES],
                    uint64               scratch_size)
 {
-   task_system *ts = TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ts, init_task_scratch,
-         scratch_size);
+   task_system *ts = TYPED_ZALLOC(hid, ts);
 
    if (ts == NULL) {
       *system = NULL;
@@ -585,8 +595,16 @@ task_system_create(platform_heap_id     hid,
    }
    ts->ioh = ioh;
    task_init_tid_bitmask(&ts->tid_bitmask);
+
+   // FIXME: [aconway 2020-09-14] need to move above group_init
+   ts->use_bg_threads = use_bg_threads;
+   ts->heap_id        = hid;
+   ts->scratch_size   = scratch_size;
+
    // task initialization
    register_init_tid_hook();
+
+   task_system_register_thread(ts);
 
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
       platform_status rc = task_group_init(&ts->group[type], ts,
@@ -598,22 +616,6 @@ task_system_create(platform_heap_id     hid,
       }
    }
 
-   // FIXME: [aconway 2020-09-14] need to move above group_init
-   ts->use_bg_threads = use_bg_threads;
-   ts->heap_id = hid;
-   ts->scratch_size = scratch_size;
-   ts->init_tid = INVALID_TID;
-
-   /*
-    * FIXME: [srangaswamy 2020-06-30]
-    * The thread doing init doesn't have a dependency to be registered with
-    * tid. The deinit/unmount has dependency on cache operations it may have to
-    * perform. The tests all do init and deinit from the same thread, so this
-    * register is implicity satisfying the deinit dependency. It would be
-    * better to make that requirement explicit and have callers register.
-    * It would be nice to get rid of the register dependency for init/deinit.
-    */
-   task_system_register_thread(ts);
    *system = ts;
    return STATUS_OK;
 }
@@ -622,12 +624,6 @@ bool
 task_system_use_bg_threads(task_system *ts)
 {
    return ts->use_bg_threads;
-}
-
-thread_task **
-task_system_get_system_threads(task_system *ts)
-{
-   return ts->thread_tasks;
 }
 
 void
@@ -639,12 +635,19 @@ task_system_io_register_thread(task_system *ts)
 void
 task_system_register_thread(task_system *ts)
 {
+   platform_assert(platform_get_tid() == INVALID_TID);
+   threadid tid = allocate_threadid(ts);
+   platform_assert(tid != INVALID_TID);
+   platform_set_tid(tid);
+
+   platform_assert(ts->scratches[tid] == NULL);
+   if (ts->scratch_size) {
+      ts->scratches[tid] =
+         TYPED_ARRAY_ZALLOC(ts->heap_id, ts->scratches[tid], ts->scratch_size);
+      platform_assert(ts->scratches[tid] != NULL);
+   }
+
    task_run_thread_hooks(ts);
-   const threadid tid = platform_get_tid();
-   // Only register init thread
-   platform_assert(ts->init_tid == INVALID_TID);
-   task_init_thread_task(ts, tid, &ts->init_thread_task,
-                         ts->init_task_scratch);
 }
 
 void
@@ -672,8 +675,7 @@ void *
 task_system_get_thread_scratch(task_system    *ts,
                                const threadid  tid)
 {
-   thread_task *thread = task_system_get_system_threads(ts)[tid];
-   return thread->scratch;
+   return ts->scratches[tid];
 }
 
 void

@@ -9,7 +9,7 @@ DRIVER="${DRIVER:-"${BINDIR:-bin}/driver_test"}"
 
 "$DRIVER" splinter_test --functionality 1000000 100 --seed "$SEED"
 
-"$DRIVER" splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 0 --tree-size-gib 2 --cache-capacity-mib 512
+"$DRIVER" splinter_test --perf --max-async-inflight 0 --num-insert-threads 4 --num-lookup-threads 4 --num-range-lookup-threads 0 --tree-size-gib 2 --dram-cache-capacity-mib 512
 
 "$DRIVER" cache_test --seed "$SEED"
 

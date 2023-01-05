@@ -82,7 +82,8 @@ io_handle_init(laio_handle          *io,
       req = laio_get_kth_req(io, i);
       req->iocb_p = &req->iocb;
       req->number = i;
-      req->busy = FALSE;
+      req->busy   = FALSE;
+      req->count  = 0;
       for (j = 0; j < cfg->async_max_pages; j++)
          req->iovec[j].iov_len = cfg->page_size;
    }
@@ -271,7 +272,7 @@ laio_cleanup(io_handle *ioh,
              uint64     count)
 {
    laio_handle *io;
-   struct io_event event;
+   struct io_event event = {0};
    uint64 i;
    int status;
 
