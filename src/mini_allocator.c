@@ -352,7 +352,7 @@ static uint64
 mini_num_entries(page_handle *meta_page)
 {
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
-   return hdr->num_entries;
+   return (uint64)hdr->num_entries;
 }
 
 /*

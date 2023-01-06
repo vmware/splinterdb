@@ -54,8 +54,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * structures sized by these limits can fit within 4K byte pages.
  *
  * NOTE: The bundle and sub-bundle related limits below are used to size arrays
- * of structures in splinter_trunk_hdr{}; i.e. Splinter pages of type
- * PAGE_TYPE_TRUNK. So these constants do affect disk-resident structures.
+ * of structures in trunk_hdr{}; i.e. Splinter pages of type PAGE_TYPE_TRUNK.
+ * So these constants do affect disk-resident structures.
  */
 #define TRUNK_MAX_PIVOTS            (20)
 #define TRUNK_MAX_BUNDLES           (12)
@@ -105,6 +105,19 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * If verbose_logging_enabled is enabled in trunk_config, these functions print
  * to cfg->log_handle.
  */
+void
+trunk_enable_verbose_logging(trunk_handle *spl, platform_log_handle *log_handle)
+{
+   spl->cfg.verbose_logging_enabled = TRUE;
+   spl->cfg.log_handle              = log_handle;
+}
+
+void
+trunk_disable_verbose_logging(trunk_handle *spl)
+{
+   spl->cfg.verbose_logging_enabled = FALSE;
+   spl->cfg.log_handle              = NULL;
+}
 
 static inline bool
 trunk_verbose_logging_enabled(trunk_handle *spl)
@@ -143,15 +156,19 @@ trunk_close_log_stream_if_enabled(trunk_handle           *spl,
 #define trunk_log_stream_if_enabled(spl, _stream, message, ...)                \
    do {                                                                        \
       if (trunk_verbose_logging_enabled(spl)) {                                \
-         platform_log_stream(                                                  \
-            (_stream), "[%3lu] " message, platform_get_tid(), ##__VA_ARGS__);  \
+         platform_log_stream((_stream),                                        \
+                             "trunk_log():%d [%lu] " message,                  \
+                             __LINE__,                                         \
+                             platform_get_tid(),                               \
+                             ##__VA_ARGS__);                                   \
       }                                                                        \
    } while (0)
 
 #define trunk_default_log_if_enabled(spl, message, ...)                        \
    do {                                                                        \
       if (trunk_verbose_logging_enabled(spl)) {                                \
-         platform_default_log(message, __VA_ARGS__);                           \
+         platform_default_log(                                                 \
+            "trunk_log():%d " message, __LINE__, __VA_ARGS__);                 \
       }                                                                        \
    } while (0)
 
@@ -355,7 +372,7 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *       Array of bundles
  *          When a collection of branches are flushed into a node, they are
  *          organized into a bundle. This bundle will be compacted into a
- *          single branch by a call to trunk_compact_bundle. Bundles are
+ *          single branch by a call to trunk_compact_bundle(). Bundles are
  *          implemented as a collection of subbundles, each of which covers a
  *          range of branches.
  *       ----------
@@ -548,7 +565,7 @@ typedef struct ONDISK trunk_hdr {
  *
  * A trunk_pivot_data struct consists of the trunk_pivot_data header
  * followed by cfg.max_key_size bytes of space for the pivot key.  An
- * array of trunk_pivot_datas appears on trunk pages, following the
+ * array of trunk_pivot_data{}s appears on trunk pages, following the
  * end of struct trunk_hdr{}. This array is sized by configured
  * max_pivot_keys hard-limit.
  *
@@ -7918,6 +7935,7 @@ trunk_print_locked_node(platform_log_handle *log_handle,
                         trunk_node          *node)
 {
    uint16 height = trunk_height(node);
+   platform_log(log_handle, "{\n");
    // clang-format off
    platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                            |\n");
@@ -8115,7 +8133,7 @@ trunk_print_node(platform_log_handle *log_handle,
  * trunk_print_subtree() --
  *
  * Print the Trunk node at given 'addr'. Iterate down to all its children and
- * print each sub-tree.
+ * print each sub-tree in the trunk tree.
  */
 void
 trunk_print_subtree(platform_log_handle *log_handle,
@@ -8127,7 +8145,14 @@ trunk_print_subtree(platform_log_handle *log_handle,
    trunk_node_get(spl->cc, addr, &node);
 
    if (trunk_is_index(&node)) {
-      for (uint32 i = 0; i < trunk_num_children(spl, &node); i++) {
+      uint64 num_children = trunk_num_children(spl, &node);
+      platform_log(log_handle,
+                   "Print sub-trees for %lu child nodes off "
+                   "trunk node addr=%lu\n",
+                   num_children,
+                   addr);
+
+      for (uint32 i = 0; i < num_children; i++) {
          trunk_pivot_data *data = trunk_get_pivot_data(spl, &node, i);
          trunk_print_subtree(log_handle, spl, data->addr);
       }
@@ -8150,7 +8175,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
    platform_log(log_handle, "&&  MEMTABLES \n");
    platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
-   platform_log(log_handle, "-------------------\n");
+   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n{\n");
 
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
@@ -8165,7 +8190,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
 
       memtable_print(log_handle, spl->cc, mt);
    }
-   platform_log(log_handle, "\n");
+   platform_log(log_handle, "\n}\n");
 }
 
 /*
@@ -8177,8 +8202,84 @@ void
 trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
 {
    trunk_print_memtable(log_handle, spl);
+
+   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
+   platform_log(log_handle, "&&  TRUNK ROOT node=%lu \n", spl->root_addr);
+   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n{\n");
+
    trunk_print_subtree(log_handle, spl, spl->root_addr);
+
+   platform_log(log_handle, "\n} // End TRUNK ROOT node=%lu\n", spl->root_addr);
 }
+
+/*
+ * Print meta-page's linked list for one routing filter at address 'meta_head'.
+ */
+void
+trunk_print_filter_metapage_list(platform_log_handle *log_handle,
+                                 trunk_handle        *spl,
+                                 uint64               meta_head)
+{
+   platform_log(log_handle,
+                "Filter Metadata page starting from meta_head=%lu\n{\n",
+                meta_head);
+   mini_unkeyed_print(spl->cc, meta_head, PAGE_TYPE_FILTER);
+   platform_log(log_handle, "}\n");
+}
+
+void
+trunk_print_one_pivots_filter_metapages(platform_log_handle *log_handle,
+                                        trunk_handle        *spl,
+                                        trunk_node          *node,
+                                        uint16               pivot_no)
+{
+   // Last pivot does not have any filter metadata pages for it.
+   if (pivot_no == (trunk_num_pivot_keys(spl, node) - 1)) {
+      return;
+   }
+
+   key               pivot = trunk_get_pivot(spl, node, pivot_no);
+   trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
+   platform_log(log_handle,
+                "\nPivot no=%u, filter addr=%lu, filter meta_head=%lu "
+                "key='%s'\n",
+                pivot_no,
+                pdata->filter.addr,
+                pdata->filter.meta_head,
+                key_string(spl->cfg.data_cfg, pivot));
+
+   trunk_print_filter_metapage_list(log_handle, spl, pdata->filter.meta_head);
+}
+
+/* Print filter's metadata pages for given node at address 'node_addr' */
+void
+trunk_print_nodes_filter_metapages(platform_log_handle *log_handle,
+                                   trunk_handle        *spl,
+                                   uint64               node_addr)
+{
+   trunk_node node;
+   trunk_node_get(spl->cc, node_addr, &node);
+
+   uint64 num_pivots = trunk_num_pivot_keys(spl, &node);
+   platform_log(log_handle,
+                "Print filter metadata page chains for "
+                "%lu pivots for page addr=%lu\n",
+                num_pivots,
+                node_addr);
+   for (uint16 pivot_no = 0; pivot_no < num_pivots; pivot_no++) {
+      trunk_print_one_pivots_filter_metapages(log_handle, spl, &node, pivot_no);
+   }
+
+   trunk_node_unget(spl->cc, &node);
+}
+
+void
+trunk_print_root_nodes_filter_metapages(platform_log_handle *log_handle,
+                                        trunk_handle        *spl)
+{
+   trunk_print_nodes_filter_metapages(log_handle, spl, spl->root_addr);
+}
+
 
 /*
  * trunk_print_super_block()
