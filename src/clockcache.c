@@ -3576,8 +3576,8 @@ clockcache_unlock(clockcache  *cache,
 
    ctx_unlock(clockcache_get_context(cc));
 
-   clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
 #ifdef PMEM_COW
+   clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
    if(cc->persistent_cache == NULL){
       if (new_entry->old_entry_no != CC_UNMAPPED_ENTRY) {
       //if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){
@@ -3592,6 +3592,11 @@ clockcache_unlock(clockcache  *cache,
 #endif
 
 #ifndef LOG_CHECKPOINT
+
+#ifndef PMEM_COW
+   clockcache_entry *new_entry = clockcache_page_to_entry(cc, *page);
+#endif
+
    if(cc->persistent_cache != NULL){
       //if(new_entry->type != PAGE_TYPE_MEMTABLE){
       //if((new_entry->type != PAGE_TYPE_MEMTABLE)&&(new_entry->type != PAGE_TYPE_LOG)){	   
