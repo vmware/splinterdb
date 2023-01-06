@@ -59,25 +59,41 @@ for B in $BENCHMARKS; do
         for T in $THREADS; do
                 for I in `seq 0 4`; do
                     	rm -rf ${MOUNT_POINT}/*
-			                rm splinterdb.db
-			                if [ $W == load ]; then
-			                    if [ $B == SplinterDB ]; then
-			                        ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
-					                            -dram_cache_size_mb 1024 >&data.log
-			                    else
-			                        ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
-					                            -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
-				       	                      -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
-		    	                fi
-                          RATE=`cat data.log | grep 'workloads/load.spec' | awk '{ print $4 }'`
-			                else
-			                    ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
-				                          -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024 \
-				                          -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
-                          RATE=`cat data.log | grep 'workloads/workload' | awk '{ print $4 }'`
-			                fi
-
-                      echo "${B},${W},${T},${I},${RATE}">> result.csv
+			            rm splinterdb.db
+			            if [ $W == load ]; then
+			               if [ $B == SplinterDB ]; then
+			                  ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
+					               -dram_cache_size_mb 1024 >&data.log
+			               elif [ $B == SplinterDB-withLog ]; then
+			                  ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
+					               -pmem_cache_size_mb 4096 \
+                         -dram_cache_size_mb 1024\
+					               -cache_log_checkpoint_interval 10000\
+				       	         -pmem_cache_file ${MOUNT_POINT}/pmemcache \
+                         >&data.log
+			               else
+                           ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
+                              -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
+                              -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+		                  fi
+                        RATE=`cat data.log | grep 'workloads/load.spec' | awk '{ print $4 }'`
+			            else
+			               if [ $B == SplinterDB ]; then
+                           ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+                               -dram_cache_size_mb 1024 >&data.log
+                        elif [ $B == SplinterDB-withLog ]; then
+                           ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+                              -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
+                              -cache_log_checkpoint_interval 10000\
+                              -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+                        else
+			                  ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+				                  -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024 \
+				                  -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+			               fi
+                        RATE=`cat data.log | grep 'workloads/workload' | awk '{ print $4 }'`
+			            fi
+                     echo "${B},${W},${T},${I},${RATE}">> result.csv
                 done
         done
     done
