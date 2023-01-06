@@ -164,7 +164,8 @@ mini_full_lock_meta_tail(mini_allocator *mini)
    while (1) {
       uint64 meta_tail = mini->meta_tail;
       meta_page        = cache_get(mini->cc, meta_tail, TRUE, mini->type);
-      if (meta_tail == mini->meta_tail && cache_try_claim(mini->cc, meta_page)) {
+      if (meta_tail == mini->meta_tail && cache_try_claim(mini->cc, meta_page))
+      {
          break;
       }
       cache_unget(mini->cc, meta_page);
