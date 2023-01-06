@@ -322,7 +322,7 @@ CTEST2(task_system, test_one_thread_using_extern_apis)
  * Background threads are off, by default.
  * ------------------------------------------------------------------------
  */
-CTEST2(task_system, test_multiple_threads)
+CTEST2(task_system, test_max_threads_using_lower_apis)
 {
    platform_thread new_thread;
    thread_config   thread_cfg[MAX_THREADS];
@@ -399,7 +399,7 @@ CTEST2(task_system, test_task_system_creation_with_bg_threads)
 /*
  * ------------------------------------------------------------------------
  * Test creation of task system using up the threads for background threads.
- * Verify ththe we can create just one more user-thread and that the next
+ * Verify that we can create just one more user-thread and that the next
  * user-thread creation should fail with a proper error message.
  * ------------------------------------------------------------------------
  */
@@ -410,7 +410,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
    // Destroy the task system setup by the harness, by default, w/o bg threads.
    task_system_destroy(data->hid, &data->tasks);
 
-   // Consume all available threads with background threads.
+   // Consume all-but-one available threads with background threads.
    rc = create_task_system_with_bg_threads(data, 1, (MAX_THREADS - 3));
    ASSERT_TRUE(SUCCESS(rc));
 
@@ -692,6 +692,9 @@ exec_one_of_n_threads(void *arg)
 {
    thread_config *thread_cfg = (thread_config *)arg;
 
+   // Before registration, thread ID should be in an uninit'ed state
+   ASSERT_EQUAL(INVALID_TID, platform_get_tid());
+
    task_register_this_thread(thread_cfg->tasks, trunk_get_scratch_size());
 
    threadid this_threads_index = platform_get_tid();
@@ -710,15 +713,14 @@ exec_one_of_n_threads(void *arg)
    task_deregister_this_thread(thread_cfg->tasks);
 
    // Register / de-register of thread with SplinterDB's task system is just
-   // SplinterDB's jugglery to keep track of resources. get_tid() should still
-   // remain the expected index into the threads[] array.
+   // SplinterDB's jugglery to keep track of resources. Deregistration should
+   // have re-init'ed the thread ID.
    threadid get_tid_after_deregister = platform_get_tid();
    ASSERT_EQUAL(INVALID_TID,
                 get_tid_after_deregister,
-                "get_tid_after_deregister=%lu is != the index into"
-                " thread array, %lu ",
+                "get_tid_after_deregister=%lu should be an invalid tid, %lu",
                 get_tid_after_deregister,
-                this_threads_index);
+                INVALID_TID);
 }
 
 /*
