@@ -89,7 +89,10 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
    masterCfg.pmem_cache_capacity     = kvs_cfg->pmem_cache_size;
    masterCfg.dram_cache_capacity     = kvs_cfg->dram_cache_size;
    masterCfg.log_checkpoint_interval = kvs_cfg->cache_log_checkpoint_interval;
-   masterCfg.use_log                 = FALSE;
+   if(masterCfg.log_checkpoint_interval != 0)
+      masterCfg.use_log                 = TRUE;
+   else
+      masterCfg.use_log                 = FALSE;
    masterCfg.use_stats               = TRUE;
    masterCfg.key_size                = kvs_cfg->data_cfg.key_size;
    masterCfg.message_size            = kvs_cfg->data_cfg.message_size;

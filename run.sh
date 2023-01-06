@@ -59,16 +59,31 @@ for B in $BENCHMARKS; do
 			    if [ $B == SplinterDB ]; then
 			        ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
 					-dram_cache_size_mb 1024 >&data.log
-			    else
+			    elif [ $B == SplinterDB-withLog ]; then
 			        ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
 					-pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
+					-cache_log_checkpoint_interval 10000\
 				       	-pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+			    else
+                                ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
+                                        -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
+                                        -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
 		    	    fi
                             RATE=`cat data.log | grep 'workloads/load.spec' | awk '{ print $4 }'`
 			else
-			    ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
-				    -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024 \
-				    -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+			    if [ $B == SplinterDB ]; then
+                                ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+                                        -dram_cache_size_mb 1024 >&data.log
+                            elif [ $B == SplinterDB-withLog ]; then
+                                ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+                                        -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
+                                        -cache_log_checkpoint_interval 10000\
+                                        -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+                            else
+			        ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+				        -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024 \
+				        -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+			    fi
                             RATE=`cat data.log | grep 'workloads/workload' | awk '{ print $4 }'`
 			fi
 
