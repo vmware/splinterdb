@@ -13,7 +13,6 @@
 #include "allocator.h"
 #include "clockcache.h"
 #include "io.h"
-#include "task.h"
 
 #include <stddef.h>
 #include "util.h"
@@ -996,7 +995,7 @@ clockcache_get_read(clockcache *cc, uint32 entry_number)
 
    uint64 wait = 1;
    while (rc == GET_RC_CONFLICT) {
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 1024 ? wait : 2 * wait;
       rc   = clockcache_try_get_read(cc, entry_number, TRUE);
    }
@@ -1088,12 +1087,12 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
    for (threadid thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {
       if (tid % CC_RC_WIDTH != thr_i) {
          while (clockcache_get_ref(cc, entry_number, thr_i)) {
-            platform_sleep(1);
+            platform_sleep_ns(1);
          }
       } else {
          // we have a single ref, so wait for others to drop
          while (clockcache_get_ref(cc, entry_number, thr_i) > 1) {
-            platform_sleep(1);
+            platform_sleep_ns(1);
          }
       }
    }
@@ -1595,7 +1594,7 @@ clockcache_get_free_page(clockcache *cc,
    clockcache_entry *entry;
    timestamp         wait_start;
 
-   debug_assert(tid < MAX_THREADS - 1);
+   debug_assert(tid < MAX_THREADS);
    if (cc->per_thread[tid].free_hand == CC_UNMAPPED_ENTRY) {
       clockcache_move_hand(cc, FALSE);
    }

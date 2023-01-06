@@ -10,7 +10,6 @@
 #pragma once
 
 #include "io.h"
-#include "task.h"
 #include <libaio.h>
 
 /*

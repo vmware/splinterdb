@@ -963,6 +963,7 @@ cache_test(int argc, char *argv[])
    allocator_config       al_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
+   task_system_config     task_cfg;
    int                    config_argc = argc - 1;
    char                 **config_argv = argv + 1;
    platform_status        rc;
@@ -1003,6 +1004,7 @@ cache_test(int argc, char *argv[])
                         &al_cfg,
                         &cache_cfg,
                         &log_cfg,
+                        &task_cfg,
                         &seed,
                         &gen,
                         &num_bg_threads[TASK_TYPE_MEMTABLE],
@@ -1036,8 +1038,7 @@ cache_test(int argc, char *argv[])
       goto free_iohandle;
    }
 
-   rc = test_init_task_system(
-      hid, io, &ts, splinter_cfg->use_stats, num_bg_threads);
+   rc = test_init_task_system(hid, io, &ts, &task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
