@@ -865,21 +865,17 @@ CTEST2(splinterdb_quick, test_iterator_init_bug)
  */
 CTEST2(splinterdb_quick, test_splinterdb_create_w_background_threads)
 {
-   splinterdb       *kvsb;
-   splinterdb_config cfg;
-   data_config       default_data_cfg;
+   splinterdb_close(&data->kvsb);
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
+   create_default_cfg(&data->cfg, &data->default_data_cfg.super);
 
    // Task system should be setup with background threads
-   cfg.num_normal_bg_threads   = 1;
-   cfg.num_memtable_bg_threads = 1;
+   data->cfg.num_normal_bg_threads   = 1;
+   data->cfg.num_memtable_bg_threads = 1;
 
-   int rv = splinterdb_create(&cfg, &kvsb);
+   int rv = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rv);
-
-   splinterdb_close(&kvsb);
 }
 
 /*
@@ -890,21 +886,17 @@ CTEST2(splinterdb_quick, test_splinterdb_create_w_background_threads)
  */
 CTEST2(splinterdb_quick, test_splinterdb_create_w_all_background_threads)
 {
-   splinterdb       *kvsb;
-   splinterdb_config cfg;
-   data_config       default_data_cfg;
+   splinterdb_close(&data->kvsb);
 
-   default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
+   create_default_cfg(&data->cfg, &data->default_data_cfg.super);
 
    // Task system should be setup with all background threads
-   cfg.num_normal_bg_threads   = (MAX_THREADS - 2);
-   cfg.num_memtable_bg_threads = 1;
+   data->cfg.num_normal_bg_threads   = (MAX_THREADS - 2);
+   data->cfg.num_memtable_bg_threads = 1;
 
-   int rv = splinterdb_create(&cfg, &kvsb);
+   int rv = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rv);
-
-   splinterdb_close(&kvsb);
 }
 
 /*
