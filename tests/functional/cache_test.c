@@ -271,7 +271,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
       allocator *al   = cache_get_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
-      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
@@ -548,7 +548,7 @@ test_cache_flush(cache             *cc,
       allocator *al   = cache_get_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
-      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
@@ -934,7 +934,7 @@ test_cache_async(cache             *cc,
       allocator *al   = cache_get_allocator(cc);
       uint8      ref  = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_NO_REFS);
-      cache_hard_evict_extent(cc, addr, PAGE_TYPE_MISC);
+      cache_extent_discard(cc, addr, PAGE_TYPE_MISC);
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
