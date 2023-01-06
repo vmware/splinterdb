@@ -255,7 +255,7 @@ task_create_thread_with_hooks(platform_thread       *thread,
       platform_error_log("Cannot create a new thread as the limit on"
                          " concurrent threads, %d, will be exceeded.\n",
                          MAX_THREADS);
-      return STATUS_LIMIT_EXCEEDED;
+      return STATUS_BUSY;
    }
 
    if (0 < scratch_size) {
@@ -359,8 +359,9 @@ task_register_thread(task_system *ts,
                    thread_tid);
 
    thread_tid = task_allocate_threadid(ts);
+   // Unavailable threads is a temporary state that could go away.
    if (thread_tid == INVALID_TID) {
-      return STATUS_NO_SPACE;
+      return STATUS_BUSY;
    }
 
    platform_assert(ts->thread_scratch[thread_tid] == NULL,
