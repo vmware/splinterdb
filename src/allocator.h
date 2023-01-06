@@ -93,23 +93,10 @@ typedef struct allocator_config {
  *      Initialize allocator config values
  *-----------------------------------------------------------------------------
  */
-// TODO(robj): maybe someday add allocator.c
-static inline void
+void
 allocator_config_init(allocator_config *allocator_cfg,
                       io_config        *io_cfg,
-                      uint64            capacity)
-{
-   ZERO_CONTENTS(allocator_cfg);
-
-   allocator_cfg->io_cfg   = io_cfg;
-   allocator_cfg->capacity = capacity;
-
-   allocator_cfg->page_capacity   = capacity / io_cfg->page_size;
-   allocator_cfg->extent_capacity = capacity / io_cfg->extent_size;
-   uint64 log_extent_size         = 63 - __builtin_clzll(io_cfg->extent_size);
-   allocator_cfg->extent_mask     = ~((1ULL << log_extent_size) - 1);
-}
-
+                      uint64            capacity);
 
 static inline uint64
 allocator_config_extent_base_addr(allocator_config *allocator_cfg, uint64 addr)
