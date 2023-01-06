@@ -238,15 +238,17 @@ splinter_io_apis_test(int argc, char *argv[])
    /*
     * Setup the task system which is needed for testing with threads.
     */
-   task_system *tasks                          = NULL;
-   uint64       num_bg_threads[NUM_TASK_TYPES] = {0};
+   uint64             num_bg_threads[NUM_TASK_TYPES] = {0};
+   task_system_config task_cfg;
+   rc = task_system_config_init(&task_cfg,
+                                TRUE /* use stats */,
+                                num_bg_threads,
+                                trunk_get_scratch_size());
+   platform_assert(SUCCESS(rc));
 
-   rc = task_system_create(hid,
-                           io_hdl,
-                           &tasks,
-                           TRUE, // Use statistics,
-                           num_bg_threads,
-                           trunk_get_scratch_size());
+   task_system *tasks = NULL;
+   rc                 = task_system_create(hid, io_hdl, &tasks, &task_cfg);
+   platform_assert(SUCCESS(rc));
 
    /*
     * Change the char to write so we can tell apart from previous contents.

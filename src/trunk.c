@@ -601,7 +601,7 @@ trunk_node_claim(cache *cc, trunk_node *node)
    while (!cache_claim(cc, node->page)) {
       uint64 addr = node->addr;
       trunk_node_unget(cc, node);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 2048 ? wait : 2 * wait;
       trunk_node_get(cc, addr, node);
    }
@@ -908,7 +908,7 @@ trunk_set_super_block(trunk_handle *spl,
    platform_assert_status_ok(rc);
    super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
    while (!cache_claim(spl->cc, super_page)) {
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait *= 2;
    }
    wait = 1;
@@ -3380,7 +3380,7 @@ trunk_memtable_incorporate(trunk_handle  *spl,
       platform_status rc = trunk_flush_fullest(spl, &root);
       if (!SUCCESS(rc)) {
          trunk_node_unlock(spl->cc, &root);
-         platform_sleep(wait);
+         platform_sleep_ns(wait);
          wait = wait > 2048 ? 2048 : 2 * wait;
          trunk_node_lock(spl->cc, &root);
       }
@@ -3613,7 +3613,7 @@ trunk_node_get_claim_maybe_descend(trunk_handle             *spl,
          break;
       }
       trunk_node_unget(spl->cc, node);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 2048 ? wait : 2 * wait;
    }
 }
@@ -6174,9 +6174,7 @@ trunk_insert(trunk_handle *spl, key tuple_key, message data)
       goto out;
    }
 
-   if (!task_system_use_bg_threads(spl->ts)) {
-      task_perform_one(spl->ts);
-   }
+   task_perform_one_if_needed(spl->ts, spl->cfg.queue_scale_percent);
 
    if (spl->cfg.use_stats) {
       switch (message_class(data)) {
@@ -7280,7 +7278,8 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
    }
 
    // finish any outstanding tasks and destroy task system for this table.
-   task_perform_all(spl->ts);
+   platform_status rc = task_perform_until_quiescent(spl->ts);
+   platform_assert_status_ok(rc);
 
    // destroy memtable context (and its memtables)
    memtable_context_destroy(spl->heap_id, spl->mt_ctxt);
@@ -8936,6 +8935,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   uint64               filter_remainder_size,
                   uint64               filter_index_size,
                   uint64               reclaim_threshold,
+                  uint64               queue_scale_percent,
                   bool                 use_log,
                   bool                 use_stats,
                   bool                 verbose_logging,
@@ -8956,6 +8956,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
    trunk_cfg->fanout                  = fanout;
    trunk_cfg->max_branches_per_node   = max_branches_per_node;
    trunk_cfg->reclaim_threshold       = reclaim_threshold;
+   trunk_cfg->queue_scale_percent     = queue_scale_percent;
    trunk_cfg->use_log                 = use_log;
    trunk_cfg->use_stats               = use_stats;
    trunk_cfg->verbose_logging_enabled = verbose_logging;

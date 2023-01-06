@@ -85,7 +85,7 @@ platform_pause()
 }
 
 static inline void
-platform_sleep(uint64 ns)
+platform_sleep_ns(uint64 ns)
 {
    if (ns < USEC_TO_NSEC(50)) {
       for (uint64 i = 0; i < ns / 5 + 1; i++) {

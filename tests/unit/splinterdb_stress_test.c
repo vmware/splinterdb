@@ -55,7 +55,8 @@ CTEST_SETUP(splinterdb_stress)
    data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
                                              .cache_size = 1000 * Mega,
                                              .disk_size  = 9000 * Mega,
-                                             .data_cfg   = &data->default_data_config};
+                                             .data_cfg   = &data->default_data_config,
+                                             .queue_scale_percent = 100};
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
 
@@ -109,9 +110,6 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
 // Do some inserts, and then some range-deletes
 CTEST2(splinterdb_stress, test_naive_range_delete)
 {
-   int rc = splinterdb_create(&data->cfg, &data->kvsb);
-   ASSERT_EQUAL(0, rc);
-
    random_state rand_state;
    random_init(&rand_state, 42, 0);
 

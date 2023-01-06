@@ -56,15 +56,13 @@ splinter_io_apis_test(int argc, char *argv[]);
  * main function. This initializes SplinterDB's task sub-system.
  */
 static inline platform_status
-test_init_task_system(platform_heap_id    hid,
-                      platform_io_handle *ioh,
-                      task_system       **system,
-                      bool                use_stats,
-                      uint64              num_bg_threads[NUM_TASK_TYPES])
+test_init_task_system(platform_heap_id          hid,
+                      platform_io_handle       *ioh,
+                      task_system             **system,
+                      const task_system_config *cfg)
 {
    // splinter initialization
-   return task_system_create(
-      hid, ioh, system, use_stats, num_bg_threads, trunk_get_scratch_size());
+   return task_system_create(hid, ioh, system, cfg);
 }
 
 static inline void
@@ -209,6 +207,7 @@ static inline void
 test_config_init(trunk_config           *splinter_cfg,  // OUT
                  data_config           **data_cfg,      // OUT
                  shard_log_config       *log_cfg,       // OUT
+                 task_system_config     *task_cfg,      // OUT
                  clockcache_config      *cache_cfg,     // OUT
                  allocator_config       *allocator_cfg, // OUT
                  io_config              *io_cfg,        // OUT
@@ -237,6 +236,15 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 
    shard_log_config_init(log_cfg, &cache_cfg->super, *data_cfg);
 
+   uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
+   num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;
+   num_bg_threads[TASK_TYPE_MEMTABLE]    = master_cfg->num_memtable_bg_threads;
+   platform_status rc                    = task_system_config_init(task_cfg,
+                                                master_cfg->use_stats,
+                                                num_bg_threads,
+                                                trunk_get_scratch_size());
+   platform_assert_status_ok(rc);
+
    trunk_config_init(splinter_cfg,
                      &cache_cfg->super,
                      *data_cfg,
@@ -248,6 +256,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                      master_cfg->filter_remainder_size,
                      master_cfg->filter_index_size,
                      master_cfg->reclaim_threshold,
+                     master_cfg->queue_scale_percent,
                      master_cfg->use_log,
                      master_cfg->use_stats,
                      master_cfg->verbose_logging_enabled,
@@ -280,19 +289,18 @@ typedef struct test_exec_config {
  * Not all tests may need these, so this arg is optional, and can be NULL.
  */
 static inline platform_status
-test_parse_args_n(trunk_config           *splinter_cfg,            // OUT
-                  data_config           **data_cfg,                // OUT
-                  io_config              *io_cfg,                  // OUT
-                  allocator_config       *allocator_cfg,           // OUT
-                  clockcache_config      *cache_cfg,               // OUT
-                  shard_log_config       *log_cfg,                 // OUT
-                  test_exec_config       *test_exec_cfg,           // OUT
-                  test_message_generator *gen,                     // OUT
-                  uint64                 *num_memtable_bg_threads, // OUT
-                  uint64                 *num_normal_bg_threads,   // OUT
-                  uint8                   num_config,              // IN
-                  int                     argc,                    // IN
-                  char                   *argv[]                   // IN
+test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
+                  data_config           **data_cfg,      // OUT
+                  io_config              *io_cfg,        // OUT
+                  allocator_config       *allocator_cfg, // OUT
+                  clockcache_config      *cache_cfg,     // OUT
+                  shard_log_config       *log_cfg,       // OUT
+                  task_system_config     *task_cfg,      // OUT
+                  test_exec_config       *test_exec_cfg, // OUT
+                  test_message_generator *gen,           // OUT
+                  uint8                   num_config,    // IN
+                  int                     argc,          // IN
+                  char                   *argv[]         // IN
 )
 {
    platform_status rc;
@@ -314,18 +322,13 @@ test_parse_args_n(trunk_config           *splinter_cfg,            // OUT
       test_config_init(&splinter_cfg[i],
                        &data_cfg[i],
                        log_cfg,
+                       task_cfg,
                        &cache_cfg[i],
                        allocator_cfg,
                        io_cfg,
                        gen,
                        &master_cfg[i]);
    }
-
-   // Return parsed bg-threads related args, which caller will use to init
-   // the task system. Currently, we only support the same bg-thread config
-   // for the task system config for all n-test-configs being init'ed here.
-   *num_memtable_bg_threads = master_cfg[0].num_memtable_bg_threads;
-   *num_normal_bg_threads   = master_cfg[0].num_normal_bg_threads;
 
    // All the n-SplinterDB instances will work with the same set of
    // test execution parameters.
@@ -353,6 +356,7 @@ test_parse_args(trunk_config           *splinter_cfg,
                 allocator_config       *allocator_cfg,
                 clockcache_config      *cache_cfg,
                 shard_log_config       *log_cfg,
+                task_system_config     *task_cfg,
                 uint64                 *seed,
                 test_message_generator *gen,
                 uint64                 *num_memtable_bg_threads,
@@ -370,10 +374,9 @@ test_parse_args(trunk_config           *splinter_cfg,
                           allocator_cfg,
                           cache_cfg,
                           log_cfg,
+                          task_cfg,
                           &test_exec_cfg,
                           gen,
-                          num_memtable_bg_threads,
-                          num_normal_bg_threads,
                           1,
                           argc,
                           argv);

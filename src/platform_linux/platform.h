@@ -578,7 +578,7 @@ static inline timestamp
 platform_get_real_time(void);
 
 static inline void
-platform_sleep(uint64 ns);
+platform_sleep_ns(uint64 ns);
 
 static inline void
 platform_semaphore_destroy(platform_semaphore *sema);

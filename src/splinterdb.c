@@ -38,6 +38,7 @@ typedef struct splinterdb {
    clockcache_config    cache_cfg;
    clockcache           cache_handle;
    shard_log_config     log_cfg;
+   task_system_config   task_cfg;
    allocator_root_id    trunk_id;
    trunk_config         trunk_cfg;
    trunk_handle        *spl;
@@ -188,6 +189,16 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
 
    shard_log_config_init(&kvs->log_cfg, &kvs->cache_cfg.super, kvs->data_cfg);
 
+   uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
+   num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
+   num_bg_threads[TASK_TYPE_NORMAL]      = kvs_cfg->num_normal_bg_threads;
+
+   rc = task_system_config_init(
+      &kvs->task_cfg, cfg.use_stats, num_bg_threads, trunk_get_scratch_size());
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
+
    trunk_config_init(&kvs->trunk_cfg,
                      &kvs->cache_cfg.super,
                      kvs->data_cfg,
@@ -199,6 +210,7 @@ splinterdb_init_config(const splinterdb_config *kvs_cfg, // IN
                      cfg.filter_remainder_size,
                      cfg.filter_index_size,
                      cfg.reclaim_threshold,
+                     cfg.queue_scale_percent,
                      cfg.use_log,
                      cfg.use_stats,
                      FALSE,
@@ -245,16 +257,8 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       goto deinit_kvhandle;
    }
 
-   uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
-   num_bg_threads[TASK_TYPE_MEMTABLE]    = kvs_cfg->num_memtable_bg_threads;
-   num_bg_threads[TASK_TYPE_NORMAL]      = kvs_cfg->num_normal_bg_threads;
-
-   status = task_system_create(kvs->heap_id,
-                               &kvs->io_handle,
-                               &kvs->task_sys,
-                               TRUE,
-                               num_bg_threads,
-                               trunk_get_scratch_size());
+   status = task_system_create(
+      kvs->heap_id, &kvs->io_handle, &kvs->task_sys, &kvs->task_cfg);
    if (!SUCCESS(status)) {
       platform_error_log(
          "Failed to initialize SplinterDB task system state: %s\n",

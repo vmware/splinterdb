@@ -14,7 +14,6 @@
 #include "iterator.h"
 #include "splinterdb/data.h"
 #include "mini_allocator.h"
-#include "task.h"
 
 /*
  * Configuration structure to set up the sharded log sub-system.
