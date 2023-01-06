@@ -1116,15 +1116,6 @@ btree_addrs_share_extent(cache *cc, uint64 left_addr, uint64 right_addr)
       allocator_get_config(al), right_addr, left_addr);
 }
 
-static inline uint64
-btree_root_to_meta_addr(const btree_config *cfg,
-                        uint64              root_addr,
-                        uint64              meta_page_no)
-{
-   return root_addr + (meta_page_no + 1) * btree_page_size(cfg);
-}
-
-
 /*----------------------------------------------------------
  * Creating and destroying B-trees.
  *----------------------------------------------------------

@@ -331,11 +331,22 @@ CTEST2(btree_stress, test_btree_print_diags)
    }
 
    // Exercise print method to verify that it basically continues to work.
-   CTEST_LOG_INFO("\n**** btree_print_tree() ****\n");
+   CTEST_LOG_INFO("\n**** btree_print_tree() on BTree root=%lu****\n",
+                  packed_root_addr);
    btree_print_tree(Platform_default_log_handle,
                     (cache *)&data->cc,
                     &data->dbtree_cfg,
                     packed_root_addr);
+
+   uint64 meta_page_addr =
+      btree_root_to_meta_addr(&data->dbtree_cfg, packed_root_addr, 0);
+   CTEST_LOG_INFO("\n**** mini_keyed_print() BTree root=%lu"
+                  ", meta page addr=%lu****\n",
+                  packed_root_addr,
+                  meta_page_addr);
+
+   mini_keyed_print(
+      (cache *)&data->cc, data->data_cfg, meta_page_addr, PAGE_TYPE_BRANCH);
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {
