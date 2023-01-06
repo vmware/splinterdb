@@ -198,7 +198,7 @@ test_trunk_insert_thread(void *arg)
                if (now <= next_check_time) {
                   num_inserts++;
                   if (num_inserts >= insert_rate) {
-                     platform_sleep(next_check_time - now);
+                     platform_sleep_ns(next_check_time - now);
                   }
                } else {
                   // reset and check again after 10 msec.
@@ -2383,9 +2383,7 @@ usage(const char *argv0)
       "\t%s --cache-per-table\n"
       "\t%s --parallel-perf --max-async-inflight [num] --num-pthreads [num] "
       "--lookup-positive-percent [num] --seed [num]\n"
-      "\t%s --num-bg-threads (number of background threads)\n"
       "\t%s --insert-rate (inserts_done_by_all_threads in a second)\n",
-      argv0,
       argv0,
       argv0,
       argv0,
@@ -2487,26 +2485,25 @@ splinter_test_parse_perf_args(char ***argv,
 int
 splinter_test(int argc, char *argv[])
 {
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   shard_log_config    log_cfg;
-   int                 config_argc;
-   char              **config_argv;
-   test_type           test;
-   platform_status     rc;
-   uint64              seed = 0;
-   uint64              test_ops;
-   uint64              correctness_check_frequency;
+   io_config          io_cfg;
+   allocator_config   al_cfg;
+   shard_log_config   log_cfg;
+   task_system_config task_cfg;
+   int                config_argc;
+   char             **config_argv;
+   test_type          test;
+   platform_status    rc;
+   uint64             seed = 0;
+   uint64             test_ops;
+   uint64             correctness_check_frequency;
    // Max async IOs inflight per-thread
-   uint32 num_insert_threads, num_lookup_threads;
-   uint32 num_range_lookup_threads, max_async_inflight;
-   uint32 num_pthreads    = 0;
-   uint8  num_tables      = 1;
-   bool   cache_per_table = FALSE;
-   // no bg threads by default.
-   uint8                  num_bg_threads[NUM_TASK_TYPES] = {0};
-   uint64                 insert_rate = 0; // no rate throttling by default.
-   task_system           *ts;
+   uint32                 num_insert_threads, num_lookup_threads;
+   uint32                 num_range_lookup_threads, max_async_inflight;
+   uint32                 num_pthreads    = 0;
+   uint8                  num_tables      = 1;
+   bool                   cache_per_table = FALSE;
+   uint64                 insert_rate     = 0; // no rate throttling by default.
+   task_system           *ts              = NULL;
    uint8                  lookup_positive_pct = 0;
    test_message_generator gen;
    test_exec_config       test_exec_cfg;
@@ -2602,6 +2599,7 @@ splinter_test(int argc, char *argv[])
       config_argc -= 2;
       config_argv += 2;
    }
+
    if (config_argc > 0
        && strncmp(
              config_argv[0], "--cache-per-table", sizeof("--cache-per-table"))
@@ -2611,33 +2609,7 @@ splinter_test(int argc, char *argv[])
       config_argc -= 1;
       config_argv += 1;
    }
-   if (config_argc > 0
-       && strncmp(
-             config_argv[0], "--num-bg-threads", sizeof("--num-bg-threads"))
-             == 0)
-   {
-      if (!try_string_to_uint8(config_argv[1],
-                               &num_bg_threads[TASK_TYPE_NORMAL])) {
-         usage(argv[0]);
-         return -1;
-      }
-      config_argc -= 2;
-      config_argv += 2;
-   }
-   if (config_argc > 0
-       && strncmp(config_argv[0],
-                  "--num-memtable-bg-threads",
-                  sizeof("--num-bg-threads"))
-             == 0)
-   {
-      if (!try_string_to_uint8(config_argv[1],
-                               &num_bg_threads[TASK_TYPE_MEMTABLE])) {
-         usage(argv[0]);
-         return -1;
-      }
-      config_argc -= 2;
-      config_argv += 2;
-   }
+
    if (splinter_test_parse_perf_args(&config_argv,
                                      &config_argc,
                                      &max_async_inflight,
@@ -2724,6 +2696,7 @@ splinter_test(int argc, char *argv[])
                           &al_cfg,
                           cache_cfg,
                           &log_cfg,
+                          &task_cfg,
                           &test_exec_cfg,
                           &gen,
                           num_tables,
@@ -2757,13 +2730,8 @@ splinter_test(int argc, char *argv[])
    uint32 total_threads =
       MAX(num_lookup_threads, MAX(num_insert_threads, num_pthreads));
 
-   if (num_bg_threads[TASK_TYPE_NORMAL] != 0
-       && num_bg_threads[TASK_TYPE_MEMTABLE] == 0)
-   {
-      num_bg_threads[TASK_TYPE_MEMTABLE] = num_tables;
-   }
    for (task_type type = 0; type != NUM_TASK_TYPES; type++) {
-      total_threads += num_bg_threads[type];
+      total_threads += task_cfg.num_background_threads[type];
    }
    // Check if IO subsystem has enough reqs for max async IOs inflight
    if (io_cfg.async_queue_size < total_threads * max_async_inflight) {
@@ -2785,10 +2753,7 @@ splinter_test(int argc, char *argv[])
       goto io_free;
    }
 
-   bool use_bg_threads = num_bg_threads[TASK_TYPE_NORMAL] != 0;
-
-   rc = test_init_task_system(
-      hid, io, &ts, splinter_cfg->use_stats, use_bg_threads, num_bg_threads);
+   rc = test_init_task_system(hid, io, &ts, &task_cfg);
    if (!SUCCESS(rc)) {
       platform_error_log("Failed to init splinter state: %s\n",
                          platform_status_to_string(rc));
@@ -2887,7 +2852,10 @@ splinter_test(int argc, char *argv[])
          platform_assert(SUCCESS(rc));
          break;
       case parallel_perf:
-         platform_assert(max_async_inflight == 0 || use_bg_threads);
+         platform_assert(
+            max_async_inflight == 0
+            || (0 < task_cfg.num_background_threads[TASK_TYPE_MEMTABLE]
+                && 0 < task_cfg.num_background_threads[TASK_TYPE_NORMAL]));
          rc = test_splinter_parallel_perf(splinter_cfg,
                                           test_cfg,
                                           alp,

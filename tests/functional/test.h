@@ -7,8 +7,7 @@
  *     This file contains constants and functions that pertain to tests.
  */
 
-#ifndef __TEST_H
-#define __TEST_H
+#pragma once
 
 #include "cache.h"
 #include "clockcache.h"
@@ -49,26 +48,21 @@ cache_test(int argc, char *argv[]);
 int
 ycsb_test(int argc, char *argv[]);
 
+int
+splinter_io_apis_test(int argc, char *argv[]);
+
 /*
  * Initialization for using splinter, need to be called at the start of the test
  * main function. This initializes SplinterDB's task sub-system.
  */
 static inline platform_status
-test_init_task_system(platform_heap_id    hid,
-                      platform_io_handle *ioh,
-                      task_system       **system,
-                      bool                use_stats,
-                      bool                use_bg_threads,
-                      uint8               num_bg_threads[NUM_TASK_TYPES])
+test_init_task_system(platform_heap_id          hid,
+                      platform_io_handle       *ioh,
+                      task_system             **system,
+                      const task_system_config *cfg)
 {
    // splinter initialization
-   return task_system_create(hid,
-                             ioh,
-                             system,
-                             use_stats,
-                             use_bg_threads,
-                             num_bg_threads,
-                             trunk_get_scratch_size());
+   return task_system_create(hid, ioh, system, cfg);
 }
 
 static inline void
@@ -209,12 +203,13 @@ generator_average_message_size(test_message_generator *gen)
  * input master configuration, master_cfg. A few command-line config parameters
  * may have been used to setup master_cfg beyond its initial defaults.
  */
-static inline void
+static inline platform_status
 test_config_init(trunk_config           *splinter_cfg,  // OUT
                  data_config           **data_cfg,      // OUT
                  shard_log_config       *log_cfg,       // OUT
+                 task_system_config     *task_cfg,      // OUT
                  clockcache_config      *cache_cfg,     // OUT
-                 rc_allocator_config    *allocator_cfg, // OUT
+                 allocator_config       *allocator_cfg, // OUT
                  io_config              *io_cfg,        // OUT
                  test_message_generator *gen,
                  master_config          *master_cfg // IN
@@ -231,8 +226,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
                   master_cfg->io_async_queue_depth,
                   master_cfg->io_filename);
 
-   rc_allocator_config_init(
-      allocator_cfg, io_cfg, master_cfg->allocator_capacity);
+   allocator_config_init(allocator_cfg, io_cfg, master_cfg->allocator_capacity);
 
    clockcache_config_init(cache_cfg,
                           io_cfg,
@@ -242,25 +236,39 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 
    shard_log_config_init(log_cfg, &cache_cfg->super, *data_cfg);
 
-   trunk_config_init(splinter_cfg,
-                     &cache_cfg->super,
-                     *data_cfg,
-                     (log_config *)log_cfg,
-                     master_cfg->memtable_capacity,
-                     master_cfg->fanout,
-                     master_cfg->max_branches_per_node,
-                     master_cfg->btree_rough_count_height,
-                     master_cfg->filter_remainder_size,
-                     master_cfg->filter_index_size,
-                     master_cfg->reclaim_threshold,
-                     master_cfg->use_log,
-                     master_cfg->use_stats,
-                     master_cfg->verbose_logging_enabled,
-                     master_cfg->log_handle);
+   uint64 num_bg_threads[NUM_TASK_TYPES] = {0};
+   num_bg_threads[TASK_TYPE_NORMAL]      = master_cfg->num_normal_bg_threads;
+   num_bg_threads[TASK_TYPE_MEMTABLE]    = master_cfg->num_memtable_bg_threads;
+   platform_status rc                    = task_system_config_init(task_cfg,
+                                                master_cfg->use_stats,
+                                                num_bg_threads,
+                                                trunk_get_scratch_size());
+   platform_assert_status_ok(rc);
+
+   rc = trunk_config_init(splinter_cfg,
+                          &cache_cfg->super,
+                          *data_cfg,
+                          (log_config *)log_cfg,
+                          master_cfg->memtable_capacity,
+                          master_cfg->fanout,
+                          master_cfg->max_branches_per_node,
+                          master_cfg->btree_rough_count_height,
+                          master_cfg->filter_remainder_size,
+                          master_cfg->filter_index_size,
+                          master_cfg->reclaim_threshold,
+                          master_cfg->queue_scale_percent,
+                          master_cfg->use_log,
+                          master_cfg->use_stats,
+                          master_cfg->verbose_logging_enabled,
+                          master_cfg->log_handle);
+   if (!SUCCESS(rc)) {
+      return rc;
+   }
 
    gen->type             = MESSAGE_TYPE_INSERT;
    gen->min_payload_size = GENERATOR_MIN_PAYLOAD_SIZE;
    gen->max_payload_size = master_cfg->message_size;
+   return rc;
 }
 
 /*
@@ -288,9 +296,10 @@ static inline platform_status
 test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
                   data_config           **data_cfg,      // OUT
                   io_config              *io_cfg,        // OUT
-                  rc_allocator_config    *allocator_cfg, // OUT
+                  allocator_config       *allocator_cfg, // OUT
                   clockcache_config      *cache_cfg,     // OUT
                   shard_log_config       *log_cfg,       // OUT
+                  task_system_config     *task_cfg,      // OUT
                   test_exec_config       *test_exec_cfg, // OUT
                   test_message_generator *gen,           // OUT
                   uint8                   num_config,    // IN
@@ -310,18 +319,22 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
 
    rc = config_parse(master_cfg, num_config, argc, argv);
    if (!SUCCESS(rc)) {
-      return rc;
+      goto out;
    }
 
    for (i = 0; i < num_config; i++) {
-      test_config_init(&splinter_cfg[i],
-                       &data_cfg[i],
-                       log_cfg,
-                       &cache_cfg[i],
-                       allocator_cfg,
-                       io_cfg,
-                       gen,
-                       &master_cfg[i]);
+      rc = test_config_init(&splinter_cfg[i],
+                            &data_cfg[i],
+                            log_cfg,
+                            task_cfg,
+                            &cache_cfg[i],
+                            allocator_cfg,
+                            io_cfg,
+                            gen,
+                            &master_cfg[i]);
+      if (!SUCCESS(rc)) {
+         goto out;
+      }
    }
 
    // All the n-SplinterDB instances will work with the same set of
@@ -332,9 +345,10 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
       test_exec_cfg->verbose_progress = master_cfg[0].verbose_progress;
    }
 
+out:
    platform_free(platform_get_heap_id(), master_cfg);
 
-   return STATUS_OK;
+   return rc;
 }
 
 /*
@@ -347,11 +361,14 @@ static inline platform_status
 test_parse_args(trunk_config           *splinter_cfg,
                 data_config           **data_cfg,
                 io_config              *io_cfg,
-                rc_allocator_config    *allocator_cfg,
+                allocator_config       *allocator_cfg,
                 clockcache_config      *cache_cfg,
                 shard_log_config       *log_cfg,
+                task_system_config     *task_cfg,
                 uint64                 *seed,
                 test_message_generator *gen,
+                uint64                 *num_memtable_bg_threads,
+                uint64                 *num_normal_bg_threads,
                 int                     argc,
                 char                   *argv[])
 {
@@ -365,6 +382,7 @@ test_parse_args(trunk_config           *splinter_cfg,
                           allocator_cfg,
                           cache_cfg,
                           log_cfg,
+                          task_cfg,
                           &test_exec_cfg,
                           gen,
                           1,
@@ -386,5 +404,3 @@ test_generate_allocator_root_id()
 {
    return __sync_fetch_and_add(&counter, 1);
 }
-
-#endif

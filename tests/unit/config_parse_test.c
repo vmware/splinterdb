@@ -41,9 +41,6 @@ CTEST_DATA(config_parse)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(config_parse)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
-
    uint64 heap_capacity = (1024 * MiB);
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(
@@ -65,9 +62,10 @@ CTEST_TEARDOWN(config_parse)
 CTEST2(config_parse, test_basic_parsing)
 {
    // Config structs required, as per splinter_test() setup work.
-   io_config           io_cfg;
-   rc_allocator_config al_cfg;
-   shard_log_config    log_cfg;
+   io_config          io_cfg;
+   allocator_config   al_cfg;
+   shard_log_config   log_cfg;
+   task_system_config task_cfg;
 
    // Following get setup pointing to allocated memory
    trunk_config          *splinter_cfg = NULL;
@@ -90,6 +88,7 @@ CTEST2(config_parse, test_basic_parsing)
                           &al_cfg,
                           cache_cfg,
                           &log_cfg,
+                          &task_cfg,
                           &data->test_exec_cfg,
                           &gen,
                           num_tables,

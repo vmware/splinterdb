@@ -48,7 +48,7 @@ search_for_key_via_iterator(trunk_handle *spl, key target)
       iterator_advance((iterator *)&iter);
       count++;
    }
-   platform_error_log("Saw a total of %lu keys\n", count);
+   platform_default_log("Saw a total of %lu keys\n", count);
 }
 
 
@@ -808,7 +808,7 @@ test_functionality(allocator           *al,
          /*     (i % correctness_check_frequency) == 0) { */
          /*    platform_assert(trunk_verify_tree(spl)); */
          /*    platform_default_log("Dismount and remount\n"); */
-         /*    rc_allocator_config *al_cfg  = ((rc_allocator *)al)->cfg; */
+         /*    allocator_config *al_cfg  = ((rc_allocator *)al)->cfg; */
          /*    uint64 prev_root_addr = spl->root_addr; */
          /*    trunk_dismount(spl); */
          /*    rc_allocator_dismount((rc_allocator *)al); */

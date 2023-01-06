@@ -408,12 +408,12 @@ merge_iterator_create(platform_heap_id hid,
    if (!out_itor || !itor_arr || !cfg || num_trees < 0
        || num_trees >= ARRAY_SIZE(merge_itor->ordered_iterator_stored))
    {
-      platform_default_log("merge_iterator_create: bad parameter merge_itor %p"
-                           " num_trees %d itor_arr %p cfg %p\n",
-                           out_itor,
-                           num_trees,
-                           itor_arr,
-                           cfg);
+      platform_error_log("merge_iterator_create: bad parameter merge_itor %p"
+                         " num_trees %d itor_arr %p cfg %p\n",
+                         out_itor,
+                         num_trees,
+                         itor_arr,
+                         cfg);
       return STATUS_BAD_PARAM;
    }
 

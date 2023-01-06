@@ -170,12 +170,15 @@ typedef struct {
 extern bool platform_use_hugetlb;
 extern bool platform_use_mlock;
 
+
 /*
  * Section 3:
  * Shared types/typedefs that rely on platform-specific types/typedefs
  * There should not be any generic #includes here, but potentially #includes
  * of headers defined in splinterdb cannot be included until now.
  */
+extern platform_log_handle *Platform_default_log_handle;
+extern platform_log_handle *Platform_error_log_handle;
 
 
 /*
@@ -575,7 +578,7 @@ static inline timestamp
 platform_get_real_time(void);
 
 static inline void
-platform_sleep(uint64 ns);
+platform_sleep_ns(uint64 ns);
 
 static inline void
 platform_semaphore_destroy(platform_semaphore *sema);

@@ -8,8 +8,7 @@
  *     for internal use.
  */
 
-#ifndef __PUBLIC_PLATFORM_H
-#define __PUBLIC_PLATFORM_H
+#pragma once
 
 #include <stdio.h>
 
@@ -67,9 +66,15 @@ typedef int32 bool;
 #endif
 typedef uint8 bool8;
 
-// See platform.c
-typedef FILE                platform_log_handle;
-extern platform_log_handle *Platform_default_log_handle; // stdout FILE handle
-extern platform_log_handle *Platform_error_log_handle;   // stderr FILE handle
+typedef FILE platform_log_handle;
 
-#endif // __PUBLIC_PLATFORM_H
+// By default, info messages sent from platform_default_log() go to /dev/null
+// and error messages sent from platform_error_log() go to stderr.
+//
+// Use platform_set_log_streams() to send those log messages elsewhere.
+//
+// For example, to send info messages to stdout and errors to stderr, run:
+//    platform_set_log_streams(stdout, stderr);
+void
+platform_set_log_streams(platform_log_handle *info_stream,
+                         platform_log_handle *error_stream);

@@ -7,13 +7,11 @@
  *     This file contains interface for a concurrent clock cache.
  */
 
-#ifndef __CLOCKCACHE_H
-#define __CLOCKCACHE_H
+#pragma once
 
 #include "allocator.h"
 #include "cache.h"
 #include "io.h"
-#include "task.h"
 
 //#define ADDR_TRACING
 #define TRACE_ADDR  (UINT64_MAX - 1)
@@ -170,5 +168,3 @@ clockcache_init(clockcache          *cc,   // OUT
 
 void
 clockcache_deinit(clockcache *cc); // IN
-
-#endif // __CLOCKCACHE_H

@@ -57,7 +57,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
       if (mt->state != MEMTABLE_STATE_READY) {
          // The next memtable is not ready yet, back off and wait.
          cache_unget(cc, *lock_page);
-         platform_sleep(wait);
+         platform_sleep_ns(wait);
          wait = wait > 2048 ? wait : 2 * wait;
          continue;
       }
@@ -78,7 +78,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
             memtable_process(ctxt, process_generation);
          } else {
             cache_unget(cc, *lock_page);
-            platform_sleep(wait);
+            platform_sleep_ns(wait);
             wait *= 2;
          }
          continue;
@@ -216,7 +216,7 @@ memtable_force_finalize(memtable_context *ctxt)
    uint64 wait = 100;
    while (!cache_claim(cc, lock_page)) {
       cache_unget(cc, lock_page);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait *= 2;
       lock_page = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
    }
@@ -269,7 +269,7 @@ memtable_context_create(platform_heap_id hid,
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
    uint64          base_addr;
-   allocator      *al = cache_allocator(cc);
+   allocator      *al = cache_get_allocator(cc);
    platform_status rc = allocator_alloc(al, &base_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert_status_ok(rc);
 
@@ -323,7 +323,7 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
     * lookup lock and insert lock share extents but not pages.
     * this deallocs both.
     */
-   allocator *al = cache_allocator(cc);
+   allocator *al = cache_get_allocator(cc);
    uint8      ref =
       allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_NO_REFS);

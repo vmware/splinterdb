@@ -7,15 +7,13 @@
  *     This file contains the interface for a sharded write-ahead log.
  */
 
-#ifndef __SHARD_LOG_H
-#define __SHARD_LOG_H
+#pragma once
 
 #include "log.h"
 #include "cache.h"
 #include "iterator.h"
 #include "splinterdb/data.h"
 #include "mini_allocator.h"
-#include "task.h"
 
 /*
  * Configuration structure to set up the sharded log sub-system.
@@ -93,5 +91,3 @@ shard_log_config_init(shard_log_config *log_cfg,
                       data_config      *data_cfg);
 void
 shard_log_print(shard_log *log);
-
-#endif //__SHARD_LOG_H

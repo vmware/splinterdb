@@ -290,9 +290,10 @@ filter_test(int argc, char *argv[])
    int                    r;
    data_config           *data_cfg;
    io_config              io_cfg;
-   rc_allocator_config    allocator_cfg;
+   allocator_config       allocator_cfg;
    clockcache_config      cache_cfg;
    shard_log_config       log_cfg;
+   task_system_config     task_cfg;
    rc_allocator           al;
    clockcache            *cc;
    int                    config_argc;
@@ -318,6 +319,9 @@ filter_test(int argc, char *argv[])
    rc = platform_heap_create(platform_get_module_id(), 1 * GiB, &hh, &hid);
    platform_assert_status_ok(rc);
 
+   uint64 num_memtable_bg_threads_unused = 0;
+   uint64 num_normal_bg_threads_unused   = 0;
+
    trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
@@ -326,8 +330,11 @@ filter_test(int argc, char *argv[])
                         &allocator_cfg,
                         &cache_cfg,
                         &log_cfg,
+                        &task_cfg,
                         &seed,
                         &gen,
+                        &num_memtable_bg_threads_unused,
+                        &num_normal_bg_threads_unused,
                         config_argc,
                         config_argv);
    if (!SUCCESS(rc)) {
@@ -347,6 +354,10 @@ filter_test(int argc, char *argv[])
    if (!SUCCESS(rc)) {
       goto free_iohandle;
    }
+
+   task_system *ts = NULL;
+   rc              = task_system_create(hid, io, &ts, &task_cfg);
+   platform_assert_status_ok(rc);
 
    rc = rc_allocator_init(
       &al, &allocator_cfg, (io_handle *)io, hh, hid, platform_get_module_id());

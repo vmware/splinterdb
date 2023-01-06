@@ -7,8 +7,7 @@
  *     This file contains the interface for SplinterDB.
  */
 
-#ifndef __TRUNK_H
-#define __TRUNK_H
+#pragma once
 
 #include "splinterdb/data.h"
 #include "btree.h"
@@ -63,6 +62,8 @@ typedef struct trunk_config {
    uint64 target_leaf_kv_bytes; // make leaves this big when splitting
    uint64 reclaim_threshold;    // start reclaming space when
                                 // free space < threshold
+   uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
+                                // task.h
    bool            use_stats;   // stats
    memtable_config mt_cfg;
    btree_config    btree_cfg;
@@ -275,6 +276,15 @@ struct trunk_subbundle;
 
 typedef void (*trunk_async_cb)(struct trunk_async_ctxt *ctxt);
 
+struct trunk_hdr;
+typedef struct trunk_hdr trunk_hdr;
+
+typedef struct trunk_node {
+   uint64       addr;
+   page_handle *page;
+   trunk_hdr   *hdr;
+} trunk_node;
+
 typedef struct trunk_async_ctxt {
    trunk_async_cb cb; // IN: callback (requeues ctxt
                       // for dispatch)
@@ -282,7 +292,7 @@ typedef struct trunk_async_ctxt {
    trunk_async_state prev_state;   // state machine's previous state
    trunk_async_state state;        // state machine's current state
    page_handle      *mt_lock_page; // Memtable lock page
-   page_handle      *trunk_node;   // Current trunk node
+   trunk_node        trunk_node;   // Current trunk node
    uint16            height;       // height of trunk_node
 
    uint16 sb_no;     // subbundle number (newest)
@@ -441,7 +451,7 @@ trunk_pivot_message_size();
 uint64
 trunk_hdr_size();
 
-void
+platform_status
 trunk_config_init(trunk_config        *trunk_cfg,
                   cache_config        *cache_cfg,
                   data_config         *data_cfg,
@@ -453,11 +463,10 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   uint64               filter_remainder_size,
                   uint64               filter_index_size,
                   uint64               reclaim_threshold,
+                  uint64               queue_scale_percent,
                   bool                 use_log,
                   bool                 use_stats,
                   bool                 verbose_logging,
                   platform_log_handle *log_handle);
 size_t
 trunk_get_scratch_size();
-
-#endif // __TRUNK_H
