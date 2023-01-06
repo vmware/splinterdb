@@ -15,12 +15,14 @@
 #include "kvstore.h"
 #include "rc_allocator.h"
 #include "splinter.h"
+#include "shard_log.h"
 
 #include "poison.h"
 
 typedef struct kvstore {
    task_system *        system;
    data_config          data_cfg;
+   shard_log_config 	log_cfg;
    io_config            io_cfg;
    platform_io_handle   io_handle;
    rc_allocator_config  allocator_cfg;
@@ -126,9 +128,12 @@ kvstore_init_config(const kvstore_config *kvs_cfg, // IN
                           masterCfg.pmem_cache_file,
                           masterCfg.use_stats);
 
+   shard_log_config_init(&kvs->log_cfg, &kvs->data_cfg, masterCfg.page_size,
+                         masterCfg.extent_size);
+
    splinter_config_init(&kvs->splinter_cfg,
                         &kvs->data_cfg,
-                        NULL,
+			(log_config *)(&kvs->log_cfg),
                         masterCfg.memtable_capacity,
                         masterCfg.fanout,
                         masterCfg.max_branches_per_node,
