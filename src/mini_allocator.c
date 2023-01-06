@@ -337,7 +337,7 @@ static uint64
 mini_num_entries(page_handle *meta_page)
 {
    mini_meta_hdr *hdr = (mini_meta_hdr *)meta_page->data;
-   return hdr->num_entries;
+   return (uint64)hdr->num_entries;
 }
 
 /*
@@ -1289,11 +1289,13 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
    do {
       page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
 
-      platform_default_log("| meta addr %31lu |\n", next_meta_addr);
+      uint64 num_entries = mini_num_entries(meta_page);
+      platform_default_log("| meta addr=%-16lu, num_entries=%-15lu |\n",
+                           next_meta_addr,
+                           num_entries);
       platform_default_log("|-------------------------------------------|\n");
 
-      uint64              num_entries = mini_num_entries(meta_page);
-      unkeyed_meta_entry *entry       = unkeyed_first_entry(meta_page);
+      unkeyed_meta_entry *entry = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          platform_default_log("| %3lu | %35lu |\n", i, entry->extent_addr);
          entry = unkeyed_next_entry(entry);
@@ -1315,20 +1317,14 @@ mini_keyed_print(cache       *cc,
    allocator *al             = cache_get_allocator(cc);
    uint64     next_meta_addr = meta_head;
 
-   platform_default_log("------------------------------------------------------"
-                        "---------------\n");
+   // clang-format off
+   const char *dashes = "---------------------------------------------------------------------";
+   // clang-format on
+   platform_default_log("%s\n", dashes);
    platform_default_log(
       "| Mini Keyed Allocator -- meta_head: %12lu                   |\n",
       meta_head);
-   platform_default_log("|-----------------------------------------------------"
-                        "--------------|\n");
-   platform_default_log("| idx | %5s | %14s | %18s | %3s |\n",
-                        "batch",
-                        "extent_addr",
-                        "start_key",
-                        "rc");
-   platform_default_log("|-----------------------------------------------------"
-                        "--------------|\n");
+   platform_default_log("%s\n", dashes);
 
    do {
       page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
@@ -1337,8 +1333,14 @@ mini_keyed_print(cache       *cc,
          "| meta addr: %12lu (%u)                                       |\n",
          next_meta_addr,
          allocator_get_refcount(al, base_addr(cc, next_meta_addr)));
-      platform_default_log("|--------------------------------------------------"
-                           "-----------------|\n");
+      platform_default_log("%s\n", dashes);
+      platform_default_log("| idx | %5s | %14s | %18s | %3s |\n",
+                           "batch",
+                           "extent_addr",
+                           "start_key",
+                           "rc");
+      platform_default_log("%s\n", dashes);
+
 
       uint64            num_entries = mini_num_entries(meta_page);
       keyed_meta_entry *entry       = keyed_first_entry(meta_page);
@@ -1366,8 +1368,7 @@ mini_keyed_print(cache       *cc,
                               ref_str);
          entry = keyed_next_entry(entry);
       }
-      platform_default_log("|--------------------------------------------------"
-                           "-----------------|\n");
+      platform_default_log("%s\n", dashes);
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);

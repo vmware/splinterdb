@@ -305,3 +305,11 @@ btree_get_child_addr(const btree_config *cfg,
 {
    return index_entry_child_addr(btree_get_index_entry(cfg, hdr, k));
 }
+
+static inline uint64
+btree_root_to_meta_addr(const btree_config *cfg,
+                        uint64              root_addr,
+                        uint64              meta_page_no)
+{
+   return root_addr + (meta_page_no + 1) * btree_page_size(cfg);
+}
