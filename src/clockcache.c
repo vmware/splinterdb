@@ -147,7 +147,7 @@ void
 clockcache_unget(clockcache *cc, page_handle *page);
 
 bool
-clockcache_claim(clockcache *cc, page_handle *page);
+clockcache_try_claim(clockcache *cc, page_handle *page);
 
 void
 clockcache_unclaim(clockcache *cc, page_handle *page);
@@ -303,10 +303,10 @@ clockcache_unget_virtual(cache *c, page_handle *page)
 }
 
 bool
-clockcache_claim_virtual(cache *c, page_handle *page)
+clockcache_try_claim_virtual(cache *c, page_handle *page)
 {
    clockcache *cc = (clockcache *)c;
-   return clockcache_claim(cc, page);
+   return clockcache_try_claim(cc, page);
 }
 
 void
@@ -511,7 +511,7 @@ static cache_ops clockcache_ops = {
    .page_get_async    = clockcache_get_async_virtual,
    .page_async_done   = clockcache_async_done_virtual,
    .page_unget        = clockcache_unget_virtual,
-   .page_claim        = clockcache_claim_virtual,
+   .page_try_claim    = clockcache_try_claim_virtual,
    .page_unclaim      = clockcache_unclaim_virtual,
    .page_lock         = clockcache_lock_virtual,
    .page_unlock       = clockcache_unlock_virtual,
@@ -2488,7 +2488,7 @@ clockcache_unget(clockcache *cc, page_handle *page)
 
 /*
  *----------------------------------------------------------------------
- * clockcache_claim --
+ * clockcache_try_claim --
  *
  *      Upgrades a read lock to a claim. This function does not block and
  *      returns TRUE if the claim was successfully obtained.
@@ -2500,7 +2500,7 @@ clockcache_unget(clockcache *cc, page_handle *page)
  *----------------------------------------------------------------------
  */
 bool
-clockcache_claim(clockcache *cc, page_handle *page)
+clockcache_try_claim(clockcache *cc, page_handle *page)
 {
    uint32 entry_number = clockcache_page_to_entry_number(cc, page);
 

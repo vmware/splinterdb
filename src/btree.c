@@ -1049,7 +1049,7 @@ btree_node_claim(cache              *cc,  // IN
                  const btree_config *cfg, // IN
                  btree_node         *node)        // IN
 {
-   return cache_claim(cc, node->page);
+   return cache_try_claim(cc, node->page);
 }
 
 static inline void

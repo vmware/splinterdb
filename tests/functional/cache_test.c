@@ -31,7 +31,7 @@ test_cache_page_pin(cache *cc, page_handle **page_arr, uint64 page_capacity)
    for (uint64 curr_page = 0; curr_page < page_capacity; curr_page++) {
       page_handle *page =
          cache_get(cc, page_arr[curr_page]->disk_addr, TRUE, PAGE_TYPE_MISC);
-      cache_claim(cc, page);
+      cache_try_claim(cc, page);
       cache_lock(cc, page);
       cache_pin(cc, page);
       cache_unlock(cc, page);
@@ -177,7 +177,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
          page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
-         bool claim_obtained = cache_claim(cc, page_arr[i]);
+         bool claim_obtained = cache_try_claim(cc, page_arr[i]);
          if (!claim_obtained) {
             platform_error_log("Expected uncontested claim, but failed\n");
             rc = STATUS_TEST_FAILED;
@@ -222,7 +222,7 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
       uint32 i;
       for (i = 0; i < cfg->page_capacity; i++) {
          page_arr[i] = cache_get(cc, addr_arr[j + i], TRUE, PAGE_TYPE_MISC);
-         bool claim_obtained = cache_claim(cc, page_arr[i]);
+         bool claim_obtained = cache_try_claim(cc, page_arr[i]);
          if (!claim_obtained) {
             platform_error_log("Expected uncontested claim, but failed\n");
             rc = STATUS_TEST_FAILED;
@@ -410,7 +410,7 @@ cache_test_dirty_flush(cache                 *cc,
    for (uint32 i = 0; i < cfg->page_capacity; i++) {
       const uint32 idx = cache_test_index_itor_get(itor);
       page_handle *ph  = cache_get(cc, addr_arr[idx], TRUE, PAGE_TYPE_MISC);
-      bool         claim_obtained = cache_claim(cc, ph);
+      bool         claim_obtained = cache_try_claim(cc, ph);
       if (!claim_obtained) {
          platform_error_log("Expected uncontested claim, but failed\n");
          rc = STATUS_TEST_FAILED;
@@ -798,7 +798,7 @@ test_writer_thread(void *arg)
       }
       do {
          handle_arr[i] = cache_get(cc, addr_arr[i], TRUE, PAGE_TYPE_MISC);
-         if (cache_claim(cc, handle_arr[i])) {
+         if (cache_try_claim(cc, handle_arr[i])) {
             break;
          }
          cache_unget(cc, handle_arr[i]);
