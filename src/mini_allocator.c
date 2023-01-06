@@ -1314,20 +1314,14 @@ mini_keyed_print(cache       *cc,
    allocator *al             = cache_get_allocator(cc);
    uint64     next_meta_addr = meta_head;
 
-   platform_default_log("------------------------------------------------------"
-                        "---------------\n");
+   // clang-format off
+   const char *dashes = "---------------------------------------------------------------------";
+   // clang-format on
+   platform_default_log("%s\n", dashes);
    platform_default_log(
       "| Mini Keyed Allocator -- meta_head: %12lu                   |\n",
       meta_head);
-   platform_default_log("|-----------------------------------------------------"
-                        "--------------|\n");
-   platform_default_log("| idx | %5s | %14s | %18s | %3s |\n",
-                        "batch",
-                        "extent_addr",
-                        "start_key",
-                        "rc");
-   platform_default_log("|-----------------------------------------------------"
-                        "--------------|\n");
+   platform_default_log("%s\n", dashes);
 
    do {
       page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
@@ -1336,8 +1330,14 @@ mini_keyed_print(cache       *cc,
          "| meta addr: %12lu (%u)                                       |\n",
          next_meta_addr,
          allocator_get_refcount(al, base_addr(cc, next_meta_addr)));
-      platform_default_log("|--------------------------------------------------"
-                           "-----------------|\n");
+      platform_default_log("%s\n", dashes);
+      platform_default_log("| idx | %5s | %14s | %18s | %3s |\n",
+                           "batch",
+                           "extent_addr",
+                           "start_key",
+                           "rc");
+      platform_default_log("%s\n", dashes);
+
 
       uint64            num_entries = mini_num_entries(meta_page);
       keyed_meta_entry *entry       = keyed_first_entry(meta_page);
@@ -1365,8 +1365,7 @@ mini_keyed_print(cache       *cc,
                               ref_str);
          entry = keyed_next_entry(entry);
       }
-      platform_default_log("|--------------------------------------------------"
-                           "-----------------|\n");
+      platform_default_log("%s\n", dashes);
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
