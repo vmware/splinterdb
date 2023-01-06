@@ -1125,7 +1125,7 @@ mini_wait_for_blockers(cache *cc, uint64 meta_head)
 {
    allocator *al   = cache_get_allocator(cc);
    uint64     wait = 1;
-   while (allocator_get_ref(al, base_addr(cc, meta_head)) != AL_ONE_REF) {
+   while (allocator_get_refcount(al, base_addr(cc, meta_head)) != AL_ONE_REF) {
       platform_sleep_ns(wait);
       wait = wait > 1024 ? wait : 2 * wait;
    }
@@ -1151,7 +1151,7 @@ mini_keyed_dec_ref(cache       *cc,
                                          NULL);
    if (should_cleanup) {
       allocator *al  = cache_get_allocator(cc);
-      uint8      ref = allocator_get_ref(al, base_addr(cc, meta_head));
+      uint8      ref = allocator_get_refcount(al, base_addr(cc, meta_head));
       platform_assert(ref == AL_ONE_REF);
       mini_deinit(cc, meta_head, type, FALSE);
    }
@@ -1336,7 +1336,7 @@ mini_keyed_print(cache       *cc,
       platform_default_log(
          "| meta addr: %12lu (%u)                                       |\n",
          next_meta_addr,
-         allocator_get_ref(al, base_addr(cc, next_meta_addr)));
+         allocator_get_refcount(al, base_addr(cc, next_meta_addr)));
       platform_default_log("|--------------------------------------------------"
                            "-----------------|\n");
 
@@ -1355,7 +1355,7 @@ mini_keyed_print(cache       *cc,
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
             snprintf(ref_str, 4, "n/a");
          } else {
-            uint8 ref = allocator_get_ref(al, entry->extent_addr);
+            uint8 ref = allocator_get_refcount(al, entry->extent_addr);
             snprintf(ref_str, 4, "%3u", ref);
          }
          platform_default_log("| %3lu | %5u | %14s | %18.18s | %3s |\n",
