@@ -693,11 +693,11 @@ task_group_perform_one(task_group *group, uint64 queue_scale_percent)
 
    /*
     * It is important to update the current_executing_tasks while
-    *  holding the lock. The reason is that, if we release the lock
-    *  before updating current_executing_tasks, then another thread
-    *  might observe that both the number of enqueued tasks and the
-    *  number of executing tasks are both 0, and hence that the system
-    *  is quiescent, even though it is not.
+    * holding the lock. The reason is that, if we release the lock
+    * before updating current_executing_tasks, then another thread
+    * might observe that both the number of enqueued tasks and the
+    * number of executing tasks are both 0, and hence that the system
+    * is quiescent, even though it is not.
     */
    if (assigned_task) {
       __sync_fetch_and_add(&group->current_executing_tasks, 1);

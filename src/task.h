@@ -198,13 +198,20 @@ task_enqueue(task_system *ts,
 /*
  * Possibly performs one background task if there is one waiting,
  * based on the specified queue_scale_percent.  Otherwise returns
- * immediately.  Returns STATUS_TIMEDOUT to indicate that it did not
- * run any task.  STATUS_OK indicates that it did run a task.
+ * immediately.
+ *
+ * Returns:
+ * - STATUS_TIMEDOUT to indicate that it did not run any task.
+ * - STATUS_OK indicates that it did run a task.
+ * - Other return codes indicate an error.
+ *
  * queue_scale_percent specifies how big the queue must be, relative
  * to the number of background threads for that task group, for us to
- * perform a task in that group.  So, for example,
+ * perform a task in that group.
+ *
+ * So, for example,
  * - A queue_scale_percent of 0 means always perform a task if one is
-     waiting.
+ *   waiting.
  * - A queue_scale_percent of 100 means perform a task if there are
  *   more waiting tasks than background threads for that task
  *   queue. (a reasonable default)

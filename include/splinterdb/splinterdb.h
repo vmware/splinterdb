@@ -51,9 +51,7 @@ typedef struct {
    const char *cache_logfile;
 
    // task system
-   // Background threads configuration: Both have to be non-zero in order for
-   // background threads to be started. (It is an error for one to be zero
-   // while the other is non-zero.)
+   // Background threads configuration:
    //
    // - Memtable bg-threads work on Memtables tasks which are short but latency
    //   sensitive. A rule of thumb is to allocate around 1 memtable bg-thread
