@@ -146,7 +146,7 @@ typedef cache_async_result (*page_get_async_fn)(cache            *cc,
 typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
-typedef bool (*page_claim_fn)(cache *cc, page_handle *page);
+typedef bool (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_sync_fn)(cache       *cc,
                              page_handle *page,
                              bool         is_blocking,
@@ -179,7 +179,7 @@ typedef struct cache_ops {
    page_get_async_fn    page_get_async;
    page_async_done_fn   page_async_done;
    page_generic_fn      page_unget;
-   page_claim_fn        page_claim;
+   page_try_claim_fn    page_try_claim;
    page_generic_fn      page_unclaim;
    page_generic_fn      page_lock;
    page_generic_fn      page_unlock;
@@ -261,9 +261,9 @@ cache_unget(cache *cc, page_handle *page)
 }
 
 static inline bool
-cache_claim(cache *cc, page_handle *page)
+cache_try_claim(cache *cc, page_handle *page)
 {
-   return cc->ops->page_claim(cc, page);
+   return cc->ops->page_try_claim(cc, page);
 }
 
 static inline void

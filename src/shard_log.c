@@ -227,7 +227,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    } else {
       page        = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
       uint64 wait = 1;
-      while (!cache_claim(cc, page)) {
+      while (!cache_try_claim(cc, page)) {
          platform_sleep_ns(wait);
          wait = wait > 1024 ? wait : 2 * wait;
       }
