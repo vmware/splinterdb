@@ -28,6 +28,9 @@
 static void
 create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
 
+static platform_status
+parse_cmdline_args(void *datap, int unit_test_argc, char **unit_test_argv);
+
 /*
  * Global data declaration macro:
  */
@@ -38,9 +41,10 @@ CTEST_DATA(limitations)
    platform_heap_id     hid;
 
    // Config structs required, as per splinter_test() setup work.
-   io_config        io_cfg;
-   allocator_config al_cfg;
-   shard_log_config log_cfg;
+   io_config          io_cfg;
+   allocator_config   al_cfg;
+   shard_log_config   log_cfg;
+   task_system_config task_cfg;
 
    rc_allocator al;
 
@@ -113,9 +117,6 @@ CTEST2(limitations, test_io_init_invalid_page_size)
 
    data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
-   uint64 num_memtable_bg_threads_unused = 0;
-   uint64 num_normal_bg_threads_unused   = 0;
-
    ZERO_STRUCT(data->test_exec_cfg);
 
    rc = test_parse_args_n(data->splinter_cfg,
@@ -124,10 +125,9 @@ CTEST2(limitations, test_io_init_invalid_page_size)
                           &data->al_cfg,
                           data->cache_cfg,
                           &data->log_cfg,
+                          &data->task_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
-                          &num_memtable_bg_threads_unused,
-                          &num_normal_bg_threads_unused,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests
                           (char **)Ctest_argv);
@@ -188,9 +188,6 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
 
    data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
 
-   uint64 num_memtable_bg_threads_unused = 0;
-   uint64 num_normal_bg_threads_unused   = 0;
-
    ZERO_STRUCT(data->test_exec_cfg);
 
    rc = test_parse_args_n(data->splinter_cfg,
@@ -199,10 +196,9 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
                           &data->al_cfg,
                           data->cache_cfg,
                           &data->log_cfg,
+                          &data->task_cfg,
                           &data->test_exec_cfg,
                           &data->gen,
-                          &num_memtable_bg_threads_unused,
-                          &num_normal_bg_threads_unused,
                           num_tables,
                           Ctest_argc, // argc/argv globals setup by CTests
                           (char **)Ctest_argv);
@@ -265,18 +261,11 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
    create_default_cfg(&cfg, &default_data_cfg);
 
-   // Both have to be 0, or both have to be set.
-   cfg.num_normal_bg_threads   = 0;
-   cfg.num_memtable_bg_threads = 1;
-
-   int rc = splinterdb_create(&cfg, &kvsb);
-   ASSERT_NOT_EQUAL(0, rc);
-
    // Cannot use up all possible threads for just bg-threads.
    cfg.num_normal_bg_threads   = (MAX_THREADS - 1);
    cfg.num_memtable_bg_threads = 1;
 
-   rc = splinterdb_create(&cfg, &kvsb);
+   int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_NOT_EQUAL(0, rc);
 }
 
@@ -401,6 +390,55 @@ CTEST2(limitations, test_disk_size_not_integral_multiple_of_extents)
    ASSERT_NOT_EQUAL(0, rc);
 }
 
+/*
+ * **************************************************************************
+ * Test that an invalid configuration that makes trunk node configuration
+ * impractical fails correctly with an error message. We try out few diff
+ * config params that go into error checks in trunk_config_init().
+ * **************************************************************************
+ */
+CTEST2(limitations, test_trunk_config_init_fails_for_invalid_configs)
+{
+   platform_status rc;
+   uint64          num_tables = 1;
+
+   // Allocate memory for global config structures
+   data->splinter_cfg =
+      TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg, num_tables);
+
+   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
+
+   char *unit_test_argv0[] = {"--key-size", "1000"};
+   int   unit_test_argc    = ARRAY_SIZE(unit_test_argv0);
+
+   char **unit_test_argv = unit_test_argv0;
+   rc = parse_cmdline_args(data, unit_test_argc, unit_test_argv);
+   ASSERT_FALSE(SUCCESS(rc));
+
+   char *unit_test_argv1[] = {"--page-size", "4096", "--fanout", "100"};
+   unit_test_argc          = ARRAY_SIZE(unit_test_argv1);
+
+   unit_test_argv = unit_test_argv1;
+   rc             = parse_cmdline_args(data, unit_test_argc, unit_test_argv);
+   ASSERT_FALSE(SUCCESS(rc));
+
+   char *unit_test_argv2[] = {"--max-branches-per-node", "200"};
+   unit_test_argc          = ARRAY_SIZE(unit_test_argv2);
+
+   unit_test_argv = unit_test_argv2;
+   rc             = parse_cmdline_args(data, unit_test_argc, unit_test_argv);
+   ASSERT_FALSE(SUCCESS(rc));
+
+   // Release resources acquired in this test case.
+   if (data->cache_cfg) {
+      platform_free(data->hid, data->cache_cfg);
+   }
+
+   if (data->splinter_cfg) {
+      platform_free(data->hid, data->splinter_cfg);
+   }
+}
+
 CTEST2(limitations, test_zero_cache_size)
 {
    splinterdb       *kvsb;
@@ -456,4 +494,37 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg)
                           .page_size   = TEST_CONFIG_DEFAULT_PAGE_SIZE,
                           .extent_size = TEST_CONFIG_DEFAULT_EXTENT_SIZE,
                           .data_cfg    = default_data_cfg};
+}
+
+/*
+ * Helper function to parse command-line arguments to setup the configuration
+ * for SplinterDB.
+ */
+static platform_status
+parse_cmdline_args(void *datap, int unit_test_argc, char **unit_test_argv)
+{
+   // Cast void * datap to ptr-to-CTEST_DATA() struct in use.
+   struct CTEST_IMPL_DATA_SNAME(limitations) *data =
+      (struct CTEST_IMPL_DATA_SNAME(limitations) *)datap;
+
+   ZERO_STRUCT(data->test_exec_cfg);
+
+   uint64 num_memtable_bg_threads_unused = 0;
+   uint64 num_normal_bg_threads_unused   = 0;
+   uint64 seed                           = 0;
+
+   platform_status rc = test_parse_args(data->splinter_cfg,
+                                        &data->data_cfg,
+                                        &data->io_cfg,
+                                        &data->al_cfg,
+                                        data->cache_cfg,
+                                        &data->log_cfg,
+                                        &data->task_cfg,
+                                        &seed,
+                                        &data->gen,
+                                        &num_memtable_bg_threads_unused,
+                                        &num_normal_bg_threads_unused,
+                                        unit_test_argc,
+                                        unit_test_argv);
+   return rc;
 }

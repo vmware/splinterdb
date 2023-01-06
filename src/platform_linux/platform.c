@@ -7,7 +7,7 @@
 
 #include <sys/mman.h>
 
-__thread threadid xxxtid;
+__thread threadid xxxtid = INVALID_TID;
 
 bool platform_use_hugetlb = FALSE;
 bool platform_use_mlock   = FALSE;

@@ -57,7 +57,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
       if (mt->state != MEMTABLE_STATE_READY) {
          // The next memtable is not ready yet, back off and wait.
          cache_unget(cc, *lock_page);
-         platform_sleep(wait);
+         platform_sleep_ns(wait);
          wait = wait > 2048 ? wait : 2 * wait;
          continue;
       }
@@ -78,7 +78,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
             memtable_process(ctxt, process_generation);
          } else {
             cache_unget(cc, *lock_page);
-            platform_sleep(wait);
+            platform_sleep_ns(wait);
             wait *= 2;
          }
          continue;
@@ -216,7 +216,7 @@ memtable_force_finalize(memtable_context *ctxt)
    uint64 wait = 100;
    while (!cache_claim(cc, lock_page)) {
       cache_unget(cc, lock_page);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait *= 2;
       lock_page = cache_get(cc, lock_addr, TRUE, PAGE_TYPE_LOCK_NO_DATA);
    }

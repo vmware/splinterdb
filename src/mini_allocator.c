@@ -168,7 +168,7 @@ mini_full_lock_meta_tail(mini_allocator *mini)
          break;
       }
       cache_unget(mini->cc, meta_page);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 1024 ? wait : 2 * wait;
    }
    cache_lock(mini->cc, meta_page);
@@ -210,7 +210,7 @@ mini_get_claim_meta_page(cache *cc, uint64 meta_addr, page_type type)
          break;
       }
       cache_unget(cc, meta_page);
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 1024 ? wait : 2 * wait;
    }
    return meta_page;
@@ -455,7 +455,7 @@ mini_lock_batch_get_next_addr(mini_allocator *mini, uint64 batch)
           || !__sync_bool_compare_and_swap(
              &mini->next_addr[batch], next_addr, MINI_WAIT))
    {
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait      = wait > 1024 ? wait : 2 * wait;
       next_addr = mini->next_addr[batch];
    }
@@ -1125,7 +1125,7 @@ mini_wait_for_blockers(cache *cc, uint64 meta_head)
    allocator *al   = cache_get_allocator(cc);
    uint64     wait = 1;
    while (allocator_get_ref(al, base_addr(cc, meta_head)) != AL_ONE_REF) {
-      platform_sleep(wait);
+      platform_sleep_ns(wait);
       wait = wait > 1024 ? wait : 2 * wait;
    }
 }
