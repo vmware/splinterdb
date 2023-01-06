@@ -26,6 +26,8 @@
 #include "btree_private.h"
 #include "btree_test_common.h"
 
+typedef void (*btree_thread_hdlr)(void *arg);
+
 typedef struct insert_thread_params {
    cache           *cc;
    btree_config    *cfg;
@@ -35,6 +37,7 @@ typedef struct insert_thread_params {
    uint64           root_addr;
    int              start;
    int              end;
+   platform_thread  thread;
 } insert_thread_params;
 
 // Function Prototypes
@@ -81,6 +84,24 @@ ungen_key(key test_key);
 
 static message
 gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length);
+
+static void
+load_thread_params(insert_thread_params *params,
+                   uint64                nthreads,
+                   platform_heap_id      hid,
+                   cache                *cc,
+                   btree_config         *btree_cfg,
+                   mini_allocator       *mini,
+                   uint64                root_addr,
+                   int                   nkvs);
+
+static platform_status
+do_n_thread_creates(const char           *thread_type,
+                    insert_thread_params *params,
+                    uint64                nthreads,
+                    task_system          *ts,
+                    platform_heap_id      hid,
+                    btree_thread_hdlr     thread_hdlr);
 
 /*
  * Global data declaration macro:
@@ -191,8 +212,8 @@ CTEST_TEARDOWN(btree_stress)
  * Test case to exercise random inserts of large volumes of data, across
  * multiple threads. This test case verifies that registration of threads
  * to Splinter is working stably.
+ * -------------------------------------------------------------------------
  */
-
 CTEST2(btree_stress, test_random_inserts_concurrent)
 {
    int nkvs     = 1000000;
@@ -203,36 +224,26 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid     = platform_get_heap_id();
-   insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
-   platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
+   platform_heap_id      hid    = platform_get_heap_id();
+   insert_thread_params *params = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
 
-   for (uint64 i = 0; i < nthreads; i++) {
-      params[i].cc        = (cache *)&data->cc;
-      params[i].cfg       = &data->dbtree_cfg;
-      params[i].hid       = data->hid;
-      params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
-      params[i].mini      = &mini;
-      params[i].root_addr = root_addr;
-      params[i].start     = i * (nkvs / nthreads);
-      params[i].end = i < nthreads - 1 ? (i + 1) * (nkvs / nthreads) : nkvs;
-   }
+   load_thread_params(params,
+                      nthreads,
+                      data->hid,
+                      (cache *)&data->cc,
+                      &data->dbtree_cfg,
+                      &mini,
+                      root_addr,
+                      nkvs);
 
-   for (uint64 i = 0; i < nthreads; i++) {
-      platform_status ret = task_thread_create("insert thread",
-                                               insert_thread,
-                                               &params[i],
-                                               0,
-                                               data->ts,
-                                               data->hid,
-                                               &threads[i]);
-      ASSERT_TRUE(SUCCESS(ret));
-      // insert_tests((cache *)&cc, &dbtree_cfg, &test_scratch, &mini,
-      // root_addr, 0, nkvs);
-   }
+
+   platform_status ret;
+   ret = do_n_thread_creates(
+      "insert thread", params, nthreads, data->ts, data->hid, insert_thread);
+   ASSERT_TRUE(SUCCESS(ret));
 
    for (uint64 thread_no = 0; thread_no < nthreads; thread_no++) {
-      platform_thread_join(threads[thread_no]);
+      platform_thread_join(params[thread_no].thread);
    }
 
    int rc = query_tests((cache *)&data->cc,
@@ -267,7 +278,61 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs, data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
 
+   // Release memory allocated in this test case
+   for (uint64 i = 0; i < nthreads; i++) {
+      platform_free(data->hid, params[i].scratch);
+   }
+   platform_free(hid, params);
+}
+
+/*
+ * -------------------------------------------------------------------------
+ * Test case to exercise random inserts of large volumes of data, and then
+ * invoke some BTree-print methods, to verify that they are basically working.
+ * The initial work to setup the BTree and load some data is shared between
+ * this and the test_random_inserts_concurrent() sub-case.
+ * -------------------------------------------------------------------------
+ */
+CTEST2(btree_stress, test_btree_print_diags)
+{
+   int nkvs     = 1000000;
+   int nthreads = 8;
+
+   mini_allocator mini;
+
+   uint64 root_addr = btree_create(
+      (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
+
+   platform_heap_id      hid    = platform_get_heap_id();
+   insert_thread_params *params = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
+
+   load_thread_params(params,
+                      nthreads,
+                      data->hid,
+                      (cache *)&data->cc,
+                      &data->dbtree_cfg,
+                      &mini,
+                      root_addr,
+                      nkvs);
+
+
+   platform_status ret;
+   ret = do_n_thread_creates(
+      "insert thread", params, nthreads, data->ts, data->hid, insert_thread);
+   ASSERT_TRUE(SUCCESS(ret));
+
+   for (uint64 thread_no = 0; thread_no < nthreads; thread_no++) {
+      platform_thread_join(params[thread_no].thread);
+   }
+
+   uint64 packed_root_addr = pack_tests(
+      (cache *)&data->cc, &data->dbtree_cfg, data->hid, root_addr, nkvs);
+   if (0 < nkvs && !packed_root_addr) {
+      ASSERT_TRUE(FALSE, "Pack failed.\n");
+   }
+
    // Exercise print method to verify that it basically continues to work.
+   CTEST_LOG_INFO("\n**** btree_print_tree() ****\n");
    btree_print_tree(Platform_default_log_handle,
                     (cache *)&data->cc,
                     &data->dbtree_cfg,
@@ -278,7 +343,6 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
       platform_free(data->hid, params[i].scratch);
    }
    platform_free(hid, params);
-   platform_free(hid, threads);
 }
 
 /*
@@ -286,6 +350,54 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
  * Define minions and helper functions used by this test suite.
  * ********************************************************************************
  */
+/*
+ * Helper function to load thread-specific parameters to drive the workload
+ */
+static void
+load_thread_params(insert_thread_params *params,
+                   uint64                nthreads,
+                   platform_heap_id      hid,
+                   cache                *cc,
+                   btree_config         *btree_cfg,
+                   mini_allocator       *mini,
+                   uint64                root_addr,
+                   int                   nkvs)
+{
+   for (uint64 i = 0; i < nthreads; i++) {
+      params[i].cc        = cc;
+      params[i].cfg       = btree_cfg;
+      params[i].hid       = hid;
+      params[i].scratch   = TYPED_MALLOC(hid, params[i].scratch);
+      params[i].mini      = mini;
+      params[i].root_addr = root_addr;
+      params[i].start     = i * (nkvs / nthreads);
+      params[i].end = ((i < nthreads - 1) ? (i + 1) * (nkvs / nthreads) : nkvs);
+   }
+}
+
+/*
+ * Helper function to create n-threads, each thread executing the specified
+ * thread_hdlr handler function.
+ */
+static platform_status
+do_n_thread_creates(const char           *thread_type,
+                    insert_thread_params *params,
+                    uint64                nthreads,
+                    task_system          *ts,
+                    platform_heap_id      hid,
+                    btree_thread_hdlr     thread_hdlr)
+{
+   platform_status ret;
+   for (uint64 i = 0; i < nthreads; i++) {
+      ret = task_thread_create(
+         thread_type, thread_hdlr, &params[i], 0, ts, hid, &params[i].thread);
+      if (!SUCCESS(ret)) {
+         return ret;
+      }
+   }
+   return ret;
+}
+
 static void
 insert_thread(void *arg)
 {
