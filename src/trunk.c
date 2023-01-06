@@ -8159,7 +8159,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
                    "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
                    mt_gen,
                    mt->root_addr,
-                   allocator_get_ref(spl->al, mt->root_addr),
+                   allocator_get_refcount(spl->al, mt->root_addr),
                    mt->state);
 
       memtable_print(log_handle, spl->cc, mt);

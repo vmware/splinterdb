@@ -196,9 +196,8 @@ allocator_dec_ref(allocator *al, uint64 addr, page_type type)
    return al->ops->dec_ref(al, addr, type);
 }
 
-// TODO rename get_refcount
 static inline uint8
-allocator_get_ref(allocator *al, uint64 addr)
+allocator_get_refcount(allocator *al, uint64 addr)
 {
    return al->ops->get_ref(al, addr);
 }
@@ -271,11 +270,11 @@ allocator_page_valid(allocator *al, uint64 addr)
 
    uint64 base_addr = allocator_config_extent_base_addr(allocator_cfg, addr);
    if ((base_addr != 0) && (addr < allocator_cfg->capacity)) {
-      uint8 refcount = allocator_get_ref(al, base_addr);
+      uint8 refcount = allocator_get_refcount(al, base_addr);
       if (refcount == 0) {
          platform_error_log(
             "%s():%d: Trying to access an unreferenced extent."
-            " base_addr=%lu, addr=%lu, allocator_get_ref()=%d\n",
+            " base_addr=%lu, addr=%lu, allocator_get_refcount()=%d\n",
             __FUNCTION__,
             __LINE__,
             base_addr,

@@ -2023,7 +2023,7 @@ void
 clockcache_hard_evict_extent(clockcache *cc, uint64 addr, page_type type)
 {
    debug_assert(addr % clockcache_extent_size(cc) == 0);
-   debug_assert(allocator_get_ref(cc->al, addr) == 1);
+   debug_assert(allocator_get_refcount(cc->al, addr) == 1);
 
    clockcache_log(addr, 0, "hard evict extent: addr %lu\n", addr);
    for (uint64 i = 0; i < cc->cfg->pages_per_extent; i++) {
@@ -2065,7 +2065,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
    uint64            start, elapsed;
 
 #if SPLINTER_DEBUG
-   uint8 extent_ref_count = allocator_get_ref(cc->al, base_addr);
+   uint8 extent_ref_count = allocator_get_refcount(cc->al, base_addr);
 
    // Dump allocated extents info for deeper debugging.
    if (extent_ref_count <= 1) {
@@ -2328,7 +2328,7 @@ clockcache_get_async(clockcache       *cc,   // IN
    clockcache_entry *entry;
    platform_status   status;
 
-   debug_assert(allocator_get_ref(cc->al, base_addr) > 1);
+   debug_assert(allocator_get_refcount(cc->al, base_addr) > 1);
 
    ctxt->page   = NULL;
    entry_number = clockcache_lookup(cc, addr);
