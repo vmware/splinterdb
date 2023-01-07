@@ -217,9 +217,9 @@ blob_page_iterator_get_curr(blob_page_iterator *iter,
             cache_get(iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);
          if (iter->mode == BLOB_PAGE_ITERATOR_MODE_ALLOC) {
             int wait = 1;
-            while (!cache_claim(iter->cc, iter->page)) {
+            while (!cache_try_claim(iter->cc, iter->page)) {
                cache_unget(iter->cc, iter->page);
-               platform_sleep(wait);
+               platform_sleep_ns(wait);
                wait       = MIN(2 * wait, 2048);
                iter->page = cache_get(
                   iter->cc, iter->fragment.addr, TRUE, PAGE_TYPE_BLOB);

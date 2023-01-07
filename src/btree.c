@@ -3198,6 +3198,7 @@ btree_print_index_node(platform_log_handle *log_handle,
 static void
 btree_print_leaf_entry(platform_log_handle *log_handle,
                        btree_config        *cfg,
+                       cache               *cc,
                        leaf_entry          *entry,
                        uint64               entry_num)
 {
@@ -3206,7 +3207,7 @@ btree_print_leaf_entry(platform_log_handle *log_handle,
                 "[%2lu]: %s -- %s\n",
                 entry_num,
                 key_string(dcfg, leaf_entry_key(entry)),
-                message_string(dcfg, leaf_entry_message(entry)));
+                message_string(dcfg, leaf_entry_message(cc, entry)));
 }
 
 static void
@@ -3234,7 +3235,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
       log_handle, "Array of %d index leaf entries:\n", btree_num_entries(hdr));
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, i);
-      btree_print_leaf_entry(log_handle, cfg, entry, i);
+      btree_print_leaf_entry(log_handle, cfg, cc, entry, i);
    }
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "\n");
