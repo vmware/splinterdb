@@ -116,14 +116,14 @@ struct clockcache {
 
    uint32              *lookup;
    clockcache_entry    *entry;
-   buffer_handle       *bh;   // actual memory for pages
+   buffer_handle        bh;   // actual memory for pages
    char                *data; // convenience pointer for bh
    platform_log_handle *logfile;
    platform_heap_handle heap_handle;
    platform_heap_id     heap_id;
 
    // Distributed locks (the write bit is in the status uint32 of the entry)
-   buffer_handle  *rc_bh;
+   buffer_handle   rc_bh;
    volatile uint8 *refcount;
    volatile uint8 *pincount;
 

@@ -1824,12 +1824,14 @@ clockcache_init(clockcache          *cc,   // OUT
       goto alloc_error;
    }
 
+   platform_status rc = STATUS_NO_MEMORY;
+
    /* data must be aligned because of O_DIRECT */
-   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_id, mid);
-   if (!cc->bh) {
+   rc = platform_buffer_init(&cc->bh, cc->cfg->capacity);
+   if (!SUCCESS(rc)) {
       goto alloc_error;
    }
-   cc->data = platform_buffer_getaddr(cc->bh);
+   cc->data = platform_buffer_getaddr(&cc->bh);
 
    /* Set up the entries */
    for (i = 0; i < cc->cfg->page_capacity; i++) {
@@ -1841,11 +1843,11 @@ clockcache_init(clockcache          *cc,   // OUT
 
    /* Entry per-thread ref counts */
    size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
-   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_id, mid);
-   if (!cc->rc_bh) {
+   rc                   = platform_buffer_init(&cc->rc_bh, refcount_size);
+   if (!SUCCESS(rc)) {
       goto alloc_error;
    }
-   cc->refcount = platform_buffer_getaddr(cc->rc_bh);
+   cc->refcount = platform_buffer_getaddr(&cc->rc_bh);
    /* Separate ref counts for pins */
    cc->pincount =
       TYPED_ARRAY_ZALLOC(cc->heap_id, cc->pincount, cc->cfg->page_capacity);
@@ -1888,15 +1890,12 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #endif
    }
 
-   if (cc->rc_bh) {
-      platform_buffer_destroy(cc->heap_id, &cc->rc_bh);
-   }
+   platform_buffer_deinit(&cc->rc_bh);
 
    platform_free(cc->heap_id, cc->entry);
    platform_free(cc->heap_id, cc->lookup);
-   if (cc->bh) {
-      platform_buffer_destroy(cc->heap_id, &cc->bh);
-   }
+   platform_buffer_deinit(&cc->bh);
+
    cc->data = NULL;
    platform_free_volatile(cc->heap_id, cc->batch_busy);
    if (cc->pincount) {

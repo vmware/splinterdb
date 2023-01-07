@@ -57,21 +57,17 @@ platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle))
 {}
 
 /*
- * platform_buffer_create() - Create large buffers using mmap()
+ * platform_buffer_init() - Initialize an input buffer_handle, bh, allocating
+ * large buffers using mmap().
  *
  * Certain modules, e.g. the buffer cache, need a very large buffer which
  * may not be serviceable by the heap. Create the requested buffer using
- * mmap() and return a handle to it.
+ * mmap() and initialize the input 'bh' to track this memory allocation.
  */
-buffer_handle *
-platform_buffer_create(size_t             length,
-                       platform_heap_id   heap_id,
-                       platform_module_id UNUSED_PARAM(module_id))
+platform_status
+platform_buffer_init(buffer_handle *bh, size_t length)
 {
-   buffer_handle *bh = TYPED_MALLOC(heap_id, bh);
-   if (bh == NULL) {
-      return bh;
-   }
+   platform_status rc = STATUS_NO_MEMORY;
 
    int prot  = PROT_READ | PROT_WRITE;
    int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
@@ -97,12 +93,10 @@ platform_buffer_create(size_t             length,
       }
    }
    bh->length = length;
-   return bh;
+   rc         = STATUS_OK;
 
 error:
-   platform_free(platform_get_heap_id(), bh);
-   bh = NULL;
-   return bh;
+   return rc;
 }
 
 void *
@@ -116,17 +110,15 @@ platform_buffer_getaddr(const buffer_handle *bh)
  * Free all associated memory. buffer_handle *bh_in is NULL'ed out on exit.
  */
 platform_status
-platform_buffer_destroy(platform_heap_id heap_id, buffer_handle **bh_in)
+platform_buffer_deinit(buffer_handle *bh)
 {
-   buffer_handle *bh = *bh_in;
-   int            ret;
+   int ret;
    ret = munmap(bh->addr, bh->length);
    if (ret) {
       return CONST_STATUS(errno);
    }
 
-   platform_free(heap_id, *bh_in);
-
+   bh->addr = NULL;
    return STATUS_OK;
 }
 

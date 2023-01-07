@@ -81,18 +81,18 @@ typedef struct {
 // Spin lock
 typedef pthread_spinlock_t platform_spinlock;
 
-// Buffer handle
-typedef struct {
-   void  *addr;
-   size_t length;
-} buffer_handle;
-
 // iohandle for laio
 typedef struct laio_handle platform_io_handle;
 
 typedef void *platform_module_id;
 typedef void *platform_heap_handle;
 typedef void *platform_heap_id;
+
+// Buffer handle
+typedef struct {
+   void  *addr;
+   size_t length;
+} buffer_handle;
 
 typedef struct {
    unsigned int  num_buckets;
