@@ -9018,6 +9018,8 @@ trunk_config_init(trunk_config        *trunk_cfg,
    // - user-specified fanout
    trunk_cfg->hard_max_branches_per_node =
       bytes_for_branches / sizeof(trunk_branch) - 1;
+   platform_assert(trunk_cfg->max_branches_per_node
+                   <= trunk_cfg->hard_max_branches_per_node);
 
    // Initialize point message btree
    btree_config_init(&trunk_cfg->btree_cfg,
