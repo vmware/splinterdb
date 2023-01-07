@@ -70,18 +70,19 @@ typedef struct master_config {
    // log
    bool use_log;
 
-   // splinter
-   uint64 memtable_capacity;
-   uint64 fanout;
-   uint64 max_branches_per_node;
-   uint64 use_stats;
-   uint64 reclaim_threshold;
+   // task system
    uint64 num_normal_bg_threads;   // Both bg_threads fields have to be non-zero
    uint64 num_memtable_bg_threads; // for background threads to be enabled
 
-   bool verbose_logging_enabled;
-   bool verbose_progress;
-
+   // splinter
+   uint64               memtable_capacity;
+   uint64               fanout;
+   uint64               max_branches_per_node;
+   uint64               use_stats;
+   uint64               reclaim_threshold;
+   uint64               queue_scale_percent;
+   bool                 verbose_logging_enabled;
+   bool                 verbose_progress;
    platform_log_handle *log_handle;
 
    // data

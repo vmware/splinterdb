@@ -1063,7 +1063,7 @@ btree_node_claim(cache              *cc,  // IN
                  const btree_config *cfg, // IN
                  btree_node         *node)        // IN
 {
-   return cache_claim(cc, node->page);
+   return cache_try_claim(cc, node->page);
 }
 
 static inline void
@@ -1920,7 +1920,7 @@ start_over:
    bool need_to_rebuild_spec = FALSE;
    while (!btree_node_claim(cc, cfg, &child_node)) {
       btree_node_unget(cc, cfg, &child_node);
-      platform_sleep(leaf_wait);
+      platform_sleep_ns(leaf_wait);
       leaf_wait = leaf_wait > 2048 ? leaf_wait : 2 * leaf_wait;
       btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
       need_to_rebuild_spec = TRUE;
@@ -3121,12 +3121,57 @@ btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
 }
 
 static void
+btree_print_btree_pivot_stats(platform_log_handle *log_handle,
+                              btree_pivot_stats   *pivot_stats)
+{
+   // If nothing has been updated, yet, print a msg accordingly.
+   if ((pivot_stats->num_kvs == BTREE_UNKNOWN_COUNTER)
+       && (pivot_stats->key_bytes == BTREE_UNKNOWN_COUNTER)
+       && (pivot_stats->message_bytes == BTREE_UNKNOWN_COUNTER))
+   {
+      platform_log(log_handle, "   (Pivot Stats=BTREE_UNKNOWN_COUNTER)\n");
+      return;
+   }
+
+   // Indentation is dictated by outer caller
+   platform_log(log_handle,
+                "   (num_kvs=%u\n"
+                "    key_bytes=%u\n"
+                "    message_bytes=%u)\n",
+                pivot_stats->num_kvs,
+                pivot_stats->key_bytes,
+                pivot_stats->message_bytes);
+}
+
+static void
+btree_print_btree_pivot_data(platform_log_handle *log_handle,
+                             btree_pivot_data    *pivot_data)
+{
+   // Indentation is dictated by outer caller
+   platform_log(log_handle, "   child_addr=%lu\n", pivot_data->child_addr);
+   btree_print_btree_pivot_stats(log_handle, &pivot_data->stats);
+}
+
+static void
+btree_print_index_entry(platform_log_handle *log_handle,
+                        btree_config        *cfg,
+                        index_entry         *entry,
+                        uint64               entry_num)
+{
+   data_config *dcfg = cfg->data_cfg;
+   platform_log(log_handle,
+                "[%2lu]: key=%s\n",
+                entry_num,
+                key_string(dcfg, index_entry_key(entry)));
+   btree_print_btree_pivot_data(log_handle, &entry->pivot_data);
+}
+
+static void
 btree_print_index_node(platform_log_handle *log_handle,
                        btree_config        *cfg,
                        uint64               addr,
                        btree_hdr           *hdr)
 {
-   data_config *dcfg = cfg->data_cfg;
    platform_log(log_handle, "**  INDEX NODE \n");
    platform_log(log_handle, "**  Header ptr: %p\n", hdr);
    platform_log(log_handle, "**  addr: %lu \n", addr);
@@ -3145,20 +3190,23 @@ btree_print_index_node(platform_log_handle *log_handle,
       log_handle, "Array of %d index entries:\n", btree_num_entries(hdr));
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       index_entry *entry = btree_get_index_entry(cfg, hdr, i);
-      platform_log(log_handle,
-                   "[%2lu]: key=%s\n"
-                   "   child_addr=%lu\n"
-                   "   (num_kvs=%u\n"
-                   "    key_bytes=%u\n"
-                   "    message_bytes=%u)\n",
-                   i,
-                   key_string(dcfg, index_entry_key(entry)),
-                   entry->pivot_data.child_addr,
-                   entry->pivot_data.stats.num_kvs,
-                   entry->pivot_data.stats.key_bytes,
-                   entry->pivot_data.stats.message_bytes);
+      btree_print_index_entry(log_handle, cfg, entry, i);
    }
    platform_log(log_handle, "\n");
+}
+
+static void
+btree_print_leaf_entry(platform_log_handle *log_handle,
+                       btree_config        *cfg,
+                       leaf_entry          *entry,
+                       uint64               entry_num)
+{
+   data_config *dcfg = cfg->data_cfg;
+   platform_log(log_handle,
+                "[%2lu]: %s -- %s\n",
+                entry_num,
+                key_string(dcfg, leaf_entry_key(entry)),
+                message_string(dcfg, leaf_entry_message(entry)));
 }
 
 static void
@@ -3168,7 +3216,6 @@ btree_print_leaf_node(platform_log_handle *log_handle,
                       uint64               addr,
                       btree_hdr           *hdr)
 {
-   data_config *dcfg = cfg->data_cfg;
    platform_log(log_handle, "**  LEAF NODE \n");
    platform_log(log_handle, "**  hdrptr: %p\n", hdr);
    platform_log(log_handle, "**  addr: %lu \n", addr);
@@ -3187,11 +3234,7 @@ btree_print_leaf_node(platform_log_handle *log_handle,
       log_handle, "Array of %d index leaf entries:\n", btree_num_entries(hdr));
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, i);
-      platform_log(log_handle,
-                   "[%2lu]: %s -- %s\n",
-                   i,
-                   key_string(dcfg, leaf_entry_key(entry)),
-                   message_string(dcfg, leaf_entry_message(cc, entry)));
+      btree_print_leaf_entry(log_handle, cfg, entry, i);
    }
    platform_log(log_handle, "-------------------\n");
    platform_log(log_handle, "\n");

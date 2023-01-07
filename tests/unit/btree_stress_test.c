@@ -91,13 +91,14 @@ CTEST_DATA(btree_stress)
    // This part of the data structures is common to what we need
    // to set up a Splinter instance, as is done in
    // btree_test.c
-   master_config     master_cfg;
-   data_config      *data_cfg;
-   io_config         io_cfg;
-   allocator_config  allocator_cfg;
-   clockcache_config cache_cfg;
-   btree_scratch     test_scratch;
-   btree_config      dbtree_cfg;
+   master_config      master_cfg;
+   data_config       *data_cfg;
+   io_config          io_cfg;
+   allocator_config   allocator_cfg;
+   clockcache_config  cache_cfg;
+   task_system_config task_cfg;
+   btree_scratch      test_scratch;
+   btree_config       dbtree_cfg;
 
    // To create a heap for io, allocator, cache and splinter
    platform_heap_handle hh;
@@ -105,7 +106,6 @@ CTEST_DATA(btree_stress)
 
    // Stuff needed to setup and exercise multiple threads.
    platform_io_handle io;
-   uint64             num_bg_threads[NUM_TASK_TYPES];
    task_system       *ts;
    rc_allocator       al;
    clockcache         cc;
@@ -130,7 +130,9 @@ CTEST_SETUP(btree_stress)
        || !init_btree_config_from_master_config(&data->dbtree_cfg,
                                                 &data->master_cfg,
                                                 &data->cache_cfg.super,
-                                                data->data_cfg))
+                                                data->data_cfg)
+       || !init_task_config_from_master_config(
+          &data->task_cfg, &data->master_cfg, sizeof(btree_scratch)))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -142,15 +144,10 @@ CTEST_SETUP(btree_stress)
       ASSERT_TRUE(FALSE, "Failed to init heap\n");
    }
    // Setup execution of concurrent threads
-   ZERO_ARRAY(data->num_bg_threads);
    data->ts = NULL;
    if (!SUCCESS(io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid))
-       || !SUCCESS(task_system_create(data->hid,
-                                      &data->io,
-                                      &data->ts,
-                                      data->master_cfg.use_stats,
-                                      data->num_bg_threads,
-                                      sizeof(btree_scratch)))
+       || !SUCCESS(
+          task_system_create(data->hid, &data->io, &data->ts, &data->task_cfg))
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,
                                      (io_handle *)&data->io,
@@ -173,7 +170,12 @@ CTEST_SETUP(btree_stress)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(btree_stress) {}
+CTEST_TEARDOWN(btree_stress)
+{
+   clockcache_deinit(&data->cc);
+   rc_allocator_deinit(&data->al);
+   task_system_destroy(data->hid, &data->ts);
+}
 
 /*
  * -------------------------------------------------------------------------

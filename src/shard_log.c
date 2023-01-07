@@ -243,8 +243,8 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    } else {
       page        = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
       uint64 wait = 1;
-      while (!cache_claim(cc, page)) {
-         platform_sleep(wait);
+      while (!cache_try_claim(cc, page)) {
+         platform_sleep_ns(wait);
          wait = wait > 1024 ? wait : 2 * wait;
       }
       cache_lock(cc, page);
@@ -381,7 +381,7 @@ shard_log_iterator_init(cache              *cc,
 
    // traverse the log extents and calculate the required space
    extent_addr = addr;
-   while (extent_addr != 0 && allocator_get_ref(al, extent_addr) > 0) {
+   while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
@@ -411,7 +411,7 @@ finished_first_pass:
    log_entry *cursor    = (log_entry *)itor->contents;
    uint64     entry_idx = 0;
    extent_addr          = addr;
-   while (extent_addr != 0 && allocator_get_ref(al, extent_addr) > 0) {
+   while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
@@ -522,7 +522,7 @@ shard_log_print(shard_log *log)
    uint64            pages_per_extent = shard_log_pages_per_extent(cfg);
    allocator        *al               = cache_get_allocator(cc);
 
-   while (extent_addr != 0 && allocator_get_ref(al, extent_addr) > 0) {
+   while (extent_addr != 0 && allocator_get_refcount(al, extent_addr) > 0) {
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       uint64 next_extent_addr = 0;
       for (uint64 i = 0; i < pages_per_extent; i++) {

@@ -62,6 +62,8 @@ typedef struct trunk_config {
    uint64 target_leaf_kv_bytes; // make leaves this big when splitting
    uint64 reclaim_threshold;    // start reclaming space when
                                 // free space < threshold
+   uint64 queue_scale_percent;  // Governs when inserters perform bg tasks.  See
+                                // task.h
    bool            use_stats;   // stats
    memtable_config mt_cfg;
    btree_config    btree_cfg;
@@ -449,7 +451,7 @@ trunk_pivot_message_size();
 uint64
 trunk_hdr_size();
 
-void
+platform_status
 trunk_config_init(trunk_config        *trunk_cfg,
                   cache_config        *cache_cfg,
                   data_config         *data_cfg,
@@ -461,6 +463,7 @@ trunk_config_init(trunk_config        *trunk_cfg,
                   uint64               filter_remainder_size,
                   uint64               filter_index_size,
                   uint64               reclaim_threshold,
+                  uint64               queue_scale_percent,
                   bool                 use_log,
                   bool                 use_stats,
                   bool                 verbose_logging,

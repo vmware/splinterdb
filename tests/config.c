@@ -43,6 +43,7 @@
 #define TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS   0
 #define TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS 0
 
+#define TEST_CONFIG_DEFAULT_QUEUE_SCALE_PERCENT (100)
 
 // clang-format off
 /*
@@ -70,13 +71,14 @@ config_set_defaults(master_config *cfg)
       .filter_remainder_size    = 6,
       .filter_index_size        = TEST_CONFIG_DEFAULT_FILTER_INDEX_SIZE,
       .use_log                  = FALSE,
+      .num_normal_bg_threads    = TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS,
+      .num_memtable_bg_threads  = TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS,
       .memtable_capacity        = MiB_TO_B(TEST_CONFIG_DEFAULT_MEMTABLE_CAPACITY_MB),
       .fanout                   = TEST_CONFIG_DEFAULT_FANOUT,
       .max_branches_per_node    = TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE,
       .use_stats                = FALSE,
       .reclaim_threshold        = UINT64_MAX,
-      .num_normal_bg_threads    = TEST_CONFIG_DEFAULT_NUM_NORMAL_BG_THREADS,
-      .num_memtable_bg_threads  = TEST_CONFIG_DEFAULT_NUM_MEMTABLE_BG_THREADS,
+      .queue_scale_percent      = TEST_CONFIG_DEFAULT_QUEUE_SCALE_PERCENT,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
       .log_handle               = NULL,
@@ -115,6 +117,8 @@ config_usage()
    platform_error_log("\t--cache-capacity-mib (%d)\n",
                       (int)(TEST_CONFIG_DEFAULT_CACHE_SIZE_GB * KiB));
    platform_error_log("\t--cache-debug-log\n");
+   platform_error_log("\t--queue-scale-percent (%d)\n",
+                      TEST_CONFIG_DEFAULT_QUEUE_SCALE_PERCENT);
    platform_error_log("\t--memtable-capacity-gib\n");
    platform_error_log("\t--memtable-capacity-mib (%d)\n",
                       TEST_CONFIG_DEFAULT_MEMTABLE_CAPACITY_MB);
@@ -239,6 +243,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_mib("cache-capacity", cfg, cache_capacity) {}
          config_set_gib("cache-capacity", cfg, cache_capacity) {}
          config_set_string("cache-debug-log", cfg, cache_logfile) {}
+         config_set_uint64("queue-scale-percent", cfg, queue_scale_percent) {}
          config_set_mib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_gib("memtable-capacity", cfg, memtable_capacity) {}
          config_set_uint64("rough-count-height", cfg, btree_rough_count_height)
@@ -350,17 +355,6 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
                                "experimental.\n",
                                cfg[cfg_idx].max_key_size,
                                TEST_CONFIG_MIN_KEY_SIZE);
-            return STATUS_BAD_PARAM;
-         }
-         if ((cfg[cfg_idx].num_normal_bg_threads == 0)
-             != (cfg[cfg_idx].num_memtable_bg_threads == 0))
-         {
-            platform_error_log("Both configuration parameters for background "
-                               "threads, --num-normal-bg-threads (%lu) "
-                               " and --num-memtable-bg-threads (%lu) "
-                               "must be zero or be non-zero.\n",
-                               cfg[cfg_idx].num_normal_bg_threads,
-                               cfg[cfg_idx].num_memtable_bg_threads);
             return STATUS_BAD_PARAM;
          }
       }
