@@ -23,8 +23,11 @@ fi
 
 if [ $EVAL == 'sys-compare' ]; then
         BENCHMARKS="SplinterDB-withLog SplinterDB PMEM-Only PMEM-CoW Non-Txn PERSISTRON"
+elif [ $EVAL ==  'threading' ]; then
+	BENCHMARKS="SplinterDB PERSISTRON"
 else
-        BENCHMARKS="SplinterDB PERSISTRON"
+	#FIXME: build and run matrixkv & spitfire
+        BENCHMARKS="SplinterDB PERSISTRON MatrixKV Spitfire"
 fi
 
 
@@ -82,46 +85,71 @@ for B in $BENCHMARKS; do
     make clean
     make -j18
 
+
     for W in $WORKLOAD; do
         for T in $THREADS; do
 	    for C in `seq 1 ${#DRAM_CAPACITY[@]}`; do
-                for I in `seq 0 4`; do
-                    	rm -rf ${MOUNT_POINT}/*
-			            rm splinterdb.db
-			            if [ $W == load ]; then
-			               if [ $B == SplinterDB ]; then
-			                  ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
-					               -dram_cache_size_mb 1024 >&data.log
-			               elif [ $B == SplinterDB-withLog ]; then
-			                  ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
-					               -pmem_cache_size_mb 4096 \
-                         -dram_cache_size_mb 1024\
-					               -cache_log_checkpoint_interval 10000\
-				       	         -pmem_cache_file ${MOUNT_POINT}/pmemcache \
-                         >&data.log
-			               else
-                           ./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
-                              -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
-                              -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
-		                  fi
-                        RATE=`cat data.log | grep 'workloads/load.spec' | awk '{ print $4 }'`
-			            else
-			               if [ $B == SplinterDB ]; then
-                           ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
-                               -dram_cache_size_mb 1024 >&data.log
-                        elif [ $B == SplinterDB-withLog ]; then
-                           ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
-                              -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024\
-                              -cache_log_checkpoint_interval 10000\
-                              -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
-                        else
-			                  ./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
-				                  -pmem_cache_size_mb 4096 -dram_cache_size_mb 1024 \
-				                  -pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
-			               fi
-                        RATE=`cat data.log | grep 'workloads/workload' | awk '{ print $4 }'`
-			            fi
-                     echo "${B},${W},${T},${I},${RATE}">> result.csv
+    		for I in `seq 0 4`; do
+                	rm -rf ${MOUNT_POINT}/*
+			rm splinterdb.db
+			if [ $W == load ]; then
+				if [ $B == SplinterDB ]; then
+					if [[ ${#DRAM_CAPACITY[@]} == 1 || ${PMEM_CAPACITY[$C-1]} == 0 ]]; then
+			        		./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
+							-dram_cache_size_mb  ${DRAM_CAPACITY[$C-1]} >&data.log
+						RATE=`cat data.log | grep 'workloads/load.spec' | awk '{ print $4 }'`
+						echo "${B},${W},${T},${PMEM_CAPACITY[$C-1]},${DRAM_CAPACITY[$C-1]},${I},${RATE}">> result.csv
+					fi
+				elif [ $B == SplinterDB-withLog ]; then
+					if [ ${PMEM_CAPACITY[$C-1]} != 0 ]; then
+			        		./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
+							-pmem_cache_size_mb ${PMEM_CAPACITY[$C-1]} \
+                         				-dram_cache_size_mb  ${DRAM_CAPACITY[$C-1]}\
+							-cache_log_checkpoint_interval 10000\
+							-pmem_cache_file ${MOUNT_POINT}/pmemcache \
+                         				>&data.log
+						RATE=`cat data.log | grep 'workloads/load.spec' | awk '{ print $4 }'`
+						echo "${B},${W},${T},${PMEM_CAPACITY[$C-1]},${DRAM_CAPACITY[$C-1]},${I},${RATE}">> result.csv
+					fi
+				else
+					if [ ${PMEM_CAPACITY[$C-1]} != 0 ]; then
+						./ycsbc -db classic_splinterdb -L workloads/$W.spec -threads $T \
+							-pmem_cache_size_mb ${PMEM_CAPACITY[$C-1]} \
+							-dram_cache_size_mb  ${DRAM_CAPACITY[$C-1]}\
+							-pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+						RATE=`cat data.log | grep 'workloads/load.spec' | awk '{ print $4 }'`
+						echo "${B},${W},${T},${PMEM_CAPACITY[$C-1]},${DRAM_CAPACITY[$C-1]},${I},${RATE}">> result.csv
+					fi
+				fi
+			else
+				if [ $B == SplinterDB ]; then
+					if [[ ${#DRAM_CAPACITY[@]} == 1 || ${PMEM_CAPACITY[$C-1]} == 0 ]]; then
+						./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+							-dram_cache_size_mb ${DRAM_CAPACITY[$C-1]} >&data.log
+						RATE=`cat data.log | grep 'workloads/workload' | awk '{ print $4 }'`
+						echo "${B},${W},${T},${PMEM_CAPACITY[$C-1]},${DRAM_CAPACITY[$C-1]},${I},${RATE}">> result.csv
+					fi
+				elif [ $B == SplinterDB-withLog ]; then
+					if [ ${PMEM_CAPACITY[$C-1]} != 0 ]; then
+						./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+							-pmem_cache_size_mb ${PMEM_CAPACITY[$C-1]}\
+					       		-dram_cache_size_mb ${DRAM_CAPACITY[$C-1]}\
+							-cache_log_checkpoint_interval 10000\
+							-pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+						RATE=`cat data.log | grep 'workloads/workload' | awk '{ print $4 }'`
+						echo "${B},${W},${T},${PMEM_CAPACITY[$C-1]},${DRAM_CAPACITY[$C-1]},${I},${RATE}">> result.csv
+					fi
+				else
+					if [ ${PMEM_CAPACITY[$C-1]} != 0 ]; then
+						./ycsbc -db classic_splinterdb -L workloads/load.spec -W workloads/$W.spec -threads $T \
+							-pmem_cache_size_mb ${PMEM_CAPACITY[$C-1]} \
+						       	-dram_cache_size_mb ${DRAM_CAPACITY[$C-1]} \
+							-pmem_cache_file ${MOUNT_POINT}/pmemcache >&data.log
+						RATE=`cat data.log | grep 'workloads/workload' | awk '{ print $4 }'`
+						echo "${B},${W},${T},${PMEM_CAPACITY[$C-1]},${DRAM_CAPACITY[$C-1]},${I},${RATE}">> result.csv
+					fi
+				fi
+			fi
                 done
 	    done
         done
