@@ -1,16 +1,43 @@
 #!/bin/bash
-BENCHMARKS="SplinterDB-withLog SplinterDB PMEM-Only PMEM-CoW Non-Txn PERSISTRON"
-THREADS="1 2 4 8 16"
-WORKLOAD="load workloada workloadb"
+EVAL=$1
+
+if [ $EVAL == 'iso' ]; then
+	DRAM_CAPACITY=(6144 4096 2048 8192)
+	PMEM_CAPACITY=(8192 16384 24576 0)
+else
+	DRAM_CAPACITY="4096"
+	PMEM_CAPACITY="16384"
+fi
+
+if [ $EVAL == 'workload' ]; then
+	WORKLOAD="load workloada workloadb workloadc workloadd workloade workloadf"
+else
+	WORKLOAD="load workloada workloadb"
+fi
+
+if [ $EVAL == 'threading' ]; then
+        THREADS="1 2 4 8 16"
+else
+        THREADS="16"
+fi
+
+if [ $EVAL == 'sys-compare' ]; then
+        BENCHMARKS="SplinterDB-withLog SplinterDB PMEM-Only PMEM-CoW Non-Txn PERSISTRON"
+else
+        BENCHMARKS="SplinterDB PERSISTRON"
+fi
+
 
 MOUNT_POINT=/mnt/pmem0
 TIMEOUT=10m
+
 
 export COMPILER=gcc
 
 export CC=$COMPILER
 export LD=$COMPILER
 export DEFAULT_CFLAGS=
+
 
 {
 for B in $BENCHMARKS; do
@@ -57,6 +84,7 @@ for B in $BENCHMARKS; do
 
     for W in $WORKLOAD; do
         for T in $THREADS; do
+	    for C in `seq 1 ${#DRAM_CAPACITY[@]}`; do
                 for I in `seq 0 4`; do
                     	rm -rf ${MOUNT_POINT}/*
 			            rm splinterdb.db
@@ -95,6 +123,7 @@ for B in $BENCHMARKS; do
 			            fi
                      echo "${B},${W},${T},${I},${RATE}">> result.csv
                 done
+	    done
         done
     done
 
