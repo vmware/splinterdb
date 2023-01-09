@@ -1,4 +1,7 @@
 #!/bin/bash
+
+set -e
+
 EVAL=$1
 
 if [ $EVAL == 'iso' ]; then
@@ -50,27 +53,22 @@ for B in $BENCHMARKS; do
             ;;
         "PMEM-Only")
             echo "Running PMEM-Only"
-            #sed -i -e 's:DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS):DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS):g' Makefile
             ;;
         "PMEM-CoW")
             echo "Running PMEM-CoW"
             DEFAULT_CFLAGS=-DPMEM_COW
-            #sed -i -e 's:DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS):DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS) -DPMEM_COW:g' Makefile
             ;;
         "Non-Txn")
             echo "Running Non-Txn"
             DEFAULT_CFLAGS=-DPMEM_COW -DNON_TX_OPT
-            #sed -i -e 's:DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS):DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS) -DPMEM_COW -DNON_TX_OPT:g' Makefile
             ;;
         "PERSISTRON")
             echo "Running PERSISTRON"
             DEFAULT_CFLAGS=-DPMEM_COW -DNON_TX_OPT -DDRAM_CACHE -DPAGE_MIGRATION -DEVICTION_OPT
-            #sed -i -e 's:DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS):DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS) -DPMEM_COW -DNON_TX_OPT -DDRAM_CACHE -DPAGE_MIGRATION -DEVICTION_OPT:g' Makefile
             ;;
         "SplinterDB-withLog")
             echo "Running SplinterDB-withLog"
             DEFAULT_CFLAGS=-DDRAM_CACHE -DPAGE_MIGRATION -DEVICTION_OPT -DLOG_CHECKPOINT
-            #sed -i -e 's:DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS):DEFAULT_CFLAGS += $(LIBCONFIG_CFLAGS) -DDRAM_CACHE -DPAGE_MIGRATION -DEVICTION_OPT -DLOG_CHECKPOINT:g' Makefile
             ;;
         *)
             echo "Not a valid argument"
