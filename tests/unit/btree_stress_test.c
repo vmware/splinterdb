@@ -341,7 +341,7 @@ CTEST2(btree_stress, test_btree_print_diags)
    uint64 meta_page_addr =
       btree_root_to_meta_addr(&data->dbtree_cfg, packed_root_addr, 0);
    CTEST_LOG_INFO("\n**** mini_keyed_print() BTree root=%lu"
-                  ", meta page addr=%lu****\n",
+                  ", meta page addr=%lu ****\n",
                   packed_root_addr,
                   meta_page_addr);
 

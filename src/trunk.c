@@ -54,8 +54,8 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
  * structures sized by these limits can fit within 4K byte pages.
  *
  * NOTE: The bundle and sub-bundle related limits below are used to size arrays
- * of structures in splinter_trunk_hdr{}; i.e. Splinter pages of type
- * PAGE_TYPE_TRUNK. So these constants do affect disk-resident structures.
+ * of structures in trunk_hdr{}; i.e. Splinter pages of type PAGE_TYPE_TRUNK.
+ * So these constants do affect disk-resident structures.
  */
 #define TRUNK_MAX_PIVOTS            (20)
 #define TRUNK_MAX_BUNDLES           (12)
@@ -355,7 +355,7 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *       Array of bundles
  *          When a collection of branches are flushed into a node, they are
  *          organized into a bundle. This bundle will be compacted into a
- *          single branch by a call to trunk_compact_bundle. Bundles are
+ *          single branch by a call to trunk_compact_bundle(). Bundles are
  *          implemented as a collection of subbundles, each of which covers a
  *          range of branches.
  *       ----------
