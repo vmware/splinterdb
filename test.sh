@@ -270,6 +270,21 @@ function nightly_sync_perf_tests() {
                                                 --db-capacity-gib 60 \
                                                 --db-location ${dbname}
     rm ${dbname}
+
+    # Exercise a case with max # of insert-threads which tripped an assertion
+    # This isn't really a 'perf' test but a regression / stability test exec
+    nins_t=63
+    nrange_lookup_t=0
+    test_descr="${nins_t} insert threads"
+    dbname="splinter_test.max_threads.db"
+
+    run_with_timing "Performance with max-threads ${test_descr}" \
+            "$BINDIR"/driver_test splinter_test --perf \
+                                                --num-insert-threads ${nins_t} \
+                                                --num-range-lookup-threads ${nrange_lookup_t} \
+                                                --tree-size-gib 1 \
+                                                --db-location ${dbname}
+    rm ${dbname}
 }
 
 # #############################################################################

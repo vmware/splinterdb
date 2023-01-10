@@ -598,7 +598,7 @@ static inline void
 trunk_node_claim(cache *cc, trunk_node *node)
 {
    uint64 wait = 1;
-   while (!cache_claim(cc, node->page)) {
+   while (!cache_try_claim(cc, node->page)) {
       uint64 addr = node->addr;
       trunk_node_unget(cc, node);
       platform_sleep_ns(wait);
@@ -907,7 +907,7 @@ trunk_set_super_block(trunk_handle *spl,
    }
    platform_assert_status_ok(rc);
    super_page = cache_get(spl->cc, super_addr, TRUE, PAGE_TYPE_SUPERBLOCK);
-   while (!cache_claim(spl->cc, super_page)) {
+   while (!cache_try_claim(spl->cc, super_page)) {
       platform_sleep_ns(wait);
       wait *= 2;
    }
@@ -3609,7 +3609,7 @@ trunk_node_get_claim_maybe_descend(trunk_handle             *spl,
    uint64 wait = 1;
    while (1) {
       trunk_node_get_maybe_descend(spl, req, node);
-      if (cache_claim(spl->cc, node->page)) {
+      if (cache_try_claim(spl->cc, node->page)) {
          break;
       }
       trunk_node_unget(spl->cc, node);
@@ -8159,7 +8159,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
                    "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
                    mt_gen,
                    mt->root_addr,
-                   allocator_get_ref(spl->al, mt->root_addr),
+                   allocator_get_refcount(spl->al, mt->root_addr),
                    mt->state);
 
       memtable_print(log_handle, spl->cc, mt);

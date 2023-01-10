@@ -21,27 +21,41 @@ UNITDIR              = unit
 UNIT_TESTSDIR        = $(TESTS_DIR)/$(UNITDIR)
 EXAMPLES_DIR         = examples
 
-SRC := $(shell find $(SRCDIR) -name "*.c")
+# Define a recursive wildcard function to 'find' all files under a sub-dir
+# See https://stackoverflow.com/questions/2483182/recursive-wildcards-in-gnu-make/18258352#18258352
+define rwildcard =
+	$(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(subst *,%,$2),$d))
+endef
 
-# Generate list of common test source files, only from tests/ dir. Hence '-maxdepth 1'.
+SRC := $(call rwildcard, $(SRCDIR), *.c)
+
+# Generate list of common test source files, only from tests/ dir.
 # These objects are shared between functional/ and unit/ test binaries.
-COMMON_TESTSRC := $(shell find $(TESTS_DIR) -maxdepth 1 -name "*.c")
-FUNCTIONAL_TESTSRC := $(shell find $(FUNCTIONAL_TESTSDIR) -name "*.c")
+COMMON_TESTSRC := $(wildcard $(TESTS_DIR)/*.c)
+FUNCTIONAL_TESTSRC := $(call rwildcard, $(FUNCTIONAL_TESTSDIR), *.c)
 
 # Symbol for all unit-test sources, from which we will build standalone
 # unit-test binaries.
-UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c")
+UNIT_TESTSRC := $(call rwildcard, $(UNIT_TESTSDIR), *.c)
 TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 
 # Some unit-tests will be excluded from the list of dot-oh's that are linked into
 # bin/unit_test, for various reasons:
-#  - Slow unit-tests will be skipped, as we want the#    resulting unit_test to
-#    run as fast as it can.
+#  - Slow unit-tests will be skipped, as we want the resulting unit_test binary
+#    to run as fast as it can.
 #  - Skip tests that are to be invoked with specialized command-line arguments.
-# These skipped tests which will have to be run stand-alone.
-FAST_UNIT_TESTSRC := $(shell find $(UNIT_TESTSDIR) -name "*.c" | egrep -v -e"splinter_test|config_parse_test")
+# These tests which are skipped will have to be run stand-alone.
+# Construct a list of fast unit-tests that will be linked into unit_test binary,
+# eliminating a sequence of slow-running unit-test programs.
+ALL_UNIT_TESTSRC := $(call rwildcard, $(UNIT_TESTSDIR), *.c)
+SLOW_UNIT_TESTSRC = splinter_test.c config_parse_test.c
+SLOW_UNIT_TESTSRC_FILTER := $(foreach slowf,$(SLOW_UNIT_TESTSRC), $(UNIT_TESTSDIR)/$(slowf))
+FAST_UNIT_TESTSRC := $(sort $(filter-out $(SLOW_UNIT_TESTSRC_FILTER), $(ALL_UNIT_TESTSRC)))
 
-EXAMPLES_SRC := $(shell find $(EXAMPLES_DIR) -name "*.c")
+# To examine constructed variable.
+# $(info $$FAST_UNIT_TESTSRC is [${FAST_UNIT_TESTSRC}])
+
+EXAMPLES_SRC := $(call rwildcard, $(EXAMPLES_DIR), *.c)
 
 #*************************************************************#
 # CFLAGS, LDFLAGS, ETC
@@ -217,7 +231,7 @@ FUNCTIONAL_TESTOBJ= $(FUNCTIONAL_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # Objects from unit-test sources in tests/unit/ sub-dir, for fast unit-tests
 # Resolves to a list: obj/tests/unit/a.o obj/tests/unit/b.o obj/tests/unit/c.o
-FAST_UNIT_TESTOBJS= $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
+FAST_UNIT_TESTOBJS := $(FAST_UNIT_TESTSRC:%.c=$(OBJDIR)/%.o)
 
 # ----
 # Binaries from unit-test sources in tests/unit/ sub-dir
@@ -370,6 +384,7 @@ PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
 CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
+                 $(OBJDIR)/$(SRCDIR)/allocator.o    \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
                  $(UTIL_SYS)                        \
