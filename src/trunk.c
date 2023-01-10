@@ -7932,7 +7932,8 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 {
    uint16 height = trunk_height(node);
 
-   platform_log(log_handle, "\nPage type: %s Node addr=%lu\n{\n",
+   platform_log(log_handle,
+                "\nPage type: %s Node addr=%lu\n{\n",
                 page_type_str[PAGE_TYPE_TRUNK],
                 node->addr);
 
