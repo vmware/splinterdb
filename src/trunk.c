@@ -7931,6 +7931,11 @@ trunk_print_locked_node(platform_log_handle *log_handle,
                         trunk_node          *node)
 {
    uint16 height = trunk_height(node);
+
+   platform_log(log_handle, "\nPage type: %s Node addr=%lu\n{\n",
+                page_type_str[PAGE_TYPE_TRUNK],
+                node->addr);
+
    // clang-format off
    platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                            |\n");
@@ -8163,7 +8168,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
    platform_log(log_handle, "&&  MEMTABLES \n");
    platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
-   platform_log(log_handle, "-------------------\n");
+   platform_log(log_handle, "-------------------\n{\n");
 
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
@@ -8171,14 +8176,14 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
       memtable *mt = trunk_get_memtable(spl, mt_gen);
       platform_log(log_handle,
                    "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
-                   mt_gen,
                    mt->root_addr,
+                   mt_gen,
                    allocator_get_refcount(spl->al, mt->root_addr),
                    mt->state);
 
       memtable_print(log_handle, spl->cc, mt);
    }
-   platform_log(log_handle, "\n");
+   platform_log(log_handle, "\n}\n");
 }
 
 /*
@@ -8839,8 +8844,12 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
    // clang-format on
 
    platform_log(log_handle, "%s\n", dashes);
-   platform_log(
-      log_handle, "| node %12lu height %u\n", addr, trunk_height(&node));
+   platform_log(log_handle,
+                "| Page type: %s node addr=%lu height=%u next_addr=%lu\n",
+                page_type_str[PAGE_TYPE_TRUNK],
+                addr,
+                trunk_height(&node),
+                trunk_next_addr(&node));
    platform_log(log_handle, "%s\n", dashes);
 
    uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
