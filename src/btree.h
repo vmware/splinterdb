@@ -381,6 +381,12 @@ btree_rough_count(cache        *cc,
                   key           max_key);
 
 void
+btree_print_memtable_tree(platform_log_handle *log_handle,
+                          cache               *cc,
+                          btree_config        *cfg,
+                          uint64               addr);
+
+void
 btree_print_tree(platform_log_handle *log_handle,
                  cache               *cc,
                  btree_config        *cfg,
@@ -390,13 +396,15 @@ void
 btree_print_locked_node(platform_log_handle *log_handle,
                         btree_config        *cfg,
                         uint64               addr,
-                        btree_hdr           *hdr);
+                        btree_hdr           *hdr,
+                        page_type            type);
 
 void
 btree_print_node(platform_log_handle *log_handle,
                  cache               *cc,
                  btree_config        *cfg,
-                 btree_node          *node);
+                 btree_node          *node,
+                 page_type            type);
 
 void
 btree_print_tree_stats(platform_log_handle *log_handle,

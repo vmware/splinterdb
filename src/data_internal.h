@@ -604,7 +604,7 @@ static inline void
 data_key_to_string(const data_config *cfg, key k, char *str, size_t size)
 {
    if (key_is_negative_infinity(k)) {
-      snprintf(str, size, "(negaitive_infinity)");
+      snprintf(str, size, "(negative_infinity)");
    } else if (key_is_negative_infinity(k)) {
       snprintf(str, size, "(positive_infinity)");
    } else {
