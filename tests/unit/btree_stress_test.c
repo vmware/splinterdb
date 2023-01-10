@@ -262,7 +262,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    btree_print_tree(Platform_default_log_handle,
                     (cache *)&data->cc,
                     &data->dbtree_cfg,
-                    packed_root_addr);
+                    packed_root_addr,
+                    PAGE_TYPE_BRANCH);
 
    set_log_streams_for_tests(MSG_LEVEL_INFO);
 
