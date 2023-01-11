@@ -19,13 +19,24 @@ function workload_args () {
 }
 
 function run_if_needed () {
-    file=$1
+    local file=$1
     shift
-    cmd=$*
+    local cmd=$*
 
     if [[ ! -e "$file" || "$FORCE" == 1 ]]; then
         $cmd > "$file" 2>&1
     fi
+}
+
+CGROUP_NAME=persistron-atc23
+CGROUP_OVERHEAD_MIB=4096
+
+function configure_cgroup () {
+    local size_mib=$1
+    shift
+    local size_b=$(( ($size_mib + $CGROUP_OVERHEAD_MIB) * 1024 * 1024 ))
+    echo 0 > /sys/fs/cgroup/memory/$CGROUP_NAME/memory.swappiness
+    echo $size_b > /sys/fs/cgroup/memory/$CGROUP_NAME/memory.limit_in_bytes
 }
 
 SPLINTER_DIR=.
@@ -37,9 +48,9 @@ export CC=$COMPILER
 export LD=$COMPILER
 
 function build_splinterdb_ycsb() {
-    name=$1
+    local name=$1
     shift
-    cflags=$*
+    local cflags=$*
     (cd $SPLINTER_DIR; make clean; DEFAULT_CFLAGS="$cflags" make -j8; make install) > raw-data/${name}.build 2>&1
     (cd $YCSBC_DIR; make clean; make) > raw-data/${name}_ycsb.build 2>&1
 }
@@ -49,23 +60,23 @@ function execute_splinterdb_ycsb() {
     shift
     local nthreads=$1
     shift
-    local dram_cache_size=$1
+    local dram_cache_size_mib=$1
     shift
-    local pmem_cache_size=$1
+    local pmem_cache_size_mib=$1
     shift
     local log_flush_interval=$1
     shift
     local workloads=$*
 
-    if [ $dram_cache_size != 0 ]; then
-       dram_cache_config_args="-dram_cache_size_mb $dram_cache_size"
+    if [ $dram_cache_size_mib != 0 ]; then
+       dram_cache_config_args="-dram_cache_size_mb $dram_cache_size_mib"
     else
         dram_cache_config_args=
     fi
 
-    if [ $pmem_cache_size != 0 ]; then
+    if [ $pmem_cache_size_mib != 0 ]; then
        pmem_cache_config_args="-pmem_cache_file $PMEM_ROOT/persistron.pmemcache \
-               				         -pmem_cache_size_mb $pmem_cache_size"
+               				         -pmem_cache_size_mb $pmem_cache_size_mib"
     else
         pmem_cache_config_args=
     fi
@@ -78,7 +89,8 @@ function execute_splinterdb_ycsb() {
 
     local wargs=`workload_args $workloads`
 
-    cmd="$YCSBC_DIR/ycsbc \
+    cmd="cgexec -g memory:$CGROUP_NAME \
+       $YCSBC_DIR/ycsbc \
        -threads $nthreads \
        -db classic_splinterdb \
        $dram_cache_config_args \
@@ -89,13 +101,14 @@ function execute_splinterdb_ycsb() {
 
     for iter in `seq 1 $ITERATIONS`; do
         rm -f splinterdb.db
-        file="raw-data/${name}_threads_${nthreads}_dram_cache_size_${dram_cache_size}_pmem_cache_size_${pmem_cache_size}_log_flush_interval_${log_flush_interval}_iter_${iter}.out"
+        file="raw-data/${name}_threads_${nthreads}_dram_cache_size_mib_${dram_cache_size_mib}_pmem_cache_size_mib_${pmem_cache_size_mib}_log_flush_interval_${log_flush_interval}_iter_${iter}.out"
+        configure_cgroup $dram_cache_size_mib
         run_if_needed $file $cmd
     done
 }
 
 function build_matrixkv_ycsb() {
-    name=$1
+    local name=$1
     shift
     (cd $MATRIXKV_DIR; make clean; DEBUG_LEVEL=0 make -j 8 release; DEBUG_LEVEL=0 make install) > raw-data/${name}.build 2>&1
     (cd $YCSBC_DIR; make clean; make) > raw-data/${name}_ycsb.build 2>&1
@@ -106,26 +119,26 @@ function execute_matrixkv_ycsb() {
     shift
     local nthreads=$1
     shift
-    local dram_cache_size=$1
+    local dram_cache_size_mib=$1
     shift
-    local pmem_cache_size=$1
+    local pmem_cache_size_mib=$1
     shift
     local workloads=$*
 
     if [ $dram_cache_size != 0 ]; then
-       dram_cache_config_args="-p rocksdb.block_cache_size_mib $dram_cache_size"
+       dram_cache_config_args="-p rocksdb.block_cache_size_mib $dram_cache_size_mib"
     else
         dram_cache_config_args=
     fi
 
     if [ $pmem_cache_size != 0 ]; then
-       trigger_size=$(( $pmem_cache_size - 1024 * 1024 * 1204 ))
-       slowdown_size=$(( $pmem_cache_size - 512 * 1024 * 1204 ))
+       trigger_size_mib=$(( $pmem_cache_size_mib - 1024 ))
+       slowdown_size_mib=$(( $pmem_cache_size_mib - 512 ))
        pmem_cache_config_args="-p matrixkv.use_nvm_module 1 \
                                -p matrixkv.pmem_path $PMEM_ROOT/matrixkv.pmemcache \
-                               -p matrixkv.level0_column_compaction_trigger_size_mib $trigger_size \
-                               -p matrixkv.level0_column_compaction_slowdown_size_mib $slowdown_size \
-                               -p matrixkv.level0_column_compaction_stop_size_mib $pmem_cache_size"
+                               -p matrixkv.level0_column_compaction_trigger_size_mib $trigger_size_mib \
+                               -p matrixkv.level0_column_compaction_slowdown_size_mib $slowdown_size_mib \
+                               -p matrixkv.level0_column_compaction_stop_size_mib $pmem_cache_size_mib"
     else
         pmem_cache_config_args=
     fi
@@ -136,7 +149,7 @@ function execute_matrixkv_ycsb() {
        $YCSBC_DIR/ycsbc \
        -threads $nthreads \
        -db rocksdb \
-       -p rocksdb.config_file raw-data matrixkv.ini \
+       -p rocksdb.config_file matrixkv.ini \
        $dram_cache_config_args \
        $pmem_cache_config_args \
        -L workloads/load.spec \
@@ -144,7 +157,8 @@ function execute_matrixkv_ycsb() {
 
     for iter in `seq 1 $ITERATIONS`; do
         rm -rf rocksdb.db
-        file="raw-data/${name}_threads_${nthreads}_dram_cache_size_${dram_cache_size}_pmem_cache_size_${pmem_cache_size}_iter_${iter}.out"
+        file="raw-data/${name}_threads_${nthreads}_dram_cache_size_mib_${dram_cache_size_mib}_pmem_cache_size_mib_${pmem_cache_size_mib}_iter_${iter}.out"
+        configure_cgroup $dram_cache_size_mib
         run_if_needed $file $cmd
     done
 }
