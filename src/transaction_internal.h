@@ -15,5 +15,5 @@ typedef struct transactional_splinterdb {
    splinterdb                      *kvsb;
    transactional_splinterdb_config *tcfg;
    lock_table                      *lock_tbl;
-   hash_lock                       hash_lock;
+   hash_lock                        hash_lock;
 } transactional_splinterdb;

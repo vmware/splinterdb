@@ -8,7 +8,7 @@ hash_lock_config default_hash_lock_config = {.size        = 1000000000,
 void
 hash_lock_init(hash_lock *hl, hash_lock_config *cfg)
 {
-   hl->cfg = cfg ? cfg : &default_hash_lock_config;
+   hl->cfg   = cfg ? cfg : &default_hash_lock_config;
    hl->slots = TYPED_ARRAY_ZALLOC(0, hl->slots, cfg->size);
 }
 

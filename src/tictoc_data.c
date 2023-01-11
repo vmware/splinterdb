@@ -115,8 +115,10 @@ tictoc_rw_entry_is_not_in_write_set(tictoc_transaction *tt_txn,
       tictoc_rw_entry *w    = tictoc_get_write_set_entry(tt_txn, i);
       slice            wkey = writable_buffer_to_slice(&w->key);
 
-      if (data_key_compare(cfg, key_create_from_slice(entry_key), 
-      key_create_from_slice(wkey)) == 0) {
+      if (data_key_compare(
+             cfg, key_create_from_slice(entry_key), key_create_from_slice(wkey))
+          == 0)
+      {
          return FALSE;
       }
    }

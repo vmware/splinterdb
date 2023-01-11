@@ -12,9 +12,9 @@ interval_tree_key_compare(interval_tree_key key1, interval_tree_key key2)
 {
    platform_assert(key1.app_data_cfg == key2.app_data_cfg);
 
-   return data_key_compare(key1.app_data_cfg, 
-   key_create_from_slice(key1.data), 
-   key_create_from_slice(key2.data));
+   return data_key_compare(key1.app_data_cfg,
+                           key_create_from_slice(key1.data),
+                           key_create_from_slice(key2.data));
 }
 
 INTERVAL_TREE_DEFINE(tictoc_rw_entry,
@@ -110,8 +110,8 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
                       : FALSE;
 
    if (is_exist) {
-     platform_mutex_unlock(&lock_tbl->lock);
-     return FALSE;
+      platform_mutex_unlock(&lock_tbl->lock);
+      return FALSE;
    }
 
    interval_tree_insert(entry, &lock_tbl->root);
