@@ -1,5 +1,4 @@
-#ifndef _TRANSACTION_PRIVATE_H_
-#define _TRANSACTION_PRIVATE_H_
+#pragma once
 
 #include "platform.h"
 #include "transactional_data_config.h"
@@ -18,9 +17,3 @@ typedef struct transactional_splinterdb {
    lock_table                      *lock_tbl;
    hash_lock                       hash_lock;
 } transactional_splinterdb;
-
-
-uint64
-transactional_splinterdb_key_size(transactional_splinterdb *txn_kvsb);
-
-#endif

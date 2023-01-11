@@ -1,6 +1,6 @@
 #include "splinterdb/transaction.h"
-#include "transaction_private.h"
-#include "splinterdb_private.h"
+#include "transaction_internal.h"
+#include "splinterdb_internal.h"
 #include "platform_linux/platform.h"
 #include "data_internal.h"
 #include "poison.h"
@@ -60,10 +60,10 @@ is_repeatable_read(tictoc_transaction *tt_txn)
 static int
 tictoc_read(transactional_splinterdb *txn_kvsb,
             tictoc_transaction       *tt_txn,
-            slice                     key,
+            slice                     user_key,
             splinterdb_lookup_result *result)
 {
-   int rc = splinterdb_lookup(txn_kvsb->kvsb, key, result);
+   int rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
 
    if (splinterdb_lookup_found(result)) {
       tictoc_rw_entry *r = tictoc_get_new_read_set_entry(tt_txn);
@@ -74,7 +74,7 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
       writable_buffer_init_from_slice(&r->tuple,
                                       0,
                                       value); // FIXME: use a correct heap_id
-      tictoc_rw_entry_set_point_key(r, key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
+      tictoc_rw_entry_set_point_key(r, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
 
       tictoc_tuple_header       *tuple   = writable_buffer_data(&r->tuple);
       _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
@@ -220,7 +220,7 @@ static int
 tictoc_local_write(transactional_splinterdb *txn_kvsb,
                    tictoc_transaction       *txn,
                    tictoc_timestamp_set      ts_set,
-                   slice                     key,
+                   slice                     user_key,
                    message                   msg)
 {
    const data_config *cfg =
@@ -229,8 +229,9 @@ tictoc_local_write(transactional_splinterdb *txn_kvsb,
    // TODO: this part can be done by binary search if the write_set is sorted
    for (uint64 i = 0; i < txn->write_cnt; ++i) {
       tictoc_rw_entry *w    = tictoc_get_write_set_entry(txn, i);
-      slice            wkey = writable_buffer_to_slice(&w->key);
-      if (data_key_compare(cfg, wkey, key) == 0) {
+      key            wkey = key_create_from_slice(writable_buffer_to_slice(&w->key));
+      key ukey = key_create_from_slice(user_key);
+      if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
             w->op = message_class(msg);
 
@@ -254,7 +255,7 @@ tictoc_local_write(transactional_splinterdb *txn_kvsb,
                                            tuple->value);
             message old_message = message_create(w->op, old_value);
 
-            data_merge_tuples(cfg, key, old_message, &new_message);
+            data_merge_tuples(cfg, ukey, old_message, &new_message);
 
             writable_buffer_resize(&w->tuple,
                                    sizeof(tictoc_timestamp_set)
@@ -278,7 +279,7 @@ tictoc_local_write(transactional_splinterdb *txn_kvsb,
    platform_assert(!tictoc_rw_entry_is_invalid(w));
 
    w->op = message_class(msg);
-   tictoc_rw_entry_set_point_key(w, key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
+   tictoc_rw_entry_set_point_key(w, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
 
    slice value = message_slice(msg);
 
@@ -402,7 +403,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
    while (tictoc_transaction_lock_all_write_set(tt_txn, txn_kvsb->lock_tbl)
           == FALSE)
    {
-      platform_sleep(1000); // 1us is the value that is mentioned in the paper
+      platform_sleep_ns(1000); // 1us is the value that is mentioned in the paper
    }
 
    if (tictoc_validation(txn_kvsb, &txn->tictoc)) {
@@ -428,45 +429,45 @@ transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
 int
 transactional_splinterdb_insert(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn,
-                                slice                     key,
+                                slice                     user_key,
                                 slice                     value)
 {
    return tictoc_local_write(txn_kvsb,
                              &txn->tictoc,
                              ZERO_TICTOC_TIMESTAMP_SET,
-                             key,
+                             user_key,
                              message_create(MESSAGE_TYPE_INSERT, value));
 }
 
 int
 transactional_splinterdb_delete(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn,
-                                slice                     key)
+                                slice                     user_key)
 {
    return tictoc_local_write(
-      txn_kvsb, &txn->tictoc, ZERO_TICTOC_TIMESTAMP_SET, key, DELETE_MESSAGE);
+      txn_kvsb, &txn->tictoc, ZERO_TICTOC_TIMESTAMP_SET, user_key, DELETE_MESSAGE);
 }
 
 int
 transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn,
-                                slice                     key,
+                                slice                     user_key,
                                 slice                     delta)
 {
    return tictoc_local_write(txn_kvsb,
                              &txn->tictoc,
                              ZERO_TICTOC_TIMESTAMP_SET,
-                             key,
+                             user_key,
                              message_create(MESSAGE_TYPE_UPDATE, delta));
 }
 
 int
 transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn,
-                                slice                     key,
+                                slice                     user_key,
                                 splinterdb_lookup_result *result)
 {
-   return tictoc_read(txn_kvsb, &txn->tictoc, key, result);
+   return tictoc_read(txn_kvsb, &txn->tictoc, user_key, result);
 }
 
 void
@@ -479,12 +480,6 @@ transactional_splinterdb_lookup_result_init(
 {
    return splinterdb_lookup_result_init(
       txn_kvsb->kvsb, result, buffer_len, buffer);
-}
-
-uint64
-transactional_splinterdb_key_size(transactional_splinterdb *txn_kvsb)
-{
-   return txn_kvsb->tcfg->kvsb_cfg.data_cfg->key_size;
 }
 
 void

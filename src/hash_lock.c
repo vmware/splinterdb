@@ -30,7 +30,7 @@ hash_lock_acquire(hash_lock *hl, slice key)
 {
    uint32 index = get_index(key, hl->cfg);
    while (!__sync_bool_compare_and_swap(&hl->slots[index], 0, 1)) {
-      platform_sleep(hl->cfg->sleep_in_ns);
+      platform_sleep_ns(hl->cfg->sleep_in_ns);
    }
 }
 

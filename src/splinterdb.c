@@ -14,6 +14,7 @@
  */
 
 #include "splinterdb/splinterdb.h"
+#include "splinterdb_internal.h"
 #include "platform.h"
 #include "clockcache.h"
 #include "rc_allocator.h"

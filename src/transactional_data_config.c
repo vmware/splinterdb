@@ -66,7 +66,7 @@ merge_tictoc_tuple(const data_config *cfg,
 
    data_merge_tuples(
       ((const transactional_data_config *)cfg)->application_data_config,
-      key,
+      key_create_from_slice(key),
       old_value_message,
       &new_value_ma);
 
@@ -102,7 +102,7 @@ merge_tictoc_tuple_final(const data_config *cfg,
 
    data_merge_tuples_final(
       ((const transactional_data_config *)cfg)->application_data_config,
-      key,
+      key_create_from_slice(key),
       &app_oldest_message);
 
    merge_accumulator_resize(oldest_message,
