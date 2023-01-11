@@ -42,6 +42,10 @@ function configure_cgroup () {
 SPLINTER_DIR=.
 MATRIXKV_DIR=../MatrixKV
 YCSBC_DIR=../YCSB-C
+export INSTALL_PATH=~/.local
+export SPLINTER_INSTALL_DIR=$INSTALL_PATH
+export MATRIXKV_INSTALL_DIR=$INSTALL_PATH
+export LD_LIBRARY_PATH=~/.local/lib
 
 export COMPILER=gcc
 export CC=$COMPILER
@@ -51,7 +55,7 @@ function build_splinterdb_ycsb() {
     local name=$1
     shift
     local cflags=$*
-    (cd $SPLINTER_DIR; make clean; DEFAULT_CFLAGS="$cflags" make -j8; make install) > raw-data/${name}.build 2>&1
+    (cd $SPLINTER_DIR; make clean; DEFAULT_CFLAGS="$cflags" make -j 8; make install) > raw-data/${name}.build 2>&1
     (cd $YCSBC_DIR; make clean; make) > raw-data/${name}_ycsb.build 2>&1
 }
 
