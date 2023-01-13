@@ -3245,7 +3245,7 @@ btree_print_node(platform_log_handle *log_handle,
       platform_log(log_handle, "-------------------\n");
       return;
    }
-   btree_node_get(cc, cfg, node, PAGE_TYPE_BRANCH);
+   btree_node_get(cc, cfg, node, type);
    btree_print_locked_node(log_handle, cfg, node->addr, node->hdr, type);
    btree_node_unget(cc, cfg, node);
 }
@@ -3259,15 +3259,16 @@ btree_print_subtree(platform_log_handle *log_handle,
 {
    btree_node node;
    node.addr = addr;
-   btree_print_node(log_handle, cc, cfg, &node, type);
    if (!allocator_page_valid(cache_get_allocator(cc), node.addr)) {
       platform_log(log_handle,
-                   "Invalid '%s' BTree node addr=%lu\n",
+                   "Unallocated '%s' BTree node addr=%lu\n",
                    page_type_str[type],
                    addr);
       return;
    }
-   btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
+   btree_print_node(log_handle, cc, cfg, &node, type);
+
+   btree_node_get(cc, cfg, &node, type);
    table_index idx;
 
    if (node.hdr->height > 0) {

@@ -151,7 +151,8 @@ trunk_close_log_stream_if_enabled(trunk_handle           *spl,
 #define trunk_default_log_if_enabled(spl, message, ...)                        \
    do {                                                                        \
       if (trunk_verbose_logging_enabled(spl)) {                                \
-         platform_default_log(message, __VA_ARGS__);                           \
+         platform_default_log(                                                 \
+            "[trunk_log:%d] " message, __LINE__, __VA_ARGS__);                 \
       }                                                                        \
    } while (0)
 
@@ -2973,7 +2974,10 @@ trunk_get_memtable(trunk_handle *spl, uint64 generation)
 {
    uint64    memtable_idx = generation % TRUNK_NUM_MEMTABLES;
    memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
-   platform_assert(mt->generation == generation);
+   platform_assert((mt->generation == generation),
+                   "mt->generation=%lu, generation=%lu\n",
+                   mt->generation,
+                   generation);
    return mt;
 }
 
@@ -7933,7 +7937,7 @@ trunk_print_locked_node(platform_log_handle *log_handle,
    uint16 height = trunk_height(node);
 
    platform_log(log_handle,
-                "\nPage type: %s Node addr=%lu\n{\n",
+                "\nPage type: %s, Node addr=%lu\n{\n",
                 page_type_str[PAGE_TYPE_TRUNK],
                 node->addr);
 
@@ -8134,7 +8138,7 @@ trunk_print_node(platform_log_handle *log_handle,
  * trunk_print_subtree() --
  *
  * Print the Trunk node at given 'addr'. Iterate down to all its children and
- * print each sub-tree.
+ * print each trunk sub-tree.
  */
 void
 trunk_print_subtree(platform_log_handle *log_handle,
@@ -8846,7 +8850,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
 
    platform_log(log_handle, "%s\n", dashes);
    platform_log(log_handle,
-                "| Page type: %s node addr=%lu height=%u next_addr=%lu\n",
+                "| Page type: %s, Node addr=%lu height=%u next_addr=%lu\n",
                 page_type_str[PAGE_TYPE_TRUNK],
                 addr,
                 trunk_height(&node),
@@ -8938,6 +8942,41 @@ trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "{\n");
    trunk_for_each_node(spl, trunk_node_print_branches, log_handle);
    platform_log(log_handle, "}\n");
+}
+
+/*
+ * Print all the branch BTrees hanging off of input trunk node 'addr'.
+ */
+void
+trunk_print_branch_btrees(trunk_handle *spl, uint64 addr, void *arg)
+{
+   platform_log_handle *log_handle = (platform_log_handle *)arg;
+   trunk_node           node;
+   trunk_node_get(spl->cc, addr, &node);
+
+   uint16 start_branch = trunk_start_branch(spl, &node);
+   uint16 end_branch   = trunk_end_branch(spl, &node);
+
+   platform_log(log_handle,
+                "\n**** Print all BTree branches under "
+                "Trunk node addr=%lu ****\n{\n\n",
+                addr);
+   for (uint16 branch_no = start_branch; branch_no != end_branch;
+        branch_no        = trunk_add_branch_number(spl, branch_no, 1))
+   {
+      uint64 bt_addr = trunk_get_branch(spl, &node, branch_no)->root_addr;
+      platform_log(log_handle,
+                   "Trunk node addr=%lu, Branch number %u"
+                   ", BTree root addr=%lu\n{\n",
+                   addr,
+                   branch_no,
+                   bt_addr);
+      btree_print_tree(log_handle, spl->cc, trunk_btree_config(spl), bt_addr);
+      platform_log(log_handle, "\n}\n");
+   }
+
+   trunk_node_unget(spl->cc, &node);
+   platform_log(log_handle, "\n}\n");
 }
 
 // bool

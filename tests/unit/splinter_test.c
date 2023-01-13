@@ -675,20 +675,24 @@ CTEST2(splinter, test_splinter_print_diags)
    CTEST_LOG_INFO("\n** trunk_print() **\n");
    trunk_print(Platform_default_log_handle, spl);
 
+   CTEST_LOG_INFO("\n** trunk_print_branch_btrees() on Trunk root node **\n");
+   trunk_print_branch_btrees(spl, spl->root_addr, Platform_default_log_handle);
+
    CTEST_LOG_INFO("\n** Allocator stats **\n");
    allocator_print_stats(alp);
    allocator_print_allocated(alp);
 
-   trunk_force_flush(spl);
+   // trunk_force_flush(spl);
+   // CTEST_LOG_INFO("\n**** Splinter Diagnostics after trunk_force_flush()
+   // ****\n"); Trips an assertion; figure out 'generation' to supply.
+   // trunk_memtable_flush(spl, 2);
 
-   CTEST_LOG_INFO("\n**** Splinter Diagnostics after trunk_force_flush() ****\n");
+   spl->cfg.reclaim_threshold = 0;
+   trunk_reclaim_space(spl);
+
+   CTEST_LOG_INFO(
+      "\n**** Splinter Diagnostics after trunk_reclaim_space() ****\n");
    trunk_print_space_use(Platform_default_log_handle, spl);
-
-   CTEST_LOG_INFO("\n** trunk_print_branches() **\n");
-   trunk_print_branches(Platform_default_log_handle, spl);
-
-   CTEST_LOG_INFO("\n** trunk_print() **\n");
-   trunk_print(Platform_default_log_handle, spl);
 
    trunk_destroy(spl);
 }
