@@ -406,10 +406,16 @@ trunk_print_lookup(trunk_handle        *spl,
                    platform_log_handle *log_handle);
 void
 trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
+
 void
 trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
+
+void
+trunk_print_branch_btrees(trunk_handle *spl, uint64 addr, void *arg);
+
 void
 trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
+
 bool
 trunk_verify_tree(trunk_handle *spl);
 

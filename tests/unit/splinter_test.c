@@ -663,6 +663,9 @@ CTEST2(splinter, test_splinter_print_diags)
    CTEST_LOG_INFO("\n** trunk_print() **\n");
    trunk_print(Platform_default_log_handle, spl);
 
+   CTEST_LOG_INFO("\n** trunk_print_branch_btrees() on Trunk root node **\n");
+   trunk_print_branch_btrees(spl, spl->root_addr, Platform_default_log_handle);
+
    CTEST_LOG_INFO("\n** Allocator stats **\n");
    allocator_print_stats(alp);
    allocator_print_allocated(alp);
