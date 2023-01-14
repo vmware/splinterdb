@@ -7945,7 +7945,8 @@ trunk_print_locked_node(platform_log_handle *log_handle,
    platform_log(log_handle, "}\n");
 }
 
-#define PIVOT_KEY_OUTBUF_LEN 24 // Used just for formatting output below.
+// We print leading n-bytes of pivot's key, given by this define.
+#define PIVOT_KEY_OUTBUF_LEN 24
 
 /*
  * trunk_print_pivots() -- Print pivot array information.
@@ -7967,14 +7968,25 @@ trunk_print_pivots(platform_log_handle *log_handle,
         pivot_no++)
    {
       key pivot = trunk_get_pivot(spl, node, pivot_no);
+
       // Used to format generated string for negative / positive infinity keys.
       char buf[PIVOT_KEY_OUTBUF_LEN + 1];
-      snprintf(buf, sizeof(buf), "%-24s", key_string(spl->cfg.data_cfg, pivot));
+      memset(buf, ' ', sizeof(buf));
+      int nbytes = snprintf(buf,
+                            sizeof(buf),
+                            "%.*s",
+                            PIVOT_KEY_OUTBUF_LEN,
+                            key_string(spl->cfg.data_cfg, pivot));
+      if (nbytes <= PIVOT_KEY_OUTBUF_LEN) {
+         // Overwrite null-termination byte to blank-pad the rest of the buffer
+         buf[nbytes] = ' ';
+      }
 
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
          platform_log(log_handle,
-                      "| %s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
+                      "| %.*s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
+                      PIVOT_KEY_OUTBUF_LEN,
                       buf,
                       "",
                       "",
@@ -7984,7 +7996,8 @@ trunk_print_pivots(platform_log_handle *log_handle,
                       "");
       } else {
          platform_log(log_handle,
-                      "| %s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
+                      "| %.*s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
+                      PIVOT_KEY_OUTBUF_LEN,
                       buf,
                       pdata->addr,
                       pdata->filter.addr,
