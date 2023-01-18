@@ -286,7 +286,7 @@ allocator_valid_extent_addr(allocator *al, uint64 addr)
  * non-zero ref-count).
  */
 static inline bool
-allocator_page_valid(allocator *al, uint64 addr)
+allocator_page_valid(allocator *al, uint64 addr, page_type type)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);
    if (!allocator_valid_page_addr(al, addr)) {
@@ -302,7 +302,7 @@ allocator_page_valid(allocator *al, uint64 addr)
    uint64 base_addr = allocator_extent_base_addr(al, addr);
    if ((base_addr != 0) && (addr < allocator_get_capacity(al))) {
       uint8 refcount = allocator_get_refcount(al, base_addr);
-      if (refcount == 0) {
+      if ((refcount == 0) && (type != PAGE_TYPE_BRANCH)) {
          platform_error_log(
             "%s():%d: Trying to access an unreferenced extent."
             " base_addr=%lu, addr=%lu, allocator_get_refcount()=%d\n",
@@ -312,7 +312,7 @@ allocator_page_valid(allocator *al, uint64 addr)
             addr,
             refcount);
       }
-      return (refcount != 0);
+      return ((refcount != 0) || (type == PAGE_TYPE_BRANCH));
    } else {
       platform_error_log("%s():%d: Extent out of allocator capacity range."
                          " base_addr=%lu, addr=%lu"

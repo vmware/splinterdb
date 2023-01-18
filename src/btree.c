@@ -1784,7 +1784,8 @@ start_over:
    btree_node parent_node = root_node;
    btree_node child_node;
    child_node.addr = index_entry_child_addr(parent_entry);
-   debug_assert(allocator_page_valid(cache_get_allocator(cc), child_node.addr));
+   debug_assert(allocator_page_valid(
+      cache_get_allocator(cc), child_node.addr, PAGE_TYPE_MEMTABLE));
    btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
 
    uint64 height = btree_height(parent_node.hdr);
@@ -1877,8 +1878,8 @@ start_over:
       debug_assert(parent_entry->pivot_data.stats.message_bytes
                    == BTREE_UNKNOWN_COUNTER);
       child_node.addr = index_entry_child_addr(parent_entry);
-      debug_assert(
-         allocator_page_valid(cache_get_allocator(cc), child_node.addr));
+      debug_assert(allocator_page_valid(
+         cache_get_allocator(cc), child_node.addr, PAGE_TYPE_MEMTABLE));
       btree_node_get(cc, cfg, &child_node, PAGE_TYPE_MEMTABLE);
       height--;
    }
@@ -3287,7 +3288,7 @@ btree_print_node(platform_log_handle *log_handle,
                  btree_node          *node,
                  page_type            type)
 {
-   if (!allocator_page_valid(cache_get_allocator(cc), node->addr)) {
+   if (!allocator_page_valid(cache_get_allocator(cc), node->addr, type)) {
       platform_log(log_handle, "*******************\n");
       platform_log(log_handle, "** INVALID NODE \n");
       platform_log(log_handle, "** addr: %lu \n", node->addr);
@@ -3308,7 +3309,7 @@ btree_print_subtree(platform_log_handle *log_handle,
 {
    btree_node node;
    node.addr = addr;
-   if (!allocator_page_valid(cache_get_allocator(cc), node.addr)) {
+   if (!allocator_page_valid(cache_get_allocator(cc), node.addr, type)) {
       platform_log(log_handle,
                    "Unallocated %s BTree node addr=%lu\n",
                    page_type_str[type],

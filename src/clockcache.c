@@ -3027,7 +3027,7 @@ clockcache_print(platform_log_handle *log_handle, clockcache *cc)
 void
 clockcache_validate_page(clockcache *cc, page_handle *page, uint64 addr)
 {
-   debug_assert(allocator_page_valid(cc->al, addr));
+   debug_assert(allocator_page_valid(cc->al, addr, PAGE_TYPE_MISC));
    debug_assert(page->disk_addr == addr);
    debug_assert(!clockcache_test_flag(
       cc, clockcache_page_to_entry_number(cc, page), CC_FREE));
