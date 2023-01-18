@@ -4243,7 +4243,7 @@ trunk_flush(trunk_handle     *spl,
                                        req->input_pivot_tuple_count,
                                        req->input_pivot_kv_byte_count);
    trunk_bundle_inc_pivot_rc(spl, &child, bundle);
-   debug_assert(allocator_page_valid(spl->al, req->addr));
+   debug_assert(allocator_page_valid(spl->al, req->addr, PAGE_TYPE_TRUNK));
    req->type = is_space_rec ? TRUNK_COMPACTION_TYPE_FLUSH
                             : TRUNK_COMPACTION_TYPE_SPACE_REC;
 
@@ -8139,7 +8139,8 @@ trunk_print_node(platform_log_handle *log_handle,
                  trunk_handle        *spl,
                  uint64               addr)
 {
-   if (!allocator_page_valid(cache_get_allocator(spl->cc), addr)) {
+   if (!allocator_page_valid(
+          cache_get_allocator(spl->cc), addr, PAGE_TYPE_TRUNK)) {
       platform_log(log_handle, "*******************\n");
       platform_log(log_handle, "** INVALID NODE \n");
       platform_log(log_handle, "** addr: %lu \n", addr);
