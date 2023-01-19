@@ -97,12 +97,14 @@ CTEST2(allocator, test_allocator_valid_page_addr)
    ASSERT_TRUE(allocator_valid_page_addr(data->al, 0));
 
    allocator_config *allocator_cfg = allocator_get_config(data->al);
-   uint64            page_size     = allocator_cfg->io_cfg->page_size;
+
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+
    ASSERT_TRUE(allocator_valid_page_addr(data->al, page_size));
    ASSERT_TRUE(allocator_valid_page_addr(data->al, (2 * page_size)));
    ASSERT_TRUE(allocator_valid_page_addr(data->al, (3 * page_size)));
 
-   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
    ASSERT_TRUE(allocator_valid_page_addr(data->al, extent_size));
    ASSERT_TRUE(allocator_valid_page_addr(data->al, (2 * extent_size)));
    ASSERT_TRUE(allocator_valid_page_addr(data->al, (extent_size + page_size)));
@@ -120,7 +122,8 @@ CTEST2(allocator, test_allocator_valid_page_addr)
 CTEST2(allocator, test_allocator_valid_extent_addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(data->al);
-   uint64            extent_size   = allocator_cfg->io_cfg->extent_size;
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
    ASSERT_TRUE(allocator_valid_extent_addr(data->al, extent_size));
 
    ASSERT_FALSE(allocator_valid_extent_addr(data->al, (extent_size - 1)));
@@ -148,7 +151,7 @@ CTEST2(allocator, test_allocator_valid_extent_addr)
                    page_addr);
    }
 
-   // Now we should be positioned on start of next extent.
+   // Now we should be positioned at the start of next extent.
    ASSERT_TRUE(allocator_valid_extent_addr(data->al, page_addr));
 }
 
@@ -156,11 +159,12 @@ CTEST2(allocator, test_allocator_valid_extent_addr)
 CTEST2(allocator, test_allocator_extent_number)
 {
    allocator_config *allocator_cfg = allocator_get_config(data->al);
-   uint64            extent_size   = allocator_cfg->io_cfg->extent_size;
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
 
    uint64 extent_num  = 42;
    uint64 extent_addr = (extent_num * extent_size);
-   uint64 page_size   = allocator_cfg->io_cfg->page_size;
 
    // Run through all page-addresses in an extent to verify conversion macro
    uint64 npages_in_extent = (extent_size / page_size);
@@ -175,8 +179,30 @@ CTEST2(allocator, test_allocator_extent_number)
       ASSERT_EQUAL(extent_num, allocator_extent_number(data->al, page_addr));
    }
    // Now page_addr should be positioned on the next extent.
-   ASSERT_EQUAL((extent_num + 1), allocator_extent_number(data->al, page_addr));
-
-   // Now we should be positioned on start of next extent.
    ASSERT_TRUE(allocator_valid_extent_addr(data->al, page_addr));
+   ASSERT_EQUAL((extent_num + 1), allocator_extent_number(data->al, page_addr));
+}
+
+/* Validate correctness of allocator_page_offset() conversion function */
+CTEST2(allocator, test_allocator_page_offset)
+{
+   allocator_config *allocator_cfg = allocator_get_config(data->al);
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
+
+   uint64 extent_num  = 4200;
+   uint64 extent_addr = (extent_num * extent_size);
+
+   // Run through all page-addresses in an extent to verify conversion macro
+   uint64 npages_in_extent = (extent_size / page_size);
+
+   uint64 page_addr = extent_addr;
+   for (uint64 pgctr = 0; pgctr < npages_in_extent;
+        pgctr++, page_addr += page_size)
+   {
+      ASSERT_EQUAL(pgctr, allocator_page_offset(data->al, page_addr));
+   }
+   // Now page_addr should be positioned at the start of the next extent.
+   ASSERT_EQUAL(0, allocator_page_offset(data->al, page_addr));
 }
