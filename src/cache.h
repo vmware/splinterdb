@@ -123,6 +123,7 @@ cache_config_pages_per_extent(const cache_config *cfg)
    return extent_size / page_size;
 }
 
+/* Return the address of the i'th page in the extent starting at extent_addr */
 static inline uint64
 cache_config_extent_page(const cache_config *cfg, uint64 extent_addr, uint64 i)
 {

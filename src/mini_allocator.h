@@ -49,6 +49,10 @@ typedef struct mini_allocator {
    uint64          next_extent[MINI_MAX_BATCHES];
 } mini_allocator;
 
+/*
+ * Initialize a new mini allocator.
+ * Returns the next address to be allocated from the 0th batch.
+ */
 uint64
 mini_init(mini_allocator *mini,
           cache          *cc,
@@ -58,24 +62,39 @@ mini_init(mini_allocator *mini,
           uint64          num_batches,
           page_type       type,
           bool            keyed);
+
+void
+mini_deinit(mini_allocator *mini, key start_key, key end_key);
+
+/*
+ * Called to finalize the mini_allocator. After calling, no more
+ * allocations can be made, but the mini_allocator's linked list containing
+ * the extents allocated and their metadata can be accessed by functions
+ * using its meta_head.
+ */
 void
 mini_release(mini_allocator *mini, key end_key);
 
 /*
- * NOTE: Can only be called on a mini_allocator which has made no allocations.
+ * Called to destroy a mini_allocator that was created but never used to
+ * allocate an extent. Can only be called on a keyed mini allocator.
  */
 void
 mini_destroy_unused(mini_allocator *mini);
 
+/*
+ * Allocate a next disk address from the mini_allocator.
+ * Returns a newly allocated disk address.
+ */
 uint64
 mini_alloc(mini_allocator *mini,
            uint64          batch,
            key             alloc_key,
            uint64         *next_extent);
 
-
 uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
+
 uint8
 mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned);
 
@@ -112,6 +131,7 @@ mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head);
 
 void
 mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type);
+
 void
 mini_keyed_print(cache       *cc,
                  data_config *data_cfg,

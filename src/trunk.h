@@ -406,12 +406,29 @@ trunk_print_lookup(trunk_handle        *spl,
                    platform_log_handle *log_handle);
 void
 trunk_print_branches(platform_log_handle *log_handle, trunk_handle *spl);
+
 void
 trunk_print_extent_counts(platform_log_handle *log_handle, trunk_handle *spl);
+
+void
+trunk_print_branch_btrees(trunk_handle *spl, uint64 addr, void *arg);
+
 void
 trunk_print_space_use(platform_log_handle *log_handle, trunk_handle *spl);
+
 bool
 trunk_verify_tree(trunk_handle *spl);
+
+void
+trunk_print_root_nodes_filter_metapages(platform_log_handle *log_handle,
+                                        trunk_handle        *spl);
+
+void
+trunk_enable_verbose_logging(trunk_handle        *spl,
+                             platform_log_handle *log_handle);
+
+void
+trunk_disable_verbose_logging(trunk_handle *spl);
 
 static inline uint64
 trunk_max_key_size(trunk_handle *spl)

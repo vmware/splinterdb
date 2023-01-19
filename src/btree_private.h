@@ -157,9 +157,21 @@ btree_page_size(const btree_config *cfg)
 }
 
 static inline uint64
+btree_page_number(btree_config *cfg, uint64 page_addr)
+{
+   return (page_addr / btree_page_size(cfg));
+}
+
+static inline uint64
 btree_extent_size(const btree_config *cfg)
 {
    return cache_config_extent_size(cfg->cache_cfg);
+}
+
+static inline uint64
+btree_extent_number(btree_config *cfg, uint64 page_addr)
+{
+   return (page_addr / btree_extent_size(cfg));
 }
 
 static inline void
@@ -304,4 +316,12 @@ btree_get_child_addr(const btree_config *cfg,
                      table_index         k)
 {
    return index_entry_child_addr(btree_get_index_entry(cfg, hdr, k));
+}
+
+static inline uint64
+btree_root_to_meta_addr(const btree_config *cfg,
+                        uint64              root_addr,
+                        uint64              meta_page_no)
+{
+   return root_addr + (meta_page_no + 1) * btree_page_size(cfg);
 }
