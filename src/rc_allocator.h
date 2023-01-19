@@ -94,3 +94,9 @@ rc_allocator_mount(rc_allocator      *al,
 
 void
 rc_allocator_unmount(rc_allocator *al);
+
+uint64
+rc_allocator_extent_size(rc_allocator *al);
+
+uint64
+rc_allocator_page_size(rc_allocator *al);

@@ -315,8 +315,8 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
  *
  *  o Flushes and internal/leaf splits:
  *
- *          Flushes and internal/leaf splits are synchronous and do not
- *          interact.
+ *          Flushes and splits of trunk internal nodes / trunk leaf nodes are
+ *          synchronous and do not interact.
  *
  *  o Internal splits and compaction:
  *
@@ -2844,8 +2844,8 @@ trunk_zap_branch_range(trunk_handle *spl,
 }
 
 /*
- * Decrement the ref count for branch and destroy it and its filter if it
- * reaches 0.
+ * Decrement the ref count for a branch. Destroy the branch and its filter if
+ * the ref count reaches 0.
  */
 static inline void
 trunk_dec_ref(trunk_handle *spl, trunk_branch *branch, bool is_memtable)

@@ -113,7 +113,7 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
-   set_log_streams_for_error_tests(NULL, NULL);
+   set_log_streams_for_tests(NULL, NULL);
 
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);

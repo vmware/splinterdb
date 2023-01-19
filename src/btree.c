@@ -1016,8 +1016,9 @@ btree_truncate_index(const btree_config *cfg, // IN
  *-----------------------------------------------------------------------------
  * btree_alloc --
  *
- *      Allocates a node from the preallocator. Will refill it if there are no
- *      more nodes available for the given height.
+ *      Allocates a new page from the mini-allocator for a new BTree node.
+ *      from the (previously setup) mini-allocator. Will refill it if there
+ *      are no more nodes available for the given height.
  *-----------------------------------------------------------------------------
  */
 bool
@@ -1158,11 +1159,15 @@ btree_create(cache              *cc,
    uint64          base_addr;
    platform_status rc = allocator_alloc(al, &base_addr, type);
    platform_assert_status_ok(rc);
+   platform_assert(allocator_valid_extent_addr(al, base_addr),
+                   "base_addr=%lu is not a valid start of extent addr.\n",
+                   base_addr);
    page_handle *root_page = cache_alloc(cc, base_addr, type);
    bool         pinned    = (type == PAGE_TYPE_MEMTABLE);
 
    // set up the root
    btree_node root;
+   ZERO_STRUCT(root);
    root.page = root_page;
    root.addr = base_addr;
    root.hdr  = (btree_hdr *)root_page->data;
@@ -1181,7 +1186,8 @@ btree_create(cache              *cc,
    cache_unclaim(cc, root_page);
    cache_unget(cc, root_page);
 
-   // set up the mini allocator
+   // set up the mini allocator, using the page adjacent to BTree root page as
+   // the meta-head page for the mini-allocator.
    mini_init(mini,
              cc,
              cfg->data_cfg,
@@ -1189,7 +1195,7 @@ btree_create(cache              *cc,
              0,
              BTREE_MAX_HEIGHT,
              type,
-             type == PAGE_TYPE_BRANCH);
+             type == PAGE_TYPE_BRANCH); // Unkeyed mini-allocator for Memtable
 
    return root.addr;
 }
