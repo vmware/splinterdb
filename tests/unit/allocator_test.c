@@ -155,6 +155,36 @@ CTEST2(allocator, test_allocator_valid_extent_addr)
    ASSERT_TRUE(allocator_valid_extent_addr(data->al, page_addr));
 }
 
+/* Validate correctness of allocator_extent_base_addr() conversion function */
+CTEST2(allocator, test_allocator_extent_base_addr)
+{
+   allocator_config *allocator_cfg = allocator_get_config(data->al);
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
+
+   uint64 extent_num  = 4321;
+   uint64 extent_addr = (extent_num * extent_size);
+
+   // Run through all page-addresses in an extent to verify conversion macro
+   uint64 npages_in_extent = (extent_size / page_size);
+   uint64 page_addr        = extent_addr;
+   ASSERT_EQUAL(extent_addr, allocator_extent_base_addr(data->al, page_addr));
+
+   // Position to 2nd page in the extent.
+   page_addr += page_size;
+   for (uint64 pgctr = 1; pgctr < npages_in_extent;
+        pgctr++, page_addr += page_size)
+   {
+      ASSERT_EQUAL(extent_addr,
+                   allocator_extent_base_addr(data->al, page_addr));
+   }
+
+   // Now page_addr should be positioned on the next extent.
+   ASSERT_EQUAL((extent_addr + extent_size),
+                allocator_extent_base_addr(data->al, page_addr));
+}
+
 /* Validate correctness of allocator_extent_number() conversion function */
 CTEST2(allocator, test_allocator_extent_number)
 {
@@ -183,6 +213,30 @@ CTEST2(allocator, test_allocator_extent_number)
    ASSERT_EQUAL((extent_num + 1), allocator_extent_number(data->al, page_addr));
 }
 
+/* Validate correctness of allocator_page_number() conversion function */
+CTEST2(allocator, test_allocator_page_number)
+{
+   allocator_config *allocator_cfg = allocator_get_config(data->al);
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
+
+   uint64 extent_num  = 4200;
+   uint64 extent_addr = (extent_num * extent_size);
+
+   // Run through all page-addresses in an extent to verify conversion macro
+   uint64 npages_in_extent = (extent_size / page_size);
+   uint64 start_pageno     = (extent_num * npages_in_extent);
+
+   uint64 page_addr = extent_addr;
+   for (uint64 pgctr = 0; pgctr < npages_in_extent;
+        pgctr++, page_addr += page_size)
+   {
+      uint64 exp_pageno = (start_pageno + pgctr);
+      ASSERT_EQUAL(exp_pageno, allocator_page_number(data->al, page_addr));
+   }
+}
+
 /* Validate correctness of allocator_page_offset() conversion function */
 CTEST2(allocator, test_allocator_page_offset)
 {
@@ -205,4 +259,115 @@ CTEST2(allocator, test_allocator_page_offset)
    }
    // Now page_addr should be positioned at the start of the next extent.
    ASSERT_EQUAL(0, allocator_page_offset(data->al, page_addr));
+}
+
+/*
+ * Validate correctness of allocator_page_valid() boolean checker function.
+ * In this test case, we have not done any actual allocations, yet. So use
+ * use page-addresses to verify different checks done in the boolean
+ * checker-function, some of which may raise error messages. (We don't quite
+ * check the actual error, just that all code paths are exercised.)
+ */
+CTEST2(allocator, test_error_checks_in_allocator_page_valid)
+{
+   allocator_config *allocator_cfg = allocator_get_config(data->al);
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
+
+   uint64 extent_num  = 4200;
+   uint64 extent_addr = (extent_num * extent_size);
+
+   uint64 page_addr = extent_addr;
+
+   // Invalid page-address should trip an error message.
+   ASSERT_FALSE(allocator_page_valid(data->al, (page_addr + 1)));
+
+   // Should raise an error that extent is unreferenced.
+   ASSERT_FALSE(allocator_page_valid(data->al, page_addr));
+
+   // Check pages outside capacity of configured db
+   page_addr = allocator_get_capacity(data->al) + page_size;
+   ASSERT_FALSE(allocator_page_valid(data->al, page_addr));
+}
+
+/*
+ * Validate correctness of allocator_alloc() function. Successive calls
+ * to this function should 'allocate' different extents.
+ */
+CTEST2(allocator, test_allocator_alloc)
+{
+   uint64          extent_addr1 = 0;
+   platform_status rc           = STATUS_TEST_FAILED;
+
+   rc = allocator_alloc(data->al, &extent_addr1, PAGE_TYPE_BRANCH);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(extent_addr1 != 0);
+
+   uint64 extent_addr2 = 0;
+   rc = allocator_alloc(data->al, &extent_addr2, PAGE_TYPE_BRANCH);
+   ASSERT_TRUE(SUCCESS(rc));
+   ASSERT_TRUE(extent_addr2 != 0);
+
+   ASSERT_TRUE(extent_addr1 != extent_addr2);
+}
+
+/*
+ * Validate correctness of allocator_alloc() and subsequent refcount handling.
+ */
+CTEST2(allocator, test_allocator_refcounts)
+{
+   page_type       ptype       = PAGE_TYPE_BRANCH;
+   uint64          extent_addr = 0;
+   platform_status rc          = STATUS_TEST_FAILED;
+
+   rc = allocator_alloc(data->al, &extent_addr, ptype);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   uint8 refcount = allocator_get_refcount(data->al, extent_addr);
+   ASSERT_EQUAL(2, refcount);
+
+   refcount = allocator_inc_ref(data->al, extent_addr);
+   ASSERT_EQUAL(3, refcount);
+
+   refcount = allocator_dec_ref(data->al, extent_addr, ptype);
+   ASSERT_EQUAL(2, refcount);
+
+   refcount = allocator_dec_ref(data->al, extent_addr, ptype);
+   ASSERT_EQUAL(1, refcount);
+
+   refcount = allocator_dec_ref(data->al, extent_addr, ptype);
+   ASSERT_EQUAL(0, refcount);
+
+   refcount = allocator_get_refcount(data->al, extent_addr);
+   ASSERT_EQUAL(0, refcount);
+}
+
+/*
+ * Validate correctness of allocator_page_valid() boolean checker function
+ * after having allocated an extent. As long as it's a valid page address
+ * and the holding extent has a non-zero reference count, the boolean function
+ * will return TRUE.
+ */
+CTEST2(allocator, test_allocator_page_valid)
+{
+   allocator_config *allocator_cfg = allocator_get_config(data->al);
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
+
+   uint64          extent_addr = 0;
+   platform_status rc =
+      allocator_alloc(data->al, &extent_addr, PAGE_TYPE_BRANCH);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   // All pages in extent should appear as validly 'allocated'
+   uint64 page_addr        = extent_addr;
+   uint64 npages_in_extent = (extent_size / page_size);
+
+   for (uint64 pgctr = 0; pgctr < npages_in_extent;
+        pgctr++, page_addr += page_size)
+   {
+      ASSERT_TRUE(allocator_page_valid(data->al, page_addr));
+   }
 }

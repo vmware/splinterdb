@@ -1017,8 +1017,8 @@ btree_truncate_index(const btree_config *cfg, // IN
  * btree_alloc --
  *
  *      Allocates a new page from the mini-allocator for a new BTree node.
- *      from the preallocator. Will refill it if there are no
- *      more nodes available for the given height.
+ *      from the (previously setup) mini-allocator. Will refill it if there
+ *      are no more nodes available for the given height.
  *-----------------------------------------------------------------------------
  */
 bool

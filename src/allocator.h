@@ -280,6 +280,11 @@ allocator_valid_extent_addr(allocator *al, uint64 addr)
    return (allocator_extent_base_addr(al, addr) == addr);
 }
 
+/*
+ * Check if the page given by address 'addr' is a valid page-address within the
+ * database capacity and that the holding extent is also allocated (i.e., has a
+ * non-zero ref-count).
+ */
 static inline bool
 allocator_page_valid(allocator *al, uint64 addr)
 {

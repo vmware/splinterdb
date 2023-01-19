@@ -591,7 +591,6 @@ mini_alloc(mini_allocator *mini,
 
    uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
 
-   // if (next_addr % cache_extent_size(mini->cc) == 0) {
    // Need to allocate the next extent if the next_addr is start of an extent.
    if (allocator_valid_extent_addr(mini->al, next_addr)) {
 
@@ -667,7 +666,6 @@ mini_release(mini_allocator *mini, key end_key)
  *      Disk deallocation, standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-
 void
 mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
 {
@@ -708,7 +706,6 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *      Disk deallocation, standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-
 void
 mini_destroy_unused(mini_allocator *mini)
 {
@@ -906,6 +903,7 @@ mini_keyed_for_each(cache           *cc,
 }
 
 /*
+ *-----------------------------------------------------------------------------
  * Apply func to every extent whose key range intersects [start_key, end_key].
  *
  * Note: the first extent in each batch is treated as starting at

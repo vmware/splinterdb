@@ -206,7 +206,6 @@ const static allocator_ops rc_allocator_ops = {
 debug_only static inline bool
 rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 {
-   // return ((base_addr % al->cfg->io_cfg->extent_size) == 0);
    return (allocator_valid_extent_addr((allocator *)al, base_addr));
 }
 
@@ -220,7 +219,6 @@ rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 static inline uint64
 rc_allocator_extent_number(rc_allocator *al, uint64 addr)
 {
-   // return (addr / al->cfg->io_cfg->extent_size);
    return (allocator_extent_number((allocator *)al, addr));
 }
 
@@ -474,7 +472,6 @@ rc_allocator_mount(rc_allocator      *al,
    return STATUS_OK;
 }
 
-
 void
 rc_allocator_unmount(rc_allocator *al)
 {
@@ -489,29 +486,31 @@ rc_allocator_unmount(rc_allocator *al)
    rc_allocator_deinit(al);
 }
 
-
 /*
  *----------------------------------------------------------------------
  * rc_allocator_[inc,dec,get]_ref --
  *
- *      Increments/decrements/fetches the ref count of the given address and
- *      returns the new one. If the ref_count goes to 0, then the extent is
- *      freed.
+ *      Increments/decrements/fetches the ref count of the extent given
+ *      by its address, extent_addr, and returns the new one.
+ *      If the ref_count goes to 0, then the extent is freed.
  *----------------------------------------------------------------------
  */
 uint8
-rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
+rc_allocator_inc_ref(rc_allocator *al, uint64 extent_addr)
 {
-   debug_assert(rc_allocator_valid_extent_addr(al, addr));
+   debug_assert(rc_allocator_valid_extent_addr(al, extent_addr));
 
-   uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
-   debug_assert(extent_no < al->cfg->extent_capacity);
+   uint64 extent_no = extent_addr / al->cfg->io_cfg->extent_size;
+   debug_assert((extent_no < al->cfg->extent_capacity),
+                "extent_no=%lu should be < extent_capacity=%lu\n",
+                extent_no,
+                al->cfg->extent_capacity);
 
    uint8 ref_count = __sync_add_and_fetch(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != 1 && ref_count != 0);
-   if (SHOULD_TRACE(addr)) {
+   if (SHOULD_TRACE(extent_addr)) {
       platform_default_log("rc_allocator_inc_ref(%lu): %d -> %d\n",
-                           addr,
+                           extent_addr,
                            ref_count,
                            ref_count + 1);
    }
@@ -519,12 +518,15 @@ rc_allocator_inc_ref(rc_allocator *al, uint64 addr)
 }
 
 uint8
-rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
+rc_allocator_dec_ref(rc_allocator *al, uint64 extent_addr, page_type type)
 {
-   debug_assert(rc_allocator_valid_extent_addr(al, addr));
+   debug_assert(rc_allocator_valid_extent_addr(al, extent_addr));
 
-   uint64 extent_no = addr / al->cfg->io_cfg->extent_size;
-   debug_assert(extent_no < al->cfg->extent_capacity);
+   uint64 extent_no = extent_addr / al->cfg->io_cfg->extent_size;
+   debug_assert((extent_no < al->cfg->extent_capacity),
+                "extent_no=%lu should be < extent_capacity=%lu\n",
+                extent_no,
+                al->cfg->extent_capacity);
 
    uint8 ref_count = __sync_sub_and_fetch(&al->ref_count[extent_no], 1);
    platform_assert(ref_count != UINT8_MAX);
@@ -533,23 +535,29 @@ rc_allocator_dec_ref(rc_allocator *al, uint64 addr, page_type type)
       __sync_sub_and_fetch(&al->stats.curr_allocated, 1);
       __sync_add_and_fetch(&al->stats.extent_deallocs[type], 1);
    }
-   if (SHOULD_TRACE(addr)) {
+   if (SHOULD_TRACE(extent_addr)) {
       platform_default_log("rc_allocator_dec_ref(%lu): %d -> %d\n",
-                           addr,
+                           extent_addr,
                            ref_count,
                            ref_count - 1);
    }
    return ref_count;
 }
 
+/*
+ * Return the refcount for the extent given by its extent_addr address.
+ */
 uint8
-rc_allocator_get_ref(rc_allocator *al, uint64 addr)
+rc_allocator_get_ref(rc_allocator *al, uint64 extent_addr)
 {
    uint64 extent_no;
 
-   debug_assert(rc_allocator_valid_extent_addr(al, addr));
-   extent_no = rc_allocator_extent_number(al, addr);
-   debug_assert(extent_no < al->cfg->extent_capacity);
+   debug_assert(rc_allocator_valid_extent_addr(al, extent_addr));
+   extent_no = rc_allocator_extent_number(al, extent_addr);
+   debug_assert((extent_no < al->cfg->extent_capacity),
+                "extent_no=%lu should be < extent_capacity=%lu\n",
+                extent_no,
+                al->cfg->extent_capacity);
    return al->ref_count[extent_no];
 }
 
