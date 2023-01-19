@@ -392,12 +392,14 @@ PLATFORM_IO_SYS = $(OBJDIR)/$(SRCDIR)/$(PLATFORM_DIR)/laio.o
 
 UTIL_SYS = $(OBJDIR)/$(SRCDIR)/util.o $(PLATFORM_SYS)
 
-CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
-                 $(OBJDIR)/$(SRCDIR)/allocator.o    \
-                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
+ALLOCATOR_SYS = $(OBJDIR)/$(SRCDIR)/allocator.o    \
+                $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
+                $(PLATFORM_IO_SYS)
+
+CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	 \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
+                 $(ALLOCATOR_SYS)                   \
                  $(UTIL_SYS)                        \
-                 $(PLATFORM_IO_SYS)
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
             $(OBJDIR)/$(SRCDIR)/data_internal.o   \
@@ -465,6 +467,11 @@ $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                              
 $(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)               \
                                          $(COMMON_UNIT_TESTOBJ)    \
                                          $(PLATFORM_SYS)
+
+$(BINDIR)/$(UNITDIR)/allocator_test: $(ALLOCATOR_SYS)                 \
+                                     $(COMMON_UNIT_TESTOBJ)           \
+                                     $(OBJDIR)/$(TESTS_DIR)/config.o  \
+                                     $(UTIL_SYS)
 
 ########################################
 # Convenience mini unit-test targets

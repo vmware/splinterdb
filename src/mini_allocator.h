@@ -73,9 +73,9 @@ mini_alloc(mini_allocator *mini,
            key             alloc_key,
            uint64         *next_extent);
 
-
 uint8
 mini_unkeyed_inc_ref(cache *cc, uint64 meta_head);
+
 uint8
 mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned);
 
@@ -112,6 +112,7 @@ mini_unkeyed_prefetch(cache *cc, page_type type, uint64 meta_head);
 
 void
 mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type);
+
 void
 mini_keyed_print(cache       *cc,
                  data_config *data_cfg,
