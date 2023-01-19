@@ -262,7 +262,15 @@ allocator_extent_base_addr(allocator *al, uint64 addr)
    return allocator_config_extent_base_addr(allocator_cfg, addr);
 }
 
-// Is the 'addr' a valid page address?
+// Returns the address of the page next to input 'page_addr'
+static inline uint64
+allocator_next_page_addr(allocator *al, uint64 page_addr)
+{
+   allocator_config *allocator_cfg = allocator_get_config(al);
+   return (page_addr + allocator_cfg->io_cfg->page_size);
+}
+
+
 static inline bool
 allocator_valid_page_addr(allocator *al, uint64 addr)
 {

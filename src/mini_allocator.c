@@ -245,11 +245,26 @@ base_addr(cache *cc, uint64 addr)
       allocator_get_config(cache_get_allocator(cc)), addr);
 }
 
+static inline uint64
+page_number(cache *cc, uint64 addr)
+{
+   return allocator_page_number(cache_get_allocator(cc), addr);
+}
+
+static inline uint64
+extent_number(cache *cc, uint64 addr)
+{
+   return allocator_extent_number(cache_get_allocator(cc), addr);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * mini_init --
  *
- *      Initialize a new mini allocator.
+ *      Initialize a new mini allocator for a specified number of batches.
+ *      A "batch" is a set of logically related pages. E.g., all pages of a
+ *      trunk node or BTree node at a specific level. Pages allocated from a
+ *      batch share the same extents.
  *
  *      There are two types of mini allocator: keyed and unkeyed.
  *
@@ -260,7 +275,7 @@ base_addr(cache *cc, uint64 addr)
  *        is overloaded onto the meta_head disk-allocator ref count.
  *
  * Results:
- *      The 0th batch next address to be allocated.
+ *      The next address to be allocated from the 0th batch.
  *
  * Side effects:
  *      None.
@@ -345,6 +360,8 @@ mini_num_entries(page_handle *meta_page)
  * mini_keyed_[get,set]_entry --
  * mini_keyed_set_last_end_key --
  * mini_unkeyed_[get,set]_entry --
+ *
+ * mini_append_entry, mini_keyed_append_entry, mini_unkeyed_append_entry --
  *
  *      Allocator functions for adding new extents to the meta_page or getting
  *      the metadata of the pos-th extent in the given meta_page.
@@ -570,6 +587,12 @@ mini_append_entry(mini_allocator *mini,
  *      If next_extent is not NULL, then the successor extent to the allocated
  *      addr will be copied to it.
  *
+ * NOTE: Mini-allocator pre-stages allocation of extents for each batch.
+ *       At init time, we pre-allocate an extent for each batch. When allocating
+ *       the 1st page from this pre-allocated extent, we allocate a new extent
+ *       for the requested batch. This way, we always have an allocated extent
+ *       for each batch ready for use by the mini-allocator.
+ *
  * Results:
  *      A newly allocated disk address.
  *
@@ -617,10 +640,12 @@ mini_alloc(mini_allocator *mini,
  *-----------------------------------------------------------------------------
  * mini_release --
  *
- *      Called to finalize the mini_allocator. After calling, no more
- *      allocations can be made, but the mini_allocator linked list containing
- *      the extents allocated and their metadata can be accessed by functions
- *      using its meta_head.
+ *      Called to finalize the mini_allocator. As the mini-allocator always
+ *      pre-allocates an extent, 'release' here means to deallocate this
+ *      pre-allocated extent for each active batch. After calling release, no
+ *      more allocations can be made, but the mini_allocator's linked list
+ *      containing the extents allocated and their metadata can be accessed by
+ *      functions using its meta_head.
  *
  *      Keyed allocators use this to set the final end keys of the batches.
  *
@@ -636,8 +661,9 @@ mini_release(mini_allocator *mini, key end_key)
 {
    debug_assert(!mini->keyed || !key_is_null(end_key));
 
+   // For all batches that this mini-allocator was setup for ...
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
-      // Dealloc the next extent
+      // Dealloc the next pre-allocated extent
       uint8 ref =
          allocator_dec_ref(mini->al, mini->next_extent[batch], mini->type);
       platform_assert(ref == AL_NO_REFS);
@@ -654,7 +680,7 @@ mini_release(mini_allocator *mini, key end_key)
 
 /*
  *-----------------------------------------------------------------------------
- * mini_deinit --
+ * mini_deinit_metadata --
  *
  *      Cleanup function to deallocate the metadata extents of the mini
  *      allocator. Does not deallocate or otherwise access the data extents.
@@ -666,8 +692,8 @@ mini_release(mini_allocator *mini, key end_key)
  *      Disk deallocation, standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-void
-mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
+static void
+mini_deinit_metadata(cache *cc, uint64 meta_head, page_type type, bool pinned)
 {
    allocator *al        = cache_get_allocator(cc);
    uint64     meta_addr = meta_head;
@@ -690,6 +716,35 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
          platform_assert(ref == AL_FREE);
       }
    } while (meta_addr != 0);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * mini_deinit -- De-Initialize a new mini allocator.
+ *
+ *      This is the last thing to do to release all resources acquired by the
+ *      mini-allocator. All pages & extents reserved or allocated by the mini-
+ *      allocator will be released. The mini-allocator cannot be used after this
+ *      call, and will need to go through mini_init().
+ *
+ * Returns: Nothing.
+ *-----------------------------------------------------------------------------
+ */
+void
+mini_deinit(mini_allocator *mini, key start_key, key end_key)
+{
+   mini_release(mini, end_key);
+   if (!mini->keyed) {
+      mini_unkeyed_dec_ref(mini->cc, mini->meta_head, mini->type, mini->pinned);
+   } else {
+      mini_keyed_dec_ref(mini->cc,
+                         mini->data_cfg,
+                         mini->type,
+                         mini->meta_head,
+                         start_key,
+                         end_key);
+   }
+   ZERO_CONTENTS(mini);
 }
 
 /*
@@ -721,6 +776,10 @@ mini_destroy_unused(mini_allocator *mini)
                 mini->num_extents,
                 mini->num_batches);
 
+   /* RESOLVE: What's the difference between this block of code and the
+    * work done in mini_release(). Can we merge these two fns into one?
+    */
+   // For all batches that this mini-allocator was setup for ...
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
       uint8 ref =
@@ -730,7 +789,7 @@ mini_destroy_unused(mini_allocator *mini)
       platform_assert(ref == AL_FREE);
    }
 
-   mini_deinit(mini->cc, mini->meta_head, mini->type, FALSE);
+   mini_deinit_metadata(mini->cc, mini->meta_head, mini->type, FALSE);
 }
 
 
@@ -1040,7 +1099,7 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
 
    // need to deallocate and clean up the mini allocator
    mini_unkeyed_for_each(cc, meta_head, type, FALSE, mini_dealloc_extent, NULL);
-   mini_deinit(cc, meta_head, type, pinned);
+   mini_deinit_metadata(cc, meta_head, type, pinned);
    return 0;
 }
 
@@ -1155,7 +1214,7 @@ mini_keyed_dec_ref(cache       *cc,
       allocator *al  = cache_get_allocator(cc);
       uint8      ref = allocator_get_refcount(al, base_addr(cc, meta_head));
       platform_assert(ref == AL_ONE_REF);
-      mini_deinit(cc, meta_head, type, FALSE);
+      mini_deinit_metadata(cc, meta_head, type, FALSE);
    }
    return should_cleanup;
 }
@@ -1283,29 +1342,56 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
    uint64 next_meta_addr = meta_head;
 
    platform_default_log("---------------------------------------------\n");
-   platform_default_log("| Mini Allocator -- meta_head: %12lu |\n", meta_head);
+   platform_default_log("| Mini Allocator -- meta_head=%lu (pgnum=%lu) \n",
+                        meta_head,
+                        page_number(cc, meta_head));
    platform_default_log("|-------------------------------------------|\n");
-   platform_default_log("| idx | %35s |\n", "extent_addr");
-   platform_default_log("|-------------------------------------------|\n");
+
+   uint64 num_meta_pages   = 0;
+   uint64 num_extent_addrs = 0;
 
    do {
-      page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
+      page_handle   *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
+      mini_meta_hdr *meta_hdr  = (mini_meta_hdr *)meta_page->data;
 
-      platform_default_log("| meta addr %31lu |\n", next_meta_addr);
+      uint64 num_entries = mini_num_entries(meta_page);
+      platform_default_log("{\n");
+      platform_default_log("|-------------------------------------------|\n");
+      platform_default_log("| meta addr=%-lu (pgnum=%lu), num_entries=%lu\n",
+                           next_meta_addr,
+                           page_number(cc, next_meta_addr),
+                           num_entries);
+      platform_default_log("| next_meta_addr=%lu (pgnum=%lu), pos=%lu\n",
+                           meta_hdr->next_meta_addr,
+                           page_number(cc, meta_hdr->next_meta_addr),
+                           meta_hdr->pos);
+      platform_default_log("|-------------------------------------------|\n");
+      platform_default_log(
+         "| idx | %18s | %14s |\n", "extent_addr", "extent_num");
       platform_default_log("|-------------------------------------------|\n");
 
-      uint64              num_entries = mini_num_entries(meta_page);
-      unkeyed_meta_entry *entry       = unkeyed_first_entry(meta_page);
+      unkeyed_meta_entry *entry = unkeyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-         platform_default_log("| %3lu | %35lu |\n", i, entry->extent_addr);
+         platform_default_log("| %3lu | %18lu | %14lu |\n",
+                              i,
+                              entry->extent_addr,
+                              extent_number(cc, entry->extent_addr));
          entry = unkeyed_next_entry(entry);
       }
       platform_default_log("|-------------------------------------------|\n");
+      platform_default_log("}\n");
+
+      num_meta_pages++;
+      num_extent_addrs += num_entries;
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
    } while (next_meta_addr != 0);
    platform_default_log("\n");
+
+   platform_default_log("Found %lu meta-data pages tracking %lu extents.\n",
+                        num_meta_pages,
+                        num_extent_addrs);
 }
 
 void
@@ -1317,59 +1403,70 @@ mini_keyed_print(cache       *cc,
    allocator *al             = cache_get_allocator(cc);
    uint64     next_meta_addr = meta_head;
 
-   platform_default_log("------------------------------------------------------"
-                        "---------------\n");
-   platform_default_log(
-      "| Mini Keyed Allocator -- meta_head: %12lu                   |\n",
-      meta_head);
-   platform_default_log("|-----------------------------------------------------"
-                        "--------------|\n");
-   platform_default_log("| idx | %5s | %14s | %18s | %3s |\n",
-                        "batch",
-                        "extent_addr",
-                        "start_key",
-                        "rc");
-   platform_default_log("|-----------------------------------------------------"
-                        "--------------|\n");
+   // clang-format off
+    const char *dashes = "------------------------------------------------------------------------";
+   // clang-format on
+   platform_default_log("%s\n", dashes);
+
+   platform_default_log("| Mini Keyed Allocator -- meta_head=%lu (pgnum=%lu)\n",
+                        meta_head,
+                        page_number(cc, meta_head));
 
    do {
-      page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
+      page_handle   *meta_page   = cache_get(cc, next_meta_addr, TRUE, type);
+      mini_meta_hdr *meta_hdr    = (mini_meta_hdr *)meta_page->data;
+      uint64         num_entries = mini_num_entries(meta_page);
 
+      platform_default_log("{\n");
+      platform_default_log("%s\n", dashes);
       platform_default_log(
-         "| meta addr: %12lu (%u)                                       |\n",
+         "| meta addr=%lu (pgnum=%lu, refcount=%u), num_entries=%lu\n",
          next_meta_addr,
-         allocator_get_refcount(al, base_addr(cc, next_meta_addr)));
-      platform_default_log("|--------------------------------------------------"
-                           "-----------------|\n");
+         page_number(cc, next_meta_addr),
+         allocator_get_refcount(al, base_addr(cc, next_meta_addr)),
+         num_entries);
+      platform_default_log("| next_meta_addr=%lu (pgnum=%lu), pos=%lu\n",
+                           meta_hdr->next_meta_addr,
+                           page_number(cc, meta_hdr->next_meta_addr),
+                           meta_hdr->pos);
+      platform_default_log("%s\n", dashes);
+      platform_default_log("| idx | %5s | %14s | %10s | %18s | %3s |\n",
+                           "batch",
+                           "extent_addr",
+                           "extent_num",
+                           "start_key",
+                           "rc");
+      platform_default_log("%s\n", dashes);
 
-      uint64            num_entries = mini_num_entries(meta_page);
-      keyed_meta_entry *entry       = keyed_first_entry(meta_page);
+      keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
-         key  start_key = keyed_meta_entry_start_key(entry);
-         char extent_str[32];
+         key start_key = keyed_meta_entry_start_key(entry);
+
          if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
-            snprintf(extent_str, sizeof(extent_str), "TERMINAL_ENTRY");
-         } else {
-            snprintf(
-               extent_str, sizeof(extent_str), "%14lu", entry->extent_addr);
-         }
-         char ref_str[4];
-         if (entry->extent_addr == TERMINAL_EXTENT_ADDR) {
-            snprintf(ref_str, 4, "n/a");
+            platform_default_log(
+               "| %3lu | %5u | %14s | %10s | %18.18s | %3s |\n",
+               i,
+               entry->batch,
+               "TERMINAL_ENTRY",
+               "n/a",
+               key_string(data_cfg, start_key),
+               "n/a");
          } else {
             uint8 ref = allocator_get_refcount(al, entry->extent_addr);
-            snprintf(ref_str, 4, "%3u", ref);
+            platform_default_log(
+               "| %3lu | %5u | %14lu | %10lu | %18.18s | %3u |\n",
+               i,
+               entry->batch,
+               entry->extent_addr,
+               extent_number(cc, entry->extent_addr),
+               key_string(data_cfg, start_key),
+               ref);
          }
-         platform_default_log("| %3lu | %5u | %14s | %18.18s | %3s |\n",
-                              i,
-                              entry->batch,
-                              extent_str,
-                              key_string(data_cfg, start_key),
-                              ref_str);
+
          entry = keyed_next_entry(entry);
       }
-      platform_default_log("|--------------------------------------------------"
-                           "-----------------|\n");
+      platform_default_log("%s\n", dashes);
+      platform_default_log("}\n");
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
