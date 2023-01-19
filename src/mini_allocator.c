@@ -288,7 +288,7 @@ mini_init(mini_allocator *mini,
    mini->data_cfg    = cfg;
    mini->keyed       = keyed;
    mini->meta_head   = meta_head;
-   mini->num_extents = 1; // for the meta page
+   mini->num_extents = 1; // for the extent holding the meta page
    mini->num_batches = num_batches;
    mini->type        = type;
    mini->pinned      = (type == PAGE_TYPE_MEMTABLE);
@@ -433,10 +433,10 @@ mini_unkeyed_append_entry(mini_allocator *mini,
  *-----------------------------------------------------------------------------
  * mini_[lock,unlock]_batch_[get,set]next_addr --
  *
- *      Lock locks allocation on the given batch by replacing its next_addr
+ *      'Lock' locks allocation on the given batch by replacing its next_addr
  *      with a lock token.
  *
- *      Unlock unlocks allocation on the given batch by replacing the lock
+ *      'Unlock' unlocks allocation on the given batch by replacing the lock
  *      token with the next free disk address to allocate.
  *
  * Results:
@@ -583,13 +583,16 @@ mini_alloc(mini_allocator *mini,
            key             alloc_key,
            uint64         *next_extent)
 {
-   debug_assert(batch < mini->num_batches);
+   debug_assert((batch < mini->num_batches),
+                "batch=%lu should be < num_batches=%lu\n",
+                batch,
+                mini->num_batches);
    debug_assert(!mini->keyed || !key_is_null(alloc_key));
 
    uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
 
-   if (next_addr % cache_extent_size(mini->cc) == 0) {
-      // need to allocate the next extent
+   // Need to allocate the next extent if the next_addr is start of an extent.
+   if (allocator_valid_extent_addr(mini->al, next_addr)) {
 
       uint64          extent_addr = mini->next_extent[batch];
       platform_status rc =
@@ -663,7 +666,6 @@ mini_release(mini_allocator *mini, key end_key)
  *      Disk deallocation, standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-
 void
 mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
 {
@@ -704,7 +706,6 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *      Disk deallocation, standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-
 void
 mini_destroy_unused(mini_allocator *mini)
 {
@@ -902,6 +903,7 @@ mini_keyed_for_each(cache           *cc,
 }
 
 /*
+ *-----------------------------------------------------------------------------
  * Apply func to every extent whose key range intersects [start_key, end_key].
  *
  * Note: the first extent in each batch is treated as starting at
