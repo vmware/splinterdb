@@ -98,6 +98,7 @@ allocator_config_init(allocator_config *allocator_cfg,
                       io_config        *io_cfg,
                       uint64            capacity);
 
+// Return the address of the extent holding page at address 'addr'
 static inline uint64
 allocator_config_extent_base_addr(allocator_config *allocator_cfg, uint64 addr)
 {
@@ -253,12 +254,37 @@ allocator_print_allocated(allocator *al)
    return al->ops->print_allocated(al);
 }
 
+// Return the address of the extent holding page at address 'addr'
+static inline uint64
+allocator_extent_base_addr(allocator *al, uint64 addr)
+{
+   allocator_config *allocator_cfg = allocator_get_config(al);
+   return allocator_config_extent_base_addr(allocator_cfg, addr);
+}
+
+// Is the 'addr' a valid page address?
+static inline bool
+allocator_valid_page_addr(allocator *al, uint64 addr)
+{
+   allocator_config *allocator_cfg = allocator_get_config(al);
+   return ((addr % allocator_cfg->io_cfg->page_size) == 0);
+}
+
+/*
+ * Is the 'addr' a valid address of the start of an extent;
+ * i.e. an extent address?
+ */
+static inline bool
+allocator_valid_extent_addr(allocator *al, uint64 addr)
+{
+   return (allocator_extent_base_addr(al, addr) == addr);
+}
+
 static inline bool
 allocator_page_valid(allocator *al, uint64 addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);
-
-   if ((addr % allocator_cfg->io_cfg->page_size) != 0) {
+   if (!allocator_valid_page_addr(al, addr)) {
       platform_error_log("%s():%d: Specified addr=%lu is not divisible by"
                          " configured page size=%lu\n",
                          __FUNCTION__,
@@ -268,8 +294,8 @@ allocator_page_valid(allocator *al, uint64 addr)
       return FALSE;
    }
 
-   uint64 base_addr = allocator_config_extent_base_addr(allocator_cfg, addr);
-   if ((base_addr != 0) && (addr < allocator_cfg->capacity)) {
+   uint64 base_addr = allocator_extent_base_addr(al, addr);
+   if ((base_addr != 0) && (addr < allocator_get_capacity(al))) {
       uint8 refcount = allocator_get_refcount(al, base_addr);
       if (refcount == 0) {
          platform_error_log(
@@ -285,7 +311,7 @@ allocator_page_valid(allocator *al, uint64 addr)
    } else {
       platform_error_log("%s():%d: Extent out of allocator capacity range."
                          " base_addr=%lu, addr=%lu"
-                         ", allocator_get_capacity()=%lu\n",
+                         ", allocator_get_capacity()=%lu pages.\n",
                          __FUNCTION__,
                          __LINE__,
                          base_addr,
@@ -294,3 +320,12 @@ allocator_page_valid(allocator *al, uint64 addr)
       return FALSE;
    }
 }
+
+uint64
+allocator_page_number(allocator *al, uint64 addr);
+
+uint64
+allocator_page_offset(allocator *al, uint64 page_addr);
+
+uint64
+allocator_extent_number(allocator *al, uint64 addr);

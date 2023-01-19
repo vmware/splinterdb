@@ -206,7 +206,8 @@ const static allocator_ops rc_allocator_ops = {
 debug_only static inline bool
 rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 {
-   return ((base_addr % al->cfg->io_cfg->extent_size) == 0);
+   // return ((base_addr % al->cfg->io_cfg->extent_size) == 0);
+   return (allocator_valid_extent_addr((allocator *)al, base_addr));
 }
 
 /*
@@ -219,7 +220,8 @@ rc_allocator_valid_extent_addr(rc_allocator *al, uint64 base_addr)
 static inline uint64
 rc_allocator_extent_number(rc_allocator *al, uint64 addr)
 {
-   return (addr / al->cfg->io_cfg->extent_size);
+   // return (addr / al->cfg->io_cfg->extent_size);
+   return (allocator_extent_number((allocator *)al, addr));
 }
 
 static platform_status

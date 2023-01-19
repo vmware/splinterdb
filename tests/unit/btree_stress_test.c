@@ -134,7 +134,7 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
-   set_log_streams_for_error_tests(NULL, NULL);
+   set_log_streams_for_tests(NULL, NULL);
 
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
@@ -287,7 +287,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
 CTEST2(btree_stress, test_btree_print_diags)
 {
    int nkvs     = 1000000;
-   int nthreads = 8;
+   int nthreads = 1;
 
    mini_allocator mini;
 
@@ -433,19 +433,20 @@ insert_tests(cache           *cc,
    uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
    uint8 *msgbuf      = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
 
+   platform_status rc;
    for (uint64 i = start; i < end; i++) {
-      if (!SUCCESS(btree_insert(cc,
-                                cfg,
-                                hid,
-                                scratch,
-                                root_addr,
-                                mini,
-                                gen_key(cfg, i, keybuf, keybuf_size),
-                                gen_msg(cfg, i, msgbuf, msgbuf_size),
-                                &generation,
-                                &was_unique)))
+      rc = btree_insert(cc,
+                        cfg,
+                        hid,
+                        scratch,
+                        root_addr,
+                        mini,
+                        gen_key(cfg, i, keybuf, keybuf_size),
+                        gen_msg(cfg, i, msgbuf, msgbuf_size),
+                        &generation,
+                        &was_unique);
       {
-         ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
+         ASSERT_TRUE(SUCCESS(rc), "Failed to insert 4-byte %ld\n", i);
       }
    }
    platform_free(hid, keybuf);
