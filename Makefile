@@ -462,6 +462,10 @@ $(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)               \
                                          $(COMMON_UNIT_TESTOBJ)    \
                                          $(PLATFORM_SYS)
 
+$(BINDIR)/$(UNITDIR)/mini_allocator_test: $(COMMON_TESTOBJ)                             \
+                                          $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                          $(LIBDIR)/libsplinterdb.so
+
 ########################################
 # Convenience mini unit-test targets
 unit/util_test:                    $(BINDIR)/$(UNITDIR)/util_test
