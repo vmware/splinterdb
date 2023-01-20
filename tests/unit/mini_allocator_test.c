@@ -185,7 +185,7 @@ CTEST2(mini_allocator, test_mini_alloc_many)
    page_type type             = PAGE_TYPE_BRANCH;
    uint64    first_ext_addr   = 0;
    uint64    num_batches      = 1;
-   bool      keyed_mini_alloc = TRUE;
+   bool      keyed_mini_alloc = FALSE;
 
    uint64 meta_head_addr = allocator_next_page_addr(data->al, first_ext_addr);
 
@@ -199,21 +199,45 @@ CTEST2(mini_allocator, test_mini_alloc_many)
                               keyed_mini_alloc);
    ASSERT_TRUE(first_ext_addr != extent_addr);
 
+   allocator_config *allocator_cfg = allocator_get_config(data->al);
+
    uint64 extent_size = allocator_cfg->io_cfg->extent_size;
    uint64 page_size   = allocator_cfg->io_cfg->page_size;
 
    // Test that mini-allocator's state of extent-to-use changes when all pages
    // in currently pre-allocated extent are allocated.
    uint64 next_ext_addr    = 0;
-   uint64 prev_page_addr   = first_ext_addr;
+   uint64 exp_next_page    = first_ext_addr;
+   uint64 next_page_addr   = 0;
    uint64 npages_in_extent = (extent_size / page_size);
    uint64 batch_num        = 0;
-   for (uint64 pgctr = 0; pgctr < (npages_in_extent - 1);
-        pgctr++, page_addr += page_size)
-   {
-      uint64 next_page_addr =
-         mini_alloc(mini, batch_num, alloc_key, &next_ext_addr);
+   uint64 pgctr            = -1;
+   key    null_key         = key_create(0, NULL);
+
+   for (pgctr = 0; pgctr < (npages_in_extent - 1); pgctr++) {
+      next_page_addr = mini_alloc(mini, batch_num, null_key, &next_ext_addr);
+
+      ASSERT_EQUAL(first_ext_addr,
+                   allocator_extent_base_addr(data->al, next_page_addr));
+
+      ASSERT_EQUAL(exp_next_page,
+                   next_page_addr,
+                   "pgctr=%lu, exp_next_page=%lu, next_page_addr=%lu\n",
+                   pgctr,
+                   exp_next_page,
+                   next_page_addr);
+
+      exp_next_page = allocator_next_page_addr(data->al, next_page_addr);
    }
 
-   mini_destroy_unused(mini);
+   // Allocating the last page in the extent pre-allocates a new extent.
+   next_page_addr = mini_alloc(mini, batch_num, null_key, &next_ext_addr);
+
+   ASSERT_NOT_EQUAL(first_ext_addr, next_ext_addr);
+   ASSERT_EQUAL(exp_next_page,
+                next_page_addr,
+                "pgctr=%lu, exp_next_page=%lu, next_page_addr=%lu\n",
+                pgctr,
+                exp_next_page,
+                next_page_addr);
 }
