@@ -167,3 +167,53 @@ CTEST2(mini_allocator, test_mini_allocator_basic)
 
    mini_destroy_unused(mini);
 }
+
+/*
+ */
+CTEST2(mini_allocator, test_mini_alloc_many)
+{
+   platform_status rc          = STATUS_TEST_FAILED;
+   uint64          extent_addr = 0;
+
+   rc = allocator_alloc(data->al, &extent_addr, PAGE_TYPE_BRANCH);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   mini_allocator  mini_alloc_ctxt;
+   mini_allocator *mini = &mini_alloc_ctxt;
+   ZERO_CONTENTS(mini);
+
+   page_type type             = PAGE_TYPE_BRANCH;
+   uint64    first_ext_addr   = 0;
+   uint64    num_batches      = 1;
+   bool      keyed_mini_alloc = TRUE;
+
+   uint64 meta_head_addr = allocator_next_page_addr(data->al, first_ext_addr);
+
+   first_ext_addr = mini_init(mini,
+                              (cache *)data->clock_cache,
+                              &data->default_data_cfg,
+                              meta_head_addr,
+                              0,
+                              num_batches,
+                              type,
+                              keyed_mini_alloc);
+   ASSERT_TRUE(first_ext_addr != extent_addr);
+
+   uint64 extent_size = allocator_cfg->io_cfg->extent_size;
+   uint64 page_size   = allocator_cfg->io_cfg->page_size;
+
+   // Test that mini-allocator's state of extent-to-use changes when all pages
+   // in currently pre-allocated extent are allocated.
+   uint64 next_ext_addr    = 0;
+   uint64 prev_page_addr   = first_ext_addr;
+   uint64 npages_in_extent = (extent_size / page_size);
+   uint64 batch_num        = 0;
+   for (uint64 pgctr = 0; pgctr < (npages_in_extent - 1);
+        pgctr++, page_addr += page_size)
+   {
+      uint64 next_page_addr =
+         mini_alloc(mini, batch_num, alloc_key, &next_ext_addr);
+   }
+
+   mini_destroy_unused(mini);
+}
