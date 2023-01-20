@@ -396,9 +396,6 @@ ALLOCATOR_SYS = $(OBJDIR)/$(SRCDIR)/allocator.o    \
                 $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
                 $(PLATFORM_IO_SYS)
 
-MINI_ALLOCATOR_SYS = $(OBJDIR)/$(SRCDIR)/mini_allocator.o    \
-                     $(ALLOCATOR_SYS)
-
 CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	 \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
                  $(ALLOCATOR_SYS)                   \
@@ -471,9 +468,9 @@ $(BINDIR)/$(UNITDIR)/allocator_test: $(ALLOCATOR_SYS)                 \
                                      $(OBJDIR)/$(TESTS_DIR)/config.o  \
                                      $(UTIL_SYS)
 
-$(BINDIR)/$(UNITDIR)/mini_allocator_test: $(MINI_ALLOCATOR_SYS)                 \
-                                          $(OBJDIR)/$(TESTS_DIR)/config.o  \
-                                          $(UTIL_SYS)
+$(BINDIR)/$(UNITDIR)/mini_allocator_test: $(COMMON_TESTOBJ)                             \
+                                          $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                          $(LIBDIR)/libsplinterdb.so
 
 ########################################
 # Convenience mini unit-test targets

@@ -270,6 +270,14 @@ allocator_valid_page_addr(allocator *al, uint64 addr)
    return ((addr % allocator_cfg->io_cfg->page_size) == 0);
 }
 
+// Returns the address of the page next to input 'page_addr'
+static inline bool
+allocator_next_page_addr(allocator *al, uint64 page_addr)
+{
+   allocator_config *allocator_cfg = allocator_get_config(al);
+   return (page_addr + allocator_cfg->io_cfg->page_size);
+}
+
 /*
  * Is the 'addr' a valid address of the start of an extent;
  * i.e. an extent address?

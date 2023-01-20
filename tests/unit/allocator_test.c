@@ -19,12 +19,12 @@
  */
 CTEST_DATA(allocator)
 {
-   // Declare head handles for io, allocator, cache and splinter allocation.
+   // Declare head handles for io, allocator memory allocation.
    platform_heap_handle hh;
    platform_heap_id     hid;
    platform_module_id   mid;
 
-   // Config structs for sub-systems that clockcache depends on
+   // Config structs for sub-systems that rc-allocator / allocator depend on
    io_config        io_cfg;
    allocator_config al_cfg;
 
