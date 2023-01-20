@@ -150,7 +150,7 @@ CTEST2(mini_allocator, test_mini_allocator_basic)
    ZERO_CONTENTS(mini);
 
    page_type type             = PAGE_TYPE_BRANCH;
-   uint64    first_ext_addr   = 0;
+   uint64    first_ext_addr   = extent_addr;
    bool      keyed_mini_alloc = TRUE;
 
    uint64 meta_head_addr = allocator_next_page_addr(data->al, first_ext_addr);
@@ -169,23 +169,27 @@ CTEST2(mini_allocator, test_mini_allocator_basic)
 }
 
 /*
+ * Exercise the mini-allocator's interfaces for unkeyed page allocations.
  */
-CTEST2(mini_allocator, test_mini_alloc_many)
+CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
 {
    platform_status rc          = STATUS_TEST_FAILED;
    uint64          extent_addr = 0;
+   page_type       type        = PAGE_TYPE_BRANCH;
 
-   rc = allocator_alloc(data->al, &extent_addr, PAGE_TYPE_BRANCH);
+   uint64 extents_in_use_prev = allocator_in_use(data->al);
+   ASSERT_TRUE(extents_in_use_prev != 0);
+
+   rc = allocator_alloc(data->al, &extent_addr, type);
    ASSERT_TRUE(SUCCESS(rc));
 
    mini_allocator  mini_alloc_ctxt;
    mini_allocator *mini = &mini_alloc_ctxt;
    ZERO_CONTENTS(mini);
 
-   page_type type             = PAGE_TYPE_BRANCH;
-   uint64    first_ext_addr   = 0;
-   uint64    num_batches      = 1;
-   bool      keyed_mini_alloc = FALSE;
+   uint64 first_ext_addr   = extent_addr;
+   uint64 num_batches      = 1;
+   bool   keyed_mini_alloc = FALSE;
 
    uint64 meta_head_addr = allocator_next_page_addr(data->al, first_ext_addr);
 
@@ -199,6 +203,11 @@ CTEST2(mini_allocator, test_mini_alloc_many)
                               keyed_mini_alloc);
    ASSERT_TRUE(first_ext_addr != extent_addr);
 
+   // 1 for the extent holding the metadata page and 1 for the newly allocated
+   // extent.
+   uint64 exp_num_extents = 2;
+   ASSERT_EQUAL(exp_num_extents, mini_num_extents(mini));
+
    allocator_config *allocator_cfg = allocator_get_config(data->al);
 
    uint64 extent_size = allocator_cfg->io_cfg->extent_size;
@@ -211,15 +220,16 @@ CTEST2(mini_allocator, test_mini_alloc_many)
    uint64 next_page_addr   = 0;
    uint64 npages_in_extent = (extent_size / page_size);
    uint64 batch_num        = 0;
-   uint64 pgctr            = -1;
-   key    null_key         = key_create(0, NULL);
+   uint64 pgctr;
 
-   for (pgctr = 0; pgctr < (npages_in_extent - 1); pgctr++) {
-      next_page_addr = mini_alloc(mini, batch_num, null_key, &next_ext_addr);
+   for (pgctr = 0; pgctr < npages_in_extent; pgctr++) {
+      next_page_addr = mini_alloc(mini, batch_num, NULL_KEY, &next_ext_addr);
 
+      // All pages allocated should be from previously allocated extent
       ASSERT_EQUAL(first_ext_addr,
                    allocator_extent_base_addr(data->al, next_page_addr));
 
+      // And we should get a diff page for each allocation request
       ASSERT_EQUAL(exp_next_page,
                    next_page_addr,
                    "pgctr=%lu, exp_next_page=%lu, next_page_addr=%lu\n",
@@ -227,17 +237,48 @@ CTEST2(mini_allocator, test_mini_alloc_many)
                    exp_next_page,
                    next_page_addr);
 
+      // We should have pre-allocated a new extent when we just started to
+      // allocate pages from currently allocated extent.
+      if (pgctr == 0) {
+         exp_num_extents++;
+      }
+      ASSERT_EQUAL(exp_num_extents, mini_num_extents(mini));
+
       exp_next_page = allocator_next_page_addr(data->al, next_page_addr);
    }
 
-   // Allocating the last page in the extent pre-allocates a new extent.
-   next_page_addr = mini_alloc(mini, batch_num, null_key, &next_ext_addr);
+   uint64 new_next_ext_addr;
+
+   // Allocating the next page in a new extent pre-allocates a new extent.
+   next_page_addr = mini_alloc(mini, batch_num, NULL_KEY, &new_next_ext_addr);
 
    ASSERT_NOT_EQUAL(first_ext_addr, next_ext_addr);
-   ASSERT_EQUAL(exp_next_page,
+
+   // This most-recently allocated page should be from the recently
+   // pre-allocated extent, tracked by next_ext_addr. In fact it should be
+   // exactly that 1st page on that pre-allocated extent.
+   ASSERT_EQUAL(next_ext_addr,
                 next_page_addr,
-                "pgctr=%lu, exp_next_page=%lu, next_page_addr=%lu\n",
+                "pgctr=%lu, next_ext_addr=%lu, next_page_addr=%lu\n",
                 pgctr,
-                exp_next_page,
+                next_ext_addr,
                 next_page_addr);
+
+   // The alloc of this 1st page should have pre-allocated a new extent.
+   exp_num_extents++;
+   ASSERT_EQUAL(exp_num_extents, mini_num_extents(mini));
+
+   // Release extents reserved by mini-allocator, to verify extents in-use.
+   /*
+   mini_release(mini, NULL_KEY);
+   mini_unkeyed_dec_ref((cache *)data->clock_cache, meta_head_addr, type,
+   mini->pinned);
+   */
+   mini_deinit(mini, NULL_KEY);
+
+   exp_num_extents = 0;
+   ASSERT_EQUAL(exp_num_extents, mini_num_extents(mini));
+
+   uint64 extents_in_use_now = allocator_in_use(data->al);
+   ASSERT_EQUAL(extents_in_use_prev, extents_in_use_now);
 }

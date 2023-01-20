@@ -7306,8 +7306,8 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
       platform_free(spl->heap_id, spl->log);
    }
 
-   // release the trunk mini allocator
-   mini_release(&spl->mini, NULL_KEY);
+   // Deinit the trunk mini allocator; release all its resources
+   mini_deinit(&spl->mini, NULL_KEY);
 
    // flush all dirty pages in the cache
    cache_flush(spl->cc);
@@ -7363,7 +7363,8 @@ trunk_destroy(trunk_handle *spl)
 
    trunk_for_each_node(spl, trunk_node_destroy, NULL);
 
-   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
+   // mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK,
+   // FALSE);
 
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);

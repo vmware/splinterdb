@@ -238,6 +238,13 @@ mini_allocator_get_new_extent(mini_allocator *mini, uint64 *addr)
    return rc;
 }
 
+/*
+static inline void
+mini_allocator_release_extent(mini_allocator *mini) {
+      __sync_fetch_and_sub(&mini->num_extents, 1);
+}
+*/
+
 static uint64
 base_addr(cache *cc, uint64 addr)
 {
@@ -260,7 +267,7 @@ base_addr(cache *cc, uint64 addr)
  *        is overloaded onto the meta_head disk-allocator ref count.
  *
  * Results:
- *      The 0th batch next address to be allocated.
+ *      The next address to be allocated from the 0th batch.
  *
  * Side effects:
  *      None.
@@ -570,6 +577,12 @@ mini_append_entry(mini_allocator *mini,
  *      If next_extent is not NULL, then the successor extent to the allocated
  *      addr will be copied to it.
  *
+ * NOTE: Mini-allocator pre-stages allocation of extents for each batch.
+ *       At init time, we pre-allocate an extent for each batch. When allocating
+ *       the 1st page from this pre-allocated extent, we allocate a new extent
+ *       for the requested batch. This way, we always have an allocated extent
+ *       for each batch ready for use by the mini-allocator.
+ *
  * Results:
  *      A newly allocated disk address.
  *
@@ -617,10 +630,12 @@ mini_alloc(mini_allocator *mini,
  *-----------------------------------------------------------------------------
  * mini_release --
  *
- *      Called to finalize the mini_allocator. After calling, no more
- *      allocations can be made, but the mini_allocator linked list containing
- *      the extents allocated and their metadata can be accessed by functions
- *      using its meta_head.
+ *      Called to finalize the mini_allocator. As the mini-allocator always
+ *      pre-allocates an extent, 'release' here means to deallocate this
+ *      pre-allocated extent for each active batch. After calling release, no
+ *      more allocations can be made, but the mini_allocator's linked list
+ *      containing the extents allocated and their metadata can be accessed by
+ *      functions using its meta_head.
  *
  *      Keyed allocators use this to set the final end keys of the batches.
  *
@@ -654,7 +669,7 @@ mini_release(mini_allocator *mini, key end_key)
 
 /*
  *-----------------------------------------------------------------------------
- * mini_deinit --
+ * mini_deinit_metadata --
  *
  *      Cleanup function to deallocate the metadata extents of the mini
  *      allocator. Does not deallocate or otherwise access the data extents.
@@ -666,8 +681,8 @@ mini_release(mini_allocator *mini, key end_key)
  *      Disk deallocation, standard cache side effects.
  *-----------------------------------------------------------------------------
  */
-void
-mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
+static void
+mini_deinit_metadata(cache *cc, uint64 meta_head, page_type type, bool pinned)
 {
    allocator *al        = cache_get_allocator(cc);
    uint64     meta_addr = meta_head;
@@ -690,6 +705,29 @@ mini_deinit(cache *cc, uint64 meta_head, page_type type, bool pinned)
          platform_assert(ref == AL_FREE);
       }
    } while (meta_addr != 0);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * mini_deinit -- De-Initialize a new mini allocator.
+ *
+ *      Initialize a new mini allocator.
+ *      This is the last thing to do to release all resources acquired by the
+ *      mini-allocator. All pages & extents reserved or allocated by the mini-
+ *      allocator will be released. The mini-allocator cannot be used after this
+ *      call, and will need to go through mini_init().
+ *
+ * Returns: Nothing.
+ *-----------------------------------------------------------------------------
+ */
+void
+mini_deinit(mini_allocator *mini, key end_key)
+{
+   mini_release(mini, end_key);
+   if (!mini->keyed) {
+      mini_unkeyed_dec_ref(mini->cc, mini->meta_head, mini->type, mini->pinned);
+   }
+   ZERO_CONTENTS(mini);
 }
 
 /*
@@ -730,7 +768,7 @@ mini_destroy_unused(mini_allocator *mini)
       platform_assert(ref == AL_FREE);
    }
 
-   mini_deinit(mini->cc, mini->meta_head, mini->type, FALSE);
+   mini_deinit_metadata(mini->cc, mini->meta_head, mini->type, FALSE);
 }
 
 
@@ -1040,7 +1078,7 @@ mini_unkeyed_dec_ref(cache *cc, uint64 meta_head, page_type type, bool pinned)
 
    // need to deallocate and clean up the mini allocator
    mini_unkeyed_for_each(cc, meta_head, type, FALSE, mini_dealloc_extent, NULL);
-   mini_deinit(cc, meta_head, type, pinned);
+   mini_deinit_metadata(cc, meta_head, type, pinned);
    return 0;
 }
 
@@ -1155,7 +1193,7 @@ mini_keyed_dec_ref(cache       *cc,
       allocator *al  = cache_get_allocator(cc);
       uint8      ref = allocator_get_refcount(al, base_addr(cc, meta_head));
       platform_assert(ref == AL_ONE_REF);
-      mini_deinit(cc, meta_head, type, FALSE);
+      mini_deinit_metadata(cc, meta_head, type, FALSE);
    }
    return should_cleanup;
 }
