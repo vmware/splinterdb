@@ -711,7 +711,6 @@ mini_deinit_metadata(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *-----------------------------------------------------------------------------
  * mini_deinit -- De-Initialize a new mini allocator.
  *
- *      Initialize a new mini allocator.
  *      This is the last thing to do to release all resources acquired by the
  *      mini-allocator. All pages & extents reserved or allocated by the mini-
  *      allocator will be released. The mini-allocator cannot be used after this
