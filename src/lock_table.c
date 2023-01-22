@@ -41,34 +41,6 @@ typedef struct lock_table {
    platform_mutex lock;
 } lock_table;
 
-static inline void
-lock_table_insert(lock_table *lock_tbl, tictoc_rw_entry *entry)
-{
-   platform_mutex_lock(&lock_tbl->lock);
-   interval_tree_insert(entry, &lock_tbl->root);
-   platform_mutex_unlock(&lock_tbl->lock);
-}
-
-static inline bool
-lock_table_exist_overlap(lock_table *lock_tbl, tictoc_rw_entry *entry)
-{
-   platform_mutex_lock(&lock_tbl->lock);
-   bool is_exist = interval_tree_iter_first(
-                      &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry))
-                      ? TRUE
-                      : FALSE;
-   platform_mutex_unlock(&lock_tbl->lock);
-   return is_exist;
-}
-
-static inline void
-lock_table_delete(lock_table *lock_tbl, tictoc_rw_entry *entry)
-{
-   platform_mutex_lock(&lock_tbl->lock);
-   interval_tree_remove(entry, &lock_tbl->root);
-   platform_mutex_unlock(&lock_tbl->lock);
-}
-
 lock_table *
 lock_table_create()
 {
@@ -87,47 +59,38 @@ lock_table_destroy(lock_table *lock_tbl)
    platform_free(0, lock_tbl);
 }
 
-// Lock returns the interval tree node pointer, and the pointer will
-// be used on deletion
-void
-lock_table_acquire_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
-{
-   while (lock_table_exist_overlap(lock_tbl, entry)) {
-      platform_pause();
-   }
-
-   lock_table_insert(lock_tbl, entry);
-}
-
-// If there is a lock owner, it returns NULL
-bool
+lock_table_rc
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
 {
    platform_mutex_lock(&lock_tbl->lock);
-   bool is_exist = interval_tree_iter_first(
-                      &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry))
-                      ? TRUE
-                      : FALSE;
+   tictoc_rw_entry *node = interval_tree_iter_first(
+      &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry));
+   if (node) {
+      if (node->owner != entry->owner) {
+         platform_mutex_unlock(&lock_tbl->lock);
+         return LOCK_TABLE_RC_BUSY;
+      }
 
-   if (is_exist) {
       platform_mutex_unlock(&lock_tbl->lock);
-      return FALSE;
+      return LOCK_TABLE_RC_DEADLK;
    }
 
    interval_tree_insert(entry, &lock_tbl->root);
-   platform_mutex_unlock(&lock_tbl->lock);
 
-   return TRUE;
+   platform_mutex_unlock(&lock_tbl->lock);
+   return LOCK_TABLE_RC_OK;
 }
 
 void
 lock_table_release_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
 {
-   lock_table_delete(lock_tbl, entry);
-}
-
-bool
-lock_table_is_entry_locked(lock_table *lock_tbl, tictoc_rw_entry *entry)
-{
-   return lock_table_exist_overlap(lock_tbl, entry);
+   platform_mutex_lock(&lock_tbl->lock);
+   tictoc_rw_entry *node = interval_tree_iter_first(
+      &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry));
+   if (node) {
+      if (node->owner == entry->owner) {
+         interval_tree_remove(node, &lock_tbl->root);
+      }
+   }
+   platform_mutex_unlock(&lock_tbl->lock);
 }
