@@ -1,9 +1,12 @@
 #include "splinterdb/transaction.h"
+#include "platform.h"
+#include "tictoc_data.h"
 #include "transaction_internal.h"
 #include "splinterdb_internal.h"
 #include "platform_linux/platform.h"
 #include "data_internal.h"
 #include "poison.h"
+#include "util.h"
 #include <stdlib.h>
 
 tictoc_timestamp_set ZERO_TICTOC_TIMESTAMP_SET = {.rts = 0, .wts = 0};
@@ -61,6 +64,40 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
             slice                     user_key,
             splinterdb_lookup_result *result)
 {
+   key ukey = key_create_from_slice(user_key);
+   for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
+      tictoc_rw_entry *w = tictoc_get_write_set_entry(tt_txn, i);
+      platform_assert(!tictoc_rw_entry_is_invalid(w));
+
+      if (data_key_compare(
+             txn_kvsb->tcfg->kvsb_cfg.data_cfg,
+             ukey,
+             key_create_from_slice(writable_buffer_to_slice(&w->key)))
+          == 0)
+      {
+         tictoc_tuple_header *tuple = writable_buffer_data(&w->tuple);
+         uint64               app_value_size =
+            writable_buffer_length(&w->tuple) - sizeof(tictoc_tuple_header);
+         _splinterdb_lookup_result *_result =
+            (_splinterdb_lookup_result *)result;
+         merge_accumulator_resize(&_result->value, app_value_size);
+         memcpy(merge_accumulator_data(&_result->value),
+                tuple->value,
+                app_value_size);
+
+         tictoc_rw_entry *r = tictoc_get_new_read_set_entry(tt_txn);
+         platform_assert(!tictoc_rw_entry_is_invalid(r));
+         writable_buffer_init_from_slice(
+            &r->tuple, 0, writable_buffer_to_slice(&w->tuple));
+         tictoc_rw_entry_set_point_key(
+            r, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
+         tuple = writable_buffer_data(&r->tuple);
+         get_ts_from_splinterdb(txn_kvsb->kvsb, user_key, &tuple->ts_set);
+
+         return 0;
+      }
+   }
+
    int rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
 
    if (splinterdb_lookup_found(result)) {
@@ -69,9 +106,7 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
 
       slice value;
       splinterdb_lookup_result_value(result, &value);
-      writable_buffer_init_from_slice(&r->tuple,
-                                      0,
-                                      value); // FIXME: use a correct heap_id
+      writable_buffer_init_from_slice(&r->tuple, 0, value);
       tictoc_rw_entry_set_point_key(
          r, user_key, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
 
@@ -228,11 +263,11 @@ tictoc_local_write(transactional_splinterdb *txn_kvsb,
    const data_config *cfg =
       txn_kvsb->tcfg->txn_data_cfg->application_data_config;
 
+   key ukey = key_create_from_slice(user_key);
    // TODO: this part can be done by binary search if the write_set is sorted
    for (uint64 i = 0; i < txn->write_cnt; ++i) {
       tictoc_rw_entry *w = tictoc_get_write_set_entry(txn, i);
       key wkey = key_create_from_slice(writable_buffer_to_slice(&w->key));
-      key ukey = key_create_from_slice(user_key);
       if (data_key_compare(cfg, wkey, ukey) == 0) {
          if (message_is_definitive(msg)) {
             w->op = message_class(msg);

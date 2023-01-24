@@ -25,7 +25,7 @@ tictoc_timestamp_set
 get_ts_from_tictoc_rw_entry(tictoc_rw_entry *entry);
 
 tictoc_rw_entry *
-tictoc_rw_entry_create();
+tictoc_rw_entry_create(tictoc_transaction *tt_txn);
 void
 tictoc_rw_entry_set_point_key(tictoc_rw_entry   *entry,
                               slice              key,
