@@ -44,6 +44,9 @@ CTEST_DATA(mini_allocator)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(mini_allocator)
 {
+   if (Ctest_verbose) {
+      platform_set_log_streams(stdout, stderr);
+   }
    uint64 heap_capacity = 1024 * MiB;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg);
@@ -175,12 +178,12 @@ CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
 {
    platform_status rc          = STATUS_TEST_FAILED;
    uint64          extent_addr = 0;
-   page_type       type        = PAGE_TYPE_BRANCH;
+   page_type       pgtype      = PAGE_TYPE_BRANCH;
 
    uint64 extents_in_use_prev = allocator_in_use(data->al);
    ASSERT_TRUE(extents_in_use_prev != 0);
 
-   rc = allocator_alloc(data->al, &extent_addr, type);
+   rc = allocator_alloc(data->al, &extent_addr, pgtype);
    ASSERT_TRUE(SUCCESS(rc));
 
    mini_allocator  mini_alloc_ctxt;
@@ -199,7 +202,7 @@ CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
                               meta_head_addr,
                               0,
                               num_batches,
-                              type,
+                              pgtype,
                               keyed_mini_alloc);
    ASSERT_TRUE(first_ext_addr != extent_addr);
 
@@ -269,11 +272,6 @@ CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
    ASSERT_EQUAL(exp_num_extents, mini_num_extents(mini));
 
    // Release extents reserved by mini-allocator, to verify extents in-use.
-   /*
-   mini_release(mini, NULL_KEY);
-   mini_unkeyed_dec_ref((cache *)data->clock_cache, meta_head_addr, type,
-   mini->pinned);
-   */
    mini_deinit(mini, NULL_KEY);
 
    exp_num_extents = 0;
@@ -281,4 +279,69 @@ CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
 
    uint64 extents_in_use_now = allocator_in_use(data->al);
    ASSERT_EQUAL(extents_in_use_prev, extents_in_use_now);
+}
+
+/*
+ * Exercise the mini-allocator's interfaces for unkeyed page allocations,
+ * pretending that we are allocating pages for all levels of the trunk's nodes.
+ * Then, exercise the method to print contents of chain of unkeyed allocator's
+ * meta-data pages to ensure that the print function works reasonably.
+ */
+CTEST2(mini_allocator, test_trunk_mini_unkeyed_allocs_print_diags)
+{
+   platform_status rc          = STATUS_TEST_FAILED;
+   uint64          extent_addr = 0;
+   page_type       pgtype      = PAGE_TYPE_TRUNK;
+
+   rc = allocator_alloc(data->al, &extent_addr, pgtype);
+   ASSERT_TRUE(SUCCESS(rc));
+
+   mini_allocator  mini_alloc_ctxt;
+   mini_allocator *mini = &mini_alloc_ctxt;
+   ZERO_CONTENTS(mini);
+
+   uint64 first_ext_addr   = extent_addr;
+   uint64 num_batches      = TRUNK_MAX_HEIGHT;
+   bool   keyed_mini_alloc = FALSE;
+
+   uint64 meta_head_addr = allocator_next_page_addr(data->al, first_ext_addr);
+
+   first_ext_addr = mini_init(mini,
+                              (cache *)data->clock_cache,
+                              &data->default_data_cfg,
+                              meta_head_addr,
+                              0,
+                              num_batches,
+                              pgtype,
+                              keyed_mini_alloc);
+   ASSERT_TRUE(first_ext_addr != extent_addr);
+
+   uint64 npages_in_extent = data->clock_cache->cfg->pages_per_extent;
+   uint64 npages_allocated = 0;
+
+   uint64 exp_num_extents = mini_num_extents(mini);
+
+   // Allocate n-pages for each level (bctr) of the trunk tree. Pick some
+   // large'ish # of pages to allocate so we fill-up multiple metadata pages
+   // worth of unkeyed_meta_entry{} entries.
+   for (uint64 bctr = 0; bctr < num_batches; bctr++) {
+      uint64 num_extents_per_level = (64 * bctr);
+      for (uint64 pgctr = 0; pgctr < (num_extents_per_level * npages_in_extent);
+           pgctr++)
+      {
+         uint64 next_page_addr = mini_alloc(mini, bctr, NULL_KEY, NULL);
+         ASSERT_FALSE(next_page_addr == 0);
+
+         npages_allocated++;
+      }
+      exp_num_extents += num_extents_per_level;
+   }
+   // Validate book-keeping of # of extents allocated by mini-allocator
+   ASSERT_EQUAL(exp_num_extents, mini_num_extents(mini));
+
+   // Exercise print method of mini-allocator's keyed meta-page
+   CTEST_LOG_INFO("\n** Mini-Allocator dump **\n");
+   mini_unkeyed_print((cache *)data->clock_cache, meta_head_addr, pgtype);
+
+   mini_deinit(mini, NULL_KEY);
 }

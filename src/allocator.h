@@ -271,7 +271,7 @@ allocator_valid_page_addr(allocator *al, uint64 addr)
 }
 
 // Returns the address of the page next to input 'page_addr'
-static inline bool
+static inline uint64
 allocator_next_page_addr(allocator *al, uint64 page_addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);

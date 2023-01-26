@@ -353,6 +353,8 @@ mini_num_entries(page_handle *meta_page)
  * mini_keyed_set_last_end_key --
  * mini_unkeyed_[get,set]_entry --
  *
+ * mini_append_entry, mini_keyed_append_entry, mini_unkeyed_append_entry --
+ *
  *      Allocator functions for adding new extents to the meta_page or getting
  *      the metadata of the pos-th extent in the given meta_page.
  *
@@ -604,7 +606,7 @@ mini_alloc(mini_allocator *mini,
 
    uint64 next_addr = mini_lock_batch_get_next_addr(mini, batch);
 
-   // Need to allocate the next extent if the next_addr is start of an extent.
+   // Need to allocate a new next-extent if the next_addr is start of an extent.
    if (allocator_valid_extent_addr(mini->al, next_addr)) {
 
       uint64          extent_addr = mini->next_extent[batch];
@@ -1322,16 +1324,24 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
    platform_default_log("---------------------------------------------\n");
    platform_default_log("| Mini Allocator -- meta_head: %12lu |\n", meta_head);
    platform_default_log("|-------------------------------------------|\n");
-   platform_default_log("| idx | %35s |\n", "extent_addr");
-   platform_default_log("|-------------------------------------------|\n");
+
+   uint64 num_meta_pages   = 0;
+   uint64 num_extent_addrs = 0;
 
    do {
-      page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
+      page_handle   *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
+      mini_meta_hdr *meta_hdr  = (mini_meta_hdr *)meta_page->data;
 
       uint64 num_entries = mini_num_entries(meta_page);
-      platform_default_log("| meta addr=%-16lu, num_entries=%-15lu |\n",
-                           next_meta_addr,
-                           num_entries);
+      platform_default_log("{\n");
+      platform_default_log("|-------------------------------------------|\n");
+      platform_default_log(
+         "| meta addr=%-lu, num_entries=%lu\n", next_meta_addr, num_entries);
+      platform_default_log("| next_meta_addr=%lu, pos=%lu\n",
+                           meta_hdr->next_meta_addr,
+                           meta_hdr->pos);
+      platform_default_log("|-------------------------------------------|\n");
+      platform_default_log("| idx | %35s |\n", "extent_addr");
       platform_default_log("|-------------------------------------------|\n");
 
       unkeyed_meta_entry *entry = unkeyed_first_entry(meta_page);
@@ -1340,11 +1350,19 @@ mini_unkeyed_print(cache *cc, uint64 meta_head, page_type type)
          entry = unkeyed_next_entry(entry);
       }
       platform_default_log("|-------------------------------------------|\n");
+      platform_default_log("}\n");
+
+      num_meta_pages++;
+      num_extent_addrs += num_entries;
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);
    } while (next_meta_addr != 0);
    platform_default_log("\n");
+
+   platform_default_log("Found %lu meta-data pages tracking %lu extents.\n",
+                        num_meta_pages,
+                        num_extent_addrs);
 }
 
 void
