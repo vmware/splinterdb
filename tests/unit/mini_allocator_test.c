@@ -36,6 +36,7 @@ CTEST_DATA(mini_allocator)
    clockcache_config  cache_cfg;
    data_config        default_data_cfg;
 
+   // Handles to various sub-systems for which memory will be allocated
    platform_io_handle *io;
    task_system        *tasks;
    allocator          *al;
@@ -43,7 +44,7 @@ CTEST_DATA(mini_allocator)
    clockcache         *clock_cache;
 };
 
-// Optional setup function for suite, called before every test in suite
+// Setup function for suite, called before every test in suite
 CTEST_SETUP(mini_allocator)
 {
    if (Ctest_verbose) {
@@ -119,7 +120,7 @@ CTEST_SETUP(mini_allocator)
    platform_free(data->hid, master_cfg);
 }
 
-// Optional teardown function for suite, called after every test in suite
+// Teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(mini_allocator)
 {
    clockcache_deinit(data->clock_cache);
@@ -138,11 +139,14 @@ CTEST_TEARDOWN(mini_allocator)
 }
 
 /*
- * Exercise the core APIs of the mini-allocator. Before we can do
- * page-allocation, need to allocate a new extent, which will be used by the
- * mini-allocator.
+ * ----------------------------------------------------------------------------
+ * Exercise the core APIs of the mini-allocator for allocating keyed pages.
+ * This will be typically used to allocated BTree pages, which have keys.
+ * Before we can do page-allocation, need to allocate a new extent, which will
+ * be used by the mini-allocator.
+ * ----------------------------------------------------------------------------
  */
-CTEST2(mini_allocator, test_mini_allocator_basic)
+CTEST2(mini_allocator, test_mini_keyed_allocator_basic)
 {
    platform_status rc          = STATUS_TEST_FAILED;
    uint64          extent_addr = 0;
@@ -192,9 +196,9 @@ CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
    mini_allocator *mini = &mini_alloc_ctxt;
    ZERO_CONTENTS(mini);
 
-   uint64 first_ext_addr   = extent_addr;
-   uint64 num_batches      = 1;
-   bool   keyed_mini_alloc = FALSE;
+   uint64 first_ext_addr     = extent_addr;
+   uint64 num_batches        = 1;
+   bool   unkeyed_mini_alloc = FALSE;
 
    uint64 meta_head_addr = allocator_next_page_addr(data->al, first_ext_addr);
 
@@ -205,7 +209,7 @@ CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
                               0,
                               num_batches,
                               pgtype,
-                              keyed_mini_alloc);
+                              unkeyed_mini_alloc);
    ASSERT_TRUE(first_ext_addr != extent_addr);
 
    // 1 for the extent holding the metadata page and 1 for the newly allocated
@@ -284,10 +288,12 @@ CTEST2(mini_allocator, test_mini_unkeyed_many_allocs_one_batch)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * Exercise the mini-allocator's interfaces for unkeyed page allocations,
  * pretending that we are allocating pages for all levels of the trunk's nodes.
  * Then, exercise the method to print contents of chain of unkeyed allocator's
  * meta-data pages to ensure that the print function works reasonably.
+ * ----------------------------------------------------------------------------
  */
 CTEST2(mini_allocator, test_trunk_mini_unkeyed_allocs_print_diags)
 {
@@ -302,9 +308,9 @@ CTEST2(mini_allocator, test_trunk_mini_unkeyed_allocs_print_diags)
    mini_allocator *mini = &mini_alloc_ctxt;
    ZERO_CONTENTS(mini);
 
-   uint64 first_ext_addr   = extent_addr;
-   uint64 num_batches      = TRUNK_MAX_HEIGHT;
-   bool   keyed_mini_alloc = FALSE;
+   uint64 first_ext_addr     = extent_addr;
+   uint64 num_batches        = TRUNK_MAX_HEIGHT;
+   bool   unkeyed_mini_alloc = FALSE;
 
    uint64 meta_head_addr = allocator_next_page_addr(data->al, first_ext_addr);
 
@@ -315,7 +321,7 @@ CTEST2(mini_allocator, test_trunk_mini_unkeyed_allocs_print_diags)
                               0,
                               num_batches,
                               pgtype,
-                              keyed_mini_alloc);
+                              unkeyed_mini_alloc);
    ASSERT_TRUE(first_ext_addr != extent_addr);
 
    uint64 npages_in_extent = data->clock_cache->cfg->pages_per_extent;
@@ -349,10 +355,12 @@ CTEST2(mini_allocator, test_trunk_mini_unkeyed_allocs_print_diags)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * Exercise the mini-allocator's interfaces for keyed page allocations,
  * pretending that we are allocating pages for all levels of a BTree.
  * Then, exercise the method to print contents of chain of keyed allocator's
  * meta-data pages to ensure that the print function works reasonably.
+ * ----------------------------------------------------------------------------
  */
 CTEST2(mini_allocator, test_trunk_mini_keyed_allocs_print_diags)
 {

@@ -653,8 +653,9 @@ mini_release(mini_allocator *mini, key end_key)
 {
    debug_assert(!mini->keyed || !key_is_null(end_key));
 
+   // For all batches that this mini-allocator was setup for ...
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
-      // Dealloc the next extent
+      // Dealloc the next pre-allocated extent
       uint8 ref =
          allocator_dec_ref(mini->al, mini->next_extent[batch], mini->type);
       platform_assert(ref == AL_NO_REFS);
@@ -767,6 +768,10 @@ mini_destroy_unused(mini_allocator *mini)
                 mini->num_extents,
                 mini->num_batches);
 
+   /* RESOLVE: What's the difference between this block of code and the
+    * work done in mini_release(). Can we merge these two fns into one?
+    */
+   // For all batches that this mini-allocator was setup for ...
    for (uint64 batch = 0; batch < mini->num_batches; batch++) {
       // Dealloc the next extent
       uint8 ref =
