@@ -1388,15 +1388,22 @@ mini_keyed_print(cache       *cc,
    platform_default_log(
       "| Mini Keyed Allocator -- meta_head: %12lu                   |\n",
       meta_head);
-   platform_default_log("%s\n", dashes);
 
    do {
-      page_handle *meta_page = cache_get(cc, next_meta_addr, TRUE, type);
+      page_handle   *meta_page   = cache_get(cc, next_meta_addr, TRUE, type);
+      mini_meta_hdr *meta_hdr    = (mini_meta_hdr *)meta_page->data;
+      uint64         num_entries = mini_num_entries(meta_page);
 
+      platform_default_log("{\n");
+      platform_default_log("%s\n", dashes);
       platform_default_log(
-         "| meta addr: %12lu (%u)                                       |\n",
+         "| meta addr: %lu (refcount=%u), num_entries=%lu\n",
          next_meta_addr,
-         allocator_get_refcount(al, base_addr(cc, next_meta_addr)));
+         allocator_get_refcount(al, base_addr(cc, next_meta_addr)),
+         num_entries);
+      platform_default_log("| next_meta_addr=%lu, pos=%lu\n",
+                           meta_hdr->next_meta_addr,
+                           meta_hdr->pos);
       platform_default_log("%s\n", dashes);
       platform_default_log("| idx | %5s | %14s | %18s | %3s |\n",
                            "batch",
@@ -1406,8 +1413,7 @@ mini_keyed_print(cache       *cc,
       platform_default_log("%s\n", dashes);
 
 
-      uint64            num_entries = mini_num_entries(meta_page);
-      keyed_meta_entry *entry       = keyed_first_entry(meta_page);
+      keyed_meta_entry *entry = keyed_first_entry(meta_page);
       for (uint64 i = 0; i < num_entries; i++) {
          key  start_key = keyed_meta_entry_start_key(entry);
          char extent_str[32];
@@ -1432,7 +1438,7 @@ mini_keyed_print(cache       *cc,
                               ref_str);
          entry = keyed_next_entry(entry);
       }
-      platform_default_log("%s\n", dashes);
+      platform_default_log("}\n");
 
       next_meta_addr = mini_get_next_meta_addr(meta_page);
       cache_unget(cc, meta_page);

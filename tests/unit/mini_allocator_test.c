@@ -388,7 +388,7 @@ CTEST2(mini_allocator, test_trunk_mini_keyed_allocs_print_diags)
 
    uint64 exp_num_extents = mini_num_extents(mini);
 
-   // Allocate n-pages for each level (bctr) of the trunk tree. Pick some
+   // Allocate n-pages for each level (bctr) of the Btree. Pick some
    // large'ish # of pages to allocate so we fill-up multiple metadata pages
    // worth of unkeyed_meta_entry{} entries.
    for (uint64 bctr = 0; bctr < num_batches; bctr++) {
