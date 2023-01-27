@@ -722,11 +722,18 @@ mini_deinit_metadata(cache *cc, uint64 meta_head, page_type type, bool pinned)
  *-----------------------------------------------------------------------------
  */
 void
-mini_deinit(mini_allocator *mini, key end_key)
+mini_deinit(mini_allocator *mini, key start_key, key end_key)
 {
    mini_release(mini, end_key);
    if (!mini->keyed) {
       mini_unkeyed_dec_ref(mini->cc, mini->meta_head, mini->type, mini->pinned);
+   } else {
+      mini_keyed_dec_ref(mini->cc,
+                         mini->data_cfg,
+                         mini->type,
+                         mini->meta_head,
+                         start_key,
+                         end_key);
    }
    ZERO_CONTENTS(mini);
 }

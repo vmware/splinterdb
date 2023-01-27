@@ -7360,8 +7360,8 @@ trunk_destroy(trunk_handle *spl)
 
    trunk_for_each_node(spl, trunk_node_destroy, NULL);
 
-   // Deinit the trunk mini allocator; release all its resources
-   mini_deinit(&spl->mini, NULL_KEY);
+   // Deinit the trunk's unkeyed mini allocator; release all its resources
+   mini_deinit(&spl->mini, NULL_KEY, NULL_KEY);
 
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);

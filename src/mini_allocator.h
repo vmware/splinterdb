@@ -64,7 +64,7 @@ mini_init(mini_allocator *mini,
           bool            keyed);
 
 void
-mini_deinit(mini_allocator *mini, key end_key);
+mini_deinit(mini_allocator *mini, key start_key, key end_key);
 
 /*
  * Called to finalize the mini_allocator. After calling, no more
