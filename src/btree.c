@@ -127,6 +127,18 @@ leaf_entry_message_size(const leaf_entry *entry)
    return entry->message_length;
 }
 
+static inline uint64
+btree_extent_number(btree_config *cfg, uint64 page_addr)
+{
+   return (page_addr / btree_extent_size(cfg));
+}
+
+static inline uint64
+btree_page_number(btree_config *cfg, uint64 page_addr)
+{
+   return (page_addr / btree_page_size(cfg));
+}
+
 /*********************************************************
  * Code for tracing operations involving a particular key
  *********************************************************/
@@ -3157,11 +3169,46 @@ btree_print_btree_pivot_stats(platform_log_handle *log_handle,
 
 static void
 btree_print_btree_pivot_data(platform_log_handle *log_handle,
+                             btree_config        *cfg,
                              btree_pivot_data    *pivot_data)
 {
    // Indentation is dictated by outer caller
-   platform_log(log_handle, "   child_addr=%lu\n", pivot_data->child_addr);
+   platform_log(log_handle,
+                "   child_addr=%lu (pgnum=%lu)\n",
+                pivot_data->child_addr,
+                btree_page_number(cfg, pivot_data->child_addr));
+
    btree_print_btree_pivot_stats(log_handle, &pivot_data->stats);
+}
+
+/* Print header fields common to intermediate-level and leaf nodes */
+static void
+btree_print_node_hdr(platform_log_handle *log_handle,
+                     btree_config        *cfg,
+                     uint64               addr,
+                     btree_hdr           *hdr,
+                     page_type            type)
+{
+   // clang-format off
+   platform_log(log_handle, "**  Page type %s, %s NODE \n",
+                ((btree_height(hdr) > 0) ? "INDEX" : "LEAF"),
+                page_type_str[type]);
+   platform_log(log_handle, "**  Header ptr      : %p\n", hdr);
+   platform_log(log_handle, "**  addr            : %lu (pgnum=%lu)\n",
+                addr,
+                btree_page_number(cfg, addr));
+   platform_log(log_handle, "**  next_addr       : %lu (pgnum=%lu)\n",
+                hdr->next_addr,
+                btree_page_number(cfg, hdr->next_addr));
+   platform_log(log_handle, "**  next_extent_addr: %lu (extent_num=%lu)\n",
+                hdr->next_extent_addr,
+                btree_extent_number(cfg, hdr->next_extent_addr));
+
+   platform_log(log_handle, "**  generation      : %lu \n", hdr->generation);
+   platform_log(log_handle, "**  height          : %u \n", btree_height(hdr));
+   platform_log(log_handle, "**  next_entry      : %u \n", hdr->next_entry);
+   platform_log(log_handle, "**  num_entries     : %u \n", btree_num_entries(hdr));
+   // clang-format on
 }
 
 static void
@@ -3175,7 +3222,7 @@ btree_print_index_entry(platform_log_handle *log_handle,
                 "[%2lu]: key=%s\n",
                 entry_num,
                 key_string(dcfg, index_entry_key(entry)));
-   btree_print_btree_pivot_data(log_handle, &entry->pivot_data);
+   btree_print_btree_pivot_data(log_handle, cfg, &entry->pivot_data);
 }
 
 static void
@@ -3185,27 +3232,20 @@ btree_print_index_node(platform_log_handle *log_handle,
                        btree_hdr           *hdr,
                        page_type            type)
 {
-   platform_log(
-      log_handle, "**  Page type: %s, INDEX NODE \n", page_type_str[type]);
-   platform_log(log_handle, "**  Header ptr: %p\n", hdr);
-   platform_log(log_handle, "**  addr: %lu \n", addr);
-   platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
-   platform_log(
-      log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
-   platform_log(log_handle, "**  generation: %lu \n", hdr->generation);
-   platform_log(log_handle, "**  height: %u \n", btree_height(hdr));
-   platform_log(log_handle, "**  next_entry: %u \n", hdr->next_entry);
-   platform_log(log_handle, "**  num_entries: %u \n", btree_num_entries(hdr));
-
+   btree_print_node_hdr(log_handle, cfg, addr, hdr, type);
    btree_print_offset_table(log_handle, hdr);
 
-   platform_log(log_handle, "-------------------\n");
+   // clang-format off
+   const char *dashes = "-------------------------------------------------------";
+   // clang-format on
+   platform_log(log_handle, "%s\n", dashes);
    platform_log(
       log_handle, "Array of %d index entries:\n", btree_num_entries(hdr));
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       index_entry *entry = btree_get_index_entry(cfg, hdr, i);
       btree_print_index_entry(log_handle, cfg, entry, i);
    }
+   platform_log(log_handle, "%s\n", dashes);
    platform_log(log_handle, "\n");
 }
 
@@ -3230,28 +3270,20 @@ btree_print_leaf_node(platform_log_handle *log_handle,
                       btree_hdr           *hdr,
                       page_type            type)
 {
-   platform_log(
-      log_handle, "**  Page type: %s, LEAF NODE \n", page_type_str[type]);
-   platform_log(log_handle, "**  hdrptr: %p\n", hdr);
-   platform_log(log_handle, "**  addr: %lu \n", addr);
-   platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
-   platform_log(
-      log_handle, "**  next_extent_addr: %lu \n", hdr->next_extent_addr);
-   platform_log(log_handle, "**  generation: %lu \n", hdr->generation);
-   platform_log(log_handle, "**  height: %u \n", btree_height(hdr));
-   platform_log(log_handle, "**  next_entry: %u \n", hdr->next_entry);
-   platform_log(log_handle, "**  num_entries: %u \n", btree_num_entries(hdr));
-
+   btree_print_node_hdr(log_handle, cfg, addr, hdr, type);
    btree_print_offset_table(log_handle, hdr);
 
-   platform_log(log_handle, "-------------------\n");
+   // clang-format off
+   const char *dashes = "-------------------------------------------------------";
+   // clang-format on
+   platform_log(log_handle, "%s\n", dashes);
    platform_log(
       log_handle, "Array of %d index leaf entries:\n", btree_num_entries(hdr));
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       leaf_entry *entry = btree_get_leaf_entry(cfg, hdr, i);
       btree_print_leaf_entry(log_handle, cfg, entry, i);
    }
-   platform_log(log_handle, "-------------------\n");
+   platform_log(log_handle, "%s\n", dashes);
    platform_log(log_handle, "\n");
 }
 

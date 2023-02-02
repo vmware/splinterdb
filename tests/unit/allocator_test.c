@@ -272,14 +272,15 @@ CTEST2(allocator, test_error_checks_in_allocator_page_valid)
    uint64 page_addr = extent_addr;
 
    // Invalid page-address should trip an error message.
-   ASSERT_FALSE(allocator_page_valid(data->al, (page_addr + 1)));
+   ASSERT_FALSE(
+      allocator_page_valid(data->al, (page_addr + 1), PAGE_TYPE_TRUNK));
 
    // Should raise an error that extent is unreferenced.
-   ASSERT_FALSE(allocator_page_valid(data->al, page_addr));
+   ASSERT_FALSE(allocator_page_valid(data->al, page_addr, PAGE_TYPE_TRUNK));
 
    // Check pages outside capacity of configured db
    page_addr = allocator_get_capacity(data->al) + page_size;
-   ASSERT_FALSE(allocator_page_valid(data->al, page_addr));
+   ASSERT_FALSE(allocator_page_valid(data->al, page_addr, PAGE_TYPE_TRUNK));
 }
 
 /*
@@ -357,6 +358,6 @@ CTEST2(allocator, test_allocator_page_valid)
    for (uint64 pgctr = 0; pgctr < npages_in_extent;
         pgctr++, page_addr += page_size)
    {
-      ASSERT_TRUE(allocator_page_valid(data->al, page_addr));
+      ASSERT_TRUE(allocator_page_valid(data->al, page_addr, PAGE_TYPE_BRANCH));
    }
 }
