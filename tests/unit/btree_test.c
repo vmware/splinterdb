@@ -101,6 +101,56 @@ CTEST_SETUP(btree)
 CTEST_TEARDOWN(btree) {}
 
 /*
+ * Test BTree extent / page addr to number conversion APIs.
+ */
+CTEST2(btree, test_btree_extent_number)
+{
+   uint64 page_size   = btree_page_size(&data->dbtree_cfg);
+   uint64 extent_size = btree_extent_size(&data->dbtree_cfg);
+
+   uint64 extent_num  = 42;
+   uint64 extent_addr = (extent_num * extent_size);
+
+   // Run through all page-addresses in an extent to verify conversion macro
+   uint64 npages_in_extent = (extent_size / page_size);
+   uint64 page_addr        = extent_addr;
+   ASSERT_EQUAL(extent_num, btree_extent_number(&data->dbtree_cfg, page_addr));
+
+   // Position to 2nd page in the extent.
+   page_addr += page_size;
+   for (uint64 pgctr = 1; pgctr < npages_in_extent;
+        pgctr++, page_addr += page_size)
+   {
+      ASSERT_EQUAL(extent_num,
+                   btree_extent_number(&data->dbtree_cfg, page_addr));
+   }
+   // Now page_addr should be positioned on the next extent.
+   ASSERT_EQUAL((extent_num + 1),
+                btree_extent_number(&data->dbtree_cfg, page_addr));
+}
+
+CTEST2(btree, test_btree_page_number)
+{
+   uint64 page_size   = btree_page_size(&data->dbtree_cfg);
+   uint64 extent_size = btree_extent_size(&data->dbtree_cfg);
+
+   uint64 extent_num  = 4200;
+   uint64 extent_addr = (extent_num * extent_size);
+
+   // Run through all page-addresses in an extent to verify conversion macro
+   uint64 npages_in_extent = (extent_size / page_size);
+   uint64 start_pageno     = (extent_num * npages_in_extent);
+
+   uint64 page_addr = extent_addr;
+   for (uint64 pgctr = 0; pgctr < npages_in_extent;
+        pgctr++, page_addr += page_size)
+   {
+      uint64 exp_pageno = (start_pageno + pgctr);
+      ASSERT_EQUAL(exp_pageno, btree_page_number(&data->dbtree_cfg, page_addr));
+   }
+}
+
+/*
  * Test leaf_hdr APIs.
  */
 CTEST2(btree, test_leaf_hdr)

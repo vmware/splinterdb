@@ -189,6 +189,20 @@ trunk_log_node_if_enabled(platform_stream_handle *stream,
    }
 }
 
+// Returns the extent number for extent holding page at address 'page_addr'
+static inline uint64
+trunk_extent_number(trunk_handle *spl, uint64 page_addr)
+{
+   return allocator_extent_number(spl->al, page_addr);
+}
+
+// Returns the page number for the page at address 'page_addr'
+static inline uint64
+trunk_page_number(trunk_handle *spl, uint64 page_addr)
+{
+   return allocator_page_number(spl->al, page_addr);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * SplinterDB Structure:
@@ -7939,9 +7953,11 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 {
    uint16 height = trunk_height(node);
    platform_log(log_handle,
-                "\nPage type: %s, Node addr=%lu\n{\n",
+                "\nPage type: %s, Node addr=%lu (extnum=%lu, pgnum=%lu)\n{\n",
                 page_type_str[PAGE_TYPE_TRUNK],
-                node->addr);
+                node->addr,
+                trunk_extent_number(spl, node->addr),
+                trunk_page_number(spl, node->addr));
 
    // clang-format off
    platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
@@ -8228,9 +8244,10 @@ trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
 {
    trunk_print_memtable(log_handle, spl);
 
-   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
+   const char *sep = "&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&";
+   platform_log(log_handle, "%s\n", sep);
    platform_log(log_handle, "&&  TRUNK ROOT node=%lu \n", spl->root_addr);
-   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n{\n");
+   platform_log(log_handle, "%s\n{\n", sep);
 
    trunk_print_subtree(log_handle, spl, spl->root_addr);
 

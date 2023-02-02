@@ -272,7 +272,8 @@ CTEST2(allocator, test_error_checks_in_allocator_page_valid)
    uint64 page_addr = extent_addr;
 
    // Invalid page-address should trip an error message.
-   ASSERT_FALSE(allocator_page_valid(data->al, (page_addr + 1), PAGE_TYPE_MISC));
+   ASSERT_FALSE(
+      allocator_page_valid(data->al, (page_addr + 1), PAGE_TYPE_MISC));
 
    // Should raise an error that extent is unreferenced.
    ASSERT_FALSE(allocator_page_valid(data->al, page_addr, PAGE_TYPE_MISC));
