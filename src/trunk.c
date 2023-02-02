@@ -565,7 +565,7 @@ typedef struct ONDISK trunk_hdr {
  *
  * A trunk_pivot_data struct consists of the trunk_pivot_data header
  * followed by cfg.max_key_size bytes of space for the pivot key.  An
- * array of trunk_pivot_datas appears on trunk pages, following the
+ * array of trunk_pivot_data{}s appears on trunk pages, following the
  * end of struct trunk_hdr{}. This array is sized by configured
  * max_pivot_keys hard-limit.
  *
@@ -7935,6 +7935,7 @@ trunk_print_locked_node(platform_log_handle *log_handle,
                         trunk_node          *node)
 {
    uint16 height = trunk_height(node);
+   platform_log(log_handle, "{\n");
    // clang-format off
    platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                            |\n");
@@ -8132,7 +8133,7 @@ trunk_print_node(platform_log_handle *log_handle,
  * trunk_print_subtree() --
  *
  * Print the Trunk node at given 'addr'. Iterate down to all its children and
- * print each sub-tree.
+ * print each sub-tree in the trunk tree.
  */
 void
 trunk_print_subtree(platform_log_handle *log_handle,
@@ -8144,7 +8145,14 @@ trunk_print_subtree(platform_log_handle *log_handle,
    trunk_node_get(spl->cc, addr, &node);
 
    if (trunk_is_index(&node)) {
-      for (uint32 i = 0; i < trunk_num_children(spl, &node); i++) {
+      uint64 num_children = trunk_num_children(spl, &node);
+      platform_log(log_handle,
+                   "Print sub-trees for %lu child nodes off "
+                   "trunk node addr=%lu\n",
+                   num_children,
+                   addr);
+
+      for (uint32 i = 0; i < num_children; i++) {
          trunk_pivot_data *data = trunk_get_pivot_data(spl, &node, i);
          trunk_print_subtree(log_handle, spl, data->addr);
       }
@@ -8167,7 +8175,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
    platform_log(log_handle, "&&  MEMTABLES \n");
    platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
-   platform_log(log_handle, "-------------------\n");
+   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n{\n");
 
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
@@ -8182,7 +8190,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
 
       memtable_print(log_handle, spl->cc, mt);
    }
-   platform_log(log_handle, "\n");
+   platform_log(log_handle, "\n}\n");
 }
 
 /*
@@ -8194,7 +8202,14 @@ void
 trunk_print(platform_log_handle *log_handle, trunk_handle *spl)
 {
    trunk_print_memtable(log_handle, spl);
+
+   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
+   platform_log(log_handle, "&&  TRUNK ROOT node=%lu \n", spl->root_addr);
+   platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n{\n");
+
    trunk_print_subtree(log_handle, spl, spl->root_addr);
+
+   platform_log(log_handle, "\n} // End TRUNK ROOT node=%lu\n", spl->root_addr);
 }
 
 /*
