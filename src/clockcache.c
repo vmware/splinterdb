@@ -180,6 +180,9 @@ void
 clockcache_async_done(clockcache *cc, page_type type, cache_async_ctxt *ctxt);
 
 void
+clockcache_page_sync_write(clockcache *cc, page_handle *page, page_type type);
+
+void
 clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type);
 
 void
@@ -366,6 +369,13 @@ clockcache_get_async_virtual(cache            *c,
 }
 
 void
+clockcache_page_sync_write_virtual(cache *c, page_handle *page, page_type type)
+{
+   clockcache *cc = (clockcache *)c;
+   clockcache_page_sync_write(cc, page, type);
+}
+
+void
 clockcache_async_done_virtual(cache *c, page_type type, cache_async_ctxt *ctxt)
 {
    clockcache *cc = (clockcache *)c;
@@ -513,6 +523,7 @@ static cache_ops clockcache_ops = {
    .page_mark_dirty   = clockcache_mark_dirty_virtual,
    .page_pin          = clockcache_pin_virtual,
    .page_unpin        = clockcache_unpin_virtual,
+   .page_sync_write   = clockcache_page_sync_write_virtual,
    .page_async_write  = clockcache_page_async_write_virtual,
    .extent_sync       = clockcache_extent_sync_virtual,
    .flush             = clockcache_flush_virtual,
@@ -2665,10 +2676,49 @@ clockcache_unpin(clockcache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
+ * clockcache_page_sync_write --
+ *
+ *      Synchronously writes (syncs) the page to disk.
+ *-----------------------------------------------------------------------------
+ */
+void
+clockcache_page_sync_write(clockcache *cc, page_handle *page, page_type type)
+{
+   uint32          entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64          addr         = page->disk_addr;
+   const threadid  tid          = platform_get_tid();
+   platform_status status;
+
+   if (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
+      platform_assert(clockcache_test_flag(cc, entry_number, CC_CLEAN));
+      return;
+   }
+
+   if (cc->cfg->use_stats) {
+      cc->stats[tid].page_writes[type]++;
+      cc->stats[tid].syncs_issued++;
+   }
+
+   status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
+   platform_assert_status_ok(status);
+   clockcache_log(addr,
+                  entry_number,
+                  "page_sync write entry %u addr %lu\n",
+                  entry_number,
+                  addr);
+   debug_only uint8 rc;
+   rc = clockcache_set_flag(cc, entry_number, CC_CLEAN);
+   debug_assert(!rc);
+   rc = clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
+   debug_assert(rc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
  * clockcache_page_async_write --
  *
- *      Asynchronously syncs the page. Currently there is no way to check when
- *      the writeback has completed.
+ *      Asynchronously writes (syncs) the page.
+ *      Currently there is no way to check when the writeback has completed.
  *-----------------------------------------------------------------------------
  */
 void
