@@ -98,9 +98,7 @@ CTEST_DATA(splinterdb_quick)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-   }
+   set_log_streams_for_tests();
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);

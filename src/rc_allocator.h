@@ -44,8 +44,8 @@ _Static_assert(offsetof(rc_allocator_meta_page, splinters) == 0,
  *----------------------------------------------------------------------
  */
 typedef struct rc_allocator_stats {
-   int64 curr_allocated;
-   int64 max_allocated;
+   int64 curr_allocated; // # of extents allocated
+   int64 max_allocated;  // # of extents allocated high-water mark
    int64 extent_allocs[NUM_PAGE_TYPES];
    int64 extent_deallocs[NUM_PAGE_TYPES];
 } rc_allocator_stats;
@@ -58,7 +58,7 @@ typedef struct rc_allocator_stats {
 typedef struct rc_allocator {
    allocator               super;
    allocator_config       *cfg;
-   buffer_handle          *bh;
+   buffer_handle           bh;
    uint8                  *ref_count;
    uint64                  hand;
    io_handle              *io;
@@ -68,32 +68,29 @@ typedef struct rc_allocator {
     * mutex to synchronize updates to super block addresses of the splinter
     * tables in the meta page.
     */
-   platform_mutex       lock;
-   platform_heap_handle heap_handle;
-   platform_heap_id     heap_id;
+   platform_mutex   lock;
+   platform_heap_id heap_id;
 
    // Stats -- not distributed for now
    rc_allocator_stats stats;
 } rc_allocator;
 
 platform_status
-rc_allocator_init(rc_allocator        *al,
-                  allocator_config    *cfg,
-                  io_handle           *io,
-                  platform_heap_handle hh,
-                  platform_heap_id     hid,
-                  platform_module_id   mid);
+rc_allocator_init(rc_allocator      *al,
+                  allocator_config  *cfg,
+                  io_handle         *io,
+                  platform_heap_id   hid,
+                  platform_module_id mid);
 
 void
 rc_allocator_deinit(rc_allocator *al);
 
 platform_status
-rc_allocator_mount(rc_allocator        *al,
-                   allocator_config    *cfg,
-                   io_handle           *io,
-                   platform_heap_handle hh,
-                   platform_heap_id     hid,
-                   platform_module_id   mid);
+rc_allocator_mount(rc_allocator      *al,
+                   allocator_config  *cfg,
+                   io_handle         *io,
+                   platform_heap_id   hid,
+                   platform_module_id mid);
 
 void
 rc_allocator_unmount(rc_allocator *al);

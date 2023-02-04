@@ -113,6 +113,8 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
+   set_log_streams_for_error_tests(NULL, NULL);
+
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
@@ -150,7 +152,6 @@ CTEST_SETUP(btree_stress)
        || !SUCCESS(rc_allocator_init(&data->al,
                                      &data->allocator_cfg,
                                      (io_handle *)&data->io,
-                                     data->hh,
                                      data->hid,
                                      platform_get_module_id()))
        || !SUCCESS(clockcache_init(&data->cc,
@@ -158,7 +159,6 @@ CTEST_SETUP(btree_stress)
                                    (io_handle *)&data->io,
                                    (allocator *)&data->al,
                                    "test",
-                                   data->hh,
                                    data->hid,
                                    platform_get_module_id())))
    {
@@ -174,6 +174,7 @@ CTEST_TEARDOWN(btree_stress)
    clockcache_deinit(&data->cc);
    rc_allocator_deinit(&data->al);
    task_system_destroy(data->hid, &data->ts);
+   platform_heap_destroy(&data->hh);
 }
 
 /*
@@ -256,6 +257,12 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    rc = iterator_tests(
       (cache *)&data->cc, &data->dbtree_cfg, packed_root_addr, nkvs, data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
+
+   // Exercise print method to verify that it basically continues to work.
+   btree_print_tree(Platform_default_log_handle,
+                    (cache *)&data->cc,
+                    &data->dbtree_cfg,
+                    packed_root_addr);
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {

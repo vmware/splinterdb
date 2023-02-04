@@ -114,9 +114,8 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-   }
+   set_log_streams_for_tests();
+
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;
@@ -189,7 +188,7 @@ CTEST_SETUP(splinter)
               "Failed to init splinter state: %s\n",
               platform_status_to_string(rc));
 
-   rc_allocator_init(&data->al, &data->al_cfg, (io_handle *)data->io, data->hh, data->hid,
+   rc_allocator_init(&data->al, &data->al_cfg, (io_handle *)data->io, data->hid,
                      platform_get_module_id());
 
    data->clock_cache = TYPED_ARRAY_MALLOC(data->hid, data->clock_cache, num_caches);
@@ -201,7 +200,6 @@ CTEST_SETUP(splinter)
                            (io_handle *)data->io,
                            (allocator *)&data->al,
                            "test",
-                           data->hh,
                            data->hid,
                            platform_get_module_id());
 

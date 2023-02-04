@@ -382,4 +382,40 @@ debug_hex_dump_slice(platform_log_handle *, uint64 grouping, slice data);
     : ((intval) < 1000) ? "3d"                                                 \
                         : "4d")
 
+// Length of output buffer to snprintf()-into size as string w/ unit specifier
+#define SIZE_TO_STR_LEN 20
+
+// Format a size value with unit-specifiers, in an output buffer.
+char *
+size_to_str(char *outbuf, size_t outbuflen, size_t size);
+
+char *
+size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size);
+
+/*
+ * Convenience caller macros to convert 'sz' bytes to return a string,
+ * formatting the input size as human-readable value with unit-specifiers.
+ */
+// char *size_str(size_t sz)
+#define size_str(sz)                                                           \
+   (({                                                                         \
+       struct {                                                                \
+          char buffer[SIZE_TO_STR_LEN];                                        \
+       } onstack_chartmp;                                                      \
+       size_to_str(                                                            \
+          onstack_chartmp.buffer, sizeof(onstack_chartmp.buffer), sz);         \
+       onstack_chartmp;                                                        \
+    }).buffer)
+
+// char *size_fmtstr(const char *fmtstr, size_t sz)
+#define size_fmtstr(fmtstr, sz)                                                \
+   (({                                                                         \
+       struct {                                                                \
+          char buffer[SIZE_TO_STR_LEN];                                        \
+       } onstack_chartmp;                                                      \
+       size_to_fmtstr(                                                         \
+          onstack_chartmp.buffer, sizeof(onstack_chartmp.buffer), fmtstr, sz); \
+       onstack_chartmp;                                                        \
+    }).buffer)
+
 #endif // _SPLINTER_UTIL_H_

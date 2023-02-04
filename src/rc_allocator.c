@@ -318,23 +318,21 @@ rc_allocator_valid_config(allocator_config *cfg)
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_init(rc_allocator        *al,
-                  allocator_config    *cfg,
-                  io_handle           *io,
-                  platform_heap_handle hh,
-                  platform_heap_id     hid,
-                  platform_module_id   mid)
+rc_allocator_init(rc_allocator      *al,
+                  allocator_config  *cfg,
+                  io_handle         *io,
+                  platform_heap_id   hid,
+                  platform_module_id mid)
 {
    uint64          rc_extent_count;
    uint64          addr;
    platform_status rc;
    platform_assert(al != NULL);
    ZERO_CONTENTS(al);
-   al->super.ops   = &rc_allocator_ops;
-   al->cfg         = cfg;
-   al->io          = io;
-   al->heap_handle = hh;
-   al->heap_id     = hid;
+   al->super.ops = &rc_allocator_ops;
+   al->cfg       = cfg;
+   al->io        = io;
+   al->heap_id   = hid;
 
    rc = rc_allocator_valid_config(cfg);
    if (!SUCCESS(rc)) {
@@ -353,17 +351,16 @@ rc_allocator_init(rc_allocator        *al,
       return rc;
    }
    // To ensure alignment always allocate in multiples of page size.
-   uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
+   uint64 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
-   if (al->bh == NULL) {
-      platform_error_log("Failed to create buffer for ref counts\n");
+   rc                 = platform_buffer_init(&al->bh, buffer_size);
+   if (!SUCCESS(rc)) {
       platform_mutex_destroy(&al->lock);
       platform_free(al->heap_id, al->meta_page);
+      platform_error_log("Failed to create buffer for ref counts\n");
       return STATUS_NO_MEMORY;
    }
-
-   al->ref_count = platform_buffer_getaddr(al->bh);
+   al->ref_count = platform_buffer_getaddr(&al->bh);
    memset(al->ref_count, 0, buffer_size);
 
    // allocate the super block
@@ -388,7 +385,7 @@ rc_allocator_init(rc_allocator        *al,
 void
 rc_allocator_deinit(rc_allocator *al)
 {
-   platform_buffer_destroy(al->bh);
+   platform_buffer_deinit(&al->bh);
    al->ref_count = NULL;
    platform_mutex_destroy(&al->lock);
    platform_free(al->heap_id, al->meta_page);
@@ -403,22 +400,20 @@ rc_allocator_deinit(rc_allocator *al)
  *----------------------------------------------------------------------
  */
 platform_status
-rc_allocator_mount(rc_allocator        *al,
-                   allocator_config    *cfg,
-                   io_handle           *io,
-                   platform_heap_handle hh,
-                   platform_heap_id     hid,
-                   platform_module_id   mid)
+rc_allocator_mount(rc_allocator      *al,
+                   allocator_config  *cfg,
+                   io_handle         *io,
+                   platform_heap_id   hid,
+                   platform_module_id mid)
 {
    platform_status status;
 
    platform_assert(al != NULL);
    ZERO_CONTENTS(al);
-   al->super.ops   = &rc_allocator_ops;
-   al->cfg         = cfg;
-   al->io          = io;
-   al->heap_handle = hh;
-   al->heap_id     = hid;
+   al->super.ops = &rc_allocator_ops;
+   al->cfg       = cfg;
+   al->io        = io;
+   al->heap_id   = hid;
 
    status = platform_mutex_init(&al->lock, mid, al->heap_id);
    if (!SUCCESS(status)) {
@@ -439,11 +434,16 @@ rc_allocator_mount(rc_allocator        *al,
    platform_assert(cfg->capacity
                    == cfg->io_cfg->page_size * cfg->page_capacity);
 
-   uint32 buffer_size = cfg->extent_capacity * sizeof(uint8);
+   uint64 buffer_size = cfg->extent_capacity * sizeof(uint8);
    buffer_size        = ROUNDUP(buffer_size, cfg->io_cfg->page_size);
-   al->bh = platform_buffer_create(buffer_size, al->heap_handle, mid);
-   platform_assert(al->bh != NULL);
-   al->ref_count = platform_buffer_getaddr(al->bh);
+   status             = platform_buffer_init(&al->bh, buffer_size);
+   if (!SUCCESS(status)) {
+      platform_free(al->heap_id, al->meta_page);
+      platform_mutex_destroy(&al->lock);
+      platform_error_log("Failed to create buffer to load ref counts\n");
+      return STATUS_NO_MEMORY;
+   }
+   al->ref_count = platform_buffer_getaddr(&al->bh);
 
    // load the meta page from disk.
    status = io_read(
@@ -777,50 +777,52 @@ rc_allocator_assert_noleaks(rc_allocator *al)
 void
 rc_allocator_print_stats(rc_allocator *al)
 {
-   int64 divider = GiB / al->cfg->io_cfg->extent_size;
+   // clang-format off
+   const char *dashes = "-------------------------------------------------------------------";
+   platform_default_log("|%s|\n", dashes);
+   platform_default_log("| Allocator Stats                                                   |\n");
+   platform_default_log("|%s|\n", dashes);
+   // clang-format on
+
+   uint64 extent_size = al->cfg->io_cfg->extent_size; // bytes
    platform_default_log(
-      "----------------------------------------------------------------\n");
-   platform_default_log(
-      "| Allocator Stats                                              |\n");
-   platform_default_log(
-      "|--------------------------------------------------------------|\n");
-   uint64 curr_gib = al->stats.curr_allocated / divider;
-   platform_default_log(
-      "| Currently Allocated: %12lu extents (%4luGiB)          |\n",
+      "| Currently Allocated: %12lu extents %-14s          |\n",
       al->stats.curr_allocated,
-      curr_gib);
-   uint64 max_gib = al->stats.max_allocated / divider;
+      size_fmtstr("(%s)", (al->stats.curr_allocated * extent_size)));
+
    platform_default_log(
-      "| Max Allocated:       %12lu extents (%4luGiB)          |\n",
+      "| Max Allocated:       %12lu extents %-14s          |\n",
       al->stats.max_allocated,
-      max_gib);
-   platform_default_log(
-      "|--------------------------------------------------------------|\n");
-   platform_default_log(
-      "| Page Type | Allocations | Deallocations | Footprint (bytes)  |\n");
-   platform_default_log(
-      "|--------------------------------------------------------------|\n");
+      size_fmtstr("(%s)", (al->stats.max_allocated * extent_size)));
+
+   // clang-format off
+   platform_default_log("|%s|\n", dashes);
+   platform_default_log("| Page Type  | Allocations | Deallocations |      Footprint         |\n");
+   platform_default_log("|            |      (Number of extents)    | # extents  (bytes)     |\n");
+   platform_default_log("|%s|\n", dashes);
+   // clang-format on
+
    int64 exp_allocated_count = 0;
    for (page_type type = PAGE_TYPE_FIRST; type < NUM_PAGE_TYPES; type++) {
-      const char *str           = page_type_str[type];
-      int64       allocs        = al->stats.extent_allocs[type];
-      int64       deallocs      = al->stats.extent_deallocs[type];
-      int64       footprint     = allocs - deallocs;
-      int64       footprint_gib = footprint / divider;
+      const char *str       = page_type_str[type];
+      int64       allocs    = al->stats.extent_allocs[type];
+      int64       deallocs  = al->stats.extent_deallocs[type];
+      int64       footprint = allocs - deallocs;
 
       exp_allocated_count += footprint;
 
-      platform_default_log("| %-10s | %11ld | %13ld | %8ld (%4ldGiB) |\n",
+      platform_default_log("| %-10s | %11ld | %13ld | %8ld %14s|\n",
                            str,
                            allocs,
                            deallocs,
                            footprint,
-                           footprint_gib);
+                           size_fmtstr("(%s)", (footprint * extent_size)));
    }
+   platform_default_log("|%s|\n", dashes);
    platform_default_log(
-      "----------------------------------------------------------------\n");
-   platform_default_log("Expected allocation count from footprint = %ld\n",
-                        exp_allocated_count);
+      "Expected count of extents in-use from footprint = %ld extents (%s)\n",
+      exp_allocated_count,
+      size_str(exp_allocated_count * extent_size));
 }
 
 /*
@@ -846,17 +848,20 @@ rc_allocator_print_allocated(rc_allocator *al)
    platform_default_log("   Index  ExtentAddr  Count\n");
 
    // # of extents with non-zero referenced page-count found
-   uint64 found = 0;
+   uint64 nextents_found = 0;
+   uint64 extent_size    = al->cfg->io_cfg->extent_size;
 
    for (i = 0; i < al->cfg->extent_capacity; i++) {
       ref = al->ref_count[i];
       if (ref != 0) {
-         found++;
-         uint64 ext_addr = (i * al->cfg->io_cfg->extent_size);
+         nextents_found++;
+         uint64 ext_addr = (i * extent_size);
          platform_default_log("%8lu %12lu     %u\n", i, ext_addr, ref);
       }
    }
-   platform_default_log("%sFound %lu extents with allocated pages.\n",
+
+   platform_default_log("%sFound %lu extents (%s) with allocated pages.\n",
                         (print_curly ? "}\n" : ""),
-                        found);
+                        nextents_found,
+                        size_str(nextents_found * extent_size));
 }
