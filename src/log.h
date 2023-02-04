@@ -18,13 +18,14 @@ typedef struct log_handle   log_handle;
 typedef struct log_iterator log_iterator;
 typedef struct log_config   log_config;
 
-typedef int (*log_write_fn)(log_handle *log,
-                            key         tuple_key,
-                            message     data,
-                            uint64      generation);
+typedef platform_status (*log_write_fn)(log_handle *log,
+                                        key         tuple_key,
+                                        message     data,
+                                        uint64      generation);
 typedef void (*log_release_fn)(log_handle *log);
 typedef uint64 (*log_addr_fn)(log_handle *log);
 typedef uint64 (*log_magic_fn)(log_handle *log);
+typedef platform_status (*log_commit_fn)(log_handle *log);
 
 typedef struct log_ops {
    log_write_fn   write;
@@ -32,6 +33,7 @@ typedef struct log_ops {
    log_addr_fn    addr;
    log_addr_fn    meta_addr;
    log_magic_fn   magic;
+   log_commit_fn  commit;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -39,10 +41,16 @@ struct log_handle {
    const log_ops *ops;
 };
 
-static inline int
+static inline platform_status
 log_write(log_handle *log, key tuple_key, message data, uint64 generation)
 {
    return log->ops->write(log, tuple_key, data, generation);
+}
+
+static inline platform_status
+log_commit(log_handle *log)
+{
+   return log->ops->commit(log);
 }
 
 static inline void

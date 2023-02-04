@@ -2751,22 +2751,6 @@ clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type)
    status =
       io_write_async(cc->io, req, clockcache_write_callback, req_count, addr);
    platform_assert_status_ok(status);
-   /*
-    } else {
-       status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
-       platform_assert_status_ok(status);
-       clockcache_log(addr,
-                      entry_number,
-                      "page_sync write entry %u addr %lu\n",
-                      entry_number,
-                      addr);
-       debug_only uint8 rc;
-       rc = clockcache_set_flag(cc, entry_number, CC_CLEAN);
-       debug_assert(!rc);
-       rc = clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
-       debug_assert(rc);
-    }
-    */
 }
 
 /*

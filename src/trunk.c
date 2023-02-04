@@ -3111,8 +3111,8 @@ trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
    }
 
    if (spl->cfg.use_log) {
-      int crappy_rc = log_write(spl->log, tuple_key, msg, leaf_generation);
-      if (crappy_rc != 0) {
+      platform_status rc = log_write(spl->log, tuple_key, msg, leaf_generation);
+      if (!SUCCESS(rc)) {
          goto unlock_insert_lock;
       }
    }

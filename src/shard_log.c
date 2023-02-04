@@ -21,8 +21,9 @@
 
 static uint64 shard_log_magic_idx = 0;
 
-int
+platform_status
 shard_log_write(log_handle *log, key tuple_key, message msg, uint64 generation);
+
 uint64
 shard_log_addr(log_handle *log);
 uint64
@@ -30,11 +31,15 @@ shard_log_meta_addr(log_handle *log);
 uint64
 shard_log_magic(log_handle *log);
 
+platform_status
+shard_log_commit(log_handle *log);
+
 static log_ops shard_log_ops = {
    .write     = shard_log_write,
    .addr      = shard_log_addr,
    .meta_addr = shard_log_meta_addr,
    .magic     = shard_log_magic,
+   .commit    = shard_log_commit,
 };
 
 void
@@ -222,7 +227,7 @@ get_new_page_for_thread(shard_log             *log,
    return 0;
 }
 
-int
+platform_status
 shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 {
    debug_assert(key_is_user_key(tuple_key));
@@ -235,7 +240,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    page_handle *page;
    if (thread_data->addr == SHARD_UNMAPPED) {
       if (get_new_page_for_thread(log, thread_data, &page)) {
-         return -1;
+         return STATUS_IO_ERROR;
       }
    } else {
       page        = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
@@ -272,7 +277,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
       cache_unget(cc, page);
 
       if (get_new_page_for_thread(log, thread_data, &page)) {
-         return -1;
+         return STATUS_IO_ERROR;
       }
       cursor = (log_entry *)(page->data + thread_data->offset);
       hdr    = (shard_log_hdr *)page->data;
@@ -296,7 +301,31 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    cache_unclaim(cc, page);
    cache_unget(cc, page);
 
-   return 0;
+   return STATUS_OK;
+}
+
+/*
+ * shard_log_commit() - Write synchronously the log-page being operated on by
+ *  this thread to disk.
+ */
+platform_status
+shard_log_commit(log_handle *logh)
+{
+   shard_log *log = (shard_log *)logh;
+   cache     *cc  = log->cc;
+
+   shard_log_thread_data *thread_data =
+      shard_log_get_thread_data(log, platform_get_tid());
+
+   // This thread has not done any logging, yet ...
+   if (thread_data->addr == SHARD_UNMAPPED) {
+      return STATUS_OK;
+   }
+   page_handle *page = cache_get(cc, thread_data->addr, TRUE, PAGE_TYPE_LOG);
+   cache_page_sync_write(cc, page, PAGE_TYPE_LOG);
+   cache_unget(cc, page);
+
+   return STATUS_OK;
 }
 
 uint64

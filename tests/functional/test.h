@@ -279,6 +279,7 @@ test_config_init(trunk_config           *splinter_cfg,  // OUT
 typedef struct test_exec_config {
    uint64 seed;
    uint64 num_inserts;
+   uint64 commit_every_n;   // sync-write log buffer every n-entries.
    bool   verbose_progress; // --verbose-progress: During test execution
 } test_exec_config;
 
@@ -342,6 +343,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    if (test_exec_cfg) {
       test_exec_cfg->seed             = master_cfg[0].seed;
       test_exec_cfg->num_inserts      = master_cfg[0].num_inserts;
+      test_exec_cfg->commit_every_n   = master_cfg[0].commit_every_n;
       test_exec_cfg->verbose_progress = master_cfg[0].verbose_progress;
    }
 

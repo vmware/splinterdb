@@ -92,6 +92,7 @@ typedef struct master_config {
    // Test-execution configuration parameters
    uint64 seed;
    uint64 num_inserts;
+   uint64 commit_every_n; // sync-write log buffer every n-entries.
 } master_config;
 
 
