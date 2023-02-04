@@ -38,6 +38,9 @@
 #define TEST_CONFIG_DEFAULT_NUM_INSERTS 0
 #define TEST_CONFIG_DEFAULT_NUM_THREADS 8
 
+// Never issue sync-write on log buffer at run-time
+#define TEST_CONFIG_DEFAULT_COMMIT_FREQ 0
+
 // By default, background threads are disabled in Splinter task system.
 // Most threads run w/o background threads. Very small # of tests exercise
 // background threads through --num-bg-threads and --num-memtable-bg-threads
@@ -93,6 +96,8 @@ config_set_defaults(master_config *cfg)
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
       .num_inserts              = TEST_CONFIG_DEFAULT_NUM_INSERTS,
       .num_threads              = TEST_CONFIG_DEFAULT_NUM_THREADS,
+
+      .commit_every_n           = TEST_CONFIG_DEFAULT_COMMIT_FREQ,
       .seed                     = TEST_CONFIG_DEFAULT_SEED,
    };
 }
@@ -156,6 +161,8 @@ config_usage()
    platform_error_log("\t--data-size (%d)\n", TEST_CONFIG_DEFAULT_MESSAGE_SIZE);
    platform_error_log("\t--num-inserts (%d)\n",
                       TEST_CONFIG_DEFAULT_NUM_INSERTS);
+   platform_error_log("\t--commit-every (%d)\n",
+                      TEST_CONFIG_DEFAULT_COMMIT_FREQ);
    platform_error_log("\t--seed (%d)\n", TEST_CONFIG_DEFAULT_SEED);
 }
 
@@ -370,6 +377,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          config_set_uint64("seed", cfg, seed) {}
          config_set_uint64("num-inserts", cfg, num_inserts) {}
          config_set_uint64("num-threads", cfg, num_threads) {}
+         config_set_uint64("commit-every", cfg, commit_every_n) {}
 
          config_set_else
          {

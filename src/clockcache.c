@@ -184,10 +184,10 @@ void
 clockcache_async_done(clockcache *cc, page_type type, cache_async_ctxt *ctxt);
 
 void
-clockcache_page_sync(clockcache  *cc,
-                     page_handle *page,
-                     bool         is_blocking,
-                     page_type    type);
+clockcache_page_sync_write(clockcache *cc, page_handle *page, page_type type);
+
+void
+clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type);
 
 void
 clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding);
@@ -388,6 +388,13 @@ clockcache_get_async_virtual(cache            *c,
 }
 
 void
+clockcache_page_sync_write_virtual(cache *c, page_handle *page, page_type type)
+{
+   clockcache *cc = (clockcache *)c;
+   clockcache_page_sync_write(cc, page, type);
+}
+
+void
 clockcache_async_done_virtual(cache *c, page_type type, cache_async_ctxt *ctxt)
 {
    clockcache *cc = (clockcache *)c;
@@ -395,13 +402,10 @@ clockcache_async_done_virtual(cache *c, page_type type, cache_async_ctxt *ctxt)
 }
 
 void
-clockcache_page_sync_virtual(cache       *c,
-                             page_handle *page,
-                             bool         is_blocking,
-                             page_type    type)
+clockcache_page_async_write_virtual(cache *c, page_handle *page, page_type type)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_page_sync(cc, page, is_blocking, type);
+   clockcache_page_async_write(cc, page, type);
 }
 
 void
@@ -553,7 +557,8 @@ static cache_ops clockcache_ops = {
    .page_mark_dirty   = clockcache_mark_dirty_virtual,
    .page_pin          = clockcache_pin_virtual,
    .page_unpin        = clockcache_unpin_virtual,
-   .page_sync         = clockcache_page_sync_virtual,
+   .page_sync_write   = clockcache_page_sync_write_virtual,
+   .page_async_write  = clockcache_page_async_write_virtual,
    .extent_sync       = clockcache_extent_sync_virtual,
    .flush             = clockcache_flush_virtual,
    .evict             = clockcache_evict_all_virtual,
@@ -1258,10 +1263,20 @@ clockcache_ok_to_writeback(clockcache *cc,
  *----------------------------------------------------------------------
  * clockcache_try_set_writeback
  *
- *      Atomically sets the CC_WRITEBACK flag if the status permits; current
- *      status must be:
+ *      Atomically sets the CC_WRITEBACK flag, if the status permits, for
+ *      a page that needs to be written to disk. Page is identified by its
+ *      entry_number.
+ *
+ *      Current status must be:
  *         -- CC_CLEANABLE1_STATUS (= 0)                  // dirty
  *         -- CC_CLEANABLE2_STATUS (= 0 | CC_ACCESSED)    // dirty
+ *
+ * Returns:
+ *  - TRUE  : This page is not being actively written to disk. So this
+ *            thread now gets control to complete the write IO.
+ *  _ FALSE : This page is already undergoing writeback to disk, initiated
+ *            by some other thread. So this requesting thread need not
+ *            start another IO.
  *----------------------------------------------------------------------
  */
 static inline bool
@@ -1395,11 +1410,13 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
             first_addr -= clockcache_page_size(cc);
             if (clockcache_pages_share_extent(cc, first_addr, addr))
                next_entry_no = clockcache_lookup(cc, first_addr);
-            else
+            } else {
                next_entry_no = CC_UNMAPPED_ENTRY;
+            }
          } while (
             next_entry_no != CC_UNMAPPED_ENTRY
             && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
+
          first_addr += clockcache_page_size(cc);
          end_addr = entry->page.disk_addr;
          // walk forwards through extent to find last cleanable entry
@@ -1407,8 +1424,9 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
             end_addr += clockcache_page_size(cc);
             if (clockcache_pages_share_extent(cc, end_addr, addr))
                next_entry_no = clockcache_lookup(cc, end_addr);
-            else
+            } else {
                next_entry_no = CC_UNMAPPED_ENTRY;
+            }
          } while (
             next_entry_no != CC_UNMAPPED_ENTRY
             && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
@@ -1639,7 +1657,7 @@ clockcache_move_hand(clockcache *cc, bool is_urgent)
  *----------------------------------------------------------------------
  * clockcache_get_free_page --
  *
- *      returns a free page with given status and ref count.
+ * Returns the entry number of a free page with given status and ref count.
  *----------------------------------------------------------------------
  */
 uint32
@@ -2720,25 +2738,20 @@ clockcache_unpin(clockcache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
- * clockcache_page_sync --
+ * clockcache_page_sync_write --
  *
- *      Asynchronously syncs the page. Currently there is no way to check when
- *      the writeback has completed.
+ *      Synchronously writes (syncs) the page to disk.
  *-----------------------------------------------------------------------------
  */
 void
-clockcache_page_sync(clockcache  *cc,
-                     page_handle *page,
-                     bool         is_blocking,
-                     page_type    type)
+clockcache_page_sync_write(clockcache *cc, page_handle *page, page_type type)
 {
    uint32          entry_number = clockcache_page_to_entry_number(cc, page);
-   io_async_req   *req;
-   struct iovec   *iovec;
-   uint64          addr = page->disk_addr;
-   const threadid  tid  = platform_get_tid();
+   uint64          addr         = page->disk_addr;
+   const threadid  tid          = platform_get_tid();
    platform_status status;
 
+   // Nothing more to do if page is already in process of being written out.
    if (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
       platform_assert(clockcache_test_flag(cc, entry_number, CC_CLEAN));
       return;
@@ -2749,31 +2762,59 @@ clockcache_page_sync(clockcache  *cc,
       cc->stats[tid].syncs_issued++;
    }
 
-   if (!is_blocking) {
-      req                          = io_get_async_req(cc->io, TRUE);
-      void *req_metadata           = io_get_metadata(cc->io, req);
-      *(clockcache **)req_metadata = cc;
-      uint64 req_count             = 1;
-      req->bytes        = clockcache_multiply_by_page_size(cc, req_count);
-      iovec             = io_get_iovec(cc->io, req);
-      iovec[0].iov_base = page->data;
-      status            = io_write_async(
-         cc->io, req, clockcache_write_callback, req_count, addr);
-      platform_assert_status_ok(status);
-   } else {
-      status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
-      platform_assert_status_ok(status);
-      clockcache_log(addr,
-                     entry_number,
-                     "page_sync write entry %u addr %lu\n",
-                     entry_number,
-                     addr);
-      debug_only uint8 rc;
-      rc = clockcache_set_flag(cc, entry_number, CC_CLEAN);
-      debug_assert(!rc);
-      rc = clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
-      debug_assert(rc);
+   status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
+   platform_assert_status_ok(status);
+   clockcache_log(addr,
+                  entry_number,
+                  "page_sync write entry %u addr %lu\n",
+                  entry_number,
+                  addr);
+   debug_only uint8 rc;
+   rc = clockcache_set_flag(cc, entry_number, CC_CLEAN);
+   debug_assert(!rc);
+   rc = clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
+   debug_assert(rc);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * clockcache_page_async_write --
+ *
+ *      Asynchronously writes (syncs) the page.
+ *      Currently there is no way to check when the writeback has completed.
+ *-----------------------------------------------------------------------------
+ */
+void
+clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type)
+{
+   uint32          entry_number = clockcache_page_to_entry_number(cc, page);
+   io_async_req   *req;
+   struct iovec   *iovec;
+   uint64          addr = page->disk_addr;
+   const threadid  tid  = platform_get_tid();
+   platform_status status;
+
+   // Nothing more to do if page is already in process of being written out.
+   if (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
+      platform_assert(clockcache_test_flag(cc, entry_number, CC_CLEAN));
+      return;
    }
+
+   if (cc->cfg->use_stats) {
+      cc->stats[tid].page_writes[type]++;
+      cc->stats[tid].writes_issued++;
+   }
+
+   req                          = io_get_async_req(cc->io, TRUE);
+   void *req_metadata           = io_get_metadata(cc->io, req);
+   *(clockcache **)req_metadata = cc;
+   uint64 req_count             = 1;
+   req->bytes        = clockcache_multiply_by_page_size(cc, req_count);
+   iovec             = io_get_iovec(cc->io, req);
+   iovec[0].iov_base = page->data;
+   status =
+      io_write_async(cc->io, req, clockcache_write_callback, req_count, addr);
+   platform_assert_status_ok(status);
 }
 
 /*
@@ -2810,7 +2851,7 @@ clockcache_sync_callback(void           *arg,
  *-----------------------------------------------------------------------------
  * clockcache_extent_sync --
  *
- *      Asynchronously syncs the extent.
+ *      Asynchronously writes (syncs) all pages in the extent to disk.
  *
  *      Adds the number of pages issued writeback to the counter pointed to
  *      by pages_outstanding. When the writes complete, a callback subtracts
@@ -3160,8 +3201,8 @@ clockcache_io_stats(clockcache *cc, uint64 *read_bytes, uint64 *write_bytes)
       }
    }
 
-   *write_bytes = write_pages * 4 * KiB;
-   *read_bytes  = read_pages * 4 * KiB;
+   *write_bytes = (write_pages * clockcache_page_size(cc));
+   *read_bytes  = (read_pages * clockcache_page_size(cc));
 }
 
 void
@@ -3212,6 +3253,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "page type       |      trunk |     branch |   memtable |     filter |        log |       misc |\n");
    platform_log(log_handle, "----------------|------------|------------|------------|------------|------------|------------|\n");
+
    platform_log(log_handle, "cache hits      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_hits[PAGE_TYPE_TRUNK],
          global_stats.cache_hits[PAGE_TYPE_BRANCH],
@@ -3219,6 +3261,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.cache_hits[PAGE_TYPE_FILTER],
          global_stats.cache_hits[PAGE_TYPE_LOG],
          global_stats.cache_hits[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "cache misses    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_misses[PAGE_TYPE_TRUNK],
          global_stats.cache_misses[PAGE_TYPE_BRANCH],
@@ -3226,6 +3269,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.cache_misses[PAGE_TYPE_FILTER],
          global_stats.cache_misses[PAGE_TYPE_LOG],
          global_stats.cache_misses[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "cache miss time | " FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
@@ -3236,6 +3280,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(miss_time[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_SUPERBLOCK]));
+
    platform_log(log_handle, "pages written   | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_writes[PAGE_TYPE_TRUNK],
          global_stats.page_writes[PAGE_TYPE_BRANCH],
@@ -3243,6 +3288,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.page_writes[PAGE_TYPE_FILTER],
          global_stats.page_writes[PAGE_TYPE_LOG],
          global_stats.page_writes[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "pages read      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_reads[PAGE_TYPE_TRUNK],
          global_stats.page_reads[PAGE_TYPE_BRANCH],
@@ -3250,6 +3296,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.page_reads[PAGE_TYPE_FILTER],
          global_stats.page_reads[PAGE_TYPE_LOG],
          global_stats.page_reads[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "avg prefetch pg |  " FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
@@ -3260,9 +3307,15 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_SUPERBLOCK]));
+
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)"\n",
-                FRACTION_ARGS(avg_write_pages));
+   platform_log(log_handle,
+                "avg write pgs: "FRACTION_FMT(9,2)
+                " sync writes=%lu, async writes=%lu, total writes=%lu\n",
+                FRACTION_ARGS(avg_write_pages),
+                global_stats.syncs_issued,
+                global_stats.writes_issued,
+                (global_stats.syncs_issued + global_stats.writes_issued));
    // clang-format on
 
    allocator_print_stats(cc->al);

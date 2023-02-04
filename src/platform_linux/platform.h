@@ -111,16 +111,27 @@
 // Return, as int, the fractional portion modulo a GiB for given x bytes.
 #define B_TO_GiB_FRACT(x) (int)((((x)-B_TO_GiB(x) * GiB) / (GiB * 1.0)) * 100)
 
-// Time unit constants
+// Number / Time unit constants
 #define THOUSAND (1000UL)
 #define MILLION  (THOUSAND * THOUSAND)
 #define BILLION  (THOUSAND * MILLION)
 
-#define USEC_TO_SEC(x)  ((x) / MILLION)
+// Convert number N to unit-specifier, in terms of thousands, million, billion
+#define N_TO_THOUSAND(x) ((x) / THOUSAND)
+#define N_TO_MILLION(x)  ((x) / MILLION)
+#define N_TO_BILLION(x)  ((x) / BILLION)
+
+// For number N, returns as int the fractional portion modulo a unit-specifier
+#define N_TO_T_FRACT(x) ((100 * ((x) % THOUSAND)) / THOUSAND)
+#define N_TO_M_FRACT(x) ((100 * ((x) % MILLION)) / MILLION)
+#define N_TO_B_FRACT(x) ((100 * ((x) % BILLION)) / BILLION)
+
+// Convert time-value across different units of time measurement
+#define USEC_TO_SEC(x)  N_TO_MILLION((x) / MILLION)
 #define USEC_TO_NSEC(x) ((x)*THOUSAND)
-#define NSEC_TO_SEC(x)  ((x) / BILLION)
-#define NSEC_TO_MSEC(x) ((x) / MILLION)
-#define NSEC_TO_USEC(x) ((x) / THOUSAND)
+#define NSEC_TO_SEC(x)  N_TO_BILLION(x)
+#define NSEC_TO_MSEC(x) N_TO_MILLION(x)
+#define NSEC_TO_USEC(x) N_TO_THOUSAND(x)
 #define SEC_TO_MSEC(x)  ((x)*THOUSAND)
 #define SEC_TO_USEC(x)  ((x)*MILLION)
 #define SEC_TO_NSEC(x)  ((x)*BILLION)

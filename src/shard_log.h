@@ -41,8 +41,8 @@ typedef struct shard_log {
    shard_log_config     *cfg;
    shard_log_thread_data thread_data[MAX_THREADS];
    mini_allocator        mini;
-   uint64                addr;
-   uint64                meta_head;
+   uint64                addr;      // Addr of root page of log
+   uint64                meta_head; // Addr of metadata page of mini-allocator
    uint64                magic;
 } shard_log;
 

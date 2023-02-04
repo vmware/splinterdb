@@ -105,6 +105,8 @@ typedef struct master_config {
    uint64 num_inserts;
    uint64 num_threads;
    bool   wait_for_gdb; // To debug child processes.
+
+   uint64 commit_every_n; // sync-write log buffer every n-entries.
 } master_config;
 
 

@@ -822,7 +822,7 @@ trunk_set_super_block(trunk_handle *spl,
    cache_unlock(spl->cc, super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
-   cache_page_sync(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   cache_page_sync_write(spl->cc, super_page, PAGE_TYPE_SUPERBLOCK);
 }
 
 trunk_super_block *
@@ -3144,9 +3144,8 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
    }
 
    if (spl->cfg.use_log) {
-      slice key_slice = slice_create(trunk_key_size(spl), key);
-      int   crappy_rc = log_write(spl->log, key_slice, msg, leaf_generation);
-      if (crappy_rc != 0) {
+      platform_status rc = log_write(spl->log, tuple_key, msg, leaf_generation);
+      if (!SUCCESS(rc)) {
          goto unlock_insert_lock;
       }
    }
