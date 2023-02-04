@@ -150,7 +150,6 @@ typedef void (*page_async_done_fn)(cache            *cc,
 typedef bool (*page_try_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_async_write_fn)(cache       *cc,
                                     page_handle *page,
-                                    bool         is_blocking,
                                     page_type    type);
 typedef void (*extent_sync_fn)(cache  *cc,
                                uint64  addr,
@@ -505,17 +504,14 @@ cache_unpin(cache *cc, page_handle *page)
  *
  * Asynchronously writes the page back to disk.
  *
- * This is used to sync log pages opportunistically. The current API doesn't
+ * This is used to write log pages opportunistically. The current API doesn't
  * inform the user when this happens. "It's not the ideal API." -- @aconway
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_page_async_write(cache       *cc,
-                       page_handle *page,
-                       bool         is_blocking,
-                       page_type    type)
+cache_page_async_write(cache *cc, page_handle *page, page_type type)
 {
-   return cc->ops->page_async_write(cc, page, is_blocking, type);
+   return cc->ops->page_async_write(cc, page, type);
 }
 
 /*

@@ -180,10 +180,7 @@ void
 clockcache_async_done(clockcache *cc, page_type type, cache_async_ctxt *ctxt);
 
 void
-clockcache_page_async_write(clockcache  *cc,
-                            page_handle *page,
-                            bool         is_blocking,
-                            page_type    type);
+clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type);
 
 void
 clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding);
@@ -376,13 +373,10 @@ clockcache_async_done_virtual(cache *c, page_type type, cache_async_ctxt *ctxt)
 }
 
 void
-clockcache_page_async_write_virtual(cache       *c,
-                                    page_handle *page,
-                                    bool         is_blocking,
-                                    page_type    type)
+clockcache_page_async_write_virtual(cache *c, page_handle *page, page_type type)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_page_async_write(cc, page, is_blocking, type);
+   clockcache_page_async_write(cc, page, type);
 }
 
 void
@@ -2678,10 +2672,7 @@ clockcache_unpin(clockcache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  */
 void
-clockcache_page_async_write(clockcache  *cc,
-                            page_handle *page,
-                            bool         is_blocking,
-                            page_type    type)
+clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type)
 {
    uint32          entry_number = clockcache_page_to_entry_number(cc, page);
    io_async_req   *req;
@@ -2700,31 +2691,32 @@ clockcache_page_async_write(clockcache  *cc,
       cc->stats[tid].syncs_issued++;
    }
 
-   if (!is_blocking) {
-      req                          = io_get_async_req(cc->io, TRUE);
-      void *req_metadata           = io_get_metadata(cc->io, req);
-      *(clockcache **)req_metadata = cc;
-      uint64 req_count             = 1;
-      req->bytes        = clockcache_multiply_by_page_size(cc, req_count);
-      iovec             = io_get_iovec(cc->io, req);
-      iovec[0].iov_base = page->data;
-      status            = io_write_async(
-         cc->io, req, clockcache_write_callback, req_count, addr);
-      platform_assert_status_ok(status);
-   } else {
-      status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
-      platform_assert_status_ok(status);
-      clockcache_log(addr,
-                     entry_number,
-                     "page_sync write entry %u addr %lu\n",
-                     entry_number,
-                     addr);
-      debug_only uint8 rc;
-      rc = clockcache_set_flag(cc, entry_number, CC_CLEAN);
-      debug_assert(!rc);
-      rc = clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
-      debug_assert(rc);
-   }
+   req                          = io_get_async_req(cc->io, TRUE);
+   void *req_metadata           = io_get_metadata(cc->io, req);
+   *(clockcache **)req_metadata = cc;
+   uint64 req_count             = 1;
+   req->bytes        = clockcache_multiply_by_page_size(cc, req_count);
+   iovec             = io_get_iovec(cc->io, req);
+   iovec[0].iov_base = page->data;
+   status =
+      io_write_async(cc->io, req, clockcache_write_callback, req_count, addr);
+   platform_assert_status_ok(status);
+   /*
+    } else {
+       status = io_write(cc->io, page->data, clockcache_page_size(cc), addr);
+       platform_assert_status_ok(status);
+       clockcache_log(addr,
+                      entry_number,
+                      "page_sync write entry %u addr %lu\n",
+                      entry_number,
+                      addr);
+       debug_only uint8 rc;
+       rc = clockcache_set_flag(cc, entry_number, CC_CLEAN);
+       debug_assert(!rc);
+       rc = clockcache_clear_flag(cc, entry_number, CC_WRITEBACK);
+       debug_assert(rc);
+    }
+    */
 }
 
 /*

@@ -268,7 +268,7 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 
       cache_unlock(cc, page);
       cache_unclaim(cc, page);
-      cache_page_async_write(cc, page, FALSE, PAGE_TYPE_LOG);
+      cache_page_async_write(cc, page, PAGE_TYPE_LOG);
       cache_unget(cc, page);
 
       if (get_new_page_for_thread(log, thread_data, &page)) {

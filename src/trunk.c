@@ -964,7 +964,8 @@ trunk_set_super_block(trunk_handle *spl,
    cache_unlock(spl->cc, super_page);
    cache_unclaim(spl->cc, super_page);
    cache_unget(spl->cc, super_page);
-   cache_page_async_write(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   // cache_page_async_write(spl->cc, super_page, TRUE, PAGE_TYPE_SUPERBLOCK);
+   cache_page_async_write(spl->cc, super_page, PAGE_TYPE_SUPERBLOCK);
 }
 
 trunk_super_block *
