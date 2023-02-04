@@ -148,10 +148,10 @@ typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
 typedef bool (*page_try_claim_fn)(cache *cc, page_handle *page);
-typedef void (*page_sync_fn)(cache       *cc,
-                             page_handle *page,
-                             bool         is_blocking,
-                             page_type    type);
+typedef void (*page_async_write_fn)(cache       *cc,
+                                    page_handle *page,
+                                    bool         is_blocking,
+                                    page_type    type);
 typedef void (*extent_sync_fn)(cache  *cc,
                                uint64  addr,
                                uint64 *pages_outstanding);
@@ -188,7 +188,7 @@ typedef struct cache_ops {
    page_generic_fn      page_mark_dirty;
    page_generic_fn      page_pin;
    page_generic_fn      page_unpin;
-   page_sync_fn         page_sync;
+   page_async_write_fn  page_async_write;
    extent_sync_fn       extent_sync;
    cache_generic_fn     flush;
    evict_fn             evict;
@@ -501,7 +501,7 @@ cache_unpin(cache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
- * cache_page_sync
+ * cache_page_async_write
  *
  * Asynchronously writes the page back to disk.
  *
@@ -510,9 +510,12 @@ cache_unpin(cache *cc, page_handle *page)
  *-----------------------------------------------------------------------------
  */
 static inline void
-cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
+cache_page_async_write(cache       *cc,
+                       page_handle *page,
+                       bool         is_blocking,
+                       page_type    type)
 {
-   return cc->ops->page_sync(cc, page, is_blocking, type);
+   return cc->ops->page_async_write(cc, page, is_blocking, type);
 }
 
 /*

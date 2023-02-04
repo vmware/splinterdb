@@ -370,11 +370,11 @@ message_class_string(message msg)
  * The key and message data are laid out abutting each other. This structure
  * describes that layout in terms of the length of the key-portion and the
  * message-portion, following which appears the concatenated [<key>, <message>]
- * datum.
+ * datum. This structure appears on branch pages and also on transaction log
+ * pages.
  *
  * Tuple keys cannot be infinite.
  */
-
 typedef uint16 ondisk_message_length;
 
 typedef struct ONDISK ondisk_tuple {

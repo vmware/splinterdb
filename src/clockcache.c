@@ -180,10 +180,10 @@ void
 clockcache_async_done(clockcache *cc, page_type type, cache_async_ctxt *ctxt);
 
 void
-clockcache_page_sync(clockcache  *cc,
-                     page_handle *page,
-                     bool         is_blocking,
-                     page_type    type);
+clockcache_page_async_write(clockcache  *cc,
+                            page_handle *page,
+                            bool         is_blocking,
+                            page_type    type);
 
 void
 clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding);
@@ -376,13 +376,13 @@ clockcache_async_done_virtual(cache *c, page_type type, cache_async_ctxt *ctxt)
 }
 
 void
-clockcache_page_sync_virtual(cache       *c,
-                             page_handle *page,
-                             bool         is_blocking,
-                             page_type    type)
+clockcache_page_async_write_virtual(cache       *c,
+                                    page_handle *page,
+                                    bool         is_blocking,
+                                    page_type    type)
 {
    clockcache *cc = (clockcache *)c;
-   clockcache_page_sync(cc, page, is_blocking, type);
+   clockcache_page_async_write(cc, page, is_blocking, type);
 }
 
 void
@@ -519,7 +519,7 @@ static cache_ops clockcache_ops = {
    .page_mark_dirty   = clockcache_mark_dirty_virtual,
    .page_pin          = clockcache_pin_virtual,
    .page_unpin        = clockcache_unpin_virtual,
-   .page_sync         = clockcache_page_sync_virtual,
+   .page_async_write  = clockcache_page_async_write_virtual,
    .extent_sync       = clockcache_extent_sync_virtual,
    .flush             = clockcache_flush_virtual,
    .evict             = clockcache_evict_all_virtual,
@@ -1687,7 +1687,9 @@ clockcache_flush(clockcache *cc)
    for (uint32 flush_hand = 0;
         flush_hand < cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH;
         flush_hand++)
+   {
       clockcache_batch_start_writeback(cc, flush_hand, TRUE);
+   }
 
    // make sure all aio is complete again
    io_cleanup_all(cc->io);
@@ -2669,17 +2671,17 @@ clockcache_unpin(clockcache *cc, page_handle *page)
 
 /*
  *-----------------------------------------------------------------------------
- * clockcache_page_sync --
+ * clockcache_page_async_write --
  *
  *      Asynchronously syncs the page. Currently there is no way to check when
  *      the writeback has completed.
  *-----------------------------------------------------------------------------
  */
 void
-clockcache_page_sync(clockcache  *cc,
-                     page_handle *page,
-                     bool         is_blocking,
-                     page_type    type)
+clockcache_page_async_write(clockcache  *cc,
+                            page_handle *page,
+                            bool         is_blocking,
+                            page_type    type)
 {
    uint32          entry_number = clockcache_page_to_entry_number(cc, page);
    io_async_req   *req;
