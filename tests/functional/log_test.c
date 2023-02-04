@@ -20,6 +20,10 @@
 
 #include "poison.h"
 
+// Function prototypes
+void
+test_log_thread(void *arg);
+
 int
 test_log_crash(clockcache             *cc,
                clockcache_config      *cache_cfg,
@@ -115,6 +119,9 @@ typedef struct test_log_thread_params {
    int                     thread_id;
    test_message_generator *gen;
    uint64                  num_entries;
+   uint64 commit_every_n;   // sync-write log page every n-entries.
+   uint64 num_commits;      // # of times we COMMIT'ed the xact
+   uint64 num_bytes_logged; // Sum of (key, message)-lengths logged
 } test_log_thread_params;
 
 void
@@ -134,13 +141,155 @@ test_log_thread(void *arg)
    slice skey = slice_create(log->cfg->data_cfg->key_size, key);
    merge_accumulator_init(&msg, hid);
 
+   uint64 num_commits      = 0;
+   uint64 num_bytes_logged = 0;
+
    for (i = thread_id * num_entries; i < (thread_id + 1) * num_entries; i++) {
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
+      num_bytes_logged +=
+         key_length(skey) + message_length(merge_accumulator_to_message(&msg));
+      if (params->commit_every_n && ((i + 1) % params->commit_every_n) == 0) {
+         log_commit(logh);
+         num_commits++;
+      }
    }
+
+   merge_accumulator_deinit(&msg);
+   // Return per-thread metrics on amount of data logged
+   params->num_commits      = num_commits;
+   params->num_bytes_logged = num_bytes_logged;
 }
 
+/* Generate log performance summary metrics line */
+void
+gen_log_perf_summary(test_log_thread_params *params,
+                     uint64                  num_entries,
+                     uint64                  num_threads,
+                     uint64                  elapsed_ns,
+                     uint64                  commit_freq,
+                     uint64                  xlog_page_size)
+{
+   uint64 elapsed_s = NSEC_TO_SEC(elapsed_ns);
+   if (elapsed_s == 0) {
+      elapsed_s = 1;
+   }
+
+   uint64 rate_per_sec = (num_entries * BILLION) / elapsed_ns;
+
+   platform_default_log("%lu threads inserted %lu (%lu M) log entries in "
+                        "%lu ns (%lu.%lu s)"
+                        ", committing every %lu log entries. "
+                        "(rate_per_sec=%lu)."
+                        " Log insertion rate: %lu.%lu M insertions/second\n",
+                        num_threads,
+                        num_entries,
+                        N_TO_MILLION(num_entries),
+                        elapsed_ns,
+                        NSEC_TO_SEC(elapsed_ns),
+                        N_TO_B_FRACT(elapsed_ns),
+                        commit_freq,
+                        rate_per_sec,
+                        N_TO_MILLION(rate_per_sec),
+                        N_TO_M_FRACT(rate_per_sec));
+   platform_default_log("\nPer-Thread logging activity summary:\n");
+   // clang-format off
+   const char *dashes = "------------------------------------------------------"
+                        "---------------------";
+
+   platform_default_log("%s\n", dashes);
+   platform_default_log("Thread      Num              Num Bytes Logged      "
+                        "Ave Transaction Size\n");
+   platform_default_log("  ID       Commits                                    "
+                        "Bytes       Pages\n");
+   platform_default_log("%s\n", dashes);
+   // clang-format on
+
+   uint64                  sum_ncommits      = 0;
+   uint64                  sum_nbytes_logged = 0;
+   test_log_thread_params *threadp           = params;
+   for (uint64 tctr = 0; tctr < num_threads; tctr++, threadp++) {
+      uint64   ave_bytes_per_xact = 0;
+      fraction ave_nlog_pages_per_xact;
+      if (threadp->num_commits) {
+         ave_bytes_per_xact =
+            (threadp->num_bytes_logged / threadp->num_commits);
+         ave_nlog_pages_per_xact =
+            init_fraction(ave_bytes_per_xact, xlog_page_size);
+      }
+
+      // clang-format off
+      platform_default_log("  %-4lu        %-8lu      %-10lu %-14s  %-8lu  " FRACTION_FMT(6,2) "\n",
+                           tctr,
+                           threadp->num_commits,
+                           threadp->num_bytes_logged,
+                           size_fmtstr("(%s)",threadp->num_bytes_logged),
+                           ave_bytes_per_xact,
+                           FRACTION_ARGS(ave_nlog_pages_per_xact));
+      // clang-format on
+
+      sum_ncommits += threadp->num_commits;
+      sum_nbytes_logged += threadp->num_bytes_logged;
+   }
+   platform_default_log("%s\n", dashes);
+   // clang-format off
+   platform_default_log(" Totals       %-8lu    %-12lu %-14s  Need ~%lu log pages\n",
+                        sum_ncommits,
+                        sum_nbytes_logged,
+                        size_fmtstr("(%s)", sum_nbytes_logged),
+                        (((sum_nbytes_logged / xlog_page_size) * 110) / 100));
+   // clang-format on
+
+   platform_default_log("%s\n", dashes);
+   platform_default_log("\n");
+}
+
+/*
+ * Exercise log performance test using main thread as a single client.
+ * (This is mainly to facilitate debugging of this program.)
+ */
+platform_status
+test_log_perf_single(cache                  *cc,
+                     shard_log_config       *cfg,
+                     shard_log              *log,
+                     uint64                  num_entries,
+                     test_message_generator *gen,
+                     test_exec_config       *test_exec_cfg)
+{
+   test_log_thread_params params;
+   ZERO_STRUCT(params);
+   platform_status ret = STATUS_TEST_FAILED;
+
+   ret = shard_log_init(log, (cache *)cc, cfg);
+   platform_assert_status_ok(ret);
+
+   // Fill-out the test execution parameters
+   params.log            = log;
+   params.thread_id      = 0;
+   params.gen            = gen;
+   params.num_entries    = num_entries;
+   params.commit_every_n = test_exec_cfg->commit_every_n;
+
+   uint64 start_time = platform_get_timestamp();
+
+   test_log_thread((void *)&params);
+   uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+
+   gen_log_perf_summary(&params,
+                        num_entries,
+                        1,
+                        elapsed_ns,
+                        test_exec_cfg->commit_every_n,
+                        log_page_size((log_handle *)log));
+
+   cache_print_stats(Platform_default_log_handle, cc);
+   return ret;
+}
+
+/*
+ * Exercise log performance test using n-threads and different configs.
+ */
 platform_status
 test_log_perf(cache                  *cc,
               shard_log_config       *cfg,
@@ -149,6 +298,7 @@ test_log_perf(cache                  *cc,
               test_message_generator *gen,
               uint64                  num_threads,
               task_system            *ts,
+              test_exec_config       *test_exec_cfg,
               platform_heap_id        hid)
 
 {
@@ -162,10 +312,11 @@ test_log_perf(cache                  *cc,
    platform_assert_status_ok(ret);
 
    for (uint64 i = 0; i < num_threads; i++) {
-      params[i].log         = log;
-      params[i].thread_id   = i;
-      params[i].gen         = gen;
-      params[i].num_entries = num_entries / num_threads;
+      params[i].log            = log;
+      params[i].thread_id      = i;
+      params[i].gen            = gen;
+      params[i].num_entries    = num_entries / num_threads;
+      params[i].commit_every_n = test_exec_cfg->commit_every_n;
    }
 
    start_time = platform_get_timestamp();
@@ -189,9 +340,15 @@ test_log_perf(cache                  *cc,
       platform_thread_join(params[i].thread);
    }
 
-   platform_default_log("log insertion rate: %luM insertions/second\n",
-                        SEC_TO_MSEC(num_entries)
-                           / platform_timestamp_elapsed(start_time));
+   uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   gen_log_perf_summary(params,
+                        num_entries,
+                        num_threads,
+                        elapsed_ns,
+                        test_exec_cfg->commit_every_n,
+                        log_page_size((log_handle *)log));
+
+   cache_print_stats(Platform_default_log_handle, cc);
 
 cleanup:
    platform_free(hid, params);
@@ -226,28 +383,34 @@ log_test(int argc, char *argv[])
    platform_status        ret;
    int                    config_argc;
    char                 **config_argv;
+   bool                   run_perf_test_single;
    bool                   run_perf_test;
    bool                   run_crash_test;
    int                    rc;
-   uint64                 seed;
-   task_system           *ts;
+   task_system           *ts = NULL;
    test_message_generator gen;
 
-   if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
-      run_perf_test  = TRUE;
-      run_crash_test = FALSE;
-      config_argc    = argc - 2;
-      config_argv    = argv + 2;
-   } else if (argc > 1 && strncmp(argv[1], "--crash", sizeof("--crash")) == 0) {
-      run_perf_test  = FALSE;
-      run_crash_test = TRUE;
-      config_argc    = argc - 2;
-      config_argv    = argv + 2;
+   run_perf_test_single = run_perf_test = run_crash_test = FALSE;
+   if (argc > 1) {
+      if (strncmp(argv[1], "--help", sizeof("--help")) == 0) {
+         // Provide usage info and exit cleanly.
+         usage(argv[0]);
+         rc = 0;
+         goto cleanup;
+      }
+
+      if (strncmp(argv[1], "--perf-single", sizeof("--perf-single")) == 0) {
+         run_perf_test_single = TRUE;
+      } else if (strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
+         run_perf_test = TRUE;
+      } else if (strncmp(argv[1], "--crash", sizeof("--crash")) == 0) {
+         run_crash_test = TRUE;
+      }
+      config_argc = argc - 2;
+      config_argv = argv + 2;
    } else {
-      run_perf_test  = FALSE;
-      run_crash_test = FALSE;
-      config_argc    = argc - 1;
-      config_argv    = argv + 1;
+      config_argc = argc - 1;
+      config_argv = argv + 1;
    }
 
    platform_default_log("\nStarted log_test!!\n");
@@ -261,16 +424,21 @@ log_test(int argc, char *argv[])
 
    trunk_config *cfg = TYPED_MALLOC(hid, cfg);
 
-   status = test_parse_args(cfg,
-                            &data_cfg,
-                            &io_cfg,
-                            &al_cfg,
-                            &cache_cfg,
-                            &log_cfg,
-                            &seed,
-                            &gen,
-                            config_argc,
-                            config_argv);
+   test_exec_config test_exec_cfg;
+   ZERO_STRUCT(test_exec_cfg);
+
+   status = test_parse_args_n(cfg,
+                              &data_cfg,
+                              &io_cfg,
+                              &al_cfg,
+                              &cache_cfg,
+                              &log_cfg,
+                              &task_cfg,
+                              &test_exec_cfg,
+                              &gen,
+                              1,
+                              config_argc,
+                              config_argv);
    if (!SUCCESS(status)) {
       platform_error_log("log_test: failed to parse config: %s\n",
                          platform_status_to_string(status));
@@ -320,12 +488,35 @@ log_test(int argc, char *argv[])
 
    shard_log *log = TYPED_MALLOC(hid, log);
    platform_assert(log != NULL);
-   if (run_perf_test) {
-      ret = test_log_perf(
-         (cache *)cc, &log_cfg, log, 200000000, &gen, 16, ts, hid);
+
+   // User may specify # of log-entries to insert via --num-inserts arg
+   uint64 num_log_entries = test_exec_cfg.num_inserts;
+   if (run_perf_test_single) {
+
+      if (!num_log_entries)
+         num_log_entries = (1 * MILLION);
+      ret = test_log_perf_single(
+         (cache *)cc, &log_cfg, log, num_log_entries, &gen, &test_exec_cfg);
       rc = -1;
       platform_assert_status_ok(ret);
+   } else if (run_perf_test) {
+      if (!num_log_entries)
+         num_log_entries = (200 * MILLION);
+
+      ret = test_log_perf((cache *)cc,
+                          &log_cfg,
+                          log,
+                          num_log_entries,
+                          &gen,
+                          16,
+                          ts,
+                          &test_exec_cfg,
+                          hid);
+      rc  = -1;
+      platform_assert_status_ok(ret);
    } else if (run_crash_test) {
+      if (!num_log_entries)
+         num_log_entries = 500000;
       rc = test_log_crash(cc,
                           &cache_cfg,
                           (io_handle *)io,
@@ -336,10 +527,12 @@ log_test(int argc, char *argv[])
                           hh,
                           hid,
                           &gen,
-                          500000,
+                          num_log_entries,
                           TRUE /* crash */);
       platform_assert(rc == 0);
    } else {
+      if (!num_log_entries)
+         num_log_entries = 500000;
       rc = test_log_crash(cc,
                           &cache_cfg,
                           (io_handle *)io,
@@ -350,8 +543,8 @@ log_test(int argc, char *argv[])
                           hh,
                           hid,
                           &gen,
-                          500000,
-                          FALSE /* don't cash */);
+                          num_log_entries,
+                          FALSE /* don't crash */);
       platform_assert(rc == 0);
    }
 

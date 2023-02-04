@@ -165,11 +165,8 @@ typedef cache_async_result (*page_get_async_fn)(cache            *cc,
 typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
-typedef bool (*page_claim_fn)(cache *cc, page_handle *page);
-typedef void (*page_sync_fn)(cache       *cc,
-                             page_handle *page,
-                             bool         is_blocking,
-                             page_type    type);
+typedef bool (*page_try_claim_fn)(cache *cc, page_handle *page);
+typedef void (*page_write_fn)(cache *cc, page_handle *page, page_type type);
 typedef void (*extent_sync_fn)(cache  *cc,
                                uint64  addr,
                                uint64 *pages_outstanding);
@@ -208,7 +205,8 @@ typedef struct cache_ops {
    page_generic_fn      page_mark_dirty;
    page_generic_fn      page_pin;
    page_generic_fn      page_unpin;
-   page_sync_fn         page_sync;
+   page_write_fn        page_async_write;
+   page_write_fn        page_sync_write;
    extent_sync_fn       extent_sync;
    cache_generic_fn     flush;
    evict_fn             evict;
@@ -336,10 +334,37 @@ cache_unpin(cache *cc, page_handle *page)
    return cc->ops->page_unpin(cc, page);
 }
 
+/*
+ *-----------------------------------------------------------------------------
+ * cache_page_async_write
+ *
+ * Asynchronously writes the page back to disk.
+ *
+ * This is used to write log pages opportunistically. The current API doesn't
+ * inform the user when this happens. "It's not the ideal API." -- @aconway
+ *-----------------------------------------------------------------------------
+ */
 static inline void
-cache_page_sync(cache *cc, page_handle *page, bool is_blocking, page_type type)
+cache_page_async_write(cache *cc, page_handle *page, page_type type)
 {
-   return cc->ops->page_sync(cc, page, is_blocking, type);
+   return cc->ops->page_async_write(cc, page, type);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * cache_page_sync_write
+ *
+ * Synchronously writes the page back to disk.
+ *
+ * This is used to write pages that need to be made durable before returning
+ * control to the caller. Some examples: Writing out the superblock after
+ * updating some key fields. Log pages are written synchronously on commit.
+ *-----------------------------------------------------------------------------
+ */
+static inline void
+cache_page_sync_write(cache *cc, page_handle *page, page_type type)
+{
+   return cc->ops->page_sync_write(cc, page, type);
 }
 
 static inline void
