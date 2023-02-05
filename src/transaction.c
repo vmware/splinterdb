@@ -30,9 +30,9 @@ static inline void
 tictoc_rw_entry_set_key(tictoc_rw_entry *e, slice key, const data_config *cfg)
 {
    char *key_buf;
-   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, KEY_SIZE);
-   memmove(key_buf, slice_data(key), KEY_SIZE);
-   e->key   = slice_create(KEY_SIZE, key_buf);
+   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
+   memmove(key_buf, slice_data(key), slice_length(key));
+   e->key   = slice_create(slice_length(key), key_buf);
    e->start = e->last = interval_tree_key_create(e->key, cfg);
 }
 
@@ -569,16 +569,13 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
       for (int i = 0; i < tt_txn->read_cnt; ++i) {
          tictoc_rw_entry *r = tictoc_get_read_set_entry(tt_txn, i);
-         if (!r->need_to_decrease_refcount) {
-            continue;
-         }
-
-         KeyType key_ht = (KeyType)slice_data(r->key);
-         // Decrease the refcount by one
-         if (iceberg_remove_and_get_key(
-                txn_kvsb->tscache, &key_ht, platform_get_tid())) {
-            if (slice_data(r->key) != key_ht) {
-               platform_free_from_heap(0, key_ht);
+         if (r->need_to_decrease_refcount) {
+            KeyType key_ht = (KeyType)slice_data(r->key);
+            if (iceberg_remove_and_get_key(
+                   txn_kvsb->tscache, &key_ht, platform_get_tid())) {
+               if (slice_data(r->key) != key_ht) {
+                  platform_free_from_heap(0, key_ht);
+               }
             }
          }
       }

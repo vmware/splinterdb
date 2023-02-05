@@ -60,9 +60,14 @@ main()
    transactional_splinterdb_begin(spl_handle, &txn);
 
    rc = transactional_splinterdb_insert(spl_handle, &txn, key, value);
-   printf("Inserted key '%s'\n", fruit);
+   if (!rc) {
+      printf("Inserted key '%s'\n", fruit);
+   }
 
-   transactional_splinterdb_commit(spl_handle, &txn);
+   rc = transactional_splinterdb_commit(spl_handle, &txn);
+   if (rc == -1) {
+      printf("%d: Transaction aborts\n", __LINE__);
+   }
 
    transactional_splinterdb_begin(spl_handle, &txn);
 
@@ -71,16 +76,23 @@ main()
    key   = slice_create((size_t)strlen(fruit), fruit);
    value = slice_create((size_t)strlen(descr), descr);
    rc    = transactional_splinterdb_insert(spl_handle, &txn, key, value);
-   printf("Inserted key '%s'\n", fruit);
+   if (!rc) {
+      printf("Inserted key '%s'\n", fruit);
+   }
 
    fruit = "Mango";
    descr = "Mango is the king of fruits.";
    key   = slice_create((size_t)strlen(fruit), fruit);
    value = slice_create((size_t)strlen(descr), descr);
    rc    = transactional_splinterdb_insert(spl_handle, &txn, key, value);
-   printf("Inserted key '%s'\n", fruit);
+   if (!rc) {
+      printf("Inserted key '%s'\n", fruit);
+   }
 
-   transactional_splinterdb_commit(spl_handle, &txn);
+   rc = transactional_splinterdb_commit(spl_handle, &txn);
+   if (rc == -1) {
+      printf("%d: Transaction aborts\n", __LINE__);
+   }
 
    transactional_splinterdb_begin(spl_handle, &txn);
 
@@ -97,6 +109,8 @@ main()
              fruit,
              (int)slice_length(value),
              (char *)slice_data(value));
+   } else {
+      printf("Key: '%s' not found. (rc=%d)\n", fruit, rc);
    }
 
    // Handling non-existent keys
@@ -109,7 +123,10 @@ main()
    }
    printf("\n");
 
-   transactional_splinterdb_commit(spl_handle, &txn);
+   rc = transactional_splinterdb_commit(spl_handle, &txn);
+   if (rc == -1) {
+      printf("%d: Transaction aborts\n", __LINE__);
+   }
 
    transactional_splinterdb_close(&spl_handle);
    printf("Shutdown SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
