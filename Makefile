@@ -85,6 +85,14 @@ LDFLAGS += -ggdb3 -pthread
 LIBS      = -lm -lpthread -laio -lxxhash
 DEPFLAGS  = -MMD -MP
 
+
+# Add libraries in third-party
+ICEBERGHT_HOME = ./third-party/icebergehashtable
+INCLUDE += -I$(ICEBERGHT_HOME)/include
+LDFLAGS += -L$(ICEBERGHT_HOME)
+CFLAGS  += -DENABLE_RESIZE
+LIBS	+= -liceberghashtable
+
 #*************************************************************#
 # Flags to select release vs debug builds, verbosity, etc.
 #
@@ -473,6 +481,9 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_iterators_example: $(OBJDIR)/$(EXAMPLES_DIR
 
 $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example.o \
                                                                        $(LIBDIR)/libsplinterdb.so
+
+$(BINDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_intro_example: $(OBJDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_intro_example.o \
+                                                    $(LIBDIR)/libsplinterdb.so
 
 #*************************************************************#
 
