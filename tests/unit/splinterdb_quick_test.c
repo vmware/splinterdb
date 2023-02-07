@@ -98,8 +98,6 @@ CTEST_DATA(splinterdb_quick)
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_quick)
 {
-   set_log_streams_for_tests();
-
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg.super);
    create_default_cfg(&data->cfg, &data->default_data_cfg.super);
 
@@ -149,7 +147,6 @@ CTEST2(splinterdb_quick, test_basic_flow)
    int rc = splinterdb_lookup(data->kvsb, user_key, &result);
    ASSERT_EQUAL(0, rc);
 
-
    // Lookup of a non-existent key should return not-found.
    ASSERT_FALSE(splinterdb_lookup_found(&result));
 
@@ -194,7 +191,6 @@ CTEST2(splinterdb_quick, test_apis_for_max_key_length)
    size_t large_key_len = TEST_MAX_KEY_SIZE;
    memset(large_key_data, 'a', TEST_MAX_KEY_SIZE);
    slice large_key = slice_create(large_key_len, large_key_data);
-
 
    static char *to_insert_data = "a-value";
    size_t       to_insert_len  = strlen(to_insert_data);

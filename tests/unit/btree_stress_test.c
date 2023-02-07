@@ -113,8 +113,6 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
-   set_log_streams_for_error_tests(NULL, NULL);
-
    config_set_defaults(&data->master_cfg);
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
@@ -259,10 +257,14 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
 
    // Exercise print method to verify that it basically continues to work.
+   set_log_streams_for_tests(MSG_LEVEL_DEBUG);
+
    btree_print_tree(Platform_default_log_handle,
                     (cache *)&data->cc,
                     &data->dbtree_cfg,
                     packed_root_addr);
+
+   set_log_streams_for_tests(MSG_LEVEL_INFO);
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {

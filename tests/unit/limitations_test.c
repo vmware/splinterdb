@@ -67,7 +67,8 @@ CTEST_DATA(limitations)
  */
 CTEST_SETUP(limitations)
 {
-   set_log_streams_for_error_tests(NULL, NULL);
+   // All test cases in this test usually deal with error handling
+   set_log_streams_for_tests(MSG_LEVEL_ERRORS);
 
    uint64 heap_capacity = (1 * GiB);
 

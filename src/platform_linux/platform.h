@@ -630,6 +630,9 @@ platform_set_tid(threadid t);
 static inline size_t
 platform_strnlen(const char *s, size_t maxlen);
 
+platform_log_handle *
+platform_get_stdout_stream(void);
+
 platform_status
 platform_heap_create(platform_module_id    module_id,
                      uint32                max,

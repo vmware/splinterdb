@@ -6,6 +6,7 @@
  */
 
 #include "splinterdb/public_platform.h"
+#include "ctest.h"
 
 /* Name of SplinterDB device created for unit-tests */
 #define TEST_DB_NAME "splinterdb_unit_tests_db"
@@ -15,8 +16,4 @@
 #define Giga (1024UL * Mega)
 
 void
-set_log_streams_for_tests();
-
-void
-set_log_streams_for_error_tests(platform_log_handle **log_stdout,
-                                platform_log_handle **log_stderr);
+set_log_streams_for_tests(msg_level exp_msg_level);

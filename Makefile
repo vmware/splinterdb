@@ -412,11 +412,13 @@ BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
 #
 $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 
-$(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)
+$(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)            \
+                                $(COMMON_UNIT_TESTOBJ)
 
 $(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
                                  $(OBJDIR)/$(TESTS_DIR)/config.o                \
                                  $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
+                                 $(COMMON_UNIT_TESTOBJ)                         \
                                  $(BTREE_SYS)
 
 $(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
@@ -440,7 +442,8 @@ $(BINDIR)/$(UNITDIR)/splinterdb_stress_test: $(COMMON_TESTOBJ)                  
                                              $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                              $(LIBDIR)/libsplinterdb.so
 
-$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)
+$(BINDIR)/$(UNITDIR)/writable_buffer_test: $(UTIL_SYS)            \
+                                           $(COMMON_UNIT_TESTOBJ)
 
 $(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)                             \
                                        $(COMMON_UNIT_TESTOBJ)                        \
@@ -450,6 +453,7 @@ $(BINDIR)/$(UNITDIR)/limitations_test: $(COMMON_TESTOBJ)                        
 $(BINDIR)/$(UNITDIR)/config_parse_test: $(UTIL_SYS)                                   \
                                         $(COMMON_TESTOBJ)                             \
                                         $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                        $(COMMON_UNIT_TESTOBJ)                        \
                                         $(LIBDIR)/libsplinterdb.so
 
 $(BINDIR)/$(UNITDIR)/task_system_test: $(UTIL_SYS)                                   \
