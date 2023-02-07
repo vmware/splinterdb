@@ -97,12 +97,13 @@ typedef struct shm_frag_info {
  * above fragment tracker array. For large inserts workload, we allocate large
  * memory chunks for fingerprint array, which is more than a MiB. For scans,
  * splinterdb_iterator_init() allocates memory for an iterator which is ~92+KiB.
- * Set this to a lower value so we can re-cycle free fragments for iterators also.
+ * Set this to a lower value so we can re-cycle free fragments for iterators
+ * also.
  */
 #if SPLINTER_DEBUG
-#define SHM_LARGE_FRAG_SIZE (90 * KiB)
+#   define SHM_LARGE_FRAG_SIZE (90 * KiB)
 #else
-#define SHM_LARGE_FRAG_SIZE (38 * KiB)
+#   define SHM_LARGE_FRAG_SIZE (38 * KiB)
 #endif // SPLINTER_DEBUG
 
 /*
@@ -517,12 +518,13 @@ platform_shm_alloc(platform_heap_id hid,
    }
 
    // Optimistically, allocate the requested 'size' bytes of memory.
-   _Static_assert(sizeof(void*)==sizeof(size_t), "check our casts are valid");
-   retptr = __sync_fetch_and_add(&shminfop->shm_next, (void*) size);
+   _Static_assert(sizeof(void *) == sizeof(size_t),
+                  "check our casts are valid");
+   retptr = __sync_fetch_and_add(&shminfop->shm_next, (void *)size);
 
    if (shminfop->shm_next > shminfop->shm_end) {
       // This memory request cannot fit in available space. Reset.
-      __sync_fetch_and_sub(&shminfop->shm_next, (void*) size);
+      __sync_fetch_and_sub(&shminfop->shm_next, (void *)size);
 
       char size_str[SIZE_TO_STR_LEN];
       char free_bytes_str[SIZE_TO_STR_LEN];
@@ -949,8 +951,8 @@ platform_shm_find_free(shmem_info *shm,
 static int
 platform_trace_large_frags(shmem_info *shm)
 {
-   int  local_in_use       = 0; // Tracked while iterating in this fn, locally
-   shm_frag_info *frag     = shm->shm_mem_frags;
+   int local_in_use    = 0; // Tracked while iterating in this fn, locally
+   shm_frag_info *frag = shm->shm_mem_frags;
 
    // Walk the tracked-fragments array looking for an in-use fragment
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
@@ -964,12 +966,12 @@ platform_trace_large_frags(shmem_info *shm)
       }
       local_in_use++;
       platform_assert((frag->shm_frag_freed_by_tid == 0),
-                     "Invalid state found for fragment at index %d,"
-                     "freed_by_pid=%d but freed_by_tid=%lu "
-                     "(which should also be 0)\n",
-                     fctr,
-                     frag->shm_frag_freed_by_pid,
-                     frag->shm_frag_freed_by_tid);
+                      "Invalid state found for fragment at index %d,"
+                      "freed_by_pid=%d but freed_by_tid=%lu "
+                      "(which should also be 0)\n",
+                      fctr,
+                      frag->shm_frag_freed_by_pid,
+                      frag->shm_frag_freed_by_tid);
 
       platform_default_log("  Fragment at slot=%d, addr=%p, size=%lu is in-use"
                            ", allocated_to_pid=%d, allocated_to_tid=%lu\n",
@@ -978,7 +980,7 @@ platform_trace_large_frags(shmem_info *shm)
                            frag->shm_frag_size,
                            frag->shm_frag_allocated_to_pid,
                            frag->shm_frag_allocated_to_tid);
-    }
+   }
    return local_in_use;
 }
 

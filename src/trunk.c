@@ -5037,10 +5037,11 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
             platform_timestamp_elapsed(compaction_start);
       }
       /*
-       * platform_assert((req->fp_arr == NULL), "req->fp_arr=%p\n", req->fp_arr);
-      if (req->fp_arr != NULL) {
-          platform_default_log("Fixing missing free for req->fp_arr=%p\n", req->fp_arr);
-      }
+       platform_assert((req->fp_arr == NULL), "req->fp_arr=%p\n", req->fp_arr);
+       if (req->fp_arr != NULL) {
+         platform_default_log("Fixing missing free for req->fp_arr=%p\n",
+           req->fp_arr);
+       }
       */
       platform_free(spl->heap_id, req->fp_arr);
       platform_free(spl->heap_id, req);
