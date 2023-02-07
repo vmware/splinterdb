@@ -48,8 +48,6 @@ CTEST_DATA(splinterdb_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(splinterdb_stress)
 {
-   set_log_streams_for_tests();
-
    data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
                                              .cache_size = 1000 * Mega,
                                              .disk_size  = 9000 * Mega,

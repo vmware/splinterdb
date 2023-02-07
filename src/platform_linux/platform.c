@@ -40,6 +40,13 @@ platform_set_log_streams(platform_log_handle *info_stream,
    Platform_error_log_handle   = error_stream;
 }
 
+// Return the stdout log-stream handle
+platform_log_handle *
+platform_get_stdout_stream(void)
+{
+   return Platform_default_log_handle;
+}
+
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      uint32                max,

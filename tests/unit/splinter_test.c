@@ -114,8 +114,6 @@ CTEST_DATA(splinter)
 // clang-format off
 CTEST_SETUP(splinter)
 {
-   set_log_streams_for_tests();
-
    // Defaults: For basic unit-tests, use single threads
    data->num_insert_threads = 1;
    data->num_lookup_threads = 1;
@@ -634,6 +632,8 @@ CTEST2(splinter, test_lookups)
  */
 CTEST2(splinter, test_splinter_print_diags)
 {
+   set_log_streams_for_tests(MSG_LEVEL_DEBUG);
+
    allocator *alp = (allocator *)&data->al;
 
    trunk_handle *spl = trunk_create(data->splinter_cfg,
@@ -667,6 +667,7 @@ CTEST2(splinter, test_splinter_print_diags)
    allocator_print_stats(alp);
    allocator_print_allocated(alp);
 
+   set_log_streams_for_tests(MSG_LEVEL_INFO);
    trunk_destroy(spl);
 }
 

@@ -13,7 +13,6 @@
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 #include "util.h"
-#include "platform.h"
 
 #define ASSERT_OUTBUF_LEN 200
 
@@ -68,7 +67,9 @@ CTEST_DATA(misc)
 
 CTEST_SETUP(misc)
 {
-   set_log_streams_for_error_tests(&data->log_output, NULL);
+   // All test cases in this test usually deal with error handling
+   set_log_streams_for_tests(MSG_LEVEL_ERRORS);
+   data->log_output = platform_get_stdout_stream();
 }
 
 // Optional teardown function for suite, called after every test in suite
