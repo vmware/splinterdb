@@ -219,14 +219,14 @@ platform_heap_id_to_shmaddr(platform_heap_id hid)
 }
 
 /* Evaluates to valid 'low' address within shared segment. */
-static inline void *
+inline void *
 platform_shm_lop(platform_heap_id hid)
 {
    return (void *)platform_heap_id_to_handle(hid);
 }
 
 /* Evaluates to valid 'high' address within shared segment. */
-static inline void *
+inline void *
 platform_shm_hip(platform_heap_id hid)
 {
    return (((shmem_info *)platform_heap_id_to_shmaddr(hid))->shm_end - 1);
@@ -517,11 +517,12 @@ platform_shm_alloc(platform_heap_id hid,
    }
 
    // Optimistically, allocate the requested 'size' bytes of memory.
-   retptr = __sync_fetch_and_add(&shminfop->shm_next, size);
+   _Static_assert(sizeof(void*)==sizeof(size_t), "check our casts are valid");
+   retptr = __sync_fetch_and_add(&shminfop->shm_next, (void*) size);
 
    if (shminfop->shm_next > shminfop->shm_end) {
       // This memory request cannot fit in available space. Reset.
-      __sync_fetch_and_sub(&shminfop->shm_next, size);
+      __sync_fetch_and_sub(&shminfop->shm_next, (void*) size);
 
       char size_str[SIZE_TO_STR_LEN];
       char free_bytes_str[SIZE_TO_STR_LEN];
