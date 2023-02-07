@@ -953,7 +953,8 @@ splinterdb_iterator_init(const splinterdb     *kvs,      // IN
 )
 {
    splinterdb_iterator *it = TYPED_MALLOC(kvs->spl->heap_id, it);
-   // platform_default_log("%s(): Iterator size = %lu bytes\n", __FUNCTION__, sizeof(*it));
+   // platform_default_log("%s(): Iterator size = %lu bytes\n", __FUNCTION__,
+   // sizeof(*it));
    if (it == NULL) {
       platform_error_log("TYPED_MALLOC error\n");
       return platform_status_to_int(STATUS_NO_MEMORY);
