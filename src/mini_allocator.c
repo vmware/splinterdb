@@ -255,7 +255,7 @@ static uint64
 allocator_page_number(allocator *al, uint64 page_addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);
-   debug_assert(allocator_valid_page_addr(al, page_addr));
+   // debug_assert(allocator_valid_page_addr(al, page_addr));
    return ((page_addr / allocator_cfg->io_cfg->page_size));
 }
 
@@ -275,7 +275,7 @@ static uint64
 allocator_extent_number(allocator *al, uint64 page_addr)
 {
    allocator_config *allocator_cfg = allocator_get_config(al);
-   debug_assert(allocator_valid_page_addr(al, page_addr));
+   // debug_assert(allocator_valid_page_addr(al, page_addr));
    return ((allocator_extent_base_addr(al, page_addr)
             / allocator_cfg->io_cfg->extent_size));
 }

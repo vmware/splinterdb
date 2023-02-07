@@ -468,6 +468,7 @@ $(BINDIR)/$(UNITDIR)/platform_apis_test: $(UTIL_SYS)               \
 
 $(BINDIR)/$(UNITDIR)/mini_allocator_test: $(COMMON_TESTOBJ)                             \
                                           $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
+                                          $(COMMON_UNIT_TESTOBJ)                        \
                                           $(LIBDIR)/libsplinterdb.so
 
 ########################################

@@ -48,9 +48,6 @@ CTEST_DATA(mini_allocator)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(mini_allocator)
 {
-   if (Ctest_verbose) {
-      platform_set_log_streams(stdout, stderr);
-   }
    uint64 heap_capacity = 1024 * MiB;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &data->default_data_cfg);
