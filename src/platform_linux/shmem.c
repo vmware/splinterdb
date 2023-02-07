@@ -219,15 +219,17 @@ platform_heap_id_to_shmaddr(platform_heap_id hid)
    return shmaddr;
 }
 
+_Pragma("GCC diagnostic push")
+_Pragma("GCC diagnostic ignored \"-Wunused-function\"")
 /* Evaluates to valid 'low' address within shared segment. */
-inline void *
+static inline void *
 platform_shm_lop(platform_heap_id hid)
 {
    return (void *)platform_heap_id_to_handle(hid);
 }
 
 /* Evaluates to valid 'high' address within shared segment. */
-inline void *
+static inline void *
 platform_shm_hip(platform_heap_id hid)
 {
    return (((shmem_info *)platform_heap_id_to_shmaddr(hid))->shm_end - 1);
