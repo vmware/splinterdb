@@ -342,7 +342,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(PROLIX) # blank line
 
 $(ICEBERGHT_HOME)/libiceberghashtable.so : $(call rwildcard, $(ICEBERGHT_HOME)/src, *.c)
-	$(MAKE) -C $(ICEBERGHT_HOME)
+	$(MAKE) -C $(ICEBERGHT_HOME) libiceberghashtable.so
 	$(PROLIX) # blank line
 
 #################################################################
