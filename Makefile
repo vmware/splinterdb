@@ -87,7 +87,7 @@ DEPFLAGS  = -MMD -MP
 
 
 # Add libraries in third-party
-ICEBERGHT_HOME = ./third-party/icebergehashtable
+ICEBERGHT_HOME = ./third-party/iceberghashtable
 INCLUDE += -I$(ICEBERGHT_HOME)/include
 LDFLAGS += -L$(ICEBERGHT_HOME)
 CFLAGS  += -DENABLE_RESIZE
@@ -260,7 +260,7 @@ EXAMPLES_BINS=$(EXAMPLES_BIN_SRC:$(EXAMPLES_DIR)/%_example.c=$(BINDIR)/$(EXAMPLE
 # The main targets
 #
 all: libs all-tests all-examples $(EXTRA_TARGETS)
-libs: $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
+libs: $(ICEBERGHT_HOME)/libiceberghashtable.so $(LIBDIR)/libsplinterdb.so $(LIBDIR)/libsplinterdb.a
 all-tests: $(BINDIR)/driver_test $(BINDIR)/unit_test $(UNIT_TESTBINS)
 all-examples: $(EXAMPLES_BINS)
 
@@ -340,6 +340,10 @@ $(LIBDIR)/libsplinterdb.so : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(BRIEF_FORMATTED) "%-20s %s\n" "Building archive" $@
 	$(COMMAND) $(AR) -crs $@ $^
+	$(PROLIX) # blank line
+
+$(ICEBERGHT_HOME)/libiceberghashtable.so :
+	$(MAKE) -C $(ICEBERGHT_HOME)
 	$(PROLIX) # blank line
 
 #################################################################
@@ -491,6 +495,7 @@ $(BINDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_intro_example: $(OBJDIR)/$(EX
 # we see this output for clean builds, especially in CI-jobs.
 .PHONY : clean tags
 clean :
+	$(MAKE) -C $(ICEBERGHT_HOME) clean
 	rm -rf $(BUILD_ROOT)
 	uname -a
 	$(CC) --version
