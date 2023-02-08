@@ -88,9 +88,8 @@ DEPFLAGS  = -MMD -MP
 
 # Add libraries in third-party
 ICEBERGHT_HOME = ./third-party/iceberghashtable
-INCLUDE += -I$(ICEBERGHT_HOME)/include
+INCLUDE += -I$(ICEBERGHT_HOME)/include -I$(ICEBERGHT_HOME)/src
 LDFLAGS += -L$(ICEBERGHT_HOME)
-CFLAGS  += -DENABLE_RESIZE
 LIBS	+= -liceberghashtable
 
 #*************************************************************#
@@ -342,7 +341,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(COMMAND) $(AR) -crs $@ $^
 	$(PROLIX) # blank line
 
-$(ICEBERGHT_HOME)/libiceberghashtable.so :
+$(ICEBERGHT_HOME)/libiceberghashtable.so : $(call rwildcard, $(ICEBERGHT_HOME)/src, *.c)
 	$(MAKE) -C $(ICEBERGHT_HOME)
 	$(PROLIX) # blank line
 
