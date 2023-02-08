@@ -104,7 +104,6 @@ CTEST_DATA(task_system)
 CTEST_SETUP(task_system)
 {
    platform_status rc = STATUS_OK;
-   set_log_streams_for_error_tests(NULL, NULL);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    // Create a heap for io and task system to use.
@@ -392,6 +391,7 @@ CTEST2(task_system, test_task_system_creation_with_bg_threads)
 CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
 {
    platform_status rc = STATUS_OK;
+   set_log_streams_for_tests(MSG_LEVEL_ERRORS);
 
    // Destroy the task system setup by the harness, by default, w/o bg threads.
    task_system_destroy(data->hid, &data->tasks);
@@ -452,6 +452,7 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
          ASSERT_TRUE(SUCCESS(rc));
       }
    }
+   set_log_streams_for_tests(MSG_LEVEL_INFO);
 }
 
 /* Wrapper function to create Splinter Task system w/o background threads. */

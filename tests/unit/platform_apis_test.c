@@ -27,8 +27,6 @@ CTEST_DATA(platform_api)
 
 CTEST_SETUP(platform_api)
 {
-   set_log_streams_for_error_tests(NULL, NULL);
-
    platform_status rc = STATUS_OK;
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
@@ -69,6 +67,7 @@ CTEST2(platform_api, test_platform_buffer_init)
  */
 CTEST2(platform_api, test_platform_buffer_init_fails_for_very_large_length)
 {
+   set_log_streams_for_tests(MSG_LEVEL_ERRORS);
    platform_status rc = STATUS_NO_MEMORY;
 
    buffer_handle bh;
@@ -88,4 +87,6 @@ CTEST2(platform_api, test_platform_buffer_init_fails_for_very_large_length)
    // deinit() would fail horribly when nothing was successfully mmap()'ed
    rc = platform_buffer_deinit(&bh);
    ASSERT_FALSE(SUCCESS(rc));
+
+   set_log_streams_for_tests(MSG_LEVEL_INFO);
 }
