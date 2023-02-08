@@ -108,12 +108,10 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
       ValueType *value_ht = (ValueType *)&ZERO_TICTOC_TIMESTAMP_SET;
 
       if (is_no_same_key) {
-         if (iceberg_insert(txn_kvsb->tscache,
-                            key_ht,
-                            *value_ht,
-                            platform_thread_id_self()))
-         {
+         if (iceberg_insert(
+                txn_kvsb->tscache, key_ht, *value_ht, platform_get_tid())) {
             r->need_to_keep_key = TRUE;
+            iceberg_end(txn_kvsb->tscache, platform_get_tid());
          }
          r->need_to_decrease_refcount = TRUE;
       }
@@ -281,6 +279,7 @@ tictoc_write(transactional_splinterdb *txn_kvsb, tictoc_transaction *tt_txn)
       if (iceberg_insert(
              txn_kvsb->tscache, key_ht, *value_ht, platform_get_tid())) {
          w->need_to_keep_key = TRUE;
+         iceberg_end(txn_kvsb->tscache, platform_get_tid());
       }
 #endif
 
