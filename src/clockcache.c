@@ -1348,23 +1348,26 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          do {
             first_addr -= clockcache_page_size(cc);
             if (allocator_config_pages_share_extent(
-                   allocator_cfg, first_addr, addr))
+                   allocator_cfg, first_addr, addr)) {
                next_entry_no = clockcache_lookup(cc, first_addr);
-            else
+            } else {
                next_entry_no = CC_UNMAPPED_ENTRY;
+            }
          } while (
             next_entry_no != CC_UNMAPPED_ENTRY
             && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
+
          first_addr += clockcache_page_size(cc);
          end_addr = entry->page.disk_addr;
          // walk forwards through extent to find last cleanable entry
          do {
             end_addr += clockcache_page_size(cc);
             if (allocator_config_pages_share_extent(
-                   allocator_cfg, end_addr, addr))
+                   allocator_cfg, end_addr, addr)) {
                next_entry_no = clockcache_lookup(cc, end_addr);
-            else
+            } else {
                next_entry_no = CC_UNMAPPED_ENTRY;
+            }
          } while (
             next_entry_no != CC_UNMAPPED_ENTRY
             && clockcache_try_set_writeback(cc, next_entry_no, is_urgent));
@@ -2689,10 +2692,15 @@ clockcache_page_sync_write(clockcache *cc, page_handle *page, page_type type)
    const threadid  tid          = platform_get_tid();
    platform_status status;
 
+   /*
+    * RESOLVE: It's not clear if this call is needed for sychronous writes.
+    *  Seems like this should be only needed for Async-writes.
+    *
    if (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
       platform_assert(clockcache_test_flag(cc, entry_number, CC_CLEAN));
       return;
    }
+   */
 
    if (cc->cfg->use_stats) {
       cc->stats[tid].page_writes[type]++;
@@ -2738,7 +2746,7 @@ clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type)
 
    if (cc->cfg->use_stats) {
       cc->stats[tid].page_writes[type]++;
-      cc->stats[tid].syncs_issued++;
+      cc->stats[tid].writes_issued++;
    }
 
    req                          = io_get_async_req(cc->io, TRUE);
@@ -3144,6 +3152,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "page type       |      trunk |     branch |   memtable |     filter |        log |       misc |\n");
    platform_log(log_handle, "----------------|------------|------------|------------|------------|------------|------------|\n");
+
    platform_log(log_handle, "cache hits      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_hits[PAGE_TYPE_TRUNK],
          global_stats.cache_hits[PAGE_TYPE_BRANCH],
@@ -3151,6 +3160,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.cache_hits[PAGE_TYPE_FILTER],
          global_stats.cache_hits[PAGE_TYPE_LOG],
          global_stats.cache_hits[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "cache misses    | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.cache_misses[PAGE_TYPE_TRUNK],
          global_stats.cache_misses[PAGE_TYPE_BRANCH],
@@ -3158,6 +3168,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.cache_misses[PAGE_TYPE_FILTER],
          global_stats.cache_misses[PAGE_TYPE_LOG],
          global_stats.cache_misses[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "cache miss time | " FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
                 FRACTION_FMT(9, 2)"s | "FRACTION_FMT(9, 2)"s | "
@@ -3168,6 +3179,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(miss_time[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(miss_time[PAGE_TYPE_SUPERBLOCK]));
+
    platform_log(log_handle, "pages written   | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_writes[PAGE_TYPE_TRUNK],
          global_stats.page_writes[PAGE_TYPE_BRANCH],
@@ -3175,6 +3187,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.page_writes[PAGE_TYPE_FILTER],
          global_stats.page_writes[PAGE_TYPE_LOG],
          global_stats.page_writes[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "pages read      | %10lu | %10lu | %10lu | %10lu | %10lu | %10lu |\n",
          global_stats.page_reads[PAGE_TYPE_TRUNK],
          global_stats.page_reads[PAGE_TYPE_BRANCH],
@@ -3182,6 +3195,7 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
          global_stats.page_reads[PAGE_TYPE_FILTER],
          global_stats.page_reads[PAGE_TYPE_LOG],
          global_stats.page_reads[PAGE_TYPE_SUPERBLOCK]);
+
    platform_log(log_handle, "avg prefetch pg |  " FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
                 FRACTION_FMT(9, 2)" |  "FRACTION_FMT(9, 2)" |  "
@@ -3192,9 +3206,12 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_FILTER]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_SUPERBLOCK]));
+
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)"\n",
-                FRACTION_ARGS(avg_write_pages));
+   platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)" syncs=%lu, writes=%lu\n",
+                FRACTION_ARGS(avg_write_pages),
+                global_stats.syncs_issued,
+                global_stats.writes_issued);
    // clang-format on
 
    allocator_print_stats(cc->al);
