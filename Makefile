@@ -89,6 +89,7 @@ DEPFLAGS  = -MMD -MP
 # Add libraries in third-party
 ICEBERGHT_HOME = ./third-party/iceberghashtable
 INCLUDE += -I$(ICEBERGHT_HOME)/include -I$(ICEBERGHT_HOME)/src
+CFLAGS  += -DENABLE_RESIZE
 LDFLAGS += -L$(ICEBERGHT_HOME)
 LIBS	+= -liceberghashtable
 
