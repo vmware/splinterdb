@@ -2695,7 +2695,11 @@ clockcache_page_sync(clockcache  *cc,
 
    if (cc->cfg->use_stats) {
       cc->stats[tid].page_writes[type]++;
-      cc->stats[tid].syncs_issued++;
+      if (!is_blocking) {
+          cc->stats[tid].writes_issued++;
+      } else {
+          cc->stats[tid].syncs_issued++;
+      }
    }
 
    if (!is_blocking) {
@@ -3165,8 +3169,10 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_LOG]),
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_SUPERBLOCK]));
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)"\n",
-                FRACTION_ARGS(avg_write_pages));
+   platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)", syncs=%lu, writes=%lu\n",
+                FRACTION_ARGS(avg_write_pages),
+                global_stats.syncs_issued,
+                global_stats.writes_issued);
    // clang-format on
 
    allocator_print_stats(cc->al);

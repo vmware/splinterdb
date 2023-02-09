@@ -206,6 +206,8 @@ test_log_perf(cache                  *cc,
                         SEC_TO_MSEC(num_entries)
                            / platform_timestamp_elapsed(start_time));
 
+   cache_print_stats(Platform_default_log_handle, cc);
+
 cleanup:
    platform_free(hid, params);
 
