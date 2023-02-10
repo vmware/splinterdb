@@ -1211,10 +1211,20 @@ clockcache_ok_to_writeback(clockcache *cc,
  *----------------------------------------------------------------------
  * clockcache_try_set_writeback
  *
- *      Atomically sets the CC_WRITEBACK flag if the status permits; current
- *      status must be:
+ *      Atomically sets the CC_WRITEBACK flag, if the status permits, for
+ *      a page that needs to be written to disk. Page is identified by its
+ *      entry_number.
+ *
+ *      Current status must be:
  *         -- CC_CLEANABLE1_STATUS (= 0)                  // dirty
  *         -- CC_CLEANABLE2_STATUS (= 0 | CC_ACCESSED)    // dirty
+ *
+ * Returns:
+ *  - TRUE  : This page is not being actively written to disk. So this
+ *            thread now gets control to complete the write IO.
+ *  _ FALSE : This page is already undergoing writeback to disk, initiated
+ *            by some other thread. So this requesting thread need not
+ *            start another IO.
  *----------------------------------------------------------------------
  */
 static inline bool
@@ -1598,7 +1608,7 @@ clockcache_move_hand(clockcache *cc, bool is_urgent)
  *----------------------------------------------------------------------
  * clockcache_get_free_page --
  *
- *      returns a free page with given status and ref count.
+ * Returns the entry number of a free page with given status and ref count.
  *----------------------------------------------------------------------
  */
 uint32
@@ -2692,15 +2702,11 @@ clockcache_page_sync_write(clockcache *cc, page_handle *page, page_type type)
    const threadid  tid          = platform_get_tid();
    platform_status status;
 
-   /*
-    * RESOLVE: It's not clear if this call is needed for sychronous writes.
-    *  Seems like this should be only needed for Async-writes.
-    *
+   // Nothing more to do if page is already in process of being written out.
    if (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
       platform_assert(clockcache_test_flag(cc, entry_number, CC_CLEAN));
       return;
    }
-   */
 
    if (cc->cfg->use_stats) {
       cc->stats[tid].page_writes[type]++;
@@ -2739,6 +2745,7 @@ clockcache_page_async_write(clockcache *cc, page_handle *page, page_type type)
    const threadid  tid  = platform_get_tid();
    platform_status status;
 
+   // Nothing more to do if page is already in process of being written out.
    if (!clockcache_try_set_writeback(cc, entry_number, TRUE)) {
       platform_assert(clockcache_test_flag(cc, entry_number, CC_CLEAN));
       return;
@@ -2795,7 +2802,7 @@ clockcache_sync_callback(void           *arg,
  *-----------------------------------------------------------------------------
  * clockcache_extent_sync --
  *
- *      Asynchronously syncs the extent.
+ *      Asynchronously writes (syncs) all pages in the extent to disk.
  *
  *      Adds the number of pages issued writeback to the counter pointed to
  *      by pages_outstanding. When the writes complete, a callback subtracts
@@ -3100,8 +3107,8 @@ clockcache_io_stats(clockcache *cc, uint64 *read_bytes, uint64 *write_bytes)
       }
    }
 
-   *write_bytes = write_pages * 4 * KiB;
-   *read_bytes  = read_pages * 4 * KiB;
+   *write_bytes = (write_pages * clockcache_page_size(cc));
+   *read_bytes  = (read_pages * clockcache_page_size(cc));
 }
 
 void
@@ -3208,10 +3215,13 @@ clockcache_print_stats(platform_log_handle *log_handle, clockcache *cc)
                 FRACTION_ARGS(avg_prefetch_pages[PAGE_TYPE_SUPERBLOCK]));
 
    platform_log(log_handle, "-----------------------------------------------------------------------------------------------\n");
-   platform_log(log_handle, "avg write pgs: "FRACTION_FMT(9,2)" syncs=%lu, writes=%lu\n",
+   platform_log(log_handle,
+                "avg write pgs: "FRACTION_FMT(9,2)
+                " sync writes=%lu, async writes=%lu, total writes=%lu\n",
                 FRACTION_ARGS(avg_write_pages),
                 global_stats.syncs_issued,
-                global_stats.writes_issued);
+                global_stats.writes_issued,
+                (global_stats.syncs_issued + global_stats.writes_issued));
    // clang-format on
 
    allocator_print_stats(cc->al);

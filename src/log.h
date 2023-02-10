@@ -25,15 +25,17 @@ typedef platform_status (*log_write_fn)(log_handle *log,
 typedef void (*log_release_fn)(log_handle *log);
 typedef uint64 (*log_addr_fn)(log_handle *log);
 typedef uint64 (*log_magic_fn)(log_handle *log);
+typedef uint64 (*log_page_size_fn)(log_handle *log);
 typedef platform_status (*log_commit_fn)(log_handle *log);
 
 typedef struct log_ops {
-   log_write_fn   write;
-   log_release_fn release;
-   log_addr_fn    addr;
-   log_addr_fn    meta_addr;
-   log_magic_fn   magic;
-   log_commit_fn  commit;
+   log_write_fn     write;
+   log_release_fn   release;
+   log_addr_fn      addr;
+   log_addr_fn      meta_addr;
+   log_magic_fn     magic;
+   log_commit_fn    commit;
+   log_page_size_fn page_size;
 } log_ops;
 
 // to sub-class log, make a log_handle your first field
@@ -77,5 +79,10 @@ log_magic(log_handle *log)
    return log->ops->magic(log);
 }
 
+static inline uint64
+log_page_size(log_handle *log)
+{
+   return log->ops->page_size(log);
+}
 log_handle *
 log_create(cache *cc, log_config *cfg, platform_heap_id hid);

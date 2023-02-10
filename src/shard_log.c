@@ -26,10 +26,15 @@ shard_log_write(log_handle *log, key tuple_key, message msg, uint64 generation);
 
 uint64
 shard_log_addr(log_handle *log);
+
 uint64
 shard_log_meta_addr(log_handle *log);
+
 uint64
 shard_log_magic(log_handle *log);
+
+uint64
+shard_log_page_size(log_handle *log);
 
 platform_status
 shard_log_commit(log_handle *log);
@@ -40,6 +45,7 @@ static log_ops shard_log_ops = {
    .meta_addr = shard_log_meta_addr,
    .magic     = shard_log_magic,
    .commit    = shard_log_commit,
+   .page_size = shard_log_page_size,
 };
 
 void
@@ -57,9 +63,15 @@ const static iterator_ops shard_log_iterator_ops = {
 };
 
 static inline uint64
-shard_log_page_size(shard_log_config *cfg)
+shard_log_cfg_page_size(shard_log_config *cfg)
 {
    return cache_config_page_size(cfg->cache_cfg);
+}
+
+uint64
+shard_log_page_size(log_handle *logh)
+{
+   return shard_log_cfg_page_size(((shard_log *)logh)->cfg);
 }
 
 static inline uint64
@@ -72,7 +84,7 @@ static inline checksum128
 shard_log_checksum(shard_log_config *cfg, page_handle *page)
 {
    return platform_checksum128(
-      page->data + 16, shard_log_page_size(cfg) - 16, cfg->seed);
+      page->data + 16, shard_log_cfg_page_size(cfg) - 16, cfg->seed);
 }
 
 static inline shard_log_thread_data *
@@ -192,7 +204,7 @@ first_log_entry(char *page)
 static bool
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
-   return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
+   return page + shard_log_cfg_page_size(cfg) - (char *)le < sizeof(log_entry)
           || le->generation == INVALID_GENERATION;
 }
 
@@ -227,6 +239,13 @@ get_new_page_for_thread(shard_log             *log,
    return 0;
 }
 
+/*
+ * shard_log_write() - Insert a new log entry to a log page for this thread.
+ *
+ * As log entries are written to log pages, once a log page is full, it will be
+ * written out asynchronously, and a new log page is allocated (acquired) for
+ * this thread.
+ */
 platform_status
 shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 {
@@ -255,10 +274,10 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
    shard_log_hdr *hdr    = (shard_log_hdr *)page->data;
    log_entry     *cursor = (log_entry *)(page->data + thread_data->offset);
    uint64         new_entry_size = log_entry_required_capacity(tuple_key, msg);
-   uint64         log_page_size  = shard_log_page_size(log->cfg);
+   uint64         log_page_size  = shard_log_cfg_page_size(log->cfg);
    uint64         free_space     = log_page_size - thread_data->offset;
 
-   // Any log entry should be able to fit on one log page.
+   // Any log entry should be able to fit on a single log page.
    debug_assert((new_entry_size <= (log_page_size - sizeof(shard_log_hdr))),
                 "new_entry_size=%lu cannot fit in log space available on"
                 " one log page, %lu bytes\n",
@@ -305,8 +324,8 @@ shard_log_write(log_handle *logh, key tuple_key, message msg, uint64 generation)
 }
 
 /*
- * shard_log_commit() - Write synchronously the log-page being operated on by
- *  this thread to disk.
+ * shard_log_commit() - Write synchronously to disk the log-page being operated
+ *   on by this thread to disk.
  */
 platform_status
 shard_log_commit(log_handle *logh)
@@ -411,7 +430,7 @@ shard_log_iterator_init(cache              *cc,
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
-         page_addr = extent_addr + i * shard_log_page_size(cfg);
+         page_addr = extent_addr + i * shard_log_cfg_page_size(cfg);
          page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (!shard_log_valid(cfg, page, magic)) {
             cache_unget(cc, page);
@@ -428,7 +447,7 @@ shard_log_iterator_init(cache              *cc,
 finished_first_pass:
 
    itor->contents = TYPED_ARRAY_MALLOC(
-      hid, itor->contents, num_valid_pages * shard_log_page_size(cfg));
+      hid, itor->contents, num_valid_pages * shard_log_cfg_page_size(cfg));
    itor->entries = TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
 
    // traverse the log extents again and copy the kv pairs
@@ -439,7 +458,7 @@ finished_first_pass:
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       next_extent_addr = 0;
       for (i = 0; i < pages_per_extent; i++) {
-         page_addr = extent_addr + i * shard_log_page_size(cfg);
+         page_addr = extent_addr + i * shard_log_cfg_page_size(cfg);
          page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (!shard_log_valid(cfg, page, magic)) {
             cache_unget(cc, page);
@@ -572,8 +591,8 @@ shard_log_print(shard_log *log)
       cache_prefetch(cc, extent_addr, PAGE_TYPE_LOG);
       uint64 next_extent_addr = 0;
       for (uint64 i = 0; i < pages_per_extent; i++) {
-         uint64       page_addr = extent_addr + i * shard_log_page_size(cfg);
-         page_handle *page      = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
+         uint64 page_addr  = extent_addr + i * shard_log_cfg_page_size(cfg);
+         page_handle *page = cache_get(cc, page_addr, TRUE, PAGE_TYPE_LOG);
          if (shard_log_valid(cfg, page, magic)) {
             next_extent_addr = shard_log_next_extent_addr(cfg, page);
             shard_log_print_page(log, page);
