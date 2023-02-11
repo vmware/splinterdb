@@ -139,4 +139,21 @@ transactional_splinterdb_set_isolation_level(
    transactional_splinterdb   *txn_kvsb,
    transaction_isolation_level isol_level);
 
+
+void
+_lock_write_set(transactional_splinterdb *txn_kvsb, transaction *txn);
+
+void
+_compute_commit_ts(transactional_splinterdb *txn_kvsb, transaction *txn);
+
+int
+_validate_read_set(transactional_splinterdb *txn_kvsb, transaction *txn);
+
+void
+_write(transactional_splinterdb *txn_kvsb, transaction *txn);
+
+void
+_post_commit(transactional_splinterdb *txn_kvsb, transaction *txn);
+
+
 #endif // _TRANSACTION_H_

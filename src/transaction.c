@@ -89,25 +89,26 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
    if (found) {
       // Check if there is the same key so that a txn does not increase the
       // refcount on the same key multiple times
-      bool is_no_same_key = TRUE;
+      bool             is_new_key = TRUE;
+      tictoc_rw_entry *r          = NULL;
       for (uint64 i = 0; i < tt_txn->read_cnt; ++i) {
-         tictoc_rw_entry *r    = tictoc_get_read_set_entry(tt_txn, i);
-         key              rkey = key_create_from_slice(r->key);
+         r        = tictoc_get_read_set_entry(tt_txn, i);
+         key rkey = key_create_from_slice(r->key);
          if (data_key_compare(cfg, rkey, ukey) == 0) {
-            is_no_same_key = FALSE;
+            is_new_key = FALSE;
             break;
          }
       }
 
-      tictoc_rw_entry *r = tictoc_get_new_read_set_entry(tt_txn);
-      platform_assert(!tictoc_rw_entry_is_invalid(r));
+      if (is_new_key) {
+         r = tictoc_get_new_read_set_entry(tt_txn);
+         platform_assert(!tictoc_rw_entry_is_invalid(r));
 
-      tictoc_rw_entry_set_key(r, user_key, cfg);
+         tictoc_rw_entry_set_key(r, user_key, cfg);
 
-      KeyType    key_ht   = (KeyType)slice_data(r->key);
-      ValueType *value_ht = (ValueType *)&ZERO_TICTOC_TIMESTAMP_SET;
+         KeyType    key_ht   = (KeyType)slice_data(r->key);
+         ValueType *value_ht = (ValueType *)&ZERO_TICTOC_TIMESTAMP_SET;
 
-      if (is_no_same_key) {
          if (iceberg_insert(
                 txn_kvsb->tscache, key_ht, *value_ht, platform_get_tid())) {
             r->need_to_keep_key = TRUE;
@@ -115,7 +116,8 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
          r->need_to_decrease_refcount = TRUE;
       }
 
-      value_ht = NULL;
+      KeyType    key_ht   = (KeyType)slice_data(r->key);
+      ValueType *value_ht = NULL;
       iceberg_get_value(
          txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid());
       platform_assert(value_ht);
@@ -123,6 +125,9 @@ tictoc_read(transactional_splinterdb *txn_kvsb,
       tictoc_timestamp_set *ts_set = (tictoc_timestamp_set *)value_ht;
       r->wts                       = ts_set->wts;
       r->rts                       = tictoc_timestamp_set_get_rts(ts_set);
+
+      // platform_error_log(
+      //    "r->wts=%" PRIu64 " r->rts=%" PRIu64 "\n", r->wts, r->rts);
    }
 
    return rc;
@@ -265,11 +270,10 @@ tictoc_write(transactional_splinterdb *txn_kvsb, tictoc_transaction *tt_txn)
       }
 
       platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
-
-      tictoc_timestamp_set ts_set = {
-         .wts   = tt_txn->commit_wts,
-         .delta = tictoc_timestamp_set_get_delta(tt_txn->commit_wts,
-                                                 tt_txn->commit_rts)};
+      // platform_error_log("wts: %ld\n", tt_txn->commit_wts);
+      // platform_error_log("rts: %ld\n", tt_txn->commit_rts);
+      tictoc_timestamp_set ts_set = {.wts = tt_txn->commit_wts, .delta = 0};
+      // platform_error_log("delta: %d\n", ts_set.delta);
 
       KeyType    key_ht   = (KeyType)slice_data(w->key);
       ValueType *value_ht = (ValueType *)&ts_set;
@@ -432,6 +436,180 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
    return 0;
 }
 
+void
+_lock_write_set(transactional_splinterdb *txn_kvsb, transaction *txn)
+{
+   tictoc_transaction *tt_txn = &txn->tictoc;
+
+   // Step 1: Lock Write Set
+   tictoc_transaction_sort_write_set(tt_txn, txn_kvsb->tcfg->kvsb_cfg.data_cfg);
+
+   while (tictoc_transaction_lock_all_write_set(tt_txn, txn_kvsb->lock_tbl)
+          == FALSE)
+   {
+      platform_sleep_ns(
+         1000); // 1us is the value that is mentioned in the paper
+   }
+}
+
+void
+_compute_commit_ts(transactional_splinterdb *txn_kvsb, transaction *txn)
+{
+   tictoc_transaction *tt_txn = &txn->tictoc;
+
+   tt_txn->commit_wts = 0;
+   tt_txn->commit_rts = 0;
+
+   for (uint64 i = 0; i < tt_txn->read_cnt; ++i) {
+      tictoc_rw_entry *r   = tictoc_get_read_set_entry(tt_txn, i);
+      tictoc_timestamp wts = r->wts;
+#if EXPERIMENTAL_MODE_SILO == 1
+      wts += 1;
+#endif
+      tt_txn->commit_rts = MAX(tt_txn->commit_rts, wts);
+   }
+
+   if (is_serializable(tt_txn) || is_repeatable_read(tt_txn)) {
+      tt_txn->commit_rts = tt_txn->commit_wts =
+         MAX(tt_txn->commit_rts, tt_txn->commit_wts);
+   }
+
+   for (uint64 i = 0; i < tt_txn->write_cnt; ++i) {
+      tictoc_rw_entry *w        = tictoc_get_write_set_entry(tt_txn, i);
+      KeyType          key_ht   = (KeyType)slice_data(w->key);
+      ValueType       *value_ht = NULL;
+      iceberg_get_value(
+         txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid());
+      bool key_exists_in_cache = (value_ht != NULL);
+      if (key_exists_in_cache) {
+         tictoc_timestamp_set *ts_set = (tictoc_timestamp_set *)value_ht;
+         tt_txn->commit_wts =
+            MAX(tt_txn->commit_wts, tictoc_timestamp_set_get_rts(ts_set) + 1);
+      } else {
+         tt_txn->commit_wts = MAX(tt_txn->commit_wts, 1);
+      }
+   }
+}
+
+int
+_validate_read_set(transactional_splinterdb *txn_kvsb, transaction *txn)
+{
+   tictoc_transaction *tt_txn = &txn->tictoc;
+
+   uint64 commit_ts =
+      is_snapshot_isolation(tt_txn) ? tt_txn->commit_rts : tt_txn->commit_wts;
+
+   bool is_aborted = FALSE;
+   for (uint64 i = 0; i < tt_txn->read_cnt; ++i) {
+      tictoc_rw_entry *r = tictoc_get_read_set_entry(tt_txn, i);
+
+      bool is_read_entry_invalid = r->rts < commit_ts;
+
+#if EXPERIMENTAL_MODE_SILO == 1
+      is_read_entry_invalid = true;
+#endif
+
+      if (is_read_entry_invalid) {
+         KeyType    key_ht   = (char *)slice_data(r->key);
+         ValueType *value_ht = NULL;
+         iceberg_get_value(
+            txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid());
+         platform_assert(value_ht);
+
+         tictoc_timestamp_set *ts_set = (tictoc_timestamp_set *)value_ht;
+
+         if (ts_set->wts != r->wts) {
+            is_aborted = TRUE;
+            break;
+         }
+
+         lock_table_rc rc =
+            lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
+         if (rc == LOCK_TABLE_RC_BUSY) {
+            is_aborted = TRUE;
+            break;
+         }
+
+         if (rc != LOCK_TABLE_RC_DEADLK) {
+            iceberg_get_value(
+               txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid());
+            platform_assert(value_ht);
+         }
+
+         if (ts_set->wts != r->wts) {
+            lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+            is_aborted = TRUE;
+            break;
+         }
+#if EXPERIMENTAL_MODE_SILO == 1
+         if (0) {
+#endif
+            uint32 new_rts =
+               MAX(commit_ts, tictoc_timestamp_set_get_rts(ts_set));
+            bool need_to_update_rts =
+               (new_rts != tictoc_timestamp_set_get_rts(ts_set))
+               && !is_repeatable_read(tt_txn);
+            if (need_to_update_rts) {
+               tictoc_timestamp_set new_ts_set = {
+                  .dummy = 0,
+                  .wts   = ts_set->wts,
+                  .delta =
+                     tictoc_timestamp_set_get_delta(ts_set->wts, new_rts)};
+               // platform_error_log("delta %d", new_ts_set.delta);
+               ValueType *new_value_ht = (ValueType *)&new_ts_set;
+               platform_assert(iceberg_update(txn_kvsb->tscache,
+                                              key_ht,
+                                              *new_value_ht,
+                                              platform_get_tid()));
+            }
+#if EXPERIMENTAL_MODE_SILO == 1
+         }
+#endif
+
+         lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+      }
+   }
+
+   return is_aborted;
+}
+
+void
+_write(transactional_splinterdb *txn_kvsb, transaction *txn)
+{
+   tictoc_write(txn_kvsb, &txn->tictoc);
+}
+
+void
+_post_commit(transactional_splinterdb *txn_kvsb, transaction *txn)
+{
+   tictoc_transaction *tt_txn = &txn->tictoc;
+
+   tictoc_transaction_unlock_all_write_set(tt_txn, txn_kvsb->lock_tbl);
+
+#if EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1
+   if (0) {
+#endif
+
+      for (int i = 0; i < tt_txn->read_cnt; ++i) {
+         tictoc_rw_entry *r = tictoc_get_read_set_entry(tt_txn, i);
+         if (r->need_to_decrease_refcount) {
+            KeyType key_ht = (KeyType)slice_data(r->key);
+            if (iceberg_remove_and_get_key(
+                   txn_kvsb->tscache, &key_ht, platform_get_tid())) {
+               if (slice_data(r->key) != key_ht) {
+                  platform_free_from_heap(0, key_ht);
+               }
+            }
+         }
+      }
+
+#if EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1
+   } // if (0)
+#endif
+
+   tictoc_transaction_deinit(tt_txn, txn_kvsb->lock_tbl);
+}
+
 int
 transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn)
@@ -489,6 +667,8 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       tictoc_rw_entry *r = tictoc_get_read_set_entry(tt_txn, i);
 
       bool is_read_entry_invalid = r->rts < commit_ts;
+      // platform_error_log("r->rts = %lu, commit_ts = %lu\n", r->rts,
+      // commit_ts);
 
 #if EXPERIMENTAL_MODE_SILO == 1
       is_read_entry_invalid = true;
@@ -510,6 +690,7 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
          lock_table_rc rc =
             lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
+         // platform_error_log("rc = %d", rc);
          if (rc == LOCK_TABLE_RC_BUSY) {
             is_aborted = TRUE;
             break;

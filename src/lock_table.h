@@ -54,6 +54,7 @@ tictoc_timestamp_set_get_delta(tictoc_timestamp wts, tictoc_timestamp rts)
 #if EXPERIMENTAL_MODE_SILO == 1
    return 0;
 #else
+   platform_assert(rts >= wts);
    return rts - wts;
 #endif
 }
