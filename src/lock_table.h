@@ -4,20 +4,8 @@
 #pragma once
 
 #include "splinterdb/data.h"
-#include "interval_tree/interval_tree_generic.h"
 #include "util.h"
 #include "experimental_mode.h"
-
-typedef struct interval_tree_key {
-   slice              data;
-   const data_config *app_data_cfg;
-} interval_tree_key;
-
-static inline interval_tree_key
-interval_tree_key_create(slice data, const data_config *app_data_cfg)
-{
-   return (interval_tree_key){.data = data, .app_data_cfg = app_data_cfg};
-}
 
 // read_set and write_set entry stored locally
 typedef struct rw_entry {
@@ -31,11 +19,6 @@ typedef struct rw_entry {
    bool is_read;
    bool need_to_keep_key;
    bool need_to_decrease_refcount;
-
-   struct rb_node    rb;
-   interval_tree_key start;
-   interval_tree_key last;
-   interval_tree_key __subtree_last;
 } rw_entry;
 
 typedef enum lock_table_rc {

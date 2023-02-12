@@ -13,9 +13,6 @@ rw_entry_create()
    platform_assert(new_entry != NULL);
 
    new_entry->owner = platform_get_tid();
-
-   RB_CLEAR_NODE(&new_entry->rb);
-
    return new_entry;
 }
 
@@ -39,7 +36,6 @@ rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
    key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
    memmove(key_buf, slice_data(key), slice_length(key));
    e->key   = slice_create(slice_length(key), key_buf);
-   e->start = e->last = interval_tree_key_create(e->key, cfg);
 }
 
 static inline void

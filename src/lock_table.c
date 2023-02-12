@@ -1,96 +1,66 @@
 #include "lock_table.h"
 
 #include "platform.h"
-#include "poison.h"
 #include "data_internal.h"
+#include "iceberg_table.h"
 
-#define GET_ITSTART(n) (n->start)
-#define GET_ITLAST(n)  (n->last)
-
-static int
-interval_tree_key_compare(interval_tree_key key1, interval_tree_key key2)
-{
-   platform_assert(key1.app_data_cfg == key2.app_data_cfg);
-
-   return data_key_compare(key1.app_data_cfg,
-                           key_create_from_slice(key1.data),
-                           key_create_from_slice(key2.data));
-}
-
-INTERVAL_TREE_DEFINE(rw_entry,
-                     rb,
-                     interval_tree_key,
-                     __subtree_last,
-                     GET_ITSTART,
-                     GET_ITLAST,
-                     static,
-                     interval_tree,
-                     interval_tree_key_compare);
-
-// To make a compiler quiet
-#define SUPPRESS_UNUSED_WARN(var)                                              \
-   void _dummy_tmp_##var(void)                                                 \
-   {                                                                           \
-      (void)(var);                                                             \
-   }
-
-SUPPRESS_UNUSED_WARN(interval_tree_iter_next);
+#include "poison.h"
 
 typedef struct lock_table {
-   struct rb_root root;
-   platform_mutex lock;
+   iceberg_table table;
 } lock_table;
 
 lock_table *
 lock_table_create()
 {
    lock_table *lt;
-   lt       = TYPED_ZALLOC(0, lt);
-   lt->root = RB_ROOT;
-   platform_mutex_init(&lt->lock, 0, 0);
+   lt = TYPED_ZALLOC(0, lt);
+   iceberg_init(&lt->table, 10);
    return lt;
 }
 
 void
 lock_table_destroy(lock_table *lock_tbl)
 {
-   // TODO: destroy all elements
-   platform_mutex_destroy(&lock_tbl->lock);
    platform_free(0, lock_tbl);
 }
 
 lock_table_rc
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
-   platform_mutex_lock(&lock_tbl->lock);
-   rw_entry *node = interval_tree_iter_first(
-      &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry));
-   if (node) {
-      if (node->owner != entry->owner) {
-         platform_mutex_unlock(&lock_tbl->lock);
-         return LOCK_TABLE_RC_BUSY;
-      }
-
-      platform_mutex_unlock(&lock_tbl->lock);
-      return LOCK_TABLE_RC_DEADLK;
+   KeyType   key        = (KeyType)slice_data(entry->key);
+   ValueType lock_owner = {.refcount = 1, .value = entry->owner};
+RETRY:
+   if (iceberg_insert(&lock_tbl->table, key, lock_owner, platform_get_tid())) {
+      return LOCK_TABLE_RC_OK;
    }
 
-   interval_tree_insert(entry, &lock_tbl->root);
+   ValueType *current_lock_owner = NULL;
+   if (iceberg_get_value(
+          &lock_tbl->table, key, &current_lock_owner, platform_get_tid()))
+   {
+      if (current_lock_owner->value == entry->owner) {
+         return LOCK_TABLE_RC_DEADLK;
+      }
+      return LOCK_TABLE_RC_BUSY;
+   }
 
-   platform_mutex_unlock(&lock_tbl->lock);
-   return LOCK_TABLE_RC_OK;
+   goto RETRY;
 }
 
 void
 lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
-   platform_mutex_lock(&lock_tbl->lock);
-   rw_entry *node = interval_tree_iter_first(
-      &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry));
-   if (node) {
-      if (node->owner == entry->owner) {
-         interval_tree_remove(node, &lock_tbl->root);
+   KeyType    key                = (KeyType)slice_data(entry->key);
+   ValueType *current_lock_owner = NULL;
+   if (iceberg_get_value(
+          &lock_tbl->table, key, &current_lock_owner, platform_get_tid()))
+   {
+      if (current_lock_owner->value == entry->owner) {
+         iceberg_force_remove(&lock_tbl->table, key, platform_get_tid());
+         return;
       }
    }
-   platform_mutex_unlock(&lock_tbl->lock);
+   platform_assert(FALSE,
+                   "Trying to release lock that is not locked by this thread");
 }
