@@ -12,6 +12,7 @@
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/transaction.h"
+#include "transaction_internal.h"
 
 #define DB_FILE_NAME    "transactional_splinterdb_intro_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created
@@ -22,12 +23,18 @@
 
 #define NUM_KEYS  16
 #define VALUE_LEN 1024
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 void
-print_commit_ts(const char *prefix, transaction *txn)
+print_txn(const char *prefix, transaction *txn)
 {
-   printf("[%s] commit timestamp: %lu\n", prefix, txn->tictoc.commit_wts);
+   printf("transaction [%s]:\n", prefix);
+   // for (uint64 i = 0; i < txn->num_rw_entries; i++) {
+   //    rw_entry *entry = txn->rw_entries[i];
+   //    printf("  %s\n", (const char *)slice_data(entry->key));
+   // }
+   // print commit_wts and commit_rts
+   printf("  commit_wts: %" PRIu64 "\n", txn->commit_wts);
+   printf("  commit_rts: %" PRIu64 "\n", txn->commit_rts);
 }
 
 /*
@@ -80,7 +87,7 @@ main()
       transactional_splinterdb_insert(spl_handle, &t1, keys[i], value);
    }
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-   print_commit_ts("t1", &t1);
+   print_txn("t1", &t1);
 
    transactional_splinterdb_begin(spl_handle, &t1);
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
@@ -88,28 +95,41 @@ main()
       transactional_splinterdb_begin(spl_handle, &t2);
       transactional_splinterdb_insert(spl_handle, &t2, keys[0], value);
       assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
-      print_commit_ts("t2", &t2);
+      print_txn("t2", &t2);
    }
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-   print_commit_ts("t1", &t1);
+   print_txn("t1", &t1);
 
    transactional_splinterdb_begin(spl_handle, &t1);
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
+   transactional_splinterdb_insert(spl_handle, &t1, keys[0], value);
    {
       transactional_splinterdb_begin(spl_handle, &t2);
       transactional_splinterdb_insert(spl_handle, &t2, keys[0], value);
-      _lock_write_set(spl_handle, &t2);
-      _compute_commit_ts(spl_handle, &t2);
-      assert(_validate_read_set(spl_handle, &t2) == 0);
-      _write(spl_handle, &t2);
+      assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
+      print_txn("t2", &t2);
+   }
+   assert(transactional_splinterdb_commit(spl_handle, &t1) == -1);
+   print_txn("t1 (abort)", &t1);
+
+   transactional_splinterdb_begin(spl_handle, &t1);
+   {
+      transactional_splinterdb_begin(spl_handle, &t2);
+      transactional_splinterdb_insert(spl_handle, &t2, keys[0], value);
+      assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
+      print_txn("t2", &t2);
    }
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
+   transactional_splinterdb_insert(spl_handle, &t1, keys[0], value);
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-   print_commit_ts("t1", &t1);
-   {
-      _post_commit(spl_handle, &t2);
-      print_commit_ts("t2", &t2);
+   print_txn("t1", &t1);
+
+   for (int i = 0; i < 20000000; i++) {
+      transactional_splinterdb_begin(spl_handle, &t1);
+      transactional_splinterdb_insert(spl_handle, &t1, keys[0], value);
+      assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
    }
+   print_txn("t1", &t1);
 
    // const char *fruit = "apple";
    // const char *descr = "An apple a day keeps the doctor away!";

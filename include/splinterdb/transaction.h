@@ -5,8 +5,7 @@
  * transaction.h --
  */
 
-#ifndef _TRANSACTION_H_
-#define _TRANSACTION_H_
+#pragma once
 
 #include "splinterdb/splinterdb.h"
 
@@ -62,32 +61,15 @@ transactional_splinterdb_register_thread(transactional_splinterdb *kvs);
 void
 transactional_splinterdb_deregister_thread(transactional_splinterdb *kvs);
 
-typedef enum {
-   TRANSACTION_ISOLATION_LEVEL_INVALID = 0,
-   TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE,
-   TRANSACTION_ISOLATION_LEVEL_SNAPSHOT,
-   TRANSACTION_ISOLATION_LEVEL_REPEATABLE_READ,
-   TRANSACTION_ISOLATION_LEVEL_MAX_VALID
-} transaction_isolation_level;
+typedef struct rw_entry rw_entry;
 
-typedef struct tictoc_rw_entry tictoc_rw_entry;
-
-#define TICTOC_RW_SET_SIZE_LIMIT 32
-
-// TODO: use interval_tree_node for tictoc_rw_entry
-typedef struct tictoc_transaction {
-   tictoc_rw_entry            *read_write_set[TICTOC_RW_SET_SIZE_LIMIT];
-   tictoc_rw_entry           **read_set;
-   tictoc_rw_entry           **write_set;
-   uint64                      read_cnt;
-   uint64                      write_cnt;
-   uint64                      commit_rts;
-   uint64                      commit_wts;
-   transaction_isolation_level isol_level;
-} tictoc_transaction;
+#define RW_SET_SIZE_LIMIT 32
 
 typedef struct transaction {
-   tictoc_transaction tictoc;
+   rw_entry *rw_entries[RW_SET_SIZE_LIMIT];
+   uint64    num_rw_entries;
+   uint64    commit_rts;
+   uint64    commit_wts;
 } transaction;
 
 int
@@ -134,26 +116,15 @@ transactional_splinterdb_lookup_result_init(
    char                     *buffer      // IN
 );
 
+typedef enum {
+   TRANSACTION_ISOLATION_LEVEL_INVALID = 0,
+   TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE,
+   TRANSACTION_ISOLATION_LEVEL_SNAPSHOT,
+   TRANSACTION_ISOLATION_LEVEL_REPEATABLE_READ,
+   TRANSACTION_ISOLATION_LEVEL_MAX_VALID
+} transaction_isolation_level;
+
 void
 transactional_splinterdb_set_isolation_level(
    transactional_splinterdb   *txn_kvsb,
    transaction_isolation_level isol_level);
-
-
-void
-_lock_write_set(transactional_splinterdb *txn_kvsb, transaction *txn);
-
-void
-_compute_commit_ts(transactional_splinterdb *txn_kvsb, transaction *txn);
-
-int
-_validate_read_set(transactional_splinterdb *txn_kvsb, transaction *txn);
-
-void
-_write(transactional_splinterdb *txn_kvsb, transaction *txn);
-
-void
-_post_commit(transactional_splinterdb *txn_kvsb, transaction *txn);
-
-
-#endif // _TRANSACTION_H_

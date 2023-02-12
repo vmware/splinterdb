@@ -17,7 +17,7 @@ interval_tree_key_compare(interval_tree_key key1, interval_tree_key key2)
                            key_create_from_slice(key2.data));
 }
 
-INTERVAL_TREE_DEFINE(tictoc_rw_entry,
+INTERVAL_TREE_DEFINE(rw_entry,
                      rb,
                      interval_tree_key,
                      __subtree_last,
@@ -60,10 +60,10 @@ lock_table_destroy(lock_table *lock_tbl)
 }
 
 lock_table_rc
-lock_table_try_acquire_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
+lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
    platform_mutex_lock(&lock_tbl->lock);
-   tictoc_rw_entry *node = interval_tree_iter_first(
+   rw_entry *node = interval_tree_iter_first(
       &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry));
    if (node) {
       if (node->owner != entry->owner) {
@@ -82,10 +82,10 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
 }
 
 void
-lock_table_release_entry_lock(lock_table *lock_tbl, tictoc_rw_entry *entry)
+lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
    platform_mutex_lock(&lock_tbl->lock);
-   tictoc_rw_entry *node = interval_tree_iter_first(
+   rw_entry *node = interval_tree_iter_first(
       &lock_tbl->root, GET_ITSTART(entry), GET_ITLAST(entry));
    if (node) {
       if (node->owner == entry->owner) {

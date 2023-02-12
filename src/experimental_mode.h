@@ -1,5 +1,4 @@
-#ifndef EXPERIMENTAL_MODE_H
-#define EXPERIMENTAL_MODE_H
+#pragma once
 
 #include "platform.h"
 
@@ -20,5 +19,3 @@ print_current_experimental_modes()
                         EXPERIMENTAL_MODE_KEEP_ALL_KEYS);
    platform_default_log("EXPERIMENTAL_MODE_SILO: %d\n", EXPERIMENTAL_MODE_SILO);
 }
-
-#endif
