@@ -131,8 +131,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
    // Parent / main() process is always at tid==0.
    ASSERT_EQUAL(0, platform_get_tid());
 
-   platform_default_log(
-      "Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
+   CTEST_LOG_INFO("Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
    pid = fork();
 
    if (pid < 0) {
@@ -243,8 +242,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
 
    int pid = getpid();
 
-   platform_default_log(
-      "Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
+   CTEST_LOG_INFO("Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
    pid = fork();
 
    if (pid < 0) {
@@ -254,10 +252,10 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       // Perform some inserts through child process
       splinterdb_register_thread(spl_handle);
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Child execution started ...\n",
-                           platform_get_tid(),
-                           getpid());
+      CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                     "Child execution started ...\n",
+                     platform_get_tid(),
+                     getpid());
 
       char   key_data[30];
       size_t key_len;
@@ -283,19 +281,19 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
 
    // Only parent can close Splinter
    if (pid) {
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Waiting for child pid=%d to complete ...\n",
-                           platform_get_tid(),
-                           getpid(),
-                           pid);
+      CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                     "Waiting for child pid=%d to complete ...\n",
+                     platform_get_tid(),
+                     getpid(),
+                     pid);
 
       safe_wait();
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Child execution wait() completed."
-                           " Resuming parent ...\n",
-                           platform_get_tid(),
-                           getpid());
+      CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                     "Child execution wait() completed."
+                     " Resuming parent ...\n",
+                     platform_get_tid(),
+                     getpid());
 
       // We would get assertions tripping from BTree iterator code here,
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
@@ -361,8 +359,7 @@ CTEST2(splinterdb_forked_child,
 
    int pid = getpid();
 
-   platform_default_log(
-      "Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
+   CTEST_LOG_INFO("Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
    pid = fork();
 
    if (pid < 0) {
@@ -372,7 +369,7 @@ CTEST2(splinterdb_forked_child,
       // Perform some inserts through child process
       splinterdb_register_thread(spl_handle);
 
-      platform_default_log(
+      CTEST_LOG_INFO(
          "Thread-ID=%lu, OS-pid=%d: "
          "Child execution started: Test cache-flush before deregister ...\n",
          platform_get_tid(),
@@ -387,7 +384,7 @@ CTEST2(splinterdb_forked_child,
       // Repeat the insert exercise: Perform some inserts through child process
       splinterdb_register_thread(spl_handle);
 
-      platform_default_log(
+      CTEST_LOG_INFO(
          "Thread-ID=%lu, OS-pid=%d: Test cache-flush after deregister:\n",
          platform_get_tid(),
          getpid());
@@ -407,19 +404,19 @@ CTEST2(splinterdb_forked_child,
 
    // Only parent can close Splinter
    if (pid) {
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Waiting for child pid=%d to complete ...\n",
-                           platform_get_tid(),
-                           getpid(),
-                           pid);
+      CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                     "Waiting for child pid=%d to complete ...\n",
+                     platform_get_tid(),
+                     getpid(),
+                     pid);
 
       safe_wait();
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Child execution wait() completed."
-                           " Resuming parent ...\n",
-                           platform_get_tid(),
-                           getpid());
+      CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                     "Child execution wait() completed."
+                     " Resuming parent ...\n",
+                     platform_get_tid(),
+                     getpid());
       splinterdb_close(&spl_handle);
    } else {
       // child should not attempt to run the rest of the tests
@@ -464,7 +461,7 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
 
    int pid = getpid();
 
-   platform_default_log(
+   CTEST_LOG_INFO(
       "Thread-ID=%lu, Parent OS-pid=%d, fork %lu child processes.\n",
       platform_get_tid(),
       pid,
@@ -496,7 +493,7 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
          // Perform some inserts through child process
          splinterdb_register_thread(spl_handle);
 
-         platform_default_log(
+         CTEST_LOG_INFO(
             "\n**** Thread-ID=%lu, OS-pid=%d: "
             "Child execution started: Perform %lu (%d million) inserts ...\n",
             platform_get_tid(),
@@ -522,13 +519,13 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
 
    // Only parent can close Splinter
    if (data->am_parent && pid) {
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Waiting for child pids to complete: ",
-                           platform_get_tid(),
-                           getpid());
+      CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                     "Waiting for child pids to complete: ",
+                     platform_get_tid(),
+                     getpid());
 
       for (int fctr = 0; fctr < data->num_forked_procs; fctr++) {
-         platform_default_log("pid=%d ", forked_pids[fctr]);
+         CTEST_LOG_INFO("pid=%d ", forked_pids[fctr]);
       }
 
       // Wait-for -ALL- children to finish; duh!
@@ -542,11 +539,11 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
          platform_assert(WEXITSTATUS(wstatus) == 0);
       }
 
-      platform_default_log("\nThread-ID=%lu, OS-pid=%d: "
-                           "Child execution wait() completed."
-                           " Resuming parent ...\n",
-                           platform_get_tid(),
-                           getpid());
+      CTEST_LOG_INFO("\nThread-ID=%lu, OS-pid=%d: "
+                     "Child execution wait() completed."
+                     " Resuming parent ...\n",
+                     platform_get_tid(),
+                     getpid());
       splinterdb_close(&spl_handle);
    } else {
       // child should not attempt to run the rest of the tests
@@ -589,15 +586,15 @@ do_many_inserts(splinterdb *kvsb, uint64 num_inserts)
    // Test is written to insert multiples of millions per thread.
    ASSERT_EQUAL(0, (num_inserts % MILLION));
 
-   platform_default_log("%s()::%d:Thread-%-lu inserts %lu (%lu million)"
-                        ", sequential key, sequential value, "
-                        "KV-pairs starting from %lu ...\n",
-                        __FUNCTION__,
-                        __LINE__,
-                        thread_idx,
-                        num_inserts,
-                        (num_inserts / MILLION),
-                        start_key);
+   CTEST_LOG_INFO("%s()::%d:Thread-%-lu inserts %lu (%lu million)"
+                  ", sequential key, sequential value, "
+                  "KV-pairs starting from %lu ...\n",
+                  __FUNCTION__,
+                  __LINE__,
+                  thread_idx,
+                  num_inserts,
+                  (num_inserts / MILLION),
+                  start_key);
 
    uint64 ictr = 0;
    uint64 jctr = 0;
@@ -622,7 +619,7 @@ do_many_inserts(splinterdb *kvsb, uint64 num_inserts)
          ASSERT_EQUAL(0, rc);
       }
       if (verbose_progress) {
-         platform_default_log(
+         CTEST_LOG_INFO(
             "%s()::%d:Thread-%lu Inserted %lu million KV-pairs ...\n",
             __FUNCTION__,
             __LINE__,
@@ -632,12 +629,12 @@ do_many_inserts(splinterdb *kvsb, uint64 num_inserts)
    }
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
 
-   platform_default_log("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
-                        "%lu s, %lu rows/s\n",
-                        __FUNCTION__,
-                        __LINE__,
-                        thread_idx,
-                        ictr, // outer-loop ends at #-of-Millions inserted
-                        NSEC_TO_SEC(elapsed_ns),
-                        (num_inserts / NSEC_TO_SEC(elapsed_ns)));
+   CTEST_LOG_INFO("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
+                  "%lu s, %lu rows/s\n",
+                  __FUNCTION__,
+                  __LINE__,
+                  thread_idx,
+                  ictr, // outer-loop ends at #-of-Millions inserted
+                  NSEC_TO_SEC(elapsed_ns),
+                  (num_inserts / NSEC_TO_SEC(elapsed_ns)));
 }

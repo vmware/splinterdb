@@ -198,7 +198,7 @@ CTEST2_SKIP(large_inserts_bugs_stress,
       uint64 elapsed_ns      = platform_timestamp_elapsed(start_time);
       uint64 test_elapsed_ns = platform_timestamp_elapsed(test_start_time);
 
-      platform_default_log(
+      CTEST_LOG_INFO(
          PLATFORM_CR
          "Inserted %lu million KV-pairs"
          ", this batch: %lu s, %lu rows/s, cumulative: %lu s, %lu rows/s ...",
@@ -325,19 +325,19 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
          platform_error_log("fork() of child process failed: pid=%d\n", pid);
          return;
       } else if (pid) {
-         platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                              "Waiting for child pid=%d to complete ...\n",
-                              platform_get_tid(),
-                              getpid(),
-                              pid);
+         CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                        "Waiting for child pid=%d to complete ...\n",
+                        platform_get_tid(),
+                        getpid(),
+                        pid);
 
          safe_wait();
 
-         platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                              "Child execution wait() completed."
-                              " Resuming parent ...\n",
-                              platform_get_tid(),
-                              getpid());
+         CTEST_LOG_INFO("Thread-ID=%lu, OS-pid=%d: "
+                        "Child execution wait() completed."
+                        " Resuming parent ...\n",
+                        platform_get_tid(),
+                        getpid());
       }
    }
    if (pid == 0) {
@@ -345,19 +345,18 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
       data->am_parent = FALSE;
       data->this_pid  = getpid();
 
-      platform_default_log(
-         "Running as %s process OS-pid=%d ...\n",
-         (wcfg.master_cfg->fork_child ? "forked child" : "parent"),
-         data->this_pid);
+      CTEST_LOG_INFO("Running as %s process OS-pid=%d ...\n",
+                     (wcfg.master_cfg->fork_child ? "forked child" : "parent"),
+                     data->this_pid);
 
       splinterdb_register_thread(wcfg.kvsb);
 
       exec_worker_thread(&wcfg);
 
-      platform_default_log("Child process Thread-ID=%lu"
-                           ", OS-pid=%d completed inserts.\n",
-                           platform_get_tid(),
-                           data->this_pid);
+      CTEST_LOG_INFO("Child process Thread-ID=%lu"
+                     ", OS-pid=%d completed inserts.\n",
+                     platform_get_tid(),
+                     data->this_pid);
       splinterdb_deregister_thread(wcfg.kvsb);
       return;
    }
@@ -618,19 +617,19 @@ exec_worker_thread(void *w)
                                    : (random_val_fd == 0) ? "sequential"
                                                           : "fully-packed constant");
 
-   platform_default_log("%s()::%d:Thread %-2lu inserts %lu (%lu million)"
-                        ", %s key, %s value, "
-                        "KV-pairs starting from %lu (%lu%s) ...\n",
-                        __FUNCTION__,
-                        __LINE__,
-                        thread_idx,
-                        num_inserts,
-                        (num_inserts / MILLION),
-                        ((random_key_fd > 0) ? "random" : "sequential"),
-                        random_val_descr,
-                        start_key,
-                        (start_key / MILLION),
-                        (start_key ? " million" : ""));
+   CTEST_LOG_INFO("%s()::%d:Thread %-2lu inserts %lu (%lu million)"
+                  ", %s key, %s value, "
+                  "KV-pairs starting from %lu (%lu%s) ...\n",
+                  __FUNCTION__,
+                  __LINE__,
+                  thread_idx,
+                  num_inserts,
+                  (num_inserts / MILLION),
+                  ((random_key_fd > 0) ? "random" : "sequential"),
+                  random_val_descr,
+                  start_key,
+                  (start_key / MILLION),
+                  (start_key ? " million" : ""));
 
    uint64 ictr = 0;
    uint64 jctr = 0;
@@ -673,12 +672,12 @@ exec_worker_thread(void *w)
 
             val_len = result;
             if (!val_length_msg_printed) {
-               platform_default_log("OS-pid=%d, Thread-ID=%lu"
-                                    ", Insert random value of "
-                                    "fixed-length=%lu bytes.\n",
-                                    getpid(),
-                                    thread_idx,
-                                    val_len);
+               CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
+                              ", Insert random value of "
+                              "fixed-length=%lu bytes.\n",
+                              getpid(),
+                              thread_idx,
+                              val_len);
                val_length_msg_printed = TRUE;
             }
          } else if (random_val_fd == 0) {
@@ -687,21 +686,21 @@ exec_worker_thread(void *w)
             val_len = strlen(val_data);
 
             if (!val_length_msg_printed) {
-               platform_default_log("OS-pid=%d, Thread-ID=%lu"
-                                    ", Insert small-width sequential values of "
-                                    "different lengths.\n",
-                                    getpid(),
-                                    thread_idx);
+               CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
+                              ", Insert small-width sequential values of "
+                              "different lengths.\n",
+                              getpid(),
+                              thread_idx);
                val_length_msg_printed = TRUE;
             }
          } else if (random_val_fd < 0) {
             if (!val_length_msg_printed) {
-               platform_default_log("OS-pid=%d, Thread-ID=%lu"
-                                    ", Insert fully-packed fixed value of "
-                                    "length=%lu bytes.\n",
-                                    getpid(),
-                                    thread_idx,
-                                    val_len);
+               CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
+                              ", Insert fully-packed fixed value of "
+                              "length=%lu bytes.\n",
+                              getpid(),
+                              thread_idx,
+                              val_len);
                val_length_msg_printed = TRUE;
             }
          }
@@ -713,7 +712,7 @@ exec_worker_thread(void *w)
          ASSERT_EQUAL(0, rc);
       }
       if (verbose_progress) {
-         platform_default_log(
+         CTEST_LOG_INFO(
             "%s()::%d:Thread-%lu Inserted %lu million KV-pairs ...\n",
             __FUNCTION__,
             __LINE__,
@@ -722,15 +721,19 @@ exec_worker_thread(void *w)
       }
    }
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   uint64 elapsed_s  = NSEC_TO_SEC(elapsed_ns);
+   if (elapsed_ns == 0) {
+      elapsed_s = 1;
+   }
 
-   platform_default_log("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
-                        "%lu s, %lu rows/s\n",
-                        __FUNCTION__,
-                        __LINE__,
-                        thread_idx,
-                        ictr, // outer-loop ends at #-of-Millions inserted
-                        NSEC_TO_SEC(elapsed_ns),
-                        (num_inserts / NSEC_TO_SEC(elapsed_ns)));
+   CTEST_LOG_INFO("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
+                  "%lu ns, %lu rows/s\n",
+                  __FUNCTION__,
+                  __LINE__,
+                  thread_idx,
+                  ictr, // outer-loop ends at #-of-Millions inserted
+                  elapsed_ns,
+                  (num_inserts / elapsed_s));
 
    if (wcfg->is_thread) {
       splinterdb_deregister_thread(kvsb);
