@@ -63,10 +63,4 @@ typedef struct laio_handle {
 
 platform_status
 laio_config_valid(io_config *cfg);
-
-static inline io_context_t
-platform_io_context(laio_handle *ioh)
-{
-   return ioh->ctx[0];
-}
 #endif //__LAIO_H
