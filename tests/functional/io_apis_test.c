@@ -222,7 +222,7 @@ splinter_io_apis_test(int argc, char *argv[])
                   master_cfg.io_flags,
                   master_cfg.io_perms,
                   master_cfg.io_async_queue_depth,
-                  "splinter_io_apis_test.db");
+                  "splinterdb_io_apis_test_db");
 
    platform_default_log("Exercise IO sub-system test on device '%s'"
                         ", page_size=%lu, extent_size=%lu, async_queue_size=%lu"
@@ -322,7 +322,13 @@ splinter_io_apis_test(int argc, char *argv[])
          platform_error_log("fork() of child process failed: pid=%d\n", pid);
          goto io_free;
       } else if (pid) {
-         wait(NULL);
+         int wstatus;
+         int wr = wait(&wstatus);
+         platform_assert(wr != -1, "wait failure: %s", strerror(errno));
+         platform_assert(WIFEXITED(wstatus),
+                         "child terminated abnormally: SIGNAL=%d",
+                         WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
+         platform_assert(WEXITSTATUS(wstatus) == 0);
          platform_default_log("Thread-ID=%lu, OS-pid=%d: "
                               "Child execution wait() completed."
                               " Resuming parent ...\n",
