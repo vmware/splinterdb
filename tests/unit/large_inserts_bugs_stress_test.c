@@ -284,6 +284,17 @@ CTEST2(large_inserts_bugs_stress, test_random_key_random_values_inserts)
    close(wcfg.random_val_fd);
 }
 
+static void safe_wait()
+{
+   int wstatus;
+   int wr = wait(&wstatus);
+   platform_assert(wr != -1, "wait failure: %s", strerror(errno));
+   platform_assert(WIFEXITED(wstatus),
+                   "child terminated abnormally: SIGNAL=%d",
+                   WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
+   platform_assert(WEXITSTATUS(wstatus) == 0);
+}
+
 /*
  * ----------------------------------------------------------------------------
  * test_seq_key_seq_values_inserts_forked() --
@@ -321,7 +332,7 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
                               getpid(),
                               pid);
 
-         wait(NULL);
+         safe_wait();
 
          platform_default_log("Thread-ID=%lu, OS-pid=%d: "
                               "Child execution wait() completed."
