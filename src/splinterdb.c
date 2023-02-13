@@ -833,6 +833,13 @@ splinterdb_update(const splinterdb *kvsb, slice key, slice update)
    return splinterdb_insert_message(kvsb, key, msg);
 }
 
+int
+splinterdb_commit(const splinterdb *kvsb)
+{
+   platform_status status = log_commit(kvsb->spl->log);
+   return platform_status_to_int(status);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * _splinterdb_lookup_result structure --
