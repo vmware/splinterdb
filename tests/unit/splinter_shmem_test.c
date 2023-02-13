@@ -349,11 +349,11 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
 
    ZERO_ARRAY(thread_cfg);
 
-   platform_default_log("\nExecute %d concurrent threads peforming memory "
-                        "allocation till we run out of memory in the shared "
-                        "segment.\n"
-                        "('Insufficient memory' errors are expected below.)\n",
-                        TEST_MAX_THREADS);
+   CTEST_LOG_INFO("\nExecute %d concurrent threads peforming memory "
+                  "allocation till we run out of memory in the shared "
+                  "segment.\n"
+                  "('Insufficient memory' errors are expected below.)\n",
+                  TEST_MAX_THREADS);
 
    // Start-up n-threads, record their expected thread-IDs, which will be
    // validated by the thread's execution function below.
@@ -648,7 +648,7 @@ exec_thread_memalloc(void *arg)
    }
    splinterdb_deregister_thread(kvs);
 
-   platform_default_log(
+   CTEST_LOG_INFO(
       "Thread-ID=%lu allocated %lu memory fragments of %lu bytes each.\n",
       this_thread_idx,
       nallocs,

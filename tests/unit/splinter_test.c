@@ -67,7 +67,7 @@ test_lookup_by_range(void         *datap,
 #define SHOW_PCT_PROGRESS(op_num, num_ops, msg)                                \
    do {                                                                        \
       if (((op_num) % ((num_ops) / 100)) == 0) {                               \
-         platform_default_log(PLATFORM_CR msg, (op_num) / ((num_ops) / 100));  \
+         CTEST_LOG_INFO(PLATFORM_CR msg, (op_num) / ((num_ops) / 100));        \
       }                                                                        \
    } while (0)
 
@@ -129,9 +129,6 @@ CTEST_SETUP(splinter)
    heap_capacity        = MAX(heap_capacity, 2 * GiB);
 
    bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
-   if (use_shmem) {
-      platform_default_log("Run test using shared memory segment.\n");
-   }
 
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
