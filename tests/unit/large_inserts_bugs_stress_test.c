@@ -34,9 +34,10 @@ typedef struct {
    uint64         start_value;
    uint64         num_inserts;
    uint64         num_threads;
-   int            random_key_fd; // Also used as a boolean
-   int            random_val_fd; // Also used as a boolean
-   bool           is_thread;     // Is main() or thread executing worker fn
+   uint64         commit_every_n; // sync-write log page every n-entries.
+   int            random_key_fd;  // Also used as a boolean
+   int            random_val_fd;  // Also used as a boolean
+   bool           is_thread;      // Is main() or thread executing worker fn
 } worker_config;
 
 // Function Prototypes
@@ -50,7 +51,8 @@ do_inserts_n_threads(splinterdb      *kvsb,
                      int              random_key_fd,
                      int              random_val_fd,
                      uint64           num_inserts,
-                     uint64           num_threads);
+                     uint64           num_threads,
+                     uint64           commit_every_n);
 
 // Run n-threads concurrently inserting many KV-pairs
 #define NUM_THREADS 8
@@ -90,6 +92,7 @@ CTEST_DATA(large_inserts_bugs_stress)
    uint64            num_inserts; // per main() process or per thread
    int               this_pid;
    bool              am_parent;
+   uint64            commit_every_n; // sync-write log page every n-entries.
 };
 
 // Optional setup function for suite, called before every test in suite
@@ -150,6 +153,8 @@ CTEST_SETUP(large_inserts_bugs_stress)
    data->cfg.num_bg_threads[TASK_TYPE_NORMAL] = data->master_cfg.num_bg_threads;
    data->cfg.num_bg_threads[TASK_TYPE_MEMTABLE] =
       data->master_cfg.num_memtable_bg_threads;
+
+   data->commit_every_n = data->master_cfg.commit_every_n;
 
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);
@@ -227,9 +232,10 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb        = data->kvsb;
-   wcfg.master_cfg  = &data->master_cfg;
-   wcfg.num_inserts = data->num_inserts;
+   wcfg.kvsb           = data->kvsb;
+   wcfg.master_cfg     = &data->master_cfg;
+   wcfg.num_inserts    = data->num_inserts;
+   wcfg.commit_every_n = data->commit_every_n;
 
    exec_worker_thread(&wcfg);
 }
@@ -240,10 +246,11 @@ CTEST2(large_inserts_bugs_stress, test_random_key_seq_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
+   wcfg.kvsb           = data->kvsb;
+   wcfg.master_cfg     = &data->master_cfg;
+   wcfg.num_inserts    = data->num_inserts;
+   wcfg.commit_every_n = data->commit_every_n;
+   wcfg.random_key_fd  = open("/dev/urandom", O_RDONLY);
 
    exec_worker_thread(&wcfg);
 
@@ -256,10 +263,11 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_random_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
+   wcfg.kvsb           = data->kvsb;
+   wcfg.master_cfg     = &data->master_cfg;
+   wcfg.num_inserts    = data->num_inserts;
+   wcfg.commit_every_n = data->commit_every_n;
+   wcfg.random_val_fd  = open("/dev/urandom", O_RDONLY);
 
    exec_worker_thread(&wcfg);
 
@@ -272,11 +280,12 @@ CTEST2(large_inserts_bugs_stress, test_random_key_random_values_inserts)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb          = data->kvsb;
-   wcfg.master_cfg    = &data->master_cfg;
-   wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = open("/dev/urandom", O_RDONLY);
-   wcfg.random_val_fd = open("/dev/urandom", O_RDONLY);
+   wcfg.kvsb           = data->kvsb;
+   wcfg.master_cfg     = &data->master_cfg;
+   wcfg.num_inserts    = data->num_inserts;
+   wcfg.commit_every_n = data->commit_every_n;
+   wcfg.random_key_fd  = open("/dev/urandom", O_RDONLY);
+   wcfg.random_val_fd  = open("/dev/urandom", O_RDONLY);
 
    exec_worker_thread(&wcfg);
 
@@ -314,9 +323,10 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
    ZERO_STRUCT(wcfg);
 
    // Load worker config params
-   wcfg.kvsb        = data->kvsb;
-   wcfg.master_cfg  = &data->master_cfg;
-   wcfg.num_inserts = data->num_inserts;
+   wcfg.kvsb           = data->kvsb;
+   wcfg.master_cfg     = &data->master_cfg;
+   wcfg.num_inserts    = data->num_inserts;
+   wcfg.commit_every_n = data->commit_every_n;
 
    int pid = getpid();
 
@@ -384,7 +394,8 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_threaded)
                         TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
                         TEST_INSERT_SEQ_VALUES_FD,
                         data->num_inserts,
-                        data->master_cfg.num_threads);
+                        data->master_cfg.num_threads,
+                        data->commit_every_n);
 }
 
 /*
@@ -401,7 +412,8 @@ CTEST2(large_inserts_bugs_stress,
                         TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
                         TEST_INSERT_SEQ_VALUES_FD,
                         data->num_inserts,
-                        data->master_cfg.num_threads);
+                        data->master_cfg.num_threads,
+                        data->commit_every_n);
 }
 
 /*
@@ -419,7 +431,8 @@ CTEST2(large_inserts_bugs_stress,
                         TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
                         TEST_INSERT_FULLY_PACKED_CONSTANT_VALUE_FD,
                         data->num_inserts,
-                        data->master_cfg.num_threads);
+                        data->master_cfg.num_threads,
+                        data->commit_every_n);
 }
 
 CTEST2(large_inserts_bugs_stress, test_random_keys_seq_values_threaded)
@@ -434,7 +447,8 @@ CTEST2(large_inserts_bugs_stress, test_random_keys_seq_values_threaded)
                         random_key_fd,
                         TEST_INSERT_SEQ_VALUES_FD,
                         data->num_inserts,
-                        data->master_cfg.num_threads);
+                        data->master_cfg.num_threads,
+                        data->commit_every_n);
 
    close(random_key_fd);
 }
@@ -451,7 +465,8 @@ CTEST2(large_inserts_bugs_stress, test_seq_keys_random_values_threaded)
                         TEST_INSERTS_SEQ_KEY_DIFF_START_KEYID_FD,
                         random_val_fd,
                         data->num_inserts,
-                        data->master_cfg.num_threads);
+                        data->master_cfg.num_threads,
+                        data->commit_every_n);
 
    close(random_val_fd);
 }
@@ -469,7 +484,8 @@ CTEST2(large_inserts_bugs_stress,
                         TEST_INSERTS_SEQ_KEY_SAME_START_KEYID_FD,
                         random_val_fd,
                         data->num_inserts,
-                        data->master_cfg.num_threads);
+                        data->master_cfg.num_threads,
+                        data->commit_every_n);
 
    close(random_val_fd);
 }
@@ -489,7 +505,8 @@ CTEST2(large_inserts_bugs_stress, test_random_keys_random_values_threaded)
                         random_key_fd,
                         random_val_fd,
                         data->num_inserts,
-                        data->master_cfg.num_threads);
+                        data->master_cfg.num_threads,
+                        data->commit_every_n);
 
    close(random_key_fd);
    close(random_val_fd);
@@ -506,7 +523,7 @@ CTEST2(large_inserts_bugs_stress, test_random_keys_random_values_threaded)
  * - random_val_fd      - Sequential / random value / fully-packed value.
  * - num_inserts        - # of inserts / thread
  * - num_threads        - # of threads to start-up
- * - same_start_value   - Boolean to control inserted batch' start-value.
+ * - commit_every_n     - Issue a COMMIT after every n-inserts
  *
  * NOTE: Semantics of random_key_fd:
  *
@@ -536,15 +553,17 @@ do_inserts_n_threads(splinterdb      *kvsb,
                      int              random_key_fd,
                      int              random_val_fd,
                      uint64           num_inserts,
-                     uint64           num_threads)
+                     uint64           num_threads,
+                     uint64           commit_every_n)
 {
    worker_config *wcfg = TYPED_ARRAY_ZALLOC(hid, wcfg, num_threads);
 
    // Setup thread-specific insert parameters
    for (int ictr = 0; ictr < num_threads; ictr++) {
-      wcfg[ictr].kvsb        = kvsb;
-      wcfg[ictr].master_cfg  = master_cfg;
-      wcfg[ictr].num_inserts = num_inserts;
+      wcfg[ictr].kvsb           = kvsb;
+      wcfg[ictr].master_cfg     = master_cfg;
+      wcfg[ictr].num_inserts    = num_inserts;
+      wcfg[ictr].commit_every_n = commit_every_n;
 
       // Choose the same or diff start key-ID for each thread.
       wcfg[ictr].start_value =
@@ -587,7 +606,8 @@ do_inserts_n_threads(splinterdb      *kvsb,
  * exec_worker_thread() - Thread-specific insert work-horse function.
  *
  * Each thread inserts 'num_inserts' KV-pairs from a 'start_value' ID.
- * All inserts are sequential.
+ * If --commit-after is specified, here is where we invoke Splinter's COMMIT
+ * method.
  * ----------------------------------------------------------------------------
  */
 static void *
@@ -644,7 +664,25 @@ exec_worker_thread(void *w)
    memset(val_data, 'V', sizeof(val_data));
    uint64 val_len = sizeof(val_data);
 
-   bool val_length_msg_printed = FALSE;
+   if (random_val_fd > 0) {
+      CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu, Insert random value of "
+                     "fixed-length=%lu bytes.\n",
+                     getpid(),
+                     thread_idx,
+                     val_len);
+   } else if (random_val_fd == 0) {
+      CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu, Insert small-width sequential"
+                     " values of different lengths.\n",
+                     getpid(),
+                     thread_idx);
+   } else { // (random_val_fd < 0)
+      CTEST_LOG_INFO("OS-pid=%d, Thread-ID=%lu"
+                     ", Insert fully-packed fixed value of "
+                     "length=%lu bytes.\n",
+                     getpid(),
+                     thread_idx,
+                     val_len);
+   }
 
    for (ictr = 0; ictr < (num_inserts / MILLION); ictr++) {
       for (jctr = 0; jctr < MILLION; jctr++) {
@@ -674,38 +712,10 @@ exec_worker_thread(void *w)
             ASSERT_TRUE(result >= 0);
 
             val_len = result;
-            if (!val_length_msg_printed) {
-               platform_default_log("OS-pid=%d, Thread-ID=%lu"
-                                    ", Insert random value of "
-                                    "fixed-length=%lu bytes.\n",
-                                    getpid(),
-                                    thread_idx,
-                                    val_len);
-               val_length_msg_printed = TRUE;
-            }
          } else if (random_val_fd == 0) {
             // Generate small-length sequential value data
             snprintf(val_data, sizeof(val_data), "Row-%lu", id);
             val_len = strlen(val_data);
-
-            if (!val_length_msg_printed) {
-               platform_default_log("OS-pid=%d, Thread-ID=%lu"
-                                    ", Insert small-width sequential values of "
-                                    "different lengths.\n",
-                                    getpid(),
-                                    thread_idx);
-               val_length_msg_printed = TRUE;
-            }
-         } else if (random_val_fd < 0) {
-            if (!val_length_msg_printed) {
-               platform_default_log("OS-pid=%d, Thread-ID=%lu"
-                                    ", Insert fully-packed fixed value of "
-                                    "length=%lu bytes.\n",
-                                    getpid(),
-                                    thread_idx,
-                                    val_len);
-               val_length_msg_printed = TRUE;
-            }
          }
 
          slice key = slice_create(key_len, key_data);

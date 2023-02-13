@@ -165,6 +165,10 @@ splinterdb_delete(const splinterdb *kvsb, slice key);
 int
 splinterdb_update(const splinterdb *kvsb, slice key, slice delta);
 
+// Commit the set of changes done to Splinter since the last COMMIT
+int
+splinterdb_commit(const splinterdb *kvsb);
+
 // Lookups
 
 // Size of opaque data required to hold a lookup result
