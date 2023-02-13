@@ -290,17 +290,19 @@ splinter_io_apis_test(int argc, char *argv[])
     */
    io_context_t io_ctxt = io_get_context((io_handle *)io_hdl);
 
-   platform_default_log("Before fork()'ing: OS-pid=%d (%s), hh=%p, io_hdl=%p"
-                        ", IO context[threadID=%lu]: %p (%d bytes)"
-                        ", Async IO request array: %p\n",
-                        getpid(),
-                        whoami,
-                        hh,
-                        io_hdl,
-                        main_thread_idx,
-                        io_ctxt,
-                        (int)sizeof(io_ctxt),
-                        io_get_io_async_req((io_handle *)io_hdl));
+   platform_default_log(
+      "Before fork()'ing: OS-pid=%d (%s), tid=%lu, hh=%p, io_hdl=%p"
+      ", IO context[threadID=%lu]: %p (%d bytes)"
+      ", Async IO request array: %p\n",
+      getpid(),
+      whoami,
+      main_thread_idx,
+      hh,
+      io_hdl,
+      main_thread_idx,
+      io_ctxt,
+      (int)sizeof(io_ctxt),
+      io_get_io_async_req((io_handle *)io_hdl));
 
    /*
     * Setup a top-level test parameters structure encompassing the whole
@@ -326,7 +328,13 @@ splinter_io_apis_test(int argc, char *argv[])
          platform_error_log("fork() of child process failed: pid=%d\n", pid);
          goto io_free;
       } else if (pid) {
-         wait(NULL);
+         int wstatus;
+         int wr = wait(&wstatus);
+         platform_assert(wr != -1, "wait failure: %s", strerror(errno));
+         platform_assert(WIFEXITED(wstatus),
+                         "child terminated abnormally: SIGNAL=%d",
+                         WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
+         platform_assert(WEXITSTATUS(wstatus) == 0);
          platform_default_log("Thread-ID=%lu, OS-pid=%d: "
                               "Child execution wait() completed."
                               " Resuming parent ...\n",

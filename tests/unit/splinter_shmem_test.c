@@ -60,6 +60,7 @@ CTEST_DATA(splinter_shmem)
 // By default, all test cases will deal with small shared memory segment.
 CTEST_SETUP(splinter_shmem)
 {
+   set_log_streams_for_tests(MSG_LEVEL_INFO);
    data->shmem_capacity = (256 * MiB); // bytes
    platform_status rc   = platform_heap_create(platform_get_module_id(),
                                              data->shmem_capacity,
@@ -196,6 +197,7 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
  */
 CTEST2(splinter_shmem, test_allocations_causing_OOMs)
 {
+   set_log_streams_for_tests(MSG_LEVEL_ERRORS);
    int keybuf_size = 64;
 
    // Self-documenting assertion ... to future-proof this area.
@@ -322,6 +324,7 @@ CTEST2(splinter_shmem, test_free)
  */
 CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
 {
+   set_log_streams_for_tests(MSG_LEVEL_ERRORS);
    splinterdb       *kvsb;
    splinterdb_config cfg;
    data_config       default_data_cfg;

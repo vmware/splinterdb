@@ -40,6 +40,17 @@ create_default_cfg(splinterdb_config *out_cfg, data_config *default_data_cfg);
 static void
 do_many_inserts(splinterdb *kvsb, uint64 num_inserts);
 
+static void
+safe_wait()
+{
+   int wstatus;
+   int wr = wait(&wstatus);
+   platform_assert(wr != -1, "wait failure: %s", strerror(errno));
+   platform_assert(WIFEXITED(wstatus),
+                   "child terminated abnormally: SIGNAL=%d",
+                   WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
+   platform_assert(WEXITSTATUS(wstatus) == 0);
+}
 /*
  * Global data declaration macro:
  * Each test-case is designed to be self-contained, so we do not have any
@@ -109,7 +120,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "test_forked_child.db";
+   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -177,18 +188,21 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       splinterdb_deregister_thread(spl_handle);
 
       // After deregistering w/Splinter, child process is back to tid==0.
-      ASSERT_EQUAL(0, platform_get_tid());
+      ASSERT_EQUAL(INVALID_TID, platform_get_tid());
    }
 
    // Only parent can close Splinter
    if (pid) {
 
-      wait(NULL);
+      safe_wait();
 
       // We would get assertions tripping from BTree iterator code here,
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
       // was not in-place.
       splinterdb_close(&spl_handle);
+   } else {
+      // child should not attempt to run the rest of the tests
+      exit(0);
    }
 }
 
@@ -221,7 +235,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "test_forked_child.db";
+   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -275,7 +289,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
                            getpid(),
                            pid);
 
-      wait(NULL);
+      safe_wait();
 
       platform_default_log("Thread-ID=%lu, OS-pid=%d: "
                            "Child execution wait() completed."
@@ -287,6 +301,9 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
       // was not in-place.
       splinterdb_close(&spl_handle);
+   } else {
+      // child should not attempt to run the rest of the tests
+      exit(0);
    }
 }
 
@@ -336,7 +353,7 @@ CTEST2(splinterdb_forked_child,
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "test_forked_child.db";
+   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -396,7 +413,7 @@ CTEST2(splinterdb_forked_child,
                            getpid(),
                            pid);
 
-      wait(NULL);
+      safe_wait();
 
       platform_default_log("Thread-ID=%lu, OS-pid=%d: "
                            "Child execution wait() completed."
@@ -404,6 +421,9 @@ CTEST2(splinterdb_forked_child,
                            platform_get_tid(),
                            getpid());
       splinterdb_close(&spl_handle);
+   } else {
+      // child should not attempt to run the rest of the tests
+      exit(0);
    }
 }
 
@@ -436,7 +456,7 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
    // hammering at it with large #s of inserts.
    splinterdb_cfg.cache_size = (1 * Giga);
 
-   splinterdb_cfg.filename = "test_forked_child.db";
+   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -453,6 +473,7 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
    bool wait_for_gdb = data->master_cfg.wait_for_gdb;
 
    int forked_pids[20] = {0};
+   platform_assert(data->num_forked_procs < sizeof(forked_pids));
 
    // Fork n-concurrently executing child processes.
    for (int fctr = 0; data->am_parent && fctr < data->num_forked_procs; fctr++)
@@ -512,7 +533,13 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
 
       // Wait-for -ALL- children to finish; duh!
       for (int fctr = 0; fctr < data->num_forked_procs; fctr++) {
-         waitpid(forked_pids[fctr], NULL, 0);
+         int wstatus;
+         int wr = waitpid(forked_pids[fctr], &wstatus, 0);
+         platform_assert(wr != -1, "wait failure: %s", strerror(errno));
+         platform_assert(WIFEXITED(wstatus),
+                         "child terminated abnormally: SIGNAL=%d",
+                         WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
+         platform_assert(WEXITSTATUS(wstatus) == 0);
       }
 
       platform_default_log("\nThread-ID=%lu, OS-pid=%d: "
@@ -521,6 +548,9 @@ CTEST2(splinterdb_forked_child, test_forked_processes_doing_IOs)
                            platform_get_tid(),
                            getpid());
       splinterdb_close(&spl_handle);
+   } else {
+      // child should not attempt to run the rest of the tests
+      exit(0);
    }
 }
 
