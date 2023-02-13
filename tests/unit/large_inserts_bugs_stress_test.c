@@ -284,7 +284,8 @@ CTEST2(large_inserts_bugs_stress, test_random_key_random_values_inserts)
    close(wcfg.random_val_fd);
 }
 
-static void safe_wait()
+static void
+safe_wait()
 {
    int wstatus;
    int wr = wait(&wstatus);

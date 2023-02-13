@@ -17,6 +17,7 @@
 #include "clockcache.h"
 #include "trunk.h"
 #include "test.h"
+#include "test_misc_common.h"
 
 #include "poison.h"
 
@@ -415,13 +416,23 @@ log_test(int argc, char *argv[])
       config_argv = argv + 1;
    }
 
-   platform_default_log("\nStarted log_test!!\n");
+   // If --use-shmem was provided, parse past that argument.
+   bool use_shmem =
+      (config_argc >= 1) && test_using_shmem(config_argc, (char **)config_argv);
+   if (use_shmem) {
+      config_argc--;
+      config_argv++;
+   }
+
+   platform_default_log("\nStarted log_test%s!!\n",
+                        (use_shmem ? " using shared memory" : ""));
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_handle hh;
-   platform_heap_id     hid;
-   status =
-      platform_heap_create(platform_get_module_id(), 1 * GiB, FALSE, &hh, &hid);
+   platform_heap_handle hh  = NULL;
+   platform_heap_id     hid = NULL;
+
+   status = platform_heap_create(
+      platform_get_module_id(), 1 * GiB, use_shmem, &hh, &hid);
    platform_assert_status_ok(status);
 
    trunk_config *cfg = TYPED_MALLOC(hid, cfg);
