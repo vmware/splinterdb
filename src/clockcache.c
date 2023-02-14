@@ -1408,7 +1408,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          // walk backwards through extent to find first cleanable entry
          do {
             first_addr -= clockcache_page_size(cc);
-            if (clockcache_pages_share_extent(cc, first_addr, addr))
+            if (clockcache_pages_share_extent(cc, first_addr, addr)) {
                next_entry_no = clockcache_lookup(cc, first_addr);
             } else {
                next_entry_no = CC_UNMAPPED_ENTRY;
@@ -1422,7 +1422,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          // walk forwards through extent to find last cleanable entry
          do {
             end_addr += clockcache_page_size(cc);
-            if (clockcache_pages_share_extent(cc, end_addr, addr))
+            if (clockcache_pages_share_extent(cc, end_addr, addr)) {
                next_entry_no = clockcache_lookup(cc, end_addr);
             } else {
                next_entry_no = CC_UNMAPPED_ENTRY;
