@@ -190,7 +190,7 @@ ctest_main(int argc, const char *argv[])
       argc, argv, program_is_unit_test, &suite_name, &testcase_name);
 
    if (num_filter_args < 0) {
-      fprintf(stderr, "Incorrect usage. ");
+      fprintf(stderr, "%s(): Incorrect usage. ", __func__);
       ctest_usage(argv[0], program_is_unit_test);
       return num_fail;
    }
@@ -422,6 +422,7 @@ ctest_process_args(const int    argc,
                    const char **suite_name,    // OUT
                    const char **testcase_name) // OUT
 {
+   // No command-line arguments were provided
    if (argc <= 1) {
       return 0;
    }
@@ -441,9 +442,9 @@ ctest_process_args(const int    argc,
 
    /*
     * Here, argc >= 2; i.e. we are dealing with either one of these cases:
-    *   - bin/unit_test <suite-name>
-    *   - bin/unit_test <suite-name> <test-case-name>
-    *   - bin/unit/standalone <test-case-name>
+    *   - bin/unit_test <suite-name_test>
+    *   - bin/unit_test <suite-name> <test_case-name>
+    *   - bin/unit/standalone_test <test_case-name>
     * We expect up to 2 trailing "name"-args to be provided.
     */
    if (program_is_unit_test) {
