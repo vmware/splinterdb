@@ -125,9 +125,11 @@ CTEST_SETUP(large_inserts_bugs_stress)
       argv++;
    }
 
+   // On AWS, noted that db-size at end of some test cases is ~40 GiB.
+   // So, create a max-size slightly bigger than that.
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
                                    .cache_size = 512 * Mega,
-                                   .disk_size  = 40 * Giga,
+                                   .disk_size  = 42 * Giga,
                                    .use_shmem  = use_shmem,
                                    .shmem_size = (4 * GiB),
                                    .data_cfg   = &data->default_data_config};
@@ -139,9 +141,11 @@ CTEST_SETUP(large_inserts_bugs_stress)
    rc = config_parse(&data->master_cfg, 1, argc, (char **)argv);
    ASSERT_TRUE(SUCCESS(rc));
 
+   // With default # of configured threads for this test, 8, with each
+   // thread inserting 10M rows we fill-up almost 40GiB of device size.
    data->num_inserts =
       (data->master_cfg.num_inserts ? data->master_cfg.num_inserts
-                                    : (20 * MILLION));
+                                    : (10 * MILLION));
 
    // If num_threads is unspecified, use default for this test.
    if (!data->master_cfg.num_threads) {
