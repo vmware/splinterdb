@@ -366,18 +366,17 @@ RETRY_LOCK_WRITE_SET:
             lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
          // platform_error_log("lock_rc = %d", lock_rc);
 
+         if (lock_rc == LOCK_TABLE_RC_BUSY) {
+            is_abort = TRUE;
+            break;
+         }
+
          if (lock_rc != LOCK_TABLE_RC_DEADLK) {
             platform_assert(iceberg_get_value(
                txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()));
             ts_set = (timestamp_set *)value_ht;
          }
-
-         if (lock_rc == LOCK_TABLE_RC_BUSY
-             && timestamp_set_get_rts(ts_set) <= commit_ts) {
-            is_abort = TRUE;
-            break;
-         }
-
+         
          if (ts_set->wts != r->wts) {
             if (lock_rc == LOCK_TABLE_RC_OK) {
                lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
