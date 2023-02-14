@@ -148,8 +148,8 @@ test_log_thread(void *arg)
       test_key(key, TEST_RANDOM, i, 0, 0, log->cfg->data_cfg->key_size, 0);
       generate_test_message(gen, i, &msg);
       log_write(logh, skey, merge_accumulator_to_message(&msg), i);
-      num_bytes_logged +=
-         key_length(skey) + message_length(merge_accumulator_to_message(&msg));
+      num_bytes_logged += slice_length(skey)
+                          + message_length(merge_accumulator_to_message(&msg));
       if (params->commit_every_n && ((i + 1) % params->commit_every_n) == 0) {
          log_commit(logh);
          num_commits++;
@@ -195,20 +195,19 @@ gen_log_perf_summary(test_log_thread_params *params,
                         N_TO_M_FRACT(rate_per_sec));
    platform_default_log("\nPer-Thread logging activity summary:\n");
    // clang-format off
-   const char *dashes = "------------------------------------------------------"
-                        "---------------------";
+   const char *dashes = "---------------------------------------------------------------------------";
 
    platform_default_log("%s\n", dashes);
-   platform_default_log("Thread      Num              Num Bytes Logged      "
-                        "Ave Transaction Size\n");
-   platform_default_log("  ID       Commits                                    "
-                        "Bytes       Pages\n");
+   platform_default_log("Thread      Num              Num Bytes Logged      Ave Transaction Size\n");
+   platform_default_log("  ID       Commits                                    Bytes       Pages\n");
    platform_default_log("%s\n", dashes);
    // clang-format on
 
    uint64                  sum_ncommits      = 0;
    uint64                  sum_nbytes_logged = 0;
    test_log_thread_params *threadp           = params;
+
+   char outbuf[SIZE_TO_STR_LEN];
    for (uint64 tctr = 0; tctr < num_threads; tctr++, threadp++) {
       uint64   ave_bytes_per_xact = 0;
       fraction ave_nlog_pages_per_xact;
@@ -220,11 +219,12 @@ gen_log_perf_summary(test_log_thread_params *params,
       }
 
       // clang-format off
+      size_to_str(outbuf, sizeof(outbuf), threadp->num_bytes_logged);
       platform_default_log("  %-4lu        %-8lu      %-10lu %-14s  %-8lu  " FRACTION_FMT(6,2) "\n",
                            tctr,
                            threadp->num_commits,
                            threadp->num_bytes_logged,
-                           size_fmtstr("(%s)",threadp->num_bytes_logged),
+                           outbuf,
                            ave_bytes_per_xact,
                            FRACTION_ARGS(ave_nlog_pages_per_xact));
       // clang-format on
@@ -234,10 +234,12 @@ gen_log_perf_summary(test_log_thread_params *params,
    }
    platform_default_log("%s\n", dashes);
    // clang-format off
+
+   size_to_str(outbuf, sizeof(outbuf), sum_nbytes_logged);
    platform_default_log(" Totals       %-8lu    %-12lu %-14s  Need ~%lu log pages\n",
                         sum_ncommits,
                         sum_nbytes_logged,
-                        size_fmtstr("(%s)", sum_nbytes_logged),
+                        outbuf,
                         (((sum_nbytes_logged / xlog_page_size) * 110) / 100));
    // clang-format on
 
@@ -433,7 +435,6 @@ log_test(int argc, char *argv[])
                               &al_cfg,
                               &cache_cfg,
                               &log_cfg,
-                              &task_cfg,
                               &test_exec_cfg,
                               &gen,
                               1,

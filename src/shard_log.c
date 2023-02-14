@@ -22,7 +22,7 @@
 static uint64 shard_log_magic_idx = 0;
 
 platform_status
-shard_log_write(log_handle *log, key tuple_key, message msg, uint64 generation);
+shard_log_write(log_handle *log, slice key, message msg, uint64 generation);
 
 uint64
 shard_log_addr(log_handle *log);
@@ -216,7 +216,7 @@ first_log_entry(char *page)
 static bool
 terminal_log_entry(shard_log_config *cfg, char *page, log_entry *le)
 {
-   return page + shard_log_page_size(cfg) - (char *)le < sizeof(log_entry)
+   return page + shard_log_cfg_page_size(cfg) - (char *)le < sizeof(log_entry)
           || (le->keylen == 0 && le->messagelen == 0);
 }
 

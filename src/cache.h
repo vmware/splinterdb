@@ -165,7 +165,7 @@ typedef cache_async_result (*page_get_async_fn)(cache            *cc,
 typedef void (*page_async_done_fn)(cache            *cc,
                                    page_type         type,
                                    cache_async_ctxt *ctxt);
-typedef bool (*page_try_claim_fn)(cache *cc, page_handle *page);
+typedef bool (*page_claim_fn)(cache *cc, page_handle *page);
 typedef void (*page_write_fn)(cache *cc, page_handle *page, page_type type);
 typedef void (*extent_sync_fn)(cache  *cc,
                                uint64  addr,

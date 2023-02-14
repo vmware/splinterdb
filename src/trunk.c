@@ -3144,7 +3144,8 @@ trunk_memtable_insert(trunk_handle *spl, char *key, message msg)
    }
 
    if (spl->cfg.use_log) {
-      platform_status rc = log_write(spl->log, tuple_key, msg, leaf_generation);
+      slice           key_slice = slice_create(trunk_key_size(spl), key);
+      platform_status rc = log_write(spl->log, key_slice, msg, leaf_generation);
       if (!SUCCESS(rc)) {
          goto unlock_insert_lock;
       }
