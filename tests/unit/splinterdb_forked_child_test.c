@@ -188,7 +188,7 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       splinterdb_deregister_thread(spl_handle);
 
       // After deregistering w/Splinter, child process is back to tid==0.
-      ASSERT_EQUAL(INVALID_TID, platform_get_tid());
+      ASSERT_EQUAL(0, platform_get_tid());
    }
 
    // Only parent can close Splinter
