@@ -79,7 +79,7 @@ platform_status_to_int(const platform_status status) // IN
 }
 
 static void
-splinterdb_config_set_defaults(splinterdb_config *cfg)
+splinterdb_config_set_defaults(splinterdb_config *cfg, bool open_existing)
 {
    if (!cfg->page_size) {
       cfg->page_size = LAIO_DEFAULT_PAGE_SIZE;
@@ -88,7 +88,9 @@ splinterdb_config_set_defaults(splinterdb_config *cfg)
       cfg->extent_size = LAIO_DEFAULT_EXTENT_SIZE;
    }
    if (!cfg->io_flags) {
-      cfg->io_flags = O_RDWR | O_CREAT;
+      // If user is opening an existing device, then don't create a
+      // new one. Otherwise, create a new device.
+      cfg->io_flags = (O_RDWR | (!open_existing ? O_CREAT : 0));
    }
    if (!cfg->io_perms) {
       cfg->io_perms = 0755;
@@ -328,8 +330,8 @@ splinterdb_shim_data_config(const data_config *app_cfg,
  */
 static platform_status
 splinterdb_init_config(splinterdb_config *kvs_cfg, // IN
-                       splinterdb        *kvs      // OUT
-)
+                       splinterdb        *kvs,     // OUT
+                       bool               open_existing)
 {
    platform_status rc = STATUS_OK;
 
@@ -349,7 +351,7 @@ splinterdb_init_config(splinterdb_config *kvs_cfg, // IN
    // mutable local config block, where we can set defaults
    splinterdb_config cfg = {0};
    memcpy(&cfg, kvs_cfg, sizeof(cfg));
-   splinterdb_config_set_defaults(&cfg);
+   splinterdb_config_set_defaults(&cfg, open_existing);
 
    // this line carries a reference, so kvs_cfg->data_cfg must live
    // at least as long as kvs does
@@ -478,7 +480,7 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
    // from the handle to the running Splinter instance; i.e. 'kvs'. (The
    // input memory handles in kvs_cfg; i.e. kvs_cfg->heap_id, heap_handle will
    // be NULL'ed out after they are cp'ed to handles in kvs.)
-   status = splinterdb_init_config(kvs_cfg, kvs);
+   status = splinterdb_init_config(kvs_cfg, kvs, open_existing);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
                          "configuration: %s\n",

@@ -247,7 +247,7 @@ io_handle_init(laio_handle         *io,
 
    bool is_create = ((cfg->flags & O_CREAT) != 0);
    if (is_create) {
-      io->fd = open(cfg->filename, cfg->flags, cfg->perms);
+      io->fd = open(cfg->filename, (cfg->flags | O_TRUNC), cfg->perms);
    } else {
       io->fd = open(cfg->filename, cfg->flags);
    }
