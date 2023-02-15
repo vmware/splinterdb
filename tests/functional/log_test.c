@@ -399,7 +399,7 @@ log_test(int argc, char *argv[])
          // Provide usage info and exit cleanly.
          usage(argv[0]);
          rc = 0;
-         goto cleanup;
+         goto out;
       }
 
       if (strncmp(argv[1], "--perf-single", sizeof("--perf-single")) == 0) {
@@ -572,6 +572,6 @@ free_iohandle:
 cleanup:
    platform_free(hid, cfg);
    platform_heap_destroy(&hh);
-
+out:
    return rc == 0 ? 0 : -1;
 }
