@@ -35,7 +35,7 @@ rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
    char *key_buf;
    key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
    memmove(key_buf, slice_data(key), slice_length(key));
-   e->key   = slice_create(slice_length(key), key_buf);
+   e->key = slice_create(slice_length(key), key_buf);
 }
 
 static inline void
@@ -72,6 +72,8 @@ rw_entry_decrease_refcount(transactional_splinterdb *txn_kvsb, rw_entry *entry)
           txn_kvsb->tscache, &key_ht, platform_get_tid())) {
       if (slice_data(entry->key) != key_ht) {
          platform_free_from_heap(0, key_ht);
+      } else {
+         entry->need_to_keep_key = FALSE;
       }
    }
 }
@@ -251,6 +253,7 @@ transaction_deinit(transaction *txn)
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       rw_entry_deinit(txn->rw_entries[i]);
+      platform_free(0, txn->rw_entries[i]);
    }
 }
 
@@ -376,7 +379,7 @@ RETRY_LOCK_WRITE_SET:
                txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()));
             ts_set = (timestamp_set *)value_ht;
          }
-         
+
          if (ts_set->wts != r->wts) {
             if (lock_rc == LOCK_TABLE_RC_OK) {
                lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
