@@ -731,8 +731,6 @@ exec_worker_thread(void *w)
    int         random_key_fd = wcfg->random_key_fd;
    int         random_val_fd = wcfg->random_val_fd;
 
-   uint64 start_time = platform_get_timestamp();
-
    if (wcfg->is_thread) {
       splinterdb_register_thread(kvsb);
    }
@@ -799,6 +797,7 @@ exec_worker_thread(void *w)
                            commitmsg);
    }
 
+   uint64 start_time = platform_get_timestamp();
    // mctr loops across number of millions
    uint64 mctr  = 0;
    uint64 nrows = 0;
@@ -842,7 +841,7 @@ exec_worker_thread(void *w)
          nrows++;
 
          if (wcfg->commit_every_n && (nrows % wcfg->commit_every_n) == 0) {
-            splinterdb_commit(kvsb);
+            rc = splinterdb_commit(kvsb);
             ASSERT_EQUAL(0, rc);
          }
       }
