@@ -8,6 +8,7 @@
 #   undef EXPERIMENTAL_MODE_KEEP_ALL_KEYS
 #   define EXPERIMENTAL_MODE_KEEP_ALL_KEYS 1
 #endif
+#define EXPERIMENTAL_MODE_BYPASS_SPLINTERDB 0
 
 static inline void
 print_current_experimental_modes()
@@ -18,4 +19,6 @@ print_current_experimental_modes()
    platform_default_log("EXPERIMENTAL_MODE_KEEP_ALL_KEYS: %d\n",
                         EXPERIMENTAL_MODE_KEEP_ALL_KEYS);
    platform_default_log("EXPERIMENTAL_MODE_SILO: %d\n", EXPERIMENTAL_MODE_SILO);
+   platform_default_log("EXPERIMENTAL_MODE_BYPASS_SPLINTERDB: %d\n",
+                        EXPERIMENTAL_MODE_BYPASS_SPLINTERDB);
 }

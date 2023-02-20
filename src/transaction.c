@@ -33,9 +33,9 @@ static inline void
 rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
 {
    char *key_buf;
-   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
+   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, KEY_SIZE);
    memmove(key_buf, slice_data(key), slice_length(key));
-   e->key = slice_create(slice_length(key), key_buf);
+   e->key = slice_create(KEY_SIZE, key_buf);
 }
 
 static inline void
@@ -46,6 +46,18 @@ rw_entry_set_msg(rw_entry *e, message msg)
    memmove(msg_buf, message_data(msg), message_length(msg));
    e->msg = message_create(message_class(msg),
                            slice_create(message_length(msg), msg_buf));
+}
+
+static inline bool
+rw_entry_is_read(const rw_entry *entry)
+{
+   return entry->is_read;
+}
+
+static inline bool
+rw_entry_is_write(const rw_entry *entry)
+{
+   return !message_is_null(entry->msg);
 }
 
 static inline void
@@ -99,25 +111,37 @@ static inline rw_entry *
 rw_entry_get(transactional_splinterdb *txn_kvsb,
              transaction              *txn,
              slice                     user_key,
-             const data_config        *cfg)
+             const data_config        *cfg,
+             const bool                is_read)
 {
-   rw_entry *entry = NULL;
-   const key ukey  = key_create_from_slice(user_key);
+   bool      need_to_create_new_entry = TRUE;
+   rw_entry *entry                    = NULL;
+   const key ukey                     = key_create_from_slice(user_key);
    for (int i = 0; i < txn->num_rw_entries; ++i) {
       entry = txn->rw_entries[i];
 
       if (data_key_compare(cfg, ukey, key_create_from_slice(entry->key)) == 0) {
-         goto SKIP_CREATING_NEW_ENTRY;
+         need_to_create_new_entry = FALSE;
+         break;
       }
    }
 
-   entry = rw_entry_create();
-   rw_entry_set_key(entry, user_key, cfg);
-   txn->rw_entries[txn->num_rw_entries++] = entry;
-   rw_entry_increase_refcount(txn_kvsb, entry);
+   if (need_to_create_new_entry) {
+      entry = rw_entry_create();
+      rw_entry_set_key(entry, user_key, cfg);
+      txn->rw_entries[txn->num_rw_entries++] = entry;
+   }
 
-SKIP_CREATING_NEW_ENTRY:
-   rw_entry_set_timestamps(txn_kvsb, entry);
+   const bool need_to_increase_refcount =
+      is_read || (EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1);
+   if (need_to_increase_refcount) {
+      rw_entry_increase_refcount(txn_kvsb, entry);
+   }
+
+   entry->is_read |= is_read;
+   if (is_read) {
+      rw_entry_set_timestamps(txn_kvsb, entry);
+   }
    return entry;
 }
 
@@ -132,18 +156,6 @@ rw_entry_key_compare(const void *elem1, const void *elem2, void *args)
    key bkey = key_create_from_slice((*b)->key);
 
    return data_key_compare(cfg, akey, bkey);
-}
-
-static inline bool
-rw_entry_is_read(const rw_entry *entry)
-{
-   return entry->is_read;
-}
-
-static inline bool
-rw_entry_is_write(const rw_entry *entry)
-{
-   return !message_is_null(entry->msg);
 }
 
 static void
@@ -417,23 +429,29 @@ RETRY_LOCK_WRITE_SET:
 
          int rc = 0;
 
-         switch (message_class(w->msg)) {
-            case MESSAGE_TYPE_INSERT:
-               rc = splinterdb_insert(
-                  txn_kvsb->kvsb, w->key, message_slice(w->msg));
-               break;
-            case MESSAGE_TYPE_UPDATE:
-               rc = splinterdb_update(
-                  txn_kvsb->kvsb, w->key, message_slice(w->msg));
-               break;
-            case MESSAGE_TYPE_DELETE:
-               rc = splinterdb_delete(txn_kvsb->kvsb, w->key);
-               break;
-            default:
-               break;
-         }
+#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+         if (0) {
+#endif
+            switch (message_class(w->msg)) {
+               case MESSAGE_TYPE_INSERT:
+                  rc = splinterdb_insert(
+                     txn_kvsb->kvsb, w->key, message_slice(w->msg));
+                  break;
+               case MESSAGE_TYPE_UPDATE:
+                  rc = splinterdb_update(
+                     txn_kvsb->kvsb, w->key, message_slice(w->msg));
+                  break;
+               case MESSAGE_TYPE_DELETE:
+                  rc = splinterdb_delete(txn_kvsb->kvsb, w->key);
+                  break;
+               default:
+                  break;
+            }
 
-         platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+            platform_assert(rc == 0, "Error from SplinterDB: %d\n", rc);
+#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+         }
+#endif
          // platform_error_log("wts: %ld\n", txn->commit_wts);
          // platform_error_log("rts: %ld\n", txn->commit_rts);
          timestamp_set ts_set = {.wts = txn->commit_wts, .delta = 0};
@@ -477,7 +495,7 @@ local_write(transactional_splinterdb *txn_kvsb,
 {
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    const key          ukey  = key_create_from_slice(user_key);
-   rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg);
+   rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
    if (message_is_null(entry->msg)) {
       rw_entry_set_msg(entry, msg);
    } else {
@@ -536,8 +554,11 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 splinterdb_lookup_result *result)
 {
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
-   rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg);
-   entry->is_read           = TRUE;
+   rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, TRUE);
+
+#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+   return 0;
+#endif
 
    if (!message_is_null(entry->msg)) {
       _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
