@@ -149,8 +149,7 @@ function execute_matrixkv_ycsb() {
 
     local wargs=`workload_args $workloads`
 
-    cmd="PMEM_NO_FLUSH=1 \
-       $YCSBC_DIR/ycsbc \
+    cmd="$YCSBC_DIR/ycsbc \
        -threads $nthreads \
        -db rocksdb \
        -p rocksdb.config_file matrixkv.ini \
@@ -163,7 +162,7 @@ function execute_matrixkv_ycsb() {
         rm -rf rocksdb.db
         file="raw-data/${name}_threads_${nthreads}_dram_cache_size_mib_${dram_cache_size_mib}_pmem_cache_size_mib_${pmem_cache_size_mib}_iter_${iter}.out"
         configure_cgroup $dram_cache_size_mib
-        run_if_needed $file $cmd
+        PMEM_NO_FLUSH=1 run_if_needed $file $cmd
     done
 }
 
@@ -216,7 +215,7 @@ execute_splinterdb_ycsb "splinterdb-withlog" 8        0                 16384   
 
 
 #### MatrixKV
-build_matrixkv_ycsb
+build_matrixkv_ycsb "matrixkv"
 #                       name                 threads  dram_cache_size   pmem_cache_size                     workloads
 execute_matrixkv_ycsb   "matrixkv"           8        2048              24576                               a c
 execute_matrixkv_ycsb   "matrixkv"           8        4096              16384                               a c
