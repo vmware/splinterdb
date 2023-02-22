@@ -63,6 +63,11 @@ rw_entry_is_write(const rw_entry *entry)
 static inline void
 rw_entry_increase_refcount(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
+   // Each transaction can increase the refcount of the entry only one time
+   if (entry->need_to_decrease_refcount) {
+      return;
+   }
+
    KeyType    key_ht   = (KeyType)slice_data(entry->key);
    ValueType *value_ht = (ValueType *)&ZERO_TIMESTAMP_SET;
 
@@ -132,13 +137,16 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
       txn->rw_entries[txn->num_rw_entries++] = entry;
    }
 
-   const bool need_to_increase_refcount =
-      is_read || (EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1);
+   bool need_to_increase_refcount = (EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1);
+   if (!need_to_increase_refcount) {
+      need_to_increase_refcount = is_read && !entry->need_to_decrease_refcount;
+   }
+
    if (need_to_increase_refcount) {
       rw_entry_increase_refcount(txn_kvsb, entry);
    }
 
-   entry->is_read |= is_read;
+   entry->is_read = entry->is_read || is_read;
    if (is_read) {
       rw_entry_set_timestamps(txn_kvsb, entry);
    }
@@ -365,7 +373,7 @@ RETRY_LOCK_WRITE_SET:
 #endif
 
       if (is_read_entry_invalid) {
-         KeyType    key_ht   = (char *)slice_data(r->key);
+         KeyType    key_ht   = (KeyType)slice_data(r->key);
          ValueType *value_ht = NULL;
          platform_assert(iceberg_get_value(
             txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()));
