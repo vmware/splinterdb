@@ -10,47 +10,79 @@
 #include "iceberg_table.h"
 #include "lock_table.h"
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+#   include "transactional_data_config.h"
+#endif
+
 typedef struct transactional_splinterdb_config {
    splinterdb_config           kvsb_cfg;
    transaction_isolation_level isol_level;
-   uint64                      tscache_log_slots;
+
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   transactional_data_config *txn_data_cfg;
+#else
+   uint64 tscache_log_slots;
+#endif
 } transactional_splinterdb_config;
 
 typedef struct transactional_splinterdb {
    splinterdb                      *kvsb;
    transactional_splinterdb_config *tcfg;
    lock_table                      *lock_tbl;
-   iceberg_table                   *tscache;
+#if EXPERIMENTAL_MODE_TICTOC_DISK == 0
+   iceberg_table *tscache;
+#endif
 } transactional_splinterdb;
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+#   ifdef timestamp
+#      undef timestamp
+#      define uint32 timestamp
+#   endif
+
+typedef struct PACKED timestamp_set {
+   timestamp wts;
+   timestamp rts;
+} timestamp_set;
+#else
 typedef struct PACKED timestamp_set {
    timestamp refcount : 6;
    timestamp delta : 15; // rts = wts + delta
    timestamp wts : 43;
 } timestamp_set;
+#endif
 
 extern timestamp_set ZERO_TIMESTAMP_SET;
 
+typedef struct PACKED tuple_header {
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   timestamp_set ts;
+   char          value[];
+#endif
+} tuple_header;
+
+#if EXPERIMENTAL_MODE_TICTOC_DISK == 0
 static inline timestamp
 timestamp_set_get_rts(timestamp_set *ts)
 {
-#if EXPERIMENTAL_MODE_SILO == 1
+#   if EXPERIMENTAL_MODE_SILO == 1
    return ts->wts;
-#else
+#   else
    return ts->wts + ts->delta;
-#endif
+#   endif
 }
 
 static inline timestamp
 timestamp_set_get_delta(timestamp wts, timestamp rts)
 {
-#if EXPERIMENTAL_MODE_SILO == 1
+#   if EXPERIMENTAL_MODE_SILO == 1
    return 0;
-#else
+#   else
    platform_assert(rts >= wts);
    return rts - wts;
-#endif
+#   endif
 }
+#endif
 
 static inline bool
 is_serializable(transactional_splinterdb_config *tcfg)

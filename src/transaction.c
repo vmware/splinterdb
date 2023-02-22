@@ -3,7 +3,82 @@
 #include "transaction_internal.h"
 #include "poison.h"
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+timestamp_set ZERO_TIMESTAMP_SET = {0};
+#else
 timestamp_set ZERO_TIMESTAMP_SET = {.refcount = 1, .wts = 0, .delta = 0};
+#endif
+
+static bool
+get_global_timestamps(transactional_splinterdb *txn_kvsb,
+                      rw_entry                 *entry,
+                      timestamp                *wts,
+                      timestamp                *rts)
+{
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   const splinterdb *kvsb  = txn_kvsb->kvsb;
+   bool              found = FALSE;
+
+   splinterdb_lookup_result result;
+   splinterdb_lookup_result_init(kvsb, &result, 0, NULL);
+
+   splinterdb_lookup(kvsb, entry->key, &result);
+
+   slice value;
+
+   if (splinterdb_lookup_found(&result)) {
+      splinterdb_lookup_result_value(&result, &value);
+      timestamp_set ts_set;
+      memcpy(&ts_set, slice_data(value), sizeof(ts_set));
+      if (wts) {
+         *wts = ts_set.wts;
+      }
+      if (rts) {
+         *rts = ts_set.rts;
+      }
+      found = TRUE;
+   }
+   splinterdb_lookup_result_deinit(&result);
+
+   return found;
+#else
+   KeyType    key_ht   = (KeyType)slice_data(entry->key);
+   ValueType *value_ht = NULL;
+   if (iceberg_get_value(
+          txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid())) {
+      timestamp_set *ts_set = (timestamp_set *)value_ht;
+      if (wts) {
+         *wts = ts_set->wts;
+      }
+      if (rts) {
+         *rts = timestamp_set_get_rts(ts_set);
+      }
+      return TRUE;
+   }
+   return FALSE;
+#endif
+}
+
+/*
+ * This function will update only rts for EXPERIMENTAL_MODE_TICTOC_DISK
+ */
+static inline void
+update_global_timestamps(transactional_splinterdb *txn_kvsb,
+                         rw_entry                 *entry,
+                         timestamp                 wts,
+                         timestamp                 rts)
+{
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   splinterdb_update(
+      txn_kvsb->kvsb, entry->key, slice_create(sizeof(rts), &rts));
+#else
+   KeyType       key_ht     = (KeyType)slice_data(entry->key);
+   timestamp_set new_ts_set = {
+      .refcount = 0, .wts = wts, .delta = timestamp_set_get_delta(wts, rts)};
+   ValueType *new_value_ht = (ValueType *)&new_ts_set;
+   iceberg_update(txn_kvsb->tscache, key_ht, *new_value_ht, platform_get_tid());
+#endif
+}
 
 static rw_entry *
 rw_entry_create()
@@ -34,18 +109,24 @@ rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
 {
    char *key_buf;
    key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, KEY_SIZE);
-   memmove(key_buf, slice_data(key), slice_length(key));
+   memcpy(key_buf, slice_data(key), slice_length(key));
    e->key = slice_create(KEY_SIZE, key_buf);
 }
 
+/*
+ * The msg is the msg from app.
+ * In EXPERIMENTAL_MODE_TICTOC_DISK, this function adds timestamps at the begin
+ * of the msg
+ */
 static inline void
 rw_entry_set_msg(rw_entry *e, message msg)
 {
-   char *msg_buf;
-   msg_buf = TYPED_ARRAY_ZALLOC(0, msg_buf, message_length(msg));
-   memmove(msg_buf, message_data(msg), message_length(msg));
-   e->msg = message_create(message_class(msg),
-                           slice_create(message_length(msg), msg_buf));
+   uint64 value_start = sizeof(tuple_header);
+   uint64 msg_len     = sizeof(tuple_header) + message_length(msg);
+   char  *msg_buf;
+   msg_buf = TYPED_ARRAY_ZALLOC(0, msg_buf, msg_len);
+   memcpy(msg_buf + value_start, message_data(msg), msg_len);
+   e->msg = message_create(message_class(msg), slice_create(msg_len, msg_buf));
 }
 
 static inline bool
@@ -60,6 +141,7 @@ rw_entry_is_write(const rw_entry *entry)
    return !message_is_null(entry->msg);
 }
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK == 0
 static inline void
 rw_entry_increase_refcount(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
@@ -94,24 +176,11 @@ rw_entry_decrease_refcount(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       }
    }
 }
+#endif
 
-static inline void
-rw_entry_set_timestamps(transactional_splinterdb *txn_kvsb, rw_entry *entry)
-{
-   KeyType    key_ht   = (KeyType)slice_data(entry->key);
-   ValueType *value_ht = NULL;
-   if (iceberg_get_value(
-          txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid())
-       != TRUE)
-   {
-      value_ht = (ValueType *)&ZERO_TIMESTAMP_SET;
-   }
-
-   timestamp_set *ts_set = (timestamp_set *)value_ht;
-   entry->wts            = ts_set->wts;
-   entry->rts            = timestamp_set_get_rts(ts_set);
-}
-
+/*
+ * Will Set timestamps in entry later
+ */
 static inline rw_entry *
 rw_entry_get(transactional_splinterdb *txn_kvsb,
              transaction              *txn,
@@ -137,6 +206,9 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
       txn->rw_entries[txn->num_rw_entries++] = entry;
    }
 
+   entry->is_read = entry->is_read || is_read;
+
+#if EXPERIMENTAL_MODE_TICTOC_DISK == 0
    bool need_to_increase_refcount = (EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1);
    if (!need_to_increase_refcount) {
       need_to_increase_refcount = is_read && !entry->need_to_decrease_refcount;
@@ -145,11 +217,7 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
    if (need_to_increase_refcount) {
       rw_entry_increase_refcount(txn_kvsb, entry);
    }
-
-   entry->is_read = entry->is_read || is_read;
-   if (is_read) {
-      rw_entry_set_timestamps(txn_kvsb, entry);
-   }
+#endif
    return entry;
 }
 
@@ -174,10 +242,21 @@ transactional_splinterdb_config_init(
    memcpy(&txn_splinterdb_cfg->kvsb_cfg,
           kvsb_cfg,
           sizeof(txn_splinterdb_cfg->kvsb_cfg));
+
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   txn_splinterdb_cfg->txn_data_cfg =
+      TYPED_ZALLOC(0, txn_splinterdb_cfg->txn_data_cfg);
+   transactional_data_config_init(kvsb_cfg->data_cfg,
+                                  txn_splinterdb_cfg->txn_data_cfg);
+   txn_splinterdb_cfg->kvsb_cfg.data_cfg =
+      (data_config *)txn_splinterdb_cfg->txn_data_cfg;
+#else
+   txn_splinterdb_cfg->tscache_log_slots = 20;
+#endif
+
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
    txn_splinterdb_cfg->isol_level = TRANSACTION_ISOLATION_LEVEL_SERIALIZABLE;
-   txn_splinterdb_cfg->tscache_log_slots = 20;
 }
 
 static int
@@ -200,17 +279,22 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    bool fail_to_create_splinterdb = (rc != 0);
    if (fail_to_create_splinterdb) {
       platform_free(0, _txn_kvsb);
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+      platform_free(0, txn_splinterdb_cfg->txn_data_cfg);
+#endif
       platform_free(0, txn_splinterdb_cfg);
       return rc;
    }
 
    _txn_kvsb->lock_tbl = lock_table_create();
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK == 0
    iceberg_table *tscache;
    tscache = TYPED_ZALLOC(0, tscache);
    platform_assert(iceberg_init(tscache, txn_splinterdb_cfg->tscache_log_slots)
                    == 0);
    _txn_kvsb->tscache = tscache;
+#endif
 
    *txn_kvsb = _txn_kvsb;
 
@@ -240,7 +324,11 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 
    lock_table_destroy(_txn_kvsb->lock_tbl);
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   platform_free(0, _txn_kvsb->tcfg->txn_data_cfg);
+#else
    platform_free(0, _txn_kvsb->tscache);
+#endif
    platform_free(0, _txn_kvsb->tcfg);
    platform_free(0, _txn_kvsb);
 
@@ -269,9 +357,12 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 }
 
 static inline void
-transaction_deinit(transaction *txn)
+transaction_deinit(transactional_splinterdb *txn_kvsb, transaction *txn)
 {
    for (int i = 0; i < txn->num_rw_entries; ++i) {
+#if EXPERIMENTAL_MODE_TICTOC_DISK == 0
+      rw_entry_decrease_refcount(txn_kvsb, txn->rw_entries[i]);
+#endif
       rw_entry_deinit(txn->rw_entries[i]);
       platform_free(0, txn->rw_entries[i]);
    }
@@ -342,18 +433,10 @@ RETRY_LOCK_WRITE_SET:
 }
 
    for (uint64 i = 0; i < num_writes; ++i) {
-      rw_entry  *w                   = write_set[i];
-      KeyType    key_ht              = (KeyType)slice_data(w->key);
-      ValueType *value_ht            = NULL;
-      const bool key_exists_in_cache = iceberg_get_value(
-         txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid());
-      if (key_exists_in_cache) {
-         timestamp_set *ts_set = (timestamp_set *)value_ht;
-         txn->commit_wts =
-            MAX(txn->commit_wts, timestamp_set_get_rts(ts_set) + 1);
-      } else {
-         txn->commit_wts = MAX(txn->commit_wts, 1);
-      }
+      rw_entry *w   = write_set[i];
+      timestamp rts = 0;
+      get_global_timestamps(txn_kvsb, w, NULL, &rts);
+      txn->commit_wts = MAX(txn->commit_wts, rts + 1);
    }
 
    uint64 commit_ts =
@@ -373,18 +456,6 @@ RETRY_LOCK_WRITE_SET:
 #endif
 
       if (is_read_entry_invalid) {
-         KeyType    key_ht   = (KeyType)slice_data(r->key);
-         ValueType *value_ht = NULL;
-         platform_assert(iceberg_get_value(
-            txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()));
-
-         timestamp_set *ts_set = (timestamp_set *)value_ht;
-
-         if (ts_set->wts != r->wts) {
-            is_abort = TRUE;
-            break;
-         }
-
          lock_table_rc lock_rc =
             lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
          // platform_error_log("lock_rc = %d", lock_rc);
@@ -394,13 +465,11 @@ RETRY_LOCK_WRITE_SET:
             break;
          }
 
-         if (lock_rc != LOCK_TABLE_RC_DEADLK) {
-            platform_assert(iceberg_get_value(
-               txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()));
-            ts_set = (timestamp_set *)value_ht;
-         }
+         timestamp wts = 0;
+         timestamp rts = 0;
+         get_global_timestamps(txn_kvsb, r, &wts, &rts);
 
-         if (ts_set->wts != r->wts) {
+         if (wts != r->wts) {
             if (lock_rc == LOCK_TABLE_RC_OK) {
                lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
             }
@@ -409,18 +478,11 @@ RETRY_LOCK_WRITE_SET:
          }
 
 #if EXPERIMENTAL_MODE_SILO == 0
-         const uint32 new_rts = MAX(commit_ts, timestamp_set_get_rts(ts_set));
-         const bool   need_to_update_rts =
-            (new_rts != timestamp_set_get_rts(ts_set))
-            && !is_repeatable_read(txn_kvsb->tcfg);
+         const timestamp new_rts = MAX(commit_ts, rts);
+         const bool      need_to_update_rts =
+            (new_rts != rts) && !is_repeatable_read(txn_kvsb->tcfg);
          if (need_to_update_rts) {
-            timestamp_set new_ts_set = {
-               .refcount = 0,
-               .wts      = ts_set->wts,
-               .delta    = timestamp_set_get_delta(ts_set->wts, new_rts)};
-            ValueType *new_value_ht = (ValueType *)&new_ts_set;
-            platform_assert(iceberg_update(
-               txn_kvsb->tscache, key_ht, *new_value_ht, platform_get_tid()));
+            update_global_timestamps(txn_kvsb, r, wts, new_rts);
          }
 #endif
 
@@ -436,6 +498,16 @@ RETRY_LOCK_WRITE_SET:
          platform_assert(rw_entry_is_write(w));
 
          int rc = 0;
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+         timestamp_set ts = {
+            .wts = commit_ts,
+            .rts = commit_ts,
+         };
+         tuple_header *msg = (tuple_header *)message_data(w->msg);
+         memcpy(&msg->ts, &ts, sizeof(ts));
+#else
+         update_global_timestamps(txn_kvsb, w, commit_ts, commit_ts);
+#endif
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          if (0) {
@@ -460,16 +532,6 @@ RETRY_LOCK_WRITE_SET:
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
-         // platform_error_log("wts: %ld\n", txn->commit_wts);
-         // platform_error_log("rts: %ld\n", txn->commit_rts);
-         timestamp_set ts_set = {.wts = txn->commit_wts, .delta = 0};
-         // platform_error_log("delta: %d\n", ts_set.delta);
-
-         KeyType    key_ht   = (KeyType)slice_data(w->key);
-         ValueType *value_ht = (ValueType *)&ts_set;
-
-         iceberg_update(
-            txn_kvsb->tscache, key_ht, *value_ht, platform_get_tid());
       }
    }
 
@@ -477,11 +539,7 @@ RETRY_LOCK_WRITE_SET:
       lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
    }
 
-   for (int i = 0; i < txn->num_rw_entries; ++i) {
-      rw_entry_decrease_refcount(txn_kvsb, txn->rw_entries[i]);
-   }
-
-   transaction_deinit(txn);
+   transaction_deinit(txn_kvsb, txn);
 
    return (-1 * is_abort);
 }
@@ -490,7 +548,7 @@ int
 transactional_splinterdb_abort(transactional_splinterdb *txn_kvsb,
                                transaction              *txn)
 {
-   transaction_deinit(txn);
+   transaction_deinit(txn_kvsb, txn);
 
    return 0;
 }
@@ -568,6 +626,38 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    return 0;
 #endif
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
+
+   if (!message_is_null(entry->msg)) {
+      get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
+
+      tuple_header *tuple = (tuple_header *)message_data(entry->msg);
+      const size_t  value_len =
+         message_length(entry->msg) - sizeof(tuple_header);
+      merge_accumulator_resize(&_result->value, value_len);
+      memcpy(merge_accumulator_data(&_result->value),
+             tuple->value,
+             merge_accumulator_length(&_result->value));
+
+      return 0;
+   }
+
+   int rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
+   if (splinterdb_lookup_found(result)) {
+      tuple_header *tuple =
+         (tuple_header *)merge_accumulator_data(&_result->value);
+      entry->wts = tuple->ts.wts;
+      entry->rts = tuple->ts.rts;
+      const size_t value_len =
+         merge_accumulator_length(&_result->value) - sizeof(tuple_header);
+      memmove(merge_accumulator_data(&_result->value), tuple->value, value_len);
+      merge_accumulator_resize(&_result->value, value_len);
+   }
+   return rc;
+#else
+   get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
+
    if (!message_is_null(entry->msg)) {
       _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
       merge_accumulator_resize(&_result->value, message_length(entry->msg));
@@ -578,6 +668,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    }
 
    return splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
+#endif
 }
 
 void
