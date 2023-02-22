@@ -1,9 +1,11 @@
-#include "transactional_data_config.h"
-#include "data_internal.h"
-#include "transaction_internal.h"
-#include <string.h>
+#include "experimental_mode.h"
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
+
+#   include "transactional_data_config.h"
+#   include "data_internal.h"
+#   include "transaction_internal.h"
+#   include <string.h>
 
 static inline bool
 is_message_rts_update(message msg)
