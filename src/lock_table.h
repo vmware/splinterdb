@@ -44,3 +44,5 @@ lock_table_rc
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry);
 void
 lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry);
+lock_table_rc
+lock_table_is_entry_locked(lock_table *lock_tbl, rw_entry *entry);
