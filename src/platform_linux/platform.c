@@ -377,6 +377,9 @@ platform_assert_false(const char *filename,
    abort();
 }
 
+#pragma weak gettid
+extern pid_t gettid(void);
+
 /*
  * Lower-level function to generate the assertion message, alone.
  */
@@ -394,7 +397,7 @@ platform_assert_msg(platform_log_handle *log_handle,
    platform_log(log_handle,
                 assert_msg_fmt,
                 getpid(),
-                gettid(),
+                gettid ? gettid() : 0,
                 platform_get_tid(), // SplinterDB's thread-ID (index)
                 filename,
                 linenumber,
