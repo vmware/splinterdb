@@ -12,7 +12,7 @@
 # key, and then request a number of records; this works fine even for hashed insertion.
 
 # do _not_ inherit operationcount from the load.spec
-operationcount=10
+operationcount=1400000
 
 workload=com.yahoo.ycsb.workloads.CoreWorkload
 
