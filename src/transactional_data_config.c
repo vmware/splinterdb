@@ -10,13 +10,13 @@
 static inline bool
 is_message_rts_update(message msg)
 {
-   return message_length(msg) == sizeof(timestamp);
+   return message_length(msg) == sizeof(txn_timestamp);
 }
 
 static inline bool
 is_merge_accumulator_rts_update(merge_accumulator *ma)
 {
-   return merge_accumulator_length(ma) == sizeof(timestamp);
+   return merge_accumulator_length(ma) == sizeof(txn_timestamp);
 }
 
 static inline message
@@ -50,7 +50,7 @@ merge_tictoc_tuple(const data_config *cfg,
 
    if (is_merge_accumulator_rts_update(new_message)) {
       tuple_header *new_tuple = merge_accumulator_data(new_message);
-      timestamp     new_rts   = new_tuple->ts.rts;
+      txn_timestamp new_rts   = new_tuple->ts.rts;
       merge_accumulator_copy_message(new_message, old_message);
       new_tuple         = (tuple_header *)merge_accumulator_data(new_message);
       new_tuple->ts.rts = new_rts;

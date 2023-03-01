@@ -68,8 +68,6 @@ typedef struct rw_entry rw_entry;
 typedef struct transaction {
    rw_entry *rw_entries[RW_SET_SIZE_LIMIT];
    uint64    num_rw_entries;
-   uint64    commit_rts;
-   uint64    commit_wts;
 } transaction;
 
 int

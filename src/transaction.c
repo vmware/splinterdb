@@ -62,8 +62,8 @@ rw_entry_decrease_refcount(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 static bool
 get_global_timestamps(transactional_splinterdb *txn_kvsb,
                       rw_entry                 *entry,
-                      timestamp                *wts,
-                      timestamp                *rts)
+                      txn_timestamp            *wts,
+                      txn_timestamp            *rts)
 {
 #if EXPERIMENTAL_MODE_TICTOC_DISK
    const splinterdb *kvsb  = txn_kvsb->kvsb;
@@ -118,8 +118,8 @@ get_global_timestamps(transactional_splinterdb *txn_kvsb,
 static inline void
 update_global_timestamps(transactional_splinterdb *txn_kvsb,
                          rw_entry                 *entry,
-                         timestamp                 wts,
-                         timestamp                 rts)
+                         txn_timestamp             wts,
+                         txn_timestamp             rts)
 {
 #if EXPERIMENTAL_MODE_TICTOC_DISK
    splinterdb_update(
@@ -161,9 +161,9 @@ static inline void
 rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
 {
    char *key_buf;
-   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, KEY_SIZE);
+   key_buf = TYPED_ARRAY_ZALLOC(0, key_buf, slice_length(key));
    memcpy(key_buf, slice_data(key), slice_length(key));
-   e->key = slice_create(KEY_SIZE, key_buf);
+   e->key = slice_create(slice_length(key), key_buf);
 }
 
 /*
@@ -378,8 +378,10 @@ int
 transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn)
 {
-   txn->commit_wts = 0;
-   txn->commit_rts = 0;
+   /* txn->commit_wts = 0; */
+   /* txn->commit_rts = 0; */
+
+   txn_timestamp commit_ts = 0;
 
    int       num_reads                    = 0;
    int       num_writes                   = 0;
@@ -388,25 +390,30 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
    for (int i = 0; i < txn->num_rw_entries; i++) {
       rw_entry *entry = txn->rw_entries[i];
+
       if (rw_entry_is_read(entry)) {
          read_set[num_reads++] = entry;
 
-         timestamp wts = entry->wts;
+         txn_timestamp wts = entry->wts;
 #if EXPERIMENTAL_MODE_SILO == 1
          wts += 1;
 #endif
-         txn->commit_rts = MAX(txn->commit_rts, wts);
+         /* txn->commit_rts = MAX(txn->commit_rts, wts); */
+         commit_ts = MAX(commit_ts, wts);
       }
 
       if (rw_entry_is_write(entry)) {
          write_set[num_writes++] = entry;
-         txn->commit_wts         = MAX(txn->commit_wts, entry->rts + 1);
+         /* txn->commit_wts         = MAX(txn->commit_wts, entry->rts + 1); */
+         commit_ts = MAX(commit_ts, entry->rts + 1);
       }
    }
 
-   if (is_serializable(txn_kvsb->tcfg) || is_repeatable_read(txn_kvsb->tcfg)) {
-      txn->commit_rts = txn->commit_wts = MAX(txn->commit_rts, txn->commit_wts);
-   }
+   /* if (is_serializable(txn_kvsb->tcfg) || is_repeatable_read(txn_kvsb->tcfg))
+    * { */
+   /*    txn->commit_rts = txn->commit_wts = MAX(txn->commit_rts,
+    * txn->commit_wts); */
+   /* } */
 
    platform_sort_slow(write_set,
                       num_writes,
@@ -439,14 +446,15 @@ RETRY_LOCK_WRITE_SET:
 }
 
    for (uint64 i = 0; i < num_writes; ++i) {
-      rw_entry *w   = write_set[i];
-      timestamp rts = 0;
-      get_global_timestamps(txn_kvsb, w, NULL, &rts);
-      txn->commit_wts = MAX(txn->commit_wts, rts + 1);
+      txn_timestamp rts = 0;
+      get_global_timestamps(txn_kvsb, write_set[i], NULL, &rts);
+      /* txn->commit_wts = MAX(txn->commit_wts, rts + 1); */
+      commit_ts = MAX(commit_ts, rts + 1);
    }
 
-   uint64 commit_ts =
-      is_snapshot_isolation(txn_kvsb->tcfg) ? txn->commit_rts : txn->commit_wts;
+   /* uint64 commit_ts = */
+   /*    is_snapshot_isolation(txn_kvsb->tcfg) ? txn->commit_rts :
+    * txn->commit_wts; */
 
    bool is_abort = FALSE;
    for (uint64 i = 0; i < num_reads; ++i) {
@@ -468,8 +476,8 @@ RETRY_LOCK_WRITE_SET:
             break;
          }
 
-         timestamp wts = 0;
-         timestamp rts = 0;
+         txn_timestamp wts = 0;
+         txn_timestamp rts = 0;
          get_global_timestamps(txn_kvsb, r, &wts, &rts);
 
          if (wts != r->wts) {
@@ -481,9 +489,9 @@ RETRY_LOCK_WRITE_SET:
          }
 
 #if EXPERIMENTAL_MODE_SILO == 0
-         const timestamp new_rts = MAX(commit_ts, rts);
-         const bool      need_to_update_rts =
-            (new_rts != rts) && !is_repeatable_read(txn_kvsb->tcfg);
+         const txn_timestamp new_rts            = MAX(commit_ts, rts);
+         const bool          need_to_update_rts = new_rts != rts;
+         /*    (new_rts != rts) && !is_repeatable_read(txn_kvsb->tcfg); */
          if (need_to_update_rts) {
             update_global_timestamps(txn_kvsb, r, wts, new_rts);
          }
@@ -584,7 +592,6 @@ local_write(transactional_splinterdb *txn_kvsb,
          }
       }
    }
-
    return 0;
 }
 
@@ -638,7 +645,6 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       memcpy(merge_accumulator_data(&_result->value),
              tuple->value,
              merge_accumulator_length(&_result->value));
-
       return 0;
    }
 

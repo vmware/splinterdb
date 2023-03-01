@@ -9,10 +9,10 @@
 
 // read_set and write_set entry stored locally
 typedef struct rw_entry {
-   slice     key;
-   message   msg; // value + op
-   timestamp wts;
-   timestamp rts;
+   slice         key;
+   message       msg; // value + op
+   txn_timestamp wts;
+   txn_timestamp rts;
 
    uint64 owner;
 

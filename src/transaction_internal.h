@@ -35,20 +35,15 @@ typedef struct transactional_splinterdb {
 } transactional_splinterdb;
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
-#   ifdef timestamp
-#      undef timestamp
-#      define uint32 timestamp
-#   endif
-
 typedef struct PACKED timestamp_set {
-   timestamp wts;
-   timestamp rts;
+   txn_timestamp wts;
+   txn_timestamp rts;
 } timestamp_set;
 #else
 typedef struct PACKED timestamp_set {
-   timestamp refcount : 6;
-   timestamp delta : 15; // rts = wts + delta
-   timestamp wts : 43;
+   txn_timestamp refcount : 6;
+   txn_timestamp delta : 15; // rts = wts + delta
+   txn_timestamp wts : 43;
 } timestamp_set;
 #endif
 
@@ -62,7 +57,7 @@ typedef struct PACKED tuple_header {
 } tuple_header;
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK == 0
-static inline timestamp
+static inline txn_timestamp
 timestamp_set_get_rts(timestamp_set *ts)
 {
 #   if EXPERIMENTAL_MODE_SILO == 1
@@ -72,8 +67,8 @@ timestamp_set_get_rts(timestamp_set *ts)
 #   endif
 }
 
-static inline timestamp
-timestamp_set_get_delta(timestamp wts, timestamp rts)
+static inline txn_timestamp
+timestamp_set_get_delta(txn_timestamp wts, txn_timestamp rts)
 {
 #   if EXPERIMENTAL_MODE_SILO == 1
    return 0;

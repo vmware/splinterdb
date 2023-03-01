@@ -27,14 +27,12 @@
 void
 print_txn(const char *prefix, transaction *txn)
 {
-   printf("transaction [%s]:\n", prefix);
+   /* printf("transaction [%s]:\n", prefix); */
    // for (uint64 i = 0; i < txn->num_rw_entries; i++) {
    //    rw_entry *entry = txn->rw_entries[i];
    //    printf("  %s\n", (const char *)slice_data(entry->key));
    // }
    // print commit_wts and commit_rts
-   printf("  commit_wts: %" PRIu64 "\n", txn->commit_wts);
-   printf("  commit_rts: %" PRIu64 "\n", txn->commit_rts);
 }
 
 /*
