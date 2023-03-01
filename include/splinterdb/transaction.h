@@ -63,7 +63,7 @@ transactional_splinterdb_deregister_thread(transactional_splinterdb *kvs);
 
 typedef struct rw_entry rw_entry;
 
-#define RW_SET_SIZE_LIMIT 32
+#define RW_SET_SIZE_LIMIT 64
 
 typedef struct transaction {
    rw_entry *rw_entries[RW_SET_SIZE_LIMIT];

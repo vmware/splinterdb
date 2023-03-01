@@ -129,7 +129,8 @@ update_global_timestamps(transactional_splinterdb *txn_kvsb,
    timestamp_set new_ts_set = {
       .refcount = 1, .wts = wts, .delta = timestamp_set_get_delta(wts, rts)};
    ValueType *new_value_ht = (ValueType *)&new_ts_set;
-   iceberg_update(txn_kvsb->tscache, key_ht, *new_value_ht, platform_get_tid());
+   platform_assert(iceberg_update(
+      txn_kvsb->tscache, key_ht, *new_value_ht, platform_get_tid()));
 #endif
 }
 
@@ -291,7 +292,8 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       return rc;
    }
 
-   _txn_kvsb->lock_tbl = lock_table_create();
+   _txn_kvsb->lock_tbl    = lock_table_create();
+   _txn_kvsb->rs_lock_tbl = lock_table_create();
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK == 0
    iceberg_table *tscache;
@@ -328,6 +330,7 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    splinterdb_close(&_txn_kvsb->kvsb);
 
    lock_table_destroy(_txn_kvsb->lock_tbl);
+   lock_table_destroy(_txn_kvsb->rs_lock_tbl);
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
    platform_free(0, _txn_kvsb->tcfg->txn_data_cfg);
@@ -390,6 +393,9 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
    for (int i = 0; i < txn->num_rw_entries; i++) {
       rw_entry *entry = txn->rw_entries[i];
+      if (rw_entry_is_write(entry)) {
+         write_set[num_writes++] = entry;
+      }
 
       if (rw_entry_is_read(entry)) {
          read_set[num_reads++] = entry;
@@ -400,12 +406,6 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 #endif
          /* txn->commit_rts = MAX(txn->commit_rts, wts); */
          commit_ts = MAX(commit_ts, wts);
-      }
-
-      if (rw_entry_is_write(entry)) {
-         write_set[num_writes++] = entry;
-         /* txn->commit_wts         = MAX(txn->commit_wts, entry->rts + 1); */
-         commit_ts = MAX(commit_ts, entry->rts + 1);
       }
    }
 
@@ -468,22 +468,35 @@ RETRY_LOCK_WRITE_SET:
 #endif
 
       if (is_read_entry_invalid) {
-         lock_table_rc lock_rc =
-            lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
+         lock_table_rc lock_rc = LOCK_TABLE_RC_OK;
+         do {
+            lock_rc =
+               lock_table_try_acquire_entry_lock(txn_kvsb->rs_lock_tbl, r);
 
-         if (lock_rc == LOCK_TABLE_RC_BUSY) {
-            is_abort = TRUE;
-            break;
-         }
+            /* // isLocked(r.tuple) and r.tuple not in WS */
+            /* if (lock_rc == LOCK_TABLE_RC_BUSY) { */
+            /*    is_abort = TRUE; */
+            /*    break; */
+            /* } */
+         } while (lock_rc == LOCK_TABLE_RC_BUSY);
 
          txn_timestamp wts = 0;
          txn_timestamp rts = 0;
          get_global_timestamps(txn_kvsb, r, &wts, &rts);
 
          if (wts != r->wts) {
-            if (lock_rc == LOCK_TABLE_RC_OK) {
-               lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
-            }
+            lock_table_release_entry_lock(txn_kvsb->rs_lock_tbl, r);
+            is_abort = TRUE;
+            break;
+         }
+
+         if (rts <= commit_ts
+             && lock_table_is_entry_locked(txn_kvsb->lock_tbl, r)
+                   == LOCK_TABLE_RC_BUSY
+             && !rw_entry_is_write(r))
+         {
+            /* platform_error_log("%lu %lu\n", rts, commit_ts); */
+            lock_table_release_entry_lock(txn_kvsb->rs_lock_tbl, r);
             is_abort = TRUE;
             break;
          }
@@ -493,13 +506,13 @@ RETRY_LOCK_WRITE_SET:
          const bool          need_to_update_rts = new_rts != rts;
          /*    (new_rts != rts) && !is_repeatable_read(txn_kvsb->tcfg); */
          if (need_to_update_rts) {
+            /* platform_error_log("wts: %lu, rts: %lu, new_rts: %lu\n", wts,
+             * rts, new_rts); */
             update_global_timestamps(txn_kvsb, r, wts, new_rts);
          }
 #endif
 
-         if (lock_rc == LOCK_TABLE_RC_OK) {
-            lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
-         }
+         lock_table_release_entry_lock(txn_kvsb->rs_lock_tbl, r);
       }
    }
 
@@ -573,6 +586,7 @@ local_write(transactional_splinterdb *txn_kvsb,
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    const key          ukey  = key_create_from_slice(user_key);
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
+   get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
    if (message_is_null(entry->msg)) {
       rw_entry_set_msg(entry, msg);
    } else {
