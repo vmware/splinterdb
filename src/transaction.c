@@ -256,7 +256,7 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->kvsb_cfg.data_cfg =
       (data_config *)txn_splinterdb_cfg->txn_data_cfg;
 #else
-   txn_splinterdb_cfg->tscache_log_slots = 20;
+   txn_splinterdb_cfg->tscache_log_slots = 28;
 #endif
 
    // TODO things like filename, logfile, or data_cfg would need a
