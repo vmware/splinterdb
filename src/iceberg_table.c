@@ -1,4 +1,5 @@
 #include "iceberg_table.h"
+#include <immintrin.h>
 
 const static uint64 one[128] = {
   1ULL << 0, 1ULL << 1, 1ULL << 2, 1ULL << 3, 1ULL << 4, 1ULL << 5, 1ULL << 6, 1ULL << 7, 1ULL << 8, 1ULL << 9,
@@ -622,39 +623,12 @@ static inline bool iceberg_lv3_insert(iceberg_table * table, KeyType key, ValueT
 
   while(__sync_lock_test_and_set(metadata->lv3_locks[bindex] + boffset, 1));
 
-#if PMEM
-  iceberg_lv3_node * level3_nodes = table->level3_nodes;
-  iceberg_lv3_node *new_node = NULL;
-  ptrdiff_t new_node_idx = -1;
-  ptrdiff_t start = lv3_index % NUM_LEVEL3_NODES;
-  for (ptrdiff_t i = start; i != NUM_LEVEL3_NODES + start; i++) {
-    ptrdiff_t j = i % NUM_LEVEL3_NODES;
-    if (__sync_bool_compare_and_swap(&level3_nodes[j].in_use, 0, 1)) {
-      new_node = &level3_nodes[j];
-      new_node_idx = j;
-      break;
-    }
-  }
-  if (new_node == NULL) {
-    metadata->lv3_locks[bindex][boffset] = 0;
-    return FALSE;
-  }
-#else
   iceberg_lv3_node * new_node = (iceberg_lv3_node *)malloc(sizeof(iceberg_lv3_node));
-#endif
 
   new_node->key = key;
   new_node->val = value;
-#if PMEM
-  new_node->next_idx = lists[boffset].head_idx;
-  pmem_persist(new_node, sizeof(*new_node));
-  lists[boffset].head_idx = new_node_idx;
-  pmem_persist(&lists[boffset], sizeof(lists[boffset]));
-#else
   new_node->next_node = lists[boffset].head;
   lists[boffset].head = new_node;
-#endif
-
   metadata->lv3_sizes[bindex][boffset]++;
   pc_add(&metadata->lv3_balls, 1, thread_id);
   metadata->lv3_locks[bindex][boffset] = 0;
@@ -676,27 +650,15 @@ start: ;
   if (UNLIKELY(!popct))
     return FALSE;
 
-#if PMEM
-  uint8 slot_choice = get_slot_choice(key);
-  uint8 start = popct == 0 ? 0 : slot_choice % popct;
-#else
   uint8 start = 0;
-#endif
   /*for(uint8 i = start; i < start + popct; ++i) {*/
-#if PMEM
-    uint8 slot = word_select(md_mask, start % popct);
-#else
     uint8 slot = word_select(md_mask, start);
-#endif
 
     if(__sync_bool_compare_and_swap(metadata->lv2_md[bindex][boffset].block_md + slot, 0, 1)) {
       pc_add(&metadata->lv2_balls, 1, thread_id);
       /*blocks[boffset].slots[slot].key = key;*/
       /*blocks[boffset].slots[slot].val = value;*/
       atomic_write_128(key, value, (uint64*)&blocks[boffset].slots[slot]);
-#if PMEM
-      pmem_persist(&blocks[boffset].slots[slot], sizeof(kv_pair));
-#endif
       metadata->lv2_md[bindex][boffset].block_md[slot] = fprint;
       return TRUE;
     }
@@ -778,27 +740,14 @@ start: ;
   if (UNLIKELY(!popct))
     return FALSE;
 
-#if PMEM
-  uint8 slot_choice = get_slot_choice(key);
-  uint8 start = popct == 0 ? 0 : slot_choice % popct;
-#else
   uint8 start = 0;
-#endif
   /*for(uint8 i = start; i < start + popct; ++i) {*/
-#if PMEM
-    uint8 slot = word_select(md_mask, start % popct);
-#else
     uint8 slot = word_select(md_mask, start);
-#endif
-
     /*if(__sync_bool_compare_and_swap(metadata->lv1_md[bindex][boffset].block_md + slot, 0, 1)) {*/
       pc_add(&metadata->lv1_balls, 1, thread_id);
       /*blocks[boffset].slots[slot].key = key;*/
       /*blocks[boffset].slots[slot].val = value;*/
       atomic_write_128(key, value, (uint64*)&blocks[boffset].slots[slot]);
-#if PMEM
-      pmem_persist(&blocks[boffset].slots[slot], sizeof(kv_pair));
-#endif
       metadata->lv1_md[bindex][boffset].block_md[slot] = fprint;
       return TRUE;
     /*}*/
@@ -873,23 +822,12 @@ static inline bool iceberg_lv3_remove_internal(iceberg_table * table, KeyType ke
 
   if(metadata->lv3_sizes[bindex][boffset] == 0) return FALSE;
 
-#if PMEM
-  iceberg_lv3_node * lv3_nodes = table->level3_nodes;
-  assert(lists[boffset].head_idx != -1);
-  iceberg_lv3_node *head = &lv3_nodes[lists[boffset].head_idx];
-#else
   iceberg_lv3_node *head = lists[boffset].head;
-#endif
 
   if(head->key == key) {
-#if PMEM
-    lists[boffset].head_idx = head->next_idx;
-    pmem_memset_persist(head, 0, sizeof(*head));
-#else    
     iceberg_lv3_node * old_head = lists[boffset].head;
     lists[boffset].head = lists[boffset].head->next_node;
     free(old_head);
-#endif
 
     metadata->lv3_sizes[bindex][boffset]--;
     pc_add(&metadata->lv3_balls, -1, thread_id);
@@ -901,22 +839,12 @@ static inline bool iceberg_lv3_remove_internal(iceberg_table * table, KeyType ke
   iceberg_lv3_node * current_node = head;
 
   for(uint64 i = 0; i < metadata->lv3_sizes[bindex][boffset] - 1; ++i) {
-#if PMEM
-    assert(current_node->next_idx != -1);
-    iceberg_lv3_node *next_node = &lv3_nodes[current_node->next_idx];
-#else
     iceberg_lv3_node *next_node = current_node->next_node;
-#endif
 
     if(next_node->key == key) {
-#if PMEM
-      current_node->next_idx = next_node->next_idx;
-      pmem_memset_persist(next_node, 0, sizeof(*next_node));
-#else
       iceberg_lv3_node * old_node = current_node->next_node;
       current_node->next_node = current_node->next_node->next_node;
       free(old_node);
-#endif
 
       metadata->lv3_sizes[bindex][boffset]--;
       pc_add(&metadata->lv3_balls, -1, thread_id);
@@ -995,9 +923,6 @@ static inline bool iceberg_lv2_remove(iceberg_table * table, KeyType key, uint64
           if (blocks[old_boffset].slots[slot].key == key) {
             metadata->lv2_md[old_bindex][old_boffset].block_md[slot] = 0;
             blocks[old_boffset].slots[slot].key = blocks[old_boffset].slots[slot].val = 0;
-#if PMEM
-            pmem_persist(&blocks[old_boffset].slots[slot], sizeof(kv_pair));
-#endif
             pc_add(&metadata->lv2_balls, -1, thread_id);
             return TRUE;
           }
@@ -1021,9 +946,6 @@ static inline bool iceberg_lv2_remove(iceberg_table * table, KeyType key, uint64
       if (blocks[boffset].slots[slot].key == key) {
         metadata->lv2_md[bindex][boffset].block_md[slot] = 0;
         blocks[boffset].slots[slot].key = blocks[boffset].slots[slot].val = 0;
-#if PMEM
-        pmem_persist(&blocks[boffset].slots[slot], sizeof(kv_pair));
-#endif
         pc_add(&metadata->lv2_balls, -1, thread_id);
         return TRUE;
       }
@@ -1065,9 +987,6 @@ bool iceberg_remove(iceberg_table * table, KeyType key, uint8 thread_id) {
         if (blocks[old_index].slots[slot].key == key) {
           metadata->lv1_md[old_bindex][old_boffset].block_md[slot] = 0;
           blocks[old_boffset].slots[slot].key = blocks[old_boffset].slots[slot].val = 0;
-#if PMEM
-          pmem_persist(&blocks[old_boffset].slots[slot], sizeof(kv_pair));
-#endif
           pc_add(&metadata->lv1_balls, -1, thread_id);
           return TRUE;
         }
@@ -1092,9 +1011,6 @@ bool iceberg_remove(iceberg_table * table, KeyType key, uint8 thread_id) {
     if (blocks[boffset].slots[slot].key == key) {
       metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
       blocks[boffset].slots[slot].key = blocks[boffset].slots[slot].val = 0;
-#if PMEM
-      pmem_persist(&blocks[boffset].slots[slot], sizeof(kv_pair));
-#endif
       pc_add(&metadata->lv1_balls, -1, thread_id);
       unlock_block(&metadata->lv1_md[bindex][boffset].block_md);
       return TRUE;
@@ -1119,13 +1035,7 @@ static inline bool iceberg_lv3_get_value_internal(iceberg_table * table, KeyType
 
   while(__sync_lock_test_and_set(metadata->lv3_locks[bindex] + boffset, 1));
 
-#if PMEM
-  iceberg_lv3_node * lv3_nodes = table->level3_nodes;
-  assert(lists[boffset].head_idx != -1);
-  iceberg_lv3_node * current_node = &lv3_nodes[lists[boffset].head_idx];
-#else
   iceberg_lv3_node * current_node = lists[boffset].head;
-#endif
 
   for(uint8 i = 0; i < metadata->lv3_sizes[bindex][boffset]; ++i) {
     if(current_node->key == key) {
@@ -1133,11 +1043,7 @@ static inline bool iceberg_lv3_get_value_internal(iceberg_table * table, KeyType
       metadata->lv3_locks[bindex][boffset] = 0;
       return TRUE;
     }
-#if PMEM
-    current_node = &lv3_nodes[current_node->next_idx];
-#else
     current_node = current_node->next_node;
-#endif
   }
 
   metadata->lv3_locks[bindex][boffset] = 0;
@@ -1306,17 +1212,11 @@ static bool iceberg_nuke_key(iceberg_table * table, uint64 level, uint64 index, 
     iceberg_lv1_block * blocks = table->level1[bindex];
     metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
     blocks[boffset].slots[slot].key = blocks[boffset].slots[slot].val = 0;
-#if PMEM
-    pmem_persist(&blocks[boffset].slots[slot], sizeof(kv_pair));
-#endif
     pc_add(&metadata->lv1_balls, -1, thread_id);
   } else if (level == 2) {
     iceberg_lv2_block * blocks = table->level2[bindex];
     metadata->lv2_md[bindex][boffset].block_md[slot] = 0;
     blocks[boffset].slots[slot].key = blocks[boffset].slots[slot].val = 0;
-#if PMEM
-    pmem_persist(&blocks[boffset].slots[slot], sizeof(kv_pair));
-#endif
     pc_add(&metadata->lv2_balls, -1, thread_id);
   }
 
@@ -1426,13 +1326,7 @@ static bool iceberg_lv3_move_block(iceberg_table * table, uint64 bnum, uint8 thr
   get_index_offset(table->metadata.log_init_size, bnum, &bindex, &boffset);
   // relocate items in level3
   if(UNLIKELY(table->metadata.lv3_sizes[bindex][boffset])) {
-#if PMEM
-    iceberg_lv3_list * lists = table->level3[bindex];
-    iceberg_lv3_node * lv3_nodes = table->level3_nodes;
-    iceberg_lv3_node * current_node = &lv3_nodes[lists[boffset].head_idx];
-#else
     iceberg_lv3_node * current_node = table->level3[bindex][boffset].head;
-#endif
 
     while (current_node != NULL) {
       KeyType key = current_node->key;
@@ -1458,15 +1352,7 @@ static bool iceberg_lv3_move_block(iceberg_table * table, uint64 bnum, uint8 thr
         //exit(0);
         //}
       }
-#if PMEM      
-      if (current_node->next_idx != -1) {
-        current_node = &lv3_nodes[current_node->next_idx];
-      } else {
-        current_node = NULL;
-      }
-#else
       current_node = current_node->next_node;
-#endif
     }
   }
 
