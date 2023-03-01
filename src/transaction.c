@@ -292,8 +292,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
       return rc;
    }
 
-   _txn_kvsb->lock_tbl    = lock_table_create();
-   _txn_kvsb->rs_lock_tbl = lock_table_create();
+   _txn_kvsb->lock_tbl = lock_table_create();
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK == 0
    iceberg_table *tscache;
@@ -330,7 +329,6 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    splinterdb_close(&_txn_kvsb->kvsb);
 
    lock_table_destroy(_txn_kvsb->lock_tbl);
-   lock_table_destroy(_txn_kvsb->rs_lock_tbl);
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
    platform_free(0, _txn_kvsb->tcfg->txn_data_cfg);
@@ -468,51 +466,34 @@ RETRY_LOCK_WRITE_SET:
 #endif
 
       if (is_read_entry_invalid) {
-         lock_table_rc lock_rc = LOCK_TABLE_RC_OK;
-         do {
-            lock_rc =
-               lock_table_try_acquire_entry_lock(txn_kvsb->rs_lock_tbl, r);
-
-            /* // isLocked(r.tuple) and r.tuple not in WS */
-            /* if (lock_rc == LOCK_TABLE_RC_BUSY) { */
-            /*    is_abort = TRUE; */
-            /*    break; */
-            /* } */
-         } while (lock_rc == LOCK_TABLE_RC_BUSY);
+         lock_table_rc lock_rc =
+            lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
 
          txn_timestamp wts = 0;
          txn_timestamp rts = 0;
          get_global_timestamps(txn_kvsb, r, &wts, &rts);
 
          if (wts != r->wts) {
-            lock_table_release_entry_lock(txn_kvsb->rs_lock_tbl, r);
+            if (lock_rc == LOCK_TABLE_RC_OK) {
+               lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+            }
             is_abort = TRUE;
             break;
          }
 
-         if (rts <= commit_ts
-             && lock_table_is_entry_locked(txn_kvsb->lock_tbl, r)
-                   == LOCK_TABLE_RC_BUSY
-             && !rw_entry_is_write(r))
-         {
-            /* platform_error_log("%lu %lu\n", rts, commit_ts); */
-            lock_table_release_entry_lock(txn_kvsb->rs_lock_tbl, r);
+         if (rts <= commit_ts && lock_rc == LOCK_TABLE_RC_BUSY) {
             is_abort = TRUE;
             break;
          }
 
 #if EXPERIMENTAL_MODE_SILO == 0
-         const txn_timestamp new_rts            = MAX(commit_ts, rts);
-         const bool          need_to_update_rts = new_rts != rts;
-         /*    (new_rts != rts) && !is_repeatable_read(txn_kvsb->tcfg); */
-         if (need_to_update_rts) {
-            /* platform_error_log("wts: %lu, rts: %lu, new_rts: %lu\n", wts,
-             * rts, new_rts); */
-            update_global_timestamps(txn_kvsb, r, wts, new_rts);
+         if (rts < commit_ts) {
+            update_global_timestamps(txn_kvsb, r, wts, commit_ts);
          }
 #endif
-
-         lock_table_release_entry_lock(txn_kvsb->rs_lock_tbl, r);
+         if (lock_rc == LOCK_TABLE_RC_OK) {
+            lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
+         }
       }
    }
 

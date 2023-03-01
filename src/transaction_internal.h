@@ -29,7 +29,6 @@ typedef struct transactional_splinterdb {
    splinterdb                      *kvsb;
    transactional_splinterdb_config *tcfg;
    lock_table                      *lock_tbl;
-   lock_table                      *rs_lock_tbl;
 #if EXPERIMENTAL_MODE_TICTOC_DISK == 0
    iceberg_table *tscache;
 #endif
