@@ -106,6 +106,7 @@ get_global_timestamps(transactional_splinterdb *txn_kvsb,
       if (rts) {
          *rts = timestamp_set_get_rts(ts_set);
       }
+      /* platform_error_log("refcount: %d\n", value_ht->refcount); */
       return TRUE;
    }
    return FALSE;
@@ -122,6 +123,7 @@ update_global_timestamps(transactional_splinterdb *txn_kvsb,
                          txn_timestamp             rts)
 {
 #if EXPERIMENTAL_MODE_TICTOC_DISK
+   platform_assert(sizeof(rts) == sizeof(uint32));
    splinterdb_update(
       txn_kvsb->kvsb, entry->key, slice_create(sizeof(rts), &rts));
 #else
@@ -379,9 +381,6 @@ int
 transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
                                 transaction              *txn)
 {
-   /* txn->commit_wts = 0; */
-   /* txn->commit_rts = 0; */
-
    txn_timestamp commit_ts = 0;
 
    int       num_reads                    = 0;
@@ -486,6 +485,8 @@ RETRY_LOCK_WRITE_SET:
             break;
          }
 
+         platform_assert(wts <= commit_ts);
+
 #if EXPERIMENTAL_MODE_SILO == 0
          if (rts < commit_ts) {
             update_global_timestamps(txn_kvsb, r, wts, commit_ts);
@@ -515,6 +516,8 @@ RETRY_LOCK_WRITE_SET:
 #endif
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+         platform_sleep_ns(100);
+
          if (0) {
 #endif
             switch (message_class(w->msg)) {
@@ -538,7 +541,14 @@ RETRY_LOCK_WRITE_SET:
          }
 #endif
       }
+
+      /* platform_error_log("commit_ts: %lu\n", commit_ts); */
    }
+
+   /* if (is_abort && num_writes == 0) { */
+   /*   static int ro_abort = 0; */
+   /*   platform_error_log("read only txn abort %d\n", ++ro_abort); */
+   /* } */
 
    for (uint64 i = 0; i < num_writes; ++i) {
       lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
@@ -567,7 +577,12 @@ local_write(transactional_splinterdb *txn_kvsb,
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    const key          ukey  = key_create_from_slice(user_key);
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
-   get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
+   if (message_class(msg) == MESSAGE_TYPE_UPDATE
+       || message_class(msg) == MESSAGE_TYPE_DELETE)
+   {
+      get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
+   }
+
    if (message_is_null(entry->msg)) {
       rw_entry_set_msg(entry, msg);
    } else {
@@ -659,6 +674,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
 
 #   if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
+   platform_sleep_ns(100);
    return 0;
 #   endif
 
