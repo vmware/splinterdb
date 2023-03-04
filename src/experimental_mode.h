@@ -8,6 +8,12 @@
 #define EXPERIMENTAL_MODE_SILO              0
 #define EXPERIMENTAL_MODE_BYPASS_SPLINTERDB 0
 
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+typedef uint32 txn_timestamp;
+#else
+typedef uint64 txn_timestamp;
+#endif
+
 static inline void
 check_experimental_mode_is_valid()
 {
