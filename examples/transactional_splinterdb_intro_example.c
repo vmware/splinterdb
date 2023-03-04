@@ -82,13 +82,19 @@ main()
    }
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
 
-
+   // make keys[0] rts:1 and wts:3
    transactional_splinterdb_begin(spl_handle, &t1);
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
    transactional_splinterdb_update(spl_handle, &t1, keys[2], value);
    transactional_splinterdb_begin(spl_handle, &t2);
    transactional_splinterdb_update(spl_handle, &t2, keys[2], value);
    assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
+   assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
+
+   // make keys[1] rts:1 and wts:2
+   transactional_splinterdb_begin(spl_handle, &t1);
+   transactional_splinterdb_lookup(spl_handle, &t1, keys[1], &result);
+   transactional_splinterdb_update(spl_handle, &t1, keys[3], value);
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
 
    // the example in the tictoc paper
