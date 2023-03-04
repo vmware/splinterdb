@@ -363,6 +363,8 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 {
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
+   platform_error_log("[%lu] begin\n", ((unsigned long)txn) % 100);
+
    return 0;
 }
 
@@ -464,6 +466,11 @@ RETRY_LOCK_WRITE_SET:
 #if EXPERIMENTAL_MODE_SILO == 1
       is_read_entry_invalid = true;
 #endif
+      platform_error_log("[%lu] key %s r->rts %lu commit_ts %lu\n",
+                         ((unsigned long)txn) % 100,
+                         (char *)slice_data(r->key),
+                         r->rts,
+                         commit_ts);
 
       if (is_read_entry_invalid) {
          lock_table_rc lock_rc =
@@ -473,6 +480,12 @@ RETRY_LOCK_WRITE_SET:
          txn_timestamp rts = 0;
          get_global_timestamps(txn_kvsb, r, &wts, &rts);
 
+         platform_error_log("[%lu] key %s wts %lu r->wts %lu\n",
+                            ((unsigned long)txn) % 100,
+                            (char *)slice_data(r->key),
+                            wts,
+                            r->wts);
+
          if (wts != r->wts) {
             if (lock_rc == LOCK_TABLE_RC_OK) {
                lock_table_release_entry_lock(txn_kvsb->lock_tbl, r);
@@ -480,6 +493,14 @@ RETRY_LOCK_WRITE_SET:
             is_abort = TRUE;
             break;
          }
+         platform_error_log("[%lu] key %s rts %lu commit_ts %lu lock_rc == "
+                            "LOCK_TABLE_RC_BUSY %d\n",
+                            ((unsigned long)txn) % 100,
+                            (char *)slice_data(r->key),
+                            rts,
+                            commit_ts,
+                            (lock_rc == LOCK_TABLE_RC_BUSY));
+
 
          if (rts <= commit_ts && lock_rc == LOCK_TABLE_RC_BUSY) {
             is_abort = TRUE;
@@ -500,11 +521,12 @@ RETRY_LOCK_WRITE_SET:
    }
 
    if (!is_abort) {
+      int rc = 0;
+
       for (uint64 i = 0; i < num_writes; ++i) {
          rw_entry *w = write_set[i];
          platform_assert(rw_entry_is_write(w));
 
-         int rc = 0;
 #if EXPERIMENTAL_MODE_TICTOC_DISK
          timestamp_set ts = {
             .wts = commit_ts,
@@ -515,6 +537,13 @@ RETRY_LOCK_WRITE_SET:
 #else
          update_global_timestamps(txn_kvsb, w, commit_ts, commit_ts);
 #endif
+
+         //    lock_table_release_entry_lock(txn_kvsb->lock_tbl, w);
+         // }
+
+         // for (uint64 i = 0; i < num_writes; ++i) {
+         //    rw_entry *w = write_set[i];
+         //    platform_assert(rw_entry_is_write(w));
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          platform_sleep_ns(100);
@@ -544,19 +573,27 @@ RETRY_LOCK_WRITE_SET:
 
          lock_table_release_entry_lock(txn_kvsb->lock_tbl, w);
       }
-
-      // platform_error_log("commit_ts: %lu\n", commit_ts);
-
    } else {
       for (uint64 i = 0; i < num_writes; ++i) {
          lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
       }
    }
 
-   /* if (is_abort && num_writes == 0) { */
-   /*   static int ro_abort = 0; */
-   /*   platform_error_log("read only txn abort %d\n", ++ro_abort); */
-   /* } */
+   platform_error_log("[%lu] %s at commit_ts: %lu\n",
+                      ((unsigned long)txn) % 100,
+                      (is_abort ? "abort" : "commit"),
+                      commit_ts);
+   for (uint64 i = 0; i < txn->num_rw_entries; ++i) {
+      char         *key = (char *)slice_data(txn->rw_entries[i]->key);
+      txn_timestamp rts = 0;
+      txn_timestamp wts = 0;
+      get_global_timestamps(txn_kvsb, txn->rw_entries[i], &rts, &wts);
+      platform_error_log("[%lu] key %s rts %lu wts %lu\n",
+                         ((unsigned long)txn) % 100,
+                         key,
+                         rts,
+                         wts);
+   }
 
    transaction_deinit(txn_kvsb, txn);
 
@@ -633,6 +670,10 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
+   platform_error_log("[%lu] update %s\n",
+                      ((unsigned long)txn) % 100,
+                      (char *)slice_data(user_key));
+
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
 }
@@ -643,6 +684,10 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 splinterdb_lookup_result *result)
 {
+   platform_error_log("[%lu] lookup %s\n",
+                      ((unsigned long)txn) % 100,
+                      (char *)slice_data(user_key));
+
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, TRUE);
 

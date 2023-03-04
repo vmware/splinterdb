@@ -24,17 +24,6 @@
 #define NUM_KEYS  16
 #define VALUE_LEN 1024
 
-void
-print_txn(const char *prefix, transaction *txn)
-{
-   /* printf("transaction [%s]:\n", prefix); */
-   // for (uint64 i = 0; i < txn->num_rw_entries; i++) {
-   //    rw_entry *entry = txn->rw_entries[i];
-   //    printf("  %s\n", (const char *)slice_data(entry->key));
-   // }
-   // print commit_wts and commit_rts
-}
-
 /*
  * -------------------------------------------------------------------------------
  * We, intentionally, do not check for errors or show error handling, as this is
@@ -67,10 +56,17 @@ main()
 
    transaction t1;
    transaction t2;
+   transaction t3;
+
+   printf("t1: %lu, t2: %lu, t3: %lu\n\n",
+          ((unsigned long)&t1) % 100,
+          ((unsigned long)&t2) % 100,
+          ((unsigned long)&t3) % 100);
 
    slice keys[NUM_KEYS];
    for (int i = 0; i < NUM_KEYS; i++) {
-      char key[USER_MAX_KEY_SIZE] = {'x'};
+      char *key = (char *)malloc(USER_MAX_KEY_SIZE);
+      memset(key, 'x', USER_MAX_KEY_SIZE);
       sprintf(key, "key_%d", i);
       keys[i] = slice_create(USER_MAX_KEY_SIZE, key);
    }
@@ -85,127 +81,29 @@ main()
       transactional_splinterdb_insert(spl_handle, &t1, keys[i], value);
    }
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-   print_txn("t1", &t1);
+
 
    transactional_splinterdb_begin(spl_handle, &t1);
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
-   {
-      transactional_splinterdb_begin(spl_handle, &t2);
-      transactional_splinterdb_insert(spl_handle, &t2, keys[0], value);
-      assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
-      print_txn("t2", &t2);
-   }
+   transactional_splinterdb_update(spl_handle, &t1, keys[2], value);
+   transactional_splinterdb_begin(spl_handle, &t2);
+   transactional_splinterdb_update(spl_handle, &t2, keys[2], value);
+   assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-   print_txn("t1", &t1);
+
+   // the example in the tictoc paper
 
    transactional_splinterdb_begin(spl_handle, &t1);
+   transactional_splinterdb_begin(spl_handle, &t2);
    transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
-   transactional_splinterdb_insert(spl_handle, &t1, keys[0], value);
-   {
-      transactional_splinterdb_begin(spl_handle, &t2);
-      transactional_splinterdb_insert(spl_handle, &t2, keys[0], value);
-      assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
-      print_txn("t2", &t2);
-   }
-   assert(transactional_splinterdb_commit(spl_handle, &t1) == -1);
-   print_txn("t1 (abort)", &t1);
-
-   transactional_splinterdb_begin(spl_handle, &t1);
-   {
-      transactional_splinterdb_begin(spl_handle, &t2);
-      transactional_splinterdb_insert(spl_handle, &t2, keys[0], value);
-      assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
-      print_txn("t2", &t2);
-   }
-   transactional_splinterdb_lookup(spl_handle, &t1, keys[0], &result);
-   transactional_splinterdb_insert(spl_handle, &t1, keys[0], value);
+   transactional_splinterdb_update(spl_handle, &t2, keys[0], value);
+   assert(transactional_splinterdb_commit(spl_handle, &t2) == 0);
+   transactional_splinterdb_update(spl_handle, &t1, keys[1], value);
    assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
-   print_txn("t1", &t1);
 
-   for (int i = 0; i < 20000000; i++) {
-      transactional_splinterdb_begin(spl_handle, &t1);
-      transactional_splinterdb_insert(spl_handle, &t1, keys[0], value);
-      assert(transactional_splinterdb_commit(spl_handle, &t1) == 0);
+   for (int i = 0; i < NUM_KEYS; i++) {
+      free((char *)slice_data(keys[i]));
    }
-   print_txn("t1", &t1);
-
-   // const char *fruit = "apple";
-   // const char *descr = "An apple a day keeps the doctor away!";
-   // slice       key   = slice_create((size_t)strlen(fruit), fruit);
-   // slice       value = slice_create((size_t)strlen(descr), descr);
-
-   // transaction txn;
-   // transactional_splinterdb_begin(spl_handle, &txn);
-
-   // rc = transactional_splinterdb_insert(spl_handle, &txn, key, value);
-   // if (!rc) {
-   //    printf("Inserted key '%s'\n", fruit);
-   // }
-
-   // rc = transactional_splinterdb_commit(spl_handle, &txn);
-   // if (rc == -1) {
-   //    printf("%d: Transaction aborts\n", __LINE__);
-   // }
-
-   // transactional_splinterdb_begin(spl_handle, &txn);
-
-   // fruit = "Orange";
-   // descr = "Is a good source of vitamin-C.";
-   // key   = slice_create((size_t)strlen(fruit), fruit);
-   // value = slice_create((size_t)strlen(descr), descr);
-   // rc    = transactional_splinterdb_insert(spl_handle, &txn, key, value);
-   // if (!rc) {
-   //    printf("Inserted key '%s'\n", fruit);
-   // }
-
-   // fruit = "Mango";
-   // descr = "Mango is the king of fruits.";
-   // key   = slice_create((size_t)strlen(fruit), fruit);
-   // value = slice_create((size_t)strlen(descr), descr);
-   // rc    = transactional_splinterdb_insert(spl_handle, &txn, key, value);
-   // if (!rc) {
-   //    printf("Inserted key '%s'\n", fruit);
-   // }
-
-   // rc = transactional_splinterdb_commit(spl_handle, &txn);
-   // if (rc == -1) {
-   //    printf("%d: Transaction aborts\n", __LINE__);
-   // }
-
-   // transactional_splinterdb_begin(spl_handle, &txn);
-
-   // // Retrieve a key-value pair.
-   // splinterdb_lookup_result result;
-   // transactional_splinterdb_lookup_result_init(spl_handle, &result, 0, NULL);
-
-   // fruit = "Orange";
-   // key   = slice_create((size_t)strlen(fruit), fruit);
-   // rc    = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
-   // rc    = splinterdb_lookup_result_value(&result, &value);
-   // if (!rc) {
-   //    printf("Found key: '%s', value: '%.*s'\n",
-   //           fruit,
-   //           (int)slice_length(value),
-   //           (char *)slice_data(value));
-   // } else {
-   //    printf("Key: '%s' not found. (rc=%d)\n", fruit, rc);
-   // }
-
-   // // Handling non-existent keys
-   // fruit = "Banana";
-   // key   = slice_create((size_t)strlen(fruit), fruit);
-   // rc    = transactional_splinterdb_lookup(spl_handle, &txn, key, &result);
-   // rc    = splinterdb_lookup_result_value(&result, &value);
-   // if (rc) {
-   //    printf("Key: '%s' not found. (rc=%d)\n", fruit, rc);
-   // }
-   // printf("\n");
-
-   // rc = transactional_splinterdb_commit(spl_handle, &txn);
-   // if (rc == -1) {
-   //    printf("%d: Transaction aborts\n", __LINE__);
-   // }
-
    transactional_splinterdb_close(&spl_handle);
    printf("Shutdown SplinterDB instance, dbname '%s'.\n\n", DB_FILE_NAME);
 
