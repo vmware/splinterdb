@@ -14,11 +14,12 @@ typedef struct rw_entry {
    txn_timestamp wts;
    txn_timestamp rts;
 
-   uint64 owner;
+   threadid owner;
 
-   bool is_read;
-   bool need_to_keep_key;
-   bool need_to_decrease_refcount;
+   char is_read;
+   char need_to_keep_key;
+   char need_to_decrease_refcount;
+   char is_locked;
 } rw_entry;
 
 typedef enum lock_table_rc {
@@ -44,5 +45,5 @@ lock_table_rc
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry);
 void
 lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry);
-lock_table_rc
-lock_table_is_entry_locked(lock_table *lock_tbl, rw_entry *entry);
+// lock_table_rc
+// lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry);

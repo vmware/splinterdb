@@ -232,12 +232,13 @@ rw_entry_get(transactional_splinterdb *txn_kvsb,
 static int
 rw_entry_key_compare(const void *elem1, const void *elem2, void *args)
 {
-   rw_entry         **a   = (rw_entry **)elem1;
-   rw_entry         **b   = (rw_entry **)elem2;
    const data_config *cfg = (const data_config *)args;
 
-   key akey = key_create_from_slice((*a)->key);
-   key bkey = key_create_from_slice((*b)->key);
+   rw_entry *e1 = *((rw_entry **)elem1);
+   rw_entry *e2 = *((rw_entry **)elem2);
+
+   key akey = key_create_from_slice(e1->key);
+   key bkey = key_create_from_slice(e2->key);
 
    return data_key_compare(cfg, akey, bkey);
 }
@@ -421,15 +422,15 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
 RETRY_LOCK_WRITE_SET:
 {
-   int locked_cnt = 0;
-   while (locked_cnt < num_writes) {
+   int lock_num = 0;
+   while (lock_num < num_writes) {
       lock_table_rc lock_rc = lock_table_try_acquire_entry_lock(
-         txn_kvsb->lock_tbl, write_set[locked_cnt]);
+         txn_kvsb->lock_tbl, write_set[lock_num]);
       platform_assert(lock_rc != LOCK_TABLE_RC_DEADLK);
       if (lock_rc == LOCK_TABLE_RC_BUSY) {
-         while (locked_cnt-- > 0) {
+         while (lock_num-- > 0) {
             lock_table_release_entry_lock(txn_kvsb->lock_tbl,
-                                          write_set[locked_cnt]);
+                                          write_set[lock_num]);
          }
 
          // 1us is the value that is mentioned in the paper
@@ -438,7 +439,7 @@ RETRY_LOCK_WRITE_SET:
          goto RETRY_LOCK_WRITE_SET;
       }
 
-      ++locked_cnt;
+      ++lock_num;
    }
 }
 
@@ -540,19 +541,22 @@ RETRY_LOCK_WRITE_SET:
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
+
+         lock_table_release_entry_lock(txn_kvsb->lock_tbl, w);
       }
 
-      /* platform_error_log("commit_ts: %lu\n", commit_ts); */
+      // platform_error_log("commit_ts: %lu\n", commit_ts);
+
+   } else {
+      for (uint64 i = 0; i < num_writes; ++i) {
+         lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
+      }
    }
 
    /* if (is_abort && num_writes == 0) { */
    /*   static int ro_abort = 0; */
    /*   platform_error_log("read only txn abort %d\n", ++ro_abort); */
    /* } */
-
-   for (uint64 i = 0; i < num_writes; ++i) {
-      lock_table_release_entry_lock(txn_kvsb->lock_tbl, write_set[i]);
-   }
 
    transaction_deinit(txn_kvsb, txn);
 

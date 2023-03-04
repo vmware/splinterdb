@@ -28,57 +28,27 @@ lock_table_destroy(lock_table *lock_tbl)
 lock_table_rc
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
-   /* lock_table_rc rc = lock_table_is_entry_locked(lock_tbl, entry); */
-   /* if (rc != LOCK_TABLE_RC_OK) { */
-   /*    return rc; */
-   /* } */
+   if (entry->is_locked) {
+      return LOCK_TABLE_RC_DEADLK;
+   }
 
    KeyType   key        = (KeyType)slice_data(entry->key);
    ValueType lock_owner = {.refcount = 1, .value = entry->owner};
-
-RETRY:
    if (iceberg_insert(&lock_tbl->table, key, lock_owner, platform_get_tid())) {
+      entry->is_locked = TRUE;
       return LOCK_TABLE_RC_OK;
    }
 
-   lock_table_rc rc = lock_table_is_entry_locked(lock_tbl, entry);
-   if (rc != LOCK_TABLE_RC_OK) {
-      return rc;
-   }
-
-   goto RETRY;
+   return LOCK_TABLE_RC_BUSY;
 }
 
 void
 lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 {
-   KeyType    key                = (KeyType)slice_data(entry->key);
-   ValueType *current_lock_owner = NULL;
-   if (iceberg_get_value(
-          &lock_tbl->table, key, &current_lock_owner, platform_get_tid()))
-   {
-      if (current_lock_owner->value == entry->owner) {
-         iceberg_force_remove(&lock_tbl->table, key, platform_get_tid());
-         return;
-      }
-   }
-   platform_assert(FALSE,
+   platform_assert(entry->is_locked,
                    "Trying to release lock that is not locked by this thread");
-}
 
-lock_table_rc
-lock_table_is_entry_locked(lock_table *lock_tbl, rw_entry *entry)
-{
-   KeyType    key                = (KeyType)slice_data(entry->key);
-   ValueType *current_lock_owner = NULL;
-   if (iceberg_get_value(
-          &lock_tbl->table, key, &current_lock_owner, platform_get_tid()))
-   {
-      if (current_lock_owner->value == entry->owner) {
-         return LOCK_TABLE_RC_DEADLK;
-      }
-      return LOCK_TABLE_RC_BUSY;
-   }
-
-   return LOCK_TABLE_RC_OK;
+   KeyType key = (KeyType)slice_data(entry->key);
+   iceberg_force_remove(&lock_tbl->table, key, platform_get_tid());
+   entry->is_locked = FALSE;
 }
