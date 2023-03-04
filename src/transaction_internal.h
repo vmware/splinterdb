@@ -9,6 +9,7 @@
 #include "splinterdb_internal.h"
 #include "iceberg_table.h"
 #include "lock_table.h"
+#include "sketch.h"
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
 #   include "transactional_data_config.h"
@@ -31,6 +32,9 @@ typedef struct transactional_splinterdb {
    lock_table                      *lock_tbl;
 #if EXPERIMENTAL_MODE_TICTOC_DISK == 0
    iceberg_table *tscache;
+#endif
+#if EXPERIMENTAL_MODE_SKETCH
+   sketch *sket;
 #endif
 } transactional_splinterdb;
 

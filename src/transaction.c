@@ -47,17 +47,47 @@ rw_entry_decrease_refcount(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 #   if EXPERIMENTAL_MODE_KEEP_ALL_KEYS
    iceberg_decrease_refcount(txn_kvsb->tscache, key_ht, platform_get_tid());
 #   else
-   if (iceberg_remove_and_get_key(
-          txn_kvsb->tscache, &key_ht, platform_get_tid())) {
+   ValueType value_ht = {0};
+   if (iceberg_get_and_remove(
+          txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid())) {
       if (slice_data(entry->key) != key_ht) {
          platform_free_from_heap(0, key_ht);
       } else {
          entry->need_to_keep_key = FALSE;
       }
+      
+#   if EXPERIMENTAL_MODE_SKETCH
+      timestamp_set *ts = (timestamp_set *)&value_ht;
+      count_min_sketch_max_insert(
+         txn_kvsb->sket, entry->key, timestamp_set_get_rts(ts));
+#   endif
    }
 #   endif
 }
 #endif
+
+/*
+ * This function will update only rts for EXPERIMENTAL_MODE_TICTOC_DISK
+ */
+static inline void
+update_global_timestamps(transactional_splinterdb *txn_kvsb,
+                         rw_entry                 *entry,
+                         txn_timestamp             wts,
+                         txn_timestamp             rts)
+{
+#if EXPERIMENTAL_MODE_TICTOC_DISK
+   platform_assert(sizeof(rts) == sizeof(uint32));
+   splinterdb_update(
+      txn_kvsb->kvsb, entry->key, slice_create(sizeof(rts), &rts));
+#else
+   KeyType       key_ht     = (KeyType)slice_data(entry->key);
+   timestamp_set new_ts_set = {
+      .refcount = 1, .wts = wts, .delta = timestamp_set_get_delta(wts, rts)};
+   ValueType *new_value_ht = (ValueType *)&new_ts_set;
+   platform_assert(iceberg_update(
+      txn_kvsb->tscache, key_ht, *new_value_ht, platform_get_tid()));
+#endif
+}
 
 static bool
 get_global_timestamps(transactional_splinterdb *txn_kvsb,
@@ -92,49 +122,37 @@ get_global_timestamps(transactional_splinterdb *txn_kvsb,
 
    return found;
 #else
-   rw_entry_increase_refcount(txn_kvsb, entry);
-
    KeyType    key_ht   = (KeyType)slice_data(entry->key);
    ValueType *value_ht = NULL;
 
-   if (iceberg_get_value(
-          txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid())) {
-      timestamp_set *ts_set = (timestamp_set *)value_ht;
-      if (wts) {
-         *wts = ts_set->wts;
+   if (!rw_entry_increase_refcount(txn_kvsb, entry)) {
+      if (iceberg_get_value(
+            txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()))
+      {
+         timestamp_set *ts_set = (timestamp_set *)value_ht;
+         if (wts) {
+            *wts = ts_set->wts;
+         }
+         if (rts) {
+            *rts = timestamp_set_get_rts(ts_set);
+         }
+         platform_error_log("Key %s get rts from cache: %lu\n", key_ht, *rts);
+         return TRUE;
       }
-      if (rts) {
-         *rts = timestamp_set_get_rts(ts_set);
-      }
-      /* platform_error_log("refcount: %d\n", value_ht->refcount); */
-      return TRUE;
    }
+
+#   if EXPERIMENTAL_MODE_SKETCH
+   if (rts) {
+      *rts = count_min_sketch_query(txn_kvsb->sket, entry->key);
+      platform_error_log("Key %s get rts from sketch: %lu\n", key_ht, *rts);
+      update_global_timestamps(txn_kvsb, entry, 0, *rts);
+   }
+#   endif
+
    return FALSE;
 #endif
 }
 
-/*
- * This function will update only rts for EXPERIMENTAL_MODE_TICTOC_DISK
- */
-static inline void
-update_global_timestamps(transactional_splinterdb *txn_kvsb,
-                         rw_entry                 *entry,
-                         txn_timestamp             wts,
-                         txn_timestamp             rts)
-{
-#if EXPERIMENTAL_MODE_TICTOC_DISK
-   platform_assert(sizeof(rts) == sizeof(uint32));
-   splinterdb_update(
-      txn_kvsb->kvsb, entry->key, slice_create(sizeof(rts), &rts));
-#else
-   KeyType       key_ht     = (KeyType)slice_data(entry->key);
-   timestamp_set new_ts_set = {
-      .refcount = 1, .wts = wts, .delta = timestamp_set_get_delta(wts, rts)};
-   ValueType *new_value_ht = (ValueType *)&new_ts_set;
-   platform_assert(iceberg_update(
-      txn_kvsb->tscache, key_ht, *new_value_ht, platform_get_tid()));
-#endif
-}
 
 static rw_entry *
 rw_entry_create()
@@ -177,11 +195,10 @@ rw_entry_set_key(rw_entry *e, slice key, const data_config *cfg)
 static inline void
 rw_entry_set_msg(rw_entry *e, message msg)
 {
-   uint64 value_start = sizeof(tuple_header);
-   uint64 msg_len     = sizeof(tuple_header) + message_length(msg);
+   uint64 msg_len = sizeof(tuple_header) + message_length(msg);
    char  *msg_buf;
    msg_buf = TYPED_ARRAY_ZALLOC(0, msg_buf, msg_len);
-   memcpy(msg_buf + value_start, message_data(msg), msg_len);
+   memcpy(msg_buf + sizeof(tuple_header), message_data(msg), msg_len);
    e->msg = message_create(message_class(msg), slice_create(msg_len, msg_buf));
 }
 
@@ -260,7 +277,7 @@ transactional_splinterdb_config_init(
    txn_splinterdb_cfg->kvsb_cfg.data_cfg =
       (data_config *)txn_splinterdb_cfg->txn_data_cfg;
 #else
-   txn_splinterdb_cfg->tscache_log_slots = 28;
+   txn_splinterdb_cfg->tscache_log_slots = 20;
 #endif
 
    // TODO things like filename, logfile, or data_cfg would need a
@@ -273,6 +290,7 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
                                         transactional_splinterdb **txn_kvsb,
                                         bool open_existing)
 {
+   check_experimental_mode_is_valid();
    print_current_experimental_modes();
 
    transactional_splinterdb_config *txn_splinterdb_cfg;
@@ -305,6 +323,11 @@ transactional_splinterdb_create_or_open(const splinterdb_config   *kvsb_cfg,
    _txn_kvsb->tscache = tscache;
 #endif
 
+#if EXPERIMENTAL_MODE_SKETCH
+   _txn_kvsb->sket = TYPED_ZALLOC(0, _txn_kvsb->sket);
+   count_min_sketch_init(_txn_kvsb->sket, 10, 1000000);
+#endif
+
    *txn_kvsb = _txn_kvsb;
 
    return 0;
@@ -332,6 +355,12 @@ transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
    splinterdb_close(&_txn_kvsb->kvsb);
 
    lock_table_destroy(_txn_kvsb->lock_tbl);
+
+#if EXPERIMENTAL_MODE_SKETCH
+   // count_min_sketch_print(_txn_kvsb->sket);
+   count_min_sketch_deinit(_txn_kvsb->sket);
+   platform_free(0, _txn_kvsb->sket);
+#endif
 
 #if EXPERIMENTAL_MODE_TICTOC_DISK
    platform_free(0, _txn_kvsb->tcfg->txn_data_cfg);
@@ -363,7 +392,7 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 {
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
-   // platform_error_log("[%lu] begin\n", ((unsigned long)txn) % 100);
+   platform_error_log("[%lu] begin\n", ((unsigned long)txn) % 100);
 
    return 0;
 }
@@ -466,11 +495,11 @@ RETRY_LOCK_WRITE_SET:
 #if EXPERIMENTAL_MODE_SILO == 1
       is_read_entry_invalid = true;
 #endif
-      // platform_error_log("[%lu] key %s r->rts %lu commit_ts %lu\n",
-      //                    ((unsigned long)txn) % 100,
-      //                    (char *)slice_data(r->key),
-      //                    r->rts,
-      //                    commit_ts);
+      platform_error_log("[%lu] key %s r->rts %lu commit_ts %lu\n",
+                         ((unsigned long)txn) % 100,
+                         (char *)slice_data(r->key),
+                         r->rts,
+                         commit_ts);
 
       if (is_read_entry_invalid) {
          lock_table_rc lock_rc =
@@ -480,11 +509,11 @@ RETRY_LOCK_WRITE_SET:
          txn_timestamp rts = 0;
          get_global_timestamps(txn_kvsb, r, &wts, &rts);
 
-         // platform_error_log("[%lu] key %s wts %lu r->wts %lu\n",
-         //                    ((unsigned long)txn) % 100,
-         //                    (char *)slice_data(r->key),
-         //                    wts,
-         //                    r->wts);
+         platform_error_log("[%lu] key %s wts %lu r->wts %lu\n",
+                            ((unsigned long)txn) % 100,
+                            (char *)slice_data(r->key),
+                            wts,
+                            r->wts);
 
          if (wts != r->wts) {
             if (lock_rc == LOCK_TABLE_RC_OK) {
@@ -493,13 +522,13 @@ RETRY_LOCK_WRITE_SET:
             is_abort = TRUE;
             break;
          }
-         // platform_error_log("[%lu] key %s rts %lu commit_ts %lu lock_rc == "
-         //                    "LOCK_TABLE_RC_BUSY %d\n",
-         //                    ((unsigned long)txn) % 100,
-         //                    (char *)slice_data(r->key),
-         //                    rts,
-         //                    commit_ts,
-         //                    (lock_rc == LOCK_TABLE_RC_BUSY));
+         platform_error_log("[%lu] key %s rts %lu commit_ts %lu lock_rc == "
+                            "LOCK_TABLE_RC_BUSY %d\n",
+                            ((unsigned long)txn) % 100,
+                            (char *)slice_data(r->key),
+                            rts,
+                            commit_ts,
+                            (lock_rc == LOCK_TABLE_RC_BUSY));
 
 
          if (rts <= commit_ts && lock_rc == LOCK_TABLE_RC_BUSY) {
@@ -579,21 +608,21 @@ RETRY_LOCK_WRITE_SET:
       }
    }
 
-   // platform_error_log("[%lu] %s at commit_ts: %lu\n",
-   //                    ((unsigned long)txn) % 100,
-   //                    (is_abort ? "abort" : "commit"),
-   //                    commit_ts);
-   // for (uint64 i = 0; i < txn->num_rw_entries; ++i) {
-   //    char         *key = (char *)slice_data(txn->rw_entries[i]->key);
-   //    txn_timestamp rts = 0;
-   //    txn_timestamp wts = 0;
-   //    get_global_timestamps(txn_kvsb, txn->rw_entries[i], &rts, &wts);
-   //    platform_error_log("[%lu] key %s rts %lu wts %lu\n",
-   //                       ((unsigned long)txn) % 100,
-   //                       key,
-   //                       rts,
-   //                       wts);
-   // }
+   platform_error_log("[%lu] %s at commit_ts: %lu\n",
+                      ((unsigned long)txn) % 100,
+                      (is_abort ? "abort" : "commit"),
+                      commit_ts);
+   for (uint64 i = 0; i < txn->num_rw_entries; ++i) {
+      char         *key = (char *)slice_data(txn->rw_entries[i]->key);
+      txn_timestamp rts = 0;
+      txn_timestamp wts = 0;
+      get_global_timestamps(txn_kvsb, txn->rw_entries[i], &rts, &wts);
+      platform_error_log("[%lu] key %s rts %lu wts %lu\n",
+                         ((unsigned long)txn) % 100,
+                         key,
+                         rts,
+                         wts);
+   }
 
    transaction_deinit(txn_kvsb, txn);
 
@@ -670,9 +699,9 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
-   // platform_error_log("[%lu] update %s\n",
-   //                    ((unsigned long)txn) % 100,
-   //                    (char *)slice_data(user_key));
+   platform_error_log("[%lu] update %s\n",
+                      ((unsigned long)txn) % 100,
+                      (char *)slice_data(user_key));
 
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
@@ -684,9 +713,9 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 splinterdb_lookup_result *result)
 {
-   // platform_error_log("[%lu] lookup %s\n",
-   //                    ((unsigned long)txn) % 100,
-   //                    (char *)slice_data(user_key));
+   platform_error_log("[%lu] lookup %s\n",
+                      ((unsigned long)txn) % 100,
+                      (char *)slice_data(user_key));
 
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, TRUE);
