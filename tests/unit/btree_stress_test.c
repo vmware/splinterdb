@@ -34,6 +34,7 @@ typedef struct insert_thread_params {
    uint64           root_addr;
    int              start;
    int              end;
+   size_t           mf_size; // Size of memfrag allocated for scratch array
 } insert_thread_params;
 
 // Function Prototypes
@@ -201,15 +202,19 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid     = data->hid;
-   insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
+   platform_heap_id      hid = data->hid;
+   platform_memfrag      memfrag_params;
+   insert_thread_params *params = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
+   platform_memfrag      memfrag_threads;
    platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
+   platform_memfrag mf = {0};
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
       params[i].cfg       = &data->dbtree_cfg;
       params[i].hid       = data->hid;
-      params[i].scratch   = TYPED_MALLOC(data->hid, params[i].scratch);
+      params[i].scratch   = TYPED_MALLOC_MF(data->hid, params[i].scratch, &mf);
+      params[i].mf_size   = memfrag_size(&mf);
       params[i].mini      = &mini;
       params[i].root_addr = root_addr;
       params[i].start     = i * (nkvs / nthreads);
@@ -240,6 +245,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                         root_addr,
                         nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
+   CTEST_LOG_INFO("BTree stress query_tests() succeeded.\n");
 
    if (!iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
@@ -250,6 +256,9 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    {
       CTEST_ERR("invalid ranges in original tree, starting at front\n");
    }
+   CTEST_LOG_INFO("BTree stress Forward scan iterator_tests() "
+                  "succeeded.\n");
+
    if (!iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
                        root_addr,
@@ -259,18 +268,22 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    {
       CTEST_ERR("invalid ranges in original tree, starting at back\n");
    }
+   CTEST_LOG_INFO("BTree stress Backward scan iterator_tests() "
+                  "succeeded.\n");
 
    if (!iterator_seek_tests(
           (cache *)&data->cc, &data->dbtree_cfg, root_addr, nkvs, data->hid))
    {
       CTEST_ERR("invalid ranges when seeking in original tree\n");
    }
+   CTEST_LOG_INFO("BTree stress iterator_seek_tests() succeeded.\n");
 
    uint64 packed_root_addr = pack_tests(
       (cache *)&data->cc, &data->dbtree_cfg, data->hid, root_addr, nkvs);
    if (0 < nkvs && !packed_root_addr) {
       ASSERT_TRUE(FALSE, "Pack failed.\n");
    }
+   CTEST_LOG_INFO("BTree stress pack_tests() succeeded.\n");
 
    rc = query_tests((cache *)&data->cc,
                     &data->dbtree_cfg,
@@ -279,6 +292,7 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                     packed_root_addr,
                     nkvs);
    ASSERT_NOT_EQUAL(0, rc, "Invalid tree\n");
+   CTEST_LOG_INFO("BTree stress query_tests() after pack succeeded.\n");
 
    rc = iterator_tests((cache *)&data->cc,
                        &data->dbtree_cfg,
@@ -287,6 +301,8 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
                        TRUE,
                        data->hid);
    ASSERT_NOT_EQUAL(0, rc, "Invalid ranges in packed tree\n");
+   CTEST_LOG_INFO("BTree stress Forward scan iterator_tests() after "
+                  "pack succeeded.\n");
 
    // Exercise print method to verify that it basically continues to work.
    set_log_streams_for_tests(MSG_LEVEL_DEBUG);
@@ -301,10 +317,10 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
 
    // Release memory allocated in this test case
    for (uint64 i = 0; i < nthreads; i++) {
-      platform_free(data->hid, params[i].scratch);
+      platform_free_mem(data->hid, params[i].scratch, params[i].mf_size);
    }
-   platform_free(hid, params);
-   platform_free(hid, threads);
+   platform_free(hid, &memfrag_params);
+   platform_free(hid, &memfrag_threads);
 }
 
 /*
@@ -342,8 +358,14 @@ insert_tests(cache           *cc,
    uint64 bt_page_size = btree_page_size(cfg);
    int    keybuf_size  = bt_page_size;
    int    msgbuf_size  = bt_page_size;
-   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
-   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
+
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
+
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf =
+      TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size, &memfrag_msgbuf);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -360,8 +382,8 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
-   platform_free(hid, keybuf);
-   platform_free(hid, msgbuf);
+   platform_free(hid, &memfrag_keybuf);
+   platform_free(hid, &memfrag_msgbuf);
 }
 
 static key
@@ -409,10 +431,15 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint64 bt_page_size = btree_page_size(cfg);
-   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size);
-   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size);
-   memset(msgbuf, 0, bt_page_size);
+   uint64           bt_page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size, &memfrag_keybuf);
+
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf =
+      TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size, &memfrag_msgbuf);
+   memset(msgbuf, 0, btree_page_size(cfg));
 
    merge_accumulator result;
    merge_accumulator_init(&result, hid);
@@ -433,8 +460,8 @@ query_tests(cache           *cc,
    }
 
    merge_accumulator_deinit(&result);
-   platform_free(hid, keybuf);
-   platform_free(hid, msgbuf);
+   platform_free(hid, &memfrag_keybuf);
+   platform_free(hid, &memfrag_msgbuf);
    return 1;
 }
 
@@ -447,10 +474,19 @@ iterator_test(platform_heap_id hid,
 {
    uint64 seen         = 0;
    uint64 bt_page_size = btree_page_size(cfg);
-   uint8 *prevbuf      = TYPED_MANUAL_MALLOC(hid, prevbuf, bt_page_size);
    key    prev         = NULL_KEY;
-   uint8 *keybuf       = TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size);
-   uint8 *msgbuf       = TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size);
+
+   platform_memfrag memfrag_prevbuf;
+   uint8           *prevbuf =
+      TYPED_MANUAL_MALLOC(hid, prevbuf, bt_page_size, &memfrag_prevbuf);
+
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, bt_page_size, &memfrag_keybuf);
+
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf =
+      TYPED_MANUAL_MALLOC(hid, msgbuf, bt_page_size, &memfrag_msgbuf);
 
    while (iterator_can_curr(iter)) {
       key     curr_key;
@@ -491,9 +527,9 @@ iterator_test(platform_heap_id hid,
       }
    }
 
-   platform_free(hid, prevbuf);
-   platform_free(hid, keybuf);
-   platform_free(hid, msgbuf);
+   platform_free(hid, &memfrag_prevbuf);
+   platform_free(hid, &memfrag_keybuf);
+   platform_free(hid, &memfrag_msgbuf);
    return seen;
 }
 
@@ -556,8 +592,11 @@ iterator_seek_tests(cache           *cc,
 {
    btree_iterator dbiter;
 
-   int    keybuf_size = btree_page_size(cfg);
-   uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
+   int keybuf_size = btree_page_size(cfg);
+
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf =
+      TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size, &memfrag_keybuf);
 
    // start in the "middle" of the range
    key start_key = gen_key(cfg, nkvs / 2, keybuf, keybuf_size);
@@ -591,6 +630,7 @@ iterator_seek_tests(cache           *cc,
 
    btree_iterator_deinit(&dbiter);
 
+   platform_free(hid, &memfrag_keybuf);
    return 1;
 }
 

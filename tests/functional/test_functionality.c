@@ -236,6 +236,7 @@ verify_range_against_shadow(trunk_handle               *spl,
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
 
+   platform_memfrag      memfrag_range_itor;
    trunk_range_iterator *range_itor = TYPED_MALLOC(hid, range_itor);
    platform_assert(range_itor != NULL);
    status = trunk_range_iterator_init(spl,
@@ -315,7 +316,7 @@ destroy:
    trunk_range_iterator_deinit(range_itor);
 
 out:
-   platform_free(hid, range_itor);
+   platform_free(hid, &memfrag_range_itor);
 
    return status;
 }
@@ -499,7 +500,7 @@ validate_tree_against_shadow(trunk_handle              *spl,
 
    rc = verify_against_shadow(spl, &sharr, async_lookup);
    if (!SUCCESS(rc)) {
-      platform_free(hid, async_lookup);
+      platform_free_mem(hid, async_lookup, async_lookup->mf_size);
       platform_error_log("Failed to verify inserted items in Splinter: %s\n",
                          platform_status_to_string(rc));
       goto cleanup;
@@ -648,14 +649,16 @@ test_functionality(allocator       *al,
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
 
+   platform_memfrag memfrag_spl_tables;
    trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    platform_assert(spl_tables != NULL);
 
+   platform_memfrag            memfrag_shadows;
    test_splinter_shadow_tree **shadows =
       TYPED_ARRAY_ZALLOC(hid, shadows, num_tables);
-
    platform_assert(shadows != NULL);
 
+   platform_memfrag   memfrag_splinters;
    allocator_root_id *splinters =
       TYPED_ARRAY_ZALLOC(hid, splinters, num_tables);
 
@@ -864,8 +867,8 @@ cleanup:
    if (async_lookup) {
       async_ctxt_deinit(hid, async_lookup);
    }
-   platform_free(hid, spl_tables);
-   platform_free(hid, splinters);
-   platform_free(hid, shadows);
+   platform_free(hid, &memfrag_spl_tables);
+   platform_free(hid, &memfrag_splinters);
+   platform_free(hid, &memfrag_shadows);
    return status;
 }

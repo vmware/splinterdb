@@ -38,6 +38,7 @@ typedef struct test_memtable_context {
    platform_heap_id   heap_id;
    memtable_context  *mt_ctxt;
    uint64             max_generation;
+   size_t             mf_size;
 } test_memtable_context;
 
 btree_config *
@@ -58,11 +59,13 @@ test_memtable_context_create(cache             *cc,
                              uint64             num_mt,
                              platform_heap_id   hid)
 {
+   platform_memfrag       memfrag_ctxt;
    test_memtable_context *ctxt = TYPED_ZALLOC(hid, ctxt);
    platform_assert(ctxt);
    ctxt->cc      = cc;
    ctxt->cfg     = cfg;
    ctxt->heap_id = hid;
+   ctxt->mf_size = memfrag_size(&memfrag_ctxt);
    ctxt->mt_ctxt = memtable_context_create(
       hid, cc, cfg->mt_cfg, test_btree_process_noop, NULL);
    ctxt->max_generation = num_mt;
@@ -73,7 +76,7 @@ void
 test_memtable_context_destroy(test_memtable_context *ctxt, platform_heap_id hid)
 {
    memtable_context_destroy(hid, ctxt->mt_ctxt);
-   platform_free(hid, ctxt);
+   platform_free_mem(hid, ctxt, ctxt->mf_size);
 }
 
 platform_status
@@ -227,6 +230,7 @@ test_btree_perf(cache             *cc,
    uint64          num_inserts_per_thread = num_inserts / num_threads;
    platform_status ret                    = STATUS_OK;
 
+   platform_memfrag          memfrag_params = {0};
    test_btree_thread_params *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_threads);
    platform_assert(params);
@@ -299,7 +303,7 @@ destroy_btrees:
    }
    platform_default_log("\n");
 
-   platform_free(hid, params);
+   platform_free(hid, &memfrag_params);
 
    return ret;
 }
@@ -547,7 +551,8 @@ test_btree_basic(cache             *cc,
 
    test_memtable_context *ctxt = test_memtable_context_create(cc, cfg, 1, hid);
    memtable              *mt   = &ctxt->mt_ctxt->mt[0];
-   data_config           *data_cfg       = mt->cfg->data_cfg;
+   data_config           *data_cfg = mt->cfg->data_cfg;
+   platform_memfrag       memfrag_async_lookup;
    btree_test_async_lookup *async_lookup = TYPED_MALLOC(hid, async_lookup);
 
    platform_assert(async_lookup);
@@ -798,7 +803,7 @@ destroy_btree:
       platform_default_log("btree_test: btree basic test failed\n");
    platform_default_log("\n");
    test_memtable_context_destroy(ctxt, hid);
-   platform_free(hid, async_lookup);
+   platform_free(hid, &memfrag_async_lookup);
    merge_accumulator_deinit(&expected_data);
    return rc;
 }
@@ -1018,22 +1023,26 @@ test_btree_merge_basic(cache             *cc,
 
    btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
 
-   uint64 *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, arity);
+   platform_memfrag memfrag_root_addr = {0};
+   uint64          *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, arity);
    platform_assert(root_addr);
 
    test_btree_create_packed_trees(cc, cfg, hid, arity, root_addr);
 
-   uint64 *output_addr = TYPED_ARRAY_MALLOC(hid, output_addr, arity);
+   platform_memfrag memfrag_output_addr = {0};
+   uint64          *output_addr = TYPED_ARRAY_MALLOC(hid, output_addr, arity);
    platform_assert(output_addr);
 
    platform_status rc;
 
    uint64 max_key = (uint64)-1;
 
-   uint64 *pivot = TYPED_ARRAY_MALLOC(hid, pivot, arity);
+   platform_memfrag memfrag_pivot = {0};
+   uint64          *pivot         = TYPED_ARRAY_MALLOC(hid, pivot, arity);
    platform_assert(pivot);
 
-   key_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity + 1);
+   platform_memfrag memfrag_pivot_key = {0};
+   key_buffer      *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity + 1);
    platform_assert(pivot_key);
 
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
@@ -1045,11 +1054,13 @@ test_btree_merge_basic(cache             *cc,
    }
    key_buffer_init_from_key(&pivot_key[arity], hid, POSITIVE_INFINITY_KEY);
 
-   btree_iterator *btree_itor_arr =
+   platform_memfrag memfrag_btree_itor_arr;
+   btree_iterator  *btree_itor_arr =
       TYPED_ARRAY_MALLOC(hid, btree_itor_arr, arity);
    platform_assert(btree_itor_arr);
 
-   iterator **itor_arr = TYPED_ARRAY_MALLOC(hid, itor_arr, arity);
+   platform_memfrag memfrag_itor_arr;
+   iterator       **itor_arr = TYPED_ARRAY_MALLOC(hid, itor_arr, arity);
    platform_assert(itor_arr);
 
    for (uint64 pivot_no = 0; pivot_no < arity; pivot_no++) {
@@ -1151,15 +1162,17 @@ destroy_btrees:
    }
    platform_default_log("\n");
 
-   platform_free(hid, root_addr);
-   platform_free(hid, output_addr);
-   platform_free(hid, pivot);
+   platform_free(hid, &memfrag_root_addr);
+   platform_free(hid, &memfrag_output_addr);
+   platform_free(hid, &memfrag_pivot);
+
    for (uint64 pivot_no = 0; pivot_no < arity + 1; pivot_no++) {
       key_buffer_deinit(&pivot_key[pivot_no]);
    }
-   platform_free(hid, pivot_key);
-   platform_free(hid, btree_itor_arr);
-   platform_free(hid, itor_arr);
+
+   platform_free(hid, &memfrag_pivot_key);
+   platform_free(hid, &memfrag_btree_itor_arr);
+   platform_free(hid, &memfrag_itor_arr);
    return rc;
 }
 
@@ -1174,8 +1187,11 @@ test_btree_count_in_range(cache             *cc,
    uint64 root_addr;
    test_btree_create_packed_trees(cc, cfg, hid, 1, &root_addr);
    btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
-   key_buffer   *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
+
+   platform_memfrag memfrag_bound_key;
+   key_buffer      *bound_key = TYPED_ARRAY_MALLOC(hid, bound_key, 2);
    platform_assert(bound_key);
+
    key_buffer_init(&bound_key[0], hid);
    key_buffer_init(&bound_key[1], hid);
 
@@ -1239,7 +1255,8 @@ destroy_btree:
 
    key_buffer_deinit(&bound_key[0]);
    key_buffer_deinit(&bound_key[1]);
-   platform_free(hid, bound_key);
+
+   platform_free(hid, &memfrag_bound_key);
    if (SUCCESS(rc))
       platform_default_log("btree_test: btree_count_in_range test succeeded\n");
    else
@@ -1256,7 +1273,8 @@ test_btree_rough_iterator(cache             *cc,
 {
    platform_default_log("btree_test: btree rough iterator test started\n");
 
-   uint64 *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, num_trees);
+   platform_memfrag memfrag_root_addr;
+   uint64          *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, num_trees);
    platform_assert(root_addr);
 
    test_btree_create_packed_trees(cc, cfg, hid, num_trees, root_addr);
@@ -1266,14 +1284,17 @@ test_btree_rough_iterator(cache             *cc,
 
    uint64 num_pivots = 2 * num_trees;
 
-   key_buffer *pivot = TYPED_ARRAY_MALLOC(hid, pivot, num_pivots + 1);
+   platform_memfrag memfrag_pivot;
+   key_buffer      *pivot = TYPED_ARRAY_MALLOC(hid, pivot, num_pivots + 1);
    platform_assert(pivot);
 
-   btree_iterator *rough_btree_itor =
+   platform_memfrag memfrag_rough_btree_itor;
+   btree_iterator  *rough_btree_itor =
       TYPED_ARRAY_MALLOC(hid, rough_btree_itor, num_trees);
    platform_assert(rough_btree_itor);
 
-   iterator **rough_itor = TYPED_ARRAY_MALLOC(hid, rough_itor, num_trees);
+   platform_memfrag memfrag_rough_itor;
+   iterator       **rough_itor = TYPED_ARRAY_MALLOC(hid, rough_itor, num_trees);
    platform_assert(rough_itor);
 
    for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
@@ -1366,13 +1387,15 @@ test_btree_rough_iterator(cache             *cc,
    // for (uint64 tree_no = 0; tree_no < num_trees; tree_no++) {
    //   btree_zap(cc, btree_cfg, root_addr[tree_no], PAGE_TYPE_BRANCH);
    //}
-   platform_free(hid, root_addr);
+
+   platform_free(hid, &memfrag_root_addr);
+
    for (int i = 0; i < pivot_no; i++) {
       key_buffer_deinit(&pivot[i]);
    }
-   platform_free(hid, pivot);
-   platform_free(hid, rough_btree_itor);
-   platform_free(hid, rough_itor);
+   platform_free(hid, &memfrag_pivot);
+   platform_free(hid, &memfrag_rough_btree_itor);
+   platform_free(hid, &memfrag_rough_itor);
 
    if (SUCCESS(rc)) {
       platform_default_log("btree_test: btree rough iterator test succeeded\n");
@@ -1393,13 +1416,15 @@ test_btree_merge_perf(cache             *cc,
 
    btree_config *btree_cfg = cfg->mt_cfg->btree_cfg;
 
-   uint64  num_trees = arity * num_merges;
-   uint64 *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, num_trees);
+   platform_memfrag memfrag_root_addr;
+   uint64           num_trees = arity * num_merges;
+   uint64          *root_addr = TYPED_ARRAY_MALLOC(hid, root_addr, num_trees);
    platform_assert(root_addr);
 
    uint64 total_tuples =
       test_btree_create_packed_trees(cc, cfg, hid, num_trees, root_addr);
 
+   platform_memfrag memfrag_output_addr;
    uint64 *output_addr = TYPED_ARRAY_MALLOC(hid, output_addr, num_trees);
    platform_assert(output_addr);
 
@@ -1407,10 +1432,12 @@ test_btree_merge_perf(cache             *cc,
 
    uint64 max_key = (uint64)-1;
 
-   uint64 *pivot = TYPED_ARRAY_MALLOC(hid, pivot, arity);
+   platform_memfrag memfrag_pivot;
+   uint64          *pivot = TYPED_ARRAY_MALLOC(hid, pivot, arity);
    platform_assert(pivot);
 
-   key_buffer *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity + 1);
+   platform_memfrag memfrag_pivot_key;
+   key_buffer      *pivot_key = TYPED_ARRAY_MALLOC(hid, pivot_key, arity + 1);
    platform_assert(pivot_key);
 
    uint64 start_time = platform_get_timestamp();
@@ -1424,11 +1451,13 @@ test_btree_merge_perf(cache             *cc,
    }
    key_buffer_init_from_key(&pivot_key[arity], hid, POSITIVE_INFINITY_KEY);
 
-   btree_iterator *btree_itor_arr =
+   platform_memfrag memfrag_btree_itor_arr;
+   btree_iterator  *btree_itor_arr =
       TYPED_ARRAY_MALLOC(hid, btree_itor_arr, arity);
    platform_assert(btree_itor_arr);
 
-   iterator **itor_arr = TYPED_ARRAY_MALLOC(hid, itor_arr, arity);
+   platform_memfrag memfrag_itor_arr;
+   iterator       **itor_arr = TYPED_ARRAY_MALLOC(hid, itor_arr, arity);
    platform_assert(itor_arr);
 
    for (uint64 merge_no = 0; merge_no < num_merges; merge_no++) {
@@ -1494,15 +1523,16 @@ destroy_btrees:
    }
    platform_default_log("\n");
 
-   platform_free(hid, root_addr);
-   platform_free(hid, output_addr);
+   platform_free(hid, &memfrag_root_addr);
+   platform_free(hid, &memfrag_output_addr);
    for (uint64 pivot_no = 0; pivot_no < arity + 1; pivot_no++) {
       key_buffer_deinit(&pivot_key[pivot_no]);
    }
-   platform_free(hid, pivot);
-   platform_free(hid, pivot_key);
-   platform_free(hid, btree_itor_arr);
-   platform_free(hid, itor_arr);
+
+   platform_free(hid, &memfrag_pivot);
+   platform_free(hid, &memfrag_pivot_key);
+   platform_free(hid, &memfrag_btree_itor_arr);
+   platform_free(hid, &memfrag_itor_arr);
 
    return rc;
 }
@@ -1567,8 +1597,9 @@ btree_test(int argc, char *argv[])
 
    uint64 num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
 
-   data_config  *data_cfg;
-   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
+   data_config     *data_cfg;
+   platform_memfrag memfrag_cfg;
+   trunk_config    *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
                         &data_cfg,
@@ -1616,6 +1647,7 @@ btree_test(int argc, char *argv[])
       }
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);
@@ -1634,8 +1666,9 @@ btree_test(int argc, char *argv[])
    rc_allocator_init(
       &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
 
-   clockcache *cc = TYPED_MALLOC(hid, cc);
-   rc             = clockcache_init(cc,
+   platform_memfrag memfrag_cc;
+   clockcache      *cc = TYPED_MALLOC(hid, cc);
+   rc                  = clockcache_init(cc,
                         &cache_cfg,
                         (io_handle *)io,
                         (allocator *)&al,
@@ -1680,16 +1713,16 @@ btree_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, cfg);
+   platform_free(hid, &memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

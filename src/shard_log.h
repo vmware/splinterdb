@@ -42,6 +42,7 @@ typedef struct shard_log {
    uint64                addr;
    uint64                meta_head;
    uint64                magic;
+   size_t                mf_size;
 } shard_log;
 
 typedef struct log_entry log_entry;
@@ -53,6 +54,8 @@ typedef struct shard_log_iterator {
    log_entry       **entries;
    uint64            num_entries;
    uint64            pos;
+   size_t            contents_mf_size; // # bytes allocated to contents array
+   size_t            entries_mf_size;  // # bytes allocated to entries array
 } shard_log_iterator;
 
 /*

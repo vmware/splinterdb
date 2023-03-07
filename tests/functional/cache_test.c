@@ -107,8 +107,11 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    uint32 extent_capacity     = cfg->page_capacity / pages_per_extent;
    uint32 extents_to_allocate = 2 * extent_capacity;
    uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
+
+   platform_memfrag memfrag_addr_arr;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
-   rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
+
+   rc = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
       /* no need to set status because we got here from an error status */
       goto exit;
@@ -126,7 +129,8 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
     * Get all entries for read, verify ref counts, and release. Verify
     * that there are no dirty entries afterwards.
     */
-   uint32 pages_allocated = extents_to_allocate * pages_per_extent;
+   uint32           pages_allocated = extents_to_allocate * pages_per_extent;
+   platform_memfrag memfrag_page_arr;
    page_arr = TYPED_ARRAY_MALLOC(hid, page_arr, cfg->page_capacity);
    if (page_arr == NULL) {
       rc = STATUS_NO_MEMORY;
@@ -278,11 +282,11 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 
 exit:
    if (addr_arr) {
-      platform_free(hid, addr_arr);
+      platform_free(hid, &memfrag_addr_arr);
    }
 
    if (page_arr) {
-      platform_free(hid, page_arr);
+      platform_free(hid, &memfrag_page_arr);
    }
 
    if (SUCCESS(rc)) {
@@ -482,6 +486,7 @@ test_cache_flush(cache             *cc,
    uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
    platform_default_log("Allocate %d extents ... ", extents_to_allocate);
 
+   platform_memfrag memfrag_addr_arr;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    t_start  = platform_get_timestamp();
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
@@ -557,7 +562,7 @@ test_cache_flush(cache             *cc,
 
 exit:
    if (addr_arr) {
-      platform_free(hid, addr_arr);
+      platform_free(hid, &memfrag_addr_arr);
    }
 
    if (SUCCESS(rc)) {
@@ -591,6 +596,7 @@ typedef struct {
    page_handle      **handle_arr;              // page handles
    test_async_ctxt    ctxt[READER_BATCH_SIZE]; // async_get() contexts
    platform_semaphore batch_sema;              // batch semaphore
+   size_t             handle_arr_size;         // of memory allocated
 } test_params;
 
 void
@@ -834,7 +840,9 @@ test_cache_async(cache             *cc,
 {
    platform_status rc;
    uint32          total_threads = num_reader_threads + num_writer_threads;
-   test_params    *params =
+
+   platform_memfrag memfrag_params;
+   test_params     *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_reader_threads + num_writer_threads);
    uint32  i;
    uint64 *addr_arr = NULL;
@@ -860,6 +868,8 @@ test_cache_async(cache             *cc,
       num_reader_threads,
       num_writer_threads,
       working_set_percent);
+
+   platform_memfrag memfrag_addr_arr;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
@@ -870,6 +880,7 @@ test_cache_async(cache             *cc,
    cache_flush(cc);
    cache_evict(cc, TRUE);
    cache_reset_stats(cc);
+   platform_memfrag memfrag;
    for (i = 0; i < total_threads; i++) {
       const bool32 is_reader = i < num_reader_threads ? TRUE : FALSE;
 
@@ -888,11 +899,14 @@ test_cache_async(cache             *cc,
       } else {
          params[i].sync_probability = 10;
       }
-      params[i].handle_arr =
-         TYPED_ARRAY_ZALLOC(hid, params[i].handle_arr, params[i].num_pages);
+      params[i].handle_arr = TYPED_ARRAY_ZALLOC_MF(
+         hid, params[i].handle_arr, params[i].num_pages, &memfrag);
+      params[i].handle_arr_size = memfrag_size(&memfrag);
+
       params[i].ts     = ts;
       params[i].hid    = hid;
       params[i].logger = (i == 0) ? TRUE : FALSE;
+
       /*
        * With multiple threads doing async_get() to the same page, it's
        * possible that async_get() returns retry. Not so with single
@@ -925,8 +939,10 @@ test_cache_async(cache             *cc,
    for (i = 0; i < total_threads; i++) {
       platform_thread_join(params[i].thread);
    }
+
    for (i = 0; i < total_threads; i++) {
-      platform_free(hid, params[i].handle_arr);
+      platform_free_mem(hid, params[i].handle_arr, params[i].handle_arr_size);
+      params[i].handle_arr = NULL;
    }
    // Deallocate all the entries.
    for (uint32 i = 0; i < extents_to_allocate; i++) {
@@ -938,8 +954,8 @@ test_cache_async(cache             *cc,
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
-   platform_free(hid, addr_arr);
-   platform_free(hid, params);
+   platform_free(hid, &memfrag_addr_arr);
+   platform_free(hid, &memfrag_params);
    cache_print_stats(Platform_default_log_handle, cc);
    platform_default_log("\n");
 
@@ -997,8 +1013,9 @@ cache_test(int argc, char *argv[])
       platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
    platform_assert_status_ok(rc);
 
-   uint64        num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
-   trunk_config *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
+   uint64           num_bg_threads[NUM_TASK_TYPES] = {0}; // no bg threads
+   platform_memfrag memfrag_splinter_cfg;
+   trunk_config    *splinter_cfg = TYPED_MALLOC(hid, splinter_cfg);
 
    rc = test_parse_args(splinter_cfg,
                         &data_cfg,
@@ -1033,6 +1050,7 @@ cache_test(int argc, char *argv[])
       goto cleanup;
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);
@@ -1051,8 +1069,9 @@ cache_test(int argc, char *argv[])
    rc_allocator_init(
       &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
 
-   clockcache *cc = TYPED_MALLOC(hid, cc);
-   rc             = clockcache_init(cc,
+   platform_memfrag memfrag_cc;
+   clockcache      *cc = TYPED_MALLOC(hid, cc);
+   rc                  = clockcache_init(cc,
                         &cache_cfg,
                         (io_handle *)io,
                         (allocator *)&al,
@@ -1125,16 +1144,16 @@ cache_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    test_deinit_task_system(hid, &ts);
    rc = STATUS_OK;
 deinit_iohandle:
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
 cleanup:
-   platform_free(hid, splinter_cfg);
+   platform_free(hid, &memfrag_splinter_cfg);
    platform_heap_destroy(&hid);
 
    return SUCCESS(rc) ? 0 : -1;

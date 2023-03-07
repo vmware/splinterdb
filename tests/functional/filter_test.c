@@ -36,14 +36,26 @@ test_filter_basic(cache           *cc,
       return STATUS_BAD_PARAM;
    }
 
-   uint32 **fp_arr = TYPED_ARRAY_MALLOC(hid, fp_arr, num_values);
+   platform_memfrag memfrag_fp_arr;
+   uint32         **fp_arr = TYPED_ARRAY_MALLOC(hid, fp_arr, num_values);
+
+   // Technically, each fp_arr[i] might come from a differently sized
+   // memory fragment. So we should really track num_values fragments.
+   // The likelihood of this happening is low, so we skate a bit and
+   // only save-off one typical memory fragment representing the entire
+   // array.
+   platform_memfrag memfrag_fp_arr_i = {0};
+
    for (uint64 i = 0; i < num_values; i++) {
-      fp_arr[i] = TYPED_ARRAY_MALLOC(hid, fp_arr[i], num_fingerprints);
+      fp_arr[i] = TYPED_ARRAY_MALLOC_MF(
+         hid, fp_arr[i], num_fingerprints, &memfrag_fp_arr_i);
    }
 
-   bool32 *used_keys =
+   platform_memfrag memfrag_used_keys;
+   bool            *used_keys =
       TYPED_ARRAY_ZALLOC(hid, used_keys, (num_values + 1) * num_fingerprints);
 
+   platform_memfrag memfrag_num_input_keys;
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
    DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
@@ -65,7 +77,7 @@ test_filter_basic(cache           *cc,
       }
    }
 
-   platform_free(hid, used_keys);
+   platform_free(hid, &memfrag_used_keys);
 
    routing_filter filter[MAX_FILTERS] = {{0}};
    for (uint64 i = 0; i < num_values; i++) {
@@ -89,7 +101,7 @@ test_filter_basic(cache           *cc,
                         num_input_keys[num_values - 1],
                         num_unique);
 
-   platform_free(hid, num_input_keys);
+   platform_free(hid, &memfrag_num_input_keys);
 
    for (uint64 i = 0; i < num_values; i++) {
       for (uint64 j = 0; j < num_fingerprints; j++) {
@@ -133,11 +145,14 @@ test_filter_basic(cache           *cc,
 
 out:
    if (fp_arr) {
+      // All fingerprints are expected to be of the same size.
+      size_t fp_size = memfrag_size(&memfrag_fp_arr_i);
       for (uint64 i = 0; i < num_values; i++) {
-         platform_free(hid, fp_arr[i]);
+         platform_free_mem(hid, fp_arr[i], fp_size);
+         fp_arr[i] = NULL;
       }
    }
-   platform_free(hid, fp_arr);
+   platform_free(hid, &memfrag_fp_arr);
    return rc;
 }
 
@@ -158,7 +173,8 @@ test_filter_perf(cache           *cc,
       return STATUS_BAD_PARAM;
    }
 
-   uint32 *fp_arr = TYPED_ARRAY_MALLOC(
+   platform_memfrag memfrag_fp_arr;
+   uint32          *fp_arr = TYPED_ARRAY_MALLOC(
       hid, fp_arr, num_trees * num_values * num_fingerprints);
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
@@ -176,8 +192,10 @@ test_filter_perf(cache           *cc,
       }
    }
 
-   uint64          start_time = platform_get_timestamp();
-   routing_filter *filter     = TYPED_ARRAY_ZALLOC(hid, filter, num_trees);
+   uint64           start_time = platform_get_timestamp();
+   platform_memfrag memfrag_filter;
+   routing_filter  *filter = TYPED_ARRAY_ZALLOC(hid, filter, num_trees);
+
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values; i++) {
          routing_filter new_filter = {0};
@@ -259,10 +277,8 @@ out:
    for (uint64 i = 0; i < num_trees; i++) {
       routing_filter_zap(cc, &filter[i]);
    }
-   if (fp_arr) {
-      platform_free(hid, fp_arr);
-   }
-   platform_free(hid, filter);
+   platform_free(hid, &memfrag_fp_arr);
+   platform_free(hid, &memfrag_filter);
    return rc;
 }
 
@@ -296,28 +312,36 @@ filter_test(int argc, char *argv[])
    uint64                 seed;
    test_message_generator gen;
 
-   if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
+   // Move past the 1st arg which will be the driving tag, 'filter_test'.
+   argc--;
+   argv++;
+
+   if (argc && strncmp(argv[0], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
-      config_argc   = argc - 2;
-      config_argv   = argv + 2;
-   } else {
-      run_perf_test = FALSE;
       config_argc   = argc - 1;
       config_argv   = argv + 1;
+   } else {
+      run_perf_test = FALSE;
+      config_argc   = argc;
+      config_argv   = argv;
    }
 
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
 
    // Create a heap for io, allocator, cache and splinter
-   platform_heap_id hid = NULL;
-   rc =
-      platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
+   platform_heap_id hid       = NULL;
+   size_t           heap_size = ((use_shmem ? 3 : 1) * GiB);
+
+   rc = platform_heap_create(
+      platform_get_module_id(), heap_size, use_shmem, &hid);
+
    platform_assert_status_ok(rc);
 
    uint64 num_memtable_bg_threads_unused = 0;
    uint64 num_normal_bg_threads_unused   = 0;
 
-   trunk_config *cfg = TYPED_MALLOC(hid, cfg);
+   platform_memfrag memfrag_cfg;
+   trunk_config    *cfg = TYPED_MALLOC(hid, cfg);
 
    rc = test_parse_args(cfg,
                         &data_cfg,
@@ -343,6 +367,7 @@ filter_test(int argc, char *argv[])
       goto cleanup;
    }
 
+   platform_memfrag    memfrag_io;
    platform_io_handle *io = TYPED_MALLOC(hid, io);
    platform_assert(io != NULL);
    rc = io_handle_init(io, &io_cfg, hid);
@@ -358,6 +383,7 @@ filter_test(int argc, char *argv[])
       &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
+   platform_memfrag memfrag_cc;
    cc = TYPED_MALLOC(hid, cc);
    platform_assert(cc);
    rc = clockcache_init(cc,
@@ -404,15 +430,15 @@ filter_test(int argc, char *argv[])
    }
 
    clockcache_deinit(cc);
-   platform_free(hid, cc);
+   platform_free(hid, &memfrag_cc);
    rc_allocator_deinit(&al);
    task_system_destroy(hid, &ts);
    io_handle_deinit(io);
 free_iohandle:
-   platform_free(hid, io);
+   platform_free(hid, &memfrag_io);
    r = 0;
 cleanup:
-   platform_free(hid, cfg);
+   platform_free(hid, &memfrag_cfg);
    platform_heap_destroy(&hid);
 
    return r;

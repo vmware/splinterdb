@@ -315,7 +315,8 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    uint8           i;
 
    // Allocate memory and setup default configs for up to n-instances
-   master_config *master_cfg =
+   platform_memfrag memfrag_master_cfg = {0};
+   master_config   *master_cfg =
       TYPED_ARRAY_MALLOC(platform_get_heap_id(), master_cfg, num_config);
    for (i = 0; i < num_config; i++) {
       config_set_defaults(&master_cfg[i]);
@@ -351,7 +352,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    }
 
 out:
-   platform_free(platform_get_heap_id(), master_cfg);
+   platform_free(platform_get_heap_id(), &memfrag_master_cfg);
 
    return rc;
 }

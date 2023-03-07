@@ -696,13 +696,15 @@ typedef enum trunk_compaction_type {
 
 /*
  *-----------------------------------------------------------------------------
- * Compact Bundle Requests
+ * Compact Bundle Requests: Arguments to a compact_bundle job.
  *
  * Arguments and scratch space to compact bundle number <bundle_no> in the
  * node[s] at height <height> spanning the range [start_key, end_key). <addr>
  * is the address of the node where the bundle was initially created, and is
  * used to revisit the node to create the iterators which become inputs to the
  * compaction.
+ * Memory for the fingerprint array will be allocated, when needed,
+ * and hung off of breq_fingerprint.
  *-----------------------------------------------------------------------------
  */
 struct trunk_compact_bundle_req {
@@ -725,7 +727,12 @@ struct trunk_compact_bundle_req {
    uint64  output_pivot_kv_byte_count[TRUNK_MAX_PIVOTS];
    uint64  tuples_reclaimed;
    uint64  kv_bytes_reclaimed;
-   uint32 *fp_arr;
+   uint32 *fp_arr_unused;
+
+   fp_hdr breq_fingerprint;
+   uint64 num_tuples;
+   uint64 enq_line; // Where task was enqueued
+   size_t mf_size;
 };
 
 // an iterator which skips masked pivots
@@ -3449,15 +3456,23 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
                                 greater_than_or_equal,
                                 FALSE,
                                 FALSE);
-   btree_pack_req req;
-   btree_pack_req_init(&req,
-                       spl->cc,
-                       &spl->cfg.btree_cfg,
-                       itor,
-                       spl->cfg.max_tuples_per_node,
-                       spl->cfg.filter_cfg.hash,
-                       spl->cfg.filter_cfg.seed,
-                       spl->heap_id);
+   btree_pack_req  req;
+   platform_status rc = btree_pack_req_init(&req,
+                                            spl->cc,
+                                            &spl->cfg.btree_cfg,
+                                            itor,
+                                            spl->cfg.max_tuples_per_node,
+                                            spl->cfg.filter_cfg.hash,
+                                            spl->cfg.filter_cfg.seed,
+                                            spl->heap_id);
+   if (!SUCCESS(rc)) {
+      platform_error_log("[%d] btree_pack_req_init failed: %s\n",
+                         __LINE__,
+                         platform_status_to_string(rc));
+      trunk_memtable_iterator_deinit(spl, &btree_itor, FALSE, FALSE);
+      return NULL;
+   }
+   req.line = __LINE__;
    uint64 pack_start;
    if (spl->cfg.use_stats) {
       spl->stats[tid].root_compactions++;
@@ -3488,24 +3503,36 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
       filter_build_start = platform_get_timestamp();
    }
 
-   cmt->req         = TYPED_ZALLOC(spl->heap_id, cmt->req);
-   cmt->req->spl    = spl;
-   cmt->req->fp_arr = req.fingerprint_arr;
-   cmt->req->type   = TRUNK_COMPACTION_TYPE_MEMTABLE;
-   uint32 *dup_fp_arr =
-      TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
-   memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
+   platform_memfrag memfrag_req = {0};
+   cmt->req          = TYPED_ZALLOC_MF(spl->heap_id, cmt->req, &memfrag_req);
+   cmt->req->spl     = spl;
+   cmt->req->type    = TRUNK_COMPACTION_TYPE_MEMTABLE;
+   cmt->req->mf_size = memfrag_size(&memfrag_req);
+
+   // Alias to the BTree-pack's fingerprint, for use further below.
+   fingerprint_alias(&cmt->req->breq_fingerprint, &req.fingerprint);
+
+   // Save off the fingerprint, before building the routing filter, below
+   fp_hdr dup_fp_arr;
+   if (!fingerprint_init(&dup_fp_arr, spl->heap_id, req.num_tuples)) {
+      rc = STATUS_NO_MEMORY;
+      platform_assert(SUCCESS(rc),
+                      "Init of duplicate fingerprint array failed"
+                      ", likely due to insufficient memory.");
+   }
+   fingerprint_copy(&dup_fp_arr, &cmt->req->breq_fingerprint);
+
    routing_filter empty_filter = {0};
 
-   platform_status rc = routing_filter_add(spl->cc,
-                                           &spl->cfg.filter_cfg,
-                                           &empty_filter,
-                                           &cmt->filter,
-                                           cmt->req->fp_arr,
-                                           req.num_tuples,
-                                           0);
-
+   rc = routing_filter_add(spl->cc,
+                           &spl->cfg.filter_cfg,
+                           &empty_filter,
+                           &cmt->filter,
+                           fingerprint_start(&cmt->req->breq_fingerprint),
+                           req.num_tuples,
+                           0);
    platform_assert(SUCCESS(rc));
+
    if (spl->cfg.use_stats) {
       spl->stats[tid].root_filter_time_ns +=
          platform_timestamp_elapsed(filter_build_start);
@@ -3513,8 +3540,15 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
       spl->stats[tid].root_filter_tuples += req.num_tuples;
    }
 
+   // Will free memory allocated for BTree-pack's fingerprint object
+   fingerprint_unalias(&cmt->req->breq_fingerprint);
    btree_pack_req_deinit(&req, spl->heap_id);
-   cmt->req->fp_arr = dup_fp_arr;
+
+   // Restore old-copy of fingerprint, and free old-copy's memory
+   // As dup_fp_arr is on-stack and its fingerprint has been moved over,
+   // there is no further need to deinit(dup_fp_arr);
+   fingerprint_move(&cmt->req->breq_fingerprint, &dup_fp_arr);
+
    if (spl->cfg.use_stats) {
       uint64 comp_time = platform_timestamp_elapsed(comp_start);
       spl->stats[tid].root_compaction_time_ns += comp_time;
@@ -3743,6 +3777,8 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
       req->height,
       req->bundle_no);
    trunk_close_log_stream_if_enabled(spl, &stream);
+
+   req->enq_line = __LINE__;
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
@@ -3915,6 +3951,10 @@ trunk_dec_filter(trunk_handle *spl, routing_filter *filter)
 
 /*
  * Scratch space used for filter building.
+ * Memory for the fingerprint array is previously allocated, elsewhere.
+ * As part of preparing for the job of building a filter, filter_fingerprint
+ * will be initialized to point to this allocated memory.
+ * See trunk_filter_req_init().
  */
 typedef struct trunk_filter_scratch {
    key_buffer     start_key;
@@ -3924,16 +3964,40 @@ typedef struct trunk_filter_scratch {
    routing_filter old_filter[TRUNK_MAX_PIVOTS];
    uint16         value[TRUNK_MAX_PIVOTS];
    routing_filter filter[TRUNK_MAX_PIVOTS];
-   uint32        *fp_arr;
+   fp_hdr         filter_fingerprint;
+   uint64         num_tuples;
 } trunk_filter_scratch;
 
-static inline void
+/*
+ * Initialize fingerprint object in input 'filter_req'.
+ * Here, we use the fingerprint object [already] initialized in the
+ * compact_req, and alias it (point to it) from filter_req.
+ *
+ * Returns: TRUE - if aliasing was successful; FALSE - otherwise.
+ */
+static inline bool
 trunk_filter_scratch_init(trunk_compact_bundle_req *compact_req,
-                          trunk_filter_scratch     *filter_scratch)
+                          trunk_filter_scratch     *filter_req)
 {
-   ZERO_CONTENTS(filter_scratch);
-   filter_scratch->fp_arr = compact_req->fp_arr;
+   debug_assert(fingerprint_is_empty(&filter_req->filter_fingerprint),
+                "addr=%p, size=%lu, init'ed at line=%u",
+                fingerprint_start(&filter_req->filter_fingerprint),
+                fingerprint_size(&filter_req->filter_fingerprint),
+                fingerprint_line(&filter_req->filter_fingerprint));
+
+   ZERO_CONTENTS(filter_req);
+   // Returns start of aliased fingerprint
+   uint32 *fp_start = fingerprint_alias(&filter_req->filter_fingerprint,
+                                        &compact_req->breq_fingerprint);
+   return (fp_start != NULL);
 }
+
+static inline void
+trunk_filter_req_fp_deinit(trunk_filter_scratch *filter_req)
+{
+   fingerprint_unalias(&filter_req->filter_fingerprint);
+}
+
 static inline bool32
 trunk_compact_bundle_node_has_split(trunk_handle             *spl,
                                     trunk_compact_bundle_req *req,
@@ -4035,7 +4099,7 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
    return FALSE;
 }
 
-static inline void
+static inline bool
 trunk_prepare_build_filter(trunk_handle             *spl,
                            trunk_compact_bundle_req *compact_req,
                            trunk_filter_scratch     *filter_scratch,
@@ -4045,7 +4109,7 @@ trunk_prepare_build_filter(trunk_handle             *spl,
    platform_assert(compact_req->height == height);
    platform_assert(compact_req->bundle_no == trunk_start_bundle(spl, node));
 
-   trunk_filter_scratch_init(compact_req, filter_scratch);
+   bool fp_aliased = trunk_filter_scratch_init(compact_req, filter_scratch);
 
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
@@ -4070,6 +4134,8 @@ trunk_prepare_build_filter(trunk_handle             *spl,
    key_buffer_init_from_key(
       &filter_scratch->end_key, spl->heap_id, trunk_max_key(spl, node));
    filter_scratch->height = height;
+
+   return fp_aliased;
 }
 
 static inline void
@@ -4112,10 +4178,11 @@ trunk_build_filters(trunk_handle             *spl,
       routing_filter old_filter = filter_scratch->old_filter[pos];
       uint32         fp_start, fp_end;
       uint64         generation = compact_req->pivot_generation[pos];
+
       trunk_process_generation_to_fp_bounds(
          spl, compact_req, generation, &fp_start, &fp_end);
-      uint32 *fp_arr           = filter_scratch->fp_arr + fp_start;
-      uint32  num_fingerprints = fp_end - fp_start;
+
+      uint32 num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
          if (old_filter.addr != 0) {
             trunk_inc_filter(spl, &old_filter);
@@ -4123,6 +4190,21 @@ trunk_build_filters(trunk_handle             *spl,
          filter_scratch->filter[pos] = old_filter;
          continue;
       }
+
+      // Early-check; otherwise, assert trips in fingerprint_nth() below.
+      debug_assert(
+         (fp_start < fingerprint_ntuples(&filter_scratch->filter_fingerprint)),
+         "Requested fp_start=%u should be < "
+         "fingerprint for %lu tuples."
+         " Compact bundle req type=%d, enqueued at line=%lu",
+         fp_start,
+         fingerprint_ntuples(&filter_scratch->filter_fingerprint),
+         compact_req->type,
+         compact_req->enq_line);
+
+      uint32 *fp_arr =
+         fingerprint_nth(&filter_scratch->filter_fingerprint, fp_start);
+
       routing_filter  new_filter;
       routing_config *filter_cfg = &spl->cfg.filter_cfg;
       uint16          value      = filter_scratch->value[pos];
@@ -4236,7 +4318,11 @@ trunk_bundle_build_filters(void *arg, void *scratch)
    trunk_compact_bundle_req *compact_req = (trunk_compact_bundle_req *)arg;
    trunk_handle             *spl         = compact_req->spl;
 
+   // Referenced in goto label; so declare at the top.
+   trunk_filter_scratch filter_scratch = {0};
+
    bool32 should_continue_build_filters = TRUE;
+   bool   filter_req_inited             = FALSE;
    while (should_continue_build_filters) {
       trunk_node      node;
       platform_status rc =
@@ -4256,6 +4342,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          compact_req->height,
          compact_req->bundle_no);
       trunk_log_node_if_enabled(&stream, spl, &node);
+
       if (trunk_build_filter_should_abort(compact_req, &node)) {
          trunk_log_stream_if_enabled(spl, &stream, "leaf split, aborting\n");
          trunk_node_unget(spl->cc, &node);
@@ -4268,6 +4355,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       }
 
       if (trunk_build_filter_should_reenqueue(compact_req, &node)) {
+         compact_req->enq_line = __LINE__;
          task_enqueue(spl->ts,
                       TASK_TYPE_NORMAL,
                       trunk_bundle_build_filters,
@@ -4281,8 +4369,11 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       }
 
       debug_assert(trunk_verify_node(spl, &node));
-      trunk_filter_scratch filter_scratch = {0};
-      trunk_prepare_build_filter(spl, compact_req, &filter_scratch, &node);
+
+      // prepare below will setup the fingerprint in this filter_scratch
+      // aliased to the fingerprint tracked by compact_req.
+      filter_req_inited =
+         trunk_prepare_build_filter(spl, compact_req, &filter_scratch, &node);
       trunk_node_unget(spl->cc, &node);
 
       trunk_build_filters(spl, compact_req, &filter_scratch);
@@ -4373,6 +4464,10 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       // cleanup filter_scratch
       key_buffer_deinit(&filter_scratch.start_key);
       key_buffer_deinit(&filter_scratch.end_key);
+      if (filter_req_inited) {
+         trunk_filter_req_fp_deinit(&filter_scratch);
+         filter_req_inited = FALSE;
+      }
 
    next_node:
       debug_assert(trunk_verify_node(spl, &node));
@@ -4401,10 +4496,14 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       ;
 
 out:
-   platform_free(spl->heap_id, compact_req->fp_arr);
+   // Deallocate memory
+   if (filter_req_inited) {
+      trunk_filter_req_fp_deinit(&filter_scratch);
+   }
+   fingerprint_deinit(spl->heap_id, &compact_req->breq_fingerprint);
    key_buffer_deinit(&compact_req->start_key);
    key_buffer_deinit(&compact_req->end_key);
-   platform_free(spl->heap_id, compact_req);
+   platform_free_mem(spl->heap_id, compact_req, compact_req->mf_size);
    trunk_maybe_reclaim_space(spl);
    return;
 }
@@ -4613,6 +4712,7 @@ trunk_compact_bundle_enqueue(trunk_handle             *spl,
    key start_key = key_buffer_key(&req->start_key);
    key end_key   = key_buffer_key(&req->end_key);
    platform_assert(trunk_key_compare(spl, start_key, end_key) < 0);
+   req->enq_line = __LINE__;
    return task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
 }
@@ -4671,19 +4771,30 @@ trunk_flush(trunk_handle     *spl,
    }
 
    // flush the branch references into a new bundle in the child
-   trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   trunk_bundle             *bundle =
+   platform_memfrag          memfrag_req = {0};
+   trunk_compact_bundle_req *req         = TYPED_ZALLOC(spl->heap_id, req);
+   if (!req) {
+      platform_error_log(
+         "Failed to allocate memory for trunk_compact_bundle_req{}.");
+      return STATUS_NO_MEMORY;
+   }
+   req->mf_size = memfrag_size(&memfrag_req);
+
+   trunk_bundle *bundle =
       trunk_flush_into_bundle(spl, parent, &new_child, pdata, req);
+
    trunk_tuples_in_bundle(spl,
                           &new_child,
                           bundle,
                           req->input_pivot_tuple_count,
                           req->input_pivot_kv_byte_count);
+
    trunk_pivot_add_bundle_tuple_counts(spl,
                                        &new_child,
                                        bundle,
                                        req->input_pivot_tuple_count,
                                        req->input_pivot_kv_byte_count);
+
    trunk_bundle_inc_pivot_rc(spl, &new_child, bundle);
    debug_assert(allocator_page_valid(spl->al, req->addr));
    req->type = is_space_rec ? TRUNK_COMPACTION_TYPE_FLUSH
@@ -4692,7 +4803,7 @@ trunk_flush(trunk_handle     *spl,
    // split child if necessary
    if (trunk_needs_split(spl, &new_child)) {
       if (trunk_node_is_leaf(&new_child)) {
-         platform_free(spl->heap_id, req);
+         platform_free_mem(spl->heap_id, req, req->mf_size);
          uint16 child_idx = trunk_pdata_to_pivot_index(spl, parent, pdata);
          trunk_split_leaf(spl, parent, &new_child, child_idx);
          return STATUS_OK;
@@ -5107,6 +5218,21 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    trunk_handle             *spl          = req->spl;
    threadid                  tid;
 
+   // We may be enqueueing tasks of this type from several call sites.
+   // Fingerprint mgmt is done inside here, so we claim that
+   // the queued task's handle did not have any memory allocated for the
+   // fingerprint array. (Otherwise, this might lead to memory leaks.)
+   platform_assert(fingerprint_is_empty(&req->breq_fingerprint),
+                   "Fingerprint array is expected to be empty for this task"
+                   ", enqueued at line=%lu, addr=%lu, height=%u"
+                   ", compaction type=%d."
+                   " Fingerprint object init'ed on line %d.",
+                   req->enq_line,
+                   req->addr,
+                   req->height,
+                   req->type,
+                   fingerprint_line(&req->breq_fingerprint));
+
    /*
     * 1. Acquire node read lock
     */
@@ -5150,7 +5276,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
          req->height,
          req->bundle_no);
-      platform_free(spl->heap_id, req);
+
+      platform_free_mem(spl->heap_id, req, req->mf_size);
+
       if (spl->cfg.use_stats) {
          spl->stats[tid].compactions_aborted_flushed[height]++;
          spl->stats[tid].compaction_time_wasted_ns[height] +=
@@ -5241,14 +5369,21 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
 
       trunk_compact_bundle_cleanup_iterators(
          spl, &merge_itor, num_branches, skip_itor_arr);
-      platform_free(spl->heap_id, req);
+
+      // Ensure this. Otherwise we may be exiting w/o releasing memory.
+      debug_assert(fingerprint_is_empty(&req->breq_fingerprint),
+                   "addr=%p, size=%lu, init'ed at line=%u",
+                   fingerprint_start(&req->breq_fingerprint),
+                   fingerprint_size(&req->breq_fingerprint),
+                   fingerprint_line(&req->breq_fingerprint));
+
+      platform_free_mem(spl->heap_id, req, req->mf_size);
       goto out;
    }
-   req->fp_arr = pack_req.fingerprint_arr;
    if (spl->cfg.use_stats) {
       pack_start = platform_get_timestamp();
    }
-
+   pack_req.line               = __LINE__;
    platform_status pack_status = btree_pack(&pack_req);
    if (!SUCCESS(pack_status)) {
       platform_default_log("btree_pack failed: %s\n",
@@ -5256,7 +5391,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       trunk_compact_bundle_cleanup_iterators(
          spl, &merge_itor, num_branches, skip_itor_arr);
       btree_pack_req_deinit(&pack_req, spl->heap_id);
-      platform_free(spl->heap_id, req);
+      platform_free_mem(spl->heap_id, req, req->mf_size);
       goto out;
    }
 
@@ -5266,10 +5401,12 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    }
 
    trunk_branch new_branch;
-   new_branch.root_addr     = pack_req.root_addr;
-   uint64 num_tuples        = pack_req.num_tuples;
-   req->fp_arr              = pack_req.fingerprint_arr;
-   pack_req.fingerprint_arr = NULL;
+   new_branch.root_addr = pack_req.root_addr;
+   uint64 num_tuples    = pack_req.num_tuples;
+
+   // BTree pack is successful. Prepare to deinit pack request struct.
+   // But, retain the fingerprint generated by pack for further processing.
+   fingerprint_move(&req->breq_fingerprint, &pack_req.fingerprint);
    btree_pack_req_deinit(&pack_req, spl->heap_id);
 
    trunk_log_stream_if_enabled(
@@ -5336,8 +5473,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          if (num_tuples != 0) {
             trunk_dec_ref(spl, &new_branch, FALSE);
          }
-         platform_free(spl->heap_id, req->fp_arr);
-         platform_free(spl->heap_id, req);
+         // Free fingerprint and req struct memory
+         fingerprint_deinit(spl->heap_id, &req->breq_fingerprint);
+         platform_free_mem(spl->heap_id, req, req->mf_size);
          goto out;
       }
 
@@ -5416,8 +5554,9 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl->stats[tid].compaction_time_wasted_ns[height] +=
             platform_timestamp_elapsed(compaction_start);
       }
-      platform_free(spl->heap_id, req->fp_arr);
-      platform_free(spl->heap_id, req);
+      // Free fingerprint and req struct memory
+      fingerprint_deinit(spl->heap_id, &req->breq_fingerprint);
+      platform_free_mem(spl->heap_id, req, req->mf_size);
    } else {
       if (spl->cfg.use_stats) {
          compaction_start = platform_timestamp_elapsed(compaction_start);
@@ -5435,6 +5574,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          key_string(trunk_data_config(spl), key_buffer_key(&req->end_key)),
          req->height,
          req->bundle_no);
+      req->enq_line = __LINE__;
       task_enqueue(
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
    }
@@ -5550,7 +5690,10 @@ trunk_split_index(trunk_handle             *spl,
    trunk_close_log_stream_if_enabled(spl, &stream);
 
    if (req != NULL) {
+      platform_memfrag          memfrag_next_req = {0};
       trunk_compact_bundle_req *next_req = TYPED_MALLOC(spl->heap_id, next_req);
+      next_req->mf_size                  = memfrag_size(&memfrag_next_req);
+
       memmove(next_req, req, sizeof(trunk_compact_bundle_req));
       next_req->addr = right_node.addr;
       key_buffer_init_from_key(
@@ -5943,11 +6086,13 @@ trunk_split_leaf(trunk_handle *spl,
          /*
           * 6. Issue compact_bundle for leaf and release
           */
+         platform_memfrag          memfrag_req = {0};
          trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
          req->spl                      = spl;
          req->addr                     = leaf->addr;
          req->type                     = comp_type;
          req->bundle_no                = bundle_no;
+         req->mf_size                  = memfrag_size(&memfrag_req);
          req->max_pivot_generation     = trunk_pivot_generation(spl, leaf);
          req->pivot_generation[0]      = trunk_pivot_generation(spl, leaf) - 1;
          req->input_pivot_tuple_count[0] = trunk_pivot_num_tuples(spl, leaf, 0);
@@ -5976,9 +6121,11 @@ trunk_split_leaf(trunk_handle *spl,
    }
 
    // set next_addr of leaf (from last iteration)
-   trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   req->spl                      = spl;
-   req->addr                     = leaf->addr;
+   platform_memfrag          memfrag_req = {0};
+   trunk_compact_bundle_req *req         = TYPED_ZALLOC(spl->heap_id, req);
+   req->spl                              = spl;
+   req->addr                             = leaf->addr;
+   req->mf_size                          = memfrag_size(&memfrag_req);
    // req->height already 0
    req->bundle_no                    = bundle_no;
    req->max_pivot_generation         = trunk_pivot_generation(spl, leaf);
@@ -6540,9 +6687,11 @@ trunk_compact_leaf(trunk_handle *spl, trunk_node *leaf)
       trunk_leaf_rebundle_all_branches(spl, leaf, num_tuples, kv_bytes, TRUE);
 
    // Issue compact_bundle for leaf and release
-   trunk_compact_bundle_req *req = TYPED_ZALLOC(spl->heap_id, req);
-   req->spl                      = spl;
-   req->addr                     = leaf->addr;
+   platform_memfrag          memfrag_req = {0};
+   trunk_compact_bundle_req *req         = TYPED_ZALLOC(spl->heap_id, req);
+   req->spl                              = spl;
+   req->addr                             = leaf->addr;
+   req->mf_size                          = memfrag_size(&memfrag_req);
    // req->height already 0
    req->bundle_no                    = bundle_no;
    req->max_pivot_generation         = trunk_pivot_generation(spl, leaf);
@@ -7543,6 +7692,7 @@ trunk_range(trunk_handle  *spl,
             tuple_function func,
             void          *arg)
 {
+   platform_memfrag      memfrag_range_itor;
    trunk_range_iterator *range_itor =
       TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
    platform_status rc = trunk_range_iterator_init(spl,
@@ -7574,6 +7724,90 @@ destroy_range_itor:
    return rc;
 }
 
+/*
+ * Allocate memory for stats-related structures off the trunk.
+ */
+static trunk_stats *
+trunk_stats_init(trunk_handle *spl)
+{
+   platform_memfrag memfrag;
+   spl->stats =
+      TYPED_ARRAY_ZALLOC_MF(spl->heap_id, spl->stats, MAX_THREADS, &memfrag);
+   platform_assert(spl->stats);
+
+   // Remember this; it's needed for free
+   spl->stats_mf_size = memfrag_size(&memfrag);
+
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      platform_status rc;
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].insert_latency_histo);
+      platform_assert_status_ok(rc);
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].update_latency_histo);
+      platform_assert_status_ok(rc);
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].delete_latency_histo);
+      platform_assert_status_ok(rc);
+   }
+   return spl->stats;
+}
+
+/*
+ * Deallocate memory for stats-related structures hanging off the trunk.
+ */
+static void
+trunk_stats_deinit(trunk_handle *spl)
+{
+   debug_assert(spl->cfg.use_stats);
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      platform_histo_destroy(spl->heap_id, &spl->stats[i].insert_latency_histo);
+      platform_histo_destroy(spl->heap_id, &spl->stats[i].update_latency_histo);
+      platform_histo_destroy(spl->heap_id, &spl->stats[i].delete_latency_histo);
+   }
+   platform_free_mem(spl->heap_id, spl->stats, spl->stats_mf_size);
+}
+
+/*
+ * Allocate memory for trunk handle and do initialization that is common between
+ * 'create' and 'mount' operations.
+ */
+static trunk_handle *
+trunk_handle_init(trunk_config     *cfg,
+                  allocator        *al,
+                  cache            *cc,
+                  task_system      *ts,
+                  allocator_root_id id,
+                  platform_heap_id  hid)
+{
+   platform_memfrag memfrag_spl;
+   trunk_handle    *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
+   platform_assert(spl != NULL);
+
+   // Remember this; it's needed for free
+   spl->mf_size = memfrag_size(&memfrag_spl);
+
+   memmove(&spl->cfg, cfg, sizeof(*cfg));
+
+   // Validate configured key-size is within limits.
+   spl->al = al;
+   spl->cc = cc;
+   debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
+   spl->id      = id;
+   spl->heap_id = hid;
+   spl->ts      = ts;
+
+   srq_init(&spl->srq, platform_get_module_id(), hid);
+
+   return spl;
+}
 
 /*
  *-----------------------------------------------------------------------------
@@ -7589,21 +7823,7 @@ trunk_create(trunk_config     *cfg,
              allocator_root_id id,
              platform_heap_id  hid)
 {
-   trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
-   memmove(&spl->cfg, cfg, sizeof(*cfg));
-
-   // Validate configured key-size is within limits.
-   spl->al = al;
-   spl->cc = cc;
-   debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
-   spl->id      = id;
-   spl->heap_id = hid;
-   spl->ts      = ts;
-
-   platform_batch_rwlock_init(&spl->trunk_root_lock);
-
-   srq_init(&spl->srq, platform_get_module_id(), hid);
+   trunk_handle *spl = trunk_handle_init(cfg, al, cc, ts, id, hid);
 
    // get a free node for the root
    //    we don't use the mini allocator for this, since the root doesn't
@@ -7666,26 +7886,7 @@ trunk_create(trunk_config     *cfg,
    trunk_node_unget(spl->cc, &root);
 
    if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
-      }
+      spl->stats = trunk_stats_init(spl);
    }
 
    return spl;
@@ -7702,18 +7903,7 @@ trunk_mount(trunk_config     *cfg,
             allocator_root_id id,
             platform_heap_id  hid)
 {
-   trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
-   memmove(&spl->cfg, cfg, sizeof(*cfg));
-
-   spl->al = al;
-   spl->cc = cc;
-   debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
-   spl->id      = id;
-   spl->heap_id = hid;
-   spl->ts      = ts;
-
-   srq_init(&spl->srq, platform_get_module_id(), hid);
+   trunk_handle *spl = trunk_handle_init(cfg, al, cc, ts, id, hid);
 
    platform_batch_rwlock_init(&spl->trunk_root_lock);
 
@@ -7740,7 +7930,7 @@ trunk_mount(trunk_config     *cfg,
          super,
          meta_tail,
          latest_timestamp);
-      platform_free(hid, spl);
+      platform_free_mem(hid, spl, spl->mf_size);
       return (trunk_handle *)NULL;
    }
    uint64 meta_head = spl->root_addr + trunk_page_size(&spl->cfg);
@@ -7765,26 +7955,7 @@ trunk_mount(trunk_config     *cfg,
    trunk_set_super_block(spl, FALSE, FALSE, FALSE);
 
    if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
-      }
+      spl->stats = trunk_stats_init(spl);
    }
    return spl;
 }
@@ -7818,7 +7989,8 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
 
    // release the log
    if (spl->cfg.use_log) {
-      platform_free(spl->heap_id, spl->log);
+      platform_free_mem(
+         spl->heap_id, spl->log, ((shard_log *)spl->log)->mf_size);
    }
 
    // release the trunk mini allocator
@@ -7880,17 +8052,9 @@ trunk_destroy(trunk_handle *spl)
    allocator_remove_super_addr(spl->al, spl->id);
 
    if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
+      trunk_stats_deinit(spl);
    }
-   platform_free(spl->heap_id, spl);
+   platform_free_mem(spl->heap_id, spl, spl->mf_size);
 }
 
 /*
@@ -7905,17 +8069,9 @@ trunk_unmount(trunk_handle **spl_in)
    trunk_prepare_for_shutdown(spl);
    trunk_set_super_block(spl, FALSE, TRUE, FALSE);
    if (spl->cfg.use_stats) {
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].insert_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].update_latency_histo);
-         platform_histo_destroy(spl->heap_id,
-                                &spl->stats[i].delete_latency_histo);
-      }
-      platform_free(spl->heap_id, spl->stats);
+      trunk_stats_deinit(spl);
    }
-   platform_free(spl->heap_id, spl);
+   platform_free_mem(spl->heap_id, spl, spl->mf_size);
    *spl_in = (trunk_handle *)NULL;
 }
 
@@ -8796,6 +8952,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
 
    trunk_stats *global;
 
+   platform_memfrag memfrag_global;
    global = TYPED_ZALLOC(spl->heap_id, global);
    if (global == NULL) {
       platform_error_log("Out of memory for statistics");
@@ -9091,7 +9248,7 @@ trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, global);
+   platform_free(spl->heap_id, &memfrag_global);
 }
 
 void
@@ -9113,6 +9270,7 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
 
    trunk_stats *global;
 
+   platform_memfrag memfrag_global;
    global = TYPED_ZALLOC(spl->heap_id, global);
    if (global == NULL) {
       platform_error_log("Out of memory for stats\n");
@@ -9178,7 +9336,7 @@ trunk_print_lookup_stats(platform_log_handle *log_handle, trunk_handle *spl)
    }
    platform_log(log_handle, "------------------------------------------------------------------------------------|\n");
    platform_log(log_handle, "\n");
-   platform_free(spl->heap_id, global);
+   platform_free(spl->heap_id, &memfrag_global);
    platform_log(log_handle, "------------------------------------------------------------------------------------\n");
    cache_print_stats(log_handle, spl->cc);
    platform_log(log_handle, "\n");

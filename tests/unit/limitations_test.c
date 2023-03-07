@@ -102,10 +102,13 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    uint64          num_tables = 1;
 
    // Allocate memory for global config structures
-   data->splinter_cfg =
-      TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg, num_tables);
+   platform_memfrag memfrag_splinter_cfg;
+   data->splinter_cfg = TYPED_ARRAY_MALLOC_MF(
+      data->hid, data->splinter_cfg, num_tables, &memfrag_splinter_cfg);
 
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
+   platform_memfrag memfrag_cache_cfg;
+   data->cache_cfg = TYPED_ARRAY_MALLOC_MF(
+      data->hid, data->cache_cfg, num_tables, &memfrag_cache_cfg);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
@@ -124,7 +127,8 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
+   platform_memfrag memfrag_io;
+   data->io = TYPED_MALLOC_MF(data->hid, data->io, &memfrag_io);
    ASSERT_TRUE((data->io != NULL));
 
    // Hard-fix the configured default page-size to an illegal value
@@ -150,15 +154,15 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
-   platform_free(data->hid, data->io->req);
-   platform_free(data->hid, data->io);
+   io_handle_deinit(data->io);
+   platform_free(data->hid, &memfrag_io);
 
    if (data->cache_cfg) {
-      platform_free(data->hid, data->cache_cfg);
+      platform_free(data->hid, &memfrag_cache_cfg);
    }
 
    if (data->splinter_cfg) {
-      platform_free(data->hid, data->splinter_cfg);
+      platform_free(data->hid, &memfrag_splinter_cfg);
    }
 }
 
@@ -173,10 +177,13 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    uint64          num_tables = 1;
 
    // Allocate memory for global config structures
-   data->splinter_cfg =
-      TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg, num_tables);
+   platform_memfrag memfrag_splinter_cfg;
+   data->splinter_cfg = TYPED_ARRAY_MALLOC_MF(
+      data->hid, data->splinter_cfg, num_tables, &memfrag_splinter_cfg);
 
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
+   platform_memfrag memfrag_cache_cfg;
+   data->cache_cfg = TYPED_ARRAY_MALLOC_MF(
+      data->hid, data->cache_cfg, num_tables, &memfrag_cache_cfg);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
@@ -195,7 +202,8 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    platform_assert_status_ok(rc);
 
    // Allocate and initialize the IO sub-system.
-   data->io = TYPED_MALLOC(data->hid, data->io);
+   platform_memfrag memfrag_io;
+   data->io = TYPED_MALLOC_MF(data->hid, data->io, &memfrag_io);
    ASSERT_TRUE((data->io != NULL));
 
    uint64 pages_per_extent =
@@ -230,12 +238,14 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
+   io_handle_deinit(data->io);
+
    if (data->cache_cfg) {
-      platform_free(data->hid, data->cache_cfg);
+      platform_free(data->hid, &memfrag_cache_cfg);
    }
 
    if (data->splinter_cfg) {
-      platform_free(data->hid, data->splinter_cfg);
+      platform_free(data->hid, &memfrag_splinter_cfg);
    }
 }
 
@@ -393,10 +403,13 @@ CTEST2(limitations, test_trunk_config_init_fails_for_invalid_configs)
    uint64          num_tables = 1;
 
    // Allocate memory for global config structures
-   data->splinter_cfg =
-      TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg, num_tables);
+   platform_memfrag memfrag_splinter_cfg;
+   data->splinter_cfg = TYPED_ARRAY_MALLOC_MF(
+      data->hid, data->splinter_cfg, num_tables, &memfrag_splinter_cfg);
 
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
+   platform_memfrag memfrag_cache_cfg;
+   data->cache_cfg = TYPED_ARRAY_MALLOC_MF(
+      data->hid, data->cache_cfg, num_tables, &memfrag_cache_cfg);
 
    char *unit_test_argv0[] = {"--key-size", "1000"};
    int   unit_test_argc    = ARRAY_SIZE(unit_test_argv0);
@@ -421,11 +434,11 @@ CTEST2(limitations, test_trunk_config_init_fails_for_invalid_configs)
 
    // Release resources acquired in this test case.
    if (data->cache_cfg) {
-      platform_free(data->hid, data->cache_cfg);
+      platform_free(data->hid, &memfrag_cache_cfg);
    }
 
    if (data->splinter_cfg) {
-      platform_free(data->hid, data->splinter_cfg);
+      platform_free(data->hid, &memfrag_splinter_cfg);
    }
 }
 

@@ -244,6 +244,7 @@ splinter_io_apis_test(int argc, char *argv[])
 
    // For this test, we allocate this structure. In a running Splinter
    // instance, this struct is nested inside the splinterdb{} handle.
+   platform_memfrag    memfrag_io_hdl;
    platform_io_handle *io_hdl = TYPED_ZALLOC(hid, io_hdl);
    if (!io_hdl) {
       goto heap_destroy;
@@ -431,7 +432,7 @@ splinter_io_apis_test(int argc, char *argv[])
 
 io_free:
    if (pid > 0) {
-      platform_free(hid, io_hdl);
+      platform_free(hid, &memfrag_io_hdl);
    }
 heap_destroy:
    if (pid > 0) {
@@ -476,6 +477,7 @@ test_sync_writes(platform_heap_id    hid,
 
    int page_size = (int)io_cfgp->page_size;
 
+   platform_memfrag memfrag_buf;
    // Allocate a buffer to do page I/O
    char *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
    if (!buf) {
@@ -515,7 +517,7 @@ test_sync_writes(platform_heap_id    hid,
    }
 
 free_buf:
-   platform_free(hid, buf);
+   platform_free(hid, &memfrag_buf);
 out:
    return rc;
 }
@@ -580,8 +582,12 @@ test_sync_reads(platform_heap_id    hid,
    int page_size = (int)io_cfgp->page_size;
 
    // Allocate a buffer to do page I/O, and an expected results buffer
-   char *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
-   char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
+   platform_memfrag memfrag_buf;
+   char            *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
+
+   platform_memfrag memfrag_exp;
+   char            *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
+
    memset(exp, stamp_char, page_size);
 
    platform_status rc = STATUS_OK;
@@ -626,8 +632,8 @@ test_sync_reads(platform_heap_id    hid,
    }
 
 free_buf:
-   platform_free(hid, buf);
-   platform_free(hid, exp);
+   platform_free(hid, &memfrag_buf);
+   platform_free(hid, &memfrag_exp);
    return rc;
 }
 
@@ -820,13 +826,14 @@ test_async_reads(platform_heap_id    hid,
    int page_size = (int)io_cfgp->page_size;
 
    // Allocate a buffer to do page I/O, and an expected results buffer
-   uint64 nbytes = (page_size * NUM_PAGES_RW_ASYNC_PER_THREAD);
-   char  *buf    = TYPED_ARRAY_ZALLOC(hid, buf, nbytes);
+   uint64           nbytes = (page_size * NUM_PAGES_RW_ASYNC_PER_THREAD);
+   platform_memfrag memfrag_buf;
+   char            *buf = TYPED_ARRAY_ZALLOC(hid, buf, nbytes);
    if (!buf) {
       goto out;
    }
-
-   char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
+   platform_memfrag memfrag_exp;
+   char            *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
    if (!exp) {
       goto free_buf;
    }
@@ -871,9 +878,9 @@ test_async_reads(platform_heap_id    hid,
 
    io_cleanup(ioh, NUM_PAGES_RW_ASYNC_PER_THREAD);
 
-   platform_free(hid, exp);
+   platform_free(hid, &memfrag_exp);
 free_buf:
-   platform_free(hid, buf);
+   platform_free(hid, &memfrag_buf);
 out:
    return rc;
 }

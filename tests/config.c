@@ -28,9 +28,6 @@
 #define TEST_CONFIG_DEFAULT_MAX_BRANCHES_PER_NODE 24
 
 // Deal with reasonable key / message sizes for tests
-// There are open issues in some tests for smaller key-sizes.
-// For now, restrict tests to use this minimum key-size.
-#define TEST_CONFIG_MIN_KEY_SIZE         ((int)sizeof(uint64))
 #define TEST_CONFIG_DEFAULT_KEY_SIZE     24
 #define TEST_CONFIG_DEFAULT_MESSAGE_SIZE 100
 
@@ -58,9 +55,6 @@
  * ******************* EXPERIMENTAL FEATURES ********************
  *  - use_shmem: Support for shared memory segments.
  *    This functionality is solely meant for internal development uses.
- *    We don't support free(), so your test / usage will likely run into
- *    shared-memory OOMs errors.
- *
  * ---------------------------------------------------------------------------
  */
 void
@@ -394,6 +388,7 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          // Test-execution configuration parameters
          config_set_uint64("seed", cfg, seed) {}
          config_set_uint64("num-inserts", cfg, num_inserts) {}
+         config_set_uint64("num-threads", cfg, num_threads) {}
          config_set_uint64("num-processes", cfg, num_processes) {}
 
          config_set_else
