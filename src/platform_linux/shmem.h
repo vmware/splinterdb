@@ -6,6 +6,18 @@
 #include <sys/types.h>
 #include <sys/shm.h>
 
+/*
+ * All memory allocations of this size or larger will be tracked in the
+ * a fragment tracker array. For large inserts workload, we allocate large
+ * memory chunks for fingerprint array, which is more than a MiB. For scans,
+ * splinterdb_iterator_init() allocates memory for an iterator which is ~42+KiB.
+ * Set this to a lower value so we can re-cycle free fragments for iterators
+ * also. (Keep the limit same for release/debug builds to get consistent
+ * behaviour.)
+ */
+#define SHM_LARGE_FRAG_SIZE (32 * KiB)
+
+>>>>>>> c2c4379 (Support free-fragment recycling in shared-segment. Add fingerprint object mgmt)
 platform_status
 platform_shmcreate(size_t size, platform_heap_id *heap_id);
 
@@ -16,23 +28,26 @@ platform_shmdestroy(platform_heap_id *heap_id);
  * Allocate memory fragment from the shared memory of requested 'size'.
  */
 void *
-platform_shm_alloc(platform_heap_id hid,
-                   const size_t     size,
-                   const char      *objname,
-                   const char      *func,
-                   const char      *file,
-                   const int        lineno);
+platform_shm_alloc(platform_heap_id  hid,
+                   const size_t      size,
+                   platform_memfrag *memfrag, // OUT
+                   const char       *objname,
+                   const char       *func,
+                   const char       *file,
+                   const int         line);
 
 /*
- * Free the memory fragment at 'ptr' address.
+ * Free the memory fragment of 'size' bytes at 'ptr' address. This interface
+ * deals with free of both small and large-memory fragments.
  */
 void
 platform_shm_free(platform_heap_id hid,
                   void            *ptr,
+                  const size_t     size,
                   const char      *objname,
                   const char      *func,
                   const char      *file,
-                  const int        lineno);
+                  const int        line);
 
 /*
  * Reallocate the memory (fragment) at 'oldptr' of size 'oldsize' bytes.
@@ -47,10 +62,10 @@ void *
 platform_shm_realloc(platform_heap_id hid,
                      void            *oldptr,
                      const size_t     oldsize,
-                     const size_t     newsize,
+                     size_t          *newsize,
                      const char      *func,
                      const char      *file,
-                     const int        lineno);
+                     const int        line);
 
 void
 platform_shm_tracing_init(const bool trace_shmem,
@@ -103,5 +118,9 @@ platform_shm_next_free_addr(platform_heap_id heap_id);
 bool
 platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr);
 
-void *
-platform_heap_get_splinterdb_handle(platform_heap_id heap_id);
+platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id);
+
+size_t
+platform_shm_find_freed_frag(platform_heap_id heap_id,
+                             const void      *addr,
+                             size_t          *freed_frag_size);

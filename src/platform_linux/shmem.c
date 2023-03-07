@@ -2,10 +2,51 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
+ * ---------------------------------------------------------------------------
  * shmem.c --
  *
  * This file contains the implementation for managing shared memory created
  * for use by SplinterDB and all its innards.
+ *
+ * Here's a quick code-flow of important entry point functions:
+ *
+ * - platform_shmcreate(), platform_shmdestroy()
+ *   Bootstrap and dismantle shared memory segment.
+ *
+ platform_shm_alloc() - Main allocation interface
+  │
+  │
+  ├──►platform_shm_find_large() - Recycle a large free fragment
+  │
+  └──► platform_shm_find_frag() - Recycle a small free fragment
+
+
+platform_shm_free() - Main free interface
+  │
+  │
+  └─► platform_shm_track_free() - Manage free'd fragment in lists
+       │
+       │
+       └►platform_shm_hook_free_frag() - Add small fragment to its list
+
+
+platform_shm_realloc() - Main realloc() interface
+  │
+  │
+  ├─► platform_shm_alloc()
+  │
+  │
+  └─► platform_shm_free()
+
+
+platform_shm_print_usage() - Useful to dump shm-usage metrics
+  │
+  │
+  └─► platform_shm_print_usage_stats()
+ *
+ * There are many other debugging, tracing and diagnostics functions.
+ * Best to read them inline in code.
+ * ---------------------------------------------------------------------------
  */
 #include <unistd.h>
 
@@ -38,38 +79,51 @@ static bool Trace_large_frags  = FALSE;
  * NOTE: {to_pid, to_tid} and {by_pid, by_tid} fields go hand-in-hand.
  *       We track both for improved debugging.
  *
+ *
+ * Here is a pictorial showing how large-fragments are tracked
+
+     ┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+    ┌┼┼┼│  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │  │
+    ├───┴─┬┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+    │     │
+    │     │
+┌───▼─┐   │
+│     │   ▼                      ┌─────────────────────────┐
+│     │ ┌─────────┐              │ addr                    │
+│     │ │         │◄─────────────┼─                        │
+│     │ │         │              │ size = 32K              │
+│     │ │         │              │                         │
+└─────┘ │         │              │ allocated_to_tid = T1   │
+        │         │              │                         │
+        │         │              │ allocated_to_pid = PID1 │
+        │         │              │                         │
+        └─────────┘              │ freed_by_pid = 0        │
+                                 │                         │
+                                 │ freed_by_tid = 0        │
+                                 │                         │
+                                 └─────────────────────────┘
+
  * Lifecyle:
+ *  - Initially all frag_addr will be NULL => tracking fragment is empty
  *  - When a large fragment is initially allocated, frag_addr / frag_size will
  *    be set.
  *  - (allocated_to_pid != 0) && (freed_by_pid == 0) - Fragment is in use.
  *  - (allocated_to_pid != 0) && (freed_by_pid != 0) - Fragment is free.
  * ---------------------------------------------------------------------------
  */
+// clang-format off
 typedef struct shm_frag_info {
-   void *shm_frag_addr;  // Start address of this memory fragment
-                         // NULL => tracking fragment is empty
-   size_t shm_frag_size; // bytes (Used in re-allocation logic.)
-
-   // Following fields are used mainly for assertions and diagnostics.
-   int      shm_frag_allocated_to_pid; // Allocated to this OS-pid
-   threadid shm_frag_allocated_to_tid; // Allocated to this Splinter thread-ID
-   int      shm_frag_freed_by_pid;     // OS-pid that freed this
-   threadid shm_frag_freed_by_tid;     // Splinter thread-ID that freed this
+   void       *frag_addr;             // Start addr of this memory fragment
+   const char *frag_func;             // Calling func which lead to creation
+   size_t      frag_size;             // bytes
+   threadid    frag_allocated_to_tid; // Alloc'ed to this Splinter thread-ID
+   int         frag_allocated_to_pid; // Allocated to this OS-pid
+   int         frag_freed_by_pid;     // OS-pid that freed this fragment
+   threadid    frag_freed_by_tid;     // Splinter thread-ID that freed this
+   int         frag_line;
 } shm_frag_info;
 
-/*
- * All memory allocations of this size or larger will be tracked in the
- * above fragment tracker array. For large inserts workload, we allocate large
- * memory chunks for fingerprint array, which is more than a MiB. For scans,
- * splinterdb_iterator_init() allocates memory for an iterator which is ~92+KiB.
- * Set this to a lower value so we can re-cycle free fragments for iterators
- * also.
- */
-#if SPLINTER_DEBUG
-#   define SHM_LARGE_FRAG_SIZE (90 * KiB)
-#else
-#   define SHM_LARGE_FRAG_SIZE (38 * KiB)
-#endif // SPLINTER_DEBUG
+// clang-format on
 
 /*
  * In the worst case we may have all threads performing activities that need
@@ -77,6 +131,65 @@ typedef struct shm_frag_info {
  * threads, which is still a small array to search.
  */
 #define SHM_NUM_LARGE_FRAGS (MAX_THREADS * 2)
+
+/*
+ * Currently, we track free-fragments in lists limited to these sizes.
+ * Each such free-list has a head-list field in shared memory control block.
+ * of sizes.This list can be easily expanded.
+ */
+#define SHM_SMALL_FRAG_MIN_SIZE 64  // Will not track for size < min bytes
+#define SHM_SMALL_FRAG_MAX_SIZE 512 // Will not track for size > max bytes
+
+/*
+ * Each free fragment that is hooked into the free-list is described by this
+ * tiny tracking structure.
+ */
+typedef struct free_frag_hdr {
+   struct free_frag_hdr *free_frag_next;
+   size_t                free_frag_size;
+} free_frag_hdr;
+
+/*
+ * ------------------------------------------------------------------------
+ * Shared-memory usage statistics & metrics:
+ *
+ * Set of usage-stats fields copied from shmem_info{} struct, so that we
+ * can print these after shared segment has been destroyed.
+ * ------------------------------------------------------------------------
+ */
+typedef struct shminfo_usage_stats {
+   int    shmid;       // Shared memory ID returned by shmget()
+   size_t total_bytes; // Total size of shared segment allocated initially.
+   size_t used_bytes;  // Used bytes of memory left (that were allocated)
+   size_t free_bytes;  // Free bytes of memory left (that can be allocated)
+   size_t bytes_freed; // Bytes of memory that underwent 'free' (can be
+                       // reallocated).
+   size_t nfrees;      // Total # of calls to free memory
+
+   // Distribution of 'free' calls based on fragment size
+   size_t nfrees_eq0;
+   size_t nfrees_le32;
+   size_t nfrees_le64;
+   size_t nfrees_le128;
+   size_t nfrees_le256;
+   size_t nfrees_le512;
+   size_t nfrees_le1K;
+   size_t nfrees_le2K;
+   size_t nfrees_le4K;
+   size_t nfrees_large_frags;
+
+   size_t nf_search_skipped;
+   size_t used_by_large_frags_bytes;
+
+   // # of times search in large-fragments array found array full.
+   // Non-zero counter implies that there were more concurrent
+   // requesters to track a large fragment than we have room to track.
+   size_t nlarge_frags_full;
+
+   uint32 nfrags_inuse;
+   uint32 nfrags_inuse_HWM;
+   int    large_frags_found_in_use;
+} shminfo_usage_stats;
 
 /*
  * -----------------------------------------------------------------------------
@@ -91,32 +204,28 @@ typedef struct shm_frag_info {
  *    done when freeing any fragment, to see if it's a large-fragment.
  * -----------------------------------------------------------------------------
  */
-typedef struct shmem_heap {
-   void *shm_start;      // Points to start address of shared segment.
-   void *shm_end;        // Points to end address; one past end of sh segment
-   void *shm_next;       // Points to next 'free' address to allocate from.
-   void *shm_last_alloc; // Points to address most-recently allocated
+typedef struct shmem_info {
+   void *shm_start; // Points to start address of shared segment.
+   void *shm_end;   // Points to end address; one past end of sh segment
+   void *shm_next;  // Points to next 'free' address to allocate from.
+
+   free_frag_hdr *shm_free_le64;  // Chain of free-fragments <= 64 bytes
+   free_frag_hdr *shm_free_le128; // Chain of free-fragments <= 128 bytes
+   free_frag_hdr *shm_free_le256; // Chain of free-fragments <= 256 bytes
+   free_frag_hdr *shm_free_le512; // Chain of free-fragments <= 512 bytes
+
    void *shm_splinterdb_handle;
    void *shm_large_frag_hip; // Highest addr of large-fragments tracked
 
-   platform_spinlock shm_mem_lock; // To sync alloc / free
-
-   platform_spinlock shm_mem_frags_lock;
-   // Protected by shm_mem_frags_lock. Must hold to read or modify.
+   platform_mutex shm_mem_frags_mutex;
+   // Protected by shm_mem_frags_mutex. Must hold to read or modify.
    shm_frag_info shm_mem_frags[SHM_NUM_LARGE_FRAGS];
    uint32        shm_num_frags_tracked;
-   uint32        shm_num_frags_inuse;
-   uint32        shm_num_frags_inuse_HWM;
-   size_t        shm_used_by_large_frags; // Actually reserved
-   size_t        shm_nfrees;              // # of calls to free memory
-   size_t        shm_nfrees_last_frag;    // Freed last small-fragment
+   int           shm_id; // Shared memory ID returned by shmget()
 
-   size_t shm_total_bytes; // Total size of shared segment allocated initially.
-   size_t shm_free_bytes;  // Free bytes of memory left (that can be allocated)
-   size_t shm_used_bytes;  // Used bytes of memory left (that were allocated)
-   size_t shm_used_bytes_HWM; // High-water mark of memory used bytes
-   uint64 shm_magic;          // Magic identifier for shared memory segment
-   int    shm_id;             // Shared memory ID returned by shmget()
+   shminfo_usage_stats usage;
+
+   uint64 shm_magic; // Magic identifier for shared memory segment
 
 } PLATFORM_CACHELINE_ALIGNED shmem_heap;
 
@@ -126,23 +235,37 @@ typedef struct shmem_heap {
 // Function prototypes
 
 static void
-platform_shm_track_alloc(shmem_heap *shm, void *addr, size_t size);
+platform_shm_track_large_alloc(shmem_info *shm,
+                               void       *addr,
+                               size_t      size,
+                               const char *func,
+                               const int   line);
 
 static void
-platform_shm_track_free(shmem_heap *shm,
-                        void       *addr,
-                        const char *objname,
-                        const char *func,
-                        const char *file,
-                        const int   lineno);
+platform_shm_track_free(shmem_info  *shm,
+                        void        *addr,
+                        const size_t size,
+                        const char  *objname,
+                        const char  *func,
+                        const char  *file,
+                        const int    line);
 
 static void *
-platform_shm_find_free(shmem_heap *shm,
+platform_shm_find_large(shmem_info       *shm,
+                        size_t            size,
+                        platform_memfrag *memfrag,
+                        const char       *objname,
+                        const char       *func,
+                        const char       *file,
+                        const int         line);
+
+static void *
+platform_shm_find_frag(shmem_info *shm,
                        size_t      size,
                        const char *objname,
                        const char *func,
                        const char *file,
-                       const int   lineno);
+                       const int   line);
 
 static void
 platform_shm_trace_allocs(shmem_heap  *shm,
@@ -152,7 +275,7 @@ platform_shm_trace_allocs(shmem_heap  *shm,
                           const char  *objname,
                           const char  *func,
                           const char  *file,
-                          const int    lineno);
+                          const int    line);
 
 static int
 platform_trace_large_frags(shmem_heap *shm);
@@ -176,6 +299,12 @@ platform_heap_id_to_shmaddr(platform_heap_id hid)
    return (shmem_heap *)hid;
 }
 
+static inline shmem_info *
+platform_heap_id_to_shminfo(platform_heap_id hid)
+{
+   return (shmem_info *)platform_heap_id_to_shmaddr(hid);
+}
+
 /* Evaluates to valid 'low' address within shared segment. */
 static inline void *
 platform_shm_lop(platform_heap_id hid)
@@ -197,25 +326,13 @@ platform_shm_hip(platform_heap_id hid)
 static inline void
 shm_lock_mem(shmem_heap *shm)
 {
-   platform_spin_lock(&shm->shm_mem_lock);
+   platform_mutex_lock(&shminfo->shm_mem_frags_mutex);
 }
 
 static inline void
 shm_unlock_mem(shmem_heap *shm)
 {
-   platform_spin_unlock(&shm->shm_mem_lock);
-}
-
-static inline void
-shm_lock_mem_frags(shmem_heap *shm)
-{
-   platform_spin_lock(&shm->shm_mem_frags_lock);
-}
-
-static inline void
-shm_unlock_mem_frags(shmem_heap *shm)
-{
-   platform_spin_unlock(&shm->shm_mem_frags_lock);
+   platform_mutex_unlock(&shminfo->shm_mem_frags_mutex);
 }
 
 /*
@@ -243,28 +360,32 @@ platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr)
 }
 
 /*
- * Set of usage-stats fields copied from shmem_info{} struct, so that we
- * can print these after shared segment has been destroyed.
+ * Produce a formatted one-line output of shared memory usage stats / metrics.
  */
-typedef struct shminfo_usage_stats {
-   size_t total_bytes;
-   size_t used_bytes;
-   size_t free_bytes;
-   size_t nfrees;
-   size_t nf_search_skipped;
-   size_t used_by_large_frags_bytes;
-   uint32 frags_inuse_HWM;
-   int    large_frags_found_in_use;
-   int    shmid;
-} shminfo_usage_stats;
-
 void
 platform_shm_print_usage_stats(shminfo_usage_stats *usage)
 {
    fraction used_bytes_pct;
-   fraction free_bytes_pct;
-   used_bytes_pct = init_fraction(usage->used_bytes, usage->total_bytes);
-   free_bytes_pct = init_fraction(usage->free_bytes, usage->total_bytes);
+   fraction free_bytes_pct;  // # of bytes that are free now
+   fraction bytes_freed_pct; // # of bytes that were freed over time
+   fraction nf_le64_pct;
+   fraction nf_le128_pct;
+   fraction nf_le256_pct;
+   fraction nf_le512_pct;
+   fraction nf_le1K_pct;
+   fraction nf_le2K_pct;
+   fraction nf_le4K_pct;
+
+   used_bytes_pct  = init_fraction(usage->used_bytes, usage->total_bytes);
+   free_bytes_pct  = init_fraction(usage->free_bytes, usage->total_bytes);
+   bytes_freed_pct = init_fraction(usage->bytes_freed, usage->total_bytes);
+   nf_le64_pct     = init_fraction(usage->nfrees_le64, usage->nfrees);
+   nf_le128_pct    = init_fraction(usage->nfrees_le128, usage->nfrees);
+   nf_le256_pct    = init_fraction(usage->nfrees_le256, usage->nfrees);
+   nf_le512_pct    = init_fraction(usage->nfrees_le512, usage->nfrees);
+   nf_le1K_pct     = init_fraction(usage->nfrees_le1K, usage->nfrees);
+   nf_le2K_pct     = init_fraction(usage->nfrees_le2K, usage->nfrees);
+   nf_le4K_pct     = init_fraction(usage->nfrees_le4K, usage->nfrees);
 
    // clang-format off
    platform_default_log(
@@ -272,9 +393,20 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       " Total=%lu bytes (%s)"
       ", Used=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
       ", Free=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
+      ", Freed=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
       ", nfrees=%lu, nf_search_skipped=%lu (%d %%)"
+      ", nfrees_eq0=%lu"
+      ", nfrees_le32=%lu"
+      ", nfrees_le64=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le128=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le256=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le512=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le1K=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le2K=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le4K=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrags_inuse=%u"
       ", Large fragments in-use HWM=%u (found in-use=%d)"
-      ", consumed=%lu bytes (%s)"
+      ", consumed=%lu bytes (%s), nlarge_frags_full=%lu"
       ".\n",
       usage->shmid,
       usage->total_bytes,
@@ -285,20 +417,62 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       usage->free_bytes,
       size_str(usage->free_bytes),
       (FRACTION_ARGS(free_bytes_pct) * 100),
+      usage->bytes_freed,
+      size_str(usage->bytes_freed),
+      (FRACTION_ARGS(bytes_freed_pct) * 100),
       usage->nfrees,
       usage->nf_search_skipped,
       (usage->nfrees ? (int)((usage->nf_search_skipped * 100) / usage->nfrees)
                      : 0),
-      usage->frags_inuse_HWM,
+      usage->nfrees_eq0,
+      usage->nfrees_le32,
+      usage->nfrees_le64,
+      (FRACTION_ARGS(nf_le64_pct) * 100),
+      usage->nfrees_le128,
+      (FRACTION_ARGS(nf_le128_pct) * 100),
+      usage->nfrees_le256,
+      (FRACTION_ARGS(nf_le256_pct) * 100),
+      usage->nfrees_le512,
+      (FRACTION_ARGS(nf_le512_pct) * 100),
+      usage->nfrees_le1K,
+      (FRACTION_ARGS(nf_le1K_pct) * 100),
+      usage->nfrees_le2K,
+      (FRACTION_ARGS(nf_le2K_pct) * 100),
+      usage->nfrees_le4K,
+      (FRACTION_ARGS(nf_le4K_pct) * 100),
+      usage->nfrags_inuse,
+      usage->nfrags_inuse_HWM,
       usage->large_frags_found_in_use,
       usage->used_by_large_frags_bytes,
-      size_str(usage->used_by_large_frags_bytes));
+      size_str(usage->used_by_large_frags_bytes),
+      usage->nlarge_frags_full);
    // clang-format on
+}
+
+/*
+ * Save off shared memory usage stats in a usage struct. This is really
+ * needed to print usage-stats before we dismantle the shared segment
+ * entirely.
+ *
+ * Returns: # of large free-fragments found in-use. Usually when this
+ * function is called for diagnostics, this may not matter. When the
+ * shared segment is dismantled, a non-zero count for "in-use" large fragments
+ * is an indication that something is amiss.
+ */
+int
+platform_save_usage_stats(shminfo_usage_stats *usage, shmem_info *shminfo)
+{
+   *usage                          = shminfo->usage;
+   usage->large_frags_found_in_use = platform_trace_large_frags(shminfo);
+   return usage->large_frags_found_in_use;
 }
 
 /*
  * -----------------------------------------------------------------------------
  * Interface to print shared memory usage stats. (Callable from the debugger)
+ * This is mainly intended as a diagnostics tool, so we don't work too hard
+ * to grab metrics under exclusive access.
+ * -----------------------------------------------------------------------------
  */
 void
 platform_shm_print_usage(platform_heap_id hid)
@@ -307,15 +481,7 @@ platform_shm_print_usage(platform_heap_id hid)
    shminfo_usage_stats usage;
    ZERO_STRUCT(usage);
 
-   usage.shmid                     = shminfo->shm_id;
-   usage.total_bytes               = shminfo->shm_total_bytes;
-   usage.used_bytes                = shminfo->shm_used_bytes;
-   usage.free_bytes                = shminfo->shm_free_bytes;
-   usage.nfrees                    = shminfo->shm_nfrees;
-   usage.used_by_large_frags_bytes = shminfo->shm_used_by_large_frags;
-   usage.frags_inuse_HWM           = shminfo->shm_num_frags_inuse_HWM;
-   usage.large_frags_found_in_use  = platform_trace_large_frags(shminfo);
-
+   platform_save_usage_stats(&usage, shminfo);
    platform_shm_print_usage_stats(&usage);
 }
 
@@ -361,18 +527,24 @@ platform_shmcreate(size_t            size,
 
    // Setup shared segment's control block at head of shared segment.
    size_t      free_bytes;
-   shmem_heap *shm = (shmem_heap *)shmaddr;
+   shmem_info *shminfo = (shmem_info *)shmaddr;
+   memset(shminfo, 0, sizeof(*shminfo));
 
-   shm->shm_start          = shmaddr;
-   shm->shm_end            = (shmaddr + size);
-   shm->shm_next           = (shmaddr + sizeof(shmem_heap));
-   shm->shm_total_bytes    = size;
-   free_bytes              = (size - sizeof(shmem_heap));
-   shm->shm_free_bytes     = free_bytes;
-   shm->shm_used_bytes     = 0;
-   shm->shm_used_bytes_HWM = 0;
-   shm->shm_id             = shmid;
-   shm->shm_magic          = SPLINTERDB_SHMEM_MAGIC;
+   shminfo->shm_start = shmaddr;
+   shminfo->shm_end   = (shmaddr + size);
+   shminfo->shm_next  = (shmaddr + sizeof(shmem_info));
+   shminfo->shm_id    = shmid;
+   shminfo->shm_magic = SPLINTERDB_SHMEM_MAGIC;
+
+   shminfo->usage.total_bytes = size;
+   free_bytes                 = (size - sizeof(shmem_info));
+   shminfo->usage.free_bytes  = free_bytes;
+   shminfo->usage.used_bytes  = 0;
+
+   // Return 'heap' handles, if requested, pointing to shared segment handles.
+   if (heap_handle) {
+      *heap_handle = (platform_heap_handle *)shmaddr;
+   }
 
    // Return 'heap-ID' handle pointing to start addr of shared segment.
    if (heap_id) {
@@ -383,8 +555,8 @@ platform_shmcreate(size_t            size,
       &shm->shm_mem_lock, platform_get_module_id(), *heap_id);
 
    // Initialize spinlock needed to access memory fragments tracker
-   platform_spinlock_init(
-      &shm->shm_mem_frags_lock, platform_get_module_id(), *heap_id);
+   platform_mutex_init(
+      &shminfo->shm_mem_frags_mutex, platform_get_module_id(), *heap_id);
 
    // Always trace creation of shared memory segment.
    platform_default_log("Completed setup of shared memory of size "
@@ -404,13 +576,13 @@ platform_shmcreate(size_t            size,
  * platform_shmdestroy() -- Destroy a shared memory created for SplinterDB.
  * -----------------------------------------------------------------------------
  */
-void
-platform_shmdestroy(platform_heap_id *hid_out)
+platform_status
+platform_shmdestroy(platform_heap_handle *heap_handle)
 {
    if (!hid_out) {
       platform_error_log(
-         "Error! Attempt to destroy shared memory with NULL heap ID!");
-      return;
+         "Error! Attempt to destroy shared memory with NULL heap_handle!");
+      return STATUS_BAD_PARAM;
    }
 
    const void *shmaddr = (const void *)platform_heap_id_to_shmaddr(*hid_out);
@@ -436,17 +608,26 @@ platform_shmdestroy(platform_heap_id *hid_out)
                          hid_out,
                          shm->shm_magic,
                          SPLINTERDB_SHMEM_MAGIC);
-      return;
+      return STATUS_BAD_PARAM;
    }
 
-   int shmid = shm->shm_id;
+   // Retain some memory usage stats before releasing shmem
+   shminfo_usage_stats usage;
+   ZERO_STRUCT(usage);
+   int nfrags_in_use = platform_save_usage_stats(&usage, shminfo);
+
+   platform_status rc = platform_mutex_destroy(&shminfo->shm_mem_frags_mutex);
+   platform_assert(SUCCESS(rc));
+
+   int shmid = shminfo->shm_id;
    int rv    = shmdt(shmaddr);
    if (rv != 0) {
       platform_error_log("Failed to detach from shared segment at address "
-                         "%p, shmid=%d.\n",
+                         "%p, shmid=%d: %s.\n",
                          shmaddr,
-                         shmid);
-      return;
+                         shmid,
+                         strerror(rv));
+      return CONST_STATUS(rv);
    }
 
    // Externally, heap_id is pointing to this field. In anticipation that the
@@ -465,32 +646,17 @@ platform_shmdestroy(platform_heap_id *hid_out)
    size_t shm_nfrees                = shm->shm_nfrees;
    size_t shm_nfrees_last_frag      = shm->shm_nfrees_last_frag;
 
-   // Print large-fragment tracking metrics (for deep debugging)
-   int found_in_use = platform_trace_large_frags(shm);
-
-   // Retain some memory usage stats before releasing shmem
-   shminfo_usage_stats usage;
-   ZERO_STRUCT(usage);
-
-   usage.shmid                     = shmid;
-   usage.total_bytes               = shm->shm_total_bytes;
-   usage.used_bytes                = shm->shm_used_bytes;
-   usage.free_bytes                = shm->shm_free_bytes;
-   usage.nfrees                    = shm->shm_nfrees;
-   usage.used_by_large_frags_bytes = shm->shm_used_by_large_frags;
-   usage.frags_inuse_HWM           = shm->shm_num_frags_inuse_HWM;
-   usage.large_frags_found_in_use  = found_in_use;
-
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
-      platform_error_log(
-         "shmctl failed to remove shared segment at address %p, shmid=%d.\n",
-         shmaddr,
-         shmid);
+      platform_error_log("shmctl failed to remove shared segment at address %p"
+                         ", shmid=%d: %s.\n",
+                         shmaddr,
+                         shmid,
+                         strerror(rv));
 
       // restore state
-      shm->shm_id = shmid;
-      return;
+      shminfo->shm_id = shmid;
+      return CONST_STATUS(rv);
    }
 
    // Reset globals to NULL; to avoid accessing stale handles.
@@ -524,25 +690,12 @@ platform_shmdestroy(platform_heap_id *hid_out)
                         (FRACTION_ARGS(free_bytes_pct) * 100));
    // clang-format on
 
-   fraction freed_last_frag_pct;
-   freed_last_frag_pct = init_fraction(shm_nfrees_last_frag, shm_nfrees);
+   platform_shm_print_usage_stats(&usage);
 
-   // clang-format off
-   platform_default_log("SplinterDB shared memory stats:"
-                        " nfrees=%lu"
-                        ", nfrees-last-small-frag=%lu ("
-                        FRACTION_FMT(4, 2) " %%)"
-                        ", Large fragments in-use HWM=%u (found in-use=%d)"
-                        ", consumed=%lu bytes (%s)"
-                        ".\n",
-                        shm_nfrees,
-                        shm_nfrees_last_frag,
-                        (FRACTION_ARGS(freed_last_frag_pct) * 100),
-                        frags_inuse_HWM,
-                        found_in_use,
-                        used_by_large_frags_bytes,
-                        size_str(used_by_large_frags_bytes));
-   // clang-format on
+   // If any fragments were found in-use, that's likely due to something
+   // going wrong while free()'ing memory. (This could lead to bloated
+   // shared memory usage, if not rectified.)
+   return CONST_STATUS(nfrags_in_use);
 }
 
 /*
@@ -556,12 +709,13 @@ platform_shmdestroy(platform_heap_id *hid_out)
  */
 // RESOLVE: Pass down user requested alignment and handle it here.
 void *
-platform_shm_alloc(platform_heap_id hid,
-                   const size_t     size,
-                   const char      *objname,
-                   const char      *func,
-                   const char      *file,
-                   const int        lineno)
+platform_shm_alloc(platform_heap_id  hid,
+                   const size_t      size,
+                   platform_memfrag *memfrag, // OUT
+                   const char       *objname,
+                   const char       *func,
+                   const char       *file,
+                   const int         line)
 {
    shmem_heap *shm = platform_heap_id_to_shmaddr(hid);
 
@@ -569,30 +723,44 @@ platform_shm_alloc(platform_heap_id hid,
                 "Shared memory heap ID at %p is not a valid shared memory ptr.",
                 hid);
 
-   debug_assert(((size % PLATFORM_CACHELINE_SIZE) == 0),
-                "size=%lu is not aligned to PLATFORM_CACHELINE_SIZE",
-                size);
-   platform_assert(((((uint64)shm->shm_next) % PLATFORM_CACHELINE_SIZE) == 0),
-                   "[%s:%d] Next free-addr is not aligned: "
-                   "shm_next=%p, shm_total_bytes=%lu, shm_used_bytes=%lu"
-                   ", shm_free_bytes=%lu",
-                   file,
-                   lineno,
-                   shm->shm_next,
-                   shm->shm_total_bytes,
-                   shm->shm_used_bytes,
-                   shm->shm_free_bytes);
+   platform_assert(
+      ((((uint64)shminfo->shm_next) % PLATFORM_CACHELINE_SIZE) == 0),
+      "[%s:%d] Next free-addr is not aligned: "
+      "shm_next=%p, shm_total_bytes=%lu, shm_used_bytes=%lu"
+      ", shm_free_bytes=%lu",
+      file,
+      line,
+      shminfo->shm_next,
+      shminfo->usage.total_bytes,
+      shminfo->usage.used_bytes,
+      shminfo->usage.free_bytes);
 
    void *retptr = NULL;
 
    // See if we can satisfy requests for large memory fragments from a cached
    // list of used/free fragments that are tracked separately.
-   if ((size >= SHM_LARGE_FRAG_SIZE)
-       && ((retptr =
-               platform_shm_find_free(shm, size, objname, func, file, lineno))
-           != NULL))
-   {
-      return retptr;
+   // clang-format off
+   if (size >= SHM_LARGE_FRAG_SIZE) {
+      if ((retptr = platform_shm_find_large(shminfo, size, memfrag, objname,
+                                            func, file, line))
+                    != NULL)
+      {
+         return retptr;
+      }
+      // clang-format on
+   } else {
+      // Try to satisfy small memory fragments based on requested size, from
+      // cached list of free-fragments.
+      retptr = platform_shm_find_frag(shminfo, size, objname, func, file, line);
+      if (retptr) {
+         // Return fragment's details to caller. We may have recycled a free
+         // fragment that is larger than requested size.
+         if (memfrag) {
+            memfrag->addr = (void *)retptr;
+            memfrag->size = ((free_frag_hdr *)retptr)->free_frag_size;
+         }
+         return retptr;
+      }
    }
 
    _Static_assert(sizeof(void *) == sizeof(size_t),
@@ -610,32 +778,36 @@ platform_shm_alloc(platform_heap_id hid,
 
       platform_error_log(
          "[%s:%d::%s()]: Insufficient memory in shared segment"
-         " to allocate %lu bytes for '%s'. Approx free space=%lu bytes."
-         " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u (HWM=%u).\n",
+         " to allocate %lu bytes (%s) for '%s'. Approx free"
+         " space=%lu bytes (%s)."
+         " shm_num_frags_tracked=%u, nm_frags_inuse=%u (HWM=%u).\n",
          file,
-         lineno,
+         line,
          func,
          size,
+         size_str(size),
          objname,
-         shm->shm_free_bytes,
-         shm->shm_num_frags_tracked,
-         shm->shm_num_frags_inuse,
-         shm->shm_num_frags_inuse_HWM);
-      platform_trace_large_frags(shm);
+         shminfo->usage.free_bytes,
+         size_str(shminfo->usage.free_bytes),
+         shminfo->shm_num_frags_tracked,
+         shminfo->usage.nfrags_inuse,
+         shminfo->usage.nfrags_inuse_HWM);
+
+      // Trace diagnostics
+      if (Trace_large_frags) {
+         platform_shm_print_usage(hid);
+      }
+
       return NULL;
    }
 
    shm->shm_last_alloc = retptr;
    // Track approx memory usage metrics; mainly for troubleshooting
-   __sync_fetch_and_add(&shm->shm_used_bytes, size);
-   __sync_fetch_and_sub(&shm->shm_free_bytes, size);
-   if (shm->shm_used_bytes > shm->shm_used_bytes_HWM) {
-      shm->shm_used_bytes_HWM = shm->shm_used_bytes;
-   }
-   shm_unlock_mem(shm);
+   __sync_fetch_and_add(&shminfo->usage.used_bytes, size);
+   __sync_fetch_and_sub(&shminfo->usage.free_bytes, size);
 
    if (size >= SHM_LARGE_FRAG_SIZE) {
-      platform_shm_track_alloc(shm, retptr, size);
+      platform_shm_track_large_alloc(shminfo, retptr, size, func, line);
    }
 
    // Trace shared memory allocation; then return memory ptr.
@@ -649,7 +821,12 @@ platform_shm_alloc(platform_heap_id hid,
                                 objname,
                                 func,
                                 file,
-                                lineno);
+                                line);
+   }
+   // A new fragment was carved out of shm. Inform caller of its properties.
+   if (memfrag) {
+      memfrag->size = size;
+      memfrag->addr = retptr;
    }
    return retptr;
 }
@@ -659,69 +836,49 @@ platform_shm_alloc(platform_heap_id hid,
  * platform_shm_realloc() -- Re-allocate n-bytes from shared segment.
  *
  * Functionally is similar to 'realloc' system call. We allocate required # of
- * bytes, copy over the old contents (if any), and do a fake free of the oldptr.
+ * bytes, copy over the old contents (if any), and free the memory for the
+ * oldptr.
+ *
+ * NOTE(s):
+ *  - This interface does -not- do any cache-line alignment for 'newsize'.
+ *    Caller is expected to do so. platform_realloc() takes care of it.
+ *  - However, it is quite likely that for a fragment request, we might be
+ *    recycling a (small/large) free-fragment, whose size may be bigger
+ *    than requested 'newsize' (but will guranteed to be cache line aligned).
+ *
+ * Returns ptr to re-allocated memory. May return a bigger *newsize, if
+ * a free fragment was recycled and re-allocated.
  * -----------------------------------------------------------------------------
  */
 void *
 platform_shm_realloc(platform_heap_id hid,
                      void            *oldptr,
                      const size_t     oldsize,
-                     const size_t     newsize,
+                     size_t          *newsize,
                      const char      *func,
                      const char      *file,
-                     const int        lineno)
+                     const int        line)
 {
-   debug_assert(((oldptr == NULL) && (oldsize == 0)) || (oldptr && oldsize),
-                "oldptr=%p, oldsize=%lu",
-                oldptr,
-                oldsize);
+   static const char *unknown_obj = "UnknownObj";
 
-   // We can only realloc from an oldptr that's allocated from shmem
-   debug_assert(!oldptr || platform_valid_addr_in_heap(hid, oldptr),
-                "oldptr=%p is not allocated from shared memory",
-                oldptr);
+   platform_memfrag realloc_memfrag = {0};
 
-   void *retptr =
-      platform_shm_alloc(hid, newsize, "Unknown", func, file, lineno);
+   // clang-format off
+   void *retptr = platform_shm_alloc(hid, *newsize, &realloc_memfrag,
+                                     unknown_obj, func, file, line);
+   // clang-format on
    if (retptr) {
 
-      // Copy over old contents, if any, and free that memory piece
-      if (oldptr) {
+      // Copy over old contents, if any, and free that old memory piece
+      if (oldptr && oldsize) {
          memcpy(retptr, oldptr, oldsize);
-         platform_shm_free(hid, oldptr, "Unknown", func, file, lineno);
+         platform_shm_free(hid, oldptr, oldsize, unknown_obj, func, file, line);
       }
-   } else {
-      // Report approx memory usage metrics w/o spinlock (diagnostics)
-      shmem_heap *shm             = platform_heap_id_to_shmaddr(hid);
-      size_t      shm_total_bytes = shm->shm_total_bytes;
-      size_t      shm_used_bytes  = shm->shm_used_bytes;
-      size_t      shm_free_bytes  = shm->shm_free_bytes;
-      size_t      shm_num_frees   = shm->shm_nfrees;
-      fraction    used_bytes_pct;
-      fraction    free_bytes_pct;
-      used_bytes_pct = init_fraction(shm_used_bytes, shm_total_bytes);
-      free_bytes_pct = init_fraction(shm_free_bytes, shm_total_bytes);
-
-      // clang-format off
-      platform_error_log("%s() failed to reallocate newsize=%lu bytes (%s)"
-                         ", oldsize=%lu bytes (%s)"
-                         ", Used=%lu bytes (%s, " FRACTION_FMT(4, 2)
-                         " %%), Free=%lu bytes (%s, " FRACTION_FMT(4, 2)
-                         " %%)"
-                         ", num-free-calls=%lu\n",
-                        __func__,
-                        newsize,
-                        size_str(newsize),
-                        oldsize,
-                        size_str(oldsize),
-                        shm_used_bytes,
-                        size_str(shm_used_bytes),
-                        (FRACTION_ARGS(used_bytes_pct) * 100),
-                        shm_free_bytes,
-                        size_str(shm_free_bytes),
-                        (FRACTION_ARGS(free_bytes_pct) * 100),
-                        shm_num_frees);
-      // clang-format off
+      // A large free-fragment might have been recycled. Its size may be
+      // bigger than the requested '*newsize'. Return new size to caller.
+      // (This is critical, otherwise, asserts will trip when an attempt
+      // is made by caller to free this fragment.)
+      *newsize = memfrag_size(&realloc_memfrag);
    }
    return retptr;
 }
@@ -740,10 +897,11 @@ platform_shm_realloc(platform_heap_id hid,
 void
 platform_shm_free(platform_heap_id hid,
                   void            *ptr,
+                  const size_t     size,
                   const char      *objname,
                   const char      *func,
                   const char      *file,
-                  const int        lineno)
+                  const int        line)
 {
    shmem_heap *shm = platform_heap_id_to_shmaddr(hid);
 
@@ -753,11 +911,11 @@ platform_shm_free(platform_heap_id hid,
       hid);
 
    if (!platform_valid_addr_in_heap(hid, ptr)) {
-      platform_error_log("[%s:%d::%s()] -> %s: Requesting to free memory"
-                         " at %p, for object '%s' which is a memory chunk not"
+      platform_error_log("[%s:%d::%s()] -> %s: Requesting to free memory at %p"
+                         ", for object '%s' which is a memory fragment not"
                          " allocated from shared memory {start=%p, end=%p}.\n",
                          file,
-                         lineno,
+                         line,
                          func,
                          __func__,
                          ptr,
@@ -767,39 +925,13 @@ platform_shm_free(platform_heap_id hid,
       return;
    }
 
-   // Micro-optimization for very-last-fragment-allocated being freed
-   bool   maybe_large_frag = TRUE;
-   size_t frag_size        = 0;
-
-   shm_lock_mem(shm);
-   shm->shm_nfrees++;
-   if (shm->shm_last_alloc == ptr) {
-      debug_assert(
-         shm->shm_next > ptr, "shm_next=%p, free-ptr=%p", shm->shm_next, ptr);
-      frag_size = (shm->shm_next - ptr);
-      if (frag_size < SHM_LARGE_FRAG_SIZE) {
-         // Recycle the most-recently-allocated-small-fragment, now being freed.
-         shm->shm_next       = ptr;
-         shm->shm_last_alloc = NULL;
-         shm->shm_free_bytes += frag_size;
-         shm->shm_used_bytes -= frag_size;
-         shm->shm_nfrees_last_frag += 1;
-
-         // We know fragment being freed is not a large fragment
-         maybe_large_frag = FALSE;
-      }
-   }
-   shm_unlock_mem(shm);
-
-   if (maybe_large_frag) {
-      platform_shm_track_free(shm, ptr, objname, func, file, lineno);
-   }
+   platform_shm_track_free(shminfo, ptr, size, objname, func, file, line);
 
    if (Trace_shmem || Trace_shmem_frees) {
       platform_default_log("  [%s:%d::%s()] -> %s: Request to free memory at "
                            "%p for object '%s'.\n",
                            file,
-                           lineno,
+                           line,
                            func,
                            __func__,
                            ptr,
@@ -810,13 +942,17 @@ platform_shm_free(platform_heap_id hid,
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_track_alloc() - Track the allocation of this large fragment.
- * 'Tracking' here means we record this large-fragment in an array tracking
- * large-memory fragments allocated.
+ * platform_shm_track_large_alloc() - Track the allocation of this large
+ * fragment. 'Tracking' here means we record this large-fragment in an array
+ * tracking large-memory fragments allocated.
  * -----------------------------------------------------------------------------
  */
 static void
-platform_shm_track_alloc(shmem_heap *shm, void *addr, size_t size)
+platform_shm_track_large_alloc(shmem_info *shm,
+                               void       *addr,
+                               size_t      size,
+                               const char *func,
+                               const int   line)
 {
    debug_assert(
       (size >= SHM_LARGE_FRAG_SIZE),
@@ -825,46 +961,52 @@ platform_shm_track_alloc(shmem_heap *shm, void *addr, size_t size)
       size,
       SHM_LARGE_FRAG_SIZE);
 
+   bool found_free_slot = FALSE;
+   shm_lock_mem_frags(shm);
 
    // Iterate through the list of memory fragments being tracked.
    int            fctr = 0;
    shm_frag_info *frag = shm->shm_mem_frags;
-   shm_lock_mem_frags(shm);
-   while ((fctr < ARRAY_SIZE(shm->shm_mem_frags)) && frag->shm_frag_addr) {
-      // As this is a newly allocated fragment being tracked, it should
-      // not be found elsewhere in the tracker array.
-      platform_assert((frag->shm_frag_addr != addr),
-                      "Error! Newly allocated large memory fragment at %p"
-                      " is already tracked at slot %d."
-                      " Fragment is allocated to PID=%d, to tid=%lu,"
-                      " and is %s (freed by PID=%d, by tid=%lu)\n.",
-                      addr,
-                      fctr,
-                      frag->shm_frag_allocated_to_pid,
-                      frag->shm_frag_allocated_to_tid,
-                      (frag->shm_frag_freed_by_pid ? "free" : "in use"),
-                      frag->shm_frag_freed_by_pid,
-                      frag->shm_frag_freed_by_tid);
-      fctr++;
-      frag++;
-   }
-   // If we found a free slot, track our memory fragment at fctr'th slot.
-   if (fctr < ARRAY_SIZE(shm->shm_mem_frags)) {
+   for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
+      // If tracking entry points to a valid large-memory fragment ...
+      if (frag->frag_addr) {
+         // As this is a newly allocated fragment being tracked, it should
+         // not be found elsewhere in the tracker array.
+         platform_assert((frag->frag_addr != addr),
+                         "Error! Newly allocated large memory fragment at %p"
+                         " is already tracked at slot %d."
+                         " Fragment is allocated to PID=%d, to tid=%lu,"
+                         " and is %s (freed by PID=%d, by tid=%lu)\n.",
+                         addr,
+                         fctr,
+                         frag->frag_allocated_to_pid,
+                         frag->frag_allocated_to_tid,
+                         (frag->frag_freed_by_pid ? "free" : "in use"),
+                         frag->frag_freed_by_pid,
+                         frag->frag_freed_by_tid);
+         continue;
+      }
+
+      // We found a free slot. Track our memory fragment at fctr'th slot.
+      found_free_slot = TRUE;
       shm->shm_num_frags_tracked++;
-      shm->shm_num_frags_inuse++;
-      shm->shm_used_by_large_frags += size;
-      if (shm->shm_num_frags_inuse > shm->shm_num_frags_inuse_HWM) {
-         shm->shm_num_frags_inuse_HWM = shm->shm_num_frags_inuse;
+      shm->usage.nfrags_inuse++;
+      shm->usage.used_by_large_frags_bytes += size;
+      if (shm->usage.nfrags_inuse > shm->usage.nfrags_inuse_HWM) {
+         shm->usage.nfrags_inuse_HWM = shm->usage.nfrags_inuse;
       }
 
       // We should really assert that the other fields are zero, but for now
       // re-init this fragment tracker.
       memset(frag, 0, sizeof(*frag));
-      frag->shm_frag_addr = addr;
-      frag->shm_frag_size = size;
+      frag->frag_addr = addr;
+      frag->frag_size = size;
 
-      frag->shm_frag_allocated_to_pid = getpid();
-      frag->shm_frag_allocated_to_tid = platform_get_tid();
+      frag->frag_allocated_to_pid = getpid();
+      frag->frag_allocated_to_tid = platform_get_tid();
+
+      frag->frag_func = func;
+      frag->frag_line = line;
 
       // The freed_by_pid/freed_by_tid == 0 means fragment is still allocated.
 
@@ -873,64 +1015,284 @@ platform_shm_track_alloc(shmem_heap *shm, void *addr, size_t size)
          shm->shm_large_frag_hip = addr;
       }
    }
-
+   if (!found_free_slot) {
+      shm->usage.nlarge_frags_full++;
+   }
    shm_unlock_mem_frags(shm);
 }
 
 /*
+ * Connect a free fragment to the chain provided. Record free-fragment's
+ * size, so we can find it when next required by-size.
+ */
+static inline void
+platform_shm_hook_free_frag(free_frag_hdr **here, void *ptr, size_t size)
+{
+   ((free_frag_hdr *)ptr)->free_frag_next = *here;
+   ((free_frag_hdr *)ptr)->free_frag_size = size;
+   *here                                  = ptr;
+}
+
+/*
  * -----------------------------------------------------------------------------
- * platform_shm_track_free() - See if this memory fragment being freed is
- * already being tracked. If so, it's a large fragment allocation, which can be
- * re-cycled after this free. Do the book-keeping accordingly to record that
- * this large-fragment is no longer in-use and can be recycled.
+ * Helper functions for finding 'free' fragment and to walk free-lists.
+ * -----------------------------------------------------------------------------
+ */
+/*
+ * Simple lookup routine to return the free-fragment header off of which
+ * free-fragments of a specific 'size' will be hung off of.
+ * No mutex is required here, as we are simply mapping size to a field's addr.
+ */
+static free_frag_hdr **
+platform_shm_free_frag_hdr(const shmem_info *shm, size_t size)
+{
+   free_frag_hdr **next_frag;
+   if (size <= 64) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le64;
+   } else if (size <= 128) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le128;
+   } else if (size <= 256) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le256;
+   } else if (size <= 512) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le512;
+   } else {
+      // Currently unsupported fragment size for recycling
+      next_frag = NULL;
+   }
+   return next_frag;
+}
+
+/*
+ * When a memory fragment is being free'd, check if this fragment is already
+ * in some free-list. If found, it means we are [incorrectly] doing a
+ * double-free, which indicates a code error. User has possibly messed-up their
+ * handling of memfrag handles to this memory fragment.
+ *
+ * NOTE: This, being a convenience routine, provides for next_frag, which is
+ * the start of the free-list for given 'size'. If caller has established it,
+ * pass that here. Otherwise, we will establish it in this routine.
+ *
+ * Shared memory mutex is expected to be held for this function.
+ */
+static void *
+platform_shm_find_frag_in_free_list(const shmem_info *shm,
+                                    free_frag_hdr   **next_frag,
+                                    const void       *ptr,
+                                    const size_t      size)
+{
+   if (!next_frag) {
+      free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
+      // We are searching for a fragment whose size is not tracked.
+      if (next_frag == NULL) { // Nothing found.
+         return NULL;
+      }
+   }
+
+   // Walk the free-list to see if our being-free'd ptr lives there already
+   while (*next_frag && ((*next_frag) != ptr)) {
+      next_frag = &(*next_frag)->free_frag_next;
+   }
+   // Returns the 'ptr' if found; null otherwise.
+   return (*next_frag);
+}
+
+/*
+ * Diagnostic routine: Iterate through all free-lists that we currently
+ * manage and try to find if fragment at address 'ptr' is found in any such
+ * list. That means, fragment was previously freed.
+ *
+ * Returns: The size of the free-fragment list in which this 'ptr' was found.
+ *  0, otherwise; (i.e. 'ptr' is not an already-freed-fragment.)
+ *  Optionally, the size marked in this freed-fragment is returned via
+ *  'freed_size'. If a client incorrectly specified the memfrag's size at
+ *  the time of free(), that will be reported here, and can be detected.
+ */
+static size_t
+platform_shm_find_frag_in_freed_lists(const shmem_info *shm,
+                                      const void       *ptr,
+                                      size_t           *freed_size)
+{
+   size_t free_list_size = SHM_SMALL_FRAG_MIN_SIZE;
+
+   // Process all free-list sizes, till we find the being-freed fragment
+   while (free_list_size <= SHM_SMALL_FRAG_MAX_SIZE) {
+      free_frag_hdr **next_frag =
+         platform_shm_free_frag_hdr(shm, free_list_size);
+
+      free_frag_hdr *found_free_frag;
+      if ((found_free_frag = platform_shm_find_frag_in_free_list(
+              shm, next_frag, ptr, free_list_size)))
+      {
+         // Return the size as marked on the fragment when it was freed.
+         if (freed_size) {
+            *freed_size = found_free_frag->free_frag_size;
+         }
+         // We found this fragment 'ptr' in this free-fragment-list!
+         return free_list_size;
+      }
+      free_list_size *= 2;
+   }
+   return 0;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * platform_shm_track_free() - Track 'free' of small and large fragments.
+ *
+ * Small fragments: Free this fragment, and using the 'size' specified,
+ *   connect it to the free-list tracking fragments of this size.
+
+ * Large fragments: See if this memory fragment being freed is
+ *   already being tracked. If so, it's a large fragment allocation, which
+ *   can be re-cycled after this free. Do the book-keeping accordingly to
+ *   record that this large-fragment is no longer in-use and can be recycled.
  * -----------------------------------------------------------------------------
  */
 static void
-platform_shm_track_free(shmem_heap *shm,
-                        void       *addr,
-                        const char *objname,
-                        const char *func,
-                        const char *file,
-                        const int   lineno)
+platform_shm_track_free(shmem_info  *shm,
+                        void        *addr,
+                        const size_t size,
+                        const char  *objname,
+                        const char  *func,
+                        const char  *file,
+                        const int    line)
 {
+   // All callers of either platform_free() or platform_free_mem() are required
+   // to declare the size of the memory fragment being freed. We used that info
+   // to manage free lists.
+   platform_assert((size > 0),
+                   "objname=%s, func=%s, file=%s, line=%d",
+                   objname,
+                   func,
+                   file,
+                   line);
+
    shm_lock_mem_frags(shm);
+   shm->usage.nfrees++;
+   shm->usage.bytes_freed += size;
+
+   /* **** Tracking 'free' on smaller fragments. **** */
 
    // If we are freeing a fragment beyond the high-address of all
    // large fragments tracked, then this is certainly not a large
    // fragment. So, no further need to see if it's a tracked fragment.
-   if (addr > shm->shm_large_frag_hip) {
+   if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE))
+   {
+      // If this fragment-being-free'd is one of a size we track, find
+      // the free-list into which the free'd-fragment should be linked.
+      free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
+      if (next_frag) {
+
+         // clang-format off
+         debug_code(size_t found_in_free_list_size = 0);
+         debug_code(size_t free_frag_size = 0);
+         debug_assert(((found_in_free_list_size
+                         = platform_shm_find_frag_in_freed_lists(shm,
+                                                                 addr,
+                                                                 &free_frag_size))
+                                == 0),
+                        "Memory fragment being-freed, %p, of size=%lu bytes"
+                        " was found in freed-fragment-list of size=%lu bytes"
+                        ", and marked as %lu bytes size.",
+                        addr, size, found_in_free_list_size, free_frag_size);
+         // clang-format on
+
+         /*
+          * ------------------------------------------------------------------
+          * Hook this now-free fragment into its free-list.
+          *
+          * NOTE: There is a potential for a small memory-leak, which may
+          * just be benign. We may have allocated via TYPED_MALLOC() for a
+          * single structure. alloc() and free() interfaces -do- round-up
+          * the sizeof(struct) for alignment. But it could well be that we
+          * recycled a small fragment from a free-list, where the fragment's
+          * original size was larger than sizeof(struct). So, come now to
+          * free()-time, caller only knows of sizeof(struct) which will be
+          * smaller than the actual fragment's size. This leads to a small
+          * bit of unused space in the to-be-freed-fragment, but should not
+          * cause any memory corruption.
+          * ------------------------------------------------------------------
+          */
+         platform_shm_hook_free_frag(next_frag, addr, size);
+      }
+
+      // Maintain metrics here onwards
+      shm->usage.nf_search_skipped++; // Track # of optimizations done
+
+      if (size == 0) {
+         shm->usage.nfrees_eq0++;
+      } else if (size <= 32) {
+         shm->usage.nfrees_le32++;
+      } else if (size <= 64) {
+         shm->usage.nfrees_le64++;
+      } else if (size <= 128) {
+         shm->usage.nfrees_le128++;
+      } else if (size <= 256) {
+         shm->usage.nfrees_le256++;
+      } else if (size <= 512) {
+         shm->usage.nfrees_le512++;
+      } else if (size <= KiB) {
+         shm->usage.nfrees_le1K++;
+      } else if (size <= (2 * KiB)) {
+         shm->usage.nfrees_le2K++;
+      } else if (size <= (4 * KiB)) {
+         shm->usage.nfrees_le4K++;
+      }
+      shm->usage.used_bytes -= size;
+      shm->usage.free_bytes += size;
+
       shm_unlock_mem_frags(shm);
       return;
    }
+
+   /* **** Tracking 'free' on large fragments. **** */
+
+   shm->usage.nfrees_large_frags++;
    bool found_tracked_frag = FALSE;
    bool trace_shmem        = (Trace_shmem || Trace_shmem_frees);
 
    shm_frag_info *frag = shm->shm_mem_frags;
-   int            fctr = 0;
-   while ((fctr < ARRAY_SIZE(shm->shm_mem_frags))
-          && (!frag->shm_frag_addr || (frag->shm_frag_addr != addr)))
-   {
-      fctr++;
-      frag++;
-   }
-   if (fctr < ARRAY_SIZE(shm->shm_mem_frags)) {
-      debug_assert(frag->shm_frag_addr == addr);
+
+   // Search the large-fragment tracking array for this fragment being freed.
+   // If found, mark its tracker that this fragment is free & can be recycled.
+   for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
+      if (!frag->frag_addr || (frag->frag_addr != addr)) {
+         continue;
+      }
       found_tracked_frag = TRUE;
 
       // Cross-check the recording we did when fragment was allocated
       // We cannot check the tid as the parent process' tid may be 0.
       // We could have come across a free fragment that was previously
       // used by the parent process.
-      // debug_assert(frag->shm_frag_allocated_to_tid != 0);
-      debug_assert(frag->shm_frag_allocated_to_pid != 0);
-      debug_assert(frag->shm_frag_size != 0);
+      // debug_assert(frag->frag_allocated_to_tid != 0);
+      debug_assert(frag->frag_allocated_to_pid != 0);
+      debug_assert(frag->frag_size != 0);
 
-      shm->shm_num_frags_inuse--;
+      // -----------------------------------------------------------------
+      // If a client allocated a large-fragment previously, it should be
+      // freed with the right original size (for hygiene). It's not
+      // really a correctness error as the fragment's size has been
+      // recorded initially when it was allocated. Initially, we tried
+      // to make this a strict "size == frag->frag_size" check.
+      // But, it trips for various legit reasons. One example is when
+      // we call TYPED_MALLOC() to allocate memory for a large struct.
+      // This request may have gone through large free-fragment recycling
+      // scheme, in which case we cold have got a free-fragment with a
+      // much larger frag->frag_size.
+      // -----------------------------------------------------------------
+      debug_assert((size <= frag->frag_size),
+                   "Attempt to free a large fragment, %p, with size=%lu"
+                   ", but fragment has size of %lu bytes (%s).",
+                   addr,
+                   size,
+                   frag->frag_size,
+                   size_str(frag->frag_size));
 
-      // Mark the fragment as in-use by recording the process/thread that's
-      // doing the free.
-      frag->shm_frag_freed_by_pid = getpid();
-      frag->shm_frag_freed_by_tid = platform_get_tid();
+      // Record the process/thread's identity to mark the fragment as free.
+      frag->frag_freed_by_pid = getpid();
+      frag->frag_freed_by_tid = platform_get_tid();
+      shm->usage.nfrags_inuse--;
 
       if (trace_shmem) {
          platform_default_log("OS-pid=%d, ThreadID=%lu"
@@ -938,17 +1300,30 @@ platform_shm_track_free(shmem_heap *shm,
                               ", at slot=%d, addr=%p"
                               ", allocated_to_pid=%d, allocated_to_tid=%lu"
                               ", shm_large_frag_hip=%p\n",
-                              frag->shm_frag_freed_by_pid,
-                              frag->shm_frag_freed_by_tid,
-                              frag->shm_frag_size,
+                              frag->frag_freed_by_pid,
+                              frag->frag_freed_by_tid,
+                              frag->frag_size,
                               fctr,
                               addr,
-                              frag->shm_frag_allocated_to_pid,
-                              frag->shm_frag_allocated_to_tid,
+                              frag->frag_allocated_to_pid,
+                              frag->frag_allocated_to_tid,
                               shm->shm_large_frag_hip);
       }
    }
    shm_unlock_mem_frags(shm);
+
+   // We expect that callers invoke the free correctly with the right memory
+   // fragment handle. Not finding a large fragment requested to be freed
+   // indicates some coding error.
+   debug_assert(found_tracked_frag,
+                "[%s:%d:%s()] Request to track large fragment failed."
+                " Fragment %p, %lu bytes, for object '%s' is not tracked\n",
+                file,
+                line,
+                func,
+                addr,
+                size,
+                objname);
 
    if (!found_tracked_frag && trace_shmem) {
       platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()] "
@@ -956,7 +1331,7 @@ platform_shm_track_free(shmem_heap *shm,
                            getpid(),
                            platform_get_tid(),
                            file,
-                           lineno,
+                           line,
                            func,
                            addr,
                            objname);
@@ -965,19 +1340,21 @@ platform_shm_track_free(shmem_heap *shm,
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_find_free() - Search the array of large-fragments being tracked
+ * platform_shm_find_large() - Search the array of large-fragments being tracked
  * to see if there is an already allocated and now-free large memory fragment.
+ * As the array of free large-fragments is small, we do a best-fit search.
  * If so, allocate that fragment to this requester. Do the book-keeping
  * accordingly.
  * -----------------------------------------------------------------------------
  */
 static void *
-platform_shm_find_free(shmem_heap *shm,
-                       size_t      size,
-                       const char *objname,
-                       const char *func,
-                       const char *file,
-                       const int   lineno)
+platform_shm_find_large(shmem_info       *shm,
+                        size_t            size,
+                        platform_memfrag *memfrag,
+                        const char       *objname,
+                        const char       *func,
+                        const char       *file,
+                        const int         line)
 {
    debug_assert((size >= SHM_LARGE_FRAG_SIZE),
                 "Incorrect usage of this interface for requested"
@@ -995,47 +1372,59 @@ platform_shm_find_free(shmem_heap *shm,
    shm_lock_mem_frags(shm);
 
    uint32 shm_num_frags_tracked = shm->shm_num_frags_tracked;
-   uint32 shm_num_frags_inuse   = shm->shm_num_frags_inuse;
+   uint32 shm_num_frags_inuse   = shm->usage.nfrags_inuse;
 
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
-      if (!frag->shm_frag_addr || (frag->shm_frag_size < size)) {
+      if (!frag->frag_addr || (frag->frag_size < size)) {
          continue;
       }
 
       // Skip fragment if it's still in-use
-      if (frag->shm_frag_freed_by_pid == 0) {
-         platform_assert((frag->shm_frag_freed_by_tid == 0),
+      if (frag->frag_freed_by_pid == 0) {
+         platform_assert((frag->frag_freed_by_tid == 0),
                          "Invalid state found for fragment at index %d,"
                          "freed_by_pid=%d but freed_by_tid=%lu "
                          "(which should also be 0)\n",
                          fctr,
-                         frag->shm_frag_freed_by_pid,
-                         frag->shm_frag_freed_by_tid);
+                         frag->frag_freed_by_pid,
+                         frag->frag_freed_by_tid);
 
          local_in_use++;
+         continue;
+      }
+
+      // Fragment is free, but is it big enough for current request?
+      if (frag->frag_size < size) {
          continue;
       }
       found_tracked_frag = TRUE;
       found_at_fctr      = fctr;
 
       // Record the process/thread to which free fragment is being allocated
-      frag->shm_frag_allocated_to_pid = getpid();
-      frag->shm_frag_allocated_to_tid = platform_get_tid();
+      frag->frag_allocated_to_pid = getpid();
+      frag->frag_allocated_to_tid = platform_get_tid();
 
-      shm->shm_num_frags_inuse++;
-      if (shm->shm_num_frags_inuse > shm->shm_num_frags_inuse_HWM) {
-         shm->shm_num_frags_inuse_HWM = shm->shm_num_frags_inuse;
+      shm->usage.nfrags_inuse++;
+      if (shm->usage.nfrags_inuse > shm->usage.nfrags_inuse_HWM) {
+         shm->usage.nfrags_inuse_HWM = shm->usage.nfrags_inuse;
       }
-      shm_num_frags_inuse = shm->shm_num_frags_inuse;
+      shm_num_frags_inuse = shm->usage.nfrags_inuse;
 
       // Now, mark that this fragment is in-use
-      frag->shm_frag_freed_by_pid = 0;
-      frag->shm_frag_freed_by_tid = 0;
+      frag->frag_freed_by_pid = 0;
+      frag->frag_freed_by_tid = 0;
 
-      retptr = frag->shm_frag_addr;
+      frag->frag_func = func;
+      frag->frag_line = line;
+
+      retptr = frag->frag_addr;
+      if (memfrag) {
+         memfrag->addr = retptr;
+         memfrag->size = frag->frag_size;
+      }
 
       // Zero out the recycled large-memory fragment, just to be sure ...
-      memset(retptr, 0, frag->shm_frag_size);
+      memset(retptr, 0, frag->frag_size);
       break;
    }
    shm_unlock_mem_frags(shm);
@@ -1074,9 +1463,63 @@ platform_shm_find_free(shmem_heap *shm,
                   local_in_use);
       }
       platform_shm_trace_allocs(
-         shm, size, msg, retptr, objname, func, file, lineno);
+         shm, size, msg, retptr, objname, func, file, line);
    }
    return retptr;
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * platform_shm_find_frag() - Find a small free-fragment in a cached list of
+ * free fragments that we track, for specific buckets of fragment sizes.
+ * If one is found of the suitable size, detach it from the list and return
+ * start address of the free fragment. Otherwise, return NULL.
+ *
+ * NOTE: As the free-fragments are linked using free_frag_hdr{}, we return
+ * the address of the recycled free-fragment, which can be temporarily
+ * read as free_frag_hdr{} *.
+ * -----------------------------------------------------------------------------
+ */
+static void *
+platform_shm_find_frag(shmem_info *shm,
+                       size_t      size,
+                       const char *objname,
+                       const char *func,
+                       const char *file,
+                       const int   line)
+{
+   // Currently, we have only implemented tracking small free fragments of
+   // 'known' sizes that appear in our workloads.
+   if ((size < SHM_SMALL_FRAG_MIN_SIZE) || (size > SHM_SMALL_FRAG_MAX_SIZE)) {
+      return NULL;
+   }
+
+   // If we are not tracking fragments of this size, nothing further to do.
+   free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
+   if (next_frag == NULL) {
+      return NULL;
+   }
+   shm_lock_mem_frags(shm);
+
+   // Find the next free frag which is big enough
+   while (*next_frag && ((*next_frag)->free_frag_size < size)) {
+      next_frag = &(*next_frag)->free_frag_next;
+   }
+
+   // If we ran thru the list of free fragments, we are done
+   free_frag_hdr *retptr = *next_frag;
+   if (!retptr) {
+      shm_unlock_mem_frags(shm);
+      return NULL;
+   }
+   *next_frag             = retptr->free_frag_next;
+   retptr->free_frag_next = NULL;
+
+   shm->usage.used_bytes += retptr->free_frag_size;
+   shm->usage.free_bytes -= retptr->free_frag_size;
+
+   shm_unlock_mem_frags(shm);
+   return (void *)retptr;
 }
 
 /*
@@ -1094,16 +1537,16 @@ platform_trace_large_frags(shmem_heap *shm)
    int local_in_use    = 0; // Tracked while iterating in this fn, locally
    shm_frag_info *frag = shm->shm_mem_frags;
 
-   threadid thread_tid     = platform_get_tid();
-   bool     print_new_line = false;
+   const threadid tid = platform_get_tid();
+
    // Walk the tracked-fragments array looking for an in-use fragment
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
-      if (!frag->shm_frag_addr) {
+      if (!frag->frag_addr) {
          continue;
       }
 
       // Skip freed fragments.
-      if (frag->shm_frag_freed_by_pid != 0) {
+      if (frag->frag_freed_by_pid != 0) {
          continue;
       }
       // Found a large fragment that is still "in-use"
@@ -1111,32 +1554,28 @@ platform_trace_large_frags(shmem_heap *shm)
 
       // Do -NOT- assert here. As this is a diagnostic routine, report
       // the inconsistency, and continue to find more stray large fragments.
-      if (frag->shm_frag_freed_by_tid != 0) {
+      if (frag->frag_freed_by_tid != 0) {
          platform_error_log("Invalid state found for fragment at index %d,"
                             "freed_by_pid=%d but freed_by_tid=%lu "
                             "(which should also be 0)\n",
                             fctr,
-                            frag->shm_frag_freed_by_pid,
-                            frag->shm_frag_freed_by_tid);
+                            frag->frag_freed_by_pid,
+                            frag->frag_freed_by_tid);
       }
 
-      if (!print_new_line) {
-         platform_error_log("\n**** [TID=%lu] Large fragment usage "
-                            "diagnostics:\n",
-                            thread_tid);
-         print_new_line = true;
-      }
-
-      platform_error_log("  **** [TID=%lu] Fragment at slot=%d, addr=%p"
-                         ", size=%lu (%s) is in-use, allocated_to_pid=%d"
-                         ", allocated_to_tid=%lu\n",
-                         thread_tid,
+      platform_error_log("  **** [TID=%lu] Large Fragment at slot=%d"
+                         ", addr=%p, size=%lu (%s)."
+                         " Allocated at func=%s, line=%d, is in-use"
+                         ", allocated_to_pid=%d, allocated_to_tid=%lu\n",
+                         tid,
                          fctr,
-                         frag->shm_frag_addr,
-                         frag->shm_frag_size,
-                         size_str(frag->shm_frag_size),
-                         frag->shm_frag_allocated_to_pid,
-                         frag->shm_frag_allocated_to_tid);
+                         frag->frag_addr,
+                         frag->frag_size,
+                         size_str(frag->frag_size),
+                         frag->frag_func,
+                         frag->frag_line,
+                         frag->frag_allocated_to_pid,
+                         frag->frag_allocated_to_tid);
    }
    return local_in_use;
 }
@@ -1316,6 +1755,30 @@ platform_shm_next_free_addr(platform_heap_id heap_id)
    return (platform_heap_id_to_shmaddr(heap_id)->shm_next);
 }
 
+bool
+platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id)
+{
+   return (
+      (((uint64)platform_shm_next_free_addr(heap_id)) % PLATFORM_CACHELINE_SIZE)
+      == 0);
+}
+
+/*
+ * Test helper-method: Find out if a memory fragment is found in any
+ * free-lists?
+ *
+ * Returns - If found, the 'size' that free-list tracks. 0, otherwise.
+ */
+size_t
+platform_shm_find_freed_frag(platform_heap_id heap_id,
+                             const void      *addr,
+                             size_t          *freed_frag_size)
+{
+   shmem_info *shm = platform_heap_id_to_shminfo(heap_id);
+   return platform_shm_find_frag_in_freed_lists(shm, addr, freed_frag_size);
+}
+
+
 static void
 platform_shm_trace_allocs(shmem_heap  *shm,
                           const size_t size,
@@ -1324,7 +1787,7 @@ platform_shm_trace_allocs(shmem_heap  *shm,
                           const char  *objname,
                           const char  *func,
                           const char  *file,
-                          const int    lineno)
+                          const int    line)
 {
    platform_default_log("  [OS-pid=%d,ThreadID=%lu, %s:%d::%s()] "
                         "-> %s: %s size=%lu bytes (%s)"
@@ -1333,7 +1796,7 @@ platform_shm_trace_allocs(shmem_heap  *shm,
                         getpid(),
                         platform_get_tid(),
                         file,
-                        lineno,
+                        line,
                         func,
                         __func__,
                         verb,

@@ -38,6 +38,7 @@ typedef struct {
    uint32          max_async_inflight;
    pcq            *ready_q;
    pcq            *avail_q;
+   size_t          size; // of memory allocated for this struct
    test_async_ctxt ctxt[];
 } test_async_lookup;
 

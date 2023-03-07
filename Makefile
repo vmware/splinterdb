@@ -55,7 +55,7 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 # Construct a list of fast unit-tests that will be linked into unit_test binary,
 # eliminating a sequence of slow-running unit-test programs.
 ALL_UNIT_TESTSRC := $(call rwildcard, $(UNIT_TESTSDIR), *.c)
-SLOW_UNIT_TESTSRC = splinter_test.c config_parse_test.c large_inserts_bugs_stress_test.c splinterdb_forked_child_test.c
+SLOW_UNIT_TESTSRC = splinter_test.c config_parse_test.c large_inserts_stress_test.c splinterdb_forked_child_test.c
 SLOW_UNIT_TESTSRC_FILTER := $(foreach slowf,$(SLOW_UNIT_TESTSRC), $(UNIT_TESTSDIR)/$(slowf))
 FAST_UNIT_TESTSRC := $(sort $(filter-out $(SLOW_UNIT_TESTSRC_FILTER), $(ALL_UNIT_TESTSRC)))
 
@@ -476,6 +476,10 @@ $(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS)            \
                                           $(COMMON_UNIT_TESTOBJ) \
                                           $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/splinter_shmem_oom_test: $(UTIL_SYS)            \
+                                              $(COMMON_UNIT_TESTOBJ) \
+                                              $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(UNITDIR)/splinter_ipc_test: $(UTIL_SYS)            \
                                         $(COMMON_UNIT_TESTOBJ)
 
@@ -494,8 +498,6 @@ $(BINDIR)/$(UNITDIR)/splinterdb_heap_id_mgmt_test: $(COMMON_TESTOBJ)         \
                                                    $(COMMON_UNIT_TESTOBJ)    \
                                                    $(OBJDIR)/$(FUNCTIONAL_TESTSDIR)/test_async.o \
                                                    $(LIBDIR)/libsplinterdb.so
-
-
 
 ########################################
 # Convenience mini unit-test targets

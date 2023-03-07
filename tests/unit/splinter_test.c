@@ -102,6 +102,10 @@ CTEST_DATA(splinter)
    task_system           *tasks;
    test_message_generator gen;
 
+   size_t splinter_cfg_size;
+   size_t cache_cfg_size;
+   size_t clock_cache_size;
+
    // Test execution related configuration
    test_exec_config test_exec_cfg;
 };
@@ -137,10 +141,15 @@ CTEST_SETUP(splinter)
    platform_assert_status_ok(rc);
 
    // Allocate memory for global config structures
-   data->splinter_cfg = TYPED_ARRAY_MALLOC(data->hid, data->splinter_cfg,
-                                          num_tables);
+   platform_memfrag memfrag_splinter_cfg;
+   data->splinter_cfg = TYPED_ARRAY_MALLOC_MF(data->hid, data->splinter_cfg,
+                                              num_tables, &memfrag_splinter_cfg);
+   data->splinter_cfg_size = memfrag_size(&memfrag_splinter_cfg);
 
-   data->cache_cfg = TYPED_ARRAY_MALLOC(data->hid, data->cache_cfg, num_tables);
+   platform_memfrag memfrag_cache_cfg;
+   data->cache_cfg = TYPED_ARRAY_MALLOC_MF(data->hid, data->cache_cfg,
+                                           num_tables, &memfrag_cache_cfg);
+   data->cache_cfg_size = memfrag_size(&memfrag_cache_cfg);
 
    ZERO_STRUCT(data->test_exec_cfg);
 
@@ -191,8 +200,10 @@ CTEST_SETUP(splinter)
    rc_allocator_init(&data->al, &data->al_cfg, (io_handle *)data->io, data->hid,
                      platform_get_module_id());
 
-   data->clock_cache = TYPED_ARRAY_MALLOC(data->hid, data->clock_cache, num_caches);
+   platform_memfrag memfrag_clock_cache;
+   data->clock_cache = TYPED_ARRAY_MALLOC_MF(data->hid, data->clock_cache, num_caches, &memfrag_clock_cache);
    ASSERT_TRUE((data->clock_cache != NULL));
+   data->clock_cache_size = memfrag_size(&memfrag_clock_cache);
 
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&data->clock_cache[idx],

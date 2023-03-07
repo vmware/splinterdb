@@ -223,15 +223,19 @@ io_handle_init(laio_handle *io, io_config *cfg, platform_heap_id hid)
     * structures. Each request struct nests within it async_max_pages
     * pages on which IO can be outstanding.
     */
+   platform_memfrag memfrag_io_req;
    req_size =
       sizeof(io_async_req) + cfg->async_max_pages * sizeof(struct iovec);
    total_req_size = req_size * cfg->async_queue_size;
-   io->req        = TYPED_MANUAL_ZALLOC(io->heap_id, io->req, total_req_size);
+   io->req        = TYPED_MANUAL_ZALLOC(
+      io->heap_id, io->req, total_req_size, &memfrag_io_req);
    platform_assert((io->req != NULL),
                    "Failed to allocate memory for array of %lu Async IO"
                    " request structures, for %ld outstanding IOs on pages.",
                    cfg->async_queue_size,
                    cfg->async_max_pages);
+
+   io->req_size = memfrag_size(&memfrag_io_req);
 
    // Initialize each Async IO request structure
    for (int i = 0; i < cfg->async_queue_size; i++) {
@@ -271,7 +275,11 @@ io_handle_deinit(laio_handle *io)
    }
    platform_assert(status == 0);
 
-   platform_free(io->heap_id, io->req);
+   platform_memfrag  memfrag = {.addr = io->req, .size = io->req_size};
+   platform_memfrag *mf      = &memfrag;
+   platform_free(io->heap_id, mf);
+   io->req      = NULL;
+   io->req_size = 0;
 }
 
 /*

@@ -374,11 +374,21 @@ shard_log_iterator_init(cache              *cc,
       extent_addr = next_extent_addr;
    }
 
-finished_first_pass:
+   size_t num_contents = 0;
 
-   itor->contents = TYPED_ARRAY_MALLOC(
-      hid, itor->contents, num_valid_pages * shard_log_page_size(cfg));
-   itor->entries = TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
+finished_first_pass:
+   num_contents = (num_valid_pages * shard_log_page_size(cfg));
+
+   platform_memfrag memfrag;
+   itor->contents =
+      TYPED_ARRAY_MALLOC_MF(hid, itor->contents, num_contents, &memfrag);
+   itor->contents_size = memfrag_size(&memfrag);
+   debug_assert(itor->contents);
+
+   itor->entries =
+      TYPED_ARRAY_MALLOC_MF(hid, itor->entries, itor->num_entries, &memfrag);
+   itor->entries_size = memfrag_size(&memfrag);
+   debug_assert(itor->entries);
 
    // traverse the log extents again and copy the kv pairs
    log_entry *cursor    = (log_entry *)itor->contents;
@@ -427,8 +437,18 @@ finished_second_pass:
 void
 shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 {
-   platform_free(hid, itor->contents);
-   platform_free(hid, itor->entries);
+   platform_memfrag  memfrag;
+   platform_memfrag *mf = &memfrag;
+
+   memfrag_init_size(mf, itor->contents, itor->contents_size);
+   platform_free(hid, mf);
+   itor->contents      = NULL;
+   itor->contents_size = 0;
+
+   memfrag_init_size(mf, itor->entries, itor->num_entries);
+   platform_free(hid, mf);
+   itor->entries      = NULL;
+   itor->entries_size = 0;
 }
 
 void

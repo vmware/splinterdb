@@ -648,14 +648,18 @@ test_functionality(allocator       *al,
    platform_error_log("Functional test started with %d tables\n", num_tables);
    platform_assert(cc != NULL);
 
+   platform_memfrag *mf = NULL;
+
+   platform_memfrag memfrag_spl_tables;
    trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    platform_assert(spl_tables != NULL);
 
+   platform_memfrag            memfrag_shadows;
    test_splinter_shadow_tree **shadows =
       TYPED_ARRAY_ZALLOC(hid, shadows, num_tables);
-
    platform_assert(shadows != NULL);
 
+   platform_memfrag   memfrag_splinters;
    allocator_root_id *splinters =
       TYPED_ARRAY_ZALLOC(hid, splinters, num_tables);
 
@@ -864,8 +868,13 @@ cleanup:
    if (async_lookup) {
       async_ctxt_deinit(hid, async_lookup);
    }
-   platform_free(hid, spl_tables);
-   platform_free(hid, splinters);
-   platform_free(hid, shadows);
+   mf = &memfrag_spl_tables;
+   platform_free(hid, mf);
+
+   mf = &memfrag_splinters;
+   platform_free(hid, mf);
+
+   mf = &memfrag_shadows;
+   platform_free(hid, mf);
    return status;
 }

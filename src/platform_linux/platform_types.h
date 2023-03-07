@@ -168,7 +168,8 @@ typedef struct {
    unsigned int  num_buckets;
    const long   *bucket_limits;
    long          min, max, total;
-   unsigned long num; // no. of elements
+   unsigned long num;  // no. of elements
+   size_t        size; // of memory fragment allocated
    unsigned long count[];
 } * platform_histo_handle;
 
