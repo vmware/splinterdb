@@ -2829,6 +2829,12 @@ btree_pack_link_extent(btree_pack_req *req,
    req->num_edges[height] = 0;
 }
 
+static inline bool
+btree_pack_can_fit_tuple(btree_pack_req *req)
+{
+   return req->num_tuples <= req->max_tuples;
+}
+
 static inline btree_node *
 btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot)
 {
@@ -2892,7 +2898,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
    log_trace_key(tuple_key, "btree_pack_loop (bottom)");
 
    if (req->hash) {
-      platform_assert(req->num_tuples < req->max_tuples);
+      platform_assert(btree_pack_can_fit_tuple(req));
       req->fingerprint_arr[req->num_tuples] =
          req->hash(key_data(tuple_key), key_length(tuple_key), req->seed);
    }
@@ -2941,12 +2947,6 @@ btree_pack_post_loop(btree_pack_req *req, key last_key)
    mini_release(&req->mini, last_key);
 }
 
-static bool
-btree_pack_can_fit_tuple(btree_pack_req *req, key tuple_key, message data)
-{
-   return req->num_tuples < req->max_tuples;
-}
-
 static void
 btree_pack_abort(btree_pack_req *req)
 {
@@ -2985,8 +2985,12 @@ btree_pack(btree_pack_req *req)
 
    while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
       iterator_get_curr(req->itor, &tuple_key, &data);
-      if (!btree_pack_can_fit_tuple(req, tuple_key, data)) {
-         platform_error_log("btree_pack exceeded output size limit\n");
+      if (!btree_pack_can_fit_tuple(req)) {
+         platform_error_log("%s(): req->num_tuples=%lu exceeded output size "
+                            "limit: req->max_tuples=%lu\n",
+                            __func__,
+                            req->num_tuples,
+                            req->max_tuples);
          btree_pack_abort(req);
          return STATUS_LIMIT_EXCEEDED;
       }
