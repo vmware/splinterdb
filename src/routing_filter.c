@@ -634,14 +634,19 @@ routing_filter_prefetch(cache          *cc,
                         uint64          num_indices)
 {
    uint64 last_extent_addr = 0;
-   uint64 addrs_per_page =
-      cache_config_page_size(cfg->cache_cfg) / sizeof(uint64);
+   uint64 page_size = cache_config_page_size(cfg->cache_cfg);
+   uint64 addrs_per_page = page_size / sizeof(uint64);
    uint64 num_index_pages = (num_indices - 1) / addrs_per_page + 1;
    uint64 index_no        = 0;
 
    for (uint64 index_page_no = 0; index_page_no < num_index_pages;
         index_page_no++) {
-      uint64       index_addr = filter->addr + index_page_no;
+      if (index_page_no > 0) {
+         platform_default_log("%s(): Unexpected index_page_no=%lu\n",
+                              __func__,
+                              index_page_no);
+      }
+      uint64       index_addr = filter->addr + (page_size * index_page_no);
       page_handle *index_page =
          cache_get(cc, index_addr, TRUE, PAGE_TYPE_FILTER);
       platform_assert(index_no < num_indices);

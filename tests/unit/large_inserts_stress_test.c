@@ -3,11 +3,11 @@
 
 /*
  * -----------------------------------------------------------------------------
- * large_inserts_bugs_stress_test.c --
+ * large_inserts_stress_test.c --
  *
  * This test exercises simple very large #s of inserts which have found to
  * trigger some bugs in some code paths. This is just a miscellaneous collection
- * of test cases for different issues reported.
+ * of test cases for different issues reported / encountered over time.
  * -----------------------------------------------------------------------------
  */
 #include <string.h>
@@ -25,7 +25,7 @@
 /*
  * Global data declaration macro:
  */
-CTEST_DATA(large_inserts_bugs_stress)
+CTEST_DATA(large_inserts_stress)
 {
    splinterdb       *kvsb;
    splinterdb_config cfg;
@@ -33,9 +33,9 @@ CTEST_DATA(large_inserts_bugs_stress)
 };
 
 // Optional setup function for suite, called before every test in suite
-CTEST_SETUP(large_inserts_bugs_stress)
+CTEST_SETUP(large_inserts_stress)
 {
-   data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
+   data->cfg           = (splinterdb_config){.filename   = "splinterdb_large_inserts_stress_tests_db",
                                              .cache_size = 256 * Mega,
                                              .disk_size  = 9000 * Mega,
                                              .data_cfg   = &data->default_data_config};
@@ -47,16 +47,17 @@ CTEST_SETUP(large_inserts_bugs_stress)
 }
 
 // Optional teardown function for suite, called after every test in suite
-CTEST_TEARDOWN(large_inserts_bugs_stress)
+CTEST_TEARDOWN(large_inserts_stress)
 {
    splinterdb_close(&data->kvsb);
 }
 
 /*
  * Test case that inserts large # of KV-pairs, and goes into a code path
- * reported by issue# 458, tripping a debug assert.
+ * reported by issue# 458, tripping a debug assert. This test case also
+ * triggered the failure(s) reported by issue # 545.
  */
-CTEST2(large_inserts_bugs_stress,
+CTEST2(large_inserts_stress,
        test_issue_458_mini_destroy_unused_debug_assert)
 {
    char key_data[TEST_KEY_SIZE];
