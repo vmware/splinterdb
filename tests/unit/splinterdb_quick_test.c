@@ -112,6 +112,10 @@ CTEST_SETUP(splinterdb_quick)
    data->cfg.use_shmem =
       config_parse_use_shmem(Ctest_argc, (char **)Ctest_argv);
 
+   // Always turn ON stats-gathering so we cover common stats-related
+   // code-flows in this quick-test.
+   data->cfg.use_stats = TRUE;
+
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(TEST_MAX_VALUE_SIZE
@@ -122,7 +126,8 @@ CTEST_SETUP(splinterdb_quick)
 CTEST_TEARDOWN(splinterdb_quick)
 {
    if (data->kvsb) {
-      splinterdb_close(&data->kvsb);
+      int rc = splinterdb_close(&data->kvsb);
+      ASSERT_EQUAL(0, rc);
    }
 }
 
@@ -273,7 +278,8 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 {
    size_t too_large_value_len =
       MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE) + 1;
-   char *too_large_value_data;
+   char            *too_large_value_data;
+   platform_memfrag memfrag_too_large_value_data;
    too_large_value_data = TYPED_ARRAY_MALLOC(
       data->cfg.heap_id, too_large_value_data, too_large_value_len);
    memset(too_large_value_data, 'z', too_large_value_len);
@@ -284,7 +290,8 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
       data->kvsb, slice_create(sizeof("foo"), "foo"), too_large_value);
 
    ASSERT_EQUAL(EINVAL, rc);
-   platform_free(data->cfg.heap_id, too_large_value_data);
+   platform_memfrag *mf = &memfrag_too_large_value_data;
+   platform_free(data->cfg.heap_id, mf);
 }
 
 /*

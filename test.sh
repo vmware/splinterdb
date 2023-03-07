@@ -234,14 +234,14 @@ function nightly_functionality_stress_tests() {
 function nightly_unit_stress_tests() {
     local use_shmem=$1
 
-    local n_mills=10
+    local n_mills=20
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
 
     # ----
-    local n_threads=32
+    local n_threads=8
     local test_descr="${nrows_h} rows, ${n_threads} threads"
-    local test_name=large_inserts_bugs_stress_test
+    local test_name=large_inserts_stress_test
 
     # FIXME: This stress test is currently unstable. We run into shmem-OOMs
     # Also, we need a big machine with large # of cores to be able to run
@@ -605,6 +605,11 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/limitations_test "$use_shmem"
    "$BINDIR"/unit/task_system_test "$use_shmem"
    "$BINDIR"/unit/splinterdb_heap_id_mgmt_test "$use_shmem"
+   "$BINDIR"/unit/platform_apis_test "$use_shmem"
+
+   if [ "${use_shmem}" = "--use-shmem" ]; then
+      "$BINDIR"/unit/splinter_shmem_test
+   fi
 
    echo
    # Just exercise with some combination of background threads to ensure
@@ -674,7 +679,7 @@ function run_slower_unit_tests() {
 
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
-            "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} --num-inserts ${num_rows}
+        "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} --num-threads ${n_threads}
 
     # Test runs w/ more inserts and enable bg-threads
     n_mills=2
@@ -683,11 +688,10 @@ function run_slower_unit_tests() {
     #
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
-            "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} \
-                                                        --num-inserts ${num_rows} \
-                                                        --num-normal-bg-threads 4 \
-                                                        --num-memtable-bg-threads 3
-    set -e
+        "$BINDIR"/unit/large_inserts_stress_test ${use_shmem} \
+                                                      --num-threads ${n_threads} \
+                                                      --num-normal-bg-threads 4 \
+                                                      --num-memtable-bg-threads 3
 }
 
 # ##################################################################
@@ -723,7 +727,7 @@ function run_slower_forked_process_tests() {
     msg="Splinter large inserts test using shared memory, 1 forked child"
     local num_rows=$((2 * 1000 * 1000))
     # shellcheck disable=SC2086
-    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
+    run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_stress_test \
                                         --use-shmem \
                                         --fork-child \
                                         --num-inserts ${num_rows} \
@@ -889,6 +893,12 @@ function run_tests_with_shared_memory() {
    run_with_timing "IO APIs test using shared memory and forked child" \
                    "$BINDIR"/driver_test io_apis_test \
                    --use-shmem --fork-child
+
+   run_with_timing "Filter tests using shared memory" \
+                   "$BINDIR"/driver_test filter_test --use-shmem
+
+   run_with_timing "Filter perf tests using shared memory" \
+                   "$BINDIR"/driver_test filter_test --use-shmem --perf
 
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi

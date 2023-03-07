@@ -30,6 +30,7 @@
 #include "config.h" // Reqd for definition of master_config{}
 #include "trunk.h"  // Needed for trunk_get_scratch_size()
 #include "task.h"
+#include "shmem.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
 
@@ -91,6 +92,7 @@ CTEST_DATA(task_system)
    task_system        *tasks;
 
    uint64 active_threads_bitmask;
+   bool   use_shmem; // Test is being run with --use-shmem
 };
 
 /*
@@ -110,6 +112,7 @@ CTEST_SETUP(task_system)
    rc = platform_heap_create(
       platform_get_module_id(), heap_capacity, use_shmem, &data->hid);
    platform_assert_status_ok(rc);
+
 
    // Allocate and initialize the IO sub-system.
    data->ioh = TYPED_MALLOC(data->hid, data->ioh);
@@ -457,6 +460,102 @@ CTEST2(task_system, test_use_all_but_one_threads_for_bg_threads)
       }
    }
    set_log_streams_for_tests(MSG_LEVEL_INFO);
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * Test creation of one new thread using external Splinter interfaces and
+ * ask for a huge amount of scratch space, which is much bigger than what
+ * can be allocated from shared-memory. This will cause thread creation to
+ * fail. We want to exercise backout code in task_create_thread_with_hooks()
+ * to ensure that allocated memory is freed correctly.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(task_system, test_create_thread_with_huge_scratch_space)
+{
+   platform_thread new_thread;
+   thread_config   thread_cfg;
+
+   // Test case is only relevant when run with shared segment, as it's
+   // constructed to induce an OOM while allocating memory.
+   if (!data->use_shmem) {
+      return;
+   }
+   ZERO_STRUCT(thread_cfg);
+
+   threadid main_thread_idx = platform_get_tid();
+   ASSERT_EQUAL(main_thread_idx, 0, "main_thread_idx=%lu", main_thread_idx);
+
+   // Setup thread-specific struct, needed for validation in thread's worker fn
+   thread_cfg.tasks = data->tasks;
+
+   // Main thread is at index 0
+   thread_cfg.exp_thread_idx         = 1;
+   thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
+
+   platform_status rc = STATUS_OK;
+
+   rc = task_thread_create("test_one_thread",
+                           exec_one_thread_use_extern_apis,
+                           &thread_cfg,
+                           (1 * GiB),
+                           data->tasks,
+                           data->hid,
+                           &new_thread);
+   ASSERT_FALSE(SUCCESS(rc));
+}
+
+/*
+ * ------------------------------------------------------------------------
+ * Test creation of one new thread using external Splinter interfaces and
+ * ask for an amount of scratch space that consumes all free space. This will
+ * cause the next request for memory, while creating a thread, to fail.
+ * We want to exercise backout code in task_create_thread_with_hooks()
+ * to ensure that allocated memory is freed correctly.
+ * ------------------------------------------------------------------------
+ */
+CTEST2(task_system, test_create_thread_using_all_avail_mem_for_scratch_space)
+{
+   platform_thread new_thread;
+   thread_config   thread_cfg;
+
+   // Test case is only relevant when run with shared segment, as it's
+   // constructed to induce an OOM while allocating memory.
+   if (!data->use_shmem) {
+      return;
+   }
+   ZERO_STRUCT(thread_cfg);
+
+   threadid main_thread_idx = platform_get_tid();
+   ASSERT_EQUAL(main_thread_idx, 0, "main_thread_idx=%lu", main_thread_idx);
+
+   // Setup thread-specific struct, needed for validation in thread's worker fn
+   thread_cfg.tasks = data->tasks;
+
+   // Main thread is at index 0
+   thread_cfg.exp_thread_idx         = 1;
+   thread_cfg.active_threads_bitmask = task_active_tasks_mask(data->tasks);
+
+   platform_status rc = STATUS_OK;
+
+   // When the test is being run using shared memory, probe the shmem API to
+   // find out how much free space is available currently. Consume all but a
+   // few bytes for the scratch space. This will trigger an OOM while trying to
+   // allocate thread-related structures -after- scratch space has been
+   // allocated. Tickling this code-flow exercises backout code path where there
+   // were some bugs due to improper use of platform_free().
+
+   size_t scratch_space = (data->use_shmem ? (platform_shmfree(data->hid) - 16)
+                                           : trunk_get_scratch_size());
+
+   rc = task_thread_create("test_one_thread",
+                           exec_one_thread_use_extern_apis,
+                           &thread_cfg,
+                           scratch_space,
+                           data->tasks,
+                           data->hid,
+                           &new_thread);
+   ASSERT_FALSE(SUCCESS(rc));
 }
 
 /* Wrapper function to create Splinter Task system w/o background threads. */

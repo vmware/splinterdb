@@ -202,6 +202,7 @@ struct trunk_handle {
 
    // stats
    trunk_stats *stats;
+   size_t       stats_size; // Of allocated memory fragment.
 
    // Link inside the splinter list
    List_Links links;
@@ -218,6 +219,7 @@ struct trunk_handle {
    // space rec queue
    srq srq;
 
+   size_t size; // of memory fragment allocated to init trunk_handle{}
    trunk_compacted_memtable compacted_memtable[/*cfg.mt_cfg.max_memtables*/];
 };
 

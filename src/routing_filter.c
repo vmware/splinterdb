@@ -404,8 +404,8 @@ routing_filter_add(cache          *cc,
                               ROUTING_FPS_PER_PAGE +      // old_fp_buffer
                               ROUTING_FPS_PER_PAGE / 32;  // encoding_buffer
    debug_assert(temp_buffer_count < 100000000);
-   uint32 *temp =
-      TYPED_ARRAY_ZALLOC(PROCESS_PRIVATE_HEAP_ID, temp, temp_buffer_count);
+   uint32 *temp = TYPED_ARRAY_ZALLOC_MF(
+      PROCESS_PRIVATE_HEAP_ID, temp, temp_buffer_count, NULL);
 
    if (temp == NULL) {
       return STATUS_NO_MEMORY;
@@ -595,7 +595,15 @@ routing_filter_add(cache          *cc,
 
          // Set the index_no
          // ALEX: for now the indices must fit in a single extent
-         debug_assert(index_no / addrs_per_page < pages_per_extent);
+         platform_assert((index_no / addrs_per_page < pages_per_extent),
+                         "index_no=%u, addrs_per_page=%lu"
+                         ", (index_no / addrs_per_page)=%lu"
+                         ", pages_per_extent=%lu",
+                         index_no,
+                         addrs_per_page,
+                         (index_no / addrs_per_page),
+                         pages_per_extent);
+
          uint64  index_page_no = index_no / addrs_per_page;
          uint64  index_offset  = index_no % addrs_per_page;
          uint64 *index_cursor  = (uint64 *)(index_page[index_page_no]->data);
@@ -695,9 +703,17 @@ routing_filter_estimate_unique_fp(cache           *cc,
    }
    uint32  buffer_size = total_num_fp / 12;
    uint32  alloc_size  = buffer_size + cfg->index_size;
-   uint32 *local  = TYPED_ARRAY_ZALLOC(hid, local, alloc_size * sizeof(uint32));
-   uint32 *fp_arr = local;
-   uint32 *count  = local + buffer_size;
+   size_t  size        = (alloc_size * sizeof(uint32));
+   fp_hdr  local;
+   uint32 *fp_arr = fingerprint_init(&local, hid, size);
+   if (!fp_arr) {
+      platform_error_log("Initialization of fingerprint for %lu tuples"
+                         " failed, likely due to insufficient memory.",
+                         size);
+      return 0;
+   }
+
+   uint32 *count = fingerprint_nth(&local, buffer_size);
 
    uint32 src_fp_no             = 0;
    uint32 dst_fp_no             = 0;
@@ -808,7 +824,7 @@ routing_filter_estimate_unique_fp(cache           *cc,
       num_unique++;
    }
 
-   platform_free(hid, local);
+   fingerprint_deinit(hid, &local);
    return num_unique * 16;
 }
 

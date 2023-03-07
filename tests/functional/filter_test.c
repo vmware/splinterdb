@@ -17,6 +17,7 @@
 #include "cache.h"
 #include "clockcache.h"
 #include "util.h"
+#include "test_misc_common.h"
 
 #include "poison.h"
 
@@ -36,14 +37,27 @@ test_filter_basic(cache           *cc,
       return STATUS_BAD_PARAM;
    }
 
-   uint32 **fp_arr = TYPED_ARRAY_MALLOC(hid, fp_arr, num_values);
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_fp_arr;
+   uint32          **fp_arr = TYPED_ARRAY_MALLOC(hid, fp_arr, num_values);
+
+   // Technically, each fp_arr[i] might come from a differently sized
+   // memory fragment. So we should really track num_values fragments.
+   // The likelihood of this happening is low, so we skate a bit and
+   // only save-off one typical memory fragment representing the entire
+   // array.
+   platform_memfrag memfrag_fp_arr_i = {0};
+
    for (uint64 i = 0; i < num_values; i++) {
-      fp_arr[i] = TYPED_ARRAY_MALLOC(hid, fp_arr[i], num_fingerprints);
+      fp_arr[i] = TYPED_ARRAY_MALLOC_MF(
+         hid, fp_arr[i], num_fingerprints, &memfrag_fp_arr_i);
    }
 
-   bool32 *used_keys =
+   platform_memfrag memfrag_used_keys;
+   bool            *used_keys =
       TYPED_ARRAY_ZALLOC(hid, used_keys, (num_values + 1) * num_fingerprints);
 
+   platform_memfrag memfrag_num_input_keys;
    uint32 *num_input_keys = TYPED_ARRAY_ZALLOC(hid, num_input_keys, num_values);
 
    DECLARE_AUTO_WRITABLE_BUFFER(keywb, hid);
@@ -65,7 +79,8 @@ test_filter_basic(cache           *cc,
       }
    }
 
-   platform_free(hid, used_keys);
+   mf = &memfrag_used_keys;
+   platform_free(hid, mf);
 
    routing_filter filter[MAX_FILTERS] = {{0}};
    for (uint64 i = 0; i < num_values; i++) {
@@ -89,7 +104,8 @@ test_filter_basic(cache           *cc,
                         num_input_keys[num_values - 1],
                         num_unique);
 
-   platform_free(hid, num_input_keys);
+   mf = &memfrag_num_input_keys;
+   platform_free(hid, mf);
 
    for (uint64 i = 0; i < num_values; i++) {
       for (uint64 j = 0; j < num_fingerprints; j++) {
@@ -133,11 +149,16 @@ test_filter_basic(cache           *cc,
 
 out:
    if (fp_arr) {
+      // All fingerprints are expected to be of the same size.
+      mf             = &memfrag_fp_arr_i;
+      size_t fp_size = memfrag_size(mf);
       for (uint64 i = 0; i < num_values; i++) {
-         platform_free(hid, fp_arr[i]);
+         memfrag_init_size(mf, fp_arr[i], fp_size);
+         platform_free(hid, mf);
       }
    }
-   platform_free(hid, fp_arr);
+   mf = &memfrag_fp_arr;
+   platform_free(hid, mf);
    return rc;
 }
 
@@ -158,7 +179,8 @@ test_filter_perf(cache           *cc,
       return STATUS_BAD_PARAM;
    }
 
-   uint32 *fp_arr = TYPED_ARRAY_MALLOC(
+   platform_memfrag memfrag_fp_arr;
+   uint32          *fp_arr = TYPED_ARRAY_MALLOC(
       hid, fp_arr, num_trees * num_values * num_fingerprints);
    if (fp_arr == NULL) {
       return STATUS_NO_MEMORY;
@@ -176,8 +198,10 @@ test_filter_perf(cache           *cc,
       }
    }
 
-   uint64          start_time = platform_get_timestamp();
-   routing_filter *filter     = TYPED_ARRAY_ZALLOC(hid, filter, num_trees);
+   uint64           start_time = platform_get_timestamp();
+   platform_memfrag memfrag_filter;
+   routing_filter  *filter = TYPED_ARRAY_ZALLOC(hid, filter, num_trees);
+
    for (uint64 k = 0; k < num_trees; k++) {
       for (uint64 i = 0; i < num_values; i++) {
          routing_filter new_filter = {0};
@@ -259,10 +283,11 @@ out:
    for (uint64 i = 0; i < num_trees; i++) {
       routing_filter_zap(cc, &filter[i]);
    }
-   if (fp_arr) {
-      platform_free(hid, fp_arr);
-   }
-   platform_free(hid, filter);
+   platform_memfrag *mf = &memfrag_fp_arr;
+   platform_free(hid, mf);
+
+   mf = &memfrag_filter;
+   platform_free(hid, mf);
    return rc;
 }
 
@@ -296,22 +321,35 @@ filter_test(int argc, char *argv[])
    uint64                 seed;
    test_message_generator gen;
 
-   if (argc > 1 && strncmp(argv[1], "--perf", sizeof("--perf")) == 0) {
+   // Move past the 1st arg which will be the driving tag, 'filter_test'.
+   argc--;
+   argv++;
+
+   // If --use-shmem was provided, parse past that argument.
+   bool use_shmem = (argc >= 1) && test_using_shmem(argc, (char **)argv);
+   if (use_shmem) {
+      argc--;
+      argv++;
+   }
+
+   if (argc && strncmp(argv[0], "--perf", sizeof("--perf")) == 0) {
       run_perf_test = TRUE;
-      config_argc   = argc - 2;
-      config_argv   = argv + 2;
-   } else {
-      run_perf_test = FALSE;
       config_argc   = argc - 1;
       config_argv   = argv + 1;
+   } else {
+      run_perf_test = FALSE;
+      config_argc   = argc;
+      config_argv   = argv;
    }
 
    bool use_shmem = config_parse_use_shmem(config_argc, config_argv);
 
    // Create a heap for io, allocator, cache and splinter
    platform_heap_id hid = NULL;
+   size_t               heap_size = ((use_shmem ? 3 : 1) * GiB);
    rc =
-      platform_heap_create(platform_get_module_id(), 1 * GiB, use_shmem, &hid);
+      platform_heap_create(platform_get_module_id(), heap_size * GiB, use_shmem, &hid);
+
    platform_assert_status_ok(rc);
 
    uint64 num_memtable_bg_threads_unused = 0;

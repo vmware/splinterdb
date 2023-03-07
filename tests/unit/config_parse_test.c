@@ -75,8 +75,10 @@ CTEST2(config_parse, test_basic_parsing)
    int num_tables = 1;
 
    // Allocate memory for global config structures
+   platform_memfrag memfrag_splinter_cfg;
    splinter_cfg = TYPED_ARRAY_MALLOC(data->hid, splinter_cfg, num_tables);
 
+   platform_memfrag memfrag_cache_cfg;
    cache_cfg = TYPED_ARRAY_MALLOC(data->hid, cache_cfg, num_tables);
 
    platform_status rc;
@@ -118,6 +120,8 @@ CTEST2(config_parse, test_basic_parsing)
                "Parameter '%s' expected. ",
                "--verbose-progress");
 
-   platform_free(data->hid, cache_cfg);
-   platform_free(data->hid, splinter_cfg);
+   platform_memfrag *mf = &memfrag_cache_cfg;
+   platform_free(data->hid, mf);
+   mf = &memfrag_splinter_cfg;
+   platform_free(data->hid, mf);
 }

@@ -18,22 +18,24 @@ writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)
       minspace = 2 * wb->buffer_capacity;
    }
 
-   void *newdata = NULL;
-   if (wb->can_free) {
-      newdata = platform_realloc(
-         wb->heap_id, wb->buffer_capacity, wb->buffer, minspace);
-   } else {
-      char *newbuf = TYPED_MANUAL_MALLOC(wb->heap_id, newbuf, minspace);
-      if (newbuf && writable_buffer_data(wb)) {
-         memcpy(newbuf, wb->buffer, wb->length);
-      }
-      newdata = (void *)newbuf;
-   }
+   void *oldptr = wb->can_free ? wb->buffer : NULL;
+
+   // NOTE: realloc() may adjust-up 'minspace' for alignment
+   // ALSO: We must supply correct size of fragment being freed, which
+   //   will be the buffer capacity, but not just the oldspace in-use.
+   //   (Otherwise, free-fragment management will run into memory leaks.)
+   void *newdata =
+      platform_realloc(wb->heap_id, wb->buffer_capacity, oldptr, &minspace);
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
    }
 
-   wb->buffer_capacity = minspace;
+   if (oldptr == NULL && wb->length != WRITABLE_BUFFER_NULL_LENGTH) {
+      memcpy(newdata, wb->buffer, wb->length);
+   }
+
+   // Record allocated buffer capacities
+   wb->buffer_capacity = minspace; // May have gone up due to realloc
    wb->buffer          = newdata;
    wb->can_free        = TRUE;
    return STATUS_OK;

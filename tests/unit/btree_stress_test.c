@@ -202,9 +202,14 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    uint64 root_addr = btree_create(
       (cache *)&data->cc, &data->dbtree_cfg, &mini, PAGE_TYPE_MEMTABLE);
 
-   platform_heap_id      hid     = data->hid;
-   insert_thread_params *params  = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
-   platform_thread      *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
+   platform_memfrag *mf  = NULL;
+   platform_heap_id  hid = data->hid;
+
+   platform_memfrag      memfrag_params;
+   insert_thread_params *params = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
+
+   platform_memfrag memfrag_threads;
+   platform_thread *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
@@ -304,8 +309,11 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    for (uint64 i = 0; i < nthreads; i++) {
       platform_free(data->hid, params[i].scratch);
    }
-   platform_free(hid, params);
-   platform_free(hid, threads);
+   mf = &memfrag_params;
+   platform_free(hid, mf);
+
+   mf = &memfrag_threads;
+   platform_free(hid, mf);
 }
 
 /*
@@ -340,10 +348,13 @@ insert_tests(cache           *cc,
    uint64 generation;
    bool32 was_unique;
 
-   int    keybuf_size = btree_page_size(cfg);
-   int    msgbuf_size = btree_page_size(cfg);
-   uint8 *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
-   uint8 *msgbuf      = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
+   int              keybuf_size = btree_page_size(cfg);
+   int              msgbuf_size = btree_page_size(cfg);
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, keybuf_size);
+
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -360,8 +371,11 @@ insert_tests(cache           *cc,
          ASSERT_TRUE(FALSE, "Failed to insert 4-byte %ld\n", i);
       }
    }
-   platform_free(hid, keybuf);
-   platform_free(hid, msgbuf);
+   platform_memfrag *mf = &memfrag_keybuf;
+   platform_free(hid, mf);
+
+   mf = &memfrag_msgbuf;
+   platform_free(hid, mf);
 }
 
 static key
@@ -409,8 +423,13 @@ query_tests(cache           *cc,
             uint64           root_addr,
             int              nkvs)
 {
-   uint8 *keybuf = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
+   size_t           page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, page_size);
+
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, page_size);
+
    memset(msgbuf, 0, btree_page_size(cfg));
 
    merge_accumulator result;
@@ -432,8 +451,11 @@ query_tests(cache           *cc,
    }
 
    merge_accumulator_deinit(&result);
-   platform_free(hid, keybuf);
-   platform_free(hid, msgbuf);
+   platform_memfrag *mf = &memfrag_keybuf;
+   platform_free(hid, mf);
+
+   mf = &memfrag_msgbuf;
+   platform_free(hid, mf);
    return 1;
 }
 
@@ -444,11 +466,32 @@ iterator_test(platform_heap_id hid,
               iterator        *iter,
               bool32           forwards)
 {
-   uint64 seen    = 0;
-   uint8 *prevbuf = TYPED_MANUAL_MALLOC(hid, prevbuf, btree_page_size(cfg));
-   key    prev    = NULL_KEY;
-   uint8 *keybuf  = TYPED_MANUAL_MALLOC(hid, keybuf, btree_page_size(cfg));
-   uint8 *msgbuf  = TYPED_MANUAL_MALLOC(hid, msgbuf, btree_page_size(cfg));
+   btree_iterator dbiter;
+
+   btree_iterator_init(cc,
+                       cfg,
+                       &dbiter,
+                       root_addr,
+                       PAGE_TYPE_MEMTABLE,
+                       NEGATIVE_INFINITY_KEY,
+                       POSITIVE_INFINITY_KEY,
+                       FALSE,
+                       0);
+
+   iterator *iter = (iterator *)&dbiter;
+
+   uint64           seen = 0;
+   bool             at_end;
+   size_t           page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_prevbuf;
+   uint8           *prevbuf = TYPED_ARRAY_MALLOC(hid, prevbuf, page_size);
+
+   key              prev = NULL_KEY;
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, page_size);
+
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, page_size);
 
    while (iterator_can_curr(iter)) {
       key     curr_key;
@@ -589,6 +632,17 @@ iterator_seek_tests(cache           *cc,
    ASSERT_EQUAL(nkvs, found_up + found_down);
 
    btree_iterator_deinit(&dbiter);
+   ASSERT_EQUAL(nkvs, seen);
+
+   btree_iterator_deinit(&dbiter);
+   platform_memfrag *mf = &memfrag_prevbuf;
+   platform_free(hid, mf);
+
+   mf = &memfrag_keybuf;
+   platform_free(hid, mf);
+
+   mf = &memfrag_msgbuf;
+   platform_free(hid, mf);
 
    return 1;
 }
