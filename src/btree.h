@@ -168,6 +168,7 @@ typedef struct btree_pack_req {
    uint64 num_tuples;    // no. of tuples in the output tree
    uint64 key_bytes;     // total size of keys in tuples of the output tree
    uint64 message_bytes; // total size of msgs in tuples of the output tree
+   uint64 line;          // Caller's line #
 } btree_pack_req;
 
 struct btree_async_ctxt;

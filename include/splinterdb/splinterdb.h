@@ -60,11 +60,11 @@ typedef struct splinterdb_config {
 
    // Shared memory support
    uint64 shmem_size;
-   bool   use_shmem; // Default is FALSE.
-   bool   trace_shmem_allocs;
-   bool   trace_shmem_frees;
-   bool   trace_shmem; // Trace both allocs & frees from shared memory
-   bool   fork_child;  // Default is FALSE
+   _Bool  use_shmem; // Default is FALSE.
+   _Bool  trace_shmem_allocs;
+   _Bool  trace_shmem_frees;
+   _Bool  trace_shmem; // Trace both allocs & frees from shared memory
+   _Bool  fork_child;  // Default is FALSE
 
    uint64 page_size;
    uint64 extent_size;

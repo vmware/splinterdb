@@ -3132,6 +3132,7 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
       pack_start = platform_get_timestamp();
    }
 
+   req.line                    = __LINE__;
    platform_status pack_status = btree_pack(&req);
    platform_assert(SUCCESS(pack_status),
                    "platform_status of btree_pack: %d\n",
@@ -4824,6 +4825,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
       pack_start = platform_get_timestamp();
    }
 
+   pack_req.line               = __LINE__;
    platform_status pack_status = btree_pack(&pack_req);
    if (!SUCCESS(pack_status)) {
       platform_default_log("btree_pack failed: %s\n",
