@@ -116,7 +116,8 @@ CTEST_SETUP(splinterdb_quick)
 CTEST_TEARDOWN(splinterdb_quick)
 {
    if (data->kvsb) {
-      splinterdb_close(&data->kvsb);
+      int rc = splinterdb_close(&data->kvsb);
+      ASSERT_EQUAL(0, rc);
    }
 }
 

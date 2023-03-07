@@ -120,6 +120,7 @@ struct task_system {
    // max thread id so far.
    threadid max_tid;
    void    *thread_scratch[MAX_THREADS];
+   size_t   thread_scratch_mem_size;
    // task groups
    task_group group[NUM_TASK_TYPES];
 

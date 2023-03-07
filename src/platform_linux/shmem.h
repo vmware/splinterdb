@@ -13,18 +13,19 @@ platform_shmcreate(size_t                size,
                    platform_heap_handle *heap_handle,
                    platform_heap_id     *heap_id);
 
-void
+platform_status
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
 /*
  * void * = splinter_shm_alloc(platform_heap_id heap_id, size_t nbytes,
- *                             const char * objname)
+ *                             const char * objname,
+ *                             const char * func, const int line)
  *
  * Caller-macro to invoke lower-level allocator and to pass-down caller's
  * context fields, which are printed for diagnostics under a traceflag.
  */
-#define splinter_shm_alloc(heap_id, nbytes, objname)                           \
-   platform_shm_alloc(heap_id, nbytes, objname, func, file, lineno)
+#define splinter_shm_alloc(heap_id, nbytes, objname, func, line)               \
+   platform_shm_alloc(heap_id, nbytes, objname, func, file, line)
 
 void *
 platform_shm_alloc(platform_heap_id hid,
@@ -36,17 +37,20 @@ platform_shm_alloc(platform_heap_id hid,
 
 /*
  * void = splinter_shm_free(platform_heap_id heap_id, void *ptr,
- *                          const char * objname)
+ *                          const size_t size,
+ *                          const char * objname,
+ *                          const char * func, const int line)
  *
  * Caller-macro to invoke lower-level free method and to pass-down caller's
  * context fields, which are printed for diagnostics under a traceflag.
  */
-#define splinter_shm_free(heap_id, ptr, objname)                               \
-   platform_shm_free(heap_id, ptr, objname, func, file, lineno)
+#define splinter_shm_free(heap_id, ptr, size, objname, func, line)             \
+   platform_shm_free(heap_id, ptr, size, objname, func, file, line)
 
 void
 platform_shm_free(platform_heap_id hid,
                   void            *ptr,
+                  const size_t     size,
                   const char      *objname,
                   const char      *func,
                   const char      *file,
@@ -61,9 +65,9 @@ platform_shm_free(platform_heap_id hid,
  * the 'oldsize' of the memory chunk pointed by 'oldptr'. Realloc needs to
  * copy over contents of 'oldptr' to new memory allocated.
  */
-#define splinter_shm_realloc(heap_id, oldptr, oldsize, nbytes)                 \
+#define splinter_shm_realloc(heap_id, oldptr, oldsize, nbytes, func)           \
    platform_shm_realloc(                                                       \
-      heap_id, oldptr, oldsize, nbytes, __func__, __FILE__, __LINE__)
+      heap_id, oldptr, oldsize, nbytes, func, __FILE__, __LINE__)
 
 void *
 platform_shm_realloc(platform_heap_id hid,

@@ -1827,6 +1827,8 @@ clockcache_init(clockcache        *cc,   // OUT
    if (!cc->lookup) {
       goto alloc_error;
    }
+   cc->lookup_size = (allocator_page_capacity * sizeof(*cc->lookup));
+
    for (i = 0; i < allocator_page_capacity; i++) {
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
@@ -1836,6 +1838,7 @@ clockcache_init(clockcache        *cc,   // OUT
    if (!cc->entry) {
       goto alloc_error;
    }
+   cc->entry_size = (cc->cfg->page_capacity * sizeof(*cc->entry));
 
    platform_status rc = STATUS_NO_MEMORY;
 
@@ -1910,11 +1913,19 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #endif
    }
 
+   platform_memfrag  memfrag;
+   platform_memfrag *mf = &memfrag;
    if (cc->lookup) {
-      platform_free(cc->heap_id, cc->lookup);
+      mf->addr = cc->lookup;
+      mf->size = cc->lookup_size;
+      platform_free(cc->heap_id, mf);
+      cc->lookup = NULL;
    }
    if (cc->entry) {
-      platform_free(cc->heap_id, cc->entry);
+      mf->addr = cc->entry;
+      mf->size = cc->entry_size;
+      platform_free(cc->heap_id, mf);
+      cc->entry = NULL;
    }
 
    debug_only platform_status rc = STATUS_TEST_FAILED;
@@ -1933,11 +1944,15 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       cc->refcount = NULL;
    }
 
+   size_t size;
    if (cc->pincount) {
-      platform_free_volatile(cc->heap_id, cc->pincount);
+      size = (cc->cfg->page_capacity * sizeof(*cc->pincount));
+      platform_free_volatile(cc->heap_id, cc->pincount, size);
    }
    if (cc->batch_busy) {
-      platform_free_volatile(cc->heap_id, cc->batch_busy);
+      size = ((cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH)
+              * sizeof(*cc->batch_busy));
+      platform_free_volatile(cc->heap_id, cc->batch_busy, size);
    }
 }
 

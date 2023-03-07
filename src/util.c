@@ -21,7 +21,7 @@ writable_buffer_ensure_space(writable_buffer *wb,
    }
 
    void *oldptr  = wb->can_free ? wb->buffer : NULL;
-   void *newdata = platform_realloc(wb->heap_id, oldspace, oldptr, minspace);
+   void *newdata = platform_realloc(wb->heap_id, oldspace, oldptr, &minspace);
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
    }

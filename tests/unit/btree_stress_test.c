@@ -175,7 +175,9 @@ CTEST_TEARDOWN(btree_stress)
    clockcache_deinit(&data->cc);
    rc_allocator_deinit(&data->al);
    task_system_destroy(data->hid, &data->ts);
-   platform_heap_destroy(&data->hh);
+   io_handle_deinit(&data->io);
+   platform_status rc = platform_heap_destroy(&data->hh);
+   ASSERT_TRUE(SUCCESS(rc));
 }
 
 /*

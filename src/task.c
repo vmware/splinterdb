@@ -379,6 +379,7 @@ task_register_thread(task_system *ts,
          return STATUS_NO_MEMORY;
       }
       ts->thread_scratch[thread_tid] = scratch;
+      ts->thread_scratch_mem_size    = scratch_size;
    }
 
    platform_set_tid(thread_tid);
@@ -412,7 +413,10 @@ task_deregister_thread(task_system *ts,
 
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
-      platform_free(ts->heap_id, scratch);
+      platform_memfrag  memfrag = {.addr = scratch,
+                                   .size = ts->thread_scratch_mem_size};
+      platform_memfrag *mf      = &memfrag;
+      platform_free(ts->heap_id, mf);
       ts->thread_scratch[tid] = NULL;
    }
 

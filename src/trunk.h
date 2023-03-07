@@ -202,6 +202,7 @@ struct trunk_handle {
 
    // stats
    trunk_stats *stats;
+   size_t       stats_size; // Of allocated memory fragment.
 
    // Link inside the splinter list
    List_Links links;

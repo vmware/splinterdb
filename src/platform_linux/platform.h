@@ -670,7 +670,7 @@ platform_heap_create(platform_module_id    module_id,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id);
 
-void
+platform_status
 platform_heap_destroy(platform_heap_handle *heap_handle);
 
 platform_status
@@ -747,24 +747,119 @@ platform_enable_tracing_shm_frees();
  * Non-platform-specific inline implementations
  */
 
+/*
+ * Structure to encapsulate a {memory-addr, memory-size} pair. Used to track
+ * allocation and, more importantly, free of memory fragments for opaque
+ * "objects". Used typically to manage memory for arrays of things.
+ * The 'addr' field is intentionally -not- the 1st field, to reduce lazy
+ * programming which might try to bypass provided interfaces.
+ */
+typedef struct platform_memfrag {
+   size_t size;
+   void  *addr;
+} platform_memfrag;
 
 /*
- * Similar to the TYPED_MALLOC functions, for all the free functions we need to
- * call platform_get_heap_id() from a macro instead of an inline function
- * (which may or may not end up inlined)
- * Wrap free and free_volatile:
+ * Utility macro to test if an argument to platform_free() is a
+ * platform_memfrag{}.
  */
-#define platform_free(id, p)                                                   \
+#define IS_MEM_FRAG(x)                                                         \
+   __builtin_choose_expr(                                                      \
+      __builtin_types_compatible_p(typeof((platform_memfrag *)0), typeof(x)),  \
+      1,                                                                       \
+      0)
+
+/* Helper methods to do some common operations */
+#define memfrag_start(mf) ((mf)->addr)
+#define memfrag_size(mf)  ((mf)->size)
+
+static inline bool
+memfrag_is_empty(const platform_memfrag *mf)
+{
+   return ((mf->addr == NULL) && (mf->size == 0));
+}
+
+static inline void
+memfrag_set_empty(platform_memfrag *mf)
+{
+   debug_assert(!memfrag_is_empty(mf));
+   mf->addr = NULL;
+   mf->size = 0;
+}
+
+/* Move the memory fragment ownership from src to dst memory fragment */
+static inline void
+memfrag_move(platform_memfrag *dst, platform_memfrag *src)
+{
+   platform_assert(memfrag_is_empty(dst));
+   platform_assert(!memfrag_is_empty(src));
+
+   dst->addr = src->addr;
+   dst->size = src->size;
+   src->addr = NULL;
+   src->size = 0;
+}
+
+/*
+ * void = platform_free(platform_heap_id hid, void *p);
+ *
+ * Similar to the TYPED_MALLOC functions, for all the free functions we need
+ * to call platform_get_heap_id() from a macro instead of an inline function
+ * (which may or may not end up inlined). Wrap free and free_volatile.
+ *
+ * This simple macro does a few interesting things:
+ *
+ * - This macro calls underlying platform_free_mem() to supply the 'size' of
+ *    the memory fragment being freed. This is needed to support recycling of
+ *    freed fragments when shared memory is used.
+ *
+ * - Most callers will be free'ing memory allocated pointing to a structure.
+ *   This interface also provides a way to free opaque fragments described
+ *   simply by a start-address and size of the fragment. Such usages occur,
+ *   say, for memory fragments allocated for an array of n-structs.
+ *
+ * - To catch code errors where we may attempt to free the same memory fragment
+ *   twice, it's a hard assertion if input ptr 'p' is NULL (likely already
+ *   freed).
+ */
+#define platform_free(hid, p)                                                  \
+   do {                                                                        \
+      platform_assert(((p) != NULL),                                           \
+                      "Attempt to free a NULL ptr from '%s', line=%d",         \
+                      __func__,                                                \
+                      __LINE__);                                               \
+      if (IS_MEM_FRAG(p)) {                                                    \
+         platform_free_mem((hid),                                              \
+                           ((platform_memfrag *)p)->addr,                      \
+                           ((platform_memfrag *)p)->size);                     \
+         ((platform_memfrag *)p)->addr = NULL;                                 \
+         ((platform_memfrag *)p)->size = 0;                                    \
+      } else {                                                                 \
+         /* Expect that 'p' is pointing to a struct. So get its size. */       \
+         platform_free_mem((hid), (p), sizeof(*p));                            \
+         (p) = NULL;                                                           \
+      }                                                                        \
+   } while (0)
+
+/*
+ * void = platform_free_mem(platform_heap_id hid,
+ *                          void *p, size_t size);
+ *
+ * Free a memory chunk at address 'p' of size 'size' bytes. This exists to
+ * facilitate re-cycling of free'd fragments in a shared-memory usage. That
+ * machinery works off of the fragment's 'size', hence we need to provide that.
+ */
+#define platform_free_mem(hid, p, size)                                        \
    do {                                                                        \
       platform_free_from_heap(                                                 \
-         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
+         hid, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);        \
       (p) = NULL;                                                              \
    } while (0)
 
-#define platform_free_volatile(id, p)                                          \
+#define platform_free_volatile(hid, p, size)                                   \
    do {                                                                        \
       platform_free_volatile_from_heap(                                        \
-         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
+         hid, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);        \
       (p) = NULL;                                                              \
    } while (0)
 
@@ -772,13 +867,15 @@ platform_enable_tracing_shm_frees();
 static inline void
 platform_free_volatile_from_heap(platform_heap_id heap_id,
                                  volatile void   *ptr,
+                                 const size_t     size,
                                  const char      *objname,
                                  const char      *func,
                                  const char      *file,
                                  int              lineno)
 {
    // Ok to discard volatile qualifier for free
-   platform_free_from_heap(heap_id, (void *)ptr, objname, func, file, lineno);
+   platform_free_from_heap(
+      heap_id, (void *)ptr, size, objname, func, file, lineno);
 }
 
 static inline void *

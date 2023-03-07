@@ -41,7 +41,8 @@ CTEST_SETUP(writable_buffer)
 // Optional teardown function for suite, called after every test in suite
 CTEST_TEARDOWN(writable_buffer)
 {
-   platform_heap_destroy(&data->hh);
+   platform_status rc = platform_heap_destroy(&data->hh);
+   ASSERT_TRUE(SUCCESS(rc));
 }
 
 /*

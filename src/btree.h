@@ -151,9 +151,9 @@ typedef struct btree_pack_req {
    btree_config *cfg;
    iterator     *itor; // the itor which is being packed
    uint64        max_tuples;
-   hash_fn       hash; // hash function used for calculating filter_hash
-   unsigned int  seed; // seed used for calculating filter_hash
-   uint32       *fingerprint_arr; // IN/OUT: hashes of the keys in the tree
+   hash_fn       hash;        // hash function used for calculating filter_hash
+   unsigned int  seed;        // seed used for calculating filter_hash
+   fp_hdr        fingerprint; // IN/OUT: hashes of the keys in the tree
 
    // internal data
    uint16            height;
@@ -168,6 +168,7 @@ typedef struct btree_pack_req {
    uint64 num_tuples;    // no. of tuples in the output tree
    uint64 key_bytes;     // total size of keys in tuples of the output tree
    uint64 message_bytes; // total size of msgs in tuples of the output tree
+   uint64 line;          // Caller's line #
 } btree_pack_req;
 
 struct btree_async_ctxt;
@@ -323,6 +324,10 @@ btree_iterator_init(cache          *cc,
 void
 btree_iterator_deinit(btree_iterator *itor);
 
+/*
+ * Initialize BTree Pack request structure. May allocate memory for fingerprint
+ * array.
+ */
 static inline platform_status
 btree_pack_req_init(btree_pack_req  *req,
                     cache           *cc,
@@ -341,26 +346,27 @@ btree_pack_req_init(btree_pack_req  *req,
    req->hash       = hash;
    req->seed       = seed;
    if (hash != NULL && max_tuples > 0) {
-      req->fingerprint_arr =
-         TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
+
+      fingerprint_init(&req->fingerprint, hid, max_tuples); // Allocates memory
 
       // When we run with shared-memory configured, we expect that it is sized
       // big-enough to not get OOMs from here. Hence, only a debug_assert().
-      debug_assert(req->fingerprint_arr,
+      debug_assert(!fingerprint_is_empty(&req->fingerprint),
                    "Unable to allocate memory for %lu tuples",
                    max_tuples);
-      if (!req->fingerprint_arr) {
+      if (fingerprint_is_empty(&req->fingerprint)) {
          return STATUS_NO_MEMORY;
       }
    }
    return STATUS_OK;
 }
 
+// Free memory if any was allocated for fingerprint array.
 static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
-   if (req->fingerprint_arr) {
-      platform_free(hid, req->fingerprint_arr);
+   if (!fingerprint_is_empty(&req->fingerprint)) {
+      fingerprint_deinit(hid, &req->fingerprint);
    }
 }
 
