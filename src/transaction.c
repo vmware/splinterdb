@@ -49,18 +49,19 @@ rw_entry_decrease_refcount(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 #   else
    ValueType value_ht = {0};
    if (iceberg_get_and_remove(
-          txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid())) {
+          txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
+   {
       if (slice_data(entry->key) != key_ht) {
          platform_free_from_heap(0, key_ht);
       } else {
          entry->need_to_keep_key = FALSE;
       }
-      
-#   if EXPERIMENTAL_MODE_SKETCH
+
+#      if EXPERIMENTAL_MODE_SKETCH
       timestamp_set *ts = (timestamp_set *)&value_ht;
       count_min_sketch_max_insert(
          txn_kvsb->sket, entry->key, timestamp_set_get_rts(ts));
-#   endif
+#      endif
    }
 #   endif
 }
@@ -89,15 +90,14 @@ update_global_timestamps(transactional_splinterdb *txn_kvsb,
 #endif
 }
 
-static bool
+static void
 get_global_timestamps(transactional_splinterdb *txn_kvsb,
                       rw_entry                 *entry,
                       txn_timestamp            *wts,
                       txn_timestamp            *rts)
 {
 #if EXPERIMENTAL_MODE_TICTOC_DISK
-   const splinterdb *kvsb  = txn_kvsb->kvsb;
-   bool              found = FALSE;
+   const splinterdb *kvsb = txn_kvsb->kvsb;
 
    splinterdb_lookup_result result;
    splinterdb_lookup_result_init(kvsb, &result, 0, NULL);
@@ -116,19 +116,17 @@ get_global_timestamps(transactional_splinterdb *txn_kvsb,
       if (rts) {
          *rts = ts_set.rts;
       }
-      found = TRUE;
    }
    splinterdb_lookup_result_deinit(&result);
 
-   return found;
 #else
    KeyType    key_ht   = (KeyType)slice_data(entry->key);
    ValueType *value_ht = NULL;
 
+#   if EXPERIMENTAL_MODE_SKETCH
    if (!rw_entry_increase_refcount(txn_kvsb, entry)) {
       if (iceberg_get_value(
-            txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()))
-      {
+             txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid())) {
          timestamp_set *ts_set = (timestamp_set *)value_ht;
          if (wts) {
             *wts = ts_set->wts;
@@ -136,20 +134,32 @@ get_global_timestamps(transactional_splinterdb *txn_kvsb,
          if (rts) {
             *rts = timestamp_set_get_rts(ts_set);
          }
-         // platform_error_log("Key %s get rts from cache: %lu\n", key_ht, *rts);
-         return TRUE;
+         // platform_error_log("Key %s get rts from cache: %lu\n", key_ht,
+         // *rts);
       }
    }
 
-#   if EXPERIMENTAL_MODE_SKETCH
    if (rts) {
       *rts = count_min_sketch_query(txn_kvsb->sket, entry->key);
       // platform_error_log("Key %s get rts from sketch: %lu\n", key_ht, *rts);
       update_global_timestamps(txn_kvsb, entry, 0, *rts);
    }
+
+#   else
+   rw_entry_increase_refcount(txn_kvsb, entry);
+   platform_assert(iceberg_get_value(
+      txn_kvsb->tscache, key_ht, &value_ht, platform_get_tid()));
+   timestamp_set *ts_set = (timestamp_set *)value_ht;
+   if (wts) {
+      *wts = ts_set->wts;
+   }
+   if (rts) {
+      *rts = timestamp_set_get_rts(ts_set);
+   }
+   // platform_error_log("Key %s get rts from cache: %lu\n", key_ht, *rts);
+
 #   endif
 
-   return FALSE;
 #endif
 }
 
@@ -613,15 +623,15 @@ RETRY_LOCK_WRITE_SET:
    //                    (is_abort ? "abort" : "commit"),
    //                    commit_ts);
    // for (uint64 i = 0; i < txn->num_rw_entries; ++i) {
-      // char         *key = (char *)slice_data(txn->rw_entries[i]->key);
-      // txn_timestamp rts = 0;
-      // txn_timestamp wts = 0;
-      // get_global_timestamps(txn_kvsb, txn->rw_entries[i], &rts, &wts);
-      // platform_error_log("[%lu] key %s rts %lu wts %lu\n",
-      //                    ((unsigned long)txn) % 100,
-      //                    key,
-      //                    rts,
-      //                    wts);
+   // char         *key = (char *)slice_data(txn->rw_entries[i]->key);
+   // txn_timestamp rts = 0;
+   // txn_timestamp wts = 0;
+   // get_global_timestamps(txn_kvsb, txn->rw_entries[i], &rts, &wts);
+   // platform_error_log("[%lu] key %s rts %lu wts %lu\n",
+   //                    ((unsigned long)txn) % 100,
+   //                    key,
+   //                    rts,
+   //                    wts);
    // }
 
    transaction_deinit(txn_kvsb, txn);
