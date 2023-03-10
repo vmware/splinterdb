@@ -1,4 +1,5 @@
 #include "lock_table.h"
+#include "experimental_mode.h"
 
 #if !EXPERIMENTAL_MODE_ATOMIC_WORD
 

@@ -47,8 +47,7 @@ rw_entry_create()
 static inline void
 rw_entry_deinit(rw_entry *entry)
 {
-   bool can_key_free = !slice_is_null(entry->key) && !entry->need_to_keep_key;
-   if (can_key_free) {
+   if (!slice_is_null(entry->key)) {
       platform_free_from_heap(0, (void *)slice_data(entry->key));
    }
 
