@@ -38,9 +38,6 @@ rw_entry_create()
    rw_entry *new_entry;
    new_entry = TYPED_ZALLOC(0, new_entry);
    platform_assert(new_entry != NULL);
-#if !EXPERIMENTAL_MODE_ATOMIC_WORD
-   new_entry->owner = platform_get_tid();
-#endif
    return new_entry;
 }
 
@@ -238,7 +235,6 @@ transactional_splinterdb_begin(transactional_splinterdb *txn_kvsb,
 {
    platform_assert(txn);
    memset(txn, 0, sizeof(*txn));
-   // platform_error_log("[%lu] begin\n", ((unsigned long)txn) % 100);
 
    return 0;
 }
@@ -275,12 +271,6 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
       }
    }
 
-   /* if (is_serializable(txn_kvsb->tcfg) || is_repeatable_read(txn_kvsb->tcfg))
-    * { */
-   /*    txn->commit_rts = txn->commit_wts = MAX(txn->commit_rts,
-    * txn->commit_wts); */
-   /* } */
-
    platform_sort_slow(write_set,
                       num_writes,
                       sizeof(rw_entry *),
@@ -290,7 +280,6 @@ transactional_splinterdb_commit(transactional_splinterdb *txn_kvsb,
 
 RETRY_LOCK_WRITE_SET:
 {
-
    for (int lock_num = 0; lock_num < num_writes; ++lock_num) {
       lock_table_rc lock_rc = lock_table_try_acquire_entry_lock(
          txn_kvsb->lock_tbl, write_set[lock_num]);
@@ -314,30 +303,14 @@ RETRY_LOCK_WRITE_SET:
       commit_ts = MAX(commit_ts, rts + 1);
    }
 
-   /* uint64 commit_ts = */
-   /*    is_snapshot_isolation(txn_kvsb->tcfg) ? txn->commit_rts :
-    * txn->commit_wts; */
-
    bool is_abort = FALSE;
    for (uint64 i = 0; i < num_reads; ++i) {
       rw_entry *r = read_set[i];
       platform_assert(rw_entry_is_read(r));
 
-      // platform_error_log("[%lu] key %s r->rts %lu commit_ts %lu\n",
-      //                    ((unsigned long)txn) % 100,
-      //                    (char *)slice_data(r->key),
-      //                    r->rts,
-      //                    commit_ts);
-
       if (r->rts < commit_ts) {
          lock_table_rc lock_rc =
             lock_table_try_acquire_entry_lock(txn_kvsb->lock_tbl, r);
-
-         // platform_error_log("[%lu] key %s wts %lu r->wts %lu\n",
-         //                    ((unsigned long)txn) % 100,
-         //                    (char *)slice_data(r->key),
-         //                    wts,
-         //                    r->wts);
 
          txn_timestamp rts = 0;
          txn_timestamp wts = 0;
@@ -489,10 +462,6 @@ transactional_splinterdb_update(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 slice                     delta)
 {
-   // platform_error_log("[%lu] update %s\n",
-   //                    ((unsigned long)txn) % 100,
-   //                    (char *)slice_data(user_key));
-
    return local_write(
       txn_kvsb, txn, user_key, message_create(MESSAGE_TYPE_UPDATE, delta));
 }
@@ -503,17 +472,19 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 slice                     user_key,
                                 splinterdb_lookup_result *result)
 {
-   // platform_error_log("[%lu] lookup %s\n",
-   //                    ((unsigned long)txn) % 100,
-   //                    (char *)slice_data(user_key));
-
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, TRUE);
 
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
 
-   if (!message_is_null(entry->msg)) {
+   if (rw_entry_is_write(entry)) {
       get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
+
+      // read my write
+      // TODO This works for simple insert/update. However, it doesn't work
+      // for upsert.
+      // TODO if it succeeded, this read should not be considered for
+      // validation. entry->is_read should be false.
 
       tuple_header *tuple = (tuple_header *)message_data(entry->msg);
       const size_t  value_len =
@@ -522,20 +493,33 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       memcpy(merge_accumulator_data(&_result->value),
              tuple->value,
              merge_accumulator_length(&_result->value));
+
       return 0;
    }
 
-   int rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
+   int           rc = 0;
+   timestamp_set v1, v2;
+
+   do {
+      get_global_timestamps(txn_kvsb, entry, &v1.wts, &v1.rts);
+      rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
+      get_global_timestamps(txn_kvsb, entry, &v2.wts, &v2.rts);
+   } while (memcmp(&v1, &v2, sizeof(v1)) != 0
+            || lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, entry)
+                  == LOCK_TABLE_RC_BUSY);
+
+   entry->wts = v1.wts;
+   entry->rts = v1.rts;
+
    if (splinterdb_lookup_found(result)) {
       tuple_header *tuple =
          (tuple_header *)merge_accumulator_data(&_result->value);
-      entry->wts = tuple->ts.wts;
-      entry->rts = tuple->ts.rts;
       const size_t value_len =
          merge_accumulator_length(&_result->value) - sizeof(tuple_header);
       memmove(merge_accumulator_data(&_result->value), tuple->value, value_len);
       merge_accumulator_resize(&_result->value, value_len);
    }
+
    return rc;
 }
 

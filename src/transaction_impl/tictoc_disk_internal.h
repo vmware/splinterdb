@@ -22,10 +22,10 @@ typedef struct transactional_splinterdb {
    lock_table                      *lock_tbl;
 } transactional_splinterdb;
 
-typedef struct PACKED timestamp_set {
+typedef struct ONDISK timestamp_set {
    txn_timestamp wts;
    txn_timestamp rts;
-} timestamp_set;
+} timestamp_set __attribute__((aligned(64)));
 
 // read_set and write_set entry stored locally
 typedef struct rw_entry {
@@ -33,12 +33,11 @@ typedef struct rw_entry {
    message       msg; // value + op
    txn_timestamp wts;
    txn_timestamp rts;
-   threadid      owner;
    char          is_read;
    char          is_locked;
 } rw_entry;
 
-typedef struct PACKED tuple_header {
+typedef struct ONDISK tuple_header {
    timestamp_set ts;
    char          value[];
 } tuple_header;
