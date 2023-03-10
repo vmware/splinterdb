@@ -440,20 +440,7 @@ local_write(transactional_splinterdb *txn_kvsb,
    if (message_class(msg) == MESSAGE_TYPE_UPDATE
        || message_class(msg) == MESSAGE_TYPE_DELETE)
    {
-#if EXPERIMENTAL_MODE_ATOMIC_WORD
-      rw_entry_iceberg_insert(txn_kvsb, entry);
-      platform_assert(iceberg_get_value(txn_kvsb->tscache,
-                                        (KeyType)slice_data(entry->key),
-                                        (ValueType **)&entry->tuple_ts,
-                                        platform_get_tid()));
-      timestamp_set v = *entry->tuple_ts;
-      entry->wts      = GET_WTS(v);
-      entry->rts      = GET_WTS(v) + GET_DELTA(v);
-
-      // platform_error_log("wts %lu rts %lu\n", entry->wts, entry->rts);
-#else
       get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
-#endif
    }
 
    if (message_is_null(entry->msg)) {
