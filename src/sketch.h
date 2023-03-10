@@ -49,7 +49,7 @@ static inline void
 count_min_sketch_max_insert(sketch *s, slice key, uint64 value)
 {
    for (int i = 0; i < s->num_hashes; i++) {
-      uint64 h = hash(key, i, s->hash_size);
+      uint64 h             = hash(key, i, s->hash_size);
       uint64 current_value = s->freq[i][h];
       while (current_value < value) {
          if (atomic_compare_exchange_strong_explicit(&s->freq[i][h],
@@ -69,8 +69,7 @@ count_min_sketch_query(sketch *s, slice key)
 {
    uint64 min_count = s->freq[0][hash(key, 0, s->hash_size)];
    for (int i = 1; i < s->num_hashes; i++) {
-      min_count =
-         MIN(min_count, s->freq[i][hash(key, i, s->hash_size)]);
+      min_count = MIN(min_count, s->freq[i][hash(key, i, s->hash_size)]);
    }
    return min_count;
 }

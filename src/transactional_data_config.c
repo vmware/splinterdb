@@ -4,7 +4,7 @@
 
 #   include "transactional_data_config.h"
 #   include "data_internal.h"
-#   include "transaction_internal.h"
+#   include "transaction_impl/tictoc_disk_internal.h"
 #   include <string.h>
 
 static inline bool

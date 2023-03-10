@@ -8,11 +8,11 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/transaction.h"
-#include "transaction_internal.h"
 
 #define DB_FILE_NAME    "transactional_splinterdb_intro_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created

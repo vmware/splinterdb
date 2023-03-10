@@ -1,10 +1,14 @@
 #include "lock_table.h"
 
-#include "platform.h"
-#include "data_internal.h"
-#include "iceberg_table.h"
+#if !EXPERIMENTAL_MODE_ATOMIC_WORD
 
-#include "poison.h"
+#   if EXPERIMENTAL_MODE_TICTOC_DISK
+#      include "transaction_impl/tictoc_disk_internal.h"
+#   else
+#      include "transaction_impl/fantasticc_internal.h"
+#   endif
+
+#   include "poison.h"
 
 typedef struct lock_table {
    iceberg_table table;
@@ -33,12 +37,13 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
    }
 
    KeyType   key        = (KeyType)slice_data(entry->key);
-   ValueType lock_owner = {.refcount = 1, .value = entry->owner};
-   if (iceberg_insert(&lock_tbl->table, key, lock_owner, platform_get_tid())) {
-      entry->is_locked = TRUE;
+   ValueType lock_owner = platform_get_tid();
+   if (iceberg_insert_without_increasing_refcount(
+          &lock_tbl->table, key, lock_owner, platform_get_tid()))
+   {
+      entry->is_locked = 1;
       return LOCK_TABLE_RC_OK;
    }
-
    return LOCK_TABLE_RC_BUSY;
 }
 
@@ -49,6 +54,19 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
                    "Trying to release lock that is not locked by this thread");
 
    KeyType key = (KeyType)slice_data(entry->key);
-   iceberg_force_remove(&lock_tbl->table, key, platform_get_tid());
-   entry->is_locked = FALSE;
+   platform_assert(
+      iceberg_force_remove(&lock_tbl->table, key, platform_get_tid()));
+   entry->is_locked = 0;
 }
+
+lock_table_rc
+lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
+{
+   KeyType    key   = (KeyType)slice_data(entry->key);
+   ValueType *value = NULL;
+   if (iceberg_get_value(&lock_tbl->table, key, &value, platform_get_tid())) {
+      return LOCK_TABLE_RC_BUSY;
+   }
+   return LOCK_TABLE_RC_OK;
+}
+#endif

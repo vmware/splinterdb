@@ -3,24 +3,7 @@
 
 #pragma once
 
-#include "splinterdb/data.h"
-#include "util.h"
-#include "experimental_mode.h"
-
-// read_set and write_set entry stored locally
-typedef struct rw_entry {
-   slice         key;
-   message       msg; // value + op
-   txn_timestamp wts;
-   txn_timestamp rts;
-
-   threadid owner;
-
-   char is_read;
-   char need_to_keep_key;
-   char need_to_decrease_refcount;
-   char is_locked;
-} rw_entry;
+typedef struct rw_entry rw_entry;
 
 typedef enum lock_table_rc {
    LOCK_TABLE_RC_INVALID = 0,
@@ -45,5 +28,5 @@ lock_table_rc
 lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry);
 void
 lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry);
-// lock_table_rc
-// lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry);
+lock_table_rc
+lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry);
