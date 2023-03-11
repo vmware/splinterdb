@@ -429,8 +429,6 @@ RETRY_LOCK_WRITE_SET:
       for (uint64 i = 0; i < num_writes; ++i) {
          rw_entry *w = write_set[i];
          platform_assert(rw_entry_is_write(w));
-         w->tuple_ts->wts   = commit_ts;
-         w->tuple_ts->delta = 0;
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          platform_sleep_ns(100);
 
@@ -456,6 +454,9 @@ RETRY_LOCK_WRITE_SET:
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
          }
 #endif
+
+         w->tuple_ts->wts   = commit_ts;
+         w->tuple_ts->delta = 0;
 
          lock_table_release_entry_lock(txn_kvsb->lock_tbl, w);
       }
