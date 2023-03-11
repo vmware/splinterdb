@@ -9,3 +9,9 @@
 #      include "transaction_impl/transaction_fantasticc.h"
 #   endif
 #endif
+
+const splinterdb *
+transactional_splinterdb_get_db(transactional_splinterdb *txn_kvsb)
+{
+   return txn_kvsb->kvsb;
+}

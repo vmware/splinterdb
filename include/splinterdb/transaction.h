@@ -105,7 +105,10 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                                 slice                     key,
                                 splinterdb_lookup_result *result);
 
-// XXX: These functions wouldn't be necessary if txn_kvsb were public
+// TODO this function can be removed. Use the
+// splinterdb_lookup_result_init() with
+// transactional_splinterdb_get_db()
+
 void
 transactional_splinterdb_lookup_result_init(
    transactional_splinterdb *txn_kvsb,   // IN
@@ -113,6 +116,9 @@ transactional_splinterdb_lookup_result_init(
    uint64                    buffer_len, // IN
    char                     *buffer      // IN
 );
+
+const splinterdb *
+transactional_splinterdb_get_db(transactional_splinterdb *txn_kvsb);
 
 typedef enum {
    TRANSACTION_ISOLATION_LEVEL_INVALID = 0,
