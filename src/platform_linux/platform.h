@@ -110,12 +110,6 @@
 #define B_TO_GiB_FRACT(x) ((100 * ((x) % GiB)) / GiB)
 #define B_TO_TiB_FRACT(x) ((100 * ((x) % TiB)) / TiB)
 
-// Return, as int, the fractional portion modulo a MiB for given x bytes.
-#define B_TO_MiB_FRACT(x) (int)((((x)-B_TO_MiB(x) * MiB) / (MiB * 1.0)) * 100)
-
-// Return, as int, the fractional portion modulo a GiB for given x bytes.
-#define B_TO_GiB_FRACT(x) (int)((((x)-B_TO_GiB(x) * GiB) / (GiB * 1.0)) * 100)
-
 // Time unit constants
 #define THOUSAND (1000UL)
 #define MILLION  (THOUSAND * THOUSAND)
@@ -225,11 +219,12 @@ typedef uint32 (*hash_fn)(const void *input, size_t length, unsigned int seed);
 
 /*
  * Provide a tag for callers that do not want to use shared-memory allocation,
- * when configured but want to fallback to default malloc()-based scheme.
- * (Usuallly this would be done if a large chunk of memory is repeatedly
- * allocated and freed in some code-path.)
+ * when configured but want to fallback to default scheme of allocating
+ * process-private memory. Typically, this would default to malloc()/free().
+ * (Clients that repeatedly allocate and free a large chunk of memory in some
+ *  code path would want to use this tag.)
  */
-#define NULL_HEAP_ID (platform_heap_id) NULL
+#define PROCESS_PRIVATE_HEAP_ID (platform_heap_id) NULL
 
 /*
  * -----------------------------------------------------------------------------

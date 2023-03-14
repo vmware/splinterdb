@@ -2377,14 +2377,12 @@ usage(const char *argv0)
       "\t%s --semiseq-perf --max-async-inflight [num] --num-insert-threads "
       "[num]\n"
       "\t   --num-lookup-threads [num] --num-range-lookup-threads [num]\n"
-      "\t%s --functionality NUM_INSERTS CORRECTNESS_CHECK_FREQUENCY\n"
-      "\t   --max-async-inflight [num]\n"
-      "\t%s --num-tables (number of tables to use for test)\n"
-      "\t%s --cache-per-table\n"
       "\t%s --parallel-perf --max-async-inflight [num] --num-pthreads [num] "
       "--lookup-positive-percent [num] --seed [num]\n"
+      "\t%s --functionality NUM_INSERTS CORRECTNESS_CHECK_FREQUENCY\n"
+      "\t   --max-async-inflight [num]\n"
+      "\t%s --num-tables <num> [ --cache-per-table ] [ --use-shmem ]\n"
       "\t%s --insert-rate (inserts_done_by_all_threads in a second)\n",
-      argv0,
       argv0,
       argv0,
       argv0,
@@ -2395,6 +2393,9 @@ usage(const char *argv0)
       argv0);
    platform_error_log("\nNOTE: splinter_basic basic has been refactored"
                       " to run as a stand-alone unit-test.\n");
+   platform_error_log("     --use-shmem is an experimental feature."
+                      " Use with care.\n");
+   platform_error_log("\n");
    test_config_usage();
    config_usage();
 }
@@ -2504,7 +2505,7 @@ splinter_test(int argc, char *argv[])
    bool                   cache_per_table = FALSE;
    uint64                 insert_rate     = 0; // no rate throttling by default.
    task_system           *ts              = NULL;
-   bool   use_shmem       = FALSE;
+   bool                   use_shmem       = FALSE;
    uint8                  lookup_positive_pct = 0;
    test_message_generator gen;
    test_exec_config       test_exec_cfg;

@@ -415,8 +415,16 @@ platform_alignment(const size_t alignment, const size_t size)
    return ((alignment - (size % alignment)) % alignment);
 }
 
+/*
+ * void * = splinter_shm_alloc(platform_heap_id heap_id, size_t nbytes,
+ *                             const char * objname)
+ *
+ * Caller-macro to invoke lower-level allocator and to pass-down caller's
+ * context fields, which are printed for diagnostics under a traceflag.
+ */
 #define splinter_shm_alloc(heap_id, nbytes, objname)                           \
    platform_shm_alloc(heap_id, required, objname, func, file, lineno)
+
 /*
  * platform_aligned_malloc() -- Allocate n-bytes accounting for alignment.
  *
@@ -448,17 +456,6 @@ platform_aligned_malloc(const platform_heap_id heap_id,
 
    void *retptr = (heap_id ? splinter_shm_alloc(heap_id, required, objname)
                            : aligned_alloc(alignment, required));
-
-   /*
-   platform_default_log(
-      "[%s:%d::%s()] Allocated %lu bytes at %p, with padding=%lu bytes.\n",
-      file,
-      lineno,
-      func,
-      size,
-      retptr,
-      padding);
-   */
    return retptr;
 }
 
@@ -473,6 +470,13 @@ platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
    return realloc(ptr, size);
 }
 
+/*
+ * void = splinter_shm_free(platform_heap_id heap_id, void *ptr,
+ *                          const char * objname)
+ *
+ * Caller-macro to invoke lower-level free method and to pass-down caller's
+ * context fields, which are printed for diagnostics under a traceflag.
+ */
 #define splinter_shm_free(heap_id, ptr, objname)                               \
    platform_shm_free(heap_id, ptr, objname, func, file, lineno)
 
@@ -484,11 +488,6 @@ platform_free_from_heap(platform_heap_id heap_id,
                         const char      *file,
                         int              lineno)
 {
-   /*
-   platform_default_log(
-      "[%s:%d::%s()] Request to free memory at %p.\n", file, lineno, func, ptr);
-   */
-
    if (heap_id) {
       splinter_shm_free(heap_id, ptr, objname);
    } else {

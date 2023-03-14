@@ -341,8 +341,8 @@ btree_pack_req_init(btree_pack_req  *req,
    req->hash       = hash;
    req->seed       = seed;
    if (hash != NULL && max_tuples > 0) {
-      req->fingerprint_arr =
-         TYPED_ARRAY_MALLOC(NULL_HEAP_ID, req->fingerprint_arr, max_tuples);
+      req->fingerprint_arr = TYPED_ARRAY_MALLOC(
+         PROCESS_PRIVATE_HEAP_ID, req->fingerprint_arr, max_tuples);
    }
 }
 
@@ -350,7 +350,7 @@ static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
    if (req->fingerprint_arr) {
-      platform_free(NULL_HEAP_ID, req->fingerprint_arr);
+      platform_free(PROCESS_PRIVATE_HEAP_ID, req->fingerprint_arr);
    }
 }
 

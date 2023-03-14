@@ -114,11 +114,7 @@ CTEST_DATA(btree_stress)
 // Setup function for suite, called before every test in suite
 CTEST_SETUP(btree_stress)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
-
    config_set_defaults(&data->master_cfg);
-
    data->master_cfg.cache_capacity = GiB_TO_B(5);
    data->data_cfg                  = test_data_config;
 

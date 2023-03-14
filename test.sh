@@ -523,7 +523,7 @@ function test_make_run_tests() {
 
 # ##################################################################
 # Smoke Tests: Run a small collection of fast-running unit-tests
-# This can be invoked w/ or w/o "--use-shmem" arg.
+# This can be invoked w/ or w/o the "--use-shmem" arg.
 # ##################################################################
 function run_fast_unit_tests() {
    local use_shmem=$1
@@ -540,7 +540,7 @@ function run_fast_unit_tests() {
 # Explicitly run individual cases from specific slow running unit-tests,
 # where appropriate with a different test-configuration that has been
 # found to provide the required coverage.
-# Execute this set w/ and w/o "--use-shmem" arg.
+# Execute this set w/ and w/o the "--use-shmem" arg.
 # ##################################################################
 function run_slower_unit_tests() {
     local use_shmem=$1
@@ -572,37 +572,59 @@ function run_slower_unit_tests() {
 
 # ##################################################################
 # Execute a few variations of splinter_test --functionality tests
+# Execute this set w/ and w/o the "--use-shmem" arg.
 # ##################################################################
 function run_splinter_functionality_tests() {
+    local use_shmem=$1
+    local use_msg=
+    if [ "$use_shmem" != "" ]; then
+        use_msg=", using shared memory"
+   fi
+
     key_size=8
-    run_with_timing "Functionality test, key size=${key_size} bytes" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, key size=${key_size} bytes${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --key-size ${key_size} --seed "$SEED"
 
-    run_with_timing "Functionality test, with default key size" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, with default key size${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --seed "$SEED"
 
-    run_with_timing "Functionality test, default key size, with background threads" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, default key size, with background threads${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --num-normal-bg-threads 4 --num-memtable-bg-threads 2 \
                                             --seed "$SEED"
 
     max_key_size=102
-    run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
+    # shellcheck disable=SC2086
+    run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)${use_msg}" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            $use_shmem \
                                             --key-size ${max_key_size} --seed "$SEED"
 }
 
 # ##################################################################
 # Execute a few variations of splinter_test --perf tests
+# Execute this set w/ and w/o the "--use-shmem" arg.
 # ##################################################################
 function run_splinter_perf_tests() {
-
+    local use_shmem=$1
+    local use_msg=
+    if [ "$use_shmem" != "" ]; then
+        use_msg=", using shared memory"
+   fi
    # Validate use of small # of --num-inserts, and --verbose-progress
    # Test-case basically is for functional testing of interfaces.
-   run_with_timing "Very quick Performance test" \
+   # shellcheck disable=SC2086
+   run_with_timing "Very quick Performance test${use_msg}" \
         "$BINDIR"/driver_test splinter_test --perf \
+                                            $use_shmem \
                                             --max-async-inflight 0 \
                                             --num-insert-threads 4 \
                                             --num-lookup-threads 4 \
@@ -614,8 +636,10 @@ function run_splinter_perf_tests() {
 
    # Re-run small perf test configuring background threads. This scenario
    # validates that we can configure bg- and user-threads in one go.
-   run_with_timing "Quick Performance test with bg-threads" \
+   # shellcheck disable=SC2086
+   run_with_timing "Quick Performance test with bg-threads${use_msg}" \
         "$BINDIR"/driver_test splinter_test --perf \
+                                            $use_shmem \
                                             --num-insert-threads 4 \
                                             --num-lookup-threads 4 \
                                             --num-inserts 10000 \
@@ -623,8 +647,10 @@ function run_splinter_perf_tests() {
                                             --num-normal-bg-threads 1 \
                                             --num-memtable-bg-threads 1
 
-   run_with_timing "Performance test" \
+   # shellcheck disable=SC2086
+   run_with_timing "Performance test${use_msg}" \
         "$BINDIR"/driver_test splinter_test --perf \
+                                            $use_shmem \
                                             --max-async-inflight 0 \
                                             --num-insert-threads 4 \
                                             --num-lookup-threads 4 \
@@ -668,6 +694,25 @@ function run_other_driver_tests() {
 
     run_with_timing "Filter test" \
         "$BINDIR"/driver_test filter_test --seed "$SEED"
+}
+
+# #######################################################################
+# Re-run a collection of tests with shared-memory support enabled.
+# We strive to run all the tests that are run in a test execution cycle
+# with shared memory enabled. However, certain test execution configurations
+# may not still be runnable in this mode. So, we will incrementally online
+# remaining tests when they can run successfully in this mode.
+# #######################################################################
+function run_tests_with_shared_memory() {
+
+   # Run all the unit-tests first, to get basic coverage of shared-memory support.
+   run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
+
+   # run_slower_unit_tests "--use-shmem"
+   # if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
+
+   # run_splinter_functionality_tests "--use-shmem"
+   # run_splinter_perf_tests "--use-shmem"
 }
 
 # ##################################################################
@@ -771,27 +816,17 @@ run_slower_unit_tests ""
 UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
 
-if false; then # Skip this set of tests ... for now.
+run_splinter_functionality_tests ""
 
-   run_splinter_functionality_tests
+run_splinter_perf_tests ""
 
-   run_splinter_perf_tests
+run_btree_tests
 
-   run_btree_tests
-
-   run_other_driver_tests
-
-fi #end if false;
+run_other_driver_tests
 
 # ------------------------------------------------------------------------
-# Re-run a collection of tests using shared-memory. Currently, not every
-# test works cleanly in this mode, so we will incrementally online stuff.
-# ------------------------------------------------------------------------
-# Run all the unit-tests first, to get basic coverage of shared-memory support.
-run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
-
-run_slower_unit_tests "--use-shmem"
-if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
+# Re-run a collection of tests using shared-memory.
+run_tests_with_shared_memory
 
 record_elapsed_time ${testRunStartSeconds} "All Tests"
 echo ALL PASSED

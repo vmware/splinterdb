@@ -1,8 +1,7 @@
 // Copyright 2018-2023 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef __PLATFORM_SHMEM_H__
-#define __PLATFORM_SHMEM_H__
+#pragma once
 
 #include <sys/types.h>
 #include <sys/shm.h>
@@ -75,5 +74,3 @@ platform_shmused(platform_heap_id heap_id);
 
 void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
-
-#endif // __PLATFORM_SHMEM_H__

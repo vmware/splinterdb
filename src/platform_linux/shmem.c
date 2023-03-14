@@ -10,6 +10,7 @@
 
 #include "platform.h"
 #include "shmem.h"
+#include "util.h"
 
 // SplinterDB's shared segment magic identifier
 #define SPLINTERDB_SHMEM_MAGIC (uint64)0xDEFACADE
@@ -43,11 +44,6 @@ typedef struct shmem_info {
  * heap-ID as a 'handle' to manage / allocate shared memory. This macro converts
  * the heap-ID handle to the shared memory's start address, from which the
  * location of the next-free-byte can be tracked.
- *
- * RESOLVE - This ptr-math going back from address of heap-ID is prone to
- *errors. In some code paths, e.g. tests/unit/btree_test.c, we pass-down the
- *stack address of an on-stack scratch-buffer masquerading as the heap-ID
- *handle.
  */
 static inline platform_heap_handle
 platform_heap_id_to_handle(platform_heap_id hid)
@@ -83,11 +79,16 @@ platform_shmcreate(size_t                size,
    int shmid = shmget(0, size, (IPC_CREAT | PLATFORM_IPC_OBJS_PERMS));
    if (shmid == -1) {
       platform_error_log(
-         "Failed to created shared segment of size %lu bytes.\n", size);
+         "Failed to created shared segment of size %lu bytes (%s).\n",
+         size,
+         size_str(size));
       return STATUS_NO_MEMORY;
    }
    platform_default_log(
-      "Created shared memory of size %lu bytes, shmid=%d.\n", size, shmid);
+      "Created shared memory of size %lu bytes (%s), shmid=%d.\n",
+      size,
+      size_str(size),
+      shmid);
 
    // Get start of allocated shared segment
    void *shmaddr = shmat(shmid, NULL, 0);
@@ -120,34 +121,15 @@ platform_shmcreate(size_t                size,
       *heap_id = &shminfop->shm_id;
    }
 
-   bool        use_MiB = (size < GiB);
-   const char *msg =
-      "Completed setup of shared memory of size %lu bytes (%lu %s), "
-      "shmaddr=%p, shmid=%d,"
-      " available memory = %lu bytes (~%lu.%d %s).\n";
-   if (use_MiB) {
-      platform_default_log(msg,
-                           size,
-                           B_TO_MiB(size),
-                           "MiB",
-                           shmaddr,
-                           shmid,
-                           free_bytes,
-                           B_TO_MiB(free_bytes),
-                           B_TO_MiB_FRACT(free_bytes),
-                           "MiB");
-   } else {
-      platform_default_log(msg,
-                           size,
-                           B_TO_GiB(size),
-                           "GiB",
-                           shmaddr,
-                           shmid,
-                           free_bytes,
-                           B_TO_GiB(free_bytes),
-                           B_TO_GiB_FRACT(free_bytes),
-                           "GiB");
-   }
+   platform_default_log("Completed setup of shared memory of size "
+                        "%lu bytes (%s), shmaddr=%p, shmid=%d,"
+                        " available memory = %lu bytes (%s).\n",
+                        size,
+                        size_str(size),
+                        shmaddr,
+                        shmid,
+                        free_bytes,
+                        size_str(free_bytes));
    return STATUS_OK;
 }
 
@@ -181,23 +163,23 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    shmem_info *shminfop = &shmem_info_struct;
 
    if (shminfop->shm_magic != SPLINTERDB_SHMEM_MAGIC) {
-      platform_error_log(
-         "Input heap handle, %p, does not seem to be a valid "
-         "SplinterDB shared segment's start address."
-         " Found magic 0x%lX does not match expected magic 0x%lX.\n",
-         heap_handle,
-         shminfop->shm_magic,
-         SPLINTERDB_SHMEM_MAGIC);
+      platform_error_log("Input heap handle, %p, does not seem to be a valid "
+                         "SplinterDB shared segment's start address."
+                         " Found magic 0x%lX does not match expected"
+                         " magic 0x%lX.\n",
+                         heap_handle,
+                         shminfop->shm_magic,
+                         SPLINTERDB_SHMEM_MAGIC);
       return;
    }
 
    int shmid = shminfop->shm_id;
    int rv    = shmdt(shmaddr);
    if (rv != 0) {
-      platform_error_log(
-         "Failed to detach from shared segment at address %p, shmid=%d.\n",
-         shmaddr,
-         shmid);
+      platform_error_log("Failed to detach from shared segment at address "
+                         "%p, shmid=%d.\n",
+                         shmaddr,
+                         shmid);
       return;
    }
 
@@ -269,39 +251,6 @@ platform_shm_alloc(platform_heap_id hid,
    shminfop->shm_used_bytes += size;
    shminfop->shm_free_bytes -= size;
 
-   /*
-   bool        use_MiB = (shminfop->shm_free_bytes < GiB);
-   const char *msg     = "  [%s:%d::%s()] -> %s: Allocated %lu bytes "
-                         "for object '%s', at %p, "
-                         "free bytes=%lu (~%lu.%d %s).\n";
-   if (use_MiB) {
-      platform_default_log(msg,
-                           file,
-                           lineno,
-                           func,
-                           __FUNCTION__,
-                           size,
-                           objname,
-                           retptr,
-                           shminfop->shm_free_bytes,
-                           B_TO_MiB(shminfop->shm_free_bytes),
-                           B_TO_MiB_FRACT(shminfop->shm_free_bytes),
-                           "MiB");
-   } else {
-      platform_default_log(msg,
-                           file,
-                           lineno,
-                           func,
-                           __FUNCTION__,
-                           size,
-                           objname,
-                           retptr,
-                           shminfop->shm_free_bytes,
-                           B_TO_GiB(shminfop->shm_free_bytes),
-                           B_TO_GiB_FRACT(shminfop->shm_free_bytes),
-                           "GiB");
-   }
-   */
    return retptr;
 }
 
@@ -318,16 +267,6 @@ platform_shm_free(platform_heap_id hid,
                   const char      *file,
                   const int        lineno)
 {
-   /*
-   platform_default_log(
-      "  [%s:%d::%s()] -> %s: Request to free memory at %p for object '%s'.\n",
-      file,
-      lineno,
-      func,
-      __FUNCTION__,
-      ptr,
-      objname);
-   */
    return;
 }
 

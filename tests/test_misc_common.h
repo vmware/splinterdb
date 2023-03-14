@@ -15,8 +15,7 @@
  *       use these helper methods.
  * -----------------------------------------------------------------------------
  */
-#ifndef __TEST_MISC_COMMON_H__
-#define __TEST_MISC_COMMON_H__
+#pragma once
 
 #include "util.h" // For STRING_EQUALS_LITERAL()
 
@@ -29,5 +28,3 @@ test_using_shmem(int argc, char *argv[])
 {
    return (argc && (STRING_EQUALS_LITERAL(argv[0], "--use-shmem")));
 }
-
-#endif /* __TEST_MISC_COMMON_H__ */
