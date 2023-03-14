@@ -129,9 +129,6 @@ CTEST_SETUP(splinter)
    heap_capacity        = MAX(heap_capacity, 2 * GiB);
 
    bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
-   if (use_shmem) {
-      platform_default_log("Run test using shared memory segment.\n");
-   }
 
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
@@ -824,7 +821,7 @@ shadow_check_tuple_func(key returned_key, message value, void *varg)
       trunk_message_to_string(arg->spl, shadow_value, expected_value);
       trunk_message_to_string(arg->spl, value, actual_value);
 
-      CTEST_LOG_INFO("expected: '%s' | '%s'\n", expected_key, expected_value);
+      CTEST_LOG_INFO("\nexpected: '%s' | '%s'\n", expected_key, expected_value);
       CTEST_LOG_INFO("actual  : '%s' | '%s'\n", actual_key, actual_value);
       arg->errors++;
    }

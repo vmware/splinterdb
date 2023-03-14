@@ -59,8 +59,13 @@ typedef void (*test_io_thread_hdlr)(void *arg);
 /* Device size; small one is good enough for IO APIs testing */
 #define DEVICE_SIZE_MB 128
 
-/*
- * Use small hard-coded # of threads to avoid allocating memory for
+#define HEAP_SIZE_MB 256
+
+/* SplinterDB device size; small one is good enough for IO APIs testing */
+#define SPLINTER_DEVICE_SIZE_MB 128
+
+
+/* Use small hard-coded # of threads to avoid allocating memory for
  * thread-specific arrays of parameters. It's sufficient to shake out the
  * IO sub-system APIs with just small # of threads.
  */
@@ -155,11 +160,13 @@ splinter_io_apis_test(int argc, char *argv[])
 {
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
 
+   bool use_shmem = FALSE;
+
    // Create a heap for io system's memory allocation.
    platform_heap_handle hh  = NULL;
    platform_heap_id     hid = NULL;
-   platform_status      rc =
-      platform_heap_create(platform_get_module_id(), heap_capacity, &hh, &hid);
+   platform_status      rc  = platform_heap_create(
+      platform_get_module_id(), heap_capacity, use_shmem, &hh, &hid);
    platform_assert_status_ok(rc);
 
    // Do minimal IO config setup, using default IO values.

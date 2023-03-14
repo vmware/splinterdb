@@ -52,6 +52,13 @@
  * useful default values. The expectation is that the input 'cfg' is zero'ed
  * out before calling this initializer, so that all other fields will have
  * some reasonable 0-defaults.
+ *
+ * ******************* EXPERIMENTAL FEATURES ********************
+ *  - use_shmem: Support for shared memory segments.
+ *    This functionality is solely meant for internal development uses.
+ *    We don't support free(), so your test / usage will likely run into
+ *    shared-memory OOMs errors.
+ *
  * ---------------------------------------------------------------------------
  */
 void
@@ -81,7 +88,7 @@ config_set_defaults(master_config *cfg)
       .queue_scale_percent      = TEST_CONFIG_DEFAULT_QUEUE_SCALE_PERCENT,
       .verbose_logging_enabled  = FALSE,
       .verbose_progress         = FALSE,
-	  .use_shmem				= FALSE,
+      .use_shmem                = FALSE,
       .log_handle               = NULL,
       .max_key_size             = TEST_CONFIG_DEFAULT_KEY_SIZE,
       .message_size             = TEST_CONFIG_DEFAULT_MESSAGE_SIZE,
@@ -94,7 +101,7 @@ config_set_defaults(master_config *cfg)
 void
 config_usage()
 {
-   platform_error_log("Configuration: (default)\n");
+   platform_error_log("\nConfiguration: (default)\n");
    platform_error_log("\t--page-size (%d)\n", TEST_CONFIG_DEFAULT_PAGE_SIZE);
    platform_error_log("\t--extent-size (%d)\n",
                       TEST_CONFIG_DEFAULT_EXTENT_SIZE);
@@ -142,7 +149,13 @@ config_usage()
    platform_error_log("\t--verbose-logging\n");
    platform_error_log("\t--no-verbose-logging\n");
    platform_error_log("\t--verbose-progress\n");
-   platform_error_log("\t--use-shmem\n");
+
+   platform_error_log(
+      "\t--use-shmem           **** Experimental feature ****\n");
+   // clang-format off
+   platform_error_log("\t       [ --trace-shmem | --trace-shmem-allocs | --trace-shmem-frees ]\n");
+   // clang-format on
+
    platform_error_log("\t--key-size (%d)\n", TEST_CONFIG_DEFAULT_KEY_SIZE);
    platform_error_log("\t--data-size (%d)\n", TEST_CONFIG_DEFAULT_MESSAGE_SIZE);
    platform_error_log("\t--num-inserts (%d)\n",
@@ -314,6 +327,26 @@ config_parse(master_config *cfg, const uint8 num_config, int argc, char *argv[])
          {
             for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
                cfg[cfg_idx].use_shmem = TRUE;
+            }
+         }
+         config_has_option("trace-shmem-allocs")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].trace_shmem_allocs = TRUE;
+            }
+         }
+         config_has_option("trace-shmem-frees")
+         {
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].trace_shmem_frees = TRUE;
+            }
+         }
+         config_has_option("trace-shmem")
+         {
+            // Trace both allocations & frees from shared memory segment.
+            for (uint8 cfg_idx = 0; cfg_idx < num_config; cfg_idx++) {
+               cfg[cfg_idx].trace_shmem_allocs = TRUE;
+               cfg[cfg_idx].trace_shmem_frees  = TRUE;
             }
          }
 

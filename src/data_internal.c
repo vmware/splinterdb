@@ -41,7 +41,8 @@ merge_accumulator_copy_message(merge_accumulator *ma, message msg)
 bool
 merge_accumulator_resize(merge_accumulator *ma, uint64 newsize)
 {
-   platform_status rc = writable_buffer_resize(&ma->data, newsize);
+   platform_status rc =
+      writable_buffer_resize(&ma->data, merge_accumulator_length(ma), newsize);
    return SUCCESS(rc);
 }
 

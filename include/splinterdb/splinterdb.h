@@ -21,6 +21,7 @@ const char *
 splinterdb_get_version();
 
 /*
+ * ****************************************************************************
  * Configuration options for SplinterDB:
  *
  * Physical configuration things such as file name, cache & disk-size,
@@ -29,8 +30,19 @@ splinterdb_get_version();
  * user can select whether to use malloc()/free()-based memory allocation
  * for all structures (default), or choose to setup a shared segment
  * which will be used for shared structures.
+ *
+ * ******************* EXPERIMENTAL FEATURES ********************
+ *
+ * - use_shmem: Support for shared memory segments:
+ *   This flag will configure a shared memory segment. All (most) run-time
+ *   memory allocation will be done from this shared segment. Currently,
+ *   we do not support free(), so you will likely run out of shared memory
+ *   and run into shared-memory OOM errors. This functionality is
+ *   solely meant for internal development uses.
+ *
+ * ******************* EXPERIMENTAL FEATURES ********************
  */
-typedef struct {
+typedef struct splinterdb_config {
    // required configuration
    const char *filename;
    uint64      cache_size;
@@ -45,7 +57,12 @@ typedef struct {
    // if unset, defaults will be used
    void *heap_handle;
    void *heap_id;
-   bool  use_shmem; // Default is FALSE.
+
+   // Shared memory support
+   bool use_shmem; // Default is FALSE.
+   bool trace_shmem_allocs;
+   bool trace_shmem_frees;
+   bool trace_shmem; // Trace both allocs & frees from shared memory
 
    uint64 page_size;
    uint64 extent_size;
@@ -384,5 +401,30 @@ splinterdb_stats_print_lookup(const splinterdb *kvs);
 
 void
 splinterdb_stats_reset(splinterdb *kvs);
+
+// External APIs provided -ONLY- for use as a testing hook.
+void
+splinterdb_cache_flush(const splinterdb *kvs);
+
+void *
+splinterdb_get_heap_handle(const splinterdb *kvs);
+
+const void *
+splinterdb_get_task_system_handle(const splinterdb *kvs);
+
+const void *
+splinterdb_get_io_handle(const splinterdb *kvs);
+
+const void *
+splinterdb_get_allocator_handle(const splinterdb *kvs);
+
+const void *
+splinterdb_get_cache_handle(const splinterdb *kvs);
+
+const void *
+splinterdb_get_trunk_handle(const splinterdb *kvs);
+
+const void *
+splinterdb_get_memtable_context_handle(const splinterdb *kvs);
 
 #endif // _SPLINTERDB_H_

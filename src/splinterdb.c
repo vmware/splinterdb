@@ -23,6 +23,12 @@
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
+
+// Function prototypes
+
+static void
+splinterdb_close_print_stats(splinterdb *kvs);
+
 const char *
 splinterdb_get_version()
 {
@@ -266,6 +272,18 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
             platform_status_to_string(status));
          goto deinit_kvhandle;
       }
+
+      // Setup global tracing booleans for shared memory usage
+      if (kvs_cfg->trace_shmem_allocs) {
+         Trace_shmem_allocs = TRUE;
+      }
+      if (kvs_cfg->trace_shmem_frees) {
+         Trace_shmem_frees = TRUE;
+      }
+      if (kvs_cfg->trace_shmem) {
+         Trace_shmem_allocs = TRUE;
+         Trace_shmem_frees  = TRUE;
+      }
    }
 
    platform_assert(kvs_out != NULL);
@@ -278,7 +296,8 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
 
    // All memory allocation after this call should -ONLY- use heap handles
    // from the handle to the running Splinter instance; i.e. 'kvs'. (The
-   // memory handles init'ed above off of kvs_cfg will be NULL'ed out.)
+   // input memory handles in kvs_cfg; i.e. kvs_cfg->heap_id, heap_handle will
+   // be NULL'ed out after they are cp'ed to handles in kvs.)
    status = splinterdb_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
@@ -375,7 +394,10 @@ deinit_system:
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 deinit_kvhandle:
-   platform_free(kvs_cfg->heap_id, kvs);
+   // Depending on the place where a configuration / setup error lead
+   // us to here via a 'goto', heap_id handle, if in use, may be in a
+   // different place. Use one carefully, to avoid MSAN-errors.
+   platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
 
    return platform_status_to_int(status);
 }
@@ -415,6 +437,7 @@ splinterdb_close(splinterdb **kvs_in) // IN
    splinterdb *kvs = *kvs_in;
    platform_assert(kvs != NULL);
 
+   splinterdb_close_print_stats(kvs);
    /*
     * NOTE: These dismantling routines must appear in exactly the reverse
     * order when these sub-systems were init'ed when a Splinter device was
@@ -732,4 +755,58 @@ void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
+}
+
+static void
+splinterdb_close_print_stats(splinterdb *kvs)
+{
+   task_print_stats(kvs->task_sys);
+   splinterdb_stats_print_insertion(kvs);
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * External accessor APIs, mainly provided for use as testing hooks.
+ * -----------------------------------------------------------------------------
+ */
+void *
+splinterdb_get_heap_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->heap_handle;
+}
+
+const void *
+splinterdb_get_task_system_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->task_sys;
+}
+
+const void *
+splinterdb_get_io_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->io_handle;
+}
+
+const void *
+splinterdb_get_allocator_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->allocator_handle;
+}
+
+const void *
+splinterdb_get_cache_handle(const splinterdb *kvs)
+{
+   return (void *)&kvs->cache_handle;
+}
+
+const void *
+splinterdb_get_trunk_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl;
+}
+
+const void *
+splinterdb_get_memtable_context_handle(const splinterdb *kvs)
+{
+   return (void *)kvs->spl->mt_ctxt;
 }
