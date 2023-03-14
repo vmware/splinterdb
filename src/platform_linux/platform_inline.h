@@ -395,7 +395,7 @@ static inline platform_heap_id
 platform_get_heap_id(void)
 {
    // void* NULL since we don't actually need a heap id
-   return NULL;
+   return Heap_id;
 }
 
 static inline platform_module_id
@@ -415,8 +415,6 @@ platform_alignment(const size_t alignment, const size_t size)
    return ((alignment - (size % alignment)) % alignment);
 }
 
-#define splinter_shm_alloc(heap_id, nbytes, objname)                           \
-   platform_shm_alloc(heap_id, required, objname, func, file, lineno)
 /*
  * platform_aligned_malloc() -- Allocate n-bytes accounting for alignment.
  *
@@ -448,33 +446,44 @@ platform_aligned_malloc(const platform_heap_id heap_id,
 
    void *retptr = (heap_id ? splinter_shm_alloc(heap_id, required, objname)
                            : aligned_alloc(alignment, required));
-
-   /*
-   platform_default_log(
-      "[%s:%d::%s()] Allocated %lu bytes at %p, with padding=%lu bytes.\n",
-      file,
-      lineno,
-      func,
-      size,
-      retptr,
-      padding);
-   */
    return retptr;
 }
 
-/* Reallocing to size 0 must be equivalent to freeing.
-   Reallocing from NULL must be equivalent to allocing. */
+/*
+ * platform_realloc() - Reallocate 'newsize' bytes and copy over old contents.
+ *
+ * This is a wrapper around C-realloc() but farms over to shared-memory
+ * based realloc, when needed.
+ *
+ * The interface is intentional to avoid inadvertently swapping 'oldsize' and
+ * 'newsize' in the call, if they were to appear next to each other.
+ *
+ * Reallocing to size 0 must be equivalent to freeing.
+ * Reallocing from NULL must be equivalent to allocing.
+ */
 static inline void *
-platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
+platform_realloc(const platform_heap_id heap_id,
+                 const size_t           oldsize,
                  void                  *ptr, // IN
-                 const size_t           size)          // IN
+                 const size_t           newsize)       // IN
 {
    /* FIXME: alignment? */
-   return realloc(ptr, size);
-}
 
-#define splinter_shm_free(heap_id, ptr, objname)                               \
-   platform_shm_free(heap_id, ptr, objname, func, file, lineno)
+   // Farm control off to shared-memory based realloc, if it's configured
+   if (heap_id) {
+      // The shmem-based allocator is expecting all memory requests to be of
+      // aligned sizes, as that's what platform_aligned_malloc() does. So, to
+      // keep that allocator happy, align this memory request if needed.
+      // As this is the case of realloc, we assume that it would suffice to
+      // align at platform's natural cacheline boundary.
+      const size_t padding =
+         platform_alignment(PLATFORM_CACHELINE_SIZE, newsize);
+      const size_t required = (newsize + padding);
+      return splinter_shm_realloc(heap_id, ptr, oldsize, required);
+   } else {
+      return realloc(ptr, newsize);
+   }
+}
 
 static inline void
 platform_free_from_heap(platform_heap_id heap_id,
@@ -484,11 +493,6 @@ platform_free_from_heap(platform_heap_id heap_id,
                         const char      *file,
                         int              lineno)
 {
-   /*
-   platform_default_log(
-      "[%s:%d::%s()] Request to free memory at %p.\n", file, lineno, func, ptr);
-   */
-
    if (heap_id) {
       splinter_shm_free(heap_id, ptr, objname);
    } else {
@@ -521,4 +525,4 @@ platform_condvar_destroy(platform_condvar *cv)
    pthread_cond_destroy(&cv->cond);
 }
 
-#endif
+#endif // PLATFORM_LINUX_INLINE_H

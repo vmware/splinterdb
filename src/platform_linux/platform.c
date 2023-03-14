@@ -19,6 +19,15 @@ bool platform_use_mlock   = FALSE;
 platform_log_handle *Platform_default_log_handle = NULL;
 platform_log_handle *Platform_error_log_handle   = NULL;
 
+/*
+ * Declare globals to track heap handle/ID that may have been created when
+ * using shared memory. We stash away these handles so that we can return the
+ * right handle via platform_get_heap_id() interface, in case shared segments
+ * are in use.
+ */
+platform_heap_handle Heap_handle = NULL;
+platform_heap_id     Heap_id     = NULL;
+
 // This function is run automatically at library-load time
 void __attribute__((constructor)) platform_init_log_file_handles(void)
 {
@@ -47,6 +56,13 @@ platform_get_stdout_stream(void)
    return Platform_default_log_handle;
 }
 
+/*
+ * platform_heap_create() - Create a heap for memory allocation.
+ *
+ * By default, we just revert to process' heap-memory and use malloc() / free()
+ * for memory management. If Splinter is run with shared-memory configuration,
+ * create a shared-segment which acts as the 'heap' for memory allocation.
+ */
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      size_t                max,
@@ -55,7 +71,12 @@ platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      platform_heap_id     *heap_id)
 {
    if (use_shmem) {
-      return platform_shmcreate(max, heap_handle, heap_id);
+      platform_status rc = platform_shmcreate(max, heap_handle, heap_id);
+      if (SUCCESS(rc)) {
+         Heap_handle = *heap_handle;
+         Heap_id     = *heap_id;
+      }
+      return rc;
    }
    *heap_handle = NULL;
    *heap_id     = NULL;

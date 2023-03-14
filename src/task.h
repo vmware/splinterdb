@@ -123,6 +123,7 @@ struct task_system {
    // task groups
    task_group group[NUM_TASK_TYPES];
 
+   uint64    ntasks_enqueued;
    int       hook_init_done;
    int       num_hooks;
    task_hook hooks[TASK_MAX_HOOKS];
