@@ -862,12 +862,6 @@ trunk_page_size(const trunk_config *cfg)
 }
 
 static inline uint64
-trunk_extent_size(const trunk_config *cfg)
-{
-   return cache_config_extent_size(cfg->cache_cfg);
-}
-
-static inline uint64
 trunk_pages_per_extent(const trunk_config *cfg)
 {
    return cache_config_pages_per_extent(cfg->cache_cfg);
@@ -8857,7 +8851,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
 
    // clang-format off
    const char *dashes = "------------------------------------------------------------------";
-   const char *dashes_long = "-------------------------------------------------------------------------------------------------";
+   const char *dashes_long = "-------------------------------------------------------------------------";
    // clang-format on
 
    platform_log(log_handle, "%s\n", dashes);
@@ -8881,7 +8875,7 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
 
    // clang-format off
    platform_log(log_handle,
-         "    | branch |     addr     |  num tuples  |       num kv bytes        |    space    |space amp |\n");
+         "    | branch |     addr     |  num tuples  |       num kv bytes         |\n");
    // clang-format on
 
    platform_log(log_handle, "%s\n", dashes_long);
@@ -8909,35 +8903,24 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
       sum_ntuples += num_tuples_in_branch;
       sum_nkvbytes += kv_bytes_in_branch;
 
-      uint64 kib_in_branch = 1;
-      // trunk_branch_extent_count(spl, &node, branch_no);
-      kib_in_branch *= B_TO_KiB(trunk_extent_size(&spl->cfg));
-      fraction space_amp =
-         init_fraction(KiB_TO_B(kib_in_branch), kv_bytes_in_branch);
-
-      platform_log(
-         log_handle,
-         "    | %6u | %12lu | %12lu |%12lu %14s| %8lu KiB|   " FRACTION_FMT(
-            2, 2) "   |\n",
-         branch_no,
-         addr,
-         num_tuples_in_branch,
-         nkvbytes,
-         size_fmtstr("(%s)", nkvbytes),
-         kib_in_branch,
-         FRACTION_ARGS(space_amp));
+      platform_log(log_handle,
+                   "    | %6u | %12lu | %12lu |%12lu %14s |\n",
+                   branch_no,
+                   addr,
+                   num_tuples_in_branch,
+                   nkvbytes,
+                   size_fmtstr("(%s)", nkvbytes));
    }
    trunk_node_unget(spl->cc, &node);
 
    platform_log(log_handle, "%s\n", dashes_long);
    platform_log(log_handle,
-                "Sum | %6u | %12s | %12lu |%12lu %14s| %8s    |   \n",
+                "Sum | %6u | %12s | %12lu |%12lu %14s |\n",
                 num_branches,
                 "",
                 sum_ntuples,
                 sum_nkvbytes,
-                size_fmtstr("(%s)", sum_nkvbytes),
-                "");
+                size_fmtstr("(%s)", sum_nkvbytes));
 
    platform_log(log_handle, "%s\n", dashes_long);
    platform_log(log_handle, "\n");
