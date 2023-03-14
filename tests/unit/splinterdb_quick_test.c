@@ -32,7 +32,6 @@
 #include "splinterdb/data.h"
 #include "splinterdb/public_platform.h"
 #include "splinterdb/default_data_config.h"
-#include "splinterdb_private.h"
 #include "test_misc_common.h"
 #include "unit_tests.h"
 #include "util.h"

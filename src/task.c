@@ -3,6 +3,7 @@
 
 #include "platform.h"
 #include "task.h"
+#include "util.h"
 
 #include "poison.h"
 
@@ -220,8 +221,10 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
-   platform_free(thread_started->ts->heap_id,
-                 thread_started->ts->thread_scratch[thread_started->tid]);
+   void *scratchptr = thread_started->ts->thread_scratch[thread_started->tid];
+   if (scratchptr) {
+      platform_free(thread_started->ts->heap_id, scratchptr);
+   }
 
    platform_set_tid(INVALID_TID);
    task_deallocate_threadid(thread_started->ts, thread_started->tid);
@@ -644,6 +647,7 @@ task_enqueue(task_system *ts,
    }
 
    __sync_fetch_and_add(&group->current_waiting_tasks, 1);
+   __sync_fetch_and_add(&ts->ntasks_enqueued, 1);
 
    if (group->use_stats) {
       new_task->enqueue_time = platform_get_timestamp();
@@ -1014,6 +1018,15 @@ task_group_print_stats(task_group *group, task_type type)
 void
 task_print_stats(task_system *ts)
 {
+   uint64 nbytes = (ts->ntasks_enqueued * sizeof(task));
+   char   nbytes_str[SIZE_TO_STR_LEN];
+   size_to_str(nbytes_str, sizeof(nbytes_str), nbytes);
+   platform_default_log(
+      "Number of tasks enqueued=%lu, consumed=%lu bytes (%s) of memory.\n",
+      ts->ntasks_enqueued,
+      nbytes,
+      nbytes_str);
+
    for (task_type type = TASK_TYPE_FIRST; type != NUM_TASK_TYPES; type++) {
       task_group_print_stats(&ts->group[type], type);
    }

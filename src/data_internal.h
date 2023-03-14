@@ -182,12 +182,18 @@ key_buffer_init_from_key(key_buffer *kb, platform_heap_id hid, key src)
    return key_buffer_copy_key(kb, src);
 }
 
+static inline uint64
+key_buffer_length(key_buffer *kb)
+{
+   return writable_buffer_length(&kb->wb);
+}
+
 /* Converts kb to a user key if it isn't already. */
 static inline platform_status
 key_buffer_resize(key_buffer *kb, uint64 length)
 {
    kb->kind = USER_KEY;
-   return writable_buffer_resize(&kb->wb, length);
+   return writable_buffer_resize(&kb->wb, key_buffer_length(kb), length);
 }
 
 static inline void *

@@ -323,7 +323,7 @@ btree_iterator_init(cache          *cc,
 void
 btree_iterator_deinit(btree_iterator *itor);
 
-static inline void
+static inline platform_status
 btree_pack_req_init(btree_pack_req  *req,
                     cache           *cc,
                     btree_config    *cfg,
@@ -342,15 +342,25 @@ btree_pack_req_init(btree_pack_req  *req,
    req->seed       = seed;
    if (hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
-         TYPED_ARRAY_MALLOC(NULL_HEAP_ID, req->fingerprint_arr, max_tuples);
+         TYPED_ARRAY_ZALLOC(hid, req->fingerprint_arr, max_tuples);
+
+      // When we run with shared-memory configured, we expect that it is sized
+      // big-enough to not get OOMs from here. Hence, only a debug_assert().
+      debug_assert(req->fingerprint_arr,
+                   "Unable to allocate memory for %lu tuples",
+                   max_tuples);
+      if (!req->fingerprint_arr) {
+         return STATUS_NO_MEMORY;
+      }
    }
+   return STATUS_OK;
 }
 
 static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
    if (req->fingerprint_arr) {
-      platform_free(NULL_HEAP_ID, req->fingerprint_arr);
+      platform_free(hid, req->fingerprint_arr);
    }
 }
 

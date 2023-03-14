@@ -63,25 +63,21 @@ btree_leaf_incorporate_tuple(const btree_config    *cfg,
  */
 CTEST_DATA(btree)
 {
-   master_config     master_cfg;
-   data_config      *data_cfg;
-   io_config         io_cfg;
-   allocator_config  allocator_cfg;
-   clockcache_config cache_cfg;
-   btree_scratch     test_scratch;
-   btree_config      dbtree_cfg;
-   platform_heap_id  hid;
+   master_config        master_cfg;
+   data_config         *data_cfg;
+   io_config            io_cfg;
+   allocator_config     allocator_cfg;
+   clockcache_config    cache_cfg;
+   btree_scratch        test_scratch;
+   btree_config         dbtree_cfg;
+   platform_heap_id     hid;
    platform_heap_handle hh;
 };
 
 // Optional setup function for suite, called before every test in suite
 CTEST_SETUP(btree)
 {
-   Platform_default_log_handle = fopen("/tmp/unit_test.stdout", "a+");
-   Platform_error_log_handle   = fopen("/tmp/unit_test.stderr", "a+");
-
    config_set_defaults(&data->master_cfg);
-
    uint64 heap_capacity = (1 * GiB);
    bool   use_shmem     = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
 
@@ -446,15 +442,6 @@ leaf_split_tests(btree_config    *cfg,
 
       key tuple_key = key_create(1, &i);
 
-      /*
-       * RESOLVE: This usage of 'scratch' space buffer passed-down as
-       * heap-ID ptr is problematic when this test is run w/o --use-shmem.
-       * Way deep down, writable buffer code will use this as heap_id and
-       * will allocate buffer. Then, we end up going to free this via
-       * platform_shm_free(), which currently only does a msg print.
-       * If we try to 'implement' this free using free-list mgmt, it will
-       * become a problem.
-       */
       bool success = btree_leaf_incorporate_tuple(
          cfg, hid, hdr, tuple_key, bigger_msg, &spec, &generation);
       if (success) {
