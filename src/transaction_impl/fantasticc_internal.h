@@ -25,7 +25,7 @@ typedef struct transactional_splinterdb {
 typedef struct timestamp_set {
    txn_timestamp delta : 15; // rts = wts + delta
    txn_timestamp wts : 49;
-} timestamp_set;
+} timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
 
 // read_set and write_set entry stored locally
 typedef struct rw_entry {

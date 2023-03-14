@@ -26,7 +26,7 @@ typedef struct {
    txn_timestamp lock_bit : 1;
    txn_timestamp delta : 15;
    txn_timestamp wts : 48;
-} timestamp_set;
+} timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
 
 static inline bool
 timestamp_set_is_equal(const timestamp_set *s1, const timestamp_set *s2)
