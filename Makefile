@@ -489,6 +489,9 @@ $(BINDIR)/$(EXAMPLES_DIR)/splinterdb_custom_ipv4_addr_sortcmp_example: $(OBJDIR)
 $(BINDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_intro_example: $(OBJDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_intro_example.o \
                                                     $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_conflicts_example: $(OBJDIR)/$(EXAMPLES_DIR)/transactional_splinterdb_conflicts_example.o \
+                                                    $(LIBDIR)/libsplinterdb.so
+
 #*************************************************************#
 
 # Report build machine details and compiler version for troubleshooting, so
