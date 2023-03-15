@@ -89,7 +89,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       txn_kvsb->tscache,
       key_ht,
       (ValueType **)&entry->tuple_ts,
-      platform_get_tid());
+      platform_get_tid() - 1);
    platform_assert(entry->tuple_ts != &ts);
 #else
    // increase refcount for key
@@ -98,7 +98,7 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    bool is_new_item = iceberg_insert_and_get(txn_kvsb->tscache,
                                              key_ht,
                                              (ValueType **)&entry->tuple_ts,
-                                             platform_get_tid());
+                                             platform_get_tid() - 1);
 #endif
 
    // get the pointer of the value from the iceberg
@@ -126,7 +126,7 @@ rw_entry_iceberg_remove(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    KeyType   key_ht   = (KeyType)slice_data(entry->key);
    ValueType value_ht = {0};
    if (iceberg_get_and_remove(
-          txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid()))
+          txn_kvsb->tscache, &key_ht, &value_ht, platform_get_tid() - 1))
    {
       if (slice_data(entry->key) != key_ht) {
          platform_free_from_heap(0, key_ht);

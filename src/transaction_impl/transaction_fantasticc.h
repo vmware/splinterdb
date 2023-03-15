@@ -431,11 +431,11 @@ RETRY_LOCK_WRITE_SET:
          if (timestamp_set_get_rts(r->tuple_ts) < commit_ts) {
             platform_assert(commit_ts > r->tuple_ts->wts);
             // Handle delta overflow
-            timestamp_set v = *r->tuple_ts;
+            timestamp_set v     = *r->tuple_ts;
             txn_timestamp delta = commit_ts - v.wts;
             txn_timestamp shift = delta - (delta & 0x7fff);
             v.wts += shift;
-            v.delta = delta - shift;
+            v.delta      = delta - shift;
             *r->tuple_ts = v;
          }
 #endif

@@ -40,7 +40,7 @@ lock_table_try_acquire_entry_lock(lock_table *lock_tbl, rw_entry *entry)
    KeyType   key        = (KeyType)slice_data(entry->key);
    ValueType lock_owner = platform_get_tid();
    if (iceberg_insert_without_increasing_refcount(
-          &lock_tbl->table, key, lock_owner, platform_get_tid()))
+          &lock_tbl->table, key, lock_owner, platform_get_tid() - 1))
    {
       entry->is_locked = 1;
       return LOCK_TABLE_RC_OK;
@@ -56,7 +56,7 @@ lock_table_release_entry_lock(lock_table *lock_tbl, rw_entry *entry)
 
    KeyType key = (KeyType)slice_data(entry->key);
    platform_assert(
-      iceberg_force_remove(&lock_tbl->table, key, platform_get_tid()));
+      iceberg_force_remove(&lock_tbl->table, key, platform_get_tid() - 1));
    entry->is_locked = 0;
 }
 
@@ -65,7 +65,8 @@ lock_table_get_entry_lock_state(lock_table *lock_tbl, rw_entry *entry)
 {
    KeyType    key   = (KeyType)slice_data(entry->key);
    ValueType *value = NULL;
-   if (iceberg_get_value(&lock_tbl->table, key, &value, platform_get_tid())) {
+   if (iceberg_get_value(&lock_tbl->table, key, &value, platform_get_tid() - 1))
+   {
       return LOCK_TABLE_RC_BUSY;
    }
    return LOCK_TABLE_RC_OK;
