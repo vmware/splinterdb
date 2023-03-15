@@ -274,7 +274,7 @@ transactional_splinterdb_config_init(
           kvsb_cfg,
           sizeof(txn_splinterdb_cfg->kvsb_cfg));
 
-   txn_splinterdb_cfg->tscache_log_slots = 28;
+   txn_splinterdb_cfg->tscache_log_slots = 29;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
@@ -336,6 +336,9 @@ void
 transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 {
    transactional_splinterdb *_txn_kvsb = *txn_kvsb;
+
+   iceberg_print_state(_txn_kvsb->tscache);
+
    splinterdb_close(&_txn_kvsb->kvsb);
 
    platform_free(0, _txn_kvsb->tscache);

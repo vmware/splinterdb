@@ -205,7 +205,7 @@ transactional_splinterdb_config_init(
           kvsb_cfg,
           sizeof(txn_splinterdb_cfg->kvsb_cfg));
 
-   txn_splinterdb_cfg->tscache_log_slots = 28;
+   txn_splinterdb_cfg->tscache_log_slots = 29;
 
    // TODO things like filename, logfile, or data_cfg would need a
    // deep-copy
@@ -269,6 +269,9 @@ void
 transactional_splinterdb_close(transactional_splinterdb **txn_kvsb)
 {
    transactional_splinterdb *_txn_kvsb = *txn_kvsb;
+
+   iceberg_print_state(_txn_kvsb->tscache);
+
    splinterdb_close(&_txn_kvsb->kvsb);
 
    lock_table_destroy(_txn_kvsb->lock_tbl);
@@ -427,7 +430,13 @@ RETRY_LOCK_WRITE_SET:
 #if !EXPERIMENTAL_MODE_SILO
          if (timestamp_set_get_rts(r->tuple_ts) < commit_ts) {
             platform_assert(commit_ts > r->tuple_ts->wts);
-            r->tuple_ts->delta = commit_ts - r->tuple_ts->wts;
+            // Handle delta overflow
+            timestamp_set v = *r->tuple_ts;
+            txn_timestamp delta = commit_ts - v.wts;
+            txn_timestamp shift = delta - (delta & 0x7fff);
+            v.wts += shift;
+            v.delta = delta - shift;
+            *r->tuple_ts = v;
          }
 #endif
          if (lock_rc == LOCK_TABLE_RC_OK) {
