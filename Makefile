@@ -89,7 +89,7 @@ DEPFLAGS  = -MMD -MP
 # Add libraries in third-party
 ICEBERGHT_HOME = ./third-party/iceberghashtable
 INCLUDE += -I$(ICEBERGHT_HOME)/include -I$(ICEBERGHT_HOME)/src
-CFLAGS  += -DENABLE_RESIZE
+# CFLAGS  += -DENABLE_RESIZE
 LDFLAGS += -L$(ICEBERGHT_HOME)
 LIBS	+= -liceberghashtable
 
@@ -343,7 +343,7 @@ $(LIBDIR)/libsplinterdb.a : $(OBJ) | $$(@D)/. $(CONFIG_FILE)
 	$(PROLIX) # blank line
 
 $(ICEBERGHT_HOME)/libiceberghashtable.so : $(call rwildcard, $(ICEBERGHT_HOME)/src, *.c)
-	$(MAKE) -C $(ICEBERGHT_HOME) libiceberghashtable.so
+	$(MAKE) -C $(ICEBERGHT_HOME) libiceberghashtable.so NORESIZE=t
 	$(PROLIX) # blank line
 
 #################################################################
@@ -501,6 +501,7 @@ clean :
 	$(CC) --version
 tags:
 	ctags -R $(SRCDIR)
+	ctags -R -e $(SRCDIR)
 
 
 #*************************************************************#
