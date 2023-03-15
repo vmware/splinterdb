@@ -5,6 +5,12 @@
 #include "fantasticc_internal.h"
 #include "poison.h"
 
+/*
+ * This function has the following effects:
+ * A. If entry key is not in the cache, it inserts the key in the cache with
+ * refcount=1 and value=0. B. If the key is already in the cache, it just
+ * increases the refcount. C. returns the pointer to the value.
+ */
 static inline bool
 rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
 {
@@ -13,31 +19,38 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
       return FALSE;
    }
 
-   KeyType   key_ht   = (KeyType)slice_data(entry->key);
-   ValueType value_ht = {0};
+   KeyType key_ht = (KeyType)slice_data(entry->key);
+   // ValueType value_ht = {0};
 #if EXPERIMENTAL_MODE_KEEP_ALL_KEYS == 1
-   bool is_new_item = iceberg_insert_without_increasing_refcount(
-      txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
+   // bool is_new_item = iceberg_insert_without_increasing_refcount(
+   //    txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
+
+   timestamp_set ts = {0};
+   entry->tuple_ts  = &ts;
+   bool is_new_item = iceberg_insert_and_get_without_increasing_refcount(
+      txn_kvsb->tscache,
+      key_ht,
+      (ValueType **)&entry->tuple_ts,
+      platform_get_tid());
+   platform_assert(entry->tuple_ts != &ts);
 #else
    // increase refcount for key
-   bool is_new_item =
-      iceberg_insert(txn_kvsb->tscache, key_ht, value_ht, platform_get_tid());
+   timestamp_set ts = {0};
+   entry->tuple_ts  = &ts;
+   bool is_new_item = iceberg_insert_and_get(txn_kvsb->tscache,
+                                             key_ht,
+                                             (ValueType **)&entry->tuple_ts,
+                                             platform_get_tid());
 #endif
 
    // get the pointer of the value from the iceberg
-   platform_assert(iceberg_get_value(txn_kvsb->tscache,
-                                     key_ht,
-                                     (ValueType **)&entry->tuple_ts,
-                                     platform_get_tid()));
+   // platform_assert(iceberg_get_value(txn_kvsb->tscache,
+   //                                   key_ht,
+   //                                   (ValueType **)&entry->tuple_ts,
+   //                                   platform_get_tid()));
 
    platform_assert(((uint64)entry->tuple_ts) % sizeof(uint64) == 0);
 
-   // if (entry->is_read)
-   //    platform_error_log("insert %s tuple_ts: %p refcount: %d %lu\n",
-   //                       key_ht,
-   //                       (void *)entry->tuple_ts,
-   //                       entry->tuple_ts->refcount,
-   //                       platform_get_tid());
    entry->need_to_keep_key = entry->need_to_keep_key || is_new_item;
    return is_new_item;
 }
