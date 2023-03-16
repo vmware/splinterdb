@@ -80,6 +80,34 @@ platform_shm_hip(platform_heap_id hid)
 }
 
 /*
+ * Address 'addr' is valid if it's just past end of control block and within
+ * shared segment.
+ */
+static inline bool
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
+{
+   debug_assert(platform_shm_heap_handle_valid(heap_handle),
+                "Shared memory heap_handle %p is invalid.\n",
+                heap_handle);
+
+   const shmem_info *shmaddr = (shmem_info *)heap_handle;
+   return ((addr >= ((void *)shmaddr + platform_shm_ctrlblock_size()))
+           && (addr < shmaddr->shm_end));
+}
+
+/*
+ * platform_valid_addr_in_heap(), platform_valid_addr_in_shm()
+ *
+ * Validate that input address 'addr' is a valid address within shared segment
+ * region.
+ */
+static inline bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
+{
+   return platform_valid_addr_in_shm(platform_heap_id_to_handle(heap_id), addr);
+}
+
+/*
  * -----------------------------------------------------------------------------
  * platform_shmcreate() -- Create a new / attach to an existing shared segment.
  *
@@ -333,35 +361,18 @@ platform_shm_free(platform_heap_id hid,
                   const char      *file,
                   const int        lineno)
 {
-   /*
-    * RESOLVE: This handling is broken but just gets us going through tests.
-        * There is at least one instance where we trip up while running
-        *
-        * $ ASAN_OPTIONS=detect_odr_violation=0
-    build/debug-asan/bin/unit/splinter_test --use-shmem test_inserts
-        *
-        * with this message:
-        *
-        [src/trunk.c:4031::trunk_bundle_build_filters()] -> platform_shm_free:
-    Requesting to free memory at 0x7fbeb991b800, for object
-    'compact_req->fp_arr' which is a memory chunk not allocated from shared
-    memory {start=0x7fbf09e00000, end=0x7fbf89dfffff}.
-        */
    if (!platform_valid_addr_in_heap(hid, ptr)) {
-      platform_error_log(
-         "[%s:%d::%s()] -> %s: Requesting to free memory at %p,"
-         " for object '%s' which is a memory chunk not allocated"
-         " from shared memory {start=%p, end=%p}.\n",
-         file,
-         lineno,
-         func,
-         __FUNCTION__,
-         ptr,
-         objname,
-         platform_shm_lop(hid),
-         platform_shm_hip(hid));
-
-      platform_free_from_heap(NULL_HEAP_ID, ptr, objname, func, file, lineno);
+      platform_error_log("[%s:%d::%s()] -> %s: Requesting to free memory"
+                         " at %p, for object '%s' which is a memory chunk not"
+                         " allocated from shared memory {start=%p, end=%p}.\n",
+                         file,
+                         lineno,
+                         func,
+                         __FUNCTION__,
+                         ptr,
+                         objname,
+                         platform_shm_lop(hid),
+                         platform_shm_hip(hid));
    }
 
    if (Trace_shmem || Trace_shmem_frees) {
@@ -406,34 +417,6 @@ platform_shm_heap_handle_valid(platform_heap_handle heap_handle)
    }
 
    return TRUE;
-}
-
-/*
- * platform_valid_addr_in_heap(), platform_valid_addr_in_shm()
- *
- * Validate that input address 'addr' is a valid address within shared segment
- * region.
- */
-bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
-{
-   return platform_valid_addr_in_shm(platform_heap_id_to_handle(heap_id), addr);
-}
-
-/*
- * Address 'addr' is valid if it's just past end of control block and within
- * shared segment.
- */
-bool
-platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
-{
-   debug_assert(platform_shm_heap_handle_valid(heap_handle),
-                "Shared memory heap_handle %p is invalid.\n",
-                heap_handle);
-
-   const shmem_info *shmaddr = (shmem_info *)heap_handle;
-   return ((addr >= ((void *)shmaddr + platform_shm_ctrlblock_size()))
-           && (addr < shmaddr->shm_end));
 }
 
 /*

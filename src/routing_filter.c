@@ -625,7 +625,7 @@ routing_filter_add(cache           *cc,
 
    mini_release(&mini, NULL_KEY);
 
-   platform_free(NULL_HEAP_ID, temp);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, temp);
 
    return STATUS_OK;
 }

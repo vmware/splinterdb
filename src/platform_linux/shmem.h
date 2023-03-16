@@ -21,12 +21,6 @@ platform_shmcreate(size_t                size,
 void
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
-bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr);
-
-bool
-platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr);
-
 /*
  * void * = splinter_shm_alloc(platform_heap_id heap_id, size_t nbytes,
  *                             const char * objname)

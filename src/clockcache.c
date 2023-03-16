@@ -616,6 +616,11 @@ clockcache_get_entry(clockcache *cc, uint32 entry_number)
 }
 
 static inline entry_status
+clockcache_get_flag(clockcache *cc, uint32 entry_number)
+{
+   return clockcache_get_entry(cc, entry_number)->status;
+}
+static inline entry_status
 clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 {
    return flag

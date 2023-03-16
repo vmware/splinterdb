@@ -256,7 +256,7 @@ CTEST2(limitations, test_splinterdb_create_invalid_task_system_config)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    // Cannot use up all possible threads for just bg-threads.
    cfg.num_normal_bg_threads   = (MAX_THREADS - 1);
@@ -466,7 +466,7 @@ CTEST2(limitations, test_file_error_returns)
    data_config       default_data_cfg;
 
    default_data_config_init(TEST_MAX_KEY_SIZE, &default_data_cfg);
-   create_default_cfg(&cfg, &default_data_cfg);
+   create_default_cfg(&cfg, &default_data_cfg, data->use_shmem);
 
    cfg.filename = "/dev/null/this-file-cannot-possibly-be-opened";
 
