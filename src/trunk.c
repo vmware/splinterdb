@@ -3344,10 +3344,6 @@ trunk_memtable_incorporate(trunk_handle  *spl,
                                "enqueuing build filter %lu-%u\n",
                                req->addr,
                                req->bundle_no);
-   /*
-    * RESOLVE: Same qs here: How do we enqueue and pass-down the 2nd arg
-    * that this fn, trunk_bundle_build_filters(), needs, but is an unused arg.
-    */
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
@@ -4678,17 +4674,6 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                       "compact_bundle split from %lu to %lu\n",
                                       req->addr,
                                       next_req->addr);
-         /*
-          * RESOLVE: How does this work that we enqueue a task giving one
-          * arg, 'next_req', but this fn takes 2 parameters. How do we
-          * pass-down scratch_buf arg via this enqueue?
-          *
-          * ? Seems like it's synthesized when this call-back fn is called
-          *    by task_group_perform_one(), which passes-in scratch space
-          *    retrieved by task_system_get_thread_scratch(, tid).
-          * ? What if the tid changes between enqueue'ing and de-queue'ing
-          *   process / thread?
-          */
          rc = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, next_req, FALSE);
          platform_assert_status_ok(rc);
