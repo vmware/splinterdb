@@ -494,8 +494,10 @@ pack_tests(cache           *cc,
                        FALSE,
                        0);
 
-   btree_pack_req req;
-   btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   platform_status rc = STATUS_TEST_FAILED;
+   btree_pack_req  req;
+   rc = btree_pack_req_init(&req, cc, cfg, iter, nkvs, NULL, 0, hid);
+   ASSERT_TRUE(SUCCESS(rc));
 
    if (!SUCCESS(btree_pack(&req))) {
       ASSERT_TRUE(FALSE, "Pack failed! req.num_tuples = %d\n", req.num_tuples);

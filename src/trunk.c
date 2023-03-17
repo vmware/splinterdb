@@ -4560,26 +4560,22 @@ trunk_btree_skiperator_deinit(trunk_handle           *spl,
  */
 
 /*
- * RESOLVE: btree_pack_req_init() may fail due to insufficient memory in
- * the shared segment. We are not returning proper rc. It will be better
- * if that fn and this fn were to return STATUS_NO_MEMORY. And teach the
- * caller to handle it, exit gracefully.
- *
- * Can the trunk compact bundle action be retried when memory is available?
+ * btree_pack_req_init() may fail due to insufficient memory in the shared
+ * segment. Inform the caller, so a graceful exit could be attempted.
  */
-static inline void
+static inline platform_status
 trunk_btree_pack_req_init(trunk_handle   *spl,
                           iterator       *itor,
                           btree_pack_req *req)
 {
-   btree_pack_req_init(req,
-                       spl->cc,
-                       &spl->cfg.btree_cfg,
-                       itor,
-                       spl->cfg.max_tuples_per_node,
-                       spl->cfg.filter_cfg.hash,
-                       spl->cfg.filter_cfg.seed,
-                       spl->heap_id);
+   return btree_pack_req_init(req,
+                              spl->cc,
+                              &spl->cfg.btree_cfg,
+                              itor,
+                              spl->cfg.max_tuples_per_node,
+                              spl->cfg.filter_cfg.hash,
+                              spl->cfg.filter_cfg.seed,
+                              spl->heap_id);
 }
 
 static void
@@ -4812,7 +4808,17 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                               &merge_itor);
    platform_assert_status_ok(rc);
    btree_pack_req pack_req;
-   trunk_btree_pack_req_init(spl, &merge_itor->super, &pack_req);
+   rc = trunk_btree_pack_req_init(spl, &merge_itor->super, &pack_req);
+   if (!SUCCESS(rc)) {
+      platform_error_log("trunk_btree_pack_req_init failed: %s\n",
+                         platform_status_to_string(rc));
+
+      trunk_compact_bundle_cleanup_iterators(
+         spl, &merge_itor, num_branches, skip_itor_arr);
+      btree_pack_req_deinit(&pack_req, spl->heap_id);
+      platform_free(spl->heap_id, req);
+      goto out;
+   }
    req->fp_arr = pack_req.fingerprint_arr;
    if (spl->cfg.use_stats) {
       pack_start = platform_get_timestamp();
@@ -7055,10 +7061,14 @@ trunk_range(trunk_handle  *spl,
             tuple_function func,
             void          *arg)
 {
+   platform_status       rc = STATUS_NO_MEMORY;
    trunk_range_iterator *range_itor =
       TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
-   debug_assert(range_itor != NULL);
-   platform_status rc = trunk_range_iterator_init(
+   if (range_itor == NULL) {
+      return STATUS_NO_MEMORY;
+   }
+
+   rc = trunk_range_iterator_init(
       spl, range_itor, start_key, POSITIVE_INFINITY_KEY, num_tuples);
    if (!SUCCESS(rc)) {
       goto destroy_range_itor;

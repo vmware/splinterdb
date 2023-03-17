@@ -210,8 +210,8 @@ platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
  */
 platform_status
 platform_shmcreate(size_t                size,
-                   platform_heap_handle *heap_handle,
-                   platform_heap_id     *heap_id)
+                   platform_heap_handle *heap_handle, // Out
+                   platform_heap_id     *heap_id)         // Out
 {
    platform_assert((*heap_handle == NULL),
                    "Heap handle is expected to be NULL while creating a new "
@@ -735,7 +735,7 @@ platform_shm_find_free(shmem_info *shm,
    }
    shm_unlock_mem_frags(shm);
 
-   if (!found_tracked_frag) {
+   if (!found_tracked_frag && (Trace_shmem || Trace_shmem_allocs)) {
       char msg[200];
 
       snprintf(msg,

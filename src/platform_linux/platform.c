@@ -56,6 +56,13 @@ platform_get_stdout_stream(void)
    return Platform_default_log_handle;
 }
 
+/*
+ * platform_heap_create() - Create a heap for memory allocation.
+ *
+ * By default, we just revert to process' heap-memory and use malloc() / free()
+ * for memory management. If Splinter is run with shared-memory configuration,
+ * create a shared-segment which acts as the 'heap' for memory allocation.
+ */
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      size_t                max,

@@ -129,9 +129,6 @@ CTEST_SETUP(splinter)
    heap_capacity        = MAX(heap_capacity, 2 * GiB);
 
    bool use_shmem = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
-   if (use_shmem) {
-      platform_default_log("Run test using shared memory segment.\n");
-   }
 
    // Create a heap for io, allocator, cache and splinter
    platform_status rc = platform_heap_create(platform_get_module_id(),
