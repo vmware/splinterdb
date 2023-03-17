@@ -450,27 +450,38 @@ platform_aligned_malloc(const platform_heap_id heap_id,
 }
 
 /*
+ * platform_realloc() - Reallocate 'newsize' bytes and copy over old contents.
+ *
+ * This is a wrapper around C-realloc() but farms over to shared-memory
+ * based realloc, when needed.
+ *
+ * The interface is intentional to avoid inadvertently swapping 'oldsize' and
+ * 'newsize' in the call, if they were to appear next to each other.
+ *
  * Reallocing to size 0 must be equivalent to freeing.
  * Reallocing from NULL must be equivalent to allocing.
  */
 static inline void *
-platform_realloc(const platform_heap_id UNUSED_PARAM(heap_id),
+platform_realloc(const platform_heap_id heap_id,
+                 const size_t           oldsize,
                  void                  *ptr, // IN
-                 const size_t           size)          // IN
+                 const size_t           newsize)       // IN
 {
    /* FIXME: alignment? */
-   // Farm control off to shared-memory base realloc, if it's configured
+
+   // Farm control off to shared-memory based realloc, if it's configured
    if (heap_id) {
       // The shmem-based allocator is expecting all memory requests to be of
       // aligned sizes, as that's what platform_aligned_malloc() does. So, to
       // keep that allocator happy, align this memory request if needed.
       // As this is the case of realloc, we assume that it would suffice to
       // align at platform's natural cacheline boundary.
-      const size_t padding  = platform_alignment(PLATFORM_CACHELINE_SIZE, size);
-      const size_t required = (size + padding);
-      return splinter_shm_realloc(heap_id, ptr, required);
+      const size_t padding =
+         platform_alignment(PLATFORM_CACHELINE_SIZE, newsize);
+      const size_t required = (newsize + padding);
+      return splinter_shm_realloc(heap_id, ptr, oldsize, required);
    } else {
-      return realloc(ptr, size);
+      return realloc(ptr, newsize);
    }
 }
 

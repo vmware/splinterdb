@@ -82,9 +82,9 @@ function record_elapsed_time() {
    local fmtstr=": %4ds [ %2dh %2dm %2ds ]\n"
    if [ "$RUN_NIGHTLY_TESTS" == "true" ]; then
       # Provide wider test-tag for nightly tests which print verbose descriptions
-      fmtstr="%-80s""${fmtstr}"
+      fmtstr="%-105s""${fmtstr}"
    else
-      fmtstr="%-70s""${fmtstr}"
+      fmtstr="%-85s""${fmtstr}"
    fi
 
    # Log a line in the /tmp log-file; for future cat of summary output
@@ -637,7 +637,7 @@ function run_splinter_perf_tests() {
    # Re-run small perf test configuring background threads. This scenario
    # validates that we can configure bg- and user-threads in one go.
    # shellcheck disable=SC2086
-   run_with_timing "Quick Performance test with bg-threads${use_msg}" \
+   run_with_timing "Quick Performance test with background threads${use_msg}" \
         "$BINDIR"/driver_test splinter_test --perf \
                                             $use_shmem \
                                             --num-insert-threads 4 \
@@ -708,11 +708,11 @@ function run_tests_with_shared_memory() {
    # Run all the unit-tests first, to get basic coverage of shared-memory support.
    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
 
-   # run_slower_unit_tests "--use-shmem"
-   # if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
+   run_slower_unit_tests "--use-shmem"
+   if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
 
-   # run_splinter_functionality_tests "--use-shmem"
-   # run_splinter_perf_tests "--use-shmem"
+   run_splinter_functionality_tests "--use-shmem"
+   run_splinter_perf_tests "--use-shmem"
 }
 
 # ##################################################################
@@ -804,6 +804,19 @@ if [ "$INCLUDE_SLOW_TESTS" != "true" ]; then
 fi
 
 # ---- Rest of the coverage runs included in CI test runs ----
+UNIT_TESTS_DB_DEV="unit_tests_db"
+
+# ------------------------------------------------------------------------
+# Fast-path execution support. You can invoke this script specifying the
+# name of one of the functions to execute a specific set of tests.
+# E.g. ./test.sh run_tests_with_shared_memory
+if [ $# -eq 1 ]; then
+
+   $1
+   record_elapsed_time ${testRunStartSeconds} "All Tests"
+   cat_exec_log_file
+   exit 0
+fi
 
 # Run all the unit-tests first, to get basic coverage
 run_with_timing "Fast unit tests" "$BINDIR"/unit_test
@@ -813,7 +826,6 @@ run_with_timing "Fast unit tests" "$BINDIR"/unit_test
 # ------------------------------------------------------------------------
 run_slower_unit_tests ""
 
-UNIT_TESTS_DB_DEV="unit_tests_db"
 if [ -f ${UNIT_TESTS_DB_DEV} ]; then rm ${UNIT_TESTS_DB_DEV}; fi
 
 run_splinter_functionality_tests ""

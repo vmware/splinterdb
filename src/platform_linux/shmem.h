@@ -57,16 +57,24 @@ platform_shm_free(platform_heap_id hid,
                   const char      *file,
                   const int        lineno);
 
-// Caller-macro to synthesize call-site details.
-// RESOLVE: Patch these in for now; Fix it properly later on.
-#define splinter_shm_realloc(heap_id, oldptr, nbytes)                          \
+/*
+ * void * = splinter_shm_realloc(platform_heap_id heap_id, void *oldptr,
+ *                               size_t oldsize, size_t nbytes)
+ *
+ * Caller-macro to invoke 'realloc' interface from shared-segment. As we
+ * do not know how big the old chunk being reallocated is, we need to pass-down
+ * the 'oldsize' of the memory chunk pointed by 'oldptr'. Realloc needs to
+ * copy over contents of 'oldptr' to new memory allocated.
+ */
+#define splinter_shm_realloc(heap_id, oldptr, oldsize, nbytes)                 \
    platform_shm_realloc(                                                       \
-      heap_id, oldptr, nbytes, __FUNCTION__, __FILE__, __LINE__)
+      heap_id, oldptr, oldsize, nbytes, __func__, __FILE__, __LINE__)
 
 void *
 platform_shm_realloc(platform_heap_id hid,
                      void            *oldptr,
-                     const size_t     size,
+                     const size_t     oldsize,
+                     const size_t     newsize,
                      const char      *func,
                      const char      *file,
                      const int        lineno);

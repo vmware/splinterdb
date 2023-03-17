@@ -362,10 +362,17 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    Heap_id     = NULL;
    Heap_handle = NULL;
 
+   fraction used_bytes_pct;
+   fraction free_bytes_pct;
+   used_bytes_pct = init_fraction(shm_used_bytes, shm_total_bytes);
+   free_bytes_pct = init_fraction(shm_free_bytes, shm_total_bytes);
+
+   // clang-format off
    // Always trace destroy of shared memory segment.
    platform_default_log("Deallocated SplinterDB shared memory "
-                        "segment at %p, shmid=%d. Used=%lu bytes (%s %d %%)"
-                        ", Free=%lu bytes (%s %d %%)"
+                        "segment at %p, shmid=%d."
+                        " Used=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
+                        ", Free=%lu bytes (%s, " FRACTION_FMT( 4, 2) " %%)"
                         ", Large fragments in-use HWM=%u"
                         ", consumed=%lu bytes (%s)"
                         ".\n",
@@ -373,13 +380,14 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
                         shmid,
                         shm_used_bytes,
                         size_str(shm_used_bytes),
-                        (int)((shm_used_bytes * 1.0 / shm_total_bytes) * 100),
+                        (FRACTION_ARGS(used_bytes_pct) * 100),
                         shm_free_bytes,
                         size_str(shm_free_bytes),
-                        (int)((shm_free_bytes * 1.0 / shm_total_bytes) * 100),
+                        (FRACTION_ARGS(free_bytes_pct) * 100),
                         frags_inuse_HWM,
                         used_by_large_frags_bytes,
                         size_str(used_by_large_frags_bytes));
+   // clang-format off
 }
 
 /*
@@ -480,21 +488,29 @@ platform_shm_alloc(platform_heap_id hid,
  * -----------------------------------------------------------------------------
  * platform_shm_realloc() -- Re-allocate n-bytes from shared segment.
  *
- * Functionally is similar to 'realloc' system call. We do a fake free and then
- * allocate required # of bytes.
+ * Functionally is similar to 'realloc' system call. We allocate required # of
+ * bytes, copy over the old contents (if any), and do a fake free of the oldptr.
+ * -----------------------------------------------------------------------------
  */
 void *
 platform_shm_realloc(platform_heap_id hid,
                      void            *oldptr,
-                     const size_t     size,
+                     const size_t     oldsize,
+                     const size_t     newsize,
                      const char      *func,
                      const char      *file,
                      const int        lineno)
 {
-   if (oldptr) {
-      splinter_shm_free(hid, oldptr, "Unknown");
+   void *retptr = splinter_shm_alloc(hid, newsize, "Unknown");
+   if (retptr) {
+
+      // Copy over old contents, if any, and free that memory piece
+      if (oldptr) {
+         memcpy(retptr, oldptr, oldsize);
+         splinter_shm_free(hid, oldptr, "Unknown");
+      }
    }
-   return splinter_shm_alloc(hid, size, "Unknown");
+   return retptr;
 }
 
 /*
