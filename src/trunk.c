@@ -7055,7 +7055,8 @@ trunk_range(trunk_handle  *spl,
             tuple_function func,
             void          *arg)
 {
-   trunk_range_iterator *range_itor = TYPED_MALLOC(spl->heap_id, range_itor);
+   trunk_range_iterator *range_itor =
+      TYPED_MALLOC(PROCESS_PRIVATE_HEAP_ID, range_itor);
    debug_assert(range_itor != NULL);
    platform_status rc = trunk_range_iterator_init(
       spl, range_itor, start_key, POSITIVE_INFINITY_KEY, num_tuples);
@@ -7077,7 +7078,7 @@ trunk_range(trunk_handle  *spl,
 
 destroy_range_itor:
    trunk_range_iterator_deinit(range_itor);
-   platform_free(spl->heap_id, range_itor);
+   platform_free(PROCESS_PRIVATE_HEAP_ID, range_itor);
    return rc;
 }
 

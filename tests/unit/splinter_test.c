@@ -824,7 +824,7 @@ shadow_check_tuple_func(key returned_key, message value, void *varg)
       trunk_message_to_string(arg->spl, shadow_value, expected_value);
       trunk_message_to_string(arg->spl, value, actual_value);
 
-      CTEST_LOG_INFO("expected: '%s' | '%s'\n", expected_key, expected_value);
+      CTEST_LOG_INFO("\nexpected: '%s' | '%s'\n", expected_key, expected_value);
       CTEST_LOG_INFO("actual  : '%s' | '%s'\n", actual_key, actual_value);
       arg->errors++;
    }
