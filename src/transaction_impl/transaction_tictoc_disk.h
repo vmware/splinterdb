@@ -410,11 +410,11 @@ local_write(transactional_splinterdb *txn_kvsb,
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    const key          ukey  = key_create_from_slice(user_key);
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
-   if (message_class(msg) == MESSAGE_TYPE_UPDATE
-       || message_class(msg) == MESSAGE_TYPE_DELETE)
-   {
-      get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts);
-   }
+   /* if (message_class(msg) == MESSAGE_TYPE_UPDATE */
+   /*     || message_class(msg) == MESSAGE_TYPE_DELETE) */
+   /* { */
+   /*    get_global_timestamps(txn_kvsb, entry, &entry->wts, &entry->rts); */
+   /* } */
 
    if (message_is_null(entry->msg)) {
       rw_entry_set_msg(entry, msg);

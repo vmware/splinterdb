@@ -542,14 +542,14 @@ local_write(transactional_splinterdb *txn_kvsb,
    const data_config *cfg   = txn_kvsb->tcfg->kvsb_cfg.data_cfg;
    const key          ukey  = key_create_from_slice(user_key);
    rw_entry          *entry = rw_entry_get(txn_kvsb, txn, user_key, cfg, FALSE);
-   if (message_class(msg) == MESSAGE_TYPE_UPDATE
-       || message_class(msg) == MESSAGE_TYPE_DELETE)
-   {
-      rw_entry_iceberg_insert(txn_kvsb, entry);
-      timestamp_set v = *entry->tuple_ts;
-      entry->wts      = v.wts;
-      entry->rts      = timestamp_set_get_rts(&v);
-   }
+   /* if (message_class(msg) == MESSAGE_TYPE_UPDATE */
+   /*     || message_class(msg) == MESSAGE_TYPE_DELETE) */
+   /* { */
+   /*    rw_entry_iceberg_insert(txn_kvsb, entry); */
+   /*    timestamp_set v = *entry->tuple_ts; */
+   /*    entry->wts      = v.wts; */
+   /*    entry->rts      = timestamp_set_get_rts(&v); */
+   /* } */
 
    if (message_is_null(entry->msg)) {
       rw_entry_set_msg(entry, msg);
