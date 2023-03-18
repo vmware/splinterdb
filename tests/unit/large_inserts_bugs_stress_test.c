@@ -108,7 +108,7 @@ CTEST_SETUP(large_inserts_bugs_stress)
    }
 
    data->cfg = (splinterdb_config){.filename   = TEST_DB_NAME,
-                                   .cache_size = 128 * Mega,
+                                   .cache_size = 512 * Mega,
                                    .disk_size  = 40 * Giga,
                                    .use_shmem  = use_shmem,
                                    .data_cfg   = &data->default_data_config};
@@ -413,23 +413,23 @@ CTEST2(large_inserts_bugs_stress, test_random_keys_random_values_threaded)
  *
  * NOTE: Semantics of random_key_fd:
  *
- *  o == 0: => Each thread will insert into its own assigned space of
- *          {start-value, num-inserts} range. The concurrent inserts are all
- *          unique non-conflicting keys.
+ *  fd == 0: => Each thread will insert into its own assigned space of
+ *              {start-value, num-inserts} range. The concurrent inserts are all
+ *              unique non-conflicting keys.
  *
- *  o  > 0: => Each thread will insert num_inserts rows with randomly generated
- *          keys, usually fully-packed to TEST_KEY_SIZE.
+ *  fd  > 0: => Each thread will insert num_inserts rows with randomly generated
+ *              keys, usually fully-packed to TEST_KEY_SIZE.
  *
- *  o  < 0: => Each thread will insert num_inserts rows all starting at the
- *          same start value; chosen as 0.
- *          This is a lapsed case to exercise heavy inserts of duplicate
- *          keys, creating diff BTree split dynamics.
+ *  fd  < 0: => Each thread will insert num_inserts rows all starting at the
+ *              same start value; chosen as 0.
+ *              This is a lapsed case to exercise heavy inserts of duplicate
+ *              keys, creating diff BTree split dynamics.
  *
  * NOTE: Semantics of random_val_fd:
  *
  * You can use this to control the type of value that will be generated:
- *  == 0: Use sequential small-length values.
- *  == 1: Use randomly generated values, fully-packed to TEST_VALUE_SIZE.
+ *  fd == 0: Use sequential small-length values.
+ *  fd == 1: Use randomly generated values, fully-packed to TEST_VALUE_SIZE.
  * ----------------------------------------------------------------------------
  */
 static void
@@ -526,6 +526,8 @@ exec_worker_thread(void *w)
    platform_default_log("%s()::%d:Thread %-2lu inserts %lu (%lu million)"
                         ", %s key, %s value, "
                         "KV-pairs starting from %lu (%lu%s) ...\n",
+                        __func__,
+                        __LINE__,
                         thread_idx,
                         num_inserts,
                         (num_inserts / MILLION),
