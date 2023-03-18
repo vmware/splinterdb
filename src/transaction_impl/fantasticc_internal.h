@@ -22,9 +22,17 @@ typedef struct transactional_splinterdb {
    iceberg_table                   *tscache;
 } transactional_splinterdb;
 
-typedef struct timestamp_set {
-   txn_timestamp delta : 15; // rts = wts + delta
-   txn_timestamp wts : 49;
+// This causes a lot of delta overflow with tictoc
+/* typedef struct timestamp_set { */
+/*    txn_timestamp delta : 15; // rts = wts + delta */
+/*    txn_timestamp wts : 49; */
+/* } timestamp_set __attribute__((aligned(sizeof(txn_timestamp)))); */
+
+
+// TODO we don't need to use delta, use rts
+typedef struct {
+   txn_timestamp delta : 64;
+   txn_timestamp wts : 64;
 } timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
 
 // read_set and write_set entry stored locally
@@ -47,4 +55,11 @@ timestamp_set_get_rts(timestamp_set *ts)
 #else
    return ts->wts + ts->delta;
 #endif
+}
+
+static inline void
+timestamp_set_load(timestamp_set *tuple_ts, timestamp_set *v)
+{
+   __atomic_load(
+      (txn_timestamp *)tuple_ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
 }

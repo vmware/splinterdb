@@ -49,7 +49,8 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //                                   (ValueType **)&entry->tuple_ts,
    //                                   platform_get_tid()));
 
-   platform_assert(((uint64)entry->tuple_ts) % sizeof(uint64) == 0);
+   /* platform_assert(((uint64)entry->tuple_ts) % sizeof(txn_timestamp) == 0);
+    */
 
    entry->need_to_keep_key = entry->need_to_keep_key || is_new_item;
    return is_new_item;
@@ -433,7 +434,8 @@ RETRY_LOCK_WRITE_SET:
             // Handle delta overflow
             timestamp_set v     = *r->tuple_ts;
             txn_timestamp delta = commit_ts - v.wts;
-            txn_timestamp shift = delta - (delta & 0x7fff);
+            /* txn_timestamp shift = delta - (delta & 0x7fff); */
+            txn_timestamp shift = delta - (delta & UINT64_MAX);
             v.wts += shift;
             v.delta      = delta - shift;
             *r->tuple_ts = v;
@@ -595,7 +597,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    timestamp_set v1, v2;
    do {
-      v1 = *entry->tuple_ts;
+      timestamp_set_load(entry->tuple_ts, &v1);
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
       platform_sleep_ns(100);
@@ -617,7 +619,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       }
 #endif
 
-      v2 = *entry->tuple_ts;
+      timestamp_set_load(entry->tuple_ts, &v2);
    } while (memcmp(&v1, &v2, sizeof(v1)) != 0
             || lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, entry)
                   == LOCK_TABLE_RC_BUSY);

@@ -12,7 +12,7 @@
 #if EXPERIMENTAL_MODE_TICTOC_DISK
 typedef uint32 txn_timestamp;
 #else
-typedef uint64 txn_timestamp;
+typedef uint128 txn_timestamp;
 #endif
 
 static inline void

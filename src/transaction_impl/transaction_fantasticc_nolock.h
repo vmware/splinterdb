@@ -22,10 +22,18 @@ typedef struct transactional_splinterdb {
    iceberg_table                   *tscache;
 } transactional_splinterdb;
 
+
+// TicToc paper used this structure, but it causes a lot of delta overflow
+/* typedef struct { */
+/*    txn_timestamp lock_bit : 1; */
+/*    txn_timestamp delta : 15; */
+/*    txn_timestamp wts : 48; */
+/* } timestamp_set __attribute__((aligned(sizeof(txn_timestamp)))); */
+
 typedef struct {
    txn_timestamp lock_bit : 1;
-   txn_timestamp delta : 15;
-   txn_timestamp wts : 48;
+   txn_timestamp delta : 64;
+   txn_timestamp wts : 63;
 } timestamp_set __attribute__((aligned(sizeof(txn_timestamp))));
 
 static inline bool
@@ -46,9 +54,19 @@ timestamp_set_compare_and_swap(timestamp_set *ts,
                                timestamp_set *v1,
                                timestamp_set *v2)
 {
-   uint64 v1_p = *(uint64 *)v1;
-   uint64 v2_p = *(uint64 *)v2;
-   return __sync_bool_compare_and_swap((uint64 *)ts, v1_p, v2_p);
+   return __atomic_compare_exchange((volatile txn_timestamp *)ts,
+                                    (txn_timestamp *)v1,
+                                    (txn_timestamp *)v2,
+                                    TRUE,
+                                    __ATOMIC_RELAXED,
+                                    __ATOMIC_RELAXED);
+}
+
+static inline void
+timestamp_set_load(timestamp_set *ts, timestamp_set *v)
+{
+   __atomic_load(
+      (volatile txn_timestamp *)ts, (txn_timestamp *)v, __ATOMIC_RELAXED);
 }
 
 typedef struct rw_entry {
@@ -57,9 +75,9 @@ typedef struct rw_entry {
    txn_timestamp  wts;
    txn_timestamp  rts;
    timestamp_set *tuple_ts;
-   char           is_read;
-   char           need_to_keep_key;
-   char           need_to_decrease_refcount;
+   bool           is_read;
+   bool           need_to_keep_key;
+   bool           need_to_decrease_refcount;
 } rw_entry;
 
 
@@ -107,7 +125,8 @@ rw_entry_iceberg_insert(transactional_splinterdb *txn_kvsb, rw_entry *entry)
    //                                   (ValueType **)&entry->tuple_ts,
    //                                   platform_get_tid()));
 
-   platform_assert(((uint64)entry->tuple_ts) % sizeof(uint64) == 0);
+   /* platform_assert(((uint64)entry->tuple_ts) % sizeof(txn_timestamp) == 0);
+    */
 
    entry->need_to_keep_key = entry->need_to_keep_key || is_new_item;
    return is_new_item;
@@ -246,7 +265,8 @@ static inline bool
 rw_entry_try_lock(rw_entry *entry)
 {
    timestamp_set v1, v2;
-   v1 = v2 = *entry->tuple_ts;
+   timestamp_set_load(entry->tuple_ts, &v1);
+   v2 = v1;
    if (v1.lock_bit) {
       return false;
    }
@@ -259,7 +279,8 @@ rw_entry_unlock(rw_entry *entry)
 {
    timestamp_set v1, v2;
    do {
-      v1 = v2     = *entry->tuple_ts;
+      timestamp_set_load(entry->tuple_ts, &v1);
+      v2          = v1;
       v2.lock_bit = 0;
    } while (!timestamp_set_compare_and_swap(entry->tuple_ts, &v1, &v2));
 }
@@ -451,7 +472,8 @@ RETRY_LOCK_WRITE_SET:
          timestamp_set v1, v2;
          do {
             is_success = TRUE;
-            v1 = v2                            = *r->tuple_ts;
+            timestamp_set_load(r->tuple_ts, &v1);
+            v2                                 = v1;
             bool          is_wts_different     = r->wts != v1.wts;
             txn_timestamp rts                  = timestamp_set_get_rts(&v1);
             bool          is_locked_by_another = rts <= commit_ts
@@ -463,7 +485,9 @@ RETRY_LOCK_WRITE_SET:
             }
             if (rts <= commit_ts) {
                txn_timestamp delta = commit_ts - v1.wts;
-               txn_timestamp shift = delta - (delta & 0x7fff);
+               /* txn_timestamp shift = delta - (delta & 0x7fff); */
+               txn_timestamp shift = delta - (delta & UINT64_MAX);
+               platform_assert(shift == 0);
                v2.wts += shift;
                v2.delta = delta - shift;
                is_success =
@@ -507,7 +531,8 @@ RETRY_LOCK_WRITE_SET:
 #endif
          timestamp_set v1, v2;
          do {
-            v1 = v2     = *w->tuple_ts;
+            timestamp_set_load(w->tuple_ts, &v1);
+            v2          = v1;
             v2.wts      = commit_ts;
             v2.delta    = 0;
             v2.lock_bit = 0;
@@ -617,7 +642,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    timestamp_set v1, v2;
    do {
-      v1 = *entry->tuple_ts;
+      timestamp_set_load(entry->tuple_ts, &v1);
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
       platform_sleep_ns(100);
@@ -639,7 +664,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
       }
 #endif
 
-      v2 = *entry->tuple_ts;
+      timestamp_set_load(entry->tuple_ts, &v2);
    } while (memcmp(&v1, &v2, sizeof(v1)) != 0 || v1.lock_bit);
 
    entry->wts = v1.wts;
