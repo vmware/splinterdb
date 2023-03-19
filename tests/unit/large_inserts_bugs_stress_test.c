@@ -122,7 +122,7 @@ CTEST_SETUP(large_inserts_bugs_stress)
 
    data->num_inserts =
       (data->master_cfg.num_inserts ? data->master_cfg.num_inserts
-                                    : (20 * MILLION));
+                                    : (1 * MILLION));
 
    // If num_threads is unspecified, use default for this test.
    if (!data->master_cfg.num_threads) {
@@ -293,6 +293,9 @@ CTEST2_SKIP(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_threaded)
 /*
  * Test case that fires up many threads each concurrently inserting large # of
  * KV-pairs, with all threads inserting from same start-value.
+ *
+ * With --num-threads 63, hangs in
+ *  clockcache_get_read() -> memtable_maybe_rotate_and_get_insert_lock()
  */
 CTEST2(large_inserts_bugs_stress,
        test_seq_key_seq_values_inserts_threaded_same_start_keyid)
@@ -623,14 +626,19 @@ exec_worker_thread(void *w)
                               (ictr + 1));
       }
    }
+   // Deal with low ns-elapsed times when inserting small #s of rows
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   uint64 elapsed_s  = NSEC_TO_SEC(elapsed_ns);
+   if (elapsed_s == 0) {
+      elapsed_s = 1;
+   }
 
    platform_default_log(
       "Thread-%lu Inserted %lu million KV-pairs in %lu s, %lu rows/s\n",
       thread_idx,
       ictr, // outer-loop ends at #-of-Millions inserted
-      NSEC_TO_SEC(elapsed_ns),
-      (num_inserts / NSEC_TO_SEC(elapsed_ns)));
+      elapsed_s,
+      (num_inserts / elapsed_s));
 
    if (wcfg->is_thread) {
       splinterdb_deregister_thread(kvsb);

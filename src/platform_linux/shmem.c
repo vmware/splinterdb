@@ -88,7 +88,7 @@ typedef struct shmem_info {
    void *shm_end;   // Points to end address; one past end of sh segment
    void *shm_next;  // Points to next 'free' address to allocate from.
    void *shm_splinterdb_handle;
-   void *shm_large_frag_hip;  // Highest addr of large-fragments tracked
+   void *shm_large_frag_hip; // Highest addr of large-fragments tracked
 
    platform_spinlock shm_mem_frags_lock;
    // Protected by shm_mem_frags_lock. Must hold to read or modify.
@@ -115,11 +115,12 @@ static void
 platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size);
 
 static void
-platform_shm_track_free(shmem_info *shm, void *addr,
-                  const char      *objname,
-                  const char      *func,
-                  const char      *file,
-                  const int        lineno);
+platform_shm_track_free(shmem_info *shm,
+                        void       *addr,
+                        const char *objname,
+                        const char *func,
+                        const char *file,
+                        const int   lineno);
 
 static void *
 platform_shm_find_free(shmem_info *shm,
@@ -538,8 +539,8 @@ platform_shm_realloc(platform_heap_id hid,
  * We expect that the 'ptr' is a valid address within the shared segment.
  * Otherwise, it means that Splinter was configured to run with shared memory,
  * -and- in some code path we allocated w/o using shared memory
- * (i.e. NULL_HEAP_ID interface), but ended up calling shmem-free interface.
- * That would be a code error that results in a memory leak.
+ * (i.e. PROCESS_PRIVATE_HEAP_ID interface), but ended up calling shmem-free
+ * interface. That would be a code error which results in a memory leak.
  * -----------------------------------------------------------------------------
  */
 void
@@ -569,9 +570,10 @@ platform_shm_free(platform_heap_id hid,
                          objname,
                          platform_shm_lop(hid),
                          platform_shm_hip(hid));
+      return;
    }
 
-   platform_shm_track_free(shminfop, ptr, objname, func, file, lineno);
+   platform_shm_track_free(shminfo, ptr, objname, func, file, lineno);
 
    if (Trace_shmem || Trace_shmem_frees) {
       platform_default_log("  [%s:%d::%s()] -> %s: Request to free memory at "
@@ -659,10 +661,10 @@ platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
  */
 static void
 platform_shm_track_free(shmem_info *shm, void *addr,
-                  const char      *objname,
-                  const char      *func,
-                  const char      *file,
-                  const int        lineno)
+                        const char      *objname,
+                        const char      *func,
+                        const char      *file,
+                        const int        lineno)
 {
    shm_lock_mem_frags(shm);
 
@@ -674,6 +676,7 @@ platform_shm_track_free(shmem_info *shm, void *addr,
       return;
    }
    bool found_tracked_frag = FALSE;
+   bool trace_shmem = (Trace_shmem || Trace_shmem_frees);
 
    shm_frag_info *frag = shm->shm_mem_frags;
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
@@ -686,7 +689,7 @@ platform_shm_track_free(shmem_info *shm, void *addr,
       frag->shm_frag_freed_by_pid = getpid();
       frag->shm_frag_freed_by_tid = platform_get_tid();
 
-      if (Trace_shmem || Trace_shmem_frees || TRUE) {
+      if (trace_shmem) {
          platform_default_log("OS-pid=%d, ThreadID=%lu"
                               ", Track freed fragment of size=%lu bytes, at slot=%d"
                               ", addr=%p"
@@ -705,7 +708,7 @@ platform_shm_track_free(shmem_info *shm, void *addr,
    }
    shm_unlock_mem_frags(shm);
 
-   if (!found_tracked_frag) {
+   if (!found_tracked_frag && trace_shmem) {
       platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()] "
                            ", Fragment %p for object '%s' is not tracked\n",
                            getpid(),
@@ -730,14 +733,11 @@ platform_shm_find_free(shmem_info *shm,
                        const char *file,
                        const int   lineno)
 {
-   bool found_tracked_frag = FALSE;
-   shm_lock_mem_frags(shm);
-
    debug_assert((size >= SHM_LARGE_FRAG_SIZE),
                 "Incorrect usage of this interface for requested"
                 " size=%lu bytes. Size should be >= %lu bytes.\n",
-      size,
-      SHM_LARGE_FRAG_SIZE);
+                size,
+                SHM_LARGE_FRAG_SIZE);
 
    void          *retptr   = NULL;
    shm_frag_info *frag     = shm->shm_mem_frags;
@@ -789,7 +789,7 @@ platform_shm_find_free(shmem_info *shm,
       // Zero out reallocated memory fragment, just to be sure ...
       memset(retptr, 0, frag->shm_frag_size);
 
-      if (Trace_shmem || Trace_shmem_allocs || TRUE) {
+      if (Trace_shmem || Trace_shmem_allocs) {
          char msg[80];
 
          snprintf(

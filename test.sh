@@ -223,20 +223,24 @@ function nightly_functionality_stress_tests() {
 function nightly_unit_stress_tests() {
     local use_shmem=$1
 
-    local n_mills=30
+    local n_mills=10
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
-    local n_threads=8
 
     # ----
-    local test_descr="${nrows_h} rows"
+    local n_threads=63
+    local test_descr="${nrows_h} rows, ${n_threads} threads"
+    local test_name=large_inserts_bugs_stress_test
+
+    # FIXME: This stress test is currently unstable. We run into shmem-OOMs
+    # Need the fixes to configure shared segment size at create time.
     echo "$Me: Run ${test_name} with ${n_mills} million rows, ${n_threads} threads"
     # shellcheck disable=SC2086
-    run_with_timing "Unit Stress test ${test_descr}" \
-            "$BINDIR"/unit/large_inserts_bugs_stress_test \
-                                            $use_shmem \
-                                            --num-inserts ${num_rows} \
-                                            --num-threads ${n_threads}
+    run_with_timing "Large Inserts Stress test ${test_descr}" \
+            "$BINDIR"/unit/${test_name} \
+                               $use_shmem \
+                               --num-inserts ${num_rows} \
+                               --num-threads ${n_threads}
 }
 
 # #############################################################################
@@ -586,6 +590,8 @@ function run_slower_unit_tests() {
 
     # Use fewer rows for this case, to keep elapsed times of MSAN runs reasonable.
     msg="Splinter lookups test ${use_msg}"
+    local n_mills=2
+    local num_rows=$((n_mills * 1000 * 1000))
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
         "$BINDIR"/unit/splinter_test ${use_shmem} --num-inserts 2000000 test_lookups
@@ -594,6 +600,14 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
         "$BINDIR"/unit/splinter_test ${use_shmem} test_splinter_print_diags
+
+    # Test runs w/ default of 1M rows for --num-inserts
+    n_mills=1
+    local n_threads=8
+    msg="Large inserts stress test, ${n_mills}M rows, ${n_threads} threads ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} --num-threads ${n_threads}
 }
 
 # ##################################################################
@@ -834,11 +848,15 @@ UNIT_TESTS_DB_DEV="unit_tests_db"
 
 # ------------------------------------------------------------------------
 # Fast-path execution support. You can invoke this script specifying the
-# name of one of the functions to execute a specific set of tests.
-# E.g. ./test.sh run_tests_with_shared_memory
-if [ $# -eq 1 ]; then
+# name of one of the functions to execute a specific set of tests. If the
+# function takes arguments, pass them on the command-line.
+# E.g. INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+#      INCLUDE_SLOW_TESTS=true ./test.sh nightly_unit_stress_tests --use-shmem
+# ------------------------------------------------------------------------
+if [ $# -ge 1 ]; then
 
-   $1
+   # shellcheck disable=SC2048
+   $*
    record_elapsed_time ${testRunStartSeconds} "All Tests"
    cat_exec_log_file
    exit 0

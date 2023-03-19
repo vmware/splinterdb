@@ -221,8 +221,10 @@ task_invoke_with_hooks(void *func_and_args)
    // the actual Splinter work will be done.
    func(arg);
 
-   platform_free(thread_started->ts->heap_id,
-                 thread_started->ts->thread_scratch[thread_started->tid]);
+   void *scratchptr = thread_started->ts->thread_scratch[thread_started->tid];
+   if (scratchptr) {
+      platform_free(thread_started->ts->heap_id, scratchptr);
+   }
 
    platform_set_tid(INVALID_TID);
    task_deallocate_threadid(thread_started->ts, thread_started->tid);
