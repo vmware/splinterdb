@@ -382,6 +382,65 @@ CTEST2(splinter_shmem, test_realloc_of_large_fragment)
 
 /*
  * ---------------------------------------------------------------------------
+ * Test that free followed by a request of the same size will reallocate the
+ * recently-freed fragment, avoiding any existing in-use fragments of the same
+ * size.
+ * ---------------------------------------------------------------------------
+ */
+CTEST2(splinter_shmem, test_free_realloc_around_inuse_fragments)
+{
+   void *next_free = platform_shm_next_free_addr(data->hid);
+
+   // Large fragments are tracked if their size >= this size.
+   size_t size         = (1 * MiB);
+   uint8 *keybuf1_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf1_1MiB, size);
+   uint8 *keybuf2_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf2_1MiB, size);
+   uint8 *keybuf3_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf3_1MiB, size);
+
+   // Re-establish next-free-ptr after this large allocation. We will use it
+   // below to assert that this location will not change when we re-use a
+   // large fragment for reallocation after it's been freed.
+   next_free = platform_shm_next_free_addr(data->hid);
+
+   // Save off fragment handles as free will NULL out ptr.
+   uint8 *old_keybuf2_1MiB = keybuf2_1MiB;
+
+   // Free the middle fragment that should get reallocated, below.
+   platform_free(data->hid, keybuf2_1MiB);
+
+   // Re-request (new) fragments of the same size.
+   keybuf2_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf2_1MiB, size);
+   ASSERT_TRUE((keybuf2_1MiB == old_keybuf2_1MiB),
+               "Expected to satisfy new 1MiB request at %p"
+               " with old 1MiB fragment ptr at %p\n",
+               keybuf2_1MiB,
+               old_keybuf2_1MiB);
+
+   ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
+
+   // As large-fragments allocated / freed are tracked in an array, verify
+   // that we will find the 1st one upon a re-request after a free.
+   uint8 *old_keybuf1_1MiB = keybuf1_1MiB;
+   platform_free(data->hid, keybuf1_1MiB);
+   platform_free(data->hid, keybuf2_1MiB);
+
+   // This re-request should re-allocate the 1st free fragment found.
+   keybuf2_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf2_1MiB, size);
+   ASSERT_TRUE((keybuf2_1MiB == old_keybuf1_1MiB),
+               "Expected to satisfy new 1MiB request at %p"
+               " with old 1MiB fragment ptr at %p\n",
+               keybuf2_1MiB,
+               old_keybuf1_1MiB);
+
+   // We've already freed keybuf1_1MiB; can't free a NULL ptr again.
+   // platform_free(data->hid, keybuf1_1MiB);
+
+   platform_free(data->hid, keybuf2_1MiB);
+   platform_free(data->hid, keybuf3_1MiB);
+}
+
+/*
+ * ---------------------------------------------------------------------------
  * Finding a free-fragment that's tracked for re-allocation implements a
  * very naive linear-search; first-fit algorigthm. This test case verifies
  * that:
