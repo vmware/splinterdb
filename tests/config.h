@@ -96,10 +96,10 @@ typedef struct master_config {
 
    // Shared memory support      **** Experimental feature ****
    uint64 shmem_size;
-   bool use_shmem; // Memory allocation done from shared segment
-   bool trace_shmem_allocs;
-   bool trace_shmem_frees;
-   bool trace_shmem; // Trace both allocs & frees from shared memory
+   bool   use_shmem; // Memory allocation done from shared segment
+   bool   trace_shmem_allocs;
+   bool   trace_shmem_frees;
+   bool   trace_shmem; // Trace both allocs & frees from shared memory
 
    platform_log_handle *log_handle;
 

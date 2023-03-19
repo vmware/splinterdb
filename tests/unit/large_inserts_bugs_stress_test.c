@@ -137,7 +137,14 @@ CTEST_SETUP(large_inserts_bugs_stress)
       return;
    }
 
+   // Run with higher configured shared memory, if specified
+   if (data->master_cfg.shmem_size > data->cfg.shmem_size) {
+      data->cfg.shmem_size = data->master_cfg.shmem_size;
+   }
    // Setup Splinter's background thread config, if specified
+   data->cfg.num_memtable_bg_threads = data->master_cfg.num_memtable_bg_threads;
+   data->cfg.num_normal_bg_threads   = data->master_cfg.num_normal_bg_threads;
+
 
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);

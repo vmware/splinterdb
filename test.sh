@@ -228,19 +228,25 @@ function nightly_unit_stress_tests() {
     local nrows_h="${n_mills} mil"
 
     # ----
-    local n_threads=63
+    local n_threads=32
     local test_descr="${nrows_h} rows, ${n_threads} threads"
     local test_name=large_inserts_bugs_stress_test
 
     # FIXME: This stress test is currently unstable. We run into shmem-OOMs
     # Need the fixes to configure shared segment size at create time.
+    # Also, we need a big machine with large # of cores to be able to run
+    # with this configuration. The config-params listed below -should- work but
+    # this combination has never been exercised successfull due to lack of hw.
     echo "$Me: Run ${test_name} with ${n_mills} million rows, ${n_threads} threads"
     # shellcheck disable=SC2086
     run_with_timing "Large Inserts Stress test ${test_descr}" \
             "$BINDIR"/unit/${test_name} \
                                $use_shmem \
+                               --shmem-capacity-gib 8 \
                                --num-inserts ${num_rows} \
-                               --num-threads ${n_threads}
+                               --num-threads ${n_threads} \
+                               --num-memtable-bg-threads 8 \
+                               --num-normal-bg-threads 20
 }
 
 # #############################################################################
@@ -613,6 +619,17 @@ function run_slower_unit_tests() {
     # shellcheck disable=SC2086
     run_with_timing "${msg}" \
         "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} --num-threads ${n_threads}
+
+    # Test runs w/ more inserts and enable bg-threads
+    n_mills=2
+    local n_threads=8
+    msg="Large inserts stress test, ${n_mills}M rows, ${n_threads} threads and 7 background threads ${use_msg}"
+    # shellcheck disable=SC2086
+    run_with_timing "${msg}" \
+        "$BINDIR"/unit/large_inserts_bugs_stress_test ${use_shmem} \
+                                                      --num-threads ${n_threads} \
+                                                      --num-normal-bg-threads 4 \
+                                                      --num-memtable-bg-threads 3
 }
 
 # ##################################################################
