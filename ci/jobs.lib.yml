@@ -13,14 +13,6 @@
 #@         "get_task_timeout",
 #@ )
 
-
-#@ load("sequences.lib.yml",
-#@         "sequence_pr_debug_build_test",
-#@         "sequence_pr_clang_format",
-#@         "sequence_pr_shell_scripts",
-#@ )
-
-
 ---
 
 #! Build and push a container image
@@ -66,15 +58,16 @@ plan:
 
 
 #! Build, test and publish container images
-#@ def job_main_push(compiler, also_latest=False):
-name: #@ "main-push-" + compiler
+#@ def job_publish_container(compiler, branch, also_latest=False):
+name: #@ branch + "-push-" + compiler
 public: true
 on_success: #@ step_set_commit_status("success", compiler)
 on_failure: #@ step_set_commit_status("failure", compiler)
 on_error: #@ step_set_commit_status("error", compiler)
 plan:
 - in_parallel:
-  - get: branch-main
+  - get: source
+    resource: #@ "branch-" + branch
     trigger: true
   - get: run-env-image-latest
     passed: [ recreate-run-env ]
@@ -85,12 +78,12 @@ plan:
     params: { format: oci }
     trigger: true
 - load_var: git-commit-sha
-  file: branch-main/.git/ref
+  file: source/.git/ref
   reveal: true
 - #@ step_set_commit_status("pending", compiler)
-- #@ step_build_splinterdb_image("branch-main", compiler, git_sha=True)
+- #@ step_build_splinterdb_image("source", compiler)
 - #@ step_test_with_image()
-- #@ step_collect_tags(compiler)
+- #@ step_collect_tags("source", compiler)
 - put: #@ "splinterdb-image-" + compiler
   attempts: 2  #! allow 1 retry, since Distribution Harbor can be flaky
   params:
@@ -101,7 +94,7 @@ plan:
   attempts: 2  #! allow 1 retry, since Distribution Harbor can be flaky
   params:
     image: image/image.tar
-    additional_tags: branch-main/.git/ref
+    additional_tags: source/.git/ref
 #@ end
 
 #@ end
@@ -124,17 +117,18 @@ plan:
 
 
 #! Debug build and test
-#@ def job_main(compiler, sanitize="", trigger="main", is_debug=False, test_nightly=False):
+#@ def job_test(compiler, branch, sanitize="", trigger="commit", is_debug=False, test_nightly=False):
 #@   name = friendly_name(compiler, is_debug, sanitize, test_nightly)
-name: #@ "main-" + name
+name: #@ branch + "-" + name
 public: true
 on_success: #@ step_set_commit_status("success", name)
 on_failure: #@ step_set_commit_status("failure", name)
 on_error: #@ step_set_commit_status("error", name)
 plan:
 - in_parallel:
-  - get: branch-main
-    trigger: #@ (trigger == "main")
+  - get: source
+    resource: #@ "branch-" + branch
+    trigger: #@ (trigger == "commit")
   - get: build-env-image-latest
     passed: [ recreate-build-env ]
     trigger: true
@@ -143,20 +137,21 @@ plan:
     trigger: true
 #@ end
 - #@ step_set_commit_status("pending", name)
-- #@ step_build_test(compiler, "branch-main", is_debug=is_debug, sanitize=sanitize, test_nightly=test_nightly)
+- #@ step_build_test(compiler, "source", is_debug=is_debug, sanitize=sanitize, test_nightly=test_nightly)
 #@ end
 
 ---
 
 #! Job to run against every PR
-#@ def job_pr_check(job_name, sequence, depends_on=[], description=""):
-name: #@ "pr-" + job_name
+#@ def job_pr_check(job_name, branch, sequence, depends_on=[], description=""):
+name: #@ branch + "-pr-" + job_name
 public: true
-on_success: #@ step_set_pr_status(job_name, "success", description)
-on_failure: #@ step_set_pr_status(job_name, "failure", description)
-on_error: #@ step_set_pr_status(job_name, "error", description)
+on_success: #@ step_set_pr_status(job_name, branch, "success", description)
+on_failure: #@ step_set_pr_status(job_name, branch, "failure", description)
+on_error: #@ step_set_pr_status(job_name, branch, "error", description)
 plan:
 - get: github-pull-request
+  resource: #@ "github-prs-" + branch
   trigger: true
   #@ if depends_on:
   passed: #@ depends_on
@@ -165,6 +160,6 @@ plan:
   #@ end
   params:
     list_changed_files: true
-- #@ step_set_pr_status(job_name, "pending", description)
+- #@ step_set_pr_status(job_name, branch, "pending", description)
 - #@ template.replace(sequence)
 #@ end
