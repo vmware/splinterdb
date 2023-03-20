@@ -532,10 +532,10 @@ routing_filter_add(cache           *cc,
          while (new_fps_added < new_index_count
                 || old_fps_added < old_index_count) {
             uint32 fp;
-            bool   is_old =
-               (0 || new_fps_added == new_index_count
-                || (1 && old_fps_added != old_index_count
-                    && old_src_fp[old_fps_added] <= new_src_fp[new_fps_added]));
+            bool   is_old = ((new_fps_added == new_index_count)
+                           || ((old_fps_added != old_index_count)
+                               && (old_src_fp[old_fps_added]
+                                   <= new_src_fp[new_fps_added])));
             if (is_old) {
                fp = old_src_fp[old_fps_added++];
             } else {

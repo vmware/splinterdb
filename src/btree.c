@@ -434,13 +434,13 @@ btree_find_pivot(const btree_config *cfg,
 
    debug_assert(!key_is_null(target));
 
-   *found = 0;
+   *found = FALSE;
 
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int cmp = btree_key_compare(cfg, btree_get_pivot(cfg, hdr, mid), target);
       if (cmp == 0) {
-         *found = 1;
+         *found = TRUE;
          return mid;
       } else if (cmp < 0) {
          lo = mid + 1;
@@ -476,14 +476,14 @@ btree_find_tuple(const btree_config *cfg,
 {
    int64 lo = 0, hi = btree_num_entries(hdr);
 
-   *found = 0;
+   *found = FALSE;
 
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int   cmp =
          btree_key_compare(cfg, btree_get_tuple_key(cfg, hdr, mid), target);
       if (cmp == 0) {
-         *found = 1;
+         *found = TRUE;
          return mid;
       } else if (cmp < 0) {
          lo = mid + 1;
