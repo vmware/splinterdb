@@ -8,6 +8,8 @@
 #@         "get_task_timeout",
 #@ )
 
+---
+
 #! Build plan sequences for various PR checks
 
 #@ def sequence_pr_build_test(compiler):
@@ -20,6 +22,9 @@
     - get: build-env-image-latest
       passed: [ recreate-build-env ]
       params: { format: oci }
+- load_var: git-commit-sha
+  file: "github-pull-request/.git/resource/head_sha"
+  reveal: true
 - #@ step_build_splinterdb_image("github-pull-request", compiler)
 - #@ step_test_with_image()
 #@ end
