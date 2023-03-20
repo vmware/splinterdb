@@ -95,7 +95,7 @@ typedef void (*test_trunk_thread_hdlr)(void *arg);
 static inline bool
 test_is_done(const uint8 done, const uint8 n)
 {
-   return ((done >> n) & 1);
+   return (((done >> n) & 1) != 0);
 }
 
 static inline void
@@ -610,7 +610,6 @@ do_operation(test_splinter_thread_params *params,
 
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
-               bool            found;
 
                test_key(&keybuf,
                         test_cfg[spl_idx].key_type,
@@ -626,7 +625,7 @@ do_operation(test_splinter_thread_params *params,
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
-               found = trunk_lookup_found(&msg);
+               bool found = trunk_lookup_found(&msg);
                if (found) {
                   params->lookup_stats[SYNC_LU].num_found++;
                } else {
