@@ -33,6 +33,10 @@
  * Section 1:
  * Shared types/typedefs that don't rely on anything platform-specific
  */
+#if !defined(__cplusplus)
+typedef int32 bool;
+#endif
+
 #if !defined(SPLINTER_DEBUG)
 #   define SPLINTER_DEBUG 0
 #else

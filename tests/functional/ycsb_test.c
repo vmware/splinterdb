@@ -181,7 +181,7 @@ print_latency_table(latency_table table, platform_log_handle *log_handle)
 {
    uint64_t exponent;
    uint64_t mantissa;
-   bool     started = 0;
+   bool     started = FALSE;
    uint64_t max     = max_latency(table);
 
    platform_log(log_handle, "latency count\n");
@@ -192,7 +192,7 @@ print_latency_table(latency_table table, platform_log_handle *log_handle)
                          "%20lu %20lu\n",
                          compute_latency(exponent, mantissa),
                          table[exponent][mantissa]);
-            started = 1;
+            started = TRUE;
             if (max == compute_latency(exponent, mantissa))
                return;
          }
