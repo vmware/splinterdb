@@ -105,7 +105,7 @@ platform_buffer_init(buffer_handle *bh, size_t length)
 {
    platform_status rc = STATUS_NO_MEMORY;
 
-   int prot  = PROT_READ | PROT_WRITE;
+   int prot = PROT_READ | PROT_WRITE;
 
    // Technically, for threaded execution model, MAP_PRIVATE is sufficient.
    // And we only need to create this mmap()'ed buffer in MAP_SHARED for

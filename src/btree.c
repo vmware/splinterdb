@@ -1777,15 +1777,16 @@ start_over:
     */
    btree_node parent_node = root_node;
    btree_node child_node;
-   child_node.addr          = index_entry_child_addr(parent_entry);
+   child_node.addr = index_entry_child_addr(parent_entry);
 #if SPLINTER_DEBUG
-   bool child_node_is_valid = allocator_page_valid(cache_get_allocator(cc),
-                                                   child_node.addr);
+   bool child_node_is_valid =
+      allocator_page_valid(cache_get_allocator(cc), child_node.addr);
    if (!child_node_is_valid) {
       btree_print_tree(Platform_default_log_handle,
                        cc,
                        (btree_config *)cfg,
-                       parent_node.addr);
+                       parent_node.addr,
+                       PAGE_TYPE_MEMTABLE);
    }
 #endif // SPLINTER_DEBUG
 

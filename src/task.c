@@ -348,7 +348,13 @@ task_register_thread(task_system *ts,
    threadid thread_tid;
 
    thread_tid = platform_get_tid();
-   platform_assert(thread_tid == INVALID_TID,
+
+   // Before registration, all SplinterDB threads' tid will be its default
+   // value; i.e. INVALID_TID. However, for the special case when we run tests
+   // that simulate process-model of execution, we fork() from the main test.
+   // Before registration, this 'thread' inherits the thread ID from the main
+   // thread, which will be == 0.
+   platform_assert(((thread_tid == INVALID_TID) || (thread_tid == 0)),
                    "[%s:%d::%s()] Attempt to register thread that is already "
                    "registered as thread %lu\n",
                    file,
