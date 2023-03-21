@@ -936,7 +936,10 @@ task_system_destroy(platform_heap_id hid, task_system **ts_in)
    }
    if (ts->tid_bitmask != ((uint64)-1)) {
       platform_error_log(
-         "Destroying task system that still has some registered threads.\n");
+         "Destroying task system that still has some registered threads."
+         ", tid=%lu, tid_bitmask=0x%lx\n",
+         tid,
+         ts->tid_bitmask);
    }
    platform_free(hid, ts);
    *ts_in = (task_system *)NULL;

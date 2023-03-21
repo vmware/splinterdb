@@ -295,10 +295,12 @@ splinter_io_apis_test(int argc, char *argv[])
     * child threads in its IO context.
     */
    io_context_t io_ctxt = io_get_context((io_handle *)io_hdl);
-   platform_default_log("Before fork()'ing: OS-pid=%d (%s), hh=%p, io_hdl=%p"
-                        ", IO context[threadID=%lu]: %p (%d bytes)"
+   platform_default_log("Before fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
+                        ", hh=%p, Parent io_hdl=%p"
+                        ", IO context[%lu]: %p (%d bytes)"
                         ", Async IO request array: %p\n",
                         pid,
+                        main_thread_idx,
                         whoami,
                         hh,
                         io_hdl,
@@ -350,15 +352,13 @@ splinter_io_apis_test(int argc, char *argv[])
 
       if (pid == 0) { // In child process ...
 
-         task_register_this_thread(tasks, trunk_get_scratch_size());
-
-         this_thread_idx = platform_get_tid();
-
          platform_default_log(
-            "After  fork()'ing: OS-pid=%d (%s), before io_handle_setup():"
-            " hh=%p, Parent_io_handle=%p, io_hdl=%p, IO context[threadID=%lu]: "
+            "After  fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
+            ", before thread registration,"
+            " hh=%p, Parent io_handle=%p, io_hdl=%p, IO context[%lu]: "
             "%p\n",
             getpid(),
+            this_thread_idx,
             whoami,
             hh,
             Parent_io_handle,
@@ -366,7 +366,9 @@ splinter_io_apis_test(int argc, char *argv[])
             this_thread_idx,
             io_get_context((io_handle *)io_hdl));
 
-         // rc      = io_handle_setup(io_hdl);	// , &io_cfg); // , hh, hid);
+         task_register_this_thread(tasks, trunk_get_scratch_size());
+         this_thread_idx = platform_get_tid();
+
          io_ctxt = io_get_context((io_handle *)io_hdl);
 
          // Reset the handles / variables that have changed in the child
@@ -375,26 +377,22 @@ splinter_io_apis_test(int argc, char *argv[])
          io_test_fn_arg.io_ctxt = io_ctxt;
          io_test_fn_arg.whoami  = whoami;
 
-         // Trace handles in child process
+         // Trace handles in child process, after thread registration
          platform_default_log(
-            "After  fork()'ing: OS-pid=%d (%s), after  io_handle_setup():"
-            " io_hdl=%p,"
-            "  IO context[threadID=%lu]: %p, Async IO request array: "
-            "%p\n",
+            "After  fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
+            ", after  thread registration,"
+            " hh=%p, Parent io_handle=%p, io_hdl=%p, IO context[%lu]: "
+            "%p, Async IO request array: %p\n",
             getpid(),
+            this_thread_idx,
             whoami,
+            hh,
+            Parent_io_handle,
             io_hdl,
             this_thread_idx,
             io_ctxt,
             io_get_io_async_req((io_handle *)io_hdl));
       }
-
-      platform_default_log(
-         "OS-pid=%d (%s), IO context before call to fn %s: %p\n",
-         getpid(),
-         whoami,
-         "test_sync_write_reads_by_threads",
-         io_ctxt);
 
       test_sync_write_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
 
@@ -425,14 +423,18 @@ splinter_io_apis_test(int argc, char *argv[])
       }
    }
 
-   task_system_destroy(hid, &tasks);
-   io_handle_deinit(io_hdl);
+   // Only the parent should dismantle stuff
+   if (pid > 0) {
+      task_system_destroy(hid, &tasks);
+      io_handle_deinit(io_hdl);
+   }
 
 io_free:
-   platform_free(hid, io_hdl);
-heap_destroy:
    if (pid > 0) {
       platform_free(hid, io_hdl);
+   }
+heap_destroy:
+   if (pid > 0) {
       platform_heap_destroy(&hh);
    } else if (pid == 0) {
       platform_default_log("Thread-ID=%lu, OS-pid=%d: "
