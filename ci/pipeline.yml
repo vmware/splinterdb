@@ -13,8 +13,8 @@
 #@ )
 
 #@ load("sequences.lib.yml",
-#@         "sequence_pr_build_test",
-#@         "sequence_pr_debug_build_test",
+#@         "sequence_pr_build_test_image",
+#@         "sequence_pr_test",
 #@         "sequence_pr_clang_format",
 #@         "sequence_pr_shell_scripts",
 #@ )
@@ -115,11 +115,11 @@ jobs:
 #! Commits to covered branches will build and test
 - #@ job_test("clang", b, is_debug=True)
 - #@ job_test("gcc", b, is_debug=True)
+- #@ job_test("clang", b, sanitize="asan")
+- #@ job_test("clang", b, sanitize="msan")
 
 #! Nightly jobs which take too long to run per-PR
 - #@ job_test("gcc", b, trigger="nightly", test_nightly=True)
-- #@ job_test("clang", b, trigger="nightly", sanitize="asan")
-- #@ job_test("clang", b, trigger="nightly", sanitize="msan")
 
 
 #! Pull requests to a covered branch
@@ -127,13 +127,16 @@ jobs:
 #@ stage_one = [b + "-pr-quick-check", b + "-pr-clang-format", b + "-pr-shell-scripts"]
 - #@ job_pr_check("clang-format", b, sequence_pr_clang_format(), description="check C source formatting")
 - #@ job_pr_check("shell-scripts", b, sequence_pr_shell_scripts(), description="lint and format any shell scripts")
-- #@ job_pr_check("quick-check", b, sequence_pr_debug_build_test("clang", quick=True), description="build and run fast unit tests")
+- #@ job_pr_check("quick-check", b, sequence_pr_test("clang", quick=True), description="build and run fast unit tests")
 
 #! second stage of pipeline, only triggers if all of the first-stage passes
-- #@ job_pr_check("clang", b, sequence_pr_build_test("clang"), depends_on=stage_one, description="build and test")
-- #@ job_pr_check("gcc", b, sequence_pr_build_test("gcc"), depends_on=stage_one, description="build and test")
-- #@ job_pr_check("debug-clang", b, sequence_pr_debug_build_test("clang"), depends_on=stage_one, description="debug build and test")
-- #@ job_pr_check("debug-gcc", b, sequence_pr_debug_build_test("gcc"), depends_on=stage_one, description="debug build and test")
+- #@ job_pr_check("clang", b, sequence_pr_build_test_image("clang"), depends_on=stage_one, description="release build and test image")
+- #@ job_pr_check("gcc", b, sequence_pr_build_test_image("gcc"), depends_on=stage_one, description="release build and test image")
+- #@ job_pr_check("debug-clang", b, sequence_pr_test("clang"), depends_on=stage_one, description="debug build and test")
+- #@ job_pr_check("debug-gcc", b, sequence_pr_test("gcc"), depends_on=stage_one, description="debug build and test")
+
+- #@ job_pr_check("asan", b, sequence_pr_test("clang", sanitize="asan", is_debug=False), depends_on=stage_one, description="asan build and test")
+- #@ job_pr_check("msan", b, sequence_pr_test("clang", sanitize="msan", is_debug=False), depends_on=stage_one, description="msan build and test")
 
 #@ end  #! for loop over branches
 
@@ -150,6 +153,8 @@ groups:
   #@ end
   - #@ b + "-debug-clang"
   - #@ b + "-debug-gcc"
+  - #@ b + "-asan-clang"
+  - #@ b + "-msan-clang"
 
 - name: #@ b + "_pull_requests"
   jobs:
@@ -160,12 +165,12 @@ groups:
   - #@ b + "-pr-debug-gcc"
   - #@ b + "-pr-clang-format"
   - #@ b + "-pr-shell-scripts"
+  - #@ b + "-pr-asan"
+  - #@ b + "-pr-msan"
 
 - name: #@ b + "_nightly"
   jobs:
   - #@ b + "-nightly-test-gcc"
-  - #@ b + "-asan-clang"
-  - #@ b + "-msan-clang"
 #@ end
 
 - name: env_images
