@@ -12,7 +12,7 @@
 
 #! Build plan sequences for various PR checks
 
-#@ def sequence_pr_build_test(compiler):
+#@ def sequence_pr_build_test_image(compiler):
 - in_parallel:
     fail_fast: true
     steps:
@@ -31,10 +31,10 @@
 
 ---
 
-#@ def sequence_pr_debug_build_test(compiler, quick=False, sanitize=None):
+#@ def sequence_pr_test(compiler, quick=False, sanitize=None, is_debug=True):
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
-- #@ step_build_test(compiler, "github-pull-request", is_debug=True, quick=quick, sanitize=sanitize)
+- #@ step_build_test(compiler, "github-pull-request", is_debug=is_debug, quick=quick, sanitize=sanitize)
 #@ end
 
 ---
