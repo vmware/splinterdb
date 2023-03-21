@@ -721,8 +721,8 @@ exec_worker_thread(void *w)
                         __LINE__,
                         thread_idx,
                         ictr, // outer-loop ends at #-of-Millions inserted
-      elapsed_s,
-      (num_inserts / elapsed_s));
+                        elapsed_s,
+                        (num_inserts / elapsed_s));
 
    if (wcfg->is_thread) {
       splinterdb_deregister_thread(kvsb);

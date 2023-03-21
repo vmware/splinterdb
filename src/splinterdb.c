@@ -801,7 +801,7 @@ splinterdb_cache_flush(const splinterdb *kvs)
 
 /*
  * Validate that a key being inserted is within [min, max]-key range.
- */
+ * RESOLVE: Dead code ?
 bool
 validate_key_in_range(const splinterdb *kvs, slice key)
 {
@@ -832,8 +832,8 @@ validate_key_in_range(const splinterdb *kvs, slice key)
    }
    return TRUE;
 }
+ */
 
->>>>>>> d34b1ac (Build tests to demo IO handling errors, and thread deregistration.)
 void *
 splinterdb_get_heap_handle(const splinterdb *kvs)
 {
