@@ -28,7 +28,7 @@
 
 #! List of branches to cover with tests
 #! The first one is special, it is used for publishing container images to the public Docker registry
-#@ branches = ["main"]
+#@ branches = ["main", "shmem"]
 ---
 
 resource_types:
