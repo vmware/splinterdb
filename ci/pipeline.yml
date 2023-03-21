@@ -144,8 +144,10 @@ groups:
 #@ for b in branches:
 - name: #@ b + "_commits"
   jobs:
+  #@ if b == branches[0]:
   - #@ b + "-push-clang"
   - #@ b + "-push-gcc"
+  #@ end
   - #@ b + "-debug-clang"
   - #@ b + "-debug-gcc"
 
