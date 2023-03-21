@@ -316,7 +316,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
    // hammering at it with large #s of inserts.
    splinterdb_cfg.cache_size = (1 * Giga);
 
-   splinterdb_cfg.filename = "test_forked_child.db";
+   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);

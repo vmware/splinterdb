@@ -256,10 +256,10 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
          platform_error_log("fork() of child process failed: pid=%d\n", pid);
          return;
       } else if (pid) {
-         platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+         platform_default_log("OS-pid=%d, Thread-ID=%lu: "
                               "Waiting for child pid=%d to complete ...\n",
-                              platform_get_tid(),
                               getpid(),
+                              platform_get_tid(),
                               pid);
 
          wait(NULL);
@@ -277,18 +277,18 @@ CTEST2(large_inserts_bugs_stress, test_seq_key_seq_values_inserts_forked)
       data->this_pid  = getpid();
 
       platform_default_log(
-         "Running as %s process OS-pid=%d ...\n",
-         (wcfg.master_cfg->fork_child ? "forked child" : "parent"),
-         data->this_pid);
+         "OS-pid=%d Running as %s process ...\n",
+         data->this_pid,
+         (wcfg.master_cfg->fork_child ? "forked child" : "parent"));
 
       splinterdb_register_thread(wcfg.kvsb);
 
       exec_worker_thread(&wcfg);
 
-      platform_default_log("Child process Thread-ID=%lu"
-                           ", OS-pid=%d completed inserts.\n",
-                           platform_get_tid(),
-                           data->this_pid);
+      platform_default_log("OS-pid=%d, Thread-ID=%lu, Child process"
+                           ", completed inserts.\n",
+                           data->this_pid,
+                           platform_get_tid());
       splinterdb_deregister_thread(wcfg.kvsb);
       return;
    }
@@ -594,7 +594,6 @@ exec_worker_thread(void *w)
    if (wcfg->is_thread) {
       splinterdb_register_thread(kvsb);
    }
-
    threadid thread_idx = platform_get_tid();
 
    // Test is written to insert multiples of millions per thread.

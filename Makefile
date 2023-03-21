@@ -50,7 +50,7 @@ TESTSRC := $(COMMON_TESTSRC) $(FUNCTIONAL_TESTSRC) $(UNIT_TESTSRC)
 #  - Slow unit-tests will be skipped, as we want the resulting unit_test binary
 #    to run as fast as it can.
 #  - Skip tests that are to be invoked with specialized command-line arguments.
-<<<<<<< HEAD
+#
 # These tests which are skipped will have to be run stand-alone.
 # Construct a list of fast unit-tests that will be linked into unit_test binary,
 # eliminating a sequence of slow-running unit-test programs.
