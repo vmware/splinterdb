@@ -201,8 +201,7 @@ splinter_io_apis_test(int argc, char *argv[])
    ZERO_STRUCT(master_cfg);
    config_set_defaults(&master_cfg);
 
-   // Parse config-related command-line arguments. Only expecting to support:
-   // --verbose-progress
+   // Parse config-related command-line arguments.
    rc = config_parse(&master_cfg, 1, argc, argv);
    if (!SUCCESS(rc)) {
       return -1;
@@ -230,9 +229,12 @@ splinter_io_apis_test(int argc, char *argv[])
                   master_cfg.io_async_queue_depth,
                   "splinterdb_io_apis_test_db");
 
-   platform_default_log("Exercise IO sub-system test on device '%s'"
+   int pid = getpid();
+   platform_default_log("Parent OS-pid=%d, Exercise IO sub-system test on"
+                        " device '%s'"
                         ", page_size=%lu, extent_size=%lu, async_queue_size=%lu"
                         ", kernel_queue_size=%lu, async_max_pages=%lu ...\n",
+                        pid,
                         io_cfg.filename,
                         io_cfg.page_size,
                         io_cfg.extent_size,
@@ -285,7 +287,6 @@ splinter_io_apis_test(int argc, char *argv[])
    rc                 = task_system_create(hid, io_hdl, &tasks, &task_cfg);
    platform_assert(SUCCESS(rc));
 
-   int         pid             = getpid();
    threadid    main_thread_idx = platform_get_tid();
    const char *whoami          = "Parent";
 
@@ -295,19 +296,21 @@ splinter_io_apis_test(int argc, char *argv[])
     * child threads in its IO context.
     */
    io_context_t io_ctxt = io_get_context((io_handle *)io_hdl);
-   platform_default_log("Before fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
-                        ", hh=%p, Parent io_hdl=%p"
-                        ", IO context[%lu]: %p (%d bytes)"
-                        ", Async IO request array: %p\n",
-                        pid,
-                        main_thread_idx,
-                        whoami,
-                        hh,
-                        io_hdl,
-                        main_thread_idx,
-                        io_ctxt,
-                        (int)sizeof(io_ctxt),
-                        io_get_io_async_req((io_handle *)io_hdl));
+   if (Verbose_progress) {
+      platform_default_log("Before fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
+                           ", hh=%p, Parent io_hdl=%p"
+                           ", IO context[%lu]: %p (%d bytes)"
+                           ", Async IO request array: %p\n",
+                           pid,
+                           main_thread_idx,
+                           whoami,
+                           hh,
+                           io_hdl,
+                           main_thread_idx,
+                           io_ctxt,
+                           (int)sizeof(io_ctxt),
+                           io_get_io_async_req((io_handle *)io_hdl));
+   }
 
    /*
     * Setup a top-level test parameters structure encompassing the whole
@@ -334,11 +337,13 @@ splinter_io_apis_test(int argc, char *argv[])
          goto io_free;
       } else if (pid) {
          wait(NULL);
-         platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                              "Child execution wait() completed."
-                              " Resuming parent ...\n",
-                              platform_get_tid(),
-                              getpid());
+         if (Verbose_progress) {
+            platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+                                 "Child execution wait() completed."
+                                 " Resuming parent ...\n",
+                                 platform_get_tid(),
+                                 getpid());
+         }
       }
    }
 
@@ -352,19 +357,22 @@ splinter_io_apis_test(int argc, char *argv[])
 
       if (pid == 0) { // In child process ...
 
-         platform_default_log(
-            "After  fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
-            ", before thread registration,"
-            " hh=%p, Parent io_handle=%p, io_hdl=%p, IO context[%lu]: "
-            "%p\n",
-            getpid(),
-            this_thread_idx,
-            whoami,
-            hh,
-            Parent_io_handle,
-            io_hdl,
-            this_thread_idx,
-            io_get_context((io_handle *)io_hdl));
+         if (Verbose_progress) {
+            platform_default_log("After  fork()'ing: OS-pid=%d"
+                                 ", ThreadID=%lu (%s)"
+                                 ", before thread registration, hh=%p"
+                                 ", Parent io_handle=%p, io_hdl=%p"
+                                 ", IO context[%lu]: "
+                                 "%p\n",
+                                 getpid(),
+                                 this_thread_idx,
+                                 whoami,
+                                 hh,
+                                 Parent_io_handle,
+                                 io_hdl,
+                                 this_thread_idx,
+                                 io_get_context((io_handle *)io_hdl));
+         }
 
          task_register_this_thread(tasks, trunk_get_scratch_size());
          this_thread_idx = platform_get_tid();
@@ -378,52 +386,44 @@ splinter_io_apis_test(int argc, char *argv[])
          io_test_fn_arg.whoami  = whoami;
 
          // Trace handles in child process, after thread registration
-         platform_default_log(
-            "After  fork()'ing: OS-pid=%d, ThreadID=%lu (%s)"
-            ", after  thread registration,"
-            " hh=%p, Parent io_handle=%p, io_hdl=%p, IO context[%lu]: "
-            "%p, Async IO request array: %p\n",
-            getpid(),
-            this_thread_idx,
-            whoami,
-            hh,
-            Parent_io_handle,
-            io_hdl,
-            this_thread_idx,
-            io_ctxt,
-            io_get_io_async_req((io_handle *)io_hdl));
+         platform_default_log("After  fork()'ing: %s OS-pid=%d"
+                              ", ThreadID=%lu",
+                              whoami,
+                              getpid(),
+                              this_thread_idx);
+
+         if (Verbose_progress) {
+            platform_default_log("%s after  thread registration, hh=%p"
+                                 ", Parent io_handle=%p, child io_hdl=%p"
+                                 ", IO context[%lu]: "
+                                 "%p, Async IO request array: %p\n",
+                                 whoami,
+                                 hh,
+                                 Parent_io_handle,
+                                 io_hdl,
+                                 this_thread_idx,
+                                 io_ctxt,
+                                 io_get_io_async_req((io_handle *)io_hdl));
+         }
       }
 
       test_sync_write_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
 
       /*
-       * Exercise Async reads followed by async writes for main thread.
+       * Exercise Async reads followed by async writes for main / child thread.
        * NOTE: The same functions will also be executed by thread's worker fns.
        */
       rc = test_async_reads(hid, &io_cfg, io_hdl, start_addr, 'A', whoami);
       platform_assert_status_ok(rc);
 
-      /*
-       * Because of the way we manage IO-context opaque handles on a per-thread
-       * basis, and which is shared on a per-process basis, we can either have
-       * - A single 'main' process with multiple threads, or
-       * - A 'main' process with multiple forked child processes, each of which
-       *   uses the "slot" for a thread (based on tid).
-       *
-       * Currently we cannot support forked child processes themselves
-       * starting up threads and accessing Splinter.
-       */
-      if (pid == 0) {
-         // The forked child process which uses Splinter masquerading as a
-         // "thread" needs to relinquish its resources before exiting.
-         task_deregister_this_thread(tasks);
-      } else {
-         // In parent process, run async-reads IO exerciser using threads.
-         test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
-      }
+      test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS, whoami);
+
+      // The forked child process which uses Splinter masquerading as a
+      // "thread" needs to relinquish its resources before exiting.
+      task_deregister_this_thread(tasks);
    }
 
-   // Only the parent should dismantle stuff
+   // Only the parent process should dismantle stuff
    if (pid > 0) {
       task_system_destroy(hid, &tasks);
       io_handle_deinit(io_hdl);
@@ -437,10 +437,11 @@ heap_destroy:
    if (pid > 0) {
       platform_heap_destroy(&hh);
    } else if (pid == 0) {
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
-                           "Child execution completed.\n",
-                           platform_get_tid(),
-                           getpid());
+      platform_default_log("%s: OS-pid=%d, Thread-ID=%lu"
+                           " execution completed.\n",
+                           whoami,
+                           getpid(),
+                           platform_get_tid());
    }
    return (SUCCESS(rc) ? 0 : -1);
 }
@@ -688,9 +689,10 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
    // # of pages allocated to each thread.
    uint64 npages = npages_per_thread(io_test_param, nthreads);
    platform_default_log(
-      "\n%s(): %s process: for %d threads, %lu pages/thread ...\n",
+      "\n%s(): %s process, OS-pid=%d, creates %d threads, %lu pages/thread \n",
       __func__,
       whoami,
+      getpid(),
       nthreads,
       npages);
 
@@ -710,7 +712,9 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
    }
 
    platform_default_log(
-      "Completed execution of n-threads test_sync_writes_worker()\n");
+      "%s: Completed execution of test_sync_writes_worker() by %d-threads.\n",
+      whoami,
+      nthreads);
 
    /*
     * Execute the n-threads doing sync-reads from their disk pieces.
@@ -726,7 +730,9 @@ test_sync_write_reads_by_threads(io_test_fn_args *io_test_param,
    }
 
    platform_default_log(
-      "Completed execution of n-threads test_sync_reads_worker()\n");
+      "%s: Completed execution of test_sync_reads_worker() by %d-threads.\n",
+      whoami,
+      nthreads);
    return rc;
 }
 
@@ -826,13 +832,12 @@ test_async_reads(platform_heap_id    hid,
    }
    memset(exp, stamp_char, page_size);
 
-   platform_default_log(
-      "\n%s(): %s process: Thread=%lu: Test Async reads for %d"
-      " pages ...\n",
-      __func__,
-      whoami,
-      this_thread,
-      NUM_PAGES_RW_ASYNC_PER_THREAD);
+   platform_default_log("\n%s: Thread=%lu: %s() Test Async reads for %d"
+                        " pages ...\n",
+                        whoami,
+                        this_thread,
+                        __func__,
+                        NUM_PAGES_RW_ASYNC_PER_THREAD);
 
    io_handle *ioh = (io_handle *)io_hdlp;
 
@@ -935,12 +940,11 @@ test_async_reads_by_threads(io_test_fn_args *io_test_param,
 
    // # of pages allocated to each thread.
    uint64 npages = npages_per_thread(io_test_param, nthreads);
-   platform_default_log(
-      "%s(): %s process: for %d threads, %lu pages/thread ...\n",
-      __func__,
-      io_test_param->whoami,
-      nthreads,
-      npages);
+   platform_default_log("%s: %s() for %d threads, %lu pages/thread ...\n",
+                        io_test_param->whoami,
+                        __func__,
+                        nthreads,
+                        npages);
 
    load_thread_params(io_test_param, thread_params, nthreads);
 
@@ -957,6 +961,10 @@ test_async_reads_by_threads(io_test_fn_args *io_test_param,
       platform_thread_join(thread_params[i].thread);
    }
 
+   platform_default_log(
+      "%s: Completed execution of test_async_reads_worker() by %d-threads.\n",
+      whoami,
+      nthreads);
    return rc;
 }
 

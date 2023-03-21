@@ -215,7 +215,7 @@ CTEST2(splinterdb_forked_child,
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "test_bugfix.db";
+   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);

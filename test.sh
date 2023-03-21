@@ -593,12 +593,6 @@ function run_fast_unit_tests() {
    echo
    # shellcheck disable=SC2086
    "$BINDIR"/driver_test io_apis_test $use_shmem
-
-   echo
-   # Additional case exercised while developing this test to
-   # verify logic of IO-contexts under forked processes
-   # shellcheck disable=SC2086
-   "$BINDIR"/driver_test io_apis_test $use_shmem --fork-child
 }
 
 # ##################################################################
@@ -794,6 +788,10 @@ function run_tests_with_shared_memory() {
 
    # Run all the unit-tests first, to get basic coverage of shared-memory support.
    run_with_timing "Fast unit tests using shared memory" "$BINDIR"/unit_test "--use-shmem"
+
+   # Additional case exercised while developing shared memory support for multi
+   # process execution to verify management of IO-contexts under forked processes
+   run_with_timing "IO APIs test using shared memory and forked child" "$BINDIR"/driver_test io_apis_test "--use-shmem" --fork-child
 
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
