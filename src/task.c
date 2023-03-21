@@ -156,13 +156,13 @@ task_register_hook(task_system *ts, task_hook newhook)
 static void
 task_system_io_register_thread(task_system *ts)
 {
-   io_thread_register(&ts->ioh->super);
+   io_register_thread(&ts->ioh->super);
 }
 
 static void
 task_system_io_deregister_thread(task_system *ts)
 {
-   io_thread_deregister(&ts->ioh->super);
+   io_deregister_thread(&ts->ioh->super);
 }
 
 /*

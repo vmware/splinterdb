@@ -71,10 +71,10 @@ static void
 laio_cleanup_all(io_handle *ioh);
 
 static void
-laio_thread_register(io_handle *ioh);
+laio_register_thread(io_handle *ioh);
 
 static void
-laio_thread_deregister(io_handle *ioh);
+laio_deregister_thread(io_handle *ioh);
 
 static io_async_req *
 laio_get_kth_req(laio_handle *io, uint64 k);
@@ -92,8 +92,8 @@ static io_ops laio_ops = {
    .write_async       = laio_write_async,
    .cleanup           = laio_cleanup,
    .cleanup_all       = laio_cleanup_all,
-   .thread_register   = laio_thread_register,
-   .thread_deregister = laio_thread_deregister,
+   .register_thread   = laio_register_thread,
+   .deregister_thread = laio_deregister_thread,
    .get_context       = laio_get_context,
    .get_io_async_req  = laio_get_io_async_req,
 };
@@ -128,7 +128,7 @@ io_context_setup(laio_handle *io)
 
 /*
  * As part of thread deregistration, we need to release the IO context
- * setup for this thread. Here, we assume that required io_cleanup()
+ * that was setup for this thread. Here, we assume that required io_cleanup()
  * has already been done to drain out pending IOs. This is quite the very
  * last thing that happens before thread deregistration completes.
  *
@@ -588,13 +588,13 @@ laio_cleanup_all(io_handle *ioh)
  * IO-setup opaque handle that will be used by Async IO interfaces.
  */
 static void
-laio_thread_register(io_handle *ioh)
+laio_register_thread(io_handle *ioh)
 {
    io_context_setup((laio_handle *)ioh);
 }
 
 static void
-laio_thread_deregister(io_handle *ioh)
+laio_deregister_thread(io_handle *ioh)
 {
    const threadid tid = platform_get_tid();
    platform_assert((laio_get_context(ioh) != NULL),
