@@ -310,7 +310,8 @@ splinter_io_apis_test(int argc, char *argv[])
       }
    }
 
-   // Exercise R/W tests if we are the master, or if are a forked child.
+   // Exercise R/W tests: Run this block if we are in the main thread
+   // (i.e. didn't fork) or if we are a child process created after fork()'ing.
    if (!master_cfg.fork_child || (pid == 0)) {
 
       const char *whoami =
