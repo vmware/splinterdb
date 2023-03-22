@@ -530,7 +530,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
          int wr = waitpid(forked_pids[fctr], &wstatus, 0);
          platform_assert(wr != -1, "wait failure: %s", strerror(errno));
          platform_assert(WIFEXITED(wstatus),
-                         "child terminated abnormally: SIGNAL=%d",
+                         "Child terminated abnormally: SIGNAL=%d",
                          WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
          platform_assert(WEXITSTATUS(wstatus) == 0);
       }
@@ -645,7 +645,7 @@ safe_wait()
    int wr = wait(&wstatus);
    platform_assert(wr != -1, "wait failure: %s", strerror(errno));
    platform_assert(WIFEXITED(wstatus),
-                   "child terminated abnormally: SIGNAL=%d",
+                   "Child terminated abnormally: SIGNAL=%d",
                    WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
    platform_assert(WEXITSTATUS(wstatus) == 0);
 }

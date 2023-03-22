@@ -59,6 +59,13 @@ function usage() {
    echo "To run CI-regression tests       : INCLUDE_SLOW_TESTS=true ./${Me}"
    echo "To run nightly regression tests  : RUN_NIGHTLY_TESTS=true ./${Me}"
    echo "To run make build-and-test tests : RUN_MAKE_TESTS=true ./${Me}"
+   echo
+   echo "To run a smaller collection of slow running tests,
+name the function that drives the test execution.
+Examples:"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_splinter_functionality_tests --use-shmem"
+   echo "  INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory"
 }
 
 # ##################################################################
@@ -816,13 +823,13 @@ function run_tests_with_shared_memory() {
 
    # Additional case exercised while developing shared memory support for multi
    # process execution to verify management of IO-contexts under forked processes
-   run_with_timing "IO APIs test using shared memory and forked child" "$BINDIR"/driver_test io_apis_test "--use-shmem" --fork-child
+   run_with_timing "IO APIs test using shared memory and forked child" "$BINDIR"/driver_test io_apis_test --use-shmem --fork-child
 
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
 
-   run_splinter_functionality_tests "--use-shmem"
-   run_splinter_perf_tests "--use-shmem"
+   run_splinter_functionality_tests --use-shmem
+   run_splinter_perf_tests --use-shmem
 
    # These are written to always create shared segment, so --use-shmem arg is
    # not needed when invoking them. These tests will fork one or more child
@@ -927,7 +934,10 @@ UNIT_TESTS_DB_DEV="unit_tests_db"
 # function takes arguments, pass them on the command-line. This way, one
 # can debug script changes to ensure that test-execution still works.
 #
-# E.g. INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+# Examples:
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_btree_tests
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
+#      INCLUDE_SLOW_TESTS=true ./test.sh run_tests_with_shared_memory
 #      INCLUDE_SLOW_TESTS=true ./test.sh run_slower_unit_tests --use-shmem
 #      INCLUDE_SLOW_TESTS=true ./test.sh nightly_unit_stress_tests --use-shmem
 # ------------------------------------------------------------------------
