@@ -407,7 +407,6 @@ deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
-<<<<<<< HEAD
    // us to here via a 'goto', heap_id handle, if in use, may be in a
    // different place. Use one carefully, to avoid MSAN-errors.
    // platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
@@ -415,11 +414,6 @@ deinit_kvhandle:
       platform_heap_destroy(kvs->heap_handle ? &kvs->heap_handle
                                              : &kvs_cfg->heap_handle);
    }
-=======
-   // us to here via a 'goto', the heap_id handle, if in use, may be
-   // in a different location. Use one carefully, to avoid MSAN-errors.
-   platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
->>>>>>> ea2af8b (Add extern APIs to support new test test_data_structures_handles.)
 
    return platform_status_to_int(status);
 }
@@ -777,47 +771,6 @@ void
 splinterdb_stats_reset(splinterdb *kvs)
 {
    trunk_reset_stats(kvs->spl);
-
-/*
- * -----------------------------------------------------------------------------
- * External accessor APIs, mainly provided for use as testing hooks.
- * -----------------------------------------------------------------------------
- */
-void *
-splinterdb_get_heap_handle(const splinterdb *kvs)
-{
-   return (void *)kvs->heap_handle;
-}
-
-const void *
-splinterdb_get_task_system_handle(const splinterdb *kvs)
-{
-   return (void *)kvs->task_sys;
-}
-
-const void *
-splinterdb_get_io_handle(const splinterdb *kvs)
-{
-   return (void *)&kvs->io_handle;
-}
-
-const void *
-splinterdb_get_allocator_handle(const splinterdb *kvs)
-{
-   return (void *)&kvs->allocator_handle;
-}
-
-const void *
-splinterdb_get_cache_handle(const splinterdb *kvs)
-{
-   return (void *)&kvs->cache_handle;
-}
-
-const void *
-splinterdb_get_trunk_handle(const splinterdb *kvs)
-{
-   return (void *)kvs->spl;
->>>>>>> 20fc47a (Add extern APIs to support new test test_data_structures_handles.)
 }
 
 static void
@@ -826,20 +779,6 @@ splinterdb_close_print_stats(splinterdb *kvs)
    task_print_stats(kvs->task_sys);
    splinterdb_stats_print_insertion(kvs);
 }
-
-/*
-static int
-validate_key_length(const splinterdb *kvs, uint64 key_length)
-{
-   if (key_length > kvs->shim_data_cfg.app_data_cfg->key_size) {
-      platform_error_log("key of size %lu exceeds data_config.key_size %lu",
-                         key_length,
-                         kvs->shim_data_cfg.app_data_cfg->key_size);
-      return EINVAL;
-   }
-   return 0;
-}
- */
 
 /*
  * -------------------------------------------------------------------------
@@ -852,41 +791,6 @@ splinterdb_cache_flush(const splinterdb *kvs)
 {
    cache_flush(kvs->spl->cc);
 }
-
-/*
- * Validate that a key being inserted is within [min, max]-key range.
- * RESOLVE: Dead code ?
-bool
-validate_key_in_range(const splinterdb *kvs, slice key)
-{
-   const data_config *cfg = kvs->shim_data_cfg.app_data_cfg;
-
-   int cmp_rv = 0;
-
-   // key to-be-inserted should be >= min-key
-   cmp_rv = cfg->key_compare(
-      cfg, slice_create(cfg->min_key_length, cfg->min_key), key);
-   if (cmp_rv > 0) {
-      platform_error_log(
-         "Key '%s' is less than configured min-key '%s'.\n",
-         key_string(cfg, key),
-         key_string(cfg, slice_create(cfg->min_key_length, cfg->min_key)));
-      return FALSE;
-   }
-
-   // key to-be-inserted should be <= max-key
-   cmp_rv = cfg->key_compare(
-      cfg, key, slice_create(cfg->max_key_length, cfg->max_key));
-   if (cmp_rv > 0) {
-      platform_error_log(
-         "Key '%s' is greater than configured max-key '%s'.\n",
-         key_string(cfg, key),
-         key_string(cfg, slice_create(cfg->max_key_length, cfg->max_key)));
-      return FALSE;
-   }
-   return TRUE;
-}
- */
 
 void *
 splinterdb_get_heap_handle(const splinterdb *kvs)

@@ -211,8 +211,8 @@ shm_unlock_mem_frags(shmem_info *shminfo)
  * Address 'addr' is valid if it's just past end of control block and within
  * shared segment.
  */
-static inline bool
-platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
+bool
+platform_valid_addr_in_shm(platform_heap_handle heap_handle, const void *addr)
 {
    debug_assert(platform_shm_heap_handle_valid(heap_handle),
                 "Shared memory heap_handle %p is invalid.\n",
@@ -229,8 +229,8 @@ platform_valid_addr_in_shm(platform_heap_handle heap_handle, void *addr)
  * Validate that input address 'addr' is a valid address within shared segment
  * region.
  */
-static inline bool
-platform_valid_addr_in_heap(platform_heap_id heap_id, void *addr)
+bool
+platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr)
 {
    return platform_valid_addr_in_shm(platform_heap_id_to_handle(heap_id), addr);
 }
