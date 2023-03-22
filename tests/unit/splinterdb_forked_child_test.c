@@ -473,7 +473,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
 
          platform_default_log(
             "OS-pid=%d, ThreadID=%lu:"
-            "Child execution started: Perform %lu (%d million) inserts ...\n",
+            "Child execution started: Perform %lu (%d million) inserts ..."
             " Test cache-flush before deregister ...\n",
             getpid(),
             platform_get_tid(),

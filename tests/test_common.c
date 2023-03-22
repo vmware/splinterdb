@@ -137,7 +137,7 @@ test_async_ctxt_get(trunk_handle      *spl,
 void
 trace_wait_for_gdb_hook(void)
 {
-   platform_sleep(1000 * MILLION);
+   platform_sleep_ns(1000 * MILLION);
 }
 
 void
