@@ -337,6 +337,14 @@ splinter_io_apis_test(int argc, char *argv[])
          goto io_free;
       } else if (pid) {
          wait(NULL);
+         int wstatus;
+         int wr = wait(&wstatus);
+         platform_assert(wr != -1, "wait failure: %s", strerror(errno));
+         platform_assert(WIFEXITED(wstatus),
+                         "child terminated abnormally: SIGNAL=%d",
+                         WIFSIGNALED(wstatus) ? WTERMSIG(wstatus) : 0);
+         platform_assert(WEXITSTATUS(wstatus) == 0);
+
          if (Verbose_progress) {
             platform_default_log("Thread-ID=%lu, OS-pid=%d: "
                                  "Child execution wait() completed."
