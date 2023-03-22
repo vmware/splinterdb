@@ -664,12 +664,12 @@ function run_slower_forked_process_tests() {
 
     # ---- Run large_inserts_bugs_stress_test with small configuration as a quick check
     # using forked child process execution.
-    msg="Splinter large inserts test ${use_msg}"
+    msg="Splinter large inserts test using shared memory, 1 forked child"
     local num_rows=$((2 * 1000 * 1000))
     local n_threads=4
     # shellcheck disable=SC2086
     run_with_timing "${msg}" "$BINDIR"/unit/large_inserts_bugs_stress_test \
-                                        ${use_shmem} \
+                                        --use-shmem \
                                         --fork-child \
                                         --num-inserts ${num_rows} \
                                         --num-threads ${n_threads} \
