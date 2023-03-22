@@ -20,6 +20,7 @@
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
 #include "config.h"
+#include "test_splinterdb_apis.h"
 #include "unit_tests.h"
 #include "ctest.h" // This is required for all test-case files.
 
@@ -111,7 +112,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
+   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -120,7 +121,7 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
    int pid = getpid();
 
    platform_default_log(
-      "Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
+      "Parent OS-pid=%d, ThreadID=%lu\n", pid, platform_get_tid());
    pid = fork();
 
    if (pid < 0) {
@@ -130,10 +131,10 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       // Perform some inserts through child process
       splinterdb_register_thread(spl_handle);
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      platform_default_log("OS-pid=%d, ThreadID=%lu: "
                            "Child execution started ...\n",
-                           platform_get_tid(),
-                           getpid());
+                           getpid(),
+                           platform_get_tid());
 
       char   key_data[30];
       size_t key_len;
@@ -159,19 +160,19 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
 
    // Only parent can close Splinter
    if (pid) {
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      platform_default_log("OS-pid=%d, ThreadID=%lu: "
                            "Waiting for child pid=%d to complete ...\n",
-                           platform_get_tid(),
                            getpid(),
+                           platform_get_tid(),
                            pid);
 
       wait(NULL);
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      platform_default_log("OS-pid=%d, ThreadID=%lu: "
                            "Child execution wait() completed."
                            " Resuming parent ...\n",
-                           platform_get_tid(),
-                           getpid());
+                           getpid(),
+                           platform_get_tid());
 
       // We would get assertions tripping from BTree iterator code here,
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
@@ -195,9 +196,11 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
  *     If there are any pending async-IOs issued by a process waiting to be
  *     completed, we can verify that invoking this completion -before- the
  *     process deregisters itself from Splinter will work correctly. We use
- *     a testing hook, splinterdb_cache_flush(), to trigger a cache-flush which
- *     will go down the path of calling io_cleanup_all(). A registered process
- *     can do IOs and process completion -before- it deregisters.
+ *     splinterdb_cache_flush() as a testing hook, to trigger a cache-flush
+ *      which will go down the path of calling io_cleanup_all(). A registered
+ *     process can do IOs and process completion -before- it deregisters.
+ *     An attempt to deregister with outstanding pending IOs will trigger an
+ *     assert.
  *
  *  2. Test that after deregistration, a process cannot issue any IOs. The
  *     IO-context state is reset to that of the parent thread, so we will end
@@ -226,7 +229,7 @@ CTEST2(splinterdb_forked_child,
 
    create_default_cfg(&splinterdb_cfg, splinter_data_cfgp);
 
-   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
+   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -235,7 +238,7 @@ CTEST2(splinterdb_forked_child,
    int pid = getpid();
 
    platform_default_log(
-      "Thread-ID=%lu, Parent OS-pid=%d\n", platform_get_tid(), pid);
+      "Parent OS-pid=%d, ThreadID=%lu\n", pid, platform_get_tid());
    pid = fork();
 
    if (pid < 0) {
@@ -246,10 +249,10 @@ CTEST2(splinterdb_forked_child,
       splinterdb_register_thread(spl_handle);
 
       platform_default_log(
-         "Thread-ID=%lu, OS-pid=%d: "
+         "OS-pid=%d, ThreadID=%lu: "
          "Child execution started: Test cache-flush before deregister ...\n",
-         platform_get_tid(),
-         getpid());
+         getpid(),
+         platform_get_tid());
 
       do_many_inserts(spl_handle, data->num_inserts);
 
@@ -261,9 +264,9 @@ CTEST2(splinterdb_forked_child,
       splinterdb_register_thread(spl_handle);
 
       platform_default_log(
-         "Thread-ID=%lu, OS-pid=%d: Test cache-flush after deregister:\n",
-         platform_get_tid(),
-         getpid());
+         "OS-pid=%d, ThreadID=%lu, Test cache-flush after deregister:\n",
+         getpid(),
+         platform_get_tid());
 
       do_many_inserts(spl_handle, data->num_inserts);
 
@@ -273,29 +276,39 @@ CTEST2(splinterdb_forked_child,
       // **** DEAD CODE WARNING ****
       // You -cannot- enable this call. A thread is supposed to have
       // completely drained all its pending IOs, and it cannot do
-      // any more IOs (which what the flush below will try to do.)
+      // any more IOs (which is what the flush below will try to do.)
       // splinterdb_cache_flush(spl_handle);
    }
 
    // Only parent can close Splinter
    if (pid) {
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      platform_default_log("OS-pid=%d, ThreadID=%lu: "
                            "Waiting for child pid=%d to complete ...\n",
-                           platform_get_tid(),
                            getpid(),
+                           platform_get_tid(),
                            pid);
 
       wait(NULL);
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      platform_default_log("OS-pid=%d, ThreadID=%lu: "
                            "Child execution wait() completed."
                            " Resuming parent ...\n",
-                           platform_get_tid(),
-                           getpid());
+                           getpid(),
+                           platform_get_tid());
       splinterdb_close(&spl_handle);
    }
 }
 
+/*
+ * ------------------------------------------------------------------------------
+ * Test case is structurally similar to
+ * test_completion_of_outstanding_async_IOs_from_process_bug, except that here
+ * we provide the hook to run n-forked child processes using the --num-threads
+ * option. This test case verifies that the per-process/thread IO-context
+ * rework works reliably for multiple child processes performing IO
+ * concurrently.
+ * ------------------------------------------------------------------------------
+ */
 CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
 {
    data_config  default_data_cfg;
@@ -316,7 +329,7 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
    // hammering at it with large #s of inserts.
    splinterdb_cfg.cache_size = (1 * Giga);
 
-   splinterdb_cfg.filename = "splinterdb_test_forked_child_db";
+   splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
 
    splinterdb *spl_handle; // To a running SplinterDB instance
    int         rc = splinterdb_create(&splinterdb_cfg, &spl_handle);
@@ -325,9 +338,9 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
    int pid = getpid();
 
    platform_default_log(
-      "Thread-ID=%lu, Parent OS-pid=%d, fork %lu child processes.\n",
-      platform_get_tid(),
+      "Parent OS-pid=%d, ThreadID=%lu, fork %lu child processes.\n",
       pid,
+      platform_get_tid(),
       data->num_forked_procs);
 
    // Fork n-concurrently executing child processes.
@@ -347,10 +360,10 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
          splinterdb_register_thread(spl_handle);
 
          platform_default_log(
-            "Thread-ID=%lu, OS-pid=%d: "
+            "OS-pid=%d, ThreadID=%lu:"
             "Child execution started: Test cache-flush before deregister ...\n",
-            platform_get_tid(),
-            getpid());
+            getpid(),
+            platform_get_tid());
 
          do_many_inserts(spl_handle, data->num_inserts);
 
@@ -370,25 +383,28 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
 
    // Only parent can close Splinter
    if (data->am_parent && pid) {
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      platform_default_log("OS-pid=%d, ThreadID=%lu: "
                            "Waiting for child pid=%d to complete ...\n",
-                           platform_get_tid(),
                            getpid(),
+                           platform_get_tid(),
                            pid);
 
       wait(NULL);
 
-      platform_default_log("Thread-ID=%lu, OS-pid=%d: "
+      platform_default_log("OS-pid=%d, ThreadID=%lu: "
                            "Child execution wait() completed."
                            " Resuming parent ...\n",
-                           platform_get_tid(),
-                           getpid());
+                           getpid(),
+                           platform_get_tid());
+
       splinterdb_close(&spl_handle);
    }
 }
 
 /*
+ * ------------------------------------------------------------------------------
  * Helper functions.
+ * ------------------------------------------------------------------------------
  */
 // By default, all test cases in this file need to run with shared memory
 // configured. Cache is sized small as most test cases want to exercise

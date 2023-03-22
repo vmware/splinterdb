@@ -403,9 +403,6 @@ void
 splinterdb_stats_reset(splinterdb *kvs);
 
 // External APIs provided -ONLY- for use as a testing hook.
-void
-splinterdb_cache_flush(const splinterdb *kvs);
-
 void *
 splinterdb_get_heap_handle(const splinterdb *kvs);
 
