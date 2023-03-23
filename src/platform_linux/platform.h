@@ -711,6 +711,15 @@ platform_thread_id_self();
 char *
 platform_strtok_r(char *str, const char *delim, platform_strtok_ctx *ctx);
 
+void
+platform_enable_tracing_shm_ops();
+
+void
+platform_enable_tracing_shm_allocs();
+
+void
+platform_enable_tracing_shm_frees();
+
 
 /*
  * Section 5:

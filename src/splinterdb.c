@@ -265,14 +265,14 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
 
       // Setup global tracing booleans for shared memory usage
       if (kvs_cfg->trace_shmem_allocs) {
-         Trace_shmem_allocs = TRUE;
+         platform_enable_tracing_shm_allocs();
       }
       if (kvs_cfg->trace_shmem_frees) {
-         Trace_shmem_frees = TRUE;
+         platform_enable_tracing_shm_frees();
       }
       if (kvs_cfg->trace_shmem) {
-         Trace_shmem_allocs = TRUE;
-         Trace_shmem_frees  = TRUE;
+         platform_enable_tracing_shm_frees();
+         platform_enable_tracing_shm_ops();
       }
    }
 

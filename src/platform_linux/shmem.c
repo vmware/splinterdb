@@ -17,10 +17,10 @@
 #define SPLINTERDB_SHMEM_MAGIC (uint64)0xDEFACADE
 
 // Boolean globals controlling tracing of shared memory allocs / frees
-bool Trace_shmem_allocs = FALSE;
-bool Trace_shmem_frees  = FALSE;
-bool Trace_shmem        = FALSE;
-bool Trace_large_frags  = FALSE;
+static bool Trace_shmem_allocs = FALSE;
+static bool Trace_shmem_frees  = FALSE;
+static bool Trace_shmem        = FALSE;
+static bool Trace_large_frags  = FALSE;
 
 /*
  * ---------------------------------------------------------------------------
