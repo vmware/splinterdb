@@ -115,7 +115,7 @@ jobs:
 #! Commits to covered branches will build and test
 - #@ job_test("clang", b, is_debug=True)
 - #@ job_test("gcc", b, is_debug=True)
-- #@ job_test("clang", b, sanitize="asan")
+- #@ job_test("gcc", b, sanitize="asan")
 - #@ job_test("clang", b, sanitize="msan")
 
 #! Nightly jobs which take too long to run per-PR
@@ -135,7 +135,7 @@ jobs:
 - #@ job_pr_check("debug-clang", b, sequence_pr_test("clang"), depends_on=stage_one, description="debug build and test")
 - #@ job_pr_check("debug-gcc", b, sequence_pr_test("gcc"), depends_on=stage_one, description="debug build and test")
 
-- #@ job_pr_check("asan", b, sequence_pr_test("clang", sanitize="asan", is_debug=False), depends_on=stage_one, description="asan build and test")
+- #@ job_pr_check("asan", b, sequence_pr_test("gcc", sanitize="asan", is_debug=False), depends_on=stage_one, description="asan build and test")
 - #@ job_pr_check("msan", b, sequence_pr_test("clang", sanitize="msan", is_debug=False), depends_on=stage_one, description="msan build and test")
 
 #@ end  #! for loop over branches
@@ -153,7 +153,7 @@ groups:
   #@ end
   - #@ b + "-debug-clang"
   - #@ b + "-debug-gcc"
-  - #@ b + "-asan-clang"
+  - #@ b + "-asan-gcc"
   - #@ b + "-msan-clang"
 
 - name: #@ b + "_pull_requests"
