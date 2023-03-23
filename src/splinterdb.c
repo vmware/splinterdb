@@ -167,20 +167,6 @@ splinterdb_init_config(splinterdb_config *kvs_cfg, // IN
    memcpy(&cfg, kvs_cfg, sizeof(cfg));
    splinterdb_config_set_defaults(&cfg);
 
-   // Copy over handles to allocated (shared) memory so that in case the
-   // system is run using shared memory we can deallocate the shared segment
-   // when the Splinter instance is closed.
-   kvs->heap_handle = cfg.heap_handle;
-   kvs->heap_id     = cfg.heap_id;
-
-   // Null out the memory handles off the config structure so that in the
-   // running Splinter instance we are forced to use the memory handles off
-   // of 'kvs'. (Also, this allows for a simple usage where application can
-   // close and reopen Splinter, and not run into seg-faults due to stale
-   // memory handles.)
-   kvs_cfg->heap_handle = NULL;
-   kvs_cfg->heap_id     = NULL;
-
    io_config_init(&kvs->io_cfg,
                   cfg.page_size,
                   cfg.extent_size,
@@ -295,13 +281,16 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
    kvs = TYPED_ZALLOC(kvs_cfg->heap_id, kvs);
    if (kvs == NULL) {
       status = STATUS_NO_MEMORY;
+      if (we_created_heap) {
+         platform_heap_destroy(&kvs_cfg->heap_handle);
+      }
       return platform_status_to_int(status);
    }
 
+   platform_heap_handle heap_handle = NULL;
+
    // All memory allocation after this call should -ONLY- use heap handles
-   // from the handle to the running Splinter instance; i.e. 'kvs'. (The
-   // input memory handles in kvs_cfg; i.e. kvs_cfg->heap_id, heap_handle will
-   // be NULL'ed out after they are cp'ed to handles in kvs.)
+   // from the handle to the running Splinter instance; i.e. 'kvs'.
    status = splinterdb_init_config(kvs_cfg, kvs);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to %s SplinterDB device '%s' with specified "
@@ -309,15 +298,26 @@ splinterdb_create_or_open(splinterdb_config *kvs_cfg,      // IN
                          (open_existing ? "open existing" : "initialize"),
                          kvs_cfg->filename,
                          platform_status_to_string(status));
+      heap_handle = kvs_cfg->heap_handle;
       goto deinit_kvhandle;
    }
+
+   // All future memory allocation should come from shared memory, if so
+   // configured.
+   kvs->heap_handle = kvs_cfg->heap_handle;
+   kvs->heap_id     = kvs_cfg->heap_id;
+
+   // This allows for a simple usage where application can close and reopen
+   // Splinter and not run into seg-faults due to stale memory handles.
+   kvs_cfg->heap_handle = NULL;
+   kvs_cfg->heap_id     = NULL;
 
    status = io_handle_init(
       &kvs->io_handle, &kvs->io_cfg, kvs->heap_handle, kvs->heap_id);
    if (!SUCCESS(status)) {
       platform_error_log("Failed to initialize IO handle: %s\n",
                          platform_status_to_string(status));
-      goto deinit_kvhandle;
+      goto io_handle_init_failed;
    }
 
    status = task_system_create(
@@ -397,14 +397,17 @@ deinit_system:
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
 deinit_iohandle:
    io_handle_deinit(&kvs->io_handle);
+io_handle_init_failed:
+   heap_handle = kvs->heap_handle;
 deinit_kvhandle:
    // Depending on the place where a configuration / setup error lead
    // us to here via a 'goto', heap_id handle, if in use, may be in a
-   // different place. Use one carefully, to avoid MSAN-errors.
-   // platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
+   // different place. Use one carefully, to avoid ASAN-errors.
+   platform_free((kvs->heap_id ? kvs->heap_id : kvs_cfg->heap_id), kvs);
    if (we_created_heap) {
-      platform_heap_destroy(kvs->heap_handle ? &kvs->heap_handle
-                                             : &kvs_cfg->heap_handle);
+      platform_heap_destroy(&heap_handle);
+      kvs_cfg->heap_handle = NULL;
+      kvs_cfg->heap_id     = NULL;
    }
 
    return platform_status_to_int(status);
@@ -457,7 +460,10 @@ splinterdb_close(splinterdb **kvs_in) // IN
    task_system_destroy(kvs->heap_id, &kvs->task_sys);
    io_handle_deinit(&kvs->io_handle);
 
-   platform_heap_destroy(&kvs->heap_handle);
+   // Free resources carefully to avoid ASAN-test failures
+   platform_heap_handle heap_handle = kvs->heap_handle;
+   platform_free(kvs->heap_id, kvs);
+   platform_heap_destroy(&heap_handle);
    *kvs_in = (splinterdb *)NULL;
 }
 
