@@ -63,14 +63,25 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
       }
 
       if (memtable_is_full(&ctxt->cfg, &ctxt->mt[mt_no])) {
-         // If the current memtable is full, try to retire it.
+         // If the current memtable is full, try to retire it
+
+         uint64 process_generation = ctxt->generation;
+         uint64 next_generation = process_generation + 1;
+         uint64 next_mt_no = next_generation % ctxt->cfg.max_memtables;
+         memtable *next_mt = &ctxt->mt[next_mt_no];
+         if (next_mt->state != MEMTABLE_STATE_READY) {
+            cache_unget(cc, *lock_page);
+            return STATUS_BUSY;
+         }
+
          if (cache_try_claim(cc, *lock_page)) {
             // We successfully got the claim, so we do the finalization
             cache_lock(cc, *lock_page);
             memtable_transition(
                mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
-
-            uint64 process_generation = ctxt->generation++;
+            ctxt->generation++;
+            platform_assert(ctxt->generation - ctxt->generation_retired <= 4);
+            platform_assert(process_generation + 1 == ctxt->generation);
             memtable_mark_empty(ctxt);
             cache_unlock(cc, *lock_page);
             cache_unclaim(cc, *lock_page);
@@ -227,6 +238,7 @@ memtable_force_finalize(memtable_context *ctxt)
    memtable *mt         = &ctxt->mt[mt_no];
    memtable_transition(mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
    uint64 process_generation = ctxt->generation++;
+   platform_assert(ctxt->generation - ctxt->generation_retired <= 4);
    memtable_mark_empty(ctxt);
 
    cache_unlock(cc, lock_page);
