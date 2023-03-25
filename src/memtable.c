@@ -40,7 +40,6 @@ memtable_process(memtable_context *ctxt, uint64 generation)
    ctxt->process(ctxt->process_ctxt, generation);
 }
 
-
 platform_status
 memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
                                           uint64           *generation,

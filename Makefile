@@ -74,6 +74,7 @@ INCLUDE = -I $(INCDIR) -I $(SRCDIR) -I $(SRCDIR)/platform_$(PLATFORM) -I $(TESTS
 CFLAGS += -D_GNU_SOURCE -ggdb3 -Wall -pthread -Wfatal-errors -Werror -Wvla
 CFLAGS += -DXXH_STATIC_LINKING_ONLY -fPIC
 CFLAGS += -DSPLINTERDB_PLATFORM_DIR=$(PLATFORM_DIR)
+CFLAGS += -Wno-free-nonheap-object
 
 # track git ref in the built library. We don't put this into CFLAGS
 # directly because it causes false-positives in our config tracking.
@@ -86,7 +87,7 @@ ifeq ($(cpu_arch),x86_64)
   CFLAGS += -march=native
 endif
 
-LDFLAGS += -ggdb3 -pthread
+LDFLAGS += -ggdb3 -pthread -Wno-free-nonheap-object
 
 LIBS      = -lm -lpthread -laio -lxxhash
 DEPFLAGS  = -MMD -MP
@@ -117,12 +118,12 @@ BUILD_DIR := $(BUILD_MODE)
 ifeq "$(BUILD_MODE)" "debug"
    CFLAGS    += -DSPLINTER_DEBUG
 else ifeq "$(BUILD_MODE)" "release"
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -Ofast -flto=auto
+   LDFLAGS   += -Ofast -flto=auto
 else ifeq "$(BUILD_MODE)" "optimized-debug"
    CFLAGS    += -DSPLINTER_DEBUG
-   CFLAGS    += -Ofast -flto
-   LDFLAGS   += -Ofast -flto
+   CFLAGS    += -Ofast -flto=auto
+   LDFLAGS   += -Ofast -flto=auto
 else
    $(error Unknown BUILD_MODE "$(BUILD_MODE)".  Valid options are "debug", "optimized-debug", and "release".  Default is "release")
 endif

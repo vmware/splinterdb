@@ -11,6 +11,7 @@
 
 #include "splinterdb/default_data_config.h"
 #include "splinterdb/splinterdb.h"
+#include "splinterdb/public_util.h"
 
 #define DB_FILE_NAME    "splinterdb_intro_db"
 #define DB_FILE_SIZE_MB 1024 // Size of SplinterDB device; Fixed when created

@@ -612,8 +612,9 @@ CTEST2(splinterdb_quick,
 
    // (d) Test with a non-existent value beyond max key value.
    //     iter_init should end up as being invalid.
-   kctr = -1;
-   snprintf(key, sizeof(key), key_fmt, kctr);
+   kctr                = -1;
+   volatile int buflen = sizeof(key); // Hide from GCC truncation error
+   snprintf(key, buflen, key_fmt, kctr);
    start_key = slice_create(strlen(key), key);
    rc        = splinterdb_iterator_init(data->kvsb, &it, start_key);
    ASSERT_EQUAL(0, rc);
