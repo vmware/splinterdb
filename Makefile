@@ -396,8 +396,10 @@ CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
                  $(OBJDIR)/$(SRCDIR)/allocator.o    \
                  $(OBJDIR)/$(SRCDIR)/rc_allocator.o \
                  $(OBJDIR)/$(SRCDIR)/task.o         \
+                 $(OBJDIR)/$(SRCDIR)/iceberg_table.o\
                  $(UTIL_SYS)                        \
                  $(PLATFORM_IO_SYS)
+                 
 
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
             $(OBJDIR)/$(SRCDIR)/data_internal.o   \

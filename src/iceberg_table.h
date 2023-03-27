@@ -55,8 +55,12 @@
     int64 lv3_ctr;
     iceberg_lv1_block_md * lv1_md[MAX_RESIZES];
     iceberg_lv2_block_md * lv2_md[MAX_RESIZES];
+    buffer_handle lv1_md_bh[MAX_RESIZES];
+    buffer_handle lv2_md_bh[MAX_RESIZES];
     uint64 * lv3_sizes[MAX_RESIZES];
     uint8 * lv3_locks[MAX_RESIZES];
+    buffer_handle lv3_sizes_bh[MAX_RESIZES];
+    buffer_handle lv3_locks_bh[MAX_RESIZES];
     uint64 nblocks_parts[MAX_RESIZES];
 #ifdef ENABLE_RESIZE
     volatile int lock;
@@ -68,6 +72,9 @@
     uint8 * lv1_resize_marker[MAX_RESIZES];
     uint8 * lv2_resize_marker[MAX_RESIZES];
     uint8 * lv3_resize_marker[MAX_RESIZES];
+    buffer_handle lv1_resize_marker_bh[MAX_RESIZES];
+    buffer_handle lv2_resize_marker_bh[MAX_RESIZES];
+    buffer_handle lv3_resize_marker_bh[MAX_RESIZES];
 #endif
   } iceberg_metadata;
 
@@ -77,15 +84,25 @@
     iceberg_lv1_block * level1[MAX_RESIZES];
     iceberg_lv2_block * level2[MAX_RESIZES];
     iceberg_lv3_list * level3[MAX_RESIZES];
+    buffer_handle lv1_block_bh[MAX_RESIZES];
+    buffer_handle lv2_block_bh[MAX_RESIZES];
+    buffer_handle lv3_block_bh[MAX_RESIZES];
+
   } iceberg_table;
 
   int iceberg_init(iceberg_table *table, uint64 log_slots);
 
+  void iceberg_deinit(iceberg_table * table);
+  
+  // TRUE = inserted, FALSE = insert insuccessful.
   bool iceberg_insert(iceberg_table * table, KeyType key, ValueType value);
 
   bool iceberg_remove(iceberg_table * table, KeyType key);
 
-  bool iceberg_get_value(iceberg_table * table, KeyType key, ValueType *value);
+  // Only perform the remove if the value at the key is the value being passed in. TRUE if did perform the remove, FALSE otherwise.
+  bool iceberg_remove_value(iceberg_table * table, KeyType key, ValueType value);
+
+  bool iceberg_get_value(iceberg_table * table, KeyType key, ValueType * value);
 
 #ifdef ENABLE_RESIZE
   void iceberg_end(iceberg_table * table);

@@ -28,7 +28,7 @@
 /* invalid "pointers" used to indicate that the given page or lookup is
  * unmapped
  */
-#define CC_UNMAPPED_ENTRY UINT32_MAX
+#define CC_UNMAPPED_ENTRY UINT64_MAX
 #define CC_UNMAPPED_ADDR  UINT64_MAX
 
 // Number of entries to clean/evict/get_free in a per-thread batch
@@ -606,7 +606,7 @@ static cache_ops clockcache_ops = {
 
 /* Validate entry_number, and return addr of clockcache_entry slot */
 static inline clockcache_entry *
-clockcache_get_entry(clockcache *cc, uint32 entry_number)
+clockcache_get_entry(clockcache *cc, uint64 entry_number)
 {
    debug_assert(entry_number < cc->cfg->page_capacity,
                 "entry_number=%u is out-of-bounds. Should be < %d.",
@@ -616,7 +616,7 @@ clockcache_get_entry(clockcache *cc, uint32 entry_number)
 }
 
 static inline entry_status
-clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
+clockcache_set_flag(clockcache *cc, uint64 entry_number, entry_status flag)
 {
    return flag
           & __sync_fetch_and_or(&clockcache_get_entry(cc, entry_number)->status,
@@ -624,7 +624,7 @@ clockcache_set_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 }
 
 static inline uint32
-clockcache_clear_flag(clockcache *cc, uint32 entry_number, entry_status flag)
+clockcache_clear_flag(clockcache *cc, uint64 entry_number, entry_status flag)
 {
    return flag
           & __sync_fetch_and_and(
@@ -632,14 +632,14 @@ clockcache_clear_flag(clockcache *cc, uint32 entry_number, entry_status flag)
 }
 
 static inline uint32
-clockcache_test_flag(clockcache *cc, uint32 entry_number, entry_status flag)
+clockcache_test_flag(clockcache *cc, uint64 entry_number, entry_status flag)
 {
    return flag & clockcache_get_entry(cc, entry_number)->status;
 }
 
 #ifdef RECORD_ACQUISITION_STACKS
 static void
-clockcache_record_backtrace(clockcache *cc, uint32 entry_number)
+clockcache_record_backtrace(clockcache *cc, uint64 entry_number)
 {
    // clang-format off
    int myhistindex = __sync_fetch_and_add(
@@ -695,24 +695,27 @@ clockcache_divide_by_page_size(const clockcache *cc, uint64 addr)
    return addr >> cc->cfg->log_page_size;
 }
 
-static inline uint32
-clockcache_lookup(const clockcache *cc, uint64 addr)
+static inline uint64
+clockcache_lookup(clockcache *cc, uint64 addr)
 {
    uint64 lookup_no    = clockcache_divide_by_page_size(cc, addr);
-   uint32 entry_number = cc->lookup[lookup_no];
+   // uint32 entry_number = cc->lookup[lookup_no];
+   uint64 entry_number = CC_UNMAPPED_ENTRY;
+   bool get_result = iceberg_get_value(&cc->lookup, lookup_no, &entry_number);
 
-   debug_assert(((entry_number < cc->cfg->page_capacity)
-                 || (entry_number == CC_UNMAPPED_ENTRY)),
+   debug_assert(((get_result && entry_number < cc->cfg->page_capacity)
+                 || (!get_result && entry_number == CC_UNMAPPED_ENTRY)),
                 "entry_number=%u is out-of-bounds. "
                 " Should be either CC_UNMAPPED_ENTRY,"
                 " or should be < %d.",
                 entry_number,
                 cc->cfg->page_capacity);
+   (void) get_result;
    return entry_number;
 }
 
 static inline clockcache_entry *
-clockcache_lookup_entry(const clockcache *cc, uint64 addr)
+clockcache_lookup_entry( clockcache *cc, uint64 addr)
 {
    return &cc->entry[clockcache_lookup(cc, addr)];
 }
@@ -723,13 +726,13 @@ clockcache_page_to_entry(const clockcache *cc, page_handle *page)
    return (clockcache_entry *)((char *)page - offsetof(clockcache_entry, page));
 }
 
-static inline uint32
+static inline uint64
 clockcache_page_to_entry_number(const clockcache *cc, page_handle *page)
 {
    return clockcache_page_to_entry(cc, page) - cc->entry;
 }
 
-static inline uint32
+static inline uint64
 clockcache_data_to_entry_number(const clockcache *cc, char *data)
 {
    return clockcache_divide_by_page_size(cc, data - cc->data);
@@ -785,15 +788,15 @@ clockcache_wait(clockcache *cc)
  *-----------------------------------------------------------------------------
  */
 
-static inline uint32
-clockcache_get_ref_internal(clockcache *cc, uint32 entry_number)
+static inline uint64
+clockcache_get_ref_internal(clockcache *cc, uint64 entry_number)
 {
    return entry_number % cc->cfg->cacheline_capacity * PLATFORM_CACHELINE_SIZE
           + entry_number / cc->cfg->cacheline_capacity;
 }
 
 static inline uint16
-clockcache_get_ref(clockcache *cc, uint32 entry_number, uint64 counter_no)
+clockcache_get_ref(clockcache *cc, uint64 entry_number, uint64 counter_no)
 {
    counter_no %= CC_RC_WIDTH;
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
@@ -802,7 +805,7 @@ clockcache_get_ref(clockcache *cc, uint32 entry_number, uint64 counter_no)
 }
 
 static inline void
-clockcache_inc_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
+clockcache_inc_ref(clockcache *cc, uint64 entry_number, threadid counter_no)
 {
    counter_no %= CC_RC_WIDTH;
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
@@ -814,7 +817,7 @@ clockcache_inc_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
 }
 
 static inline void
-clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
+clockcache_dec_ref(clockcache *cc, uint64 entry_number, threadid counter_no)
 {
    debug_only threadid input_counter_no = counter_no;
 
@@ -838,7 +841,7 @@ clockcache_dec_ref(clockcache *cc, uint32 entry_number, threadid counter_no)
 }
 
 static inline uint8
-clockcache_get_pin(clockcache *cc, uint32 entry_number)
+clockcache_get_pin(clockcache *cc, uint64 entry_number)
 {
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
@@ -846,7 +849,7 @@ clockcache_get_pin(clockcache *cc, uint32 entry_number)
 }
 
 static inline void
-clockcache_inc_pin(clockcache *cc, uint32 entry_number)
+clockcache_inc_pin(clockcache *cc, uint64 entry_number)
 {
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
@@ -856,7 +859,7 @@ clockcache_inc_pin(clockcache *cc, uint32 entry_number)
 }
 
 static inline void
-clockcache_dec_pin(clockcache *cc, uint32 entry_number)
+clockcache_dec_pin(clockcache *cc, uint64 entry_number)
 {
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
@@ -866,7 +869,7 @@ clockcache_dec_pin(clockcache *cc, uint32 entry_number)
 }
 
 static inline void
-clockcache_reset_pin(clockcache *cc, uint32 entry_number)
+clockcache_reset_pin(clockcache *cc, uint64 entry_number)
 {
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert(rc_number < cc->cfg->page_capacity);
@@ -951,7 +954,7 @@ typedef enum {
  *----------------------------------------------------------------------
  */
 static get_rc
-clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool set_access)
+clockcache_try_get_read(clockcache *cc, uint64 entry_number, bool set_access)
 {
    const threadid tid = platform_get_tid();
 
@@ -1000,7 +1003,7 @@ clockcache_try_get_read(clockcache *cc, uint32 entry_number, bool set_access)
  *----------------------------------------------------------------------
  */
 static get_rc
-clockcache_get_read(clockcache *cc, uint32 entry_number)
+clockcache_get_read(clockcache *cc, uint64 entry_number)
 {
    clockcache_record_backtrace(cc, entry_number);
    get_rc rc = clockcache_try_get_read(cc, entry_number, TRUE);
@@ -1032,7 +1035,7 @@ clockcache_get_read(clockcache *cc, uint32 entry_number)
  *----------------------------------------------------------------------
  */
 static get_rc
-clockcache_try_get_claim(clockcache *cc, uint32 entry_number)
+clockcache_try_get_claim(clockcache *cc, uint64 entry_number)
 {
    clockcache_record_backtrace(cc, entry_number);
 
@@ -1068,7 +1071,7 @@ clockcache_try_get_claim(clockcache *cc, uint32 entry_number)
  *----------------------------------------------------------------------
  */
 static void
-clockcache_get_write(clockcache *cc, uint32 entry_number)
+clockcache_get_write(clockcache *cc, uint64 entry_number)
 {
    const threadid tid = platform_get_tid();
 
@@ -1130,7 +1133,7 @@ clockcache_get_write(clockcache *cc, uint32 entry_number)
  *----------------------------------------------------------------------
  */
 static get_rc
-clockcache_try_get_write(clockcache *cc, uint32 entry_number)
+clockcache_try_get_write(clockcache *cc, uint64 entry_number)
 {
    threadid thr_i;
    threadid tid = platform_get_tid();
@@ -1194,7 +1197,7 @@ failed:
  */
 static inline bool
 clockcache_ok_to_writeback(clockcache *cc,
-                           uint32      entry_number,
+                           uint64      entry_number,
                            bool        with_access)
 {
    uint32 status = clockcache_get_entry(cc, entry_number)->status;
@@ -1214,7 +1217,7 @@ clockcache_ok_to_writeback(clockcache *cc,
  */
 static inline bool
 clockcache_try_set_writeback(clockcache *cc,
-                             uint32      entry_number,
+                             uint64      entry_number,
                              bool        with_access)
 {
    // Validate first, as we need access to volatile status * below.
@@ -1261,7 +1264,7 @@ clockcache_write_callback(void           *metadata,
 {
    clockcache       *cc = *(clockcache **)metadata;
    uint64            i;
-   uint32            entry_number;
+   uint64            entry_number;
    clockcache_entry *entry;
    uint64            addr;
    debug_only uint32 debug_status;
@@ -1307,7 +1310,7 @@ clockcache_write_callback(void           *metadata,
 void
 clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
 {
-   uint32          entry_no, next_entry_no;
+   uint64          entry_no, next_entry_no;
    uint64          addr, first_addr, end_addr, i;
    const threadid  tid            = platform_get_tid();
    uint64          start_entry_no = batch * CC_ENTRIES_PER_BATCH;
@@ -1414,7 +1417,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
  *----------------------------------------------------------------------
  */
 static void
-clockcache_try_evict(clockcache *cc, uint32 entry_number)
+clockcache_try_evict(clockcache *cc, uint64 entry_number)
 {
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    const threadid    tid   = platform_get_tid();
@@ -1487,7 +1490,8 @@ clockcache_try_evict(clockcache *cc, uint32 entry_number)
    uint64 addr = entry->page.disk_addr;
    if (addr != CC_UNMAPPED_ADDR) {
       uint64 lookup_no      = clockcache_divide_by_page_size(cc, addr);
-      cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      //   cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      iceberg_remove(&cc->lookup, lookup_no);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
    }
    debug_only uint32 debug_status =
@@ -1527,8 +1531,8 @@ clockcache_evict_batch(clockcache *cc, uint32 batch)
    debug_assert(cc != NULL);
    debug_assert(batch < cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
 
-   uint32 start_entry_no = batch * CC_ENTRIES_PER_BATCH;
-   uint32 end_entry_no   = start_entry_no + CC_ENTRIES_PER_BATCH;
+   uint64 start_entry_no = batch * CC_ENTRIES_PER_BATCH;
+   uint64 end_entry_no   = start_entry_no + CC_ENTRIES_PER_BATCH;
 
    clockcache_log(0,
                   0,
@@ -1537,7 +1541,7 @@ clockcache_evict_batch(clockcache *cc, uint32 batch)
                   start_entry_no,
                   end_entry_no - 1);
 
-   for (uint32 entry_no = start_entry_no; entry_no < end_entry_no; entry_no++) {
+   for (uint64 entry_no = start_entry_no; entry_no < end_entry_no; entry_no++) {
       clockcache_try_evict(cc, entry_no);
    }
 }
@@ -1593,13 +1597,13 @@ clockcache_move_hand(clockcache *cc, bool is_urgent)
  *      returns a free page with given status and ref count.
  *----------------------------------------------------------------------
  */
-uint32
+uint64
 clockcache_get_free_page(clockcache *cc,
                          uint32      status,
                          bool        refcount,
                          bool        blocking)
 {
-   uint32            entry_no;
+   uint64            entry_no;
    uint64            num_passes = 0;
    const threadid    tid        = platform_get_tid();
    uint64            max_hand   = cc->per_thread[tid].free_hand;
@@ -1721,7 +1725,7 @@ clockcache_evict_all(clockcache *cc, bool ignore_pinned_pages)
    }
 
    for (i = 0; i < cc->cfg->page_capacity; i++) {
-      debug_only uint32 entry_no =
+      debug_only uint64 entry_no =
          clockcache_page_to_entry_number(cc, &cc->entry->page);
       // Every page should either be evicted or pinned.
       debug_assert(
@@ -1778,8 +1782,8 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->cfg       = cfg;
    cc->super.ops = &clockcache_ops;
 
-   uint64 allocator_page_capacity =
-      clockcache_divide_by_page_size(cc, allocator_get_capacity(al));
+   //uint64 allocator_page_capacity =
+   //   clockcache_divide_by_page_size(cc, allocator_get_capacity(al));
    uint64 debug_capacity =
       clockcache_multiply_by_page_size(cc, cc->cfg->page_capacity);
    cc->cfg->batch_capacity = cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH;
@@ -1807,14 +1811,15 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->heap_id = hid;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
-   cc->lookup =
-      TYPED_ARRAY_MALLOC(cc->heap_id, cc->lookup, allocator_page_capacity);
-   if (!cc->lookup) {
-      goto alloc_error;
+   //cc->lookup =
+   //   TYPED_ARRAY_MALLOC(cc->heap_id, cc->lookup, allocator_page_capacity);
+   int failed = iceberg_init(&cc->lookup, log2_ceil(cc->cfg->page_capacity));
+   if (failed) {
+      goto iceberg_error;
    }
-   for (i = 0; i < allocator_page_capacity; i++) {
-      cc->lookup[i] = CC_UNMAPPED_ENTRY;
-   }
+   //for (i = 0; i < allocator_page_capacity; i++) {
+   //   cc->lookup[i] = CC_UNMAPPED_ENTRY;
+   //}
 
    cc->entry =
       TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry, cc->cfg->page_capacity);
@@ -1874,6 +1879,8 @@ clockcache_init(clockcache        *cc,   // OUT
 
 alloc_error:
    clockcache_deinit(cc);
+iceberg_error:
+   iceberg_deinit(&cc->lookup);
    return STATUS_NO_MEMORY;
 }
 
@@ -1895,9 +1902,8 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #endif
    }
 
-   if (cc->lookup) {
-      platform_free(cc->heap_id, cc->lookup);
-   }
+   iceberg_deinit(&cc->lookup);
+
    if (cc->entry) {
       platform_free(cc->heap_id, cc->entry);
    }
@@ -1937,7 +1943,7 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 {
-   uint32            entry_no = clockcache_get_free_page(cc,
+   uint64            entry_no = clockcache_get_free_page(cc,
                                               CC_ALLOC_STATUS,
                                               TRUE,  // refcount
                                               TRUE); // blocking
@@ -1945,8 +1951,10 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
    entry->page.disk_addr      = addr;
    entry->type                = type;
    uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
-   cc->lookup[lookup_no] = entry_no;
-
+   //cc->lookup[lookup_no] = entry_no;
+   bool ret = iceberg_insert(&cc->lookup, lookup_no, entry_no);
+   debug_assert(ret);
+   (void) ret;
    clockcache_log(entry->page.disk_addr,
                   entry_no,
                   "alloc: entry %u addr %lu\n",
@@ -1967,7 +1975,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
 {
    const threadid tid = platform_get_tid();
    while (TRUE) {
-      uint32 entry_number = clockcache_lookup(cc, addr);
+      uint64 entry_number = clockcache_lookup(cc, addr);
       if (entry_number == CC_UNMAPPED_ENTRY) {
          clockcache_log(addr,
                         entry_number,
@@ -2029,7 +2037,8 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
 
       /* 5. clear lookup and disk addr; set status to CC_FREE_STATUS */
       uint64 lookup_no      = clockcache_divide_by_page_size(cc, addr);
-      cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      // cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      iceberg_remove(&cc->lookup, lookup_no);
       debug_assert(entry->page.disk_addr == addr);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
 
@@ -2089,7 +2098,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
                         page_handle **page)     // OUT
 {
    debug_assert(addr % clockcache_page_size(cc) == 0);
-   uint32            entry_number = CC_UNMAPPED_ENTRY;
+   uint64            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    debug_only uint64 base_addr =
       allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
@@ -2200,8 +2209,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
     * If someone else is loading the page and has reserved the lookup, let them
     * do it.
     */
-   if (!__sync_bool_compare_and_swap(
-          &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number))
+   if (!iceberg_insert(&cc->lookup, lookup_no, entry_number))
    {
       clockcache_dec_ref(cc, entry_number, tid);
       entry->status = CC_FREE_STATUS;
@@ -2290,7 +2298,7 @@ clockcache_read_async_callback(void           *metadata,
    platform_assert_status_ok(status);
    debug_assert(count == 1);
 
-   uint32 entry_number =
+   uint64 entry_number =
       clockcache_data_to_entry_number(cc, (char *)iovec[0].iov_base);
    clockcache_entry *entry = clockcache_get_entry(cc, entry_number);
    uint64            addr  = entry->page.disk_addr;
@@ -2302,7 +2310,7 @@ clockcache_read_async_callback(void           *metadata,
       ctxt->stats.compl_ts = platform_get_timestamp();
    }
 
-   debug_only uint32 lookup_entry_number;
+   debug_only uint64 lookup_entry_number;
    debug_code(lookup_entry_number = clockcache_lookup(cc, addr));
    debug_assert(lookup_entry_number == entry_number);
    debug_only uint32 was_loading =
@@ -2354,7 +2362,7 @@ clockcache_get_async(clockcache       *cc,   // IN
 
    debug_assert(addr % clockcache_page_size(cc) == 0);
    debug_assert((cache *)cc == ctxt->cc);
-   uint32            entry_number = CC_UNMAPPED_ENTRY;
+   uint64            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    debug_only uint64 base_addr =
       allocator_config_extent_base_addr(allocator_get_config(cc->al), addr);
@@ -2424,8 +2432,7 @@ clockcache_get_async(clockcache       *cc,   // IN
     * If someone else is loading the page and has reserved the lookup, let them
     * do it.
     */
-   if (!__sync_bool_compare_and_swap(
-          &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number))
+   if (!iceberg_insert(&cc->lookup, lookup_no, entry_number))
    {
       /*
        * This is rare but when it happens, we could burn CPU retrying
@@ -2450,7 +2457,7 @@ clockcache_get_async(clockcache       *cc,   // IN
 
    io_async_req *req = io_get_async_req(cc->io, FALSE);
    if (req == NULL) {
-      cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      iceberg_remove(&cc->lookup, lookup_no);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
       entry->status         = CC_FREE_STATUS;
       clockcache_dec_ref(cc, entry_number, tid);
@@ -2500,7 +2507,7 @@ clockcache_async_done(clockcache *cc, page_type type, cache_async_ctxt *ctxt)
 void
 clockcache_unget(clockcache *cc, page_handle *page)
 {
-   uint32         entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64         entry_number = clockcache_page_to_entry_number(cc, page);
    const threadid tid          = platform_get_tid();
 
    clockcache_record_backtrace(cc, entry_number);
@@ -2536,7 +2543,7 @@ clockcache_unget(clockcache *cc, page_handle *page)
 bool
 clockcache_try_claim(clockcache *cc, page_handle *page)
 {
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
@@ -2551,7 +2558,7 @@ clockcache_try_claim(clockcache *cc, page_handle *page)
 void
 clockcache_unclaim(clockcache *cc, page_handle *page)
 {
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
@@ -2579,7 +2586,7 @@ clockcache_unclaim(clockcache *cc, page_handle *page)
 void
 clockcache_lock(clockcache *cc, page_handle *page)
 {
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
@@ -2593,7 +2600,7 @@ clockcache_lock(clockcache *cc, page_handle *page)
 void
 clockcache_unlock(clockcache *cc, page_handle *page)
 {
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
@@ -2617,7 +2624,7 @@ void
 clockcache_mark_dirty(clockcache *cc, page_handle *page)
 {
    debug_only clockcache_entry *entry = clockcache_page_to_entry(cc, page);
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_number = clockcache_page_to_entry_number(cc, page);
 
    clockcache_log(entry->page.disk_addr,
                   entry_number,
@@ -2642,7 +2649,7 @@ void
 clockcache_pin(clockcache *cc, page_handle *page)
 {
    debug_only clockcache_entry *entry = clockcache_page_to_entry(cc, page);
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_number = clockcache_page_to_entry_number(cc, page);
    debug_assert(clockcache_test_flag(cc, entry_number, CC_WRITELOCKED));
    clockcache_inc_pin(cc, entry_number);
 
@@ -2657,7 +2664,7 @@ void
 clockcache_unpin(clockcache *cc, page_handle *page)
 {
    debug_only clockcache_entry *entry = clockcache_page_to_entry(cc, page);
-   uint32 entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_number = clockcache_page_to_entry_number(cc, page);
    clockcache_dec_pin(cc, entry_number);
 
    clockcache_log(entry->page.disk_addr,
@@ -2681,7 +2688,7 @@ clockcache_page_sync(clockcache  *cc,
                      bool         is_blocking,
                      page_type    type)
 {
-   uint32          entry_number = clockcache_page_to_entry_number(cc, page);
+   uint64          entry_number = clockcache_page_to_entry_number(cc, page);
    io_async_req   *req;
    struct iovec   *iovec;
    uint64          addr = page->disk_addr;
@@ -2772,7 +2779,7 @@ void
 clockcache_extent_sync(clockcache *cc, uint64 addr, uint64 *pages_outstanding)
 {
    uint64          i;
-   uint32          entry_number;
+   uint64          entry_number;
    uint64          req_count = 0;
    uint64          req_addr;
    uint64          page_addr;
@@ -2847,7 +2854,7 @@ clockcache_prefetch_callback(void           *metadata,
    platform_assert(count <= cc->cfg->pages_per_extent);
 
    for (uint64 page_off = 0; page_off < count; page_off++) {
-      uint32 entry_no =
+      uint64 entry_no =
          clockcache_data_to_entry_number(cc, (char *)iovec[page_off].iov_base);
       clockcache_entry *entry = &cc->entry[entry_no];
       if (page_off != 0) {
@@ -2895,7 +2902,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
 
    for (uint64 page_off = 0; page_off < pages_per_extent; page_off++) {
       uint64 addr = base_addr + clockcache_multiply_by_page_size(cc, page_off);
-      uint32 entry_no = clockcache_lookup(cc, addr);
+      uint64 entry_no = clockcache_lookup(cc, addr);
       get_rc get_read_rc;
       if (entry_no != CC_UNMAPPED_ENTRY) {
          clockcache_record_backtrace(cc, entry_no);
@@ -2930,14 +2937,13 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
          case GET_RC_EVICTED:
          {
             // need to prefetch
-            uint32 free_entry_no = clockcache_get_free_page(
+            uint64 free_entry_no = clockcache_get_free_page(
                cc, CC_READ_LOADING_STATUS, FALSE, TRUE);
             clockcache_entry *entry = &cc->entry[free_entry_no];
             entry->page.disk_addr   = addr;
             entry->type             = type;
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
-            if (__sync_bool_compare_and_swap(
-                   &cc->lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no))
+            if (iceberg_insert(&cc->lookup, lookup_no, free_entry_no))
             {
                if (pages_in_req == 0) {
                   debug_assert(req_start_addr == CC_UNMAPPED_ADDR);
@@ -3036,7 +3042,7 @@ clockcache_validate_page(clockcache *cc, page_handle *page, uint64 addr)
 void
 clockcache_assert_ungot(clockcache *cc, uint64 addr)
 {
-   uint32         entry_number = clockcache_lookup(cc, addr);
+   uint64         entry_number = clockcache_lookup(cc, addr);
    const threadid tid          = platform_get_tid();
 
    if (entry_number != CC_UNMAPPED_ENTRY) {
@@ -3198,7 +3204,7 @@ clockcache_reset_stats(clockcache *cc)
 uint32
 clockcache_count_dirty(clockcache *cc)
 {
-   uint32 entry_no;
+   uint64 entry_no;
    uint32 dirty_count = 0;
    for (entry_no = 0; entry_no < cc->cfg->page_capacity; entry_no++) {
       if (!clockcache_test_flag(cc, entry_no, CC_CLEAN)
@@ -3213,7 +3219,7 @@ clockcache_count_dirty(clockcache *cc)
 uint16
 clockcache_get_read_ref(clockcache *cc, page_handle *page)
 {
-   uint32 entry_no = clockcache_page_to_entry_number(cc, page);
+   uint64 entry_no = clockcache_page_to_entry_number(cc, page);
    platform_assert(entry_no != CC_UNMAPPED_ENTRY);
    uint16 ref_count = 0;
    for (threadid thr_i = 0; thr_i < CC_RC_WIDTH; thr_i++) {

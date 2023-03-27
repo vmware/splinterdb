@@ -72,6 +72,7 @@ init_fraction(uint64 numerator, uint64 denominator)
       .denominator = 1,                                                        \
    })
 
+uint64 log2_ceil(uint64 value);
 
 static inline slice
 slice_copy_contents(void *dst, const slice src)

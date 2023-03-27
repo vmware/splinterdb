@@ -1,11 +1,17 @@
 // Copyright 2018-2021 VMware, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
+#include <immintrin.h>
 #include "platform.h"
 
 #include "util.h"
 
 #include "poison.h"
+
+uint64 log2_ceil(uint64 value)
+{
+  if(__builtin_popcountll(value) == 1 ) return 63 - _lzcnt_u64(value);
+  return 64 - _lzcnt_u64(value);
+}
 
 static platform_status
 writable_buffer_ensure_space(writable_buffer *wb, uint64 minspace)

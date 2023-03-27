@@ -1024,7 +1024,7 @@ cache_test(int argc, char *argv[])
 
    if (al_cfg.page_capacity < 5 * cache_cfg.page_capacity) {
       platform_error_log("cache_test: disk capacity, # of pages=%lu, must be"
-                         " at least 5 times cache capacity # of pages=%u\n",
+                         " at least 5 times cache capacity # of pages=%lu\n",
                          al_cfg.page_capacity,
                          cache_cfg.page_capacity);
       rc = STATUS_BAD_PARAM;

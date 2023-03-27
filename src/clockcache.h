@@ -12,10 +12,11 @@
 #include "allocator.h"
 #include "cache.h"
 #include "io.h"
+#include "iceberg_table.h"
 
 //#define ADDR_TRACING
 #define TRACE_ADDR  (UINT64_MAX - 1)
-#define TRACE_ENTRY (UINT32_MAX - 1)
+#define TRACE_ENTRY (UINT64_MAX - 1)
 
 // #define RECORD_ACQUISITION_STACKS
 
@@ -35,7 +36,7 @@ typedef struct clockcache_config {
    // computed
    uint64 log_page_size;
    uint64 extent_mask;
-   uint32 page_capacity;
+   uint64 page_capacity;
    uint64 batch_capacity;
    uint64 cacheline_capacity;
    uint64 pages_per_extent;
@@ -114,7 +115,7 @@ struct clockcache {
    allocator         *al;
    io_handle         *io;
 
-   uint32              *lookup;
+   iceberg_table       lookup;
    clockcache_entry    *entry;
    buffer_handle        bh;   // actual memory for pages
    char                *data; // convenience pointer for bh
@@ -127,13 +128,13 @@ struct clockcache {
    volatile uint8 *pincount;
 
    // Clock hands and related metadata
-   volatile uint32 evict_hand;
-   volatile uint32 free_hand;
+   volatile uint64 evict_hand;
+   volatile uint64 free_hand;
    volatile bool  *batch_busy;
    uint64          cleaner_gap;
 
    volatile struct {
-      volatile uint32 free_hand;
+      volatile uint64 free_hand;
       bool            enable_sync_get;
    } PLATFORM_CACHELINE_ALIGNED per_thread[MAX_THREADS];
 
