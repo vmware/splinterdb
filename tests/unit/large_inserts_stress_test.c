@@ -46,8 +46,11 @@ typedef struct {
 // Randomly generated key, inserted in host-endian order
 #define RANDOM_KEY_HOST_ENDIAN_FD 1
 
+// Sequentially generated key, inserted using snprintf() to key-buffer
+#define SEQ_KEY_SNPRINTF_FD 0
+
 // Sequentially generated key, inserted in host-endian order
-#define SEQ_KEY_HOST_ENDIAN_FD 0
+#define SEQ_KEY_HOST_ENDIAN_32_FD -1
 
 // Sequentially generated key, inserted in big-endian 32-bit order.
 // This facilitates lookup using lexcmp()
@@ -59,10 +62,14 @@ typedef struct {
 // Small value, sequentially generated based on key-ID is stored.
 #define SEQ_VAL_SMALL_LENGTH_FD 0
 
+#define RANDOM_VAL_FIXED_LEN_5_FD 5
+
 // Random value generated, exactly of 6 bytes. This case is used to simulate
 // data insertions into SplinterDB for Postgres-integration, where we store
 // the 6-byte tuple-ID (TID) as the value.
-#define RANDOM_VAL_FIXED_LEN_FD 6
+#define RANDOM_VAL_FIXED_LEN_6_FD 6
+
+#define RANDOM_VAL_FIXED_LEN_8_FD 8
 
 // Function Prototypes
 static void *
@@ -164,7 +171,30 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts)
    wcfg.kvsb          = data->kvsb;
    wcfg.master_cfg    = &data->master_cfg;
    wcfg.num_inserts   = data->num_inserts;
-   wcfg.random_key_fd = SEQ_KEY_HOST_ENDIAN_FD;
+   wcfg.random_key_fd = SEQ_KEY_SNPRINTF_FD;
+
+   exec_worker_thread(&wcfg);
+}
+
+/*
+ * Specialized test case to reproduce issue #560 discovered
+ * during large-inserts performance benchmarking. Here, we
+ * load 4-byte int32 ID-keys, in big-endian format, with
+ * randomly generated 6-byte 'value'. Value is supposed to
+ * reflect 6-byte tuple-ID (TID).
+ */
+CTEST2(large_inserts_stress,
+       test_560_seq_host_endian32_key_random_6byte_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb          = data->kvsb;
+   wcfg.master_cfg    = &data->master_cfg;
+   wcfg.num_inserts   = data->num_inserts;
+   wcfg.random_key_fd = SEQ_KEY_HOST_ENDIAN_32_FD;
+   wcfg.random_val_fd = RANDOM_VAL_FIXED_LEN_6_FD;
 
    exec_worker_thread(&wcfg);
 }
@@ -187,11 +217,54 @@ CTEST2(large_inserts_stress,
    wcfg.master_cfg    = &data->master_cfg;
    wcfg.num_inserts   = data->num_inserts;
    wcfg.random_key_fd = SEQ_KEY_BIG_ENDIAN_32_FD;
-   wcfg.random_val_fd = RANDOM_VAL_FIXED_LEN_FD;
+   wcfg.random_val_fd = RANDOM_VAL_FIXED_LEN_6_FD;
 
    exec_worker_thread(&wcfg);
 }
 
+/*
+ * Specialized test case to reproduce issue #560: Variation of prev case;
+ * test_560_seq_htobe32_key_random_6byte_values_inserts(). In this case, we
+ * load 4-byte int32 ID-keys, in host-endian format, with randomly generated
+ * 5-byte 'value' This variation tests if the repro is affected by choice of
+ * host-endian storage for the key ID, and a shorter value length.
+ * Even with both changes, the problems still repros.
+ */
+CTEST2(large_inserts_stress,
+       test_560_seq_host_endian32_key_random_5byte_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb          = data->kvsb;
+   wcfg.master_cfg    = &data->master_cfg;
+   wcfg.num_inserts   = data->num_inserts;
+   wcfg.random_key_fd = SEQ_KEY_HOST_ENDIAN_32_FD;
+   wcfg.random_val_fd = RANDOM_VAL_FIXED_LEN_5_FD;
+
+   exec_worker_thread(&wcfg);
+}
+
+/*
+ * Variation of above 2 cases: Here with host-endian storage of the key and
+ * 8-byte value, we somehow do not run into above bug.
+ */
+CTEST2(large_inserts_stress,
+       test_560_seq_host_endian32_key_random_8byte_values_inserts)
+{
+   worker_config wcfg;
+   ZERO_STRUCT(wcfg);
+
+   // Load worker config params
+   wcfg.kvsb          = data->kvsb;
+   wcfg.master_cfg    = &data->master_cfg;
+   wcfg.num_inserts   = data->num_inserts;
+   wcfg.random_key_fd = SEQ_KEY_HOST_ENDIAN_32_FD;
+   wcfg.random_val_fd = RANDOM_VAL_FIXED_LEN_8_FD;
+
+   exec_worker_thread(&wcfg);
+}
 CTEST2(large_inserts_stress, test_random_key_seq_values_inserts)
 {
    worker_config wcfg;
@@ -275,6 +348,12 @@ exec_worker_thread(void *w)
       key_len  = sizeof(key_data_be);
    }
 
+   int32 key_data_he; // int-32 keys generated in host-endian-32 notation
+   if (random_key_fd == SEQ_KEY_HOST_ENDIAN_32_FD) {
+      key_data = (char *)&key_data_he;
+      key_len  = sizeof(key_data_he);
+   }
+
    // Test is written to insert multiples of millions per thread.
    ASSERT_EQUAL(0, (num_inserts % MILLION));
 
@@ -308,9 +387,10 @@ exec_worker_thread(void *w)
 
    if (random_val_fd > SEQ_VAL_SMALL_LENGTH_FD) {
       // Generate random value choosing the width of value generated.
+      // Value-length selector from 5, 6, 8 bytes, as specified by test case
       val_len =
-         ((random_val_fd == RANDOM_VAL_FIXED_LEN_FD) ? RANDOM_VAL_FIXED_LEN_FD
-                                                     : sizeof(val_data));
+         ((random_val_fd <= RANDOM_VAL_FIXED_LEN_8_FD) ? random_val_fd
+                                                       : sizeof(val_data));
 
       platform_default_log("OS-pid=%d, Thread-ID=%lu"
                            ", Insert random value of "
@@ -352,10 +432,13 @@ exec_worker_thread(void *w)
             ASSERT_TRUE(result >= 0);
 
             key_len = result;
-         } else if (random_key_fd == SEQ_KEY_HOST_ENDIAN_FD) {
+         } else if (random_key_fd == SEQ_KEY_SNPRINTF_FD) {
             // Generate sequential key data, stored in host-endian order
             snprintf(key_buf, sizeof(key_buf), "%lu", id);
             key_len = strlen(key_buf);
+         } else if (random_key_fd == SEQ_KEY_HOST_ENDIAN_32_FD) {
+            // Generate sequential key data, stored in host-endian order
+            key_data_he = id;
          } else if (random_key_fd == SEQ_KEY_BIG_ENDIAN_32_FD) {
             // Generate sequential key data, stored in big-endian order
             key_data_be = htobe32(id);

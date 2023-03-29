@@ -531,8 +531,8 @@ routing_filter_add(cache           *cc,
          uint32 end_bucket      = (index_no + 1) * index_size;
          uint32 new_index_count = index_count[index_no];
          uint64 header_bit      = 0;
-         // platform_default_log("index 0x%x start 0x%x end 0x%x\n", index_no,
-         // last_bucket, end_bucket);
+         // platform_default_log("index_no=%u start=%u end=%u\n",
+         //                      index_no, last_bucket, end_bucket);
          uint32 last_fp_added = UINT32_MAX;
          while (new_fps_added < new_index_count
                 || old_fps_added < old_index_count) {
