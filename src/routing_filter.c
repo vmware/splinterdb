@@ -583,7 +583,14 @@ routing_filter_add(cache           *cc,
 
          // Set the index_no
          // ALEX: for now the indices must fit in a single extent
-         debug_assert(index_no / addrs_per_page < pages_per_extent);
+         debug_assert((index_no / addrs_per_page < pages_per_extent),
+                      "index_no=%u, addrs_per_page=%lu"
+                      ", (index_no / addrs_per_page)=%lu"
+                      ", pages_per_extent=%lu",
+                      index_no,
+                      addrs_per_page,
+                      (index_no / addrs_per_page),
+                      pages_per_extent);
          uint64  index_page_no = index_no / addrs_per_page;
          uint64  index_offset  = index_no % addrs_per_page;
          uint64 *index_cursor  = (uint64 *)(index_page[index_page_no]->data);
