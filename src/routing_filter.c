@@ -338,6 +338,7 @@ routing_filter_add(cache           *cc,
    size_t old_remainder_and_value_size = 0;
    if (old_filter->addr != 0) {
       mini_unkeyed_prefetch(cc, PAGE_TYPE_FILTER, old_filter->meta_head);
+      debug_assert(old_filter->num_fingerprints != 0);
       old_log_num_buckets = 31 - __builtin_clz(old_filter->num_fingerprints);
       if (old_log_num_buckets < cfg->log_index_size) {
          old_log_num_buckets = cfg->log_index_size;
@@ -355,6 +356,7 @@ routing_filter_add(cache           *cc,
    filter->num_fingerprints = num_new_fp + old_filter->num_fingerprints;
    filter->num_unique       = 0;
 
+   debug_assert(filter->num_fingerprints != 0);
    uint32 log_num_buckets = 31 - __builtin_clz(filter->num_fingerprints);
    if (log_num_buckets < cfg->log_index_size) {
       log_num_buckets = cfg->log_index_size;
@@ -362,8 +364,11 @@ routing_filter_add(cache           *cc,
    uint32 log_num_indices = log_num_buckets - cfg->log_index_size;
    uint32 num_indices     = 1UL << log_num_indices;
    debug_assert(num_indices > 0);
-   uint32 remainder_size           = cfg->fingerprint_size - log_num_buckets;
-   size_t value_size               = value == 0 ? 0 : 32 - __builtin_clz(value);
+   uint32 remainder_size = cfg->fingerprint_size - log_num_buckets;
+
+   size_t value_size = ((value == 0) ? 0 : 32 - __builtin_clz((uint32)value));
+   debug_assert((value_size < 32), "value_size=%lu", value_size);
+
    filter->value_size              = value_size;
    size_t remainder_and_value_size = value_size + remainder_size;
    uint32 remainder_and_value_mask = (1UL << remainder_and_value_size) - 1;
@@ -583,7 +588,14 @@ routing_filter_add(cache           *cc,
 
          // Set the index_no
          // ALEX: for now the indices must fit in a single extent
-         debug_assert(index_no / addrs_per_page < pages_per_extent);
+         debug_assert((index_no / addrs_per_page < pages_per_extent),
+                      "index_no=%u, addrs_per_page=%lu"
+                      ", (index_no / addrs_per_page)=%lu"
+                      ", pages_per_extent=%lu",
+                      index_no,
+                      addrs_per_page,
+                      (index_no / addrs_per_page),
+                      pages_per_extent);
          uint64  index_page_no = index_no / addrs_per_page;
          uint64  index_offset  = index_no % addrs_per_page;
          uint64 *index_cursor  = (uint64 *)(index_page[index_page_no]->data);
