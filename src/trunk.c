@@ -7920,6 +7920,12 @@ trunk_print_locked_node(platform_log_handle *log_handle,
                         trunk_node          *node)
 {
    uint16 height = trunk_height(node);
+
+   platform_log(log_handle,
+                "\nPage type: %s, Node addr=%lu\n{\n",
+                page_type_str[PAGE_TYPE_TRUNK],
+                node->addr);
+
    // clang-format off
    platform_log(log_handle, "----------------------------------------------------------------------------------------------------\n");
    platform_log(log_handle, "|          |     addr     |   next addr  | height |   gen   | pvt gen |                            |\n");
@@ -7938,6 +7944,9 @@ trunk_print_locked_node(platform_log_handle *log_handle,
 
    platform_log(log_handle, "}\n");
 }
+
+// We print leading n-bytes of pivot's key, given by this define.
+#define PIVOT_KEY_PREFIX_LEN 24
 
 /*
  * trunk_print_pivots() -- Print pivot array information.
@@ -7962,8 +7971,9 @@ trunk_print_pivots(platform_log_handle *log_handle,
       trunk_pivot_data *pdata = trunk_get_pivot_data(spl, node, pivot_no);
       if (pivot_no == trunk_num_pivot_keys(spl, node) - 1) {
          platform_log(log_handle,
-                      "| %.*s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
-                      24,
+                      "| %*.*s | %12s | %12s | %11s | %9s | %5s | %5s |\n",
+                      PIVOT_KEY_PREFIX_LEN,
+                      PIVOT_KEY_PREFIX_LEN,
                       key_string(spl->cfg.data_cfg, pivot),
                       "",
                       "",
@@ -7972,16 +7982,18 @@ trunk_print_pivots(platform_log_handle *log_handle,
                       "",
                       "");
       } else {
-         platform_log(log_handle,
-                      "| %.*s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
-                      24,
-                      key_string(spl->cfg.data_cfg, pivot),
-                      pdata->addr,
-                      pdata->filter.addr,
-                      pdata->num_tuples_whole + pdata->num_tuples_bundle,
-                      pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
-                      pdata->srq_idx,
-                      pdata->generation);
+         platform_log(
+            log_handle,
+            "| %*.*s | %12lu | %12lu | %11lu | %9lu | %5ld | %5lu |\n",
+            PIVOT_KEY_PREFIX_LEN,
+            PIVOT_KEY_PREFIX_LEN,
+            key_string(spl->cfg.data_cfg, pivot),
+            pdata->addr,
+            pdata->filter.addr,
+            pdata->num_tuples_whole + pdata->num_tuples_bundle,
+            pdata->num_kv_bytes_whole + pdata->num_kv_bytes_bundle,
+            pdata->srq_idx,
+            pdata->generation);
       }
       if (key_is_user_key(pivot)) {
          platform_log(log_handle, "| Full key: ");
@@ -8152,7 +8164,7 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
    platform_log(log_handle, "&&&&&&&&&&&&&&&&&&&\n");
    platform_log(log_handle, "&&  MEMTABLES \n");
    platform_log(log_handle, "&&  curr: %lu\n", curr_memtable);
-   platform_log(log_handle, "-------------------\n");
+   platform_log(log_handle, "-------------------\n{\n");
 
    uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
    uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
@@ -8160,14 +8172,14 @@ trunk_print_memtable(platform_log_handle *log_handle, trunk_handle *spl)
       memtable *mt = trunk_get_memtable(spl, mt_gen);
       platform_log(log_handle,
                    "Memtable root_addr=%lu: gen %lu ref_count %u state %d\n",
-                   mt_gen,
                    mt->root_addr,
+                   mt_gen,
                    allocator_get_refcount(spl->al, mt->root_addr),
                    mt->state);
 
       memtable_print(log_handle, spl->cc, mt);
    }
-   platform_log(log_handle, "\n");
+   platform_log(log_handle, "\n}\n");
 }
 
 /*
@@ -8821,11 +8833,16 @@ trunk_node_print_branches(trunk_handle *spl, uint64 addr, void *arg)
    platform_log(
       log_handle,
       "------------------------------------------------------------------\n");
-   platform_log(
-      log_handle, "| node %12lu height %u\n", addr, trunk_height(&node));
+   platform_log(log_handle,
+                "| Page type: %s, Node addr=%lu height=%u next_addr=%lu\n",
+                page_type_str[PAGE_TYPE_TRUNK],
+                addr,
+                trunk_height(&node),
+                trunk_next_addr(&node));
    platform_log(
       log_handle,
       "------------------------------------------------------------------\n");
+
    uint16 num_pivot_keys = trunk_num_pivot_keys(spl, &node);
    platform_log(log_handle, "| pivots:\n");
    for (uint16 pivot_no = 0; pivot_no < num_pivot_keys; pivot_no++) {

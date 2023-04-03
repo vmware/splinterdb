@@ -6,12 +6,6 @@
 
 #include "poison.h"
 
-#define MAX_HOOKS (8)
-
-int              hook_init_done = 0;
-static int       num_hooks      = 0;
-static task_hook hooks[MAX_HOOKS];
-
 const char *task_type_name[] = {"TASK_TYPE_INVALID",
                                 "TASK_TYPE_MEMTABLE",
                                 "TASK_TYPE_NORMAL"};
@@ -148,13 +142,13 @@ task_get_max_tid(task_system *ts)
  ****************************************/
 
 static platform_status
-task_register_hook(task_hook newhook)
+task_register_hook(task_system *ts, task_hook newhook)
 {
-   int my_hook_idx = __sync_fetch_and_add(&num_hooks, 1);
-   if (my_hook_idx >= MAX_HOOKS) {
+   int my_hook_idx = __sync_fetch_and_add(&ts->num_hooks, 1);
+   if (my_hook_idx >= TASK_MAX_HOOKS) {
       return STATUS_LIMIT_EXCEEDED;
    }
-   hooks[my_hook_idx] = newhook;
+   ts->hooks[my_hook_idx] = newhook;
 
    return STATUS_OK;
 }
@@ -171,19 +165,19 @@ task_system_io_register_thread(task_system *ts)
  * __attribute__((constructor)) works.
  */
 static void
-register_standard_hooks(void)
+register_standard_hooks(task_system *ts)
 {
    // hooks need to be initialized only once.
-   if (__sync_fetch_and_add(&hook_init_done, 1) == 0) {
-      task_register_hook(task_system_io_register_thread);
+   if (__sync_fetch_and_add(&ts->hook_init_done, 1) == 0) {
+      task_register_hook(ts, task_system_io_register_thread);
    }
 }
 
 static void
 task_run_thread_hooks(task_system *ts)
 {
-   for (int i = 0; i < num_hooks; i++) {
-      hooks[i](ts);
+   for (int i = 0; i < ts->num_hooks; i++) {
+      ts->hooks[i](ts);
    }
 }
 
@@ -872,7 +866,7 @@ task_system_create(platform_heap_id          hid,
    task_init_tid_bitmask(&ts->tid_bitmask);
 
    // task initialization
-   register_standard_hooks();
+   register_standard_hooks(ts);
 
    // Ensure that the main thread gets registered and init'ed first before
    // any background threads are created. (Those may grab their own tids.).

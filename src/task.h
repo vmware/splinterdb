@@ -89,12 +89,14 @@ task_system_config_init(task_system_config *task_cfg,
                         uint64       scratch_size);
 
 
+#define TASK_MAX_HOOKS (4)
+
 /*
  * ----------------------------------------------------------------------
  * Splinter specific state that gets created during initialization in
  * splinter_system_init(). Contains global state for splinter such as the
  * init thread, init thread's scratch memory, thread_id counter and an array
- * of all the threads, which acts like a map that is accessed by thread id
+ * of all the threads, which acts like a map that is accessed by thread ID
  * to get the thread pointer.
  *
  * This structure is passed around like an opaque structure to all the
@@ -120,6 +122,10 @@ struct task_system {
    void    *thread_scratch[MAX_THREADS];
    // task groups
    task_group group[NUM_TASK_TYPES];
+
+   int       hook_init_done;
+   int       num_hooks;
+   task_hook hooks[TASK_MAX_HOOKS];
 };
 
 platform_status

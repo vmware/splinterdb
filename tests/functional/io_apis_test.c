@@ -277,7 +277,9 @@ splinter_io_apis_test(int argc, char *argv[])
 
    test_async_reads_by_threads(&io_test_fn_arg, NUM_THREADS);
 
+   task_system_destroy(hid, &tasks);
 io_free:
+   io_handle_deinit(io_hdl);
    platform_free(hid, io_hdl);
 heap_destroy:
    platform_heap_destroy(&hh);
