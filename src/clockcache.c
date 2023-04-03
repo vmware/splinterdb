@@ -609,7 +609,7 @@ static inline clockcache_entry *
 clockcache_get_entry(clockcache *cc, uint64 entry_number)
 {
    debug_assert(entry_number < cc->cfg->page_capacity,
-                "entry_number=%u is out-of-bounds. Should be < %d.",
+                "entry_number=%lu is out-of-bounds. Should be < %lu.",
                 entry_number,
                 cc->cfg->page_capacity);
    return (&cc->entry[entry_number]);
@@ -705,9 +705,9 @@ clockcache_lookup(clockcache *cc, uint64 addr)
 
    debug_assert(((get_result && entry_number < cc->cfg->page_capacity)
                  || (!get_result && entry_number == CC_UNMAPPED_ENTRY)),
-                "entry_number=%u is out-of-bounds. "
+                "entry_number=%lu is out-of-bounds. "
                 " Should be either CC_UNMAPPED_ENTRY,"
-                " or should be < %d.",
+                " or should be < %lu.",
                 entry_number,
                 cc->cfg->page_capacity);
    (void) get_result;
@@ -825,7 +825,7 @@ clockcache_dec_ref(clockcache *cc, uint64 entry_number, threadid counter_no)
    uint64 rc_number = clockcache_get_ref_internal(cc, entry_number);
    debug_assert((rc_number < cc->cfg->page_capacity),
                 "Entry number, %lu, is out of allocator "
-                "page capacity range, %u.\n",
+                "page capacity range, %lu.\n",
                 rc_number,
                 cc->cfg->page_capacity);
 
@@ -1041,7 +1041,7 @@ clockcache_try_get_claim(clockcache *cc, uint64 entry_number)
 
    clockcache_log(0,
                   entry_number,
-                  "try_get_claim: entry_number %u claimed: %u\n",
+                  "try_get_claim: entry_number %lu claimed: %lu\n",
                   entry_number,
                   clockcache_test_flag(cc, entry_number, CC_CLAIMED));
 
@@ -1222,7 +1222,7 @@ clockcache_try_set_writeback(clockcache *cc,
 {
    // Validate first, as we need access to volatile status * below.
    debug_assert(entry_number < cc->cfg->page_capacity,
-                "entry_number=%u is out-of-bounds. Should be < %d.",
+                "entry_number=%lu is out-of-bounds. Should be < %lu.",
                 entry_number,
                 cc->cfg->page_capacity);
 
@@ -1281,7 +1281,7 @@ clockcache_write_callback(void           *metadata,
 
       clockcache_log(addr,
                      entry_number,
-                     "write_callback i %lu entry %u addr %lu\n",
+                     "write_callback i %lu entry %lu addr %lu\n",
                      i,
                      entry_number,
                      addr);
@@ -1387,7 +1387,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
 
             clockcache_log_stream(addr,
                                   next_entry_no,
-                                  "flush: entry %u addr %lu\n",
+                                  "flush: entry %lu addr %lu\n",
                                   next_entry_no,
                                   addr);
             iovec[i].iov_base = next_entry->page.data;
@@ -1501,7 +1501,7 @@ clockcache_try_evict(clockcache *cc, uint64 entry_number)
    /* 6. set status to CC_FREE_STATUS (clears claim and write lock) */
    entry->status = CC_FREE_STATUS;
    clockcache_log(
-      addr, entry_number, "evict: entry %u addr %lu\n", entry_number, addr);
+      addr, entry_number, "evict: entry %lu addr %lu\n", entry_number, addr);
 
    /* 7. release read lock */
    goto release_ref;
@@ -1536,7 +1536,7 @@ clockcache_evict_batch(clockcache *cc, uint32 batch)
 
    clockcache_log(0,
                   0,
-                  "evict_batch: %u, entries %u-%u\n",
+                  "evict_batch: %u, entries %lu-%lu\n",
                   batch,
                   start_entry_no,
                   end_entry_no - 1);
@@ -1957,7 +1957,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
    (void) ret;
    clockcache_log(entry->page.disk_addr,
                   entry_no,
-                  "alloc: entry %u addr %lu\n",
+                  "alloc: entry %lu addr %lu\n",
                   entry_no,
                   entry->page.disk_addr);
    return &entry->page;
@@ -1979,7 +1979,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
       if (entry_number == CC_UNMAPPED_ENTRY) {
          clockcache_log(addr,
                         entry_number,
-                        "try_discard_page (uncached): entry %u addr %lu\n",
+                        "try_discard_page (uncached): entry %lu addr %lu\n",
                         entry_number,
                         addr);
          return;
@@ -2028,7 +2028,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
       /* log only after steps that can fail */
       clockcache_log(addr,
                      entry_number,
-                     "try_discard_page (cached): entry %u addr %lu\n",
+                     "try_discard_page (cached): entry %lu addr %lu\n",
                      entry_number,
                      addr);
 
@@ -2137,7 +2137,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
             // this means we raced with eviction, start over
             clockcache_log(addr,
                            entry_number,
-                           "get (eviction race): entry %u addr %lu\n",
+                           "get (eviction race): entry %lu addr %lu\n",
                            entry_number,
                            addr);
             return TRUE;
@@ -2154,7 +2154,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
                clockcache_log(
                   addr,
                   entry_number,
-                  "get (locked -- non-blocking): entry %u addr %lu\n",
+                  "get (locked -- non-blocking): entry %lu addr %lu\n",
                   entry_number,
                   addr);
                *page = NULL;
@@ -2162,7 +2162,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
             case GET_RC_EVICTED:
                clockcache_log(addr,
                               entry_number,
-                              "get (eviction race): entry %u addr %lu\n",
+                              "get (eviction race): entry %lu addr %lu\n",
                               entry_number,
                               addr);
                return TRUE;
@@ -2189,7 +2189,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
       }
       clockcache_log(addr,
                      entry_number,
-                     "get (cached): entry %u addr %lu rc %u\n",
+                     "get (cached): entry %lu addr %lu rc %u\n",
                      entry_number,
                      addr,
                      clockcache_get_ref(cc, entry_number, tid));
@@ -2215,7 +2215,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
       entry->status = CC_FREE_STATUS;
       clockcache_log(addr,
                      entry_number,
-                     "get abort: entry: %u addr: %lu\n",
+                     "get abort: entry: %lu addr: %lu\n",
                      entry_number,
                      addr);
       return TRUE;
@@ -2239,7 +2239,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
 
    clockcache_log(addr,
                   entry_number,
-                  "get (load): entry %u addr %lu\n",
+                  "get (load): entry %lu addr %lu\n",
                   entry_number,
                   addr);
 
@@ -2318,7 +2318,7 @@ clockcache_read_async_callback(void           *metadata,
    debug_assert(was_loading);
    clockcache_log(addr,
                   entry_number,
-                  "async_get (load): entry %u addr %lu\n",
+                  "async_get (load): entry %lu addr %lu\n",
                   entry_number,
                   addr);
    ctxt->status = status;
@@ -2383,7 +2383,7 @@ clockcache_get_async(clockcache       *cc,   // IN
           */
          clockcache_log(addr,
                         entry_number,
-                        "get (eviction race): entry %u addr %lu\n",
+                        "get (eviction race): entry %lu addr %lu\n",
                         entry_number,
                         addr);
          return async_locked;
@@ -2408,7 +2408,7 @@ clockcache_get_async(clockcache       *cc,   // IN
       }
       clockcache_log(addr,
                      entry_number,
-                     "get (cached): entry %u addr %lu rc %u\n",
+                     "get (cached): entry %lu addr %lu rc %u\n",
                      entry_number,
                      addr,
                      clockcache_get_ref(cc, entry_number, tid));
@@ -2442,7 +2442,7 @@ clockcache_get_async(clockcache       *cc,   // IN
       clockcache_dec_ref(cc, entry_number, tid);
       clockcache_log(addr,
                      entry_number,
-                     "get retry: entry: %u addr: %lu\n",
+                     "get retry: entry: %lu addr: %lu\n",
                      entry_number,
                      addr);
       return async_locked;
@@ -2463,7 +2463,7 @@ clockcache_get_async(clockcache       *cc,   // IN
       clockcache_dec_ref(cc, entry_number, tid);
       clockcache_log(addr,
                      entry_number,
-                     "get retry(out of ioreq): entry: %u addr: %lu\n",
+                     "get retry(out of ioreq): entry: %lu addr: %lu\n",
                      entry_number,
                      addr);
       return async_no_reqs;
@@ -2519,7 +2519,7 @@ clockcache_unget(clockcache *cc, page_handle *page)
 
    clockcache_log(page->disk_addr,
                   entry_number,
-                  "unget: entry %u addr %lu rc %u\n",
+                  "unget: entry %lu addr %lu rc %u\n",
                   entry_number,
                   page->disk_addr,
                   clockcache_get_ref(cc, entry_number, tid) - 1);
@@ -2548,7 +2548,7 @@ clockcache_try_claim(clockcache *cc, page_handle *page)
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
                   entry_number,
-                  "claim: entry %u addr %lu\n",
+                  "claim: entry %lu addr %lu\n",
                   entry_number,
                   page->disk_addr);
 
@@ -2563,7 +2563,7 @@ clockcache_unclaim(clockcache *cc, page_handle *page)
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
                   entry_number,
-                  "unclaim: entry %u addr %lu\n",
+                  "unclaim: entry %lu addr %lu\n",
                   entry_number,
                   page->disk_addr);
 
@@ -2591,7 +2591,7 @@ clockcache_lock(clockcache *cc, page_handle *page)
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
                   entry_number,
-                  "lock: entry %u addr %lu\n",
+                  "lock: entry %lu addr %lu\n",
                   entry_number,
                   page->disk_addr);
    clockcache_get_write(cc, entry_number);
@@ -2605,7 +2605,7 @@ clockcache_unlock(clockcache *cc, page_handle *page)
    clockcache_record_backtrace(cc, entry_number);
    clockcache_log(page->disk_addr,
                   entry_number,
-                  "unlock: entry %u addr %lu\n",
+                  "unlock: entry %lu addr %lu\n",
                   entry_number,
                   page->disk_addr);
    debug_only uint32 was_writing =
@@ -2628,7 +2628,7 @@ clockcache_mark_dirty(clockcache *cc, page_handle *page)
 
    clockcache_log(entry->page.disk_addr,
                   entry_number,
-                  "mark_dirty: entry %u addr %lu\n",
+                  "mark_dirty: entry %lu addr %lu\n",
                   entry_number,
                   entry->page.disk_addr);
    clockcache_clear_flag(cc, entry_number, CC_CLEAN);
@@ -2655,7 +2655,7 @@ clockcache_pin(clockcache *cc, page_handle *page)
 
    clockcache_log(entry->page.disk_addr,
                   entry_number,
-                  "pin: entry %u addr %lu\n",
+                  "pin: entry %lu addr %lu\n",
                   entry_number,
                   entry->page.disk_addr);
 }
@@ -2669,7 +2669,7 @@ clockcache_unpin(clockcache *cc, page_handle *page)
 
    clockcache_log(entry->page.disk_addr,
                   entry_number,
-                  "unpin: entry %u addr %lu\n",
+                  "unpin: entry %lu addr %lu\n",
                   entry_number,
                   entry->page.disk_addr);
 }
@@ -2721,7 +2721,7 @@ clockcache_page_sync(clockcache  *cc,
       platform_assert_status_ok(status);
       clockcache_log(addr,
                      entry_number,
-                     "page_sync write entry %u addr %lu\n",
+                     "page_sync write entry %lu addr %lu\n",
                      entry_number,
                      addr);
       debug_only uint8 rc;
@@ -2930,7 +2930,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             }
             clockcache_log(addr,
                            entry_no,
-                           "prefetch (cached): entry %u addr %lu\n",
+                           "prefetch (cached): entry %lu addr %lu\n",
                            entry_no,
                            addr);
             break;
@@ -2957,7 +2957,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
                iovec[pages_in_req++].iov_base = entry->page.data;
                clockcache_log(addr,
                               entry_no,
-                              "prefetch (load): entry %u addr %lu\n",
+                              "prefetch (load): entry %lu addr %lu\n",
                               entry_no,
                               addr);
             } else {
