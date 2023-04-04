@@ -2986,7 +2986,11 @@ btree_pack(btree_pack_req *req)
    while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
       iterator_get_curr(req->itor, &tuple_key, &data);
       if (!btree_pack_can_fit_tuple(req, tuple_key, data)) {
-         platform_error_log("btree_pack exceeded output size limit\n");
+         platform_error_log("%s(): req->num_tuples=%lu exceeded output size "
+                            "limit, req->max_tuples=%lu\n",
+                            __func__,
+                            req->num_tuples,
+                            req->max_tuples);
          btree_pack_abort(req);
          return STATUS_LIMIT_EXCEEDED;
       }
