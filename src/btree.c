@@ -2848,7 +2848,7 @@ btree_pack_link_extent(btree_pack_req *req,
 static inline bool
 btree_pack_can_fit_tuple(btree_pack_req *req)
 {
-   return req->num_tuples <= req->max_tuples;
+   return req->num_tuples < req->max_tuples;
 }
 
 static inline btree_node *

@@ -18,13 +18,14 @@ platform_shmdestroy(platform_heap_handle *heap_handle);
 
 /*
  * void * = splinter_shm_alloc(platform_heap_id heap_id, size_t nbytes,
- *                             const char * objname)
+ *                             const char * objname,
+ *                             const char * func, const int line)
  *
  * Caller-macro to invoke lower-level allocator and to pass-down caller's
  * context fields, which are printed for diagnostics under a traceflag.
  */
-#define splinter_shm_alloc(heap_id, nbytes, objname)                           \
-   platform_shm_alloc(heap_id, nbytes, objname, func, file, lineno)
+#define splinter_shm_alloc(heap_id, nbytes, objname, func, line)               \
+   platform_shm_alloc(heap_id, nbytes, objname, func, file, line)
 
 void *
 platform_shm_alloc(platform_heap_id hid,
@@ -36,13 +37,14 @@ platform_shm_alloc(platform_heap_id hid,
 
 /*
  * void = splinter_shm_free(platform_heap_id heap_id, void *ptr,
- *                          const char * objname)
+ *                          const char * objname,
+ *                          const char * func, const int line)
  *
  * Caller-macro to invoke lower-level free method and to pass-down caller's
  * context fields, which are printed for diagnostics under a traceflag.
  */
-#define splinter_shm_free(heap_id, ptr, objname)                               \
-   platform_shm_free(heap_id, ptr, objname, func, file, lineno)
+#define splinter_shm_free(heap_id, ptr, objname, func, line)                   \
+   platform_shm_free(heap_id, ptr, objname, func, file, line)
 
 void
 platform_shm_free(platform_heap_id hid,

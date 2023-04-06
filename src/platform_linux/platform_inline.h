@@ -42,7 +42,7 @@ platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
                         const char      *objname,
                         const char      *func,
                         const char      *file,
-                        int              lineno);
+                        int              line);
 
 static inline timestamp
 platform_get_timestamp(void)
@@ -438,7 +438,7 @@ platform_aligned_malloc(const platform_heap_id heap_id,
                         const char            *objname,
                         const char            *func,
                         const char            *file,
-                        const int              lineno)
+                        const int              line)
 {
    // Requirement for aligned_alloc
    platform_assert(IS_POWER_OF_2(alignment));
@@ -453,8 +453,9 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    const size_t padding  = platform_alignment(alignment, size);
    const size_t required = (size + padding);
 
-   void *retptr = (heap_id ? splinter_shm_alloc(heap_id, required, objname)
-                           : aligned_alloc(alignment, required));
+   void *retptr =
+      (heap_id ? splinter_shm_alloc(heap_id, required, objname, func, line)
+               : aligned_alloc(alignment, required));
    return retptr;
 }
 
@@ -500,10 +501,10 @@ platform_free_from_heap(platform_heap_id heap_id,
                         const char      *objname,
                         const char      *func,
                         const char      *file,
-                        int              lineno)
+                        int              line)
 {
    if (heap_id) {
-      splinter_shm_free(heap_id, ptr, objname);
+      splinter_shm_free(heap_id, ptr, objname, func, line);
    } else {
       free(ptr);
    }

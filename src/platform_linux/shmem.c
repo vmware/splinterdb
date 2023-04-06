@@ -46,13 +46,15 @@ static bool Trace_large_frags  = FALSE;
  * ---------------------------------------------------------------------------
  */
 typedef struct shm_frag_info {
-   void *shm_frag_addr;                // Start address of this memory fragment
-                                       // NULL => tracking fragment is empty
-   size_t   shm_frag_size;             // bytes
-   int      shm_frag_allocated_to_pid; // Allocated to this OS-pid
+   void *shm_frag_addr; // Start address of this memory fragment
+                        // NULL => tracking fragment is empty
+   const char *shm_func;
+   size_t      shm_frag_size;             // bytes
+   int         shm_frag_allocated_to_pid; // Allocated to this OS-pid
    threadid shm_frag_allocated_to_tid; // Allocated to this Splinter thread-ID
    int      shm_frag_freed_by_pid;     // OS-pid that freed this
    threadid shm_frag_freed_by_tid;     // Splinter thread-ID that freed this
+   int      shm_line;
 } shm_frag_info;
 
 /*
@@ -111,6 +113,8 @@ typedef struct shmem_info {
    size_t shm_total_bytes; // Total size of shared segment allocated initially.
    size_t shm_free_bytes;  // Free bytes of memory left (that can be allocated)
    size_t shm_used_bytes;  // Used bytes of memory left (that were allocated)
+   size_t shm_freed_bytes; // Bytes of memory that underwent 'free' (can be
+                           // reallocated)
    uint64 shm_magic;       // Magic identifier for shared memory segment
    int    shm_id;          // Shared memory ID returned by shmget()
 
@@ -122,7 +126,11 @@ typedef struct shmem_info {
 // Function prototypes
 
 static void
-platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size);
+platform_shm_track_alloc(shmem_info *shm,
+                         void       *addr,
+                         size_t      size,
+                         const char *func,
+                         const int   line);
 
 static void
 platform_shm_track_free(shmem_info *shm,
@@ -130,7 +138,7 @@ platform_shm_track_free(shmem_info *shm,
                         const char *objname,
                         const char *func,
                         const char *file,
-                        const int   lineno);
+                        const int   line);
 
 static void *
 platform_shm_find_free(shmem_info *shm,
@@ -138,7 +146,7 @@ platform_shm_find_free(shmem_info *shm,
                        const char *objname,
                        const char *func,
                        const char *file,
-                       const int   lineno);
+                       const int   line);
 
 static void
 platform_shm_trace_allocs(shmem_info  *shminfo,
@@ -148,7 +156,7 @@ platform_shm_trace_allocs(shmem_info  *shminfo,
                           const char  *objname,
                           const char  *func,
                           const char  *file,
-                          const int    lineno);
+                          const int    line);
 
 static int
 platform_trace_large_frags(shmem_info *shm);
@@ -510,7 +518,7 @@ platform_shm_alloc(platform_heap_id hid,
                    const char      *objname,
                    const char      *func,
                    const char      *file,
-                   const int        lineno)
+                   const int        line)
 {
    shmem_info *shminfo = platform_heap_id_to_shmaddr(hid);
 
@@ -525,7 +533,7 @@ platform_shm_alloc(platform_heap_id hid,
       "shm_next=%p, shm_total_bytes=%lu, shm_used_bytes=%lu"
       ", shm_free_bytes=%lu",
       file,
-      lineno,
+      line,
       shminfo->shm_next,
       shminfo->shm_total_bytes,
       shminfo->shm_used_bytes,
@@ -536,8 +544,8 @@ platform_shm_alloc(platform_heap_id hid,
    // See if we can satisfy requests for large memory fragments from a cached
    // list of used/free fragments that are tracked separately.
    if ((size >= SHM_LARGE_FRAG_SIZE)
-       && ((retptr = platform_shm_find_free(
-               shminfo, size, objname, func, file, lineno))
+       && ((retptr =
+               platform_shm_find_free(shminfo, size, objname, func, file, line))
            != NULL))
    {
       return retptr;
@@ -557,7 +565,7 @@ platform_shm_alloc(platform_heap_id hid,
          " to allocate %lu bytes for '%s'. Approx free space=%lu bytes."
          " shm_num_frags_tracked=%u, shm_num_frags_inuse=%u (HWM=%u).\n",
          file,
-         lineno,
+         line,
          func,
          size,
          objname,
@@ -565,6 +573,12 @@ platform_shm_alloc(platform_heap_id hid,
          shminfo->shm_num_frags_tracked,
          shminfo->shm_num_frags_inuse,
          shminfo->shm_num_frags_inuse_HWM);
+
+      // Trace diagnostics
+      if (Trace_large_frags) {
+         platform_shm_print_usage(hid);
+      }
+
       return NULL;
    }
    // Track approx memory usage metrics; mainly for troubleshooting
@@ -572,7 +586,7 @@ platform_shm_alloc(platform_heap_id hid,
    __sync_fetch_and_sub(&shminfo->shm_free_bytes, size);
 
    if (size >= SHM_LARGE_FRAG_SIZE) {
-      platform_shm_track_alloc(shminfo, retptr, size);
+      platform_shm_track_alloc(shminfo, retptr, size, func, line);
    }
 
    // Trace shared memory allocation; then return memory ptr.
@@ -586,7 +600,7 @@ platform_shm_alloc(platform_heap_id hid,
                                 objname,
                                 func,
                                 file,
-                                lineno);
+                                line);
    }
    return retptr;
 }
@@ -606,15 +620,15 @@ platform_shm_realloc(platform_heap_id hid,
                      const size_t     newsize,
                      const char      *func,
                      const char      *file,
-                     const int        lineno)
+                     const int        line)
 {
-   void *retptr = splinter_shm_alloc(hid, newsize, "Unknown");
+   void *retptr = splinter_shm_alloc(hid, newsize, "Unknown", file, line);
    if (retptr) {
 
       // Copy over old contents, if any, and free that memory piece
       if (oldptr) {
          memcpy(retptr, oldptr, oldsize);
-         splinter_shm_free(hid, oldptr, "Unknown");
+         splinter_shm_free(hid, oldptr, "Unknown", file, line);
       }
    }
    return retptr;
@@ -637,7 +651,7 @@ platform_shm_free(platform_heap_id hid,
                   const char      *objname,
                   const char      *func,
                   const char      *file,
-                  const int        lineno)
+                  const int        line)
 {
    shmem_info *shminfo = platform_heap_id_to_shmaddr(hid);
 
@@ -651,7 +665,7 @@ platform_shm_free(platform_heap_id hid,
                          " at %p, for object '%s' which is a memory chunk not"
                          " allocated from shared memory {start=%p, end=%p}.\n",
                          file,
-                         lineno,
+                         line,
                          func,
                          __func__,
                          ptr,
@@ -661,13 +675,13 @@ platform_shm_free(platform_heap_id hid,
       return;
    }
 
-   platform_shm_track_free(shminfo, ptr, objname, func, file, lineno);
+   platform_shm_track_free(shminfo, ptr, objname, func, file, line);
 
    if (Trace_shmem || Trace_shmem_frees) {
       platform_default_log("  [%s:%d::%s()] -> %s: Request to free memory at "
                            "%p for object '%s'.\n",
                            file,
-                           lineno,
+                           line,
                            func,
                            __func__,
                            ptr,
@@ -684,7 +698,11 @@ platform_shm_free(platform_heap_id hid,
  * -----------------------------------------------------------------------------
  */
 static void
-platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
+platform_shm_track_alloc(shmem_info *shm,
+                         void       *addr,
+                         size_t      size,
+                         const char *func,
+                         const int   line)
 {
    debug_assert(
       (size >= SHM_LARGE_FRAG_SIZE),
@@ -734,6 +752,9 @@ platform_shm_track_alloc(shmem_info *shm, void *addr, size_t size)
       frag->shm_frag_allocated_to_pid = getpid();
       frag->shm_frag_allocated_to_tid = platform_get_tid();
 
+      frag->shm_func = func;
+      frag->shm_line = line;
+
       // The freed_by_pid/freed_by_tid == 0 means fragment is still allocated.
 
       // Track highest address of large-fragment that is being tracked.
@@ -759,7 +780,7 @@ platform_shm_track_free(shmem_info *shm,
                         const char *objname,
                         const char *func,
                         const char *file,
-                        const int   lineno)
+                        const int   line)
 {
    shm_lock_mem_frags(shm);
    shm->shm_nfrees++;
@@ -820,7 +841,7 @@ platform_shm_track_free(shmem_info *shm,
                            getpid(),
                            platform_get_tid(),
                            file,
-                           lineno,
+                           line,
                            func,
                            addr,
                            objname);
@@ -841,7 +862,7 @@ platform_shm_find_free(shmem_info *shm,
                        const char *objname,
                        const char *func,
                        const char *file,
-                       const int   lineno)
+                       const int   line)
 {
    debug_assert((size >= SHM_LARGE_FRAG_SIZE),
                 "Incorrect usage of this interface for requested"
@@ -901,6 +922,9 @@ platform_shm_find_free(shmem_info *shm,
       frag->shm_frag_freed_by_pid = 0;
       frag->shm_frag_freed_by_tid = 0;
 
+      frag->shm_func = func;
+      frag->shm_line = line;
+
       retptr = frag->shm_frag_addr;
 
       // Zero out the recycled large-memory fragment, just to be sure ...
@@ -943,7 +967,7 @@ platform_shm_find_free(shmem_info *shm,
                   local_in_use);
       }
       platform_shm_trace_allocs(
-         shm, size, msg, retptr, objname, func, file, lineno);
+         shm, size, msg, retptr, objname, func, file, line);
    }
    return retptr;
 }
@@ -962,6 +986,8 @@ platform_trace_large_frags(shmem_info *shm)
 {
    int local_in_use    = 0; // Tracked while iterating in this fn, locally
    shm_frag_info *frag = shm->shm_mem_frags;
+
+   const threadid tid = platform_get_tid();
 
    // Walk the tracked-fragments array looking for an in-use fragment
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
@@ -987,12 +1013,17 @@ platform_trace_large_frags(shmem_info *shm)
                             frag->shm_frag_freed_by_tid);
       }
 
-      platform_error_log("  **** Fragment at slot=%d, addr=%p, size=%lu (%s) is"
-                         " in-use, allocated_to_pid=%d, allocated_to_tid=%lu\n",
+      platform_error_log("  **** [TID=%lu] Fragment at slot=%d"
+                         ", addr=%p, size=%lu (%s)"
+                         ", func=%s, line=%d, is in-use"
+                         ", allocated_to_pid=%d, allocated_to_tid=%lu\n",
+                         tid,
                          fctr,
                          frag->shm_frag_addr,
                          frag->shm_frag_size,
                          size_str(frag->shm_frag_size),
+                         frag->shm_func,
+                         frag->shm_line,
                          frag->shm_frag_allocated_to_pid,
                          frag->shm_frag_allocated_to_tid);
    }
@@ -1215,7 +1246,7 @@ platform_shm_trace_allocs(shmem_info  *shminfo,
                           const char  *objname,
                           const char  *func,
                           const char  *file,
-                          const int    lineno)
+                          const int    line)
 {
    platform_default_log("  [OS-pid=%d,ThreadID=%lu, %s:%d::%s()] "
                         "-> %s: %s %lu bytes (%s)"
@@ -1224,7 +1255,7 @@ platform_shm_trace_allocs(shmem_info  *shminfo,
                         getpid(),
                         platform_get_tid(),
                         file,
-                        lineno,
+                        line,
                         func,
                         __func__,
                         verb,
