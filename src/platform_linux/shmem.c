@@ -628,7 +628,7 @@ platform_shm_realloc(platform_heap_id hid,
       // Copy over old contents, if any, and free that memory piece
       if (oldptr) {
          memcpy(retptr, oldptr, oldsize);
-         splinter_shm_free(hid, oldptr, "Unknown", file, line);
+         splinter_shm_free(hid, oldptr, "Unknown", func, line);
       }
    }
    return retptr;

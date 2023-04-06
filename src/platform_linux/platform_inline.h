@@ -454,8 +454,9 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    const size_t required = (size + padding);
 
    void *retptr =
-      (heap_id ? splinter_shm_alloc(heap_id, required, objname, func, line)
-               : aligned_alloc(alignment, required));
+      ((heap_id == PROCESS_PRIVATE_HEAP_ID)
+          ? aligned_alloc(alignment, required)
+          : splinter_shm_alloc(heap_id, required, objname, func, line));
    return retptr;
 }
 
@@ -480,7 +481,9 @@ platform_realloc(const platform_heap_id heap_id,
    /* FIXME: alignment? */
 
    // Farm control off to shared-memory based realloc, if it's configured
-   if (heap_id) {
+   if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
+      return realloc(ptr, newsize);
+   } else {
       // The shmem-based allocator is expecting all memory requests to be of
       // aligned sizes, as that's what platform_aligned_malloc() does. So, to
       // keep that allocator happy, align this memory request if needed.
@@ -490,8 +493,6 @@ platform_realloc(const platform_heap_id heap_id,
          platform_alignment(PLATFORM_CACHELINE_SIZE, newsize);
       const size_t required = (newsize + padding);
       return splinter_shm_realloc(heap_id, ptr, oldsize, required);
-   } else {
-      return realloc(ptr, newsize);
    }
 }
 
@@ -503,10 +504,10 @@ platform_free_from_heap(platform_heap_id heap_id,
                         const char      *file,
                         int              line)
 {
-   if (heap_id) {
-      splinter_shm_free(heap_id, ptr, objname, func, line);
-   } else {
+   if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
       free(ptr);
+   } else {
+      splinter_shm_free(heap_id, ptr, objname, func, line);
    }
 }
 
