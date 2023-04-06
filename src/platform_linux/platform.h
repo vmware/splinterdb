@@ -747,6 +747,25 @@ platform_enable_tracing_shm_frees();
  * Non-platform-specific inline implementations
  */
 
+/*
+ * Structure to encapsulate a {memory-addr, memory-size} pair. Used to track
+ * allocation and, more importantly, free of memory fragments for opaque
+ * "objects". Used typically to manage memory for arrays of things.
+ */
+typedef struct platform_mem_frag {
+   void  *addr;
+   size_t size;
+} platform_mem_frag;
+
+/*
+ * Utility macro to test if an argument to platform_free() is a
+ * platform_mem_frag{}.
+ */
+#define IS_MEM_FRAG(x)                                                         \
+   __builtin_choose_expr(                                                      \
+      __builtin_types_compatible_p(typeof((platform_mem_frag *)0), typeof(x)), \
+      1,                                                                       \
+      0)
 
 /*
  * Similar to the TYPED_MALLOC functions, for all the free functions we need to
@@ -754,7 +773,19 @@ platform_enable_tracing_shm_frees();
  * (which may or may not end up inlined)
  * Wrap free and free_volatile:
  */
-#define platform_free(id, p) platform_free_mem((id), (p), sizeof(*p))
+#define platform_free(id, p)                                                   \
+   do {                                                                        \
+      if (IS_MEM_FRAG(p)) {                                                    \
+         platform_free_mem((id),                                               \
+                           ((platform_mem_frag *)p)->addr,                     \
+                           ((platform_mem_frag *)p)->size);                    \
+         ((platform_mem_frag *)p)->addr = NULL;                                \
+         ((platform_mem_frag *)p)->size = 0;                                   \
+      } else {                                                                 \
+         platform_free_mem((id), (p), sizeof(*p));                             \
+         (p) = NULL;                                                           \
+      }                                                                        \
+   } while (0)
 
 /*
  * Free a memory chunk at address 'p' of size 'size' bytes.

@@ -897,7 +897,8 @@ platform_shm_track_free(shmem_info  *shm,
    // If we are freeing a fragment beyond the high-address of all
    // large fragments tracked, then this is certainly not a large
    // fragment. So, no further need to see if it's a tracked fragment.
-   if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE)) {
+   if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE))
+   {
       shm->shm_nf_search_skipped++; // Track # of optimizations done
 
       if (size <= 32) {

@@ -193,7 +193,7 @@ CTEST_SETUP(large_inserts_stress)
    // Setup Splinter's background thread config, if specified
    data->cfg.num_memtable_bg_threads = data->master_cfg.num_memtable_bg_threads;
    data->cfg.num_normal_bg_threads   = data->master_cfg.num_normal_bg_threads;
-   data->cfg.use_stats   = data->master_cfg.use_stats;
+   data->cfg.use_stats               = data->master_cfg.use_stats;
 
    size_t max_key_size = TEST_KEY_SIZE;
    default_data_config_init(max_key_size, data->cfg.data_cfg);

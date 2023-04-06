@@ -841,11 +841,16 @@ test_async_reads(platform_heap_id    hid,
    if (!buf) {
       goto out;
    }
+   platform_mem_frag  buf_mfrag = {.addr = (void *)buf, .size = nbytes};
+   platform_mem_frag *buf_mf    = &buf_mfrag;
 
    char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
    if (!exp) {
       goto free_buf;
    }
+   platform_mem_frag  exp_mfrag = {.addr = (void *)exp, .size = page_size};
+   platform_mem_frag *exp_mf    = &exp_mfrag;
+
    memset(exp, stamp_char, page_size);
 
    platform_default_log("\n%s: Thread=%lu: %s() Test Async reads for %d"
@@ -887,9 +892,9 @@ test_async_reads(platform_heap_id    hid,
 
    io_cleanup(ioh, NUM_PAGES_RW_ASYNC_PER_THREAD);
 
-   platform_free_mem(hid, exp, page_size);
+   platform_free(hid, exp_mf);
 free_buf:
-   platform_free_mem(hid, buf, nbytes);
+   platform_free(hid, buf_mf);
 out:
    return rc;
 }

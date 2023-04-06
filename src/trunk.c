@@ -7415,7 +7415,8 @@ trunk_destroy(trunk_handle *spl)
          platform_histo_destroy(spl->heap_id,
                                 &spl->stats[i].delete_latency_histo);
       }
-      platform_free(spl->heap_id, spl->stats);
+      platform_free_mem(
+         spl->heap_id, spl->stats, (MAX_THREADS * sizeof(*spl->stats)));
    }
    platform_free(spl->heap_id, spl);
 }
@@ -7440,7 +7441,13 @@ trunk_unmount(trunk_handle **spl_in)
          platform_histo_destroy(spl->heap_id,
                                 &spl->stats[i].delete_latency_histo);
       }
-      platform_free(spl->heap_id, spl->stats);
+      platform_mem_frag  stats_mfrag = {.addr = (void *)spl->stats,
+                                        .size =
+                                          (MAX_THREADS * sizeof(*spl->stats))};
+      platform_mem_frag *stats_mf    = &stats_mfrag;
+
+      platform_free(spl->heap_id, stats_mf);
+      spl->stats = NULL;
    }
    platform_free(spl->heap_id, spl);
    *spl_in = (trunk_handle *)NULL;
