@@ -84,13 +84,16 @@ platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
    return STATUS_OK;
 }
 
-void
+platform_status
 platform_heap_destroy(platform_heap_handle *heap_handle)
 {
    // If shared segment was allocated, it's being tracked thru heap handle.
    if (*heap_handle) {
+      // Percolate any errors discovered with orphaned free fragments that
+      // is recognized while shared memory is dismantled.
       return platform_shmdestroy(heap_handle);
    }
+   return STATUS_OK;
 }
 
 /*

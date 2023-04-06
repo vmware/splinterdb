@@ -7189,6 +7189,7 @@ trunk_create(trunk_config     *cfg,
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
       platform_assert(spl->stats);
+      spl->stats_size = (MAX_THREADS * sizeof(*spl->stats));
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_status rc;
          rc = platform_histo_create(spl->heap_id,
@@ -7290,6 +7291,7 @@ trunk_mount(trunk_config     *cfg,
    if (spl->cfg.use_stats) {
       spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
       platform_assert(spl->stats);
+      spl->stats_size = (MAX_THREADS * sizeof(*spl->stats));
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_status rc;
          rc = platform_histo_create(spl->heap_id,
@@ -7415,8 +7417,7 @@ trunk_destroy(trunk_handle *spl)
          platform_histo_destroy(spl->heap_id,
                                 &spl->stats[i].delete_latency_histo);
       }
-      platform_free_mem(
-         spl->heap_id, spl->stats, (MAX_THREADS * sizeof(*spl->stats)));
+      platform_free_mem(spl->heap_id, spl->stats, spl->stats_size);
    }
    platform_free(spl->heap_id, spl);
 }
@@ -7441,13 +7442,7 @@ trunk_unmount(trunk_handle **spl_in)
          platform_histo_destroy(spl->heap_id,
                                 &spl->stats[i].delete_latency_histo);
       }
-      platform_mem_frag  stats_mfrag = {.addr = (void *)spl->stats,
-                                        .size =
-                                          (MAX_THREADS * sizeof(*spl->stats))};
-      platform_mem_frag *stats_mf    = &stats_mfrag;
-
-      platform_free(spl->heap_id, stats_mf);
-      spl->stats = NULL;
+      platform_free_mem(spl->heap_id, spl->stats, spl->stats_size);
    }
    platform_free(spl->heap_id, spl);
    *spl_in = (trunk_handle *)NULL;

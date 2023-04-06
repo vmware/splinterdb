@@ -13,7 +13,7 @@ platform_shmcreate(size_t                size,
                    platform_heap_handle *heap_handle,
                    platform_heap_id     *heap_id);
 
-void
+platform_status
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
 /*

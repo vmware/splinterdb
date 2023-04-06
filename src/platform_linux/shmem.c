@@ -308,6 +308,9 @@ typedef struct shminfo_usage_stats {
    int    shmid;
 } shminfo_usage_stats;
 
+/*
+ * Produce a formatted one-line output of shared memory usage stats / metrics.
+ */
 void
 platform_shm_print_usage_stats(shminfo_usage_stats *usage)
 {
@@ -369,7 +372,17 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
    // clang-format on
 }
 
-void
+/*
+ * Save off shared memory usage stats in a usage struct. This is really
+ * needed to print usage-stats before we dismantle the shared segment
+ * entirely.
+ *
+ * Returns: # of large free-fragments found in-use. Usually when this
+ * function is called for diagnostics, this may not matter. When the
+ * shared segment is dismantled, a non-zero count for "in-use" large fragments
+ * is an indication that something is amiss.
+ */
+int
 platform_save_usage_stats(shminfo_usage_stats *usage, shmem_info *shminfo)
 {
    usage->shmid                     = shminfo->shm_id;
@@ -391,11 +404,15 @@ platform_save_usage_stats(shminfo_usage_stats *usage, shmem_info *shminfo)
    usage->used_by_large_frags_bytes = shminfo->shm_used_by_large_frags;
    usage->frags_inuse_HWM           = shminfo->shm_num_frags_inuse_HWM;
    usage->large_frags_found_in_use  = platform_trace_large_frags(shminfo);
+   return usage->large_frags_found_in_use;
 }
 
 /*
  * -----------------------------------------------------------------------------
  * Interface to print shared memory usage stats. (Callable from the debugger)
+ * This is mainly intended as a diagnostics tool, so we don't work too hard
+ * to grab metrics under exclusive access.
+ * -----------------------------------------------------------------------------
  */
 void
 platform_shm_print_usage(platform_heap_id hid)
@@ -497,13 +514,13 @@ platform_shmcreate(size_t                size,
  * platform_shmdestroy() -- Destroy a shared memory created for SplinterDB.
  * -----------------------------------------------------------------------------
  */
-void
+platform_status
 platform_shmdestroy(platform_heap_handle *heap_handle)
 {
    if (!heap_handle) {
       platform_error_log(
          "Error! Attempt to destroy shared memory with NULL heap_handle!");
-      return;
+      return STATUS_BAD_PARAM;
    }
 
    // Establish shared memory handles and validate input addr to shared segment
@@ -529,7 +546,7 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
                          heap_handle,
                          shminfo->shm_magic,
                          SPLINTERDB_SHMEM_MAGIC);
-      return;
+      return STATUS_BAD_PARAM;
    }
 
    platform_status rc = platform_mutex_destroy(&shminfo->shm_mem_frags_mutex);
@@ -539,10 +556,11 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    int rv    = shmdt(shmaddr);
    if (rv != 0) {
       platform_error_log("Failed to detach from shared segment at address "
-                         "%p, shmid=%d.\n",
+                         "%p, shmid=%d: %s.\n",
                          shmaddr,
-                         shmid);
-      return;
+                         shmid,
+                         strerror(rv));
+      return CONST_STATUS(rv);
    }
 
    // Externally, heap_id is pointing to this field. In anticipation that the
@@ -554,18 +572,19 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // Retain some memory usage stats before releasing shmem
    shminfo_usage_stats usage;
    ZERO_STRUCT(usage);
-   platform_save_usage_stats(&usage, shminfo);
+   int nfrags_in_use = platform_save_usage_stats(&usage, shminfo);
 
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {
-      platform_error_log(
-         "shmctl failed to remove shared segment at address %p, shmid=%d.\n",
-         shmaddr,
-         shmid);
+      platform_error_log("shmctl failed to remove shared segment at address %p"
+                         ", shmid=%d: %s.\n",
+                         shmaddr,
+                         shmid,
+                         strerror(rv));
 
       // restore state
       shminfo->shm_id = shmid;
-      return;
+      return CONST_STATUS(rv);
    }
 
    // Reset globals to NULL; to avoid accessing stale handles.
@@ -579,6 +598,11 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
                         shmid);
 
    platform_shm_print_usage_stats(&usage);
+
+   // If any fragments were found in-use, that's likely due to something
+   // going wrong while free()'ing memory. (This could lead to bloated
+   // shared memory usage, if not rectified.)
+   return CONST_STATUS(nfrags_in_use);
 }
 
 /*

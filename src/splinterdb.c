@@ -450,7 +450,7 @@ splinterdb_open(splinterdb_config *cfg, // IN
  *      None.
  *-----------------------------------------------------------------------------
  */
-void
+int
 splinterdb_close(splinterdb **kvs_in) // IN
 {
    splinterdb *kvs = *kvs_in;
@@ -471,8 +471,14 @@ splinterdb_close(splinterdb **kvs_in) // IN
    // Free resources carefully to avoid ASAN-test failures
    platform_heap_handle heap_handle = kvs->heap_handle;
    platform_free(kvs->heap_id, kvs);
-   platform_heap_destroy(&heap_handle);
-   *kvs_in = (splinterdb *)NULL;
+   platform_status rc = platform_heap_destroy(&heap_handle);
+   *kvs_in            = (splinterdb *)NULL;
+
+   // Report any errors encountered while dismanting shared memory
+   // Usually, one might expect to find stray fragments lying around
+   // which were not freed at run-time. The shared-memory dismantling
+   // will check and report such violations.
+   return (SUCCESS(rc) ? 0 : 1);
 }
 
 

@@ -670,7 +670,7 @@ platform_heap_create(platform_module_id    module_id,
                      platform_heap_handle *heap_handle,
                      platform_heap_id     *heap_id);
 
-void
+platform_status
 platform_heap_destroy(platform_heap_handle *heap_handle);
 
 platform_status
@@ -768,39 +768,53 @@ typedef struct platform_mem_frag {
       0)
 
 /*
- * Similar to the TYPED_MALLOC functions, for all the free functions we need to
- * call platform_get_heap_id() from a macro instead of an inline function
- * (which may or may not end up inlined)
- * Wrap free and free_volatile:
+ * void = platform_free(platform_heap_id hid, void *p);
+ *
+ * Similar to the TYPED_MALLOC functions, for all the free functions we need
+ * to call platform_get_heap_id() from a macro instead of an inline function
+ * (which may or may not end up inlined) Wrap free and free_volatile.
+ *
+ * This macro calls underlying platform_free_mem() to supply the 'size' of the
+ * memory fragment being freed.
+ *
+ * Most callers will be free'ing memory allocated pointing to a structure.
+ * This interface also provides a way to free opaque fragments described
+ * simply by a start-address and size of the fragment. Such usages occur, say,
+ * for memory fragments allocated for an array of n-structs.
  */
-#define platform_free(id, p)                                                   \
+#define platform_free(hid, p)                                                  \
    do {                                                                        \
       if (IS_MEM_FRAG(p)) {                                                    \
-         platform_free_mem((id),                                               \
+         platform_free_mem((hid),                                              \
                            ((platform_mem_frag *)p)->addr,                     \
                            ((platform_mem_frag *)p)->size);                    \
          ((platform_mem_frag *)p)->addr = NULL;                                \
          ((platform_mem_frag *)p)->size = 0;                                   \
       } else {                                                                 \
-         platform_free_mem((id), (p), sizeof(*p));                             \
+         platform_free_mem((hid), (p), sizeof(*p));                            \
          (p) = NULL;                                                           \
       }                                                                        \
    } while (0)
 
 /*
- * Free a memory chunk at address 'p' of size 'size' bytes.
+ * void = platform_free_mem(platform_heap_id hid,
+ *                          void *p, size_t size);
+ *
+ * Free a memory chunk at address 'p' of size 'size' bytes. This exists to
+ * facilitate re-cycling of free'd fragments in a shared-memory usage. That
+ * machinery works off of the fragment's 'size', hence we need to provide that.
  */
-#define platform_free_mem(id, p, size)                                         \
+#define platform_free_mem(hid, p, size)                                        \
    do {                                                                        \
       platform_free_from_heap(                                                 \
-         id, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);         \
+         hid, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);        \
       (p) = NULL;                                                              \
    } while (0)
 
-#define platform_free_volatile(id, p, size)                                    \
+#define platform_free_volatile(hid, p, size)                                   \
    do {                                                                        \
       platform_free_volatile_from_heap(                                        \
-         id, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);         \
+         hid, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);        \
       (p) = NULL;                                                              \
    } while (0)
 

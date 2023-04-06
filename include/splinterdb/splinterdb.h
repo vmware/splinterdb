@@ -179,7 +179,7 @@ splinterdb_open(splinterdb_config *cfg, splinterdb **kvs);
 // Close a splinterdb
 //
 // This will flush all data to disk and release all resources
-void
+int
 splinterdb_close(splinterdb **kvs);
 
 // Register the current thread so that it can be used with splinterdb.
