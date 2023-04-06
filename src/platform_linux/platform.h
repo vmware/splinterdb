@@ -754,17 +754,22 @@ platform_enable_tracing_shm_frees();
  * (which may or may not end up inlined)
  * Wrap free and free_volatile:
  */
-#define platform_free(id, p)                                                   \
+#define platform_free(id, p) platform_free_mem((id), (p), sizeof(*p))
+
+/*
+ * Free a memory chunk at address 'p' of size 'size' bytes.
+ */
+#define platform_free_mem(id, p, size)                                         \
    do {                                                                        \
       platform_free_from_heap(                                                 \
-         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
+         id, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);         \
       (p) = NULL;                                                              \
    } while (0)
 
-#define platform_free_volatile(id, p)                                          \
+#define platform_free_volatile(id, p, size)                                    \
    do {                                                                        \
       platform_free_volatile_from_heap(                                        \
-         id, (p), STRINGIFY(p), __func__, __FILE__, __LINE__);                 \
+         id, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);         \
       (p) = NULL;                                                              \
    } while (0)
 
@@ -772,13 +777,15 @@ platform_enable_tracing_shm_frees();
 static inline void
 platform_free_volatile_from_heap(platform_heap_id heap_id,
                                  volatile void   *ptr,
+                                 const size_t     size,
                                  const char      *objname,
                                  const char      *func,
                                  const char      *file,
                                  int              lineno)
 {
    // Ok to discard volatile qualifier for free
-   platform_free_from_heap(heap_id, (void *)ptr, objname, func, file, lineno);
+   platform_free_from_heap(
+      heap_id, (void *)ptr, size, objname, func, file, lineno);
 }
 
 static inline void *

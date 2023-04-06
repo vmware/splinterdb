@@ -154,6 +154,7 @@ typedef struct btree_pack_req {
    hash_fn       hash; // hash function used for calculating filter_hash
    unsigned int  seed; // seed used for calculating filter_hash
    uint32       *fingerprint_arr; // IN/OUT: hashes of the keys in the tree
+   size_t        fp_arr_size;     // # of bytes allocated for fingerprint_arr
 
    // internal data
    uint16            height;
@@ -353,6 +354,7 @@ btree_pack_req_init(btree_pack_req  *req,
       if (!req->fingerprint_arr) {
          return STATUS_NO_MEMORY;
       }
+      req->fp_arr_size = (max_tuples * sizeof(*req->fingerprint_arr));
    }
    return STATUS_OK;
 }
@@ -361,7 +363,7 @@ static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
    if (req->fingerprint_arr) {
-      platform_free(hid, req->fingerprint_arr);
+      platform_free_mem(hid, req->fingerprint_arr, req->fp_arr_size);
    }
 }
 

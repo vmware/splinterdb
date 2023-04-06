@@ -139,6 +139,8 @@ struct clockcache {
 
    // Stats
    cache_stats stats[MAX_THREADS];
+   size_t      lookup_size;
+   size_t      entry_size;
 };
 
 

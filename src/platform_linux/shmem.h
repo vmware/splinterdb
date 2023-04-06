@@ -37,18 +37,20 @@ platform_shm_alloc(platform_heap_id hid,
 
 /*
  * void = splinter_shm_free(platform_heap_id heap_id, void *ptr,
+ *                          const size_t size,
  *                          const char * objname,
  *                          const char * func, const int line)
  *
  * Caller-macro to invoke lower-level free method and to pass-down caller's
  * context fields, which are printed for diagnostics under a traceflag.
  */
-#define splinter_shm_free(heap_id, ptr, objname, func, line)                   \
-   platform_shm_free(heap_id, ptr, objname, func, file, line)
+#define splinter_shm_free(heap_id, ptr, size, objname, func, line)             \
+   platform_shm_free(heap_id, ptr, size, objname, func, file, line)
 
 void
 platform_shm_free(platform_heap_id hid,
                   void            *ptr,
+                  const size_t     size,
                   const char      *objname,
                   const char      *func,
                   const char      *file,

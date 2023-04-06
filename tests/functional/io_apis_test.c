@@ -887,9 +887,9 @@ test_async_reads(platform_heap_id    hid,
 
    io_cleanup(ioh, NUM_PAGES_RW_ASYNC_PER_THREAD);
 
-   platform_free(hid, exp);
+   platform_free_mem(hid, exp, page_size);
 free_buf:
-   platform_free(hid, buf);
+   platform_free_mem(hid, buf, nbytes);
 out:
    return rc;
 }

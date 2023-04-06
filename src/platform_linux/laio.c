@@ -249,6 +249,8 @@ io_handle_init(laio_handle         *io,
                    cfg->async_queue_size,
                    cfg->async_max_pages);
 
+   io->req_size = (total_req_size * sizeof(*io->req));
+
    // Initialize each Async IO request structure
    for (int i = 0; i < cfg->async_queue_size; i++) {
       req         = laio_get_kth_req(io, i);
@@ -287,7 +289,7 @@ io_handle_deinit(laio_handle *io)
    }
    platform_assert(status == 0);
 
-   platform_free(io->heap_id, io->req);
+   platform_free_mem(io->heap_id, io->req, io->req_size);
 }
 
 /*

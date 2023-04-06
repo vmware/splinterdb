@@ -719,6 +719,7 @@ struct trunk_compact_bundle_req {
    uint64                output_pivot_kv_byte_count[TRUNK_MAX_PIVOTS];
    uint64                tuples_reclaimed;
    uint64                kv_bytes_reclaimed;
+   size_t                fp_arr_size;
    uint32               *fp_arr;
 };
 
@@ -3157,10 +3158,11 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
       filter_build_start = platform_get_timestamp();
    }
 
-   cmt->req         = TYPED_ZALLOC(spl->heap_id, cmt->req);
-   cmt->req->spl    = spl;
-   cmt->req->fp_arr = req.fingerprint_arr;
-   cmt->req->type   = TRUNK_COMPACTION_TYPE_MEMTABLE;
+   cmt->req              = TYPED_ZALLOC(spl->heap_id, cmt->req);
+   cmt->req->spl         = spl;
+   cmt->req->fp_arr      = req.fingerprint_arr;
+   cmt->req->fp_arr_size = req.fp_arr_size;
+   cmt->req->type        = TRUNK_COMPACTION_TYPE_MEMTABLE;
    uint32 *dup_fp_arr =
       TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
    memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
@@ -3184,7 +3186,8 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    }
 
    btree_pack_req_deinit(&req, spl->heap_id);
-   cmt->req->fp_arr = dup_fp_arr;
+   cmt->req->fp_arr      = dup_fp_arr;
+   cmt->req->fp_arr_size = (req.num_tuples * sizeof(*dup_fp_arr));
    if (spl->cfg.use_stats) {
       uint64 comp_time = platform_timestamp_elapsed(comp_start);
       spl->stats[tid].root_compaction_time_ns += comp_time;
@@ -3979,7 +3982,8 @@ trunk_bundle_build_filters(void *arg, void *scratch)
    } while (compact_req->generation != generation);
 
 out:
-   platform_free(spl->heap_id, compact_req->fp_arr);
+   platform_free_mem(
+      spl->heap_id, compact_req->fp_arr, compact_req->fp_arr_size);
    platform_free(spl->heap_id, compact_req);
    trunk_maybe_reclaim_space(spl);
    return;
@@ -4910,7 +4914,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          if (num_tuples != 0) {
             trunk_dec_ref(spl, &new_branch, FALSE);
          }
-         platform_free(spl->heap_id, req->fp_arr);
+         platform_free_mem(spl->heap_id, req->fp_arr, req->fp_arr_size);
          platform_free(spl->heap_id, req);
          goto out;
       }
@@ -4981,7 +4985,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
          spl->stats[tid].compaction_time_wasted_ns[height] +=
             platform_timestamp_elapsed(compaction_start);
       }
-      platform_free(spl->heap_id, req->fp_arr);
+      platform_free_mem(spl->heap_id, req->fp_arr, req->fp_arr_size);
       platform_free(spl->heap_id, req);
    } else {
       if (spl->cfg.use_stats) {

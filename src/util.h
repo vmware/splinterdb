@@ -212,7 +212,7 @@ static inline void
 writable_buffer_deinit(writable_buffer *wb)
 {
    if (wb->can_free) {
-      platform_free(wb->heap_id, wb->buffer);
+      platform_free_mem(wb->heap_id, wb->buffer, wb->buffer_capacity);
    }
    wb->buffer   = NULL;
    wb->can_free = FALSE;

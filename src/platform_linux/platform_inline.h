@@ -39,6 +39,7 @@ platform_checksum_is_equal(checksum128 left, checksum128 right)
 static void
 platform_free_from_heap(platform_heap_id UNUSED_PARAM(heap_id),
                         void            *ptr,
+                        const size_t     size,
                         const char      *objname,
                         const char      *func,
                         const char      *file,
@@ -275,7 +276,7 @@ platform_close_log_stream(platform_stream_handle *stream,
    fputs(stream->str, log_handle);
    fflush(log_handle);
    platform_free_from_heap(
-      NULL, stream->str, "stream", __func__, __FILE__, __LINE__);
+      NULL, stream->str, 0, "stream", __func__, __FILE__, __LINE__);
 }
 
 static inline platform_log_handle *
@@ -476,13 +477,13 @@ static inline void *
 platform_realloc(const platform_heap_id heap_id,
                  const size_t           oldsize,
                  void                  *ptr, // IN
-                 const size_t           newsize)       // IN
+                 size_t                *newsize)            // IN/OUT
 {
    /* FIXME: alignment? */
 
    // Farm control off to shared-memory based realloc, if it's configured
    if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
-      return realloc(ptr, newsize);
+      return realloc(ptr, *newsize);
    } else {
       // The shmem-based allocator is expecting all memory requests to be of
       // aligned sizes, as that's what platform_aligned_malloc() does. So, to
@@ -490,15 +491,16 @@ platform_realloc(const platform_heap_id heap_id,
       // As this is the case of realloc, we assume that it would suffice to
       // align at platform's natural cacheline boundary.
       const size_t padding =
-         platform_alignment(PLATFORM_CACHELINE_SIZE, newsize);
-      const size_t required = (newsize + padding);
-      return splinter_shm_realloc(heap_id, ptr, oldsize, required);
+         platform_alignment(PLATFORM_CACHELINE_SIZE, *newsize);
+      *newsize += padding;
+      return splinter_shm_realloc(heap_id, ptr, oldsize, *newsize);
    }
 }
 
 static inline void
 platform_free_from_heap(platform_heap_id heap_id,
                         void            *ptr,
+                        const size_t     size,
                         const char      *objname,
                         const char      *func,
                         const char      *file,
@@ -507,7 +509,7 @@ platform_free_from_heap(platform_heap_id heap_id,
    if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
       free(ptr);
    } else {
-      splinter_shm_free(heap_id, ptr, objname, func, line);
+      splinter_shm_free(heap_id, ptr, size, objname, func, line);
    }
 }
 
