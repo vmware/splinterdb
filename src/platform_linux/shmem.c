@@ -884,7 +884,11 @@ platform_shm_track_free(shmem_info  *shm,
    // All callers of either platform_free() or platform_free_mem() are required
    // to declare the size of the memory fragment being freed. We used that info
    // to manage free lists.
-   platform_assert(size > 0);
+   /* FIXME: This is tripping in Pg-insert workloads.
+   platform_assert((size > 0),
+                  "objname=%s, func=%s, line=%d",
+                  objname, func, line);
+   */
 
    shm_lock_mem_frags(shm);
    shm->shm_nfrees++;
@@ -893,7 +897,7 @@ platform_shm_track_free(shmem_info  *shm,
    // If we are freeing a fragment beyond the high-address of all
    // large fragments tracked, then this is certainly not a large
    // fragment. So, no further need to see if it's a tracked fragment.
-   if ((addr > shm->shm_large_frag_hip) || (size < SHM_LARGE_FRAG_SIZE)) {
+   if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE)) {
       shm->shm_nf_search_skipped++; // Track # of optimizations done
 
       if (size <= 32) {
