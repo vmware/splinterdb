@@ -209,9 +209,12 @@ CTEST_TEARDOWN(large_inserts_stress)
 {
    // Only parent process should tear down Splinter.
    if (data->am_parent) {
-      splinterdb_close(&data->kvsb);
+      int rv = splinterdb_close(&data->kvsb);
+      ASSERT_EQUAL(0, rv);
+
       platform_disable_tracing_large_frags();
-      platform_heap_destroy(&data->hh);
+      platform_status rc = platform_heap_destroy(&data->hh);
+      ASSERT_TRUE(SUCCESS(rc));
    }
 }
 

@@ -192,7 +192,8 @@ CTEST2(splinterdb_forked_child, test_data_structures_handles)
       // We would get assertions tripping from BTree iterator code here,
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
       // was not in-place.
-      splinterdb_close(&spl_handle);
+      rc = splinterdb_close(&spl_handle);
+      ASSERT_EQUAL(0, rc);
    } else {
       // Child should not attempt to run the rest of the tests
       exit(0);
@@ -293,7 +294,8 @@ CTEST2(splinterdb_forked_child, test_one_insert_then_close_bug)
       // We would get assertions tripping from BTree iterator code here,
       // if the fix in platform_buffer_create_mmap() to use MAP_SHARED
       // was not in-place.
-      splinterdb_close(&spl_handle);
+      rc = splinterdb_close(&spl_handle);
+      ASSERT_EQUAL(0, rc);
    } else {
       // child should not attempt to run the rest of the tests
       exit(0);
@@ -414,7 +416,8 @@ CTEST2(splinterdb_forked_child,
                            " Resuming parent ...\n",
                            getpid(),
                            platform_get_tid());
-      splinterdb_close(&spl_handle);
+      rc = splinterdb_close(&spl_handle);
+      ASSERT_EQUAL(0, rc);
    } else {
       // child should not attempt to run the rest of the tests
       exit(0);
@@ -451,6 +454,9 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
    // We want larger cache as multiple child processes will be
    // hammering at it with large #s of inserts.
    splinterdb_cfg.cache_size = (1 * Giga);
+
+   // Bump up disk size based on # of concurrent child processes
+   splinterdb_cfg.disk_size *= data->num_forked_procs;
 
    splinterdb_cfg.filename = "splinterdb_forked_child_test_db";
 
@@ -542,7 +548,8 @@ CTEST2(splinterdb_forked_child, test_multiple_forked_process_doing_IOs)
                            getpid(),
                            platform_get_tid());
 
-      splinterdb_close(&spl_handle);
+      rc = splinterdb_close(&spl_handle);
+      ASSERT_EQUAL(0, rc);
    } else {
       // child should not attempt to run the rest of the tests
       exit(0);

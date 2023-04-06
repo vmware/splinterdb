@@ -318,11 +318,23 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
    fraction free_bytes_pct;  // # of bytes that are free now
    fraction bytes_freed_pct; // # of bytes that were freed over time
    fraction nf_le64_pct;
+   fraction nf_le128_pct;
+   fraction nf_le256_pct;
+   fraction nf_le512_pct;
+   fraction nf_le1K_pct;
+   fraction nf_le2K_pct;
+   fraction nf_le4K_pct;
 
    used_bytes_pct  = init_fraction(usage->used_bytes, usage->total_bytes);
    free_bytes_pct  = init_fraction(usage->free_bytes, usage->total_bytes);
    bytes_freed_pct = init_fraction(usage->bytes_freed, usage->total_bytes);
    nf_le64_pct     = init_fraction(usage->nfrees_le64, usage->nfrees);
+   nf_le128_pct    = init_fraction(usage->nfrees_le128, usage->nfrees);
+   nf_le256_pct    = init_fraction(usage->nfrees_le256, usage->nfrees);
+   nf_le512_pct    = init_fraction(usage->nfrees_le512, usage->nfrees);
+   nf_le1K_pct     = init_fraction(usage->nfrees_le1K, usage->nfrees);
+   nf_le2K_pct     = init_fraction(usage->nfrees_le2K, usage->nfrees);
+   nf_le4K_pct     = init_fraction(usage->nfrees_le4K, usage->nfrees);
 
    // clang-format off
    platform_default_log(
@@ -334,9 +346,12 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       ", nfrees=%lu, nf_search_skipped=%lu (%d %%)"
       ", nfrees_le32=%lu"
       ", nfrees_le64=%lu (" FRACTION_FMT(4, 2) " %%)"
-      ", nfrees_le128=%lu"
-      ", nfrees_le256=%lu, nfrees_le512=%lu"
-      ", nfrees_le1K=%lu, nfrees_le2K=%lu, nfrees_le4K=%lu"
+      ", nfrees_le128=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le256=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le512=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le1K=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le2K=%lu (" FRACTION_FMT(4, 2) " %%)"
+      ", nfrees_le4K=%lu (" FRACTION_FMT(4, 2) " %%)"
       ", Large fragments in-use HWM=%u (found in-use=%d)"
       ", consumed=%lu bytes (%s)"
       ".\n",
@@ -360,11 +375,17 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       usage->nfrees_le64,
       (FRACTION_ARGS(nf_le64_pct) * 100),
       usage->nfrees_le128,
+      (FRACTION_ARGS(nf_le128_pct) * 100),
       usage->nfrees_le256,
+      (FRACTION_ARGS(nf_le256_pct) * 100),
       usage->nfrees_le512,
+      (FRACTION_ARGS(nf_le512_pct) * 100),
       usage->nfrees_le1K,
+      (FRACTION_ARGS(nf_le1K_pct) * 100),
       usage->nfrees_le2K,
+      (FRACTION_ARGS(nf_le2K_pct) * 100),
       usage->nfrees_le4K,
+      (FRACTION_ARGS(nf_le4K_pct) * 100),
       usage->frags_inuse_HWM,
       usage->large_frags_found_in_use,
       usage->used_by_large_frags_bytes,
@@ -549,6 +570,11 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
       return STATUS_BAD_PARAM;
    }
 
+   // Retain some memory usage stats before releasing shmem
+   shminfo_usage_stats usage;
+   ZERO_STRUCT(usage);
+   int nfrags_in_use = platform_save_usage_stats(&usage, shminfo);
+
    platform_status rc = platform_mutex_destroy(&shminfo->shm_mem_frags_mutex);
    platform_assert(SUCCESS(rc));
 
@@ -568,11 +594,6 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
    // any future accesses to this shared segment by its heap-ID will run into
    // assertions.
    shminfo->shm_id = 0;
-
-   // Retain some memory usage stats before releasing shmem
-   shminfo_usage_stats usage;
-   ZERO_STRUCT(usage);
-   int nfrags_in_use = platform_save_usage_stats(&usage, shminfo);
 
    rv = shmctl(shmid, IPC_RMID, NULL);
    if (rv != 0) {

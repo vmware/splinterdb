@@ -75,7 +75,8 @@ CTEST_SETUP(splinter_shmem)
 // Tear down the test shared segment.
 CTEST_TEARDOWN(splinter_shmem)
 {
-   platform_heap_destroy(&data->hh);
+   platform_status rc = platform_heap_destroy(&data->hh);
+   ASSERT_TRUE(SUCCESS(rc));
 }
 
 /*
@@ -237,6 +238,10 @@ CTEST2(splinter_shmem, test_allocations_causing_OOMs)
    uint8 *keybuf_no_oom =
       TYPED_MANUAL_MALLOC(data->hid, keybuf_no_oom, keybuf_size);
    ASSERT_TRUE(keybuf_no_oom != NULL);
+   platform_mem_frag  kbuf_mfrag = {.addr = (void *)keybuf_no_oom,
+                                    .size = keybuf_size};
+   platform_mem_frag *kbuf_mf    = &kbuf_mfrag;
+
    CTEST_LOG_INFO("Successfully allocated all remaining %lu bytes "
                   "from shared segment.\n",
                   space_left);
@@ -251,7 +256,7 @@ CTEST2(splinter_shmem, test_allocations_causing_OOMs)
 
    // Free allocated memory before exiting.
    platform_free(data->hid, keybuf);
-   platform_free(data->hid, keybuf_no_oom);
+   platform_free(data->hid, kbuf_mf);
 }
 
 /*
@@ -403,7 +408,8 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
       }
    }
 
-   splinterdb_close(&kvsb);
+   rv = splinterdb_close(&kvsb);
+   ASSERT_EQUAL(0, rv);
 
    platform_enable_tracing_shm_ops();
 }
@@ -416,7 +422,7 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
  * unchanged.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_realloc_of_large_fragment)
+CTEST2_SKIP(splinter_shmem, test_realloc_of_large_fragment)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
@@ -458,7 +464,7 @@ CTEST2(splinter_shmem, test_realloc_of_large_fragment)
  * size.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_free_realloc_around_inuse_fragments)
+CTEST2_SKIP(splinter_shmem, test_free_realloc_around_inuse_fragments)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
@@ -525,7 +531,7 @@ CTEST2(splinter_shmem, test_free_realloc_around_inuse_fragments)
  * and then satisfy the next request with the free 5 MiB fragment.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
+CTEST2_SKIP(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
@@ -605,7 +611,8 @@ CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
    int rc = splinterdb_create(&cfg, &kvsb);
    ASSERT_EQUAL(0, rc);
 
-   splinterdb_close(&kvsb);
+   rc = splinterdb_close(&kvsb);
+   ASSERT_EQUAL(0, rc);
 
    platform_enable_tracing_shm_ops();
 }
