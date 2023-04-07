@@ -505,8 +505,6 @@ RETRY_LOCK_WRITE_SET:
          platform_assert(rw_entry_is_write(w));
 
 #if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
-         platform_sleep_ns(100);
-
          if (0) {
 #endif
             switch (message_class(w->msg)) {
@@ -640,13 +638,15 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
 
    rw_entry_iceberg_insert(txn_kvsb, entry);
 
-   timestamp_set v1, v2;
+   // timestamp_set v1, v2;
+   timestamp_set v1;
    do {
       timestamp_set_load(entry->tuple_ts, &v1);
+      if (v1.lock_bit) {
+	continue;
+      }
 
-#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 1
-      platform_sleep_ns(100);
-#else
+#if EXPERIMENTAL_MODE_BYPASS_SPLINTERDB == 0
       if (rw_entry_is_write(entry)) {
          // read my write
          // TODO This works for simple insert/update. However, it doesn't work
@@ -663,9 +663,10 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
          rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
       }
 #endif
-
-      timestamp_set_load(entry->tuple_ts, &v2);
-   } while (memcmp(&v1, &v2, sizeof(v1)) != 0 || v1.lock_bit);
+   } while (!timestamp_set_compare_and_swap(entry->tuple_ts, &v1, &v1));
+   // This code is so slow for some reason..
+      // timestamp_set_load(entry->tuple_ts, &v2);
+      // } while (memcmp(&v1, &v2, sizeof(v1)) != 0);
 
    entry->wts = v1.wts;
    entry->rts = timestamp_set_get_rts(&v1);
