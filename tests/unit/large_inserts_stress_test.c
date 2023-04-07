@@ -739,6 +739,9 @@ exec_worker_thread(void *w)
 
    bool verbose_progress = wcfg->master_cfg->verbose_progress;
 
+   // Initialize on-stack buffer to avoid MSAN failures
+   memset(key_buf, 'X', sizeof(key_buf));
+
    // Insert fully-packed wider-values so we fill pages faster.
    // This value-data will be chosen when random_key_fd < 0.
    memset(val_data, 'V', sizeof(val_data));
