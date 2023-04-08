@@ -16,17 +16,14 @@ get_global_timestamps(transactional_splinterdb *txn_kvsb,
 
    splinterdb_lookup(kvsb, entry->key, &result);
 
-   slice value;
-
    if (splinterdb_lookup_found(&result)) {
-      splinterdb_lookup_result_value(&result, &value);
-      timestamp_set ts_set;
-      memcpy(&ts_set, slice_data(value), sizeof(ts_set));
+      _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)&result;
+      tuple_header *tuple = merge_accumulator_data(&_result->value);
       if (wts) {
-         *wts = ts_set.wts;
+         *wts = tuple->ts.wts;
       }
       if (rts) {
-         *rts = ts_set.rts;
+         *rts = tuple->ts.rts;
       }
    }
    splinterdb_lookup_result_deinit(&result);
@@ -498,26 +495,36 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
    }
 
    int           rc = 0;
-   timestamp_set v1, v2;
+   /* timestamp_set v1, v2; */
+
+   /* do { */
+   /*    get_global_timestamps(txn_kvsb, entry, &v1.wts, &v1.rts); */
+   /*    rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result); */
+   /*    get_global_timestamps(txn_kvsb, entry, &v2.wts, &v2.rts); */
+   /* } while (memcmp(&v1, &v2, sizeof(v1)) != 0 */
+   /*          || lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, entry) */
+   /*                == LOCK_TABLE_RC_BUSY); */
 
    do {
-      get_global_timestamps(txn_kvsb, entry, &v1.wts, &v1.rts);
-      rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
-      get_global_timestamps(txn_kvsb, entry, &v2.wts, &v2.rts);
-   } while (memcmp(&v1, &v2, sizeof(v1)) != 0
-            || lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, entry)
-                  == LOCK_TABLE_RC_BUSY);
-
-   entry->wts = v1.wts;
-   entry->rts = v1.rts;
+      rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
+   } while (lock_table_get_entry_lock_state(txn_kvsb->lock_tbl, entry)
+	    == LOCK_TABLE_RC_BUSY);
 
    if (splinterdb_lookup_found(result)) {
+      _result = (_splinterdb_lookup_result *)result;
       tuple_header *tuple =
          (tuple_header *)merge_accumulator_data(&_result->value);
+
+      entry->wts = tuple->ts.wts;
+      entry->rts = tuple->ts.rts;
+
       const size_t value_len =
          merge_accumulator_length(&_result->value) - sizeof(tuple_header);
       memmove(merge_accumulator_data(&_result->value), tuple->value, value_len);
       merge_accumulator_resize(&_result->value, value_len);
+   } else {
+     --txn->num_rw_entries;
+     rw_entry_deinit(entry);
    }
 
    return rc;
