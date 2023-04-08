@@ -45,7 +45,8 @@ CTEST_SETUP(platform_api)
 
 CTEST_TEARDOWN(platform_api)
 {
-   platform_heap_destroy(&data->hh);
+   platform_status rc = platform_heap_destroy(&data->hh);
+   ASSERT_TRUE(SUCCESS(rc));
 }
 
 /*

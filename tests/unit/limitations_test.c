@@ -93,7 +93,8 @@ CTEST_SETUP(limitations)
  */
 CTEST_TEARDOWN(limitations)
 {
-   platform_heap_destroy(&data->hh);
+   platform_status rc = platform_heap_destroy(&data->hh);
+   ASSERT_TRUE(SUCCESS(rc));
 }
 
 /*

@@ -760,8 +760,8 @@ platform_shm_realloc(platform_heap_id hid,
    void *retptr = splinter_shm_alloc(hid, newsize, "Unknown", file, line);
    if (retptr) {
 
-      // Copy over old contents, if any, and free that memory piece
-      if (oldptr) {
+      // Copy over old contents, if any, and free that old memory piece
+      if (oldptr && oldsize) {
          memcpy(retptr, oldptr, oldsize);
          splinter_shm_free(hid, oldptr, oldsize, "Unknown", func, line);
       }
@@ -934,8 +934,12 @@ platform_shm_track_free(shmem_info  *shm,
    // All callers of either platform_free() or platform_free_mem() are required
    // to declare the size of the memory fragment being freed. We used that info
    // to manage free lists.
-   platform_assert(
-      (size > 0), "objname=%s, func=%s, line=%d", objname, func, line);
+   platform_assert((size > 0),
+                   "objname=%s, func=%s, file=%s, line=%d",
+                   objname,
+                   func,
+                   file,
+                   line);
 
    shm_lock_mem_frags(shm);
    shm->shm_nfrees++;

@@ -473,11 +473,15 @@ platform_aligned_malloc(const platform_heap_id heap_id,
  * Reallocing to size 0 must be equivalent to freeing.
  * Reallocing from NULL must be equivalent to allocing.
  */
+#define platform_realloc(hid, oldsize, ptr, newsize)                           \
+   platform_do_realloc((hid), (oldsize), (ptr), (newsize), __func__)
+
 static inline void *
-platform_realloc(const platform_heap_id heap_id,
-                 const size_t           oldsize,
-                 void                  *ptr, // IN
-                 size_t                *newsize)            // IN/OUT
+platform_do_realloc(const platform_heap_id heap_id,
+                    const size_t           oldsize,
+                    void                  *ptr,     // IN
+                    size_t                *newsize, // IN/OUT
+                    const char            *func)
 {
    /* FIXME: alignment? */
 
@@ -493,7 +497,7 @@ platform_realloc(const platform_heap_id heap_id,
       const size_t padding =
          platform_alignment(PLATFORM_CACHELINE_SIZE, *newsize);
       *newsize += padding;
-      return splinter_shm_realloc(heap_id, ptr, oldsize, *newsize);
+      return splinter_shm_realloc(heap_id, ptr, oldsize, *newsize, func);
    }
 }
 

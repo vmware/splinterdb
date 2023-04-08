@@ -65,9 +65,9 @@ platform_shm_free(platform_heap_id hid,
  * the 'oldsize' of the memory chunk pointed by 'oldptr'. Realloc needs to
  * copy over contents of 'oldptr' to new memory allocated.
  */
-#define splinter_shm_realloc(heap_id, oldptr, oldsize, nbytes)                 \
+#define splinter_shm_realloc(heap_id, oldptr, oldsize, nbytes, func)           \
    platform_shm_realloc(                                                       \
-      heap_id, oldptr, oldsize, nbytes, __func__, __FILE__, __LINE__)
+      heap_id, oldptr, oldsize, nbytes, func, __FILE__, __LINE__)
 
 void *
 platform_shm_realloc(platform_heap_id hid,

@@ -236,7 +236,8 @@ CTEST_TEARDOWN(splinter)
       platform_free(data->hid, data->splinter_cfg);
    }
 
-   platform_heap_destroy(&data->hh);
+   platform_status rc = platform_heap_destroy(&data->hh);
+   ASSERT_TRUE(SUCCESS(rc));
 }
 
 /*
