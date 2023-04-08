@@ -124,6 +124,7 @@ typedef struct shmem_info {
    size_t        shm_nfrees;              // # of calls to free memory
 
    // Distribution of free calls to diff sizes of memory fragments
+   size_t shm_nfrees_eq0;
    size_t shm_nfrees_le32;
    size_t shm_nfrees_le64;
    size_t shm_nfrees_le128;
@@ -292,6 +293,7 @@ typedef struct shminfo_usage_stats {
    size_t free_bytes;
    size_t bytes_freed;
    size_t nfrees;
+   size_t nfrees_eq0;
    size_t nfrees_le32;
    size_t nfrees_le64;
    size_t nfrees_le128;
@@ -344,6 +346,7 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       ", Free=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
       ", Freed=%lu bytes (%s, " FRACTION_FMT(4, 2) " %%)"
       ", nfrees=%lu, nf_search_skipped=%lu (%d %%)"
+      ", nfrees_eq0=%lu"
       ", nfrees_le32=%lu"
       ", nfrees_le64=%lu (" FRACTION_FMT(4, 2) " %%)"
       ", nfrees_le128=%lu (" FRACTION_FMT(4, 2) " %%)"
@@ -371,6 +374,7 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       usage->nf_search_skipped,
       (usage->nfrees ? (int)((usage->nf_search_skipped * 100) / usage->nfrees)
                      : 0),
+      usage->nfrees_eq0,
       usage->nfrees_le32,
       usage->nfrees_le64,
       (FRACTION_ARGS(nf_le64_pct) * 100),
@@ -412,6 +416,7 @@ platform_save_usage_stats(shminfo_usage_stats *usage, shmem_info *shminfo)
    usage->free_bytes                = shminfo->shm_free_bytes;
    usage->bytes_freed               = shminfo->shm_bytes_freed;
    usage->nfrees                    = shminfo->shm_nfrees;
+   usage->nfrees_eq0                = shminfo->shm_nfrees_eq0;
    usage->nfrees_le32               = shminfo->shm_nfrees_le32;
    usage->nfrees_le64               = shminfo->shm_nfrees_le64;
    usage->nfrees_le128              = shminfo->shm_nfrees_le128;
@@ -929,11 +934,8 @@ platform_shm_track_free(shmem_info  *shm,
    // All callers of either platform_free() or platform_free_mem() are required
    // to declare the size of the memory fragment being freed. We used that info
    // to manage free lists.
-   /* FIXME: This is tripping in Pg-insert workloads.
-   platform_assert((size > 0),
-                  "objname=%s, func=%s, line=%d",
-                  objname, func, line);
-   */
+   platform_assert(
+      (size > 0), "objname=%s, func=%s, line=%d", objname, func, line);
 
    shm_lock_mem_frags(shm);
    shm->shm_nfrees++;
@@ -946,7 +948,9 @@ platform_shm_track_free(shmem_info  *shm,
    {
       shm->shm_nf_search_skipped++; // Track # of optimizations done
 
-      if (size <= 32) {
+      if (size == 0) {
+         shm->shm_nfrees_eq0++;
+      } else if (size <= 32) {
          shm->shm_nfrees_le32++;
       } else if (size <= 64) {
          platform_shm_hook_free_frag(&shm->shm_free_le64, addr, size);
@@ -974,6 +978,8 @@ platform_shm_track_free(shmem_info  *shm,
    bool trace_shmem        = (Trace_shmem || Trace_shmem_frees);
 
    shm_frag_info *frag = shm->shm_mem_frags;
+   // Search the large-fragment tracking array for this fragment being freed.
+   // If found, mark its tracker that this fragment is free & can be recycled.
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
       if (!frag->shm_frag_addr || (frag->shm_frag_addr != addr)) {
          continue;
@@ -988,8 +994,7 @@ platform_shm_track_free(shmem_info  *shm,
       debug_assert(frag->shm_frag_allocated_to_pid != 0);
       debug_assert(frag->shm_frag_size != 0);
 
-      // Mark the fragment as in-use by recording the process/thread that's
-      // doing the free.
+      // Record the process/thread's identity to mark the fragment as free.
       frag->shm_frag_freed_by_pid = getpid();
       frag->shm_frag_freed_by_tid = platform_get_tid();
 

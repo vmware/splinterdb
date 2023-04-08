@@ -279,6 +279,221 @@ writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
    slice dst = writable_buffer_to_slice(&dst##wb);
 
 /*
+ * ----------------------------------------------------------------------
+ * Fingerprint arrays are managed while building routing filters.
+ * This structure encapsulates a handle to such an allocated array.
+ * Different modules and functions deal with such arrays. In order to
+ * free memory fragments allocated for these arrays from shared-segments
+ * we need to track the size of the memory fragment allocated.
+ * ----------------------------------------------------------------------
+ */
+typedef struct fp_array {
+   size_t  size;    // # of _bytes_ of memory allocated off of 'addr'
+   size_t  ntuples; // # of tuples for which fingerprint was created.
+   uint32 *addr;
+   uint32  init_line; // Where _init()/deinit() was called from
+   uint32  last_line; // line # where most-recent action occurred on fp
+} fp_array;
+
+/*
+ * void = fingerprint_init(fp_array *fp, platform_heap_id hid,
+ *                         size_t num_tuples)
+ *
+ * Initialize a fingerprint object, allocating memory for fingerprint array.
+ */
+#define fingerprint_init(fp, hid, num_tuples)                                  \
+   fingerprint_do_init((fp), (hid), (num_tuples), __LINE__)
+
+static inline void
+fingerprint_do_init(fp_array        *fp,
+                    platform_heap_id hid,
+                    size_t           num_tuples,
+                    uint32           line)
+{
+   ZERO_CONTENTS(fp);
+   fp->addr = TYPED_ARRAY_ZALLOC(hid, fp->addr, num_tuples);
+   if (fp->addr) {
+      fp->size    = (num_tuples * sizeof(*fp->addr));
+      fp->ntuples = num_tuples;
+   }
+   fp->init_line = line;
+}
+
+/* Validate that fingerprint object is currently empty; i.e. uninit'ed. */
+static inline bool
+fingerprint_is_empty(const fp_array *fp)
+{
+   return ((fp->addr == NULL) && (fp->size == 0));
+}
+
+/*
+ * void = fingerprint_deinit(platform_heap_id hid, fp_array *fp)
+ *
+ * Release the memory allocated for the fingerprint array.
+ */
+#define fingerprint_deinit(hid, fp) fingerprint_do_deinit((hid), (fp), __LINE__)
+
+static inline void
+fingerprint_do_deinit(platform_heap_id hid, fp_array *fp, uint32 line)
+{
+   // Should only be called on a fingerprint that has gone thru init()
+   debug_assert(!fingerprint_is_empty(fp),
+                "fp is empty: addr=%p, size=%lu, init'ed at line=%u",
+                fp->addr,
+                fp->size,
+                fp->init_line);
+
+   platform_free_mem(hid, fp->addr, fp->size);
+   fp->size      = 0;
+   fp->ntuples   = -1; // Indicates that fingerprint went thru deinit()
+   fp->init_line = line;
+}
+
+/* Return the start of the fingerprint array. */
+static inline typeof(((fp_array *)0)->addr)
+fingerprint_start(fp_array *fp)
+{
+   return fp->addr;
+}
+
+/* Return the size of the fingerprint array, in # of bytes allocated. */
+static inline size_t
+fingerprint_size(fp_array *fp)
+{
+   return fp->size;
+}
+
+/* Return the # of tuples for which fingerprint was created */
+static inline size_t
+fingerprint_ntuples(fp_array *fp)
+{
+   return fp->ntuples;
+}
+
+/* Return the line # where _init()/deinit() was called on this fingerprint */
+static inline uint32
+fingerprint_line(fp_array *fp)
+{
+   return fp->init_line;
+}
+
+/* Return the line # where last operation was done on this fingerprint */
+static inline uint32
+fingerprint_last(fp_array *fp)
+{
+   return fp->last_line;
+}
+
+/* Return the start of the n'th piece (tuple) in the fingerprint array. */
+static inline typeof(((fp_array *)0)->addr)
+fingerprint_nth(fp_array *fp, uint32 nth_tuple)
+{
+   // Cannot ask for a location beyond size of fingerprint array
+   debug_assert((nth_tuple < fingerprint_ntuples(fp)),
+                "nth_tuple=%u, ntuples=%lu, init-line=%u",
+                nth_tuple,
+                fingerprint_ntuples(fp),
+                fingerprint_line(fp));
+   return (fp->addr + nth_tuple);
+}
+
+/*
+ * Deep-Copy the contents of 'src' fingerprint object into 'dst' fingerprint.
+ * 'dst' fingerprint is expected to have been init'ed which would have allocated
+ * sufficient memory required to copy-over the 'src' fingerprint array.
+ */
+#define fingerprint_copy(dst, src) fingerprint_do_copy((dst), (src), __LINE__)
+
+static inline void
+fingerprint_do_copy(fp_array *dst, fp_array *src, uint32 line)
+{
+   /*
+   platform_assert((dst->size >= src->size),
+                   "dst (init'ed at %u) size=%lu "
+                   "should be >= src (init'ed at %u) size=%lu",
+                   dst->init_line,
+                   dst->size,
+                   src->init_line,
+                   src->size);
+   */
+   memmove(dst->addr, src->addr, dst->size);
+   dst->last_line = line;
+}
+
+/*
+ * For some temporary manipulation of fingerprints, point the fingerprint array
+ * of 'dst' to the one managed by 'src' fingerprint. Memory allocated for the
+ * fingerprint array will now be pointed to by two fingerprint objects.
+ *
+ * Aliasing is a substitute for init'ing of the 'dst', where we don't allocate
+ * any new memory but "take-over" the fingerprint managed by the 'src' object.
+ *
+ * Returns the start of 'cloned' start of fingerprint.
+ */
+#define fingerprint_alias(dst, src) fingerprint_do_alias((dst), (src), __LINE__)
+
+static inline void *
+fingerprint_do_alias(fp_array *dst, const fp_array *src, uint32 line)
+{
+   debug_assert(fingerprint_is_empty(dst));
+   debug_assert(!fingerprint_is_empty(src));
+   dst->addr      = src->addr;
+   dst->size      = src->size;
+   dst->ntuples   = src->ntuples;
+   dst->init_line = line; // init == last_line => 'alias' was done
+   dst->last_line = line;
+   return dst->addr;
+}
+
+/*
+ * After a fingerprint has been aliased to point to some other fingerprint, and
+ * its use is done, we restore the 'src' fingerprint to its un-aliased (empty)
+ * state.
+ */
+#define fingerprint_unalias(dst) fingerprint_do_unalias((dst), __LINE__)
+
+static inline void *
+fingerprint_do_unalias(fp_array *dst, uint32 line)
+{
+   debug_assert(!fingerprint_is_empty(dst));
+   ZERO_CONTENTS(dst);
+   // (init_line == 0) and != last_line => 'unalias' was done
+   dst->last_line = line;
+   return dst->addr;
+}
+
+/*
+ * For some future manipulation of fingerprints, move the fingerprint array
+ * owned by 'src' to the 'dst' fingerprint. Memory allocated for the
+ * fingerprint array will now be pointed to by 'dst' fingerprint object, and
+ * will need to be freed off of that. 'src' no longer holds fingerprint array
+ * after this call.
+ *
+ * Returns the start of the 'moved' fingerprint.
+ */
+#define fingerprint_move(dst, src) fingerprint_do_move((dst), (src), __LINE__)
+
+static inline void *
+fingerprint_do_move(fp_array *dst, fp_array *src, uint32 line)
+{
+   debug_assert(fingerprint_is_empty(dst));
+   debug_assert(!fingerprint_is_empty(src));
+
+   memmove(dst, src, sizeof(*dst));
+   dst->init_line = line; // Treat 'move' as a new 'init' operation
+   dst->last_line = line;
+
+   // Save-and-restore init-line
+   uint32 src_init_line = src->init_line;
+
+   ZERO_CONTENTS(src);
+   // (Non-zero init_line which is != last_line) => move was done
+   src->init_line = src_init_line;
+   src->last_line = line;
+   return dst->addr;
+}
+
+/*
  * try_string_to_(u)int64
  *
  * Convert a string to a (u)int64.

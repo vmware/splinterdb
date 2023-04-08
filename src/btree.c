@@ -2915,7 +2915,7 @@ btree_pack_loop(btree_pack_req *req,       // IN/OUT
 
    if (req->hash) {
       platform_assert(btree_pack_can_fit_tuple(req));
-      req->fingerprint_arr[req->num_tuples] =
+      fingerprint_start(&req->fingerprint)[req->num_tuples] =
          req->hash(key_data(tuple_key), key_length(tuple_key), req->seed);
    }
 
