@@ -615,7 +615,7 @@ transactional_splinterdb_lookup(transactional_splinterdb *txn_kvsb,
                 message_data(entry->msg),
                 message_length(entry->msg));
       } else {
-         rc = splinterdb_lookup(txn_kvsb->kvsb, user_key, result);
+         rc = splinterdb_lookup(txn_kvsb->kvsb, entry->key, result);
       }
 #endif
 
