@@ -84,6 +84,8 @@ merge_tictoc_tuple(const data_config *cfg,
 
    merge_accumulator_deinit(&new_value_ma);
 
+   merge_accumulator_set_class(new_message, message_class(old_message));
+
    return 0;
 }
 
