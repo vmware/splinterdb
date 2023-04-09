@@ -751,10 +751,12 @@ platform_enable_tracing_shm_frees();
  * Structure to encapsulate a {memory-addr, memory-size} pair. Used to track
  * allocation and, more importantly, free of memory fragments for opaque
  * "objects". Used typically to manage memory for arrays of things.
+ * The 'addr' field is intentionally -not- the 1st field, to reduce lazy
+ * programming which might try to bypass provided interfaces.
  */
 typedef struct platform_mem_frag {
-   void  *addr;
    size_t size;
+   void  *addr;
 } platform_mem_frag;
 
 /*
@@ -802,6 +804,7 @@ typedef struct platform_mem_frag {
          ((platform_mem_frag *)p)->addr = NULL;                                \
          ((platform_mem_frag *)p)->size = 0;                                   \
       } else {                                                                 \
+         /* Expect 'p' is pointing to a struct. So get its size. */            \
          platform_free_mem((hid), (p), sizeof(*p));                            \
          (p) = NULL;                                                           \
       }                                                                        \
