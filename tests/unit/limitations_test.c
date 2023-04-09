@@ -158,7 +158,7 @@ CTEST2(limitations, test_io_init_invalid_page_size)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
-   platform_free(data->hid, data->io->req);
+   io_handle_deinit(data->io);
    platform_free(data->hid, data->io);
 
    if (data->cache_cfg) {
@@ -167,6 +167,9 @@ CTEST2(limitations, test_io_init_invalid_page_size)
 
    if (data->splinter_cfg) {
       platform_free(data->hid, data->splinter_cfg);
+   }
+   if (data->io) {
+      platform_free(data->hid, data->io);
    }
 }
 
@@ -238,6 +241,7 @@ CTEST2(limitations, test_io_init_invalid_extent_size)
    ASSERT_TRUE(SUCCESS(rc));
 
    // Release resources acquired in this test case.
+   io_handle_deinit(data->io);
    if (data->cache_cfg) {
       platform_free(data->hid, data->cache_cfg);
    }

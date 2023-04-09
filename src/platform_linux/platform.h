@@ -772,18 +772,29 @@ typedef struct platform_mem_frag {
  *
  * Similar to the TYPED_MALLOC functions, for all the free functions we need
  * to call platform_get_heap_id() from a macro instead of an inline function
- * (which may or may not end up inlined) Wrap free and free_volatile.
+ * (which may or may not end up inlined). Wrap free and free_volatile.
  *
- * This macro calls underlying platform_free_mem() to supply the 'size' of the
- * memory fragment being freed.
+ * This simple macro does a few interesting things:
  *
- * Most callers will be free'ing memory allocated pointing to a structure.
- * This interface also provides a way to free opaque fragments described
- * simply by a start-address and size of the fragment. Such usages occur, say,
- * for memory fragments allocated for an array of n-structs.
+ * - This macro calls underlying platform_free_mem() to supply the 'size' of
+ *    the memory fragment being freed. This is needed to support recycling of
+ *    freed fragments when shared memory is used.
+ *
+ * - Most callers will be free'ing memory allocated pointing to a structure.
+ *   This interface also provides a way to free opaque fragments described
+ *   simply by a start-address and size of the fragment. Such usages occur,
+ *   say, for memory fragments allocated for an array of n-structs.
+ *
+ * - To catch code errors where we may attempt to free the same memory fragment
+ *   twice, it's a hard assertion if input 'p' ptr is NULL (likely already
+ * freed).
  */
 #define platform_free(hid, p)                                                  \
    do {                                                                        \
+      platform_assert(((p) != NULL),                                           \
+                      "Attempt to free a NULL ptr from '%s', line=%d",         \
+                      __func__,                                                \
+                      __LINE__);                                               \
       if (IS_MEM_FRAG(p)) {                                                    \
          platform_free_mem((hid),                                              \
                            ((platform_mem_frag *)p)->addr,                     \
