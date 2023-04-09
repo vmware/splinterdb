@@ -289,7 +289,11 @@ io_handle_deinit(laio_handle *io)
    }
    platform_assert(status == 0);
 
-   platform_free_mem(io->heap_id, io->req, io->req_size);
+   platform_memfrag  memfrag = {.addr = io->req, .size = io->req_size};
+   platform_memfrag *mf      = &memfrag;
+   platform_free(io->heap_id, mf);
+   io->req      = NULL;
+   io->req_size = 0;
 }
 
 /*

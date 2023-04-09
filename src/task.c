@@ -413,7 +413,10 @@ task_deregister_thread(task_system *ts,
 
    void *scratch = ts->thread_scratch[tid];
    if (scratch != NULL) {
-      platform_free_mem(ts->heap_id, scratch, ts->thread_scratch_mem_size);
+      platform_memfrag  memfrag = {.addr = scratch,
+                                   .size = ts->thread_scratch_mem_size};
+      platform_memfrag *mf      = &memfrag;
+      platform_free(ts->heap_id, mf);
       ts->thread_scratch[tid] = NULL;
    }
 

@@ -835,7 +835,7 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
          ((platform_memfrag *)p)->addr = NULL;                                 \
          ((platform_memfrag *)p)->size = 0;                                    \
       } else {                                                                 \
-         /* Expect 'p' is pointing to a struct. So get its size. */            \
+         /* Expect that 'p' is pointing to a struct. So get its size. */       \
          platform_free_mem((hid), (p), sizeof(*p));                            \
          (p) = NULL;                                                           \
       }                                                                        \

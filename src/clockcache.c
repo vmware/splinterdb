@@ -1913,11 +1913,19 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #endif
    }
 
+   platform_memfrag  memfrag;
+   platform_memfrag *mf = &memfrag;
    if (cc->lookup) {
-      platform_free_mem(cc->heap_id, cc->lookup, cc->lookup_size);
+      mf->addr = cc->lookup;
+      mf->size = cc->lookup_size;
+      platform_free(cc->heap_id, mf);
+      cc->lookup = NULL;
    }
    if (cc->entry) {
-      platform_free_mem(cc->heap_id, cc->entry, cc->entry_size);
+      mf->addr = cc->entry;
+      mf->size = cc->entry_size;
+      platform_free(cc->heap_id, mf);
+      cc->entry = NULL;
    }
 
    debug_only platform_status rc = STATUS_TEST_FAILED;

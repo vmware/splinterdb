@@ -430,8 +430,20 @@ finished_second_pass:
 void
 shard_log_iterator_deinit(platform_heap_id hid, shard_log_iterator *itor)
 {
-   platform_free_mem(hid, itor->contents, itor->contents_size);
-   platform_free_mem(hid, itor->entries, itor->entries_size);
+   platform_memfrag  memfrag;
+   platform_memfrag *mf = &memfrag;
+
+   mf->addr = (void *)itor->contents;
+   mf->size = itor->contents_size;
+   platform_free(hid, mf);
+   itor->contents      = NULL;
+   itor->contents_size = 0;
+
+   mf->addr = (void *)itor->entries;
+   mf->size = itor->contents_size;
+   platform_free(hid, mf);
+   itor->entries      = NULL;
+   itor->entries_size = 0;
 }
 
 void
