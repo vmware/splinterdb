@@ -238,9 +238,9 @@ CTEST2(splinter_shmem, test_allocations_causing_OOMs)
    uint8 *keybuf_no_oom =
       TYPED_MANUAL_MALLOC(data->hid, keybuf_no_oom, keybuf_size);
    ASSERT_TRUE(keybuf_no_oom != NULL);
-   platform_mem_frag  kbuf_mfrag = {.addr = (void *)keybuf_no_oom,
-                                    .size = keybuf_size};
-   platform_mem_frag *kbuf_mf    = &kbuf_mfrag;
+   platform_memfrag  kbuf_mfrag = {.addr = (void *)keybuf_no_oom,
+                                   .size = keybuf_size};
+   platform_memfrag *kbuf_mf    = &kbuf_mfrag;
 
    CTEST_LOG_INFO("Successfully allocated all remaining %lu bytes "
                   "from shared segment.\n",

@@ -153,7 +153,7 @@ typedef struct btree_pack_req {
    uint64        max_tuples;
    hash_fn       hash;        // hash function used for calculating filter_hash
    unsigned int  seed;        // seed used for calculating filter_hash
-   fp_array      fingerprint; // IN/OUT: hashes of the keys in the tree
+   fp_hdr        fingerprint; // IN/OUT: hashes of the keys in the tree
 
    // internal data
    uint16            height;

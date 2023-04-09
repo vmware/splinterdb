@@ -754,20 +754,51 @@ platform_enable_tracing_shm_frees();
  * The 'addr' field is intentionally -not- the 1st field, to reduce lazy
  * programming which might try to bypass provided interfaces.
  */
-typedef struct platform_mem_frag {
+typedef struct platform_memfrag {
    size_t size;
    void  *addr;
-} platform_mem_frag;
+} platform_memfrag;
 
 /*
  * Utility macro to test if an argument to platform_free() is a
- * platform_mem_frag{}.
+ * platform_memfrag{}.
  */
 #define IS_MEM_FRAG(x)                                                         \
    __builtin_choose_expr(                                                      \
-      __builtin_types_compatible_p(typeof((platform_mem_frag *)0), typeof(x)), \
+      __builtin_types_compatible_p(typeof((platform_memfrag *)0), typeof(x)),  \
       1,                                                                       \
       0)
+
+/* Helper methods to do some common operations */
+#define memfrag_start(mf) ((mf)->addr)
+#define memfrag_size(mf)  ((mf)->size)
+
+static inline bool
+memfrag_is_empty(const platform_memfrag *mf)
+{
+   return ((mf->addr == NULL) && (mf->size == 0));
+}
+
+static inline void
+memfrag_set_empty(platform_memfrag *mf)
+{
+   debug_assert(!memfrag_is_empty(mf));
+   mf->addr = NULL;
+   mf->size = 0;
+}
+
+/* Move the memory fragment ownership from src to dst memory fragment */
+static inline void
+memfrag_move(platform_memfrag *dst, platform_memfrag *src)
+{
+   platform_assert(memfrag_is_empty(dst));
+   platform_assert(!memfrag_is_empty(src));
+
+   dst->addr = src->addr;
+   dst->size = src->size;
+   src->addr = NULL;
+   src->size = 0;
+}
 
 /*
  * void = platform_free(platform_heap_id hid, void *p);
@@ -799,10 +830,10 @@ typedef struct platform_mem_frag {
                       __LINE__);                                               \
       if (IS_MEM_FRAG(p)) {                                                    \
          platform_free_mem((hid),                                              \
-                           ((platform_mem_frag *)p)->addr,                     \
-                           ((platform_mem_frag *)p)->size);                    \
-         ((platform_mem_frag *)p)->addr = NULL;                                \
-         ((platform_mem_frag *)p)->size = 0;                                   \
+                           ((platform_memfrag *)p)->addr,                      \
+                           ((platform_memfrag *)p)->size);                     \
+         ((platform_memfrag *)p)->addr = NULL;                                 \
+         ((platform_memfrag *)p)->size = 0;                                    \
       } else {                                                                 \
          /* Expect 'p' is pointing to a struct. So get its size. */            \
          platform_free_mem((hid), (p), sizeof(*p));                            \
