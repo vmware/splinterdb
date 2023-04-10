@@ -401,15 +401,27 @@ fingerprint_line(fp_hdr *fp)
 }
 
 /* Return the start of the n'th piece (tuple) in the fingerprint array. */
+#define fingerprint_nth(dst, src)                                              \
+   fingerprint_do_nth((dst), (src), __FILE__, __LINE__)
+
 static inline uint32 *
-fingerprint_nth(fp_hdr *fp, uint32 nth_tuple)
+fingerprint_do_nth(fp_hdr     *fp,
+                   uint32      nth_tuple,
+                   const char *file,
+                   const int   line)
 {
    // Cannot ask for a location beyond size of fingerprint array
-   debug_assert((nth_tuple < fingerprint_ntuples(fp)),
-                "nth_tuple=%u, ntuples=%lu, init-line=%u",
-                nth_tuple,
-                fingerprint_ntuples(fp),
-                fingerprint_line(fp));
+   platform_assert((nth_tuple < fingerprint_ntuples(fp)),
+                   "[%s:%d] nth_tuple=%u, ntuples=%lu, init'ed at line=%u"
+                   ", copy_line=%u, alias_line=%u, move_line=%u ",
+                   file,
+                   line,
+                   nth_tuple,
+                   fingerprint_ntuples(fp),
+                   fp->init_line,
+                   fp->copy_line,
+                   fp->alias_line,
+                   fp->move_line);
 
    return ((uint32 *)memfrag_start(&fp->mf) + nth_tuple);
 }
@@ -453,8 +465,11 @@ fingerprint_do_alias(fp_hdr *dst, const fp_hdr *src, uint32 line)
    memfrag_start(&dst->mf) = memfrag_start(&src->mf);
    memfrag_size(&dst->mf)  = memfrag_size(&src->mf);
    dst->ntuples            = src->ntuples;
-   dst->alias_line         = line;
+   // Remember where src memory was allocated
+   dst->init_line  = src->init_line;
+   dst->alias_line = line;
 
+   // Update alias refcounts
    debug_code(dst->num_aliases++);
    debug_code(dst->srcfp = (fp_hdr *)src;);
    debug_code(dst->srcfp->num_aliases++);
@@ -477,11 +492,14 @@ fingerprint_do_unalias(fp_hdr *dst, uint32 line)
    memfrag_set_empty((platform_memfrag *)&dst->mf);
    dst->ntuples = 0;
 
-   // (init_line != last_line) => 'unalias' was done
+   // (init_line != alias_line) => 'unalias' was done
+   dst->init_line  = 0;
    dst->alias_line = line;
 
+   // Update alias refcounts
    debug_code(dst->num_aliases--);
    debug_code(dst->srcfp->num_aliases--);
+   debug_code(dst->srcfp->alias_line = line);
    debug_code(dst->srcfp = ((dst->num_aliases == 0) ? NULL : dst->srcfp));
 
    return (uint32 *)memfrag_start(&dst->mf);
@@ -515,6 +533,7 @@ fingerprint_do_move(fp_hdr *dst, fp_hdr *src, uint32 line)
    // Just move the memory fragment itself (not src's tracking data)
    memfrag_move(&dst->mf, &src->mf);
    dst->ntuples   = src->ntuples;
+   dst->init_line = src->init_line; // Remember where src memory was allocated
    dst->move_line = line;
 
    src->ntuples   = 0; // Reflects that memory fragment has been moved over

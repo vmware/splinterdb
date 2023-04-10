@@ -724,6 +724,7 @@ struct trunk_compact_bundle_req {
    uint64                tuples_reclaimed;
    uint64                kv_bytes_reclaimed;
    fp_hdr                breq_fingerprint;
+   uint64                num_tuples;
    uint64                enq_line; // Where task was enqueued
 };
 
@@ -3610,6 +3611,7 @@ typedef struct trunk_filter_scratch {
    uint16         value[TRUNK_MAX_PIVOTS];
    routing_filter filter[TRUNK_MAX_PIVOTS];
    fp_hdr         filter_fingerprint;
+   uint64         num_tuples;
 } trunk_filter_req;
 
 static inline void
@@ -3813,9 +3815,6 @@ trunk_build_filters(trunk_handle             *spl,
       trunk_process_generation_to_fp_bounds(
          spl, compact_req, generation, &fp_start, &fp_end);
 
-      uint32 *fp_arr =
-         fingerprint_nth(&filter_req->filter_fingerprint, fp_start);
-
       uint32 num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
          if (old_filter.addr != 0) {
@@ -3824,6 +3823,21 @@ trunk_build_filters(trunk_handle             *spl,
          filter_req->filter[pos] = old_filter;
          continue;
       }
+
+      // Early-check; otherwise, assert trip in fingerprint_nth() below.
+      debug_assert(
+         (fp_start < fingerprint_ntuples(&filter_req->filter_fingerprint)),
+         "Requested fp_start=%u should be < "
+         "fingerprint for %lu tuples."
+         " Compact bundle req type=%d, enqueued at line=%lu",
+         fp_start,
+         fingerprint_ntuples(&filter_req->filter_fingerprint),
+         compact_req->type,
+         compact_req->enq_line);
+
+      uint32 *fp_arr =
+         fingerprint_nth(&filter_req->filter_fingerprint, fp_start);
+
       routing_filter  new_filter;
       routing_config *filter_cfg = &spl->cfg.filter_cfg;
       uint16          value      = filter_req->value[pos];

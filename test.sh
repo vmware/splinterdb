@@ -234,12 +234,12 @@ function nightly_functionality_stress_tests() {
 function nightly_unit_stress_tests() {
     local use_shmem=$1
 
-    local n_mills=10
+    local n_mills=20
     local num_rows=$((n_mills * 1000 * 1000))
     local nrows_h="${n_mills} mil"
 
     # ----
-    local n_threads=32
+    local n_threads=8
     local test_descr="${nrows_h} rows, ${n_threads} threads"
     local test_name=large_inserts_stress_test
 

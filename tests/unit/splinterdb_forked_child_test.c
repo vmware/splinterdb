@@ -635,6 +635,10 @@ do_many_inserts(splinterdb *kvsb, uint64 num_inserts)
       }
    }
    uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   uint64 elapsed_s  = NSEC_TO_SEC(elapsed_ns);
+   if (elapsed_s == 0) {
+      elapsed_s = 1;
+   }
 
    platform_default_log("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
                         "%lu s, %lu rows/s\n",
@@ -642,8 +646,8 @@ do_many_inserts(splinterdb *kvsb, uint64 num_inserts)
                         __LINE__,
                         thread_idx,
                         ictr, // outer-loop ends at #-of-Millions inserted
-                        NSEC_TO_SEC(elapsed_ns),
-                        (num_inserts / NSEC_TO_SEC(elapsed_ns)));
+                        elapsed_s,
+                        (num_inserts / elapsed_s));
 }
 
 static void
