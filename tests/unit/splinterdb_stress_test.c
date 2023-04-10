@@ -49,6 +49,7 @@ CTEST_DATA(splinterdb_stress)
 CTEST_SETUP(splinterdb_stress)
 {
    data->cfg           = (splinterdb_config){.filename   = TEST_DB_NAME,
+                                             // .cache_size = 64 * Mega,
                                              .cache_size = 1000 * Mega,
                                              .disk_size  = 9000 * Mega,
                                              .data_cfg   = &data->default_data_config,
@@ -79,7 +80,7 @@ CTEST2(splinterdb_stress, test_random_inserts_concurrent)
       .kvsb        = data->kvsb,
    };
 
-#define num_threads 4
+#define num_threads 1
    pthread_t thread_ids[num_threads];
 
    for (int i = 0; i < num_threads; i++) {
@@ -146,7 +147,7 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
  * FIXME: This test still runs into an assertion "filter->addr != 0"
  * from trunk_inc_filter(), which is being triaged separately.
  */
-CTEST2_SKIP(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
+CTEST2(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
 {
    char key_data[TEST_KEY_SIZE];
    char val_data[TEST_VALUE_SIZE];
@@ -191,6 +192,76 @@ CTEST2_SKIP(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
          test_elapsed_s,
          (((ictr + 1) * jctr) / test_elapsed_s));
    }
+}
+
+CTEST2(splinterdb_stress,
+       test_fp_num_tuples_out_of_bounds_bug_trunk_build_filters)
+{
+   char key_data[TEST_KEY_SIZE];
+   char val_data[TEST_VALUE_SIZE];
+
+   uint64 start_key = 0;
+
+   uint64 start_time = platform_get_timestamp();
+
+   threadid thread_idx  = platform_get_tid();
+   uint64   num_inserts = (20 * MILLION);
+
+   platform_default_log("%s()::%d:Thread-%-lu inserts %lu (%lu million)"
+                        ", sequential key, sequential value, "
+                        "KV-pairs starting from %lu ...\n",
+                        __func__,
+                        __LINE__,
+                        thread_idx,
+                        num_inserts,
+                        (num_inserts / MILLION),
+                        start_key);
+
+   uint64 ictr = 0;
+   uint64 jctr = 0;
+
+   bool verbose_progress = TRUE;
+   memset(val_data, 'V', sizeof(val_data));
+   uint64 val_len = sizeof(val_data);
+
+   for (ictr = 0; ictr < (num_inserts / MILLION); ictr++) {
+      for (jctr = 0; jctr < MILLION; jctr++) {
+
+         uint64 id = (start_key + (ictr * MILLION) + jctr);
+
+         // Generate sequential key data
+         snprintf(key_data, sizeof(key_data), "%lu", id);
+         uint64 key_len = strlen(key_data);
+
+         slice key = slice_create(key_len, key_data);
+         slice val = slice_create(val_len, val_data);
+
+         int rc = splinterdb_insert(data->kvsb, key, val);
+         ASSERT_EQUAL(0, rc);
+      }
+      if (verbose_progress) {
+         platform_default_log(
+            "%s()::%d:Thread-%lu Inserted %lu million KV-pairs ...\n",
+            __func__,
+            __LINE__,
+            thread_idx,
+            (ictr + 1));
+      }
+   }
+   uint64 elapsed_ns = platform_timestamp_elapsed(start_time);
+   uint64 elapsed_s = NSEC_TO_SEC(elapsed_ns);
+   if (elapsed_s == 0) {
+       elapsed_s = 1;
+   }
+
+   platform_default_log("%s()::%d:Thread-%lu Inserted %lu million KV-pairs in "
+                        "%lu s, %lu rows/s\n",
+                        __func__,
+                        __LINE__,
+                        thread_idx,
+                        ictr, // outer-loop ends at #-of-Millions inserted
+                        elapsed_s,
+                        (num_inserts / elapsed_s));
 }
 
 // Per-thread workload

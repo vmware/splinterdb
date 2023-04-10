@@ -719,6 +719,9 @@ struct trunk_compact_bundle_req {
    uint64                output_pivot_kv_byte_count[TRUNK_MAX_PIVOTS];
    uint64                tuples_reclaimed;
    uint64                kv_bytes_reclaimed;
+   uint64                num_tuples;
+   uint32                enq_line; // Where task was enqueued
+   uint32                malloc_line; // Where fp_arr memory was allocated
    uint32               *fp_arr;
 };
 
@@ -2410,7 +2413,7 @@ trunk_tuples_in_bundle(trunk_handle *spl,
                        uint64        pivot_tuple_count[static TRUNK_MAX_PIVOTS],
                        uint64 pivot_kv_byte_count[static TRUNK_MAX_PIVOTS])
 {
-   // Can't ZERO_ARRAY because degerates to a uint64 *
+   // Can't ZERO_ARRAY because degenerates to a uint64 *
    ZERO_CONTENTS_N(pivot_tuple_count, TRUNK_MAX_PIVOTS);
    ZERO_CONTENTS_N(pivot_kv_byte_count, TRUNK_MAX_PIVOTS);
 
@@ -3151,10 +3154,12 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
       filter_build_start = platform_get_timestamp();
    }
 
-   cmt->req         = TYPED_ZALLOC(spl->heap_id, cmt->req);
-   cmt->req->spl    = spl;
-   cmt->req->fp_arr = req.fingerprint_arr;
-   cmt->req->type   = TRUNK_COMPACTION_TYPE_MEMTABLE;
+   cmt->req             = TYPED_ZALLOC(spl->heap_id, cmt->req);
+   cmt->req->spl        = spl;
+   cmt->req->num_tuples = req.num_tuples;
+   cmt->req->fp_arr     = req.fingerprint_arr;
+   cmt->req->type       = TRUNK_COMPACTION_TYPE_MEMTABLE;
+   int dup_fp_arr_line  = __LINE__;
    uint32 *dup_fp_arr =
       TYPED_ARRAY_MALLOC(spl->heap_id, dup_fp_arr, req.num_tuples);
    memmove(dup_fp_arr, cmt->req->fp_arr, req.num_tuples * sizeof(uint32));
@@ -3178,7 +3183,10 @@ trunk_memtable_compact_and_build_filter(trunk_handle  *spl,
    }
 
    btree_pack_req_deinit(&req, spl->heap_id);
-   cmt->req->fp_arr = dup_fp_arr;
+
+   cmt->req->num_tuples = req.num_tuples;
+   cmt->req->fp_arr     = dup_fp_arr;
+   cmt->req->malloc_line = dup_fp_arr_line;
    if (spl->cfg.use_stats) {
       uint64 comp_time = platform_timestamp_elapsed(comp_start);
       spl->stats[tid].root_compaction_time_ns += comp_time;
@@ -3344,6 +3352,7 @@ trunk_memtable_incorporate(trunk_handle  *spl,
                                "enqueuing build filter %lu-%u\n",
                                req->addr,
                                req->bundle_no);
+   req->enq_line = __LINE__;
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
@@ -3562,6 +3571,7 @@ typedef struct trunk_filter_scratch {
    routing_filter old_filter[TRUNK_MAX_PIVOTS];
    uint16         value[TRUNK_MAX_PIVOTS];
    routing_filter filter[TRUNK_MAX_PIVOTS];
+   uint64         num_tuples;
    uint32        *fp_arr;
 } trunk_filter_req;
 
@@ -3570,7 +3580,8 @@ trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
                       trunk_filter_req         *filter_req)
 {
    ZERO_CONTENTS(filter_req);
-   filter_req->fp_arr = compact_req->fp_arr;
+   filter_req->fp_arr     = compact_req->fp_arr;
+   filter_req->num_tuples = compact_req->num_tuples;
 }
 
 static inline void
@@ -3754,9 +3765,10 @@ trunk_build_filters(trunk_handle             *spl,
       routing_filter old_filter = filter_req->old_filter[pos];
       uint32         fp_start, fp_end;
       uint64         generation = compact_req->pivot_generation[pos];
+
       trunk_process_generation_to_fp_bounds(
          spl, compact_req, generation, &fp_start, &fp_end);
-      uint32 *fp_arr           = filter_req->fp_arr + fp_start;
+
       uint32  num_fingerprints = fp_end - fp_start;
       if (num_fingerprints == 0) {
          if (old_filter.addr != 0) {
@@ -3765,6 +3777,19 @@ trunk_build_filters(trunk_handle             *spl,
          filter_req->filter[pos] = old_filter;
          continue;
       }
+
+      debug_assert((fp_start < filter_req->num_tuples),
+                   "Requested fp_start=%u should be < "
+                   "fingerprint for %lu tuples."
+                   " Compact bundle req type=%d, enqueued at line=%d"
+                   ", fp_arr allocated at line=%d",
+                   fp_start,
+                   filter_req->num_tuples,
+                   compact_req->type,
+                   compact_req->enq_line,
+                   compact_req->malloc_line);
+
+      uint32 *fp_arr           = filter_req->fp_arr + fp_start;
       routing_filter  new_filter;
       routing_config *filter_cfg = &spl->cfg.filter_cfg;
       uint16          value      = filter_req->value[pos];
@@ -3883,6 +3908,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       }
 
       if (trunk_build_filter_should_reenqueue(compact_req, &node)) {
+         compact_req->enq_line = __LINE__;
          task_enqueue(spl->ts,
                       TASK_TYPE_NORMAL,
                       trunk_bundle_build_filters,
@@ -4247,6 +4273,7 @@ trunk_flush(trunk_handle     *spl,
 
    trunk_default_log_if_enabled(
       spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
+   req->enq_line = __LINE__;
    rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert_status_ok(rc);
@@ -4674,7 +4701,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                       "compact_bundle split from %lu to %lu\n",
                                       req->addr,
                                       next_req->addr);
-         rc = task_enqueue(
+         next_req->enq_line = __LINE__;
+         rc                 = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, next_req, FALSE);
          platform_assert_status_ok(rc);
       } else {
@@ -4813,6 +4841,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
    trunk_branch new_branch;
    new_branch.root_addr     = pack_req.root_addr;
    uint64 num_tuples        = pack_req.num_tuples;
+   req->num_tuples          = pack_req.num_tuples;
    req->fp_arr              = pack_req.fingerprint_arr;
    pack_req.fingerprint_arr = NULL;
    btree_pack_req_deinit(&pack_req, spl->heap_id);
@@ -4965,6 +4994,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                   "enqueuing build filter %lu-%u\n",
                                   req->addr,
                                   req->bundle_no);
+      req->enq_line = __LINE__;
       task_enqueue(
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
    }
@@ -5541,7 +5571,8 @@ trunk_split_leaf(trunk_handle *spl,
                                       "enqueuing compact_bundle %lu-%u\n",
                                       req->addr,
                                       req->bundle_no);
-         rc = task_enqueue(
+         req->enq_line = __LINE__;
+         rc            = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
          platform_assert(SUCCESS(rc));
 
@@ -5577,6 +5608,7 @@ trunk_split_leaf(trunk_handle *spl,
    // issue compact_bundle for leaf and release
    trunk_default_log_if_enabled(
       spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
+   req->enq_line = __LINE__;
    rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert(SUCCESS(rc));
@@ -6034,6 +6066,7 @@ trunk_compact_leaf(trunk_handle *spl, trunk_node *leaf)
 
    trunk_default_log_if_enabled(
       spl, "enqueuing compact_bundle %lu-%u\n", req->addr, req->bundle_no);
+   req->enq_line = __LINE__;
    rc =
       task_enqueue(spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
    platform_assert(SUCCESS(rc));
