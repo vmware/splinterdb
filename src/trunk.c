@@ -4013,6 +4013,8 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          spl, &stream, "----------------------------------------\n");
       trunk_log_stream_if_enabled(spl, &stream, "\n");
 
+      fingerprint_unalias(&filter_req.filter_fingerprint);
+
    next_node:
       compact_req->addr = trunk_next_addr(&node);
       generation        = trunk_generation(spl, &node);
@@ -4025,7 +4027,6 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          debug_assert(compact_req->addr != 0);
       }
       trunk_close_log_stream_if_enabled(spl, &stream);
-      fingerprint_unalias(&filter_req.filter_fingerprint);
 
    } while (compact_req->generation != generation);
 

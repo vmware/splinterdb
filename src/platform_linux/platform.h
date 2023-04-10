@@ -819,8 +819,8 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
  *   say, for memory fragments allocated for an array of n-structs.
  *
  * - To catch code errors where we may attempt to free the same memory fragment
- *   twice, it's a hard assertion if input 'p' ptr is NULL (likely already
- * freed).
+ *   twice, it's a hard assertion if input ptr 'p' is NULL (likely already
+ *   freed).
  */
 #define platform_free(hid, p)                                                  \
    do {                                                                        \
