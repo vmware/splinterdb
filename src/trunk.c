@@ -3614,7 +3614,14 @@ typedef struct trunk_filter_scratch {
    uint64         num_tuples;
 } trunk_filter_req;
 
-static inline void
+/*
+ * Initialize fingerprint object in input 'filter_req'.
+ * Here, we use the fingerprint object [already] initialized in the
+ * compact_req, and alias it (point to it) from filter_req.
+ *
+ * Returns: TRUE - if aliasing was successful; FALSE - otherwise.
+ */
+static inline bool
 trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
                       trunk_filter_req         *filter_req)
 {
@@ -3625,8 +3632,16 @@ trunk_filter_req_init(trunk_compact_bundle_req *compact_req,
                 fingerprint_line(&filter_req->filter_fingerprint));
 
    ZERO_CONTENTS(filter_req);
-   fingerprint_alias(&filter_req->filter_fingerprint,
-                     &compact_req->breq_fingerprint);
+   // Returns start of aliased fingerprint
+   uint32 *fp_start = fingerprint_alias(&filter_req->filter_fingerprint,
+                                        &compact_req->breq_fingerprint);
+   return (fp_start != NULL);
+}
+
+static inline void
+trunk_filter_req_fp_deinit(trunk_filter_req *filter_req)
+{
+   fingerprint_unalias(&filter_req->filter_fingerprint);
 }
 
 static inline void
@@ -3742,7 +3757,7 @@ trunk_build_filter_should_reenqueue(trunk_compact_bundle_req *req,
    return FALSE;
 }
 
-static inline void
+static inline bool
 trunk_prepare_build_filter(trunk_handle             *spl,
                            trunk_compact_bundle_req *compact_req,
                            trunk_filter_req         *filter_req,
@@ -3752,7 +3767,7 @@ trunk_prepare_build_filter(trunk_handle             *spl,
    platform_assert(compact_req->height == height);
    platform_assert(compact_req->bundle_no == trunk_start_bundle(spl, node));
 
-   trunk_filter_req_init(compact_req, filter_req);
+   bool fp_aliased = trunk_filter_req_init(compact_req, filter_req);
 
    uint16 num_children = trunk_num_children(spl, node);
    for (uint16 pivot_no = 0; pivot_no < num_children; pivot_no++) {
@@ -3769,6 +3784,7 @@ trunk_prepare_build_filter(trunk_handle             *spl,
          filter_req->should_build[pos] = TRUE;
       }
    }
+   return fp_aliased;
 }
 
 static inline void
@@ -3824,7 +3840,7 @@ trunk_build_filters(trunk_handle             *spl,
          continue;
       }
 
-      // Early-check; otherwise, assert trip in fingerprint_nth() below.
+      // Early-check; otherwise, assert trips in fingerprint_nth() below.
       debug_assert(
          (fp_start < fingerprint_ntuples(&filter_req->filter_fingerprint)),
          "Requested fp_start=%u should be < "
@@ -3972,8 +3988,15 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       }
 
       debug_assert(trunk_verify_node(spl, &node));
-      trunk_filter_req filter_req = {0};
+
+      // prepare below will setup the fingerprint in this filter_req
+      // aliased to the fingerprint tracked by compact_req. So, we need to
+      // do the propery cleanup (which will be unaliasing).
+      trunk_filter_req filter_req
+         __attribute__((cleanup(trunk_filter_req_fp_deinit))) = {0};
+
       trunk_prepare_build_filter(spl, compact_req, &filter_req, &node);
+
       uint64 filter_generation = trunk_generation(spl, &node);
       trunk_node_unget(spl->cc, &node);
 
@@ -4026,8 +4049,6 @@ trunk_bundle_build_filters(void *arg, void *scratch)
       trunk_log_stream_if_enabled(
          spl, &stream, "----------------------------------------\n");
       trunk_log_stream_if_enabled(spl, &stream, "\n");
-
-      fingerprint_unalias(&filter_req.filter_fingerprint);
 
    next_node:
       compact_req->addr = trunk_next_addr(&node);

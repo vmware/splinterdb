@@ -295,13 +295,29 @@ writable_buffer_append(writable_buffer *wb, uint64 length, const void *newdata)
 typedef struct fp_hdr {
    platform_memfrag mf;
    size_t           ntuples;   // # of tuples for which fingerprint was created.
-   uint16           init_line; // Where do_init()/do_deinit() was called from
-   uint16           copy_line; // Where do_copy() was called from
-   uint16           alias_line; // Where do_alias() was called from
-   uint16           move_line;  // Where do_move() was called from
+   uint16           init_line; // Where init()/ deinit() was called from
+   uint16           copy_line; // Where copy() was called from
+   uint16           alias_line; // Where alias() / unalias() was called from
+   uint16           move_line;  // Where move() was called from
    debug_code(struct fp_hdr *srcfp);
    debug_code(uint16 num_aliases);
 } fp_hdr;
+
+/* Consistent message format to identify fp_hdr{} when asserts fail. */
+#define FP_FMT                                                                 \
+   "from line=%d, fp_hdr=%p, fp=%p, init_line=%u, copy_line=%u"                \
+   ", alias_line=%u, move_line=%u, ntuples=%lu"
+
+#define FP_FIELDS(p)                                                           \
+   p, fingerprint_start(p), p->init_line, p->copy_line, p->alias_line,         \
+      p->move_line, p->ntuples
+
+/* Return the start of the fingerprint array. */
+static inline uint32 *
+fingerprint_start(const fp_hdr *fp)
+{
+   return (uint32 *)memfrag_start(&fp->mf);
+}
 
 /*
  * uint32 * = fingerprint_init(fp_hdr *fp, platform_heap_id hid,
@@ -350,11 +366,7 @@ static inline void
 fingerprint_do_deinit(platform_heap_id hid, fp_hdr *fp, uint32 line)
 {
    // Should only be called on a fingerprint that has gone thru init()
-   debug_assert(!fingerprint_is_empty(fp),
-                "fp is empty: addr=%p, size=%lu, init'ed at line=%u",
-                memfrag_start(&fp->mf),
-                memfrag_size(&fp->mf),
-                fp->init_line);
+   debug_assert(!fingerprint_is_empty(fp), FP_FMT, line, FP_FIELDS(fp));
 
    debug_assert((fp->num_aliases == 0),
                 "%u references exist to fingerprint at %p, init'ed at line=%d"
@@ -370,13 +382,6 @@ fingerprint_do_deinit(platform_heap_id hid, fp_hdr *fp, uint32 line)
    platform_free(hid, mf);
    fp->ntuples   = -1; // Indicates that fingerprint went thru deinit()
    fp->init_line = line;
-}
-
-/* Return the start of the fingerprint array. */
-static inline uint32 *
-fingerprint_start(fp_hdr *fp)
-{
-   return (uint32 *)memfrag_start(&fp->mf);
 }
 
 /* Return the size of the fingerprint array, in # of bytes allocated. */
@@ -412,16 +417,12 @@ fingerprint_do_nth(fp_hdr     *fp,
 {
    // Cannot ask for a location beyond size of fingerprint array
    platform_assert((nth_tuple < fingerprint_ntuples(fp)),
-                   "[%s:%d] nth_tuple=%u, ntuples=%lu, init'ed at line=%u"
-                   ", copy_line=%u, alias_line=%u, move_line=%u ",
+                   "[%s] nth_tuple=%u, ntuples=%lu, " FP_FMT,
                    file,
-                   line,
                    nth_tuple,
                    fingerprint_ntuples(fp),
-                   fp->init_line,
-                   fp->copy_line,
-                   fp->alias_line,
-                   fp->move_line);
+                   line,
+                   FP_FIELDS(fp));
 
    return ((uint32 *)memfrag_start(&fp->mf) + nth_tuple);
 }
@@ -459,8 +460,8 @@ fingerprint_do_copy(fp_hdr *dst, fp_hdr *src, uint32 line)
 static inline uint32 *
 fingerprint_do_alias(fp_hdr *dst, const fp_hdr *src, uint32 line)
 {
-   debug_assert(fingerprint_is_empty(dst));
-   debug_assert(!fingerprint_is_empty(src));
+   debug_assert(fingerprint_is_empty(dst), FP_FMT, line, FP_FIELDS(dst));
+   debug_assert(!fingerprint_is_empty(src), FP_FMT, line, FP_FIELDS(src));
 
    memfrag_start(&dst->mf) = memfrag_start(&src->mf);
    memfrag_size(&dst->mf)  = memfrag_size(&src->mf);
@@ -481,14 +482,16 @@ fingerprint_do_alias(fp_hdr *dst, const fp_hdr *src, uint32 line)
 /*
  * After a fingerprint has been aliased to point to some other fingerprint, and
  * its use is done, we restore the 'src' fingerprint to its un-aliased (empty)
- * state.
+ * state. (Memory deallocation of fingerprint will be done elsewhere by the
+ * object that owns the fingerprint.)
  */
 #define fingerprint_unalias(dst) fingerprint_do_unalias((dst), __LINE__)
 
 static inline uint32 *
 fingerprint_do_unalias(fp_hdr *dst, uint32 line)
 {
-   debug_assert(!fingerprint_is_empty(dst));
+   debug_assert(!fingerprint_is_empty(dst), FP_FMT, line, FP_FIELDS(dst));
+
    memfrag_set_empty((platform_memfrag *)&dst->mf);
    dst->ntuples = 0;
 
@@ -519,16 +522,17 @@ fingerprint_do_unalias(fp_hdr *dst, uint32 line)
 static inline uint32 *
 fingerprint_do_move(fp_hdr *dst, fp_hdr *src, uint32 line)
 {
-   debug_assert(fingerprint_is_empty(dst));
-   debug_assert(!fingerprint_is_empty(src));
+   debug_assert(fingerprint_is_empty(dst), FP_FMT, line, FP_FIELDS(dst));
+   debug_assert(!fingerprint_is_empty(src), FP_FMT, line, FP_FIELDS(src));
 
    // We don't want any references to src to be carried over to dst.
    debug_assert((src->num_aliases == 0),
-                "Source fingerprint %p has %d references. Moving it to"
+                "Source fingerprint has %d references. Moving it to"
                 " another fingerprint will leak memory references, potentially"
-                " causing bugs.",
-                src,
-                src->num_aliases);
+                " causing bugs. " FP_FMT,
+                src->num_aliases,
+                line,
+                FP_FIELDS(src));
 
    // Just move the memory fragment itself (not src's tracking data)
    memfrag_move(&dst->mf, &src->mf);
