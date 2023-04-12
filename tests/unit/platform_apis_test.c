@@ -225,6 +225,15 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC)
    platform_free(data->hid, mf);
 }
 
+/*
+ * White-box test to verify small free-fragment free-list management.
+ * We track only some small ranges of sizes in the free-list:
+ *   32 < x <= 64, <= 128, <= 256, <= 512
+ * This test case is designed carefully to allocate a fragment in the
+ * range (256, 512]. Then it's freed. A smaller fragment that falls in
+ * this bucket is requested, which should find and reallocate the
+ * free'd fragment.
+ */
 CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_free_and_MALLOC)
 {
    int              nitems = 10;
@@ -242,7 +251,10 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_free_and_MALLOC)
    platform_free(data->hid, mf);
 
    // Allocating a smaller array should also recycle memory fragment.
-   nitems     = 5;
+   // We recycle fragments in sizes of powers-of-2. So, use a new size
+   // so it will trigger a search in the free-list that the previous
+   // fragment's free ended up in.
+   nitems     = 9;
    new_arrayp = TYPED_ARRAY_MALLOC(data->hid, new_arrayp, nitems);
    ASSERT_TRUE(!data->use_shmem || (arrayp == new_arrayp));
    mf = &memfrag_new_arrayp;
