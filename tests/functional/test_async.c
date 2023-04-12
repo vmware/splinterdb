@@ -72,9 +72,11 @@ async_ctxt_init(platform_heap_id    hid,                // IN
 
    // max_async_inflight can be zero
    platform_assert(max_async_inflight <= TEST_MAX_ASYNC_INFLIGHT);
+   platform_memfrag memfrag_async_lookup;
    async_lookup =
       TYPED_FLEXIBLE_STRUCT_MALLOC(hid, async_lookup, ctxt, max_async_inflight);
    platform_assert(async_lookup);
+   async_lookup->size               = memfrag_size(&memfrag_async_lookup);
    async_lookup->max_async_inflight = max_async_inflight;
    async_lookup->avail_q            = pcq_alloc(hid, max_async_inflight);
    platform_assert(async_lookup->avail_q);
@@ -97,14 +99,17 @@ void
 async_ctxt_deinit(platform_heap_id hid, test_async_lookup *async_lookup)
 {
    platform_assert(pcq_is_full(async_lookup->avail_q));
-   pcq_free(hid, async_lookup->avail_q);
+   pcq_free(hid, &async_lookup->avail_q);
    platform_assert(pcq_is_empty(async_lookup->ready_q));
-   pcq_free(hid, async_lookup->ready_q);
+   pcq_free(hid, &async_lookup->ready_q);
    for (uint64 i = 0; i < async_lookup->max_async_inflight; i++) {
       key_buffer_deinit(&async_lookup->ctxt[i].key);
       merge_accumulator_deinit(&async_lookup->ctxt[i].data);
    }
-   platform_free(hid, async_lookup);
+   platform_memfrag  memfrag;
+   platform_memfrag *mf = &memfrag;
+   memfrag_init_size(mf, async_lookup, async_lookup->size);
+   platform_free(hid, mf);
 }
 
 

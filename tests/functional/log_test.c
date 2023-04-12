@@ -165,6 +165,8 @@ test_log_perf(cache                  *cc,
               platform_heap_id        hid)
 
 {
+   platform_memfrag        memfrag_params;
+   platform_memfrag       *mf = &memfrag_params;
    test_log_thread_params *params =
       TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
@@ -207,7 +209,7 @@ test_log_perf(cache                  *cc,
                            / platform_timestamp_elapsed(start_time));
 
 cleanup:
-   platform_free(hid, params);
+   platform_free(hid, mf);
 
    return ret;
 }

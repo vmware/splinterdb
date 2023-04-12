@@ -176,10 +176,9 @@ CTEST2(btree, test_leaf_split)
 static int
 leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-   size_t page_size   = btree_page_size(cfg);
-   char  *leaf_buffer = TYPED_MANUAL_MALLOC(hid, leaf_buffer, page_size);
-   platform_memfrag memfrag_leaf_buffer = {.addr = leaf_buffer,
-                                           .size = page_size};
+   size_t           page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_leaf_buffer;
+   char *leaf_buffer = TYPED_ARRAY_MALLOC(hid, leaf_buffer, page_size);
 
    btree_hdr *hdr = (btree_hdr *)leaf_buffer;
    /*
@@ -267,12 +266,11 @@ leaf_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 static int
 leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   size_t page_size   = btree_page_size(cfg);
-   char  *leaf_buffer = TYPED_MANUAL_MALLOC(hid, leaf_buffer, page_size);
-   platform_memfrag memfrag_leaf_buffer = {.addr = leaf_buffer,
-                                           .size = page_size};
-   btree_hdr       *hdr                 = (btree_hdr *)leaf_buffer;
-   int              nkvs                = 256;
+   size_t           page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_leaf_buffer;
+   char      *leaf_buffer = TYPED_ARRAY_MALLOC(hid, leaf_buffer, page_size);
+   btree_hdr *hdr         = (btree_hdr *)leaf_buffer;
+   int        nkvs        = 256;
 
    btree_init_hdr(cfg, hdr);
 
@@ -311,12 +309,11 @@ leaf_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 static int
 index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 {
-   size_t page_size    = btree_page_size(cfg);
-   char  *index_buffer = TYPED_MANUAL_MALLOC(hid, index_buffer, page_size);
-   platform_memfrag memfrag_index_buffer = {.addr = index_buffer,
-                                            .size = page_size};
-   btree_hdr       *hdr                  = (btree_hdr *)index_buffer;
-   int              nkvs                 = 100;
+   size_t           page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_index_buffer;
+   char      *index_buffer = TYPED_ARRAY_MALLOC(hid, index_buffer, page_size);
+   btree_hdr *hdr          = (btree_hdr *)index_buffer;
+   int        nkvs         = 100;
 
 
    bool rv     = FALSE;
@@ -378,10 +375,9 @@ index_hdr_tests(btree_config *cfg, btree_scratch *scratch, platform_heap_id hid)
 static int
 index_hdr_search_tests(btree_config *cfg, platform_heap_id hid)
 {
-   size_t page_size   = btree_page_size(cfg);
-   char  *leaf_buffer = TYPED_MANUAL_MALLOC(hid, leaf_buffer, page_size);
-   platform_memfrag memfrag_leaf_buffer = {.addr = leaf_buffer,
-                                           .size = page_size};
+   size_t           page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_leaf_buffer;
+   char *leaf_buffer = TYPED_ARRAY_MALLOC(hid, leaf_buffer, page_size);
 
    btree_hdr        *hdr  = (btree_hdr *)leaf_buffer;
    int               nkvs = 256;
@@ -421,14 +417,12 @@ leaf_split_tests(btree_config    *cfg,
                  int              nkvs,
                  platform_heap_id hid)
 {
-   size_t page_size   = btree_page_size(cfg);
-   char  *leaf_buffer = TYPED_MANUAL_MALLOC(hid, leaf_buffer, page_size);
-   platform_memfrag memfrag_leaf_buffer = {.addr = leaf_buffer,
-                                           .size = page_size};
+   size_t           page_size = btree_page_size(cfg);
+   platform_memfrag memfrag_leaf_buffer;
+   char *leaf_buffer = TYPED_ARRAY_MALLOC(hid, leaf_buffer, page_size);
 
-   char *msg_buffer = TYPED_MANUAL_MALLOC(hid, msg_buffer, page_size);
-   platform_memfrag memfrag_msg_buffer = {.addr = msg_buffer,
-                                          .size = page_size};
+   platform_memfrag memfrag_msg_buffer;
+   char            *msg_buffer = TYPED_ARRAY_MALLOC(hid, msg_buffer, page_size);
 
    memset(msg_buffer, 0, btree_page_size(cfg));
 

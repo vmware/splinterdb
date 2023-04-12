@@ -338,10 +338,11 @@ fingerprint_do_init(fp_hdr          *fp,
                     uint32           line)
 {
    ZERO_CONTENTS(fp);
-   uint32 *fp_arr = TYPED_ARRAY_ZALLOC(hid, fp_arr, num_tuples);
+   platform_memfrag memfrag_fp_arr;
+   uint32          *fp_arr = TYPED_ARRAY_ZALLOC(hid, fp_arr, num_tuples);
    if (fp_arr != NULL) {
-      memfrag_start(&fp->mf) = (void *)fp_arr;
-      memfrag_size(&fp->mf)  = (num_tuples * sizeof(*fp_arr));
+      memfrag_start(&fp->mf) = memfrag_start(&memfrag_fp_arr);
+      memfrag_size(&fp->mf)  = memfrag_size(&memfrag_fp_arr);
       fp->ntuples            = num_tuples;
    }
    fp->init_line = line;

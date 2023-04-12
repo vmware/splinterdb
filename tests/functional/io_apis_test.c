@@ -492,13 +492,13 @@ test_sync_writes(platform_heap_id    hid,
 
    int page_size = (int)io_cfgp->page_size;
 
+   platform_memfrag  memfrag_buf;
+   platform_memfrag *mf = &memfrag_buf;
    // Allocate a buffer to do page I/O
    char *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
    if (!buf) {
       goto out;
    }
-   platform_memfrag  memfrag = {.addr = buf, .size = page_size};
-   platform_memfrag *mf      = &memfrag;
 
    memset(buf, stamp_char, page_size);
 
@@ -597,14 +597,13 @@ test_sync_reads(platform_heap_id    hid,
 
    int page_size = (int)io_cfgp->page_size;
 
+   platform_memfrag *mf = NULL;
    // Allocate a buffer to do page I/O, and an expected results buffer
-   char *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
-   char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
+   platform_memfrag memfrag_buf;
+   char            *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
 
-   // Setup handles to free allocated memory
-   platform_memfrag  buf_mf = {.addr = buf, .size = page_size};
-   platform_memfrag  exp_mf = {.addr = exp, .size = page_size};
-   platform_memfrag *mf     = NULL;
+   platform_memfrag memfrag_exp;
+   char            *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
 
    memset(exp, stamp_char, page_size);
 
@@ -650,10 +649,10 @@ test_sync_reads(platform_heap_id    hid,
    }
 
 free_buf:
-   mf = &buf_mf;
+   mf = &memfrag_buf;
    platform_free(hid, mf);
 
-   mf = &exp_mf;
+   mf = &memfrag_exp;
    platform_free(hid, mf);
    return rc;
 }
@@ -846,22 +845,20 @@ test_async_reads(platform_heap_id    hid,
 
    int page_size = (int)io_cfgp->page_size;
 
+   platform_memfrag *mf = NULL;
+
    // Allocate a buffer to do page I/O, and an expected results buffer
-   uint64 nbytes = (page_size * NUM_PAGES_RW_ASYNC_PER_THREAD);
-   char  *buf    = TYPED_ARRAY_ZALLOC(hid, buf, nbytes);
+   uint64           nbytes = (page_size * NUM_PAGES_RW_ASYNC_PER_THREAD);
+   platform_memfrag memfrag_buf;
+   char            *buf = TYPED_ARRAY_ZALLOC(hid, buf, nbytes);
    if (!buf) {
       goto out;
    }
-   platform_memfrag  buf_mfrag = {.addr = (void *)buf, .size = nbytes};
-   platform_memfrag *buf_mf    = &buf_mfrag;
-
-   char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
+   platform_memfrag memfrag_exp;
+   char            *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
    if (!exp) {
       goto free_buf;
    }
-   platform_memfrag  exp_mfrag = {.addr = (void *)exp, .size = page_size};
-   platform_memfrag *exp_mf    = &exp_mfrag;
-
    memset(exp, stamp_char, page_size);
 
    platform_default_log("\n%s: Thread=%lu: %s() Test Async reads for %d"
@@ -903,9 +900,11 @@ test_async_reads(platform_heap_id    hid,
 
    io_cleanup(ioh, NUM_PAGES_RW_ASYNC_PER_THREAD);
 
-   platform_free(hid, exp_mf);
+   mf = &memfrag_exp;
+   platform_free(hid, mf);
 free_buf:
-   platform_free(hid, buf_mf);
+   mf = &memfrag_buf;
+   platform_free(hid, mf);
 out:
    return rc;
 }

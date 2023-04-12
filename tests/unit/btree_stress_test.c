@@ -200,13 +200,11 @@ CTEST2(btree_stress, test_random_inserts_concurrent)
    platform_memfrag *mf  = NULL;
    platform_heap_id  hid = data->hid;
 
-   insert_thread_params *params = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
    platform_memfrag      memfrag_params;
-   memfrag_init(&memfrag_params, params, nthreads);
+   insert_thread_params *params = TYPED_ARRAY_ZALLOC(hid, params, nthreads);
 
-   platform_thread *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
    platform_memfrag memfrag_threads;
-   memfrag_init(&memfrag_threads, threads, nthreads);
+   platform_thread *threads = TYPED_ARRAY_ZALLOC(hid, threads, nthreads);
 
    for (uint64 i = 0; i < nthreads; i++) {
       params[i].cc        = (cache *)&data->cc;
@@ -324,11 +322,11 @@ insert_tests(cache           *cc,
 
    int              keybuf_size = btree_page_size(cfg);
    int              msgbuf_size = btree_page_size(cfg);
-   uint8           *keybuf      = TYPED_MANUAL_MALLOC(hid, keybuf, keybuf_size);
-   platform_memfrag memfrag_keybuf = {.addr = keybuf, .size = keybuf_size};
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, keybuf_size);
 
-   uint8           *msgbuf = TYPED_MANUAL_MALLOC(hid, msgbuf, msgbuf_size);
-   platform_memfrag memfrag_msgbuf = {.addr = msgbuf, .size = msgbuf_size};
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, msgbuf_size);
 
    for (uint64 i = start; i < end; i++) {
       if (!SUCCESS(btree_insert(cc,
@@ -398,11 +396,11 @@ query_tests(cache           *cc,
             int              nkvs)
 {
    size_t           page_size = btree_page_size(cfg);
-   uint8           *keybuf    = TYPED_MANUAL_MALLOC(hid, keybuf, page_size);
-   platform_memfrag memfrag_keybuf = {.addr = keybuf, .size = page_size};
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, page_size);
 
-   uint8           *msgbuf = TYPED_MANUAL_MALLOC(hid, msgbuf, page_size);
-   platform_memfrag memfrag_msgbuf = {.addr = msgbuf, .size = page_size};
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, page_size);
 
    memset(msgbuf, 0, btree_page_size(cfg));
 
@@ -457,15 +455,15 @@ iterator_tests(cache           *cc,
    uint64           seen = 0;
    bool             at_end;
    size_t           page_size = btree_page_size(cfg);
-   uint8           *prevbuf   = TYPED_MANUAL_MALLOC(hid, prevbuf, page_size);
-   platform_memfrag memfrag_prevbuf = {.addr = prevbuf, .size = page_size};
+   platform_memfrag memfrag_prevbuf;
+   uint8           *prevbuf = TYPED_ARRAY_MALLOC(hid, prevbuf, page_size);
 
-   key              prev   = NULL_KEY;
-   uint8           *keybuf = TYPED_MANUAL_MALLOC(hid, keybuf, page_size);
-   platform_memfrag memfrag_keybuf = {.addr = keybuf, .size = page_size};
+   key              prev = NULL_KEY;
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(hid, keybuf, page_size);
 
-   uint8           *msgbuf = TYPED_MANUAL_MALLOC(hid, msgbuf, page_size);
-   platform_memfrag memfrag_msgbuf = {.addr = msgbuf, .size = page_size};
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(hid, msgbuf, page_size);
 
    while (SUCCESS(iterator_at_end(iter, &at_end)) && !at_end) {
       key     curr_key;

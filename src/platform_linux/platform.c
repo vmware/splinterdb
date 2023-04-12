@@ -398,12 +398,14 @@ platform_histo_create(platform_heap_id       heap_id,
                       const int64 *const     bucket_limits,
                       platform_histo_handle *histo)
 {
+   platform_memfrag      memfrag_hh;
    platform_histo_handle hh;
-   hh = TYPED_MANUAL_MALLOC(
+   hh = TYPED_ARRAY_MALLOC(
       heap_id, hh, sizeof(hh) + num_buckets * sizeof(hh->count[0]));
    if (!hh) {
       return STATUS_NO_MEMORY;
    }
+   hh->size          = memfrag_size(&memfrag_hh);
    hh->num_buckets   = num_buckets;
    hh->bucket_limits = bucket_limits;
    hh->total         = 0;

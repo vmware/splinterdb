@@ -649,18 +649,17 @@ test_functionality(allocator       *al,
    platform_memfrag *mf = NULL;
 
    platform_memfrag memfrag_spl_tables;
-   trunk_handle   **spl_tables =
-      TYPED_ARRAY_ZALLOC_MF(hid, spl_tables, num_tables);
+   trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
    platform_assert(spl_tables != NULL);
 
    platform_memfrag            memfrag_shadows;
    test_splinter_shadow_tree **shadows =
-      TYPED_ARRAY_ZALLOC_MF(hid, shadows, num_tables);
+      TYPED_ARRAY_ZALLOC(hid, shadows, num_tables);
    platform_assert(shadows != NULL);
 
    platform_memfrag   memfrag_splinters;
    allocator_root_id *splinters =
-      TYPED_ARRAY_ZALLOC_MF(hid, splinters, num_tables);
+      TYPED_ARRAY_ZALLOC(hid, splinters, num_tables);
 
    platform_assert(splinters != NULL);
    test_async_lookup *async_lookup;

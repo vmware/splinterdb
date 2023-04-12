@@ -207,7 +207,7 @@ CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_MF)
    size_t old_mem_used = (data->use_shmem ? platform_shmused(data->hid) : 0);
 
    platform_memfrag  memfrag_structp;
-   any_struct       *structp = TYPED_ARRAY_MALLOC_MF(data->hid, structp, 20);
+   any_struct       *structp = TYPED_ARRAY_MALLOC(data->hid, structp, 20);
    platform_memfrag *mf      = &memfrag_structp;
    platform_free(data->hid, mf);
 
@@ -220,7 +220,7 @@ CTEST2(platform_api, test_TYPED_ARRAY_ZALLOC_MF)
    size_t old_mem_used = (data->use_shmem ? platform_shmused(data->hid) : 0);
 
    platform_memfrag  memfrag_structp;
-   any_struct       *structp = TYPED_ARRAY_ZALLOC_MF(data->hid, structp, 10);
+   any_struct       *structp = TYPED_ARRAY_ZALLOC(data->hid, structp, 10);
    platform_memfrag *mf      = &memfrag_structp;
    platform_free(data->hid, mf);
 

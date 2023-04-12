@@ -84,8 +84,11 @@ test_config_parse(test_config *cfg,
       char key_type[MAX_STRING_LENGTH];
    } temp_config;
 
-   temp_config *temp_cfg =
+   platform_memfrag  memfrag_temp_cfg;
+   platform_memfrag *mf = &memfrag_temp_cfg;
+   temp_config      *temp_cfg =
       TYPED_ARRAY_MALLOC(platform_get_heap_id(), temp_cfg, num_config);
+
    for (i = 0; i < argc; i++) {
       // Don't be mislead; this is not dead-code. See the config macro expansion
       if (0) {
@@ -129,7 +132,7 @@ test_config_parse(test_config *cfg,
          }
       }
    out:
-      platform_free(platform_get_heap_id(), temp_cfg);
+      platform_free(platform_get_heap_id(), mf);
       return rc;
    }
 

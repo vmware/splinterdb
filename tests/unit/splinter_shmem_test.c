@@ -121,14 +121,16 @@ CTEST2(splinter_shmem, test_aligned_allocations)
    // Self-documenting assertion ... to future-proof this area.
    ASSERT_EQUAL(keybuf_size, PLATFORM_CACHELINE_SIZE);
 
-   void  *next_free = platform_shm_next_free_addr(data->hid);
-   uint8 *keybuf    = TYPED_MANUAL_MALLOC(data->hid, keybuf, keybuf_size);
+   void            *next_free = platform_shm_next_free_addr(data->hid);
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
 
    // Validate returned memory-ptrs, knowing that no pad bytes were needed.
    ASSERT_TRUE((void *)keybuf == next_free);
 
-   next_free     = platform_shm_next_free_addr(data->hid);
-   uint8 *msgbuf = TYPED_MANUAL_MALLOC(data->hid, msgbuf, msgbuf_size);
+   next_free = platform_shm_next_free_addr(data->hid);
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(data->hid, msgbuf, msgbuf_size);
    ASSERT_TRUE((void *)msgbuf == next_free);
 
    // Sum of requested alloc-sizes == total # of used-bytes
@@ -150,9 +152,10 @@ CTEST2(splinter_shmem, test_aligned_allocations)
  */
 CTEST2(splinter_shmem, test_unaligned_allocations)
 {
-   void  *next_free   = platform_shm_next_free_addr(data->hid);
-   int    keybuf_size = 42;
-   uint8 *keybuf      = TYPED_MANUAL_MALLOC(data->hid, keybuf, keybuf_size);
+   void            *next_free   = platform_shm_next_free_addr(data->hid);
+   int              keybuf_size = 42;
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
 
    int keybuf_pad = platform_alignment(PLATFORM_CACHELINE_SIZE, keybuf_size);
 
@@ -166,9 +169,10 @@ CTEST2(splinter_shmem, test_unaligned_allocations)
    next_free = platform_shm_next_free_addr(data->hid);
    ASSERT_TRUE(next_free == (void *)keybuf + keybuf_size + keybuf_pad);
 
-   int    msgbuf_size = 100;
-   int    msgbuf_pad = platform_alignment(PLATFORM_CACHELINE_SIZE, msgbuf_size);
-   uint8 *msgbuf     = TYPED_MANUAL_MALLOC(data->hid, msgbuf, msgbuf_size);
+   int msgbuf_size = 100;
+   int msgbuf_pad  = platform_alignment(PLATFORM_CACHELINE_SIZE, msgbuf_size);
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(data->hid, msgbuf, msgbuf_size);
 
    // Next allocation will abut prev-allocation + pad-bytes
    ASSERT_TRUE((void *)msgbuf == (void *)keybuf + keybuf_size + keybuf_pad);
@@ -201,11 +205,9 @@ CTEST2(splinter_shmem, test_allocations_causing_OOMs)
    // Self-documenting assertion ... to future-proof this area.
    ASSERT_EQUAL(keybuf_size, PLATFORM_CACHELINE_SIZE);
 
-   void  *next_free = platform_shm_next_free_addr(data->hid);
-   uint8 *keybuf    = TYPED_MANUAL_MALLOC(data->hid, keybuf, keybuf_size);
-
-   // Track memory fragment in order to free it, downstream
-   platform_memfrag kbuf_mfrag0 = {.addr = keybuf, .size = keybuf_size};
+   void            *next_free = platform_shm_next_free_addr(data->hid);
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
 
    // Validate returned memory-ptr, knowing that no pad bytes were needed.
    ASSERT_TRUE((void *)keybuf == next_free);
@@ -225,8 +227,9 @@ CTEST2(splinter_shmem, test_allocations_causing_OOMs)
    // the allocation interfaces round-up the # bytes for alignment. So the
    // requested # of bytes will be a bit larger than free space in the error
    // message you will see below.
-   keybuf_size       = (space_left + 1);
-   uint8 *keybuf_oom = TYPED_MANUAL_MALLOC(data->hid, keybuf_oom, keybuf_size);
+   keybuf_size = (space_left + 1);
+   uint8 *keybuf_oom =
+      TYPED_ARRAY_MALLOC_MF(data->hid, keybuf_oom, keybuf_size, NULL);
    ASSERT_TRUE(keybuf_oom == NULL);
 
    // Free space counter is not touched if allocation fails.
@@ -238,12 +241,10 @@ CTEST2(splinter_shmem, test_allocations_causing_OOMs)
 
    // If we request exactly what's available, it should succeed.
    keybuf_size = space_left;
-   uint8 *keybuf_no_oom =
-      TYPED_MANUAL_MALLOC(data->hid, keybuf_no_oom, keybuf_size);
+   platform_memfrag memfrag_keybuf_no_oom;
+   uint8           *keybuf_no_oom =
+      TYPED_ARRAY_MALLOC(data->hid, keybuf_no_oom, keybuf_size);
    ASSERT_TRUE(keybuf_no_oom != NULL);
-
-   // Track memory fragment in order to free it, downstream
-   platform_memfrag kbuf_mfrag1 = {.addr = keybuf_no_oom, .size = keybuf_size};
 
    CTEST_LOG_INFO("Successfully allocated all remaining %lu bytes "
                   "from shared segment.\n",
@@ -254,14 +255,14 @@ CTEST2(splinter_shmem, test_allocations_causing_OOMs)
 
    // This should fail.
    keybuf_size = 1;
-   keybuf_oom  = TYPED_MANUAL_MALLOC(data->hid, keybuf_oom, keybuf_size);
+   keybuf_oom = TYPED_ARRAY_MALLOC_MF(data->hid, keybuf_oom, keybuf_size, NULL);
    ASSERT_TRUE(keybuf_oom == NULL);
 
    // Free allocated memory before exiting.
-   platform_memfrag *mf = &kbuf_mfrag0;
+   platform_memfrag *mf = &memfrag_keybuf;
    platform_free(data->hid, mf);
 
-   mf = &kbuf_mfrag1;
+   mf = &memfrag_keybuf_no_oom;
    platform_free(data->hid, mf);
 }
 
@@ -279,15 +280,15 @@ CTEST2(splinter_shmem, test_allocations_using_get_heap_id)
 {
    int keybuf_size = 64;
 
-   void  *next_free = platform_shm_next_free_addr(data->hid);
-   uint8 *keybuf =
-      TYPED_MANUAL_MALLOC(platform_get_heap_id(), keybuf, keybuf_size);
+   void            *next_free = platform_shm_next_free_addr(data->hid);
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf =
+      TYPED_ARRAY_MALLOC(platform_get_heap_id(), keybuf, keybuf_size);
 
    // Validate returned memory-ptrs, knowing that no pad bytes were needed.
    ASSERT_TRUE((void *)keybuf == next_free);
 
-   platform_memfrag  mfrag = {.addr = keybuf, .size = keybuf_size};
-   platform_memfrag *mf    = &mfrag;
+   platform_memfrag *mf = &memfrag_keybuf;
    platform_free(platform_get_heap_id(), mf);
 }
 
@@ -303,18 +304,19 @@ CTEST2(splinter_shmem, test_allocations_using_get_heap_id)
  */
 CTEST2(splinter_shmem, test_free)
 {
-   int    keybuf_size = 64;
-   uint8 *keybuf      = TYPED_MANUAL_MALLOC(data->hid, keybuf, keybuf_size);
+   int              keybuf_size = 64;
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
 
-   int    msgbuf_size = (2 * keybuf_size);
-   uint8 *msgbuf      = TYPED_MANUAL_MALLOC(data->hid, msgbuf, msgbuf_size);
+   int              msgbuf_size = (2 * keybuf_size);
+   platform_memfrag memfrag_msgbuf;
+   uint8           *msgbuf = TYPED_ARRAY_MALLOC(data->hid, msgbuf, msgbuf_size);
 
    size_t mem_used = platform_shmused(data->hid);
 
    void *next_free = platform_shm_next_free_addr(data->hid);
 
-   platform_memfrag  mfrag = {.addr = keybuf, .size = keybuf_size};
-   platform_memfrag *mf    = &mfrag;
+   platform_memfrag *mf = &memfrag_keybuf;
    platform_free(data->hid, mf);
 
    // Even though we freed some memory, the next addr-to-allocate is unchanged.
@@ -331,7 +333,7 @@ CTEST2(splinter_shmem, test_free)
    // as its requested size. Shmem book-keeping will return this free fragment
    // to a free-list for smaller sized fragments. (Minor issue.)
    size_t smaller_size = 32; // will get rounded up to cache-linesize, 64 bytes
-   uint8 *smaller_keybuf = TYPED_MANUAL_MALLOC(data->hid, keybuf, smaller_size);
+   uint8 *smaller_keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, smaller_size);
    ASSERT_TRUE(keybuf == smaller_keybuf);
 
    // Even though we only asked for a smaller fragment, a larger free-fragemnt
@@ -459,8 +461,9 @@ CTEST2(splinter_shmem, test_realloc_of_large_fragment)
    void *next_free = platform_shm_next_free_addr(data->hid);
 
    // Large fragments are tracked if their size >= this size.
-   size_t size   = (1 * MiB);
-   uint8 *keybuf = TYPED_MANUAL_MALLOC(data->hid, keybuf, size);
+   size_t           size = (1 * MiB);
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, size);
 
    // Validate that a new large fragment will create a new allocation.
    ASSERT_TRUE((void *)keybuf == next_free);
@@ -475,11 +478,11 @@ CTEST2(splinter_shmem, test_realloc_of_large_fragment)
 
    // If you free this fragment and reallocate exactly the same size,
    // it should recycle the freed fragment.
-   platform_memfrag  memfrag = {.addr = keybuf, .size = size};
-   platform_memfrag *mf      = &memfrag;
+   platform_memfrag *mf = &memfrag_keybuf;
    platform_free(data->hid, mf);
 
-   uint8 *keybuf_new = TYPED_MANUAL_MALLOC(data->hid, keybuf_new, size);
+   platform_memfrag memfrag_keybuf_new;
+   uint8 *keybuf_new = TYPED_ARRAY_MALLOC(data->hid, keybuf_new, size);
    ASSERT_TRUE((keybuf_old == keybuf_new),
                "keybuf_old=%p, keybuf_new=%p\n",
                keybuf_old,
@@ -488,7 +491,7 @@ CTEST2(splinter_shmem, test_realloc_of_large_fragment)
    // We have re-used freed fragment, so the next-free-ptr should be unchanged.
    ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
 
-   memfrag_init(mf, keybuf_new, size);
+   mf = &memfrag_keybuf_new;
    platform_free(data->hid, mf);
 }
 
@@ -504,17 +507,21 @@ CTEST2(splinter_shmem, test_free_realloc_around_inuse_large_fragments)
    void *next_free = platform_shm_next_free_addr(data->hid);
 
    // Large fragments are tracked if their size >= this size.
-   size_t size         = (1 * MiB);
-   uint8 *keybuf1_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf1_1MiB, size);
+   size_t           size = (1 * MiB);
+   platform_memfrag memfrag_keybuf1_1MiB;
+   uint8 *keybuf1_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf1_1MiB, size);
 
    // Throw-in allocation for some random struct, to ensure that these large
    // fragments are not contiguous
    thread_config *filler_cfg1 = TYPED_MALLOC(data->hid, filler_cfg1);
 
-   uint8 *keybuf2_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf2_1MiB, size);
+   platform_memfrag memfrag_keybuf2_1MiB;
+   uint8 *keybuf2_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf2_1MiB, size);
 
    thread_config *filler_cfg2 = TYPED_MALLOC(data->hid, filler_cfg2);
-   uint8 *keybuf3_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf3_1MiB, size);
+
+   platform_memfrag memfrag_keybuf3_1MiB;
+   uint8 *keybuf3_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf3_1MiB, size);
 
    thread_config *filler_cfg3 = TYPED_MALLOC(data->hid, filler_cfg3);
 
@@ -532,7 +539,7 @@ CTEST2(splinter_shmem, test_free_realloc_around_inuse_large_fragments)
    platform_free(data->hid, mf);
 
    // Re-request (new) fragments of the same size.
-   keybuf2_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf2_1MiB, size);
+   keybuf2_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf2_1MiB, size);
    ASSERT_TRUE((keybuf2_1MiB == old_keybuf2_1MiB),
                "Expected to satisfy new 1MiB request at %p"
                " with old 1MiB fragment ptr at %p\n",
@@ -544,24 +551,24 @@ CTEST2(splinter_shmem, test_free_realloc_around_inuse_large_fragments)
    // As large-fragments allocated / freed are tracked in an array, verify
    // that we will find the 1st one upon a re-request after a free.
    uint8 *old_keybuf1_1MiB = keybuf1_1MiB;
-   memfrag_init_size(mf, keybuf1_1MiB, size);
+   mf                      = &memfrag_keybuf1_1MiB;
    platform_free(data->hid, mf);
 
-   memfrag_init_size(mf, keybuf2_1MiB, size);
+   mf = &memfrag_keybuf2_1MiB;
    platform_free(data->hid, mf);
 
    // This re-request should re-allocate the 1st free fragment found.
-   keybuf2_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf2_1MiB, size);
+   keybuf2_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf2_1MiB, size);
    ASSERT_TRUE((keybuf2_1MiB == old_keybuf1_1MiB),
                "Expected to satisfy new 1MiB request at %p"
                " with old 1MiB fragment ptr at %p\n",
                keybuf2_1MiB,
                old_keybuf1_1MiB);
 
-   memfrag_init_size(mf, keybuf2_1MiB, size);
+   mf = &memfrag_keybuf2_1MiB;
    platform_free(data->hid, mf);
 
-   memfrag_init_size(mf, keybuf3_1MiB, size);
+   mf = &memfrag_keybuf3_1MiB;
    platform_free(data->hid, mf);
 
    // Memory fragments of typed objects can be freed directly.
@@ -590,14 +597,17 @@ CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
    void *next_free = platform_shm_next_free_addr(data->hid);
 
    // Large fragments are tracked if their size >= this size.
-   size_t size        = (1 * MiB);
-   uint8 *keybuf_1MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_1MiB, size);
+   size_t           size = (1 * MiB);
+   platform_memfrag memfrag_keybuf_1MiB;
+   uint8 *keybuf_1MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf_1MiB, size);
 
-   size               = (5 * MiB);
-   uint8 *keybuf_5MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_5MiB, size);
+   size = (5 * MiB);
+   platform_memfrag memfrag_keybuf_5MiB;
+   uint8 *keybuf_5MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf_5MiB, size);
 
-   size               = (2 * MiB);
-   uint8 *keybuf_2MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_2MiB, size);
+   size = (2 * MiB);
+   platform_memfrag memfrag_keybuf_2MiB;
+   uint8 *keybuf_2MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf_2MiB, size);
 
    // Re-establish next-free-ptr after this large allocation. We will use it
    // below to assert that this location will not change when we re-use a
@@ -609,22 +619,21 @@ CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
    uint8 *old_keybuf_5MiB = keybuf_5MiB;
    uint8 *old_keybuf_2MiB = keybuf_2MiB;
 
-   platform_memfrag  memfrag = {0};
-   platform_memfrag *mf      = &memfrag;
+   platform_memfrag *mf = NULL;
 
    // Order in which we free these fragments does not matter.
-   memfrag_init(mf, keybuf_1MiB, (1 * MiB));
+   mf = &memfrag_keybuf_1MiB;
    platform_free(data->hid, mf);
 
-   memfrag_init(mf, keybuf_2MiB, (2 * MiB));
+   mf = &memfrag_keybuf_2MiB;
    platform_free(data->hid, mf);
 
-   memfrag_init(mf, keybuf_5MiB, (5 * MiB));
+   mf = &memfrag_keybuf_5MiB;
    platform_free(data->hid, mf);
 
    // Re-request (new) fragments in diff size order.
    size        = (2 * MiB);
-   keybuf_2MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_2MiB, size);
+   keybuf_2MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf_2MiB, size);
    ASSERT_TRUE((keybuf_2MiB == old_keybuf_5MiB),
                "Expected to satisfy new 2MiB request at %p"
                " with old 5MiB fragment ptr at %p\n",
@@ -636,17 +645,17 @@ CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
    ASSERT_TRUE(next_free == platform_shm_next_free_addr(data->hid));
 
    size        = (5 * MiB);
-   keybuf_5MiB = TYPED_MANUAL_MALLOC(data->hid, keybuf_5MiB, size);
+   keybuf_5MiB = TYPED_ARRAY_MALLOC(data->hid, keybuf_5MiB, size);
 
    // We allocated a new fragment at next-free-ptr
    ASSERT_TRUE(keybuf_5MiB != old_keybuf_1MiB);
    ASSERT_TRUE(keybuf_5MiB != old_keybuf_2MiB);
    ASSERT_TRUE(keybuf_5MiB == next_free);
 
-   memfrag_init(mf, keybuf_2MiB, (2 * MiB));
+   mf = &memfrag_keybuf_2MiB;
    platform_free(data->hid, mf);
 
-   memfrag_init(mf, keybuf_5MiB, (5 * MiB));
+   mf = &memfrag_keybuf_5MiB;
    platform_free(data->hid, mf);
 }
 

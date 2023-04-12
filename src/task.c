@@ -246,9 +246,7 @@ task_create_thread_with_hooks(platform_thread       *thread,
                               task_system           *ts,
                               platform_heap_id       hid)
 {
-   platform_status   ret;
-   platform_memfrag  memfrag = {0};
-   platform_memfrag *mf      = &memfrag;
+   platform_status ret;
 
    threadid newtid = task_allocate_threadid(ts);
    if (newtid == INVALID_TID) {
@@ -258,8 +256,10 @@ task_create_thread_with_hooks(platform_thread       *thread,
       return STATUS_BUSY;
    }
 
+   platform_memfrag  memfrag_scratch = {0};
+   platform_memfrag *mf              = &memfrag_scratch;
    if (0 < scratch_size) {
-      char *scratch = TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
+      char *scratch = TYPED_ARRAY_MALLOC(ts->heap_id, scratch, scratch_size);
       if (scratch == NULL) {
          ret = STATUS_NO_MEMORY;
          goto dealloc_tid;
@@ -290,7 +290,6 @@ task_create_thread_with_hooks(platform_thread       *thread,
 free_thread:
    platform_free(hid, thread_to_create);
 free_scratch:
-   memfrag_init_size(mf, ts->thread_scratch[newtid], scratch_size);
    platform_free(ts->heap_id, mf);
 dealloc_tid:
    task_deallocate_threadid(ts, newtid);
@@ -375,14 +374,15 @@ task_register_thread(task_system *ts,
                    "Scratch space should not yet exist for tid %lu.",
                    thread_tid);
 
+   platform_memfrag memfrag_scratch = {0};
    if (0 < scratch_size) {
-      char *scratch = TYPED_MANUAL_ZALLOC(ts->heap_id, scratch, scratch_size);
+      char *scratch = TYPED_ARRAY_ZALLOC(ts->heap_id, scratch, scratch_size);
       if (scratch == NULL) {
          task_deallocate_threadid(ts, thread_tid);
          return STATUS_NO_MEMORY;
       }
       ts->thread_scratch[thread_tid] = scratch;
-      ts->thread_scratch_mem_size    = scratch_size;
+      ts->thread_scratch_mem_size    = memfrag_size(&memfrag_scratch);
    }
 
    platform_set_tid(thread_tid);

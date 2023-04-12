@@ -311,14 +311,14 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    uint8           i;
 
    // Allocate memory and setup default configs for up to n-instances
+   platform_memfrag  memfrag_master_cfg = {0};
+   platform_memfrag *mf                 = &memfrag_master_cfg;
+   ;
    master_config *master_cfg =
       TYPED_ARRAY_MALLOC(platform_get_heap_id(), master_cfg, num_config);
    for (i = 0; i < num_config; i++) {
       config_set_defaults(&master_cfg[i]);
    }
-   platform_memfrag  memfrag;
-   platform_memfrag *mf = &memfrag;
-   memfrag_init(mf, master_cfg, num_config);
 
    // Parse config-related command-line arguments
    rc = config_parse(master_cfg, num_config, argc, argv);

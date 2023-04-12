@@ -263,6 +263,7 @@ memtable_context_create(platform_heap_id hid,
                         process_fn       process,
                         void            *process_ctxt)
 {
+   platform_memfrag  memfrag_ctxt;
    memtable_context *ctxt =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ctxt, mt, cfg->max_memtables);
    ctxt->cc = cc;

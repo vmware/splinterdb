@@ -1822,23 +1822,25 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->heap_id = hid;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
-   cc->lookup =
-      TYPED_ARRAY_MALLOC(cc->heap_id, cc->lookup, allocator_page_capacity);
+   platform_memfrag memfrag_cc_lookup;
+   cc->lookup = TYPED_ARRAY_MALLOC_MF(
+      cc->heap_id, cc->lookup, allocator_page_capacity, &memfrag_cc_lookup);
    if (!cc->lookup) {
       goto alloc_error;
    }
-   cc->lookup_size = (allocator_page_capacity * sizeof(*cc->lookup));
+   cc->lookup_size = memfrag_size(&memfrag_cc_lookup);
 
    for (i = 0; i < allocator_page_capacity; i++) {
       cc->lookup[i] = CC_UNMAPPED_ENTRY;
    }
 
-   cc->entry =
-      TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry, cc->cfg->page_capacity);
+   platform_memfrag memfrag_cc_entry;
+   cc->entry = TYPED_ARRAY_ZALLOC_MF(
+      cc->heap_id, cc->entry, cc->cfg->page_capacity, &memfrag_cc_entry);
    if (!cc->entry) {
       goto alloc_error;
    }
-   cc->entry_size = (cc->cfg->page_capacity * sizeof(*cc->entry));
+   cc->entry_size = memfrag_size(&memfrag_cc_entry);
 
    platform_status rc = STATUS_NO_MEMORY;
 
@@ -1867,11 +1869,13 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->refcount = platform_buffer_getaddr(&cc->rc_bh);
 
    /* Separate ref counts for pins */
-   cc->pincount =
-      TYPED_ARRAY_ZALLOC(cc->heap_id, cc->pincount, cc->cfg->page_capacity);
+   platform_memfrag memfrag_cc_pincount;
+   cc->pincount = TYPED_ARRAY_ZALLOC_MF(
+      cc->heap_id, cc->pincount, cc->cfg->page_capacity, &memfrag_cc_pincount);
    if (!cc->pincount) {
       goto alloc_error;
    }
+   cc->pincount_size = memfrag_size(&memfrag_cc_pincount);
 
    /* The hands and associated page */
    cc->free_hand  = 0;
@@ -1880,13 +1884,16 @@ clockcache_init(clockcache        *cc,   // OUT
       cc->per_thread[thr_i].free_hand       = CC_UNMAPPED_ENTRY;
       cc->per_thread[thr_i].enable_sync_get = TRUE;
    }
+   platform_memfrag memfrag_cc_batch_busy;
    cc->batch_busy =
-      TYPED_ARRAY_ZALLOC(cc->heap_id,
-                         cc->batch_busy,
-                         cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
+      TYPED_ARRAY_ZALLOC_MF(cc->heap_id,
+                            cc->batch_busy,
+                            (cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH),
+                            &memfrag_cc_batch_busy);
    if (!cc->batch_busy) {
       goto alloc_error;
    }
+   cc->batch_busy_size = memfrag_size(&memfrag_cc_batch_busy);
 
    return STATUS_OK;
 

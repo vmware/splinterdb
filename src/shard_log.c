@@ -375,12 +375,15 @@ shard_log_iterator_init(cache              *cc,
 finished_first_pass:
    num_contents = (num_valid_pages * shard_log_page_size(cfg));
 
-   itor->contents      = TYPED_ARRAY_MALLOC(hid, itor->contents, num_contents);
-   itor->contents_size = (num_contents * sizeof(*itor->contents));
+   platform_memfrag memfrag;
+   itor->contents =
+      TYPED_ARRAY_MALLOC_MF(hid, itor->contents, num_contents, &memfrag);
+   itor->contents_size = memfrag_size(&memfrag);
    debug_assert(itor->contents);
 
-   itor->entries = TYPED_ARRAY_MALLOC(hid, itor->entries, itor->num_entries);
-   itor->entries_size = (itor->num_entries * sizeof(*itor->entries));
+   itor->entries =
+      TYPED_ARRAY_MALLOC_MF(hid, itor->entries, itor->num_entries, &memfrag);
+   itor->entries_size = memfrag_size(&memfrag);
    debug_assert(itor->entries);
 
    // traverse the log extents again and copy the kv pairs

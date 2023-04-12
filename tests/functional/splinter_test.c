@@ -130,9 +130,8 @@ test_trunk_insert_thread(void *arg)
 
    platform_memfrag *mf = NULL;
 
-   uint64 *insert_base = TYPED_ARRAY_ZALLOC(heap_id, insert_base, num_tables);
    platform_memfrag memfrag_insert_base;
-   memfrag_init(&memfrag_insert_base, insert_base, num_tables);
+   uint64 *insert_base = TYPED_ARRAY_ZALLOC(heap_id, insert_base, num_tables);
 
    uint8 done = 0;
 
@@ -249,10 +248,9 @@ test_trunk_lookup_thread(void *arg)
 
    platform_assert(num_tables <= 8);
 
-   uint64 *lookup_base = TYPED_ARRAY_ZALLOC(heap_id, lookup_base, num_tables);
-   platform_memfrag memfrag_lookup_base;
-   memfrag_init(&memfrag_lookup_base, lookup_base, num_tables);
+   platform_memfrag  memfrag_lookup_base;
    platform_memfrag *mf = &memfrag_lookup_base;
+   uint64 *lookup_base  = TYPED_ARRAY_ZALLOC(heap_id, lookup_base, num_tables);
 
    uint8 done = 0;
 
@@ -377,10 +375,9 @@ test_trunk_range_thread(void *arg)
 
    platform_assert(num_tables <= 8);
 
-   uint64 *range_base = TYPED_ARRAY_ZALLOC(heap_id, range_base, num_tables);
-   platform_memfrag memfrag_range_base;
-   memfrag_init(&memfrag_range_base, range_base, num_tables);
+   platform_memfrag  memfrag_range_base;
    platform_memfrag *mf = &memfrag_range_base;
+   uint64 *range_base   = TYPED_ARRAY_ZALLOC(heap_id, range_base, num_tables);
 
    uint8 done = 0;
 
@@ -705,9 +702,12 @@ test_trunk_insert_lookup_thread(void *arg)
 
    random_init(&rs, seed, 0);
 
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_bases[NUM_OP_TYPES];
+
    for (uint8 i = 0; i < NUM_OP_TYPES; i++) {
-      bases[i] =
-         TYPED_ARRAY_ZALLOC(platform_get_heap_id(), bases[i], num_tables);
+      bases[i] = TYPED_ARRAY_ZALLOC_MF(
+         platform_get_heap_id(), bases[i], num_tables, &memfrag_bases[i]);
 
       granularities[i] = params->num_ops_per_thread[i];
       offsets[i]       = 0;
@@ -776,7 +776,8 @@ out:
 
    params->rc = STATUS_OK;
    for (uint8 i = 0; i < NUM_OP_TYPES; i++) {
-      platform_free(platform_get_heap_id(), bases[i]);
+      mf = &memfrag_bases[i];
+      platform_free(platform_get_heap_id(), mf);
    }
 }
 
@@ -791,7 +792,8 @@ test_trunk_create_tables(trunk_handle  ***spl_handles,
                          uint8            num_tables,
                          uint8            num_caches)
 {
-   trunk_handle **spl_tables = TYPED_ARRAY_ZALLOC(hid, spl_tables, num_tables);
+   trunk_handle **spl_tables =
+      TYPED_ARRAY_ZALLOC_MF(hid, spl_tables, num_tables, NULL);
    if (spl_tables == NULL) {
       return STATUS_NO_MEMORY;
    }
@@ -1377,28 +1379,23 @@ test_splinter_perf(trunk_config    *cfg,
 
    platform_memfrag *mf = NULL;
 
-   uint64 *per_table_inserts =
-      TYPED_ARRAY_MALLOC(hid, per_table_inserts, num_tables);
    platform_memfrag memfrag_per_table_inserts;
-   memfrag_init(&memfrag_per_table_inserts, per_table_inserts, num_tables);
+   uint64          *per_table_inserts =
+      TYPED_ARRAY_MALLOC(hid, per_table_inserts, num_tables);
 
-   uint64 *per_table_ranges =
-      TYPED_ARRAY_MALLOC(hid, per_table_ranges, num_tables);
    platform_memfrag memfrag_per_table_ranges;
-   memfrag_init(&memfrag_per_table_ranges, per_table_ranges, num_tables);
+   uint64          *per_table_ranges =
+      TYPED_ARRAY_MALLOC(hid, per_table_ranges, num_tables);
 
-   uint64          *curr_op = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
    platform_memfrag memfrag_curr_op;
-   memfrag_init(&memfrag_curr_op, curr_op, num_tables);
+   uint64          *curr_op = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
 
    uint64 num_threads = MAX(num_insert_threads, num_lookup_threads);
    num_threads        = MAX(num_threads, num_range_threads);
 
+   platform_memfrag             memfrag_params;
    test_splinter_thread_params *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_threads);
-   platform_memfrag memfrag_params;
-   memfrag_init(&memfrag_params, params, num_threads);
-
 
    uint64 total_inserts = 0;
 
@@ -1520,13 +1517,19 @@ test_splinter_periodic(trunk_config    *cfg,
       return rc;
    }
 
-   uint64  tuple_size, num_inserts;
-   uint64 *per_table_inserts =
+   uint64            tuple_size, num_inserts;
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_per_table_inserts;
+   uint64           *per_table_inserts =
       TYPED_ARRAY_MALLOC(hid, per_table_inserts, num_tables);
-   uint64 *per_table_ranges =
+
+   platform_memfrag memfrag_per_table_ranges;
+   uint64          *per_table_ranges =
       TYPED_ARRAY_MALLOC(hid, per_table_ranges, num_tables);
-   uint64 *curr_op       = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
-   uint64  total_inserts = 0;
+
+   platform_memfrag memfrag_curr_op;
+   uint64          *curr_op = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
+   uint64           total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size = cfg[i].data_cfg->max_key_size
@@ -1549,6 +1552,7 @@ test_splinter_periodic(trunk_config    *cfg,
       num_threads = num_range_threads;
    }
 
+   platform_memfrag             memfrag_params;
    test_splinter_thread_params *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_threads);
    for (uint64 i = 0; i < num_threads; i++) {
@@ -1958,10 +1962,17 @@ destroy_splinter:
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   platform_free(hid, params);
-   platform_free(hid, curr_op);
-   platform_free(hid, per_table_ranges);
-   platform_free(hid, per_table_inserts);
+   mf = &memfrag_params;
+   platform_free(hid, mf);
+
+   mf = &memfrag_curr_op;
+   platform_free(hid, mf);
+
+   mf = &memfrag_per_table_ranges;
+   platform_free(hid, mf);
+
+   mf = &memfrag_per_table_inserts;
+   platform_free(hid, mf);
    return rc;
 }
 
@@ -2011,8 +2022,12 @@ test_splinter_parallel_perf(trunk_config    *cfg,
       return rc;
    }
 
-   uint64 *per_table_inserts =
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_per_table_inserts;
+   uint64           *per_table_inserts =
       TYPED_ARRAY_MALLOC(hid, per_table_inserts, num_tables);
+
+   platform_memfrag memfrag_curr_insert_op;
    uint64 *curr_insert_op = TYPED_ARRAY_ZALLOC(hid, curr_insert_op, num_tables);
 
    // This bit here onwards is very similar to splinter_perf_inserts(), but we
@@ -2023,6 +2038,7 @@ test_splinter_parallel_perf(trunk_config    *cfg,
    total_inserts =
       compute_per_table_inserts(per_table_inserts, cfg, test_cfg, num_tables);
 
+   platform_memfrag             memfrag_params;
    test_splinter_thread_params *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_threads);
 
@@ -2168,9 +2184,12 @@ destroy_splinter:
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   platform_free(hid, params);
-   platform_free(hid, curr_insert_op);
-   platform_free(hid, per_table_inserts);
+   mf = &memfrag_params;
+   platform_free(hid, mf);
+   mf = &memfrag_curr_insert_op;
+   platform_free(hid, mf);
+   mf = &memfrag_per_table_inserts;
+   platform_free(hid, mf);
    return rc;
 }
 
@@ -2202,11 +2221,16 @@ test_splinter_delete(trunk_config    *cfg,
       return rc;
    }
 
-   uint64  tuple_size, num_inserts;
-   uint64 *per_table_inserts =
+   uint64 tuple_size, num_inserts;
+
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_per_table_inserts;
+   uint64           *per_table_inserts =
       TYPED_ARRAY_MALLOC(hid, per_table_inserts, num_tables);
-   uint64 *curr_op       = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
-   uint64  total_inserts = 0;
+
+   platform_memfrag memfrag_curr_op;
+   uint64          *curr_op = TYPED_ARRAY_ZALLOC(hid, curr_op, num_tables);
+   uint64           total_inserts = 0;
 
    for (uint8 i = 0; i < num_tables; i++) {
       tuple_size = cfg[i].data_cfg->max_key_size
@@ -2220,6 +2244,7 @@ test_splinter_delete(trunk_config    *cfg,
    if (num_lookup_threads > num_threads) {
       num_threads = num_lookup_threads;
    }
+   platform_memfrag             memfrag_params;
    test_splinter_thread_params *params =
       TYPED_ARRAY_MALLOC(hid, params, num_threads);
    platform_assert(params);
@@ -2397,9 +2422,14 @@ destroy_splinter:
    for (uint8 idx = 0; idx < num_caches; idx++) {
       cache_print_stats(Platform_default_log_handle, cc[idx]);
    }
-   platform_free(hid, params);
-   platform_free(hid, curr_op);
-   platform_free(hid, per_table_inserts);
+   mf = &memfrag_params;
+   platform_free(hid, mf);
+
+   mf = &memfrag_curr_op;
+   platform_free(hid, mf);
+
+   mf = &memfrag_per_table_inserts;
+   platform_free(hid, mf);
    return rc;
 }
 
@@ -2726,10 +2756,9 @@ splinter_test(int argc, char *argv[])
    /*
     * 2. Parse test_config options, see test_config_usage()
     */
-
-   test_config     *test_cfg = TYPED_ARRAY_MALLOC(hid, test_cfg, num_tables);
-   platform_memfrag memfrag_test_cfg;
-   memfrag_init(&memfrag_test_cfg, test_cfg, num_tables);
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_test_cfg;
+   test_config      *test_cfg = TYPED_ARRAY_MALLOC(hid, test_cfg, num_tables);
 
    for (uint8 i = 0; i < num_tables; i++) {
       test_config_set_defaults(test, &test_cfg[i]);
@@ -2751,18 +2780,14 @@ splinter_test(int argc, char *argv[])
    /*
     * 3. Parse trunk_config options, see config_usage()
     */
-   trunk_config *splinter_cfg =
+   platform_memfrag memfrag_splinter_cfg;
+   trunk_config    *splinter_cfg =
       TYPED_ARRAY_MALLOC(hid, splinter_cfg, num_tables);
 
-   platform_memfrag memfrag_splinter_cfg;
-   memfrag_init(&memfrag_splinter_cfg, splinter_cfg, num_tables);
-
    data_config       *data_cfg;
+   platform_memfrag   memfrag_cache_cfg;
    clockcache_config *cache_cfg =
       TYPED_ARRAY_MALLOC(hid, cache_cfg, num_tables);
-
-   platform_memfrag memfrag_cache_cfg;
-   memfrag_init(&memfrag_cache_cfg, cache_cfg, num_tables);
 
    rc = test_parse_args_n(splinter_cfg,
                           &data_cfg,
@@ -2839,11 +2864,9 @@ splinter_test(int argc, char *argv[])
       &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
-   clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
-   platform_assert(cc != NULL);
-
    platform_memfrag memfrag_cc;
-   memfrag_init(&memfrag_cc, cc, num_caches);
+   clockcache      *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
+   platform_assert(cc != NULL);
 
    for (uint8 idx = 0; idx < num_caches; idx++) {
       rc = clockcache_init(&cc[idx],
@@ -2858,15 +2881,12 @@ splinter_test(int argc, char *argv[])
    allocator *alp = (allocator *)&al;
 
    // Allocate an array of cache pointers to pass around.
-   cache **caches = TYPED_ARRAY_MALLOC(hid, caches, num_caches);
+   platform_memfrag memfrag_caches;
+   cache          **caches = TYPED_ARRAY_MALLOC(hid, caches, num_caches);
    platform_assert(caches != NULL);
    for (uint8 i = 0; i < num_caches; i++) {
       caches[i] = (cache *)&cc[i];
    }
-   platform_memfrag memfrag_caches;
-   memfrag_init(&memfrag_caches, caches, num_caches);
-
-   platform_memfrag *mf = NULL;
 
    switch (test) {
       case perf:

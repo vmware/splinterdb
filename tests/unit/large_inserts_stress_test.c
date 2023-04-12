@@ -707,7 +707,8 @@ do_inserts_n_threads(splinterdb      *kvsb,
                      uint64           num_inserts,
                      uint64           num_threads)
 {
-   worker_config *wcfg = TYPED_ARRAY_ZALLOC(hid, wcfg, num_threads);
+   platform_memfrag memfrag_wcfg;
+   worker_config   *wcfg = TYPED_ARRAY_ZALLOC(hid, wcfg, num_threads);
 
    // Setup thread-specific insert parameters
    for (int ictr = 0; ictr < num_threads; ictr++) {
@@ -723,6 +724,7 @@ do_inserts_n_threads(splinterdb      *kvsb,
       wcfg[ictr].is_thread     = TRUE;
    }
 
+   platform_memfrag memfrag_thread_ids;
    platform_thread *thread_ids =
       TYPED_ARRAY_ZALLOC(hid, thread_ids, num_threads);
 
@@ -747,8 +749,10 @@ do_inserts_n_threads(splinterdb      *kvsb,
          ASSERT_TRUE(FALSE);
       }
    }
-   platform_free(hid, thread_ids);
-   platform_free(hid, wcfg);
+   platform_memfrag *mf = &memfrag_thread_ids;
+   platform_free(hid, mf);
+   mf = &memfrag_wcfg;
+   platform_free(hid, mf);
 }
 
 /*

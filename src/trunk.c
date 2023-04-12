@@ -7229,6 +7229,71 @@ destroy_range_itor:
    return rc;
 }
 
+/*
+ * Allocate memory for stats-related structures off the trunk.
+ */
+static trunk_stats *
+trunk_stats_init(trunk_handle *spl)
+{
+   platform_memfrag memfrag;
+   spl->stats =
+      TYPED_ARRAY_ZALLOC_MF(spl->heap_id, spl->stats, MAX_THREADS, &memfrag);
+   platform_assert(spl->stats);
+
+   spl->stats_size = memfrag_size(&memfrag);
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      platform_status rc;
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].insert_latency_histo);
+      platform_assert_status_ok(rc);
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].update_latency_histo);
+      platform_assert_status_ok(rc);
+      rc = platform_histo_create(spl->heap_id,
+                                 LATENCYHISTO_SIZE + 1,
+                                 latency_histo_buckets,
+                                 &spl->stats[i].delete_latency_histo);
+      platform_assert_status_ok(rc);
+   }
+   return spl->stats;
+}
+
+/*
+ * Allocate memory for trunk handle and do initialization that is common between
+ * 'create' and 'mount' operations.
+ */
+static trunk_handle *
+trunk_handle_init(trunk_config     *cfg,
+                  allocator        *al,
+                  cache            *cc,
+                  task_system      *ts,
+                  allocator_root_id id,
+                  platform_heap_id  hid)
+{
+   platform_memfrag memfrag_spl;
+   trunk_handle    *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
+      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
+   platform_assert(spl != NULL);
+   spl->size = memfrag_size(&memfrag_spl);
+
+   memmove(&spl->cfg, cfg, sizeof(*cfg));
+
+   // Validate configured key-size is within limits.
+   spl->al = al;
+   spl->cc = cc;
+   debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
+   spl->id      = id;
+   spl->heap_id = hid;
+   spl->ts      = ts;
+
+   srq_init(&spl->srq, platform_get_module_id(), hid);
+
+   return spl;
+}
 
 /*
  *-----------------------------------------------------------------------------
@@ -7244,19 +7309,7 @@ trunk_create(trunk_config     *cfg,
              allocator_root_id id,
              platform_heap_id  hid)
 {
-   trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
-   memmove(&spl->cfg, cfg, sizeof(*cfg));
-
-   // Validate configured key-size is within limits.
-   spl->al = al;
-   spl->cc = cc;
-   debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
-   spl->id      = id;
-   spl->heap_id = hid;
-   spl->ts      = ts;
-
-   srq_init(&spl->srq, platform_get_module_id(), hid);
+   trunk_handle *spl = trunk_handle_init(cfg, al, cc, ts, id, hid);
 
    // get a free node for the root
    //    we don't use the mini allocator for this, since the root doesn't
@@ -7318,27 +7371,7 @@ trunk_create(trunk_config     *cfg,
    trunk_node_unget(spl->cc, &root);
 
    if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      spl->stats_size = (MAX_THREADS * sizeof(*spl->stats));
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
-      }
+      spl->stats = trunk_stats_init(spl);
    }
 
    return spl;
@@ -7355,18 +7388,7 @@ trunk_mount(trunk_config     *cfg,
             allocator_root_id id,
             platform_heap_id  hid)
 {
-   trunk_handle *spl = TYPED_FLEXIBLE_STRUCT_ZALLOC(
-      hid, spl, compacted_memtable, TRUNK_NUM_MEMTABLES);
-   memmove(&spl->cfg, cfg, sizeof(*cfg));
-
-   spl->al = al;
-   spl->cc = cc;
-   debug_assert(id != INVALID_ALLOCATOR_ROOT_ID);
-   spl->id      = id;
-   spl->heap_id = hid;
-   spl->ts      = ts;
-
-   srq_init(&spl->srq, platform_get_module_id(), hid);
+   trunk_handle *spl = trunk_handle_init(cfg, al, cc, ts, id, hid);
 
    // find the unmounted super block
    spl->root_addr                      = 0;
@@ -7420,27 +7442,7 @@ trunk_mount(trunk_config     *cfg,
    trunk_set_super_block(spl, FALSE, FALSE, FALSE);
 
    if (spl->cfg.use_stats) {
-      spl->stats = TYPED_ARRAY_ZALLOC(spl->heap_id, spl->stats, MAX_THREADS);
-      platform_assert(spl->stats);
-      spl->stats_size = (MAX_THREADS * sizeof(*spl->stats));
-      for (uint64 i = 0; i < MAX_THREADS; i++) {
-         platform_status rc;
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].insert_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].update_latency_histo);
-         platform_assert_status_ok(rc);
-         rc = platform_histo_create(spl->heap_id,
-                                    LATENCYHISTO_SIZE + 1,
-                                    latency_histo_buckets,
-                                    &spl->stats[i].delete_latency_histo);
-         platform_assert_status_ok(rc);
-      }
+      spl->stats = trunk_stats_init(spl);
    }
    return spl;
 }
@@ -7460,7 +7462,6 @@ trunk_prepare_for_shutdown(trunk_handle *spl)
        * memtable_force_finalize is not thread safe. Note also, we do not hold
        * the insert lock or rotate while flushing the memtable.
        */
-
       uint64 generation = memtable_force_finalize(spl->mt_ctxt);
       trunk_memtable_flush(spl, generation);
    }
@@ -7539,6 +7540,8 @@ trunk_destroy(trunk_handle *spl)
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
+   platform_memfrag  memfrag = {0};
+   platform_memfrag *mf      = &memfrag;
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
@@ -7548,11 +7551,11 @@ trunk_destroy(trunk_handle *spl)
          platform_histo_destroy(spl->heap_id,
                                 &spl->stats[i].delete_latency_histo);
       }
-      platform_memfrag  memfrag = {.addr = spl->stats, .size = spl->stats_size};
-      platform_memfrag *mf      = &memfrag;
+      memfrag_init_size(mf, spl->stats, spl->stats_size);
       platform_free(spl->heap_id, mf);
    }
-   platform_free(spl->heap_id, spl);
+   memfrag_init_size(mf, spl, spl->size);
+   platform_free(spl->heap_id, mf);
 }
 
 /*

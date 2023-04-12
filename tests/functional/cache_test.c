@@ -107,8 +107,12 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
    uint32 extent_capacity     = cfg->page_capacity / pages_per_extent;
    uint32 extents_to_allocate = 2 * extent_capacity;
    uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
+
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_addr_arr;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
-   rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
+
+   rc = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
       /* no need to set status because we got here from an error status */
       goto exit;
@@ -126,7 +130,8 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
     * Get all entries for read, verify ref counts, and release. Verify
     * that there are no dirty entries afterwards.
     */
-   uint32 pages_allocated = extents_to_allocate * pages_per_extent;
+   uint32           pages_allocated = extents_to_allocate * pages_per_extent;
+   platform_memfrag memfrag_page_arr;
    page_arr = TYPED_ARRAY_MALLOC(hid, page_arr, cfg->page_capacity);
    if (page_arr == NULL) {
       rc = STATUS_NO_MEMORY;
@@ -278,11 +283,13 @@ test_cache_basic(cache *cc, clockcache_config *cfg, platform_heap_id hid)
 
 exit:
    if (addr_arr) {
-      platform_free(hid, addr_arr);
+      mf = &memfrag_addr_arr;
+      platform_free(hid, mf);
    }
 
    if (page_arr) {
-      platform_free(hid, page_arr);
+      mf = &memfrag_page_arr;
+      platform_free(hid, mf);
    }
 
    if (SUCCESS(rc)) {
@@ -482,6 +489,8 @@ test_cache_flush(cache             *cc,
    uint64 pages_to_allocate   = extents_to_allocate * pages_per_extent;
    platform_default_log("Allocate %d extents ... ", extents_to_allocate);
 
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_addr_arr;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    t_start  = platform_get_timestamp();
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
@@ -557,7 +566,8 @@ test_cache_flush(cache             *cc,
 
 exit:
    if (addr_arr) {
-      platform_free(hid, addr_arr);
+      mf = &memfrag_addr_arr;
+      platform_free(hid, mf);
    }
 
    if (SUCCESS(rc)) {
@@ -591,6 +601,7 @@ typedef struct {
    page_handle      **handle_arr;              // page handles
    test_async_ctxt    ctxt[READER_BATCH_SIZE]; // async_get() contexts
    platform_semaphore batch_sema;              // batch semaphore
+   size_t             handle_arr_size;         // of memory allocated
 } test_params;
 
 void
@@ -834,7 +845,12 @@ test_cache_async(cache             *cc,
 {
    platform_status rc;
    uint32          total_threads = num_reader_threads + num_writer_threads;
-   test_params    *params =
+
+   platform_memfrag  memfrag;
+   platform_memfrag *mf;
+
+   platform_memfrag memfrag_params;
+   test_params     *params =
       TYPED_ARRAY_ZALLOC(hid, params, num_reader_threads + num_writer_threads);
    uint32  i;
    uint64 *addr_arr = NULL;
@@ -860,6 +876,8 @@ test_cache_async(cache             *cc,
       num_reader_threads,
       num_writer_threads,
       working_set_percent);
+
+   platform_memfrag memfrag_addr_arr;
    addr_arr = TYPED_ARRAY_MALLOC(hid, addr_arr, pages_to_allocate);
    rc       = cache_test_alloc_extents(cc, cfg, addr_arr, extents_to_allocate);
    if (!SUCCESS(rc)) {
@@ -888,11 +906,14 @@ test_cache_async(cache             *cc,
       } else {
          params[i].sync_probability = 10;
       }
-      params[i].handle_arr =
-         TYPED_ARRAY_ZALLOC(hid, params[i].handle_arr, params[i].num_pages);
+      params[i].handle_arr = TYPED_ARRAY_ZALLOC_MF(
+         hid, params[i].handle_arr, params[i].num_pages, &memfrag);
+      params[i].handle_arr_size = memfrag_size(&memfrag);
+
       params[i].ts     = ts;
       params[i].hid    = hid;
       params[i].logger = (i == 0) ? TRUE : FALSE;
+
       /*
        * With multiple threads doing async_get() to the same page, it's
        * possible that async_get() returns retry. Not so with single
@@ -925,8 +946,11 @@ test_cache_async(cache             *cc,
    for (i = 0; i < total_threads; i++) {
       platform_thread_join(params[i].thread);
    }
+
+   mf = &memfrag;
    for (i = 0; i < total_threads; i++) {
-      platform_free(hid, params[i].handle_arr);
+      memfrag_init_size(mf, params[i].handle_arr, params[i].handle_arr_size);
+      platform_free(hid, mf);
    }
    // Deallocate all the entries.
    for (uint32 i = 0; i < extents_to_allocate; i++) {
@@ -938,8 +962,11 @@ test_cache_async(cache             *cc,
       ref = allocator_dec_ref(al, addr, PAGE_TYPE_MISC);
       platform_assert(ref == AL_FREE);
    }
-   platform_free(hid, addr_arr);
-   platform_free(hid, params);
+   mf = &memfrag_addr_arr;
+   platform_free(hid, mf);
+
+   mf = &memfrag_params;
+   platform_free(hid, mf);
    cache_print_stats(Platform_default_log_handle, cc);
    platform_default_log("\n");
 

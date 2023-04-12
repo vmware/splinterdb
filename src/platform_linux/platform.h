@@ -328,20 +328,7 @@ extern platform_heap_id     Heap_id;
  *	n   - Number of bytes of memory to allocate.
  * -----------------------------------------------------------------------------
  */
-#define TYPED_MANUAL_MALLOC(hid, v, n)                                         \
-   ({                                                                          \
-      debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_malloc(hid,                                  \
-                                         PLATFORM_CACHELINE_SIZE,              \
-                                         (n),                                  \
-                                         NULL,                                 \
-                                         STRINGIFY(v),                         \
-                                         __func__,                             \
-                                         __FILE__,                             \
-                                         __LINE__);                            \
-   })
-
-#define TYPED_MANUAL_MALLOC_MF(hid, v, n, mf)                                  \
+#define TYPED_MANUAL_MALLOC(hid, v, n, mf)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_malloc(hid,                                  \
@@ -354,20 +341,7 @@ extern platform_heap_id     Heap_id;
                                          __LINE__);                            \
    })
 
-#define TYPED_MANUAL_ZALLOC(hid, v, n)                                         \
-   ({                                                                          \
-      debug_assert((n) >= sizeof(*(v)));                                       \
-      (typeof(v))platform_aligned_zalloc(hid,                                  \
-                                         PLATFORM_CACHELINE_SIZE,              \
-                                         (n),                                  \
-                                         NULL,                                 \
-                                         STRINGIFY(v),                         \
-                                         __func__,                             \
-                                         __FILE__,                             \
-                                         __LINE__);                            \
-   })
-
-#define TYPED_MANUAL_ZALLOC_MF(hid, v, n, mf)                                  \
+#define TYPED_MANUAL_ZALLOC(hid, v, n, mf)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_zalloc(hid,                                  \
@@ -448,12 +422,16 @@ extern platform_heap_id     Heap_id;
  * -----------------------------------------------------------------------------
  */
 #define TYPED_FLEXIBLE_STRUCT_MALLOC(hid, v, array_field_name, n)              \
-   TYPED_MANUAL_MALLOC(                                                        \
-      hid, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
+   TYPED_MANUAL_MALLOC(hid,                                                    \
+                       (v),                                                    \
+                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)),       \
+                       &memfrag_##v)
 
 #define TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, v, array_field_name, n)              \
-   TYPED_MANUAL_ZALLOC(                                                        \
-      hid, (v), FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)))
+   TYPED_MANUAL_ZALLOC(hid,                                                    \
+                       (v),                                                    \
+                       FLEXIBLE_STRUCT_SIZE((v), array_field_name, (n)),       \
+                       &memfrag_##v)
 
 /*
  * TYPED_ARRAY_MALLOC(), TYPED_ARRAY_ZALLOC()
@@ -468,16 +446,16 @@ extern platform_heap_id     Heap_id;
  * named memfrag_<v>. This is used as output struct to return memory frag info.
  */
 #define TYPED_ARRAY_MALLOC(hid, v, n)                                          \
-   TYPED_MANUAL_MALLOC(hid, (v), (n) * sizeof(*(v)))
+   TYPED_MANUAL_MALLOC(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
 
 #define TYPED_ARRAY_ZALLOC(hid, v, n)                                          \
-   TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)))
+   TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
 
-#define TYPED_ARRAY_MALLOC_MF(hid, v, n)                                       \
-   TYPED_MANUAL_MALLOC_MF(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
+#define TYPED_ARRAY_MALLOC_MF(hid, v, n, mf)                                   \
+   TYPED_MANUAL_MALLOC(hid, (v), (n) * sizeof(*(v)), mf)
 
-#define TYPED_ARRAY_ZALLOC_MF(hid, v, n)                                       \
-   TYPED_MANUAL_ZALLOC_MF(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
+#define TYPED_ARRAY_ZALLOC_MF(hid, v, n, mf)                                   \
+   TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)), mf)
 
 /*
  * TYPED_MALLOC(), TYPED_ZALLOC()
@@ -487,8 +465,8 @@ extern platform_heap_id     Heap_id;
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
  */
-#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC(hid, v, 1)
-#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC(hid, v, 1)
+#define TYPED_MALLOC(hid, v) TYPED_ARRAY_MALLOC_MF(hid, v, 1, NULL)
+#define TYPED_ZALLOC(hid, v) TYPED_ARRAY_ZALLOC_MF(hid, v, 1, NULL)
 
 /*
  * -----------------------------------------------------------------------------

@@ -429,6 +429,8 @@ run_ycsb_phase(trunk_handle    *spl,
    for (i = 0; i < phase->nlogs; i++)
       nthreads += phase->params[i].nthreads;
 
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_threads;
    threads = TYPED_ARRAY_MALLOC(hid, threads, nthreads);
    if (threads == NULL)
       return -1;
@@ -470,11 +472,13 @@ shutdown:
       }
       nthreads--;
    }
-   platform_free(hid, threads);
+   mf = &memfrag_threads;
+   platform_free(hid, mf);
 
    if (phase->measurement_command) {
-      const size_t bufsize  = 1024;
-      char        *filename = TYPED_ARRAY_MALLOC(hid, filename, bufsize);
+      const size_t     bufsize = 1024;
+      platform_memfrag memfrag_filename;
+      char            *filename = TYPED_ARRAY_MALLOC(hid, filename, bufsize);
       platform_assert(filename);
       snprintf(filename, bufsize, "%s.measurement", phase->name);
       FILE *measurement_output = fopen(filename, "wb");
@@ -482,9 +486,10 @@ shutdown:
       FILE *measurement_cmd = popen(phase->measurement_command, "r");
       platform_assert(measurement_cmd != NULL);
 
-      char  *buffer = TYPED_ARRAY_MALLOC(hid, buffer, bufsize);
-      size_t num_read;
-      size_t num_written;
+      platform_memfrag memfrag_buffer;
+      char            *buffer = TYPED_ARRAY_MALLOC(hid, buffer, bufsize);
+      size_t           num_read;
+      size_t           num_written;
       do {
          num_read    = fread(buffer, 1, bufsize, measurement_cmd);
          num_written = fwrite(buffer, 1, num_read, measurement_output);
@@ -498,8 +503,11 @@ shutdown:
       } while (!feof(measurement_cmd));
       fclose(measurement_output);
       pclose(measurement_cmd);
-      platform_free(hid, filename);
-      platform_free(hid, buffer);
+
+      mf = &memfrag_filename;
+      platform_free(hid, mf);
+      mf = &memfrag_buffer;
+      platform_free(hid, mf);
    }
 
    return success;
@@ -564,6 +572,9 @@ parse_ycsb_log_file(void *arg)
    }
    uint64 num_lines = req->end_line - req->start_line;
 
+   platform_memfrag  memfrag_result;
+   platform_memfrag *mf = &memfrag_result;
+   ;
    ycsb_op *result = TYPED_ARRAY_MALLOC(hid, result, num_lines);
    if (result == NULL) {
       platform_error_log("Failed to allocate memory for log\n");
@@ -571,7 +582,7 @@ parse_ycsb_log_file(void *arg)
    }
    if (lock && mlock(result, num_lines * sizeof(ycsb_op))) {
       platform_error_log("Failed to lock log into RAM.\n");
-      platform_free(hid, result);
+      platform_free(hid, mf);
       goto close_file;
    }
 
@@ -611,10 +622,12 @@ parse_ycsb_log_file(void *arg)
    *num_ops = num_lines;
 
 close_file:
+   // RESOLVE - -Fix this ...
    if (buffer) {
       platform_free(hid, buffer);
    }
    fclose(fp);
+   mf = &memfrag_result;
    platform_assert(result != NULL);
    *req->ycsb_ops = result;
    platform_free(hid, req);
@@ -711,8 +724,12 @@ load_ycsb_logs(int          argc,
    // platform_assert(rc == 0);
    // platform_free(hid, resize_cgroup_command);
 
-   ycsb_phase *phases = TYPED_ARRAY_MALLOC(hid, phases, _nphases);
+   platform_memfrag *mf = NULL;
+   platform_memfrag  memfrag_phases;
+   ycsb_phase       *phases = TYPED_ARRAY_MALLOC(hid, phases, _nphases);
    log_size_bytes += _nphases * sizeof(ycsb_phase);
+
+   platform_memfrag memfrag_params;
    ycsb_log_params *params = TYPED_ARRAY_MALLOC(hid, params, num_threads);
    log_size_bytes += num_threads * sizeof(ycsb_log_params);
    platform_assert(phases && params);
@@ -772,8 +789,10 @@ load_ycsb_logs(int          argc,
    return STATUS_OK;
 
 bad_params:
-   platform_free(hid, phases);
-   platform_free(hid, params);
+   mf = &memfrag_phases;
+   platform_free(hid, mf);
+   mf = &memfrag_params;
+   platform_free(hid, mf);
    return STATUS_BAD_PARAM;
 }
 

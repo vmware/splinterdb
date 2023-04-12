@@ -431,6 +431,10 @@ platform_alignment(const size_t alignment, const size_t size)
  * This interface will, by default, allocate using aligned_alloc().
  * If Splinter is configured to run with shared memory, we will invoke the
  * shmem-allocation function, working off of the (non-NULL) platform_heap_id.
+ *
+ * Returns ptr to allocated. If 'memfrag' is supplied, return the allocated
+ * memory fragment's info (addr & size). This is needed to support 'free' when
+ * using shared memory based allocation.
  */
 static inline void *
 platform_aligned_malloc(const platform_heap_id heap_id,

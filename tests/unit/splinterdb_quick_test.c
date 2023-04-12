@@ -268,7 +268,8 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
 {
    size_t too_large_value_len =
       MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE) + 1;
-   char *too_large_value_data;
+   char            *too_large_value_data;
+   platform_memfrag memfrag_too_large_value_data;
    too_large_value_data = TYPED_ARRAY_MALLOC(
       data->cfg.heap_id, too_large_value_data, too_large_value_len);
    memset(too_large_value_data, 'z', too_large_value_len);
@@ -279,7 +280,8 @@ CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
       data->kvsb, slice_create(sizeof("foo"), "foo"), too_large_value);
 
    ASSERT_EQUAL(EINVAL, rc);
-   platform_free(data->cfg.heap_id, too_large_value_data);
+   platform_memfrag *mf = &memfrag_too_large_value_data;
+   platform_free(data->cfg.heap_id, mf);
 }
 
 /*
