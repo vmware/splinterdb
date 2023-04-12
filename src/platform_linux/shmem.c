@@ -611,12 +611,13 @@ platform_shmdestroy(platform_heap_handle *heap_handle)
  * -----------------------------------------------------------------------------
  */
 void *
-platform_shm_alloc(platform_heap_id hid,
-                   const size_t     size,
-                   const char      *objname,
-                   const char      *func,
-                   const char      *file,
-                   const int        line)
+platform_shm_alloc(platform_heap_id  hid,
+                   const size_t      size,
+                   platform_memfrag *memfrag, // OUT
+                   const char       *objname,
+                   const char       *func,
+                   const char       *file,
+                   const int         line)
 {
    shmem_info *shminfo = platform_heap_id_to_shmaddr(hid);
 
@@ -652,6 +653,12 @@ platform_shm_alloc(platform_heap_id hid,
       // Try to satisfy small memory fragments based on requested size
       retptr = platform_shm_find_frag(shminfo, size, objname, func, file, line);
       if (retptr) {
+         // Return fragment's details to caller. We may have recycled a free
+         // fragment that is larger than requested size.
+         if (memfrag) {
+            memfrag->addr = (void *)retptr;
+            memfrag->size = ((free_frag_hdr *)retptr)->free_frag_size;
+         }
          return retptr;
       }
    }
@@ -710,6 +717,10 @@ platform_shm_alloc(platform_heap_id hid,
                                 file,
                                 line);
    }
+   if (memfrag) {
+      memfrag->size = size;
+      memfrag->addr = retptr;
+   }
    return retptr;
 }
 
@@ -730,7 +741,7 @@ platform_shm_realloc(platform_heap_id hid,
                      const char      *file,
                      const int        line)
 {
-   void *retptr = splinter_shm_alloc(hid, newsize, "Unknown", file, line);
+   void *retptr = splinter_shm_alloc(hid, newsize, NULL, "Unknown", file, line);
    if (retptr) {
 
       // Copy over old contents, if any, and free that old memory piece
@@ -1181,8 +1192,8 @@ platform_shm_find_frag(shmem_info *shm,
    *next_frag             = retptr->free_frag_next;
    retptr->free_frag_next = NULL;
 
-   shm->usage.used_bytes += size;
-   shm->usage.free_bytes -= size;
+   shm->usage.used_bytes += retptr->free_frag_size;
+   shm->usage.free_bytes -= retptr->free_frag_size;
 
    shm_unlock_mem_frags(shm);
    return (void *)retptr;

@@ -334,17 +334,46 @@ extern platform_heap_id     Heap_id;
       (typeof(v))platform_aligned_malloc(hid,                                  \
                                          PLATFORM_CACHELINE_SIZE,              \
                                          (n),                                  \
+                                         NULL,                                 \
                                          STRINGIFY(v),                         \
                                          __func__,                             \
                                          __FILE__,                             \
                                          __LINE__);                            \
    })
+
+#define TYPED_MANUAL_MALLOC_MF(hid, v, n, mf)                                  \
+   ({                                                                          \
+      debug_assert((n) >= sizeof(*(v)));                                       \
+      (typeof(v))platform_aligned_malloc(hid,                                  \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         (mf),                                 \
+                                         STRINGIFY(v),                         \
+                                         __func__,                             \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
+   })
+
 #define TYPED_MANUAL_ZALLOC(hid, v, n)                                         \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_zalloc(hid,                                  \
                                          PLATFORM_CACHELINE_SIZE,              \
                                          (n),                                  \
+                                         NULL,                                 \
+                                         STRINGIFY(v),                         \
+                                         __func__,                             \
+                                         __FILE__,                             \
+                                         __LINE__);                            \
+   })
+
+#define TYPED_MANUAL_ZALLOC_MF(hid, v, n, mf)                                  \
+   ({                                                                          \
+      debug_assert((n) >= sizeof(*(v)));                                       \
+      (typeof(v))platform_aligned_zalloc(hid,                                  \
+                                         PLATFORM_CACHELINE_SIZE,              \
+                                         (n),                                  \
+                                         (mf),                                 \
                                          STRINGIFY(v),                         \
                                          __func__,                             \
                                          __FILE__,                             \
@@ -368,13 +397,13 @@ extern platform_heap_id     Heap_id;
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_malloc(                                      \
-         hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);           \
+         hid, (a), (n), NULL, STRINGIFY(v), __func__, __FILE__, __LINE__);     \
    })
 #define TYPED_ALIGNED_ZALLOC(hid, a, v, n)                                     \
    ({                                                                          \
       debug_assert((n) >= sizeof(*(v)));                                       \
       (typeof(v))platform_aligned_zalloc(                                      \
-         hid, (a), (n), STRINGIFY(v), __func__, __FILE__, __LINE__);           \
+         hid, (a), (n), NULL, STRINGIFY(v), __func__, __FILE__, __LINE__);     \
    })
 
 /*
@@ -434,14 +463,24 @@ extern platform_heap_id     Heap_id;
  *  hid - Platform heap-ID to allocate memory from.
  *  v   - Structure to allocate memory for.
  *  n   - Number of members of type 'v' in array.
+ *
+ * Caller is expected to declare an on-stack platform_memfrag{} struct
+ * named memfrag_<v>. This is used as output struct to return memory frag info.
  */
 #define TYPED_ARRAY_MALLOC(hid, v, n)                                          \
    TYPED_MANUAL_MALLOC(hid, (v), (n) * sizeof(*(v)))
+
 #define TYPED_ARRAY_ZALLOC(hid, v, n)                                          \
    TYPED_MANUAL_ZALLOC(hid, (v), (n) * sizeof(*(v)))
 
+#define TYPED_ARRAY_MALLOC_MF(hid, v, n)                                       \
+   TYPED_MANUAL_MALLOC_MF(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
+
+#define TYPED_ARRAY_ZALLOC_MF(hid, v, n)                                       \
+   TYPED_MANUAL_ZALLOC_MF(hid, (v), (n) * sizeof(*(v)), &memfrag_##v)
+
 /*
- * TYPED_ARRAY_MALLOC(), TYPED_ARRAY_ZALLOC()
+ * TYPED_MALLOC(), TYPED_ZALLOC()
  * Allocate memory for one element of structure 'v'.
  *
  * Parameters:
@@ -739,14 +778,6 @@ platform_enable_tracing_shm_frees();
  * Non-inline implementations belong in a .c file in the platform_* directory.
  * Declarations for the non-inline functions can go in platform_inline.h
  */
-#include <platform_inline.h>
-
-
-/*
- * Section 6:
- * Non-platform-specific inline implementations
- */
-
 /*
  * Structure to encapsulate a {memory-addr, memory-size} pair. Used to track
  * allocation and, more importantly, free of memory fragments for opaque
@@ -758,6 +789,14 @@ typedef struct platform_memfrag {
    size_t size;
    void  *addr;
 } platform_memfrag;
+
+#include <platform_inline.h>
+
+
+/*
+ * Section 6:
+ * Non-platform-specific inline implementations
+ */
 
 /*
  * Utility macro to test if an argument to platform_free() is a
@@ -941,16 +980,17 @@ platform_free_volatile_from_heap(platform_heap_id heap_id,
 }
 
 static inline void *
-platform_aligned_zalloc(platform_heap_id heap_id,
-                        size_t           alignment,
-                        size_t           size,
-                        const char      *objname,
-                        const char      *func,
-                        const char      *file,
-                        int              lineno)
+platform_aligned_zalloc(platform_heap_id  heap_id,
+                        size_t            alignment,
+                        size_t            size,
+                        platform_memfrag *memfrag, // OUT
+                        const char       *objname,
+                        const char       *func,
+                        const char       *file,
+                        int               lineno)
 {
    void *x = platform_aligned_malloc(
-      heap_id, alignment, size, objname, func, file, lineno);
+      heap_id, alignment, size, memfrag, objname, func, file, lineno);
    if (LIKELY(x)) {
       memset(x, 0, size);
    }

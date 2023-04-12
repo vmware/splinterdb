@@ -436,6 +436,7 @@ static inline void *
 platform_aligned_malloc(const platform_heap_id heap_id,
                         const size_t           alignment, // IN
                         const size_t           size,      // IN
+                        platform_memfrag      *memfrag,   // OUT
                         const char            *objname,
                         const char            *func,
                         const char            *file,
@@ -454,10 +455,17 @@ platform_aligned_malloc(const platform_heap_id heap_id,
    const size_t padding  = platform_alignment(alignment, size);
    const size_t required = (size + padding);
 
-   void *retptr =
-      ((heap_id == PROCESS_PRIVATE_HEAP_ID)
-          ? aligned_alloc(alignment, required)
-          : splinter_shm_alloc(heap_id, required, objname, func, line));
+   void *retptr = NULL;
+   if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
+      retptr = aligned_alloc(alignment, required);
+      if (memfrag) {
+         memfrag->addr = retptr;
+         memfrag->size = required;
+      }
+   } else {
+      retptr =
+         splinter_shm_alloc(heap_id, required, memfrag, objname, func, line);
+   }
    return retptr;
 }
 

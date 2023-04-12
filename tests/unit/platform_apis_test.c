@@ -17,8 +17,18 @@
 
 #include "ctest.h" // This is required for all test-case files.
 #include "platform.h"
+#include "shmem.h"
 #include "test_misc_common.h"
 #include "unit_tests.h"
+
+// Define a struct to be used for memory allocation.
+typedef struct any_struct {
+   struct any_struct *prev;
+   struct any_struct *next;
+   size_t             nbytes;
+   uint32             value;
+   uint32             size;
+} any_struct;
 
 /*
  * Global data declaration macro:
@@ -29,17 +39,18 @@ CTEST_DATA(platform_api)
    platform_heap_handle hh;
    platform_heap_id     hid;
    platform_module_id   mid;
+   bool                 use_shmem;
 };
 
 CTEST_SETUP(platform_api)
 {
    platform_status rc = STATUS_OK;
-   bool use_shmem     = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
+   data->use_shmem    = test_using_shmem(Ctest_argc, (char **)Ctest_argv);
 
    uint64 heap_capacity = (256 * MiB); // small heap is sufficient.
    data->mid            = platform_get_module_id();
    rc                   = platform_heap_create(
-      data->mid, heap_capacity, use_shmem, &data->hh, &data->hid);
+      data->mid, heap_capacity, data->use_shmem, &data->hh, &data->hid);
    platform_assert_status_ok(rc);
 }
 
@@ -171,4 +182,48 @@ CTEST2(platform_api, test_platform_condvar_init_destroy)
    ASSERT_TRUE(SUCCESS(rc));
 
    platform_condvar_destroy(&cv);
+}
+
+/*
+ * ----------------------------------------------------------------------------
+ * Exercise all the memory allocation interfaces, followed by a free, to ensure
+ * that all combinations work cleanly, w/ and w/o shared memory.
+ * ----------------------------------------------------------------------------
+ */
+CTEST2(platform_api, test_TYPED_MALLOC)
+{
+   any_struct *structp = TYPED_MALLOC(data->hid, structp);
+   platform_free(data->hid, structp);
+}
+
+CTEST2(platform_api, test_TYPED_ZALLOC)
+{
+   any_struct *structp = TYPED_ZALLOC(data->hid, structp);
+   platform_free(data->hid, structp);
+}
+
+CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_MF)
+{
+   size_t old_mem_used = (data->use_shmem ? platform_shmused(data->hid) : 0);
+
+   platform_memfrag  memfrag_structp;
+   any_struct       *structp = TYPED_ARRAY_MALLOC_MF(data->hid, structp, 20);
+   platform_memfrag *mf      = &memfrag_structp;
+   platform_free(data->hid, mf);
+
+   size_t new_mem_used = (data->use_shmem ? platform_shmused(data->hid) : 0);
+   ASSERT_EQUAL(old_mem_used, new_mem_used);
+}
+
+CTEST2(platform_api, test_TYPED_ARRAY_ZALLOC_MF)
+{
+   size_t old_mem_used = (data->use_shmem ? platform_shmused(data->hid) : 0);
+
+   platform_memfrag  memfrag_structp;
+   any_struct       *structp = TYPED_ARRAY_ZALLOC_MF(data->hid, structp, 10);
+   platform_memfrag *mf      = &memfrag_structp;
+   platform_free(data->hid, mf);
+
+   size_t new_mem_used = (data->use_shmem ? platform_shmused(data->hid) : 0);
+   ASSERT_EQUAL(old_mem_used, new_mem_used);
 }
