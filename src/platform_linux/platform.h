@@ -886,8 +886,16 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
                          sizeof(*p),                                           \
                          __func__,                                             \
                          __LINE__);                                            \
-         /* Expect that 'p' is pointing to a struct. So get its size. */       \
-         platform_free_mem((hid), (p), sizeof(*p), STRINGIFY(p));              \
+         /*                                                                    \
+          * Expect that 'p' is pointing to a struct. So get its size.          \
+          * Except that while allocating memory for objects, we had previously \
+          * aligned the required size to PLATFORM_CACHELINE_SIZE. Redo that    \
+          * work here, so we correctly tell shared-memory the size to free.    \
+          */                                                                   \
+         const size_t _size = sizeof(*p);                                      \
+         const size_t _used =                                                  \
+            (_size + platform_alignment(PLATFORM_CACHELINE_SIZE, _size));      \
+         platform_free_mem((hid), (p), _used, STRINGIFY(p));                   \
          (p) = NULL;                                                           \
       }                                                                        \
    } while (0)

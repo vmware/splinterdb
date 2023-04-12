@@ -456,7 +456,7 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
  * unchanged.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_realloc_of_large_fragment)
+CTEST2(splinter_shmem, test_alloc_free_and_realloc_of_large_fragment)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 

@@ -184,12 +184,13 @@ platform_shm_track_free(shmem_info  *shm,
                         const int    line);
 
 static void *
-platform_shm_find_large(shmem_info *shm,
-                        size_t      size,
-                        const char *objname,
-                        const char *func,
-                        const char *file,
-                        const int   line);
+platform_shm_find_large(shmem_info       *shm,
+                        size_t            size,
+                        platform_memfrag *memfrag,
+                        const char       *objname,
+                        const char       *func,
+                        const char       *file,
+                        const int         line);
 
 static void *
 platform_shm_find_frag(shmem_info *shm,
@@ -643,8 +644,8 @@ platform_shm_alloc(platform_heap_id  hid,
    // See if we can satisfy requests for large memory fragments from a cached
    // list of used/free fragments that are tracked separately.
    if (size >= SHM_LARGE_FRAG_SIZE) {
-      if ((retptr =
-              platform_shm_find_large(shminfo, size, objname, func, file, line))
+      if ((retptr = platform_shm_find_large(
+              shminfo, size, memfrag, objname, func, file, line))
           != NULL)
       {
          return retptr;
@@ -1032,12 +1033,13 @@ platform_shm_track_free(shmem_info  *shm,
  * -----------------------------------------------------------------------------
  */
 static void *
-platform_shm_find_large(shmem_info *shm,
-                        size_t      size,
-                        const char *objname,
-                        const char *func,
-                        const char *file,
-                        const int   line)
+platform_shm_find_large(shmem_info       *shm,
+                        size_t            size,
+                        platform_memfrag *memfrag,
+                        const char       *objname,
+                        const char       *func,
+                        const char       *file,
+                        const int         line)
 {
    debug_assert((size >= SHM_LARGE_FRAG_SIZE),
                 "Incorrect usage of this interface for requested"
@@ -1101,6 +1103,10 @@ platform_shm_find_large(shmem_info *shm,
       frag->shm_line = line;
 
       retptr = frag->shm_frag_addr;
+      if (memfrag) {
+         memfrag->addr = retptr;
+         memfrag->size = frag->shm_frag_size;
+      }
 
       // Zero out the recycled large-memory fragment, just to be sure ...
       memset(retptr, 0, frag->shm_frag_size);

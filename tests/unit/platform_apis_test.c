@@ -18,6 +18,7 @@
 #include "ctest.h" // This is required for all test-case files.
 #include "platform.h"
 #include "shmem.h"
+#include "trunk.h"
 #include "test_misc_common.h"
 #include "unit_tests.h"
 
@@ -200,6 +201,70 @@ CTEST2(platform_api, test_TYPED_ZALLOC)
 {
    any_struct *structp = TYPED_ZALLOC(data->hid, structp);
    platform_free(data->hid, structp);
+}
+
+CTEST2(platform_api, test_TYPED_MALLOC_free_and_MALLOC)
+{
+   any_struct *structp      = TYPED_MALLOC(data->hid, structp);
+   any_struct *save_structp = structp;
+   platform_free(data->hid, structp);
+
+   any_struct *new_structp = TYPED_MALLOC(data->hid, new_structp);
+
+   // Memory for small structures should be recycled from shared memory
+   ASSERT_TRUE(!data->use_shmem || (save_structp == new_structp));
+}
+
+CTEST2(platform_api, test_TYPED_ARRAY_MALLOC)
+{
+   int              nitems = 10;
+   platform_memfrag memfrag_structp;
+   any_struct      *structp = TYPED_ARRAY_MALLOC(data->hid, structp, nitems);
+
+   platform_memfrag *mf = &memfrag_structp;
+   platform_free(data->hid, mf);
+}
+
+CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_free_and_MALLOC)
+{
+   int              nitems = 10;
+   platform_memfrag memfrag_arrayp;
+   any_struct      *arrayp = TYPED_ARRAY_MALLOC(data->hid, arrayp, nitems);
+
+   platform_memfrag *mf = &memfrag_arrayp;
+   platform_free(data->hid, mf);
+
+   // If you re-request the same array, memory fragment should be recycled
+   platform_memfrag memfrag_new_arrayp;
+   any_struct *new_arrayp = TYPED_ARRAY_MALLOC(data->hid, new_arrayp, nitems);
+   ASSERT_TRUE(!data->use_shmem || (arrayp == new_arrayp));
+   mf = &memfrag_new_arrayp;
+   platform_free(data->hid, mf);
+
+   // Allocating a smaller array should also recycle memory fragment.
+   nitems     = 5;
+   new_arrayp = TYPED_ARRAY_MALLOC(data->hid, new_arrayp, nitems);
+   ASSERT_TRUE(!data->use_shmem || (arrayp == new_arrayp));
+   mf = &memfrag_new_arrayp;
+   platform_free(data->hid, mf);
+}
+
+CTEST2(platform_api, test_large_TYPED_MALLOC)
+{
+   trunk_range_iterator *iter = TYPED_MALLOC(data->hid, iter);
+   platform_free(data->hid, iter);
+}
+
+CTEST2(platform_api, test_large_TYPED_MALLOC_free_and_MALLOC)
+{
+   trunk_range_iterator *iter      = TYPED_MALLOC(data->hid, iter);
+   trunk_range_iterator *save_iter = iter;
+   platform_free(data->hid, iter);
+
+   trunk_range_iterator *new_iter = TYPED_MALLOC(data->hid, iter);
+   // Memory for large structures should be recycled from shared memory
+   ASSERT_TRUE(!data->use_shmem || (save_iter == new_iter));
+   platform_free(data->hid, new_iter);
 }
 
 CTEST2(platform_api, test_TYPED_ARRAY_MALLOC_MF)
