@@ -802,6 +802,7 @@ typedef struct platform_memfrag {
  * Macro to initialize a memory fragment that was allocated for nitems-items of
  * an object pointed at by 'ptr',
  */
+// RESOLVE: Purge this interface; it's problematic. See clockcache.c.
 #define memfrag_init(mf, ptr, nitems)                                          \
    memfrag_init_size((mf), (ptr), ((nitems) * sizeof(*ptr)))
 

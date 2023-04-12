@@ -124,6 +124,13 @@ typedef struct shminfo_usage_stats {
 } shminfo_usage_stats;
 
 /*
+ * Currently, we only support tracking and recycling free-fragments for a set
+ * of sizes. This list can be easily expanded.
+ */
+#define SHM_SMALL_FRAG_MIN_SIZE 32  // Will not track for size <= min bytes
+#define SHM_SMALL_FRAG_MAX_SIZE 512 // Will not track for size > max bytes
+
+/*
  * -----------------------------------------------------------------------------
  * shmem_info{}: Shared memory Control Block:
  *
@@ -145,6 +152,8 @@ typedef struct shmem_info {
 
    free_frag_hdr *shm_free_le64;  // Chain of free-fragments <= 64 bytes
    free_frag_hdr *shm_free_le128; // Chain of free-fragments <= 128 bytes
+   free_frag_hdr *shm_free_le256; // Chain of free-fragments <= 256 bytes
+   free_frag_hdr *shm_free_le512; // Chain of free-fragments <= 512 bytes
 
    void *shm_splinterdb_handle;
    void *shm_large_frag_hip; // Highest addr of large-fragments tracked
@@ -948,8 +957,10 @@ platform_shm_track_free(shmem_info  *shm,
          platform_shm_hook_free_frag(&shm->shm_free_le128, addr, size);
          shm->usage.nfrees_le128++;
       } else if (size <= 256) {
+         platform_shm_hook_free_frag(&shm->shm_free_le256, addr, size);
          shm->usage.nfrees_le256++;
       } else if (size <= 512) {
+         platform_shm_hook_free_frag(&shm->shm_free_le512, addr, size);
          shm->usage.nfrees_le512++;
       } else if (size <= KiB) {
          shm->usage.nfrees_le1K++;
@@ -1171,15 +1182,22 @@ platform_shm_find_frag(shmem_info *shm,
 {
    // Currently, we have only implemented tracking small free fragments of
    // 'known' sizes that appear in our workloads.
-   if ((size <= 32) || (size > 128)) {
+   if ((size <= SHM_SMALL_FRAG_MIN_SIZE) || (size > SHM_SMALL_FRAG_MAX_SIZE)) {
       return NULL;
    }
 
    free_frag_hdr **next_frag;
    if (size <= 64) {
       next_frag = &shm->shm_free_le64;
-   } else {
+   } else if (size <= 128) {
       next_frag = &shm->shm_free_le128;
+   } else if (size <= 256) {
+      next_frag = &shm->shm_free_le256;
+   } else if (size <= 512) {
+      next_frag = &shm->shm_free_le512;
+   } else {
+      // Currently unsupported fragment size for recycling
+      return NULL;
    }
 
    shm_lock_mem_frags(shm);
