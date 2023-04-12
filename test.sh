@@ -831,6 +831,12 @@ function run_tests_with_shared_memory() {
                    "$BINDIR"/driver_test io_apis_test \
                    --use-shmem --fork-child
 
+   run_with_timing "Filter tests using shared memory" \
+                   "$BINDIR"/driver_test filter_test --use-shmem
+
+   run_with_timing "Filter perf tests using shared memory" \
+                   "$BINDIR"/driver_test filter_test --use-shmem --perf
+
    run_slower_unit_tests "--use-shmem"
    if [ -f "${UNIT_TESTS_DB_DEV}" ]; then rm "${UNIT_TESTS_DB_DEV}"; fi
 

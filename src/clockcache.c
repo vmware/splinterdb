@@ -1944,15 +1944,16 @@ clockcache_deinit(clockcache *cc) // IN/OUT
       cc->refcount = NULL;
    }
 
-   size_t size;
    if (cc->pincount) {
-      size = (cc->cfg->page_capacity * sizeof(*cc->pincount));
-      platform_free_volatile(cc->heap_id, cc->pincount, size);
+      mf->addr = (void *)cc->pincount;
+      mf->size = (cc->cfg->page_capacity * sizeof(*cc->pincount));
+      platform_free_volatile(cc->heap_id, mf);
    }
    if (cc->batch_busy) {
-      size = ((cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH)
-              * sizeof(*cc->batch_busy));
-      platform_free_volatile(cc->heap_id, cc->batch_busy, size);
+      mf->addr = (void *)cc->batch_busy;
+      mf->size = ((cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH)
+                  * sizeof(*cc->batch_busy));
+      platform_free_volatile(cc->heap_id, mf);
    }
 }
 

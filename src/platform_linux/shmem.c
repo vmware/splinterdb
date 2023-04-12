@@ -667,14 +667,17 @@ platform_shm_alloc(platform_heap_id hid,
 
       platform_error_log(
          "[%s:%d::%s()]: Insufficient memory in shared segment"
-         " to allocate %lu bytes for '%s'. Approx free space=%lu bytes."
+         " to allocate %lu bytes (%s) for '%s'. Approx free"
+         " space=%lu bytes (%s)."
          " shm_num_frags_tracked=%u, nm_frags_inuse=%u (HWM=%u).\n",
          file,
          line,
          func,
          size,
+         size_str(size),
          objname,
          shminfo->usage.free_bytes,
+         size_str(shminfo->usage.free_bytes),
          shminfo->shm_num_frags_tracked,
          shminfo->usage.nfrags_inuse,
          shminfo->usage.nfrags_inuse_HWM);
@@ -733,7 +736,7 @@ platform_shm_realloc(platform_heap_id hid,
       // Copy over old contents, if any, and free that old memory piece
       if (oldptr && oldsize) {
          memcpy(retptr, oldptr, oldsize);
-         splinter_shm_free(hid, oldptr, oldsize, "Unknown", func, line);
+         splinter_shm_free(hid, oldptr, oldsize, "Unknown", func, file, line);
       }
    }
    return retptr;

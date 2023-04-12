@@ -513,7 +513,7 @@ platform_free_from_heap(platform_heap_id heap_id,
    if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
       free(ptr);
    } else {
-      splinter_shm_free(heap_id, ptr, size, objname, func, line);
+      splinter_shm_free(heap_id, ptr, size, objname, func, file, line);
    }
 }
 

@@ -801,6 +801,7 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * void = platform_free(platform_heap_id hid, void *p);
  *
  * Similar to the TYPED_MALLOC functions, for all the free functions we need
@@ -821,6 +822,10 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
  * - To catch code errors where we may attempt to free the same memory fragment
  *   twice, it's a hard assertion if input ptr 'p' is NULL (likely already
  *   freed).
+ *
+ * - Defenses are built-in to protect callers which may be incorrectly using
+ *   this interface to free memory allocated from shared-segment or the heap.
+ * ----------------------------------------------------------------------------
  */
 #define platform_free(hid, p)                                                  \
    do {                                                                        \
@@ -829,38 +834,74 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
                       __func__,                                                \
                       __LINE__);                                               \
       if (IS_MEM_FRAG(p)) {                                                    \
-         platform_free_mem((hid),                                              \
-                           ((platform_memfrag *)p)->addr,                      \
-                           ((platform_memfrag *)p)->size);                     \
-         ((platform_memfrag *)p)->addr = NULL;                                 \
-         ((platform_memfrag *)p)->size = 0;                                    \
+         platform_memfrag *_mf = (platform_memfrag *)(p);                      \
+         platform_free_mem((hid), _mf->addr, _mf->size, STRINGIFY(p));         \
+         _mf->addr = NULL;                                                     \
+         _mf->size = 0;                                                        \
       } else {                                                                 \
+         platform_assert((((hid) == PROCESS_PRIVATE_HEAP_ID)                   \
+                          || (sizeof(*p) > sizeof(uint64))),                   \
+                         "Attempt to free memory using '%s', which is a "      \
+                         " pointer to an object of size %lu bytes"             \
+                         ", from '%s', line=%d\n",                             \
+                         STRINGIFY(p),                                         \
+                         sizeof(*p),                                           \
+                         __func__,                                             \
+                         __LINE__);                                            \
          /* Expect that 'p' is pointing to a struct. So get its size. */       \
-         platform_free_mem((hid), (p), sizeof(*p));                            \
+         platform_free_mem((hid), (p), sizeof(*p), STRINGIFY(p));              \
          (p) = NULL;                                                           \
       }                                                                        \
    } while (0)
 
 /*
- * void = platform_free_mem(platform_heap_id hid,
- *                          void *p, size_t size);
+ * void = platform_free_mem(platform_heap_id hid, void *p, size_t size,
+ *                          const char *objname);
  *
  * Free a memory chunk at address 'p' of size 'size' bytes. This exists to
  * facilitate re-cycling of free'd fragments in a shared-memory usage. That
  * machinery works off of the fragment's 'size', hence we need to provide that.
  */
-#define platform_free_mem(hid, p, size)                                        \
+#define platform_free_mem(hid, p, size, objname)                               \
    do {                                                                        \
       platform_free_from_heap(                                                 \
-         hid, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);        \
+         hid, (p), (size), objname, __func__, __FILE__, __LINE__);             \
       (p) = NULL;                                                              \
    } while (0)
 
-#define platform_free_volatile(hid, p, size)                                   \
+/*
+ * ----------------------------------------------------------------------------
+ * void = platform_free_volatile(platform_heap_id hid,
+ *                               platform_memfrag *p)
+ *
+ * Similar to platform_free(), except it exists to free volatile ptr to
+ * allocated memory. The interface expects that the (single-) caller has
+ * packaged the memory fragment to-be-freed in a platform_memfrag *p arg.
+ * There is just one consumer of this interface, so we don't go to the full
+ * distance as its sibling interface.
+ * ----------------------------------------------------------------------------
+ */
+#define platform_free_volatile(hid, p)                                         \
    do {                                                                        \
-      platform_free_volatile_from_heap(                                        \
-         hid, (p), (size), STRINGIFY(p), __func__, __FILE__, __LINE__);        \
-      (p) = NULL;                                                              \
+      debug_assert(((p) != NULL),                                              \
+                   "Attempt to free a NULL ptr from '%s', line=%d",            \
+                   __func__,                                                   \
+                   __LINE__);                                                  \
+      platform_assert(IS_MEM_FRAG(p),                                          \
+                      "Attempt to free volatile memory ptr with an invalid"    \
+                      " arg, from '%s', line=%d",                              \
+                      __func__,                                                \
+                      __LINE__);                                               \
+      platform_memfrag *_mf = (platform_memfrag *)(p);                         \
+      platform_free_volatile_from_heap(hid,                                    \
+                                       _mf->addr,                              \
+                                       _mf->size,                              \
+                                       STRINGIFY(p),                           \
+                                       __func__,                               \
+                                       __FILE__,                               \
+                                       __LINE__);                              \
+      _mf->addr = NULL;                                                        \
+      _mf->size = 0;                                                           \
    } while (0)
 
 // Convenience function to free something volatile
