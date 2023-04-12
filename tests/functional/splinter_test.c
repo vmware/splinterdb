@@ -827,7 +827,8 @@ test_trunk_destroy_tables(trunk_handle   **spl_tables,
       trunk_destroy(spl_tables[spl_idx]);
    }
    platform_memfrag memfrag_spl_tables;
-   memfrag_init(&memfrag_spl_tables, spl_tables, num_tables);
+   memfrag_init_size(
+      &memfrag_spl_tables, spl_tables, (num_tables * sizeof(*spl_tables)));
    platform_memfrag *mf = &memfrag_spl_tables;
    platform_free(hid, mf);
 }

@@ -791,8 +791,8 @@ platform_shm_free(platform_heap_id hid,
       hid);
 
    if (!platform_valid_addr_in_heap(hid, ptr)) {
-      platform_error_log("[%s:%d::%s()] -> %s: Requesting to free memory"
-                         " at %p, for object '%s' which is a memory chunk not"
+      platform_error_log("[%s:%d::%s()] -> %s: Requesting to free memory at %p"
+                         ", for object '%s' which is a memory fragment not"
                          " allocated from shared memory {start=%p, end=%p}.\n",
                          file,
                          line,
@@ -982,6 +982,7 @@ platform_shm_track_free(shmem_info  *shm,
    bool trace_shmem        = (Trace_shmem || Trace_shmem_frees);
 
    shm_frag_info *frag = shm->shm_mem_frags;
+
    // Search the large-fragment tracking array for this fragment being freed.
    // If found, mark its tracker that this fragment is free & can be recycled.
    for (int fctr = 0; fctr < ARRAY_SIZE(shm->shm_mem_frags); fctr++, frag++) {
@@ -1021,6 +1022,19 @@ platform_shm_track_free(shmem_info  *shm,
       break;
    }
    shm_unlock_mem_frags(shm);
+
+   // We expect that callers invoke the free correctly with the right memory
+   // fragment handle. Not finding a large fragment requested to be freed
+   // indicates some coding error.
+   debug_assert(found_tracked_frag,
+                "[%s:%d:%s()] Request to track large fragment failed."
+                " Fragment %p, %lu bytes, for object '%s' is not tracked\n",
+                file,
+                line,
+                func,
+                addr,
+                size,
+                objname);
 
    if (!found_tracked_frag && trace_shmem) {
       platform_default_log("[OS-pid=%d, ThreadID=%lu, %s:%d::%s()] "

@@ -791,21 +791,12 @@ typedef struct platform_memfrag {
 #define memfrag_size(mf)  ((mf)->size)
 
 /*
- * void = memfrag_init(platform_memfrag *mf,
- *                     <something> *ptr,
- *                      int nitems ) (of <something> that was allocated earlier)
- *
- * void = memfrag_init_size(platform_memfrag *mf,
- *                          <something>      *ptr,
- *                          size_t            nbytes)
+ * void = memfrag_init_size(platform_memfrag *mf, <something> *ptr,
+ *                          size_t nbytes)
  *
  * Macro to initialize a memory fragment that was allocated for nitems-items of
- * an object pointed at by 'ptr',
+ * an object pointed at by 'ptr'. Sets it up to free the fragment.
  */
-// RESOLVE: Purge this interface; it's problematic. See clockcache.c.
-#define memfrag_init(mf, ptr, nitems)                                          \
-   memfrag_init_size((mf), (ptr), ((nitems) * sizeof(*ptr)))
-
 #define memfrag_init_size(mf, ptr, nbytes)                                     \
    do {                                                                        \
       (mf)->addr = (void *)ptr;                                                \
