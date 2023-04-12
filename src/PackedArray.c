@@ -380,7 +380,6 @@ void PACKEDARRAY_JOIN(__PackedArray_unpack_, PACKEDARRAY_IMPL_BITS_PER_ITEM)(con
 #include "poison.h"
 
 #define PACKEDARRAY_MALLOC(size) platform_malloc(size)
-#define PACKEDARRAY_FREE(p) platform_free(p)
 
 void PackedArray_pack(uint32* a, const uint32 offset, const uint32* in, uint32 count, size_t bitsPerItem)
 {

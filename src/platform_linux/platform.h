@@ -773,6 +773,27 @@ typedef struct platform_memfrag {
 #define memfrag_start(mf) ((mf)->addr)
 #define memfrag_size(mf)  ((mf)->size)
 
+/*
+ * void = memfrag_init(platform_memfrag *mf,
+ *                     <something> *ptr,
+ *                      int nitems ) (of <something> that was allocated earlier)
+ *
+ * void = memfrag_init_size(platform_memfrag *mf,
+ *                          <something>      *ptr,
+ *                          size_t            nbytes)
+ *
+ * Macro to initialize a memory fragment that was allocated for nitems-items of
+ * an object pointed at by 'ptr',
+ */
+#define memfrag_init(mf, ptr, nitems)                                          \
+   memfrag_init_size((mf), (ptr), ((nitems) * sizeof(*ptr)))
+
+#define memfrag_init_size(mf, ptr, nbytes)                                     \
+   do {                                                                        \
+      (mf)->addr = (void *)ptr;                                                \
+      (mf)->size = (nbytes);                                                   \
+   } while (0)
+
 static inline bool
 memfrag_is_empty(const platform_memfrag *mf)
 {

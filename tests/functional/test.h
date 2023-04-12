@@ -316,6 +316,9 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    for (i = 0; i < num_config; i++) {
       config_set_defaults(&master_cfg[i]);
    }
+   platform_memfrag  memfrag;
+   platform_memfrag *mf = &memfrag;
+   memfrag_init(mf, master_cfg, num_config);
 
    // Parse config-related command-line arguments
    rc = config_parse(master_cfg, num_config, argc, argv);
@@ -355,7 +358,7 @@ test_parse_args_n(trunk_config           *splinter_cfg,  // OUT
    }
 
 out:
-   platform_free(platform_get_heap_id(), master_cfg);
+   platform_free(platform_get_heap_id(), mf);
 
    return rc;
 }

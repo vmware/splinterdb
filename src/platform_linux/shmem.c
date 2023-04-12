@@ -946,6 +946,10 @@ platform_shm_track_free(shmem_info  *shm,
       } else if (size <= (4 * KiB)) {
          shm->usage.nfrees_le4K++;
       }
+
+      shm->usage.used_bytes -= size;
+      shm->usage.free_bytes += size;
+
       shm_unlock_mem_frags(shm);
       return;
    }
@@ -1162,6 +1166,7 @@ platform_shm_find_frag(shmem_info *shm,
    }
 
    shm_lock_mem_frags(shm);
+
    // Find the next free frag which is big enough
    while (*next_frag && ((*next_frag)->free_frag_size < size)) {
       next_frag = &(*next_frag)->free_frag_next;
@@ -1175,6 +1180,9 @@ platform_shm_find_frag(shmem_info *shm,
    }
    *next_frag             = retptr->free_frag_next;
    retptr->free_frag_next = NULL;
+
+   shm->usage.used_bytes += size;
+   shm->usage.free_bytes -= size;
 
    shm_unlock_mem_frags(shm);
    return (void *)retptr;

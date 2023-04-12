@@ -497,6 +497,8 @@ test_sync_writes(platform_heap_id    hid,
    if (!buf) {
       goto out;
    }
+   platform_memfrag  memfrag = {.addr = buf, .size = page_size};
+   platform_memfrag *mf      = &memfrag;
 
    memset(buf, stamp_char, page_size);
 
@@ -531,7 +533,7 @@ test_sync_writes(platform_heap_id    hid,
    }
 
 free_buf:
-   platform_free(hid, buf);
+   platform_free(hid, mf);
 out:
    return rc;
 }
@@ -598,6 +600,12 @@ test_sync_reads(platform_heap_id    hid,
    // Allocate a buffer to do page I/O, and an expected results buffer
    char *buf = TYPED_ARRAY_ZALLOC(hid, buf, page_size);
    char *exp = TYPED_ARRAY_ZALLOC(hid, exp, page_size);
+
+   // Setup handles to free allocated memory
+   platform_memfrag  buf_mf = {.addr = buf, .size = page_size};
+   platform_memfrag  exp_mf = {.addr = exp, .size = page_size};
+   platform_memfrag *mf     = NULL;
+
    memset(exp, stamp_char, page_size);
 
    platform_status rc = STATUS_OK;
@@ -642,8 +650,11 @@ test_sync_reads(platform_heap_id    hid,
    }
 
 free_buf:
-   platform_free(hid, buf);
-   platform_free(hid, exp);
+   mf = &buf_mf;
+   platform_free(hid, mf);
+
+   mf = &exp_mf;
+   platform_free(hid, mf);
    return rc;
 }
 

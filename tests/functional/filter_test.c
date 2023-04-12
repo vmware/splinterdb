@@ -69,8 +69,7 @@ test_filter_basic(cache           *cc,
       }
    }
 
-   mf->addr = used_keys;
-   mf->size = ((num_values + 1) * num_fingerprints * sizeof(*used_keys));
+   memfrag_init(mf, used_keys, ((num_values + 1) * num_fingerprints));
    platform_free(hid, mf);
 
    routing_filter filter[MAX_FILTERS] = {{0}};
@@ -101,8 +100,7 @@ test_filter_basic(cache           *cc,
                         num_input_keys[num_values - 1],
                         num_unique);
 
-   mf->addr = num_input_keys;
-   mf->size = (num_values * sizeof(*num_input_keys));
+   memfrag_init(mf, num_input_keys, num_values);
    platform_free(hid, mf);
 
    for (uint64 i = 0; i < num_values; i++) {
@@ -148,15 +146,12 @@ test_filter_basic(cache           *cc,
 out:
    if (fp_arr) {
       // All fingerprints are of the same size.
-      size_t size = (num_fingerprints * sizeof(*fp_arr[0]));
       for (uint64 i = 0; i < num_values; i++) {
-         mf->addr = fp_arr[i];
-         mf->size = size;
+         memfrag_init(mf, fp_arr[i], num_fingerprints);
          platform_free(hid, mf);
       }
    }
-   mf->addr = fp_arr;
-   mf->size = (num_values * sizeof(*fp_arr));
+   memfrag_init(mf, fp_arr, num_values);
    platform_free(hid, mf);
    return rc;
 }
@@ -283,12 +278,10 @@ out:
    platform_memfrag  memfrag;
    platform_memfrag *mf = &memfrag;
 
-   mf->addr = fp_arr;
-   mf->size = (num_trees * num_values * num_fingerprints * sizeof(*fp_arr));
+   memfrag_init(mf, fp_arr, (num_trees * num_values * num_fingerprints));
    platform_free(hid, mf);
 
-   mf->addr = filter;
-   mf->size = (num_trees * sizeof(*filter));
+   memfrag_init(mf, filter, num_trees);
    platform_free(hid, mf);
    return rc;
 }

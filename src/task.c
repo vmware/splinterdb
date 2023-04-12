@@ -230,7 +230,7 @@ task_invoke_with_hooks(void *func_and_args)
    // For background threads', also, IO-deregistration will happen here.
    task_deregister_this_thread(thread_started->ts);
 
-   platform_free(thread_started->heap_id, func_and_args);
+   platform_free(thread_started->heap_id, thread_started);
 }
 
 /*
@@ -246,7 +246,9 @@ task_create_thread_with_hooks(platform_thread       *thread,
                               task_system           *ts,
                               platform_heap_id       hid)
 {
-   platform_status ret;
+   platform_status   ret;
+   platform_memfrag  memfrag = {0};
+   platform_memfrag *mf      = &memfrag;
 
    threadid newtid = task_allocate_threadid(ts);
    if (newtid == INVALID_TID) {
@@ -288,7 +290,8 @@ task_create_thread_with_hooks(platform_thread       *thread,
 free_thread:
    platform_free(hid, thread_to_create);
 free_scratch:
-   platform_free(ts->heap_id, ts->thread_scratch[newtid]);
+   memfrag_init_size(mf, ts->thread_scratch[newtid], scratch_size);
+   platform_free(ts->heap_id, mf);
 dealloc_tid:
    task_deallocate_threadid(ts, newtid);
    return ret;

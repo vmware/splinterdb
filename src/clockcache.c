@@ -1913,17 +1913,15 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #endif
    }
 
-   platform_memfrag  memfrag;
-   platform_memfrag *mf = &memfrag;
+   platform_memfrag  memfrag = {0};
+   platform_memfrag *mf      = &memfrag;
    if (cc->lookup) {
-      mf->addr = cc->lookup;
-      mf->size = cc->lookup_size;
+      memfrag_init(mf, cc->lookup, cc->lookup_size);
       platform_free(cc->heap_id, mf);
       cc->lookup = NULL;
    }
    if (cc->entry) {
-      mf->addr = cc->entry;
-      mf->size = cc->entry_size;
+      memfrag_init(mf, cc->entry, cc->entry_size);
       platform_free(cc->heap_id, mf);
       cc->entry = NULL;
    }
@@ -1945,14 +1943,12 @@ clockcache_deinit(clockcache *cc) // IN/OUT
    }
 
    if (cc->pincount) {
-      mf->addr = (void *)cc->pincount;
-      mf->size = (cc->cfg->page_capacity * sizeof(*cc->pincount));
+      memfrag_init(mf, cc->pincount, cc->cfg->page_capacity);
       platform_free_volatile(cc->heap_id, mf);
    }
    if (cc->batch_busy) {
-      mf->addr = (void *)cc->batch_busy;
-      mf->size = ((cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH)
-                  * sizeof(*cc->batch_busy));
+      memfrag_init(
+         mf, cc->batch_busy, (cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH));
       platform_free_volatile(cc->heap_id, mf);
    }
 }
