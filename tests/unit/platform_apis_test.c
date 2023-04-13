@@ -267,15 +267,30 @@ CTEST2(platform_api, test_large_TYPED_MALLOC)
    platform_free(data->hid, iter);
 }
 
+/*
+ * Basic test case to verify that memory for large fragments is being
+ * recycled as expected.
+ */
 CTEST2(platform_api, test_large_TYPED_MALLOC_free_and_MALLOC)
 {
-   trunk_range_iterator *iter      = TYPED_MALLOC(data->hid, iter);
+   trunk_range_iterator *iter = TYPED_MALLOC(data->hid, iter);
+   // This struct should be larger than the threshold at which large
+   // free fragment strategy kicks-in.
+   ASSERT_TRUE(sizeof(*iter) >= SHM_LARGE_FRAG_SIZE);
+
    trunk_range_iterator *save_iter = iter;
    platform_free(data->hid, iter);
 
    trunk_range_iterator *new_iter = TYPED_MALLOC(data->hid, iter);
+
    // Memory for large structures should be recycled from shared memory
-   ASSERT_TRUE(!data->use_shmem || (save_iter == new_iter));
+   ASSERT_TRUE(!data->use_shmem || (save_iter == new_iter),
+               "use_shmem=%d, save_iter=%p, new_iter=%p"
+               ", sizeof() requested struct=%lu",
+               data->use_shmem,
+               save_iter,
+               new_iter,
+               sizeof(*iter));
    platform_free(data->hid, new_iter);
 }
 

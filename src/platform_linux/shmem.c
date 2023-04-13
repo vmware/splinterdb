@@ -58,20 +58,6 @@ typedef struct shm_frag_info {
 } shm_frag_info;
 
 /*
- * All memory allocations of this size or larger will be tracked in the
- * above fragment tracker array. For large inserts workload, we allocate large
- * memory chunks for fingerprint array, which is more than a MiB. For scans,
- * splinterdb_iterator_init() allocates memory for an iterator which is ~92+KiB.
- * Set this to a lower value so we can re-cycle free fragments for iterators
- * also.
- */
-#if SPLINTER_DEBUG
-#   define SHM_LARGE_FRAG_SIZE (90 * KiB)
-#else
-#   define SHM_LARGE_FRAG_SIZE (38 * KiB)
-#endif // SPLINTER_DEBUG
-
-/*
  * In the worst case we may have all threads performing activities that need
  * such large memory fragments. We track up to twice the # of configured
  * threads, which is still a small array to search.

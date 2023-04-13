@@ -8,6 +8,17 @@
 
 typedef struct shmem_info shmem_info;
 
+/*
+ * All memory allocations of this size or larger will be tracked in the
+ * a fragment tracker array. For large inserts workload, we allocate large
+ * memory chunks for fingerprint array, which is more than a MiB. For scans,
+ * splinterdb_iterator_init() allocates memory for an iterator which is ~42+KiB.
+ * Set this to a lower value so we can re-cycle free fragments for iterators
+ * also. (Keep the limit same for release/debug builds to get consistent
+ * behaviour.)
+ */
+#define SHM_LARGE_FRAG_SIZE (32 * KiB)
+
 platform_status
 platform_shmcreate(size_t                size,
                    platform_heap_handle *heap_handle,
