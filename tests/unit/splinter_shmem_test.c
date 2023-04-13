@@ -6,6 +6,8 @@
  * splinter_shmem_test.c --
  *
  *  Exercises the interfaces in SplinterDB shared memory allocation module.
+ *  Also includes tests for memory management of fingerprint object, an
+ *  area that was very troubling during development.
  * -----------------------------------------------------------------------------
  */
 #include "splinterdb/public_platform.h"
@@ -15,6 +17,7 @@
 #include "shmem.h"
 #include "splinterdb/splinterdb.h"
 #include "splinterdb/default_data_config.h"
+#include "util.h"
 
 #define TEST_MAX_KEY_SIZE 42 // Just something to get going ...
 
@@ -690,6 +693,88 @@ CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
 
    platform_enable_tracing_shm_ops();
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Test cases exercising fingerprint object management.
+ * ---------------------------------------------------------------------------
+ */
+CTEST2(splinter_shmem, test_fingerprint_basic)
+{
+   size_t mem_free_prev = platform_shmfree(data->hid);
+
+   size_t  nitems = (1 * KiB);
+   fp_hdr  fp;
+   uint32 *fp_arr = fingerprint_init(&fp, data->hid, nitems);
+   ASSERT_TRUE(fp_arr == fingerprint_start(&fp));
+   ASSERT_EQUAL(nitems, fingerprint_ntuples(&fp));
+   ASSERT_FALSE(fingerprint_is_empty(&fp));
+
+   size_t mem_free_now = platform_shmfree(data->hid);
+   ASSERT_TRUE(mem_free_now == (mem_free_prev - fingerprint_size(&fp)));
+
+   fingerprint_deinit(data->hid, &fp);
+   ASSERT_TRUE(fingerprint_is_empty(&fp));
+   mem_free_now = platform_shmfree(data->hid);
+   ASSERT_TRUE(mem_free_now == mem_free_prev);
+}
+
+/* Verify move operation */
+CTEST2(splinter_shmem, test_fingerprint_move)
+{
+   size_t  nitems = (1 * KiB);
+   fp_hdr  fp_src;
+   uint32 *fp_src_arr = fingerprint_init(&fp_src, data->hid, nitems);
+
+   size_t src_size = fingerprint_size(&fp_src);
+
+   fp_hdr  fp_dst     = {0};
+   uint32 *fp_dst_arr = fingerprint_move(&fp_dst, &fp_src);
+
+   // Fingerprint is now owned by destination object
+   ASSERT_TRUE(fp_dst_arr == fingerprint_start(&fp_dst));
+   ASSERT_TRUE(fp_dst_arr == fp_src_arr);
+   ASSERT_EQUAL(nitems, fingerprint_ntuples(&fp_dst));
+
+   size_t dst_size = fingerprint_size(&fp_dst);
+   ASSERT_EQUAL(src_size, dst_size);
+
+   // Source is empty
+   ASSERT_TRUE(fingerprint_is_empty(&fp_src));
+   ASSERT_EQUAL(0, fingerprint_ntuples(&fp_src));
+}
+
+/* Verify sequence of alias, unalias, only then you can do a deinit on src */
+CTEST2(splinter_shmem, test_fingerprint_alias_unalias_deinit)
+{
+   size_t  nitems = (1 * KiB);
+   fp_hdr  fp_src;
+   uint32 *fp_src_arr = fingerprint_init(&fp_src, data->hid, nitems);
+
+   size_t src_size = fingerprint_size(&fp_src);
+
+   fp_hdr  fp_dst     = {0};
+   uint32 *fp_dst_arr = fingerprint_alias(&fp_dst, &fp_src);
+
+   // Fingerprint is now owned by destination object
+   ASSERT_TRUE(fp_dst_arr == fingerprint_start(&fp_dst));
+   ASSERT_TRUE(fp_dst_arr == fp_src_arr);
+   ASSERT_EQUAL(nitems, fingerprint_ntuples(&fp_dst));
+
+   size_t dst_size = fingerprint_size(&fp_dst);
+   ASSERT_EQUAL(src_size, dst_size);
+
+   // Source is still not empty
+   ASSERT_TRUE(!fingerprint_is_empty(&fp_src));
+   ASSERT_EQUAL(nitems, fingerprint_ntuples(&fp_src));
+
+   // You have to unalias dst from src before you can release src's memory
+   fp_dst_arr = fingerprint_unalias(&fp_dst);
+   ASSERT_TRUE(fp_dst_arr == NULL);
+
+   fingerprint_deinit(data->hid, &fp_src);
+}
+
 
 static void
 setup_cfg_for_test(splinterdb_config *out_cfg, data_config *default_data_cfg)

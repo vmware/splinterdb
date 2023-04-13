@@ -46,7 +46,7 @@ test_filter_basic(cache           *cc,
    // The likelihood of this happening is low, so we skate a bit and
    // only save-off one typical memory fragment representing the entire
    // array.
-   platform_memfrag memfrag_fp_arr_i;
+   platform_memfrag memfrag_fp_arr_i = {0};
 
    for (uint64 i = 0; i < num_values; i++) {
       fp_arr[i] = TYPED_ARRAY_MALLOC_MF(
@@ -156,8 +156,10 @@ test_filter_basic(cache           *cc,
 out:
    if (fp_arr) {
       // All fingerprints are expected to be of the same size.
-      mf = &memfrag_fp_arr_i;
+      mf             = &memfrag_fp_arr_i;
+      size_t fp_size = memfrag_size(mf);
       for (uint64 i = 0; i < num_values; i++) {
+         memfrag_init_size(mf, fp_arr[i], fp_size);
          platform_free(hid, mf);
       }
    }

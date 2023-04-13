@@ -320,6 +320,7 @@ fingerprint_start(const fp_hdr *fp)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * uint32 * = fingerprint_init(fp_hdr *fp, platform_heap_id hid,
  *                             size_t num_tuples)
  *
@@ -357,6 +358,7 @@ fingerprint_is_empty(const fp_hdr *fp)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * void = fingerprint_deinit(platform_heap_id hid, fp_hdr *fp)
  *
  * Release the memory allocated for the fingerprint array.
@@ -429,6 +431,7 @@ fingerprint_do_nth(fp_hdr     *fp,
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * Deep-Copy the contents of 'src' fingerprint object into 'dst' fingerprint.
  * 'dst' fingerprint is expected to have been init'ed which would have allocated
  * sufficient memory required to copy-over the 'src' fingerprint array.
@@ -438,12 +441,14 @@ fingerprint_do_nth(fp_hdr     *fp,
 static inline void
 fingerprint_do_copy(fp_hdr *dst, fp_hdr *src, uint32 line)
 {
+   debug_assert(!fingerprint_is_empty(dst));
    memmove(
       memfrag_start(&dst->mf), memfrag_start(&src->mf), memfrag_size(&dst->mf));
    dst->copy_line = line;
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * For some temporary manipulation of fingerprints, point the fingerprint array
  * of 'dst' to the one managed by 'src' fingerprint. Memory allocated for the
  * fingerprint array will now be pointed to by two fingerprint objects.
@@ -481,6 +486,7 @@ fingerprint_do_alias(fp_hdr *dst, const fp_hdr *src, uint32 line)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * After a fingerprint has been aliased to point to some other fingerprint, and
  * its use is done, we restore the 'src' fingerprint to its un-aliased (empty)
  * state. (Memory deallocation of fingerprint will be done elsewhere by the
@@ -510,6 +516,7 @@ fingerprint_do_unalias(fp_hdr *dst, uint32 line)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * For some future manipulation of fingerprints, move the fingerprint array
  * owned by 'src' to the 'dst' fingerprint. Memory allocated for the 'src'
  * fingerprint array will now be owned by 'dst' fingerprint object, and
