@@ -28,17 +28,9 @@ platform_status
 platform_shmdestroy(platform_heap_handle *heap_handle);
 
 /*
- * void * = splinter_shm_alloc(platform_heap_id heap_id, size_t nbytes,
- *                             platform_memfrag *memfrag, // OUT
- *                             const char * objname,
- *                             const char * func, const int line)
- *
- * Caller-macro to invoke lower-level allocator and to pass-down caller's
- * context fields, which are printed for diagnostics under a traceflag.
+ * Allocate memory fragment from the shared memory of requested 'size'.
+ * Return info about allocated memory fragment via 'memfrag' output param.
  */
-#define splinter_shm_alloc(heap_id, nbytes, memfrag, objname, func, line)      \
-   platform_shm_alloc(heap_id, nbytes, memfrag, objname, func, file, line)
-
 void *
 platform_shm_alloc(platform_heap_id  hid,
                    const size_t      size,
@@ -46,21 +38,12 @@ platform_shm_alloc(platform_heap_id  hid,
                    const char       *objname,
                    const char       *func,
                    const char       *file,
-                   const int         lineno);
+                   const int         line);
 
 /*
- * void = splinter_shm_free(platform_heap_id heap_id, void *ptr,
- *                          const size_t size,
- *                          const char * objname,
- *                          const char * func,
- *                          const char * file, const int line)
- *
- * Caller-macro to invoke lower-level free method and to pass-down caller's
- * context fields, which are printed for diagnostics under a traceflag.
+ * Free the memory fragment of 'size' bytes at 'ptr' address. This interface
+ * deals with free of both small and large-memory fragments.
  */
-#define splinter_shm_free(heap_id, ptr, size, objname, func, file, line)       \
-   platform_shm_free(heap_id, ptr, size, objname, func, file, line)
-
 void
 platform_shm_free(platform_heap_id hid,
                   void            *ptr,
@@ -68,21 +51,13 @@ platform_shm_free(platform_heap_id hid,
                   const char      *objname,
                   const char      *func,
                   const char      *file,
-                  const int        lineno);
+                  const int        line);
 
 /*
- * void * = splinter_shm_realloc(platform_heap_id heap_id, void *oldptr,
- *                               size_t oldsize, size_t nbytes)
- *
- * Caller-macro to invoke 'realloc' interface from shared-segment. As we
- * do not know how big the old chunk being reallocated is, we need to pass-down
- * the 'oldsize' of the memory chunk pointed by 'oldptr'. Realloc needs to
- * copy over contents of 'oldptr' to new memory allocated.
+ * Reallocate the memory (fragment) at 'oldptr' of size 'oldsize' bytes.
+ * Any contents at 'oldptr' are copied to 'newptr' for 'oldsize' bytes.
+ * Returns ptr to re-allocated memory.
  */
-#define splinter_shm_realloc(heap_id, oldptr, oldsize, nbytes, func)           \
-   platform_shm_realloc(                                                       \
-      heap_id, oldptr, oldsize, nbytes, func, __FILE__, __LINE__)
-
 void *
 platform_shm_realloc(platform_heap_id hid,
                      void            *oldptr,
@@ -90,7 +65,7 @@ platform_shm_realloc(platform_heap_id hid,
                      const size_t     newsize,
                      const char      *func,
                      const char      *file,
-                     const int        lineno);
+                     const int        line);
 
 bool
 platform_valid_addr_in_heap(platform_heap_id heap_id, const void *addr);
@@ -154,6 +129,9 @@ platform_shmused(platform_heap_id heap_id);
 
 void *
 platform_shm_next_free_addr(platform_heap_id heap_id);
+
+bool
+platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id);
 
 void
 platform_shm_set_splinterdb_handle(platform_heap_handle heap_handle,

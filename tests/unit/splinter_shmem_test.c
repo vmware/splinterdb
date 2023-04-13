@@ -24,6 +24,9 @@
 // Test these many threads concurrently performing memory allocation.
 #define TEST_MAX_THREADS 8
 
+// Size of an on-stack buffer used for testing
+#define WB_ONSTACK_BUFSIZE 30
+
 /*
  * To test heavily concurrent memory allocation from the shared memory, each
  * thread will allocate a small fragment described by this structure. We then
@@ -329,7 +332,7 @@ CTEST2(splinter_shmem, test_free)
    mem_used -= keybuf_size;
    ASSERT_EQUAL(mem_used, platform_shmused(data->hid));
 
-   // The freed fragment should be reallocated, upon re-request.
+   // The freed fragment should be re-allocated, upon re-request.
    // Note, that there is a small discrepancy creeping in here. The caller may
    // have got a larger fragment returned, but its size is not immediately known
    // to the caller. Caller will end up free'ing a fragment specifying the size
@@ -459,7 +462,7 @@ CTEST2(splinter_shmem, test_concurrent_allocs_by_n_threads)
  * unchanged.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_alloc_free_and_realloc_of_large_fragment)
+CTEST2(splinter_shmem, test_alloc_free_and_reuse_of_large_fragment)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
@@ -473,13 +476,13 @@ CTEST2(splinter_shmem, test_alloc_free_and_realloc_of_large_fragment)
 
    // Re-establish next-free-ptr after this large allocation. We will use it
    // below to assert that this location will not change when we re-use this
-   // large fragment for reallocation after it's been freed.
+   // large fragment for re-allocation after it's been freed.
    next_free = platform_shm_next_free_addr(data->hid);
 
    // Save this off ...
    uint8 *keybuf_old = keybuf;
 
-   // If you free this fragment and reallocate exactly the same size,
+   // If you free this fragment and re-allocate exactly the same size,
    // it should recycle the freed fragment.
    platform_memfrag *mf = &memfrag_keybuf;
    platform_free(data->hid, mf);
@@ -501,11 +504,11 @@ CTEST2(splinter_shmem, test_alloc_free_and_realloc_of_large_fragment)
 /*
  * ---------------------------------------------------------------------------
  * Test that free followed by a request of the same size (of a large fragment)
- * will reallocate the recently-freed large fragment, avoiding any existing
+ * will re-allocate the recently-freed large fragment, avoiding any existing
  * in-use large fragments of the same size.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_free_realloc_around_inuse_large_fragments)
+CTEST2(splinter_shmem, test_free_reuse_around_inuse_large_fragments)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
@@ -530,13 +533,13 @@ CTEST2(splinter_shmem, test_free_realloc_around_inuse_large_fragments)
 
    // Re-establish next-free-ptr after this large allocation. We will use it
    // below to assert that this location will not change when we re-use a
-   // large fragment for reallocation after it's been freed.
+   // large fragment for re-allocation after it's been freed.
    next_free = platform_shm_next_free_addr(data->hid);
 
    // Save off fragment handles as free will NULL out ptr.
    uint8 *old_keybuf2_1MiB = keybuf2_1MiB;
 
-   // Free the middle fragment that should get reallocated, below.
+   // Free the middle fragment that should get reused, below.
    platform_memfrag  memfrag = {.addr = keybuf2_1MiB, .size = size};
    platform_memfrag *mf      = &memfrag;
    platform_free(data->hid, mf);
@@ -595,7 +598,7 @@ CTEST2(splinter_shmem, test_free_realloc_around_inuse_large_fragments)
  * and then satisfy the next request with the free 5 MiB fragment.
  * ---------------------------------------------------------------------------
  */
-CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
+CTEST2(splinter_shmem, test_reuse_of_free_fragments_uses_first_fit)
 {
    void *next_free = platform_shm_next_free_addr(data->hid);
 
@@ -614,7 +617,7 @@ CTEST2(splinter_shmem, test_realloc_of_free_fragments_uses_first_fit)
 
    // Re-establish next-free-ptr after this large allocation. We will use it
    // below to assert that this location will not change when we re-use a
-   // large fragment for reallocation after it's been freed.
+   // large fragment for re-allocation after it's been freed.
    next_free = platform_shm_next_free_addr(data->hid);
 
    // Save off fragment handles as free will NULL out ptr.
@@ -692,6 +695,227 @@ CTEST2(splinter_shmem, test_large_dev_with_small_shmem_error_handling)
    ASSERT_EQUAL(0, rc);
 
    platform_enable_tracing_shm_ops();
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Basic test to verify that memory is correctly freed through realloc()
+ * interface. Here, memory for an oldptr is expanded thru
+ * platform_shm_realloc(). This is similar to C-realloc() API. Verify that
+ * memory fragments are correctly freed. And that used / free space accounting
+ * is done properly.
+ *
+ * Verify that for a proper sequence of alloc / realloc / free operations, the
+ * used / free space metrics are correctly restored to their initial state.
+ * ---------------------------------------------------------------------------
+ */
+CTEST2(splinter_shmem, test_small_frag_platform_realloc)
+{
+   size_t shmused_initial = platform_shmused(data->hid);
+   size_t shmfree_initial = platform_shmfree(data->hid);
+
+   // As memory allocated is rounded-up to PLATFORM_CACHELINE_SIZE, ask for
+   // memory just short of a cache line size. This way, when we double our
+   // request, for realloc, we will necessarily go thru realloc(), rather than
+   // re-using this padded memory fragment.
+   size_t oldsize = (PLATFORM_CACHELINE_SIZE - 2 * sizeof(void *));
+   ;
+   platform_memfrag memfrag_oldptr;
+   char            *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
+
+   size_t old_shmfree = platform_shmfree(data->hid);
+   size_t old_shmused = platform_shmused(data->hid);
+
+   // Free-memory should have gone down by size of memfrag allocated
+   ASSERT_EQUAL(old_shmfree, (shmfree_initial - memfrag_size(&memfrag_oldptr)));
+
+   // Used-memory should have gone up by size of memfrag allocated
+   ASSERT_EQUAL(old_shmused, (shmused_initial + memfrag_size(&memfrag_oldptr)));
+
+   size_t newsize          = (2 * oldsize);
+   size_t adjusted_newsize = newsize;
+
+   // realloc interface is a bit tricky, due to our cache-alignment based
+   // memory fragment management. Even though user requested 'oldsize'
+   // initially, at realloc-time, you have to supply the actual memory fragment
+   // size. This will ensure correct free space accounting, and will prevent
+   // 'leaking' memory. E.g., here we allocated oldsize=56 bytes. When realloc()
+   // frees this fragment, if you supply 'oldsize', it will record the
+   // free-fragment's size, incorrectly, as 56 bytes.
+   // clang-format off
+   char *newptr = platform_realloc(data->hid,
+                                   memfrag_size(&memfrag_oldptr),
+                                   oldptr,
+                                   &adjusted_newsize);
+   // clang-format on
+   ASSERT_TRUE(newptr != oldptr);
+
+   // Expect that newsize was padded up for cacheline alignment
+   ASSERT_TRUE(adjusted_newsize > newsize);
+
+   // realloc() (is expected to) pad-up newsize to cache-line alignment
+   ASSERT_TRUE(platform_shm_next_free_cacheline_aligned(data->hid));
+
+   // Check free space accounting
+   newsize            = adjusted_newsize;
+   size_t new_shmfree = platform_shmfree(data->hid);
+   size_t exp_shmfree = (old_shmfree + memfrag_size(&memfrag_oldptr) - newsize);
+   ASSERT_TRUE((exp_shmfree == new_shmfree),
+               "Expected free space=%lu bytes != actual free space=%lu bytes"
+               ", diff=%lu bytes. ",
+               exp_shmfree,
+               new_shmfree,
+               (exp_shmfree - new_shmfree));
+
+   // Check used space accounting after realloc()
+   size_t new_shmused = platform_shmused(data->hid);
+   size_t exp_shmused = (old_shmused - memfrag_size(&memfrag_oldptr) + newsize);
+   ASSERT_TRUE((exp_shmused == new_shmused),
+               "Expected used space=%lu bytes != actual used space=%lu bytes"
+               ", diff=%lu bytes. ",
+               exp_shmused,
+               new_shmused,
+               (exp_shmused - new_shmused));
+
+   // We should be able to re-cycle the memory used by oldptr before realloc()
+   // for another memory fragment of the same size
+   platform_memfrag memfrag_nextptr;
+   char            *nextptr = TYPED_ARRAY_MALLOC(data->hid, nextptr, oldsize);
+   ASSERT_TRUE(nextptr == oldptr);
+
+   platform_memfrag memfrag_anotherptr;
+   char *anotherptr = TYPED_ARRAY_MALLOC(data->hid, anotherptr, (10 * oldsize));
+   ASSERT_TRUE(anotherptr != oldptr);
+   ASSERT_TRUE(anotherptr != nextptr);
+
+   platform_memfrag *mf = &memfrag_anotherptr;
+   platform_free(data->hid, mf);
+
+   mf = &memfrag_nextptr;
+   platform_free(data->hid, mf);
+
+   // Here's the trick in book-keeping. As oldptr was realloc()'ed, its size
+   // went up from what was tracked in its memfrag_oldptr to adjusted_newsize.
+   // So, to correctly get free space accounting, and to not 'leak' memory, we
+   // need to re-establish the fragment's correct size before freeing it.
+   mf               = &memfrag_oldptr;
+   memfrag_size(mf) = adjusted_newsize;
+   platform_free(data->hid, mf);
+
+   // Confirm that free/used space metrics go back to initial values
+   new_shmused = platform_shmused(data->hid);
+   new_shmfree = platform_shmfree(data->hid);
+
+   ASSERT_EQUAL(shmused_initial,
+                new_shmused,
+                "shmused_initial=%lu != new_shmused=%lu, diff=%lu. ",
+                shmused_initial,
+                new_shmused,
+                (new_shmused - shmused_initial));
+
+   ASSERT_EQUAL(shmfree_initial,
+                new_shmfree,
+                "shmfree_initial=%lu != new_shmfree=%lu, diff=%lu. ",
+                shmfree_initial,
+                new_shmfree,
+                (shmfree_initial - new_shmfree));
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Writable buffer interface tests: Which exercise shared memory related APIs.
+ * ---------------------------------------------------------------------------
+ */
+/*
+ * Resizing of writable buffers goes through realloc(). Cross-check that memory
+ * metrics are correctly done through this code-flow.
+ */
+CTEST2(splinter_shmem, test_writable_buffer_resize_empty_buffer)
+{
+   size_t shmused_initial = platform_shmused(data->hid);
+   size_t shmfree_initial = platform_shmfree(data->hid);
+
+   writable_buffer  wb_data;
+   writable_buffer *wb = &wb_data;
+
+   writable_buffer_init(wb, data->hid);
+   uint64 new_length = 20;
+   writable_buffer_resize(wb, 0, new_length);
+
+   ASSERT_EQUAL(new_length, writable_buffer_length(wb));
+
+   // We should have done some memory allocation.
+   ASSERT_TRUE(wb->can_free);
+   ASSERT_NOT_NULL(writable_buffer_data(wb));
+   writable_buffer_deinit(wb);
+
+   // Confirm that free/used space metrics go back to initial values
+   size_t new_shmused = platform_shmused(data->hid);
+   size_t new_shmfree = platform_shmfree(data->hid);
+
+   ASSERT_EQUAL(shmused_initial,
+                new_shmused,
+                "shmused_initial=%lu != new_shmused=%lu, diff=%lu. ",
+                shmused_initial,
+                new_shmused,
+                (new_shmused - shmused_initial));
+
+   ASSERT_EQUAL(shmfree_initial,
+                new_shmfree,
+                "shmfree_initial=%lu != new_shmfree=%lu, diff=%lu. ",
+                shmfree_initial,
+                new_shmfree,
+                (shmfree_initial - new_shmfree));
+}
+
+/*
+ * Test resizing of writable buffers that initially had an on-stack buffer.
+ * Resizing goes through realloc(). Cross-check that memory metrics are
+ * correctly done through this code-flow.
+ */
+CTEST2(splinter_shmem, test_writable_buffer_resize_onstack_buffer)
+{
+   size_t shmused_initial = platform_shmused(data->hid);
+   size_t shmfree_initial = platform_shmfree(data->hid);
+
+   writable_buffer  wb_data;
+   writable_buffer *wb = &wb_data;
+
+   char buf[WB_ONSTACK_BUFSIZE];
+   writable_buffer_init_with_buffer(
+      wb, data->hid, sizeof(buf), (void *)buf, WRITABLE_BUFFER_NULL_LENGTH);
+
+   size_t new_length = (10 * sizeof(buf));
+   writable_buffer_resize(wb, sizeof(buf), new_length);
+
+   ASSERT_EQUAL(new_length, writable_buffer_length(wb));
+
+   // We should have done some memory allocation.
+   ASSERT_TRUE(wb->can_free);
+
+   void *dataptr = writable_buffer_data(wb);
+   ASSERT_NOT_NULL(dataptr);
+   ASSERT_TRUE((void *)buf != dataptr);
+
+   writable_buffer_deinit(wb);
+
+   // Confirm that free/used space metrics go back to initial values
+   size_t new_shmused = platform_shmused(data->hid);
+   size_t new_shmfree = platform_shmfree(data->hid);
+
+   ASSERT_EQUAL(shmused_initial,
+                new_shmused,
+                "shmused_initial=%lu != new_shmused=%lu, diff=%lu. ",
+                shmused_initial,
+                new_shmused,
+                (new_shmused - shmused_initial));
+
+   ASSERT_EQUAL(shmfree_initial,
+                new_shmfree,
+                "shmfree_initial=%lu != new_shmfree=%lu, diff=%lu. ",
+                shmfree_initial,
+                new_shmfree,
+                (shmfree_initial - new_shmfree));
 }
 
 /*

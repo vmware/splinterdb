@@ -20,7 +20,9 @@ writable_buffer_ensure_space(writable_buffer *wb,
       minspace = 2 * wb->buffer_capacity;
    }
 
-   void *oldptr  = wb->can_free ? wb->buffer : NULL;
+   void *oldptr = wb->can_free ? wb->buffer : NULL;
+
+   // NOTE: realloc() may adjust-up 'minspace' for alignment
    void *newdata = platform_realloc(wb->heap_id, oldspace, oldptr, &minspace);
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
@@ -30,6 +32,7 @@ writable_buffer_ensure_space(writable_buffer *wb,
       memcpy(newdata, wb->buffer, wb->length);
    }
 
+   // Record allocated buffer capacities
    wb->buffer_capacity = minspace;
    wb->buffer          = newdata;
    wb->can_free        = TRUE;

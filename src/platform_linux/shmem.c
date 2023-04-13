@@ -725,7 +725,13 @@ platform_shm_alloc(platform_heap_id  hid,
  * platform_shm_realloc() -- Re-allocate n-bytes from shared segment.
  *
  * Functionally is similar to 'realloc' system call. We allocate required # of
- * bytes, copy over the old contents (if any), and do a fake free of the oldptr.
+ * bytes, copy over the old contents (if any), and free the memory for the
+ * oldptr.
+ *
+ * NOTE: This interface does -not- do any cache-line alignment for 'newsize'
+ * request. Caller is expected to do so. platform_realloc() takes care of it.
+ *
+ * Returns ptr to re-allocated memory.
  * -----------------------------------------------------------------------------
  */
 void *
@@ -737,13 +743,15 @@ platform_shm_realloc(platform_heap_id hid,
                      const char      *file,
                      const int        line)
 {
-   void *retptr = splinter_shm_alloc(hid, newsize, NULL, "Unknown", file, line);
+   static const char *unknown_obj = "UnknownObj";
+   void              *retptr =
+      platform_shm_alloc(hid, newsize, NULL, unknown_obj, func, file, line);
    if (retptr) {
 
       // Copy over old contents, if any, and free that old memory piece
       if (oldptr && oldsize) {
          memcpy(retptr, oldptr, oldsize);
-         splinter_shm_free(hid, oldptr, oldsize, "Unknown", func, file, line);
+         platform_shm_free(hid, oldptr, oldsize, unknown_obj, func, file, line);
       }
    }
    return retptr;
@@ -1488,6 +1496,15 @@ platform_shm_next_free_addr(platform_heap_id heap_id)
    return (
       platform_shm_next_free_addr_by_hh(platform_heap_id_to_handle(heap_id)));
 }
+
+bool
+platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id)
+{
+   return (
+      (((uint64)platform_shm_next_free_addr(heap_id)) % PLATFORM_CACHELINE_SIZE)
+      == 0);
+}
+
 
 static void
 platform_shm_trace_allocs(shmem_info  *shminfo,

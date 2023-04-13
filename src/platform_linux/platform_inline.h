@@ -467,8 +467,8 @@ platform_aligned_malloc(const platform_heap_id heap_id,
          memfrag->size = required;
       }
    } else {
-      retptr =
-         splinter_shm_alloc(heap_id, required, memfrag, objname, func, line);
+      retptr = platform_shm_alloc(
+         heap_id, required, memfrag, objname, func, file, line);
    }
    return retptr;
 }
@@ -484,16 +484,22 @@ platform_aligned_malloc(const platform_heap_id heap_id,
  *
  * Reallocing to size 0 must be equivalent to freeing.
  * Reallocing from NULL must be equivalent to allocing.
+ *
+ * Returns ptr to reallocated memory fragment. In case of shared memory,
+ *  returns the newsize padded-upto cache-line alignment bytes.
  */
 #define platform_realloc(hid, oldsize, ptr, newsize)                           \
-   platform_do_realloc((hid), (oldsize), (ptr), (newsize), __func__)
+   platform_do_realloc(                                                        \
+      (hid), (oldsize), (ptr), (newsize), __func__, __FILE__, __LINE__)
 
 static inline void *
 platform_do_realloc(const platform_heap_id heap_id,
                     const size_t           oldsize,
                     void                  *ptr,     // IN
                     size_t                *newsize, // IN/OUT
-                    const char            *func)
+                    const char            *func,
+                    const char            *file,
+                    const int              line)
 {
    /* FIXME: alignment? */
 
@@ -509,7 +515,8 @@ platform_do_realloc(const platform_heap_id heap_id,
       const size_t padding =
          platform_alignment(PLATFORM_CACHELINE_SIZE, *newsize);
       *newsize += padding;
-      return splinter_shm_realloc(heap_id, ptr, oldsize, *newsize, func);
+      return platform_shm_realloc(
+         heap_id, ptr, oldsize, *newsize, func, file, line);
    }
 }
 
@@ -525,7 +532,7 @@ platform_free_from_heap(platform_heap_id heap_id,
    if (heap_id == PROCESS_PRIVATE_HEAP_ID) {
       free(ptr);
    } else {
-      splinter_shm_free(heap_id, ptr, size, objname, func, file, line);
+      platform_shm_free(heap_id, ptr, size, objname, func, file, line);
    }
 }
 
