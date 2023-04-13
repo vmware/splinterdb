@@ -65,6 +65,13 @@ typedef struct shm_frag_info {
 #define SHM_NUM_LARGE_FRAGS (MAX_THREADS * 2)
 
 /*
+ * Currently, we track free-fragments in lists limited to these sizes.
+ * Each such free-list has a head-list field in shared memory control block.
+ */
+#define PLATFORM_SHM_FREE_FRAG_MIN_SIZE 64  // 32 > size <= 64
+#define PLATFORM_SHM_FREE_FRAG_MAX_SIZE 512 // 256 > size <= 512
+
+/*
  * Each free fragment that is hooked into the free-list is described by this
  * tiny tracking structure.
  */
@@ -904,6 +911,99 @@ platform_shm_hook_free_frag(free_frag_hdr **here, void *ptr, size_t size)
 
 /*
  * -----------------------------------------------------------------------------
+ * Helper functions for finding 'free' fragment and to walk free-lists.
+ * -----------------------------------------------------------------------------
+ */
+/*
+ * Simple lookup routine to return the free-fragment header off of which
+ * free-fragments of a specific 'size' will be hung off of.
+ * No mutex is required here, as we are simply mapping size to a field's addr.
+ */
+static free_frag_hdr **
+platform_shm_free_frag_hdr(const shmem_info *shm, size_t size)
+{
+   free_frag_hdr **next_frag;
+   if (size <= 64) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le64;
+   } else if (size <= 128) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le128;
+   } else if (size <= 256) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le256;
+   } else if (size <= 512) {
+      next_frag = (free_frag_hdr **)&shm->shm_free_le512;
+   } else {
+      // Currently unsupported fragment size for recycling
+      next_frag = NULL;
+   }
+   return next_frag;
+}
+
+#if SPLINTER_DEBUG
+
+/*
+ * When a memory fragment is being free'd, check if this fragment is already
+ * in some free-list. If found, it means we are [incorrectly] doing a
+ * double-free, which indicates a code error. User has possibly messed-up their
+ * handling of memfrag handles to this memory fragment.
+ *
+ * NOTE: This, being a convenience routine, provides for next_frag, which is
+ * the start of the free-list for given 'size'. If caller has established it,
+ * pass that here. Otherwise, we will establish it in this routine.
+ *
+ * Shared memory mutex is expected to be held for this function.
+ */
+static void *
+platform_shm_find_frag_in_free_list(const shmem_info *shm,
+                                    free_frag_hdr   **next_frag,
+                                    const void       *ptr,
+                                    const size_t      size)
+{
+   if (!next_frag) {
+      free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
+      // We are searching for a fragment whose size is not tracked.
+      if (next_frag == NULL) { // Nothing found.
+         return NULL;
+      }
+   }
+
+   // Walk the free-list to see if our being-free'd ptr lives there already
+   while (*next_frag && ((*next_frag) != ptr)) {
+      next_frag = &(*next_frag)->free_frag_next;
+   }
+   // Returns the 'ptr' if found; null otherwise.
+   return (*next_frag);
+}
+
+/*
+ * Diagnostic routine: Iterate through all free-lists that we currently
+ * manage and try to find if fragment at address 'ptr' is found in any such
+ * list.
+ *
+ * Returns: The size of the free-fragment list in which this 'ptr' was found.
+ *  0, otherwise; (i.e. 'ptr' is not an already-freed-fragment.)
+ */
+static size_t
+platform_shm_find_frag_in_freed_lists(const shmem_info *shm, const void *ptr)
+{
+   size_t freed_size = PLATFORM_SHM_FREE_FRAG_MIN_SIZE;
+
+   // Process all free-list sizes, till we find the being-freed fragment
+   while (freed_size <= PLATFORM_SHM_FREE_FRAG_MAX_SIZE) {
+      free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, freed_size);
+
+      if (platform_shm_find_frag_in_free_list(shm, next_frag, ptr, freed_size))
+      {
+         // We found this fragment 'ptr' in this free-fragment-list!
+         return freed_size;
+      }
+      freed_size *= 2;
+   }
+   return 0;
+}
+#endif // SPLINTER_DEBUG
+
+/*
+ * -----------------------------------------------------------------------------
  * platform_shm_track_free() - See if this memory fragment being freed is
  * already being tracked. If so, it's a large fragment allocation, which can be
  * re-cycled after this free. Do the book-keeping accordingly to record that
@@ -938,6 +1038,26 @@ platform_shm_track_free(shmem_info  *shm,
    // fragment. So, no further need to see if it's a tracked fragment.
    if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE))
    {
+      // If this fragment-being-free'd is one of a size we track, find
+      // the free-list the free'd-fragment should be linked to
+      free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
+      if (next_frag) {
+
+         // clang-format off
+         debug_code(size_t found_in_free_list_size = 0);
+         debug_assert(((found_in_free_list_size
+                         = platform_shm_find_frag_in_freed_lists(shm,
+                                                                 addr))
+                                == 0),
+                        "Memory fragment being-freed, %p, of size=%lu bytes"
+                        " was found in freed-fragment-list of size=%lu bytes.",
+                        addr, size, found_in_free_list_size);
+         // clang-format off
+
+         platform_shm_hook_free_frag(next_frag, addr, size);
+      }
+
+      // Maintain metrics here onwards
       shm->usage.nf_search_skipped++; // Track # of optimizations done
 
       if (size == 0) {
@@ -945,16 +1065,12 @@ platform_shm_track_free(shmem_info  *shm,
       } else if (size <= 32) {
          shm->usage.nfrees_le32++;
       } else if (size <= 64) {
-         platform_shm_hook_free_frag(&shm->shm_free_le64, addr, size);
          shm->usage.nfrees_le64++;
       } else if (size <= 128) {
-         platform_shm_hook_free_frag(&shm->shm_free_le128, addr, size);
          shm->usage.nfrees_le128++;
       } else if (size <= 256) {
-         platform_shm_hook_free_frag(&shm->shm_free_le256, addr, size);
          shm->usage.nfrees_le256++;
       } else if (size <= 512) {
-         platform_shm_hook_free_frag(&shm->shm_free_le512, addr, size);
          shm->usage.nfrees_le512++;
       } else if (size <= KiB) {
          shm->usage.nfrees_le1K++;
@@ -963,7 +1079,6 @@ platform_shm_track_free(shmem_info  *shm,
       } else if (size <= (4 * KiB)) {
          shm->usage.nfrees_le4K++;
       }
-
       shm->usage.used_bytes -= size;
       shm->usage.free_bytes += size;
 
@@ -1194,20 +1309,11 @@ platform_shm_find_frag(shmem_info *shm,
       return NULL;
    }
 
-   free_frag_hdr **next_frag;
-   if (size <= 64) {
-      next_frag = &shm->shm_free_le64;
-   } else if (size <= 128) {
-      next_frag = &shm->shm_free_le128;
-   } else if (size <= 256) {
-      next_frag = &shm->shm_free_le256;
-   } else if (size <= 512) {
-      next_frag = &shm->shm_free_le512;
-   } else {
-      // Currently unsupported fragment size for recycling
+   // If we are not tracking fragments of this size, nothing further to do.
+   free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
+   if (next_frag == NULL) {
       return NULL;
    }
-
    shm_lock_mem_frags(shm);
 
    // Find the next free frag which is big enough

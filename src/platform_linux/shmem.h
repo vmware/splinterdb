@@ -56,6 +56,9 @@ platform_shm_free(platform_heap_id hid,
 /*
  * Reallocate the memory (fragment) at 'oldptr' of size 'oldsize' bytes.
  * Any contents at 'oldptr' are copied to 'newptr' for 'oldsize' bytes.
+ *
+ * NOTE: This interface does -not- do any cache-line alignment for 'newsize'
+ * request. Caller is expected to do so. platform_realloc() takes care of it.
  * Returns ptr to re-allocated memory.
  */
 void *
