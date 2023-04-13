@@ -239,6 +239,12 @@ platform_heap_id_to_shmaddr(platform_heap_id hid)
    return shmaddr;
 }
 
+static inline shmem_info *
+platform_heap_id_to_shminfo(platform_heap_id hid)
+{
+   return (shmem_info *)platform_heap_id_to_shmaddr(hid);
+}
+
 /* Evaluates to valid 'low' address within shared segment. */
 static inline void *
 platform_shm_lop(platform_heap_id hid)
@@ -1609,6 +1615,18 @@ platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id)
    return (
       (((uint64)platform_shm_next_free_addr(heap_id)) % PLATFORM_CACHELINE_SIZE)
       == 0);
+}
+
+/*
+ * Test helper-method: Find out if a memory fragment is found in any
+ * free-lists?
+ *
+ * Returns - If found, the 'size' that free-list tracks. 0, otherwise.
+ */
+size_t
+platform_shm_find_freed_frag(platform_heap_id heap_id, const void *addr)
+{
+   return platform_shm_find_frag_in_freed_lists(platform_heap_id_to_shminfo(heap_id), addr);
 }
 
 

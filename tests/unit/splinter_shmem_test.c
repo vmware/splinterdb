@@ -299,6 +299,60 @@ CTEST2(splinter_shmem, test_allocations_using_get_heap_id)
 }
 
 /*
+ * Basic test of 'free' where a freed-fragment goes to a free-list. Verify that
+ * the freed-fragment is found in the expected free-list, by-size.
+ */
+CTEST2(splinter_shmem, test_free_list_size)
+{
+   int              keybuf_size = 64;
+   platform_memfrag memfrag_keybuf;
+   uint8           *keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
+
+   // Fragment is still allocated, so should not be in any free-list(s).
+   ASSERT_EQUAL(0, platform_shm_find_freed_frag(data->hid, keybuf));
+
+   platform_memfrag *mf = &memfrag_keybuf;
+   platform_free(data->hid, mf);
+
+   // A freed-fragment should go its appropriate free-list by-size.
+   ASSERT_EQUAL(keybuf_size, platform_shm_find_freed_frag(data->hid, keybuf));
+
+   // Variation testing out padding due to alignment
+   keybuf_size = 100;
+   keybuf      = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
+
+   // Memory allocation would have padded bytes up to cache line alignment.
+   size_t exp_memfrag_size = keybuf_size;
+   exp_memfrag_size += platform_alignment(PLATFORM_CACHELINE_SIZE, keybuf_size);
+   ASSERT_EQUAL(exp_memfrag_size, memfrag_size(mf));
+
+   platform_free(data->hid, mf);
+   ASSERT_EQUAL(exp_memfrag_size,
+                platform_shm_find_freed_frag(data->hid, keybuf));
+
+   // Allocate another fragment of 100 bytes, but free it to with a wrong size.
+   keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
+
+   /*
+    * NOTE: This is -not- what one should do. The free machinery just trusts the
+    * input fragment's size, and will free it to that free-list. It seems to
+    * work now, but in future, freed-fragment will be reallocated appearing to
+    * be of a larger size. But it's reallly of a smaller size.
+    */
+   size_t wrong_frag_size = 256;
+   memfrag_init_size(mf, keybuf, wrong_frag_size);
+   /*
+    * This will work, appearing as if the fragment is freed to the larger sized
+    * free-list. CAUTION: This is a sure way to induce memory corruption. The
+    * test case is
+    *   ** cautioning ** you how to be careful with your frees.
+    */
+   platform_free(data->hid, mf);
+   ASSERT_EQUAL(wrong_frag_size,
+                platform_shm_find_freed_frag(data->hid, keybuf));
+}
+
+/*
  * ---------------------------------------------------------------------------
  * Currently 'free' of small fragments is implemented by returning the freed
  * fragment to a free-list, by size of the fragment. Currently, we are only
