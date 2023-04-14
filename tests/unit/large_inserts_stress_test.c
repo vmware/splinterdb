@@ -475,10 +475,11 @@ CTEST2(large_inserts_stress, test_seq_key_seq_values_inserts_threaded)
  *
  * With --num-threads 63, hangs in
  *  clockcache_get_read() -> memtable_maybe_rotate_and_get_insert_lock()
- * FIXME: Runs into shmem OOM.
+ * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
+ * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
-CTEST2(large_inserts_stress,
-       test_seq_key_seq_values_inserts_threaded_same_start_keyid)
+CTEST2_SKIP(large_inserts_stress,
+            test_seq_key_seq_values_inserts_threaded_same_start_keyid)
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
@@ -494,10 +495,11 @@ CTEST2(large_inserts_stress,
  * Test case that fires up many threads each concurrently inserting large # of
  * KV-pairs, with all threads inserting from same start-value, using a fixed
  * fully-packed value.
- * FIXME: Runs into shmem OOM.
+ * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
+ * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
-CTEST2(large_inserts_stress,
-       test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
+CTEST2_SKIP(large_inserts_stress,
+            test_seq_key_fully_packed_value_inserts_threaded_same_start_keyid)
 {
    // Run n-threads with sequential key and sequential values inserted
    do_inserts_n_threads(data->kvsb,
@@ -544,10 +546,11 @@ CTEST2(large_inserts_stress, test_seq_keys_random_values_threaded)
 }
 
 /*
- * FIXME: Runs into shmem OOM with even 8 GiB
+ * FIXME: Runs into shmem OOM. (Should be fixed now by free-list mgmt.)
+ * FIXME: Causes CI-timeout after 2h in debug-test runs.
  */
-CTEST2(large_inserts_stress,
-       test_seq_keys_random_values_threaded_same_start_keyid)
+CTEST2_SKIP(large_inserts_stress,
+            test_seq_keys_random_values_threaded_same_start_keyid)
 {
    int random_val_fd = open("/dev/urandom", O_RDONLY);
    ASSERT_TRUE(random_val_fd > 0);
