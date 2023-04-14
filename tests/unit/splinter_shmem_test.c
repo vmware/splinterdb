@@ -835,7 +835,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
                ", diff=%lu bytes. ",
                exp_shmfree,
                new_shmfree,
-               (exp_shmfree - new_shmfree));
+               diff_size_t(exp_shmfree, new_shmfree));
 
    // Check used space accounting after realloc()
    size_t new_shmused = platform_shmused(data->hid);
@@ -845,7 +845,7 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
                ", diff=%lu bytes. ",
                exp_shmused,
                new_shmused,
-               (exp_shmused - new_shmused));
+               diff_size_t(exp_shmused, new_shmused));
 
    // We should be able to re-cycle the memory used by oldptr before realloc()
    // for another memory fragment of the same size
@@ -881,22 +881,24 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc)
                 "shmused_initial=%lu != new_shmused=%lu, diff=%lu. ",
                 shmused_initial,
                 new_shmused,
-                (new_shmused - shmused_initial));
+                diff_size_t(new_shmused, shmused_initial));
 
    ASSERT_EQUAL(shmfree_initial,
                 new_shmfree,
                 "shmfree_initial=%lu != new_shmfree=%lu, diff=%lu. ",
                 shmfree_initial,
                 new_shmfree,
-                (shmfree_initial - new_shmfree));
+                diff_size_t(shmfree_initial, new_shmfree));
 }
 
 /*
  * ---------------------------------------------------------------------------
- * Exercise realloc() of small-fragment to a large-fragment.
+ * Exercise realloc() of a small-fragment to a large-fragment.
  *
- * Verify that for a proper sequence of alloc / realloc / free operations, the
- * used / free space metrics are correctly restored to their initial state.
+ * Verify that:
+ *  - We round-up to cacheline alignment even for large fragment requests
+ *  - For a proper sequence of alloc / realloc / free operations, the
+ *    used / free space metrics are correctly restored to their initial state.
  * ---------------------------------------------------------------------------
  */
 CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
@@ -912,20 +914,25 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
    size_t old_shmfree = platform_shmfree(data->hid);
    size_t old_shmused = platform_shmused(data->hid);
 
+   size_t old_memfrag_size = memfrag_size(&memfrag_oldptr);
    // Free-memory should have gone down by size of memfrag allocated
-   ASSERT_EQUAL(old_shmfree, (shmfree_initial - memfrag_size(&memfrag_oldptr)));
+   ASSERT_EQUAL(old_shmfree, (shmfree_initial - old_memfrag_size));
 
    // Used-memory should have gone up by size of memfrag allocated
-   ASSERT_EQUAL(old_shmused, (shmused_initial + memfrag_size(&memfrag_oldptr)));
+   ASSERT_EQUAL(old_shmused, (shmused_initial + old_memfrag_size));
 
-   size_t newsize          = (2 * SHM_LARGE_FRAG_SIZE);
-   size_t adjusted_newsize = newsize;
+   // Request a very large fragment, just shy of the alignment size.
+   size_t newsize           = (2 * SHM_LARGE_FRAG_SIZE) - 16;
+   size_t adjusted_newsize  = newsize;
+   size_t expected_newsisze = newsize;
+   expected_newsisze +=
+      platform_alignment(PLATFORM_CACHELINE_SIZE, expected_newsisze);
 
    // realloc interface is a bit tricky, due to our cache-alignment based
    // memory fragment management. Even though user requested 'oldsize'
-   // initially, at realloc-time, you have to supply the actual memory fragment
-   // size. This will ensure correct free space accounting, and will prevent
-   // 'leaking' memory.
+   // initially, at realloc-time, you have to supply the memory fragment's
+   // actual size for 'oldsize'. This will ensure correct free space
+   // accounting, and will prevent 'leaking' memory.
    // clang-format off
    char *newptr = platform_realloc(data->hid,
                                    memfrag_size(&memfrag_oldptr),
@@ -934,57 +941,59 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
    // clang-format on
    ASSERT_TRUE(newptr != oldptr);
 
-   // adjusted_newsize is already aligned; no alignement should occur.
-   // Expect that newsize was padded up for cacheline alignment
-   ASSERT_TRUE((adjusted_newsize == newsize),
-               "adjusted_newsize=%lu, newsize=%lu",
-               adjusted_newsize,
-               newsize);
-
-   // In this case realloc() would not have changed next-free-byte to allocate
-   ASSERT_TRUE(platform_shm_next_free_cacheline_aligned(data->hid));
+   // Expect realloc() to have aligned to cache-line size
+   ASSERT_EQUAL(expected_newsisze,
+                adjusted_newsize,
+                "expected_newsisze=%lu, adjusted_newsize=%lu",
+                expected_newsisze,
+                adjusted_newsize);
 
    // Check free space accounting
    size_t new_shmfree = platform_shmfree(data->hid);
-   size_t exp_shmfree = (old_shmfree + memfrag_size(&memfrag_oldptr) - newsize);
+   size_t exp_shmfree =
+      (old_shmfree + memfrag_size(&memfrag_oldptr) - adjusted_newsize);
    ASSERT_TRUE((exp_shmfree == new_shmfree),
                "Expected free space=%lu bytes != actual free space=%lu bytes"
                ", diff=%lu bytes. ",
                exp_shmfree,
                new_shmfree,
-               (exp_shmfree - new_shmfree));
+               diff_size_t(exp_shmfree, new_shmfree));
 
-   // Check used space accounting after realloc()
+   // Check used space accounting after realloc() allocated a new large fragment
    size_t new_shmused = platform_shmused(data->hid);
-   size_t exp_shmused = (old_shmused - memfrag_size(&memfrag_oldptr) + newsize);
+   size_t exp_shmused =
+      (old_shmused - memfrag_size(&memfrag_oldptr) + adjusted_newsize);
    ASSERT_TRUE((exp_shmused == new_shmused),
                "Expected used space=%lu bytes != actual used space=%lu bytes"
                ", diff=%lu bytes. ",
                exp_shmused,
                new_shmused,
-               (exp_shmused - new_shmused));
+               diff_size_t(exp_shmused, new_shmused));
 
    platform_memfrag *mf = &memfrag_oldptr;
    memfrag_init_size(mf, newptr, newsize);
    platform_free(data->hid, mf);
 
-   // Confirm that free/used space metrics go back to initial values
+   // When large fragments are 'freed', they are not really accounted in the
+   // used/free bytes metrics. This is because, these large-fragments are
+   // already 'used', waiting to be re-cycled to the new request.
+   // Confirm that free/used space metrics go back to expected values.
    new_shmused = platform_shmused(data->hid);
    new_shmfree = platform_shmfree(data->hid);
 
-   ASSERT_EQUAL(shmused_initial,
-                new_shmused,
-                "shmused_initial=%lu != new_shmused=%lu, diff=%lu. ",
-                shmused_initial,
-                new_shmused,
-                (new_shmused - shmused_initial));
+   ASSERT_EQUAL(exp_shmfree,
+                new_shmfree,
+                "exp_shmfree=%lu != new_shmfree=%lu, diff=%lu. ",
+                exp_shmfree,
+                new_shmfree,
+                diff_size_t(exp_shmfree, new_shmfree));
 
-   ASSERT_EQUAL(shmfree_initial,
-                new_shmfree,
-                "shmfree_initial=%lu != new_shmfree=%lu, diff=%lu. ",
-                shmfree_initial,
-                new_shmfree,
-                (shmfree_initial - new_shmfree));
+   ASSERT_EQUAL(exp_shmused,
+                new_shmused,
+                "exp_shmused=%lu != new_shmused=%lu, diff=%lu. ",
+                exp_shmused,
+                new_shmused,
+                diff_size_t(exp_shmused, shmused_initial));
 }
 
 /*
@@ -1035,6 +1044,7 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_empty_buffer)
 }
 
 /*
+ * ---------------------------------------------------------------------------
  * Test resizing of writable buffers that initially had an on-stack buffer.
  * Resizing goes through realloc(). Cross-check that memory metrics are
  * correctly done through this code-flow.
@@ -1085,6 +1095,7 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_onstack_buffer)
 }
 
 /*
+ * ---------------------------------------------------------------------------
  * Test resizing of writable buffers that go through 'append' interface
  * correctly manage the fragment's capacity as was initially allocated from
  * shared memory. This is a test case for a small shmem-specific 'bug' in

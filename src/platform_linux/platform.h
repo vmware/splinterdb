@@ -981,6 +981,13 @@ max_size_t(size_t a, size_t b)
    return a > b ? a : b;
 }
 
+// Return absolute diff between two unsigned long values.
+static inline size_t
+diff_size_t(size_t a, size_t b)
+{
+   return ((a > b) ? (a - b) : (b - a));
+}
+
 static inline bool
 SUCCESS(const platform_status s)
 {

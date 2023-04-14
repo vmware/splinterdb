@@ -944,8 +944,6 @@ platform_shm_free_frag_hdr(const shmem_info *shm, size_t size)
    return next_frag;
 }
 
-#if SPLINTER_DEBUG
-
 /*
  * When a memory fragment is being free'd, check if this fragment is already
  * in some free-list. If found, it means we are [incorrectly] doing a
@@ -1018,7 +1016,6 @@ platform_shm_find_frag_in_freed_lists(const shmem_info *shm,
    }
    return 0;
 }
-#endif // SPLINTER_DEBUG
 
 /*
  * -----------------------------------------------------------------------------
@@ -1075,6 +1072,7 @@ platform_shm_track_free(shmem_info  *shm,
                         addr, size, found_in_free_list_size, free_frag_size);
          // clang-format off
 
+         // Hook this now-free fragment into its free-list
          platform_shm_hook_free_frag(next_frag, addr, size);
       }
 
@@ -1643,7 +1641,7 @@ platform_shm_find_freed_frag(platform_heap_id heap_id,
                              const void *addr,
                              size_t *freed_frag_size)
 {
-    shmem_info *shm = platform_heap_id_to_shminfo(heap_id);
+   shmem_info *shm = platform_heap_id_to_shminfo(heap_id);
    return platform_shm_find_frag_in_freed_lists(shm, addr, freed_frag_size);
 }
 

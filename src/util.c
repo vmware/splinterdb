@@ -27,7 +27,8 @@ writable_buffer_ensure_space(writable_buffer *wb,
    //   will be the buffer capacity, but not just the oldspace in-use.
    //   (Otherwise, free-fragment management will run into memory leaks.)
    void *newdata =
-      platform_realloc(wb->heap_id, wb->buffer_capacity, oldptr, &minspace);
+      // platform_realloc(wb->heap_id, wb->buffer_capacity, oldptr, &minspace);
+      platform_realloc(wb->heap_id, oldspace, oldptr, &minspace);
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
    }
