@@ -472,6 +472,10 @@ $(BINDIR)/$(UNITDIR)/splinter_shmem_test: $(UTIL_SYS)            \
                                           $(COMMON_UNIT_TESTOBJ) \
                                           $(LIBDIR)/libsplinterdb.so
 
+$(BINDIR)/$(UNITDIR)/splinter_shmem_oom_test: $(UTIL_SYS)            \
+                                              $(COMMON_UNIT_TESTOBJ) \
+                                              $(LIBDIR)/libsplinterdb.so
+
 $(BINDIR)/$(UNITDIR)/splinter_ipc_test: $(UTIL_SYS)            \
                                         $(COMMON_UNIT_TESTOBJ)
 

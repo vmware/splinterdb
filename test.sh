@@ -592,6 +592,11 @@ function run_fast_unit_tests() {
    "$BINDIR"/unit/misc_test "$use_shmem"
    "$BINDIR"/unit/limitations_test "$use_shmem"
    "$BINDIR"/unit/task_system_test "$use_shmem"
+   "$BINDIR"/unit/platform_apis_test "$use_shmem"
+
+   if [ "${use_shmem}" = "--use-shmem" ]; then
+      "$BINDIR"/unit/splinter_shmem_test
+   fi
 
    echo
    # Just exercise with some combination of background threads to ensure
