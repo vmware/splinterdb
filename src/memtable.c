@@ -266,7 +266,8 @@ memtable_context_create(platform_heap_id hid,
    platform_memfrag  memfrag_ctxt;
    memtable_context *ctxt =
       TYPED_FLEXIBLE_STRUCT_ZALLOC(hid, ctxt, mt, cfg->max_memtables);
-   ctxt->cc = cc;
+   ctxt->mt_ctxt_size = memfrag_size(&memfrag_ctxt);
+   ctxt->cc           = cc;
    memmove(&ctxt->cfg, cfg, sizeof(ctxt->cfg));
 
    uint64          base_addr;
@@ -332,7 +333,10 @@ memtable_context_destroy(platform_heap_id hid, memtable_context *ctxt)
    ref = allocator_dec_ref(al, ctxt->insert_lock_addr, PAGE_TYPE_LOCK_NO_DATA);
    platform_assert(ref == AL_FREE);
 
-   platform_free(hid, ctxt);
+   platform_memfrag  memfrag_ctxt;
+   platform_memfrag *mf = &memfrag_ctxt;
+   memfrag_init_size(mf, ctxt, ctxt->mt_ctxt_size);
+   platform_free(hid, mf);
 }
 
 void

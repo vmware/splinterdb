@@ -129,7 +129,8 @@ typedef struct memtable_context {
    uint64          lookup_lock_addr;
    volatile uint64 generation_retired;
 
-   bool is_empty;
+   bool   is_empty;
+   size_t mt_ctxt_size; // # of bytes of memory allocated to this struct
 
    // Effectively thread local, no locking at all:
    btree_scratch scratch[MAX_THREADS];

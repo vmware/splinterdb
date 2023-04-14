@@ -106,6 +106,10 @@ CTEST_SETUP(splinterdb_quick)
       data->cfg.use_shmem = TRUE;
    }
 
+   // Always turn ON stats-gathering so we cover common stats-related
+   // code-flows in this quick-test.
+   data->cfg.use_stats = TRUE;
+
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
    ASSERT_TRUE(TEST_MAX_VALUE_SIZE

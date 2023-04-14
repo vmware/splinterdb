@@ -515,8 +515,11 @@ platform_do_realloc(const platform_heap_id heap_id,
       const size_t padding =
          platform_alignment(PLATFORM_CACHELINE_SIZE, *newsize);
       *newsize += padding;
+
+      // NOTE: newsize may grow through realloc(), due to recycling of
+      // free fragments (for both small & large fragments).
       return platform_shm_realloc(
-         heap_id, ptr, oldsize, *newsize, func, file, line);
+         heap_id, ptr, oldsize, newsize, func, file, line);
    }
 }
 

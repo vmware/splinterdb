@@ -65,7 +65,7 @@ void *
 platform_shm_realloc(platform_heap_id hid,
                      void            *oldptr,
                      const size_t     oldsize,
-                     const size_t     newsize,
+                     size_t          *newsize,
                      const char      *func,
                      const char      *file,
                      const int        line);

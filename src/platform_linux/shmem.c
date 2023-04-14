@@ -111,6 +111,12 @@ typedef struct shminfo_usage_stats {
 
    size_t nf_search_skipped;
    size_t used_by_large_frags_bytes;
+
+   // # of times search in large-fragments array found array full.
+   // Non-zero counter implies that there were more concurrent
+   // requesters to track a large fragment than we have room to track.
+   size_t nlarge_frags_full;
+
    uint32 nfrags_inuse;
    uint32 nfrags_inuse_HWM;
    int    large_frags_found_in_use;
@@ -170,11 +176,11 @@ typedef struct shmem_info {
 // Function prototypes
 
 static void
-platform_shm_track_alloc(shmem_info *shm,
-                         void       *addr,
-                         size_t      size,
-                         const char *func,
-                         const int   line);
+platform_shm_track_large_alloc(shmem_info *shm,
+                               void       *addr,
+                               size_t      size,
+                               const char *func,
+                               const int   line);
 
 static void
 platform_shm_track_free(shmem_info  *shm,
@@ -350,7 +356,7 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       ", nfrees_le4K=%lu (" FRACTION_FMT(4, 2) " %%)"
       ", nfrags_inuse=%u"
       ", Large fragments in-use HWM=%u (found in-use=%d)"
-      ", consumed=%lu bytes (%s)"
+      ", consumed=%lu bytes (%s), nlarge_frags_full=%lu"
       ".\n",
       usage->shmid,
       usage->total_bytes,
@@ -388,7 +394,8 @@ platform_shm_print_usage_stats(shminfo_usage_stats *usage)
       usage->nfrags_inuse_HWM,
       usage->large_frags_found_in_use,
       usage->used_by_large_frags_bytes,
-      size_str(usage->used_by_large_frags_bytes));
+      size_str(usage->used_by_large_frags_bytes),
+      usage->nlarge_frags_full);
    // clang-format on
 }
 
@@ -651,15 +658,18 @@ platform_shm_alloc(platform_heap_id  hid,
 
    // See if we can satisfy requests for large memory fragments from a cached
    // list of used/free fragments that are tracked separately.
+   // clang-format off
    if (size >= SHM_LARGE_FRAG_SIZE) {
-      if ((retptr = platform_shm_find_large(
-              shminfo, size, memfrag, objname, func, file, line))
-          != NULL)
+      if ((retptr = platform_shm_find_large(shminfo, size, memfrag, objname,
+                                            func, file, line))
+                    != NULL)
       {
          return retptr;
       }
+      // clang-format on
    } else {
-      // Try to satisfy small memory fragments based on requested size
+      // Try to satisfy small memory fragments based on requested size, from
+      // cached list of free-fragments.
       retptr = platform_shm_find_frag(shminfo, size, objname, func, file, line);
       if (retptr) {
          // Return fragment's details to caller. We may have recycled a free
@@ -710,7 +720,7 @@ platform_shm_alloc(platform_heap_id  hid,
    __sync_fetch_and_sub(&shminfo->usage.free_bytes, size);
 
    if (size >= SHM_LARGE_FRAG_SIZE) {
-      platform_shm_track_alloc(shminfo, retptr, size, func, line);
+      platform_shm_track_large_alloc(shminfo, retptr, size, func, line);
    }
 
    // Trace shared memory allocation; then return memory ptr.
@@ -726,6 +736,7 @@ platform_shm_alloc(platform_heap_id  hid,
                                 file,
                                 line);
    }
+   // A new fragment was carved out of shm. Inform caller of its properties.
    if (memfrag) {
       memfrag->size = size;
       memfrag->addr = retptr;
@@ -741,24 +752,34 @@ platform_shm_alloc(platform_heap_id  hid,
  * bytes, copy over the old contents (if any), and free the memory for the
  * oldptr.
  *
- * NOTE: This interface does -not- do any cache-line alignment for 'newsize'
- * request. Caller is expected to do so. platform_realloc() takes care of it.
+ * NOTE(s):
+ *  - This interface does -not- do any cache-line alignment for 'newsize'.
+ *    Caller is expected to do so. platform_realloc() takes care of it.
+ *  - However, it is quite likely that for a fragment request, we might be
+ *    recycling a (small/large) free-fragment, whose size may be bigger
+ *    than requested 'newsize' (but will guranteed to be cache line aligned).
  *
- * Returns ptr to re-allocated memory.
+ * Returns ptr to re-allocated memory. May return a bigger *newsize, if
+ * a free fragment was recycled and re-allocated.
  * -----------------------------------------------------------------------------
  */
 void *
 platform_shm_realloc(platform_heap_id hid,
                      void            *oldptr,
                      const size_t     oldsize,
-                     const size_t     newsize,
+                     size_t          *newsize,
                      const char      *func,
                      const char      *file,
                      const int        line)
 {
    static const char *unknown_obj = "UnknownObj";
-   void              *retptr =
-      platform_shm_alloc(hid, newsize, NULL, unknown_obj, func, file, line);
+
+   platform_memfrag realloc_memfrag = {0};
+
+   // clang-format off
+   void *retptr = platform_shm_alloc(hid, *newsize, &realloc_memfrag,
+                                     unknown_obj, func, file, line);
+   // clang-format on
    if (retptr) {
 
       // Copy over old contents, if any, and free that old memory piece
@@ -766,6 +787,11 @@ platform_shm_realloc(platform_heap_id hid,
          memcpy(retptr, oldptr, oldsize);
          platform_shm_free(hid, oldptr, oldsize, unknown_obj, func, file, line);
       }
+      // A large free-fragment might have been recycled. Its size may be
+      // bigger than the requested '*newsize'. Return new size to caller.
+      // (This is critical, otherwise, asserts will trip when an attempt
+      // is made by caller to free this fragment.)
+      *newsize = memfrag_size(&realloc_memfrag);
    }
    return retptr;
 }
@@ -829,17 +855,17 @@ platform_shm_free(platform_heap_id hid,
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_track_alloc() - Track the allocation of this large fragment.
- * 'Tracking' here means we record this large-fragment in an array tracking
- * large-memory fragments allocated.
+ * platform_shm_track_large_alloc() - Track the allocation of this large
+ * fragment. 'Tracking' here means we record this large-fragment in an array
+ * tracking large-memory fragments allocated.
  * -----------------------------------------------------------------------------
  */
 static void
-platform_shm_track_alloc(shmem_info *shm,
-                         void       *addr,
-                         size_t      size,
-                         const char *func,
-                         const int   line)
+platform_shm_track_large_alloc(shmem_info *shm,
+                               void       *addr,
+                               size_t      size,
+                               const char *func,
+                               const int   line)
 {
    debug_assert(
       (size >= SHM_LARGE_FRAG_SIZE),
@@ -848,6 +874,7 @@ platform_shm_track_alloc(shmem_info *shm,
       size,
       SHM_LARGE_FRAG_SIZE);
 
+   bool found_free_slot = FALSE;
    shm_lock_mem_frags(shm);
 
    // Iterate through the list of memory fragments being tracked.
@@ -873,6 +900,7 @@ platform_shm_track_alloc(shmem_info *shm,
       }
 
       // We found a free slot. Track our memory fragment at fctr'th slot.
+      found_free_slot = TRUE;
       shm->shm_num_frags_tracked++;
       shm->usage.nfrags_inuse++;
       shm->shm_used_by_large_frags += size;
@@ -899,6 +927,9 @@ platform_shm_track_alloc(shmem_info *shm,
          shm->shm_large_frag_hip = addr;
       }
       break;
+   }
+   if (!found_free_slot) {
+      shm->usage.nlarge_frags_full++;
    }
    shm_unlock_mem_frags(shm);
 }
@@ -1019,10 +1050,15 @@ platform_shm_find_frag_in_freed_lists(const shmem_info *shm,
 
 /*
  * -----------------------------------------------------------------------------
- * platform_shm_track_free() - See if this memory fragment being freed is
- * already being tracked. If so, it's a large fragment allocation, which can be
- * re-cycled after this free. Do the book-keeping accordingly to record that
- * this large-fragment is no longer in-use and can be recycled.
+ * platform_shm_track_free() - Track 'free' of small and large fragments.
+ *
+ * Small fragments: Free this fragment, and using the 'size' specified,
+ *   connect it to the free-list tracking fragments of this size.
+
+ * Large fragments: See if this memory fragment being freed is
+ *   already being tracked. If so, it's a large fragment allocation, which
+ *   can be re-cycled after this free. Do the book-keeping accordingly to
+ *   record that this large-fragment is no longer in-use and can be recycled.
  * -----------------------------------------------------------------------------
  */
 static void
@@ -1048,6 +1084,8 @@ platform_shm_track_free(shmem_info  *shm,
    shm->usage.nfrees++;
    shm->usage.bytes_freed += size;
 
+   /* **** Tracking 'free' on smaller fragments. **** */
+
    // If we are freeing a fragment beyond the high-address of all
    // large fragments tracked, then this is certainly not a large
    // fragment. So, no further need to see if it's a tracked fragment.
@@ -1070,7 +1108,7 @@ platform_shm_track_free(shmem_info  *shm,
                         " was found in freed-fragment-list of size=%lu bytes"
                         ", and marked as %lu bytes size.",
                         addr, size, found_in_free_list_size, free_frag_size);
-         // clang-format off
+         // clang-format on
 
          // Hook this now-free fragment into its free-list
          platform_shm_hook_free_frag(next_frag, addr, size);
@@ -1105,6 +1143,8 @@ platform_shm_track_free(shmem_info  *shm,
       return;
    }
 
+   /* **** Tracking 'free' on large fragments. **** */
+
    shm->usage.nfrees_large_frags++;
    bool found_tracked_frag = FALSE;
    bool trace_shmem        = (Trace_shmem || Trace_shmem_frees);
@@ -1126,6 +1166,17 @@ platform_shm_track_free(shmem_info  *shm,
       // debug_assert(frag->shm_frag_allocated_to_tid != 0);
       debug_assert(frag->shm_frag_allocated_to_pid != 0);
       debug_assert(frag->shm_frag_size != 0);
+
+      // If a client allocated a large-fragment previously, it should be
+      // freed with the right original size (for hygiene). It's not
+      // really a correctness error as the fragment's size has been
+      // recorded initially when it was allocated.
+      debug_assert((size == frag->shm_frag_size),
+                   "Attempt to free a large fragment, %p, with size=%lu"
+                   ", but fragment has size of %lu bytes.",
+                   addr,
+                   size,
+                   frag->shm_frag_size);
 
       // Record the process/thread's identity to mark the fragment as free.
       frag->shm_frag_freed_by_pid = getpid();
@@ -1311,7 +1362,11 @@ platform_shm_find_large(shmem_info       *shm,
  * platform_shm_find_frag() - Find a small free-fragment in a cached list of
  * free fragments that we track, for specific buckets of fragment sizes.
  * If one is found of the suitable size, detach it from the list and return
- * its start address. Otherwise, return NULL.
+ * start address of the free fragment. Otherwise, return NULL.
+ *
+ * NOTE: As the free-fragments are linked using free_frag_hdr{}, we return
+ * the address of the recycled free-fragment, which can be temporarily
+ * read as free_frag_hdr{} *.
  * -----------------------------------------------------------------------------
  */
 static void *
@@ -1397,9 +1452,9 @@ platform_trace_large_frags(shmem_info *shm)
                             frag->shm_frag_freed_by_tid);
       }
 
-      platform_error_log("  **** [TID=%lu] Fragment at slot=%d"
-                         ", addr=%p, size=%lu (%s)"
-                         ", func=%s, line=%d, is in-use"
+      platform_error_log("  **** [TID=%lu] Large Fragment at slot=%d"
+                         ", addr=%p, size=%lu (%s)."
+                         " Allocated at func=%s, line=%d, is in-use"
                          ", allocated_to_pid=%d, allocated_to_tid=%lu\n",
                          tid,
                          fctr,
@@ -1638,8 +1693,8 @@ platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id)
  */
 size_t
 platform_shm_find_freed_frag(platform_heap_id heap_id,
-                             const void *addr,
-                             size_t *freed_frag_size)
+                             const void      *addr,
+                             size_t          *freed_frag_size)
 {
    shmem_info *shm = platform_heap_id_to_shminfo(heap_id);
    return platform_shm_find_frag_in_freed_lists(shm, addr, freed_frag_size);

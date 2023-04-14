@@ -7569,6 +7569,10 @@ trunk_unmount(trunk_handle **spl_in)
    srq_deinit(&spl->srq);
    trunk_set_super_block(spl, FALSE, TRUE, FALSE);
    trunk_prepare_for_shutdown(spl);
+
+   platform_memfrag  memfrag;
+   platform_memfrag *mf = &memfrag;
+
    if (spl->cfg.use_stats) {
       for (uint64 i = 0; i < MAX_THREADS; i++) {
          platform_histo_destroy(spl->heap_id,
@@ -7578,11 +7582,12 @@ trunk_unmount(trunk_handle **spl_in)
          platform_histo_destroy(spl->heap_id,
                                 &spl->stats[i].delete_latency_histo);
       }
-      platform_memfrag  memfrag = {.addr = spl->stats, .size = spl->stats_size};
-      platform_memfrag *mf      = &memfrag;
+      memfrag_init_size(mf, spl->stats, spl->stats_size);
       platform_free(spl->heap_id, mf);
    }
-   platform_free(spl->heap_id, spl);
+   memfrag_init_size(mf, spl, spl->size);
+   platform_free(spl->heap_id, mf);
+
    *spl_in = (trunk_handle *)NULL;
 }
 
