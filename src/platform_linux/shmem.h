@@ -144,4 +144,6 @@ void *
 platform_shm_get_splinterdb_handle(const platform_heap_handle heap_handle);
 
 size_t
-platform_shm_find_freed_frag(platform_heap_id heap_id, const void *addr);
+platform_shm_find_freed_frag(platform_heap_id heap_id,
+                             const void      *addr,
+                             size_t          *freed_frag_size);

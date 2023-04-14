@@ -983,26 +983,38 @@ platform_shm_find_frag_in_free_list(const shmem_info *shm,
 /*
  * Diagnostic routine: Iterate through all free-lists that we currently
  * manage and try to find if fragment at address 'ptr' is found in any such
- * list.
+ * list. That means, fragment was previously freed.
  *
  * Returns: The size of the free-fragment list in which this 'ptr' was found.
  *  0, otherwise; (i.e. 'ptr' is not an already-freed-fragment.)
+ *  Optionally, the size marked in this freed-fragment is returned via
+ *  'freed_size'. If a client incorrectly specified the memfrag's size at
+ *  the time of free(), that will be reported here, and can be detected.
  */
 static size_t
-platform_shm_find_frag_in_freed_lists(const shmem_info *shm, const void *ptr)
+platform_shm_find_frag_in_freed_lists(const shmem_info *shm,
+                                      const void       *ptr,
+                                      size_t           *freed_size)
 {
-   size_t freed_size = PLATFORM_SHM_FREE_FRAG_MIN_SIZE;
+   size_t free_list_size = PLATFORM_SHM_FREE_FRAG_MIN_SIZE;
 
    // Process all free-list sizes, till we find the being-freed fragment
-   while (freed_size <= PLATFORM_SHM_FREE_FRAG_MAX_SIZE) {
-      free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, freed_size);
+   while (free_list_size <= PLATFORM_SHM_FREE_FRAG_MAX_SIZE) {
+      free_frag_hdr **next_frag =
+         platform_shm_free_frag_hdr(shm, free_list_size);
 
-      if (platform_shm_find_frag_in_free_list(shm, next_frag, ptr, freed_size))
+      free_frag_hdr *found_free_frag;
+      if ((found_free_frag = platform_shm_find_frag_in_free_list(
+              shm, next_frag, ptr, free_list_size)))
       {
+         // Return the size as marked on the fragment when it was freed.
+         if (freed_size) {
+            *freed_size = found_free_frag->free_frag_size;
+         }
          // We found this fragment 'ptr' in this free-fragment-list!
-         return freed_size;
+         return free_list_size;
       }
-      freed_size *= 2;
+      free_list_size *= 2;
    }
    return 0;
 }
@@ -1051,13 +1063,16 @@ platform_shm_track_free(shmem_info  *shm,
 
          // clang-format off
          debug_code(size_t found_in_free_list_size = 0);
+         debug_code(size_t free_frag_size = 0);
          debug_assert(((found_in_free_list_size
                          = platform_shm_find_frag_in_freed_lists(shm,
-                                                                 addr))
+                                                                 addr,
+                                                                 &free_frag_size))
                                 == 0),
                         "Memory fragment being-freed, %p, of size=%lu bytes"
-                        " was found in freed-fragment-list of size=%lu bytes.",
-                        addr, size, found_in_free_list_size);
+                        " was found in freed-fragment-list of size=%lu bytes"
+                        ", and marked as %lu bytes size.",
+                        addr, size, found_in_free_list_size, free_frag_size);
          // clang-format off
 
          platform_shm_hook_free_frag(next_frag, addr, size);
@@ -1624,9 +1639,12 @@ platform_shm_next_free_cacheline_aligned(platform_heap_id heap_id)
  * Returns - If found, the 'size' that free-list tracks. 0, otherwise.
  */
 size_t
-platform_shm_find_freed_frag(platform_heap_id heap_id, const void *addr)
+platform_shm_find_freed_frag(platform_heap_id heap_id,
+                             const void *addr,
+                             size_t *freed_frag_size)
 {
-   return platform_shm_find_frag_in_freed_lists(platform_heap_id_to_shminfo(heap_id), addr);
+    shmem_info *shm = platform_heap_id_to_shminfo(heap_id);
+   return platform_shm_find_frag_in_freed_lists(shm, addr, freed_frag_size);
 }
 
 

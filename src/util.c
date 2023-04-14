@@ -23,7 +23,11 @@ writable_buffer_ensure_space(writable_buffer *wb,
    void *oldptr = wb->can_free ? wb->buffer : NULL;
 
    // NOTE: realloc() may adjust-up 'minspace' for alignment
-   void *newdata = platform_realloc(wb->heap_id, oldspace, oldptr, &minspace);
+   // ALSO: We must supply correct size of fragment being freed, which
+   //   will be the buffer capacity, but not just the oldspace in-use.
+   //   (Otherwise, free-fragment management will run into memory leaks.)
+   void *newdata =
+      platform_realloc(wb->heap_id, wb->buffer_capacity, oldptr, &minspace);
    if (newdata == NULL) {
       return STATUS_NO_MEMORY;
    }

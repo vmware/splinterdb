@@ -141,6 +141,12 @@ writable_buffer_length(const writable_buffer *wb)
    return wb->length;
 }
 
+static inline uint64
+writable_buffer_capacity(const writable_buffer *wb)
+{
+   return wb->buffer_capacity;
+}
+
 /* May allocate memory */
 platform_status
 writable_buffer_resize(writable_buffer *wb, uint64 oldlength, uint64 newlength);

@@ -302,20 +302,21 @@ CTEST2(splinter_shmem, test_allocations_using_get_heap_id)
  * Basic test of 'free' where a freed-fragment goes to a free-list. Verify that
  * the freed-fragment is found in the expected free-list, by-size.
  */
-CTEST2(splinter_shmem, test_free_list_size)
+CTEST2(splinter_shmem, test_basic_free_list_size)
 {
    int              keybuf_size = 64;
    platform_memfrag memfrag_keybuf;
    uint8           *keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
 
    // Fragment is still allocated, so should not be in any free-list(s).
-   ASSERT_EQUAL(0, platform_shm_find_freed_frag(data->hid, keybuf));
+   ASSERT_EQUAL(0, platform_shm_find_freed_frag(data->hid, keybuf, NULL));
 
    platform_memfrag *mf = &memfrag_keybuf;
    platform_free(data->hid, mf);
 
    // A freed-fragment should go its appropriate free-list by-size.
-   ASSERT_EQUAL(keybuf_size, platform_shm_find_freed_frag(data->hid, keybuf));
+   ASSERT_EQUAL(keybuf_size,
+                platform_shm_find_freed_frag(data->hid, keybuf, NULL));
 
    // Variation testing out padding due to alignment
    keybuf_size = 100;
@@ -328,18 +329,24 @@ CTEST2(splinter_shmem, test_free_list_size)
 
    platform_free(data->hid, mf);
    ASSERT_EQUAL(exp_memfrag_size,
-                platform_shm_find_freed_frag(data->hid, keybuf));
+                platform_shm_find_freed_frag(data->hid, keybuf, NULL));
 
    // Allocate another fragment of 100 bytes, but free it to with a wrong size.
    keybuf = TYPED_ARRAY_MALLOC(data->hid, keybuf, keybuf_size);
 
    /*
-    * NOTE: This is -not- what one should do. The free machinery just trusts the
-    * input fragment's size, and will free it to that free-list. It seems to
+    * NOTE: This is --NOT-- what one should do. The free machinery just trusts
+    * the input fragment's size, and will free it to that free-list. It seems to
     * work now, but in future, freed-fragment will be reallocated appearing to
-    * be of a larger size. But it's reallly of a smaller size.
+    * be of a larger size. But it's really of a smaller size.
     */
-   size_t wrong_frag_size = 256;
+   size_t wrong_frag_size = 240;
+
+   // Fragment will be "incorrectly" freed to this larger free-list size.
+   size_t free_frags_wrong_list_size = wrong_frag_size;
+   free_frags_wrong_list_size +=
+      platform_alignment(PLATFORM_CACHELINE_SIZE, wrong_frag_size);
+
    memfrag_init_size(mf, keybuf, wrong_frag_size);
    /*
     * This will work, appearing as if the fragment is freed to the larger sized
@@ -348,8 +355,16 @@ CTEST2(splinter_shmem, test_free_list_size)
     *   ** cautioning ** you how to be careful with your frees.
     */
    platform_free(data->hid, mf);
-   ASSERT_EQUAL(wrong_frag_size,
-                platform_shm_find_freed_frag(data->hid, keybuf));
+   size_t freed_frag_size_as_found = 0;
+   ASSERT_EQUAL(free_frags_wrong_list_size,
+                platform_shm_find_freed_frag(
+                   data->hid, keybuf, &freed_frag_size_as_found));
+   /*
+    * The wrong size specified at the time of the free will be inscribed into
+    * the free fragment. This is incorrect and can lead to memory corruption
+    * bugs.
+    */
+   ASSERT_EQUAL(wrong_frag_size, freed_frag_size_as_found);
 }
 
 /*
@@ -889,8 +904,8 @@ CTEST2(splinter_shmem, test_small_frag_platform_realloc_to_large_frag)
    size_t shmused_initial = platform_shmused(data->hid);
    size_t shmfree_initial = platform_shmfree(data->hid);
 
+   // Allocate a small fragment here
    size_t oldsize = ((2 * PLATFORM_CACHELINE_SIZE) - 2 * sizeof(void *));
-   ;
    platform_memfrag memfrag_oldptr;
    char            *oldptr = TYPED_ARRAY_MALLOC(data->hid, oldptr, oldsize);
 
@@ -1047,6 +1062,87 @@ CTEST2(splinter_shmem, test_writable_buffer_resize_onstack_buffer)
    void *dataptr = writable_buffer_data(wb);
    ASSERT_NOT_NULL(dataptr);
    ASSERT_TRUE((void *)buf != dataptr);
+
+   writable_buffer_deinit(wb);
+
+   // Confirm that free/used space metrics go back to initial values
+   size_t new_shmused = platform_shmused(data->hid);
+   size_t new_shmfree = platform_shmfree(data->hid);
+
+   ASSERT_EQUAL(shmused_initial,
+                new_shmused,
+                "shmused_initial=%lu != new_shmused=%lu, diff=%lu. ",
+                shmused_initial,
+                new_shmused,
+                (new_shmused - shmused_initial));
+
+   ASSERT_EQUAL(shmfree_initial,
+                new_shmfree,
+                "shmfree_initial=%lu != new_shmfree=%lu, diff=%lu. ",
+                shmfree_initial,
+                new_shmfree,
+                (shmfree_initial - new_shmfree));
+}
+
+/*
+ * Test resizing of writable buffers that go through 'append' interface
+ * correctly manage the fragment's capacity as was initially allocated from
+ * shared memory. This is a test case for a small shmem-specific 'bug' in
+ * writable_buffer_ensure_space() -> platform_realloc(), whereby we weren't
+ * specifying the right 'oldsize' for a fragment being realloc()'ed.
+ */
+CTEST2(splinter_shmem, test_writable_buffer_resize_vs_capacity)
+{
+   size_t shmused_initial = platform_shmused(data->hid);
+   size_t shmfree_initial = platform_shmfree(data->hid);
+
+   writable_buffer  wb_data;
+   writable_buffer *wb = &wb_data;
+
+   writable_buffer_init(wb, data->hid);
+   const char *input_str = "Hello World!";
+   writable_buffer_append(wb, strlen(input_str), (const void *)input_str);
+
+   // Min fragment allocated is of one cache line
+   ASSERT_EQUAL(PLATFORM_CACHELINE_SIZE, writable_buffer_capacity(wb));
+
+   void *data_ptr = writable_buffer_data(wb);
+
+   // If you append another short string that fits within buffer capacity,
+   // no reallocation should occur.
+   input_str = "Another Hello World!";
+   writable_buffer_append(wb, strlen(input_str), (const void *)input_str);
+
+   void *new_data_ptr = writable_buffer_data(wb);
+   ASSERT_TRUE(data_ptr == new_data_ptr);
+
+   size_t old_buffer_capacity = writable_buffer_capacity(wb);
+
+   // Now if you append a bigger chunk so that the writable buffer's capacity
+   // is exceeded, it will be realloc()'ed.
+   char filler[PLATFORM_CACHELINE_SIZE];
+   memset(filler, 'X', sizeof(filler));
+   writable_buffer_append(wb, sizeof(filler), (const void *)filler);
+
+   // Should allocate a new memory fragment, so data ptr must change
+   new_data_ptr = writable_buffer_data(wb);
+   ASSERT_FALSE(data_ptr == new_data_ptr);
+
+   size_t freed_frag_size_as_found = 0;
+
+   // Old writable-buffer should have been freed to the free-list
+   // corresponding to its capacity.
+   ASSERT_EQUAL(old_buffer_capacity,
+                platform_shm_find_freed_frag(
+                   data->hid, data_ptr, &freed_frag_size_as_found));
+
+   // The buffer should have been freed with its right capacity as 'size',
+   // but there was a latent bug that was tripping up this assertion.
+   ASSERT_EQUAL(old_buffer_capacity,
+                freed_frag_size_as_found,
+                "Expected free size=%lu, found free size of frag=%lu. ",
+                old_buffer_capacity,
+                freed_frag_size_as_found);
 
    writable_buffer_deinit(wb);
 
