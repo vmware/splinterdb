@@ -1092,7 +1092,7 @@ platform_shm_track_free(shmem_info  *shm,
    if ((addr > shm->shm_large_frag_hip) || (size && size < SHM_LARGE_FRAG_SIZE))
    {
       // If this fragment-being-free'd is one of a size we track, find
-      // the free-list the free'd-fragment should be linked to
+      // the free-list into which the free'd-fragment should be linked.
       free_frag_hdr **next_frag = platform_shm_free_frag_hdr(shm, size);
       if (next_frag) {
 
@@ -1110,7 +1110,22 @@ platform_shm_track_free(shmem_info  *shm,
                         addr, size, found_in_free_list_size, free_frag_size);
          // clang-format on
 
-         // Hook this now-free fragment into its free-list
+         /*
+          * ------------------------------------------------------------------
+          * Hook this now-free fragment into its free-list.
+          *
+          * NOTE: There is a potential for a small memory-leak, which may
+          * just be benign. We may have allocated via TYPED_MALLOC() for a
+          * single structure. alloc() and free() interfaces -do- round-up
+          * the sizeof(struct) for alignment. But it could well be that we
+          * recycled a small fragment from a free-list, where the fragment's
+          * original size was larger than sizeof(struct). So, come now to
+          * free()-time, caller only knows of sizeof(struct) which will be
+          * smaller than the actual fragment's size. This leads to a small
+          * bit of unused space in the to-be-freed-fragment, but should not
+          * cause any memory corruption.
+          * ------------------------------------------------------------------
+          */
          platform_shm_hook_free_frag(next_frag, addr, size);
       }
 
@@ -1167,16 +1182,25 @@ platform_shm_track_free(shmem_info  *shm,
       debug_assert(frag->shm_frag_allocated_to_pid != 0);
       debug_assert(frag->shm_frag_size != 0);
 
+      // -----------------------------------------------------------------
       // If a client allocated a large-fragment previously, it should be
       // freed with the right original size (for hygiene). It's not
       // really a correctness error as the fragment's size has been
-      // recorded initially when it was allocated.
-      debug_assert((size == frag->shm_frag_size),
+      // recorded initially when it was allocated. Initially, we tried
+      // to make this a strict "size == frag->shm_frag_size" check.
+      // But, it trips for various legit reasons. One example is when
+      // we call TYPED_MALLOC() to allocate memory for a large struct.
+      // This request may have gone through large free-fragment recycling
+      // scheme, in which case we cold have got a free-fragment with a
+      // much larger frag->shm_frag_size.
+      // -----------------------------------------------------------------
+      debug_assert((size <= frag->shm_frag_size),
                    "Attempt to free a large fragment, %p, with size=%lu"
-                   ", but fragment has size of %lu bytes.",
+                   ", but fragment has size of %lu bytes (%s).",
                    addr,
                    size,
-                   frag->shm_frag_size);
+                   frag->shm_frag_size,
+                   size_str(frag->shm_frag_size));
 
       // Record the process/thread's identity to mark the fragment as free.
       frag->shm_frag_freed_by_pid = getpid();

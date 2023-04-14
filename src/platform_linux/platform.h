@@ -885,9 +885,9 @@ memfrag_move(platform_memfrag *dst, platform_memfrag *src)
           * work here, so we correctly tell shared-memory the size to free.    \
           */                                                                   \
          const size_t _size = sizeof(*p);                                      \
-         const size_t _used =                                                  \
+         const size_t _reqd =                                                  \
             (_size + platform_alignment(PLATFORM_CACHELINE_SIZE, _size));      \
-         platform_free_mem((hid), (p), _used, STRINGIFY(p));                   \
+         platform_free_mem((hid), (p), _reqd, STRINGIFY(p));                   \
          (p) = NULL;                                                           \
       }                                                                        \
    } while (0)
