@@ -61,9 +61,6 @@ static_assert(sizeof(uint64) == 8, "incorrect type");
 #   define FALSE (0)
 #endif
 
-#if !defined(__cplusplus)
-typedef int32 bool;
-#endif
 typedef uint8 bool8;
 
 typedef FILE platform_log_handle;

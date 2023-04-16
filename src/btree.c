@@ -434,13 +434,13 @@ btree_find_pivot(const btree_config *cfg,
 
    debug_assert(!key_is_null(target));
 
-   *found = 0;
+   *found = FALSE;
 
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int cmp = btree_key_compare(cfg, btree_get_pivot(cfg, hdr, mid), target);
       if (cmp == 0) {
-         *found = 1;
+         *found = TRUE;
          return mid;
       } else if (cmp < 0) {
          lo = mid + 1;
@@ -476,14 +476,14 @@ btree_find_tuple(const btree_config *cfg,
 {
    int64 lo = 0, hi = btree_num_entries(hdr);
 
-   *found = 0;
+   *found = FALSE;
 
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int   cmp =
          btree_key_compare(cfg, btree_get_tuple_key(cfg, hdr, mid), target);
       if (cmp == 0) {
-         *found = 1;
+         *found = TRUE;
          return mid;
       } else if (cmp < 0) {
          lo = mid + 1;
@@ -2986,7 +2986,11 @@ btree_pack(btree_pack_req *req)
    while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
       iterator_get_curr(req->itor, &tuple_key, &data);
       if (!btree_pack_can_fit_tuple(req, tuple_key, data)) {
-         platform_error_log("btree_pack exceeded output size limit\n");
+         platform_error_log("%s(): req->num_tuples=%lu exceeded output size "
+                            "limit, req->max_tuples=%lu\n",
+                            __func__,
+                            req->num_tuples,
+                            req->max_tuples);
          btree_pack_abort(req);
          return STATUS_LIMIT_EXCEEDED;
       }

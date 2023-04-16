@@ -413,7 +413,7 @@ size_to_str(char *outbuf, size_t outbuflen, size_t size)
    }
 
    if (frac_val || is_approx) {
-      snprintf(outbuf, outbuflen, "~%ld.%ld %s", unit_val, frac_val, units);
+      snprintf(outbuf, outbuflen, "~%ld.%02ld %s", unit_val, frac_val, units);
    } else {
       snprintf(outbuf, outbuflen, "%ld %s", unit_val, units);
    }
