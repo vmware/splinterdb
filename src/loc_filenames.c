@@ -10,76 +10,70 @@
 ** Script executed: /Users/agurajada/Projects/LOC-Take2/./gen_filenames_defines.py
 ** ****************************************************************************
 */
-//clang-format off
+// clang-format off
 const char *Loc_FileNamesList [] =
 {
       "Unknown_file"                                            // 0, L=0 (line count)
-    , "src/PackedArray.c"                                       // 1, L=561
+    , "src/PackedArray.c"                                       // 1, L=562
     , "src/allocator.c"                                         // 2, L=27
     , "tests/functional/avlTree.c"                              // 3, L=931
-    , "src/btree.c"                                             // 4, L=3624
-    , "tests/unit/btree_stress_test.c"                          // 5, L=546
-    , "tests/functional/btree_test.c"                           // 6, L=1720
+    , "src/btree.c"                                             // 4, L=3608
+    , "tests/unit/btree_stress_test.c"                          // 5, L=506
+    , "tests/functional/btree_test.c"                           // 6, L=1660
     , "tests/unit/btree_test_common.c"                          // 7, L=76
-    , "tests/functional/cache_test.c"                           // 8, L=1167
-    , "src/clockcache.c"                                        // 9, L=3276
-    , "tests/config.c"                                          // 10, L=435
-    , "tests/unit/config_parse_test.c"                          // 11, L=135
-    , "src/data_internal.c"                                     // 12, L=53
-    , "src/default_data_config.c"                               // 13, L=92
+    , "tests/functional/cache_test.c"                           // 8, L=1139
+    , "src/clockcache.c"                                        // 9, L=3243
+    , "tests/config.c"                                          // 10, L=362
+    , "tests/unit/config_parse_test.c"                          // 11, L=130
+    , "src/data_internal.c"                                     // 12, L=52
+    , "src/default_data_config.c"                               // 13, L=88
     , "tests/functional/driver_test.c"                          // 14, L=14
-    , "tests/functional/filter_test.c"                          // 15, L=464
-    , "tests/functional/io_apis_test.c"                         // 16, L=1059
-    , "src/platform_linux/laio.c"                               // 17, L=654
-    , "tests/unit/large_inserts_stress_test.c"                  // 18, L=943
-    , "tests/unit/limitations_test.c"                           // 19, L=551
-    , "src/loc_filenames.c"                                     // 20, L=85
-    , "tests/functional/log_test.c"                             // 21, L=386
-    , "tests/unit/main.c"                                       // 22, L=1057
-    , "src/memtable.c"                                          // 23, L=354
-    , "src/merge.c"                                             // 24, L=663
-    , "src/mini_allocator.c"                                    // 25, L=1376
-    , "tests/unit/misc_test.c"                                  // 26, L=323
-    , "src/platform_linux/platform.c"                           // 27, L=542
-    , "tests/unit/platform_apis_test.c"                         // 28, L=321
-    , "src/rc_allocator.c"                                      // 29, L=880
-    , "src/routing_filter.c"                                    // 30, L=1371
-    , "src/shard_log.c"                                         // 31, L=526
-    , "src/platform_linux/shmem.c"                              // 32, L=1817
-    , "tests/unit/splinter_ipc_test.c"                          // 33, L=32
-    , "tests/unit/splinter_shmem_oom_test.c"                    // 34, L=314
-    , "tests/unit/splinter_shmem_test.c"                        // 35, L=1178
-    , "tests/functional/splinter_test.c"                        // 36, L=3055
-    , "src/splinterdb.c"                                        // 37, L=848
-    , "examples/splinterdb_custom_ipv4_addr_sortcmp_example.c"  // 38, L=385
-    , "tests/unit/splinterdb_forked_child_test.c"               // 39, L=663
-    , "examples/splinterdb_intro_example.c"                     // 40, L=137
-    , "examples/splinterdb_iterators_example.c"                 // 41, L=168
-    , "tests/unit/splinterdb_quick_test.c"                      // 42, L=1039
-    , "tests/unit/splinterdb_stress_test.c"                     // 43, L=280
-    , "examples/splinterdb_wide_values_example.c"               // 44, L=115
-    , "src/task.c"                                              // 45, L=1055
-    , "tests/unit/task_system_test.c"                           // 46, L=852
-    , "tests/functional/test_async.c"                           // 47, L=188
-    , "tests/test_common.c"                                     // 48, L=158
-    , "tests/test_data.c"                                       // 49, L=139
-    , "tests/functional/test_dispatcher.c"                      // 50, L=66
-    , "tests/functional/test_functionality.c"                   // 51, L=878
-    , "tests/functional/test_splinter_shadow.c"                 // 52, L=344
-    , "src/trunk.c"                                             // 53, L=9331
-    , "tests/unit/btree_test.c"                                 // 54, L=492
-    , "tests/unit/splinter_test.c"                              // 55, L=922
-    , "tests/unit/unit_tests_common.c"                          // 56, L=76
-    , "src/util.c"                                              // 57, L=436
-    , "tests/unit/util_test.c"                                  // 58, L=116
-    , "tests/unit/writable_buffer_test.c"                       // 59, L=415
-    , "tests/functional/ycsb_test.c"                            // 60, L=1387
+    , "tests/functional/filter_test.c"                          // 15, L=424
+    , "tests/functional/io_apis_test.c"                         // 16, L=826
+    , "src/platform_linux/laio.c"                               // 17, L=458
+    , "tests/unit/limitations_test.c"                           // 18, L=517
+    , "src/loc_filenames.c"                                     // 19, L=85
+    , "tests/functional/log_test.c"                             // 20, L=383
+    , "tests/unit/main.c"                                       // 21, L=1053
+    , "src/memtable.c"                                          // 22, L=349
+    , "src/merge.c"                                             // 23, L=662
+    , "src/mini_allocator.c"                                    // 24, L=1376
+    , "tests/unit/misc_test.c"                                  // 25, L=323
+    , "src/platform_linux/platform.c"                           // 26, L=404
+    , "tests/unit/platform_apis_test.c"                         // 27, L=92
+    , "src/rc_allocator.c"                                      // 28, L=867
+    , "src/routing_filter.c"                                    // 29, L=1338
+    , "src/shard_log.c"                                         // 30, L=506
+    , "tests/functional/splinter_test.c"                        // 31, L=2941
+    , "src/splinterdb.c"                                        // 32, L=699
+    , "examples/splinterdb_custom_ipv4_addr_sortcmp_example.c"  // 33, L=385
+    , "examples/splinterdb_intro_example.c"                     // 34, L=137
+    , "examples/splinterdb_iterators_example.c"                 // 35, L=168
+    , "tests/unit/splinterdb_quick_test.c"                      // 36, L=1027
+    , "tests/unit/splinterdb_stress_test.c"                     // 37, L=275
+    , "examples/splinterdb_wide_values_example.c"               // 38, L=115
+    , "src/task.c"                                              // 39, L=1020
+    , "tests/unit/task_system_test.c"                           // 40, L=743
+    , "tests/functional/test_async.c"                           // 41, L=183
+    , "tests/test_common.c"                                     // 42, L=127
+    , "tests/test_data.c"                                       // 43, L=136
+    , "tests/functional/test_dispatcher.c"                      // 44, L=66
+    , "tests/functional/test_functionality.c"                   // 45, L=869
+    , "tests/functional/test_splinter_shadow.c"                 // 46, L=344
+    , "src/trunk.c"                                             // 47, L=9142
+    , "tests/unit/btree_test.c"                                 // 48, L=462
+    , "tests/unit/splinter_test.c"                              // 49, L=906
+    , "tests/unit/unit_tests_common.c"                          // 50, L=76
+    , "src/util.c"                                              // 51, L=427
+    , "tests/unit/util_test.c"                                  // 52, L=116
+    , "tests/unit/writable_buffer_test.c"                       // 53, L=381
+    , "tests/functional/ycsb_test.c"                            // 54, L=1367
 
 };
 
-/* Overhead of FilenamesList[] array: 2045 bytes (2 KB) */
+/* Overhead of FilenamesList[] array: 1794 bytes (2 KB) */
 
 
 int Loc_FileNamesList_len = (sizeof(Loc_FileNamesList)/sizeof(*Loc_FileNamesList));
 
-//clang-format on
+// clang-format on

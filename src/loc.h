@@ -11,7 +11,7 @@
 ** ****************************************************************************
 */
 
-//clang-format off
+// clang-format off
 #ifndef __LOC_H__
 
 #include "loc_tokens.h"
@@ -41,5 +41,5 @@ extern const char *Loc_FileNamesList [];
 /* Extract line-number from an encoded loc_t value */
 #define LOC_LINE(v) ((v) & LOC__MASK_LINES)
 
-//clang-format off
+// clang-format off
 #endif  /* __LOC_H__ */
