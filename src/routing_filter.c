@@ -18,6 +18,7 @@
 #include <time.h>
 #include <string.h>
 #include <math.h>
+#include "loc.h"
 
 #include "poison.h"
 

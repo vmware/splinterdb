@@ -18,6 +18,7 @@
 #include "task.h"
 #include "util.h"
 #include "srq.h"
+#include "loc.h"
 
 #include "poison.h"
 
@@ -720,6 +721,7 @@ struct trunk_compact_bundle_req {
    uint64                tuples_reclaimed;
    uint64                kv_bytes_reclaimed;
    uint32               *fp_arr;
+   loc_t                 loc;
 };
 
 // an iterator which skips masked pivots
@@ -3344,6 +3346,7 @@ trunk_memtable_incorporate(trunk_handle  *spl,
                                "enqueuing build filter %lu-%u\n",
                                req->addr,
                                req->bundle_no);
+   req->loc = __LOC__;
    task_enqueue(
       spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
 
