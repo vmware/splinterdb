@@ -3462,7 +3462,7 @@ trunk_memtable_flush(trunk_handle *spl, uint64 generation)
       trunk_get_compacted_memtable(spl, generation);
    cmt->mt_args.spl        = spl;
    cmt->mt_args.generation = generation;
-   req->loc = __LOC__;
+   req->loc                = __LOC__;
    task_enqueue(spl->ts,
                 TASK_TYPE_MEMTABLE,
                 trunk_memtable_flush_internal_virtual,
@@ -4680,8 +4680,8 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                       "compact_bundle split from %lu to %lu\n",
                                       req->addr,
                                       next_req->addr);
-   req->loc = __LOC__;
-         rc = task_enqueue(
+         req->loc = __LOC__;
+         rc       = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, next_req, FALSE);
          platform_assert_status_ok(rc);
       } else {
@@ -4972,7 +4972,7 @@ trunk_compact_bundle(void *arg, void *scratch_buf)
                                   "enqueuing build filter %lu-%u\n",
                                   req->addr,
                                   req->bundle_no);
-   req->loc = __LOC__;
+      req->loc = __LOC__;
       task_enqueue(
          spl->ts, TASK_TYPE_NORMAL, trunk_bundle_build_filters, req, TRUE);
    }
@@ -5549,8 +5549,8 @@ trunk_split_leaf(trunk_handle *spl,
                                       "enqueuing compact_bundle %lu-%u\n",
                                       req->addr,
                                       req->bundle_no);
-   req->loc = __LOC__;
-         rc = task_enqueue(
+         req->loc = __LOC__;
+         rc       = task_enqueue(
             spl->ts, TASK_TYPE_NORMAL, trunk_compact_bundle, req, FALSE);
          platform_assert(SUCCESS(rc));
 
