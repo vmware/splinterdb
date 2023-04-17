@@ -146,7 +146,7 @@ CTEST2(splinterdb_stress, test_naive_range_delete)
  * FIXME: This test still runs into an assertion "filter->addr != 0"
  * from trunk_inc_filter(), which is being triaged separately.
  */
-CTEST2_SKIP(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
+CTEST2(splinterdb_stress, test_issue_458_mini_destroy_unused_debug_assert)
 {
    char key_data[TEST_KEY_SIZE];
    char val_data[TEST_VALUE_SIZE];
