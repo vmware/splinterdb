@@ -87,6 +87,7 @@ resources:
     repository: vmware/splinterdb
     access_token: ((github-bot-access-token))
     base_branch: #@ b
+    labels: ["ok-to-test"]
 #@ end
 
 #! Define nightly timer resource
