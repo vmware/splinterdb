@@ -16,6 +16,7 @@ const static uint8 broadcast_mask[64] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
 
 #define FPRINT_BITS 8
 #define RESIZE_THRESHOLD 0.96
+#define ENABLE_BLOCK_LOCKING 1
 /*#define RESIZE_THRESHOLD 0.85 // For YCSB*/
 
 uint64 seed[5] = { 12351327692179052ll, 23246347347385899ll, 35236262354132235ll, 13604702930934770ll, 57439820692984798ll };
@@ -621,7 +622,7 @@ static inline bool iceberg_lv3_insert(iceberg_table * table, KeyType key, ValueT
   while(__sync_lock_test_and_set(metadata->lv3_locks[bindex] + boffset, 1));
 
   iceberg_lv3_node * new_node = (iceberg_lv3_node *)malloc(sizeof(iceberg_lv3_node));
-
+  
   new_node->key = key;
   new_node->val = value;
   new_node->next_node = lists[boffset].head;
@@ -753,7 +754,7 @@ start: ;
 
 __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table, KeyType key, ValueType value) {
 // if (key == 64)
-  // platform_default_log("iceberg_insert, %lu, %lu\n", key, value);
+  //platform_default_log("iceberg_insert, %lu, %lu\n", key, value);
 
 #ifdef ENABLE_RESIZE
   if (UNLIKELY(need_resize(table))) {
@@ -797,7 +798,7 @@ __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table
   if (UNLIKELY(iceberg_get_value(table, key, &v))) {
     /*printf("Found!\n");*/
     unlock_block(&metadata->lv1_md[bindex][boffset]);
-    // platform_default_log("iceberg_insert success, Key: %lu Value: %lu, result: %u\n",key, value, FALSE);
+    //platform_default_log("iceberg_insert failed, Key: %lu Value: %lu, result: %u\n",key, value, FALSE);
     return FALSE;
   }
 
@@ -806,7 +807,7 @@ __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table
     ret = iceberg_lv2_insert(table, key, value, index);
 
   unlock_block(&metadata->lv1_md[bindex][boffset]);
-  // platform_default_log("iceberg_insert success, Key: %lu Value: %lu, result: %u\n",key, value, ret);
+  //platform_default_log("iceberg_insert success, Key: %lu Value: %lu, result: %u\n",key, value, ret);
   return ret;
 }
 
@@ -1025,16 +1026,16 @@ static inline bool iceberg_remove_internal(iceberg_table * table, KeyType key, V
 
 bool iceberg_remove(iceberg_table * table, KeyType key) 
 {
-  // platform_default_log("iceberg_remove, %lu\n", key);
+  //platform_default_log("iceberg_remove, %lu\n", key);
   bool ret = iceberg_remove_internal(table, key, NULL);
-  // platform_default_log("iceberg_remove result, %u\n", ret);
+  //platform_default_log("iceberg_remove result, %u\n", ret);
 
   return ret;
 }
 
 bool iceberg_remove_value(iceberg_table * table, KeyType key, ValueType value)
 {
-  // platform_default_log("iceberg_remove, key: %lu, value: %lu\n", key, value);
+  //platform_default_log("iceberg_remove, key: %lu, value: %lu\n", key, value);
  
   return iceberg_remove_internal(table, key, &value);
 }
@@ -1068,6 +1069,7 @@ static inline bool iceberg_lv3_get_value_internal(iceberg_table * table, KeyType
 }
 
 static inline bool iceberg_lv3_get_value(iceberg_table * table, KeyType key, ValueType *value, uint64 lv3_index) {
+  //platform_default_log("iceberg_lv3_get_value, key: %lu\n", key);
 #ifdef ENABLE_RESIZE
   // check if there's an active resize and block isn't fixed yet
   if (UNLIKELY(is_lv3_resize_active(table) && lv3_index >= (table->metadata.nblocks >> 1))) {
@@ -1093,6 +1095,7 @@ static inline bool iceberg_lv3_get_value(iceberg_table * table, KeyType key, Val
 
 static inline bool iceberg_lv2_get_value(iceberg_table * table, KeyType key, ValueType *value, uint64 lv3_index) {
 
+  //nplatform_default_log("iceberg_lv2_get_value, key: %lu\n", key);
   iceberg_metadata * metadata = &table->metadata;
 
   for(uint8 i = 0; i < D_CHOICES; ++i) {
@@ -1158,6 +1161,7 @@ static inline bool iceberg_lv2_get_value(iceberg_table * table, KeyType key, Val
 __attribute__ ((always_inline)) inline bool iceberg_get_value(iceberg_table * table, KeyType key, ValueType *value) {
   iceberg_metadata * metadata = &table->metadata;
 
+  //platform_default_log("iceberg_get_value, key: %lu\n", key);
   uint8 fprint;
   uint64 index;
 
@@ -1200,6 +1204,7 @@ __attribute__ ((always_inline)) inline bool iceberg_get_value(iceberg_table * ta
   }
 #endif
 
+  lock_block(&metadata->lv1_md[bindex][boffset]);
   __mmask64 md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, fprint);
 
   while (md_mask != 0) {
@@ -1213,7 +1218,7 @@ __attribute__ ((always_inline)) inline bool iceberg_get_value(iceberg_table * ta
   }
 
   bool ret = iceberg_lv2_get_value(table, key, value, index);
-
+  unlock_block(&metadata->lv1_md[bindex][boffset]);
   /*unlock_block(&metadata->lv1_md[bindex][boffset].block_md);*/
   return ret;
 }

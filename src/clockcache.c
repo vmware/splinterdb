@@ -1343,10 +1343,9 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
       if (clockcache_ok_to_writeback(cc, entry_no, is_urgent)
           && clockcache_try_set_writeback(cc, entry_no, is_urgent))
       {
-	
-         debug_assert(clockcache_lookup(cc, addr) == entry_no, "clockcache_lookup= %lu. Should be %lu, start: %lu, end: %lu.",
+         debug_assert(clockcache_lookup(cc, addr) == entry_no, "clockcache_lookup= %lu. Should be %lu, start: %lu, end: %lu, addr is: %lu.",
                 clockcache_lookup(cc, addr),
-                entry_no, start_entry_no, end_entry_no);
+                entry_no, start_entry_no, end_entry_no, addr);
          first_addr = entry->page.disk_addr;
          // walk backwards through extent to find first cleanable entry
          do {
