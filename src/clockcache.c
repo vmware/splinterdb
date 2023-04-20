@@ -62,16 +62,16 @@
 #   define clockcache_log(addr, entry, message, ...)                           \
       do {                                                                     \
          if (addr == TRACE_ADDR || entry == TRACE_ENTRY) {                     \
-            platform_handle_log(cc->logfile,                                   \
+            platform_log(cc->logfile,                                   \
                                 "(%lu) " message,                              \
                                 platform_get_tid(),                            \
                                 ##__VA_ARGS__);                                \
          }                                                                     \
       } while (0)
-#   define clockcache_log_stream(addr, entry, message, ...)                    \
+#   define clockcache_log_stream(stream, addr, entry, message, ...)                    \
       do {                                                                     \
          if (addr == TRACE_ADDR || entry == TRACE_ENTRY) {                     \
-            platform_log_stream(                                               \
+            platform_log_stream(stream,                                                \
                "(%lu) " message, platform_get_tid(), ##__VA_ARGS__);           \
          }                                                                     \
       } while (0)
@@ -80,14 +80,14 @@
 #      define clockcache_log(addr, entry, message, ...)                        \
          do {                                                                  \
             (void)(addr);                                                      \
-            platform_handle_log(cc->logfile,                                   \
+            platform_log(cc->logfile,                                   \
                                 "(%lu) " message,                              \
                                 platform_get_tid(),                            \
                                 ##__VA_ARGS__);                                \
          } while (0)
 
-#      define clockcache_log_stream(addr, entry, message, ...)                 \
-         platform_log_stream(                                                  \
+#      define clockcache_log_stream(stream,addr, entry, message, ...)                 \
+         platform_log_stream(stream,                                                  \
             "(%lu) " message, platform_get_tid(), ##__VA_ARGS__);
 #   else
 #      define clockcache_log(addr, entry, message, ...)                        \
@@ -96,7 +96,7 @@
             (void)(entry);                                                     \
             (void)(message);                                                   \
          } while (0)
-#      define clockcache_log_stream(addr, entry, message, ...)                 \
+#      define clockcache_log_stream(stream,addr, entry, message, ...)                 \
          do {                                                                  \
             (void)(addr);                                                      \
             (void)(entry);                                                     \
@@ -106,13 +106,13 @@
 #endif
 
 #if defined CC_LOG || defined ADDR_TRACING
-#   define clockcache_open_log_stream() platform_open_log_stream()
+#   define clockcache_open_log_stream(stream) platform_open_log_stream(stream)
 #else
 #   define clockcache_open_log_stream()
 #endif
 
 #if defined CC_LOG || defined ADDR_TRACING
-#   define clockcache_close_log_stream() platform_close_log_stream(cc->logfile)
+#   define clockcache_close_log_stream(stream) platform_close_log_stream(stream, cc->logfile)
 #else
 #   define clockcache_close_log_stream()
 #endif
@@ -699,9 +699,10 @@ static inline uint64
 clockcache_lookup(clockcache *cc, uint64 addr)
 {
    uint64 lookup_no    = clockcache_divide_by_page_size(cc, addr);
-   // uint32 entry_number = cc->lookup[lookup_no];
+   debug_only uint64 old_entry_number = cc->old_lookup[lookup_no];
    uint64 entry_number = CC_UNMAPPED_ENTRY;
    bool get_result = iceberg_get_value(&cc->lookup, lookup_no, &entry_number);
+   // debug_assert(old_entry_number == entry_number || entry_number == CC_UNMAPPED_ENTRY, "old is %lu, now it is %lu, deleted is: %lu.", old_entry_number, entry_number, CC_UNMAPPED_ENTRY);
 
    debug_assert(((get_result && entry_number < cc->cfg->page_capacity)
                  || (!get_result && entry_number == CC_UNMAPPED_ENTRY)),
@@ -1041,12 +1042,12 @@ clockcache_try_get_claim(clockcache *cc, uint64 entry_number)
 
    clockcache_log(0,
                   entry_number,
-                  "try_get_claim: entry_number %lu claimed: %lu\n",
+                  "try_get_claim: entry_number %lu claimed: %u\n",
                   entry_number,
                   clockcache_test_flag(cc, entry_number, CC_CLAIMED));
 
    if (clockcache_set_flag(cc, entry_number, CC_CLAIMED)) {
-      clockcache_log(0, entry_number, "return false\n", NULL);
+      clockcache_log(0, entry_number, "return false\n");
       return GET_RC_CONFLICT;
    }
 
@@ -1323,8 +1324,10 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
    debug_assert(cc != NULL);
    debug_assert(batch < cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH);
 
-   clockcache_open_log_stream();
-   clockcache_log_stream(0,
+   platform_stream_handle stream;
+   clockcache_open_log_stream(&stream);
+   clockcache_log_stream(&stream,
+                         0,
                          0,
                          "batch_start_writeback: %lu, entries %lu-%lu\n",
                          batch,
@@ -1340,7 +1343,10 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
       if (clockcache_ok_to_writeback(cc, entry_no, is_urgent)
           && clockcache_try_set_writeback(cc, entry_no, is_urgent))
       {
-         debug_assert(clockcache_lookup(cc, addr) == entry_no);
+	
+         debug_assert(clockcache_lookup(cc, addr) == entry_no, "clockcache_lookup= %lu. Should be %lu, start: %lu, end: %lu.",
+                clockcache_lookup(cc, addr),
+                entry_no, start_entry_no, end_entry_no);
          first_addr = entry->page.disk_addr;
          // walk backwards through extent to find first cleanable entry
          do {
@@ -1385,7 +1391,8 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
             next_entry = clockcache_lookup_entry(cc, addr);
             next_entry_no = clockcache_lookup(cc, addr);
 
-            clockcache_log_stream(addr,
+            clockcache_log_stream(&stream,
+                                  addr,
                                   next_entry_no,
                                   "flush: entry %lu addr %lu\n",
                                   next_entry_no,
@@ -1398,7 +1405,7 @@ clockcache_batch_start_writeback(clockcache *cc, uint64 batch, bool is_urgent)
          platform_assert_status_ok(status);
       }
    }
-   clockcache_close_log_stream();
+   clockcache_close_log_stream(&stream);
 }
 
 /*
@@ -1490,7 +1497,7 @@ clockcache_try_evict(clockcache *cc, uint64 entry_number)
    uint64 addr = entry->page.disk_addr;
    if (addr != CC_UNMAPPED_ADDR) {
       uint64 lookup_no      = clockcache_divide_by_page_size(cc, addr);
-      //   cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      cc->old_lookup[lookup_no] = CC_UNMAPPED_ENTRY;
       iceberg_remove(&cc->lookup, lookup_no);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
    }
@@ -1782,8 +1789,8 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->cfg       = cfg;
    cc->super.ops = &clockcache_ops;
 
-   //uint64 allocator_page_capacity =
-   //   clockcache_divide_by_page_size(cc, allocator_get_capacity(al));
+   uint64 allocator_page_capacity =
+      clockcache_divide_by_page_size(cc, allocator_get_capacity(al));
    uint64 debug_capacity =
       clockcache_multiply_by_page_size(cc, cc->cfg->page_capacity);
    cc->cfg->batch_capacity = cc->cfg->page_capacity / CC_ENTRIES_PER_BATCH;
@@ -1811,15 +1818,19 @@ clockcache_init(clockcache        *cc,   // OUT
    cc->heap_id = hid;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
-   //cc->lookup =
-   //   TYPED_ARRAY_MALLOC(cc->heap_id, cc->lookup, allocator_page_capacity);
+   cc->old_lookup =
+      TYPED_ARRAY_MALLOC(cc->heap_id, cc->old_lookup, allocator_page_capacity);
+   if (!cc->old_lookup) {
+      goto alloc_error;
+   }
+   for (i = 0; i < allocator_page_capacity; i++) {
+      cc->old_lookup[i] = CC_UNMAPPED_ENTRY;
+   }
+
    int failed = iceberg_init(&cc->lookup, log2_ceil(cc->cfg->page_capacity));
    if (failed) {
       goto iceberg_error;
    }
-   //for (i = 0; i < allocator_page_capacity; i++) {
-   //   cc->lookup[i] = CC_UNMAPPED_ENTRY;
-   //}
 
    cc->entry =
       TYPED_ARRAY_ZALLOC(cc->heap_id, cc->entry, cc->cfg->page_capacity);
@@ -1904,6 +1915,9 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 
    iceberg_deinit(&cc->lookup);
 
+   if (cc->old_lookup) {
+      platform_free(cc->heap_id, cc->old_lookup);
+   }
    if (cc->entry) {
       platform_free(cc->heap_id, cc->entry);
    }
@@ -1951,7 +1965,7 @@ clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
    entry->page.disk_addr      = addr;
    entry->type                = type;
    uint64 lookup_no = clockcache_divide_by_page_size(cc, entry->page.disk_addr);
-   //cc->lookup[lookup_no] = entry_no;
+   cc->old_lookup[lookup_no] = entry_no;
    bool ret = iceberg_insert(&cc->lookup, lookup_no, entry_no);
    debug_assert(ret);
    (void) ret;
@@ -2037,7 +2051,7 @@ clockcache_try_page_discard(clockcache *cc, uint64 addr)
 
       /* 5. clear lookup and disk addr; set status to CC_FREE_STATUS */
       uint64 lookup_no      = clockcache_divide_by_page_size(cc, addr);
-      // cc->lookup[lookup_no] = CC_UNMAPPED_ENTRY;
+      cc->old_lookup[lookup_no] = CC_UNMAPPED_ENTRY;
       iceberg_remove(&cc->lookup, lookup_no);
       debug_assert(entry->page.disk_addr == addr);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
@@ -2213,6 +2227,7 @@ clockcache_get_internal(clockcache   *cc,       // IN
     */
    if (!iceberg_insert(&cc->lookup, lookup_no, entry_number))
    {
+       __sync_bool_compare_and_swap(&cc->old_lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number);
       clockcache_dec_ref(cc, entry_number, tid);
       entry->status = CC_FREE_STATUS;
       clockcache_log(addr,
@@ -2436,6 +2451,7 @@ clockcache_get_async(clockcache       *cc,   // IN
     */
    if (!iceberg_insert(&cc->lookup, lookup_no, entry_number))
    {
+      __sync_bool_compare_and_swap(&cc->old_lookup[lookup_no], CC_UNMAPPED_ENTRY, entry_number);
       /*
        * This is rare but when it happens, we could burn CPU retrying
        * the get operation until an IO is complete.
@@ -2459,6 +2475,7 @@ clockcache_get_async(clockcache       *cc,   // IN
 
    io_async_req *req = io_get_async_req(cc->io, FALSE);
    if (req == NULL) {
+      cc->old_lookup[lookup_no] = CC_UNMAPPED_ENTRY;
       iceberg_remove(&cc->lookup, lookup_no);
       entry->page.disk_addr = CC_UNMAPPED_ADDR;
       entry->status         = CC_FREE_STATUS;
@@ -2947,6 +2964,7 @@ clockcache_prefetch(clockcache *cc, uint64 base_addr, page_type type)
             uint64 lookup_no        = clockcache_divide_by_page_size(cc, addr);
             if (iceberg_insert(&cc->lookup, lookup_no, free_entry_no))
             {
+               __sync_bool_compare_and_swap(&cc->old_lookup[lookup_no], CC_UNMAPPED_ENTRY, free_entry_no);
                if (pages_in_req == 0) {
                   debug_assert(req_start_addr == CC_UNMAPPED_ADDR);
                   // start a new IO req

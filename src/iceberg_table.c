@@ -752,6 +752,9 @@ start: ;
 }
 
 __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table, KeyType key, ValueType value) {
+// if (key == 64)
+  // platform_default_log("iceberg_insert, %lu, %lu\n", key, value);
+
 #ifdef ENABLE_RESIZE
   if (UNLIKELY(need_resize(table))) {
     iceberg_setup_resize(table);
@@ -794,6 +797,7 @@ __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table
   if (UNLIKELY(iceberg_get_value(table, key, &v))) {
     /*printf("Found!\n");*/
     unlock_block(&metadata->lv1_md[bindex][boffset]);
+    // platform_default_log("iceberg_insert success, Key: %lu Value: %lu, result: %u\n",key, value, FALSE);
     return FALSE;
   }
 
@@ -802,6 +806,7 @@ __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table
     ret = iceberg_lv2_insert(table, key, value, index);
 
   unlock_block(&metadata->lv1_md[bindex][boffset]);
+  // platform_default_log("iceberg_insert success, Key: %lu Value: %lu, result: %u\n",key, value, ret);
   return ret;
 }
 
@@ -1020,11 +1025,17 @@ static inline bool iceberg_remove_internal(iceberg_table * table, KeyType key, V
 
 bool iceberg_remove(iceberg_table * table, KeyType key) 
 {
-  return iceberg_remove_internal(table, key, NULL);
+  // platform_default_log("iceberg_remove, %lu\n", key);
+  bool ret = iceberg_remove_internal(table, key, NULL);
+  // platform_default_log("iceberg_remove result, %u\n", ret);
+
+  return ret;
 }
 
 bool iceberg_remove_value(iceberg_table * table, KeyType key, ValueType value)
 {
+  // platform_default_log("iceberg_remove, key: %lu, value: %lu\n", key, value);
+ 
   return iceberg_remove_internal(table, key, &value);
 }
 

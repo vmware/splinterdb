@@ -14,9 +14,9 @@
 #include "io.h"
 #include "iceberg_table.h"
 
-//#define ADDR_TRACING
-#define TRACE_ADDR  (UINT64_MAX - 1)
-#define TRACE_ENTRY (UINT64_MAX - 1)
+#define ADDR_TRACING
+#define TRACE_ADDR 262144 
+#define TRACE_ENTRY 178 
 
 // #define RECORD_ACQUISITION_STACKS
 
@@ -116,6 +116,7 @@ struct clockcache {
    io_handle         *io;
 
    iceberg_table       lookup;
+   uint64              *old_lookup;
    clockcache_entry    *entry;
    buffer_handle        bh;   // actual memory for pages
    char                *data; // convenience pointer for bh

@@ -317,7 +317,7 @@ platform_log_stream_to_string(platform_stream_handle *stream)
 
 #define platform_open_log_file(path, mode)                                     \
    ({                                                                          \
-      platform_log_handle lh = fopen(path, mode);                              \
+      platform_log_handle *lh = fopen(path, mode);                              \
       platform_assert(lh);                                                     \
       lh;                                                                      \
    })
