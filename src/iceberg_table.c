@@ -793,11 +793,18 @@ __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table
   uint64 bindex, boffset;
   get_index_offset(table->metadata.log_init_size, index, &bindex, &boffset);
 
+  // platform_default_log("locking block lv1  iceberg_insert: bindex: %lu, boffset: %lu\n", bindex, boffset);
   lock_block(&metadata->lv1_md[bindex][boffset]);
+  //platform_default_log("locked block lv1 iceberg_insert: bindex: %lu, boffset: %lu\n", bindex, boffset);
+
   ValueType v;
   if (UNLIKELY(iceberg_get_value(table, key, &v))) {
     /*printf("Found!\n");*/
+
+    //platform_default_log("unlocking lv1 block iceberg_insert: bindex: %lu, boffset: %lu\n", bindex, boffset);
     unlock_block(&metadata->lv1_md[bindex][boffset]);
+    //platform_default_log("unlocked lv1 block iceberg_insert: bindex: %lu, boffset: %lu\n", bindex, boffset);
+    
     //platform_default_log("iceberg_insert failed, Key: %lu Value: %lu, result: %u\n",key, value, FALSE);
     return FALSE;
   }
@@ -806,7 +813,9 @@ __attribute__ ((always_inline)) inline bool iceberg_insert(iceberg_table * table
   if (!ret)
     ret = iceberg_lv2_insert(table, key, value, index);
 
+  //platform_default_log("unlocking lv1 block iceberg_insert: bindex: %lu, boffset: %lu\n", bindex, boffset);
   unlock_block(&metadata->lv1_md[bindex][boffset]);
+  //platform_default_log("unlock lv1 block iceberg_insert: bindex: %lu, boffset: %lu\n", bindex, boffset);
   //platform_default_log("iceberg_insert success, Key: %lu Value: %lu, result: %u\n",key, value, ret);
   return ret;
 }
@@ -996,11 +1005,15 @@ static inline bool iceberg_remove_internal(iceberg_table * table, KeyType key, V
   }
 #endif
 
+  //platform_default_log("locking lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
   lock_block(&metadata->lv1_md[bindex][boffset]);
+  //platform_default_log("locked lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
   
   ValueType cur_value;
   if (value && iceberg_get_value(table, key, &cur_value) && cur_value != *value) {
+     //platform_default_log("unlocking lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
      unlock_block(&metadata->lv1_md[bindex][boffset]);
+     //platform_default_log("unlocked lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
      return FALSE;
   }
  
@@ -1013,14 +1026,18 @@ static inline bool iceberg_remove_internal(iceberg_table * table, KeyType key, V
     if (blocks[boffset].slots[slot].key == key) {
       metadata->lv1_md[bindex][boffset].block_md[slot] = 0;
       blocks[boffset].slots[slot].key = blocks[boffset].slots[slot].val = 0;
+      //platform_default_log("unlocking lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
       unlock_block(&metadata->lv1_md[bindex][boffset]);
+      //platform_default_log("unlocked lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
       return TRUE;
     }
   }
 
   bool ret = iceberg_lv2_remove(table, key, index);
 
+  //platform_default_log("unlocking lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
   unlock_block(&metadata->lv1_md[bindex][boffset]);
+  //platform_default_log("unlocked lv1 block iceberg_remove_internal: bindex: %lu, boffset: %lu\n", bindex, boffset);
   return ret;
 }
 
@@ -1204,7 +1221,6 @@ __attribute__ ((always_inline)) inline bool iceberg_get_value(iceberg_table * ta
   }
 #endif
 
-  lock_block(&metadata->lv1_md[bindex][boffset]);
   __mmask64 md_mask = slot_mask_64(metadata->lv1_md[bindex][boffset].block_md, fprint);
 
   while (md_mask != 0) {
@@ -1218,7 +1234,6 @@ __attribute__ ((always_inline)) inline bool iceberg_get_value(iceberg_table * ta
   }
 
   bool ret = iceberg_lv2_get_value(table, key, value, index);
-  unlock_block(&metadata->lv1_md[bindex][boffset]);
   /*unlock_block(&metadata->lv1_md[bindex][boffset].block_md);*/
   return ret;
 }
