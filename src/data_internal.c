@@ -1,4 +1,3 @@
-
 #include "data_internal.h"
 
 message_type

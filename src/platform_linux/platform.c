@@ -219,6 +219,140 @@ platform_spinlock_destroy(platform_spinlock *lock)
    return CONST_STATUS(ret);
 }
 
+/*
+ *-----------------------------------------------------------------------------
+ * Batch Read/Write Locks
+ *
+ * These are generic distributed reader/writer locks with an intermediate claim
+ * state. These offer similar semantics to the locks in the clockcache, but in
+ * these locks read locks cannot be held with write locks.
+ *
+ * These locks are allocated in batches of PLATFORM_CACHELINE_SIZE / 2, so that
+ * the write lock and claim bits, as well as the distributed read counters, can
+ * be colocated across the batch.
+ *-----------------------------------------------------------------------------
+ */
+
+void
+platform_batch_rwlock_init(platform_batch_rwlock *lock)
+{
+   ZERO_CONTENTS(lock);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * lock/unlock
+ *
+ * Drains and blocks all gets (read locks)
+ *
+ * Caller must hold a claim
+ * Caller cannot hold a get (read lock)
+ *-----------------------------------------------------------------------------
+ */
+
+void
+platform_batch_rwlock_lock(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   platform_assert(lock->write_lock[lock_idx].claim);
+   debug_only uint8 was_locked =
+      __sync_lock_test_and_set(&lock->write_lock[lock_idx].lock, 1);
+   debug_assert(!was_locked,
+                "platform_batch_rwlock_lock: Attempt to lock a locked page.\n");
+
+   uint64 wait = 1;
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      while (lock->read_counter[i][lock_idx] != 0) {
+         platform_sleep_ns(wait);
+         wait = wait > 2048 ? wait : 2 * wait;
+      }
+      wait = 1;
+   }
+}
+
+void
+platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   __sync_lock_release(&lock->write_lock[lock_idx].lock);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * try_claim/claim/unlock
+ *
+ * A claim blocks all other claimants (and therefore all other writelocks,
+ * because writelocks are required to hold a claim during the writelock).
+ *
+ * Cannot hold a get (read lock)
+ *
+ * try_claim returns whether the claim succeeded
+ *-----------------------------------------------------------------------------
+ */
+
+bool
+platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   if (__sync_lock_test_and_set(&lock->write_lock[lock_idx].claim, 1)) {
+      return FALSE;
+   }
+   return TRUE;
+}
+
+void
+platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   uint64 wait = 1;
+   while (!platform_batch_rwlock_try_claim(lock, lock_idx)) {
+      platform_sleep_ns(wait);
+      wait = wait > 2048 ? wait : 2 * wait;
+   }
+}
+
+void
+platform_batch_rwlock_unclaim(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   __sync_lock_release(&lock->write_lock[lock_idx].claim);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * get/unget
+ *
+ * Acquire a read lock
+ *-----------------------------------------------------------------------------
+ */
+
+void
+platform_batch_rwlock_get(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   threadid tid = platform_get_tid();
+   while (1) {
+      uint64 wait = 1;
+      while (lock->write_lock[lock_idx].lock) {
+         platform_sleep_ns(wait);
+         wait = wait > 2048 ? wait : 2 * wait;
+      }
+      debug_only uint8 old_counter =
+         __sync_fetch_and_add(&lock->read_counter[tid][lock_idx], 1);
+      debug_assert(old_counter == 0);
+      if (!lock->write_lock[lock_idx].lock) {
+         return;
+      }
+      old_counter = __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
+      debug_assert(old_counter == 1);
+   }
+   platform_assert(0);
+}
+
+void
+platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   threadid         tid = platform_get_tid();
+   debug_only uint8 old_counter =
+      __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
+   debug_assert(old_counter == 1);
+}
+
+
 platform_status
 platform_histo_create(platform_heap_id       heap_id,
                       uint32                 num_buckets,

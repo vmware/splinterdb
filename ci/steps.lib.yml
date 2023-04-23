@@ -11,7 +11,7 @@
 #@   elif test_nightly:
 #@     return "6h"
 #@   else:
-#@     return "2h"
+#@     return "3h"
 #@   end
 #@ end
 

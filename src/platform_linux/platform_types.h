@@ -81,6 +81,45 @@ typedef struct {
 // Spin lock
 typedef pthread_spinlock_t platform_spinlock;
 
+// Distributed Batch RW Lock
+typedef struct {
+   volatile uint8 lock;
+   volatile uint8 claim;
+} platform_claimlock;
+
+typedef struct {
+   platform_claimlock write_lock[PLATFORM_CACHELINE_SIZE / 2];
+   volatile uint8     read_counter[MAX_THREADS][PLATFORM_CACHELINE_SIZE / 2];
+} PLATFORM_CACHELINE_ALIGNED platform_batch_rwlock;
+
+_Static_assert(sizeof(platform_batch_rwlock)
+                  == PLATFORM_CACHELINE_SIZE * (MAX_THREADS / 2 + 1),
+               "Missized platform_batch_rwlock\n");
+
+void
+platform_batch_rwlock_init(platform_batch_rwlock *lock);
+
+void
+platform_batch_rwlock_lock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+bool
+platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_unclaim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_get(platform_batch_rwlock *lock, uint64 lock_idx);
+
+void
+platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx);
+
 // Buffer handle
 typedef struct {
    void  *addr;
