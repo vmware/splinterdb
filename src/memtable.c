@@ -129,7 +129,7 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
       memtable_get_insert_lock(ctxt);
       uint64    current_generation = ctxt->generation;
       uint64    current_mt_no = current_generation % ctxt->cfg.max_memtables;
-      memtable *current_mt         = &ctxt->mt[current_mt_no];
+      memtable *current_mt    = &ctxt->mt[current_mt_no];
       if (current_mt->state != MEMTABLE_STATE_READY) {
          // The next memtable is not ready yet, back off and wait.
          memtable_unget_insert_lock(ctxt);
