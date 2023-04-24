@@ -81,6 +81,71 @@ typedef struct {
 // Spin lock
 typedef pthread_spinlock_t platform_spinlock;
 
+// Distributed Batch RW Lock
+typedef struct {
+   volatile uint8 lock;
+   volatile uint8 claim;
+} platform_claimlock;
+
+typedef struct {
+   platform_claimlock write_lock[PLATFORM_CACHELINE_SIZE / 2];
+   volatile uint8     read_counter[MAX_THREADS][PLATFORM_CACHELINE_SIZE / 2];
+} PLATFORM_CACHELINE_ALIGNED platform_batch_rwlock;
+
+_Static_assert(sizeof(platform_batch_rwlock)
+                  == PLATFORM_CACHELINE_SIZE * (MAX_THREADS / 2 + 1),
+               "Missized platform_batch_rwlock\n");
+
+
+/*
+ * The state machine for a thread interacting with a batch_rwlock is:
+ *
+ *             get                   claim                lock
+ * unlocked <-------> read-locked <----------> claimed <--------> write-locked
+ *            unget                 unclaim              unlock
+ *
+ * Note that try_claim() may fail, in which case the state of the lock
+ * is unchanged, i.e. the caller still holds a read lock.
+ */
+
+
+void
+platform_batch_rwlock_init(platform_batch_rwlock *lock);
+
+/* no lock -> shared lock */
+void
+platform_batch_rwlock_get(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* shared lock -> no lock */
+void
+platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/*
+ * shared-lock -> claim (may fail)
+ *
+ * Callers still hold a shared lock after a failed claim attempt.
+ * Callers _must_ release their shared lock after a failed claim attempt.
+ */
+bool
+platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* no lock -> claim */
+void
+platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* claim -> shared lock */
+void
+platform_batch_rwlock_unclaim(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* claim -> exclusive lock */
+void
+platform_batch_rwlock_lock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* exclusive lock -> claim */
+void
+platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+
 // Buffer handle
 typedef struct {
    void  *addr;
