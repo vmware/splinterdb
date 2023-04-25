@@ -66,19 +66,14 @@ CTEST_SETUP(blob)
    rc = io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid);
    platform_assert_status_ok(rc);
 
-   rc_allocator_init(&data->al,
-                     &data->allocator_cfg,
-                     (io_handle *)&data->io,
-                     data->hh,
-                     data->hid,
-                     mid);
+   rc_allocator_init(
+      &data->al, &data->allocator_cfg, (io_handle *)&data->io, data->hid, mid);
 
    rc = clockcache_init(&data->clock_cache,
                         &data->cache_cfg,
                         (io_handle *)&data->io,
                         (allocator *)&data->al,
                         "test",
-                        data->hh,
                         data->hid,
                         mid);
    platform_assert_status_ok(rc);

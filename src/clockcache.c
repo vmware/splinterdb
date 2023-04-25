@@ -46,7 +46,7 @@
  *
  *      clockcache_log, etc. are used to write an output of cache operations to
  *      a log file for debugging purposes. If CC_LOG is set, then all output is
- *      written, if ADDR_TRACING is set, then only operations which affect
+ *      written. If ADDR_TRACING is set, then only operations which affect
  *      entries with either entry_number TRACE_ENTRY or address TRACE_ADDR are
  *      written.
  *
@@ -1761,14 +1761,13 @@ clockcache_config_init(clockcache_config *cache_cfg,
 }
 
 platform_status
-clockcache_init(clockcache          *cc,   // OUT
-                clockcache_config   *cfg,  // IN
-                io_handle           *io,   // IN
-                allocator           *al,   // IN
-                char                *name, // IN
-                platform_heap_handle hh,   // IN
-                platform_heap_id     hid,  // IN
-                platform_module_id   mid)    // IN
+clockcache_init(clockcache        *cc,   // OUT
+                clockcache_config *cfg,  // IN
+                io_handle         *io,   // IN
+                allocator         *al,   // IN
+                char              *name, // IN
+                platform_heap_id   hid,  // IN
+                platform_module_id mid)  // IN
 {
    int      i;
    threadid thr_i;
@@ -1803,10 +1802,9 @@ clockcache_init(clockcache          *cc,   // OUT
    clockcache_log(
       0, 0, "init: capacity %lu name %s\n", cc->cfg->capacity, name);
 
-   cc->al          = al;
-   cc->io          = io;
-   cc->heap_handle = hh;
-   cc->heap_id     = hid;
+   cc->al      = al;
+   cc->io      = io;
+   cc->heap_id = hid;
 
    /* lookup maps addrs to entries, entry contains the entries themselves */
    cc->lookup =
@@ -1824,12 +1822,14 @@ clockcache_init(clockcache          *cc,   // OUT
       goto alloc_error;
    }
 
+   platform_status rc = STATUS_NO_MEMORY;
+
    /* data must be aligned because of O_DIRECT */
-   cc->bh = platform_buffer_create(cc->cfg->capacity, cc->heap_handle, mid);
-   if (!cc->bh) {
+   rc = platform_buffer_init(&cc->bh, cc->cfg->capacity);
+   if (!SUCCESS(rc)) {
       goto alloc_error;
    }
-   cc->data = platform_buffer_getaddr(cc->bh);
+   cc->data = platform_buffer_getaddr(&cc->bh);
 
    /* Set up the entries */
    for (i = 0; i < cc->cfg->page_capacity; i++) {
@@ -1841,14 +1841,19 @@ clockcache_init(clockcache          *cc,   // OUT
 
    /* Entry per-thread ref counts */
    size_t refcount_size = cc->cfg->page_capacity * CC_RC_WIDTH * sizeof(uint8);
-   cc->rc_bh = platform_buffer_create(refcount_size, cc->heap_handle, mid);
-   if (!cc->rc_bh) {
+
+   rc = platform_buffer_init(&cc->rc_bh, refcount_size);
+   if (!SUCCESS(rc)) {
       goto alloc_error;
    }
-   cc->refcount = platform_buffer_getaddr(cc->rc_bh);
+   cc->refcount = platform_buffer_getaddr(&cc->rc_bh);
+
    /* Separate ref counts for pins */
    cc->pincount =
       TYPED_ARRAY_ZALLOC(cc->heap_id, cc->pincount, cc->cfg->page_capacity);
+   if (!cc->pincount) {
+      goto alloc_error;
+   }
 
    /* The hands and associated page */
    cc->free_hand  = 0;
@@ -1872,15 +1877,17 @@ alloc_error:
    return STATUS_NO_MEMORY;
 }
 
+/*
+ * De-init the resources allocated to initialize a clockcache.
+ * This function may be called to deal with error situations, or a failed
+ * clockcache_init(). So check for non-NULL handles before trying to release
+ * resources.
+ */
 void
 clockcache_deinit(clockcache *cc) // IN/OUT
 {
    platform_assert(cc != NULL);
 
-   /*
-    * Check for non-null cause this is also used to clean up a failed
-    * clockcache_init
-    */
    if (cc->logfile) {
       clockcache_log(0, 0, "deinit %s\n", "");
 #if defined(CC_LOG) || defined(ADDR_TRACING)
@@ -1888,19 +1895,34 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 #endif
    }
 
-   if (cc->rc_bh) {
-      platform_buffer_destroy(cc->rc_bh);
+   if (cc->lookup) {
+      platform_free(cc->heap_id, cc->lookup);
+   }
+   if (cc->entry) {
+      platform_free(cc->heap_id, cc->entry);
    }
 
-   platform_free(cc->heap_id, cc->entry);
-   platform_free(cc->heap_id, cc->lookup);
-   if (cc->bh) {
-      platform_buffer_destroy(cc->bh);
+   debug_only platform_status rc = STATUS_TEST_FAILED;
+   if (cc->data) {
+      rc = platform_buffer_deinit(&cc->bh);
+
+      // We expect above to succeed. Anyway, we are in the process of
+      // dismantling the clockcache, hence, for now, can't do much by way
+      // of reporting errors further upstream.
+      debug_assert(SUCCESS(rc), "rc=%s", platform_status_to_string(rc));
+      cc->data = NULL;
    }
-   cc->data = NULL;
-   platform_free_volatile(cc->heap_id, cc->batch_busy);
+   if (cc->refcount) {
+      rc = platform_buffer_deinit(&cc->rc_bh);
+      debug_assert(SUCCESS(rc), "rc=%s", platform_status_to_string(rc));
+      cc->refcount = NULL;
+   }
+
    if (cc->pincount) {
       platform_free_volatile(cc->heap_id, cc->pincount);
+   }
+   if (cc->batch_busy) {
+      platform_free_volatile(cc->heap_id, cc->batch_busy);
    }
 }
 
@@ -2067,7 +2089,9 @@ clockcache_get_internal(clockcache   *cc,       // IN
                         page_type     type,     // IN
                         page_handle **page)     // OUT
 {
-   debug_assert(addr % clockcache_page_size(cc) == 0);
+   debug_only uint64 page_size = clockcache_page_size(cc);
+   debug_assert(
+      ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr, page_size);
    uint32            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    debug_only uint64 base_addr =
@@ -2240,8 +2264,7 @@ clockcache_get(clockcache *cc, uint64 addr, bool blocking, page_type type)
    page_handle *handle;
 
    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
-                || type == PAGE_TYPE_MEMTABLE
-                || type == PAGE_TYPE_LOCK_NO_DATA);
+                || type == PAGE_TYPE_MEMTABLE);
    while (1) {
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
       if (!retry) {

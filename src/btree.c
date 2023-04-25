@@ -5,7 +5,8 @@
 #include "data_blob_build.h"
 #include "poison.h"
 
-/******************************************************************
+/*
+ * *****************************************************************
  * Structure of a BTree node: Disk-resident structure:
  *
  *                                 hdr->next_entry
@@ -41,12 +42,14 @@
  * If dead space is:
  *  - below a threshold, we split the node.
  *  - above the threshold, then we defragment the node instead of splitting it.
- *******************************************************************/
+ * *****************************************************************
+ */
 
 /* Threshold for splitting instead of defragmenting. */
 #define BTREE_SPLIT_THRESHOLD(page_size) ((page_size) / 2)
 
-/* After a split, the free space in the left node may be fragmented.
+/*
+ * After a split, the free space in the left node may be fragmented.
  * If there's less than this much contiguous free space, then we also
  * defrag the left node.
  */
@@ -407,8 +410,8 @@ btree_insert_leaf_entry(const btree_config *cfg,
  *-----------------------------------------------------------------------------
  */
 /*
- * The C code below is a translation of the following verified dafny
-implementation.
+ * The C code below is a translation of the following verified Dafny
+ * implementation.
 
 method bsearch(s: seq<int>, k: int) returns (idx: int, f: bool)
   requires forall i, j | 0 <= i < j < |s| :: s[i] < s[j]
@@ -451,13 +454,13 @@ btree_find_pivot(const btree_config *cfg,
 
    debug_assert(!key_is_null(target));
 
-   *found = 0;
+   *found = FALSE;
 
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int cmp = btree_key_compare(cfg, btree_get_pivot(cfg, hdr, mid), target);
       if (cmp == 0) {
-         *found = 1;
+         *found = TRUE;
          return mid;
       } else if (cmp < 0) {
          lo = mid + 1;
@@ -483,7 +486,7 @@ btree_find_pivot(const btree_config *cfg,
  *-----------------------------------------------------------------------------
  */
 /*
- * The C code below is a translation of the same dafny implementation as above.
+ * The C code below is a translation of the same Dafny implementation as above.
  */
 static inline int64
 btree_find_tuple(const btree_config *cfg,
@@ -493,14 +496,14 @@ btree_find_tuple(const btree_config *cfg,
 {
    int64 lo = 0, hi = btree_num_entries(hdr);
 
-   *found = 0;
+   *found = FALSE;
 
    while (lo < hi) {
       int64 mid = (lo + hi) / 2;
       int   cmp =
          btree_key_compare(cfg, btree_get_tuple_key(cfg, hdr, mid), target);
       if (cmp == 0) {
-         *found = 1;
+         *found = TRUE;
          return mid;
       } else if (cmp < 0) {
          lo = mid + 1;
@@ -731,7 +734,9 @@ most_of_entry_is_on_left_side(uint64 total_bytes,
           < (total_bytes + sizeof(table_entry) + entry_size) / 2;
 }
 
-/* Figure out how many entries we can put on the left side.
+/*
+ * ----------------------------------------------------------------------------
+ * Figure out how many entries we can put on the left side.
  * Basically, we split the node as evenly as possible by bytes.
  * The old node had total_bytes of entries (and table entries).
  * The new nodes will have as close as possible to total_bytes / 2 bytes.
@@ -742,6 +747,7 @@ most_of_entry_is_on_left_side(uint64 total_bytes,
  * so we can handle the entry for the key being inserted specially.
  * Specifically, if the key being inserted replaces an existing key,
  * then we need to skip over the entry for the existing key.
+ * ----------------------------------------------------------------------------
  */
 static uint64
 plan_move_more_entries_to_left(const btree_config  *cfg,
@@ -764,10 +770,12 @@ plan_move_more_entries_to_left(const btree_config  *cfg,
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * Choose a splitting point so that we are guaranteed to be able to
  * insert the given key-message pair into the correct node after the
  * split. Assumes all leaf entries are at most half the total free
  * space in an empty leaf.
+ * ----------------------------------------------------------------------------
  */
 leaf_splitting_plan
 btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
@@ -775,8 +783,9 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
                                 const leaf_incorporate_spec *spec) // IN
 {
    /* Split the content by bytes -- roughly half the bytes go to the
-      right node.  So count the bytes, including the new entry to be
-      inserted. */
+    * right node.  So count the bytes, including the new entry to be
+    * inserted.
+    */
    uint64 num_entries = btree_num_entries(hdr);
    uint64 entry_size =
       leaf_entry_required_capacity(spec->tuple_key, spec_message(spec));
@@ -793,17 +802,20 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
    total_bytes += new_num_entries * sizeof(table_entry);
 
    /* Now figure out the number of entries to move, and figure out how
-      much free space will be created in the left_hdr by the split. */
+    * much free space will be created in the left_hdr by the split.
+    */
    uint64              left_bytes = 0;
    leaf_splitting_plan plan       = initial_plan;
 
    /* Figure out how many of the items to the left of spec.idx can be
-      put into the left node. */
+    * put into the left node.
+    */
    left_bytes = plan_move_more_entries_to_left(
       cfg, hdr, spec->idx, total_bytes, left_bytes, &plan);
 
    /* Figure out whether our new entry can go into the left node.  If it
-      can't, then no subsequent entries can, either, so we're done. */
+    * can't, then no subsequent entries can, either, so we're done.
+    */
    if (plan.split_idx == spec->idx
        && most_of_entry_is_on_left_side(total_bytes, left_bytes, entry_size))
    {
@@ -814,12 +826,14 @@ btree_build_leaf_splitting_plan(const btree_config          *cfg, // IN
    }
    if (spec->old_entry_state == ENTRY_STILL_EXISTS) {
       /* If our new entry is replacing an existing entry, then skip
-         that entry in our planning. */
+       * that entry in our planning.
+       */
       plan.split_idx++;
    }
 
    /* Figure out how many more entries after spec.idx can go into the
-      left node. */
+    * left node.
+    */
    plan_move_more_entries_to_left(
       cfg, hdr, num_entries, total_bytes, left_bytes, &plan);
 
@@ -915,7 +929,8 @@ btree_choose_index_split(const btree_config *cfg, // IN
                          const btree_hdr    *hdr)    // IN
 {
    /* Split the content by bytes -- roughly half the bytes go to the
-      right node.  So count the bytes. */
+    * right node.  So count the bytes.
+    */
    uint64 total_entry_bytes = 0;
    for (uint64 i = 0; i < btree_num_entries(hdr); i++) {
       index_entry *entry = btree_get_index_entry(cfg, hdr, i);
@@ -923,7 +938,8 @@ btree_choose_index_split(const btree_config *cfg, // IN
    }
 
    /* Now figure out the number of entries to move, and figure out how
-      much free space will be created in the left_hdr by the split. */
+    * much free space will be created in the left_hdr by the split.
+    */
    uint64 target_left_entries  = 0;
    uint64 new_left_entry_bytes = 0;
    while (new_left_entry_bytes < total_entry_bytes / 2) {
@@ -1030,8 +1046,8 @@ btree_alloc(cache          *cc,
       mini_alloc_page(mini, NUM_BLOB_BATCHES + height, alloc_key, next_extent);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, type);
-   // If this btree is for a memetable
-   // then pin all pages belong to it
+
+   // If this btree is for a memtable then pin all pages belonging to it
    if (type == PAGE_TYPE_MEMTABLE) {
       cache_pin(cc, node->page);
    }
@@ -1181,8 +1197,7 @@ btree_create(cache              *cc,
 
    cache_mark_dirty(cc, root.page);
 
-   // If this btree is for a memetable
-   // then pin all pages belong to it
+   // If this btree is for a memtable then pin all pages belonging to it
    if (pinned) {
       cache_pin(cc, root.page);
    }
@@ -1259,15 +1274,15 @@ btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
    mini_unblock_dec_ref(cc, meta_head);
 }
 
-/**********************************************************************
+/*
+ * *********************************************************************
  * The process of splitting a child leaf is divided into four steps in
  * order to minimize the amount of time that we hold write-locks on
  * the parent and child:
  *
  * 0. Start with claims on parent and child.
  *
- * 1. Allocate a node for the right child.  Hold a write lock on the
- *    new node.
+ * 1. Allocate a node for the right child.  Hold a write lock on the new node.
  *
  * 2. btree_add_pivot.  Insert a new pivot in the parent for
  *    the new child.  This step requires a write-lock on the parent.
@@ -1286,15 +1301,18 @@ btree_unblock_dec_ref(cache *cc, btree_config *cfg, uint64 root_addr)
  * splitting one of its children, we could do that by holding the lock
  * on the parent a bit longer.  But we don't need that in the
  * memtable, so not bothering for now.
+ * *********************************************************************
  */
 
-/* Requires:
-   - claim on parent
-   - claim on child
-   Upon completion:
-   - all nodes unlocked
-   - the insertion is complete
-*/
+/*
+ * Requires:
+ * - claim on parent
+ * - claim on child
+ *
+ * Upon completion:
+ * - all nodes unlocked
+ * - the insertion is complete
+ */
 static inline int
 btree_split_child_leaf(cache                 *cc,
                        const btree_config    *cfg,
@@ -1328,7 +1346,8 @@ btree_split_child_leaf(cache                 *cc,
    btree_node_lock(cc, cfg, parent);
    {
       /* limit the scope of pivot_key, since subsequent mutations of the nodes
-       * may invalidate the memory it points to. */
+       * may invalidate the memory it points to.
+       */
       key  pivot_key = btree_splitting_pivot(cfg, child->hdr, spec, plan);
       bool success   = btree_insert_index_entry(cfg,
                                               parent->hdr,
@@ -1366,13 +1385,15 @@ btree_split_child_leaf(cache                 *cc,
    return 0;
 }
 
-/* Requires:
-   - claim on parent
-   - claim on child
-   Upon completion:
-   - all nodes fully unlocked
-   - insertion is complete
-*/
+/*
+ * Requires:
+ * - claim on parent
+ * - claim on child
+ *
+ * Upon completion:
+ * - all nodes fully unlocked
+ * - insertion is complete
+ */
 static inline int
 btree_defragment_or_split_child_leaf(cache              *cc,
                                      const btree_config *cfg,
@@ -1426,18 +1447,20 @@ btree_defragment_or_split_child_leaf(cache              *cc,
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * Splitting a child index follows a similar pattern as splitting a child leaf.
  * The main difference is that we assume we start with write-locks on the parent
  *  and child (which fits better with the flow of the overall insert algorithm).
+ *
+ * Requires:
+ * - lock on parent
+ * - lock on child
+ *
+ * Upon completion:
+ * - lock on new_child
+ * - all other nodes unlocked
+ * ----------------------------------------------------------------------------
  */
-
-/* Requires:
-   - lock on parent
-   - lock on child
-   Upon completion:
-   - lock on new_child
-   - all other nodes unlocked
-*/
 static inline int
 btree_split_child_index(cache              *cc,
                         const btree_config *cfg,
@@ -1470,7 +1493,8 @@ btree_split_child_index(cache              *cc,
 
    {
       /* limit the scope of pivot_key, since subsequent mutations of the nodes
-       * may invalidate the memory it points to. */
+       * may invalidate the memory it points to.
+       */
       key pivot_key = btree_get_pivot(cfg, child->hdr, idx);
       btree_insert_index_entry(cfg,
                                parent->hdr,
@@ -1509,19 +1533,23 @@ btree_split_child_index(cache              *cc,
    }
 
    /* p:  -,
-      c:  if nc == c  then locked else fully unlocked
-      rc: if nc == rc then locked else fully unlocked */
-
+    * c:  if nc == c  then locked else fully unlocked
+    * rc: if nc == rc then locked else fully unlocked
+    */
    return 0;
 }
 
-/* Requires:
-   - lock on parent
-   - lock on child
-   Upon completion:
-   - lock on new_child
-   - all other nodes unlocked
-*/
+/*
+ * ----------------------------------------------------------------------------
+ * Requires:
+ * - lock on parent
+ * - lock on child
+ *
+ * Upon completion:
+ * - lock on new_child
+ * - all other nodes unlocked
+ * ----------------------------------------------------------------------------
+ */
 static inline int
 btree_defragment_or_split_child_index(cache              *cc,
                                       const btree_config *cfg,
@@ -1580,7 +1608,6 @@ btree_accumulate_pivot_stats(btree_pivot_stats *dest, btree_pivot_stats src)
    dest->key_bytes     = add_unknown(dest->key_bytes, src.key_bytes);
    dest->message_bytes = add_unknown(dest->message_bytes, src.message_bytes);
 }
-
 
 static inline void
 accumulate_node_ranks(const btree_config *cfg,
@@ -1661,7 +1688,6 @@ btree_grow_root(cache              *cc,   // IN
  * btree_insert --
  *
  *      Inserts the tuple into the dynamic btree.
- *
  *-----------------------------------------------------------------------------
  */
 platform_status
@@ -1781,9 +1807,10 @@ start_over:
 
    uint64 height = btree_height(parent_node.hdr);
    while (height > 1) {
-      /* loop invariant:
+      /*
+       * Loop invariant:
        * - read lock on parent_node, parent_node is an index, parent_node min
-       * key is up to date, and parent_node will not need to split.
+       *   key is up to date, and parent_node will not need to split.
        * - read lock on child_node
        * - height >= 1
        */
@@ -1880,7 +1907,6 @@ start_over:
     * - read lock on child_node
     * - height of parent == 1
     */
-
    rc = btree_create_leaf_incorporate_spec(
       cfg, cc, mini, heap_id, child_node.hdr, tuple_key, msg, &spec);
    if (!SUCCESS(rc)) {
@@ -1927,7 +1953,8 @@ start_over:
    }
    if (need_to_rebuild_spec) {
       /* If we had to relenquish our lock, then our spec might be out of date,
-       * so rebuild it. */
+       * so rebuild it.
+       */
       destroy_leaf_incorporate_spec(&spec);
       rc = btree_create_leaf_incorporate_spec(
          cfg, cc, mini, heap_id, child_node.hdr, tuple_key, msg, &spec);
@@ -2114,8 +2141,8 @@ btree_async_set_state(btree_async_ctxt *ctxt, btree_async_state new_state)
  *
  *      Callback that's called when the async cache get loads a page into
  *      the cache. This function moves the async btree lookup
- *state machine's state ahead, and calls the upper layer callback that'll
- *re-enqueue the btree lookup for dispatch.
+ *      state machine's state ahead, and calls the upper layer callback
+ *      that will re-enqueue the btree lookup for dispatch.
  *
  * Results:
  *      None.
@@ -2147,17 +2174,17 @@ btree_async_callback(cache_async_ctxt *cache_ctxt)
  *-----------------------------------------------------------------------------
  * btree_lookup_async_with_ref --
  *
- *      State machine for the async btree point lookup. This
- *uses hand over hand locking to descend the tree and every time a child node
- *needs to be looked up from the cache, it uses the async get api. A reference
- *to the parent node is held in btree_async_ctxt->node while a
- *reference to the child page is obtained by the cache_get_async() in
+ *      State machine for the async btree point lookup. This uses hand over
+ *      hand locking to descend the tree and every time a child node needs to
+ *      be looked up from the cache, it uses the async get api. A reference to
+ *      the parent node is held in btree_async_ctxt->node while a reference to
+ *      the child page is obtained by the cache_get_async() in
  *      btree_async_ctxt->cache_ctxt->page
  *
  * Results:
  *      See btree_lookup_async(). if returning async_success and
- **found = TRUE, this returns with ref on the btree leaf. Caller
- *must do unget() on node_out.
+ *      found = TRUE, this returns with ref on the btree leaf. Caller
+ *      must do unget() on node_out.
  *
  * Side effects:
  *      None.
@@ -2278,18 +2305,21 @@ btree_lookup_async_with_ref(cache            *cc,        // IN
  * btree_lookup_async --
  *
  *      Async btree point lookup. The ctxt should've been
- *initialized using btree_ctxt_init(). The return value can be
- *either of: async_locked: A page needed by lookup is locked. User should retry
- *      request.
- *      async_no_reqs: A page needed by lookup is not in cache and the IO
- *      subsystem is out of requests. User should throttle.
- *      async_io_started: Async IO was started to read a page needed by the
- *      lookup into the cache. When the read is done, caller will be notified
- *      using ctxt->cb, that won't run on the thread context. It can be used
- *      to requeue the async lookup request for dispatch in thread context.
- *      When it's requeued, it must use the same function params except found.
- *      success: *found is TRUE if found, FALSE otherwise, data is stored in
- *      *data_out
+ *      initialized using btree_ctxt_init().
+ *
+ * The return value can be one of:
+ *
+ *   - async_locked: A page needed by lookup is locked. User should retry
+ *     request.
+ *   - async_no_reqs: A page needed by lookup is not in cache and the IO
+ *     subsystem is out of requests. User should throttle.
+ *   - async_io_started: Async IO was started to read a page needed by the
+ *     lookup into the cache. When the read is done, caller will be notified
+ *     using ctxt->cb, that won't run on the thread context. It can be used
+ *     to requeue the async lookup request for dispatch in thread context.
+ *     When it's requeued, it must use the same function params except found.
+ *     success: *found is TRUE if found, FALSE otherwise, data is stored in
+ *     *data_out
  *
  * Results:
  *      Async result.
@@ -2396,9 +2426,11 @@ btree_iterator_get_curr(iterator *base_itor, key *curr_key, message *data)
    debug_assert(base_itor != NULL);
    btree_iterator *itor = (btree_iterator *)base_itor;
    debug_assert(itor->curr.hdr != NULL);
-   // if (itor->at_end || itor->idx == itor->curr.hdr->num_entries) {
-   //   btree_print_tree(itor->cc, itor->cfg, itor->root_addr);
-   //}
+   /*
+   if (itor->at_end || itor->idx == itor->curr.hdr->num_entries) {
+      btree_print_tree(itor->cc, itor->cfg, itor->root_addr);
+   }
+   */
    debug_assert(!btree_iterator_is_at_end(itor));
    debug_assert(itor->idx < btree_num_entries(itor->curr.hdr));
    debug_assert(itor->curr.page != NULL);
@@ -2464,8 +2496,10 @@ btree_iterator_find_end(btree_iterator *itor)
 }
 
 /*
+ * ----------------------------------------------------------------------------
  * Move to the next leaf when we've reached the end of one leaf but
  * haven't reached the end of the iterator.
+ * ----------------------------------------------------------------------------
  */
 static void
 btree_iterator_advance_leaf(btree_iterator *itor)
@@ -2483,29 +2517,30 @@ btree_iterator_advance_leaf(btree_iterator *itor)
    while (itor->curr.addr == itor->end_addr
           && itor->curr.hdr->generation != itor->end_generation)
    {
-      /* We need to recompute the end node and end_idx. (see
-         comment at beginning of iterator implementation for
-         high-level description)
-
-         There's a potential for deadlock with concurrent inserters
-         if we hold a read-lock on curr while looking up end, so we
-         temporarily release curr.
-
-         It is safe to relase curr because we are at index 0 of
-         curr.  To see why, observe that, at this point, curr
-         cannot be the first leaf in the tree (since we just
-         followed a next pointer a few lines above).  And, for
-         every leaf except the left-most leaf of the tree, no key
-         can ever be inserted into the leaf that is smaller than
-         the leaf's 0th entry, because its 0th entry is also its
-         pivot in its parent.  Thus we are guaranteed that the
-         first key curr will not change between the unget and the
-         get. Hence we will not "go backwards" i.e. return a key
-         smaller than the previous key) or skip any keys.
-         Furthermore, even if another thread comes along and splits
-         curr while we've released it, we will still want to
-         continue at curr (since we're at the 0th entry).
-      */
+      /*
+       * We need to recompute the end node and end_idx. (see
+       * comment at beginning of iterator implementation for
+       * high-level description)
+       *
+       * There's a potential for deadlock with concurrent inserters
+       * if we hold a read-lock on curr while looking up end, so we
+       * temporarily release curr.
+       *
+       * It is safe to relase curr because we are at index 0 of
+       * curr.  To see why, observe that, at this point, curr
+       * cannot be the first leaf in the tree (since we just
+       * followed a next pointer a few lines above).  And, for
+       * every leaf except the left-most leaf of the tree, no key
+       * can ever be inserted into the leaf that is smaller than
+       * the leaf's 0th entry, because its 0th entry is also its
+       * pivot in its parent.  Thus we are guaranteed that the
+       * first key curr will not change between the unget and the
+       * get. Hence we will not "go backwards" i.e. return a key
+       * smaller than the previous key) or skip any keys.
+       * Furthermore, even if another thread comes along and splits
+       * curr while we've released it, we will still want to
+       * continue at curr (since we're at the 0th entry).
+       */
       btree_node_unget(itor->cc, itor->cfg, &itor->curr);
       btree_iterator_find_end(itor);
       btree_node_get(itor->cc, itor->cfg, &itor->curr, itor->page_type);
@@ -2576,7 +2611,8 @@ btree_iterator_print(iterator *itor)
    btree_print_node(Platform_default_log_handle,
                     btree_itor->cc,
                     btree_itor->cfg,
-                    &btree_itor->curr);
+                    &btree_itor->curr,
+                    btree_itor->page_type);
 }
 
 const static iterator_ops btree_iterator_ops = {
@@ -2633,7 +2669,8 @@ btree_iterator_init(cache          *cc,
                      itor->page_type,
                      &itor->curr,
                      NULL);
-   /* We have to claim curr in order to prevent possible deadlocks
+   /*
+    * We have to claim curr in order to prevent possible deadlocks
     * with insertion threads while finding the end node.
     *
     * Note that we can't lookup end first because, if there's a split
@@ -2765,8 +2802,9 @@ btree_pack_get_current_node_stats(btree_pack_req *req, uint64 height)
 static inline btree_node *
 btree_pack_create_next_node(btree_pack_req *req, uint64 height, key pivot);
 
-/* Add the specified node to its parent. Creates a parent if
-   necessary.  */
+/*
+ * Add the specified node to its parent. Creates a parent if necessary.
+ */
 static inline void
 btree_pack_link_node(btree_pack_req *req,
                      uint64          height,
@@ -2987,7 +3025,11 @@ btree_pack(btree_pack_req *req)
    while (SUCCESS(iterator_at_end(req->itor, &at_end)) && !at_end) {
       iterator_get_curr(req->itor, &tuple_key, &data);
       if (!btree_pack_can_fit_tuple(req, tuple_key, data)) {
-         platform_error_log("btree_pack exceeded output size limit\n");
+         platform_error_log("%s(): req->num_tuples=%lu exceeded output size "
+                            "limit, req->max_tuples=%lu\n",
+                            __func__,
+                            req->num_tuples,
+                            req->max_tuples);
          btree_pack_abort(req);
          return STATUS_LIMIT_EXCEEDED;
       }
@@ -3120,6 +3162,10 @@ btree_print_offset_table(platform_log_handle *log_handle, btree_hdr *hdr)
    platform_log(log_handle, "\n");
 }
 
+// Macro to deal with printing Pivot stats 'sz' bytes as uninitialized
+#define PIVOT_STATS_BYTES_AS_STR(sz)                                           \
+   (((sz) == BTREE_UNKNOWN_COUNTER) ? "BTREE_UNKNOWN_COUNTER" : size_str((sz)))
+
 static void
 btree_print_btree_pivot_stats(platform_log_handle *log_handle,
                               btree_pivot_stats   *pivot_stats)
@@ -3136,11 +3182,13 @@ btree_print_btree_pivot_stats(platform_log_handle *log_handle,
    // Indentation is dictated by outer caller
    platform_log(log_handle,
                 "   (num_kvs=%u\n"
-                "    key_bytes=%u\n"
-                "    message_bytes=%u)\n",
+                "    key_bytes=%u (%s)\n"
+                "    message_bytes=%u (%s))\n",
                 pivot_stats->num_kvs,
                 pivot_stats->key_bytes,
-                pivot_stats->message_bytes);
+                PIVOT_STATS_BYTES_AS_STR(pivot_stats->key_bytes),
+                pivot_stats->message_bytes,
+                PIVOT_STATS_BYTES_AS_STR(pivot_stats->message_bytes));
 }
 
 static void
@@ -3170,9 +3218,11 @@ static void
 btree_print_index_node(platform_log_handle *log_handle,
                        btree_config        *cfg,
                        uint64               addr,
-                       btree_hdr           *hdr)
+                       btree_hdr           *hdr,
+                       page_type            type)
 {
-   platform_log(log_handle, "**  INDEX NODE \n");
+   platform_log(
+      log_handle, "**  Page type: %s, INDEX NODE \n", page_type_str[type]);
    platform_log(log_handle, "**  Header ptr: %p\n", hdr);
    platform_log(log_handle, "**  addr: %lu \n", addr);
    platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
@@ -3215,9 +3265,11 @@ btree_print_leaf_node(platform_log_handle *log_handle,
                       btree_config        *cfg,
                       cache               *cc,
                       uint64               addr,
-                      btree_hdr           *hdr)
+                      btree_hdr           *hdr,
+                      page_type            type)
 {
-   platform_log(log_handle, "**  LEAF NODE \n");
+   platform_log(
+      log_handle, "**  Page type: %s, LEAF NODE \n", page_type_str[type]);
    platform_log(log_handle, "**  hdrptr: %p\n", hdr);
    platform_log(log_handle, "**  addr: %lu \n", addr);
    platform_log(log_handle, "**  next_addr: %lu \n", hdr->next_addr);
@@ -3254,14 +3306,15 @@ btree_print_locked_node(platform_log_handle *log_handle,
                         btree_config        *cfg,
                         cache               *cc,
                         uint64               addr,
-                        btree_hdr           *hdr)
+                        btree_hdr           *hdr,
+                        page_type            type)
 {
    platform_log(log_handle, "*******************\n");
    platform_log(log_handle, "BTree node at addr=%lu\n{\n", addr);
    if (btree_height(hdr) > 0) {
-      btree_print_index_node(log_handle, cfg, addr, hdr);
+      btree_print_index_node(log_handle, cfg, addr, hdr, type);
    } else {
-      btree_print_leaf_node(log_handle, cfg, cc, addr, hdr);
+      btree_print_leaf_node(log_handle, cfg, cc, addr, hdr, type);
    }
    platform_log(log_handle, "} -- End BTree node at addr=%lu\n", addr);
 }
@@ -3271,7 +3324,8 @@ void
 btree_print_node(platform_log_handle *log_handle,
                  cache               *cc,
                  btree_config        *cfg,
-                 btree_node          *node)
+                 btree_node          *node,
+                 page_type            type)
 {
    if (!allocator_page_valid(cache_get_allocator(cc), node->addr)) {
       platform_log(log_handle, "*******************\n");
@@ -3280,8 +3334,8 @@ btree_print_node(platform_log_handle *log_handle,
       platform_log(log_handle, "-------------------\n");
       return;
    }
-   btree_node_get(cc, cfg, node, PAGE_TYPE_BRANCH);
-   btree_print_locked_node(log_handle, cfg, cc, node->addr, node->hdr);
+   btree_node_get(cc, cfg, node, type);
+   btree_print_locked_node(log_handle, cfg, cc, node->addr, node->hdr, type);
    btree_node_unget(cc, cfg, node);
 }
 
@@ -3289,23 +3343,31 @@ void
 btree_print_subtree(platform_log_handle *log_handle,
                     cache               *cc,
                     btree_config        *cfg,
-                    uint64               addr)
+                    uint64               addr,
+                    page_type            type)
 {
    btree_node node;
    node.addr = addr;
-   btree_print_node(log_handle, cc, cfg, &node);
    if (!allocator_page_valid(cache_get_allocator(cc), node.addr)) {
+      platform_log(log_handle,
+                   "Unallocated %s BTree node addr=%lu\n",
+                   page_type_str[type],
+                   addr);
       return;
    }
-   btree_node_get(cc, cfg, &node, PAGE_TYPE_BRANCH);
+   // Print node's contents only if it's a validly allocated node.
+   btree_print_node(log_handle, cc, cfg, &node, type);
+
+   btree_node_get(cc, cfg, &node, type);
    table_index idx;
 
    if (node.hdr->height > 0) {
       int nentries = node.hdr->num_entries;
       platform_log(log_handle,
-                   "\n---- BTree sub-trees under addr=%lu"
+                   "\n---- Page type: %s, BTree sub-trees under addr=%lu"
                    " num_entries=%d"
                    ", height=%d {\n",
+                   page_type_str[type],
                    addr,
                    nentries,
                    node.hdr->height);
@@ -3313,8 +3375,11 @@ btree_print_subtree(platform_log_handle *log_handle,
       for (idx = 0; idx < nentries; idx++) {
          platform_log(
             log_handle, "\n-- Sub-tree index=%d of %d\n", idx, nentries);
-         btree_print_subtree(
-            log_handle, cc, cfg, btree_get_child_addr(cfg, node.hdr, idx));
+         btree_print_subtree(log_handle,
+                             cc,
+                             cfg,
+                             btree_get_child_addr(cfg, node.hdr, idx),
+                             type);
       }
       platform_log(log_handle,
                    "\n} -- End BTree sub-trees under"
@@ -3325,17 +3390,30 @@ btree_print_subtree(platform_log_handle *log_handle,
 }
 
 /*
+ * Driver routine to print a Memtable BTree starting from root_addr.
+ */
+void
+btree_print_memtable_tree(platform_log_handle *log_handle,
+                          cache               *cc,
+                          btree_config        *cfg,
+                          uint64               root_addr)
+{
+   btree_print_subtree(log_handle, cc, cfg, root_addr, PAGE_TYPE_MEMTABLE);
+}
+
+/*
  * btree_print_tree()
  *
- * Driver routine to print a BTree starting from root_addr.
+ * Driver routine to print a BTree of page-type 'type', starting from root_addr.
  */
 void
 btree_print_tree(platform_log_handle *log_handle,
                  cache               *cc,
                  btree_config        *cfg,
-                 uint64               root_addr)
+                 uint64               root_addr,
+                 page_type            type)
 {
-   btree_print_subtree(log_handle, cc, cfg, root_addr);
+   btree_print_subtree(log_handle, cc, cfg, root_addr, type);
 }
 
 void
@@ -3421,7 +3499,7 @@ btree_verify_node(cache        *cc,
             {
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
-               btree_print_tree(Platform_error_log_handle, cc, cfg, addr);
+               btree_print_tree(Platform_error_log_handle, cc, cfg, addr, type);
                platform_error_log("out of order pivots\n");
                platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                goto out;
@@ -3457,10 +3535,18 @@ btree_verify_node(cache        *cc,
                platform_error_log("child tuple larger than parent bound\n");
                platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
-               btree_print_locked_node(
-                  Platform_error_log_handle, cfg, cc, node.addr, node.hdr);
-               btree_print_locked_node(
-                  Platform_error_log_handle, cfg, cc, child.addr, child.hdr);
+               btree_print_locked_node(Platform_error_log_handle,
+                                       cfg,
+                                       cc,
+                                       node.addr,
+                                       node.hdr,
+                                       type);
+               btree_print_locked_node(Platform_error_log_handle,
+                                       cfg,
+                                       cc,
+                                       child.addr,
+                                       child.hdr,
+                                       type);
                platform_assert(0);
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
@@ -3479,10 +3565,18 @@ btree_verify_node(cache        *cc,
                platform_error_log("child pivot larger than parent bound\n");
                platform_error_log("addr: %lu idx %u\n", node.addr, idx);
                platform_error_log("child addr: %lu idx %u\n", child.addr, idx);
-               btree_print_locked_node(
-                  Platform_error_log_handle, cfg, cc, node.addr, node.hdr);
-               btree_print_locked_node(
-                  Platform_error_log_handle, cfg, cc, child.addr, child.hdr);
+               btree_print_locked_node(Platform_error_log_handle,
+                                       cfg,
+                                       cc,
+                                       node.addr,
+                                       node.hdr,
+                                       type);
+               btree_print_locked_node(Platform_error_log_handle,
+                                       cfg,
+                                       cc,
+                                       child.addr,
+                                       child.hdr,
+                                       type);
                platform_assert(0);
                btree_node_unget(cc, cfg, &child);
                btree_node_unget(cc, cfg, &node);
@@ -3523,7 +3617,7 @@ btree_print_lookup(cache        *cc,        // IN
    int64      child_idx;
 
    node.addr = root_addr;
-   btree_print_node(Platform_default_log_handle, cc, cfg, &node);
+   btree_print_node(Platform_default_log_handle, cc, cfg, &node, type);
    btree_node_get(cc, cfg, &node, type);
 
    for (h = node.hdr->height; h > 0; h--) {
@@ -3533,7 +3627,7 @@ btree_print_lookup(cache        *cc,        // IN
          child_idx = 0;
       }
       child_node.addr = btree_get_child_addr(cfg, node.hdr, child_idx);
-      btree_print_node(Platform_default_log_handle, cc, cfg, &child_node);
+      btree_print_node(Platform_default_log_handle, cc, cfg, &child_node, type);
       btree_node_get(cc, cfg, &child_node, type);
       btree_node_unget(cc, cfg, &node);
       node = child_node;

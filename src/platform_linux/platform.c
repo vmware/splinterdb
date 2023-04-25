@@ -40,6 +40,13 @@ platform_set_log_streams(platform_log_handle *info_stream,
    Platform_error_log_handle   = error_stream;
 }
 
+// Return the stdout log-stream handle
+platform_log_handle *
+platform_get_stdout_stream(void)
+{
+   return Platform_default_log_handle;
+}
+
 platform_status
 platform_heap_create(platform_module_id    UNUSED_PARAM(module_id),
                      uint32                max,
@@ -56,45 +63,49 @@ void
 platform_heap_destroy(platform_heap_handle UNUSED_PARAM(*heap_handle))
 {}
 
-buffer_handle *
-platform_buffer_create(size_t               length,
-                       platform_heap_handle UNUSED_PARAM(heap_handle),
-                       platform_module_id   UNUSED_PARAM(module_id))
+/*
+ * platform_buffer_init() - Initialize an input buffer_handle, bh.
+ *
+ * Certain modules, e.g. the buffer cache, need a very large buffer which
+ * may not be serviceable by the heap. Create the requested buffer using
+ * mmap() and initialize the input 'bh' to track this memory allocation.
+ */
+platform_status
+platform_buffer_init(buffer_handle *bh, size_t length)
 {
-   buffer_handle *bh = TYPED_MALLOC(platform_get_heap_id(), bh);
+   platform_status rc = STATUS_NO_MEMORY;
 
-   if (bh != NULL) {
-      int prot  = PROT_READ | PROT_WRITE;
-      int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
-      if (platform_use_hugetlb) {
-         flags |= MAP_HUGETLB;
-      }
-
-      bh->addr = mmap(NULL, length, prot, flags, -1, 0);
-      if (bh->addr == MAP_FAILED) {
-         platform_error_log(
-            "mmap (%lu) failed with error: %s\n", length, strerror(errno));
-         goto error;
-      }
-
-      if (platform_use_mlock) {
-         int rc = mlock(bh->addr, length);
-         if (rc != 0) {
-            platform_error_log(
-               "mlock (%lu) failed with error: %s\n", length, strerror(errno));
-            munmap(bh->addr, length);
-            goto error;
-         }
-      }
+   int prot  = PROT_READ | PROT_WRITE;
+   int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+   if (platform_use_hugetlb) {
+      flags |= MAP_HUGETLB;
    }
 
+   bh->addr = mmap(NULL, length, prot, flags, -1, 0);
+   if (bh->addr == MAP_FAILED) {
+      platform_error_log(
+         "mmap (%lu bytes) failed with error: %s\n", length, strerror(errno));
+      goto error;
+   }
+
+   if (platform_use_mlock) {
+      int mlock_rv = mlock(bh->addr, length);
+      if (mlock_rv != 0) {
+         platform_error_log("mlock (%lu bytes) failed with error: %s\n",
+                            length,
+                            strerror(errno));
+         munmap(bh->addr, length);
+         rc = CONST_STATUS(errno);
+         goto error;
+      }
+   }
    bh->length = length;
-   return bh;
+   return STATUS_OK;
 
 error:
-   platform_free(platform_get_heap_id(), bh);
-   bh = NULL;
-   return bh;
+   // Reset, in case mmap() or mlock() failed.
+   bh->addr = NULL;
+   return rc;
 }
 
 void *
@@ -103,8 +114,14 @@ platform_buffer_getaddr(const buffer_handle *bh)
    return bh->addr;
 }
 
+/*
+ * platform_buffer_deinit() - Deinit the buffer handle, which involves
+ * unmapping the memory for the large buffer created using mmap().
+ * This is expected to be called on a 'bh' that has been successfully
+ * initialized, thru a prior platform_buffer_init() call.
+ */
 platform_status
-platform_buffer_destroy(buffer_handle *bh)
+platform_buffer_deinit(buffer_handle *bh)
 {
    int ret;
    ret = munmap(bh->addr, bh->length);
@@ -112,8 +129,8 @@ platform_buffer_destroy(buffer_handle *bh)
       return CONST_STATUS(errno);
    }
 
-   platform_free(platform_get_heap_id(), bh);
-
+   bh->addr   = NULL;
+   bh->length = 0;
    return STATUS_OK;
 }
 
@@ -201,6 +218,140 @@ platform_spinlock_destroy(platform_spinlock *lock)
 
    return CONST_STATUS(ret);
 }
+
+/*
+ *-----------------------------------------------------------------------------
+ * Batch Read/Write Locks
+ *
+ * These are generic distributed reader/writer locks with an intermediate claim
+ * state. These offer similar semantics to the locks in the clockcache, but in
+ * these locks read locks cannot be held with write locks.
+ *
+ * These locks are allocated in batches of PLATFORM_CACHELINE_SIZE / 2, so that
+ * the write lock and claim bits, as well as the distributed read counters, can
+ * be colocated across the batch.
+ *-----------------------------------------------------------------------------
+ */
+
+void
+platform_batch_rwlock_init(platform_batch_rwlock *lock)
+{
+   ZERO_CONTENTS(lock);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * lock/unlock
+ *
+ * Drains and blocks all gets (read locks)
+ *
+ * Caller must hold a claim
+ * Caller cannot hold a get (read lock)
+ *-----------------------------------------------------------------------------
+ */
+
+void
+platform_batch_rwlock_lock(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   platform_assert(lock->write_lock[lock_idx].claim);
+   debug_only uint8 was_locked =
+      __sync_lock_test_and_set(&lock->write_lock[lock_idx].lock, 1);
+   debug_assert(!was_locked,
+                "platform_batch_rwlock_lock: Attempt to lock a locked page.\n");
+
+   uint64 wait = 1;
+   for (uint64 i = 0; i < MAX_THREADS; i++) {
+      while (lock->read_counter[i][lock_idx] != 0) {
+         platform_sleep_ns(wait);
+         wait = wait > 2048 ? wait : 2 * wait;
+      }
+      wait = 1;
+   }
+}
+
+void
+platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   __sync_lock_release(&lock->write_lock[lock_idx].lock);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * try_claim/claim/unlock
+ *
+ * A claim blocks all other claimants (and therefore all other writelocks,
+ * because writelocks are required to hold a claim during the writelock).
+ *
+ * Cannot hold a get (read lock)
+ *
+ * try_claim returns whether the claim succeeded
+ *-----------------------------------------------------------------------------
+ */
+
+bool
+platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   if (__sync_lock_test_and_set(&lock->write_lock[lock_idx].claim, 1)) {
+      return FALSE;
+   }
+   return TRUE;
+}
+
+void
+platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   uint64 wait = 1;
+   while (!platform_batch_rwlock_try_claim(lock, lock_idx)) {
+      platform_sleep_ns(wait);
+      wait = wait > 2048 ? wait : 2 * wait;
+   }
+}
+
+void
+platform_batch_rwlock_unclaim(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   __sync_lock_release(&lock->write_lock[lock_idx].claim);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ * get/unget
+ *
+ * Acquire a read lock
+ *-----------------------------------------------------------------------------
+ */
+
+void
+platform_batch_rwlock_get(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   threadid tid = platform_get_tid();
+   while (1) {
+      uint64 wait = 1;
+      while (lock->write_lock[lock_idx].lock) {
+         platform_sleep_ns(wait);
+         wait = wait > 2048 ? wait : 2 * wait;
+      }
+      debug_only uint8 old_counter =
+         __sync_fetch_and_add(&lock->read_counter[tid][lock_idx], 1);
+      debug_assert(old_counter == 0);
+      if (!lock->write_lock[lock_idx].lock) {
+         return;
+      }
+      old_counter = __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
+      debug_assert(old_counter == 1);
+   }
+   platform_assert(0);
+}
+
+void
+platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   threadid         tid = platform_get_tid();
+   debug_only uint8 old_counter =
+      __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
+   debug_assert(old_counter == 1);
+}
+
 
 platform_status
 platform_histo_create(platform_heap_id       heap_id,

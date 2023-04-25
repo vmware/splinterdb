@@ -13,18 +13,22 @@
 #@ )
 
 #@ load("sequences.lib.yml",
-#@         "sequence_pr_build_test",
-#@         "sequence_pr_debug_build_test",
+#@         "sequence_pr_build_test_image",
+#@         "sequence_pr_test",
 #@         "sequence_pr_clang_format",
 #@         "sequence_pr_shell_scripts",
 #@ )
 
 #@ load("jobs.lib.yml",
 #@         "job_recreate_image",
-#@         "job_main_push",
-#@         "job_main",
+#@         "job_publish_container",
+#@         "job_test",
 #@         "job_pr_check",
 #@ )
+
+#! List of branches to cover with tests
+#! The first one is special, it is used for publishing container images to the public Docker registry
+#@ branches = ["main", "shmem"]
 ---
 
 resource_types:
@@ -56,13 +60,14 @@ resources:
 - #@ resource_container_image("splinterdb", "latest")
 
 #! Source code for the container image holding the build environment
-- #@ resource_splinterdb_git_repo("build-env-source", "main", { "paths": [ "Dockerfile.build-env" ] })
+- #@ resource_splinterdb_git_repo("build-env-source", branches[0], { "paths": [ "Dockerfile.build-env" ] })
 
 #! Source code for the container image holding the run environment
-- #@ resource_splinterdb_git_repo("run-env-source", "main", { "paths": [ "Dockerfile.run-env" ] })
+- #@ resource_splinterdb_git_repo("run-env-source", branches[0], { "paths": [ "Dockerfile.run-env" ] })
 
-#! Source code repo, main branch
-- #@ resource_splinterdb_git_repo("branch-main", "main", { "ignore_paths": [ "ci" ] })
+#@ for b in branches:
+- #@ resource_splinterdb_git_repo("branch-" + b, b, { "ignore_paths": [ "ci" ] })
+#@ end
 
 #! Set status on individual commits in the github repo
 - name: github-commit-status
@@ -73,14 +78,17 @@ resources:
     repo: splinterdb
     access_token: ((github-bot-access-token))
 
+#@ for b in branches:
 #! Discover pull requests and set status on them
-- name: github-pull-request
+- name: #@ "github-prs-" + b
   type: pull-request
   check_every: 2m
   source:
     repository: vmware/splinterdb
     access_token: ((github-bot-access-token))
-    base_branch: main
+    base_branch: #@ b
+    labels: ["ok-to-test"]
+#@ end
 
 #! Define nightly timer resource
 #! Ref: https://concourse-ci.org/time-trigger-example.html
@@ -95,58 +103,76 @@ resources:
 #! List of jobs
 jobs:
 
-#! Create the container image that holds the build environment
+#! Create the container images that hold the build-time and run-time environments
 - #@ job_recreate_image("build-env")
 - #@ job_recreate_image("run-env")
 
-#! Commits to main will build, test and publish container images
-- #@ job_main_push("clang")
-- #@ job_main_push("gcc", also_latest=True)
-- #@ job_main("clang", is_debug=True)
-- #@ job_main("gcc", is_debug=True)
+#! branches[0] is used for publishing container images
+- #@ job_publish_container("clang", branches[0])
+- #@ job_publish_container("gcc", branches[0], also_latest=True)
+
+#@ for b in branches:
+
+#! Commits to covered branches will build and test
+- #@ job_test("clang", b, is_debug=True)
+- #@ job_test("gcc", b, is_debug=True)
+- #@ job_test("gcc", b, sanitize="asan")
+- #@ job_test("clang", b, sanitize="msan")
 
 #! Nightly jobs which take too long to run per-PR
-- #@ job_main("gcc", trigger="nightly", test_nightly=True)
-- #@ job_main("clang", trigger="nightly", sanitize="asan")
-- #@ job_main("clang", trigger="nightly", sanitize="msan")
+- #@ job_test("gcc", b, trigger="nightly", test_nightly=True)
 
-#! Pull requests go through a fast stage and fan out to a slow stage
-#@ stage_one = ["pr-quick-check", "pr-clang-format", "pr-shell-scripts"]
-- #@ job_pr_check("clang-format", sequence_pr_clang_format(), description="check C source formatting")
-- #@ job_pr_check("shell-scripts", sequence_pr_shell_scripts(), description="lint and format any shell scripts")
-- #@ job_pr_check("quick-check", sequence_pr_debug_build_test("clang", quick=True), description="build and run fast unit tests")
+
+#! Pull requests to a covered branch
+#! must first pass a fast stage and then fan out to a slow stage
+#@ stage_one = [b + "-pr-quick-check", b + "-pr-clang-format", b + "-pr-shell-scripts"]
+- #@ job_pr_check("clang-format", b, sequence_pr_clang_format(), description="check C source formatting")
+- #@ job_pr_check("shell-scripts", b, sequence_pr_shell_scripts(), description="lint and format any shell scripts")
+- #@ job_pr_check("quick-check", b, sequence_pr_test("clang", quick=True), description="build and run fast unit tests")
 
 #! second stage of pipeline, only triggers if all of the first-stage passes
-- #@ job_pr_check("clang", sequence_pr_build_test("clang"), depends_on=stage_one, description="build and test")
-- #@ job_pr_check("gcc", sequence_pr_build_test("gcc"), depends_on=stage_one, description="build and test")
-- #@ job_pr_check("debug-clang", sequence_pr_debug_build_test("clang"), depends_on=stage_one, description="debug build and test")
-- #@ job_pr_check("debug-gcc", sequence_pr_debug_build_test("gcc"), depends_on=stage_one, description="debug build and test")
+- #@ job_pr_check("clang", b, sequence_pr_build_test_image("clang"), depends_on=stage_one, description="release build and test image")
+- #@ job_pr_check("gcc", b, sequence_pr_build_test_image("gcc"), depends_on=stage_one, description="release build and test image")
+- #@ job_pr_check("debug-clang", b, sequence_pr_test("clang"), depends_on=stage_one, description="debug build and test")
+- #@ job_pr_check("debug-gcc", b, sequence_pr_test("gcc"), depends_on=stage_one, description="debug build and test")
+
+- #@ job_pr_check("asan", b, sequence_pr_test("gcc", sanitize="asan", is_debug=False), depends_on=stage_one, description="asan build and test")
+- #@ job_pr_check("msan", b, sequence_pr_test("clang", sanitize="msan", is_debug=False), depends_on=stage_one, description="msan build and test")
+
+#@ end  #! for loop over branches
 
 
 #! List of CI-groups of jobs
 groups:
-- name: main_branch
-  jobs:
-  - main-push-clang
-  - main-push-gcc
-  - main-debug-clang
-  - main-debug-gcc
 
-- name: pull_requests
+#@ for b in branches:
+- name: #@ b + "_commits"
   jobs:
-  - pr-quick-check
-  - pr-clang
-  - pr-debug-clang
-  - pr-gcc
-  - pr-debug-gcc
-  - pr-clang-format
-  - pr-shell-scripts
+  #@ if b == branches[0]:
+  - #@ b + "-push-clang"
+  - #@ b + "-push-gcc"
+  #@ end
+  - #@ b + "-debug-clang"
+  - #@ b + "-debug-gcc"
+  - #@ b + "-asan-gcc"
+  - #@ b + "-msan-clang"
 
-- name: nightly
+- name: #@ b + "_pull_requests"
   jobs:
-  - main-nightly-test-gcc
-  - main-asan-clang
-  - main-msan-clang
+  - #@ b + "-pr-quick-check"
+  - #@ b + "-pr-clang"
+  - #@ b + "-pr-debug-clang"
+  - #@ b + "-pr-gcc"
+  - #@ b + "-pr-debug-gcc"
+  - #@ b + "-pr-clang-format"
+  - #@ b + "-pr-shell-scripts"
+  - #@ b + "-pr-asan"
+  - #@ b + "-pr-msan"
+
+- name: #@ b + "_nightly"
+  jobs:
+  - #@ b + "-nightly-test-gcc"
+#@ end
 
 - name: env_images
   jobs:

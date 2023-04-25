@@ -64,7 +64,6 @@ test_log_crash(clockcache             *cc,
                shard_log_config       *cfg,
                shard_log              *log,
                task_system            *ts,
-               platform_heap_handle    hh,
                platform_heap_id        hid,
                test_message_generator *gen,
                uint64                  num_entries,
@@ -113,7 +112,7 @@ test_log_crash(clockcache             *cc,
    if (crash) {
       clockcache_deinit(cc);
       rc = clockcache_init(
-         cc, cache_cfg, io, al, "crashed", hh, hid, platform_get_module_id());
+         cc, cache_cfg, io, al, "crashed", hid, platform_get_module_id());
       platform_assert_status_ok(rc);
    }
 
@@ -360,7 +359,7 @@ log_test(int argc, char *argv[])
    }
 
    status = rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+      &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
    platform_assert_status_ok(status);
 
    clockcache *cc = TYPED_MALLOC(hid, cc);
@@ -370,7 +369,6 @@ log_test(int argc, char *argv[])
                             (io_handle *)io,
                             (allocator *)&al,
                             "test",
-                            hh,
                             hid,
                             platform_get_module_id());
    platform_assert_status_ok(status);
@@ -390,7 +388,6 @@ log_test(int argc, char *argv[])
                           &log_cfg,
                           log,
                           ts,
-                          hh,
                           hid,
                           &gen,
                           500000,
@@ -404,11 +401,10 @@ log_test(int argc, char *argv[])
                           &log_cfg,
                           log,
                           ts,
-                          hh,
                           hid,
                           &gen,
                           500000,
-                          FALSE /* don't cash */);
+                          FALSE /* don't crash */);
       platform_assert(rc == 0);
    }
 

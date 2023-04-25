@@ -274,14 +274,12 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
       status = rc_allocator_mount(&kvs->allocator_handle,
                                   &kvs->allocator_cfg,
                                   (io_handle *)&kvs->io_handle,
-                                  kvs->heap_handle,
                                   kvs->heap_id,
                                   platform_get_module_id());
    } else {
       status = rc_allocator_init(&kvs->allocator_handle,
                                  &kvs->allocator_cfg,
                                  (io_handle *)&kvs->io_handle,
-                                 kvs->heap_handle,
                                  kvs->heap_id,
                                  platform_get_module_id());
    }
@@ -296,7 +294,6 @@ splinterdb_create_or_open(const splinterdb_config *kvs_cfg,      // IN
                             (io_handle *)&kvs->io_handle,
                             (allocator *)&kvs->allocator_handle,
                             "splinterdb",
-                            kvs->heap_handle,
                             kvs->heap_id,
                             platform_get_module_id());
    if (!SUCCESS(status)) {
@@ -534,7 +531,7 @@ splinterdb_lookup_result_deinit(splinterdb_lookup_result *result) // IN
    merge_accumulator_deinit(&_result->value);
 }
 
-bool
+_Bool
 splinterdb_lookup_found(const splinterdb_lookup_result *result) // IN
 {
    _splinterdb_lookup_result *_result = (_splinterdb_lookup_result *)result;
@@ -649,7 +646,7 @@ splinterdb_iterator_deinit(splinterdb_iterator *iter)
    platform_free(spl->heap_id, range_itor);
 }
 
-bool
+_Bool
 splinterdb_iterator_valid(splinterdb_iterator *kvi)
 {
    if (!SUCCESS(kvi->last_rc)) {

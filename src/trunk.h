@@ -178,10 +178,11 @@ typedef struct trunk_compacted_memtable {
 } trunk_compacted_memtable;
 
 struct trunk_handle {
-   uint64           root_addr;
-   uint64           super_block_idx;
-   trunk_config     cfg;
-   platform_heap_id heap_id;
+   volatile uint64       root_addr;
+   uint64                super_block_idx;
+   trunk_config          cfg;
+   platform_heap_id      heap_id;
+   platform_batch_rwlock trunk_root_lock;
 
    // space reclamation
    uint64 est_tuples_in_compaction;
@@ -289,11 +290,10 @@ typedef struct trunk_async_ctxt {
    trunk_async_cb cb; // IN: callback (requeues ctxt
                       // for dispatch)
    // These fields are internal
-   trunk_async_state prev_state;   // state machine's previous state
-   trunk_async_state state;        // state machine's current state
-   page_handle      *mt_lock_page; // Memtable lock page
-   trunk_node        trunk_node;   // Current trunk node
-   uint16            height;       // height of trunk_node
+   trunk_async_state prev_state; // state machine's previous state
+   trunk_async_state state;      // state machine's current state
+   trunk_node        trunk_node; // Current trunk node
+   uint16            height;     // height of trunk_node
 
    uint16 sb_no;     // subbundle number (newest)
    uint16 end_sb_no; // subbundle number (oldest,
@@ -385,8 +385,6 @@ trunk_unmount(trunk_handle **spl);
 void
 trunk_perform_tasks(trunk_handle *spl);
 
-void
-trunk_force_flush(trunk_handle *spl);
 void
 trunk_print_insertion_stats(platform_log_handle *log_handle, trunk_handle *spl);
 void

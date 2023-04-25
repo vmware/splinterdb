@@ -360,7 +360,7 @@ filter_test(int argc, char *argv[])
    platform_assert_status_ok(rc);
 
    rc = rc_allocator_init(
-      &al, &allocator_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+      &al, &allocator_cfg, (io_handle *)io, hid, platform_get_module_id());
    platform_assert_status_ok(rc);
 
    cc = TYPED_MALLOC(hid, cc);
@@ -370,7 +370,6 @@ filter_test(int argc, char *argv[])
                         (io_handle *)io,
                         (allocator *)&al,
                         "test",
-                        hh,
                         hid,
                         platform_get_module_id());
    platform_assert_status_ok(rc);
@@ -412,6 +411,7 @@ filter_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
+   task_system_destroy(hid, &ts);
    io_handle_deinit(io);
 free_iohandle:
    platform_free(hid, io);

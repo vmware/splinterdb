@@ -95,7 +95,7 @@ typedef void (*test_trunk_thread_hdlr)(void *arg);
 static inline bool
 test_is_done(const uint8 done, const uint8 n)
 {
-   return ((done >> n) & 1);
+   return (((done >> n) & 1) != 0);
 }
 
 static inline void
@@ -610,7 +610,6 @@ do_operation(test_splinter_thread_params *params,
 
             if (async_lookup->max_async_inflight == 0) {
                platform_status rc;
-               bool            found;
 
                test_key(&keybuf,
                         test_cfg[spl_idx].key_type,
@@ -626,7 +625,7 @@ do_operation(test_splinter_thread_params *params,
                if (ts > params->lookup_stats[SYNC_LU].latency_max) {
                   params->lookup_stats[SYNC_LU].latency_max = ts;
                }
-               found = trunk_lookup_found(&msg);
+               bool found = trunk_lookup_found(&msg);
                if (found) {
                   params->lookup_stats[SYNC_LU].num_found++;
                } else {
@@ -2273,14 +2272,6 @@ test_splinter_delete(trunk_config    *cfg,
       cache_print_stats(Platform_default_log_handle, spl->cc);
    }
 
-   for (uint8 spl_idx = 0; spl_idx < num_tables; spl_idx++) {
-      trunk_handle *spl = spl_tables[spl_idx];
-      trunk_force_flush(spl);
-      platform_default_log("After flushing table %d:\n", spl_idx);
-      trunk_print_insertion_stats(Platform_default_log_handle, spl);
-      cache_print_stats(Platform_default_log_handle, spl->cc);
-   }
-
    for (uint64 i = 0; i < num_insert_threads; i++) {
       if (!SUCCESS(params[i].rc)) {
          rc = params[i].rc;
@@ -2762,7 +2753,7 @@ splinter_test(int argc, char *argv[])
 
    rc_allocator al;
    rc_allocator_init(
-      &al, &al_cfg, (io_handle *)io, hh, hid, platform_get_module_id());
+      &al, &al_cfg, (io_handle *)io, hid, platform_get_module_id());
 
    platform_error_log("Running splinter_test with %d caches\n", num_caches);
    clockcache *cc = TYPED_ARRAY_MALLOC(hid, cc, num_caches);
@@ -2773,7 +2764,6 @@ splinter_test(int argc, char *argv[])
                            (io_handle *)io,
                            (allocator *)&al,
                            "test",
-                           hh,
                            hid,
                            platform_get_module_id());
       platform_assert_status_ok(rc);
@@ -2901,7 +2891,6 @@ splinter_test(int argc, char *argv[])
                                  test_ops,
                                  correctness_check_frequency,
                                  ts,
-                                 hh,
                                  hid,
                                  num_tables,
                                  num_caches,

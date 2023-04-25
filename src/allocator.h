@@ -57,7 +57,6 @@ typedef enum page_type {
    PAGE_TYPE_BLOB,
    PAGE_TYPE_SUPERBLOCK,
    PAGE_TYPE_MISC, // Used mainly as a testing hook, for cache access testing.
-   PAGE_TYPE_LOCK_NO_DATA,
    NUM_PAGE_TYPES,
 } page_type;
 
@@ -69,8 +68,7 @@ static const char *const page_type_str[] = {"invalid",
                                             "log",
                                             "blob",
                                             "superblock",
-                                            "misc",
-                                            "lock"};
+                                            "misc"};
 
 // Ensure that the page-type lookup array is adequately sized.
 _Static_assert(
