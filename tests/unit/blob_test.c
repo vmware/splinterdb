@@ -23,10 +23,12 @@ CTEST_DATA(blob)
    io_config         io_cfg;
    allocator_config  allocator_cfg;
    clockcache_config cache_cfg;
+   task_system_config task_cfg;
 
    platform_heap_handle hh;
    platform_heap_id     hid;
    platform_io_handle   io;
+   task_system         *ts;
    rc_allocator         al;
    clockcache           clock_cache;
 };
@@ -51,7 +53,9 @@ CTEST_SETUP(blob)
        || !init_allocator_config_from_master_config(
           &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
        || !init_clockcache_config_from_master_config(
-          &data->cache_cfg, &data->master_cfg, &data->io_cfg))
+          &data->cache_cfg, &data->master_cfg, &data->io_cfg)
+       || !init_task_config_from_master_config(
+          &data->task_cfg, &data->master_cfg, 0))
    {
       ASSERT_TRUE(FALSE, "Failed to parse args\n");
    }
@@ -64,6 +68,9 @@ CTEST_SETUP(blob)
    platform_assert_status_ok(rc);
 
    rc = io_handle_init(&data->io, &data->io_cfg, data->hh, data->hid);
+   platform_assert_status_ok(rc);
+
+   rc = task_system_create(data->hid, &data->io, &data->ts, &data->task_cfg);
    platform_assert_status_ok(rc);
 
    rc_allocator_init(
@@ -87,6 +94,8 @@ CTEST_TEARDOWN(blob)
    allocator *alp = (allocator *)&data->al;
    allocator_assert_noleaks(alp);
    rc_allocator_deinit(&data->al);
+
+   task_system_destroy(data->hid, &data->ts);
 
    io_handle_deinit(&data->io);
 
