@@ -5503,7 +5503,7 @@ trunk_split_index(trunk_handle             *spl,
          spl, key_buffer_key(&req->start_key), trunk_min_key(spl, left_node)));
       key_buffer_copy_key(&req->end_key, trunk_max_key(spl, left_node));
 
-      rc = trunk_compact_bundle_enqueue(spl, "split to", req);
+      rc = trunk_compact_bundle_enqueue(spl, "split to", next_req);
       platform_assert_status_ok(rc);
    }
 
