@@ -1204,7 +1204,6 @@ trunk_root_claim(trunk_handle *spl)
    platform_batch_rwlock_claim(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
 }
 
-
 static inline void
 trunk_root_lock(trunk_handle *spl)
 {
@@ -1221,6 +1220,7 @@ static inline void
 trunk_root_unclaim(trunk_handle *spl)
 {
    platform_batch_rwlock_unclaim(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
+   platform_batch_rwlock_unget(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
 }
 
 /*
@@ -3281,7 +3281,13 @@ trunk_get_memtable(trunk_handle *spl, uint64 generation)
 {
    uint64    memtable_idx = generation % TRUNK_NUM_MEMTABLES;
    memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
-   platform_assert(mt->generation == generation);
+   platform_assert(mt->generation == generation,
+                   "mt->generation=%lu, mt_ctxt->generation=%lu, "
+                   "mt_ctxt->generation_retired=%lu, generation=%lu\n",
+                   mt->generation,
+                   spl->mt_ctxt->generation,
+                   spl->mt_ctxt->generation_retired,
+                   generation);
    return mt;
 }
 
@@ -3367,9 +3373,16 @@ trunk_memtable_iterator_deinit(trunk_handle   *spl,
 platform_status
 trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
 {
-   uint64          generation;
+   uint64 generation;
+
    platform_status rc =
       memtable_maybe_rotate_and_get_insert_lock(spl->mt_ctxt, &generation);
+   while (STATUS_IS_EQ(rc, STATUS_BUSY)) {
+      // Memtable isn't ready, do a task if available; may be required to
+      // incorporate memtable that we're waiting on
+      task_perform_one_if_needed(spl->ts, 0);
+      rc = memtable_maybe_rotate_and_get_insert_lock(spl->mt_ctxt, &generation);
+   }
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -6726,10 +6739,12 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 
    merge_accumulator_set_to_null(result);
 
-   bool found_in_memtable = FALSE;
    memtable_get_lookup_lock(spl->mt_ctxt);
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
+   bool   found_in_memtable = FALSE;
+   uint64 mt_gen_start      = memtable_generation(spl->mt_ctxt);
+   uint64 mt_gen_end        = memtable_generation_retired(spl->mt_ctxt);
+   platform_assert(mt_gen_start - mt_gen_end <= TRUNK_NUM_MEMTABLES);
+
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
       rc = trunk_memtable_lookup(spl, mt_gen, target, result);

@@ -127,7 +127,7 @@ typedef struct memtable_context {
    platform_mutex  incorporation_mutex;
    volatile uint64 generation_to_incorporate;
 
-   // Protected by the MEMTABLE_INSERT_LOCK_IDX'th lock of rwlock. Must hold
+   // Protected by the MEMTABLE_LOOKUP_LOCK_IDX'th lock of rwlock. Must hold
    // read lock to read and write lock to modify.
    volatile uint64 generation_retired;
 

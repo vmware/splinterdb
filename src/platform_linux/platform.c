@@ -282,7 +282,7 @@ platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
  * A claim blocks all other claimants (and therefore all other writelocks,
  * because writelocks are required to hold a claim during the writelock).
  *
- * Cannot hold a get (read lock)
+ * Must hold a get (read lock)
  *
  * try_claim returns whether the claim succeeded
  *-----------------------------------------------------------------------------
@@ -291,9 +291,14 @@ platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
 bool
 platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx)
 {
+   threadid tid = platform_get_tid();
+   debug_assert(lock->read_counter[tid][lock_idx]);
    if (__sync_lock_test_and_set(&lock->write_lock[lock_idx].claim, 1)) {
       return FALSE;
    }
+   debug_only uint8 old_counter =
+      __sync_fetch_and_sub(&lock->read_counter[tid][lock_idx], 1);
+   debug_assert(0 < old_counter);
    return TRUE;
 }
 
@@ -301,7 +306,9 @@ void
 platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx)
 {
    uint64 wait = 1;
+   platform_batch_rwlock_get(lock, lock_idx);
    while (!platform_batch_rwlock_try_claim(lock, lock_idx)) {
+      platform_batch_rwlock_unget(lock, lock_idx);
       platform_sleep_ns(wait);
       wait = wait > 2048 ? wait : 2 * wait;
    }
@@ -310,6 +317,8 @@ platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx)
 void
 platform_batch_rwlock_unclaim(platform_batch_rwlock *lock, uint64 lock_idx)
 {
+   threadid tid = platform_get_tid();
+   __sync_fetch_and_add(&lock->read_counter[tid][lock_idx], 1);
    __sync_lock_release(&lock->write_lock[lock_idx].claim);
 }
 
