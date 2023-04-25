@@ -14,7 +14,11 @@ typedef struct PACKED data_handle {
 } data_handle;
 
 void
+test_data_set_max_payload_size(uint64 max_payload_size);
+
+void
 test_data_generate_message(const data_config *cfg,
+                           uint64             k,
                            message_type       type,
                            uint8              ref_count,
                            merge_accumulator *msg);

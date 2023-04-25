@@ -1937,6 +1937,7 @@ clockcache_deinit(clockcache *cc) // IN/OUT
 page_handle *
 clockcache_alloc(clockcache *cc, uint64 addr, page_type type)
 {
+   debug_assert(clockcache_lookup(cc, addr) == CC_UNMAPPED_ENTRY);
    uint32            entry_no = clockcache_get_free_page(cc,
                                               CC_ALLOC_STATUS,
                                               TRUE,  // refcount

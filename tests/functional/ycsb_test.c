@@ -358,6 +358,7 @@ ycsb_thread(void *arg)
             {
                message val =
                   message_create(MESSAGE_TYPE_INSERT,
+                                 NULL,
                                  slice_create(YCSB_DATA_SIZE, ops->value));
                rc = trunk_insert(spl, key_create(YCSB_KEY_SIZE, ops->key), val);
                platform_assert_status_ok(rc);

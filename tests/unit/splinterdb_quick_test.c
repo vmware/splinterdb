@@ -253,30 +253,6 @@ CTEST2(splinterdb_quick, test_key_size_gt_max_key_size)
 }
 
 /*
- * Test case to verify core interfaces when value-size is > max value-size.
- * Here, we basically exercise the insert interface, which will trip up
- * if very large values are supplied. (Once insert fails, there is
- * no further need to verify the other interfaces for very-large-values.)
- */
-CTEST2(splinterdb_quick, test_value_size_gt_max_value_size)
-{
-   size_t too_large_value_len =
-      MAX_INLINE_MESSAGE_SIZE(LAIO_DEFAULT_PAGE_SIZE) + 1;
-   char *too_large_value_data;
-   too_large_value_data = TYPED_ARRAY_MALLOC(
-      data->cfg.heap_id, too_large_value_data, too_large_value_len);
-   memset(too_large_value_data, 'z', too_large_value_len);
-   slice too_large_value =
-      slice_create(too_large_value_len, too_large_value_data);
-
-   int rc = splinterdb_insert(
-      data->kvsb, slice_create(sizeof("foo"), "foo"), too_large_value);
-
-   ASSERT_EQUAL(EINVAL, rc);
-   platform_free(data->cfg.heap_id, too_large_value_data);
-}
-
-/*
  * Test case to exercise APIs for variable-length values; empty value,
  * short and somewhat longish value. After inserting this data, the lookup
  * sub-cases exercises different combinations to cover internal re-allocation
@@ -613,7 +589,10 @@ CTEST2(splinterdb_quick,
    // (d) Test with a non-existent value beyond max key value.
    //     iter_init should end up as being invalid.
    kctr = -1;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
    snprintf(key, sizeof(key), key_fmt, kctr);
+#pragma GCC diagnostic pop
    start_key = slice_create(strlen(key), key);
    rc        = splinterdb_iterator_init(data->kvsb, &it, start_key);
    ASSERT_EQUAL(0, rc);
@@ -704,8 +683,8 @@ CTEST2(splinterdb_quick, test_custom_data_config)
    int rc = splinterdb_create(&data->cfg, &data->kvsb);
    ASSERT_EQUAL(0, rc);
 
-   const size_t key_len   = 3;
-   const char  *key_data  = "foo";
+   const char  *key_data  = "foobarbaz";
+   const size_t key_len   = strlen(key_data);
    slice        user_key  = slice_create(key_len, key_data);
    data_handle  msg       = {.ref_count = 1};
    slice        msg_slice = slice_create(sizeof(msg), &msg);

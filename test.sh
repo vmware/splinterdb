@@ -568,10 +568,13 @@ function run_splinter_functionality_tests() {
     key_size=8
     run_with_timing "Functionality test, key size=${key_size} bytes" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --key-size ${key_size} --seed "$SEED"
+                                            --key-size ${key_size} \
+                                            --data-size 160000 \
+                                            --seed "$SEED"
 
     run_with_timing "Functionality test, with default key size" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
+                                            --data-size 160000 \
                                             --seed "$SEED"
 
     run_with_timing "Functionality test, default key size, with background threads" \
@@ -582,7 +585,9 @@ function run_splinter_functionality_tests() {
     max_key_size=102
     run_with_timing "Functionality test, key size=maximum (${max_key_size} bytes)" \
         "$BINDIR"/driver_test splinter_test --functionality 1000000 100 \
-                                            --key-size ${max_key_size} --seed "$SEED"
+                                            --key-size ${max_key_size} \
+                                            --data-size 160000 \
+                                            --seed "$SEED"
 }
 
 # ##################################################################

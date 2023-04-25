@@ -12,6 +12,7 @@
 #include "mini_allocator.h"
 #include "iterator.h"
 #include "util.h"
+#include "blob_build.h"
 
 /*
  * Max height of the BTree. This is somewhat of an arbitrary limit to size
@@ -25,15 +26,15 @@
  * Finally, this is limited for convenience to allow for static allocation
  * of some nested arrays sized by this value.
  */
-#define BTREE_MAX_HEIGHT (8)
+#define BTREE_MAX_HEIGHT (MINI_MAX_BATCHES - NUM_BLOB_BATCHES)
 
 /*
  * Mini-allocator uses separate batches for each height of the BTree.
  * Therefore, the max # of mini-batches that the mini-allocator can track
  * is limited by the max height of the BTree.
  */
-_Static_assert(BTREE_MAX_HEIGHT == MINI_MAX_BATCHES,
-               "BTREE_MAX_HEIGHT has to be == MINI_MAX_BATCHES");
+_Static_assert(BTREE_MAX_HEIGHT <= MINI_MAX_BATCHES,
+               "BTREE_MAX_HEIGHT has to be <= MINI_MAX_BATCHES");
 
 /*
  * Acceptable upper-bound on amount of space to waste when deciding whether
@@ -160,6 +161,7 @@ typedef struct btree_pack_req {
    btree_node        edge[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    btree_pivot_stats edge_stats[BTREE_MAX_HEIGHT][MAX_PAGES_PER_EXTENT];
    uint32            num_edges[BTREE_MAX_HEIGHT];
+   merge_accumulator ma;
 
    mini_allocator mini;
 
@@ -340,6 +342,7 @@ btree_pack_req_init(btree_pack_req  *req,
    req->max_tuples = max_tuples;
    req->hash       = hash;
    req->seed       = seed;
+   merge_accumulator_init(&req->ma, hid);
    if (hash != NULL && max_tuples > 0) {
       req->fingerprint_arr =
          TYPED_ARRAY_MALLOC(hid, req->fingerprint_arr, max_tuples);
@@ -349,6 +352,7 @@ btree_pack_req_init(btree_pack_req  *req,
 static inline void
 btree_pack_req_deinit(btree_pack_req *req, platform_heap_id hid)
 {
+   merge_accumulator_deinit(&req->ma);
    if (req->fingerprint_arr) {
       platform_free(hid, req->fingerprint_arr);
    }
@@ -396,6 +400,7 @@ btree_print_tree(platform_log_handle *log_handle,
 void
 btree_print_locked_node(platform_log_handle *log_handle,
                         btree_config        *cfg,
+                        cache               *cc,
                         uint64               addr,
                         btree_hdr           *hdr,
                         page_type            type);

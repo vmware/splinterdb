@@ -399,10 +399,15 @@ CLOCKCACHE_SYS = $(OBJDIR)/$(SRCDIR)/clockcache.o	  \
                  $(UTIL_SYS)                        \
                  $(PLATFORM_IO_SYS)
 
+BLOB_SYS = $(OBJDIR)/$(SRCDIR)/blob.o        \
+           $(OBJDIR)/$(SRCDIR)/blob_build.o        \
+           $(OBJDIR)/$(SRCDIR)/data_internal.o   \
+           $(OBJDIR)/$(SRCDIR)/data_blob_build.o   \
+           $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
+				 	 $(CLOCKCACHE_SYS)
+
 BTREE_SYS = $(OBJDIR)/$(SRCDIR)/btree.o           \
-            $(OBJDIR)/$(SRCDIR)/data_internal.o   \
-            $(OBJDIR)/$(SRCDIR)/mini_allocator.o  \
-            $(CLOCKCACHE_SYS)
+						$(BLOB_SYS)
 
 #################################################################
 # The dependencies of each mini unit test.
@@ -415,13 +420,21 @@ $(BINDIR)/$(UNITDIR)/misc_test: $(UTIL_SYS) $(COMMON_UNIT_TESTOBJ)
 $(BINDIR)/$(UNITDIR)/util_test: $(UTIL_SYS)            \
                                 $(COMMON_UNIT_TESTOBJ)
 
-$(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
+$(BINDIR)/$(UNITDIR)/blob_test: $(OBJDIR)/$(UNIT_TESTSDIR)/cache_test_common.o \
+                                $(OBJDIR)/$(TESTS_DIR)/config.o                \
+                                $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
+                                $(COMMON_UNIT_TESTOBJ)                         \
+                                $(BLOB_SYS)
+
+$(BINDIR)/$(UNITDIR)/btree_test: $(OBJDIR)/$(UNIT_TESTSDIR)/cache_test_common.o \
+																 $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o \
                                  $(OBJDIR)/$(TESTS_DIR)/config.o                \
                                  $(OBJDIR)/$(TESTS_DIR)/test_data.o             \
                                  $(COMMON_UNIT_TESTOBJ)                         \
                                  $(BTREE_SYS)
 
-$(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
+$(BINDIR)/$(UNITDIR)/btree_stress_test: $(OBJDIR)/$(UNIT_TESTSDIR)/cache_test_common.o \
+																 				$(OBJDIR)/$(UNIT_TESTSDIR)/btree_test_common.o  \
                                         $(OBJDIR)/$(TESTS_DIR)/config.o                 \
                                         $(OBJDIR)/$(TESTS_DIR)/test_data.o              \
                                         $(COMMON_UNIT_TESTOBJ)                          \

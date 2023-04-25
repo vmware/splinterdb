@@ -67,19 +67,22 @@ typedef struct leaf_incorporate_spec {
       ENTRY_STILL_EXISTS,
       ENTRY_HAS_BEEN_REMOVED
    } old_entry_state;
+   bool use_msg;
    union {
-      /* "old_entry_state" is the tag on this union. */
-      message           new_message; // old_entry_state == ENTRY_DID_NOT_EXIST
-      merge_accumulator merged_message; // otherwise
+      /* use_msg is the tag on this union. */
+      message           msg;
+      merge_accumulator ma;
    } msg;
 } leaf_incorporate_spec;
 
 platform_status
 btree_create_leaf_incorporate_spec(const btree_config    *cfg,
+                                   cache                 *cc,
+                                   mini_allocator        *mini,
                                    platform_heap_id       heap_id,
                                    btree_hdr             *hdr,
                                    key                    tuple_key,
-                                   message                message,
+                                   message                msg,
                                    leaf_incorporate_spec *spec);
 
 bool
@@ -194,21 +197,21 @@ index_entry_child_addr(const index_entry *entry)
 }
 
 static inline key
-leaf_entry_key(leaf_entry *entry)
+leaf_entry_key(const leaf_entry *entry)
 {
    return ondisk_tuple_key(entry);
 }
 
 static inline message
-leaf_entry_message(leaf_entry *entry)
+leaf_entry_message(cache *cc, const leaf_entry *entry)
 {
-   return ondisk_tuple_message(entry);
+   return ondisk_tuple_message(cc, entry);
 }
 
 static inline message_type
-leaf_entry_message_type(leaf_entry *entry)
+leaf_entry_message_type(const leaf_entry *entry)
 {
-   return entry->flags & ONDISK_MESSAGE_TYPE_MASK;
+   return ondisk_tuple_message_class(entry);
 }
 
 static inline leaf_entry *
@@ -239,10 +242,11 @@ btree_get_tuple_key(const btree_config *cfg,
 
 static inline message
 btree_get_tuple_message(const btree_config *cfg,
+                        cache              *cc,
                         const btree_hdr    *hdr,
                         table_index         k)
 {
-   return leaf_entry_message(btree_get_leaf_entry(cfg, hdr, k));
+   return leaf_entry_message(cc, btree_get_leaf_entry(cfg, hdr, k));
 }
 
 static inline message_type

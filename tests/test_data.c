@@ -3,6 +3,7 @@
 
 #include "test_data.h"
 #include "data_internal.h"
+#include "functional/test.h"
 
 typedef struct data_test_config {
    data_config super;
@@ -17,6 +18,7 @@ test_data_key_cmp(const data_config *cfg, slice key1, slice key2)
 
 void
 test_data_generate_message(const data_config *cfg,
+                           uint64             k,
                            message_type       type,
                            uint8              ref_count,
                            merge_accumulator *msg)
@@ -24,9 +26,18 @@ test_data_generate_message(const data_config *cfg,
    uint64 payload_size = 0;
    if (type == MESSAGE_TYPE_INSERT) {
       const data_test_config *tdcfg = (const data_test_config *)cfg;
-      // A coupla good ol' random primes
-      payload_size = (253456363ULL + (uint64)ref_count * 750599937895091ULL)
-                     % tdcfg->payload_size_limit;
+      /*
+       * Approximate Pareto distribution on lengths from 1..N w/ Pareto
+       * param 1.5, without using any floating point, division, square
+       * roots, etc.  To really be Pareto, modulus for r should be N -
+       * sqrt(N). By omitting the sqrt(N) part, we occasionally generate
+       * values larger than N.  Hence the MIN in the definition of
+       * "payload_size".
+       */
+      uint64 N = tdcfg->payload_size_limit;
+      uint64 r =
+         (253456363ULL + ((k << 8) + ref_count) * 750599937895091ULL) % N;
+      payload_size = MIN(N - 1, N * N / (N - r) / (N - r) - 1);
    }
    merge_accumulator_set_class(msg, type);
    merge_accumulator_resize(msg, sizeof(data_handle) + payload_size);
@@ -45,7 +56,7 @@ test_data_generate_message(const data_config *cfg,
  */
 static int
 test_data_merge_tuples(const data_config *cfg,
-                       slice              key,
+                       slice              k,
                        message            old_raw_message,
                        merge_accumulator *new_raw_message)
 {
@@ -66,8 +77,11 @@ test_data_merge_tuples(const data_config *cfg,
    if (result_ref_count == 0 && result_type == MESSAGE_TYPE_INSERT) {
       result_type = MESSAGE_TYPE_DELETE;
    }
-   test_data_generate_message(
-      cfg, result_type, result_ref_count, new_raw_message);
+   test_data_generate_message(cfg,
+                              test_int_from_key(k),
+                              result_type,
+                              result_ref_count,
+                              new_raw_message);
 
    return 0;
 }
@@ -84,7 +98,7 @@ test_data_merge_tuples(const data_config *cfg,
  */
 static int
 test_data_merge_tuples_final(const data_config *cfg,
-                             slice              key,
+                             slice              k,
                              merge_accumulator *oldest_raw_data) // IN/OUT
 {
    platform_assert(merge_accumulator_message_class(oldest_raw_data)
@@ -95,6 +109,7 @@ test_data_merge_tuples_final(const data_config *cfg,
    debug_assert(old_data != NULL);
 
    test_data_generate_message(cfg,
+                              test_int_from_key(k),
                               (old_data->ref_count == 0) ? MESSAGE_TYPE_DELETE
                                                          : MESSAGE_TYPE_INSERT,
                               old_data->ref_count,
@@ -103,12 +118,9 @@ test_data_merge_tuples_final(const data_config *cfg,
 }
 
 static void
-test_data_key_to_string(const data_config *cfg,
-                        slice              key,
-                        char              *str,
-                        size_t             len)
+test_data_key_to_string(const data_config *cfg, slice k, char *str, size_t len)
 {
-   debug_hex_encode(str, len, slice_data(key), slice_length(key));
+   debug_hex_encode(str, len, slice_data(k), slice_length(k));
 }
 
 static void
@@ -134,3 +146,9 @@ static data_test_config data_test_config_internal = {
    .payload_size_limit = 24};
 
 data_config *test_data_config = &data_test_config_internal.super;
+
+void
+test_data_set_max_payload_size(uint64 max_payload_size)
+{
+   data_test_config_internal.payload_size_limit = max_payload_size;
+}

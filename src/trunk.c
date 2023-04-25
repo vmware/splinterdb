@@ -41,6 +41,9 @@ static const int64 latency_histo_buckets[LATENCYHISTO_SIZE] = {
    10000000000 // 10  s
 };
 
+static const page_type page_type_table[TRUNK_MAX_HEIGHT] = {
+   [0 ... TRUNK_MAX_HEIGHT - 1] = PAGE_TYPE_TRUNK};
+
 /*
  * At any time, one Memtable is "active" for inserts / updates.
  * At any time, the most # of Memtables that can be active or in one of these
@@ -632,7 +635,7 @@ trunk_node_unlock(cache *cc, trunk_node *node)
 static inline void
 trunk_alloc(cache *cc, mini_allocator *mini, uint64 height, trunk_node *node)
 {
-   node->addr = mini_alloc(mini, height, NULL_KEY, NULL);
+   node->addr = mini_alloc_page(mini, height, NULL_KEY, NULL);
    debug_assert(node->addr != 0);
    node->page = cache_alloc(cc, node->addr, PAGE_TYPE_TRUNK);
    node->hdr  = (trunk_hdr *)(node->page->data);
@@ -1201,7 +1204,6 @@ trunk_root_claim(trunk_handle *spl)
    platform_batch_rwlock_claim(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
 }
 
-
 static inline void
 trunk_root_lock(trunk_handle *spl)
 {
@@ -1218,6 +1220,7 @@ static inline void
 trunk_root_unclaim(trunk_handle *spl)
 {
    platform_batch_rwlock_unclaim(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
+   platform_batch_rwlock_unget(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
 }
 
 /*
@@ -2715,11 +2718,6 @@ trunk_bundle_inc_pivot_rc(trunk_handle *spl,
  */
 
 /*
- * has_vacancy returns TRUE unless there is not enough physical space in the
- * node to add another branch
- */
-
-/*
  * Returns the number of live branches (including fractional branches).
  */
 static inline uint16
@@ -2729,6 +2727,10 @@ trunk_branch_count(trunk_handle *spl, trunk_node *node)
       spl, node->hdr->end_branch, node->hdr->start_branch);
 }
 
+/*
+ * has_vacancy returns TRUE unless there is not enough physical space in the
+ * node to add another branch
+ */
 static inline bool
 trunk_has_vacancy(trunk_handle *spl, trunk_node *node, uint16 num_new_branches)
 {
@@ -3279,7 +3281,13 @@ trunk_get_memtable(trunk_handle *spl, uint64 generation)
 {
    uint64    memtable_idx = generation % TRUNK_NUM_MEMTABLES;
    memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
-   platform_assert(mt->generation == generation);
+   platform_assert(mt->generation == generation,
+                   "mt->generation=%lu, mt_ctxt->generation=%lu, "
+                   "mt_ctxt->generation_retired=%lu, generation=%lu\n",
+                   mt->generation,
+                   spl->mt_ctxt->generation,
+                   spl->mt_ctxt->generation_retired,
+                   generation);
    return mt;
 }
 
@@ -3365,9 +3373,16 @@ trunk_memtable_iterator_deinit(trunk_handle   *spl,
 platform_status
 trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
 {
-   uint64          generation;
+   uint64 generation;
+
    platform_status rc =
       memtable_maybe_rotate_and_get_insert_lock(spl->mt_ctxt, &generation);
+   while (STATUS_IS_EQ(rc, STATUS_BUSY)) {
+      // Memtable isn't ready, do a task if available; may be required to
+      // incorporate memtable that we're waiting on
+      task_perform_one_if_needed(spl->ts, 0);
+      rc = memtable_maybe_rotate_and_get_insert_lock(spl->mt_ctxt, &generation);
+   }
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -5656,6 +5671,16 @@ trunk_split_leaf(trunk_handle *spl,
          }
       }
    }
+   target_num_leaves =
+      MIN(target_num_leaves,
+          spl->cfg.max_pivot_keys - trunk_num_pivot_keys(spl, parent));
+   if (target_num_leaves == 1) {
+      comp_type = TRUNK_COMPACTION_TYPE_SINGLE_LEAF_SPLIT;
+      if (spl->cfg.use_stats) {
+         spl->stats[tid].single_leaf_splits++;
+      }
+   }
+
    uint64 target_leaf_kv_bytes = kv_bytes / target_num_leaves;
    uint16 num_leaves;
 
@@ -6714,10 +6739,12 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 
    merge_accumulator_set_to_null(result);
 
-   bool found_in_memtable = FALSE;
    memtable_get_lookup_lock(spl->mt_ctxt);
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
+   bool   found_in_memtable = FALSE;
+   uint64 mt_gen_start      = memtable_generation(spl->mt_ctxt);
+   uint64 mt_gen_end        = memtable_generation_retired(spl->mt_ctxt);
+   platform_assert(mt_gen_start - mt_gen_end <= TRUNK_NUM_MEMTABLES);
+
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
       rc = trunk_memtable_lookup(spl, mt_gen, target, result);
@@ -7447,6 +7474,7 @@ trunk_create(trunk_config     *cfg,
              0,
              TRUNK_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
+             page_type_table,
              FALSE);
 
    // set up the memtable context
@@ -7566,6 +7594,7 @@ trunk_mount(trunk_config     *cfg,
              meta_tail,
              TRUNK_MAX_HEIGHT,
              PAGE_TYPE_TRUNK,
+             page_type_table,
              FALSE);
    if (spl->cfg.use_log) {
       spl->log = log_create(cc, spl->cfg.log_cfg, spl->heap_id);
@@ -7684,7 +7713,9 @@ trunk_destroy(trunk_handle *spl)
    srq_deinit(&spl->srq);
    trunk_prepare_for_shutdown(spl);
    trunk_for_each_node(spl, trunk_node_destroy, NULL);
-   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK, FALSE);
+
+   mini_unkeyed_dec_ref(spl->cc, spl->mini.meta_head, PAGE_TYPE_TRUNK);
+
    // clear out this splinter table from the meta page.
    allocator_remove_super_addr(spl->al, spl->id);
 
@@ -9424,6 +9455,8 @@ trunk_config_init(trunk_config        *trunk_cfg,
    // - user-specified fanout
    trunk_cfg->hard_max_branches_per_node =
       bytes_for_branches / sizeof(trunk_branch) - 1;
+   platform_assert(trunk_cfg->max_branches_per_node
+                   <= trunk_cfg->hard_max_branches_per_node);
 
    // Initialize point message btree
    btree_config_init(&trunk_cfg->btree_cfg,

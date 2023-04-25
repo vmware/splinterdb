@@ -26,7 +26,7 @@
  * ever needed, in future w/o perf impacts.) This limit is quite large enough
  * for most expected installations.
  */
-#define TRUNK_MAX_HEIGHT 8
+#define TRUNK_MAX_HEIGHT MINI_MAX_BATCHES
 
 /*
  * Mini-allocator uses separate batches for each height of the Trunk tree.

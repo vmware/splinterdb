@@ -41,6 +41,8 @@ typedef uint64 allocator_root_id;
  *
  * - PAGE_TYPE_LOG        : struct shard_log_hdr{} + computed offsets
  *
+ * - PAGE_TYPE_BLOB       : raw user data (see blob.c)
+ *
  * - PAGE_TYPE_SUPERBLOCK : struct trunk_super_block{}
  * ----------------------------------------------------------------------------
  */
@@ -52,6 +54,7 @@ typedef enum page_type {
    PAGE_TYPE_MEMTABLE,
    PAGE_TYPE_FILTER,
    PAGE_TYPE_LOG,
+   PAGE_TYPE_BLOB,
    PAGE_TYPE_SUPERBLOCK,
    PAGE_TYPE_MISC, // Used mainly as a testing hook, for cache access testing.
    NUM_PAGE_TYPES,
@@ -63,6 +66,7 @@ static const char *const page_type_str[] = {"invalid",
                                             "memtable",
                                             "filter",
                                             "log",
+                                            "blob",
                                             "superblock",
                                             "misc"};
 

@@ -95,15 +95,18 @@ verify_tuple(trunk_handle    *spl,
    } else if (refcount && found) {
       merge_accumulator expected_message;
       merge_accumulator_init(&expected_message, spl->heap_id);
-      test_data_generate_message(
-         spl->cfg.data_cfg, MESSAGE_TYPE_INSERT, refcount, &expected_message);
+      test_data_generate_message(spl->cfg.data_cfg,
+                                 int_key,
+                                 MESSAGE_TYPE_INSERT,
+                                 refcount,
+                                 &expected_message);
       message expected_msg = merge_accumulator_to_message(&expected_message);
       platform_assert(!message_is_null(msg));
       platform_assert(message_lex_cmp(msg, expected_msg) == 0,
                       "ERROR: message does not match expected message.  "
                       "key = 0x%08lx "
                       "shadow ref: %4d "
-                      "splinter ref: %4d"
+                      "splinter ref: %4d "
                       "shadow len: %lu "
                       "splinter len: %lu\n",
                       int_key,
@@ -123,6 +126,10 @@ verify_tuple_callback(trunk_handle *spl, test_async_ctxt *ctxt, void *arg)
 {
    platform_status *result = arg;
 
+   *result = merge_accumulator_ensure_materialized(&ctxt->data);
+   platform_assert(SUCCESS(*result),
+                   "Failed to materialize message: %s\n",
+                   platform_status_to_string(*result));
    verify_tuple(spl,
                 key_buffer_key(&ctxt->key),
                 merge_accumulator_to_message(&ctxt->data),
@@ -180,6 +187,10 @@ verify_against_shadow(trunk_handle               *spl,
          if (!SUCCESS(rc)) {
             return rc;
          }
+         rc = merge_accumulator_ensure_materialized(&merge_acc);
+         if (!SUCCESS(rc)) {
+            return rc;
+         }
          message msg = merge_accumulator_to_message(&merge_acc);
          verify_tuple(spl, target, msg, refcount, &result);
       } else {
@@ -228,6 +239,9 @@ verify_range_against_shadow(trunk_handle               *spl,
    uint64             splinter_key;
    uint64             i;
    bool               at_end;
+   platform_status    rc;
+   writable_buffer    materialized_tmp;
+   message            materialized_splinter_message;
 
    platform_assert(start_index <= sharr->nkeys);
    platform_assert(end_index <= sharr->nkeys);
@@ -264,8 +278,15 @@ verify_range_against_shadow(trunk_handle               *spl,
 
       iterator_get_curr(
          (iterator *)range_itor, &splinter_keybuf, &splinter_message);
+      rc = message_materialize_if_needed(hid,
+                                         splinter_message,
+                                         &materialized_tmp,
+                                         &materialized_splinter_message);
+      if (!SUCCESS(rc)) {
+         goto destroy;
+      }
       splinter_key         = be64toh(*(uint64 *)key_data(splinter_keybuf));
-      splinter_data_handle = message_data(splinter_message);
+      splinter_data_handle = message_data(materialized_splinter_message);
 
       if (splinter_key == shadow_key) {
          status = STATUS_OK;
@@ -284,8 +305,13 @@ verify_range_against_shadow(trunk_handle               *spl,
          goto destroy;
       }
 
-      verify_tuple(
-         spl, splinter_keybuf, splinter_message, shadow_refcount, &status);
+      verify_tuple(spl,
+                   splinter_keybuf,
+                   materialized_splinter_message,
+                   shadow_refcount,
+                   &status);
+
+      message_dematerialize_if_needed(splinter_message, &materialized_tmp);
 
       status = iterator_advance((iterator *)range_itor);
       if (!SUCCESS(status)) {
@@ -575,7 +601,8 @@ insert_random_messages(trunk_handle              *spl,
             ref_count = 1;
          }
       }
-      test_data_generate_message(spl->cfg.data_cfg, op, ref_count, &msg);
+      test_data_generate_message(
+         spl->cfg.data_cfg, keynum, op, ref_count, &msg);
 
       rc = trunk_insert(spl, tuple_key, merge_accumulator_to_message(&msg));
       if (!SUCCESS(rc)) {

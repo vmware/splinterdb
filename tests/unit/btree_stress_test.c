@@ -24,6 +24,7 @@
 #include "rc_allocator.h"
 #include "clockcache.h"
 #include "btree_private.h"
+#include "cache_test_common.h"
 #include "btree_test_common.h"
 
 typedef struct insert_thread_params {
@@ -122,7 +123,7 @@ CTEST_SETUP(btree_stress)
        || !init_data_config_from_master_config(data->data_cfg,
                                                &data->master_cfg)
        || !init_io_config_from_master_config(&data->io_cfg, &data->master_cfg)
-       || !init_rc_allocator_config_from_master_config(
+       || !init_allocator_config_from_master_config(
           &data->allocator_cfg, &data->master_cfg, &data->io_cfg)
        || !init_clockcache_config_from_master_config(
           &data->cache_cfg, &data->master_cfg, &data->io_cfg)
@@ -365,6 +366,7 @@ gen_msg(btree_config *cfg, uint64 i, uint8 *buffer, size_t length)
    memset(dh->data, 0, datalen);
    memcpy(dh->data, &i, sizeof(i));
    return message_create(MESSAGE_TYPE_INSERT,
+                         NULL,
                          slice_create(sizeof(data_handle) + datalen, buffer));
 }
 
