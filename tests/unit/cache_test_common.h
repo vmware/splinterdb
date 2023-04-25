@@ -30,4 +30,3 @@ int
 init_clockcache_config_from_master_config(clockcache_config *cache_cfg,
                                           master_config     *master_cfg,
                                           io_config         *io_cfg);
-

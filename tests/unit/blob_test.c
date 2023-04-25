@@ -18,11 +18,11 @@
  */
 CTEST_DATA(blob)
 {
-   master_config       master_cfg;
-   data_config        *data_cfg;
-   io_config           io_cfg;
-   allocator_config    allocator_cfg;
-   clockcache_config   cache_cfg;
+   master_config     master_cfg;
+   data_config      *data_cfg;
+   io_config         io_cfg;
+   allocator_config  allocator_cfg;
+   clockcache_config cache_cfg;
 
    platform_heap_handle hh;
    platform_heap_id     hid;

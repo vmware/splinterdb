@@ -416,4 +416,3 @@ size_to_fmtstr(char *outbuf, size_t outbuflen, const char *fmtstr, size_t size);
           onstack_chartmp.buffer, sizeof(onstack_chartmp.buffer), fmtstr, sz); \
        onstack_chartmp;                                                        \
     }).buffer)
-
