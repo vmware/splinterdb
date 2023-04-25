@@ -8,9 +8,11 @@
 #@         "get_task_timeout",
 #@ )
 
+---
+
 #! Build plan sequences for various PR checks
 
-#@ def sequence_pr_build_test(compiler):
+#@ def sequence_pr_build_test_image(compiler):
 - in_parallel:
     fail_fast: true
     steps:
@@ -20,16 +22,19 @@
     - get: build-env-image-latest
       passed: [ recreate-build-env ]
       params: { format: oci }
+- load_var: git-commit-sha
+  file: "github-pull-request/.git/resource/head_sha"
+  reveal: true
 - #@ step_build_splinterdb_image("github-pull-request", compiler)
 - #@ step_test_with_image()
 #@ end
 
 ---
 
-#@ def sequence_pr_debug_build_test(compiler, quick=False, sanitize=None):
+#@ def sequence_pr_test(compiler, quick=False, sanitize=None, is_debug=True):
 - get: build-env-image-latest
   passed: [ recreate-build-env ]
-- #@ step_build_test(compiler, "github-pull-request", is_debug=True, quick=quick, sanitize=sanitize)
+- #@ step_build_test(compiler, "github-pull-request", is_debug=is_debug, quick=quick, sanitize=sanitize)
 #@ end
 
 ---

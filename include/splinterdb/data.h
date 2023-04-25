@@ -90,10 +90,10 @@ merge_accumulator_length(const merge_accumulator *ma);
 slice
 merge_accumulator_to_slice(const merge_accumulator *ma);
 
-bool
+_Bool
 merge_accumulator_copy_message(merge_accumulator *ma, message msg);
 
-bool
+_Bool
 merge_accumulator_resize(merge_accumulator *ma, uint64 newsize);
 
 void

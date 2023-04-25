@@ -411,6 +411,7 @@ filter_test(int argc, char *argv[])
    clockcache_deinit(cc);
    platform_free(hid, cc);
    rc_allocator_deinit(&al);
+   task_system_destroy(hid, &ts);
    io_handle_deinit(io);
 free_iohandle:
    platform_free(hid, io);

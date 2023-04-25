@@ -2088,7 +2088,9 @@ clockcache_get_internal(clockcache   *cc,       // IN
                         page_type     type,     // IN
                         page_handle **page)     // OUT
 {
-   debug_assert(addr % clockcache_page_size(cc) == 0);
+   debug_only uint64 page_size = clockcache_page_size(cc);
+   debug_assert(
+      ((addr % page_size) == 0), "addr=%lu, page_size=%lu\n", addr, page_size);
    uint32            entry_number = CC_UNMAPPED_ENTRY;
    uint64            lookup_no    = clockcache_divide_by_page_size(cc, addr);
    debug_only uint64 base_addr =
@@ -2261,8 +2263,7 @@ clockcache_get(clockcache *cc, uint64 addr, bool blocking, page_type type)
    page_handle *handle;
 
    debug_assert(cc->per_thread[platform_get_tid()].enable_sync_get
-                || type == PAGE_TYPE_MEMTABLE
-                || type == PAGE_TYPE_LOCK_NO_DATA);
+                || type == PAGE_TYPE_MEMTABLE);
    while (1) {
       retry = clockcache_get_internal(cc, addr, blocking, type, &handle);
       if (!retry) {
