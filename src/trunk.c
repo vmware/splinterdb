@@ -1196,11 +1196,11 @@ error:
  */
 
 static inline void
-trunk_root_claim(trunk_handle *spl)
+trunk_root_full_claim(trunk_handle *spl)
 {
-   platform_batch_rwlock_claim(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
+   platform_batch_rwlock_get(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
+   platform_batch_rwlock_claim_loop(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
 }
-
 
 static inline void
 trunk_root_lock(trunk_handle *spl)
@@ -1215,9 +1215,10 @@ trunk_root_unlock(trunk_handle *spl)
 }
 
 static inline void
-trunk_root_unclaim(trunk_handle *spl)
+trunk_root_full_unclaim(trunk_handle *spl)
 {
    platform_batch_rwlock_unclaim(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
+   platform_batch_rwlock_unget(&spl->trunk_root_lock, TRUNK_ROOT_LOCK_IDX);
 }
 
 /*
@@ -1233,7 +1234,7 @@ trunk_claim_and_copy_root(trunk_handle *spl,      // IN
                           trunk_node   *new_root, // OUT
                           uint64       *old_root_addr)  // OUT
 {
-   trunk_root_claim(spl);
+   trunk_root_full_claim(spl);
    trunk_node root;
    // Safe because we have the claim
    trunk_node_get(spl->cc, spl->root_addr, &root);
@@ -1258,7 +1259,7 @@ trunk_update_claimed_root(trunk_handle *spl,    // IN
    trunk_root_lock(spl);
    spl->root_addr = new_root->addr;
    trunk_root_unlock(spl);
-   trunk_root_unclaim(spl);
+   trunk_root_full_unclaim(spl);
 }
 
 /*
@@ -3279,7 +3280,13 @@ trunk_get_memtable(trunk_handle *spl, uint64 generation)
 {
    uint64    memtable_idx = generation % TRUNK_NUM_MEMTABLES;
    memtable *mt           = &spl->mt_ctxt->mt[memtable_idx];
-   platform_assert(mt->generation == generation);
+   platform_assert(mt->generation == generation,
+                   "mt->generation=%lu, mt_ctxt->generation=%lu, "
+                   "mt_ctxt->generation_retired=%lu, generation=%lu\n",
+                   mt->generation,
+                   spl->mt_ctxt->generation,
+                   spl->mt_ctxt->generation_retired,
+                   generation);
    return mt;
 }
 
@@ -3365,9 +3372,16 @@ trunk_memtable_iterator_deinit(trunk_handle   *spl,
 platform_status
 trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
 {
-   uint64          generation;
+   uint64 generation;
+
    platform_status rc =
-      memtable_maybe_rotate_and_get_insert_lock(spl->mt_ctxt, &generation);
+      memtable_maybe_rotate_and_begin_insert(spl->mt_ctxt, &generation);
+   while (STATUS_IS_EQ(rc, STATUS_BUSY)) {
+      // Memtable isn't ready, do a task if available; may be required to
+      // incorporate memtable that we're waiting on
+      task_perform_one_if_needed(spl->ts, 0);
+      rc = memtable_maybe_rotate_and_begin_insert(spl->mt_ctxt, &generation);
+   }
    if (!SUCCESS(rc)) {
       goto out;
    }
@@ -3389,7 +3403,7 @@ trunk_memtable_insert(trunk_handle *spl, key tuple_key, message msg)
    }
 
 unlock_insert_lock:
-   memtable_unget_insert_lock(spl->mt_ctxt);
+   memtable_end_insert(spl->mt_ctxt);
 out:
    return rc;
 }
@@ -3696,7 +3710,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
     * Transition memtable state and increment memtable generation (blocks
     * lookups from accessing the memtable that's being incorporated).
     */
-   memtable_lock_lookup_lock(spl->mt_ctxt);
+   memtable_block_lookups(spl->mt_ctxt);
    memtable *mt = trunk_get_memtable(spl, generation);
    // Normally need to hold incorp_mutex, but debug code and also guaranteed no
    // one is changing gen_to_incorp (we are the only thread that would try)
@@ -3709,7 +3723,7 @@ trunk_memtable_incorporate_and_flush(trunk_handle  *spl,
 
    // Switch in the new root and release all locks
    trunk_update_claimed_root_and_unlock(spl, &new_root);
-   memtable_unlock_lookup_lock(spl->mt_ctxt);
+   memtable_unblock_lookups(spl->mt_ctxt);
 
    // Enqueue the filter building task.
    trunk_log_stream_if_enabled(
@@ -4272,7 +4286,7 @@ trunk_bundle_build_filters(void *arg, void *scratch)
          if (trunk_build_filter_should_abort(compact_req, &node)) {
             trunk_log_stream_if_enabled(
                spl, &stream, "replace_filter abort leaf split\n");
-            trunk_root_unclaim(spl);
+            trunk_root_full_unclaim(spl);
             trunk_node_unlock(spl->cc, &node);
             trunk_node_unclaim(spl->cc, &node);
             trunk_node_unget(spl->cc, &node);
@@ -6039,7 +6053,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
    ZERO_ARRAY(range_itor->compacted);
 
    // grab the lookup lock
-   memtable_get_lookup_lock(spl->mt_ctxt);
+   memtable_begin_lookup(spl->mt_ctxt);
 
    // memtables
    ZERO_ARRAY(range_itor->branch);
@@ -6077,7 +6091,7 @@ trunk_range_iterator_init(trunk_handle         *spl,
 
    trunk_node node;
    trunk_node_get(spl->cc, spl->root_addr, &node);
-   memtable_unget_lookup_lock(spl->mt_ctxt);
+   memtable_end_lookup(spl->mt_ctxt);
 
    // index btrees
    uint16 height = trunk_node_height(&node);
@@ -6714,10 +6728,12 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
 
    merge_accumulator_set_to_null(result);
 
-   bool found_in_memtable = FALSE;
-   memtable_get_lookup_lock(spl->mt_ctxt);
-   uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
-   uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
+   memtable_begin_lookup(spl->mt_ctxt);
+   bool   found_in_memtable = FALSE;
+   uint64 mt_gen_start      = memtable_generation(spl->mt_ctxt);
+   uint64 mt_gen_end        = memtable_generation_retired(spl->mt_ctxt);
+   platform_assert(mt_gen_start - mt_gen_end <= TRUNK_NUM_MEMTABLES);
+
    for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
       platform_status rc;
       rc = trunk_memtable_lookup(spl, mt_gen, target, result);
@@ -6732,7 +6748,7 @@ trunk_lookup(trunk_handle *spl, key target, merge_accumulator *result)
    trunk_root_get(spl, &node);
 
    // release memtable lookup lock
-   memtable_unget_lookup_lock(spl->mt_ctxt);
+   memtable_end_lookup(spl->mt_ctxt);
 
    // look in index nodes
    uint16 height = trunk_node_height(&node);
@@ -6769,7 +6785,7 @@ found_final_answer_early:
 
    if (found_in_memtable) {
       // release memtable lookup lock
-      memtable_unget_lookup_lock(spl->mt_ctxt);
+      memtable_end_lookup(spl->mt_ctxt);
    } else {
       trunk_node_unget(spl->cc, &node);
    }
@@ -6933,7 +6949,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
          }
          case async_state_lookup_memtable:
          {
-            memtable_get_lookup_lock(spl->mt_ctxt);
+            memtable_begin_lookup(spl->mt_ctxt);
             uint64 mt_gen_start = memtable_generation(spl->mt_ctxt);
             uint64 mt_gen_end   = memtable_generation_retired(spl->mt_ctxt);
             for (uint64 mt_gen = mt_gen_start; mt_gen != mt_gen_end; mt_gen--) {
@@ -6943,7 +6959,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                if (merge_accumulator_is_definitive(result)) {
                   trunk_async_set_state(ctxt,
                                         async_state_found_final_answer_early);
-                  memtable_unget_lookup_lock(spl->mt_ctxt);
+                  memtable_end_lookup(spl->mt_ctxt);
                   break;
                }
             }
@@ -6985,7 +7001,7 @@ trunk_lookup_async(trunk_handle      *spl,    // IN
                   ctxt->trunk_node.page = ctxt->cache_ctxt.page;
                   ctxt->trunk_node.hdr =
                      (trunk_hdr *)(ctxt->cache_ctxt.page->data);
-                  memtable_unget_lookup_lock(spl->mt_ctxt);
+                  memtable_end_lookup(spl->mt_ctxt);
                   break;
                default:
                   platform_assert(0);

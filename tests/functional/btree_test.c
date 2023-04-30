@@ -81,7 +81,7 @@ test_btree_insert(test_memtable_context *ctxt, key tuple_key, message data)
 {
    uint64          generation;
    platform_status rc =
-      memtable_maybe_rotate_and_get_insert_lock(ctxt->mt_ctxt, &generation);
+      memtable_maybe_rotate_and_begin_insert(ctxt->mt_ctxt, &generation);
    if (!SUCCESS(rc)) {
       return rc;
    }
@@ -101,7 +101,7 @@ test_btree_insert(test_memtable_context *ctxt, key tuple_key, message data)
                         &dummy_leaf_generation);
 
 out:
-   memtable_unget_insert_lock(ctxt->mt_ctxt);
+   memtable_end_insert(ctxt->mt_ctxt);
    return rc;
 }
 
