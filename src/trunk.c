@@ -5517,7 +5517,7 @@ trunk_split_index(trunk_handle             *spl,
          spl, key_buffer_key(&req->start_key), trunk_min_key(spl, left_node)));
       key_buffer_copy_key(&req->end_key, trunk_max_key(spl, left_node));
 
-      rc = trunk_compact_bundle_enqueue(spl, "split to", req);
+      rc = trunk_compact_bundle_enqueue(spl, "split to", next_req);
       platform_assert_status_ok(rc);
    }
 
@@ -9173,7 +9173,33 @@ void
 trunk_reset_stats(trunk_handle *spl)
 {
    if (spl->cfg.use_stats) {
-      memset(spl->stats, 0, MAX_THREADS * sizeof(trunk_stats));
+      for (threadid thr_i = 0; thr_i < MAX_THREADS; thr_i++) {
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[thr_i].insert_latency_histo);
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[thr_i].update_latency_histo);
+         platform_histo_destroy(spl->heap_id,
+                                spl->stats[thr_i].delete_latency_histo);
+
+         memset(&spl->stats[thr_i], 0, sizeof(spl->stats[thr_i]));
+
+         platform_status rc;
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[thr_i].insert_latency_histo);
+         platform_assert_status_ok(rc);
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[thr_i].update_latency_histo);
+         platform_assert_status_ok(rc);
+         rc = platform_histo_create(spl->heap_id,
+                                    LATENCYHISTO_SIZE + 1,
+                                    latency_histo_buckets,
+                                    &spl->stats[thr_i].delete_latency_histo);
+         platform_assert_status_ok(rc);
+      }
    }
 }
 
