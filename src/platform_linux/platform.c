@@ -275,6 +275,14 @@ platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
    __sync_lock_release(&lock->write_lock[lock_idx].lock);
 }
 
+void
+platform_batch_rwlock_full_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
+{
+   platform_batch_rwlock_unlock(lock, lock_idx);
+   platform_batch_rwlock_unclaim(lock, lock_idx);
+   platform_batch_rwlock_unget(lock, lock_idx);
+}
+
 /*
  *-----------------------------------------------------------------------------
  * try_claim/claim/unlock
@@ -283,7 +291,6 @@ platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx)
  * because writelocks are required to hold a claim during the writelock).
  *
  * Must hold a get (read lock)
- *
  * try_claim returns whether the claim succeeded
  *-----------------------------------------------------------------------------
  */
@@ -303,14 +310,14 @@ platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx)
 }
 
 void
-platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx)
+platform_batch_rwlock_claim_loop(platform_batch_rwlock *lock, uint64 lock_idx)
 {
    uint64 wait = 1;
-   platform_batch_rwlock_get(lock, lock_idx);
    while (!platform_batch_rwlock_try_claim(lock, lock_idx)) {
       platform_batch_rwlock_unget(lock, lock_idx);
       platform_sleep_ns(wait);
       wait = wait > 2048 ? wait : 2 * wait;
+      platform_batch_rwlock_get(lock, lock_idx);
    }
 }
 

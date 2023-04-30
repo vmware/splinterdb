@@ -129,9 +129,10 @@ platform_batch_rwlock_unget(platform_batch_rwlock *lock, uint64 lock_idx);
 bool
 platform_batch_rwlock_try_claim(platform_batch_rwlock *lock, uint64 lock_idx);
 
-/* no lock -> claim */
+/* shared-lock -> claim, BUT(!) may temporarily release the shared-lock in the
+ * process. */
 void
-platform_batch_rwlock_claim(platform_batch_rwlock *lock, uint64 lock_idx);
+platform_batch_rwlock_claim_loop(platform_batch_rwlock *lock, uint64 lock_idx);
 
 /* claim -> shared lock */
 void
@@ -144,6 +145,10 @@ platform_batch_rwlock_lock(platform_batch_rwlock *lock, uint64 lock_idx);
 /* exclusive lock -> claim */
 void
 platform_batch_rwlock_unlock(platform_batch_rwlock *lock, uint64 lock_idx);
+
+/* exclusive-lock -> unlocked */
+void
+platform_batch_rwlock_full_unlock(platform_batch_rwlock *lock, uint64 lock_idx);
 
 
 // Buffer handle

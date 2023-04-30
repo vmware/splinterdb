@@ -43,20 +43,20 @@ memtable_process(memtable_context *ctxt, uint64 generation)
    ctxt->process(ctxt->process_ctxt, generation);
 }
 
-void
-memtable_get_insert_lock(memtable_context *ctxt)
+static inline void
+memtable_begin_insert(memtable_context *ctxt)
 {
    platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 void
-memtable_unget_insert_lock(memtable_context *ctxt)
+memtable_end_insert(memtable_context *ctxt)
 {
    platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
-bool
-memtable_try_upgrade_insert_lock(memtable_context *ctxt)
+static inline bool
+memtable_try_begin_insert_rotation(memtable_context *ctxt)
 {
    if (!platform_batch_rwlock_try_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX))
    {
@@ -66,73 +66,67 @@ memtable_try_upgrade_insert_lock(memtable_context *ctxt)
    return TRUE;
 }
 
-bool
-memtable_try_lock_insert_lock(memtable_context *ctxt)
-{
-   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   if (!memtable_try_upgrade_insert_lock(ctxt)) {
-      platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-      return FALSE;
-   }
-   return TRUE;
-}
-
-void
-memtable_lock_insert_lock(memtable_context *ctxt)
-{
-   platform_batch_rwlock_claim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-}
-
-void
-memtable_unlock_insert_lock(memtable_context *ctxt)
+static inline void
+memtable_end_insert_rotation(memtable_context *ctxt)
 {
    platform_batch_rwlock_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
    platform_batch_rwlock_unclaim(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
-   platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+static inline void
+memtable_begin_raw_rotation(memtable_context *ctxt)
+{
+   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   platform_batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+   platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
+}
+
+static inline void
+memtable_end_raw_rotation(memtable_context *ctxt)
+{
+   platform_batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_INSERT_LOCK_IDX);
 }
 
 void
-memtable_get_lookup_lock(memtable_context *ctxt)
+memtable_begin_lookup(memtable_context *ctxt)
 {
    platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
-memtable_unget_lookup_lock(memtable_context *ctxt)
+memtable_end_lookup(memtable_context *ctxt)
 {
    platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
-memtable_lock_lookup_lock(memtable_context *ctxt)
+memtable_block_lookups(memtable_context *ctxt)
 {
-   platform_batch_rwlock_claim(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   platform_batch_rwlock_get(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   platform_batch_rwlock_claim_loop(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
    platform_batch_rwlock_lock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 void
-memtable_unlock_lookup_lock(memtable_context *ctxt)
+memtable_unblock_lookups(memtable_context *ctxt)
 {
-   platform_batch_rwlock_unlock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
-   platform_batch_rwlock_unclaim(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
-   platform_batch_rwlock_unget(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
+   platform_batch_rwlock_full_unlock(ctxt->rwlock, MEMTABLE_LOOKUP_LOCK_IDX);
 }
 
 
 platform_status
-memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
-                                          uint64           *generation)
+memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
+                                       uint64           *generation)
 {
    uint64 wait = 100;
    while (TRUE) {
-      memtable_get_insert_lock(ctxt);
+      memtable_begin_insert(ctxt);
       uint64    current_generation = ctxt->generation;
       uint64    current_mt_no = current_generation % ctxt->cfg.max_memtables;
       memtable *current_mt    = &ctxt->mt[current_mt_no];
       if (current_mt->state != MEMTABLE_STATE_READY) {
          // The next memtable is not ready yet, back off and wait.
-         memtable_unget_insert_lock(ctxt);
+         memtable_end_insert(ctxt);
          platform_sleep_ns(wait);
          wait = wait > 2048 ? wait : 2 * wait;
          continue;
@@ -146,11 +140,11 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
          uint64    next_mt_no      = next_generation % ctxt->cfg.max_memtables;
          memtable *next_mt         = &ctxt->mt[next_mt_no];
          if (next_mt->state != MEMTABLE_STATE_READY) {
-            memtable_unget_insert_lock(ctxt);
+            memtable_end_insert(ctxt);
             return STATUS_BUSY;
          }
 
-         if (memtable_try_upgrade_insert_lock(ctxt)) {
+         if (memtable_try_begin_insert_rotation(ctxt)) {
             // We successfully got the lock, so we do the finalization
             memtable_transition(
                current_mt, MEMTABLE_STATE_READY, MEMTABLE_STATE_FINALIZED);
@@ -175,10 +169,11 @@ memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
                             current_generation);
 
             memtable_mark_empty(ctxt);
-            memtable_unlock_insert_lock(ctxt);
+            memtable_end_insert_rotation(ctxt);
+            memtable_end_insert(ctxt);
             memtable_process(ctxt, current_generation);
          } else {
-            memtable_unget_insert_lock(ctxt);
+            memtable_end_insert(ctxt);
             platform_sleep_ns(wait);
             wait = wait > 2048 ? wait : 2 * wait;
          }
@@ -270,7 +265,7 @@ memtable_dec_ref_maybe_recycle(memtable_context *ctxt, memtable *mt)
 uint64
 memtable_force_finalize(memtable_context *ctxt)
 {
-   memtable_lock_insert_lock(ctxt);
+   memtable_begin_raw_rotation(ctxt);
 
    uint64    generation = ctxt->generation;
    uint64    mt_no      = generation % ctxt->cfg.max_memtables;
@@ -281,7 +276,7 @@ memtable_force_finalize(memtable_context *ctxt)
                    <= ctxt->cfg.max_memtables);
    memtable_mark_empty(ctxt);
 
-   memtable_unlock_insert_lock(ctxt);
+   memtable_end_raw_rotation(ctxt);
    return current_generation;
 }
 

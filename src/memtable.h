@@ -140,23 +140,23 @@ typedef struct memtable_context {
 } memtable_context;
 
 platform_status
-memtable_maybe_rotate_and_get_insert_lock(memtable_context *ctxt,
-                                          uint64           *generation);
+memtable_maybe_rotate_and_begin_insert(memtable_context *ctxt,
+                                       uint64           *generation);
 
 void
-memtable_unget_insert_lock(memtable_context *ctxt);
+memtable_end_insert(memtable_context *ctxt);
 
 void
-memtable_get_lookup_lock(memtable_context *ctxt);
+memtable_begin_lookup(memtable_context *ctxt);
 
 void
-memtable_unget_lookup_lock(memtable_context *ctxt);
+memtable_end_lookup(memtable_context *ctxt);
 
 void
-memtable_lock_lookup_lock(memtable_context *ctxt);
+memtable_block_lookups(memtable_context *ctxt);
 
 void
-memtable_unlock_lookup_lock(memtable_context *ctxt);
+memtable_unblock_lookups(memtable_context *ctxt);
 
 platform_status
 memtable_insert(memtable_context *ctxt,
