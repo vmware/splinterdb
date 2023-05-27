@@ -488,6 +488,7 @@ int
 splinterdb_update(const splinterdb *kvsb, slice user_key, slice update)
 {
    message msg = message_create(MESSAGE_TYPE_UPDATE, update);
+   platform_assert(kvsb->data_cfg->merge_tuples);
    return splinterdb_insert_message(kvsb, user_key, msg);
 }
 
