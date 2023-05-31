@@ -14,6 +14,7 @@
  */
 
 #include "splinterdb/splinterdb.h"
+#include "splinterdb_internal.h"
 #include "platform.h"
 #include "clockcache.h"
 #include "rc_allocator.h"
@@ -490,23 +491,6 @@ splinterdb_update(const splinterdb *kvsb, slice user_key, slice update)
    message msg = message_create(MESSAGE_TYPE_UPDATE, update);
    return splinterdb_insert_message(kvsb, user_key, msg);
 }
-
-/*
- *-----------------------------------------------------------------------------
- * _splinterdb_lookup_result structure --
- *-----------------------------------------------------------------------------
- */
-typedef struct {
-   merge_accumulator value;
-} _splinterdb_lookup_result;
-
-_Static_assert(sizeof(_splinterdb_lookup_result)
-                  <= sizeof(splinterdb_lookup_result),
-               "sizeof(splinterdb_lookup_result) is too small");
-
-_Static_assert(alignof(splinterdb_lookup_result)
-                  == alignof(_splinterdb_lookup_result),
-               "mismatched alignment for splinterdb_lookup_result");
 
 void
 splinterdb_lookup_result_init(const splinterdb         *kvs,        // IN
