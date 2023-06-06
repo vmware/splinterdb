@@ -53,6 +53,7 @@ static_assert(sizeof(int64) == 8, "incorrect type");
 static_assert(sizeof(uint64) == 8, "incorrect type");
 
 // Bools
+#include <stdbool.h>
 #ifndef TRUE
 #   define TRUE (1)
 #endif

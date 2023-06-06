@@ -34,7 +34,9 @@
  * Shared types/typedefs that don't rely on anything platform-specific
  */
 #if !defined(__cplusplus)
+#   ifndef bool
 typedef int32 bool;
+#   endif
 #endif
 
 #if !defined(SPLINTER_DEBUG)
