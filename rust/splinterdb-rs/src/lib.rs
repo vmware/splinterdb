@@ -1,31 +1,9 @@
 use std::io::{Error, Result};
 use std::path::Path;
 
-#[derive(Debug)]
-pub enum CompareResult {
-    LESS,      // first less than second
-    EQUAL,     // first and second equal
-    GREATER,   // first greater than second
-}
-
-#[derive(Debug)]
-pub enum SdbMessageType {
-    INVALID,
-    INSERT,
-    UPDATE,
-    DELETE,
-    OTHER, // TODO: IS THIS POSSIBLE?
-}
-
-// Rust side representation of a splinterDB message
-#[derive(Debug)]
-pub struct SdbMessage {
-    pub msg_type: SdbMessageType,
-    pub data: Vec<u8>,
-}
-
 pub mod rust_cfg;
-pub use rust_cfg::*;
+pub use rust_cfg::{CompareResult, SdbMessageType, SdbMessage, SdbRustDataFuncs, DefaultSdb};
+use rust_cfg::new_sdb_data_config;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug)]
@@ -192,7 +170,7 @@ impl SplinterDB
         SplinterDB {
             _inner: std::ptr::null_mut(),
             sdb_cfg: unsafe { std::mem::zeroed() },
-            data_cfg: rust_cfg::new_sdb_data_config::<T>(0),
+            data_cfg: new_sdb_data_config::<T>(0),
         }
     }
 

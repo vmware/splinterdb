@@ -1,7 +1,30 @@
 use std::io::Result;
 use splinterdb_sys::*;
-use crate::{create_splinter_slice, SdbMessageType, SdbMessage, CompareResult};
+use crate::create_splinter_slice;
 use xxhash_rust::xxh32::xxh32;
+
+#[derive(Debug)]
+pub enum CompareResult {
+    LESS,      // first less than second
+    EQUAL,     // first and second equal
+    GREATER,   // first greater than second
+}
+
+#[derive(Debug)]
+pub enum SdbMessageType {
+    INVALID,
+    INSERT,
+    UPDATE,
+    DELETE,
+    OTHER, // TODO: IS THIS POSSIBLE?
+}
+
+// Rust side representation of a splinterDB message
+#[derive(Debug)]
+pub struct SdbMessage {
+    pub msg_type: SdbMessageType,
+    pub data: Vec<u8>,
+}
 
 fn sdb_slice_to_vec(s: &slice) -> Vec<u8>
 {
@@ -46,7 +69,10 @@ fn sdb_msg_from_acc(ma: &merge_accumulator) -> SdbMessage
     }
 }
 
+// Trait defining the rust callbacks for SplinterDB's data_config
+// By default we do not implement merge functionality
 pub trait SdbRustDataFuncs {
+    // Compare two keys, returning if key1 is less than/equal/greater than key2
     fn key_comp(key1: &[u8], key2: &[u8]) -> CompareResult
     {
         if key1 < key2 {
@@ -56,22 +82,29 @@ pub trait SdbRustDataFuncs {
         }
         return CompareResult::GREATER;
     }
-
-    fn key_hash(key: &[u8], seed: u32) -> u32 
+    // Return the hash of key, seeding the hash with seed
+    fn key_hash(key: &[u8], seed: u32) -> u32
     {
         xxh32(key, seed)
     }
 
-    // By default we do not implement merge functionality
+    // Combine two splinterDB messages into one given that
+    // 1. new_msg is of type UPDATE
+    // 2. old_msg is of type INSERT or UPDATE
+    // The returned message may be either an update or an insert
     fn merge(_key: &[u8], _old_msg: SdbMessage, new_msg: SdbMessage) -> Result<SdbMessage>
     {
         Ok(new_msg)
     }
+
+    // Resolve an update message when there is no older record to apply the update to.
+    // Must return either an INSERT or DELETE type message
     fn merge_final(_key: &[u8], oldest_msg: SdbMessage) -> Result<SdbMessage>
     {
         Ok(oldest_msg)
     }
 
+    // Convert a key to a string
     fn str_key(key: &[u8], dst: &mut [u8]) -> ()
     {
         // 2 characters per byte
@@ -84,6 +117,7 @@ pub trait SdbRustDataFuncs {
         }
     }
 
+    // Convert a SplinterDB message to a string
     fn str_msg(msg: SdbMessage, dst: &mut [u8]) -> ()
     {
         if 2 * msg.data.len() > dst.len() as usize {
