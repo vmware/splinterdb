@@ -1,13 +1,39 @@
 use std::io::{Error, Result};
 use std::path::Path;
 
+#[derive(Debug)]
+pub enum CompareResult {
+    LESS,      // first less than second
+    EQUAL,     // first and second equal
+    GREATER,   // first greater than second
+}
+
+#[derive(Debug)]
+pub enum SdbMessageType {
+    INVALID,
+    INSERT,
+    UPDATE,
+    DELETE,
+    OTHER, // TODO: IS THIS POSSIBLE?
+}
+
+// Rust side representation of a splinterDB message
+#[derive(Debug)]
+pub struct SdbMessage {
+    pub msg_type: SdbMessageType,
+    pub data: Vec<u8>,
+}
+
+pub mod rust_cfg;
+pub use rust_cfg::*;
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug)]
 pub struct DBConfig {
     pub cache_size_bytes: usize,
     pub disk_size_bytes: usize,
-    pub max_key_size: u8,
-    pub max_value_size: u8,
+    pub max_key_size: usize,
+    pub max_value_size: usize,
 }
 
 #[derive(Debug)]
@@ -64,14 +90,18 @@ pub struct RangeIterator<'a> {
     state: Option<IteratorResult<'a>>,
 }
 
-impl<'a> Drop for RangeIterator<'a> {
-    fn drop(&mut self) {
+impl<'a> Drop for RangeIterator<'a>
+{
+    fn drop(&mut self)
+    {
         unsafe { splinterdb_sys::splinterdb_iterator_deinit(self._inner) }
     }
 }
 
-impl<'a> RangeIterator<'a> {
-    pub fn new(iter: *mut splinterdb_sys::splinterdb_iterator) -> RangeIterator<'a> {
+impl<'a> RangeIterator<'a>
+{
+    pub fn new(iter: *mut splinterdb_sys::splinterdb_iterator) -> RangeIterator<'a> 
+    {
         RangeIterator {
             _inner: iter,
             _marker: ::std::marker::PhantomData,
@@ -81,7 +111,8 @@ impl<'a> RangeIterator<'a> {
     }
 
     // stashes current state of the iterator from the C API
-    fn _stash_current(&mut self) {
+    fn _stash_current(&mut self)
+    {
         let mut key_out: splinterdb_sys::slice = splinterdb_sys::slice {
             length: 0,
             data: ::std::ptr::null(),
@@ -114,14 +145,16 @@ impl<'a> RangeIterator<'a> {
         self.state = Some(r);
     }
 
-    fn _inner_advance(&mut self) {
+    fn _inner_advance(&mut self)
+    {
         unsafe { splinterdb_sys::splinterdb_iterator_next(self._inner) };
     }
 
     // almost an iterator, but we need to be able to return errors
     // and retain ownership of the result
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<Option<&IteratorResult>> {
+    pub fn next(&mut self) -> Result<Option<&IteratorResult>>
+    {
         // Rust iterator expects to start just before the first element
         // but Splinter iterators start at the first element
         // so we only call _inner_advance if its our first iteration
@@ -144,19 +177,22 @@ impl<'a> RangeIterator<'a> {
     }
 }
 
-fn path_as_cstring<P: AsRef<Path>>(path: P) -> std::ffi::CString {
+fn path_as_cstring<P: AsRef<Path>>(path: P) -> std::ffi::CString
+{
     let as_os_str = path.as_ref().as_os_str();
     let as_str = as_os_str.to_str().unwrap();
     std::ffi::CString::new(as_str).unwrap()
 }
 
-impl SplinterDB {
-    // Create a SplinterDB object. This is uninitialized.
-    pub fn create_uninit_obj() -> SplinterDB {
+impl SplinterDB
+{
+    // Create a new SplinterDB object. This is uninitialized.
+    pub fn new<T: rust_cfg::SdbRustDataFuncs>() -> SplinterDB
+    {
         SplinterDB {
             _inner: std::ptr::null_mut(),
             sdb_cfg: unsafe { std::mem::zeroed() },
-            data_cfg: unsafe { std::mem::zeroed() },
+            data_cfg: rust_cfg::new_sdb_data_config::<T>(0),
         }
     }
 
@@ -168,18 +204,16 @@ impl SplinterDB {
     ) -> Result<()> {
         let path = path_as_cstring(path); // don't drop until init is done
 
+        // set up the splinterdb config
         self.sdb_cfg.filename = path.as_ptr();
         self.sdb_cfg.cache_size = cfg.cache_size_bytes as u64;
         self.sdb_cfg.disk_size = cfg.disk_size_bytes as u64;
         self.sdb_cfg.data_cfg = &mut self.data_cfg;
 
-        unsafe {
-            splinterdb_sys::default_data_config_init(
-                cfg.max_key_size as u64,
-                self.sdb_cfg.data_cfg,
-            );
-        };
+        // set key bytes
+        self.data_cfg.max_key_size = cfg.max_key_size as u64;
 
+        // Open or create the database
         let rc = if open_existing {
             unsafe { splinterdb_sys::splinterdb_open(&self.sdb_cfg, &mut self._inner) }
         } else {
@@ -196,15 +230,18 @@ impl SplinterDB {
         self.db_create_or_open(path, cfg, true)
     }
 
-    pub fn register_thread(&self) {
+    pub fn register_thread(&self)
+    {
         unsafe { splinterdb_sys::splinterdb_register_thread(self._inner) };
     }
 
-    pub fn deregister_thread(&self) {
+    pub fn deregister_thread(&self)
+    {
         unsafe { splinterdb_sys::splinterdb_deregister_thread(self._inner) };
     }
 
-    pub fn insert(&self, key: &[u8], value: &[u8]) -> Result<()> {
+    pub fn insert(&self, key: &[u8], value: &[u8]) -> Result<()>
+    {
         let key_slice: splinterdb_sys::slice = create_splinter_slice(key);
         let val_slice: splinterdb_sys::slice = create_splinter_slice(value);
 
@@ -218,7 +255,23 @@ impl SplinterDB {
         as_result(rc)
     }
 
-    pub fn delete(&self, key: &[u8]) -> Result<()> {
+    pub fn update(&self, key: &[u8], delta: &[u8]) -> Result<()>
+    {
+        let key_slice: splinterdb_sys::slice = create_splinter_slice(key);
+        let delta_slice: splinterdb_sys::slice = create_splinter_slice(delta);
+
+        let rc = unsafe {
+            splinterdb_sys::splinterdb_update(
+                self._inner,
+                key_slice,
+                delta_slice,
+            )
+        };
+        as_result(rc)
+    }
+
+    pub fn delete(&self, key: &[u8]) -> Result<()>
+    {
         let rc = unsafe {
             splinterdb_sys::splinterdb_delete(
                 self._inner,
@@ -228,7 +281,8 @@ impl SplinterDB {
         as_result(rc)
     }
 
-    pub fn lookup(&self, key: &[u8]) -> Result<LookupResult> {
+    pub fn lookup(&self, key: &[u8]) -> Result<LookupResult>
+    {
         unsafe {
             let mut lr: splinterdb_sys::splinterdb_lookup_result = std::mem::zeroed();
             splinterdb_sys::splinterdb_lookup_result_init(
@@ -271,7 +325,8 @@ impl SplinterDB {
         }
     }
 
-    pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator> {
+    pub fn range(&self, start_key: Option<&[u8]>) -> Result<RangeIterator>
+    {
         let mut iter: *mut splinterdb_sys::splinterdb_iterator = std::ptr::null_mut();
 
         let rc = unsafe {

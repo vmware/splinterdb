@@ -23,6 +23,7 @@ fn main() {
         .allowlist_type("splinterdb.*")
         .allowlist_function("splinterdb.*")
         .allowlist_function("default_data_config.*")
+        .allowlist_function("merge.*")
         .allowlist_var("SPLINTERDB.*")
         .allowlist_var(".*_SIZE")
         .clang_arg("-DSPLINTERDB_PLATFORM_DIR=platform_linux")

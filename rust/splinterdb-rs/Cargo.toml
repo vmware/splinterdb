@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 splinterdb-sys = { path = "../splinterdb-sys" }
 serde = { version = "1.0", optional = true, features = ["derive"] }
+hex = "0.4"
+xxhash-rust = { version = "0.8.6", features = ["xxh32"] }
 
 [dev-dependencies]
 tempfile = "3.2.0"
