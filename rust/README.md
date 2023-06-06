@@ -8,6 +8,8 @@ Rust may be suitable for developing applications that use SplinterDB, and for wr
 This directory contains Rust bindings for SplinterDB
 - `splinterdb-sys`: Lowest level, unsafe Rust declarations for a subset of the SplinterDB public API.
 - `splinterdb-rs`: A safe and ergonomic Rust wrapper, intended for use by other Rust libraries and Rust applications.
+- `splinterdb-cli`: A simple command line utility that provides a limited key/value interface.
+   It serves as an example of how to build a Rust application that uses SplinterDB as a library, and can be used for basic performance testing.
 
 ## Usage
 Ensure you have Rust and Cargo available, e.g. use [rustup](https://rustup.rs/).
