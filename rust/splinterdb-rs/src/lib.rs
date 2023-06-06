@@ -140,8 +140,8 @@ impl<'a> RangeIterator<'a>
             self._inner_advance();
         }
 
-        let valid = unsafe { splinterdb_sys::splinterdb_iterator_valid(self._inner) };
-        if !valid {
+        let valid = unsafe { splinterdb_sys::splinterdb_iterator_valid(self._inner) } as i32;
+        if valid == 0 {
             let rc = unsafe { splinterdb_sys::splinterdb_iterator_status(self._inner) };
             as_result(rc)?;
             return Ok(None);
@@ -277,8 +277,8 @@ impl SplinterDB
             );
             as_result(rc)?;
 
-            let found = splinterdb_sys::splinterdb_lookup_found(&lr);
-            if !found {
+            let found = splinterdb_sys::splinterdb_lookup_found(&lr) as i32;
+            if found == 0 {
                 return Ok(LookupResult::NotFound);
             }
 
