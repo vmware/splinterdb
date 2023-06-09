@@ -1,4 +1,5 @@
 use std::io::Result;
+use std::cmp::Ordering;
 use splinterdb_sys::*;
 use crate::create_splinter_slice;
 use xxhash_rust::xxh32::xxh32;
@@ -73,14 +74,9 @@ fn sdb_msg_from_acc(ma: &merge_accumulator) -> SdbMessage
 // By default we do not implement merge functionality
 pub trait SdbRustDataFuncs {
     // Compare two keys, returning if key1 is less than/equal/greater than key2
-    fn key_comp(key1: &[u8], key2: &[u8]) -> CompareResult
+    fn key_comp(key1: &[u8], key2: &[u8]) -> Ordering
     {
-        if key1 < key2 {
-            return CompareResult::LESS;
-        } else if key1 == key2 {
-            return CompareResult::EQUAL;
-        }
-        return CompareResult::GREATER;
+        key1.cmp(&key2)
     }
     // Return the hash of key, seeding the hash with seed
     fn key_hash(key: &[u8], seed: u32) -> u32
@@ -158,11 +154,11 @@ pub extern "C" fn key_compare<T: SdbRustDataFuncs>(
     key2: slice,
 ) -> ::std::os::raw::c_int
 {
-    let res: CompareResult = T::key_comp(&sdb_slice_to_vec(&key1), &sdb_slice_to_vec(&key2));
+    let res: Ordering = T::key_comp(&sdb_slice_to_vec(&key1), &sdb_slice_to_vec(&key2));
     match res {
-        CompareResult::LESS => -1,
-        CompareResult::EQUAL => 0,
-        CompareResult::GREATER => 1,
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
     }
 }
 
