@@ -14,12 +14,10 @@
  */
 
 #include "splinterdb/splinterdb.h"
+#include "splinterdb_internal.h"
+
 #include "platform.h"
-#include "clockcache.h"
-#include "rc_allocator.h"
-#include "trunk.h"
 #include "btree_private.h"
-#include "shard_log.h"
 #include "poison.h"
 
 const char *BUILD_VERSION = "splinterdb_build_version " GIT_VERSION;
@@ -28,25 +26,6 @@ splinterdb_get_version()
 {
    return BUILD_VERSION;
 }
-
-typedef struct splinterdb {
-   task_system         *task_sys;
-   io_config            io_cfg;
-   platform_io_handle   io_handle;
-   allocator_config     allocator_cfg;
-   rc_allocator         allocator_handle;
-   clockcache_config    cache_cfg;
-   clockcache           cache_handle;
-   shard_log_config     log_cfg;
-   task_system_config   task_cfg;
-   allocator_root_id    trunk_id;
-   trunk_config         trunk_cfg;
-   trunk_handle        *spl;
-   platform_heap_handle heap_handle; // for platform_buffer_create
-   platform_heap_id     heap_id;
-   data_config         *data_cfg;
-} splinterdb;
-
 
 /*
  * Extract errno.h -style status int from a platform_status
